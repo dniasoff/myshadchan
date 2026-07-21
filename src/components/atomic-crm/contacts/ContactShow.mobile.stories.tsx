@@ -5,7 +5,7 @@ import { ContactShow } from "./ContactShow";
 import { StoryWrapper, buildContact } from "@/test/StoryWrapper";
 
 const meta = {
-  title: "Atomic CRM/Contacts/Contact Show",
+  title: "MyShadchan/Contacts/Contact Show",
   parameters: {
     layout: "fullscreen",
   },

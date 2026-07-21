@@ -22,7 +22,7 @@ export const NoteInputsMobileStory = ({
 );
 
 const meta = {
-  title: "Atomic CRM/Notes/Note Inputs Mobile",
+  title: "MyShadchan/Notes/Note Inputs Mobile",
   includeStories: [
     "Default",
     "WithSaveButton",

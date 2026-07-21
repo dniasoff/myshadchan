@@ -4,7 +4,7 @@ import { useState } from "react";
 import { TaskCreateSheet } from "./TaskCreateSheet";
 import { StoryWrapper, buildContact } from "@/test/StoryWrapper";
 const meta = {
-  title: "Atomic CRM/Tasks/TaskCreateSheet",
+  title: "MyShadchan/Tasks/TaskCreateSheet",
   parameters: {
     layout: "fullscreen",
   },

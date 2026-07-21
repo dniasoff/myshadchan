@@ -1,6 +1,6 @@
 ---
 title: MyShadchan.space — Product Requirements Document
-status: draft
+status: final
 created: 2026-07-21
 updated: 2026-07-21
 ---
@@ -10,9 +10,10 @@ updated: 2026-07-21
 > A private, mobile-first CRM for a parent (or single) to manage the entire shidduch
 > process across many shadchanim — every suggestion, resume, reference call, and date in
 > one place, with resumes captured from the channels they actually arrive on.
-> **Free, community-shared, privacy-by-default. Not a matchmaking service.**
+> **Free core, low-cost AI tier (non-profit cost-recovery), source-available, privacy-by-default.
+> Not a matchmaking service.**
 
-_Status: **draft** — Journey-led coaching in progress._
+_Status: **final** — independently reviewed, reconciled with the architecture, and polished._
 **Release scope: all capabilities target the first release — no phased MVP.** Epics sequence
 the *build order* only, not what's in or out.
 
@@ -22,9 +23,11 @@ phones or desktop-only) and iPhone/Android is a real split — so **no core acti
 smartphone**, and both surfaces are first-class: mobile for smartphone users (Chani), desktop
 for the phone-less.
 
-**Jurisdiction: US product — US-hosted, US compliance.** (Supersedes the brief's UK/GDPR note.)
+**Jurisdiction: US-first — US-hosted, US compliance.** International (UK, Israel) is a deferred
+internationalisation fast-follow — live once UK-GDPR / EU-GDPR / Israeli-privacy compliance is added
+(see Deferred).
 
-The document is now content-complete; next step is **Finalize** (review + polish).
+This document is **final** — independently reviewed, reconciled, and polished.
 
 ---
 
@@ -60,14 +63,20 @@ duplicates and already-dateds before they get embarrassing.
 - **Primary user:** a parent managing shidduchim for one or more children — non-technical,
   phone-first, always on WhatsApp. **Secondary:** an older single managing their own process, or a
   helper (e.g. a married sibling). The child/candidate is also a first-class user (UJ-2).
-- **Core wedge — privacy & data ownership.** No public or networked database; the family's data is
-  theirs, fully exportable and deletable. The community's #1 concern and the pillar the whole
-  product is built on (§4).
-- **Positioning.** **Free** and community-shared — no monetisation, no salesy funnel, no
-  rabbinic-endorsement gate. **Not** a matchmaking engine. **v1 is parent-side** — the landing page
-  says "not a shadchan tool" — but a **shadchan interface is Phase 2** (near-term: shadchanim
-  interacting with parents, redding shidduchim in-platform, tracking conversations), so the
-  architecture is **provisioned for it now** (see Roadmap + addendum). The privacy wedge still holds:
+- **Core wedge — privacy & data ownership.** No **public or pooled** database of families; your
+  private data is never shared or networked **without your consent**, and is fully exportable and
+  deletable. The community's #1 concern and the pillar the whole product is built on (§4).
+  *(Phase 2's shadchan↔parent connections are consent-based and scoped — never a pool.)*
+- **Positioning.** **Free core, funded at cost, not for profit.** The **core CRM is free forever**;
+  only the **AI-powered features** (auto-parse, the AI research assistant) require a low
+  **cost-recovery** subscription (**~$2/mo USD**, adjusted only to track real hosting + AI cost as usage
+  grows) — **no profit, no salesy funnel, no rabbinic-endorsement gate**. **Source-available** under a
+  non-compete license (**FSL** — converts to Apache-2.0 two years after each release), **never a networked pool**.
+  **Not** a matchmaking engine. **v1 is built for the parent's side** of the process — so it isn't mistaken for a matchmaking
+  service or a shadchan's pool-management tool. **Shadchanim are valued partners, not outsiders:**
+  **Phase 2 gives them their own interface** (interacting with parents, redding shidduchim,
+  tracking conversations), making MyShadchan a **consent-based two-sided network**; the v1
+  architecture is **designed so Phase 2 adds a shadchan role with no rework**. The privacy wedge still holds:
   any shadchan↔parent sharing is **scoped and consent-based**, never exposing a parent's private
   data. **US product, US-hosted.**
 
@@ -75,8 +84,8 @@ duplicates and already-dateds before they get embarrassing.
 
 ## 2. Primary User & Journeys
 
-**Persona (inline): Chani** — a mother in **[community / city — TBD]** with **[# — TBD]** child(ren)
-in shidduchim. Hugely disorganised, "can't remember anything," messages scattered across
+**Persona (inline): Chani** — a **Lakewood** mother with **two** children in shidduchim. Hugely
+disorganised, "can't remember anything," messages scattered across
 WhatsApp, email, and texts. Non-technical, phone-first, does this between everything else.
 She is not an edge case — she is *the* user. (Device reality: her wider community is a real
 iPhone/Android split, and **many are phone-less** — desktop-only or on kosher/basic phones.)
@@ -98,7 +107,9 @@ it has the same name of any resume he dated.")_
    tagged with the shadchan.
 2. **Auto-parse fills it in.** MyShadchan reads the resume (OCR + extraction) and pre-fills the
    single's identity — **name, parents, seminary/yeshiva, Shul, location**. Chani only **reviews
-   and corrects**; extraction is assistive, never authoritative.
+   and corrects**; extraction is assistive, never authoritative. *(Auto-parse is the **paid** AI
+   accelerator after a free trial — §16; the free path is quick **manual entry**, and the duplicate
+   catch in step 4 works either way.)*
 3. **The app remembers for her.** It checks those fields against every past suggestion **and**
    her child's dating history — on **name + parents + seminary/yeshiva + Shul + location**, across
    Hebrew/English spellings.
@@ -151,7 +162,7 @@ addendum, not here._
   **distinct from the triage pipeline**; nothing auto-lands in a decision state.
 - **FR5** — An Inbox item shows its **source channel**, attached file(s), and the known/detected
   shadchan (confidence indicator when inferred).
-- **FR6** — On capture, **auto-parse** (OCR + LLM) extracts the single's identity — name (Eng +
+- **FR6** — On capture, **auto-parse** extracts the single's identity — name (Eng +
   Heb), parents, seminary/yeshiva, **Shul**, **location** — plus the full schema (§13). **Assistive,
   not authoritative:** review/correct before saving; manual entry always available.
 - **FR7** — Filing routes the item into a **suggestion**: assign candidate → confirm/create
@@ -159,6 +170,13 @@ addendum, not here._
 - **FR8** — An item can be **dismissed/archived** without becoming a suggestion.
 - **FR9** — A non-resume message can be filed as an **interaction/note** against a shadchan or
   suggestion instead of a new suggestion.
+- **FR78 — Optional quick-link at capture (searchable).** On share/capture (especially the PWA
+  share-target, FR27), the app **optionally** offers a fast step to link the item — **search your
+  shadchan book** (typeahead) for **which shadchan** (the app can't infer who texted you; you can)
+  **and/or select the candidate** (which child), or attach to an **existing suggestion** (a boy/girl
+  already on the board — filing the share as a note/update on it). **Not found → add the shadchan
+  inline.** Pre-filled where inferable; **1-tap-skippable** → the item simply stays an **unfiled Inbox**
+  item (FR4). Optional and fast — **never a blocking form**.
 
 ### 3.3 Duplicate & Dating-History Detection
 
@@ -186,12 +204,16 @@ addendum, not here._
 
 ### 3.5 Auto-parse Extraction (references → contacts)
 
+_**FR19 & FR21 are paid-AI** (auto-parse, §13/§16, after the free trial); **manual entry stays free**,
+and the reference-book matching itself (FR20/FR42) is **free** either way._
+
 - **FR19 — Reference extraction → contacts.** Auto-parse extracts each **reference** (name,
   relationship, phone) and creates a **reference contact** linked to the resume — via the confirm
   screen.
-- **FR20 — Reference de-duplication.** Extracted references are matched against the account's
-  **reference book**; a match **links to the existing contact** (surfacing prior conversations)
-  rather than duplicating.
+- **FR20 — Reference de-duplication.** References are matched against the account's **reference book**;
+  a match **links to the existing contact** (surfacing prior conversations) rather than duplicating.
+  Matching runs on **manual entry too (free)** — auto-parse just does it automatically; the
+  reference↔reference-book match itself is **not** a paid-AI feature.
 - **FR21 — Full field extraction.** Beyond identity (FR6), auto-parse populates the resume schema
   (§13); all fields editable on the confirm screen.
 
@@ -207,9 +229,10 @@ app). Legal specifics → confirm with counsel.
 - **PRV-1 · What we protect.** Highest-sensitivity data — **photos**, references' **candid words**,
   **health** notes, **dating outcomes**, family details. Risk model = *communal/reputational harm*,
   not merely regulatory.
-- **PRV-2 · No networked database (the wedge).** Each account's data is its own. **No pooling
-  across families** (incl. references); no public/community DB. Full **export/backup**;
-  **hard-delete** that truly purges (backups + third parties).
+- **PRV-2 · No pooled or public database (the wedge).** Each account's data is its own. **No pooling
+  across families** (incl. references); no public/community DB. Full **export/backup**. **Deletion**
+  purges the **live system immediately**, clears **backups within the retention window**, and
+  instructs **sub-processors to delete per contract** — we promise only what is enforceable.
 - **PRV-3 · Tenant isolation.** Enforced at the **database** (row-level security), not just the app.
 - **PRV-4 · RBAC + parent↔child transparency.** Roles: parent/admin, child/candidate, helper,
   self-managing single. Transparency **configurable per family. Default = private both ways** — the
@@ -224,10 +247,14 @@ app). Legal specifics → confirm with counsel.
 - **PRV-6 · Third-party & AI exposure.** OCR + LLM process photos/resumes; email/SMS relay them.
   Stance: minimise + **disclose sub-processors**; **contractual no-training**; **US region**; redact
   where feasible; the AI assistant does **no outward web-scraping of individuals**. Cloud AI with
-  these guarantees accepted; self-hosted not required.
-- **PRV-7 · Channel routing safety.** Shared-SMS: an **unrecognised sender is never attributed**
-  (holding queue, never mis-routed). Forwarded-email low-confidence recovery is **flagged, never
-  silently wrong**.
+  these guarantees accepted; self-hosted not required. **Payment processing uses Stripe** (a disclosed
+  sub-processor); **card data lives only with Stripe** — we keep a customer/subscription reference,
+  never card numbers.
+- **PRV-7 · Channel routing safety.** **Share-based capture lands in the sharer's own authenticated
+  account** — no cross-account routing to get wrong. For **email**, forwarded low-confidence
+  original-sender recovery is **flagged, never silently wrong**, and an unresolved item waits in a
+  **holding queue**, never mis-attributed. Channel ingestion is **rate-limited against flooding**
+  (NFR-13).
 - **PRV-8 · Sharing controls.** Resume/photo shares use **revocable, expiring, per-recipient,
   access-logged** links — never static files that spread uncontrolled.
 - **PRV-9 · Authentication.** Passwordless (magic-link / passkeys) for non-technical, sometimes
@@ -237,10 +264,13 @@ app). Legal specifics → confirm with counsel.
 - **PRV-11 · The data subject (the single).** Singles never consented to being in the CRM. Stance
   (voluntary — not required under US law): never sell/share/train on their data; honour a **purge
   request** if a single asks to be removed. Kept as a values differentiator.
-- **PRV-12 · US compliance & governance.** US **state-privacy-law patchwork** (CCPA/CPRA and peers,
-  mostly threshold-gated for a free non-selling app); **breach-notification** process;
+- **PRV-12 · US compliance & governance.** **v1 is US-only for compliance.** US **state-privacy-law
+  patchwork** (CCPA/CPRA and peers, mostly threshold-gated; we **never sell personal data** — the
+  ~$2/mo AI fee is cost-recovery, not data monetisation); **breach-notification** process;
   **sensitive-data** handling for health. **All users must be 18+**, stated clearly in the UI (age
   affirmation at signup) — no under-18 accounts, so **COPPA / teen rules do not apply**.
+  *(International (UK/Israel) users would bring UK-GDPR / EU-GDPR / Israeli privacy law into scope —
+  **deferred** with internationalisation; the architecture provisions the mechanics, AD-1/AD-15.)*
 
 ---
 
@@ -252,7 +282,7 @@ Inbound items come **to** the app; it never reads your accounts. Every inbound l
 ### 5.1 Email
 
 - **FR22** — Each account has a **private inbound address** (`you@in.myshadchan.space`); inbound
-  email + attachments are parsed via webhook and land in the Inbox, attributed by the address.
+  email + attachments are parsed and land in the Inbox, attributed by the address.
 - **FR23 — CC mode.** Account address **CC'd** on a shadchan's email → sender **is** the shadchan →
   auto-match or create the shadchan.
 - **FR24 — Forward mode.** Parent **forwards** → recover the **original sender** (shadchan) from
@@ -261,19 +291,28 @@ Inbound items come **to** the app; it never reads your accounts. Every inbound l
 - **FR26 — Zero-touch (optional).** User sets an **auto-forward rule** in their own mail provider;
   the app never reads the rest of the mailbox.
 
-### 5.2 WhatsApp
+### 5.2 Share-based capture (WhatsApp · SMS · any app)
 
-- **FR27 — Share-target only.** **Share → MyShadchan** (Android 1-tap; iPhone via Share → Mail).
-  **No** unofficial automation, **no** auto-reading of chats (Meta ToS → banned numbers).
+- **FR27 — Share-target (any messaging app).** The shadchan's message — **WhatsApp, the SMS/Messages
+  app, or anything else** — is captured by **Sharing it into MyShadchan**: **Android** 1-tap
+  **Share → MyShadchan** (installed-PWA share-target, **text *and* images**); **iPhone** **Share → Mail
+  → account inbox** (§5.1; a native Share Extension for true 1-tap is the deferred iOS wrapper). Capture
+  lands in the parent's **own authenticated** Inbox, filed with context **in-session** — so "which
+  shadchan / which boy" is resolved at capture, not lost — via an **optional quick-link** (FR78). **No** unofficial automation, **no**
+  auto-reading of chats (Meta ToS → banned numbers).
 
-### 5.3 SMS / MMS
+### 5.3 SMS (via Share)
 
-- **FR28** — A single **shared inbound number** (Twilio) receives SMS/MMS for all accounts; MMS
-  **images** captured to the Inbox.
-- **FR29 — Sender-lookup routing.** Routed to the account with the matching **verified linked
-  phone** (`account_phone`). Linking a phone is **required** for SMS; multiple phones per account.
-- **FR30 — No mis-routing.** **Unrecognised sender → unattributed queue**, never mis-routed (PRV-7).
-  SMS is a **parent-forwarding** channel, not shadchan-texts-in.
+- **FR28 — SMS captured by Share.** SMS is captured by **Sharing the message into MyShadchan** (FR27):
+  the shadchan's **text *or* photo** in the Messages app →
+  **Share → MyShadchan** (Android share-target) or **Share → Mail → inbox** (iPhone) → the parent's own
+  **authenticated** Inbox, filed with context **in-session**. This resolves "which shadchan / which
+  boy" at capture and **captures images too** (no MMS dependency).
+- **FR29 — Basic/kosher phones use desktop.** Users who can't Share (basic/kosher phones) capture via
+  **desktop** email-forward / upload — their existing path.
+- **FR30 — No shared number, no outbound.** There is **no shared inbound SMS number** and **no outbound
+  SMS**; shared content lands only in the sharer's **own** account — no cross-account routing to
+  mis-fire (PRV-7).
 
 ---
 
@@ -294,8 +333,12 @@ Inbound items come **to** the app; it never reads your accounts. Every inbound l
 - **FR37 — External shidduch-site links.** Attach one or more URLs to the single's profile on common
   platforms (ZUUG, ClickShadchan, Yismach, Canopy, SawYouAtSinai…); accept any URL, auto-label
   common domains, open in place. *Minimal — no data pull; deep integration deferred.*
-- **FR38** — A **unified suggestion view** shows state, first-suggester, references, dating flags,
-  reminders, and external links in one place.
+- **FR38 — 360° shidduch view.** A single pane aggregating **everything** known about one
+  suggestion: the single's details + resume/photo; pipeline state + decision; who **first
+  suggested** it (and any duplicate links); all **references** with call-status, what-they-said,
+  and track record; the candidate's **dating-history** flags; **external** shidduch-site links;
+  **notes** + the full **interaction timeline**; **reminders**; the AI **research dossier** (§14);
+  and the **candidate's own input** (§15). One screen, the whole picture.
 
 ## 8. Reference System
 
@@ -307,8 +350,9 @@ Inbound items come **to** the app; it never reads your accounts. Every inbound l
 - **FR41** — Capture **what the reference said** and **who they are** per call; keep a **conversation
   log** across calls.
 - **FR42 — Repeat-reference recognition.** A recurring reference (by name/phone) surfaces prior
-  conversations across singles (auto-linked at parse time, FR20).
-- **FR43** — Set **reference follow-up reminders** (see §9). *(No reference "analytics" — dropped.)*
+  conversations across singles — matched by FR20 on **both manual entry (free)** and auto-parse
+  (automatic); this recognition is **free**, not gated behind the paid AI tier.
+- **FR43** — Set **reference follow-up reminders** (see §9).
 
 ## 9. Reminders & Follow-ups
 
@@ -316,8 +360,9 @@ Inbound items come **to** the app; it never reads your accounts. Every inbound l
   back Thursday", "chase reference").
 - **FR45** — Reminders carry a **due date/time** and a linked entity; a list surfaces **upcoming and
   overdue**.
-- **FR46 — Delivery.** In-app + **email (primary — reaches phone-less users)** + **push** (installed-
-  PWA smartphones) + optional SMS. **No delivery depends on a smartphone.**
+- **FR46 — Delivery.** In-app + **email (primary — reaches phone-less users, the guaranteed floor)** +
+  **push** (installed-PWA smartphones). **No outbound SMS** (SMS is an inbound-only capture channel,
+  §5.3). **No delivery depends on a smartphone.**
 
 ## 10. Resume Sharing (revocable links)
 
@@ -341,16 +386,23 @@ Inbound items come **to** the app; it never reads your accounts. Every inbound l
 
 ## 13. Auto-parse (full extraction schema)
 
+_**Paid AI feature.** Auto-parse runs OCR + LLM, so it requires the **AI tier** (§16) after the free
+trial. **Manual entry (FR6/FR57) is always free**, so a non-paying account is never blocked here._
+
 - **FR55 — Extraction schema.** Single: name (Eng + Heb), DOB/age, height, **location**, **Shul**;
   family: parents' names, father's occupation, community/affiliation; schools: seminary/yeshiva, high
   school, camps; **references** (name/relationship/phone → contacts, FR19); **preserved section text**
   (bold section titles → sections).
-- **FR56** — OCR handles **PDF and photo/image**; extraction via an LLM to a **fixed JSON schema**.
+- **FR56** — Handles **PDF and photo/image**; extraction into a **structured schema**.
 - **FR57** — Always show a **review/confirm** screen; every field editable; assistive not
   authoritative (PRV-6).
 - **FR58** — **Low-confidence fields flagged** for attention.
 
 ## 14. AI Research Assistant (due-diligence)
+
+_**Paid AI feature.** The AI generation/summarisation here requires the **AI tier** (§16) after the
+free trial. Core reference tracking (§8) — call-status, what-they-said, conversation logs — stays
+**free**; only the AI assistance is gated._
 
 - **FR59** — Generate **tailored reference questions** by relationship type (teacher vs neighbour vs
   friend).
@@ -364,7 +416,66 @@ Inbound items come **to** the app; it never reads your accounts. Every inbound l
 
 ---
 
-## 15. Non-Functional Requirements
+## 15. The Single's Experience (child login)
+
+_Realises **UJ-2**; access governed by **PRV-4** (private both ways, dignity floor)._
+
+- **FR64** — The candidate has their **own login** (passwordless, fully usable on desktop — PRV-9),
+  RBAC-scoped to their own process.
+- **FR65** — The candidate sees a **curated, live view** — only suggestions actively being pursued
+  for them, and each one's stage — **never** gut-rejections or the parent's private notes.
+- **FR66** — On a live suggestion, the candidate can **give input**: flag **interested / not for me
+  / want to know more**, and leave a private note or question for the parent.
+- **FR67** — The candidate can **set their own preferences** (what matters, dealbreakers) in their
+  own words.
+- **FR68** — The candidate sees that **reference diligence is happening** at a dignified distance —
+  progress, not the candid reference content.
+- **FR69** — The candidate has a **private space** (notes/prefs) not visible to the parent unless
+  shared; the parent's working notes are likewise private (PRV-4).
+- **FR70** — The experience is **calm and low-pressure** by design (emotional tone is a feature).
+
+## 16. Billing, AI Tier & Rate Limits (cost-recovery)
+
+_The product is **free to use**; only the **generative-AI features** — auto-parse (§13) and the AI
+Research Assistant (§14) — are paid, at **cost-recovery** pricing. Nothing here gates the core CRM,
+manual entry, or the duplicate / already-dated **wedge** (§3.3), which stay **free forever**. Access
+and entitlement are enforced **server-side** (not just in the UI), consistent with tenant isolation
+(PRV-3)._
+
+- **FR71 — Free core, paid AI only.** The entire CRM is **free**; the **only** paid capabilities are
+  the generative-AI ones — **auto-parse** (§13) and the **AI Research Assistant** (§14). Everything
+  else (capture, Inbox, triage, dedupe / already-dated, references, reminders, sharing, multi-child,
+  child login, search) is free, and **manual entry is always the free fallback** for the AI features
+  (FR6/FR57), so a non-paying account is **fully functional**.
+- **FR72 — Free trial, then subscription.** AI features are **free during a trial window** (target
+  **14 days** from first AI use; exact length tunable) and then require an active **AI subscription**.
+  At trial end the AI features **lock** (FR75); the free core is untouched.
+- **FR73 — Subscription & billing (Stripe).** A **parent/admin** manages a **per-account (family)**
+  subscription (**~$2/mo USD** to start, **or ~$24/yr**) via **Stripe** (provider-agnostic). Card data
+  lives only with Stripe — **no card data on our servers**. **Neither the child/candidate nor the
+  helper role sees or manages billing** — parent/admin only (PRV-4); the `subscription` + usage rows
+  are **RLS-scoped to the account** (PRV-3). To keep the fixed per-transaction fee from dominating at
+  $2, **bank debit (ACH/SEPA/Bacs) is preferred, card as fallback** *(mechanics → addendum)*. Email
+  receipts reach phone-less users — **no smartphone required** (NFR-2).
+- **FR74 — AI rate limits.** AI usage is **rate-limited per account** to bound OCR/LLM cost (caps on
+  auto-parses and assistant runs per period). Both the **limits and the price are revisitable** as real
+  usage patterns emerge; changes are shown in-app.
+- **FR75 — Graceful degradation & dunning (no data loss).** When the subscription is **inactive** or a
+  rate limit is **reached**, AI features are **disabled with a clear, non-nagging cost-recovery
+  explanation**; the core CRM and **manual entry stay fully available**, and **no data is lost or
+  hidden**. A **failed payment** enters a **grace/retry window** (`past_due`) with reminders **before**
+  the AI features lock — not an instant cut-off.
+- **FR76 — Cost-recovery transparency.** The billing UI states plainly **what is free vs paid**, the
+  account's **current AI usage vs its limit**, and the **non-profit, cost-recovery** rationale —
+  trust-building, not a sales funnel (consistent with §1).
+- **FR77 — Billing policy stance.** Named defaults *(confirm with counsel — §4)*: **cancel any time,
+  access to period end, no refunds** on a cost-recovery product; **sales tax handled via the provider**
+  (Stripe Tax); **one free trial per verified family** (guard against repeat-trial abuse via
+  new/recreated accounts, NFR-13). Annual billing available (FR73).
+
+---
+
+## 17. Non-Functional Requirements
 
 _Security & privacy are the dedicated pillar (§4); these are the remaining cross-cutting NFRs._
 
@@ -381,13 +492,28 @@ _Security & privacy are the dedicated pillar (§4); these are the remaining cros
 - **NFR-7 · Accessibility.** Usable by non-technical users of varied ability on both surfaces.
 - **NFR-8 · Availability & backups.** Reliable US hosting; regular backups; full data export (also
   PRV-2).
-- **NFR-9 · Cost-efficiency.** Free product → per-user costs (OCR/LLM, Twilio, email) must be
-  bounded and sustainable (cheap models / caching / batching where possible). *(Detail → addendum.)*
+- **NFR-9 · Cost-efficiency & cost-recovery.** Per-account costs (OCR/LLM, Twilio, email) must be
+  **bounded** (cheap models / caching / batching) **and**, for the AI features, **recovered** by the
+  paid tier (§16) within the ~$2/mo price; non-AI running costs stay low enough to fund from the same
+  pool. *(Detail → addendum.)*
 - **NFR-10 · Data portability.** One-click export/backup of an account's full data.
+- **NFR-11 · AI-usage governance.** AI features are **entitlement-gated and rate-limited**
+  server-side (§16); limits and price are **operationally tunable** (ideally without a code change),
+  so cost can track real usage patterns.
+- **NFR-12 · UI internationalisation & bidirectional layout.** All UI text is **internationalised**
+  (no hardcoded strings), **English + Hebrew** to start and **extensible** to more locales; the UI
+  **auto-detects** the browser language (with a persisted user override) and is **bidirectional** —
+  the layout mirrors for **Hebrew RTL**. *(This governs the **UI**; NFR-6 governs bilingual
+  **data/matching**.)*
+- **NFR-13 · Abuse prevention & rate-limiting.** Every expensive or abuse-prone surface is
+  **rate-limited (per-account and per-IP)** — the **AI/parse pipeline** (cost/margin), **auth /
+  magic-link / invite** (enumeration + spam), **channel ingestion** (flooding), **share-link access**
+  (scraping), and **signup** (fakes) — **failing closed on the paid AI paths**.
 
-## 16. Success Metrics & Counter-metrics
+## 18. Success Metrics & Counter-metrics
 
-_Free community tool → success is adoption + value delivered, not revenue._
+_A **free-core** community tool → success is **adoption + value delivered**, with a **sustainability**
+floor: the AI tier must **cover its own cost**. Success is **not profit**._
 
 - **North star.** Families running their *whole* process in-app — **weekly-active parents filing
   items**.
@@ -395,19 +521,28 @@ _Free community tool → success is adoption + value delivered, not revenue._
   channels**; **reference calls logged per suggestion**; time-to-file an inbound resume.
 - **Adoption.** **Activated families** (≥1 child + ≥1 suggestion); **4-week retention**;
   **referrals** (it's meant to be shared).
+- **Sustainability (cost-recovery, not growth).** **Trial→paid conversion**; **share of AI cost
+  recovered** by the tier; **AI cost per active family** (must stay within the recovery price). A floor
+  to keep the lights on — never a revenue target.
 - **Counter-metrics (guardrails).** Cross-account data leaks = **0**; mis-routed channel items =
   **0**; **false-positive duplicate-flag rate low** (don't cry wolf); child **"felt surveilled"**
-  reports (dignity); **AI-extraction correction rate** (trust in auto-parse).
+  reports (dignity); **AI-extraction correction rate** (trust in auto-parse); **paywall friction** — **free-core users
+  blocked from core value = 0** (the wedge never sits behind the paywall), and **trial-end churn** watched.
 
-## 17. Epic List (build sequence — all in first-release scope)
+_Numeric launch **targets** are set once we have a baseline. **Measurement:** filing/pipeline and
+dedupe-confirm events (product analytics); referrals via invite tracking; false-positive rate =
+dismissed-duplicate-flags ÷ total-flags; "felt surveilled" via a lightweight in-app child sentiment
+check._
+
+## 19. Epic List (build sequence — all in first-release scope)
 
 _Epics order the build; they are **not** scope gates. Privacy behaviour (PRV-1…12) is an acceptance
 criterion within every epic._
 
 1. **Foundation & multi-tenant auth** — fork Atomic CRM scaffold; accounts; **parent + child (+
    helper / self-manager) roles, RBAC, row-level security**; passwordless auth; dual-surface shell;
-   multi-child setup; dashboard shell; privacy foundations (tenant isolation, encryption,
-   export/delete).
+   multi-child setup; dashboard shell; **i18n + Hebrew RTL scaffolding (NFR-12)**; privacy foundations
+   (tenant isolation, encryption, export/delete).
 2. **Shadchanim & manual suggestion entry** — shadchan CRUD; add a suggestion manually; the triage
    **pipeline** (single board, 7 states); per-shadchan view + stats.
 3. **Suggestion/resume detail & Reference system** — resume folder (file + photo), notes, external
@@ -418,7 +553,8 @@ criterion within every epic._
 5. **Auto-parse** — OCR + LLM extraction to the full schema (incl. references → contacts);
    human-review screen.
 6. **Unified Inbox & channels (safe ingestion)** — Inbox filing station; email (per-account
-   address, CC/forward, auto-forward), WhatsApp share-target, shared SMS + sender-lookup.
+   address, CC/forward, auto-forward); **Share-based capture** (WhatsApp · SMS · any app →
+   share-target on Android, Share→Mail on iPhone), **text + images**.
 7. **Reminders & follow-ups** — tasks vs shadchan/suggestion/reference; multi-channel delivery
    (email primary, reaches phone-less).
 8. **Resume sharing** — revocable, always-current links; per-recipient, expiring, watermark,
@@ -429,35 +565,87 @@ criterion within every epic._
     (never matching).
 11. **Search, dashboard & polish** — global search; per-child dashboard; per-shadchan stats;
     export/backup; 18+ affirmation; informational landing page; mobile/desktop refinement.
+12. **Billing, AI entitlements & rate-limiting (Stripe)** — free-trial → cost-recovery subscription
+    (~$2/mo or ~$24/yr, per account); **server-side entitlement checks** gating auto-parse (Epic 5) +
+    the AI assistant (Epic 10); **usage metering + rate limits**; parent-only billing management +
+    **free-vs-paid / usage transparency (FR76-77)**; Stripe webhooks + **dunning**; graceful
+    degradation to the free manual path. **Abuse / rate-limiting (NFR-13) is cross-cutting** — tightened
+    as each surface lands. Privacy applies (billing data; Stripe a disclosed sub-processor, PRV-6).
 
 ---
+
+## Risks & Assumptions
+
+**Risks**
+- **R1 · All-in-v1 delivery.** Shipping auto-parse + 3 channels + multi-tenant + child logins + the
+  AI assistant together is a large first release with no de-scope lever. *Mitigation:* epics
+  sequence the build; validate tenant isolation + privacy early; keep each epic internally shippable.
+- **R2 · Auto-parse accuracy.** OCR + LLM extraction on varied resume formats may be unreliable.
+  *Mitigation:* human-in-the-loop confirm (FR57), low-confidence flagging, manual fallback.
+- **R3 · Hebrew↔English matching.** The dedupe's core value hinges on hard bilingual name matching.
+  *Mitigation:* multi-signal (never name-only), confidence + confirm/dismiss, never auto-merge.
+- **R4 · AI cost vs cost-recovery.** OCR/LLM (and Twilio/email) costs per account must be covered by
+  the ~$2/mo AI tier. *Mitigation:* free-trial → paid gating (§16), per-account **rate limits** (FR74),
+  cheap models / caching / batching (NFR-9); **price revisitable** by usage; watch cost-per-active-family.
+- **R5 · iOS capture friction.** No WhatsApp share-target on iPhone. *Mitigation:* universal
+  email-share/upload path; native wrapper deferred.
+- **R6 · Community trust.** A privacy-sensitive community may distrust a new tool holding sensitive
+  data. *Mitigation:* the privacy wedge itself — no networked pool, export/delete, transparency.
+- **R7 · Paywall friction in a free-expecting community.** Charging even ~$2/mo for AI — and Stripe as
+  a step for non-technical / phone-less users — may deter adoption. *Mitigation:* the **core CRM +
+  manual entry stay free and fully functional**; the wedge is never paywalled; a low cost-recovery
+  price framed honestly as non-profit; email receipts; a real free trial (§16). **Source-availability
+  (FSL) protects the model from a cloned, undercutting competitor.**
+
+**Assumptions**
+- **A1** — All users are **18+** (PRV-12).
+- **A2** — Shadchanim send resumes the parent can **forward/share**; the app never auto-reads accounts.
+- **A3** — The **Phase-2** shadchan networking is acceptable to the community (revisit before Phase 2).
+- **A4** — Families accept a **low, non-profit cost-recovery charge for AI features** given a free,
+  fully-functional core (revisit if trial→paid conversion is very low).
 
 ## Roadmap — Phase 2 (next after v1)
 
 - **Shadchan interface (Phase 2 — near-term, not long-term).** A shadchan-facing surface where
   shadchanim **interact with parents**, **redd shidduchim** (send suggestions directly into a
-  connected parent's pipeline), and **track their own conversations**. **v1 stays parent-side**
-  ("not a shadchan tool" on the landing page); because Phase 2 is close, the architecture is
-  **provisioned for it now** (shadchan as a first-class user/role; in-platform suggestion
-  origination; per-relationship consent-based scoping — see addendum). **Privacy wedge holds:** a
+  connected parent's pipeline), and **track their own conversations**. Shadchanim are **partners**
+  in the shidduch process; Phase 2 brings them in as first-class participants, making MyShadchan a
+  **consent-based two-sided network**. **v1 is parent-side**, and the architecture is **designed so
+  Phase 2 adds a shadchan role with no rework** (in-platform suggestion origination;
+  per-relationship consent-based scoping — see addendum). **Privacy wedge holds:** a
   shadchan sees **only** the interaction/suggestion thread they are party to — **never** the
   parent's private notes, references, dating history, other shadchanim's suggestions, or the
   child's data. PRV-2's "no networked pool" is preserved (consent-based messaging, not DB exposure).
 
 ## Deferred / Revisit later
 
-- **Native iOS wrapper** — a thin native shell (e.g. a Share Extension) giving iPhone users true
-  1-tap WhatsApp → MyShadchan capture. Deferred (stay pure-PWA for now); revisit if the iPhone
-  segment proves large and the email-share path too clunky.
+- **Internationalisation (UK, Israel).** v1 ships **US-only for compliance**; serving UK/Israel users
+  is a **gated fast-follow** pending **UK-GDPR / EU-GDPR / Israeli-privacy** compliance + legal review.
+  *(Hebrew UI, NFR-12, ships in v1 regardless — it serves the US community too.)*
+- **Native iOS wrapper / Share Extension** — gives iPhone users **true 1-tap Share → MyShadchan** for
+  WhatsApp / SMS / any app. Deferred (stay pure-PWA for now); revisit if the iPhone segment proves large
+  and the email-share hop too clunky.
 
 ## Open Items (running)
 
-- **Persona blanks** — Chani's community/city and number of children (minor; fill anytime).
-- **Confirm** — FR34 "progressed" definition; the §7 grouping (both flagged for your glance).
+- _Prior scope fully resolved (persona: Lakewood, two children; FR34 bar + §7 grouping blessed)._
+- **AI trial length** — defaulted to **14 days**; confirm/tune before launch (FR72).
+- **License copyright holder** — set to "Daniel Niasoff, 2026"; change to the project's legal entity if
+  one is formed.
+- **License file structure** — `LICENSE` (FSL) + retained `LICENSE.md` (MIT); optional tidy to a
+  `NOTICE` file. Fork relicensing + non-profit status: **confirm with counsel**.
+- **Internationalisation (UK/Israel)** — deferred; needs UK-GDPR / EU-GDPR / Israeli-privacy compliance
+  + legal review before those users go live (architecture provisions the mechanics).
+- **Billing policy** — cancel-to-period-end / no-refunds / Stripe Tax / one-trial-per-family are
+  **named defaults** (FR77); confirm with counsel and tune before launch.
+- **iOS 1-tap capture** — iPhone uses Share → Mail → inbox for now; a native Share Extension (deferred)
+  gives true 1-tap.
 
 ---
 
 ## Status
 
-All sections drafted — Vision · UJ-1/UJ-2 · FR1–63 · PRV-1–12 · NFR-1–10 · Metrics · Epics 1–11.
-**Next: Finalize** (memlog audit · input reconciliation · reviewer gate · triage · polish).
+**Final** — Vision · UJ-1/UJ-2 · FR1–78 · PRV-1–12 · NFR-1–13 · Billing/AI-tier (§16) · Metrics ·
+Risks · Epics 1–12. **Free core; cost-recovery AI tier (Stripe); source-available (FSL); US-first;
+capture-by-Share; UI i18n + Hebrew RTL.** Reviewed, reconciled with the architecture spine (18 ADs),
+and polished. Next skills: `bmad-ux` · `bmad-architecture` · `bmad-create-epics-and-stories`.
