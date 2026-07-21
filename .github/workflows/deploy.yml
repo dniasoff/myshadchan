@@ -61,4 +61,5 @@ jobs:
 
             - if: ${{ !env.IS_SUPABASE_CONFIGURED }}
               name: Supabase deployment skipped
-              run: echo ':warning: Supabase deployment skipped — missing SUPABASE_ACCESS_TOKEN / SUPABASE_DB_PASSWORD / SUPABASE_PROJECT_ID secret' >> $GITHUB_STEP_SUMMARY
+              run: |
+                  echo ':warning: Supabase deployment skipped — missing SUPABASE_ACCESS_TOKEN / SUPABASE_DB_PASSWORD / SUPABASE_PROJECT_ID secret' >> $GITHUB_STEP_SUMMARY
