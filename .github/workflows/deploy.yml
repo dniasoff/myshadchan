@@ -1,0 +1,64 @@
+name: 🚀 Deploy
+
+on:
+    push:
+        branches:
+            - main
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    deploy-supabase:
+        name: 🚀 Deploy (supabase)
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        env:
+            SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+            SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+            SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+            IS_SUPABASE_CONFIGURED: ${{ secrets.SUPABASE_ACCESS_TOKEN && secrets.SUPABASE_DB_PASSWORD && secrets.SUPABASE_PROJECT_ID }}
+            RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+            UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+            UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+
+        steps:
+            - name: 📥 Checkout repo
+              uses: actions/checkout@v7
+
+            - name: ⚙️ Setup node
+              uses: actions/setup-node@v7
+              with:
+                  node-version-file: .nvmrc
+                  cache: npm
+
+            - name: ⚙️ Setup supabase
+              uses: supabase/setup-cli@v3
+
+            - name: 📥 Download deps
+              run: npm ci
+
+            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+              name: 🔗 Supabase Link
+              run: npx supabase link --project-ref $SUPABASE_PROJECT_ID
+
+            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+              name: 📡 Push supabase migrations
+              run: npx supabase db push
+
+            - if: ${{ env.IS_SUPABASE_CONFIGURED && env.RESEND_API_KEY }}
+              name: 📡 Push supabase function secrets
+              run: |
+                  npx supabase secrets set RESEND_API_KEY=${{ env.RESEND_API_KEY }}
+                  npx supabase secrets set UPSTASH_REDIS_REST_URL=${{ env.UPSTASH_REDIS_REST_URL }}
+                  npx supabase secrets set UPSTASH_REDIS_REST_TOKEN=${{ env.UPSTASH_REDIS_REST_TOKEN }}
+
+            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+              name: 📡 Deploy supabase functions
+              run: npx supabase functions deploy
+
+            - if: ${{ !env.IS_SUPABASE_CONFIGURED }}
+              name: Supabase deployment skipped
+              run: echo ':warning: Supabase deployment skipped — missing SUPABASE_ACCESS_TOKEN / SUPABASE_DB_PASSWORD / SUPABASE_PROJECT_ID secret' >> $GITHUB_STEP_SUMMARY
