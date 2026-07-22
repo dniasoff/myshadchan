@@ -6,9 +6,11 @@ import { translateLanding } from "./landingTranslate";
 
 /**
  * The page ends on one full-bleed dark slab carrying the single action. It is
- * the darkest block on the page in both themes and the tallest, so the accent
- * honey and the plain statement above it read the same way either way round —
- * and the last thing on the page is also the most emphatic.
+ * the darkest block on the page in both themes and the tallest, so the heading
+ * accent and the plain statement above it read the same way either way round —
+ * and the last thing on the page is also the most emphatic. The button keeps
+ * the primary treatment used by the header and hero: honey is the pipeline's
+ * attention token, not a call to action.
  */
 export const LandingClosing = () => (
   <LandingSection
@@ -37,7 +39,7 @@ export const LandingClosing = () => (
         <Button
           asChild
           size="lg"
-          className="mt-5 h-12 bg-landing-accent-hi px-7 text-base text-landing-accent-ink shadow-sm hover:bg-landing-accent-hi/90"
+          className="mt-5 h-12 px-7 text-base shadow-sm"
         >
           <a href={SIGN_IN_PATH}>
             {translateLanding("crm.landing.closing.cta", "Sign in")}

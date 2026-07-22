@@ -41,17 +41,21 @@ export const AuthHero = () => (
   <div
     className="relative hidden overflow-hidden p-12 text-white lg:flex lg:flex-col lg:justify-between"
     style={{
+      // Calm Ledger indigo, deepening to the same indigo-night as the landing
+      // closing band so the two screens read as one product. No off-brand
+      // violet/pink — the warmth comes from the honey wash below, echoing
+      // LandingBackdrop's indigo + honey pair.
       background:
-        "linear-gradient(155deg, var(--primary) 0%, oklch(0.5 0.2 300) 52%, var(--st-unsure) 100%)",
+        "linear-gradient(160deg, var(--primary) 0%, var(--st-look) 46%, var(--landing-band) 100%)",
     }}
   >
     <div
-      className="pointer-events-none absolute -right-24 -top-28 h-96 w-96 rounded-full opacity-40 blur-3xl"
-      style={{ background: "var(--st-yes)" }}
+      className="pointer-events-none absolute -right-24 -top-28 h-96 w-96 rounded-full opacity-30 blur-3xl"
+      style={{ background: "var(--landing-accent-hi)" }}
     />
     <div
-      className="pointer-events-none absolute -bottom-24 -left-16 h-80 w-80 rounded-full opacity-30 blur-3xl"
-      style={{ background: "var(--st-notsure)" }}
+      className="pointer-events-none absolute -bottom-24 -left-16 h-80 w-80 rounded-full opacity-40 blur-3xl"
+      style={{ background: "var(--st-look)" }}
     />
 
     <div className="relative z-10 flex items-center gap-3">
@@ -65,17 +69,17 @@ export const AuthHero = () => (
 
     <div className="relative z-10 max-w-md">
       <h1 className="text-[2.7rem] font-bold leading-[1.08] tracking-tight">
-        A calm memory of every <span className="italic">shidduch</span>.
+        A record of the <span className="italic">shidduch</span> process for
+        your children.
       </h1>
       <p
         className="font-hebrew mt-3 text-xl font-medium text-white/70"
         dir="rtl"
       >
-        זיכרון רגוע של כל שידוך
+        רישום של תהליך השידוכים
       </p>
       <p className="mt-6 text-base leading-relaxed text-white/85">
-        Every redt, from every shadchan — held on one quiet board. Bilingual,
-        private, and run at cost.
+        Suggestions, shadchanim, reference calls and dates, kept in one place.
       </p>
 
       <div className="mt-8 flex flex-wrap gap-2">
@@ -99,7 +103,7 @@ export const AuthHero = () => (
 
     <div className="relative z-10 flex items-center gap-2 text-sm text-white/70">
       <LockIcon />
-      Private to you. Run at cost, never pooled or shared.
+      Records are held per family. They are not shared with other families.
     </div>
   </div>
 );
