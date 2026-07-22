@@ -691,31 +691,31 @@ revoke all on sequence public.date_records_id_seq from anon;
 grant all on sequence public.date_records_id_seq to authenticated;
 grant all on sequence public.date_records_id_seq to service_role;
 
-revoke all on function public.current_account_id() from anon;
+revoke all on function public.current_account_id() from public, anon;
 grant execute on function public.current_account_id() to authenticated;
 grant execute on function public.current_account_id() to service_role;
 
-revoke all on function public.is_child_visible_state(public.pipeline_state) from anon;
+revoke all on function public.is_child_visible_state(public.pipeline_state) from public, anon;
 grant execute on function public.is_child_visible_state(public.pipeline_state) to authenticated;
 grant execute on function public.is_child_visible_state(public.pipeline_state) to service_role;
 
-revoke all on function public.enforce_pipeline_transition() from anon;
+revoke all on function public.enforce_pipeline_transition() from public, anon;
 grant execute on function public.enforce_pipeline_transition() to authenticated;
 grant execute on function public.enforce_pipeline_transition() to service_role;
 
-revoke all on function public.set_account_id_default() from anon;
+revoke all on function public.set_account_id_default() from public, anon;
 grant execute on function public.set_account_id_default() to authenticated;
 grant execute on function public.set_account_id_default() to service_role;
 
-revoke all on function public.enforce_shidduch_initial_state() from anon;
+revoke all on function public.enforce_shidduch_initial_state() from public, anon;
 grant execute on function public.enforce_shidduch_initial_state() to authenticated;
 grant execute on function public.enforce_shidduch_initial_state() to service_role;
 
-revoke all on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) from anon;
+revoke all on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) from public, anon;
 grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) to authenticated;
 grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) to service_role;
 
-revoke all on function public.transition_shidduch(bigint, public.pipeline_state, public.pipeline_state, text) from anon;
+revoke all on function public.transition_shidduch(bigint, public.pipeline_state, public.pipeline_state, text) from public, anon;
 grant execute on function public.transition_shidduch(bigint, public.pipeline_state, public.pipeline_state, text) to authenticated;
 grant execute on function public.transition_shidduch(bigint, public.pipeline_state, public.pipeline_state, text) to service_role;
 

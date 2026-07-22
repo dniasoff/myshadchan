@@ -54,6 +54,7 @@ begin
   limit 1;
 
   if not found then
+    -- No redts remain (e.g. the last one was deleted); leave the summary as-is.
     return null;
   end if;
 
@@ -275,10 +276,10 @@ revoke all on sequence public.redts_id_seq from anon;
 grant all on sequence public.redts_id_seq to authenticated;
 grant all on sequence public.redts_id_seq to service_role;
 
-revoke all on function public.refresh_shidduch_redt_summary() from anon;
+revoke all on function public.refresh_shidduch_redt_summary() from public, anon;
 grant execute on function public.refresh_shidduch_redt_summary() to authenticated;
 grant execute on function public.refresh_shidduch_redt_summary() to service_role;
 
-revoke all on function public.add_redt(bigint, bigint, date, text) from anon;
+revoke all on function public.add_redt(bigint, bigint, date, text) from public, anon;
 grant execute on function public.add_redt(bigint, bigint, date, text) to authenticated;
 grant execute on function public.add_redt(bigint, bigint, date, text) to service_role;

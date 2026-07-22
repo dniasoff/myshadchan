@@ -115,6 +115,8 @@ begin
       using errcode = 'check_violation';
   end if;
 
+  -- Never cross the account boundary (AD-1): the child/shadchan must
+  -- belong to the caller's account.
   if not exists (
     select 1 from public.children c
     where c.id = p_child_id and c.account_id = v_account_id
@@ -156,9 +158,14 @@ begin
   )
   returning id into v_id;
 
+  -- The first redt event. The refresh trigger keeps shidduchim.redt_date etc.
+  -- in sync as more redts are added.
   insert into public.redts (account_id, shidduchim_id, shadchan_id, redt_date)
   values (v_account_id, v_id, p_shadchan_id, v_redt_date);
 
+  -- Record the headline seminary/yeshiva as the first school entry. The prospect
+  -- is the opposite gender of the child (a match for a girl is a boy -> yeshiva;
+  -- a match for a boy is a girl -> seminary). Additional schools via add_school().
   if p_seminary_en is not null or p_seminary_he is not null then
     select gender into v_gender from public.children where id = p_child_id;
     insert into public.shidduch_schools (account_id, shidduchim_id, kind, name_en, name_he)
@@ -201,6 +208,6 @@ revoke all on sequence public.shidduch_schools_id_seq from anon;
 grant all on sequence public.shidduch_schools_id_seq to authenticated;
 grant all on sequence public.shidduch_schools_id_seq to service_role;
 
-revoke all on function public.add_school(bigint, text, text, text, integer, integer) from anon;
+revoke all on function public.add_school(bigint, text, text, text, integer, integer) from public, anon;
 grant execute on function public.add_school(bigint, text, text, text, integer, integer) to authenticated;
 grant execute on function public.add_school(bigint, text, text, text, integer, integer) to service_role;
