@@ -438,6 +438,8 @@ export const englishCrmMessages = {
         "If you're a registered user, you should receive a password recovery email shortly.",
       sign_in_failed: "Failed to log in.",
       sign_in_google_workspace: "Sign in with Google Workplace",
+      google_oauth_not_configured:
+        "Google sign-in is not configured. Ask an administrator to enable and configure the Google provider in Supabase.",
       signup: {
         create_account: "Create account",
         create_first_user:
@@ -446,6 +448,99 @@ export const englishCrmMessages = {
         initial_user_created: "Initial user successfully created",
       },
       welcome_title: "Welcome to MyShadchan",
+    },
+    landing: {
+      nav: {
+        sign_in: "Sign in",
+      },
+      hero: {
+        eyebrow: "Shidduchim record",
+        title_lead: "A record of the shidduch process",
+        title_accent: "for your children.",
+        title_he: "רישום של תהליך השידוכים",
+        lead: "Suggestions, shadchanim, reference calls and dates, kept in one place.",
+        cta: "Sign in",
+        cta_secondary: "What it does",
+        note: "Records are held per family. They are not shared with other families.",
+      },
+      what: {
+        eyebrow: "What it does",
+        title_lead: "The software stores",
+        title_accent: "resumes, calls, dates and decisions.",
+        resumes: {
+          title: "Resumes",
+          body: "Resumes arrive by message, email, photo, or on paper and scanned in. Each is stored and filed against the child it was suggested for.",
+        },
+        repeats: {
+          title: "Repeat suggestions",
+          body: "When a name is entered that has been suggested before, the earlier suggestion and the decision are shown.",
+        },
+        references: {
+          title: "Reference calls",
+          body: "Each reference call records who was spoken to, what they said, and which questions have not been asked.",
+        },
+        status: {
+          title: "Status",
+          body: "Each suggestion has one of seven states, from new through to a decision.",
+        },
+        states_caption: "The seven states",
+      },
+      how: {
+        eyebrow: "How it works",
+        title_lead: "Three steps,",
+        title_accent: "from a resume to a decision.",
+        enter: {
+          title: "Enter the resume",
+          body: "A resume is entered against a child. If that name has been suggested before, the earlier suggestion is shown at that point.",
+        },
+        record: {
+          title: "Record what happens",
+          body: "Reference calls, notes and dates are added to the suggestion as they take place.",
+        },
+        state: {
+          title: "Set the state",
+          body: "The suggestion moves between the seven states until a decision is recorded.",
+        },
+      },
+      privacy: {
+        eyebrow: "Your data",
+        title_lead: "Records are stored",
+        title_accent: "per family.",
+        pooled: {
+          title: "Not pooled",
+          body: "Records are held per family. They are not pooled with other families, and they are not used to suggest anything to anyone else.",
+        },
+        directory: {
+          title: "No directory",
+          body: "There is no public directory. No one can look a family up.",
+        },
+        export: {
+          title: "Export and deletion",
+          body: "All data can be exported or deleted at any time.",
+        },
+      },
+      openness: {
+        eyebrow: "Code and cost",
+        title_lead: "The code is public.",
+        title_accent: "The service is free.",
+        code: {
+          title: "Code",
+          body: "The code is public. It can be read, audited and self-hosted, and becomes fully open source two years after each release.",
+        },
+        cost: {
+          title: "Cost",
+          body: "The service is free. It is run at cost, not for profit.",
+        },
+      },
+      closing: {
+        title_lead: "Sign in",
+        title_accent: "to the record.",
+        lead: "Accounts are created with an email address.",
+        cta: "Sign in",
+      },
+      footer: {
+        note: "The code is public. The service is free, run at cost.",
+      },
     },
     common: {
       activity: "Activity",

@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/heebo";
+@import "@fontsource-variable/space-grotesk";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -10,7 +11,9 @@
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-hebrew:
     "Heebo Variable", "Inter Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Newsreader Variable", ui-serif, Georgia, serif;
+  --font-display:
+    "Space Grotesk Variable", "Inter Variable", ui-sans-serif, system-ui,
+    sans-serif;
 
   /* Radius scale (derived from --radius) */
   --radius-sm: calc(var(--radius) - 4px);
@@ -61,6 +64,16 @@
   --color-attention-foreground: var(--attention-foreground);
   --color-positive: var(--positive);
   --color-positive-foreground: var(--positive-foreground);
+
+  /* Landing tokens (NEW — the honey/attention family pushed a step further for
+     the public page, plus the one always-dark band it ends on) */
+  --color-landing-accent: var(--landing-accent);
+  --color-landing-accent-hi: var(--landing-accent-hi);
+  --color-landing-accent-ink: var(--landing-accent-ink);
+  --color-landing-tint: var(--landing-tint);
+  --color-landing-line: var(--landing-line);
+  --color-landing-band: var(--landing-band);
+  --color-landing-band-foreground: var(--landing-band-foreground);
 
   /* Pipeline-state tokens (NEW — board columns + status badges) */
   --color-st-new: var(--st-new);
@@ -116,6 +129,16 @@
   /* Positive — sage green (progressed / Yes) */
   --positive: oklch(0.65 0.16 158);
   --positive-foreground: oklch(0.3 0.075 158);
+
+  /* Landing — the same honey family, darkened enough to carry small text on
+     parchment; the band is the darkest block on the page in both themes. */
+  --landing-accent: oklch(0.55 0.155 60);
+  --landing-accent-hi: oklch(0.78 0.16 72);
+  --landing-accent-ink: oklch(0.26 0.06 60);
+  --landing-tint: oklch(0.965 0.035 82);
+  --landing-line: oklch(0.88 0.06 80);
+  --landing-band: oklch(0.165 0.028 273);
+  --landing-band-foreground: oklch(0.97 0.01 90);
 
   /* Destructive — restrained red (true delete only) */
   --destructive: oklch(0.57 0.21 25);
@@ -216,6 +239,18 @@
   /* Positive — bright sage; dark text for contrast on the fill */
   --positive: oklch(0.75 0.185 156);
   --positive-foreground: oklch(0.18 0.05 155);
+
+  /* Landing — honey lifted for charcoal. The tinted surface keeps only a trace
+     of chroma here: a honey wash that reads warm on parchment turns to brown mud
+     on charcoal, so on dark the accent is carried by the line and the icon chip
+     instead. The band drops below every other surface, as it does on light. */
+  --landing-accent: oklch(0.83 0.185 82);
+  --landing-accent-hi: oklch(0.83 0.195 82);
+  --landing-accent-ink: oklch(0.2 0.05 70);
+  --landing-tint: oklch(0.255 0.014 75);
+  --landing-line: oklch(0.52 0.105 78);
+  --landing-band: oklch(0.125 0.022 273);
+  --landing-band-foreground: oklch(0.97 0.01 90);
 
   /* Destructive — saturated but not neon */
   --destructive: oklch(0.63 0.235 25);

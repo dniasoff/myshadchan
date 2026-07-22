@@ -4,7 +4,7 @@ import type {
   DashboardComponent,
   LayoutComponent,
 } from "ra-core";
-import { CustomRoutes, localStorageStore, Resource } from "ra-core";
+import { CustomRoutes, Resource } from "ra-core";
 import { useEffect, useMemo } from "react";
 import { Route } from "react-router";
 import { QueryClient } from "@tanstack/react-query";
@@ -42,6 +42,7 @@ import {
   CONFIGURATION_STORE_KEY,
   type ConfigurationContextValue,
 } from "./ConfigurationContext";
+import { createCrmStore } from "./crmStore";
 import type { CrmDataProvider } from "../providers/types";
 import {
   defaultCompanySectors,
@@ -64,7 +65,7 @@ import { ContactShow } from "../contacts/ContactShow.tsx";
 import { CompanyShow } from "../companies/CompanyShow.tsx";
 import { NoteShowPage } from "../notes/NoteShowPage.tsx";
 
-const defaultStore = localStorageStore(undefined, "CRM");
+const defaultStore = createCrmStore();
 
 export type CRMProps = {
   dataProvider?: CrmDataProvider;

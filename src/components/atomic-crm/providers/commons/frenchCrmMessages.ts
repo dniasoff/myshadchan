@@ -444,6 +444,8 @@ export const frenchCrmMessages = {
         "Si vous êtes un utilisateur enregistré, vous devriez recevoir prochainement un e-mail de récupération de mot de passe.",
       sign_in_failed: "Échec de la connexion.",
       sign_in_google_workspace: "Connectez-vous avec Google Workplace",
+      google_oauth_not_configured:
+        "La connexion avec Google n'est pas configurée. Demandez à un administrateur d'activer et de configurer le fournisseur Google dans Supabase.",
       signup: {
         create_account: "Créer un compte",
         create_first_user:
@@ -452,6 +454,99 @@ export const frenchCrmMessages = {
         initial_user_created: "Utilisateur initial créé avec succès",
       },
       welcome_title: "Bienvenue sur MyShadchan",
+    },
+    landing: {
+      nav: {
+        sign_in: "Se connecter",
+      },
+      hero: {
+        eyebrow: "Registre des shidduchim",
+        title_lead: "Un registre du processus de shidduch",
+        title_accent: "pour vos enfants.",
+        title_he: "רישום של תהליך השידוכים",
+        lead: "Propositions, shadchanim, appels de références et rencontres, réunis au même endroit.",
+        cta: "Se connecter",
+        cta_secondary: "Ce que fait le logiciel",
+        note: "Les données sont conservées par famille. Elles ne sont pas partagées avec d'autres familles.",
+      },
+      what: {
+        eyebrow: "Ce que fait le logiciel",
+        title_lead: "Le logiciel enregistre",
+        title_accent: "les CV, les appels, les rencontres et les décisions.",
+        resumes: {
+          title: "CV",
+          body: "Les CV arrivent par message, par e-mail, en photo, ou sur papier et sont numérisés. Chacun est enregistré et classé auprès de l'enfant pour lequel il a été proposé.",
+        },
+        repeats: {
+          title: "Propositions répétées",
+          body: "Quand un nom déjà proposé est saisi, la proposition antérieure et la décision prise sont affichées.",
+        },
+        references: {
+          title: "Appels de références",
+          body: "Chaque appel de références indique à qui l'on a parlé, ce qui a été dit, et quelles questions n'ont pas été posées.",
+        },
+        status: {
+          title: "Statut",
+          body: "Chaque proposition se trouve dans l'un des sept états, du premier jusqu'à une décision.",
+        },
+        states_caption: "Les sept états",
+      },
+      how: {
+        eyebrow: "Comment cela fonctionne",
+        title_lead: "Trois étapes,",
+        title_accent: "du CV à la décision.",
+        enter: {
+          title: "Saisir le CV",
+          body: "Un CV est saisi pour un enfant. Si ce nom a déjà été proposé, la proposition antérieure est affichée à ce moment-là.",
+        },
+        record: {
+          title: "Consigner ce qui se passe",
+          body: "Les appels de références, les notes et les rencontres sont ajoutés à la proposition au fur et à mesure.",
+        },
+        state: {
+          title: "Définir l'état",
+          body: "La proposition passe d'un état à l'autre parmi les sept, jusqu'à ce qu'une décision soit enregistrée.",
+        },
+      },
+      privacy: {
+        eyebrow: "Vos données",
+        title_lead: "Les données sont conservées",
+        title_accent: "par famille.",
+        pooled: {
+          title: "Aucune mise en commun",
+          body: "Les données sont conservées par famille. Elles ne sont pas mises en commun avec d'autres familles et ne servent à proposer quoi que ce soit à quelqu'un d'autre.",
+        },
+        directory: {
+          title: "Aucun annuaire",
+          body: "Il n'existe aucun annuaire public. Personne ne peut rechercher une famille.",
+        },
+        export: {
+          title: "Export et suppression",
+          body: "Toutes les données peuvent être exportées ou supprimées à tout moment.",
+        },
+      },
+      openness: {
+        eyebrow: "Code et coût",
+        title_lead: "Le code est public.",
+        title_accent: "Le service est gratuit.",
+        code: {
+          title: "Code",
+          body: "Le code est public. Il peut être lu, audité et auto-hébergé, et devient entièrement open source deux ans après chaque version.",
+        },
+        cost: {
+          title: "Coût",
+          body: "Le service est gratuit. Il est assuré à prix coûtant, sans but lucratif.",
+        },
+      },
+      closing: {
+        title_lead: "Se connecter",
+        title_accent: "au registre.",
+        lead: "Les comptes sont créés avec une adresse e-mail.",
+        cta: "Se connecter",
+      },
+      footer: {
+        note: "Le code est public. Le service est gratuit, assuré à prix coûtant.",
+      },
     },
     common: {
       activity: "Activité",
