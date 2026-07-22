@@ -91,6 +91,10 @@
   --shadow-md: var(--shadow-md);
   --shadow-lg: var(--shadow-lg);
   --shadow-xl: var(--shadow-xl);
+
+  /* "Quiet Luminance" accent range (NEW — violet companion to --primary) */
+  --color-violet: var(--violet);
+  --color-violet-foreground: var(--violet-foreground);
 }
 
 /* =============================================================================
@@ -176,6 +180,14 @@
   --st-unsure: oklch(0.68 0.11 320); /* soft plum */
   --st-no: oklch(0.64 0.12 40); /* muted clay/terracotta */
 
+  /* Chip text darkening (StateChip): the 7-state tokens above are tuned for
+     dots/segments, not for text sitting on their own 16% tint over a
+     near-white card — spot-checked against WCAG 2.2 contrast math, several
+     states landed under the 3:1 UI-component floor there. Darken chip text
+     only (mix toward black), leave the token itself — and every other
+     consumer (dot, segment, column header) — untouched. */
+  --chip-text-mix: 75%;
+
   /* Avatars — soft warm pastel monograms (dark ink reads on all 10) */
   --avatar-0: oklch(0.88 0.085 268); /* indigo    */
   --avatar-1: oklch(0.89 0.095 340); /* rose      */
@@ -189,17 +201,62 @@
   --avatar-9: oklch(0.88 0.095 290); /* violet    */
   --avatar-ink: oklch(0.3 0.03 275); /* monogram text on light avatars */
 
-  /* Elevation — warm-tinted, low & gentle (no heavy drop shadows) */
-  --shadow-xs: 0 1px 2px oklch(0.2 0.03 275 / 0.05);
+  /* Elevation — warm-tinted, low & gentle (no heavy drop shadows). Alpha
+     lifted slightly over the original draft (design review: light mode read
+     flatter than the dark showpiece) — lightness/hue held, only opacity
+     raised, so text contrast is untouched. */
+  --shadow-xs: 0 1px 2px oklch(0.2 0.03 275 / 0.07);
   --shadow-sm:
-    0 1px 2px oklch(0.2 0.03 275 / 0.06), 0 1px 3px oklch(0.2 0.03 275 / 0.05);
+    0 1px 2px oklch(0.2 0.03 275 / 0.08), 0 1px 3px oklch(0.2 0.03 275 / 0.07);
   --shadow-md:
-    0 2px 4px oklch(0.2 0.03 275 / 0.05), 0 6px 16px oklch(0.2 0.03 275 / 0.08);
+    0 2px 4px oklch(0.2 0.03 275 / 0.07), 0 6px 16px oklch(0.2 0.03 275 / 0.11);
   --shadow-lg:
-    0 8px 24px oklch(0.2 0.03 275 / 0.1), 0 2px 6px oklch(0.2 0.03 275 / 0.06);
+    0 8px 24px oklch(0.2 0.03 275 / 0.13), 0 2px 6px oklch(0.2 0.03 275 / 0.08);
   --shadow-xl:
-    0 16px 40px oklch(0.2 0.03 275 / 0.14),
-    0 4px 10px oklch(0.2 0.03 275 / 0.08);
+    0 16px 40px oklch(0.2 0.03 275 / 0.17),
+    0 4px 10px oklch(0.2 0.03 275 / 0.1);
+
+  /* "Quiet Luminance" additive layer (design-artifacts/design-language.md §1)
+     — a thin luminance layer on top of Calm Ledger. Additive only: nothing
+     above this point is touched. Vibrancy rule: hold L, raise C. */
+
+  /* Violet companion to the indigo primary — the premium accent signature. */
+  --violet: oklch(0.52 0.23 300);
+  --violet-foreground: oklch(0.99 0.004 95);
+
+  /* Accent gradient stops — chrome accents, primary CTA sheen, the dashboard
+     funnel ONLY. Never on reading surfaces. */
+  --accent-grad-from: oklch(0.52 0.19 268); /* = --primary */
+  --accent-grad-to: oklch(0.52 0.23 300); /* = --violet  */
+
+  /* Accent glow — the halo behind the active nav item + primary CTA. */
+  --glow-accent: oklch(0.52 0.19 268 / 0.28);
+  --glow-accent-strong: oklch(0.52 0.19 268 / 0.4);
+
+  /* Glass — chrome/overlays ONLY (sidebar, top bar, bottom nav, modals). */
+  --glass-bg: oklch(0.99 0.004 95 / 0.72);
+  --glass-border: oklch(0.52 0.02 275 / 0.1);
+  --glass-blur: 14px;
+
+  /* Ambient background wash — one fixed radial bloom behind the app. Alpha
+     lifted from the original 0.05 (design review: barely perceptible on
+     parchment) — hue/lightness held, only opacity raised. */
+  --wash: radial-gradient(
+    120% 90% at 100% 0%,
+    oklch(0.52 0.19 268 / 0.09) 0%,
+    transparent 55%
+  );
+
+  /* Motion — spring-like, restrained (design-language §4). */
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --dur-micro: 160ms;
+  --dur-move: 240ms;
+  --dur-enter: 320ms;
+
+  /* Desktop shell layout (not theme-dependent — declared once under :root). */
+  --sidebar-w: 16.5rem;
 }
 
 /* =============================================================================
@@ -288,6 +345,10 @@
   --st-unsure: oklch(0.73 0.17 320);
   --st-no: oklch(0.69 0.175 42);
 
+  /* Dark chip text already clears 3:1 against its 16% tint on the deep
+     charcoal card (verified) — pass the token through unchanged. */
+  --chip-text-mix: 100%;
+
   /* Avatars — mid-lightness, richer chroma so light monogram ink reads on top */
   --avatar-0: oklch(0.47 0.16 268);
   --avatar-1: oklch(0.48 0.17 340);
@@ -307,6 +368,29 @@
   --shadow-md: 0 2px 4px oklch(0 0 0 / 0.34), 0 6px 16px oklch(0 0 0 / 0.4);
   --shadow-lg: 0 8px 28px oklch(0 0 0 / 0.5), 0 2px 6px oklch(0 0 0 / 0.34);
   --shadow-xl: 0 20px 48px oklch(0 0 0 / 0.58), 0 6px 14px oklch(0 0 0 / 0.4);
+
+  /* "Quiet Luminance" additive layer — lifted for charcoal; the showpiece
+     glow. Indigo ~#6366F1 → violet ~#7C3AED. */
+  --violet: oklch(0.58 0.24 300);
+  --violet-foreground: oklch(0.99 0.003 90);
+
+  --accent-grad-from: oklch(0.62 0.21 272); /* luminous indigo */
+  --accent-grad-to: oklch(0.58 0.24 300); /* luminous violet */
+
+  /* The dark-mode glow is the star — brighter, more chroma, still translucent. */
+  --glow-accent: oklch(0.62 0.22 274 / 0.45);
+  --glow-accent-strong: oklch(0.64 0.23 280 / 0.6);
+
+  /* Translucent elevated indigo-night glass; hairline white border. */
+  --glass-bg: oklch(0.225 0.03 273 / 0.66);
+  --glass-border: oklch(1 0 0 / 0.08);
+  --glass-blur: 16px;
+
+  --wash: radial-gradient(
+    120% 90% at 100% 0%,
+    oklch(0.58 0.24 300 / 0.1) 0%,
+    transparent 55%
+  );
 }
 
 a,
@@ -362,4 +446,57 @@ input[type="time"] {
 
 body {
   font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* "Quiet Luminance" motion + wash utilities (design-language.md §1.3, §4.3) */
+
+/* Fixed, non-scrolling ambient bloom — apply once, on the app shell root. */
+.ql-wash {
+  background-image: var(--wash);
+  background-attachment: fixed;
+}
+
+@keyframes ql-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ql-enter {
+  animation: ql-rise var(--dur-enter) var(--ease-out) both;
+}
+
+/* The dashboard's signature "moment" (design-language §4.4): pipeline
+   distribution segments grow in from the inline-start edge on mount. */
+@keyframes ql-scalex {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.ql-segment {
+  transform-origin: left;
+  animation: ql-scalex var(--dur-enter) var(--ease-out) both;
+}
+
+[dir="rtl"] .ql-segment {
+  transform-origin: right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ql-enter,
+  .ql-segment {
+    animation: none;
+  }
+  * {
+    scroll-behavior: auto;
+  }
 }

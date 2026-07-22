@@ -129,11 +129,11 @@ const ShidduchimHeader = ({
             ))}
           </div>
         ) : null}
-        <h1 className="text-2xl font-bold tracking-tight">
-          Pipeline{nameEn ? ` — ${nameEn}` : ""}
+        <h1 className="flex flex-wrap items-baseline gap-x-2 text-2xl font-bold tracking-tight">
+          <span>Pipeline{nameEn ? ` — ${nameEn}` : ""}</span>
           {nameHe ? (
             <span
-              className="font-hebrew ms-2 text-xl font-medium text-muted-foreground"
+              className="font-hebrew text-xl font-medium text-muted-foreground"
               dir="rtl"
             >
               {nameHe}

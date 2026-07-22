@@ -51,10 +51,10 @@ export const ShidduchColumn = ({
             boxShadow: `0 0 0 3px color-mix(in oklch, var(${state.token}) 22%, transparent)`,
           }}
         />
-        <span className="text-[13.5px] font-semibold">
-          {state.label}
+        <span className="flex items-baseline gap-1.5 text-[13.5px] font-semibold">
+          <span>{state.label}</span>
           <span
-            className="font-hebrew ms-1.5 text-[12.5px] font-medium text-muted-foreground"
+            className="font-hebrew text-[12.5px] font-medium text-muted-foreground"
             dir="rtl"
           >
             {state.labelHe}

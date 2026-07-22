@@ -9,11 +9,13 @@ import {
   defaultPhoneJsonb,
 } from "./contactModel";
 
-export const ContactCreate = ({
-  mutationMode,
-}: {
+export interface ContactCreateProps {
   mutationMode?: MutationMode;
-}) => {
+  /** Overrides the ambient resource context (used by isolated tests/stories). */
+  resource?: string;
+}
+
+export const ContactCreate = ({ mutationMode, resource }: ContactCreateProps) => {
   const { identity } = useGetIdentity();
 
   return (
@@ -21,6 +23,7 @@ export const ContactCreate = ({
       redirect="show"
       transform={cleanupContactForCreate}
       mutationMode={mutationMode}
+      resource={resource}
     >
       <div className="mt-2 flex lg:mr-72">
         <div className="flex-1">

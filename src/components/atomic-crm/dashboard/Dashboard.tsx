@@ -1,66 +1,87 @@
-import { useGetList } from "ra-core";
+import { BookUser, Users } from "lucide-react";
 
-import type { Contact, ContactNote } from "../types";
-import { DashboardActivityLog } from "./DashboardActivityLog";
-import { DashboardStepper } from "./DashboardStepper";
-import { DealsChart } from "./DealsChart";
-import { HotContacts } from "./HotContacts";
-import { TasksList } from "./TasksList";
-import { Welcome } from "./Welcome";
+import { EmptyState } from "../misc/EmptyState";
+import { AttentionSection } from "./AttentionSection";
+import { DashboardHeader } from "./DashboardHeader";
+import { DashboardStat } from "./DashboardStat";
+import { PipelineSnapshot } from "./PipelineSnapshot";
+import { RecentSuggestions } from "./RecentSuggestions";
+import { useDashboardData } from "./useDashboardData";
 
+/**
+ * The magical per-child dashboard (foundation-plan §4): a greeting + child
+ * switcher, the pipeline snapshot "moment", recent suggestions, directory
+ * stats, and a calm "needs your attention" section — all driven from the
+ * seeded shidduchim data for the selected child.
+ */
 export const Dashboard = () => {
   const {
-    data: dataContact,
-    total: totalContact,
-    isPending: isPendingContact,
-  } = useGetList<Contact>("contacts", {
-    pagination: { page: 1, perPage: 1 },
-  });
+    isPending,
+    children,
+    childId,
+    setChildId,
+    hasSuggestions,
+    totalShadchanim,
+    totalReferences,
+  } = useDashboardData();
 
-  const { total: totalContactNotes, isPending: isPendingContactNotes } =
-    useGetList<ContactNote>("contact_notes", {
-      pagination: { page: 1, perPage: 1 },
-    });
+  if (isPending) return null;
 
-  const { total: totalDeal, isPending: isPendingDeal } = useGetList<Contact>(
-    "deals",
-    {
-      pagination: { page: 1, perPage: 1 },
-    },
-  );
-
-  const isPending = isPendingContact || isPendingContactNotes || isPendingDeal;
-
-  if (isPending) {
-    return null;
+  if (children.length === 0) {
+    return (
+      <EmptyState
+        title="Add your first child"
+        description="A shidduchim pipeline belongs to a child — the single you are redting for. Add a child to start tracking suggestions."
+        actionLabel="Add a child"
+        actionTo="/children/create"
+      />
+    );
   }
 
-  if (!totalContact) {
-    return <DashboardStepper step={1} />;
-  }
-
-  if (!totalContactNotes) {
-    return <DashboardStepper step={2} contactId={dataContact?.[0]?.id} />;
-  }
+  const selectedChildId = childId ?? children[0].id;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mt-1">
-      <div className="md:col-span-3">
-        <div className="flex flex-col gap-4">
-          {import.meta.env.VITE_IS_DEMO === "true" ? <Welcome /> : null}
-          <HotContacts />
-        </div>
-      </div>
-      <div className="md:col-span-6">
-        <div className="flex flex-col gap-6">
-          {totalDeal ? <DealsChart /> : null}
-          <DashboardActivityLog />
-        </div>
-      </div>
+    <div className="flex flex-col gap-6">
+      <DashboardHeader
+        childList={children}
+        childId={selectedChildId}
+        onSelectChild={setChildId}
+      />
 
-      <div className="md:col-span-3">
-        <TasksList />
-      </div>
+      {!hasSuggestions ? (
+        <EmptyState
+          title="Capture your first suggestion"
+          description="Every redt starts here — add the first suggestion for this child to see the pipeline come to life."
+          actionLabel="Add a suggestion"
+          actionTo="/shidduchim/create"
+        />
+      ) : (
+        <div className="flex flex-col gap-6">
+          <PipelineSnapshot childId={selectedChildId} />
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+            <div className="lg:col-span-8">
+              <RecentSuggestions childId={selectedChildId} />
+            </div>
+            <div className="flex flex-col gap-6 lg:col-span-4">
+              <div className="grid grid-cols-2 gap-4">
+                <DashboardStat
+                  label="Shadchanim"
+                  value={totalShadchanim}
+                  icon={Users}
+                  to="/shadchanim"
+                />
+                <DashboardStat
+                  label="References"
+                  value={totalReferences}
+                  icon={BookUser}
+                  to="/references"
+                />
+              </div>
+              <AttentionSection />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

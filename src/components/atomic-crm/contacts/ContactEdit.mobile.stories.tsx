@@ -1,7 +1,6 @@
 import type { Meta } from "@storybook/react-vite";
 
-import { ContactEdit } from "./ContactEdit";
-import { Route, Routes } from "react-router";
+import { ContactShow } from "./ContactShow";
 import { buildContact, StoryWrapper } from "@/test/StoryWrapper";
 import type { DataProvider } from "ra-core";
 
@@ -17,6 +16,13 @@ const meta = {
 
 export default meta;
 
+// The mobile edit flow is: ContactShow renders an "Edit" button that opens
+// ContactEditSheet, which threads resource/id in as explicit props (not
+// route params) — so rendering <ContactShow resource="contacts" id={1} />
+// directly exercises the real flow, independent of whether "contacts" is
+// registered as a product <Resource> in CRM.tsx (it deliberately isn't —
+// see foundation-plan §2).
+
 export const ContactEditBasic = ({
   dataProvider = {},
   silent,
@@ -25,7 +31,6 @@ export const ContactEditBasic = ({
   silent?: boolean;
 }) => (
   <StoryWrapper
-    initialEntries={["/contacts/1/show"]}
     data={{
       contacts: [
         buildContact({
@@ -38,9 +43,7 @@ export const ContactEditBasic = ({
     dataProvider={dataProvider}
     silent={silent}
   >
-    <Routes>
-      <Route path="/contacts/:id" element={<ContactEdit />} />
-    </Routes>
+    <ContactShow resource="contacts" id={1} />
   </StoryWrapper>
 );
 
@@ -52,7 +55,6 @@ export const ContactEditWithEmailsAndPhones = ({
   silent?: boolean;
 }) => (
   <StoryWrapper
-    initialEntries={["/contacts/1/show"]}
     data={{
       contacts: [
         buildContact({
@@ -65,15 +67,12 @@ export const ContactEditWithEmailsAndPhones = ({
     dataProvider={dataProvider}
     silent={silent}
   >
-    <Routes>
-      <Route path="/contacts/:id" element={<ContactEdit />} />
-    </Routes>
+    <ContactShow resource="contacts" id={1} />
   </StoryWrapper>
 );
 
 export const ContactEditWithError = () => (
   <StoryWrapper
-    initialEntries={["/contacts/1/show"]}
     data={{
       contacts: [
         buildContact({
@@ -92,16 +91,12 @@ export const ContactEditWithError = () => (
       },
     }}
   >
-    <Routes>
-      <Route path="/contacts/:id" element={<ContactEdit />} />
-    </Routes>
+    <ContactShow resource="contacts" id={1} />
   </StoryWrapper>
 );
 
 export const ContactEditNotFound = () => (
-  <StoryWrapper initialEntries={["/contacts/1/show"]}>
-    <Routes>
-      <Route path="/contacts/:id" element={<ContactEdit />} />
-    </Routes>
+  <StoryWrapper>
+    <ContactShow resource="contacts" id={1} />
   </StoryWrapper>
 );

@@ -140,11 +140,11 @@ const ShidduchShowContent = ({ id }: { id: Identifier }) => {
   return (
     <div className="flex flex-col gap-5">
       <header>
-        <h2 className="text-xl font-bold tracking-tight">
-          {shidduch.name_en ?? "Shidduch"}
+        <h2 className="flex flex-wrap items-baseline gap-x-2 text-xl font-bold tracking-tight">
+          <span>{shidduch.name_en ?? "Shidduch"}</span>
           {shidduch.name_he ? (
             <span
-              className="font-hebrew ms-2 text-base font-medium text-muted-foreground"
+              className="font-hebrew text-base font-medium text-muted-foreground"
               dir="rtl"
             >
               {shidduch.name_he}
@@ -175,11 +175,13 @@ const ShidduchShowContent = ({ id }: { id: Identifier }) => {
                   <Badge variant="secondary" className="capitalize">
                     {school.kind}
                   </Badge>
-                  <span className="min-w-0 truncate">
-                    {school.name_en ?? school.name_he ?? "—"}
+                  <span className="flex min-w-0 items-baseline gap-1">
+                    <span className="min-w-0 truncate">
+                      {school.name_en ?? school.name_he ?? "—"}
+                    </span>
                     {school.name_he && school.name_en ? (
                       <span
-                        className="font-hebrew ms-1 text-muted-foreground"
+                        className="font-hebrew shrink-0 text-muted-foreground"
                         dir="rtl"
                       >
                         {school.name_he}

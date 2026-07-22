@@ -16,6 +16,11 @@ const meta = {
 
 export default meta;
 
+// Renders <ContactCreate resource="contacts" /> directly (rather than routing
+// to "/contacts/create") so it exercises the form in isolation, independent
+// of whether "contacts" is registered as a product <Resource> in CRM.tsx (it
+// deliberately isn't — see foundation-plan §2).
+
 export const ContactCreateBasic = ({
   dataProvider = {},
   silent,
@@ -24,7 +29,6 @@ export const ContactCreateBasic = ({
   silent?: boolean;
 }) => (
   <StoryWrapper
-    initialEntries={["/contacts/create"]}
     data={{
       contacts: [
         buildContact({
@@ -37,13 +41,12 @@ export const ContactCreateBasic = ({
     dataProvider={dataProvider}
     silent={silent}
   >
-    <ContactCreate />
+    <ContactCreate resource="contacts" />
   </StoryWrapper>
 );
 
 export const ContactCreateBasicWithError = () => (
   <StoryWrapper
-    initialEntries={["/contacts/create"]}
     data={{
       contacts: [
         buildContact({
@@ -62,6 +65,6 @@ export const ContactCreateBasicWithError = () => (
       },
     }}
   >
-    <ContactCreate />
+    <ContactCreate resource="contacts" />
   </StoryWrapper>
 );

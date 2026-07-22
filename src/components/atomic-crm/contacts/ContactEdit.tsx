@@ -1,5 +1,11 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { EditBase, Form, useEditContext, type MutationMode } from "ra-core";
+import {
+  EditBase,
+  Form,
+  useEditContext,
+  type Identifier,
+  type MutationMode,
+} from "ra-core";
 
 import type { Contact } from "../types";
 import { ContactAside } from "./ContactAside";
@@ -11,15 +17,21 @@ import {
   defaultPhoneJsonb,
 } from "./contactModel";
 
-export const ContactEdit = ({
-  mutationMode,
-}: {
+export interface ContactEditProps {
   mutationMode?: MutationMode;
-}) => (
+  /** Overrides the route-derived record id (used by isolated tests/stories). */
+  id?: Identifier;
+  /** Overrides the ambient resource context (used by isolated tests/stories). */
+  resource?: string;
+}
+
+export const ContactEdit = ({ mutationMode, id, resource }: ContactEditProps) => (
   <EditBase
     redirect="show"
     transform={cleanupContactForEdit}
     mutationMode={mutationMode}
+    id={id}
+    resource={resource}
   >
     <ContactEditContent />
   </EditBase>

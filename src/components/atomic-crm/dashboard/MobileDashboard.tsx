@@ -1,15 +1,18 @@
-import { useGetList, useTimeout } from "ra-core";
-import { Skeleton } from "@/components/ui/skeleton";
+import { BookUser, Users } from "lucide-react";
+import type { ReactNode } from "react";
 
-import type { Contact, ContactNote } from "../types";
-import { DashboardActivityLog } from "./DashboardActivityLog";
-import { DashboardStepper } from "./DashboardStepper";
-import { Welcome } from "./Welcome";
 import MobileHeader from "../layout/MobileHeader";
 import { MobileContent } from "../layout/MobileContent";
+import { EmptyState } from "../misc/EmptyState";
 import { useConfigurationContext } from "../root/ConfigurationContext";
+import { AttentionSection } from "./AttentionSection";
+import { DashboardHeader } from "./DashboardHeader";
+import { DashboardStat } from "./DashboardStat";
+import { PipelineSnapshot } from "./PipelineSnapshot";
+import { RecentSuggestions } from "./RecentSuggestions";
+import { useDashboardData } from "./useDashboardData";
 
-const Wrapper = ({ children }: { children: React.ReactNode }) => {
+const Wrapper = ({ children }: { children: ReactNode }) => {
   const { darkModeLogo, lightModeLogo, title } = useConfigurationContext();
   return (
     <>
@@ -33,57 +36,72 @@ const Wrapper = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
-const Loading = () => (
-  <Wrapper>
-    <Skeleton className="h-4 w-3/4 mb-4" />
-    <Skeleton className="h-4 w-full mb-2" />
-    <Skeleton className="h-4 w-full mb-2" />
-    <Skeleton className="h-4 w-full mb-2" />
-    <Skeleton className="h-4 w-full mb-2" />
-  </Wrapper>
-);
-
+/** Same dashboard sections as `Dashboard`, stacked single-column for mobile. */
 export const MobileDashboard = () => {
   const {
-    data: dataContact,
-    total: totalContact,
-    isPending: isPendingContact,
-  } = useGetList<Contact>("contacts", {
-    pagination: { page: 1, perPage: 1 },
-  });
-  const { total: totalContactNotes, isPending: isPendingContactNotes } =
-    useGetList<ContactNote>("contact_notes", {
-      pagination: { page: 1, perPage: 1 },
-    });
-  const oneSecondHasPassed = useTimeout(1000);
+    isPending,
+    children,
+    childId,
+    setChildId,
+    hasSuggestions,
+    totalShadchanim,
+    totalReferences,
+  } = useDashboardData();
 
-  const isPending = isPendingContact || isPendingContactNotes;
+  if (isPending) return null;
 
-  if (isPending) {
-    return oneSecondHasPassed ? <Loading /> : null;
-  }
-
-  if (!totalContact) {
+  if (children.length === 0) {
     return (
       <Wrapper>
-        <DashboardStepper step={1} />
+        <EmptyState
+          title="Add your first child"
+          description="A shidduchim pipeline belongs to a child — the single you are redting for. Add a child to start tracking suggestions."
+          actionLabel="Add a child"
+          actionTo="/children/create"
+        />
       </Wrapper>
     );
   }
 
-  if (!totalContactNotes) {
-    return (
-      <Wrapper>
-        <DashboardStepper step={2} contactId={dataContact?.[0]?.id} />
-      </Wrapper>
-    );
-  }
+  const selectedChildId = childId ?? children[0].id;
 
   return (
     <Wrapper>
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mt-1">
-        {import.meta.env.VITE_IS_DEMO === "true" ? <Welcome /> : null}
-        <DashboardActivityLog />
+      <div className="flex flex-col gap-5">
+        <DashboardHeader
+          childList={children}
+          childId={selectedChildId}
+          onSelectChild={setChildId}
+        />
+
+        {!hasSuggestions ? (
+          <EmptyState
+            title="Capture your first suggestion"
+            description="Every redt starts here — add the first suggestion for this child to see the pipeline come to life."
+            actionLabel="Add a suggestion"
+            actionTo="/shidduchim/create"
+          />
+        ) : (
+          <>
+            <PipelineSnapshot childId={selectedChildId} />
+            <RecentSuggestions childId={selectedChildId} />
+            <div className="grid grid-cols-2 gap-4">
+              <DashboardStat
+                label="Shadchanim"
+                value={totalShadchanim}
+                icon={Users}
+                to="/shadchanim"
+              />
+              <DashboardStat
+                label="References"
+                value={totalReferences}
+                icon={BookUser}
+                to="/references"
+              />
+            </div>
+            <AttentionSection />
+          </>
+        )}
       </div>
     </Wrapper>
   );

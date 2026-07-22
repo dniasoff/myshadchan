@@ -1,7 +1,6 @@
 import type { Meta } from "@storybook/react-vite";
 
 import { ContactEdit } from "./ContactEdit";
-import { Route, Routes } from "react-router";
 import { buildContact, StoryWrapper } from "@/test/StoryWrapper";
 import type { DataProvider } from "ra-core";
 
@@ -17,6 +16,11 @@ const meta = {
 
 export default meta;
 
+// These stories render <ContactEdit resource="contacts" id={1} /> directly
+// (rather than routing to "/contacts/1") so they exercise the form in
+// isolation, independent of whether "contacts" is registered as a product
+// <Resource> in CRM.tsx (it deliberately isn't — see foundation-plan §2).
+
 export const ContactEditBasic = ({
   dataProvider = {},
   silent,
@@ -25,7 +29,6 @@ export const ContactEditBasic = ({
   silent?: boolean;
 }) => (
   <StoryWrapper
-    initialEntries={["/contacts/1"]}
     data={{
       contacts: [
         buildContact({
@@ -38,9 +41,7 @@ export const ContactEditBasic = ({
     dataProvider={dataProvider}
     silent={silent}
   >
-    <Routes>
-      <Route path="/contacts/:id" element={<ContactEdit />} />
-    </Routes>
+    <ContactEdit resource="contacts" id={1} />
   </StoryWrapper>
 );
 
@@ -52,7 +53,6 @@ export const ContactEditWithEmailsAndPhones = ({
   silent?: boolean;
 }) => (
   <StoryWrapper
-    initialEntries={["/contacts/1"]}
     data={{
       contacts: [
         buildContact({
@@ -65,15 +65,12 @@ export const ContactEditWithEmailsAndPhones = ({
     dataProvider={dataProvider}
     silent={silent}
   >
-    <Routes>
-      <Route path="/contacts/:id" element={<ContactEdit />} />
-    </Routes>
+    <ContactEdit resource="contacts" id={1} />
   </StoryWrapper>
 );
 
 export const ContactEditWithError = () => (
   <StoryWrapper
-    initialEntries={["/contacts/1"]}
     data={{
       contacts: [
         buildContact({
@@ -81,7 +78,7 @@ export const ContactEditWithError = () => (
           email_jsonb: [],
           phone_jsonb: [],
         }),
-      ] as any,
+      ],
     }}
     dataProvider={{
       update: async (resource, params) => {
@@ -92,16 +89,6 @@ export const ContactEditWithError = () => (
       },
     }}
   >
-    <Routes>
-      <Route path="/contacts/:id" element={<ContactEdit />} />
-    </Routes>
-  </StoryWrapper>
-);
-
-export const ContactEditNotFound = () => (
-  <StoryWrapper initialEntries={["/contacts/1"]}>
-    <Routes>
-      <Route path="/contacts/:id" element={<ContactEdit />} />
-    </Routes>
+    <ContactEdit resource="contacts" id={1} />
   </StoryWrapper>
 );
