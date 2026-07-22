@@ -5,6 +5,7 @@ import { generateDealNotes } from "./dealNotes";
 import { generateDeals } from "./deals";
 import { finalize } from "./finalize";
 import { generateSales } from "./sales";
+import { generateShidduchimDomain } from "./shidduchim";
 import { generateTags } from "./tags";
 import { generateTasks } from "./tasks";
 import type { Db } from "./types";
@@ -25,6 +26,8 @@ export default (): Db => {
       config: {} as Db["configuration"][number]["config"],
     },
   ];
+  // Shidduchim pipeline domain (accounts, children, shadchanim, shidduchim, ...)
+  generateShidduchimDomain(db);
   finalize(db);
 
   return db;

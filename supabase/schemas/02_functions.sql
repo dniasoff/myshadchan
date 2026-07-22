@@ -453,3 +453,407 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+-- =====================================================================
+-- MyShadchan — Shidduchim pipeline functions (AD-2, AD-3, AD-4)
+-- =====================================================================
+
+-- Resolves the caller's account (AD-1). Uses their account_members row;
+-- in v1 member onboarding is deferred (Epic-1), so with no membership it
+-- falls back to the default (first) account, keeping account_id populated.
+-- SECURITY DEFINER so it can be called from RLS policies without recursing
+-- into the very policies it feeds.
+CREATE OR REPLACE FUNCTION "public"."current_account_id"() RETURNS bigint
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+begin
+  select am.account_id into v_account_id
+  from public.account_members am
+  where am.user_id = auth.uid()
+  order by am.id
+  limit 1;
+
+  if v_account_id is null then
+    select a.id into v_account_id
+    from public.accounts a
+    order by a.id
+    limit 1;
+  end if;
+
+  return v_account_id;
+end;
+$$;
+
+-- Auto-populate account_id from the caller's account on insert (AD-1), so the
+-- normal dataProvider.create() path for children/shadchanim/references/etc.
+-- never has to trust a client-sent account_id. Mirrors set_sales_id_default.
+CREATE OR REPLACE FUNCTION "public"."set_account_id_default"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  if new.account_id is null then
+    new.account_id := public.current_account_id();
+  end if;
+  return new;
+end;
+$$;
+
+-- The ONE authority for which pipeline states a child may see (AD-3, D5).
+-- Closed enumeration over ALL 7 states: visible = look_into/yes/unsure;
+-- hidden = new/not_sure/for_sure_not/no. No include/exclude gap — an
+-- unclassified value raises rather than silently leaking. Both RLS and the
+-- (deferred, Epic-9) portal view will call this, never re-implement it.
+CREATE OR REPLACE FUNCTION "public"."is_child_visible_state"("s" public.pipeline_state) RETURNS boolean
+    LANGUAGE "plpgsql" IMMUTABLE
+    SET "search_path" TO ''
+    AS $$
+begin
+  case s
+    when 'look_into' then return true;
+    when 'yes' then return true;
+    when 'unsure' then return true;
+    when 'new' then return false;
+    when 'not_sure' then return false;
+    when 'for_sure_not' then return false;
+    when 'no' then return false;
+    else
+      raise exception 'unclassified pipeline_state in child-visibility policy: %', s;
+  end case;
+end;
+$$;
+
+-- Defense-in-depth for AD-4 invariant 2: any UPDATE that changes
+-- pipeline_state must follow a legal edge in pipeline_transitions, so a raw
+-- dataProvider.update() cannot bypass the transition graph. INSERTs set the
+-- initial state freely (validated inside create_shidduch).
+CREATE OR REPLACE FUNCTION "public"."enforce_pipeline_transition"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  if new.pipeline_state is distinct from old.pipeline_state then
+    if not exists (
+      select 1 from public.pipeline_transitions t
+      where t.from_state = old.pipeline_state
+        and t.to_state = new.pipeline_state
+    ) then
+      raise exception 'illegal pipeline transition: % -> %', old.pipeline_state, new.pipeline_state
+        using errcode = 'check_violation';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+-- Defense-in-depth for AD-4 invariant 1: even a raw INSERT (bypassing
+-- create_shidduch) cannot land a shidduch straight into a decision state.
+-- A decision (yes/unsure/no) is reachable ONLY from look_into via
+-- transition_shidduch. Mirrors the initial-state guard inside create_shidduch.
+CREATE OR REPLACE FUNCTION "public"."enforce_shidduch_initial_state"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  if new.pipeline_state not in ('new', 'look_into', 'not_sure', 'for_sure_not') then
+    raise exception 'a shidduch cannot be created in decision state % (reachable only from look_into)', new.pipeline_state
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end;
+$$;
+
+-- The SOLE INSERT path into shidduchim (AD-4 invariant 1). Written as a
+-- low-level reusable primitive: a future fileInboxItem() (Epic-6) must call
+-- this rather than duplicate the INSERT. Sets account_id, provenance,
+-- visibility, owner_member_id and the initial state. Decision states
+-- (yes/unsure/no) can NEVER be created directly — they are reachable only
+-- from look_into via transition_shidduch. SECURITY INVOKER so RLS applies.
+CREATE OR REPLACE FUNCTION "public"."create_shidduch"(
+    "p_child_id" bigint,
+    "p_shadchan_id" bigint DEFAULT NULL,
+    "p_name_en" text DEFAULT NULL,
+    "p_name_he" text DEFAULT NULL,
+    "p_parents_en" text DEFAULT NULL,
+    "p_parents_he" text DEFAULT NULL,
+    "p_seminary_en" text DEFAULT NULL,
+    "p_seminary_he" text DEFAULT NULL,
+    "p_shul_en" text DEFAULT NULL,
+    "p_shul_he" text DEFAULT NULL,
+    "p_location_en" text DEFAULT NULL,
+    "p_location_he" text DEFAULT NULL,
+    "p_age" integer DEFAULT NULL,
+    "p_height" text DEFAULT NULL,
+    "p_origin" text DEFAULT 'manual',
+    "p_initial_state" public.pipeline_state DEFAULT 'new',
+    "p_visibility" text DEFAULT 'shared',
+    "p_redt_date" date DEFAULT NULL
+) RETURNS SETOF public.shidduchim
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+  v_owner_member_id bigint;
+  v_id bigint;
+  v_redt_date date;
+  v_gender text;
+begin
+  v_account_id := public.current_account_id();
+  if v_account_id is null then
+    raise exception 'no account context for create_shidduch (no account exists)';
+  end if;
+
+  if p_initial_state not in ('new', 'look_into', 'not_sure', 'for_sure_not') then
+    raise exception 'invalid initial pipeline_state: % (decision states are reachable only from look_into)', p_initial_state
+      using errcode = 'check_violation';
+  end if;
+
+  -- Never cross the account boundary (AD-1): the child/shadchan must
+  -- belong to the caller's account.
+  if not exists (
+    select 1 from public.children c
+    where c.id = p_child_id and c.account_id = v_account_id
+  ) then
+    raise exception 'child % not found in current account', p_child_id;
+  end if;
+
+  if p_shadchan_id is not null and not exists (
+    select 1 from public.shadchanim s
+    where s.id = p_shadchan_id and s.account_id = v_account_id
+  ) then
+    raise exception 'shadchan % not found in current account', p_shadchan_id;
+  end if;
+
+  select am.id into v_owner_member_id
+  from public.account_members am
+  where am.user_id = auth.uid() and am.account_id = v_account_id
+  order by am.id
+  limit 1;
+
+  v_redt_date := coalesce(p_redt_date, current_date);
+
+  insert into public.shidduchim (
+    account_id, child_id, shadchan_id,
+    name_en, name_he,
+    parents_en, parents_he, seminary_en, seminary_he,
+    shul_en, shul_he, location_en, location_he,
+    age, height,
+    pipeline_state, first_suggested_by, first_suggested_at, redt_date,
+    origin, owner_member_id, visibility
+  ) values (
+    v_account_id, p_child_id, p_shadchan_id,
+    p_name_en, p_name_he,
+    p_parents_en, p_parents_he, p_seminary_en, p_seminary_he,
+    p_shul_en, p_shul_he, p_location_en, p_location_he,
+    p_age, p_height,
+    p_initial_state, p_shadchan_id, v_redt_date, v_redt_date,
+    p_origin, v_owner_member_id, p_visibility
+  )
+  returning id into v_id;
+
+  -- The first redt event. The refresh trigger keeps shidduchim.redt_date etc.
+  -- in sync as more redts are added.
+  insert into public.redts (account_id, shidduchim_id, shadchan_id, redt_date)
+  values (v_account_id, v_id, p_shadchan_id, v_redt_date);
+
+  -- Record the headline seminary/yeshiva as the first school entry. The prospect
+  -- is the opposite gender of the child (a match for a girl is a boy -> yeshiva;
+  -- a match for a boy is a girl -> seminary). Additional schools via add_school().
+  if p_seminary_en is not null or p_seminary_he is not null then
+    select gender into v_gender from public.children where id = p_child_id;
+    insert into public.shidduch_schools (account_id, shidduchim_id, kind, name_en, name_he)
+    values (
+      v_account_id, v_id,
+      case when v_gender = 'male' then 'seminary' else 'yeshiva' end,
+      p_seminary_en, p_seminary_he
+    );
+  end if;
+
+  return query select * from public.shidduchim where id = v_id;
+end;
+$$;
+
+-- The SOLE writer of pipeline_state (AD-4 invariant 2). Enforces the
+-- transitions-as-data graph (pipeline_transitions) with optimistic
+-- concurrency on `p_from`. close_reason is set on entry to a terminal state
+-- and cleared otherwise. SECURITY INVOKER so RLS applies.
+CREATE OR REPLACE FUNCTION "public"."transition_shidduch"(
+    "p_id" bigint,
+    "p_from" public.pipeline_state,
+    "p_to" public.pipeline_state,
+    "p_close_reason" text DEFAULT NULL
+) RETURNS SETOF public.shidduchim
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_current public.pipeline_state;
+begin
+  select pipeline_state into v_current
+  from public.shidduchim
+  where id = p_id
+  for update;
+
+  if not found then
+    raise exception 'shidduch % not found', p_id;
+  end if;
+
+  if v_current is distinct from p_from then
+    raise exception 'stale transition: shidduch % is in state %, not %', p_id, v_current, p_from
+      using errcode = 'serialization_failure';
+  end if;
+
+  if p_from is not distinct from p_to then
+    return query select * from public.shidduchim where id = p_id;
+    return;
+  end if;
+
+  if not exists (
+    select 1 from public.pipeline_transitions t
+    where t.from_state = p_from and t.to_state = p_to
+  ) then
+    raise exception 'illegal pipeline transition: % -> %', p_from, p_to
+      using errcode = 'check_violation';
+  end if;
+
+  return query
+  update public.shidduchim
+  set pipeline_state = p_to,
+      close_reason = case
+        when p_to in ('for_sure_not', 'yes', 'unsure', 'no') then coalesce(p_close_reason, close_reason)
+        else null
+      end
+  where id = p_id
+  returning *;
+end;
+$$;
+
+-- Keeps the denormalized redt summary on shidduchim in sync with the redts
+-- history: redt_date = the LAST (most recent) redt, shadchan_id = that latest
+-- redt's shadchan (the card "via"), first_suggested_by/at = the earliest redt.
+-- Fires on any redts insert/update/delete. RLS on shidduchim confines the
+-- UPDATE to the caller's own account, so a redt cannot mutate a foreign shidduch.
+CREATE OR REPLACE FUNCTION "public"."refresh_shidduch_redt_summary"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_shidduch_id bigint;
+  v_last_shadchan bigint;
+  v_last_date date;
+  v_first_shadchan bigint;
+  v_first_date date;
+begin
+  v_shidduch_id := coalesce(new.shidduchim_id, old.shidduchim_id);
+
+  select r.shadchan_id, r.redt_date into v_last_shadchan, v_last_date
+  from public.redts r
+  where r.shidduchim_id = v_shidduch_id
+  order by r.redt_date desc, r.id desc
+  limit 1;
+
+  if not found then
+    -- No redts remain (e.g. the last one was deleted); leave the summary as-is.
+    return null;
+  end if;
+
+  select r.shadchan_id, r.redt_date into v_first_shadchan, v_first_date
+  from public.redts r
+  where r.shidduchim_id = v_shidduch_id
+  order by r.redt_date asc, r.id asc
+  limit 1;
+
+  update public.shidduchim s
+  set redt_date = v_last_date,
+      shadchan_id = v_last_shadchan,
+      first_suggested_by = v_first_shadchan,
+      first_suggested_at = v_first_date
+  where s.id = v_shidduch_id;
+
+  return null;
+end;
+$$;
+
+-- Append a redt to a shidduch (the same or a different shadchan can redt it
+-- again, on a new date). Account-scoped so a redt can never be added to a
+-- foreign account's shidduch. Returns the refreshed shidduch row. SECURITY
+-- INVOKER so RLS applies.
+CREATE OR REPLACE FUNCTION "public"."add_redt"(
+    "p_shidduchim_id" bigint,
+    "p_shadchan_id" bigint DEFAULT NULL,
+    "p_redt_date" date DEFAULT NULL,
+    "p_note" text DEFAULT NULL
+) RETURNS SETOF public.shidduchim
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+begin
+  v_account_id := public.current_account_id();
+
+  if not exists (
+    select 1 from public.shidduchim s
+    where s.id = p_shidduchim_id and s.account_id = v_account_id
+  ) then
+    raise exception 'shidduch % not found in current account', p_shidduchim_id;
+  end if;
+
+  if p_shadchan_id is not null and not exists (
+    select 1 from public.shadchanim s
+    where s.id = p_shadchan_id and s.account_id = v_account_id
+  ) then
+    raise exception 'shadchan % not found in current account', p_shadchan_id;
+  end if;
+
+  insert into public.redts (account_id, shidduchim_id, shadchan_id, redt_date, note)
+  values (v_account_id, p_shidduchim_id, p_shadchan_id, coalesce(p_redt_date, current_date), p_note);
+
+  return query select * from public.shidduchim where id = p_shidduchim_id;
+end;
+$$;
+
+-- Link a school/seminary/yeshiva (with optional years) to a shidduch. A single
+-- can have several. Account-scoped so it can't attach to a foreign shidduch.
+-- SECURITY INVOKER so RLS applies.
+CREATE OR REPLACE FUNCTION "public"."add_school"(
+    "p_shidduchim_id" bigint,
+    "p_kind" text DEFAULT 'seminary',
+    "p_name_en" text DEFAULT NULL,
+    "p_name_he" text DEFAULT NULL,
+    "p_start_year" integer DEFAULT NULL,
+    "p_end_year" integer DEFAULT NULL
+) RETURNS SETOF public.shidduch_schools
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+begin
+  v_account_id := public.current_account_id();
+
+  if not exists (
+    select 1 from public.shidduchim s
+    where s.id = p_shidduchim_id and s.account_id = v_account_id
+  ) then
+    raise exception 'shidduch % not found in current account', p_shidduchim_id;
+  end if;
+
+  if coalesce(p_kind, 'seminary') not in ('seminary', 'yeshiva', 'school', 'college', 'other') then
+    raise exception 'invalid school kind: %', p_kind using errcode = 'check_violation';
+  end if;
+
+  return query
+  insert into public.shidduch_schools (
+    account_id, shidduchim_id, kind, name_en, name_he, start_year, end_year
+  ) values (
+    v_account_id, p_shidduchim_id, coalesce(p_kind, 'seminary'),
+    p_name_en, p_name_he, p_start_year, p_end_year
+  )
+  returning *;
+end;
+$$;

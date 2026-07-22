@@ -2,6 +2,48 @@ import type { CrmMessages } from "./englishCrmMessages";
 
 export const frenchCrmMessages = {
   resources: {
+    shidduchim: {
+      name: "Shidduch |||| Shidduchim",
+      forcedCaseName: "Shidduch",
+      fields: {
+        name_en: "Nom (EN)",
+        name_he: "Nom (HE)",
+        child_id: "Enfant",
+        shadchan_id: "Shadchan",
+        seminary_en: "Yeshiva / séminaire",
+        location_en: "Lieu",
+        parents_en: "Parents",
+        shul_en: "Shul",
+        age: "Âge",
+        height: "Taille",
+        redt_date: "Date de proposition",
+        pipeline_state: "État",
+      },
+    },
+    children: {
+      name: "Enfant |||| Enfants",
+      forcedCaseName: "Enfant",
+      fields: {
+        first_name_en: "Prénom",
+        last_name_en: "Nom",
+        first_name_he: "Prénom (HE)",
+        last_name_he: "Nom (HE)",
+        community: "Communauté",
+        status: "Statut",
+        gender: "Genre",
+      },
+    },
+    shadchanim: {
+      name: "Shadchan |||| Shadchanim",
+      forcedCaseName: "Shadchan",
+      fields: {
+        name: "Nom",
+        name_he: "Nom (HE)",
+        location: "Lieu",
+        responsiveness: "Réactivité",
+        notes: "Notes",
+      },
+    },
     companies: {
       name: "Entreprise |||| Entreprises",
       forcedCaseName: "Entreprise",

@@ -93,6 +93,20 @@ export const getAuthProvider = (): AuthProvider => {
   return {
     ...baseAuthProvider,
     login: async (params) => {
+      // Standard social OAuth (e.g. "Sign in with Google") — the provider must
+      // be enabled in the Supabase dashboard (Auth -> Providers). supabase-js
+      // detects the session from the redirect URL on return (detectSessionInUrl).
+      if (params.oauthProvider) {
+        const { error } = await getSupabaseClient().auth.signInWithOAuth({
+          provider: params.oauthProvider,
+          options: { redirectTo: window.location.origin },
+        });
+        if (error) {
+          throw error;
+        }
+        return;
+      }
+      // Enterprise SAML SSO by email domain (distinct from social OAuth above).
       if (params.ssoDomain) {
         const { error } = await getSupabaseClient().auth.signInWithSSO({
           domain: params.ssoDomain,

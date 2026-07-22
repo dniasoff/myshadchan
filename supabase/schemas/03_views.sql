@@ -132,3 +132,50 @@ select count(sub.id) as is_initialized
 from (
     select sales.id from public.sales limit 1
 ) sub;
+
+-- Board list/detail read path for the shidduchim pipeline (AD-10, analogous
+-- to contacts_summary/companies_summary). Joins the shadchan ("via {shadchan}")
+-- and the child so the board card needs a single fetch. security_invoker
+-- so the base-table RLS still applies to the caller.
+create or replace view public.shidduchim_summary with (security_invoker = on) as
+select
+    s.id,
+    s.account_id,
+    s.created_at,
+    s.child_id,
+    s.shadchan_id,
+    s.name_en,
+    s.name_he,
+    s.parents_en,
+    s.parents_he,
+    s.seminary_en,
+    s.seminary_he,
+    s.shul_en,
+    s.shul_he,
+    s.location_en,
+    s.location_he,
+    s.age,
+    s.height,
+    s.pipeline_state,
+    s.first_suggested_by,
+    s.first_suggested_at,
+    s.redt_date,
+    s.close_reason,
+    s.origin,
+    s.owner_member_id,
+    s.visibility,
+    s.index,
+    sh.name as shadchan_name,
+    sh.name_he as shadchan_name_he,
+    c.first_name_en as child_first_name_en,
+    c.first_name_he as child_first_name_he,
+    c.last_name_en as child_last_name_en,
+    c.last_name_he as child_last_name_he,
+    count(distinct rl.id) as nb_references,
+    count(distinct r.id) as nb_redts
+from public.shidduchim s
+    left join public.shadchanim sh on sh.id = s.shadchan_id
+    left join public.children c on c.id = s.child_id
+    left join public.reference_links rl on rl.shidduchim_id = s.id
+    left join public.redts r on r.shidduchim_id = s.id
+group by s.id, sh.name, sh.name_he, c.first_name_en, c.first_name_he, c.last_name_en, c.last_name_he;

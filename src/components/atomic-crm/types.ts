@@ -226,3 +226,223 @@ export interface ContactGender {
   label: string;
   icon: ComponentType<{ className?: string }>;
 }
+
+// =====================================================================
+// MyShadchan — Shidduchim pipeline domain (AD-4, AD-12)
+// =====================================================================
+
+/** The one canonical pipeline state (AD-4): exactly 7 values, no substate. */
+export type PipelineState =
+  "new" | "look_into" | "not_sure" | "for_sure_not" | "yes" | "unsure" | "no";
+
+export type MemberRole =
+  "parent_admin" | "helper" | "self_manager" | "shadchan";
+
+export type ShidduchOrigin = "channel" | "manual" | "shadchan";
+
+export type ShidduchVisibility = "shared" | "private_parent" | "private_child";
+
+export type Account = {
+  name: string;
+  transparency_level: string;
+  data_region?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+export type AccountMember = {
+  account_id: Identifier;
+  user_id?: string | null;
+  role: MemberRole;
+  status: string;
+  invited_by?: Identifier | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+export type Child = {
+  account_id: Identifier;
+  first_name_en?: string | null;
+  first_name_he?: string | null;
+  last_name_en?: string | null;
+  last_name_he?: string | null;
+  gender?: string | null;
+  dob?: string | null;
+  community?: string | null;
+  status: string;
+  member_id?: Identifier | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+export type Shadchan = {
+  account_id: Identifier;
+  name: string;
+  name_he?: string | null;
+  location?: string | null;
+  contacts?: unknown;
+  notes?: string | null;
+  responsiveness?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+export type Reference = {
+  account_id: Identifier;
+  name_en?: string | null;
+  name_he?: string | null;
+  relationship?: string | null;
+  phone?: string | null;
+  school?: string | null;
+  grad_year?: number | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/** The central object (AD-4): one child, one canonical pipeline_state. */
+export type Shidduch = {
+  account_id: Identifier;
+  child_id: Identifier;
+  shadchan_id?: Identifier | null;
+  name_en?: string | null;
+  name_he?: string | null;
+  parents_en?: string | null;
+  parents_he?: string | null;
+  seminary_en?: string | null;
+  seminary_he?: string | null;
+  shul_en?: string | null;
+  shul_he?: string | null;
+  location_en?: string | null;
+  location_he?: string | null;
+  age?: number | null;
+  height?: string | null;
+  pipeline_state: PipelineState;
+  first_suggested_by?: Identifier | null;
+  first_suggested_at: string;
+  redt_date: string;
+  close_reason?: string | null;
+  origin: ShidduchOrigin;
+  owner_member_id?: Identifier | null;
+  visibility: ShidduchVisibility;
+  index: number;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/** Row shape returned by the shidduchim_summary view (board read path, AD-10). */
+export type ShidduchSummary = Shidduch & {
+  shadchan_name?: string | null;
+  shadchan_name_he?: string | null;
+  child_first_name_en?: string | null;
+  child_first_name_he?: string | null;
+  child_last_name_en?: string | null;
+  child_last_name_he?: string | null;
+  nb_references?: number;
+  nb_redts?: number;
+};
+
+/**
+ * A redt event: a shidduch can be redt many times, by the same shadchan or
+ * different ones, on different dates. shidduchim.redt_date reflects the latest.
+ */
+export type Redt = {
+  account_id: Identifier;
+  shidduchim_id: Identifier;
+  shadchan_id?: Identifier | null;
+  redt_date: string;
+  note?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/** Input accepted by addRedt() — mirrors the add_redt RPC. */
+export type AddRedtInput = {
+  shidduchim_id: Identifier;
+  shadchan_id?: Identifier | null;
+  redt_date?: string | null;
+  note?: string | null;
+};
+
+export type SchoolKind =
+  "seminary" | "yeshiva" | "school" | "college" | "other";
+
+/**
+ * A school/seminary/yeshiva a single attended. A shidduch can have several
+ * (seminaries for a girl, yeshivas for a boy, plus schools), each with optional
+ * years.
+ */
+export type ShidduchSchool = {
+  account_id: Identifier;
+  shidduchim_id: Identifier;
+  kind: SchoolKind;
+  name_en?: string | null;
+  name_he?: string | null;
+  start_year?: number | null;
+  end_year?: number | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/** Input accepted by addSchool() — mirrors the add_school RPC. */
+export type AddSchoolInput = {
+  shidduchim_id: Identifier;
+  kind?: SchoolKind;
+  name_en?: string | null;
+  name_he?: string | null;
+  start_year?: number | null;
+  end_year?: number | null;
+};
+
+/** Input accepted by createShidduch() — mirrors the create_shidduch RPC (AD-4). */
+export type CreateShidduchInput = {
+  child_id: Identifier;
+  shadchan_id?: Identifier | null;
+  name_en?: string | null;
+  name_he?: string | null;
+  parents_en?: string | null;
+  parents_he?: string | null;
+  seminary_en?: string | null;
+  seminary_he?: string | null;
+  shul_en?: string | null;
+  shul_he?: string | null;
+  location_en?: string | null;
+  location_he?: string | null;
+  age?: number | null;
+  height?: string | null;
+  origin?: ShidduchOrigin;
+  initial_state?: PipelineState;
+  visibility?: ShidduchVisibility;
+  redt_date?: string | null;
+};
+
+export type Resume = {
+  account_id: Identifier;
+  shidduchim_id: Identifier;
+  files?: unknown;
+  photos?: unknown;
+  extracted?: unknown;
+  sections?: unknown;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+export type ReferenceLink = {
+  account_id: Identifier;
+  reference_id: Identifier;
+  shidduchim_id?: Identifier | null;
+  resume_id?: Identifier | null;
+  call_status?: string | null;
+  what_they_said?: string | null;
+  conversation_log?: unknown;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+export type DateRecord = {
+  account_id: Identifier;
+  child_id?: Identifier | null;
+  person_name_en?: string | null;
+  person_name_he?: string | null;
+  person_parents?: string | null;
+  person_seminary?: string | null;
+  person_location?: string | null;
+  date_on?: string | null;
+  outcome?: string | null;
+  notes?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+export type PipelineTransition = {
+  from_state: PipelineState;
+  to_state: PipelineState;
+};

@@ -14,15 +14,13 @@ import { LoginSkeleton } from "./LoginSkeleton";
 import { Notification } from "@/components/admin/notification";
 import { ConfirmationRequired } from "./ConfirmationRequired";
 import { SSOAuthButton } from "./SSOAuthButton";
+import { GoogleSignInButton } from "./GoogleSignInButton";
+import { AuthHero, LedgerMark } from "./AuthHero";
 
 export const SignupPage = () => {
   const queryClient = useQueryClient();
   const dataProvider = useDataProvider<CrmDataProvider>();
-  const {
-    darkModeLogo: logo,
-    title,
-    googleWorkplaceDomain,
-  } = useConfigurationContext();
+  const { googleWorkplaceDomain } = useConfigurationContext();
   const navigate = useNavigate();
   const translate = useTranslate();
   const { data: isInitialized, isPending } = useQuery({
@@ -98,29 +96,39 @@ export const SignupPage = () => {
     mutate(data);
   };
 
+  const googleEnabled = import.meta.env.VITE_ENABLE_GOOGLE_OAUTH === "true";
+
   return (
-    <div className="h-screen p-8">
-      <div className="flex items-center gap-4">
-        <img
-          src={logo}
-          alt={title}
-          width={24}
-          className="filter brightness-0 invert"
-        />
-        <h1 className="text-xl font-semibold">{title}</h1>
-      </div>
-      <div className="h-full">
-        <div className="max-w-sm mx-auto h-full flex flex-col justify-center gap-4">
-          <h1 className="text-2xl font-bold mb-4">
-            {translate("crm.auth.welcome_title", {
-              _: "Welcome to MyShadchan",
-            })}
-          </h1>
-          <p className="text-base mb-4">
-            {translate("crm.auth.signup.create_first_user", {
-              _: "Create the first user account to complete the setup.",
-            })}
-          </p>
+    <div className="min-h-screen w-full lg:grid lg:grid-cols-[1.1fr_1fr]">
+      <AuthHero />
+
+      <div className="flex min-h-screen flex-col justify-center bg-background p-6 lg:p-10">
+        <div className="mx-auto w-full max-w-sm space-y-6">
+          <div className="flex items-center gap-2 lg:hidden">
+            <div
+              className="grid h-9 w-9 place-items-center rounded-lg text-white"
+              style={{ background: "var(--primary)" }}
+            >
+              <LedgerMark className="h-5 w-5" />
+            </div>
+            <span className="text-lg font-bold tracking-tight">
+              My<span style={{ color: "var(--primary)" }}>Shadchan</span>
+            </span>
+          </div>
+
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">
+              {translate("crm.auth.welcome_title", {
+                _: "Welcome to MyShadchan",
+              })}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {translate("crm.auth.signup.create_first_user", {
+                _: "Create the first user account to complete the setup.",
+              })}
+            </p>
+          </div>
+
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="first_name">
@@ -162,25 +170,39 @@ export const SignupPage = () => {
                 required
               />
             </div>
-            <div className="flex flex-col gap-4 justify-between items-center mt-8">
-              <Button
-                type="submit"
-                disabled={!isValid || isSignUpPending}
-                className="w-full"
-              >
-                {isSignUpPending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    {translate("crm.auth.signup.creating", {
-                      _: "Creating...",
-                    })}
-                  </>
-                ) : (
-                  translate("crm.auth.signup.create_account", {
-                    _: "Create account",
-                  })
-                )}
-              </Button>
+            <Button
+              type="submit"
+              disabled={!isValid || isSignUpPending}
+              className="w-full"
+            >
+              {isSignUpPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {translate("crm.auth.signup.creating", {
+                    _: "Creating...",
+                  })}
+                </>
+              ) : (
+                translate("crm.auth.signup.create_account", {
+                  _: "Create account",
+                })
+              )}
+            </Button>
+          </form>
+
+          {googleEnabled || googleWorkplaceDomain ? (
+            <div className="space-y-3">
+              <div className="relative py-1">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center">
+                  <span className="bg-background px-2 text-xs uppercase tracking-wider text-muted-foreground">
+                    or
+                  </span>
+                </div>
+              </div>
+              {googleEnabled ? <GoogleSignInButton className="w-full" /> : null}
               {googleWorkplaceDomain ? (
                 <SSOAuthButton
                   className="w-full"
@@ -192,9 +214,10 @@ export const SignupPage = () => {
                 </SSOAuthButton>
               ) : null}
             </div>
-          </form>
+          ) : null}
         </div>
       </div>
+
       <Notification />
     </div>
   );

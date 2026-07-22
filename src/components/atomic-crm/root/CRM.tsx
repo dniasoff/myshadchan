@@ -15,11 +15,14 @@ import { ForgotPasswordPage } from "@/components/supabase/forgot-password-page";
 import { SetPasswordPage } from "@/components/supabase/set-password-page";
 import { OAuthConsentPage } from "@/components/supabase/oauth-consent-page";
 
+import children from "../children";
 import companies from "../companies";
 import contacts from "../contacts";
 import { Dashboard } from "../dashboard/Dashboard";
 import { MobileDashboard } from "../dashboard/MobileDashboard";
 import deals from "../deals";
+import shadchanim from "../shadchanim";
+import shidduchim from "../shidduchim";
 import { Layout } from "../layout/Layout";
 import { MobileLayout } from "../layout/MobileLayout";
 import { SignupPage } from "../login/SignupPage";
@@ -265,6 +268,11 @@ const DesktopAdmin = (
         <Route path={ImportPage.path} element={<ImportPage />} />
         <Route path={ChangelogPage.path} element={<ChangelogPage />} />
       </CustomRoutes>
+      <Resource name="shidduchim" {...shidduchim} />
+      <Resource name="children" {...children} />
+      <Resource name="shadchanim" {...shadchanim} />
+      <Resource name="redts" />
+      <Resource name="shidduch_schools" />
       <Resource name="deals" {...deals} />
       <Resource name="contacts" {...contacts} />
       <Resource name="companies" {...companies} />
@@ -329,6 +337,9 @@ const MobileAdmin = (
           />
           <Route path={ChangelogPage.path} element={<ChangelogPage />} />
         </CustomRoutes>
+        <Resource name="shidduchim" {...shidduchim} />
+        <Resource name="children" {...children} />
+        <Resource name="shadchanim" {...shadchanim} />
         <Resource
           name="contacts"
           list={ContactListMobile}

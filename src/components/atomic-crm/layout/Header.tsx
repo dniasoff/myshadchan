@@ -18,6 +18,12 @@ const Header = () => {
   let currentPath: string | boolean = "/";
   if (matchPath("/", location.pathname)) {
     currentPath = "/";
+  } else if (matchPath("/shidduchim/*", location.pathname)) {
+    currentPath = "/shidduchim";
+  } else if (matchPath("/shadchanim/*", location.pathname)) {
+    currentPath = "/shadchanim";
+  } else if (matchPath("/children/*", location.pathname)) {
+    currentPath = "/children";
   } else if (matchPath("/contacts/*", location.pathname)) {
     currentPath = "/contacts";
   } else if (matchPath("/companies/*", location.pathname)) {
@@ -56,6 +62,30 @@ const Header = () => {
                     label={translate("ra.page.dashboard")}
                     to="/"
                     isActive={currentPath === "/"}
+                  />
+                  <NavigationTab
+                    label={translate("resources.shidduchim.name", {
+                      smart_count: 2,
+                      _: "Shidduchim",
+                    })}
+                    to="/shidduchim"
+                    isActive={currentPath === "/shidduchim"}
+                  />
+                  <NavigationTab
+                    label={translate("resources.shadchanim.name", {
+                      smart_count: 2,
+                      _: "Shadchanim",
+                    })}
+                    to="/shadchanim"
+                    isActive={currentPath === "/shadchanim"}
+                  />
+                  <NavigationTab
+                    label={translate("resources.children.name", {
+                      smart_count: 2,
+                      _: "Children",
+                    })}
+                    to="/children"
+                    isActive={currentPath === "/children"}
                   />
                   <NavigationTab
                     label={translate("resources.contacts.name", {

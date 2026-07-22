@@ -78,3 +78,58 @@ create or replace trigger on_auth_user_created
 create or replace trigger on_auth_user_updated
     after update on auth.users
     for each row execute function public.handle_update_user();
+
+-- Shidduchim: enforce the transition graph on every pipeline_state change
+-- (AD-4 invariant 2) so no raw UPDATE can bypass transition_shidduch().
+create or replace trigger enforce_shidduch_transition
+    before update on public.shidduchim
+    for each row execute function public.enforce_pipeline_transition();
+
+-- Shidduchim: block creating a row straight into a decision state (AD-4
+-- invariant 1 defense-in-depth) and server-set account_id on insert (AD-1).
+create or replace trigger set_shidduchim_account_id
+    before insert on public.shidduchim
+    for each row execute function public.set_account_id_default();
+
+create or replace trigger enforce_shidduch_initial_state
+    before insert on public.shidduchim
+    for each row execute function public.enforce_shidduch_initial_state();
+
+-- Shidduchim domain: server-set account_id on insert (AD-1).
+create or replace trigger set_children_account_id
+    before insert on public.children
+    for each row execute function public.set_account_id_default();
+
+create or replace trigger set_shadchanim_account_id
+    before insert on public.shadchanim
+    for each row execute function public.set_account_id_default();
+
+create or replace trigger set_references_account_id
+    before insert on public."references"
+    for each row execute function public.set_account_id_default();
+
+create or replace trigger set_resumes_account_id
+    before insert on public.resumes
+    for each row execute function public.set_account_id_default();
+
+create or replace trigger set_reference_links_account_id
+    before insert on public.reference_links
+    for each row execute function public.set_account_id_default();
+
+create or replace trigger set_date_records_account_id
+    before insert on public.date_records
+    for each row execute function public.set_account_id_default();
+
+create or replace trigger set_redts_account_id
+    before insert on public.redts
+    for each row execute function public.set_account_id_default();
+
+create or replace trigger set_shidduch_schools_account_id
+    before insert on public.shidduch_schools
+    for each row execute function public.set_account_id_default();
+
+-- Keep shidduchim's denormalized redt summary (last date, latest/first shadchan)
+-- in sync whenever the redt history changes.
+create or replace trigger refresh_shidduch_redts
+    after insert or update or delete on public.redts
+    for each row execute function public.refresh_shidduch_redt_summary();

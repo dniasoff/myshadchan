@@ -175,3 +175,154 @@ alter default privileges for role postgres in schema public grant all on tables 
 alter default privileges for role postgres in schema public grant all on tables to anon;
 alter default privileges for role postgres in schema public grant all on tables to authenticated;
 alter default privileges for role postgres in schema public grant all on tables to service_role;
+
+--
+-- =====================================================================
+-- MyShadchan — Shidduchim pipeline grants (AD-1, F6)
+-- =====================================================================
+-- The fork's default privileges above auto-grant ALL on every new table to
+-- `anon`. Each shidduchim-domain object is therefore EXPLICITLY revoked from
+-- anon and granted only to authenticated + service_role. (Full revocation of
+-- the anon default-privilege itself is Epic-1 / F6 and deferred; this build
+-- must not silently inherit anon on its own tables.)
+
+-- Table grants
+revoke all on table public.accounts from anon;
+grant all on table public.accounts to authenticated;
+grant all on table public.accounts to service_role;
+
+revoke all on table public.account_members from anon;
+grant all on table public.account_members to authenticated;
+grant all on table public.account_members to service_role;
+
+revoke all on table public.children from anon;
+grant all on table public.children to authenticated;
+grant all on table public.children to service_role;
+
+revoke all on table public.shadchanim from anon;
+grant all on table public.shadchanim to authenticated;
+grant all on table public.shadchanim to service_role;
+
+revoke all on table public."references" from anon;
+grant all on table public."references" to authenticated;
+grant all on table public."references" to service_role;
+
+revoke all on table public.shidduchim from anon;
+grant all on table public.shidduchim to authenticated;
+grant all on table public.shidduchim to service_role;
+
+revoke all on table public.resumes from anon;
+grant all on table public.resumes to authenticated;
+grant all on table public.resumes to service_role;
+
+revoke all on table public.reference_links from anon;
+grant all on table public.reference_links to authenticated;
+grant all on table public.reference_links to service_role;
+
+revoke all on table public.date_records from anon;
+grant all on table public.date_records to authenticated;
+grant all on table public.date_records to service_role;
+
+revoke all on table public.redts from anon;
+grant all on table public.redts to authenticated;
+grant all on table public.redts to service_role;
+
+revoke all on table public.shidduch_schools from anon;
+grant all on table public.shidduch_schools to authenticated;
+grant all on table public.shidduch_schools to service_role;
+
+revoke all on table public.pipeline_transitions from anon;
+grant select on table public.pipeline_transitions to authenticated;
+grant all on table public.pipeline_transitions to service_role;
+
+-- View grant (summary read path)
+revoke all on table public.shidduchim_summary from anon;
+grant all on table public.shidduchim_summary to authenticated;
+grant all on table public.shidduchim_summary to service_role;
+
+-- Sequence grants
+revoke all on sequence public.accounts_id_seq from anon;
+grant all on sequence public.accounts_id_seq to authenticated;
+grant all on sequence public.accounts_id_seq to service_role;
+
+revoke all on sequence public.account_members_id_seq from anon;
+grant all on sequence public.account_members_id_seq to authenticated;
+grant all on sequence public.account_members_id_seq to service_role;
+
+revoke all on sequence public.children_id_seq from anon;
+grant all on sequence public.children_id_seq to authenticated;
+grant all on sequence public.children_id_seq to service_role;
+
+revoke all on sequence public.shadchanim_id_seq from anon;
+grant all on sequence public.shadchanim_id_seq to authenticated;
+grant all on sequence public.shadchanim_id_seq to service_role;
+
+revoke all on sequence public.references_id_seq from anon;
+grant all on sequence public.references_id_seq to authenticated;
+grant all on sequence public.references_id_seq to service_role;
+
+revoke all on sequence public.shidduchim_id_seq from anon;
+grant all on sequence public.shidduchim_id_seq to authenticated;
+grant all on sequence public.shidduchim_id_seq to service_role;
+
+revoke all on sequence public.resumes_id_seq from anon;
+grant all on sequence public.resumes_id_seq to authenticated;
+grant all on sequence public.resumes_id_seq to service_role;
+
+revoke all on sequence public.reference_links_id_seq from anon;
+grant all on sequence public.reference_links_id_seq to authenticated;
+grant all on sequence public.reference_links_id_seq to service_role;
+
+revoke all on sequence public.date_records_id_seq from anon;
+grant all on sequence public.date_records_id_seq to authenticated;
+grant all on sequence public.date_records_id_seq to service_role;
+
+revoke all on sequence public.redts_id_seq from anon;
+grant all on sequence public.redts_id_seq to authenticated;
+grant all on sequence public.redts_id_seq to service_role;
+
+revoke all on sequence public.shidduch_schools_id_seq from anon;
+grant all on sequence public.shidduch_schools_id_seq to authenticated;
+grant all on sequence public.shidduch_schools_id_seq to service_role;
+
+-- Function grants (execute for authenticated + service_role, never anon).
+-- current_account_id() is SECURITY DEFINER, so anon must never execute it.
+revoke all on function public.current_account_id() from anon;
+grant execute on function public.current_account_id() to authenticated;
+grant execute on function public.current_account_id() to service_role;
+
+revoke all on function public.is_child_visible_state(public.pipeline_state) from anon;
+grant execute on function public.is_child_visible_state(public.pipeline_state) to authenticated;
+grant execute on function public.is_child_visible_state(public.pipeline_state) to service_role;
+
+revoke all on function public.enforce_pipeline_transition() from anon;
+grant execute on function public.enforce_pipeline_transition() to authenticated;
+grant execute on function public.enforce_pipeline_transition() to service_role;
+
+revoke all on function public.set_account_id_default() from anon;
+grant execute on function public.set_account_id_default() to authenticated;
+grant execute on function public.set_account_id_default() to service_role;
+
+revoke all on function public.enforce_shidduch_initial_state() from anon;
+grant execute on function public.enforce_shidduch_initial_state() to authenticated;
+grant execute on function public.enforce_shidduch_initial_state() to service_role;
+
+revoke all on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) from anon;
+grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) to authenticated;
+grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) to service_role;
+
+revoke all on function public.transition_shidduch(bigint, public.pipeline_state, public.pipeline_state, text) from anon;
+grant execute on function public.transition_shidduch(bigint, public.pipeline_state, public.pipeline_state, text) to authenticated;
+grant execute on function public.transition_shidduch(bigint, public.pipeline_state, public.pipeline_state, text) to service_role;
+
+revoke all on function public.refresh_shidduch_redt_summary() from anon;
+grant execute on function public.refresh_shidduch_redt_summary() to authenticated;
+grant execute on function public.refresh_shidduch_redt_summary() to service_role;
+
+revoke all on function public.add_redt(bigint, bigint, date, text) from anon;
+grant execute on function public.add_redt(bigint, bigint, date, text) to authenticated;
+grant execute on function public.add_redt(bigint, bigint, date, text) to service_role;
+
+revoke all on function public.add_school(bigint, text, text, text, integer, integer) from anon;
+grant execute on function public.add_school(bigint, text, text, text, integer, integer) to authenticated;
+grant execute on function public.add_school(bigint, text, text, text, integer, integer) to service_role;

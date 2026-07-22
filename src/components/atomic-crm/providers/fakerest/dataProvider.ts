@@ -9,16 +9,27 @@ import {
 import fakeRestDataProvider from "ra-data-fakerest";
 
 import type {
+  AddRedtInput,
+  AddSchoolInput,
   Company,
   Contact,
   ContactNote,
+  CreateShidduchInput,
   Deal,
   DealNote,
+  PipelineState,
   Sale,
   SalesFormData,
+  Shidduch,
+  ShidduchSchool,
   SignUpData,
   Task,
 } from "../../types";
+import {
+  INITIAL_PIPELINE_STATES,
+  isValidTransition,
+  PIPELINE_TRANSITIONS,
+} from "../../shidduchim/pipelineStates";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
 import { getActivityLog } from "../commons/activity";
 import { getCompanyAvatar } from "../commons/getCompanyAvatar";
@@ -167,6 +178,170 @@ export const createDataProvider = ({
     });
   };
 
+  // Emulate the shidduchim_summary view (AD-10 FakeRest mirror): enrich each
+  // shidduch with its shadchan name ("via {shadchan}"), child names, and
+  // reference count, joining the in-memory tables.
+  const enrichShidduchim = async (rows: any[]) => {
+    if (rows.length === 0) return rows;
+    const [
+      { data: shadchanim },
+      { data: children },
+      refLinksResult,
+      redtsResult,
+    ] = await Promise.all([
+      baseDataProvider.getList("shadchanim", {
+        filter: {},
+        pagination: { page: 1, perPage: 10_000 },
+        sort: { field: "id", order: "ASC" },
+      }),
+      baseDataProvider.getList("children", {
+        filter: {},
+        pagination: { page: 1, perPage: 10_000 },
+        sort: { field: "id", order: "ASC" },
+      }),
+      baseDataProvider
+        .getList("reference_links", {
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        })
+        .catch(() => ({ data: [] as any[] })),
+      baseDataProvider
+        .getList("redts", {
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        })
+        .catch(() => ({ data: [] as any[] })),
+    ]);
+    const shadchanById = new Map(shadchanim.map((s: any) => [s.id, s]));
+    const childById = new Map(children.map((c: any) => [c.id, c]));
+    const refLinks = refLinksResult.data;
+    const redts = redtsResult.data;
+    return rows.map((row: any) => {
+      const sh = shadchanById.get(row.shadchan_id);
+      const c = childById.get(row.child_id);
+      return {
+        ...row,
+        shadchan_name: sh?.name ?? null,
+        shadchan_name_he: sh?.name_he ?? null,
+        child_first_name_en: c?.first_name_en ?? null,
+        child_first_name_he: c?.first_name_he ?? null,
+        child_last_name_en: c?.last_name_en ?? null,
+        child_last_name_he: c?.last_name_he ?? null,
+        nb_references: refLinks.filter((rl: any) => rl.shidduchim_id === row.id)
+          .length,
+        nb_redts: redts.filter((r: any) => r.shidduchim_id === row.id).length,
+      };
+    });
+  };
+
+  // FakeRest mirror of refresh_shidduch_redt_summary(): recompute a shidduch's
+  // redt_date (= latest), shadchan_id (= latest redt's shadchan), and
+  // first_suggested_by/at (= earliest) from its redt history.
+  const recomputeShidduchRedtSummary = async (shidduchId: Identifier) => {
+    const { data: redts } = await baseDataProvider.getList("redts", {
+      filter: { shidduchim_id: shidduchId },
+      pagination: { page: 1, perPage: 10_000 },
+      sort: { field: "id", order: "ASC" },
+    });
+    if (redts.length === 0) return;
+    const byDate = [...redts].sort(
+      (a: any, b: any) =>
+        a.redt_date.localeCompare(b.redt_date) || Number(a.id) - Number(b.id),
+    );
+    const first = byDate[0];
+    const last = byDate[byDate.length - 1];
+    const { data: shidduch } = await baseDataProvider.getOne("shidduchim", {
+      id: shidduchId,
+    });
+    await baseDataProvider.update("shidduchim", {
+      id: shidduchId,
+      data: {
+        redt_date: last.redt_date,
+        shadchan_id: last.shadchan_id ?? null,
+        first_suggested_by: first.shadchan_id ?? null,
+        first_suggested_at: `${first.redt_date}T00:00:00.000Z`,
+      },
+      previousData: shidduch,
+    });
+  };
+
+  // The SOLE INSERT path into shidduchim (AD-4 invariant 1) — FakeRest mirror of
+  // the create_shidduch RPC. Validates the initial state and resolves the
+  // account from the child so account_id is always populated. Used by both
+  // the createShidduch method and the create() override below.
+  const createShidduchImpl = async (
+    input: CreateShidduchInput,
+  ): Promise<Shidduch> => {
+    const initialState: PipelineState = input.initial_state ?? "new";
+    if (!INITIAL_PIPELINE_STATES.includes(initialState)) {
+      throw new Error(
+        `invalid initial pipeline_state: ${initialState} (decision states are reachable only from look_into)`,
+      );
+    }
+    const { data: child } = await baseDataProvider.getOne("children", {
+      id: input.child_id,
+    });
+    const now = new Date().toISOString();
+    const { data } = await baseDataProvider.create("shidduchim", {
+      data: {
+        account_id: child?.account_id ?? 1,
+        child_id: input.child_id,
+        shadchan_id: input.shadchan_id ?? null,
+        name_en: input.name_en ?? null,
+        name_he: input.name_he ?? null,
+        parents_en: input.parents_en ?? null,
+        parents_he: input.parents_he ?? null,
+        seminary_en: input.seminary_en ?? null,
+        seminary_he: input.seminary_he ?? null,
+        shul_en: input.shul_en ?? null,
+        shul_he: input.shul_he ?? null,
+        location_en: input.location_en ?? null,
+        location_he: input.location_he ?? null,
+        age: input.age ?? null,
+        height: input.height ?? null,
+        pipeline_state: initialState,
+        first_suggested_by: input.shadchan_id ?? null,
+        first_suggested_at: now,
+        redt_date: input.redt_date ?? now.split("T")[0],
+        close_reason: null,
+        origin: input.origin ?? "manual",
+        owner_member_id: null,
+        visibility: input.visibility ?? "shared",
+        index: 0,
+        created_at: now,
+      },
+    });
+    // Record the first redt event so the redt history starts at creation.
+    await baseDataProvider.create("redts", {
+      data: {
+        account_id: child?.account_id ?? 1,
+        shidduchim_id: (data as Shidduch).id,
+        shadchan_id: input.shadchan_id ?? null,
+        redt_date: input.redt_date ?? now.split("T")[0],
+        note: null,
+        created_at: now,
+      },
+    });
+    // Record the headline seminary/yeshiva as the first school (kind by gender).
+    if (input.seminary_en || input.seminary_he) {
+      await baseDataProvider.create("shidduch_schools", {
+        data: {
+          account_id: child?.account_id ?? 1,
+          shidduchim_id: (data as Shidduch).id,
+          kind: child?.gender === "male" ? "seminary" : "yeshiva",
+          name_en: input.seminary_en ?? null,
+          name_he: input.seminary_he ?? null,
+          start_year: null,
+          end_year: null,
+          created_at: now,
+        },
+      });
+    }
+    return data as Shidduch;
+  };
+
   const dataProviderWithCustomMethod: CrmDataProvider = {
     ...baseDataProvider,
     async getList(resource: string, params: any) {
@@ -181,7 +356,22 @@ export const createDataProvider = ({
         const start = (page - 1) * perPage;
         return { data: all.slice(start, start + perPage), total: all.length };
       }
+      if (resource === "shidduchim" || resource === "shidduchim_summary") {
+        const { data, total } = await baseDataProvider.getList(
+          "shidduchim",
+          params,
+        );
+        return { data: await enrichShidduchim(data), total };
+      }
       return baseDataProvider.getList(resource, params);
+    },
+    async getOne(resource: string, params: any) {
+      if (resource === "shidduchim" || resource === "shidduchim_summary") {
+        const { data } = await baseDataProvider.getOne("shidduchim", params);
+        const [enriched] = await enrichShidduchim([data]);
+        return { data: enriched };
+      }
+      return baseDataProvider.getOne(resource, params);
     },
     unarchiveDeal: async (deal: Deal) => {
       // get all deals where stage is the same as the deal to unarchive
@@ -296,6 +486,106 @@ export const createDataProvider = ({
     },
     mergeContacts: async (sourceId: Identifier, targetId: Identifier) => {
       return mergeContacts(sourceId, targetId, baseDataProvider);
+    },
+    // The SOLE INSERT path into shidduchim (AD-4 invariant 1) — the reusable
+    // primitive a future fileInboxItem() wraps. The board's create form calls
+    // this directly; raw dataProvider.create("shidduchim") is never used by the UI.
+    createShidduch: createShidduchImpl,
+    // The SOLE writer of pipeline_state (AD-4 invariant 2) — FakeRest mirror of
+    // transition_shidduch. Enforces the transitions-as-data graph with the same
+    // optimistic-concurrency check as Postgres.
+    transitionShidduch: async (
+      id: Identifier,
+      from: PipelineState,
+      to: PipelineState,
+      closeReason?: string,
+    ): Promise<Shidduch> => {
+      const { data: current } = await baseDataProvider.getOne("shidduchim", {
+        id,
+      });
+      if (!current) {
+        throw new Error(`shidduch ${id} not found`);
+      }
+      if (current.pipeline_state !== from) {
+        throw new Error(
+          `stale transition: shidduch ${id} is in state ${current.pipeline_state}, not ${from}`,
+        );
+      }
+      if (from === to) {
+        return current as Shidduch;
+      }
+      if (!isValidTransition(from, to)) {
+        throw new Error(`illegal pipeline transition: ${from} -> ${to}`);
+      }
+      const isTerminal = !PIPELINE_TRANSITIONS.some((t) => t.from_state === to);
+      const { data } = await baseDataProvider.update("shidduchim", {
+        id,
+        data: {
+          pipeline_state: to,
+          close_reason: isTerminal
+            ? (closeReason ?? current.close_reason ?? null)
+            : null,
+        },
+        previousData: current,
+      });
+      return data as Shidduch;
+    },
+    // Append a redt (same or different shadchan, new date) — FakeRest mirror of
+    // the add_redt RPC. Recomputes the shidduch's redt summary (redt_date =
+    // latest) just like the Postgres trigger, then returns the refreshed row.
+    addRedt: async (input: AddRedtInput): Promise<Shidduch> => {
+      // getList (not getOne) so a missing id yields [] instead of throwing a
+      // generic error — mirrors add_redt's "shidduch % not found".
+      const { data: matches } = await baseDataProvider.getList("shidduchim", {
+        filter: { id: input.shidduchim_id },
+        pagination: { page: 1, perPage: 1 },
+        sort: { field: "id", order: "ASC" },
+      });
+      const shidduch = matches[0];
+      if (!shidduch) {
+        throw new Error(`shidduch ${input.shidduchim_id} not found`);
+      }
+      const now = new Date().toISOString();
+      await baseDataProvider.create("redts", {
+        data: {
+          account_id: shidduch.account_id,
+          shidduchim_id: input.shidduchim_id,
+          shadchan_id: input.shadchan_id ?? null,
+          redt_date: input.redt_date ?? now.split("T")[0],
+          note: input.note ?? null,
+          created_at: now,
+        },
+      });
+      await recomputeShidduchRedtSummary(input.shidduchim_id);
+      const { data: refreshed } = await baseDataProvider.getOne("shidduchim", {
+        id: input.shidduchim_id,
+      });
+      return refreshed as Shidduch;
+    },
+    // Link a school/seminary/yeshiva to a shidduch — FakeRest mirror of add_school.
+    addSchool: async (input: AddSchoolInput): Promise<ShidduchSchool> => {
+      const { data: matches } = await baseDataProvider.getList("shidduchim", {
+        filter: { id: input.shidduchim_id },
+        pagination: { page: 1, perPage: 1 },
+        sort: { field: "id", order: "ASC" },
+      });
+      const shidduch = matches[0];
+      if (!shidduch) {
+        throw new Error(`shidduch ${input.shidduchim_id} not found`);
+      }
+      const { data } = await baseDataProvider.create("shidduch_schools", {
+        data: {
+          account_id: shidduch.account_id,
+          shidduchim_id: input.shidduchim_id,
+          kind: input.kind ?? "seminary",
+          name_en: input.name_en ?? null,
+          name_he: input.name_he ?? null,
+          start_year: input.start_year ?? null,
+          end_year: input.end_year ?? null,
+          created_at: new Date().toISOString(),
+        },
+      });
+      return data as ShidduchSchool;
     },
     getConfiguration: async (): Promise<ConfigurationContextValue> => {
       const { data } = await baseDataProvider.getOne("configuration", {

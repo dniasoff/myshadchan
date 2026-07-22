@@ -7,6 +7,8 @@ import { TextInput } from "@/components/admin/text-input";
 import { Notification } from "@/components/admin/notification";
 import { useConfigurationContext } from "@/components/atomic-crm/root/ConfigurationContext.tsx";
 import { SSOAuthButton } from "./SSOAuthButton";
+import { GoogleSignInButton } from "./GoogleSignInButton";
+import { AuthHero, LedgerMark } from "./AuthHero";
 
 /**
  * Login page displayed when authentication is enabled and the user is not authenticated.
@@ -18,12 +20,8 @@ import { SSOAuthButton } from "./SSOAuthButton";
  * @see {@link https://marmelab.com/shadcn-admin-kit/docs/security Security documentation}
  */
 export const LoginPage = (props: { redirectTo?: string }) => {
-  const {
-    darkModeLogo,
-    title,
-    googleWorkplaceDomain,
-    disableEmailPasswordAuthentication,
-  } = useConfigurationContext();
+  const { googleWorkplaceDomain, disableEmailPasswordAuthentication } =
+    useConfigurationContext();
   const { redirectTo } = props;
   const [loading, setLoading] = useState(false);
   const hasDisplayedRecoveryNotification = useRef(false);
@@ -89,68 +87,101 @@ export const LoginPage = (props: { redirectTo?: string }) => {
       });
   };
 
+  const googleEnabled = import.meta.env.VITE_ENABLE_GOOGLE_OAUTH === "true";
+
   return (
-    <div className="min-h-screen flex">
-      <div className="relative grid w-full lg:grid-cols-2">
-        <div className="relative hidden h-full flex-col bg-muted p-10 text-white dark:border-r lg:flex">
-          <div className="absolute inset-0 bg-zinc-900" />
-          <div className="relative z-20 flex items-center text-lg font-medium">
-            <img className="h-6 mr-2" src={darkModeLogo} alt={title} />
-            {title}
-          </div>
-        </div>
-        <div className="flex flex-col justify-center w-full p-4 lg:p-8">
-          <div className="w-full space-y-6 lg:mx-auto lg:w-[350px]">
-            <div className="text-center">
-              <h1 className="text-2xl font-semibold tracking-tight">
-                {translate("ra.auth.sign_in")}
-              </h1>
+    <div className="min-h-screen w-full lg:grid lg:grid-cols-[1.1fr_1fr]">
+      {/* Vibrant brand / hero panel */}
+      <AuthHero />
+
+      {/* ---------------- Sign-in panel ---------------- */}
+      <div className="flex min-h-screen flex-col justify-center bg-background p-6 lg:p-10">
+        <div className="mx-auto w-full max-w-sm space-y-6">
+          <div className="flex items-center gap-2 lg:hidden">
+            <div
+              className="grid h-9 w-9 place-items-center rounded-lg text-white"
+              style={{ background: "var(--primary)" }}
+            >
+              <LedgerMark className="h-5 w-5" />
             </div>
-            {disableEmailPasswordAuthentication ? null : (
-              <Form className="space-y-8" onSubmit={handleSubmit}>
-                <TextInput
-                  label="ra.auth.email"
-                  source="email"
-                  type="email"
-                  validate={required()}
-                />
-                <TextInput
-                  label="ra.auth.password"
-                  source="password"
-                  type="password"
-                  validate={required()}
-                />
-                <div className="flex flex-col gap-4">
-                  <Button
-                    type="submit"
-                    className="cursor-pointer"
-                    disabled={loading}
-                  >
-                    {translate("ra.auth.sign_in")}
-                  </Button>
-                </div>
-              </Form>
-            )}
-            {googleWorkplaceDomain ? (
-              <SSOAuthButton className="w-full" domain={googleWorkplaceDomain}>
-                {translate("crm.auth.sign_in_google_workspace", {
-                  _: "Sign in with Google Workplace",
-                })}
-              </SSOAuthButton>
-            ) : null}
-            {disableEmailPasswordAuthentication ? null : (
-              <Link
-                to={"/forgot-password"}
-                className="block text-sm text-center hover:underline"
-              >
-                {translate("ra-supabase.auth.forgot_password", {
-                  _: "Forgot password?",
-                })}
-              </Link>
-            )}
+            <span className="text-lg font-bold tracking-tight">
+              My
+              <span style={{ color: "var(--primary)" }}>Shadchan</span>
+            </span>
           </div>
+
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">Welcome back</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Sign in to your shadchan book.
+            </p>
+          </div>
+
+          {googleEnabled || googleWorkplaceDomain ? (
+            <div className="space-y-3">
+              {googleEnabled ? <GoogleSignInButton className="w-full" /> : null}
+              {googleWorkplaceDomain ? (
+                <SSOAuthButton
+                  className="w-full"
+                  domain={googleWorkplaceDomain}
+                >
+                  {translate("crm.auth.sign_in_google_workspace", {
+                    _: "Sign in with Google Workplace",
+                  })}
+                </SSOAuthButton>
+              ) : null}
+              {disableEmailPasswordAuthentication ? null : (
+                <div className="relative py-1">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center">
+                    <span className="bg-background px-2 text-xs uppercase tracking-wider text-muted-foreground">
+                      or continue with email
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {disableEmailPasswordAuthentication ? null : (
+            <Form className="space-y-5" onSubmit={handleSubmit}>
+              <TextInput
+                label="ra.auth.email"
+                source="email"
+                type="email"
+                validate={required()}
+              />
+              <TextInput
+                label="ra.auth.password"
+                source="password"
+                type="password"
+                validate={required()}
+              />
+              <Button
+                type="submit"
+                className="w-full cursor-pointer"
+                disabled={loading}
+              >
+                {translate("ra.auth.sign_in")}
+              </Button>
+            </Form>
+          )}
+
+          {disableEmailPasswordAuthentication ? null : (
+            <Link
+              to={"/forgot-password"}
+              className="block text-center text-sm text-muted-foreground hover:text-foreground hover:underline"
+            >
+              {translate("ra-supabase.auth.forgot_password", {
+                _: "Forgot password?",
+              })}
+            </Link>
+          )}
         </div>
       </div>
+
       <Notification />
     </div>
   );

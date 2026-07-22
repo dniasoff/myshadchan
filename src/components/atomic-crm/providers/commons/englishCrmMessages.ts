@@ -1,5 +1,47 @@
 export const englishCrmMessages = {
   resources: {
+    shidduchim: {
+      name: "Shidduch |||| Shidduchim",
+      forcedCaseName: "Shidduch",
+      fields: {
+        name_en: "Name (EN)",
+        name_he: "Name (HE)",
+        child_id: "Child",
+        shadchan_id: "Shadchan",
+        seminary_en: "Yeshiva / seminary",
+        location_en: "Location",
+        parents_en: "Parents",
+        shul_en: "Shul",
+        age: "Age",
+        height: "Height",
+        redt_date: "Redt date",
+        pipeline_state: "State",
+      },
+    },
+    children: {
+      name: "Child |||| Children",
+      forcedCaseName: "Child",
+      fields: {
+        first_name_en: "First name",
+        last_name_en: "Last name",
+        first_name_he: "First name (HE)",
+        last_name_he: "Last name (HE)",
+        community: "Community",
+        status: "Status",
+        gender: "Gender",
+      },
+    },
+    shadchanim: {
+      name: "Shadchan |||| Shadchanim",
+      forcedCaseName: "Shadchan",
+      fields: {
+        name: "Name",
+        name_he: "Name (HE)",
+        location: "Location",
+        responsiveness: "Responsiveness",
+        notes: "Notes",
+      },
+    },
     companies: {
       name: "Company |||| Companies",
       forcedCaseName: "Company",

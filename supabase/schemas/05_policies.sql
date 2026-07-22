@@ -67,3 +67,91 @@ create policy "Enable update for admins" on public.configuration for update to a
 
 -- Favicons excluded domains
 create policy "Enable access for authenticated users only" on public.favicons_excluded_domains to authenticated using (true) with check (true);
+
+--
+-- =====================================================================
+-- MyShadchan — Shidduchim pipeline RLS (AD-1)
+-- =====================================================================
+-- Every domain row is account-scoped via current_account_id(). Access is
+-- authenticated-only and deny-by-default for anon (no anon policy, and no
+-- anon grants — see 06_grants.sql). This is strictly stronger than the
+-- fork's using(true). Full FORCE RLS + multi-account current_account_ids()
+-- + CI RLS assertions are Epic-1 (deferred); the shape here lets that land
+-- WITHOUT a schema change.
+
+alter table public.accounts enable row level security;
+alter table public.account_members enable row level security;
+alter table public.children enable row level security;
+alter table public.shadchanim enable row level security;
+alter table public."references" enable row level security;
+alter table public.shidduchim enable row level security;
+alter table public.resumes enable row level security;
+alter table public.reference_links enable row level security;
+alter table public.date_records enable row level security;
+alter table public.redts enable row level security;
+alter table public.shidduch_schools enable row level security;
+alter table public.pipeline_transitions enable row level security;
+
+-- Accounts: a member sees only their own account.
+create policy "Account access scoped to member" on public.accounts
+    for all to authenticated
+    using (id = public.current_account_id())
+    with check (id = public.current_account_id());
+
+-- Account members: scoped to the caller's account. NOTE the reserved
+-- `shadchan` role is granted nothing beyond this baseline in v1 (AD-2).
+create policy "Account members scoped to account" on public.account_members
+    for all to authenticated
+    using (account_id = public.current_account_id())
+    with check (account_id = public.current_account_id());
+
+create policy "Children scoped to account" on public.children
+    for all to authenticated
+    using (account_id = public.current_account_id())
+    with check (account_id = public.current_account_id());
+
+create policy "Shadchanim scoped to account" on public.shadchanim
+    for all to authenticated
+    using (account_id = public.current_account_id())
+    with check (account_id = public.current_account_id());
+
+create policy "References scoped to account" on public."references"
+    for all to authenticated
+    using (account_id = public.current_account_id())
+    with check (account_id = public.current_account_id());
+
+create policy "Shidduchim scoped to account" on public.shidduchim
+    for all to authenticated
+    using (account_id = public.current_account_id())
+    with check (account_id = public.current_account_id());
+
+create policy "Resumes scoped to account" on public.resumes
+    for all to authenticated
+    using (account_id = public.current_account_id())
+    with check (account_id = public.current_account_id());
+
+create policy "Reference links scoped to account" on public.reference_links
+    for all to authenticated
+    using (account_id = public.current_account_id())
+    with check (account_id = public.current_account_id());
+
+create policy "Date records scoped to account" on public.date_records
+    for all to authenticated
+    using (account_id = public.current_account_id())
+    with check (account_id = public.current_account_id());
+
+create policy "Redts scoped to account" on public.redts
+    for all to authenticated
+    using (account_id = public.current_account_id())
+    with check (account_id = public.current_account_id());
+
+create policy "Shidduch schools scoped to account" on public.shidduch_schools
+    for all to authenticated
+    using (account_id = public.current_account_id())
+    with check (account_id = public.current_account_id());
+
+-- Pipeline transitions are static, non-tenant reference data (the legal
+-- state graph). Read-only for authenticated users; seeded by migration.
+create policy "Pipeline transitions readable" on public.pipeline_transitions
+    for select to authenticated
+    using (true);

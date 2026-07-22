@@ -7,12 +7,18 @@ import {
   type ResourceCallbacks,
 } from "ra-core";
 import type {
+  AddRedtInput,
+  AddSchoolInput,
   ContactNote,
+  CreateShidduchInput,
   Deal,
   DealNote,
+  PipelineState,
   RAFile,
   Sale,
   SalesFormData,
+  Shidduch,
+  ShidduchSchool,
   SignUpData,
 } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
@@ -44,6 +50,42 @@ const processCompanyLogo = async (params: any) => {
   };
 };
 
+// The SOLE INSERT path into shidduchim (AD-4 invariant 1): the create_shidduch
+// RPC. The board's create form calls dataProvider.createShidduch() directly;
+// the UI never issues a raw dataProvider.create("shidduchim"). At the DB, a
+// BEFORE INSERT trigger (enforce_shidduch_initial_state) additionally blocks
+// creating a row straight into a decision state.
+const createShidduchViaRpc = async (
+  input: CreateShidduchInput,
+): Promise<Shidduch> => {
+  const { data, error } = await getSupabaseClient().rpc("create_shidduch", {
+    p_child_id: input.child_id,
+    p_shadchan_id: input.shadchan_id ?? null,
+    p_name_en: input.name_en ?? null,
+    p_name_he: input.name_he ?? null,
+    p_parents_en: input.parents_en ?? null,
+    p_parents_he: input.parents_he ?? null,
+    p_seminary_en: input.seminary_en ?? null,
+    p_seminary_he: input.seminary_he ?? null,
+    p_shul_en: input.shul_en ?? null,
+    p_shul_he: input.shul_he ?? null,
+    p_location_en: input.location_en ?? null,
+    p_location_he: input.location_he ?? null,
+    p_age: input.age ?? null,
+    p_height: input.height ?? null,
+    p_origin: input.origin ?? "manual",
+    p_initial_state: input.initial_state ?? "new",
+    p_visibility: input.visibility ?? "shared",
+    p_redt_date: input.redt_date ?? null,
+  });
+  if (error) {
+    console.error("createShidduch.error", error);
+    throw new Error(error.message || "Failed to create shidduch");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return row as Shidduch;
+};
+
 const getDataProviderWithCustomMethods = () => {
   const baseDataProvider = getBaseDataProvider();
 
@@ -55,6 +97,10 @@ const getDataProviderWithCustomMethods = () => {
       }
       if (resource === "contacts") {
         return baseDataProvider.getList("contacts_summary", params);
+      }
+      if (resource === "shidduchim") {
+        // Board list/detail reads go through the summary view (AD-10).
+        return baseDataProvider.getList("shidduchim_summary", params);
       }
       if (resource === "activity_log") {
         const { data, total } = await baseDataProvider.getList(
@@ -82,6 +128,9 @@ const getDataProviderWithCustomMethods = () => {
       }
       if (resource === "contacts") {
         return baseDataProvider.getOne("contacts_summary", params);
+      }
+      if (resource === "shidduchim") {
+        return baseDataProvider.getOne("shidduchim_summary", params);
       }
 
       return baseDataProvider.getOne(resource, params);
@@ -224,6 +273,69 @@ const getDataProviderWithCustomMethods = () => {
       }
 
       return data;
+    },
+    // The SOLE INSERT path into shidduchim (AD-4 invariant 1) — the reusable
+    // primitive a future fileInboxItem() (Epic-6) wraps. Backed by the
+    // create_shidduch RPC; see createShidduchViaRpc above.
+    createShidduch: createShidduchViaRpc,
+    // The SOLE writer of pipeline_state (AD-4 invariant 2). Calls the
+    // transition_shidduch RPC, which enforces the transitions-as-data graph.
+    async transitionShidduch(
+      id: Identifier,
+      from: PipelineState,
+      to: PipelineState,
+      closeReason?: string,
+    ): Promise<Shidduch> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "transition_shidduch",
+        {
+          p_id: id,
+          p_from: from,
+          p_to: to,
+          p_close_reason: closeReason ?? null,
+        },
+      );
+      if (error) {
+        console.error("transitionShidduch.error", error);
+        throw new Error(error.message || "Failed to move shidduch");
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return row as Shidduch;
+    },
+    // Append a redt to a shidduch (same or different shadchan, new date). The DB
+    // trigger keeps shidduchim.redt_date (= latest) in sync. Returns the
+    // refreshed shidduch.
+    async addRedt(input: AddRedtInput): Promise<Shidduch> {
+      const { data, error } = await getSupabaseClient().rpc("add_redt", {
+        p_shidduchim_id: input.shidduchim_id,
+        p_shadchan_id: input.shadchan_id ?? null,
+        p_redt_date: input.redt_date ?? null,
+        p_note: input.note ?? null,
+      });
+      if (error) {
+        console.error("addRedt.error", error);
+        throw new Error(error.message || "Failed to add redt");
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return row as Shidduch;
+    },
+    // Link a school/seminary/yeshiva (with optional years) to a shidduch. A
+    // single can have several. Returns the created school row.
+    async addSchool(input: AddSchoolInput): Promise<ShidduchSchool> {
+      const { data, error } = await getSupabaseClient().rpc("add_school", {
+        p_shidduchim_id: input.shidduchim_id,
+        p_kind: input.kind ?? "seminary",
+        p_name_en: input.name_en ?? null,
+        p_name_he: input.name_he ?? null,
+        p_start_year: input.start_year ?? null,
+        p_end_year: input.end_year ?? null,
+      });
+      if (error) {
+        console.error("addSchool.error", error);
+        throw new Error(error.message || "Failed to add school");
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return row as ShidduchSchool;
     },
     async getConfiguration(): Promise<ConfigurationContextValue> {
       const { data } = await baseDataProvider.getOne("configuration", {

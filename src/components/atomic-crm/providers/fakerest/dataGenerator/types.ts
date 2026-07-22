@@ -1,10 +1,22 @@
 import type {
+  Account,
+  AccountMember,
+  Child,
   Company,
   Contact,
   ContactNote,
+  DateRecord,
   Deal,
   DealNote,
+  PipelineTransition,
+  Redt,
+  Reference,
+  ReferenceLink,
+  Resume,
   Sale,
+  Shadchan,
+  Shidduch,
+  ShidduchSchool,
   Tag,
   Task,
 } from "../../../types";
@@ -20,4 +32,17 @@ export interface Db {
   tags: Tag[];
   tasks: Task[];
   configuration: Array<{ id: number; config: ConfigurationContextValue }>;
+  // Shidduchim pipeline domain
+  accounts: Account[];
+  account_members: AccountMember[];
+  children: Child[];
+  shadchanim: Shadchan[];
+  references: Reference[];
+  shidduchim: Shidduch[];
+  resumes: Resume[];
+  reference_links: ReferenceLink[];
+  date_records: DateRecord[];
+  redts: Redt[];
+  shidduch_schools: ShidduchSchool[];
+  pipeline_transitions: PipelineTransition[];
 }
