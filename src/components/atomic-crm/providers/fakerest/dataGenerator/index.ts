@@ -4,6 +4,7 @@ import { generateContacts } from "./contacts";
 import { generateDealNotes } from "./dealNotes";
 import { generateDeals } from "./deals";
 import { finalize } from "./finalize";
+import { generateReferencesDomain } from "./references";
 import { generateSales } from "./sales";
 import { generateShidduchimDomain } from "./shidduchim";
 import { generateTags } from "./tags";
@@ -28,6 +29,9 @@ export default (): Db => {
   ];
   // Shidduchim pipeline domain (accounts, children, shadchanim, shidduchim, ...)
   generateShidduchimDomain(db);
+  // References domain (references, reference_links, interactions, reference
+  // tasks) -- runs after shidduchim so it can link against real shidduchim ids.
+  generateReferencesDomain(db);
   finalize(db);
 
   return db;

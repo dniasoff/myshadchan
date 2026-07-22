@@ -24,6 +24,8 @@ const Header = () => {
     currentPath = "/shadchanim";
   } else if (matchPath("/children/*", location.pathname)) {
     currentPath = "/children";
+  } else if (matchPath("/references/*", location.pathname)) {
+    currentPath = "/references";
   } else if (matchPath("/contacts/*", location.pathname)) {
     currentPath = "/contacts";
   } else if (matchPath("/companies/*", location.pathname)) {
@@ -86,6 +88,17 @@ const Header = () => {
                     })}
                     to="/children"
                     isActive={currentPath === "/children"}
+                  />
+                  {/* References are a main entity, not a tile inside one
+                      shidduch: the same person is asked about many singles, so
+                      the book has to be reachable on its own. */}
+                  <NavigationTab
+                    label={translate("resources.references.name", {
+                      smart_count: 2,
+                      _: "References",
+                    })}
+                    to="/references"
+                    isActive={currentPath === "/references"}
                   />
                   <NavigationTab
                     label={translate("resources.contacts.name", {

@@ -133,3 +133,44 @@ create or replace trigger set_shidduch_schools_account_id
 create or replace trigger refresh_shidduch_redts
     after insert or update or delete on public.redts
     for each row execute function public.refresh_shidduch_redt_summary();
+
+-- References epic: server-set match keys, shared identity signals, and the
+-- polymorphic cascade. The SPA never normalizes and never writes match keys.
+create or replace trigger set_reference_norms_trigger
+    before insert or update on public."references"
+    for each row execute function public.set_reference_norms();
+
+create or replace trigger sync_reference_signals
+    after insert or update on public."references"
+    for each row execute function public.sync_reference_identity_signals();
+
+create or replace trigger purge_reference_dependents
+    before delete on public."references"
+    for each row execute function public.purge_polymorphic_dependents('reference');
+
+-- Second caller of the shared identity service (AD-5).
+create or replace trigger sync_shidduch_signals
+    after insert or update on public.shidduchim
+    for each row execute function public.sync_shidduch_identity_signals();
+
+create or replace trigger purge_shidduch_dependents
+    before delete on public.shidduchim
+    for each row execute function public.purge_polymorphic_dependents('shidduch');
+
+-- Polymorphic tasks (AD-13): account_id server-set, and the legacy contact_id
+-- kept in lockstep with target_type/target_id.
+create or replace trigger set_tasks_account_id
+    before insert on public.tasks
+    for each row execute function public.set_account_id_default();
+
+create or replace trigger sync_task_target_trigger
+    before insert or update on public.tasks
+    for each row execute function public.sync_task_target();
+
+create or replace trigger set_interactions_account_id
+    before insert on public.interactions
+    for each row execute function public.set_account_id_default();
+
+create or replace trigger set_identity_signals_account_id
+    before insert on public.identity_signals
+    for each row execute function public.set_account_id_default();

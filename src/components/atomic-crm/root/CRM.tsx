@@ -21,6 +21,7 @@ import contacts from "../contacts";
 import { Dashboard } from "../dashboard/Dashboard";
 import { MobileDashboard } from "../dashboard/MobileDashboard";
 import deals from "../deals";
+import references from "../references";
 import shadchanim from "../shadchanim";
 import shidduchim from "../shidduchim";
 import { Layout } from "../layout/Layout";
@@ -271,6 +272,9 @@ const DesktopAdmin = (
       <Resource name="shidduchim" {...shidduchim} />
       <Resource name="children" {...children} />
       <Resource name="shadchanim" {...shadchanim} />
+      <Resource name="references" {...references} />
+      <Resource name="reference_links" />
+      <Resource name="interactions" />
       <Resource name="redts" />
       <Resource name="shidduch_schools" />
       <Resource name="deals" {...deals} />
@@ -340,6 +344,9 @@ const MobileAdmin = (
         <Resource name="shidduchim" {...shidduchim} />
         <Resource name="children" {...children} />
         <Resource name="shadchanim" {...shadchanim} />
+        <Resource name="references" {...references} />
+        <Resource name="reference_links" />
+        <Resource name="interactions" />
         <Resource
           name="contacts"
           list={ContactListMobile}

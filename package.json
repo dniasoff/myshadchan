@@ -7,6 +7,7 @@
     "test:unit:claude": "vitest --config vitest.config.ts --project claude",
     "test:unit:functions": "vitest --config vitest.config.ts --project functions",
     "test:unit:workers": "vitest --config vitest.config.ts --project workers",
+    "test:unit:db": "vitest --config vitest.config.ts --project db",
     "dev": "vite --force",
     "dev:demo": "vite --config vite.demo.config --force",
     "build": "tsc && vite build",

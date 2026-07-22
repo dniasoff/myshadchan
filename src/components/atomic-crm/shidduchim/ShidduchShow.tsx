@@ -28,6 +28,7 @@ import type {
 } from "../types";
 import { formatRedtDate } from "./boardUtils";
 import { getPipelineStateDef } from "./pipelineStates";
+import { ShidduchReferencesSection } from "../references/ShidduchReferencesSection";
 
 const SCHOOL_KIND_CHOICES = [
   { id: "seminary", name: "Seminary" },
@@ -262,6 +263,8 @@ const ShidduchShowContent = ({ id }: { id: Identifier }) => {
           ))}
         </ul>
       </section>
+
+      <ShidduchReferencesSection shidduchimId={id} />
 
       <section>
         <h3 className="mb-2 text-sm font-semibold">Add a redt</h3>

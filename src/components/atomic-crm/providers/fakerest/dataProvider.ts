@@ -17,7 +17,14 @@ import type {
   CreateShidduchInput,
   Deal,
   DealNote,
+  LinkReferenceInput,
+  LogReferenceCallInput,
+  MatchReferenceInput,
+  MergeResolution,
   PipelineState,
+  ReferenceLink,
+  ReferenceMatchCandidate,
+  ReferenceMergePreview,
   Sale,
   SalesFormData,
   Shidduch,
@@ -43,6 +50,19 @@ import {
 import generateData from "./dataGenerator";
 import type { Db } from "./dataGenerator/types";
 import { withSupabaseFilterAdapter } from "./internal/supabaseAdapter";
+import {
+  linkReferenceToShidduch,
+  logReferenceCall,
+} from "./internal/referenceLinks";
+import { matchReferenceOnEntry } from "./internal/referenceMatch";
+import {
+  mergeReferences,
+  previewReferenceMerge,
+} from "./internal/referenceMerge";
+import {
+  enrichReferenceLinks,
+  enrichReferences,
+} from "./internal/referenceSummary";
 
 const TASK_MARKED_AS_DONE = "TASK_MARKED_AS_DONE";
 const TASK_MARKED_AS_UNDONE = "TASK_MARKED_AS_UNDONE";
@@ -149,6 +169,46 @@ const preserveAttachmentMimeType = <
     type: attachment.type ?? attachment.rawFile?.type,
   })),
 });
+
+/**
+ * FakeRest mirror of the database's structural guarantees on `interactions`
+ * (AD-3). Postgres enforces these with CHECK constraints and a revoked DELETE
+ * grant; without the same rules here, demo mode would happily accept rows the
+ * real backend rejects, and the demo would teach the wrong thing.
+ *
+ *   scope 'shidduch' + target 'reference' -> must carry a reference_link_id
+ *   scope 'shidduch' + target 'shidduch'  -> the target IS the parent, no link
+ *   scope 'account'                       -> reference-targeted only, no link
+ */
+const assertValidInteraction = (data: {
+  target_type?: string;
+  scope?: string;
+  reference_link_id?: unknown;
+}) => {
+  const targetType = data.target_type ?? "reference";
+  const scope = data.scope ?? "account";
+  const hasLink = data.reference_link_id != null;
+
+  if (scope !== "shidduch" && scope !== "account") {
+    throw new Error(`invalid interaction scope: ${scope}`);
+  }
+  if (targetType !== "reference" && targetType !== "shidduch") {
+    throw new Error(`invalid interaction target_type: ${targetType}`);
+  }
+
+  const valid =
+    (scope === "shidduch" && targetType === "reference" && hasLink) ||
+    (scope === "shidduch" && targetType === "shidduch" && !hasLink) ||
+    (scope === "account" && targetType === "reference" && !hasLink);
+
+  if (!valid) {
+    throw new Error(
+      "an interaction must declare which parent its visibility derives from: " +
+        `scope=${scope}, target_type=${targetType}, ` +
+        `reference_link_id=${hasLink ? "set" : "null"}`,
+    );
+  }
+};
 
 export const createDataProvider = ({
   db = generateData(),
@@ -363,6 +423,29 @@ export const createDataProvider = ({
         );
         return { data: await enrichShidduchim(data), total };
       }
+      // Emulate the references_summary / reference_links_summary views
+      // (AD-10 FakeRest mirror) the same way shidduchim_summary is emulated
+      // above: fetch the raw rows, then join in the computed fields.
+      if (resource === "references" || resource === "references_summary") {
+        const { data, total } = await baseDataProvider.getList(
+          "references",
+          params,
+        );
+        return { data: await enrichReferences(baseDataProvider, data), total };
+      }
+      if (
+        resource === "reference_links" ||
+        resource === "reference_links_summary"
+      ) {
+        const { data, total } = await baseDataProvider.getList(
+          "reference_links",
+          params,
+        );
+        return {
+          data: await enrichReferenceLinks(baseDataProvider, data),
+          total,
+        };
+      }
       return baseDataProvider.getList(resource, params);
     },
     async getOne(resource: string, params: any) {
@@ -371,7 +454,65 @@ export const createDataProvider = ({
         const [enriched] = await enrichShidduchim([data]);
         return { data: enriched };
       }
+      if (resource === "references" || resource === "references_summary") {
+        const { data } = await baseDataProvider.getOne("references", params);
+        const [enriched] = await enrichReferences(baseDataProvider, [data]);
+        return { data: enriched };
+      }
+      if (
+        resource === "reference_links" ||
+        resource === "reference_links_summary"
+      ) {
+        const { data } = await baseDataProvider.getOne(
+          "reference_links",
+          params,
+        );
+        const [enriched] = await enrichReferenceLinks(baseDataProvider, [data]);
+        return { data: enriched };
+      }
       return baseDataProvider.getOne(resource, params);
+    },
+    async create(resource: string, params: any) {
+      if (resource === "interactions") {
+        assertValidInteraction(params.data ?? {});
+      }
+      return baseDataProvider.create(resource, params);
+    },
+    async update(resource: string, params: any) {
+      if (resource === "interactions") {
+        // The structural columns are not client-writable in Postgres
+        // (column-level UPDATE is revoked), so they are not writable here.
+        const structural = [
+          "scope",
+          "reference_link_id",
+          "target_type",
+          "target_id",
+          "account_id",
+        ] as const;
+        const previous = params.previousData ?? {};
+        for (const column of structural) {
+          if (
+            params.data?.[column] !== undefined &&
+            params.data[column] !== previous[column]
+          ) {
+            throw new Error(
+              `interactions.${column} cannot be changed after the fact`,
+            );
+          }
+        }
+      }
+      return baseDataProvider.update(resource, params);
+    },
+    async delete(resource: string, params: any) {
+      if (resource === "interactions") {
+        // DELETE is revoked on interactions in Postgres: the diligence timeline
+        // is append-only. Removing a whole conversation means deleting its
+        // reference_link, which takes its own log with it.
+        throw new Error(
+          "the diligence timeline is append-only; delete the reference link instead",
+        );
+      }
+      return baseDataProvider.delete(resource, params);
     },
     unarchiveDeal: async (deal: Deal) => {
       // get all deals where stage is the same as the deal to unarchive
@@ -587,6 +728,32 @@ export const createDataProvider = ({
       });
       return data as ShidduchSchool;
     },
+    // ---------------------------------------------------------------------
+    // References (FR20, FR39-43) -- FakeRest mirrors of the RPCs/edge function
+    // in providers/supabase/dataProvider.ts. Match-on-entry is FREE and never
+    // gated by subscription state, same as the Supabase side.
+    // ---------------------------------------------------------------------
+    matchReferenceOnEntry: (
+      input: MatchReferenceInput,
+    ): Promise<ReferenceMatchCandidate[]> =>
+      matchReferenceOnEntry(baseDataProvider, input),
+    linkReferenceToShidduch: (
+      input: LinkReferenceInput,
+    ): Promise<ReferenceLink> =>
+      linkReferenceToShidduch(baseDataProvider, input),
+    logReferenceCall: (input: LogReferenceCallInput): Promise<ReferenceLink> =>
+      logReferenceCall(baseDataProvider, input),
+    previewReferenceMerge: (
+      loserId: Identifier,
+      winnerId: Identifier,
+    ): Promise<ReferenceMergePreview> =>
+      previewReferenceMerge(baseDataProvider, loserId, winnerId),
+    mergeReferences: (
+      loserId: Identifier,
+      winnerId: Identifier,
+      resolutions: Record<string, MergeResolution> = {},
+    ): Promise<Identifier> =>
+      mergeReferences(baseDataProvider, loserId, winnerId, resolutions),
     getConfiguration: async (): Promise<ConfigurationContextValue> => {
       const { data } = await baseDataProvider.getOne("configuration", {
         id: 1,

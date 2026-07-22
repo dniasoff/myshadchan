@@ -66,6 +66,64 @@ async function updateSaleAvatar(user_id: string, avatar: string) {
   return sales.at(0);
 }
 
+/**
+ * Binds an invited user to the inviter's account.
+ *
+ * current_account_id() fails closed, so a user with no account_members row can
+ * log in and then find a completely empty, unwritable app. Creating the auth
+ * user is therefore only half of an invite — this is the other half.
+ *
+ * Deliberately narrow, pending the real invite-token flow (AD-11, Epic-1):
+ *  - the account comes from the INVITER's membership, never from the request;
+ *  - the role is always 'helper', the least-privileged role. parent_admin and
+ *    the reserved shadchan role are never grantable through this path, so a
+ *    request body cannot escalate anyone;
+ *  - it is idempotent, so re-inviting an existing member changes nothing.
+ */
+async function provisionAccountMembership(
+  inviterUserId: string,
+  newUserId: string,
+) {
+  const { data: inviterMembership } = await supabaseAdmin
+    .from("account_members")
+    .select("id, account_id")
+    .eq("user_id", inviterUserId)
+    .eq("status", "active")
+    .order("id")
+    .limit(1)
+    .maybeSingle();
+
+  if (!inviterMembership) {
+    // The inviter has no membership either, so there is no account to bind to.
+    // Better to leave the invitee unprovisioned than to guess an account.
+    console.error(
+      `Cannot provision membership: inviter ${inviterUserId} has no active account_members row`,
+    );
+    return;
+  }
+
+  const { data: existing } = await supabaseAdmin
+    .from("account_members")
+    .select("id")
+    .eq("user_id", newUserId)
+    .limit(1);
+
+  if (existing?.length) return;
+
+  const { error } = await supabaseAdmin.from("account_members").insert({
+    account_id: inviterMembership.account_id,
+    user_id: newUserId,
+    role: "helper",
+    status: "active",
+    invited_by: inviterMembership.id,
+  });
+
+  if (error) {
+    console.error("Error provisioning account membership:", error);
+    throw error;
+  }
+}
+
 async function inviteUser(req: Request, currentUserSale: any) {
   const { email, password, first_name, last_name, disabled, administrator } =
     await req.json();
@@ -123,6 +181,8 @@ async function inviteUser(req: Request, currentUserSale: any) {
         administrator,
       });
 
+      await provisionAccountMembership(currentUserSale.user_id, user.id);
+
       return new Response(
         JSON.stringify({
           data: sale,
@@ -161,6 +221,7 @@ async function inviteUser(req: Request, currentUserSale: any) {
   }
 
   try {
+    await provisionAccountMembership(currentUserSale.user_id, user.id);
     await updateSaleDisabled(user.id, disabled);
     const sale = await updateSaleAdministrator(user.id, administrator);
 

@@ -4,8 +4,6 @@ import type {
   Child,
   DateRecord,
   Redt,
-  Reference,
-  ReferenceLink,
   Resume,
   Shadchan,
   Shidduch,
@@ -403,10 +401,11 @@ export const generateShidduchimDomain = (db: Db) => {
   db.account_members = account_members;
   db.children = childrenSeed;
   db.shadchanim = shadchanimSeed;
-  db.references = [] as Reference[];
   db.shidduchim = shidduchim;
   db.resumes = [] as Resume[];
-  db.reference_links = [] as ReferenceLink[];
+  // db.references / db.reference_links / db.interactions are seeded by
+  // generateReferencesDomain() (references.ts), which runs after this module
+  // so it can point reference_links.shidduchim_id at real shidduchim ids.
   db.date_records = [] as DateRecord[];
   db.redts = redts;
   db.shidduch_schools = shidduchSchools;

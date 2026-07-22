@@ -144,13 +144,28 @@ export type Tag = {
   color: string;
 };
 
+/**
+ * Tasks/reminders. Widened from contacts-only to the AD-13 polymorphic shape so
+ * a reminder can hang off a shadchan, a shidduch or a reference (FR44-46).
+ * `contact_id` is retained for the legacy contacts UI and is kept in step with
+ * target_type/target_id by a database trigger — set either, never both.
+ */
+export type TaskTargetType = "contact" | "shadchan" | "shidduch" | "reference";
+
+/** Delivery is in-app + email (primary) + push. There is deliberately no SMS. */
+export type TaskDeliveryChannel = "in_app" | "email" | "push";
+
 export type Task = {
-  contact_id: Identifier;
+  contact_id?: Identifier | null;
   type: string;
   text: string;
   due_date: string;
   done_date?: string | null;
   sales_id?: Identifier;
+  account_id?: Identifier;
+  target_type?: TaskTargetType;
+  target_id?: Identifier;
+  delivery_channels?: TaskDeliveryChannel[];
 } & Pick<RaRecord, "id">;
 
 export type ActivityCompanyCreated = {
@@ -292,7 +307,22 @@ export type Reference = {
   school?: string | null;
   grad_year?: number | null;
   created_at: string;
+  /**
+   * Match keys, set by the database's normalize trigger. Read-only to the SPA:
+   * the client never normalizes and never writes these (AD-5).
+   */
+  name_norm_en?: string | null;
+  name_norm_he?: string | null;
+  phone_norm?: string | null;
 } & Pick<RaRecord, "id">;
+
+/** references_summary — the reference book's list read path (AD-10). */
+export type ReferenceSummary = Reference & {
+  linked_shidduchim_count: number;
+  contacted_count: number;
+  last_conversation_at?: string | null;
+  open_task_count: number;
+};
 
 /** The central object (AD-4): one child, one canonical pipeline_state. */
 export type Shidduch = {
@@ -417,16 +447,172 @@ export type Resume = {
   created_at: string;
 } & Pick<RaRecord, "id">;
 
+/** The four call outcomes a shadchan actually records (FR40), plus "not started". */
+export const CALL_STATUSES = [
+  "not_started",
+  "answered",
+  "no_answer",
+  "call_back",
+  "they_will_call_back",
+] as const;
+
+export type CallStatus = (typeof CALL_STATUSES)[number];
+
+/** One entry appended to reference_links.conversation_log by log_reference_call. */
+export type ConversationLogEntry = {
+  at: string;
+  call_status?: CallStatus | null;
+  text?: string | null;
+  /** "manual" = the capture screen, "assistant" = the guided call script. */
+  source: "manual" | "assistant";
+  member_id?: Identifier | null;
+};
+
 export type ReferenceLink = {
   account_id: Identifier;
   reference_id: Identifier;
   shidduchim_id?: Identifier | null;
   resume_id?: Identifier | null;
-  call_status?: string | null;
+  call_status?: CallStatus | null;
   what_they_said?: string | null;
-  conversation_log?: unknown;
+  conversation_log?: ConversationLogEntry[] | null;
+  /**
+   * The same person can be "the shul rabbi" for one shidduch and "a family
+   * friend" for another. Null falls back to references.relationship.
+   */
+  relationship_override?: string | null;
   created_at: string;
 } & Pick<RaRecord, "id">;
+
+/**
+ * reference_links_summary — one row per reference<->shidduch conversation.
+ * Serves both the per-shidduch call-log cards and the repeat-recognition panel.
+ */
+export type ReferenceLinkSummary = ReferenceLink & {
+  effective_relationship?: string | null;
+  conversation_log_count: number;
+  reference_name_en?: string | null;
+  reference_name_he?: string | null;
+  reference_phone?: string | null;
+  shidduch_name_en?: string | null;
+  shidduch_name_he?: string | null;
+  shidduch_pipeline_state?: PipelineState | null;
+  shidduch_visibility?: string | null;
+  child_id?: Identifier | null;
+  child_first_name_en?: string | null;
+  child_first_name_he?: string | null;
+};
+
+/** Polymorphic interaction timeline (AD-13). A note is just kind === "note". */
+export type InteractionKind =
+  | "note"
+  | "call_logged"
+  | "status_change"
+  | "merge"
+  | "link_created"
+  | "link_removed";
+
+/**
+ * Which parent an interaction derives its visibility from (AD-3). Not a
+ * visibility value: "shidduch" means look it up by joining to the parent
+ * shidduch, "account" means there is no shidduch parent to look up. The database
+ * rejects a row that is neither, so no interaction can escape both checks.
+ */
+export type InteractionScope = "shidduch" | "account";
+
+export type Interaction = {
+  account_id: Identifier;
+  target_type: "reference" | "shidduch";
+  target_id: Identifier;
+  scope: InteractionScope;
+  /** Required when scope is "shidduch", forbidden when it is "account". */
+  reference_link_id?: Identifier | null;
+  actor_member_id?: Identifier | null;
+  kind: InteractionKind;
+  body?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
+ * One deciding fact behind a match candidate. The matcher never returns a bare
+ * boolean — the user is shown WHY two records look like the same person and
+ * decides for themselves (AD-5).
+ */
+export type MatchDecidingFact = {
+  signal: "phone" | "name" | "parents" | "school" | "shul" | "location";
+  detail: string;
+};
+
+/** A candidate returned by match-on-entry, complete enough to render as a card. */
+export type ReferenceMatchCandidate = {
+  reference_id: Identifier;
+  confidence: number;
+  deciding_facts: MatchDecidingFact[];
+  name_en?: string | null;
+  name_he?: string | null;
+  phone?: string | null;
+  relationship?: string | null;
+  school?: string | null;
+  grad_year?: number | null;
+  linked_shidduchim_count: number;
+};
+
+export type MatchReferenceInput = {
+  name_en?: string | null;
+  name_he?: string | null;
+  phone?: string | null;
+  school?: string | null;
+  /** Excluded from its own candidate list when re-matching an existing row. */
+  exclude_id?: Identifier | null;
+};
+
+export type LinkReferenceInput = {
+  reference_id: Identifier;
+  shidduchim_id: Identifier;
+  relationship_override?: string | null;
+};
+
+export type LogReferenceCallInput = {
+  reference_link_id: Identifier;
+  call_status?: CallStatus | null;
+  what_they_said?: string | null;
+  source?: "manual" | "assistant";
+};
+
+/**
+ * How the user resolved one same-shidduch collision during a merge. This case
+ * has no equivalent for contacts, and the merge refuses to run until every
+ * collision has an answer.
+ */
+export type MergeResolution = "winner" | "loser" | "both";
+
+export type ReferenceMergeCollision = {
+  shidduchim_id: Identifier;
+  shidduch_name_en?: string | null;
+  shidduch_name_he?: string | null;
+  loser_link: {
+    id: Identifier;
+    call_status?: CallStatus | null;
+    what_they_said?: string | null;
+    conversation_log_count: number;
+  };
+  winner_link: {
+    id: Identifier;
+    call_status?: CallStatus | null;
+    what_they_said?: string | null;
+    conversation_log_count: number;
+  };
+};
+
+export type ReferenceMergePreview = {
+  loser: Reference;
+  winner: Reference;
+  reference_links_count: number;
+  interactions_count: number;
+  open_tasks_count: number;
+  collisions: ReferenceMergeCollision[];
+};
 
 export type DateRecord = {
   account_id: Identifier;

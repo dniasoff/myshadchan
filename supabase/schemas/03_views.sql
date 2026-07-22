@@ -179,3 +179,69 @@ from public.shidduchim s
     left join public.reference_links rl on rl.shidduchim_id = s.id
     left join public.redts r on r.shidduchim_id = s.id
 group by s.id, sh.name, sh.name_he, c.first_name_en, c.first_name_he, c.last_name_en, c.last_name_he;
+
+-- The reference book's list read path (AD-10, mirrors contacts_summary /
+-- shidduchim_summary). Every count the list row shows comes from here, so the
+-- list never N+1-fetches links, interactions and tasks per reference.
+-- security_invoker keeps base-table RLS — including the join-to-parent
+-- visibility on interactions — applying to the caller.
+create or replace view public.references_summary with (security_invoker = on) as
+select
+    r.id,
+    r.account_id,
+    r.created_at,
+    r.name_en,
+    r.name_he,
+    r.relationship,
+    r.phone,
+    r.school,
+    r.grad_year,
+    r.name_norm_en,
+    r.name_norm_he,
+    r.phone_norm,
+    count(distinct rl.shidduchim_id) as linked_shidduchim_count,
+    count(distinct rl.id) filter (
+        where rl.call_status in ('answered', 'they_will_call_back')
+    ) as contacted_count,
+    max(i.created_at) filter (where i.kind = 'call_logged') as last_conversation_at,
+    count(distinct t.id) filter (where t.done_date is null) as open_task_count
+from public."references" r
+    left join public.reference_links rl on rl.reference_id = r.id
+    left join public.interactions i on i.target_type = 'reference' and i.target_id = r.id
+    left join public.tasks t on t.target_type = 'reference' and t.target_id = r.id
+group by r.id;
+
+-- One row per reference<->shidduch conversation. Serves BOTH renderings of the
+-- same data: the per-shidduch call-log cards on a reference's detail page, and
+-- the repeat-recognition panel ("you've spoken to them about N other singles").
+-- effective_relationship resolves the per-link override against the reference's
+-- own default, so the same person can read "shul rabbi" on one card and "family
+-- friend" on another.
+create or replace view public.reference_links_summary with (security_invoker = on) as
+select
+    rl.id,
+    rl.account_id,
+    rl.created_at,
+    rl.reference_id,
+    rl.shidduchim_id,
+    rl.resume_id,
+    rl.call_status,
+    rl.what_they_said,
+    rl.conversation_log,
+    rl.relationship_override,
+    coalesce(rl.relationship_override, r.relationship) as effective_relationship,
+    coalesce(jsonb_array_length(rl.conversation_log), 0) as conversation_log_count,
+    r.name_en as reference_name_en,
+    r.name_he as reference_name_he,
+    r.phone as reference_phone,
+    s.name_en as shidduch_name_en,
+    s.name_he as shidduch_name_he,
+    s.pipeline_state as shidduch_pipeline_state,
+    s.visibility as shidduch_visibility,
+    s.child_id,
+    c.first_name_en as child_first_name_en,
+    c.first_name_he as child_first_name_he
+from public.reference_links rl
+    left join public."references" r on r.id = rl.reference_id
+    left join public.shidduchim s on s.id = rl.shidduchim_id
+    left join public.children c on c.id = s.child_id;

@@ -12,9 +12,12 @@ import react from "@vitejs/plugin-react";
 //                  installed npm equivalents. Aliases are scoped to this project.
 //   - "workers":   Cloudflare Workers (Hono) unit tests, plain Node — Hono apps
 //                  are tested via app.request()/app.fetch(), no Workers runtime needed.
+//   - "db":        SQL-level tests (RLS, triggers, SECURITY DEFINER boundaries) run
+//                  through psql against the local Supabase stack. Skips itself when
+//                  the database is unreachable.
 // Run everything with `npm run test:unit:app`, or a single suite with
 // `npm run test:unit:claude` / `npm run test:unit:functions` / `npm run test:unit:workers`
-// (none of the latter three boot a browser).
+// / `npm run test:unit:db` (none of the latter four boot a browser).
 export default defineConfig({
   test: {
     projects: [
@@ -114,6 +117,18 @@ export default defineConfig({
           environment: "node",
           include: ["workers/**/*.test.ts"],
           exclude: ["**/node_modules/**"],
+        },
+      },
+      {
+        test: {
+          name: "db",
+          globals: true,
+          environment: "node",
+          include: ["supabase/tests/**/*.test.ts"],
+          exclude: ["**/node_modules/**"],
+          // These shell out to psql against the local stack.
+          testTimeout: 120000,
+          hookTimeout: 120000,
         },
       },
     ],

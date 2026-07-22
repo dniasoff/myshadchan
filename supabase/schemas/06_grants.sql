@@ -323,3 +323,192 @@ grant execute on function public.add_redt(bigint, bigint, date, text) to service
 revoke all on function public.add_school(bigint, text, text, text, integer, integer) from public, anon;
 grant execute on function public.add_school(bigint, text, text, text, integer, integer) to authenticated;
 grant execute on function public.add_school(bigint, text, text, text, integer, integer) to service_role;
+
+-- References epic: new tables, views and functions. anon is revoked everywhere,
+-- exactly as for the rest of the shidduchim domain.
+-- interactions is the diligence audit timeline. Two grants are deliberately
+-- withheld from authenticated:
+--   TRUNCATE, because it bypasses RLS entirely — one statement from any
+--     authenticated session would wipe every tenant's notes and call history.
+--   DELETE, because a call log somebody can quietly erase row by row is worth
+--     much less than one they cannot. Removing a whole conversation is still
+--     possible by deleting its reference_link, which is an explicit, visible
+--     action that takes the link's own log with it.
+revoke all on table public.interactions from anon, authenticated;
+grant select, insert, update on table public.interactions to authenticated;
+grant all on table public.interactions to service_role;
+
+-- identity_signals is deliberately SELECT-only for authenticated: it is written
+-- by the SECURITY DEFINER sync triggers, never by a client. A client able to
+-- write its own match keys could redirect matchIdentity() at any row. The
+-- revoke names `authenticated` explicitly so the schema's default privileges
+-- cannot leave TRUNCATE behind on a table nobody should be able to empty.
+revoke all on table public.identity_signals from anon, authenticated;
+grant select on table public.identity_signals to authenticated;
+grant all on table public.identity_signals to service_role;
+
+-- tasks became account-scoped and reference-targetable in this epic, so it can
+-- no longer inherit the fork's blanket anon grant — nor keep the schema
+-- default's TRUNCATE, which bypasses RLS across every tenant.
+revoke all on table public.tasks from anon, authenticated;
+grant select, insert, update, delete on table public.tasks to authenticated;
+grant all on table public.tasks to service_role;
+
+-- Read paths only. Both views aggregate or join several relations, so they are
+-- not auto-updatable and a write grant would only be a misleading promise.
+revoke all on table public.references_summary from anon, authenticated;
+grant select on table public.references_summary to authenticated;
+grant all on table public.references_summary to service_role;
+
+revoke all on table public.reference_links_summary from anon, authenticated;
+grant select on table public.reference_links_summary to authenticated;
+grant all on table public.reference_links_summary to service_role;
+
+revoke all on sequence public.interactions_id_seq from anon;
+grant all on sequence public.interactions_id_seq to authenticated;
+grant all on sequence public.interactions_id_seq to service_role;
+
+revoke all on sequence public.identity_signals_id_seq from anon, authenticated;
+grant all on sequence public.identity_signals_id_seq to service_role;
+
+revoke all on sequence public.tasks_id_seq from anon;
+grant all on sequence public.tasks_id_seq to authenticated;
+grant all on sequence public.tasks_id_seq to service_role;
+
+-- Identity/normalization functions.
+revoke all on function public.normalize_identity_text(text) from public, anon;
+grant execute on function public.normalize_identity_text(text) to authenticated;
+grant execute on function public.normalize_identity_text(text) to service_role;
+
+revoke all on function public.normalize_phone(text) from public, anon;
+grant execute on function public.normalize_phone(text) to authenticated;
+grant execute on function public.normalize_phone(text) to service_role;
+
+revoke all on function public.identity_name_key(text) from public, anon;
+grant execute on function public.identity_name_key(text) to authenticated;
+grant execute on function public.identity_name_key(text) to service_role;
+
+revoke all on function public.match_identity(text, text, text, text, text, text, text, text, bigint) from public, anon;
+grant execute on function public.match_identity(text, text, text, text, text, text, text, text, bigint) to authenticated;
+grant execute on function public.match_identity(text, text, text, text, text, text, text, text, bigint) to service_role;
+
+revoke all on function public.match_reference_on_entry(text, text, text, text, bigint) from public, anon;
+grant execute on function public.match_reference_on_entry(text, text, text, text, bigint) to authenticated;
+grant execute on function public.match_reference_on_entry(text, text, text, text, bigint) to service_role;
+
+-- Trigger functions: never executable by anon.
+revoke all on function public.set_reference_norms() from public, anon;
+grant execute on function public.set_reference_norms() to authenticated;
+grant execute on function public.set_reference_norms() to service_role;
+
+revoke all on function public.sync_reference_identity_signals() from public, anon;
+grant execute on function public.sync_reference_identity_signals() to authenticated;
+grant execute on function public.sync_reference_identity_signals() to service_role;
+
+revoke all on function public.sync_shidduch_identity_signals() from public, anon;
+grant execute on function public.sync_shidduch_identity_signals() to authenticated;
+grant execute on function public.sync_shidduch_identity_signals() to service_role;
+
+revoke all on function public.purge_polymorphic_dependents() from public, anon;
+grant execute on function public.purge_polymorphic_dependents() to authenticated;
+grant execute on function public.purge_polymorphic_dependents() to service_role;
+
+revoke all on function public.sync_task_target() from public, anon;
+grant execute on function public.sync_task_target() to authenticated;
+grant execute on function public.sync_task_target() to service_role;
+
+-- Reference write paths.
+revoke all on function public.link_reference_to_shidduch(bigint, bigint, text) from public, anon;
+grant execute on function public.link_reference_to_shidduch(bigint, bigint, text) to authenticated;
+grant execute on function public.link_reference_to_shidduch(bigint, bigint, text) to service_role;
+
+revoke all on function public.log_reference_call(bigint, text, text, text) from public, anon;
+grant execute on function public.log_reference_call(bigint, text, text, text) to authenticated;
+grant execute on function public.log_reference_call(bigint, text, text, text) to service_role;
+
+revoke all on function public.preview_reference_merge(bigint, bigint) from public, anon;
+grant execute on function public.preview_reference_merge(bigint, bigint) to authenticated;
+grant execute on function public.preview_reference_merge(bigint, bigint) to service_role;
+
+revoke all on function public.merge_references(bigint, bigint, jsonb) from public, anon;
+grant execute on function public.merge_references(bigint, bigint, jsonb) to authenticated;
+grant execute on function public.merge_references(bigint, bigint, jsonb) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- TRUNCATE/MAINTAIN hardening across the shidduchim domain.
+--
+-- The fork's default privileges grant every new table's full privilege set to
+-- anon and authenticated, and the pipeline epic's `grant all` re-added it. That
+-- leaves TRUNCATE, which BYPASSES ROW LEVEL SECURITY: one statement from any
+-- authenticated session empties a table for every tenant at once. `db diff`
+-- cannot see MAINTAIN at all, so this drift is invisible to the migration
+-- generator and has to be stated explicitly.
+--
+-- Revoke-all-then-regrant is deliberate: naming individual privileges misses
+-- whichever ones a future Postgres adds.
+-- ---------------------------------------------------------------------------
+revoke all on table public.accounts from anon, authenticated;
+grant select, insert, update, delete on table public.accounts to authenticated;
+
+revoke all on table public.account_members from anon, authenticated;
+grant select, insert, update, delete on table public.account_members to authenticated;
+
+revoke all on table public.children from anon, authenticated;
+grant select, insert, update, delete on table public.children to authenticated;
+
+revoke all on table public.shadchanim from anon, authenticated;
+grant select, insert, update, delete on table public.shadchanim to authenticated;
+
+revoke all on table public."references" from anon, authenticated;
+grant select, insert, update, delete on table public."references" to authenticated;
+
+revoke all on table public.shidduchim from anon, authenticated;
+grant select, insert, update, delete on table public.shidduchim to authenticated;
+
+revoke all on table public.resumes from anon, authenticated;
+grant select, insert, update, delete on table public.resumes to authenticated;
+
+revoke all on table public.reference_links from anon, authenticated;
+grant select, insert, update, delete on table public.reference_links to authenticated;
+
+revoke all on table public.date_records from anon, authenticated;
+grant select, insert, update, delete on table public.date_records to authenticated;
+
+revoke all on table public.redts from anon, authenticated;
+grant select, insert, update, delete on table public.redts to authenticated;
+
+revoke all on table public.shidduch_schools from anon, authenticated;
+grant select, insert, update, delete on table public.shidduch_schools to authenticated;
+
+-- The three tables this epic added, restated here so the whole hardening rule
+-- reads in one place. interactions withholds DELETE as well (audit trail).
+revoke all on table public.interactions from anon, authenticated;
+grant select, insert, update on table public.interactions to authenticated;
+
+revoke all on table public.identity_signals from anon, authenticated;
+grant select on table public.identity_signals to authenticated;
+
+revoke all on table public.tasks from anon, authenticated;
+grant select, insert, update, delete on table public.tasks to authenticated;
+
+-- pipeline_transitions is static reference data (the legal state graph), read-only
+-- to clients. It was missed by the sweep above: TRUNCATE survived, and emptying it
+-- makes enforce_pipeline_transition() reject every state change for every tenant.
+revoke all on table public.pipeline_transitions from anon, authenticated;
+grant select on table public.pipeline_transitions to authenticated;
+
+-- The structural columns of `interactions` are not client-writable. A client
+-- that could rewrite scope/reference_link_id/target_* could move a candid note
+-- onto a different parent and change whose visibility it inherits. Editing what
+-- a note SAYS stays allowed; moving where it HANGS does not.
+revoke update on table public.interactions from authenticated;
+grant update (body, metadata) on table public.interactions to authenticated;
+
+revoke all on function public.rehome_reference_link_interactions(bigint, bigint) from public, anon;
+grant execute on function public.rehome_reference_link_interactions(bigint, bigint) to authenticated;
+grant execute on function public.rehome_reference_link_interactions(bigint, bigint) to service_role;
+
+revoke all on function public.rehome_reference_interactions(bigint, bigint) from public, anon;
+grant execute on function public.rehome_reference_interactions(bigint, bigint) to authenticated;
+grant execute on function public.rehome_reference_interactions(bigint, bigint) to service_role;
+

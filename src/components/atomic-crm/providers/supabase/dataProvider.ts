@@ -13,8 +13,15 @@ import type {
   CreateShidduchInput,
   Deal,
   DealNote,
+  LinkReferenceInput,
+  LogReferenceCallInput,
+  MatchReferenceInput,
+  MergeResolution,
   PipelineState,
   RAFile,
+  ReferenceLink,
+  ReferenceMatchCandidate,
+  ReferenceMergePreview,
   Sale,
   SalesFormData,
   Shidduch,
@@ -102,6 +109,16 @@ const getDataProviderWithCustomMethods = () => {
         // Board list/detail reads go through the summary view (AD-10).
         return baseDataProvider.getList("shidduchim_summary", params);
       }
+      if (resource === "references") {
+        // The reference book reads counts (linked shidduchim, open tasks, last
+        // conversation) from the summary view rather than N+1 fetching them.
+        return baseDataProvider.getList("references_summary", params);
+      }
+      if (resource === "reference_links") {
+        // Both the per-shidduch call-log cards and the repeat-recognition panel
+        // need the joined shidduch/child names, so they read the summary view.
+        return baseDataProvider.getList("reference_links_summary", params);
+      }
       if (resource === "activity_log") {
         const { data, total } = await baseDataProvider.getList(
           "activity_log",
@@ -131,6 +148,12 @@ const getDataProviderWithCustomMethods = () => {
       }
       if (resource === "shidduchim") {
         return baseDataProvider.getOne("shidduchim_summary", params);
+      }
+      if (resource === "references") {
+        return baseDataProvider.getOne("references_summary", params);
+      }
+      if (resource === "reference_links") {
+        return baseDataProvider.getOne("reference_links_summary", params);
       }
 
       return baseDataProvider.getOne(resource, params);
@@ -337,6 +360,133 @@ const getDataProviderWithCustomMethods = () => {
       const row = Array.isArray(data) ? data[0] : data;
       return row as ShidduchSchool;
     },
+    // ---------------------------------------------------------------------
+    // References (FR20, FR39-43). Match-on-entry is FREE and never gated by
+    // subscription state — do not add an entitlement check to any of these.
+    // ---------------------------------------------------------------------
+
+    /**
+     * Match-on-entry: given what the user has typed so far, ask the shared
+     * identity service whether this person is already in the book. The SPA
+     * passes raw strings — all normalization happens in the database (AD-5).
+     * Returns candidates with confidence and deciding facts; the user always
+     * confirms or dismisses. Nothing is ever linked automatically.
+     */
+    async matchReferenceOnEntry(
+      input: MatchReferenceInput,
+    ): Promise<ReferenceMatchCandidate[]> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "match_reference_on_entry",
+        {
+          p_name_en: input.name_en ?? null,
+          p_name_he: input.name_he ?? null,
+          p_phone: input.phone ?? null,
+          p_school: input.school ?? null,
+          p_exclude_id: input.exclude_id ?? null,
+        },
+      );
+      if (error) {
+        console.error("matchReferenceOnEntry.error", error);
+        throw new Error(error.message || "Failed to look for existing people");
+      }
+      return (data ?? []) as ReferenceMatchCandidate[];
+    },
+
+    /**
+     * The confirm half of match-on-entry: link the mention to the reference the
+     * user recognised, instead of creating a duplicate. Idempotent.
+     */
+    async linkReferenceToShidduch(
+      input: LinkReferenceInput,
+    ): Promise<ReferenceLink> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "link_reference_to_shidduch",
+        {
+          p_reference_id: input.reference_id,
+          p_shidduchim_id: input.shidduchim_id,
+          p_relationship_override: input.relationship_override ?? null,
+        },
+      );
+      if (error) {
+        console.error("linkReferenceToShidduch.error", error);
+        throw new Error(error.message || "Failed to link the reference");
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return row as ReferenceLink;
+    },
+
+    /**
+     * The one write path for call capture. The mid-call screen and the guided
+     * call script both come through here, so the assistant can never become a
+     * second, disconnected data path.
+     */
+    async logReferenceCall(
+      input: LogReferenceCallInput,
+    ): Promise<ReferenceLink> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "log_reference_call",
+        {
+          p_reference_link_id: input.reference_link_id,
+          p_call_status: input.call_status ?? null,
+          p_what_they_said: input.what_they_said ?? null,
+          p_source: input.source ?? "manual",
+        },
+      );
+      if (error) {
+        console.error("logReferenceCall.error", error);
+        throw new Error(error.message || "Failed to save the call");
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return row as ReferenceLink;
+    },
+
+    /**
+     * What a merge would do, before anything is destroyed. `collisions` is the
+     * case the contacts merge never has to handle: both duplicates hold a call
+     * log for the SAME shidduch. The UI must make the user resolve each one.
+     */
+    async previewReferenceMerge(
+      loserId: Identifier,
+      winnerId: Identifier,
+    ): Promise<ReferenceMergePreview> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "preview_reference_merge",
+        { p_loser_id: loserId, p_winner_id: winnerId },
+      );
+      if (error) {
+        console.error("previewReferenceMerge.error", error);
+        throw new Error(error.message || "Failed to prepare the merge");
+      }
+      return data as ReferenceMergePreview;
+    },
+
+    /**
+     * Merge two duplicate references. `resolutions` is keyed by shidduchim_id;
+     * the database refuses the merge if any collision is unanswered, rather than
+     * silently discarding one side's call log.
+     */
+    async mergeReferences(
+      loserId: Identifier,
+      winnerId: Identifier,
+      resolutions: Record<string, MergeResolution> = {},
+    ): Promise<Identifier> {
+      const { data, error } = await getSupabaseClient().functions.invoke(
+        "merge_references",
+        {
+          method: "POST",
+          body: { loserId, winnerId, resolutions },
+        },
+      );
+      if (error) {
+        console.error("merge_references.error", error);
+        throw new Error(
+          (data as { error?: string } | null)?.error ??
+            "Failed to merge references",
+        );
+      }
+      return (data as { winnerId: Identifier }).winnerId;
+    },
+
     async getConfiguration(): Promise<ConfigurationContextValue> {
       const { data } = await baseDataProvider.getOne("configuration", {
         id: 1,
@@ -463,6 +613,23 @@ const lifeCycleCallbacks: ResourceCallbacks[] = [
     resource: "deals",
     beforeGetList: async (params) => {
       return applyFullTextSearch(["name", "category", "description"])(params);
+    },
+  },
+  {
+    // The reference book's search. Searching the normalized columns as well as
+    // the raw ones is what makes it bilingual-tolerant: "Chaim" typed with or
+    // without punctuation, and either name script, reaches the same person.
+    resource: "references_summary",
+    beforeGetList: async (params) => {
+      return applyFullTextSearch([
+        "name_en",
+        "name_he",
+        "name_norm_en",
+        "name_norm_he",
+        "phone",
+        "school",
+        "relationship",
+      ])(params);
     },
   },
 ];

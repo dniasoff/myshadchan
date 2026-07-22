@@ -24,18 +24,12 @@ const OptionsField = (_props: { label?: string | boolean }) => {
   return (
     <div className="flex flex-row gap-1">
       {record.administrator && (
-        <Badge
-          variant="outline"
-          className="border-primary"
-        >
+        <Badge variant="outline" className="border-primary">
           {translate("resources.sales.fields.administrator")}
         </Badge>
       )}
       {record.disabled && (
-        <Badge
-          variant="outline"
-          className="border-attention"
-        >
+        <Badge variant="outline" className="border-attention">
           {translate("resources.sales.fields.disabled")}
         </Badge>
       )}

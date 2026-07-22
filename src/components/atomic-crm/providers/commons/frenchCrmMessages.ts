@@ -44,6 +44,22 @@ export const frenchCrmMessages = {
         notes: "Notes",
       },
     },
+    references: {
+      name: "Référence |||| Références",
+      forcedCaseName: "Référence",
+      fields: {
+        name_en: "Nom",
+        name_he: "Nom (HE)",
+        relationship: "Relation",
+        phone: "Téléphone",
+        school: "École",
+        grad_year: "Année de fin d'études",
+        linked_shidduchim_count: "Célibataires liés",
+        contacted_count: "Contactées",
+        last_conversation_at: "Dernière conversation",
+        open_task_count: "Rappels ouverts",
+      },
+    },
     companies: {
       name: "Entreprise |||| Entreprises",
       forcedCaseName: "Entreprise",
@@ -596,6 +612,138 @@ export const frenchCrmMessages = {
       title: "Profil",
       updated: "Votre profil a été mis à jour",
       update_error: "Une erreur s'est produite. Veuillez réessayer",
+    },
+    references: {
+      list: {
+        title: "Carnet de références",
+        search: "Rechercher un nom, un téléphone, une école...",
+        linkedTo: "Liée à",
+        linkedCount: "%{smart_count} célibataires",
+        openReminders: "Rappels",
+        hasOpenReminder: "A un rappel en attente",
+      },
+      header: {
+        progress: "%{contacted} conversations sur %{total} effectuées",
+        relationshipNote:
+          "Affichée par célibataire ci-dessous lorsqu'elle diffère.",
+      },
+      shidduch: {
+        empty: "Personne n'a encore été interrogé au sujet de ce célibataire.",
+        add: "Ajouter une référence",
+      },
+      tabs: {
+        conversations: "Conversations",
+        timeline: "Historique et notes",
+        reminders: "Rappels",
+        assistant: "Assistant",
+      },
+      match: {
+        title: "Vous avez peut-être déjà parlé à cette personne",
+        subtitle:
+          "La liaison regroupe au même endroit tout ce que vous savez déjà sur elle.",
+        confirm: "Oui, c'est %{name}",
+        dismiss: "Non, une autre personne",
+        why: "Pourquoi nous pensons cela",
+        alreadyLinked: "Déjà liée à %{smart_count} autres célibataires",
+        linked: "Liée à la personne que vous connaissez déjà.",
+        confidence: {
+          strong: "Correspondance forte",
+          likely: "Correspondance probable",
+          possible: "Correspondance possible",
+        },
+      },
+      callStatus: {
+        not_started: "Pas encore appelé",
+        answered: "A répondu",
+        no_answer: "Pas de réponse",
+        call_back: "À rappeler",
+        they_will_call_back: "Va rappeler",
+      },
+      call: {
+        about: "À propos de %{name}",
+        howDidItGo: "Comment s'est passé l'appel ?",
+        whatTheySaid: "Ce qu'elle a dit",
+        placeholder: "Écrivez autant ou aussi peu que vous voulez.",
+        save: "Enregistrer et ajouter au journal",
+        saved: "Ajouté au journal des appels.",
+        onACall: "En appel",
+      },
+      callLog: {
+        unlinked: "Non liée à un célibataire",
+        nothingYet: "Rien n'a encore été noté pour cette conversation.",
+        entries: "%{smart_count} entrées de journal",
+        viaAssistant: "via le script d'appel",
+        capture: "Enregistrer un appel",
+        empty: "Cette personne n'est encore liée à aucun célibataire.",
+      },
+      repeat: {
+        none: "Aucune autre conversation avec cette personne pour le moment.",
+        title:
+          "Vous avez parlé à %{name} au sujet de %{smart_count} autres célibataires",
+        progress: "%{contacted} de ces %{total} conversations ont eu lieu",
+      },
+      timeline: {
+        notePlaceholder: "Ajouter une note sur cette personne",
+        addNote: "Ajouter une note",
+        empty: "Rien ne s'est encore passé avec cette personne.",
+        kind: {
+          note: "Note",
+          call_logged: "Appel enregistré",
+          status_change: "Statut modifié",
+          merge: "Fusionnée",
+          link_created: "Liée à un célibataire",
+          link_removed: "Déliée d'un célibataire",
+        },
+      },
+      tasks: {
+        placeholder: "Me rappeler de...",
+        dueDate: "Date d'échéance",
+        add: "Ajouter un rappel",
+        empty: "Aucun rappel sur cette personne.",
+      },
+      merge: {
+        action: "Fusionner les doublons",
+        title: "Fusionner dans cette personne",
+        description:
+          "Tout ce qui appartient au doublon sera transféré vers %{name}. Cette action est irréversible.",
+        pick: "Quelle fiche est le doublon ?",
+        noCandidates: "Aucun doublon probable trouvé pour cette personne.",
+        keeping: "Conservée",
+        removing: "Supprimée",
+        moving:
+          "%{links} célibataires liés, %{interactions} entrées d'historique et %{tasks} rappels ouverts seront transférés.",
+        collisionsTitle:
+          "Les deux fiches ont un journal d'appels pour %{smart_count} des mêmes célibataires",
+        keepWinner: "Garder celle de la fiche conservée",
+        keepLoser: "Garder celle du doublon",
+        keepBoth: "Garder les deux",
+        nothingRecorded: "Rien n'a été noté",
+        nothingLost:
+          "Quel que soit votre choix, l'autre compte-rendu de l'appel est conservé dans l'historique.",
+        resolveFirst: "Résoudre d'abord %{smart_count} conflits",
+        confirm: "Fusionner, cette action est irréversible",
+        done: "Les deux fiches n'en forment plus qu'une.",
+      },
+      assistant: {
+        title: "Assistant de recherche",
+        paid: "Payant",
+        upsell:
+          "Des questions adaptées à chaque référence, un script d'appel guidé, et une synthèse de ce sur quoi tout le monde s'accorde et de ce qui manque encore.",
+        guardrail:
+          "Cet assistant organise ce que vous avez appris. Il ne juge jamais la compatibilité et ne suggère jamais de shidduch.",
+        questionsTitle: "Questions à poser à %{relationship}",
+        captureHint:
+          "Utilisez « Enregistrer un appel » sur n'importe quel célibataire lié pour noter les réponses au fur et à mesure.",
+        summaryTitle: "Parmi les références auxquelles vous avez parlé",
+        covered: "Abordé",
+        nothingCovered: "Rien n'a encore été noté.",
+        gaps: "Encore manquant",
+        noGaps: "Tous les sujets ont été abordés.",
+        contradiction: "Les références divergent",
+        contradictionDetail:
+          "%{warm} ont parlé chaleureusement et %{reserved} ont émis une réserve. Les deux méritent d'être lus en entier.",
+        outstanding: "%{smart_count} conversations n'ont pas encore eu lieu.",
+      },
     },
     validation: {
       invalid_url: "Doit être une URL valide",

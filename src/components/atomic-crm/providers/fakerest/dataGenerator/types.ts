@@ -8,6 +8,7 @@ import type {
   DateRecord,
   Deal,
   DealNote,
+  Interaction,
   PipelineTransition,
   Redt,
   Reference,
@@ -45,4 +46,5 @@ export interface Db {
   redts: Redt[];
   shidduch_schools: ShidduchSchool[];
   pipeline_transitions: PipelineTransition[];
+  interactions: Interaction[];
 }
