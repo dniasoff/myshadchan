@@ -8,6 +8,7 @@ import { Notification } from "@/components/admin/notification";
 import { useConfigurationContext } from "@/components/atomic-crm/root/ConfigurationContext.tsx";
 import { SSOAuthButton } from "./SSOAuthButton";
 import { GoogleSignInButton } from "./GoogleSignInButton";
+import { isGoogleOAuthEnabled } from "./googleOAuth";
 import { AuthHero, LedgerMark } from "./AuthHero";
 
 /**
@@ -87,7 +88,7 @@ export const LoginPage = (props: { redirectTo?: string }) => {
       });
   };
 
-  const googleEnabled = import.meta.env.VITE_ENABLE_GOOGLE_OAUTH === "true";
+  const googleEnabled = isGoogleOAuthEnabled();
 
   return (
     <div className="min-h-screen w-full lg:grid lg:grid-cols-[1.1fr_1fr]">

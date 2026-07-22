@@ -15,6 +15,7 @@ import { Notification } from "@/components/admin/notification";
 import { ConfirmationRequired } from "./ConfirmationRequired";
 import { SSOAuthButton } from "./SSOAuthButton";
 import { GoogleSignInButton } from "./GoogleSignInButton";
+import { isGoogleOAuthEnabled } from "./googleOAuth";
 import { AuthHero, LedgerMark } from "./AuthHero";
 
 export const SignupPage = () => {
@@ -96,7 +97,7 @@ export const SignupPage = () => {
     mutate(data);
   };
 
-  const googleEnabled = import.meta.env.VITE_ENABLE_GOOGLE_OAUTH === "true";
+  const googleEnabled = isGoogleOAuthEnabled();
 
   return (
     <div className="min-h-screen w-full lg:grid lg:grid-cols-[1.1fr_1fr]">

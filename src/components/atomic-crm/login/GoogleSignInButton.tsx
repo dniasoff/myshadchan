@@ -2,6 +2,7 @@ import { useState, type ComponentProps, type MouseEvent } from "react";
 import { useLogin, useNotify } from "ra-core";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { isGoogleOAuthEnabled } from "./googleOAuth";
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" className="size-4" aria-hidden="true">
@@ -25,9 +26,47 @@ const GoogleIcon = () => (
 );
 
 /**
+ * Reads the real error message off a rejected login() call, narrowing the
+ * `unknown` catch value safely (see .claude/rules/typescript.md). When the
+ * error carries no message of its own (e.g. the Google provider isn't
+ * enabled/configured on the Supabase instance), falls back to an intelligible,
+ * translatable default instead of the generic "ra.auth.sign_in_error" (whose
+ * copy — "Authentication failed, please retry" — wrongly implies retrying
+ * will help).
+ */
+function getOAuthErrorMessage(error: unknown): {
+  id: string;
+  defaultMessage?: string;
+} {
+  if (typeof error === "string" && error.length > 0) {
+    return { id: error, defaultMessage: error };
+  }
+  if (error instanceof Error && error.message) {
+    return { id: error.message, defaultMessage: error.message };
+  }
+  return {
+    id: "crm.auth.google_oauth_not_configured",
+    defaultMessage:
+      "Google sign-in is not configured. Ask an administrator to enable and configure the Google provider in Supabase.",
+  };
+}
+
+/**
  * Standard "Sign in with Google" (social OAuth via Supabase). Requires the
  * Google provider to be enabled in the Supabase dashboard. Distinct from
  * SSOAuthButton, which does enterprise SAML SSO by email domain.
+ *
+ * Note: supabase-js's signInWithOAuth() builds the redirect URL entirely
+ * client-side and navigates the browser away immediately — it never makes a
+ * network call first, so it cannot reject just because the provider is
+ * disabled/misconfigured server-side. In that case Supabase Auth itself
+ * (GoTrue) is what returns the error, on the page the browser lands on after
+ * the redirect. The catch handler below still covers every error this call
+ * *can* actually throw (network/client-side failures) and gives them a clear
+ * message instead of react-admin's generic default.
+ *
+ * Renders nothing unless `VITE_ENABLE_GOOGLE_OAUTH` is explicitly enabled, so a
+ * deployment without the provider configured shows no dead control.
  */
 export const GoogleSignInButton = ({
   children,
@@ -44,16 +83,16 @@ export const GoogleSignInButton = ({
     login(
       { oauthProvider: "google" },
       redirectTo ?? window.location.toString(),
-    ).catch((error) => {
+    ).catch((error: unknown) => {
       setIsPending(false);
-      notify(
-        typeof error === "string"
-          ? error
-          : (error?.message ?? "ra.auth.sign_in_error"),
-        { type: "error" },
-      );
+      const { id, defaultMessage } = getOAuthErrorMessage(error);
+      notify(id, { type: "error", messageArgs: { _: defaultMessage } });
     });
   };
+
+  if (!isGoogleOAuthEnabled()) {
+    return null;
+  }
 
   return (
     <Button

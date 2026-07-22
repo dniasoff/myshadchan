@@ -140,6 +140,25 @@ redirect_uri = ""
 # or any other third-party OIDC providers.
 url = ""
 
+[auth.external.google]
+# Kept `false` by default (mirroring [auth.external.apple] above), NOT env-var indirected:
+# the Supabase CLI parses `enabled` as a bool at config-load time, and "env(VAR)" as a bool
+# fails to parse and aborts `npx supabase start` entirely when VAR is unset (verified locally).
+# `enabled = true` with an unset client_id/secret does NOT abort the stack, but is worse than
+# `false`: GoTrue happily reports the provider as enabled and redirects the browser to Google
+# with the literal unexpanded string "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)" as the
+# client_id, so the user lands on Google's own "Error 401: invalid_client" page. With `false`,
+# an unconfigured local stack instead fails fast with a same-origin 400 from GoTrue itself
+# ({"msg":"Unsupported provider: provider is not enabled"}). To test Google sign-in locally,
+# flip this to `true` in your own uncommitted checkout and set the env vars below.
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+# DO NOT commit your OAuth provider secret to git. Use environment variable substitution instead:
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+# Overrides the default auth redirectUrl. Leave blank to use the project's default
+# ${API_URL}/auth/v1/callback (see doc/src/content/docs/developers/google-oauth.mdx).
+redirect_uri = ""
+
 [analytics]
 enabled = false
 port = 54327

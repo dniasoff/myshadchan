@@ -1,0 +1,62 @@
+---
+title: Google Sign-In (Social OAuth)
+description: This document explains how to configure "Sign in with Google" for Atomic CRM.
+---
+
+Atomic CRM can show a "Sign in with Google" button on the login page, backed by Supabase's standard social OAuth (`supabase.auth.signInWithOAuth`). This is distinct from [SSO with Google Workspace](../sso), which does enterprise SAML SSO restricted to a single email domain — social OAuth lets any Google account sign in (subject to whatever access rules the CRM enforces after login).
+
+## Environment variables
+
+| Variable | Where | Purpose |
+|----------|-------|---------|
+| `VITE_ENABLE_GOOGLE_OAUTH` | Frontend build (`.env*`) | Set to `true` to render the "Sign in with Google" button on the login page. |
+| `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` | Shell env, wherever you run `npx supabase start` / `npx supabase config push` | The OAuth client ID from Google Cloud Console. Substituted into `supabase/config.toml` via `env(...)`. |
+| `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` | Same as above | The OAuth client secret from Google Cloud Console. Never commit this value. |
+
+`VITE_ENABLE_GOOGLE_OAUTH` only controls whether the button is *visible*. The provider itself must separately be enabled and configured on the Supabase side (locally via `supabase/config.toml`, remotely via the Supabase dashboard) — see below. If the button is visible but the provider isn't actually configured, the browser is redirected to Supabase's Auth server, which (with the default `enabled = false` in `supabase/config.toml`) returns a same-origin `400 Unsupported provider: provider is not enabled` response rather than silently failing.
+
+## Create the OAuth client in Google Cloud Console
+
+1. Open the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) and select (or create) the project you want to use.
+2. If you haven't already, configure the **OAuth consent screen** (APIs & Services > OAuth consent screen).
+3. Go to **APIs & Services > Credentials > Create Credentials > OAuth client ID**.
+4. Choose **Web application** as the application type.
+5. Under **Authorized JavaScript origins**, add the origin(s) the login page is served from, for example:
+   - `http://localhost:5173` (local dev)
+   - `https://example.com` (production frontend origin — adjust to your actual domain)
+6. Under **Authorized redirect URIs**, add Supabase Auth's callback URL — **not** the frontend URL. This is where Google redirects back to after the user approves access:
+   - Local: `http://127.0.0.1:54321/auth/v1/callback`
+   - Hosted: `https://<your-project-ref>.supabase.co/auth/v1/callback`
+7. Save, then copy the **Client ID** and **Client secret**.
+
+## Configure the local Supabase stack
+
+`supabase/config.toml` already has an `[auth.external.google]` block, with `enabled = false` by default so that `npx supabase start` always works out of the box even without credentials. To test locally:
+
+1. Export the credentials in the shell you run the Supabase CLI from:
+   ```sh
+   export SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID=<your_client_id>
+   export SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET=<your_client_secret>
+   ```
+2. In your local (uncommitted) `supabase/config.toml`, flip `enabled` to `true` under `[auth.external.google]`.
+3. Restart the local stack so the auth container picks up the change: `npx supabase stop && npx supabase start`.
+4. Set `VITE_ENABLE_GOOGLE_OAUTH=true` in your `.env.development` (or `.env.local`) file.
+
+:::note
+`enabled` is a plain boolean, not `env(...)`-substituted: the Supabase CLI parses it as a bool at config-load time, and an unset `env(...)` reference for a bool field fails to parse and aborts `npx supabase start` entirely (verified locally with the Supabase CLI shipped in this repo). Keep it a literal `true`/`false`.
+:::
+
+## Configure a hosted Supabase project
+
+1. Go to your project's dashboard at [supabase.com](https://supabase.com/) > **Authentication > Sign in / Providers**.
+2. Enable **Google**, and paste in the **Client ID** and **Client secret** from Google Cloud Console.
+3. Under **Authentication > URL Configuration**, make sure your production frontend origin is present in **Site URL** or **Redirect URLs**, so Supabase is allowed to redirect back to the app after login (see [Setting the Login Callback](./supabase-configuration#setting-the-login-callback)).
+4. In your production frontend environment (e.g. `.env.production.local`, or your hosting provider's environment variable settings), set `VITE_ENABLE_GOOGLE_OAUTH=true`.
+
+Alternatively, if you manage `supabase/config.toml` as the source of truth for your linked remote project, set `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` / `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` in the shell you run the CLI from, flip `enabled = true`, and run `npx supabase config push` — but the dashboard toggle above is simpler for most setups.
+
+## Verifying it works
+
+Once configured, the login page shows a "Sign in with Google" button (gated on `VITE_ENABLE_GOOGLE_OAUTH`). Clicking it redirects the browser through Google's consent screen and back into the CRM, already signed in.
+
+If the button is visible but Google isn't actually configured on the Supabase side, note that the failure happens *after* the browser has already navigated away from the CRM (Supabase's `signInWithOAuth` redirects immediately, without a preflight check) — so the error appears on Supabase's own domain rather than as an in-app notification. Locally, this shows up as a `400 Unsupported provider: provider is not enabled` JSON response; on a misconfigured hosted project with a bad client ID, Google itself shows an "Error 401: invalid_client" page. Either way, double-check the steps above rather than assuming the CRM is broken.
