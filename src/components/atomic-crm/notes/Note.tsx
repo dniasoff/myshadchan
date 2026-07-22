@@ -200,6 +200,7 @@ export const Note = ({
           )}
           {isTruncated && (
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 setExpanded(!isExpanded);

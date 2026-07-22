@@ -12,7 +12,7 @@ export const CompanyAvatar = (props: {
   const record = useRecordContext<Company>(props);
   if (!record) return null;
 
-  const sizeClass = width !== 40 ? `w-[20px] h-[20px]` : "w-10 h-10";
+  const sizeClass = width !== 40 ? `size-5` : "w-10 h-10";
 
   return (
     <Avatar className={sizeClass}>

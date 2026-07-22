@@ -105,7 +105,7 @@ supabase-deploy:
 	npx supabase db push
 	npx supabase functions deploy
 
-test-unit: test-app test-functions 
+test-unit: test-app test-functions test-workers
 
 test: test-unit
 
@@ -114,6 +114,9 @@ test-app:
 
 test-functions:
 	npm run test:unit:functions
+
+test-workers:
+	npm run test:unit:workers
 
 test-e2e: start-e2e
 	npx playwright test --ui

@@ -36,11 +36,13 @@ Fresh fork of **Atomic CRM**; domain code ≈ 0% adapted.
 
 ## 3. Stack, environments & cost
 
-**Cloudflare-first** for a free, media-heavy, cost-recovery product: **R2 zero egress** is the dominant saving (resume files/photos served repeatedly); Workers are cheap and co-locate with the AI Gateway; **Cloudflare Pages** hosts the SPA free with no commercial-use clause (Vercel Hobby's licence counts even cost-recovery/donations as commercial). Supabase stays the data plane (the security boundary we don't move).
+**Cloudflare-first for backend compute/media, Vercel for the SPA** (2026-07-22 decision, overriding the original Cloudflare Pages call below): **R2 zero egress** is the dominant saving (resume files/photos served repeatedly); Workers are cheap and co-locate with the AI Gateway. The SPA deploys to **Vercel** (already wired up via Git integration + `vercel.json`). Supabase stays the data plane (the security boundary we don't move).
+
+`[CAVEAT — carried over, unresolved]` Vercel's **Hobby (free) plan license prohibits commercial use**, and this product's $2/mo cost-recovery billing (AD-16) likely counts — the original Cloudflare Pages choice existed specifically to avoid that clause. Confirm the Vercel plan/ToS position before charging real users; **Vercel Pro is ~$20/mo/seat**, which would raise the "always-on cost floor" below from ~$25/mo to ~$45/mo+.
 
 ```mermaid
 graph LR
-  U["Parent · Child · Helper (PWA + desktop)"] --> V["Cloudflare Pages — static SPA"]
+  U["Parent · Child · Helper (PWA + desktop)"] --> V["Vercel — static SPA"]
   V -->|dataProvider CRUD, JWT| SB["Supabase: Postgres+RLS · Auth · Realtime"]
   V -->|"REST (JWT)"| W["Cloudflare Workers (Hono)"]
   W -->|forAccount scoped| SB
@@ -58,11 +60,11 @@ graph LR
 ### Environments & deploy
 | Surface | Deploys | Trigger |
 |---|---|---|
-| **Cloudflare Pages** | static SPA | Git integration |
+| **Vercel** | static SPA | Git integration |
 | **Cloudflare Workers** | `wrangler deploy` per Worker | GitHub Actions |
 | **Supabase** | `db push` + edge functions + secrets | GitHub Actions |
 
-- **Environments:** dev (local Supabase + `wrangler dev`) · preview (`[ASSUMPTION]` Pages preview + Supabase branch + preview Worker) · prod. **US region** (US-first; UK/Israel internationalization deferred).
+- **Environments:** dev (local Supabase + `wrangler dev`) · preview (Vercel preview deployment + Supabase branch + preview Worker) · prod. **US region** (US-first; UK/Israel internationalization deferred).
 - **Use a public repo → unlimited free CI.** Secrets are Worker/Actions secrets, never in the client (`VITE_*` public keys only).
 - **Observability:** PostHog (product + errors + replay + surveys) · Cloudflare Workers native (backend logs/traces) · Langfuse (AI). Sentry → Phase 2.
 
@@ -150,7 +152,7 @@ graph TD
 ```
 
 - **Email inbound = Cloudflare Email Routing → Email Worker** (raw MIME parsed with `postal-mime`; free/unlimited; keeps the Resend send-quota intact). **Attribution is a behavior change** from the fork's silent first-body-email default — deterministic sender→account, ambiguous email → unattributed queue.
-- **Capture by Share, not by number:** the **PWA share-target** (Android) / **Share→Mail→inbox** (iPhone) captures WhatsApp, SMS, and any app — text + images — into the **sharer's own authenticated account** (no sender lookup, no shared number). Basic/kosher-phone users capture via **desktop email/upload**. **There is no shared SMS number, no Telnyx, and no outbound SMS.**
+- **Capture by Share, not by number:** the **PWA share-target** (Android) / **Share→Mail→inbox** (iPhone) captures WhatsApp, SMS, and any app — text + images — into the **sharer's own authenticated account** (no sender lookup, no shared number). Basic/kosher-phone users capture via **desktop email/upload**. **There is no shared SMS number and no outbound SMS.**
 - **Optional quick-link at capture (FR78):** the share sheet can let the user search the shadchan book (typeahead) and pick the candidate and/or attach to an existing suggestion — one tap, fully skippable straight to the unfiled Inbox.
 - **`parse/`** via QStash → **Gemini OCR** (§8); assistive, human review always (NFR-5). **Rate-limited** (AD-17) as cost protection.
 

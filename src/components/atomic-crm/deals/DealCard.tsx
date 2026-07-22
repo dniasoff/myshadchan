@@ -1,4 +1,8 @@
-import { Draggable } from "@hello-pangea/dnd";
+import {
+  Draggable,
+  type DraggableProvided,
+  type DraggableStateSnapshot,
+} from "@hello-pangea/dnd";
 import { useRedirect, RecordContextProvider } from "ra-core";
 import { ReferenceField } from "@/components/admin/reference-field";
 import { NumberField } from "@/components/admin/number-field";
@@ -26,8 +30,8 @@ export const DealCardContent = ({
   snapshot,
   deal,
 }: {
-  provided?: any;
-  snapshot?: any;
+  provided?: DraggableProvided;
+  snapshot?: DraggableStateSnapshot;
   deal: Deal;
 }) => {
   const { dealCategories, currency } = useConfigurationContext();

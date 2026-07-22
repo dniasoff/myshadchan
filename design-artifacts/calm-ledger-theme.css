@@ -1,0 +1,334 @@
+/* =============================================================================
+   CALM LEDGER — drop-in theme for MyShadchan (Atomic CRM fork)
+   =============================================================================
+
+   WHAT THIS IS
+   A literal drop-in replacement for the token layer of `src/index.css`:
+   the `@theme inline { … }`, `:root { … }`, and `.dark { … }` blocks.
+
+   It uses Atomic CRM's EXACT variable names and structure — every token the
+   app already consumes (background, foreground, card, popover, primary,
+   secondary, muted, accent, destructive, border, input, ring, chart-1..5,
+   the full sidebar-* set, radius, avatar-0..9) is present and re-valued to the
+   "Calm Ledger" palette. No parallel system is introduced.
+
+   Added on top (also consumed by the fork's UI and the design canvas):
+     • semantic tokens  --attention / --attention-strong / --attention-foreground
+     • semantic tokens  --positive / --positive-foreground
+     • pipeline tokens  --st-new --st-look --st-notsure --st-fsn --st-yes
+                        --st-unsure --st-no
+     • elevation scale  --shadow-xs / -sm / -md / -lg / -xl (light + dark)
+   All new tokens are exposed as Tailwind utilities via `@theme inline`, so
+   `bg-attention`, `text-positive`, `bg-st-yes`, `shadow-md`, etc. all work and
+   switch correctly between light and dark.
+
+   HOW TO APPLY
+   1. Ensure the fonts are installed (see FONTS below).
+   2. In `src/index.css`, replace the existing `@theme inline`, `:root`, and
+      `.dark` blocks with the three blocks below. Keep the top `@import`s and
+      everything after `.dark` (the base layer, cursor rules, mobile font-size
+      guard, calendar-picker fix) unchanged — those are behavior, not tokens.
+   3. Add the Hebrew (and optional display) font `@import`s next to the
+      existing `@import "@fontsource-variable/inter";`.
+
+   LIGHT is the primary theme (warm parchment, indigo primary, honey attention,
+   sage positive). DARK is a hand-designed warm-charcoal theme (NOT an
+   inversion): every semantic token is re-tuned for dark surfaces at WCAG-AA
+   foreground contrast, with an elevation scale that deepens toward near-black.
+
+   All colors are OKLCH. Contrast targets: body/UI text ≥ 4.5:1, large text and
+   non-text UI ≥ 3:1.
+   ============================================================================= */
+
+
+/* -----------------------------------------------------------------------------
+   FONTS  (self-hosted via @fontsource — consistent with the repo's Inter setup;
+   no Google CDN, matching the fork's existing `@import "@fontsource-variable/inter";`)
+
+   Install:
+     npm i @fontsource-variable/heebo        # Hebrew UI face, harmonizes with Inter
+     npm i @fontsource-variable/newsreader   # optional display serif (headings)
+
+   Then add these next to the existing Inter import at the TOP of src/index.css:
+
+     @import "@fontsource-variable/inter";      // already present — Latin
+     @import "@fontsource-variable/heebo";      // Hebrew
+     @import "@fontsource-variable/newsreader"; // optional — display / H1
+
+   The @theme inline block below registers `--font-sans` (Latin), `--font-hebrew`
+   (Hebrew), and `--font-display` (optional serif) so `font-sans`, `font-hebrew`,
+   and `font-display` utilities exist. Switch to Hebrew per locale/script, e.g.:
+
+     :lang(he), [dir="rtl"] { font-family: var(--font-hebrew); }
+
+   (RTL mirroring itself is a layout concern, out of scope for this token file.)
+   ----------------------------------------------------------------------------- */
+
+
+@theme inline {
+  /* Type */
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-hebrew: "Heebo Variable", "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Newsreader Variable", ui-serif, Georgia, serif;
+
+  /* Radius scale (derived from --radius) */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Core surface + text colors */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Charts */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Sidebar */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Calm Ledger semantic tokens (NEW — exposed as utilities) */
+  --color-attention: var(--attention);
+  --color-attention-strong: var(--attention-strong);
+  --color-attention-foreground: var(--attention-foreground);
+  --color-positive: var(--positive);
+  --color-positive-foreground: var(--positive-foreground);
+
+  /* Pipeline-state tokens (NEW — board columns + status badges) */
+  --color-st-new: var(--st-new);
+  --color-st-look: var(--st-look);
+  --color-st-notsure: var(--st-notsure);
+  --color-st-fsn: var(--st-fsn);
+  --color-st-yes: var(--st-yes);
+  --color-st-unsure: var(--st-unsure);
+  --color-st-no: var(--st-no);
+
+  /* Elevation scale (NEW — `shadow-xs … shadow-xl` utilities; theme-switchable
+     because they reference the runtime --shadow-* tokens defined per theme). */
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+}
+
+
+/* =============================================================================
+   LIGHT  —  Calm Ledger (warm parchment · indigo · honey · sage)
+   Palette lifted verbatim from the design canvas :root; gaps the app requires
+   (popover, sidebar-*, chart-*, avatar-0..9, positive-foreground) designed to
+   match.
+   ============================================================================= */
+:root {
+  --radius: 0.875rem;
+
+  /* Surfaces & text — warm parchment bg, warm-ink foreground, pure-white cards */
+  --background: oklch(0.988 0.004 95);
+  --foreground: oklch(0.21 0.015 275);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.015 275);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.015 275);
+
+  /* Primary — deep, dignified indigo-blue (trust) */
+  --primary: oklch(0.52 0.19 268);
+  --primary-foreground: oklch(0.99 0.004 95);
+
+  /* Secondary / muted — warm sand */
+  --secondary: oklch(0.965 0.008 95);
+  --secondary-foreground: oklch(0.32 0.015 275);
+  --muted: oklch(0.965 0.008 95);
+  --muted-foreground: oklch(0.53 0.014 275);
+
+  /* Accent — calm sage */
+  --accent: oklch(0.91 0.07 155);
+  --accent-foreground: oklch(0.32 0.04 158);
+
+  /* Attention — honey/amber, the reassuring "we caught this" */
+  --attention: oklch(0.89 0.10 82);
+  --attention-strong: oklch(0.80 0.155 78);
+  --attention-foreground: oklch(0.36 0.07 68);
+
+  /* Positive — sage green (progressed / Yes) */
+  --positive: oklch(0.65 0.16 158);
+  --positive-foreground: oklch(0.30 0.075 158);
+
+  /* Destructive — restrained red (true delete only) */
+  --destructive: oklch(0.57 0.21 25);
+
+  /* Lines & focus */
+  --border: oklch(0.92 0.005 95);
+  --input: oklch(0.90 0.006 95);
+  --ring: oklch(0.52 0.19 268);
+
+  /* Charts — Calm Ledger hues (indigo, sage, honey, plum, clay) */
+  --chart-1: oklch(0.52 0.19 268);
+  --chart-2: oklch(0.65 0.16 158);
+  --chart-3: oklch(0.80 0.14 80);
+  --chart-4: oklch(0.68 0.13 320);
+  --chart-5: oklch(0.64 0.14 40);
+
+  /* Sidebar — very light warm parchment, indigo active */
+  --sidebar: oklch(0.978 0.006 95);
+  --sidebar-foreground: oklch(0.21 0.015 275);
+  --sidebar-primary: oklch(0.52 0.19 268);
+  --sidebar-primary-foreground: oklch(0.99 0.004 95);
+  --sidebar-accent: oklch(0.955 0.010 95);
+  --sidebar-accent-foreground: oklch(0.32 0.015 275);
+  --sidebar-border: oklch(0.92 0.005 95);
+  --sidebar-ring: oklch(0.52 0.19 268);
+
+  /* Pipeline-state colors — 7 calm, distinct hues.
+     Note the deliberate distinction between a gut "For-sure-not" (--st-fsn,
+     warm grey, quiet) and a post-investigation "No" (--st-no, clay). */
+  --st-new: oklch(0.71 0.055 250);      /* neutral slate-blue */
+  --st-look: oklch(0.49 0.15 266);     /* indigo — active investigation */
+  --st-notsure: oklch(0.80 0.11 82);   /* soft honey */
+  --st-fsn: oklch(0.71 0.022 90);      /* muted warm grey — gentle set-aside */
+  --st-yes: oklch(0.68 0.13 156);      /* sage green */
+  --st-unsure: oklch(0.68 0.11 320);   /* soft plum */
+  --st-no: oklch(0.64 0.12 40);        /* muted clay/terracotta */
+
+  /* Avatars — soft warm pastel monograms (dark ink reads on all 10) */
+  --avatar-0: oklch(0.88 0.085 268);    /* indigo    */
+  --avatar-1: oklch(0.89 0.095 340);    /* rose      */
+  --avatar-2: oklch(0.89 0.085 200);    /* teal      */
+  --avatar-3: oklch(0.90 0.095 82);     /* honey     */
+  --avatar-4: oklch(0.89 0.085 320);    /* plum      */
+  --avatar-5: oklch(0.89 0.085 155);    /* sage      */
+  --avatar-6: oklch(0.90 0.085 235);    /* sky       */
+  --avatar-7: oklch(0.89 0.095 30);     /* clay      */
+  --avatar-8: oklch(0.91 0.085 110);    /* olive     */
+  --avatar-9: oklch(0.88 0.095 290);    /* violet    */
+
+  /* Elevation — warm-tinted, low & gentle (no heavy drop shadows) */
+  --shadow-xs: 0 1px 2px oklch(0.2 0.03 275 / 0.05);
+  --shadow-sm: 0 1px 2px oklch(0.2 0.03 275 / 0.06), 0 1px 3px oklch(0.2 0.03 275 / 0.05);
+  --shadow-md: 0 2px 4px oklch(0.2 0.03 275 / 0.05), 0 6px 16px oklch(0.2 0.03 275 / 0.08);
+  --shadow-lg: 0 8px 24px oklch(0.2 0.03 275 / 0.10), 0 2px 6px oklch(0.2 0.03 275 / 0.06);
+  --shadow-xl: 0 16px 40px oklch(0.2 0.03 275 / 0.14), 0 4px 10px oklch(0.2 0.03 275 / 0.08);
+}
+
+
+/* =============================================================================
+   DARK  —  Calm Ledger, hand-designed (warm charcoal · lifted indigo · honey)
+   Not an inversion. Surfaces climb a deliberate lightness ladder
+   (bg 0.185 → card 0.215 → secondary/muted 0.255) so elevation reads without
+   relying on shadow alone. Primary is pulled to L≈0.62 so WHITE foreground keeps
+   ≥4.5:1; bright greens/honeys take DARK foregrounds for contrast. Borders are
+   translucent white so they sit correctly on every surface.
+   ============================================================================= */
+.dark {
+  /* Surfaces & text — warm charcoal, warm-parchment text */
+  --background: oklch(0.19 0.030 273);
+  --foreground: oklch(0.965 0.010 90);
+  --card: oklch(0.225 0.030 273);
+  --card-foreground: oklch(0.965 0.010 90);
+  --popover: oklch(0.225 0.030 273);
+  --popover-foreground: oklch(0.965 0.010 90);
+
+  /* Primary — lifted indigo tuned for dark surfaces; white text passes AA */
+  --primary: oklch(0.57 0.20 266);
+  --primary-foreground: oklch(0.99 0.003 90);
+
+  /* Secondary / muted — one step up the surface ladder */
+  --secondary: oklch(0.27 0.032 273);
+  --secondary-foreground: oklch(0.965 0.010 90);
+  --muted: oklch(0.27 0.032 273);
+  --muted-foreground: oklch(0.73 0.028 273);
+
+  /* Accent — muted sage surface (selected / hover), light foreground */
+  --accent: oklch(0.35 0.09 158);
+  --accent-foreground: oklch(0.92 0.07 158);
+
+  /* Attention — deep honey surface, strong honey accent, bright warm text */
+  --attention: oklch(0.53 0.185 68);
+  --attention-strong: oklch(0.83 0.195 82);
+  --attention-foreground: oklch(0.965 0.05 85);
+
+  /* Positive — bright sage; dark text for contrast on the fill */
+  --positive: oklch(0.75 0.185 156);
+  --positive-foreground: oklch(0.18 0.05 155);
+
+  /* Destructive — saturated but not neon */
+  --destructive: oklch(0.63 0.235 25);
+
+  /* Lines & focus — translucent white sits on any surface */
+  --border: oklch(1 0 0 / 0.11);
+  --input: oklch(1 0 0 / 0.15);
+  --ring: oklch(0.57 0.20 266);
+
+  /* Charts — lifted for luminous separation on charcoal */
+  --chart-1: oklch(0.67 0.21 266);
+  --chart-2: oklch(0.75 0.185 156);
+  --chart-3: oklch(0.81 0.165 84);
+  --chart-4: oklch(0.73 0.17 320);
+  --chart-5: oklch(0.69 0.175 42);
+
+  /* Sidebar — a touch darker than cards, indigo active */
+  --sidebar: oklch(0.205 0.030 273);
+  --sidebar-foreground: oklch(0.965 0.010 90);
+  --sidebar-primary: oklch(0.57 0.20 266);
+  --sidebar-primary-foreground: oklch(0.99 0.003 90);
+  --sidebar-accent: oklch(0.28 0.032 273);
+  --sidebar-accent-foreground: oklch(0.965 0.010 90);
+  --sidebar-border: oklch(1 0 0 / 0.09);
+  --sidebar-ring: oklch(0.57 0.20 266);
+
+  /* Pipeline-state colors — re-saturated & lifted for dark; the gut "For-sure-not"
+     (--st-fsn, quiet warm grey) stays visibly distinct from post-investigation
+     "No" (--st-no, clay). */
+  --st-new: oklch(0.71 0.13 252);
+  --st-look: oklch(0.67 0.21 266);
+  --st-notsure: oklch(0.81 0.165 84);
+  --st-fsn: oklch(0.61 0.028 270);
+  --st-yes: oklch(0.75 0.185 156);
+  --st-unsure: oklch(0.73 0.17 320);
+  --st-no: oklch(0.69 0.175 42);
+
+  /* Avatars — mid-lightness, richer chroma so light monogram ink reads on top */
+  --avatar-0: oklch(0.47 0.16 268);
+  --avatar-1: oklch(0.48 0.17 340);
+  --avatar-2: oklch(0.47 0.15 200);
+  --avatar-3: oklch(0.51 0.16 82);
+  --avatar-4: oklch(0.47 0.16 320);
+  --avatar-5: oklch(0.47 0.15 155);
+  --avatar-6: oklch(0.48 0.16 235);
+  --avatar-7: oklch(0.48 0.17 30);
+  --avatar-8: oklch(0.51 0.15 110);
+  --avatar-9: oklch(0.47 0.17 290);
+
+  /* Elevation — deeper, near-black; carries lift on dark surfaces */
+  --shadow-xs: 0 1px 2px oklch(0 0 0 / 0.35);
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.40), 0 1px 3px oklch(0 0 0 / 0.30);
+  --shadow-md: 0 2px 4px oklch(0 0 0 / 0.34), 0 6px 16px oklch(0 0 0 / 0.40);
+  --shadow-lg: 0 8px 28px oklch(0 0 0 / 0.50), 0 2px 6px oklch(0 0 0 / 0.34);
+  --shadow-xl: 0 20px 48px oklch(0 0 0 / 0.58), 0 6px 14px oklch(0 0 0 / 0.40);
+}

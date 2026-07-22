@@ -1,0 +1,1861 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Heebo:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --radius:0.875rem;
+  --background:oklch(0.988 0.004 95);
+  --foreground:oklch(0.21 0.015 275);
+  --card:oklch(1 0 0);
+  --card-foreground:oklch(0.21 0.015 275);
+  --primary:oklch(0.52 0.16 268);
+  --primary-foreground:oklch(0.99 0.004 95);
+  --secondary:oklch(0.965 0.008 95);
+  --secondary-foreground:oklch(0.32 0.015 275);
+  --muted:oklch(0.965 0.008 95);
+  --muted-foreground:oklch(0.53 0.014 275);
+  --accent:oklch(0.92 0.045 155);
+  --accent-foreground:oklch(0.32 0.04 158);
+  --attention:oklch(0.90 0.075 80);
+  --attention-strong:oklch(0.82 0.12 76);
+  --attention-foreground:oklch(0.36 0.07 68);
+  --positive:oklch(0.66 0.12 158);
+  --destructive:oklch(0.57 0.19 25);
+  --border:oklch(0.92 0.005 95);
+  --input:oklch(0.90 0.006 95);
+  --ring:oklch(0.52 0.16 268);
+  --sidebar:oklch(0.978 0.006 95);
+  --shadow-sm:0 1px 2px oklch(0.2 0.03 275 / .06), 0 1px 3px oklch(0.2 0.03 275 / .05);
+  --shadow-md:0 2px 4px oklch(0.2 0.03 275 / .05), 0 6px 16px oklch(0.2 0.03 275 / .08);
+  --shadow-lg:0 8px 24px oklch(0.2 0.03 275 / .10), 0 2px 6px oklch(0.2 0.03 275 / .06);
+  --st-new:oklch(0.72 0.03 250);
+  --st-look:oklch(0.48 0.11 264);
+  --st-notsure:oklch(0.80 0.08 80);
+  --st-fsn:oklch(0.70 0.010 85);
+  --st-yes:oklch(0.70 0.09 155);
+  --st-unsure:oklch(0.68 0.07 320);
+  --st-no:oklch(0.64 0.08 40);
+  --avatar-blue:var(--avatar-blue);
+  --avatar-pink:var(--avatar-pink);
+  --avatar-green:var(--avatar-green);
+  --avatar-fg:var(--avatar-fg);
+  --paper:#fdfcf8;
+  --paper-ink:#1b1b1b;
+  --paper-label:#555;
+  --paper-muted:#444;
+  --paper-body:#333;
+  --paper-faint:#777;
+  --paper-line:#ddd;
+  --paper-page:#aaa;
+}
+.dark{
+  --background:oklch(0.145 0.004 265);
+  --foreground:oklch(0.975 0.003 265);
+  --card:oklch(0.185 0.006 265);
+  --card-foreground:oklch(0.975 0.003 265);
+  --primary:oklch(0.64 0.19 266);
+  --primary-foreground:oklch(0.99 0 0);
+  --secondary:oklch(0.225 0.007 265);
+  --secondary-foreground:oklch(0.975 0.003 265);
+  --muted:oklch(0.225 0.007 265);
+  --muted-foreground:oklch(0.68 0.012 265);
+  --accent:oklch(0.50 0.11 155);
+  --accent-foreground:oklch(0.98 0.02 155);
+  --attention:oklch(0.52 0.15 66);
+  --attention-strong:oklch(0.82 0.16 80);
+  --attention-foreground:oklch(0.965 0.035 85);
+  --positive:oklch(0.74 0.15 155);
+  --destructive:oklch(0.62 0.20 25);
+  --border:oklch(1 0 0 / 9%);
+  --input:oklch(1 0 0 / 13%);
+  --ring:oklch(0.64 0.19 266);
+  --sidebar:oklch(0.225 0.03 266);
+  --shadow-sm:0 1px 2px oklch(0 0 0 / .30), 0 1px 3px oklch(0 0 0 / .24);
+  --shadow-md:0 2px 4px oklch(0 0 0 / .28), 0 6px 16px oklch(0 0 0 / .34);
+  --shadow-lg:0 8px 28px oklch(0 0 0 / .45), 0 2px 6px oklch(0 0 0 / .30);
+  --st-new:oklch(0.70 0.09 250);
+  --st-look:oklch(0.66 0.17 266);
+  --st-notsure:oklch(0.80 0.13 82);
+  --st-fsn:oklch(0.60 0.012 265);
+  --st-yes:oklch(0.74 0.14 155);
+  --st-unsure:oklch(0.72 0.13 320);
+  --st-no:oklch(0.68 0.14 42);
+  --avatar-blue:oklch(0.55 0.10 240);
+  --avatar-pink:oklch(0.58 0.12 340);
+  --avatar-green:oklch(0.55 0.09 155);
+  --avatar-fg:oklch(0.97 0.01 265);
+  --paper:#f7f5ef;
+  --paper-ink:#1b1b1b;
+  --paper-label:#555;
+  --paper-muted:#444;
+  --paper-body:#333;
+  --paper-faint:#777;
+  --paper-line:#ddd;
+  --paper-page:#aaa;
+}
+*{box-sizing:border-box;}
+@keyframes msFade{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+@keyframes msSheet{from{transform:translateY(100%);}to{transform:none;}}
+::-webkit-scrollbar{height:10px;width:10px;}
+::-webkit-scrollbar-thumb{background:oklch(0.80 0.01 85);border-radius:8px;border:3px solid transparent;background-clip:content-box;}
+</style>
+</helmet>
+<div class="{{ rootClass }}" dir="{{ dir }}" style="font-family:'Inter',ui-sans-serif,system-ui,sans-serif;background:var(--background);color:var(--foreground);min-height:100vh;-webkit-font-smoothing:antialiased;">
+
+  <div style="position:sticky;top:0;z-index:60;display:flex;align-items:center;gap:14px;padding:10px 18px;background:color-mix(in oklch, var(--background) 82%, transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);">
+    <button data-nav="launcher" onClick="{{ onNav }}" style="display:flex;align-items:center;gap:9px;background:none;border:none;padding:0;color:inherit;">
+      <span style="width:28px;height:28px;border-radius:8px;background:var(--primary);color:var(--primary-foreground);display:grid;place-items:center;font-weight:700;font-size:14px;">מ</span>
+      <span style="font-weight:600;font-size:15px;letter-spacing:-0.01em;">MyShadchan</span>
+    </button>
+    <span style="font-size:12px;color:var(--muted-foreground);padding:2px 9px;border:1px solid var(--border);border-radius:999px;">{{ screenLabel }}</span>
+    <div style="flex:1;"></div>
+    <div style="display:flex;align-items:center;gap:6px;background:var(--secondary);border-radius:999px;padding:3px;">
+      <button data-child="rivky" onClick="{{ onSetChild }}" style="{{ chipRivky }}">Rivky</button>
+      <button data-child="yaakov" onClick="{{ onSetChild }}" style="{{ chipYaakov }}">Yaakov</button>
+    </div>
+    <button onClick="{{ toggleLang }}" title="Language" style="height:34px;padding:0 12px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:inherit;font-size:13px;font-weight:600;">{{ langLabel }}</button>
+    <button onClick="{{ toggleTheme }}" title="Theme" style="height:34px;width:34px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:inherit;display:grid;place-items:center;">{{ themeIcon }}</button>
+  </div>
+
+  <sc-if value="{{ isLauncher }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width:1180px;margin:0 auto;padding:44px 24px 72px;animation:msFade .4s ease;">
+      <div style="max-width:640px;">
+        <p style="font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--primary);margin:0 0 12px;">Calm Ledger · a fork of Atomic CRM</p>
+        <h1 style="font-size:34px;line-height:1.15;font-weight:700;letter-spacing:-0.02em;margin:0 0 14px;">MyShadchan — the organised memory for the shidduch process.</h1>
+        <p style="font-size:16px;line-height:1.6;color:var(--muted-foreground);margin:0;">A clickable set of high-fidelity mock screens. Everything re-skins the real Atomic CRM shell (left sidebar + top bar on desktop, bottom nav on mobile) into the warm, quiet "Calm Ledger" system. Pick a screen — heroes link to each other.</p>
+      </div>
+      <sc-for list="{{ launcherGroups }}" as="g" hint-placeholder-count="4">
+        <div style="margin-top:34px;">
+          <h2 style="font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground);margin:0 0 14px;">{{ g.title }}</h2>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:14px;">
+            <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="4">
+              <button data-nav="{{ it.id }}" onClick="{{ onNav }}" style="text-align:start;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:0 1px 2px oklch(0 0 0 / 0.04);cursor:pointer;transition:transform .15s,box-shadow .15s;" style-hover="transform:translateY(-2px);box-shadow:0 6px 18px oklch(0 0 0 / 0.08);">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;">
+                  <span style="width:9px;height:9px;border-radius:3px;background:{{ it.dot }};"></span>
+                  <sc-if value="{{ it.hero }}" hint-placeholder-val="{{ true }}"><span style="font-size:10px;font-weight:700;color:var(--attention-foreground);background:var(--attention);padding:1px 7px;border-radius:999px;">HERO</span></sc-if>
+                </div>
+                <div style="font-weight:600;font-size:15px;margin-bottom:3px;">{{ it.name }}</div>
+                <div style="font-size:12.5px;color:var(--muted-foreground);line-height:1.45;">{{ it.sub }}</div>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <!-- SCREENS -->
+  <sc-if value="{{ isBoard }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="7">
+          <button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}">
+            <span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}
+          </button>
+        </sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:22px 26px;overflow-x:auto;">
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:6px;">
+          <div>
+            <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin:0;">Pipeline — {{ childName }}</h1>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;">
+            <button onClick="{{ onToggleNo }}" style="{{ noToggleStyle }}"><span style="{{ noSwitchStyle }}"><span style="{{ noKnobStyle }}"></span></span>Show “No” column</button>
+            <button style="height:40px;padding:0 16px;border-radius:var(--radius);background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:14px;">+ Add suggestion</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:14px;padding-top:16px;min-width:640px;">
+          <sc-for list="{{ board }}" as="col" hint-placeholder-count="7">
+            <div style="flex:1;min-width:172px;">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding-bottom:10px;border-bottom:2px solid {{ col.color }};margin-bottom:12px;">
+                <div style="display:flex;align-items:center;gap:7px;"><span style="width:8px;height:8px;border-radius:3px;background:{{ col.color }};"></span><h3 style="font-size:14px;font-weight:600;margin:0;">{{ col.label }}</h3></div>
+                <span style="font-size:12px;color:var(--muted-foreground);font-variant-numeric:tabular-nums;">{{ col.count }}</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:9px;min-height:60px;">
+                <sc-for list="{{ col.cards }}" as="c" hint-placeholder-count="2">
+                  <button data-nav="detail" onClick="{{ onNav }}" style="text-align:start;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:11px;box-shadow:0 1px 2px oklch(0 0 0 / .05);cursor:grab;transition:box-shadow .15s,transform .12s;" style-hover="box-shadow:0 5px 14px oklch(0 0 0 / .09);transform:translateY(-1px);">
+                    <div style="display:flex;gap:9px;align-items:flex-start;">
+                      <span style="width:34px;height:34px;border-radius:8px;background:{{ c.av }};color:var(--avatar-fg);display:grid;place-items:center;font-size:12px;font-weight:700;flex-shrink:0;">{{ c.mono }}</span>
+                      <div style="min-width:0;flex:1;">
+                        <div style="font-weight:600;font-size:13.5px;line-height:1.2;">{{ c.name }}</div>
+                        <div style="font-size:12px;color:var(--muted-foreground);font-family:'Heebo',sans-serif;">{{ c.he }}</div>
+                      </div>
+                    </div>
+                    <div style="margin-top:9px;display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11.5px;color:var(--muted-foreground);">
+                      <span style="display:flex;align-items:center;gap:6px;min-width:0;"><span style="width:5px;height:5px;border-radius:999px;background:var(--muted-foreground);opacity:.5;flex-shrink:0;"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ c.shadchan }}</span></span>
+                      <span style="font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0;" title="Redt on">◷ {{ c.since }}</span>
+                    </div>
+                    <sc-if value="{{ c.catch }}" hint-placeholder-val="{{ true }}">
+                      <div style="margin-top:8px;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--attention-foreground);background:var(--attention);border-radius:7px;padding:5px 8px;">◷ Suggested before</div>
+                    </sc-if>
+                  </button>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="7"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:26px 32px;max-width:1140px;">
+        <p style="color:var(--muted-foreground);font-size:14px;margin:0 0 2px;">Good afternoon, Chani</p>
+        <h1 style="font-size:26px;font-weight:700;letter-spacing:-0.02em;margin:0 0 20px;">{{ childName }}'s shidduchim</h1>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:26px;">
+          <sc-for list="{{ dashCounts }}" as="d" hint-placeholder-count="7">
+            <button data-nav="board" onClick="{{ onNav }}" style="text-align:start;background:var(--card);border:1px solid var(--border);border-top:3px solid {{ d.color }};border-radius:var(--radius);padding:13px 12px;cursor:pointer;">
+              <div style="font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;">{{ d.count }}</div>
+              <div style="font-size:12px;color:var(--muted-foreground);margin-top:5px;">{{ d.label }}</div>
+            </button>
+          </sc-for>
+        </div>
+        <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:20px;">
+          <div style="display:flex;flex-direction:column;gap:18px;">
+            <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+              <div style="padding:14px 16px;background:var(--attention);color:var(--attention-foreground);font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px;">◷ 1 to review before you file</div>
+              <button data-nav="catch" onClick="{{ onNav }}" style="width:100%;text-align:start;background:none;border:none;padding:16px;cursor:pointer;display:flex;gap:12px;align-items:center;" style-hover="background:var(--secondary);">
+                <span style="width:40px;height:40px;border-radius:9px;background:var(--avatar-blue);color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:14px;">DB</span>
+                <div style="flex:1;"><div style="font-weight:600;font-size:14px;">Dovid Berkowitz <span style="font-family:'Heebo',sans-serif;font-weight:500;color:var(--muted-foreground);">דוד ברקוביץ</span></div><div style="font-size:13px;color:var(--muted-foreground);margin-top:2px;">Suggested before — Mrs. Feldman, 3 months ago.</div></div>
+                <span style="color:var(--muted-foreground);">→</span>
+              </button>
+            </div>
+            <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+              <div style="padding:14px 16px;font-weight:600;font-size:14px;border-bottom:1px solid var(--border);">Recently added resumes</div>
+              <sc-for list="{{ recentResumes }}" as="r" hint-placeholder-count="3">
+                <button data-nav="parse" onClick="{{ onNav }}" style="width:100%;text-align:start;background:none;border:none;border-bottom:1px solid var(--border);padding:13px 16px;cursor:pointer;display:flex;gap:11px;align-items:center;" style-hover="background:var(--secondary);">
+                  <span style="width:34px;height:34px;border-radius:8px;background:{{ r.av }};color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:12px;">{{ r.mono }}</span>
+                  <div style="flex:1;"><div style="font-weight:600;font-size:13.5px;">{{ r.name }}</div><div style="font-size:12px;color:var(--muted-foreground);">via {{ r.shadchan }}</div></div>
+                  <span style="font-size:11px;color:var(--muted-foreground);background:var(--secondary);border:1px solid var(--border);padding:2px 8px;border-radius:999px;">{{ r.channel }}</span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;height:fit-content;">
+            <div style="padding:14px 16px;font-weight:600;font-size:14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;">Reminders <button data-nav="reminders" onClick="{{ onNav }}" style="border:none;background:none;color:var(--primary);font-size:13px;font-weight:600;cursor:pointer;">View all</button></div>
+            <sc-for list="{{ dashReminders }}" as="rm" hint-placeholder-count="3">
+              <div style="padding:13px 16px;border-bottom:1px solid var(--border);display:flex;gap:11px;align-items:flex-start;">
+                <span style="width:22px;height:22px;border-radius:6px;border:2px solid var(--border);flex-shrink:0;margin-top:1px;"></span>
+                <div style="flex:1;"><div style="font-size:13.5px;line-height:1.35;">{{ rm.text }}</div><div style="font-size:12px;margin-top:3px;{{ rm.dueStyle }}">{{ rm.due }}</div></div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isCatch }}" hint-placeholder-val="{{ true }}">
+    <div style="min-height:calc(100vh - 55px);display:grid;place-items:center;padding:40px 20px;background:radial-gradient(120% 90% at 50% -10%, color-mix(in oklch,var(--attention) 40%,var(--background)), var(--background));animation:msFade .35s ease;">
+      <div style="width:100%;max-width:560px;background:var(--card);border:1px solid var(--attention-strong);border-radius:18px;box-shadow:0 24px 60px oklch(0.6 0.09 75 / .18);overflow:hidden;">
+        <div style="background:var(--attention);color:var(--attention-foreground);padding:22px 26px;display:flex;gap:14px;align-items:center;">
+          <span style="width:44px;height:44px;border-radius:12px;background:var(--attention-strong);color:var(--attention-foreground);display:grid;place-items:center;font-size:22px;flex-shrink:0;">◷</span>
+          <div><div style="font-weight:700;font-size:19px;letter-spacing:-0.01em;">You've come across this person before.</div><div style="font-size:13.5px;margin-top:3px;opacity:.85;">Nothing has been changed. Here's what we have on file.</div></div>
+        </div>
+        <div style="padding:24px 26px;">
+          <div style="display:flex;gap:14px;align-items:center;margin-bottom:18px;">
+            <span style="width:52px;height:52px;border-radius:12px;background:var(--avatar-blue);color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:17px;">DB</span>
+            <div><div style="font-weight:700;font-size:18px;">Dovid Berkowitz <span style="font-family:'Heebo',sans-serif;font-weight:500;color:var(--muted-foreground);font-size:16px;">דוד ברקוביץ</span></div><div style="font-size:13.5px;color:var(--muted-foreground);">Lakewood, NJ · BMG</div></div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+            <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;gap:11px;align-items:flex-start;">
+              <span style="font-size:15px;margin-top:1px;">◷</span>
+              <div><div style="font-size:14px;font-weight:600;">Mrs. Feldman suggested him 3 months ago.</div><div style="font-size:13px;color:var(--muted-foreground);margin-top:3px;">You set him aside on 14 Apr 2026 without a full look.</div></div>
+            </div>
+            <div style="padding:14px 16px;display:flex;gap:11px;align-items:flex-start;">
+              <span style="font-size:15px;margin-top:1px;">◷</span>
+              <div><div style="font-size:14px;font-weight:600;">Rivky may have dated this person.</div><div style="font-size:13px;color:var(--muted-foreground);margin-top:3px;">Feb 2026 — noted outcome "not for us."</div></div>
+            </div>
+          </div>
+          <div style="margin-top:14px;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted-foreground);"><span style="width:9px;height:9px;border-radius:999px;background:var(--positive);"></span>High confidence · matched on name + date of birth + mother's name</div>
+          <div style="display:flex;gap:10px;margin-top:22px;">
+            <button data-nav="detail" onClick="{{ onNav }}" style="flex:1;height:48px;border-radius:11px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:15px;cursor:pointer;">Confirm match</button>
+            <button data-nav="board" onClick="{{ onNav }}" style="flex:1;height:48px;border-radius:11px;background:var(--card);color:var(--foreground);border:1px solid var(--border);font-weight:600;font-size:15px;cursor:pointer;">Dismiss — different person</button>
+          </div>
+          <p style="text-align:center;font-size:12px;color:var(--muted-foreground);margin:14px 0 0;">Nothing merges automatically. You're always in control.</p>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isDetail }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="7"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;">
+        <div style="display:grid;grid-template-columns:1fr 320px;gap:0;min-height:100%;">
+          <div style="padding:24px 30px;">
+            <button data-nav="board" onClick="{{ onNav }}" style="border:none;background:none;color:var(--muted-foreground);font-size:13px;cursor:pointer;margin-bottom:14px;">← Back to pipeline</button>
+            <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:6px;">
+              <button onClick="{{ onRevealPhoto }}" title="Photo — handled with care" style="width:72px;height:88px;border-radius:12px;border:1px solid var(--border);padding:0;overflow:hidden;position:relative;flex-shrink:0;cursor:pointer;background:linear-gradient(160deg, var(--avatar-blue), oklch(0.82 0.07 280));">
+                <img src="uploads/images.jpg" alt="" style="width:100%;height:100%;object-fit:cover;object-position:center top;display:{{ photoShown }};" />
+                <sc-if value="{{ photoHidden }}" hint-placeholder-val="{{ true }}">
+                  <span style="position:absolute;inset:0;background:oklch(0.82 0.07 260 / .55);backdrop-filter:blur(9px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:oklch(0.28 0.03 265);font-size:10.5px;font-weight:600;text-align:center;padding:0 6px;"><span style="font-size:17px;">🔒</span>Photo<br>tap to view</span>
+                </sc-if>
+              </button>
+              <div style="flex:1;">
+                <h1 style="font-size:24px;font-weight:700;margin:0;letter-spacing:-0.02em;">Dovid Berkowitz <span style="font-family:'Heebo',sans-serif;font-weight:500;color:var(--muted-foreground);font-size:20px;">דוד ברקוביץ</span></h1>
+                <div style="font-size:14px;color:var(--muted-foreground);margin-top:4px;">Age 24 · 5′10″ · Lakewood, NJ · Khal Zichron Yaakov · BMG</div>
+                <div style="display:flex;gap:8px;margin-top:10px;">
+                  <span style="position:relative;">
+                    <button onClick="{{ toggleDecision }}" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--primary-foreground);background:{{ decisionColor }};padding:3px 11px;border-radius:999px;border:none;cursor:pointer;">{{ decisionLabel }} <span style="font-size:9px;">▾</span></button>
+                    <sc-if value="{{ decisionOpen }}">
+                      <div style="position:absolute;top:calc(100% + 6px);inset-inline-start:0;z-index:20;background:var(--card);border:1px solid var(--border);border-radius:11px;box-shadow:0 12px 30px oklch(0 0 0 /.16);padding:6px;width:180px;">
+                        <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);padding:6px 10px 4px;">Set decision</div>
+                        <sc-for list="{{ decisionOptions }}" as="d" hint-placeholder-count="4"><button data-d="{{ d.id }}" onClick="{{ onSetDecision }}" style="{{ d.style }}"><span style="width:9px;height:9px;border-radius:3px;background:{{ d.color }};"></span>{{ d.label }}</button></sc-for>
+                      </div>
+                    </sc-if>
+                  </span>
+                  <span style="font-size:12px;color:var(--muted-foreground);background:var(--secondary);border:1px solid var(--border);padding:3px 11px;border-radius:999px;">via Mrs. Feldman</span>
+                  <span style="position:relative;">
+                    <button onClick="{{ toggleMarital }}" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 11px;border-radius:999px;cursor:pointer;{{ maritalStyle }}">{{ maritalLabel }} <span style="font-size:9px;opacity:.6;">▾</span></button>
+                    <sc-if value="{{ maritalOpen }}">
+                      <div style="position:absolute;top:calc(100% + 6px);inset-inline-start:0;z-index:20;background:var(--card);border:1px solid var(--border);border-radius:11px;box-shadow:0 12px 30px oklch(0 0 0 /.16);padding:6px;width:200px;">
+                        <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);padding:6px 10px 4px;">Marital status</div>
+                        <sc-for list="{{ maritalOptions }}" as="m" hint-placeholder-count="3"><button data-m="{{ m.id }}" onClick="{{ onSetMarital }}" style="{{ m.style }}">{{ m.label }}</button></sc-for>
+                        <sc-if value="{{ maritalNeedsKids }}">
+                          <div style="border-top:1px solid var(--border);margin-top:6px;padding:8px 10px 4px;"><div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);margin-bottom:7px;">Children</div><div style="display:flex;flex-wrap:wrap;gap:6px;"><sc-for list="{{ kidsOptions }}" as="k" hint-placeholder-count="6"><button data-n="{{ k.n }}" onClick="{{ onSetKids }}" style="{{ k.style }}">{{ k.n }}</button></sc-for></div></div>
+                        </sc-if>
+                      </div>
+                    </sc-if>
+                  </span>
+                  <sc-if value="{{ maritalNeedsKids }}"><span style="font-size:12px;color:var(--attention-foreground);background:var(--attention);border:1px solid var(--attention-strong);padding:3px 11px;border-radius:999px;">{{ maritalKidsLabel }}</span></sc-if>
+                  <span style="font-size:12px;color:var(--muted-foreground);background:var(--secondary);border:1px solid var(--border);padding:3px 11px;border-radius:999px;font-variant-numeric:tabular-nums;">◷ Redt 18 Jul 2026</span>
+                </div>
+              </div>
+            </div>
+            <div style="background:var(--attention);color:var(--attention-foreground);border-radius:10px;padding:11px 14px;font-size:13px;font-weight:600;margin:16px 0;display:flex;align-items:center;gap:8px;">✓ First suggested by Mrs. Feldman 3 months ago · possible prior date (Feb 2026)</div>
+            <div style="border-bottom:1px solid var(--border);display:flex;margin-bottom:20px;">
+              <sc-for list="{{ detailTabs }}" as="t" hint-placeholder-count="4"><button data-group="detail" data-tab="{{ t.id }}" onClick="{{ onTab }}" style="{{ t.style }}">{{ t.label }}</button></sc-for>
+            </div>
+            <sc-if value="{{ detailIsRefs }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:12px;">
+                <sc-for list="{{ refCalls }}" as="rc" hint-placeholder-count="3">
+                  <button data-nav="reference" onClick="{{ onNav }}" style="text-align:start;width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;cursor:pointer;color:inherit;font:inherit;" style-hover="border-color:var(--primary);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><div style="font-weight:600;font-size:14px;">{{ rc.name }} <span style="font-weight:400;color:var(--muted-foreground);">· {{ rc.rel }}</span></div><span style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><span style="font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:999px;{{ rc.statusStyle }}">{{ rc.status }}</span><span style="color:var(--muted-foreground);font-size:15px;">→</span></span></div>
+                    <p style="margin:8px 0 0;font-size:13.5px;line-height:1.5;color:var(--muted-foreground);">{{ rc.said }}</p>
+                  </button>
+                </sc-for>
+                <div style="background:color-mix(in oklch,var(--primary) 8%,var(--card));border:1px solid color-mix(in oklch,var(--primary) 30%,var(--border));border-radius:var(--radius);padding:16px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;"><div style="font-weight:600;font-size:14px;">AI diligence dossier</div><span style="font-size:11px;font-weight:600;color:var(--primary);background:color-mix(in oklch,var(--primary) 15%,transparent);padding:2px 9px;border-radius:999px;">Paid feature</span></div>
+                  <div style="font-size:13px;line-height:1.6;"><b style="color:var(--positive);">Consensus:</b> warm, serious learner, respected by his rebbeim.<br><b style="color:var(--st-no);">Contradiction:</b> one reference called him "quiet," another "very social."<br><b style="color:var(--attention-foreground);">Gap:</b> nobody asked about health, and no reference knew him recently.</div>
+                  <button data-nav="reference" onClick="{{ onNav }}" style="margin-top:12px;height:38px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:13px;cursor:pointer;">Open reference workspace →</button>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ detailIsResume }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:9px;max-width:560px;">
+                  <sc-for list="{{ resumeFields }}" as="f" hint-placeholder-count="6"><div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--border);"><span style="font-size:13px;color:var(--muted-foreground);">{{ f.k }}</span><span style="font-size:13.5px;font-weight:500;text-align:end;">{{ f.v }}</span></div></sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ detailIsResumeDoc }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;grid-template-columns:minmax(0,420px) 1fr;gap:20px;align-items:start;">
+                <div style="background:var(--paper);color:var(--paper-ink);border:1px solid var(--border);border-radius:8px;padding:24px 24px 26px;box-shadow:0 3px 14px oklch(0 0 0 /.10);font-size:11.5px;line-height:1.5;height:fit-content;">
+                  <div style="text-align:center;border-bottom:2px solid var(--paper-ink);padding-bottom:11px;margin-bottom:13px;">
+                    <div style="font-size:18px;font-weight:700;letter-spacing:.02em;">DOVID BERKOWITZ</div>
+                    <div style="font-family:'Heebo',sans-serif;font-size:14px;color:var(--paper-muted);margin-top:2px;">דוד ברקוביץ</div>
+                    <div style="font-size:10.5px;color:var(--paper-faint);margin-top:5px;">Lakewood, NJ · b. 12 Adar 5762 (24) · 5′10″</div>
+                  </div>
+                  <div style="display:grid;grid-template-columns:80px 1fr;row-gap:6px;column-gap:9px;">
+                    <div style="font-weight:700;color:var(--paper-label);">Learning</div><div>BMG, Lakewood · Yeshiva Chaim Berlin</div>
+                    <div style="font-weight:700;color:var(--paper-label);">High school</div><div>Yeshiva Ketana of Lakewood</div>
+                    <div style="font-weight:700;color:var(--paper-label);">Shul</div><div>Khal Zichron Yaakov</div>
+                    <div style="font-weight:700;color:var(--paper-label);">Father</div><div>R' Yaakov Berkowitz — Rebbe</div>
+                    <div style="font-weight:700;color:var(--paper-label);">Mother</div><div>Mrs. Leah Berkowitz (née Klein)</div>
+                  </div>
+                  <div style="border-top:1px solid var(--paper-line);margin:12px 0 9px;"></div>
+                  <div style="font-weight:700;color:var(--paper-label);margin-bottom:5px;">References</div>
+                  <div style="color:var(--paper-body);">• Rabbi Weiss — Rebbe, BMG — 732-555-0148<br>• Mrs. Schwartz — Neighbor — 845-555-0192<br>• R' Cohen — Chavrusa — 732-555-0177</div>
+                  <div style="text-align:center;font-size:10px;color:var(--paper-page);margin-top:16px;">page 1 of 2</div>
+                </div>
+                <div>
+                  <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px;"><button style="height:38px;padding:0 15px;border-radius:9px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:13.5px;cursor:pointer;">↓ Download PDF</button><button style="height:38px;padding:0 14px;border-radius:9px;background:var(--card);border:1px solid var(--border);color:inherit;font-weight:600;font-size:13.5px;cursor:pointer;">↑ Replace resume</button></div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;"><div style="font-size:13px;font-weight:600;color:var(--muted-foreground);">Version history</div><span style="font-size:12px;color:var(--muted-foreground);">3 versions</span></div>
+                  <div style="border:1px solid var(--border);border-radius:11px;overflow:hidden;background:var(--card);">
+                    <sc-for list="{{ resumeVersions }}" as="v" hint-placeholder-count="3">
+                      <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--border);">
+                        <span style="font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;width:28px;flex-shrink:0;color:var(--primary);">{{ v.v }}</span>
+                        <div style="flex:1;min-width:0;"><div style="font-size:13.5px;">{{ v.note }}</div></div>
+                        <span style="font-size:12px;color:var(--muted-foreground);font-variant-numeric:tabular-nums;flex-shrink:0;">{{ v.when }}</span>
+                        <sc-if value="{{ v.cur }}" hint-placeholder-val="{{ true }}"><span style="font-size:10.5px;font-weight:700;color:var(--primary-foreground);background:var(--positive);padding:2px 8px;border-radius:999px;flex-shrink:0;">CURRENT</span></sc-if>
+                        <sc-if value="{{ v.old }}" hint-placeholder-val="{{ true }}"><button style="font-size:12px;font-weight:600;color:var(--primary);background:none;border:none;cursor:pointer;flex-shrink:0;">View</button></sc-if>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <p style="font-size:12px;color:var(--muted-foreground);margin:9px 0 0;">Shadchanim often send an updated resume — the newest is always shown, and older versions stay here.</p>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ detailIsAttach }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"><div style="font-size:15px;font-weight:600;">Attachments</div><span style="font-size:12.5px;color:var(--muted-foreground);">3 files · not the resume or photo</span></div>
+              <div style="border:1.5px dashed var(--input);border-radius:12px;background:var(--secondary);padding:22px;text-align:center;margin-bottom:16px;cursor:pointer;" style-hover="border-color:var(--primary);">
+                <div style="font-size:26px;">＋</div>
+                <div style="font-size:14px;font-weight:600;margin-top:4px;">Add photos or files</div>
+                <div style="font-size:12.5px;color:var(--muted-foreground);margin-top:2px;">Drop in a voice note, a screenshot, or any file a shadchan sends — kept separate from the resume.</div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">
+                <sc-for list="{{ attachments }}" as="at" hint-placeholder-count="3">
+                  <div style="border:1px solid var(--border);border-radius:11px;overflow:hidden;background:var(--card);">
+                    <div style="height:96px;background:{{ at.bg }};display:grid;place-items:center;font-size:28px;">{{ at.icon }}</div>
+                    <div style="padding:10px 12px;"><div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ at.name }}</div><div style="font-size:11.5px;color:var(--muted-foreground);margin-top:2px;">{{ at.meta }}</div></div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ detailIsPhoto }}" hint-placeholder-val="{{ true }}">
+              <div style="max-width:420px;">
+                <div style="border-radius:16px;overflow:hidden;position:relative;border:1px solid var(--border);background:var(--secondary);aspect-ratio:4/5;box-shadow:0 6px 20px oklch(0 0 0 /.10);">
+                  <img src="uploads/images.jpg" alt="Dovid Berkowitz" style="width:100%;height:100%;object-fit:cover;display:{{ photoShown }};" />
+                  <sc-if value="{{ photoHidden }}" hint-placeholder-val="{{ true }}">
+                    <button onClick="{{ onRevealPhoto }}" style="position:absolute;inset:0;width:100%;border:none;cursor:pointer;background:oklch(0.82 0.06 260 / .5);backdrop-filter:blur(16px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:oklch(0.26 0.03 265);">
+                      <span style="font-size:30px;">🔒</span>
+                      <span style="font-size:15px;font-weight:600;">Photo of Dovid</span>
+                      <span style="font-size:12.5px;opacity:.8;">Handled with care · tap to view</span>
+                    </button>
+                  </sc-if>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
+                  <button style="height:40px;padding:0 16px;border-radius:10px;background:var(--primary);color:var(--primary-foreground);border:none;font-size:13.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px;">↑ Upload photo</button>
+                  <button style="height:40px;padding:0 14px;border-radius:10px;background:var(--card);border:1px solid var(--border);color:var(--foreground);font-size:13.5px;font-weight:600;cursor:pointer;">Replace</button>
+                  <sc-if value="{{ photoOn }}"><button onClick="{{ onRevealPhoto }}" style="height:40px;padding:0 14px;border-radius:10px;background:none;border:none;color:var(--muted-foreground);font-size:13.5px;font-weight:600;cursor:pointer;margin-inline-start:auto;">Hide</button></sc-if>
+                </div>
+                <div style="font-size:12.5px;color:var(--muted-foreground);display:flex;align-items:center;gap:6px;margin-top:10px;">🔒 Shown only to you. Never included in a share unless you choose.</div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ detailIsNotes }}" hint-placeholder-val="{{ true }}">
+              <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px;">
+                <textarea value="{{ noteDraft }}" onInput="{{ onNoteInput }}" placeholder="Write a note about this suggestion…" style="width:100%;min-height:74px;border:1px solid var(--input);border-radius:10px;background:var(--background);color:inherit;font-size:14px;font-family:inherit;line-height:1.5;padding:11px 13px;outline:none;resize:vertical;"></textarea>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:11px;">
+                  <span style="font-size:12px;color:var(--muted-foreground);">Who can see it?</span>
+                  <sc-for list="{{ noteVisOptions }}" as="v" hint-placeholder-count="3"><button data-v="{{ v.id }}" onClick="{{ onNoteVis }}" style="{{ v.style }}">{{ v.label }}</button></sc-for>
+                  <div style="flex:1;"></div>
+                  <button onClick="{{ onAddNote }}" style="height:38px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:13.5px;cursor:pointer;">Add note</button>
+                </div>
+                <p style="font-size:11.5px;color:var(--muted-foreground);margin:9px 0 0;">{{ noteVisHint }}</p>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <sc-for list="{{ notes }}" as="nt" hint-placeholder-count="1">
+                  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;">
+                    <div style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted-foreground);margin-bottom:7px;flex-wrap:wrap;">
+                      <span style="font-weight:600;{{ nt.visStyle }}padding:1px 8px;border-radius:999px;">{{ nt.visLabel }}</span>
+                      <span>{{ nt.when }}</span>
+                      <sc-if value="{{ nt.source }}"><span>· {{ nt.source }}</span></sc-if>
+                    </div>
+                    <p style="font-size:14px;line-height:1.6;margin:0;">{{ nt.text }}</p>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ detailIsMedical }}" hint-placeholder-val="{{ true }}">
+              <div style="max-width:720px;">
+                <div style="display:flex;align-items:flex-start;gap:10px;background:color-mix(in oklch,var(--primary) 6%,var(--card));border:1px solid color-mix(in oklch,var(--primary) 22%,var(--border));border-radius:12px;padding:13px 15px;margin-bottom:18px;">
+                  <span style="font-size:16px;flex-shrink:0;">🔒</span>
+                  <div style="font-size:13px;line-height:1.55;color:var(--muted-foreground);">Sensitive. Visible only to you — never shown to Rivky or shared to helpers. Record what's disclosed and what still needs confirming on a reference call.</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                  <sc-for list="{{ medicalItems }}" as="m" hint-placeholder-count="3">
+                    <div style="background:var(--card);border:1px solid var(--border);border-inline-start:3px solid {{ m.accent }};border-radius:11px;padding:14px 16px;">
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px;">
+                        <div style="font-size:13.5px;font-weight:700;">{{ m.topic }}</div>
+                        <span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;{{ m.chipStyle }}">{{ m.status }}</span>
+                      </div>
+                      <div style="font-size:13.5px;line-height:1.55;color:var(--muted-foreground);">{{ m.note }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+                <button style="margin-top:14px;height:40px;padding:0 15px;border-radius:10px;background:var(--card);border:1px solid var(--border);color:inherit;font-weight:600;font-size:13.5px;cursor:pointer;">+ Add a medical note</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ detailIsExternal }}" hint-placeholder-val="{{ true }}">
+              <p style="font-size:13.5px;color:var(--muted-foreground);margin:0 0 14px;">Profiles for this single on the shidduch sites. Links open in a new tab — nothing is shared back.</p>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <sc-for list="{{ externalLinks }}" as="x" hint-placeholder-count="4">
+                  <a href="#" style="display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;text-decoration:none;color:inherit;" style-hover="border-color:var(--primary);">
+                    <span style="width:38px;height:38px;border-radius:9px;background:{{ x.av }};color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:14px;flex-shrink:0;">{{ x.mono }}</span>
+                    <span style="flex:1;min-width:0;"><span style="display:block;font-weight:600;font-size:14px;">{{ x.label }}</span><span style="display:block;font-size:12.5px;color:var(--muted-foreground);">{{ x.sub }}</span></span>
+                    <span style="color:var(--primary);font-size:15px;">↗</span>
+                  </a>
+                </sc-for>
+                <button style="display:flex;align-items:center;gap:10px;border:1.5px dashed var(--input);background:none;border-radius:12px;padding:14px;cursor:pointer;color:var(--muted-foreground);font-size:13.5px;font-weight:600;"><span style="width:38px;height:38px;border-radius:9px;background:var(--secondary);display:grid;place-items:center;font-size:18px;">+</span>Add a link</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ detailIsTimeline }}" hint-placeholder-val="{{ true }}">
+              <div style="border-inline-start:2px solid var(--border);padding-inline-start:18px;display:flex;flex-direction:column;gap:16px;">
+                <sc-for list="{{ timeline }}" as="tl" hint-placeholder-count="4"><div style="position:relative;"><span style="position:absolute;inset-inline-start:-25px;top:3px;width:11px;height:11px;border-radius:999px;background:var(--primary);border:2px solid var(--background);"></span><div style="font-size:13.5px;font-weight:500;">{{ tl.text }}</div><div style="font-size:12px;color:var(--muted-foreground);margin-top:2px;">{{ tl.when }}</div></div></sc-for>
+              </div>
+            </sc-if>
+          </div>
+          <aside style="background:var(--sidebar);border-inline-start:1px solid var(--border);padding:22px 20px;display:flex;flex-direction:column;gap:20px;">
+            <div><div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);margin-bottom:9px;">Rivky's input</div><div style="background:var(--accent);color:var(--accent-foreground);border-radius:10px;padding:12px;font-size:13.5px;">💬 "Want to know more" — she left a note for you.</div></div>
+            <div><div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);margin-bottom:9px;">Reminders</div><div style="font-size:13.5px;line-height:1.5;margin-bottom:9px;">Call the seminary reference back — <span style="color:var(--attention-foreground);font-weight:600;">Thursday</span></div><button data-nav="reminders" onClick="{{ onNav }}" style="font-size:13px;font-weight:600;color:var(--primary);background:none;border:none;cursor:pointer;padding:0;">+ Add a reminder on Dovid</button></div>
+            <div style="margin-top:auto;display:flex;flex-direction:column;gap:9px;">
+              <div style="position:relative;">
+                <button onClick="{{ toggleFwd }}" style="width:100%;height:44px;border-radius:10px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:14px;cursor:pointer;">↪ Forward resume</button>
+                <sc-if value="{{ fwdOpen }}">
+                  <div style="position:absolute;bottom:calc(100% + 8px);inset-inline-start:0;right:0;z-index:20;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:0 14px 34px oklch(0 0 0 /.18);padding:8px;">
+                    <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);padding:6px 8px 6px;">Forward to · lands in their tasks</div>
+                    <sc-for list="{{ forwardTargets }}" as="ft" hint-placeholder-count="2">
+                      <button data-nav="tasks" onClick="{{ onNav }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:start;border:none;background:none;padding:9px 8px;border-radius:9px;cursor:pointer;color:inherit;" style-hover="background:var(--secondary);">
+                        <span style="width:32px;height:32px;border-radius:8px;background:{{ ft.av }};color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:11px;">{{ ft.mono }}</span>
+                        <span><span style="display:block;font-size:13.5px;font-weight:600;">{{ ft.who }}</span><span style="display:block;font-size:11.5px;color:var(--muted-foreground);">{{ ft.sub }}</span></span>
+                      </button>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+              <button style="height:44px;border-radius:10px;background:var(--card);border:1px solid var(--border);color:var(--foreground);font-weight:600;font-size:14px;cursor:pointer;">Share via link →</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isShare }}" hint-placeholder-val="{{ true }}">
+    <div style="min-height:calc(100vh - 55px);display:flex;gap:48px;align-items:center;justify-content:center;flex-wrap:wrap;padding:40px 24px;background:radial-gradient(120% 80% at 50% 0%, var(--secondary), var(--background));animation:msFade .35s ease;">
+      <div style="width:392px;flex-shrink:0;">
+        <div style="border-radius:46px;border:11px solid oklch(0.28 0.01 265);background:var(--background);overflow:hidden;box-shadow:0 30px 70px oklch(0 0 0 /.22);height:788px;display:flex;flex-direction:column;">
+          <div style="height:34px;background:var(--secondary);display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:12px;font-weight:600;"><span>9:41</span><span>MyShadchan</span></div>
+          <div style="padding:16px 16px 8px;border-bottom:1px solid var(--border);">
+            <div style="font-size:12px;color:var(--muted-foreground);">Shared to MyShadchan</div>
+            <div style="font-size:18px;font-weight:700;margin-top:2px;">Let's file this while you remember.</div>
+          </div>
+          <div style="flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:16px;">
+            <div style="background:var(--secondary);border-radius:10px;padding:4px;display:flex;gap:4px;">
+              <sc-for list="{{ shareTabs }}" as="s" hint-placeholder-count="3"><button data-group="share" data-tab="{{ s.id }}" onClick="{{ onTab }}" style="{{ s.style }}">{{ s.label }}</button></sc-for>
+            </div>
+            <sc-if value="{{ shareIsWhatsapp }}" hint-placeholder-val="{{ true }}">
+              <div style="background:oklch(0.95 0.03 150);border-radius:12px;border-top-left-radius:3px;padding:12px 14px;font-size:14px;line-height:1.5;color:oklch(0.30 0.03 155);align-self:flex-start;max-width:88%;">Hi! I have a wonderful boy for Rivky — Dovid Berkowitz, BMG, from Lakewood. 24, learning well. Should I send the resume? 😊<div style="font-size:11px;opacity:.6;margin-top:4px;">Mrs. Feldman · WhatsApp</div></div>
+            </sc-if>
+            <sc-if value="{{ shareIsSms }}" hint-placeholder-val="{{ true }}">
+              <div style="background:var(--secondary);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.5;align-self:flex-start;max-width:88%;">Dovid Berkowitz for Rivky — resume attached. 24, BMG, Lakewood. Call me after Shabbos.<div style="font-size:11px;color:var(--muted-foreground);margin-top:4px;">+1 (732) 555-0148 · SMS</div></div>
+            </sc-if>
+            <sc-if value="{{ shareIsPhoto }}" hint-placeholder-val="{{ true }}">
+              <div style="background:var(--secondary);border:1px solid var(--border);border-radius:12px;height:150px;display:grid;place-items:center;color:var(--muted-foreground);font-size:13px;">🖼 resume-photo.jpg · 1 image</div>
+            </sc-if>
+            <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:14px;">
+              <div style="font-size:13px;font-weight:600;color:var(--muted-foreground);">Link it — takes a few seconds</div>
+              <div>
+                <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Which shadchan?</div>
+                <div style="border:1px solid var(--input);border-radius:10px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;font-size:15px;"><span>Mrs. Feldman <span style="font-size:11px;color:var(--positive);font-weight:600;">· detected</span></span><span style="color:var(--muted-foreground);">▾</span></div>
+                <div style="font-size:12px;color:var(--primary);margin-top:6px;">+ Not found? Add a shadchan</div>
+              </div>
+              <div>
+                <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Which child?</div>
+                <div style="display:flex;gap:8px;">
+                  <div style="flex:1;border:2px solid var(--primary);background:color-mix(in oklch,var(--primary) 8%,var(--card));border-radius:10px;padding:11px;text-align:center;font-size:14px;font-weight:600;">Rivky</div>
+                  <div style="flex:1;border:1px solid var(--input);border-radius:10px;padding:11px;text-align:center;font-size:14px;color:var(--muted-foreground);">Yaakov</div>
+                </div>
+              </div>
+              <div style="border-top:1px solid var(--border);padding-top:12px;">
+                <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Or link to an existing suggestion</div>
+                <div style="display:flex;flex-direction:column;gap:7px;">
+                  <div style="display:flex;align-items:center;gap:10px;border:1px solid var(--input);border-radius:10px;padding:9px 11px;">
+                    <span style="width:30px;height:30px;border-radius:8px;background:var(--avatar-blue);color:var(--avatar-fg);display:grid;place-items:center;font-size:11px;font-weight:700;">DB</span>
+                    <div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:600;">Dovid Berkowitz</div><div style="font-size:11.5px;color:var(--muted-foreground);">Look-into · already on the board</div></div>
+                    <span style="font-size:12px;font-weight:600;color:var(--primary);">Link</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:10px;border:1px solid var(--input);border-radius:10px;padding:9px 11px;">
+                    <span style="width:30px;height:30px;border-radius:8px;background:var(--avatar-pink);color:var(--avatar-fg);display:grid;place-items:center;font-size:11px;font-weight:700;">SK</span>
+                    <div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:600;">Shmuli Katz</div><div style="font-size:11.5px;color:var(--muted-foreground);">Look-into · already on the board</div></div>
+                    <span style="font-size:12px;font-weight:600;color:var(--primary);">Link</span>
+                  </div>
+                  <div style="border:1px dashed var(--input);border-radius:10px;padding:9px 11px;font-size:12.5px;color:var(--muted-foreground);text-align:center;">Search shidduchim…</div>
+                </div>
+                <div style="font-size:11.5px;color:var(--muted-foreground);margin-top:8px;">Linking files this WhatsApp as an update on that suggestion.</div>
+              </div>
+            </div>
+          </div>
+          <div style="padding:14px 16px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:9px;">
+            <button data-nav="parse" onClick="{{ onNav }}" style="height:52px;border-radius:13px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:16px;cursor:pointer;">Save & review</button>
+            <button data-nav="inbox" onClick="{{ onNav }}" style="height:44px;border-radius:13px;background:none;color:var(--muted-foreground);border:none;font-weight:600;font-size:14px;cursor:pointer;">Skip — just drop it in my Inbox</button>
+          </div>
+        </div>
+        <p style="text-align:center;font-size:13px;color:var(--muted-foreground);margin-top:16px;">Mobile PWA · Android 1-tap share-target</p>
+      </div>
+      <div style="max-width:340px;">
+        <h1 style="font-size:26px;font-weight:700;letter-spacing:-0.02em;margin:0 0 12px;">The front door.</h1>
+        <p style="font-size:15px;line-height:1.6;color:var(--muted-foreground);margin:0 0 20px;">A resume arrives on WhatsApp, SMS, or as a photo. She shares it straight into her own app — and while she still remembers, one calm step resolves <b style="color:var(--foreground);">which shadchan</b> and <b style="color:var(--foreground);">which child</b>. Skipping never loses it.</p>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;">
+          <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);margin-bottom:8px;">Phone-less path (desktop)</div>
+          <p style="font-size:13.5px;line-height:1.5;margin:0;">Forward or CC to your private inbox address, or upload a file — equal, not lesser.</p>
+          <div style="margin-top:10px;background:var(--secondary);border:1px dashed var(--border);border-radius:8px;padding:9px 12px;font-size:13px;font-family:ui-monospace,monospace;">you@in.myshadchan.space  ⧉</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isInbox }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="7"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:26px 32px;max-width:960px;">
+        <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin:0 0 22px;">Inbox</h1>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+          <sc-for list="{{ inboxItems }}" as="i" hint-placeholder-count="4">
+            <button data-nav="parse" onClick="{{ onNav }}" style="width:100%;text-align:start;background:none;border:none;border-bottom:1px solid var(--border);padding:15px 18px;cursor:pointer;display:flex;gap:14px;align-items:center;" style-hover="background:var(--secondary);">
+              <span style="width:44px;height:44px;border-radius:10px;background:var(--secondary);border:1px solid var(--border);display:grid;place-items:center;font-size:18px;flex-shrink:0;">{{ i.icon }}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:14.5px;">{{ i.title }}</div>
+                <div style="font-size:13px;color:var(--muted-foreground);margin-top:2px;">{{ i.sub }}</div>
+              </div>
+              <span style="font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:999px;{{ i.badgeStyle }}">{{ i.badge }}</span>
+              <span style="font-size:12px;color:var(--muted-foreground);width:64px;text-align:end;">{{ i.time }}</span>
+            </button>
+          </sc-for>
+          <div style="padding:15px 18px;background:color-mix(in oklch,var(--attention) 22%,var(--card));display:flex;gap:12px;align-items:center;">
+            <span style="font-size:18px;">🤔</span>
+            <div style="flex:1;"><div style="font-weight:600;font-size:14px;color:var(--attention-foreground);">1 item needs your confirmation — we won't guess</div><div style="font-size:13px;color:var(--attention-foreground);opacity:.85;">A forwarded email with an ambiguous original sender.</div></div>
+            <button style="font-size:13px;font-weight:600;border:1px solid var(--attention-strong);background:var(--card);border-radius:8px;padding:7px 12px;cursor:pointer;color:var(--attention-foreground);">Attribute</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isParse }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="7"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:24px 30px;">
+        <button data-nav="inbox" onClick="{{ onNav }}" style="border:none;background:none;color:var(--muted-foreground);font-size:13px;cursor:pointer;margin-bottom:12px;">← Back to Inbox</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+          <div><h1 style="font-size:22px;font-weight:700;margin:0;">Confirm the details</h1><p style="color:var(--muted-foreground);font-size:14px;margin:5px 0 0;">The resume stays exactly as received — just check what we captured from it.</p></div>
+          <span style="font-size:12px;font-weight:600;color:var(--primary);background:color-mix(in oklch,var(--primary) 12%,transparent);padding:5px 12px;border-radius:999px;">AI auto-fill · on</span>
+        </div>
+        <div style="display:grid;grid-template-columns:0.85fr 1fr;gap:22px;">
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div style="background:var(--paper);color:var(--paper-ink);border:1px solid var(--border);border-radius:8px;padding:26px 26px 30px;box-shadow:0 3px 14px oklch(0 0 0 /.10);font-size:12px;line-height:1.5;">
+              <div style="text-align:center;border-bottom:2px solid var(--paper-ink);padding-bottom:12px;margin-bottom:14px;">
+                <div style="font-size:20px;font-weight:700;letter-spacing:.02em;">DOVID BERKOWITZ</div>
+                <div style="font-family:'Heebo',sans-serif;font-size:15px;color:var(--paper-muted);margin-top:2px;">דוד ברקוביץ</div>
+                <div style="font-size:11px;color:var(--paper-faint);margin-top:5px;">Lakewood, NJ · b. 12 Adar 5762 (age 24) · 5′10″</div>
+              </div>
+              <div style="display:grid;grid-template-columns:88px 1fr;row-gap:7px;column-gap:10px;">
+                <div style="font-weight:700;color:var(--paper-label);">Learning</div><div>BMG, Lakewood (current) · Yeshiva Chaim Berlin</div>
+                <div style="font-weight:700;color:var(--paper-label);">High school</div><div>Yeshiva Ketana of Lakewood</div>
+                <div style="font-weight:700;color:var(--paper-label);">Shul</div><div>Khal Zichron Yaakov</div>
+                <div style="font-weight:700;color:var(--paper-label);">Father</div><div>R' Yaakov Berkowitz — Rebbe</div>
+                <div style="font-weight:700;color:var(--paper-label);">Mother</div><div>Mrs. Leah Berkowitz (née Klein)</div>
+              </div>
+              <div style="border-top:1px solid var(--paper-line);margin:14px 0 10px;"></div>
+              <div style="font-weight:700;color:var(--paper-label);margin-bottom:6px;">References</div>
+              <div style="color:var(--paper-body);">• Rabbi Weiss — Rebbe, BMG — 732-555-0148<br>• Mrs. Schwartz — Neighbor — 845-555-0192<br>• R' Cohen — Chavrusa — 732-555-0177</div>
+              <div style="text-align:center;font-size:10px;color:var(--paper-page);margin-top:18px;">Berkowitz-resume.pdf · page 1 of 2 · kept as received, never edited</div>
+            </div>
+            <button style="height:36px;border-radius:9px;background:var(--secondary);border:1px solid var(--border);color:var(--foreground);font-size:12.5px;font-weight:600;cursor:pointer;">↓ Open original PDF</button>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <sc-for list="{{ parseFields }}" as="p" hint-placeholder-count="6">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;"><span style="font-size:13px;font-weight:600;color:var(--muted-foreground);">{{ p.k }}</span><sc-if value="{{ p.low }}" hint-placeholder-val="{{ true }}"><span style="font-size:11px;font-weight:600;color:var(--attention-foreground);background:var(--attention);padding:1px 8px;border-radius:999px;">please check</span></sc-if></div>
+                <div style="border:1px solid {{ p.border }};border-radius:10px;padding:11px 14px;font-size:15px;background:var(--card);">{{ p.v }}</div>
+              </div>
+            </sc-for>
+            <div style="border-top:1px solid var(--border);padding-top:14px;">
+              <div style="font-size:13px;font-weight:600;color:var(--muted-foreground);margin-bottom:8px;">Yeshivas / seminaries</div>
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <sc-for list="{{ learnHistory }}" as="l" hint-placeholder-count="3"><div style="display:flex;align-items:center;gap:10px;border:1px solid var(--input);border-radius:10px;padding:10px 13px;background:var(--card);"><span style="font-size:11.5px;color:var(--muted-foreground);width:110px;flex-shrink:0;">{{ l.label }}</span><span style="font-size:14px;flex:1;">{{ l.v }}</span><span style="color:var(--muted-foreground);cursor:pointer;">✕</span></div></sc-for>
+              </div>
+              <button style="margin-top:8px;font-size:13px;font-weight:600;color:var(--primary);background:none;border:none;cursor:pointer;">+ Add another school</button>
+            </div>
+            <div style="border-top:1px solid var(--border);padding-top:14px;">
+              <div style="font-size:13px;font-weight:600;color:var(--muted-foreground);margin-bottom:8px;">References</div>
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <sc-for list="{{ refsList }}" as="r" hint-placeholder-count="3"><div style="display:flex;align-items:center;gap:11px;border:1px solid var(--input);border-radius:10px;padding:10px 13px;background:var(--card);"><div style="flex:1;"><div style="font-size:14px;font-weight:500;">{{ r.name }} <span style="font-weight:400;color:var(--muted-foreground);">· {{ r.rel }}</span></div><div style="font-size:12px;color:var(--muted-foreground);font-variant-numeric:tabular-nums;">{{ r.phone }}</div></div><span style="color:var(--muted-foreground);cursor:pointer;">✕</span></div></sc-for>
+              </div>
+              <button style="margin-top:8px;font-size:13px;font-weight:600;color:var(--primary);background:none;border:none;cursor:pointer;">+ Add another reference</button>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:6px;">
+              <button data-nav="catch" onClick="{{ onNav }}" style="flex:1;height:48px;border-radius:11px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:15px;cursor:pointer;">Looks right — save</button>
+              <button style="height:48px;padding:0 16px;border-radius:11px;background:var(--card);border:1px solid var(--border);color:var(--foreground);font-weight:600;font-size:14px;cursor:pointer;">Enter myself</button>
+            </div>
+            <p style="font-size:12.5px;color:var(--muted-foreground);text-align:center;margin:2px 0 0;">Prefer to type it yourself? The free manual form is one tap away — always.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isReference }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="8"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:24px 30px;">
+        <button data-nav="detail" onClick="{{ onNav }}" style="border:none;background:none;color:var(--muted-foreground);font-size:13px;cursor:pointer;margin-bottom:12px;">← Dovid Berkowitz · 360° view</button>
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px;">
+          <div><h1 style="font-size:23px;font-weight:700;letter-spacing:-0.02em;margin:0;">References — Dovid Berkowitz</h1><p style="font-size:13.5px;color:var(--muted-foreground);margin:6px 0 0;">Diligence for this suggestion · <span style="color:var(--foreground);font-weight:600;">{{ refDoneLabel }}</span></p></div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button data-name="Rabbi Weiss" data-rel="Rebbe, BMG" onClick="{{ openCall }}" style="display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 15px;border-radius:10px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:13.5px;cursor:pointer;white-space:nowrap;flex-shrink:0;">📞 Call mode <span style="font-size:11px;font-weight:600;background:oklch(1 0 0 / .18);padding:1px 7px;border-radius:999px;">AI</span></button>
+            <div style="display:flex;gap:3px;background:var(--secondary);border-radius:11px;padding:4px;"><button data-v="list" onClick="{{ onRefView }}" style="{{ refViewListStyle }}">☰ List</button><button data-v="cards" onClick="{{ onRefView }}" style="{{ refViewCardsStyle }}">▦ Cards</button></div>
+          </div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:18px;">
+          <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;"><span style="font-weight:600;font-size:13.5px;">Cross-reference summary — “did we check him out?”</span><span style="font-size:11px;font-weight:600;color:var(--primary);background:color-mix(in oklch,var(--primary) 12%,transparent);padding:2px 9px;border-radius:999px;">Paid</span></div>
+          <div style="padding:14px 16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+            <div style="display:flex;gap:9px;"><span style="width:24px;height:24px;border-radius:7px;background:var(--accent);color:var(--accent-foreground);display:grid;place-items:center;flex-shrink:0;font-size:12px;">✓</span><div><div style="font-size:13px;font-weight:600;">Consensus</div><div style="font-size:12.5px;color:var(--muted-foreground);">Serious, warm, respected — 3 of 3.</div></div></div>
+            <div style="display:flex;gap:9px;"><span style="width:24px;height:24px;border-radius:7px;background:color-mix(in oklch,var(--st-no) 30%,var(--card));color:var(--st-no);display:grid;place-items:center;flex-shrink:0;font-size:12px;">≠</span><div><div style="font-size:13px;font-weight:600;">Contradiction</div><div style="font-size:12.5px;color:var(--muted-foreground);">“Quiet” vs “very social.”</div></div></div>
+            <div style="display:flex;gap:9px;"><span style="width:24px;height:24px;border-radius:7px;background:var(--attention);color:var(--attention-foreground);display:grid;place-items:center;flex-shrink:0;font-size:12px;">?</span><div><div style="font-size:13px;font-weight:600;">Gaps</div><div style="font-size:12.5px;color:var(--muted-foreground);">Nobody asked about health.</div></div></div>
+          </div>
+        </div>
+        <div style="{{ refGridStyle }}">
+          <sc-for list="{{ refCards }}" as="r" hint-placeholder-count="3">
+            <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+              <button data-i="{{ r.idx }}" onClick="{{ openRefFull }}" style="{{ r.openStyle }}">
+                <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;">
+                  <span style="width:40px;height:40px;border-radius:10px;background:{{ r.av }};color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:12px;flex-shrink:0;">{{ r.mono }}</span>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;font-size:14.5px;">{{ r.name }}</div>
+                    <div style="font-size:12.5px;color:var(--muted-foreground);">{{ r.rel }} · {{ r.phone }}</div>
+                  </div>
+                  <span style="position:relative;">
+                    <span data-i="{{ r.idx }}" onClick="{{ onToggleStatusMenu }}" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap;cursor:pointer;{{ r.statusStyle }}">{{ r.status }} <span style="opacity:.6;font-size:9px;">▾</span></span>
+                    <sc-if value="{{ r.statusMenuOpen }}">
+                      <span style="position:absolute;top:calc(100% + 6px);inset-inline-end:0;z-index:30;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 30px oklch(0 0 0 /.16);padding:5px;min-width:160px;display:block;">
+                        <span style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);padding:5px 12px 3px;">Set call status</span>
+                        <sc-for list="{{ r.statusOpts }}" as="o" hint-placeholder-count="4"><button data-i="{{ o.idx }}" data-status="{{ o.label }}" onClick="{{ onSetRefStatus }}" style="{{ o.style }}">{{ o.label }}</button></sc-for>
+                      </span>
+                    </sc-if>
+                  </span>
+                  <span style="color:var(--muted-foreground);font-size:15px;">→</span>
+                </div>
+                <div style="padding:0 16px 12px;display:flex;gap:14px;font-size:11.5px;color:var(--muted-foreground);">
+                  <span style="display:inline-flex;align-items:center;gap:5px;">↺ {{ r.track }}</span>
+                  <span>· {{ r.noteCount }} notes</span>
+                  <span>· {{ r.taskCount }} tasks</span>
+                </div>
+              </button>
+            </div>
+          </sc-for>
+        </div>
+        <div style="border:1.5px dashed var(--input);border-radius:12px;padding:16px;margin-top:16px;max-width:440px;">
+          <div style="font-size:13.5px;font-weight:600;margin-bottom:10px;">Add a reference</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div style="border:1px solid var(--input);border-radius:9px;padding:10px 12px;font-size:13px;color:var(--muted-foreground);">Name</div>
+            <div style="display:flex;gap:8px;"><div style="flex:1;border:1px solid var(--input);border-radius:9px;padding:10px 12px;font-size:13px;color:var(--muted-foreground);">Relationship</div><div style="flex:1;border:1px solid var(--input);border-radius:9px;padding:10px 12px;font-size:13px;color:var(--muted-foreground);">Phone</div></div>
+            <button style="height:42px;border-radius:9px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:13.5px;cursor:pointer;">+ Add reference</button>
+          </div>
+          <p style="font-size:11.5px;color:var(--muted-foreground);margin:10px 0 0;">Reused across boys — if you've spoken to them before, we'll link the history.</p>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isReminders }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="7"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:26px 32px;max-width:820px;">
+        <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin:0 0 22px;">Reminders</h1>
+        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--attention-foreground);margin-bottom:10px;">Needs a nudge</div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:26px;">
+          <sc-for list="{{ overdueReminders }}" as="o" hint-placeholder-count="2">
+            <div style="background:color-mix(in oklch,var(--attention) 20%,var(--card));border:1px solid var(--attention-strong);border-radius:var(--radius);padding:14px 16px;display:flex;gap:13px;align-items:center;">
+              <button style="width:24px;height:24px;border-radius:7px;border:2px solid var(--attention-strong);background:none;flex-shrink:0;cursor:pointer;"></button>
+              <div style="flex:1;"><div style="font-size:14.5px;font-weight:600;">{{ o.text }}</div><div style="font-size:13px;color:var(--attention-foreground);margin-top:2px;">{{ o.due }} · {{ o.target }}</div></div>
+              <button style="font-size:13px;font-weight:600;border:1px solid var(--border);background:var(--card);border-radius:8px;padding:7px 12px;cursor:pointer;color:inherit;">Snooze</button>
+            </div>
+          </sc-for>
+        </div>
+        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);margin-bottom:10px;">Coming up</div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+          <sc-for list="{{ upcomingReminders }}" as="u" hint-placeholder-count="3">
+            <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;gap:13px;align-items:center;">
+              <button style="width:24px;height:24px;border-radius:7px;border:2px solid var(--border);background:none;flex-shrink:0;cursor:pointer;"></button>
+              <div style="flex:1;"><div style="font-size:14.5px;">{{ u.text }}</div><div style="font-size:13px;color:var(--muted-foreground);margin-top:2px;">{{ u.due }} · {{ u.target }}</div></div>
+            </div>
+          </sc-for>
+        </div>
+        <p style="font-size:13px;color:var(--muted-foreground);margin-top:16px;display:flex;align-items:center;gap:7px;">🔔 Delivered in-app + by email (reaches phone-less helpers) + push on the installed app. No outbound SMS, ever.</p>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isPrivacy }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="7"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:26px 32px;max-width:900px;">
+        <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin:0 0 4px;">Privacy &amp; transparency</h1>
+        <p style="color:var(--muted-foreground);font-size:14px;margin:0 0 24px;">Your data is never shared or pooled. Here's exactly who can see what — in both directions.</p>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:22px;margin-bottom:20px;">
+          <div style="font-weight:600;font-size:15px;margin-bottom:16px;">Parent ↔ Rivky · what each side sees</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div style="border:1px solid var(--border);border-radius:12px;padding:16px;">
+              <div style="font-size:13px;font-weight:600;color:var(--muted-foreground);margin-bottom:12px;">You (parent) see</div>
+              <div style="display:flex;flex-direction:column;gap:9px;font-size:13.5px;"><div>✓ The full board, all 7 states</div><div>✓ Every reference call &amp; note</div><div>✓ Rivky's input &amp; her preferences</div></div>
+            </div>
+            <div style="border:1px solid var(--border);border-radius:12px;padding:16px;">
+              <div style="font-size:13px;font-weight:600;color:var(--muted-foreground);margin-bottom:12px;">Rivky sees</div>
+              <div style="display:flex;flex-direction:column;gap:9px;font-size:13.5px;"><div>✓ Only suggestions being actively pursued</div><div style="color:var(--muted-foreground);">✕ Gut set-asides &amp; candid reference words</div><div style="color:var(--muted-foreground);">✕ Your private notes</div></div>
+            </div>
+          </div>
+          <div style="margin-top:16px;background:var(--accent);color:var(--accent-foreground);border-radius:11px;padding:14px 16px;display:flex;gap:11px;align-items:center;">
+            <span style="font-size:18px;">🔒</span>
+            <div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Dignity floor — can't be turned off</div><div style="font-size:13px;opacity:.9;">Rivky always sees her live prospects and can give input. This can never be turned off.</div></div>
+            <div style="width:42px;height:24px;border-radius:999px;background:var(--positive);position:relative;opacity:.55;"><span style="position:absolute;top:2px;inset-inline-end:2px;width:20px;height:20px;border-radius:999px;background:#fff;"></span></div>
+          </div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:22px;">
+          <div style="font-weight:600;font-size:15px;margin-bottom:6px;">Data ownership</div>
+          <p style="font-size:13.5px;color:var(--muted-foreground);margin:0 0 16px;">It's your data. Take it or remove it, any time.</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <sc-for list="{{ dataActions }}" as="a" hint-placeholder-count="4">
+              <div style="border:1px solid var(--border);border-radius:11px;padding:15px;">
+                <div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;">{{ a.icon }} {{ a.title }}</div>
+                <div style="font-size:12.5px;color:var(--muted-foreground);margin-top:5px;line-height:1.45;">{{ a.sub }}</div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="margin-top:14px;font-size:12.5px;color:var(--muted-foreground);border-top:1px solid var(--border);padding-top:14px;">Sub-processors: Supabase (database), Stripe (billing only). That's everyone who touches your data, and what for.</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isBilling }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="7"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:26px 32px;max-width:840px;">
+        <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin:0 0 4px;">Billing</h1>
+        <p style="color:var(--muted-foreground);font-size:14px;margin:0 0 22px;">Run at cost, not for profit.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">
+            <div style="font-size:13px;font-weight:600;color:var(--positive);margin-bottom:12px;">Free, forever</div>
+            <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><div>The whole CRM &amp; pipeline</div><div>Manual entry, always</div><div>The duplicate / already-dated catch</div><div>Reference tracking &amp; reminders</div></div>
+          </div>
+          <div style="background:color-mix(in oklch,var(--primary) 6%,var(--card));border:1px solid color-mix(in oklch,var(--primary) 30%,var(--border));border-radius:var(--radius);padding:20px;">
+            <div style="font-size:13px;font-weight:600;color:var(--primary);margin-bottom:12px;">AI features · $2/mo or $24/yr</div>
+            <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><div>Auto-parse resumes (OCR)</div><div>Reference research assistant</div><div>Cross-reference gaps &amp; questions</div></div>
+            <button style="margin-top:16px;width:100%;height:44px;border-radius:10px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:14px;cursor:pointer;">Subscribe · annual</button>
+          </div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;">
+          <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:9px;"><span style="font-weight:600;">This month's AI usage</span><span style="color:var(--muted-foreground);font-variant-numeric:tabular-nums;">34 / 100 resumes</span></div>
+          <div style="height:9px;border-radius:999px;background:var(--secondary);overflow:hidden;"><div style="width:34%;height:100%;background:var(--primary);border-radius:999px;"></div></div>
+        </div>
+        <div style="background:color-mix(in oklch,var(--attention) 20%,var(--card));border:1px solid var(--attention-strong);border-radius:var(--radius);padding:16px;display:flex;gap:12px;align-items:flex-start;">
+          <span style="font-size:18px;">◷</span>
+          <div><div style="font-size:14px;font-weight:600;color:var(--attention-foreground);">If your subscription lapses, nothing is lost.</div><div style="font-size:13px;color:var(--attention-foreground);opacity:.9;margin-top:3px;">AI auto-fill pauses; the free manual path stays exactly where it is.</div></div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isChildhome }}" hint-placeholder-val="{{ true }}">
+    <div style="min-height:calc(100vh - 55px);background:radial-gradient(130% 90% at 50% -10%, var(--accent), var(--background));animation:msFade .35s ease;">
+      <div style="max-width:540px;margin:0 auto;padding:44px 24px 60px;">
+        <p style="font-size:13px;color:var(--accent-foreground);font-weight:600;margin:0 0 4px;">Rivky's space</p>
+        <h1 style="font-size:28px;font-weight:700;letter-spacing:-0.02em;margin:0 0 26px;">What's being looked into for you</h1>
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <sc-for list="{{ childSuggestions }}" as="cs" hint-placeholder-count="2">
+            <button data-nav="childinput" onClick="{{ onNav }}" style="text-align:start;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;cursor:pointer;box-shadow:0 1px 3px oklch(0 0 0 /.05);transition:all .15s;" style-hover="box-shadow:0 8px 22px oklch(0 0 0 /.08);transform:translateY(-2px);">
+              <div style="display:flex;align-items:center;gap:14px;">
+                <span style="width:48px;height:48px;border-radius:12px;background:{{ cs.av }};color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:15px;">{{ cs.mono }}</span>
+                <div style="flex:1;"><div style="font-weight:600;font-size:17px;">{{ cs.name }}</div><div style="font-size:13.5px;color:var(--muted-foreground);margin-top:2px;">{{ cs.blurb }}</div></div>
+              </div>
+              <div style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-size:12.5px;font-weight:600;color:var(--accent-foreground);background:var(--accent);padding:4px 12px;border-radius:999px;">{{ cs.stage }}</span>
+                <sc-if value="{{ cs.needsInput }}" hint-placeholder-val="{{ true }}"><span style="font-size:12.5px;font-weight:600;color:var(--primary);">Your thoughts? →</span></sc-if>
+              </div>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isChildinput }}" hint-placeholder-val="{{ true }}">
+    <div style="min-height:calc(100vh - 55px);background:radial-gradient(130% 90% at 50% -10%, var(--accent), var(--background));animation:msFade .35s ease;">
+      <div style="max-width:540px;margin:0 auto;padding:32px 24px 60px;">
+        <button data-nav="childhome" onClick="{{ onNav }}" style="border:none;background:none;color:var(--muted-foreground);font-size:13px;cursor:pointer;margin-bottom:16px;">← Back</button>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:18px;padding:24px;box-shadow:0 4px 18px oklch(0 0 0 /.06);">
+          <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+            <span style="width:56px;height:56px;border-radius:14px;background:oklch(0.87 0.08 200);color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:17px;">CL</span>
+            <div style="flex:1;"><div style="font-weight:700;font-size:19px;">Chaim Landau</div><div style="font-size:13.5px;color:var(--muted-foreground);">Monsey · learning in Mir · age 25</div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted-foreground);margin-bottom:16px;"><span style="width:6px;height:6px;border-radius:999px;background:var(--muted-foreground);opacity:.5;"></span>Suggested by <b style="color:var(--foreground);font-weight:600;">Mrs. Gold</b></div>
+          <div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px;font-size:14px;line-height:1.55;color:var(--muted-foreground);">From a warm family in Monsey, learning well, known as easygoing and kind.</div>
+
+          <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);margin-bottom:10px;">Resume &amp; details</div>
+          <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:20px;">
+            <button style="width:100%;text-align:start;background:var(--secondary);border:none;border-bottom:1px solid var(--border);padding:13px 15px;display:flex;align-items:center;gap:11px;cursor:pointer;color:inherit;">
+              <span style="font-size:20px;">📄</span><div style="flex:1;"><div style="font-size:14px;font-weight:600;">Landau-resume.pdf</div><div style="font-size:12px;color:var(--muted-foreground);">View the full resume</div></div><span style="color:var(--muted-foreground);">→</span>
+            </button>
+            <sc-for list="{{ childDetails }}" as="d" hint-placeholder-count="4"><div style="display:flex;justify-content:space-between;gap:12px;padding:10px 15px;border-bottom:1px solid var(--border);font-size:13.5px;"><span style="color:var(--muted-foreground);">{{ d.k }}</span><span style="font-weight:500;text-align:end;">{{ d.v }}</span></div></sc-for>
+          </div>
+
+          <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);margin-bottom:10px;">Where this is</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:20px;">
+            <sc-for list="{{ childProgress }}" as="s" hint-placeholder-count="4"><div style="flex:1;text-align:center;"><div style="height:6px;border-radius:999px;background:{{ s.color }};margin-bottom:6px;"></div><div style="font-size:11px;color:{{ s.text }};font-weight:{{ s.weight }};">{{ s.label }}</div></div></sc-for>
+          </div>
+
+          <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);margin-bottom:10px;">Being looked into</div>
+          <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:22px;">
+            <div style="padding:13px 15px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;font-size:14px;"><span style="color:var(--positive);">✓</span>References — <b style="font-weight:600;">2 of 3 done</b><span style="color:var(--muted-foreground);margin-inline-start:auto;font-size:12.5px;">in progress</span></div>
+            <div style="padding:13px 15px;display:flex;align-items:center;gap:10px;font-size:14px;"><span style="color:var(--muted-foreground);">◷</span>Your mother is on top of it.</div>
+          </div>
+          <p style="font-size:12.5px;color:var(--muted-foreground);margin:-14px 0 22px;">You see the resume, the shadchan, and the progress. Only a few private notes stay between the grown-ups.</p>
+
+          <div style="font-size:14px;font-weight:600;margin-bottom:12px;">What are you thinking?</div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;">
+            <div style="border:2px solid var(--positive);background:color-mix(in oklch,var(--positive) 12%,var(--card));border-radius:12px;padding:15px;font-size:15px;font-weight:600;">Interested</div>
+            <div style="border:1px solid var(--input);border-radius:12px;padding:15px;font-size:15px;">Want to know more</div>
+            <div style="border:1px solid var(--input);border-radius:12px;padding:15px;font-size:15px;color:var(--muted-foreground);">Not for me</div>
+          </div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:8px;">A private note or question for Ima</div>
+          <div style="border:1px solid var(--input);border-radius:12px;padding:13px 15px;font-size:14px;min-height:76px;color:var(--muted-foreground);">Can you find out if he wants to stay in learning?…</div>
+          <div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted-foreground);margin:12px 0 20px;">🔒 Private to you unless you share it.</div>
+          <button data-nav="childhome" onClick="{{ onNav }}" style="width:100%;height:50px;border-radius:12px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:16px;cursor:pointer;">Send to Ima</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isLanding }}" hint-placeholder-val="{{ true }}">
+    <div style="min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <div style="max-width:900px;margin:0 auto;padding:72px 24px 60px;text-align:center;">
+        <span style="width:56px;height:56px;border-radius:15px;background:var(--primary);color:var(--primary-foreground);display:inline-grid;place-items:center;font-weight:700;font-size:24px;font-family:'Heebo',sans-serif;">מ</span>
+        <h1 style="font-size:42px;line-height:1.12;font-weight:700;letter-spacing:-0.025em;margin:26px 0 16px;">The organised memory for the shidduch process.</h1>
+        <p style="font-size:18px;line-height:1.6;color:var(--muted-foreground);max-width:600px;margin:0 auto 30px;">Every suggestion, reference call, and date — remembered against the right person. And it catches when someone's already been suggested or dated, before it's awkward. Built for the parent's side.</p>
+        <div style="display:flex;gap:12px;justify-content:center;margin-bottom:44px;">
+          <button data-nav="signin" onClick="{{ onNav }}" style="height:52px;padding:0 28px;border-radius:12px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:16px;cursor:pointer;">Get started</button>
+          <button data-nav="dashboard" onClick="{{ onNav }}" style="height:52px;padding:0 24px;border-radius:12px;background:var(--card);border:1px solid var(--border);color:var(--foreground);font-weight:600;font-size:16px;cursor:pointer;">See a demo</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;text-align:start;">
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;"><div style="font-weight:600;font-size:15px;margin-bottom:6px;">Never pooled or shared</div><div style="font-size:13.5px;color:var(--muted-foreground);line-height:1.5;">Your data is yours. No public database of families, ever.</div></div>
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;"><div style="font-weight:600;font-size:15px;margin-bottom:6px;">Free core</div><div style="font-size:13.5px;color:var(--muted-foreground);line-height:1.5;">The whole CRM is free. Optional AI is $2/mo, at cost.</div></div>
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;"><div style="font-weight:600;font-size:15px;margin-bottom:6px;">Source-available</div><div style="font-size:13.5px;color:var(--muted-foreground);line-height:1.5;">Operated at cost — not for profit.</div></div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isSignin }}" hint-placeholder-val="{{ true }}">
+    <div style="min-height:calc(100vh - 55px);display:grid;place-items:center;padding:40px 24px;animation:msFade .35s ease;">
+      <div style="width:100%;max-width:400px;text-align:center;">
+        <span style="width:52px;height:52px;border-radius:14px;background:var(--primary);color:var(--primary-foreground);display:inline-grid;place-items:center;font-weight:700;font-size:22px;font-family:'Heebo',sans-serif;">מ</span>
+        <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin:22px 0 8px;">Sign in to MyShadchan</h1>
+        <p style="font-size:14.5px;color:var(--muted-foreground);margin:0 0 26px;">We'll email you a link to sign in.</p>
+        <div style="border:1px solid var(--input);border-radius:12px;padding:14px 16px;font-size:15px;text-align:start;color:var(--muted-foreground);margin-bottom:12px;">chani.klein@gmail.com</div>
+        <button style="width:100%;height:52px;border-radius:12px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:16px;cursor:pointer;margin-bottom:14px;">Email me a link</button>
+        <button style="width:100%;height:44px;border-radius:12px;background:var(--card);border:1px solid var(--border);color:var(--foreground);font-weight:600;font-size:14px;cursor:pointer;">Use a passkey instead</button>
+        <p style="font-size:12.5px;color:var(--muted-foreground);margin-top:22px;line-height:1.5;">By continuing you affirm you're 18 or older.</p>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isRtl }}" hint-placeholder-val="{{ true }}">
+    <div dir="rtl" style="display:flex;min-height:calc(100vh - 55px);font-family:'Heebo','Inter',sans-serif;animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItemsHe }}" as="n" hint-placeholder-count="7"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:26px 32px;max-width:1140px;">
+        <p style="color:var(--muted-foreground);font-size:14px;margin:0 0 2px;">אחר הצהריים טובים, חני</p>
+        <h1 style="font-size:26px;font-weight:700;margin:0 0 20px;">השידוכים של רבקה קליין</h1>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:26px;">
+          <sc-for list="{{ dashCountsHe }}" as="d" hint-placeholder-count="7">
+            <div style="background:var(--card);border:1px solid var(--border);border-top:3px solid {{ d.color }};border-radius:var(--radius);padding:13px 12px;">
+              <div style="font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;">{{ d.count }}</div>
+              <div style="font-size:12px;color:var(--muted-foreground);margin-top:5px;">{{ d.label }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:20px;">
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+            <div style="padding:14px 16px;background:var(--attention);color:var(--attention-foreground);font-weight:600;font-size:14px;">◷ הצעה אחת לבדיקה לפני תיוק</div>
+            <div style="padding:16px;display:flex;gap:12px;align-items:center;">
+              <span style="width:40px;height:40px;border-radius:9px;background:var(--avatar-blue);color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:14px;">דב</span>
+              <div style="flex:1;"><div style="font-weight:600;font-size:14px;">דוד ברקוביץ</div><div style="font-size:13px;color:var(--muted-foreground);margin-top:2px;">הוצע כבר — הגב' פלדמן, לפני 3 חודשים.</div></div>
+            </div>
+          </div>
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;height:fit-content;">
+            <div style="padding:14px 16px;font-weight:600;font-size:14px;border-bottom:1px solid var(--border);">תזכורות</div>
+            <div style="padding:13px 16px;border-bottom:1px solid var(--border);display:flex;gap:11px;align-items:flex-start;"><span style="width:22px;height:22px;border-radius:6px;border:2px solid var(--border);flex-shrink:0;"></span><div style="flex:1;"><div style="font-size:13.5px;">להתקשר חזרה להגב' פלדמן</div><div style="font-size:12px;margin-top:3px;color:var(--attention-foreground);font-weight:600;">באיחור · היה ביום שלישי</div></div></div>
+            <div style="padding:13px 16px;display:flex;gap:11px;align-items:flex-start;"><span style="width:22px;height:22px;border-radius:6px;border:2px solid var(--border);flex-shrink:0;"></span><div style="flex:1;"><div style="font-size:13.5px;">לבדוק את הממליצה מהסמינר</div><div style="font-size:12px;margin-top:3px;color:var(--muted-foreground);">עד יום חמישי</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isCandidates }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="8"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:26px 32px;max-width:900px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin:0;">Shidduchim — {{ childName }}</h1>
+          <button data-nav="board" onClick="{{ onNav }}" style="height:36px;padding:0 14px;border-radius:9px;background:var(--card);border:1px solid var(--border);color:inherit;font-size:13px;font-weight:600;cursor:pointer;">▦ Board view</button>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:14px;">
+          <div style="position:relative;flex:1;">
+            <span style="position:absolute;inset-inline-start:14px;top:50%;transform:translateY(-50%);color:var(--muted-foreground);font-size:15px;">⌕</span>
+            <input value="{{ q }}" onInput="{{ onSearch }}" placeholder="Search by name (English or Hebrew), shadchan, yeshiva, location…" style="width:100%;height:46px;border:1px solid var(--input);border-radius:12px;background:var(--card);color:inherit;font-size:15px;padding:0 16px 0 40px;outline:none;" />
+          </div>
+          <div style="display:flex;gap:3px;background:var(--secondary);border-radius:11px;padding:4px;flex-shrink:0;">
+            <button data-v="list" onClick="{{ onCandView }}" style="{{ candViewList.style }}">☰ List</button>
+            <button data-v="grid" onClick="{{ onCandView }}" style="{{ candViewGrid.style }}">▦ Cards</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:16px;">
+          <sc-for list="{{ candChips }}" as="ch" hint-placeholder-count="4"><button data-f="{{ ch.id }}" onClick="{{ onCandFilter }}" style="{{ ch.style }}">{{ ch.label }}</button></sc-for>
+        </div>
+        <sc-if value="{{ candIsList }}" hint-placeholder-val="{{ true }}">
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+          <sc-for list="{{ candList }}" as="c" hint-placeholder-count="5">
+            <button data-nav="detail" onClick="{{ onNav }}" style="width:100%;text-align:start;background:none;border:none;border-bottom:1px solid var(--border);padding:14px 16px;cursor:pointer;display:flex;gap:13px;align-items:center;" style-hover="background:var(--secondary);">
+              <span style="width:42px;height:42px;border-radius:10px;background:{{ c.av }};color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:13px;flex-shrink:0;">{{ c.mono }}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:14.5px;">{{ c.name }} <span style="font-family:'Heebo',sans-serif;font-weight:500;color:var(--muted-foreground);">{{ c.he }}</span></div>
+                <div style="font-size:13px;color:var(--muted-foreground);margin-top:2px;">{{ c.loc }} · {{ c.school }} · via {{ c.shadchan }}</div>
+              </div>
+              <div style="font-size:12px;color:var(--muted-foreground);text-align:end;white-space:nowrap;flex-shrink:0;">Suggested<br><span style="font-weight:600;color:var(--foreground);font-variant-numeric:tabular-nums;">{{ c.since }}</span></div>
+              <sc-if value="{{ c.catch }}" hint-placeholder-val="{{ true }}"><span style="font-size:15px;" title="Suggested before">◷</span></sc-if>
+              <span style="font-size:11.5px;font-weight:600;color:var(--primary-foreground);background:{{ c.stageColor }};padding:3px 11px;border-radius:999px;white-space:nowrap;">{{ c.stageLabel }}</span>
+            </button>
+          </sc-for>
+        </div>
+        </sc-if>
+        <sc-if value="{{ candIsGrid }}" hint-placeholder-val="{{ true }}">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;">
+          <sc-for list="{{ candList }}" as="c" hint-placeholder-count="5">
+            <button data-nav="detail" onClick="{{ onNav }}" style="text-align:start;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;cursor:pointer;box-shadow:0 1px 2px oklch(0 0 0 /.05);" style-hover="box-shadow:0 6px 16px oklch(0 0 0 /.08);transform:translateY(-2px);transition:all .15s;">
+              <div style="display:flex;gap:11px;align-items:flex-start;">
+                <span style="width:44px;height:44px;border-radius:11px;background:{{ c.av }};color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:14px;flex-shrink:0;">{{ c.mono }}</span>
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">{{ c.name }}</div><div style="font-size:12.5px;color:var(--muted-foreground);font-family:'Heebo',sans-serif;">{{ c.he }}</div></div>
+                <sc-if value="{{ c.catch }}" hint-placeholder-val="{{ true }}"><span style="font-size:15px;" title="Suggested before">◷</span></sc-if>
+              </div>
+              <div style="font-size:12.5px;color:var(--muted-foreground);margin-top:11px;line-height:1.45;">{{ c.loc }} · {{ c.school }}<br>via {{ c.shadchan }}</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;"><span style="font-size:11.5px;font-weight:600;color:var(--primary-foreground);background:{{ c.stageColor }};padding:3px 11px;border-radius:999px;">{{ c.stageLabel }}</span><span style="font-size:11.5px;color:var(--muted-foreground);font-variant-numeric:tabular-nums;">{{ c.since }}</span></div>
+            </button>
+          </sc-for>
+        </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isShadchanim }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="8"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:26px 32px;max-width:900px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin:0;">Shadchanim</h1>
+          <button style="height:38px;padding:0 15px;border-radius:9px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:14px;cursor:pointer;">+ Add shadchan</button>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:18px;">
+          <div style="position:relative;flex:1;">
+            <span style="position:absolute;inset-inline-start:14px;top:50%;transform:translateY(-50%);color:var(--muted-foreground);font-size:15px;">⌕</span>
+            <input value="{{ shadQ }}" onInput="{{ onShadSearch }}" placeholder="Search shadchanim by name or location…" style="width:100%;height:44px;border:1px solid var(--input);border-radius:12px;background:var(--card);color:inherit;font-size:15px;padding:0 16px 0 40px;outline:none;" />
+          </div>
+          <div style="display:flex;gap:3px;background:var(--secondary);border-radius:11px;padding:4px;flex-shrink:0;">
+            <button data-v="list" onClick="{{ onShadView }}" style="{{ shadViewList.style }}">☰ List</button>
+            <button data-v="grid" onClick="{{ onShadView }}" style="{{ shadViewGrid.style }}">▦ Cards</button>
+          </div>
+        </div>
+        <sc-if value="{{ shadIsList }}" hint-placeholder-val="{{ true }}">
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+          <sc-for list="{{ shadchanim }}" as="s" hint-placeholder-count="4">
+            <button data-nav="shaddetail" onClick="{{ onNav }}" style="width:100%;text-align:start;background:none;color:inherit;display:flex;align-items:center;gap:14px;padding:14px 18px;border:none;border-bottom:1px solid var(--border);cursor:pointer;" style-hover="background:var(--secondary);">
+              <span style="width:44px;height:44px;border-radius:11px;background:{{ s.av }};color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:13px;flex-shrink:0;">{{ s.mono }}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:15px;">{{ s.name }}</div>
+                <div style="font-size:13px;color:var(--muted-foreground);display:flex;align-items:center;gap:7px;margin-top:2px;">{{ s.loc }} <span style="opacity:.4;">·</span> <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:7px;height:7px;border-radius:999px;background:{{ s.respColor }};"></span>{{ s.resp }}</span></div>
+              </div>
+              <div style="display:flex;gap:26px;text-align:center;flex-shrink:0;">
+                <div><div style="font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;">{{ s.redts }}</div><div style="font-size:11px;color:var(--muted-foreground);margin-top:3px;">Redts</div></div>
+                <div><div style="font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;">{{ s.progressed }}</div><div style="font-size:11px;color:var(--muted-foreground);margin-top:3px;">Looked into</div></div>
+                <div><div style="font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;color:var(--positive);">{{ s.dates }}</div><div style="font-size:11px;color:var(--muted-foreground);margin-top:3px;">Dates</div></div>
+              </div>
+              <span style="color:var(--muted-foreground);flex-shrink:0;">→</span>
+            </button>
+          </sc-for>
+        </div>
+        </sc-if>
+        <sc-if value="{{ shadIsGrid }}" hint-placeholder-val="{{ true }}">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <sc-for list="{{ shadchanim }}" as="s" hint-placeholder-count="4">
+            <button data-nav="shaddetail" onClick="{{ onNav }}" style="text-align:start;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;cursor:pointer;color:inherit;" style-hover="box-shadow:0 6px 16px oklch(0 0 0 /.08);transform:translateY(-2px);transition:all .15s;">
+              <div style="display:flex;gap:13px;align-items:center;margin-bottom:14px;">
+                <span style="width:46px;height:46px;border-radius:11px;background:{{ s.av }};color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:14px;flex-shrink:0;">{{ s.mono }}</span>
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:15.5px;">{{ s.name }}</div><div style="font-size:13px;color:var(--muted-foreground);">{{ s.loc }}</div></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:7px;font-size:12.5px;margin-bottom:14px;"><span style="width:8px;height:8px;border-radius:999px;background:{{ s.respColor }};"></span>{{ s.resp }}</div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;border-top:1px solid var(--border);padding-top:14px;">
+                <div><div style="font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;">{{ s.redts }}</div><div style="font-size:11px;color:var(--muted-foreground);margin-top:3px;">Redts</div></div>
+                <div><div style="font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;">{{ s.progressed }}</div><div style="font-size:11px;color:var(--muted-foreground);margin-top:3px;">Looked into</div></div>
+                <div><div style="font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;color:var(--positive);">{{ s.dates }}</div><div style="font-size:11px;color:var(--muted-foreground);margin-top:3px;">Led to dates</div></div>
+              </div>
+            </button>
+          </sc-for>
+        </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isShadDetail }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="8"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:24px 30px;max-width:960px;">
+        <button data-nav="shadchanim" onClick="{{ onNav }}" style="border:none;background:none;color:var(--muted-foreground);font-size:13px;cursor:pointer;margin-bottom:14px;">← Back to shadchanim</button>
+        <div style="display:flex;gap:16px;align-items:flex-start;">
+          <span style="width:60px;height:60px;border-radius:14px;background:oklch(0.90 0.09 40);color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:18px;flex-shrink:0;">SF</span>
+          <div style="flex:1;">
+            <h1 style="font-size:23px;font-weight:700;letter-spacing:-0.02em;margin:0;">Mrs. Sarah Feldman</h1>
+            <div style="font-size:14px;color:var(--muted-foreground);margin-top:3px;display:flex;align-items:center;gap:8px;">Lakewood, NJ <span style="opacity:.4;">·</span> <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:7px;height:7px;border-radius:999px;background:var(--positive);"></span>Usually replies same day</span></div>
+            <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+              <span style="font-size:12.5px;background:var(--secondary);border:1px solid var(--border);border-radius:999px;padding:5px 12px;">📞 732-555-0110</span>
+              <span style="font-size:12.5px;background:var(--secondary);border:1px solid var(--border);border-radius:999px;padding:5px 12px;">✉ sfeldman@email.com</span>
+              <span style="font-size:12.5px;background:var(--secondary);border:1px solid var(--border);border-radius:999px;padding:5px 12px;">💬 WhatsApp</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0;">
+            <button style="height:38px;padding:0 15px;border-radius:9px;background:var(--card);border:1px solid var(--border);color:inherit;font-size:13.5px;font-weight:600;cursor:pointer;">✎ Edit</button>
+            <button data-nav="reminders" onClick="{{ onNav }}" style="height:38px;padding:0 15px;border-radius:9px;background:var(--primary);color:var(--primary-foreground);border:none;font-size:13.5px;font-weight:600;cursor:pointer;">+ Reminder</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,auto);gap:34px;margin:22px 0;padding:16px 20px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);width:fit-content;">
+          <div><div style="font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;">12</div><div style="font-size:12px;color:var(--muted-foreground);margin-top:4px;">Redts</div></div>
+          <div><div style="font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;">5</div><div style="font-size:12px;color:var(--muted-foreground);margin-top:4px;">Looked into</div></div>
+          <div><div style="font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;color:var(--positive);">3</div><div style="font-size:12px;color:var(--muted-foreground);margin-top:4px;">Led to dates</div></div>
+        </div>
+        <div style="border-bottom:1px solid var(--border);display:flex;margin-bottom:18px;">
+          <sc-for list="{{ shadTabs }}" as="t" hint-placeholder-count="3"><button data-group="shad" data-tab="{{ t.id }}" onClick="{{ onTab }}" style="{{ t.style }}">{{ t.label }}</button></sc-for>
+        </div>
+        <sc-if value="{{ shadIsSuggestions }}" hint-placeholder-val="{{ true }}">
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+            <sc-for list="{{ shadSuggestions }}" as="c" hint-placeholder-count="4">
+              <button data-nav="detail" onClick="{{ onNav }}" style="width:100%;text-align:start;background:none;border:none;border-bottom:1px solid var(--border);padding:13px 16px;cursor:pointer;display:flex;gap:12px;align-items:center;" style-hover="background:var(--secondary);">
+                <span style="width:38px;height:38px;border-radius:9px;background:{{ c.av }};color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:12px;flex-shrink:0;">{{ c.mono }}</span>
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">{{ c.name }} <span style="font-family:'Heebo',sans-serif;font-weight:500;color:var(--muted-foreground);">{{ c.he }}</span></div><div style="font-size:12.5px;color:var(--muted-foreground);">{{ c.child }} · suggested {{ c.since }}</div></div>
+                <span style="font-size:11.5px;font-weight:600;color:var(--primary-foreground);background:{{ c.color }};padding:3px 11px;border-radius:999px;white-space:nowrap;">{{ c.stage }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ shadIsNotes }}" hint-placeholder-val="{{ true }}">
+          <div style="border-inline-start:2px solid var(--border);padding-inline-start:18px;display:flex;flex-direction:column;gap:16px;">
+            <sc-for list="{{ shadNotes }}" as="n" hint-placeholder-count="3"><div style="position:relative;"><span style="position:absolute;inset-inline-start:-25px;top:3px;width:11px;height:11px;border-radius:999px;background:var(--primary);border:2px solid var(--background);"></span><div style="font-size:12px;color:var(--muted-foreground);margin-bottom:2px;">{{ n.when }}</div><div style="font-size:14px;line-height:1.5;">{{ n.text }}</div></div></sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ shadIsReminders }}" hint-placeholder-val="{{ true }}">
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+            <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;gap:11px;align-items:center;"><span style="width:22px;height:22px;border-radius:6px;border:2px solid var(--attention-strong);flex-shrink:0;"></span><div style="flex:1;"><div style="font-size:14px;">Call Mrs. Feldman back about Dovid</div><div style="font-size:12.5px;color:var(--attention-foreground);font-weight:600;margin-top:2px;">Overdue — was Tuesday</div></div></div>
+            <div style="padding:14px 16px;display:flex;gap:11px;align-items:center;"><span style="width:22px;height:22px;border-radius:6px;border:2px solid var(--border);flex-shrink:0;"></span><div style="flex:1;"><div style="font-size:14px;">Ask if Shmuli is still available</div><div style="font-size:12.5px;color:var(--muted-foreground);margin-top:2px;">Due Monday</div></div></div>
+            <div style="padding:12px 16px;border-top:1px solid var(--border);"><button data-nav="reminders" onClick="{{ onNav }}" style="font-size:13px;font-weight:600;color:var(--primary);background:none;border:none;cursor:pointer;">+ Add a reminder on Mrs. Feldman</button></div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isTasks }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:calc(100vh - 55px);animation:msFade .35s ease;">
+      <aside style="width:214px;flex-shrink:0;background:var(--sidebar);border-inline-end:1px solid var(--border);padding:16px 12px;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="8"><button data-nav="{{ n.to }}" onClick="{{ onNav }}" style="{{ n.style }}"><span style="font-size:16px;width:20px;text-align:center;">{{ n.icon }}</span>{{ n.label }}</button></sc-for>
+      </aside>
+      <div style="flex:1;min-width:0;padding:26px 32px;max-width:860px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin:0;">Tasks</h1>
+          <button style="height:38px;padding:0 15px;border-radius:9px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:14px;cursor:pointer;">+ New task</button>
+        </div>
+        <p style="font-size:13.5px;color:var(--muted-foreground);margin:0 0 22px;">Shared across the family — each task is tied to a shidduch or shadchan, and assigned to a person.</p>
+        <div style="display:flex;flex-direction:column;gap:22px;">
+          <sc-for list="{{ taskGroups }}" as="g" hint-placeholder-count="3">
+            <div>
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <span style="width:30px;height:30px;border-radius:8px;background:{{ g.av }};color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:11px;">{{ g.mono }}</span>
+                <div style="font-weight:600;font-size:14.5px;">{{ g.who }}</div>
+                <span style="font-size:11px;color:var(--muted-foreground);background:var(--secondary);border:1px solid var(--border);padding:2px 9px;border-radius:999px;">{{ g.role }}</span>
+              </div>
+              <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+                <sc-for list="{{ g.tasks }}" as="t" hint-placeholder-count="2">
+                  <div style="display:flex;gap:12px;align-items:flex-start;padding:13px 16px;border-bottom:1px solid var(--border);">
+                    <span style="width:22px;height:22px;border-radius:6px;border:2px solid {{ t.done }};flex-shrink:0;margin-top:1px;background:{{ t.done }};display:grid;place-items:center;color:var(--primary-foreground);font-size:12px;">{{ t.check }}</span>
+                    <div style="flex:1;min-width:0;"><div style="font-size:14px;{{ t.textStyle }}">{{ t.text }}</div><div style="font-size:12px;color:var(--muted-foreground);margin-top:3px;">{{ t.link }}</div></div>
+                    <span style="font-size:12px;font-weight:600;{{ t.dueStyle }}white-space:nowrap;flex-shrink:0;">{{ t.due }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ refFullOpen }}">
+    <div style="position:fixed;inset:0;z-index:190;background:var(--background);display:flex;flex-direction:column;animation:msFade .25s ease;">
+      <div style="height:60px;flex-shrink:0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:var(--card);">
+        <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+          <button onClick="{{ closeRefFull }}" style="height:36px;padding:0 13px;border-radius:9px;background:var(--secondary);border:1px solid var(--border);color:var(--foreground);font-weight:600;font-size:13px;cursor:pointer;">← Back</button>
+          <span style="width:38px;height:38px;border-radius:10px;background:{{ rfAv }};color:var(--avatar-fg);display:grid;place-items:center;font-weight:700;font-size:12px;flex-shrink:0;">{{ rfMono }}</span>
+          <div style="min-width:0;"><div style="font-weight:700;font-size:15.5px;">{{ rfName }} <span style="font-weight:400;color:var(--muted-foreground);">· {{ rfRel }}</span></div><div style="font-size:12.5px;color:var(--muted-foreground);">{{ rfPhone }} · <span style="color:var(--foreground);">{{ rfTrack }}</span></div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+          <span style="position:relative;">
+            <button onClick="{{ toggleRfStatus }}" style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:999px;border:none;cursor:pointer;{{ rfStatusStyle }}">{{ rfStatus }} <span style="opacity:.6;font-size:9px;">▾</span></button>
+            <sc-if value="{{ rfStatusMenuOpen }}">
+              <span style="position:absolute;top:calc(100% + 6px);inset-inline-end:0;z-index:30;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 30px oklch(0 0 0 /.16);padding:5px;min-width:170px;display:block;">
+                <span style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);padding:5px 13px 3px;">Set call status</span>
+                <sc-for list="{{ rfStatusOpts }}" as="o" hint-placeholder-count="5"><button data-status="{{ o.label }}" onClick="{{ onSetRfStatusFull }}" style="{{ o.style }}">{{ o.label }}</button></sc-for>
+              </span>
+            </sc-if>
+          </span>
+          <button data-name="{{ rfName }}" data-rel="{{ rfRel }}" onClick="{{ openCall }}" style="height:40px;padding:0 15px;border-radius:10px;background:var(--positive);color:var(--primary-foreground);border:none;font-weight:600;font-size:13.5px;cursor:pointer;white-space:nowrap;">📞 Call mode</button>
+        </div>
+      </div>
+      <div style="padding:14px 24px 0;flex-shrink:0;"><div style="max-width:900px;margin:0 auto;display:flex;gap:4px;background:var(--secondary);border-radius:11px;padding:4px;max-width:340px;"><button data-t="overview" onClick="{{ setRfTab }}" style="{{ rfTabOverviewStyle }}">Overview</button><button data-t="ai" onClick="{{ setRfTab }}" style="{{ rfTabAIStyle }}">✦ AI summary</button></div></div>
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:22px 24px 32px;">
+        <sc-if value="{{ rfIsOverview }}" hint-placeholder-val="{{ true }}">
+          <div style="max-width:900px;margin:0 auto;display:grid;grid-template-columns:1.4fr 1fr;gap:20px;align-items:start;">
+            <div style="display:flex;flex-direction:column;gap:18px;">
+              <div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);">Call attempts <span style="font-weight:500;text-transform:none;">· {{ rfAttemptCount }}</span></div>
+                  <span style="position:relative;">
+                    <button onClick="{{ toggleLogAttempt }}" style="height:32px;padding:0 12px;border-radius:8px;background:var(--card);border:1px solid var(--border);color:inherit;font-weight:600;font-size:12.5px;cursor:pointer;">+ Log a call</button>
+                    <sc-if value="{{ logAttemptMenuOpen }}">
+                      <span style="position:absolute;top:calc(100% + 6px);inset-inline-end:0;z-index:30;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 30px oklch(0 0 0 /.16);padding:5px;min-width:180px;display:block;">
+                        <span style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);padding:5px 13px 3px;">How did it go?</span>
+                        <sc-for list="{{ attemptOpts }}" as="o" hint-placeholder-count="4"><button data-oc="{{ o.label }}" onClick="{{ onLogAttempt }}" style="{{ o.style }}">{{ o.label }}</button></sc-for>
+                      </span>
+                    </sc-if>
+                  </span>
+                </div>
+                <div style="border:1px solid var(--border);border-radius:11px;overflow:hidden;">
+                  <sc-for list="{{ rfAttempts }}" as="a" hint-placeholder-count="3"><div style="display:flex;align-items:center;gap:11px;padding:11px 14px;border-bottom:1px solid var(--border);"><span style="{{ a.dotStyle }}"></span><div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;">{{ a.when }}</div><div style="font-size:11.5px;color:var(--muted-foreground);">{{ a.note }}</div></div><span style="{{ a.chipStyle }}">{{ a.outcome }}</span></div></sc-for>
+                </div>
+              </div>
+              <div>
+                <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);margin-bottom:10px;">Conversation log · across boys</div>
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                  <sc-for list="{{ rfLog }}" as="l" hint-placeholder-count="2"><div style="background:var(--card);border:1px solid var(--border);border-radius:11px;padding:13px 15px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="font-size:11.5px;color:var(--muted-foreground);">{{ l.when }}</span><span style="font-size:10.5px;font-weight:600;padding:2px 9px;border-radius:999px;{{ l.chipStyle }}">{{ l.status }}</span></div><div style="font-size:14px;line-height:1.55;">{{ l.said }}</div></div></sc-for>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:16px;">
+              <div style="background:color-mix(in oklch,var(--primary) 7%,var(--card));border:1px solid color-mix(in oklch,var(--primary) 22%,var(--border));border-radius:11px;padding:14px;">
+                <div style="font-size:12px;font-weight:600;color:var(--primary);margin-bottom:9px;">Tailored questions for {{ rfRel }}</div>
+                <div style="display:flex;flex-direction:column;gap:7px;"><sc-for list="{{ rfQuestions }}" as="q" hint-placeholder-count="3"><div style="display:flex;gap:8px;font-size:13.5px;line-height:1.45;"><span style="color:var(--muted-foreground);">○</span>{{ q }}</div></sc-for></div>
+              </div>
+              <div>
+                <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);margin-bottom:9px;">Notes</div>
+                <div style="display:flex;flex-direction:column;gap:7px;"><sc-for list="{{ rfNotes }}" as="nt" hint-placeholder-count="1"><div style="background:var(--secondary);border-radius:9px;padding:10px 12px;"><div style="font-size:11.5px;color:var(--muted-foreground);margin-bottom:3px;">{{ nt.when }}</div><div style="font-size:13.5px;line-height:1.5;">{{ nt.text }}</div></div></sc-for></div>
+              </div>
+              <div>
+                <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);margin-bottom:9px;">Reminders</div>
+                <div style="display:flex;flex-direction:column;gap:7px;"><sc-for list="{{ rfTasks }}" as="tk" hint-placeholder-count="1"><div style="display:flex;align-items:center;gap:10px;font-size:13.5px;"><span style="width:20px;height:20px;border-radius:6px;border:2px solid var(--border);flex-shrink:0;"></span><span style="flex:1;">{{ tk.text }}</span><span style="font-size:12px;color:var(--muted-foreground);">{{ tk.due }}</span></div></sc-for></div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ rfIsAI }}">
+          <div style="max-width:720px;margin:0 auto;display:flex;flex-direction:column;height:100%;">
+            <div style="display:flex;flex-direction:column;gap:15px;margin-bottom:16px;">
+              <sc-for list="{{ rfChat }}" as="m" hint-placeholder-count="1">
+                <sc-if value="{{ m.isAi }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex;gap:11px;align-items:flex-start;"><span style="width:30px;height:30px;border-radius:9px;background:var(--primary);color:var(--primary-foreground);display:grid;place-items:center;font-weight:700;font-size:11px;flex-shrink:0;">✦</span><div style="flex:1;font-size:14px;line-height:1.6;color:var(--foreground);background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 15px;">{{ m.text }}</div></div>
+                </sc-if>
+                <sc-if value="{{ m.text }}">
+                  <div style="align-self:flex-end;max-width:78%;background:var(--primary);color:var(--primary-foreground);border-radius:14px 14px 4px 14px;padding:11px 15px;font-size:14px;line-height:1.5;">{{ m.text }}</div>
+                </sc-if>
+              </sc-for>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;"><sc-for list="{{ rfSuggests }}" as="s" hint-placeholder-count="4"><button data-q="{{ s }}" onClick="{{ askRf }}" style="border:1px solid var(--border);background:var(--card);border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:500;color:var(--foreground);cursor:pointer;">{{ s }}</button></sc-for></div>
+            <div style="display:flex;gap:10px;align-items:flex-end;"><textarea ref="{{ rfChatInputRef }}" onKeyDown="{{ onRfChatKey }}" rows="1" placeholder="Ask about this reference…" style="flex:1;resize:none;min-height:46px;max-height:120px;border:1px solid var(--input);border-radius:12px;padding:12px 14px;font-size:14.5px;font-family:inherit;line-height:1.4;background:var(--background);color:var(--foreground);outline:none;"></textarea><button onClick="{{ sendRf }}" style="height:46px;padding:0 20px;border-radius:12px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:14px;cursor:pointer;flex-shrink:0;">Send</button></div>
+            <p style="font-size:11.5px;color:var(--muted-foreground);text-align:center;margin:9px 0 0;">The assistant only organizes what you've recorded — it never judges compatibility.</p>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ callOpen }}">
+    <div style="position:fixed;inset:0;z-index:200;background:var(--background);display:flex;flex-direction:column;animation:msFade .25s ease;font-family:'Inter',ui-sans-serif,system-ui,sans-serif;">
+      <div style="height:60px;flex-shrink:0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:var(--card);">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--positive);letter-spacing:.03em;"><span style="width:8px;height:8px;border-radius:999px;background:var(--positive);"></span>ON CALL</span>
+          <div><div style="font-weight:700;font-size:15px;">{{ callRef }} <span style="font-weight:400;color:var(--muted-foreground);">· {{ callRel }}</span></div><div style="font-size:12px;color:var(--muted-foreground);">{{ callAbout }}</div></div>
+        </div>
+        <button onClick="{{ closeCall }}" style="height:38px;padding:0 16px;border-radius:10px;background:var(--secondary);border:1px solid var(--border);color:var(--foreground);font-weight:600;font-size:13.5px;cursor:pointer;">End call</button>
+      </div>
+      <div style="flex:1;min-height:0;display:flex;">
+        <div style="width:236px;flex-shrink:0;border-inline-end:1px solid var(--border);background:var(--sidebar);padding:20px 18px;overflow-y:auto;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);margin-bottom:5px;">Diligence coverage</div>
+          <div style="font-size:12.5px;color:var(--positive);font-weight:600;margin-bottom:10px;">{{ callCovered }}</div>
+          <div style="height:5px;background:var(--secondary);border-radius:999px;overflow:hidden;margin-bottom:18px;"><div style="{{ callProgressStyle }}"></div></div>
+          <div style="display:flex;flex-direction:column;gap:13px;">
+            <sc-for list="{{ callTopics }}" as="t" hint-placeholder-count="5"><div style="display:flex;align-items:center;gap:10px;"><span style="{{ t.dotStyle }}">✓</span><span style="{{ t.txtStyle }}">{{ t.label }}</span></div></sc-for>
+          </div>
+          <div style="margin-top:22px;padding:12px;background:color-mix(in oklch,var(--primary) 7%,var(--card));border:1px solid color-mix(in oklch,var(--primary) 20%,var(--border));border-radius:10px;font-size:12px;line-height:1.55;color:var(--muted-foreground);">The assistant suggests what to ask and helps you not miss a gap. It never judges compatibility — only organizes what you learn.</div>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--card);">
+          <div style="flex:1;min-height:0;overflow-y:auto;padding:30px 24px;">
+            <div style="max-width:680px;margin:0 auto;display:flex;flex-direction:column;gap:18px;">
+              <sc-for list="{{ callThread }}" as="m" hint-placeholder-count="2">
+                <sc-if value="{{ m.isAi }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex;gap:11px;align-items:flex-start;">
+                    <span style="width:32px;height:32px;border-radius:9px;background:var(--primary);color:var(--primary-foreground);display:grid;place-items:center;font-weight:700;font-size:12px;flex-shrink:0;">AI</span>
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-size:14.5px;line-height:1.55;color:var(--muted-foreground);">{{ m.intro }}</div>
+                      <sc-if value="{{ m.hasQ }}">
+                        <div style="margin-top:11px;background:color-mix(in oklch,var(--attention) 16%,var(--background));border:1px solid color-mix(in oklch,var(--attention-strong) 45%,var(--border));border-radius:14px;padding:18px 22px;box-shadow:0 2px 10px oklch(0.6 0.09 75 /.08);">
+                          <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--attention-foreground);margin-bottom:8px;">Ask them</div>
+                          <div style="font-family:'Inter',ui-sans-serif,system-ui,sans-serif;font-size:20px;font-weight:600;line-height:1.4;color:var(--foreground);letter-spacing:-0.01em;">{{ m.q }}</div>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ m.text }}">
+                  <div style="align-self:flex-end;max-width:78%;background:var(--primary);color:var(--primary-foreground);border-radius:14px 14px 4px 14px;padding:11px 15px;font-size:14px;line-height:1.5;">{{ m.text }}</div>
+                </sc-if>
+              </sc-for>
+              <sc-if value="{{ callHasUpNext }}">
+                <div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:16px;">
+                  <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted-foreground);margin-bottom:10px;">Coming up</div>
+                  <div style="display:flex;flex-direction:column;gap:8px;">
+                    <sc-for list="{{ callUpNext }}" as="u" hint-placeholder-count="3"><div style="display:flex;gap:10px;align-items:baseline;opacity:.6;"><span style="font-size:10.5px;font-weight:600;color:var(--muted-foreground);white-space:nowrap;flex-shrink:0;width:82px;">{{ u.label }}</span><span style="font-family:'Inter',ui-sans-serif,sans-serif;font-size:14px;line-height:1.4;color:var(--muted-foreground);">{{ u.q }}</span></div></sc-for>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="flex-shrink:0;border-top:1px solid var(--border);padding:14px 24px;background:var(--background);">
+            <div style="max-width:680px;margin:0 auto;display:flex;gap:10px;align-items:flex-end;">
+              <textarea ref="{{ callInputRef }}" onKeyDown="{{ onCallKey }}" rows="1" placeholder="Type what they said…" style="flex:1;resize:none;min-height:46px;max-height:120px;border:1px solid var(--input);border-radius:12px;padding:12px 14px;font-size:14.5px;font-family:inherit;line-height:1.4;background:var(--background);color:var(--foreground);outline:none;"></textarea>
+              <button onClick="{{ sendCall }}" style="height:46px;padding:0 20px;border-radius:12px;background:var(--primary);color:var(--primary-foreground);border:none;font-weight:600;font-size:14px;cursor:pointer;flex-shrink:0;">Send</button>
+            </div>
+            <div style="max-width:680px;margin:8px auto 0;font-size:11.5px;color:var(--muted-foreground);text-align:center;">Type their answer and press Enter — the assistant will suggest the next question.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- APPEND-SCREENS -->
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:840}}">
+class Component extends DCLogic {
+  state = { screen:"launcher", lang:"en", theme:"light", child:"rivky", tab:{}, q:"", candFilter:"all", candView:"list", shadView:"list", shadQ:"", refSel:0, decision:"look", decisionOpen:false, refView:"list" };
+
+  stages(){
+    return [
+      {id:"new",label:"New",he:"חדש",color:"var(--st-new)"},
+      {id:"look",label:"Look-into",he:"לבדוק",color:"var(--st-look)"},
+      {id:"yes",label:"Yes",he:"כן",color:"var(--st-yes)"},
+      {id:"unsure",label:"Unsure",he:"מתלבטת",color:"var(--st-unsure)"},
+      {id:"no",label:"No",he:"לא",color:"var(--st-no)"},
+    ];
+  }
+  cands(){
+    const all=[
+      {id:1,child:"rivky",name:"Dovid Berkowitz",he:"דוד ברקוביץ",shadchan:"Mrs. Feldman",loc:"Lakewood, NJ",school:"BMG",stage:"look",mono:"DB",av:"var(--avatar-blue)",catch:true},
+      {id:2,child:"rivky",name:"Shmuli Katz",he:"שמואל כ״ץ",shadchan:"Mrs. Weiss",loc:"Monsey, NY",school:"Mir",stage:"look",mono:"SK",av:"var(--avatar-pink)"},
+      {id:3,child:"rivky",name:"Ari Rosenberg",he:"אריה רוזנברג",shadchan:"Mrs. Gold",loc:"Baltimore, MD",school:"Ner Yisroel",stage:"new",mono:"AR",av:"oklch(0.85 0.07 180)"},
+      {id:4,child:"rivky",name:"Menachem Stern",he:"מנחם שטרן",shadchan:"Mrs. D. Klein",loc:"Brooklyn, NY",school:"Chaim Berlin",stage:"new",mono:"MS",av:"oklch(0.90 0.09 40)"},
+      {id:5,child:"rivky",name:"Yisroel Fried",he:"ישראל פריד",shadchan:"Mrs. Feldman",loc:"Cleveland, OH",school:"Telshe",stage:"look",mono:"YF",av:"oklch(0.87 0.08 300)"},
+      {id:7,child:"rivky",name:"Chaim Landau",he:"חיים לנדא",shadchan:"Mrs. Gold",loc:"Monsey, NY",school:"Mir",stage:"yes",mono:"CL",av:"oklch(0.87 0.08 200)"},
+      {id:8,child:"rivky",name:"Tzvi Adler",he:"צבי אדלר",shadchan:"Mrs. D. Klein",loc:"Baltimore, MD",school:"Ner Yisroel",stage:"unsure",mono:"TA",av:"oklch(0.88 0.09 10)"},
+      {id:9,child:"rivky",name:"Naftali Berger",he:"נפתלי ברגר",shadchan:"Mrs. Feldman",loc:"Lakewood, NJ",school:"BMG",stage:"no",mono:"NB",av:"oklch(0.86 0.09 270)"},
+      {id:11,child:"yaakov",name:"Leah Schwartz",he:"לאה שוורץ",shadchan:"Mrs. Feldman",loc:"Lakewood, NJ",school:"BJJ",stage:"new",mono:"LS",av:"var(--avatar-pink)"},
+      {id:12,child:"yaakov",name:"Rochel Brenner",he:"רחל ברנר",shadchan:"Mrs. Gold",loc:"Monsey, NY",school:"Michlala",stage:"look",mono:"RB",av:"oklch(0.85 0.07 180)"},
+      {id:13,child:"yaakov",name:"Miriam Stein",he:"מרים שטיין",shadchan:"Mrs. Weiss",loc:"Baltimore, MD",school:"Bais Yaakov of Lakewood",stage:"yes",mono:"MS",av:"oklch(0.87 0.08 300)"},
+      {id:14,child:"yaakov",name:"Esther Roth",he:"אסתר רוט",shadchan:"Mrs. D. Klein",loc:"Cleveland, OH",school:"BJJ",stage:"unsure",mono:"ER",av:"oklch(0.90 0.09 40)"},
+      {id:15,child:"yaakov",name:"Chaya Perlman",he:"חיה פרלמן",shadchan:"Mrs. Gold",loc:"Lakewood, NJ",school:"Michlala",stage:"yes",mono:"CP",av:"oklch(0.85 0.08 150)"},
+    ];
+    const sdates={1:"18 Jul 2026",2:"14 Jul 2026",3:"20 Jul 2026",4:"19 Jul 2026",5:"9 Jul 2026",7:"2 Jul 2026",8:"28 Jun 2026",9:"14 Apr 2026",11:"20 Jul 2026",12:"11 Jul 2026",13:"6 Jul 2026",14:"1 Jul 2026",15:"25 Jun 2026"};
+    return all.filter(c=>c.child===this.state.child).map(c=>({...c,since:sdates[c.id]}));
+  }
+
+  chip(active){
+    return "border:none;border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;"+(active?"background:var(--card);color:var(--foreground);box-shadow:0 1px 2px oklch(0 0 0 / .1);":"background:transparent;color:var(--muted-foreground);");
+  }
+
+  componentDidMount(){ try{ if(localStorage.getItem("ms_showNo")==="1") this.setState({showNo:true}); }catch(e){} }
+
+  _askRf(q,rf){
+    const said=(rf.log&&rf.log[0]&&rf.log[0].said)||"";
+    const t=q.toLowerCase();
+    let a;
+    if(/say|said|tell|what did/.test(t)) a="From your last call, "+rf.name+" said: "+said+" That's your own note — I'm just surfacing it, not adding to it.";
+    else if(/haven't|not asked|gap|missing|open/.test(t)) a="Across your calls, nobody has asked about his health, and no one who knew him in the last year has weighed in. Those are the two open gaps — Call mode can help you cover them.";
+    else if(/contradict|conflict|other ref|disagree/.test(t)) a="No direct contradictions. "+rf.name+" and Rabbi Weiss both describe him as steady and well-liked; Mrs. Schwartz added he's on the quiet side, which is a detail, not a conflict.";
+    else if(/draft|write|follow.?up|question/.test(t)) a="Here's a gentle follow-up you could ask "+rf.name+": \u201cWhen you saw him under pressure — a hard day, a setback — was he the same person?\u201d Want me to add it to the tailored questions?";
+    else a="Here's what I can see from your notes on "+rf.name+": "+(said||"no call logged yet")+". I only organize what you've recorded — I never judge whether he's a match. Ask about gaps, contradictions, or a follow-up to ask.";
+    this.setState(s=>({rfChat:[...(s.rfChat||[{who:"ai",text:"I've read your notes and calls on "+rf.name+"."}]),{who:"me",text:q},{who:"ai",text:a}]}));
+  }
+
+  refCoaching(name,tone){
+    const gentle=tone!=="direct";
+    const last=name.split(" ").pop();
+    return {
+      intro:"I read Dovid's resume — BMG, Lakewood, Khal Zichron Yaakov, learning-focused — and your notes and calls. You have a warm first impression but two real gaps. Here's what I'd ask "+last+", and why. Tap any question to ask it; type what they say and I'll track your coverage.",
+      recs:[
+        {q:gentle?"How does he treat people he doesn't need anything from?":"Is he a mentsch when there's nothing in it for him?",why:"Your note calls him \u201ca real mentsch\u201d — this tests whether that's character or reputation.",topic:"middos"},
+        {q:gentle?"Is there anything about his health you'd want to know, if it were your own child?":"Any health issues — physical or emotional — we should know?",why:"No reference has been asked this yet. It's the single biggest open gap on his file.",topic:"health",gap:true},
+        {q:"When did you last spend real time with him?",why:last+" knew him from yeshiva — confirm how recent that is before you lean on the impression.",topic:"recent",gap:true},
+        {q:gentle?"You mentioned he's on the quiet side — is that shy, or reserved-but-warm?":"Is 'quiet' shy, or just reserved?",why:"Mrs. Schwartz raised \u201cquiet.\u201d Resolve it now so it isn't a question mark later.",topic:"social"},
+        {q:"Is he steady — the same on a hard day as a good day?",why:"You have one strong impression; consistency needs a second angle.",topic:"consistency"},
+        {q:"What's he like to learn with — geshmak, diligent?",why:"His resume leads with learning; a chavrusa-level answer confirms it.",topic:"learning"},
+        {q:"What is the family like at home, day to day?",why:"You've spoken to a rebbe but not to anyone about the home itself.",topic:"family"},
+      ],
+    };
+  }
+
+  callScript(){
+    return [
+      {ai:"Let's check Dovid out together. Start easy — it warms them up.", q:"How do you know Dovid, and for how long?", label:"How they know him"},
+      {ai:"Good. Now the one that tells you the most about a person.", q:"How does he treat people he doesn't need anything from — a waiter, a younger bochur?", label:"Middos"},
+      {ai:"Listen for a real pattern, not just one nice story.", q:"Is he steady — the same on a hard day as a good day — or more up-and-down?", label:"Temperament"},
+      {ai:"Get a feel for his day, not just a label.", q:"What does his learning actually look like — the seder, the drive, is it his own?", label:"Learning"},
+      {ai:"You want a picture of the home he comes from.", q:"What's the family like — the parents, the home, how they treat each other?", label:"Family & home"},
+      {ai:"People open up more when it's framed as 'so there are no surprises.'", q:"Is he more of a leader or a follower when he's with friends?", label:"Social"},
+      {ai:"This is the gap almost everyone forgets to ask.", q:"Gently — is there anything health-wise you'd want to know if it were your own child?", label:"Health"},
+      {ai:"Money questions are fine to ask a close reference plainly.", q:"Do you have a sense of what they're expecting on support or learning years?", label:"Expectations"},
+      {ai:"Give them room to say the thing they were hesitating on.", q:"Is there anything — even small — that would give you pause for your own daughter?", label:"Anything else"},
+      {ai:"Last one — recency matters. An old impression can be stale.", q:"When did you last actually spend real time with him?", label:"Recent contact"},
+    ];
+  }
+
+  referencesFull(){
+    return [
+      {name:"Rabbi Weiss",rel:"Rebbe, BMG",phone:"732-555-0148",mono:"RW",av:"var(--avatar-blue)",status:"Answered",track:"You've spoken to him about 2 other boys",
+        questions:["How does he treat people he doesn't need anything from?","Is he consistent, or up-and-down?","Anything about his health you'd want to know?"],
+        log:[{when:"Today, 2:14 PM",status:"Answered",said:"Serious, consistent, well-liked. A real mentsch — I'd take him for my own daughter."},{when:"14 Apr 2026",status:"Answered",said:"(About Menachem Stern) — knew him from yeshiva, spoke highly."}],
+        notes:[{when:"Today",text:"Very forthcoming — a strong reference. Worth asking about health next time."}],
+        tasks:[{text:"Ask about health specifically",due:"This week",done:false}]},
+      {name:"Mrs. Schwartz",rel:"Neighbor (10 yrs)",phone:"845-555-0192",mono:"MS",av:"var(--avatar-pink)",status:"Call back",track:"First time speaking with her",
+        questions:["What is the family like at home, day to day?","How do they treat the people around them?","Is the home calm or high-strung?"],
+        log:[{when:"Yesterday",status:"Call back",said:"Lovely family. Said he's on the quiet side — wants to speak again when she has more time."}],
+        notes:[{when:"Yesterday",text:"Busy with kids — try again in the evening."}],
+        tasks:[{text:"Call back Thursday evening",due:"Thursday",done:false}]},
+      {name:"R' Cohen",rel:"Chavrusa",phone:"732-555-0177",mono:"RC",av:"oklch(0.85 0.08 150)",status:"No answer",track:"First time speaking with him",
+        questions:["What's he like to learn with — geshmak, diligent?","How does he handle disagreement?","Would you want him as a neighbor?"],
+        log:[{when:"2 days ago",status:"No answer",said:"Left a message."}],
+        notes:[],
+        tasks:[{text:"Try again — left a message",due:"Overdue",done:false}]},
+    ];
+  }
+
+  renderVals(){
+    const he = this.state.lang==="he";
+    const labels={launcher:"Home",board:"Pipeline · Board"};
+    const fullBoard = this.stages().map(s=>({...s, cards: this.cands().filter(c=>c.stage===s.id), count: this.cands().filter(c=>c.stage===s.id).length}));
+    const board = fullBoard;
+    const navDef=[["dashboard","Dashboard","▤"],["inbox","Inbox","✉"],["board","Pipeline","▦"],["candidates","Shidduchim","☰"],["shadchanim","Shadchanim","☏"],["tasks","Tasks","✓"],["reminders","Reminders","◷"],["privacy","Settings","⚙"]];
+    const stageMap=this.stages().reduce((a,s)=>{a[s.id]=s;return a;},{});
+    const q=(this.state.q||"").toLowerCase();
+    const candList=this.cands().filter(c=>(this.state.candFilter==="all"||c.stage===this.state.candFilter)&&(!q||(c.name+c.he+c.shadchan+c.loc+c.school).toLowerCase().includes(q))).map(c=>({...c,stageLabel:stageMap[c.stage].label,stageColor:stageMap[c.stage].color}));
+    const candChips=[{id:"all",label:"All",color:"var(--muted-foreground)"}].concat(this.stages().map(s=>({id:s.id,label:s.label,color:s.color}))).map(ch=>({...ch,style:"border:1px solid "+(this.state.candFilter===ch.id?"transparent":"var(--border)")+";background:"+(this.state.candFilter===ch.id?ch.color:"var(--card)")+";color:"+(this.state.candFilter===ch.id?"var(--primary-foreground)":"var(--muted-foreground)")+";font-size:12.5px;font-weight:600;padding:6px 13px;border-radius:999px;cursor:pointer;white-space:nowrap;"}));
+    const navStyle=(active)=>"display:flex;align-items:center;gap:11px;width:100%;text-align:start;border:none;background:"+(active?"color-mix(in oklch, var(--primary) 20%, transparent)":"transparent")+";color:"+(active?"var(--primary)":"var(--muted-foreground)")+";font-weight:"+(active?"600":"500")+";font-size:14px;padding:9px 12px;border-radius:9px;margin-bottom:2px;cursor:pointer;";
+    const navItems=navDef.map(([to,label,icon])=>({to,label,icon,style:navStyle(this.state.screen===to)}));
+    const childName = this.state.child==="rivky"?"Rivky Klein":"Yaakov Klein";
+    const nudge="color:var(--attention-foreground);font-weight:600;";
+    const soon="color:var(--muted-foreground);";
+    const st=this.state.tab.share||"whatsapp";
+    return {
+      navItems, childName,
+      shareTabs:[["whatsapp","WhatsApp"],["sms","SMS"],["photo","Photo"]].map(([id,label])=>({id,label,active:st===id,style:"flex:1;border:none;padding:9px;font-size:13px;font-weight:600;cursor:pointer;border-radius:8px;background:"+(st===id?"var(--card)":"transparent")+";color:"+(st===id?"var(--foreground)":"var(--muted-foreground)")+";box-shadow:"+(st===id?"0 1px 2px oklch(0 0 0 /.1)":"none")+";"})),
+      shareIsWhatsapp:st==="whatsapp", shareIsSms:st==="sms", shareIsPhoto:st==="photo",
+      childDetails:[
+        {k:"Age",v:"25"},{k:"Location",v:"Monsey, NY"},{k:"Learning",v:"Mir"},
+        {k:"Family",v:"Landau · Monsey"},{k:"Shul",v:"Khal Bais Medrash"},
+      ],
+      childProgress:[
+        {label:"Suggested",color:"var(--positive)",text:"var(--muted-foreground)",weight:"500"},
+        {label:"Being looked into",color:"var(--positive)",text:"var(--foreground)",weight:"700"},
+        {label:"Meeting",color:"var(--border)",text:"var(--muted-foreground)",weight:"500"},
+        {label:"Decision",color:"var(--border)",text:"var(--muted-foreground)",weight:"500"},
+      ],
+      childSuggestions:[
+        {name:"Chaim Landau",blurb:"Monsey · learning in Mir · being looked into",stage:"Being looked into",mono:"CL",av:"oklch(0.87 0.08 200)",needsInput:true},
+        {name:"Tzvi Adler",blurb:"Baltimore · Ner Yisroel · references in progress",stage:"References in progress",mono:"TA",av:"oklch(0.88 0.09 10)",needsInput:false},
+      ],
+      candList, candChips,
+      candIsList: this.state.candView==="list",
+      candIsGrid: this.state.candView==="grid",
+      candViewList:{style:"height:34px;padding:0 13px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:"+(this.state.candView==="list"?"var(--card)":"transparent")+";color:"+(this.state.candView==="list"?"var(--foreground)":"var(--muted-foreground)")+";box-shadow:"+(this.state.candView==="list"?"0 1px 2px oklch(0 0 0 /.12)":"none")+";"},
+      candViewGrid:{style:"height:34px;padding:0 13px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:"+(this.state.candView==="grid"?"var(--card)":"transparent")+";color:"+(this.state.candView==="grid"?"var(--foreground)":"var(--muted-foreground)")+";box-shadow:"+(this.state.candView==="grid"?"0 1px 2px oklch(0 0 0 /.12)":"none")+";"},
+      onCandView:(e)=>this.setState({candView:e.currentTarget.dataset.v}),
+      isCandidates: this.state.screen==="candidates",
+      isShadchanim: this.state.screen==="shadchanim",
+      isTasks: this.state.screen==="tasks",
+      taskGroups:(()=>{const mk=(t)=>({...t,done:t.done?"var(--positive)":"var(--border)",check:t.done?"✓":"",textStyle:t.done?"text-decoration:line-through;color:var(--muted-foreground);":"",dueStyle:t.urgent?"color:var(--attention-foreground);":"color:var(--muted-foreground);"});return [
+        {who:"You — Chani",role:"parent/admin",mono:"CK",av:"oklch(0.90 0.09 40)",tasks:[
+          {text:"Call Mrs. Feldman back about Dovid",link:"Shidduch · Dovid Berkowitz",due:"Overdue — Tue",done:false,urgent:true},
+          {text:"Chase the seminary reference",link:"Shidduch · Chaim Landau",due:"Thursday",done:false,urgent:false},
+          {text:"File the resume from Mrs. Weiss",link:"Inbox",due:"Today",done:true,urgent:false},
+        ]},
+        {who:"Yaakov Klein — husband",role:"helper",mono:"YK",av:"var(--avatar-blue)",tasks:[
+          {text:"Look over Dovid Berkowitz's resume",link:"Shidduch · Dovid Berkowitz",due:"Forwarded today",done:false,urgent:false},
+          {text:"Call R' Cohen (chavrusa reference)",link:"Shidduch · Dovid Berkowitz",due:"This week",done:false,urgent:false},
+        ]},
+        {who:"Rivky Klein — child",role:"child",mono:"RK",av:"var(--avatar-pink)",tasks:[
+          {text:"Give your thoughts on Chaim Landau",link:"Shidduch · Chaim Landau",due:"No rush",done:false,urgent:false},
+        ]},
+      ].map(g=>({...g,tasks:g.tasks.map(mk)}));})(),
+      forwardTargets:[
+        {who:"Yaakov (husband)",sub:"Adds to his task list",mono:"YK",av:"var(--avatar-blue)"},
+        {who:"Rivky (child)",sub:"Adds to her task list",mono:"RK",av:"var(--avatar-pink)"},
+      ],
+      fwdOpen:!!this.state.fwdOpen,
+      toggleFwd:()=>this.setState(s=>({fwdOpen:!s.fwdOpen})),
+      ...(()=>{
+        const refs=this.referencesFull();
+        const fi=this.state.refFullIdx||0;
+        const rf=refs[Math.min(fi,refs.length-1)];
+        const st=(this.state.refStatus||{})[fi]||rf.status;
+        const scol=(s)=>s==="Answered"?"background:var(--accent);color:var(--accent-foreground);":(s==="Call back"||s==="They'll call back")?"background:var(--attention);color:var(--attention-foreground);":"background:var(--secondary);color:var(--muted-foreground);";
+        return {
+          refFullOpen:!!this.state.refFullOpen,
+          openRefFull:(e)=>{const i=+e.currentTarget.dataset.i;this.setState({refFullOpen:true,refFullIdx:i,refSel:i});},
+          closeRefFull:()=>this.setState({refFullOpen:false}),
+          rfName:rf.name, rfRel:rf.rel, rfPhone:rf.phone, rfMono:rf.mono, rfAv:rf.av,
+          rfStatus:st, rfStatusStyle:scol(st), rfTrack:rf.track,
+          rfStatusMenuOpen:!!this.state.rfStatusMenuOpen,
+          toggleRfStatus:(e)=>{e.stopPropagation();this.setState(s=>({rfStatusMenuOpen:!s.rfStatusMenuOpen}));},
+          rfStatusOpts:["Answered","No answer","Left message","Call back","They'll call back"].map(o=>({label:o,active:o===st,style:"display:block;width:100%;text-align:start;border:none;background:"+(o===st?"var(--secondary)":"none")+";padding:9px 13px;font-size:13px;font-weight:"+(o===st?"600":"500")+";cursor:pointer;color:inherit;border-radius:7px;"})),
+          onSetRfStatusFull:(e)=>{e.stopPropagation();const st2=e.currentTarget.dataset.status;this.setState(s=>({refStatus:{...(s.refStatus||{}),[fi]:st2},rfStatusMenuOpen:false}));},
+          rfAttempts:(()=>{const base=[{when:"Today, 2:14 PM",outcome:"Answered",note:"Spoke ~8 min"},{when:"Yesterday, 6:40 PM",outcome:"No answer",note:"Rang out"},{when:"20 Jul, 1:10 PM",outcome:"Left message",note:"Voicemail"}];const extra=(this.state.refAttempts||{})[fi]||[];return [...extra,...base].map(a=>({...a,dotStyle:"width:9px;height:9px;border-radius:999px;flex-shrink:0;background:"+(a.outcome==="Answered"?"var(--positive)":a.outcome==="No answer"?"var(--st-no)":"var(--attention-strong)")+";",chipStyle:"font-size:10.5px;font-weight:600;padding:1px 8px;border-radius:999px;"+scol(a.outcome==="Left message"?"Call back":a.outcome)}));})(),
+          rfAttemptCount:(()=>{const extra=((this.state.refAttempts||{})[fi]||[]).length;return (extra+3)+" call attempts logged";})(),
+          logAttemptMenuOpen:!!this.state.logAttemptMenuOpen,
+          toggleLogAttempt:(e)=>{e.stopPropagation();this.setState(s=>({logAttemptMenuOpen:!s.logAttemptMenuOpen}));},
+          attemptOpts:["Answered","No answer","Left message","They'll call back"].map(o=>({label:o,style:"display:flex;align-items:center;gap:8px;width:100%;text-align:start;border:none;background:none;padding:9px 13px;font-size:13px;font-weight:500;cursor:pointer;color:inherit;border-radius:7px;"})),
+          onLogAttempt:(e)=>{e.stopPropagation();const oc=e.currentTarget.dataset.oc;this.setState(s=>{const prev=(s.refAttempts||{})[fi]||[];const status=oc==="No answer"||oc==="Left message"?"Call back":oc;return {refAttempts:{...(s.refAttempts||{}),[fi]:[{when:"Just now",outcome:oc,note:"Logged manually"},...prev]},refStatus:{...(s.refStatus||{}),[fi]:status},logAttemptMenuOpen:false};});},
+          rfLog:(rf.log||[]).map(l=>({...l,chipStyle:scol(l.status)})),
+          rfNotes:rf.notes||[], rfTasks:rf.tasks||[], rfQuestions:rf.questions||[],
+          rfTab:this.state.rfTab||"overview",
+          rfIsOverview:(this.state.rfTab||"overview")==="overview",
+          rfIsAI:(this.state.rfTab||"overview")==="ai",
+          rfTabOverviewStyle:"flex:1;height:38px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:"+((this.state.rfTab||"overview")==="overview"?"var(--card)":"transparent")+";color:"+((this.state.rfTab||"overview")==="overview"?"var(--foreground)":"var(--muted-foreground)")+";"+((this.state.rfTab||"overview")==="overview"?"box-shadow:0 1px 2px oklch(0 0 0 /.1);":""),
+          rfTabAIStyle:"flex:1;height:38px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;background:"+((this.state.rfTab)==="ai"?"var(--card)":"transparent")+";color:"+((this.state.rfTab)==="ai"?"var(--foreground)":"var(--muted-foreground)")+";"+((this.state.rfTab)==="ai"?"box-shadow:0 1px 2px oklch(0 0 0 /.1);":""),
+          setRfTab:(e)=>this.setState({rfTab:e.currentTarget.dataset.t}),
+          rfChatInputRef:(this.rfChatInputRef=this.rfChatInputRef||React.createRef()),
+          rfChat:(this.state.rfChat||[{who:"ai",text:"I've read your notes and calls on "+rf.name+". Ask me anything — what they said, what's still open, or what to ask next."}]).map(m=>({isAi:m.who==="ai",isMe:m.who==="me",text:m.text})),
+          rfSuggests:["What did they actually say?","What haven't we asked yet?","Does this contradict the other references?","Draft a follow-up question"],
+          askRf:(e)=>{const q=e.currentTarget.dataset.q;this._askRf(q,rf);},
+          sendRf:()=>{const el=this.rfChatInputRef.current;const v=((el&&el.value)||"").trim();if(!v)return;this._askRf(v,rf);if(el){el.value="";el.focus();}},
+          onRfChatKey:(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();const el=this.rfChatInputRef.current;const v=((el&&el.value)||"").trim();if(!v)return;this._askRf(v,rf);if(el)el.value="";}},
+        };
+      })(),
+      ...(()=>{
+        this.callInputRef = this.callInputRef || React.createRef();
+        const script=this.callScript();
+        const step=this.state.callStep||0;
+        const thread=(this.state.callThread||[]).map(m=>({isAi:m.who==="ai",intro:m.intro||"",q:m.q||"",text:m.text||"",hasQ:!!m.q,isWrap:!!m.wrap}));
+        return {
+          callOpen:!!this.state.callOpen,
+          callRef:this.state.callRef||"Rabbi Weiss",
+          callRel:this.state.callRel||"Rebbe, BMG",
+          callAbout:"Reference call · Dovid Berkowitz",
+          callThread:thread,
+          callInputRef:this.callInputRef,
+          callTopics:script.map((s,i)=>({label:s.label,done:i<step,dotStyle:"width:16px;height:16px;border-radius:999px;display:grid;place-items:center;flex-shrink:0;font-size:9px;"+(i<step?"background:var(--positive);color:var(--primary-foreground);":"background:transparent;border:1.5px solid var(--border);color:transparent;"),txtStyle:"font-size:13px;"+(i<step?"color:var(--foreground);font-weight:600;":"color:var(--muted-foreground);")})),
+          callCovered:Math.min(step,script.length)+" of "+script.length+" covered",
+          callUpNext:script.slice(step+1,step+4).map(s=>({q:s.q,label:s.label})),
+          callHasUpNext:(step+1) < script.length,
+          callDone:step >= script.length,
+          callProgressStyle:"width:"+Math.round(Math.min(step,script.length)/script.length*100)+"%;height:100%;background:var(--positive);border-radius:999px;transition:width .35s ease;",
+          openCall:(e)=>{const nm=(e.currentTarget.dataset.name)||"Rabbi Weiss";const rl=(e.currentTarget.dataset.rel)||"Rebbe, BMG";const f=script[0];this.setState({callOpen:true,callRef:nm,callRel:rl,callStep:0,callThread:[{who:"ai",intro:f.ai,q:f.q}]});},
+          closeCall:()=>this.setState({callOpen:false}),
+          sendCall:()=>{const el=this.callInputRef.current;const v=((el&&el.value)||"").trim();if(!v)return;this.setState(s=>{const st=(s.callStep||0)+1;const t=[...(s.callThread||[]),{who:"me",text:v}];if(st<script.length){t.push({who:"ai",intro:script[st].ai,q:script[st].q});}else{t.push({who:"ai",intro:"That covers the four that matter most — middos, consistency, health, and how recently they knew him. Nothing important slipped by. Want me to save this as the call note on Dovid's file?",wrap:true});}return {callThread:t,callStep:st};});if(el){el.value="";el.focus();}},
+          onCallKey:(e)=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();const el=this.callInputRef.current;const v=((el&&el.value)||"").trim();if(!v)return;this.setState(s=>{const st=(s.callStep||0)+1;const t=[...(s.callThread||[]),{who:"me",text:v}];if(st<script.length){t.push({who:"ai",intro:script[st].ai,q:script[st].q});}else{t.push({who:"ai",intro:"That covers the four that matter most — middos, consistency, health, and how recently they knew him. Nothing important slipped by. Want me to save this as the call note on Dovid's file?",wrap:true});}return {callThread:t,callStep:st};});if(el){el.value="";}}},
+        };
+      })(),
+      isShadDetail: this.state.screen==="shaddetail",
+      shadTabs: [["suggestions","Suggestions"],["notes","Notes & relationship"],["reminders","Reminders"]].map(([id,label])=>({id,label,active:(this.state.tab.shad||"suggestions")===id,style:"border:none;background:none;padding:11px 4px;margin-inline-end:22px;font-size:14px;font-weight:600;cursor:pointer;border-bottom:2px solid "+((this.state.tab.shad||"suggestions")===id?"var(--primary)":"transparent")+";color:"+((this.state.tab.shad||"suggestions")===id?"var(--foreground)":"var(--muted-foreground)")+";"})),
+      shadIsSuggestions:(this.state.tab.shad||"suggestions")==="suggestions",
+      shadIsNotes:(this.state.tab.shad||"suggestions")==="notes",
+      shadIsReminders:(this.state.tab.shad||"suggestions")==="reminders",
+      shadSuggestions:[
+        {name:"Dovid Berkowitz",he:"דוד ברקוביץ",child:"for Rivky",stage:"Look-into",color:"var(--st-look)",mono:"DB",av:"var(--avatar-blue)",since:"18 Jul 2026"},
+        {name:"Yisroel Fried",he:"ישראל פריד",child:"for Rivky",stage:"Look-into",color:"var(--st-look)",mono:"YF",av:"oklch(0.87 0.08 300)",since:"9 Jul 2026"},
+        {name:"Naftali Berger",he:"נפתלי ברגר",child:"for Rivky",stage:"No",color:"var(--st-no)",mono:"NB",av:"oklch(0.86 0.09 270)",since:"14 Apr 2026"},
+        {name:"Leah Schwartz",he:"לאה שוורץ",child:"for Yaakov",stage:"New",color:"var(--st-new)",mono:"LS",av:"var(--avatar-pink)",since:"20 Jul 2026"},
+      ],
+      shadNotes:[
+        {when:"Today",text:"Called about Dovid — she's checking if he's still available and will call back."},
+        {when:"2 weeks ago",text:"Very warm, knows the Lakewood families well. Prefers WhatsApp over calls."},
+        {when:"Last month",text:"Redt Yisroel — followed up promptly when we asked for references."},
+      ],
+      shadIsList: this.state.shadView==="list",
+      shadIsGrid: this.state.shadView==="grid",
+      shadQ: this.state.shadQ,
+      onShadSearch:(e)=>this.setState({shadQ:e.target.value}),
+      shadViewList:{style:"height:34px;padding:0 13px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:"+(this.state.shadView==="list"?"var(--card)":"transparent")+";color:"+(this.state.shadView==="list"?"var(--foreground)":"var(--muted-foreground)")+";box-shadow:"+(this.state.shadView==="list"?"0 1px 2px oklch(0 0 0 /.12)":"none")+";"},
+      shadViewGrid:{style:"height:34px;padding:0 13px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:"+(this.state.shadView==="grid"?"var(--card)":"transparent")+";color:"+(this.state.shadView==="grid"?"var(--foreground)":"var(--muted-foreground)")+";box-shadow:"+(this.state.shadView==="grid"?"0 1px 2px oklch(0 0 0 /.12)":"none")+";"},
+      onShadView:(e)=>this.setState({shadView:e.currentTarget.dataset.v}),
+      shadchanim:[
+        {name:"Mrs. Sarah Feldman",loc:"Lakewood, NJ",mono:"SF",av:"oklch(0.90 0.09 40)",resp:"Usually replies same day",respColor:"var(--positive)",redts:12,progressed:5,dates:3},
+        {name:"Mrs. Rochel Weiss",loc:"Monsey, NY",mono:"RW",av:"var(--avatar-blue)",resp:"Replies within a few days",respColor:"var(--st-notsure)",redts:8,progressed:3,dates:1},
+        {name:"Mrs. Devorah Klein",loc:"Brooklyn, NY",mono:"DK",av:"oklch(0.87 0.08 300)",resp:"Can take a while",respColor:"var(--muted-foreground)",redts:4,progressed:1,dates:0},
+        {name:"Mrs. Miriam Gold",loc:"Lakewood, NJ",mono:"MG",av:"oklch(0.85 0.08 150)",resp:"Usually replies same day",respColor:"var(--positive)",redts:9,progressed:4,dates:2},
+      ].filter(s=>{const q=(this.state.shadQ||"").toLowerCase();return !q||(s.name+" "+s.loc).toLowerCase().includes(q);}),
+      q: this.state.q,
+      onSearch:(e)=>this.setState({q:e.target.value}),
+      onCandFilter:(e)=>this.setState({candFilter:e.currentTarget.dataset.f}),
+      navItemsHe:[["dashboard","בית","▤"],["inbox","דואר נכנס","✉"],["board","צנרת","▦"],["shadchanim","שדכנים","☏"],["reminders","תזכורות","◷"],["privacy","הגדרות","⚙"]].map(([to,label,icon])=>({to,label,icon,style:navStyle(to==="dashboard")})),
+      dashCountsHe:[["חדש","var(--st-new)",2],["לבדוק","var(--st-look)",3],["כן","var(--st-yes)",1],["מתלבטת","var(--st-unsure)",1]].map(([label,color,count])=>({label,color,count})),
+      overdueReminders:[
+        {text:"Call Mrs. Feldman back about Dovid",due:"Overdue — was Tuesday",target:"Suggestion · Dovid Berkowitz"},
+        {text:"Chase the seminary reference (Mrs. Brachfeld)",due:"Overdue — was yesterday",target:"Reference"},
+      ],
+      upcomingReminders:[
+        {text:"Follow up with Rivky on Chaim Landau",due:"Thursday",target:"Suggestion · Chaim Landau"},
+        {text:"Call Mrs. Weiss — is Shmuli still available?",due:"Next Monday",target:"Shadchan · Mrs. Weiss"},
+        {text:"Confirm the date details with Rivky",due:"Next week",target:"Suggestion · Chaim Landau"},
+      ],
+      dataActions:[
+        {icon:"⬇",title:"Export / backup",sub:"One click — the entire account, in a portable file."},
+        {icon:"🗑",title:"Delete account",sub:"Purges our live system immediately; backups within the retention window."},
+        {icon:"👤",title:"Per-single purge",sub:"Honor a removal request from someone named on a resume."},
+        {icon:"📄",title:"Sub-processor list",sub:"Plainly, exactly who touches your data and why."},
+      ],
+      inboxItems:[
+        {icon:"💬",title:"Resume for Rivky — “wonderful boy, BMG”",sub:"Mrs. Feldman · detected with high confidence",badge:"WhatsApp",badgeStyle:"background:oklch(0.92 0.05 150);color:oklch(0.34 0.05 155);",time:"2m ago"},
+        {icon:"📄",title:"Berkowitz-resume.pdf",sub:"Mrs. Feldman · attachment · ready to parse",badge:"Email CC",badgeStyle:"background:var(--secondary);color:var(--muted-foreground);border:1px solid var(--border);",time:"14m ago"},
+        {icon:"🖼",title:"Photo of a printed resume",sub:"Mrs. Weiss · needs auto-parse or manual entry",badge:"Upload",badgeStyle:"background:var(--secondary);color:var(--muted-foreground);border:1px solid var(--border);",time:"1h ago"},
+        {icon:"↪",title:"Fwd: shidduch idea for your daughter",sub:"Mrs. Gold · forwarded · resume attached",badge:"Forward",badgeStyle:"background:var(--secondary);color:var(--muted-foreground);border:1px solid var(--border);",time:"3h ago"},
+      ],
+      parseFields:[
+        {k:"Name (English)",v:"Dovid Berkowitz",low:false,border:"var(--border)"},
+        {k:"Name (Hebrew)",v:"דוד ברקוביץ",low:false,border:"var(--border)"},
+        {k:"Age / Date of birth",v:"24 · 12 Adar 5762",low:false,border:"var(--border)"},
+        {k:"Background",v:"Frum from birth (FFB)",low:false,border:"var(--border)"},
+        {k:"Height",v:"5′10″ (low confidence)",low:true,border:"var(--attention-strong)"},
+        {k:"Location",v:"Lakewood, NJ",low:false,border:"var(--border)"},
+        {k:"Shul",v:"Khal Zichron Yaakov",low:false,border:"var(--border)"},
+        {k:"Father’s occupation",v:"Rebbe — please confirm",low:true,border:"var(--attention-strong)"},
+      ],
+      recentResumes:[
+        {name:"Ari Rosenberg",shadchan:"Mrs. Gold",channel:"WhatsApp",mono:"AR",av:"oklch(0.85 0.07 180)"},
+        {name:"Menachem Stern",shadchan:"Mrs. D. Klein",channel:"Email CC",mono:"MS",av:"oklch(0.90 0.09 40)"},
+        {name:"Shmuli Katz",shadchan:"Mrs. Weiss",channel:"Upload",mono:"SK",av:"var(--avatar-pink)"},
+      ],
+      dashReminders:[
+        {text:"Call Mrs. Feldman back about Dovid",due:"Overdue · was Tuesday",dueStyle:nudge},
+        {text:"Chase the seminary reference (Mrs. Brachfeld)",due:"Due Thursday",dueStyle:soon},
+        {text:"Follow up with Rivky on Chaim Landau",due:"Due next week",dueStyle:soon},
+      ],
+      refCalls:[
+        {name:"Rabbi Weiss",rel:"Rebbe, BMG",status:"Answered",statusStyle:"background:var(--accent);color:var(--accent-foreground);",said:"\u201cSerious, consistent, well-liked. A real mentsch — I'd take him for my own daughter.\u201d"},
+        {name:"Mrs. Schwartz",rel:"Neighbor",status:"Call back",statusStyle:"background:var(--attention);color:var(--attention-foreground);",said:"\u201cLovely family. She said he's on the quiet side — wants to speak again when she has more time.\u201d"},
+        {name:"Mrs. Brachfeld",rel:"Seminary teacher (of sister)",status:"No answer",statusStyle:"background:var(--secondary);color:var(--muted-foreground);",said:"Left a message. Reminder set for Thursday."},
+      ],
+      attachments:[
+        {icon:"🎙",name:"voice-note.m4a",meta:"Audio · 0:48",bg:"color-mix(in oklch,var(--accent) 40%,var(--card))"},
+        {icon:"🖼",name:"whatsapp-screenshot.png",meta:"Image · 0.8 MB",bg:"color-mix(in oklch,var(--st-look) 22%,var(--card))"},
+        {icon:"📎",name:"family-info.pdf",meta:"PDF · 1 page",bg:"var(--secondary)"},
+      ],
+      resumeVersions:[
+        {v:"v3",when:"18 Jul 2026",note:"Added a reference",cur:true,old:false},
+        {v:"v2",when:"2 Jul 2026",note:"Corrected height & shul",cur:false,old:true},
+        {v:"v1",when:"14 Apr 2026",note:"First received from Mrs. Feldman",cur:false,old:true},
+      ],
+      learnHistory:[
+        {label:"Yeshiva (current)",v:"BMG — Lakewood"},
+        {label:"Yeshiva (earlier)",v:"Chaim Berlin — Brooklyn"},
+        {label:"High school",v:"Yeshiva Ketana of Lakewood"},
+      ],
+      refsList:[
+        {name:"Rabbi Weiss",rel:"Rebbe, BMG",phone:"732-555-0148"},
+        {name:"Mrs. Schwartz",rel:"Neighbor",phone:"845-555-0192"},
+        {name:"R' Cohen",rel:"Chavrusa",phone:"732-555-0177"},
+      ],
+      resumeFields:[
+        {k:"Name (Hebrew)",v:"דוד ברקוביץ"},{k:"Age / DOB",v:"24 · 12 Adar 5762"},{k:"Height",v:"5′10″"},
+        {k:"Background",v:"Frum from birth (FFB)"},
+        {k:"Location",v:"Lakewood, NJ"},{k:"Shul",v:"Khal Zichron Yaakov"},
+        {k:"Yeshiva / Sem (current)",v:"BMG — Lakewood"},
+        {k:"Yeshiva / Sem (earlier)",v:"Chaim Berlin — Brooklyn"},
+        {k:"Father",v:"R' Yaakov Berkowitz — Rebbe"},{k:"Mother",v:"Mrs. Leah Berkowitz (née Klein)"},
+      ],
+      timeline:[
+        {text:"Resume received via WhatsApp from Mrs. Feldman",when:"Today, 2:14 PM"},
+        {text:"Moved to Look-into",when:"Today, 2:20 PM"},
+        {text:"Called Rabbi Weiss — Answered",when:"Yesterday"},
+        {text:"Rivky said \u201cWant to know more\u201d",when:"2 days ago"},
+      ],
+      rootClass: this.state.theme==="dark"?"dark":"light",
+      dir: he?"rtl":"ltr",
+      langLabel: he?"עברית":"EN",
+      themeIcon: this.state.theme==="dark"?"☀":"☾",
+      screenLabel: labels[this.state.screen]||this.state.screen,
+      chipRivky: this.chip(this.state.child==="rivky"),
+      chipYaakov: this.chip(this.state.child==="yaakov"),
+      isLauncher: this.state.screen==="launcher",
+      isBoard: this.state.screen==="board",
+      isDashboard: this.state.screen==="dashboard",
+      isCatch: this.state.screen==="catch",
+      isDetail: this.state.screen==="detail",
+      isShare: this.state.screen==="share",
+      isInbox: this.state.screen==="inbox",
+      isParse: this.state.screen==="parse",
+      isReference: this.state.screen==="reference",
+      isReminders: this.state.screen==="reminders",
+      isPrivacy: this.state.screen==="privacy",
+      isBilling: this.state.screen==="billing",
+      isChildhome: this.state.screen==="childhome",
+      isChildinput: this.state.screen==="childinput",
+      isLanding: this.state.screen==="landing",
+      isSignin: this.state.screen==="signin",
+      isRtl: this.state.screen==="rtl",
+      dashCounts: fullBoard.map(b=>({label:b.label,count:b.count,color:b.color})),
+      showNo: !!this.state.showNo,
+      noToggleStyle: "display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--muted-foreground);background:none;border:none;cursor:pointer;",
+      noSwitchStyle: "width:38px;height:22px;border-radius:999px;background:"+(this.state.showNo?"var(--primary)":"var(--border)")+";position:relative;transition:background .15s;flex-shrink:0;",
+      noKnobStyle: "position:absolute;top:2px;"+(this.state.showNo?"inset-inline-end:2px":"inset-inline-start:2px")+";width:18px;height:18px;border-radius:999px;background:#fff;box-shadow:0 1px 2px oklch(0 0 0 /.2);",
+      onToggleNo: ()=>this.setState(s=>{const v=!s.showNo;try{localStorage.setItem("ms_showNo",v?"1":"0");}catch(e){} return {showNo:v};}),
+      detailTabs: [["resume","Profile"],["resumedoc","Resume"],["photo","Photo"],["medical","Medical"],["attach","Attachments"],["refs","References & diligence"],["external","External links"],["notes","Notes"],["timeline","Timeline"]].map(([id,label])=>({id,label,active:(this.state.tab.detail||"resume")===id,style:"border:none;background:none;padding:11px 4px;margin-inline-end:22px;font-size:14px;font-weight:600;cursor:pointer;border-bottom:2px solid "+((this.state.tab.detail||"resume")===id?"var(--primary)":"transparent")+";color:"+((this.state.tab.detail||"resume")===id?"var(--foreground)":"var(--muted-foreground)")+";"})),
+      detailIsExternal:(this.state.tab.detail||"resume")==="external",
+      externalLinks:[{label:"ZUUG",sub:"Profile on ZUUG",mono:"Z",av:"var(--avatar-blue)"},{label:"ClickShadchan",sub:"Listing on ClickShadchan",mono:"C",av:"var(--avatar-pink)"},{label:"Yismach",sub:"Profile on Yismach",mono:"Y",av:"oklch(0.85 0.08 150)"},{label:"SawYouAtSinai",sub:"Profile on SawYouAtSinai",mono:"S",av:"oklch(0.90 0.09 40)"}],
+      detailIsRefs:(this.state.tab.detail||"resume")==="refs",
+      detailIsResume:(this.state.tab.detail||"resume")==="resume",
+      detailIsResumeDoc:(this.state.tab.detail||"resume")==="resumedoc",
+      detailIsPhoto:(this.state.tab.detail||"resume")==="photo",
+      detailIsAttach:(this.state.tab.detail||"resume")==="attach",
+      detailIsNotes:(this.state.tab.detail||"resume")==="notes",
+      detailIsMedical:(this.state.tab.detail||"resume")==="medical",
+      medicalItems:[
+        {topic:"General health",status:"Confirmed",accent:"var(--positive)",chipStyle:"background:var(--accent);color:var(--accent-foreground);",note:"Nothing disclosed on the resume. Rabbi Weiss said he seems healthy and active, b\u2019chasdei Hashem."},
+        {topic:"Family history",status:"To confirm",accent:"var(--attention-strong)",chipStyle:"background:var(--attention);color:var(--attention-foreground);",note:"Haven\u2019t asked yet. Plan to raise gently on the next reference call — framed as \u201cso there are no surprises.\u201d"},
+        {topic:"Medication / ongoing",status:"None disclosed",accent:"var(--border)",chipStyle:"background:var(--secondary);color:var(--muted-foreground);",note:"None mentioned. Leave as-is unless a reference raises something."},
+      ],
+      detailIsTimeline:(this.state.tab.detail||"resume")==="timeline",
+      onTab:(e)=>{const g=e.currentTarget.dataset.group,t=e.currentTarget.dataset.tab;this.setState(s=>({tab:{...s.tab,[g]:t}}));},
+      ...(()=>{
+        const vmeta={private:{label:"🔒 Private to you",style:"background:var(--secondary);color:var(--muted-foreground);"},spouse:{label:"👁 Shared with Yaakov",style:"background:color-mix(in oklch,var(--primary) 12%,var(--card));color:var(--primary);"},child:{label:"👁 Shared with Rivky",style:"background:color-mix(in oklch,var(--accent) 55%,var(--card));color:var(--accent-foreground);"},family:{label:"👁 Shared with family",style:"background:color-mix(in oklch,var(--primary) 15%,var(--card));color:var(--primary);"}};
+        const seed=[{text:"Feldman says the family is lovely. Want to check the health question before pushing further.",when:"Today, 3:02 PM",vis:"private"},{text:"Rivky — take a look when you have a minute, this one seems worth exploring.",when:"Today, 3:05 PM",vis:"child"}];
+        const own=(this.state.notes||seed).map(n=>({...n,vis:n.vis||"private",source:n.source||""}));
+        const fromRefs=[];
+        this.referencesFull().forEach(r=>(r.notes||[]).forEach(n=>fromRefs.push({text:n.text,when:n.when,vis:"private",source:"from reference · "+r.name})));
+        const cur=this.state.noteVis||"private";
+        return {
+          notes: own.concat(fromRefs).map(n=>({...n,visLabel:vmeta[n.vis].label,visStyle:vmeta[n.vis].style})),
+          noteVisOptions:[["private","Private"],["spouse","Share with spouse"],["child","Share with Rivky"]].map(([id,label])=>({id,label,style:"height:30px;padding:0 11px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid "+(cur===id?"var(--primary)":"var(--input)")+";background:"+(cur===id?"color-mix(in oklch,var(--primary) 12%,var(--card))":"var(--card)")+";color:"+(cur===id?"var(--primary)":"var(--muted-foreground)")+";"})),
+          noteVisHint:{private:"Only you can see this. Nobody else on the account will.",spouse:"Your spouse (Yaakov) will see this note.",child:"Rivky will see this note in her portal.",family:"Everyone on the family account can see this."}[cur],
+          onNoteVis:(e)=>this.setState({noteVis:e.currentTarget.dataset.v}),
+          noteDraft: this.state.noteDraft || "",
+          onNoteInput:(e)=>this.setState({noteDraft:e.target.value}),
+          onAddNote:()=>this.setState(s=>{const t=(s.noteDraft||"").trim(); if(!t) return {}; const list=s.notes||seed; return {notes:[{text:t,when:"Just now",vis:s.noteVis||"private",source:""},...list], noteDraft:""};}),
+        };
+      })(),
+      ...(()=>{
+        const refs=this.referencesFull(); const sel=this.state.refSel||0; const selRef=refs[sel];
+        const scolor=(st)=>st==="Answered"?"background:var(--accent);color:var(--accent-foreground);":st==="Call back"||st==="They'll call back"?"background:var(--attention);color:var(--attention-foreground);":"background:var(--secondary);color:var(--muted-foreground);border:1px solid var(--border);";
+        const doneCount=refs.filter(r=>r.status==="Answered").length;
+        const view=this.state.refView||"list";
+        const vbtn=(active)=>"height:34px;padding:0 13px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:"+(active?"var(--card)":"transparent")+";color:"+(active?"var(--foreground)":"var(--muted-foreground)")+";box-shadow:"+(active?"0 1px 2px oklch(0 0 0 /.12)":"none")+";";
+        return {
+          statusOptions:["Answered","No answer","Call back","They'll call back"],
+          onToggleStatusMenu:(e)=>{e.stopPropagation();const i=+e.currentTarget.dataset.i;this.setState(s=>({refStatusMenu:s.refStatusMenu===i?-1:i}));},
+          onSetRefStatus:(e)=>{e.stopPropagation();const i=+e.currentTarget.dataset.i,st=e.currentTarget.dataset.status;this.setState(s=>({refStatus:{...(s.refStatus||{}),[i]:st},refStatusMenu:-1}));},
+          refCards: refs.map((r,i)=>{const st=(this.state.refStatus||{})[i]||r.status;return {...r, status:st, idx:i, open:i===sel, statusStyle:scolor(st), statusMenuOpen:(this.state.refStatusMenu===i), statusOpts:["Answered","No answer","Call back","They'll call back"].map(o=>({label:o,idx:i,active:o===st,style:"display:block;width:100%;text-align:start;border:none;background:"+(o===st?"var(--secondary)":"none")+";padding:8px 12px;font-size:13px;font-weight:"+(o===st?"600":"500")+";cursor:pointer;color:inherit;border-radius:7px;"})), noteCount:(r.notes||[]).length, taskCount:(r.tasks||[]).length,
+            openStyle:"width:100%;text-align:start;background:none;border:none;padding:0;cursor:pointer;color:inherit;",
+            chevron:i===sel?"▾":"▸"};}),
+          refIsList: view==="list", refIsCards: view==="cards",
+          refGridStyle: view==="cards"?"display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;":"display:flex;flex-direction:column;gap:12px;",
+          refViewListStyle: vbtn(view==="list"), refViewCardsStyle: vbtn(view==="cards"),
+          onRefView:(e)=>this.setState({refView:e.currentTarget.dataset.v}),
+          onSelectRef:(e)=>this.setState(s=>({refSel:(+e.currentTarget.dataset.i===s.refSel)?-1:+e.currentTarget.dataset.i})),
+          refDoneLabel: doneCount+" of "+refs.length+" spoken to",
+        };
+      })(),
+      decisionOptions:[["look","Look-into","var(--st-look)"],["yes","Yes","var(--st-yes)"],["unsure","Unsure","var(--st-unsure)"],["no","No","var(--st-no)"]].map(([id,label,color])=>({id,label,color,style:"display:flex;align-items:center;gap:9px;width:100%;text-align:start;border:none;background:"+(this.state.decision===id?"var(--secondary)":"transparent")+";padding:9px 12px;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer;color:var(--foreground);"})),
+      decisionLabel:{look:"Look-into",yes:"Yes",unsure:"Unsure",no:"No"}[this.state.decision||"look"],
+      decisionColor:{look:"var(--st-look)",yes:"var(--st-yes)",unsure:"var(--st-unsure)",no:"var(--st-no)"}[this.state.decision||"look"],
+      decisionOpen:!!this.state.decisionOpen,
+      toggleDecision:()=>this.setState(s=>({decisionOpen:!s.decisionOpen})),
+      onSetDecision:(e)=>this.setState({decision:e.currentTarget.dataset.d,decisionOpen:false}),
+      ...(()=>{
+        const ms=this.state.marital||"unmarried";
+        const kids=this.state.maritalKids||0;
+        const map={unmarried:"Never married",divorced:"Divorced",widowed:"Widowed"};
+        const mstyle=ms==="unmarried"?"background:var(--secondary);color:var(--muted-foreground);border:1px solid var(--border);":"background:var(--attention);color:var(--attention-foreground);border:1px solid var(--attention-strong);";
+        return {
+          maritalLabel:map[ms],
+          maritalStyle:mstyle,
+          maritalOpen:!!this.state.maritalOpen,
+          maritalNeedsKids:ms!=="unmarried",
+          maritalKidsLabel:kids===0?"No children":(kids+(kids===1?" child":" children")),
+          toggleMarital:()=>this.setState(s=>({maritalOpen:!s.maritalOpen})),
+          maritalOptions:[["unmarried","Never married"],["divorced","Divorced"],["widowed","Widowed"]].map(([id,label])=>({id,label,style:"display:flex;align-items:center;gap:8px;width:100%;text-align:start;border:none;background:"+(id===ms?"var(--secondary)":"none")+";padding:8px 11px;font-size:13px;font-weight:"+(id===ms?"600":"500")+";cursor:pointer;color:inherit;border-radius:7px;"})),
+          onSetMarital:(e)=>{const m=e.currentTarget.dataset.m;this.setState({marital:m,maritalOpen:false,maritalKids:m==="unmarried"?0:(this.state.maritalKids||1)});},
+          kidsOptions:[0,1,2,3,4,5].map(n=>({n,label:n===0?"No children":(n+(n===1?" child":" children")),style:"border:1px solid "+(n===kids?"var(--primary)":"var(--border)")+";background:"+(n===kids?"color-mix(in oklch,var(--primary) 12%,var(--card))":"var(--card)")+";color:inherit;border-radius:8px;padding:5px 12px;font-size:13px;font-weight:"+(n===kids?"600":"500")+";cursor:pointer;"})),
+          onSetKids:(e)=>this.setState({maritalKids:+e.currentTarget.dataset.n}),
+        };
+      })(),
+      photoShown: (this.state.photo!==false)?"block":"none",
+      photoHidden: this.state.photo===false,
+      photoOn: this.state.photo!==false,
+      onRevealPhoto: ()=>this.setState(s=>({photo:!s.photo})),
+      board,
+      onNav: (e)=>{ const n=e.currentTarget.dataset.nav; if(n) this.setState({screen:n}); window.scrollTo(0,0); },
+      onSetChild: (e)=>this.setState({child:e.currentTarget.dataset.child}),
+      toggleLang: ()=>this.setState(s=>({lang:s.lang==="en"?"he":"en"})),
+      toggleTheme: ()=>this.setState(s=>({theme:s.theme==="dark"?"light":"dark"})),
+      launcherGroups: [
+        {title:"★★ Tier-1 signature heroes", items:[
+          {id:"share",name:"Share-target capture",sub:"WhatsApp/SMS → her app → which shadchan / which child",dot:"var(--st-new)",hero:true},
+          {id:"catch",name:"The Catch",sub:"The honey relief moment — dupe / already-dated",dot:"var(--attention-strong)",hero:true},
+          {id:"board",name:"Pipeline Board",sub:"Deals Kanban → 7 calm states, per child",dot:"var(--st-look)",hero:true},
+          {id:"detail",name:"360° Shidduch View",sub:"Everything about one suggestion, one pane",dot:"var(--st-yes)",hero:true},
+          {id:"privacy",name:"Privacy & Data center",sub:"The transparency dial + data ownership",dot:"var(--st-unsure)",hero:true},
+        ]},
+        {title:"★ Core heroes", items:[
+          {id:"inbox",name:"Unified Inbox",sub:"The calm staging pile + unattributed queue",dot:"var(--st-new)",hero:true},
+          {id:"parse",name:"Auto-parse Review",sub:"Confidence chips, human-in-the-loop",dot:"var(--st-notsure)",hero:true},
+          {id:"reference",name:"Reference workspace",sub:"On-call capture + AI diligence gaps",dot:"var(--st-look)",hero:true},
+          {id:"reminders",name:"Reminders hub",sub:"Follow-through, gentle honey nudges",dot:"var(--attention-strong)",hero:true},
+          {id:"dashboard",name:"Dashboard",sub:"Per-child calm command center",dot:"var(--st-yes)",hero:true},
+        ]},
+        {title:"Candidate portal · Billing · Auth", items:[
+          {id:"childhome",name:"Child portal — home",sub:"My process, calmly (UJ-2)",dot:"var(--st-unsure)",hero:true},
+          {id:"childinput",name:"Child give-input",sub:"Heard, not just handled",dot:"var(--st-unsure)",hero:true},
+          {id:"billing",name:"Billing transparency",sub:"Run at cost, not for profit",dot:"var(--st-yes)"},
+          {id:"landing",name:"Landing page",sub:"Calm, honest, privacy-first",dot:"var(--st-new)"},
+          {id:"signin",name:"Passwordless sign-in",sub:"Magic link, no password talk",dot:"var(--st-new)"},
+        ]},
+        {title:"Proof screens", items:[
+          {id:"rtl",name:"Hebrew RTL hero",sub:"Dashboard fully mirrored",dot:"var(--st-look)",hero:true},
+        ]},
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

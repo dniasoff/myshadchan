@@ -106,7 +106,7 @@ const EmailRow = () => {
           className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
           {copied ? (
-            <Check className="w-4 h-4 text-green-500" />
+            <Check className="w-4 h-4 text-positive" />
           ) : (
             <Mail className="w-4 h-4" />
           )}

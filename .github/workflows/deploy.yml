@@ -63,3 +63,64 @@ jobs:
               name: Supabase deployment skipped
               run: |
                   echo ':warning: Supabase deployment skipped — missing SUPABASE_ACCESS_TOKEN / SUPABASE_DB_PASSWORD / SUPABASE_PROJECT_ID secret' >> $GITHUB_STEP_SUMMARY
+
+    deploy-workers:
+        name: 🚀 Deploy (Cloudflare Workers · ${{ matrix.worker }})
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        strategy:
+            matrix:
+                worker: [ingest, parse, match, ai, share, cron, billing]
+
+        env:
+            CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+            CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+            IS_CLOUDFLARE_CONFIGURED: ${{ secrets.CLOUDFLARE_API_TOKEN && secrets.CLOUDFLARE_ACCOUNT_ID }}
+            SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+            SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+            RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+            STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+            STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+
+        steps:
+            - name: 📥 Checkout repo
+              uses: actions/checkout@v7
+
+            - name: ⚙️ Setup node
+              uses: actions/setup-node@v7
+              with:
+                  node-version-file: .nvmrc
+                  cache: npm
+
+            - name: 📥 Download deps
+              run: npm ci
+
+            - if: ${{ env.IS_CLOUDFLARE_CONFIGURED }}
+              name: 🚀 wrangler deploy
+              working-directory: workers/${{ matrix.worker }}
+              run: npx wrangler deploy
+
+            - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY }}
+              name: 🔑 Push base secrets (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+              working-directory: workers/${{ matrix.worker }}
+              run: |
+                  echo "$SUPABASE_URL" | npx wrangler secret put SUPABASE_URL
+                  echo "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+
+            - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'cron' && env.RESEND_API_KEY }}
+              name: 🔑 Push cron secrets (RESEND_API_KEY)
+              working-directory: workers/cron
+              run: echo "$RESEND_API_KEY" | npx wrangler secret put RESEND_API_KEY
+
+            - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'billing' && env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET }}
+              name: 🔑 Push billing secrets (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET)
+              working-directory: workers/billing
+              run: |
+                  echo "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY
+                  echo "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET
+
+            - if: ${{ !env.IS_CLOUDFLARE_CONFIGURED }}
+              name: Cloudflare deployment skipped
+              run: |
+                  echo ':warning: Cloudflare Workers deployment skipped (${{ matrix.worker }}) — missing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secret' >> $GITHUB_STEP_SUMMARY

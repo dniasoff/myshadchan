@@ -563,11 +563,4 @@ type MessageSchema<T> = {
       : never;
 };
 
-type DeepPartial<T> = {
-  [K in keyof T]?: T[K] extends Record<string, unknown>
-    ? DeepPartial<T[K]>
-    : T[K];
-};
-
 export type CrmMessages = MessageSchema<typeof englishCrmMessages>;
-export type PartialCrmMessages = DeepPartial<CrmMessages>;

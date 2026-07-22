@@ -10,8 +10,11 @@ import react from "@vitejs/plugin-react";
 //   - "functions": Supabase Edge Function tests. Written for Deno with JSR imports;
 //                  Node-only here, with the jsr:/npm: specifiers aliased to their
 //                  installed npm equivalents. Aliases are scoped to this project.
+//   - "workers":   Cloudflare Workers (Hono) unit tests, plain Node — Hono apps
+//                  are tested via app.request()/app.fetch(), no Workers runtime needed.
 // Run everything with `npm run test:unit:app`, or a single suite with
-// `npm run test:unit:claude` / `npm run test:unit:functions` (neither boots a browser).
+// `npm run test:unit:claude` / `npm run test:unit:functions` / `npm run test:unit:workers`
+// (none of the latter three boot a browser).
 export default defineConfig({
   test: {
     projects: [
@@ -62,6 +65,7 @@ export default defineConfig({
             // Harness hook tests are Node-only (they import node:fs / node:path
             // and spawn subprocesses); they run under the "claude" project below.
             ".claude/**",
+            "workers/**",
           ],
           server: {
             deps: {
@@ -101,6 +105,15 @@ export default defineConfig({
           environment: "node",
           include: ["supabase/functions/**/*.test.ts"],
           exclude: ["**/node_modules/**", ".supabase-e2e/**"],
+        },
+      },
+      {
+        test: {
+          name: "workers",
+          globals: true,
+          environment: "node",
+          include: ["workers/**/*.test.ts"],
+          exclude: ["**/node_modules/**"],
         },
       },
     ],

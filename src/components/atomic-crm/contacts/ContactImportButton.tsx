@@ -132,7 +132,7 @@ export function ContactImportDialog({
                       .{" "}
                       <button
                         onClick={handleReset}
-                        className="text-red-600 underline hover:text-red-800"
+                        className="text-destructive underline hover:text-destructive/80"
                       >
                         {translate("resources.contacts.import.stop")}
                       </button>

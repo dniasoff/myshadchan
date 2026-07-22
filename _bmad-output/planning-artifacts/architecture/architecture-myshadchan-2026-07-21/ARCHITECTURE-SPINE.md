@@ -4,7 +4,7 @@ type: architecture-spine
 purpose: build-substrate
 altitude: initiative
 paradigm: 'Layered resource-oriented SPA + RLS-enforced multi-tenant data core + event-driven capture→triage pipeline'
-scope: 'MyShadchan v1 — whole-product architecture governing the 11 build epics; brownfield fork of Atomic CRM on Cloudflare (host/compute/media) + Supabase (data) + Upstash, with freemium cost-recovery billing.'
+scope: 'MyShadchan v1 — whole-product architecture governing the build epics; brownfield fork of Atomic CRM on Cloudflare (host/compute/media) + Supabase (data) + Upstash, with freemium cost-recovery billing.'
 status: final
 created: '2026-07-21'
 updated: '2026-07-21'
@@ -31,7 +31,7 @@ companions:
 
 **Single-owner rule (gate-hardened, cross-cutting).** Wherever an AD says "one X," it names X's **single owner, writer, and runtime**. Logic more than one runtime touches (normalization, visibility, state transitions, suggestion creation, entitlement) lives in **one place — a Postgres function/trigger**. A shared reader with multiple writers is a divergence bug.
 
-**Layer → home (see AD-7):** SPA (**Cloudflare Pages**, static) · CRUD (Supabase PostgREST + RLS, via dataProvider) · pipeline/AI/sharing/webhooks/cron/billing (**Cloudflare Workers**) · media (**R2**) · async + rate-limit (**Upstash**).
+**Layer → home (see AD-7):** SPA (**Vercel**, static) · CRUD (Supabase PostgREST + RLS, via dataProvider) · pipeline/AI/sharing/webhooks/cron/billing (**Cloudflare Workers**) · media (**R2**) · async + rate-limit (**Upstash**).
 
 **Namespace map:** `src/components/atomic-crm/<domain>/` (one folder per resource) · `providers/{supabase,fakerest,commons}/` (CRUD seam, AD-10, keep both in sync) · `workers/` *(new — `ingest/ parse/ match/ ai/ share/ cron/ billing/` + shared `forAccount()` client)* · `supabase/schemas/` (declarative DB source of truth).
 
@@ -39,7 +39,7 @@ companions:
 
 ```mermaid
 graph TD
-  SPA["SPA (Cloudflare Pages)"] -->|dataProvider CRUD| SUPA["Supabase PostgREST + RLS"]
+  SPA["SPA (Vercel)"] -->|dataProvider CRUD| SUPA["Supabase PostgREST + RLS"]
   SPA -->|"HTTPS (JWT)"| WK["Cloudflare Workers"]
   WK -->|"forAccount() scoped, trusted root"| SUPA
   WK -->|proxied stream| R2["R2 (media)"]
@@ -80,10 +80,10 @@ graph TD
 - **Prevents:** a channel writing straight to a suggestion; auto-filing; mis-attributed / cross-account items
 - **Rule:** every inbound creates an `inbox_item` (unfiled), then flows through `createSuggestion()` (AD-4) only after human review/confirm. **Channels that converge on the `inbox_item`:** **Cloudflare Email Routing → an Email Worker** (parses raw MIME with `postal-mime`) · the **PWA share-target** (Android share / iPhone Share→Mail — captures WhatsApp, SMS, and *any* app, text + images) · **manual upload**. A share lands in the **sharer's own authenticated account**, so it needs no sender lookup; basic/kosher-phone users capture via desktop email/upload. **There is no shared SMS number and no outbound SMS.** For **email**, **attribution resolves sender → account deterministically**; anything ambiguous/unknown → the **unattributed queue**, flagged, never auto-picked across the account boundary *(the fork's `postmark` silent-first-body-email attribution is a **behavior change**, not a lift-and-shift)*. Channel-derived identity is untrusted → may create only an unfiled `inbox_item` (AD-7). **Optional quick-link at capture (FR78):** the share flow can let the user search the shadchan book (typeahead) and select the candidate and/or attach to an existing suggestion — one tap, fully skippable straight to the unfiled Inbox.
 
-### AD-7 — Compute home = Cloudflare Workers; Supabase = data plane; SPA on Cloudflare Pages; tenant access only via a trusted-root scoped client
+### AD-7 — Compute home = Cloudflare Workers; Supabase = data plane; SPA on Vercel; tenant access only via a trusted-root scoped client
 - **Binds:** NFR-9, R4; all server-side work; "leaks = 0"
 - **Prevents:** split-brain compute; a Worker reading/writing across accounts; scoping to a forgeable root
-- **Rule:** the SPA is a static Vite build on **Cloudflare Pages** (free, no commercial-use clause). CRUD goes **SPA → dataProvider → Supabase PostgREST (RLS)**. All other server work (webhooks, REST, AI orchestration, share render, cron, billing, email-in) runs as **Cloudflare Workers**. Because the service role bypasses RLS, the **only** way a Worker touches a tenant table is a **mandatory `forAccount(accountId)` scoped client** that injects/asserts the `account_id` predicate and refuses raw table access — un-scoped access is *unrepresentable*. `accountId` derives from a **trusted root** (verified JWT / verified invite token), trust-ranked; a spoofable channel address caps write surface to an unfiled `inbox_item`. Existing Supabase Edge Functions remain only for DB-trigger-adjacent tasks.
+- **Rule:** the SPA is a static Vite build on **Vercel** (zero-config Vite detection, generous free tier). CRUD goes **SPA → dataProvider → Supabase PostgREST (RLS)**. All other server work (webhooks, REST, AI orchestration, share render, cron, billing, email-in) runs as **Cloudflare Workers**. Because the service role bypasses RLS, the **only** way a Worker touches a tenant table is a **mandatory `forAccount(accountId)` scoped client** that injects/asserts the `account_id` predicate and refuses raw table access — un-scoped access is *unrepresentable*. `accountId` derives from a **trusted root** (verified JWT / verified invite token), trust-ranked; a spoofable channel address caps write surface to an unfiled `inbox_item`. Existing Supabase Edge Functions remain only for DB-trigger-adjacent tasks.
 
 ### AD-8 — Every AI call goes through Cloudflare AI Gateway; assistive-only; traced; cost-cached
 - **Binds:** FR6, FR19-21, FR55-63, PRV-6, NFR-9; Epic-5/10
@@ -173,7 +173,7 @@ graph TD
 | TanStack Query · RHF · Zod | 5.101.4 · 7.82.0 · 4.4.3 |
 | vite-plugin-pwa | 1.3.0 |
 | `@supabase/supabase-js` / CLI | 2.110.8 (stay 2.x) / 2.109.1 |
-| **SPA host** | ✅ **Cloudflare Pages** (unmetered bandwidth, no commercial clause) |
+| **SPA host** | ✅ **Vercel** (zero-config Vite deploy, generous free tier) |
 | **Server compute** | ✅ **Cloudflare Workers** + Wrangler 4.113.0 / workers-types 5.20260721.1 · `compatibility_date=2026-07-21` + `nodejs_compat`; Hono 4.x `[ASSUMPTION]` |
 | **Data plane** | ⚠ **Supabase** Postgres 15 (free tier pauses after 7d idle → Pro ~$25/mo for always-on = first real cost) |
 | **Media** | ✅ **Cloudflare R2** (zero egress) |
@@ -181,7 +181,7 @@ graph TD
 | **AI** | ✅ Cloudflare AI Gateway (free) → **Gemini** (OCR+extract; Flash→Pro; Google Vertex/AI-Studio) + `@anthropic-ai/sdk` 0.112.4, via gateway `baseURL`; deterministic OCR fallback = Google Document AI/Vision (direct); 💲 model tokens billed by provider · Langfuse `@langfuse/*` 5.9.1 (self-host MIT = free) |
 | **Analytics** | ✅ PostHog `posthog-js` 1.406.1 / `-node` 5.46.0 (errors + replay + surveys) |
 | **Email** | ✅ inbound = **Cloudflare Email Routing → Email Worker** (`postal-mime`, free/unlimited) · ⚠ outbound = **Resend** 6.18.0 (3k/mo + 100/day shared) |
-| **Capture (WhatsApp/SMS/any app)** | ✅ **PWA share-target** (Android) + **Share→Mail→inbox** (iPhone) — text + images into the sharer's own account; no shared SMS number, no Telnyx |
+| **Capture (WhatsApp/SMS/any app)** | ✅ **PWA share-target** (Android) + **Share→Mail→inbox** (iPhone) — text + images into the sharer's own account; no shared SMS number |
 | **Billing** | 💲 **Stripe** (provider-agnostic AD-16; annual $24/yr rec; Paddle/Lemon Squeezy if intl VAT wanted) |
 | **Abuse** | ✅ Cloudflare WAF rate-rules + Turnstile (free) + Upstash Redis token-bucket |
 | Dev tooling | ESLint 9.22 + typescript-eslint 8.65 · Prettier 3.9.6 · Vitest 4.1.10 · Playwright 1.61.1 · shadcn 3.5 · Storybook 9.1.20 |
@@ -193,7 +193,7 @@ graph TD
 
 ```mermaid
 graph LR
-  U["Parent · Child · Helper (PWA + desktop)"] --> V["Cloudflare Pages — static SPA"]
+  U["Parent · Child · Helper (PWA + desktop)"] --> V["Vercel — static SPA"]
   V --> SB["Supabase: Postgres+RLS · Auth · Realtime"]
   V --> W["Cloudflare Workers (Hono)"]
   W -->|forAccount| SB
@@ -239,8 +239,8 @@ graph LR
 ```
 
 ### Operations (v1)
-- **Deploy surfaces (all Git-driven):** Cloudflare Pages (SPA) + Cloudflare Workers (`wrangler deploy`) + Supabase (`db push` + functions) — via GitHub Actions. **Public repo → unlimited free CI.**
-- **Environments:** dev (local Supabase + `wrangler dev`) · preview (`[ASSUMPTION]` CF Pages preview + Supabase branch + preview Worker) · prod. **US region** (US-first; UK/Israel internationalization deferred — see Deferred).
+- **Deploy surfaces (all Git-driven):** Vercel (SPA) + Cloudflare Workers (`wrangler deploy`) + Supabase (`db push` + functions) — Workers/Supabase via GitHub Actions, SPA via Vercel's Git integration. **Public repo → unlimited free GitHub Actions CI.**
+- **Environments:** dev (local Supabase + `wrangler dev`) · preview (Vercel preview deployment + Supabase branch + preview Worker) · prod. **US region** (US-first; UK/Israel internationalization deferred — see Deferred).
 - **Observability:** PostHog (product + errors + replay + surveys) · Cloudflare Workers native (backend) · Langfuse (AI). Sentry → Phase 2.
 - **Data protection:** backup/DR + retention per AD-15; secrets are Worker/Actions secrets, never in the client bundle.
 
@@ -279,7 +279,7 @@ supabase/schemas/                           # + account_id/FORCE-RLS rewrite, re
 ## Deferred
 - **Phase-2 shadchan interface** — role provisioned deny-only (AD-2); UI/origination/consent-scoping later.
 - **Native iOS wrapper** — stay pure-PWA (email-share) until the iPhone segment warrants it.
-- **Cloudflare consolidation** — CF Queues/KV (now free) vs Upstash; already all-Cloudflare for host/compute/media/email.
+- **Cloudflare consolidation** — CF Queues/KV (now free) vs Upstash; already all-Cloudflare for compute/media/email (SPA host is Vercel).
 - **Sentry** — Phase 2; v1 backend errors = Cloudflare native + PostHog.
 - **International (UK/Israel)** — US-first in v1; UK/Israel users, data-residency, and locale rollout (UK-GDPR / EU-GDPR / Israeli privacy) are a deferred fast-follow.
 - **Merchant-of-Record billing** (Paddle/Lemon Squeezy) — adopt if international VAT handling for UK/Israel outweighs the higher fee.

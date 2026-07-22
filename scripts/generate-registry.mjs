@@ -82,7 +82,7 @@ const files = [
 const newRegistryContent = {
   ...registryContent,
   items: registryContent.items.map((item) => {
-    if (item.name === "atomic-crm") {
+    if (item.name === "myshadchan") {
       return {
         ...item,
         files,

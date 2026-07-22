@@ -245,7 +245,7 @@ const SettingsFormFields = () => {
   );
 
   return (
-    <div className="flex gap-8 mt-4 pb-20">
+    <div className="flex gap-8 mt-4 pb-20 max-w-4xl mx-auto">
       {/* Left navigation */}
       <nav className="hidden md:block w-48 shrink-0">
         <div className="sticky top-4 space-y-1">
@@ -466,7 +466,7 @@ const SettingsFormFields = () => {
 
       {/* Sticky save button */}
       <div className="fixed bottom-0 left-0 right-0 border-t bg-background p-4">
-        <div className="max-w-screen-xl mx-auto flex gap-8 px-4">
+        <div className="max-w-4xl mx-auto flex gap-8 px-4">
           <div className="hidden md:block w-48 shrink-0" />
           <div className="flex-1 min-w-0 max-w-2xl flex justify-between">
             <Button

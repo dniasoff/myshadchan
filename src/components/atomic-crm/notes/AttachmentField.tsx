@@ -1,6 +1,7 @@
 import { useFieldValue, useRecordContext, useTranslate } from "ra-core";
 import type { FileFieldProps } from "@/components/admin";
 import { cn } from "@/lib/utils";
+import { attachmentThumbnailClass } from "../misc/attachmentThumbnail";
 
 /**
  * Displays a preview for a single attachment record.
@@ -65,7 +66,7 @@ export const AttachmentField = (props: FileFieldProps) => {
             alt={titleValue}
             title={titleValue}
             src={srcValue}
-            className="w-[200px] h-[100px] object-cover cursor-pointer object-left border border-border"
+            className={attachmentThumbnailClass}
           />
         </a>
       ) : (

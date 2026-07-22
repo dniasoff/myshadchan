@@ -1,0 +1,9 @@
+name = "myshadchan-parse"
+main = "index.ts"
+compatibility_date = "2026-07-21"
+compatibility_flags = ["nodejs_compat"]
+
+# Secrets (set via `wrangler secret put <NAME> --config workers/parse/wrangler.toml`,
+# or the CI job in .github/workflows/deploy.yml): SUPABASE_URL,
+# SUPABASE_SERVICE_ROLE_KEY, plus the AI Gateway account/token once the OCR
+# pipeline (AD-8) lands.

@@ -7,10 +7,10 @@ const times = (nbChildren: number, fn: (key: number) => any) =>
   Array.from({ length: nbChildren }, (_, key) => fn(key));
 
 const LoadingGridList = () => (
-  <div className="flex flex-wrap w-[1008px] gap-1">
+  <div className="w-full gap-2 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
     {times(15, (key) => (
       <div
-        className="h-[200px] w-[194px] flex flex-col bg-gray-200"
+        className="h-[200px] w-full flex flex-col bg-muted rounded"
         key={key}
       />
     ))}
@@ -24,12 +24,7 @@ const LoadedGridList = () => {
   if (isPending || error) return null;
 
   return (
-    <div
-      className="w-full gap-2 grid"
-      style={{
-        gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-      }}
-    >
+    <div className="w-full gap-2 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
       {data.map((record) => (
         <RecordContextProvider key={record.id} value={record}>
           <CompanyCard />

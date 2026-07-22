@@ -1,0 +1,14 @@
+name = "myshadchan-share"
+main = "index.ts"
+compatibility_date = "2026-07-21"
+compatibility_flags = ["nodejs_compat"]
+
+# AD-9: the only Worker with an R2 binding. `bucket_name` is illustrative —
+# create the actual bucket (`npx wrangler r2 bucket create myshadchan-media`)
+# and adjust the name here if you choose a different one.
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "myshadchan-media"
+
+# Secrets (set via `wrangler secret put <NAME> --config workers/share/wrangler.toml`,
+# or the CI job in .github/workflows/deploy.yml): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.

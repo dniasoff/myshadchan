@@ -91,6 +91,8 @@ jobs:
               run: CI=1 npm run test:unit:app -- --run
             - name: 🔎 Unit Tests on Supabase functions
               run: CI=1 npm run test:unit:functions -- --run
+            - name: 🔎 Unit Tests on Cloudflare Workers
+              run: CI=1 npm run test:unit:workers -- --run
 
     e2e-test:
         timeout-minutes: 10

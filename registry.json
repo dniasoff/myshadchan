@@ -1,13 +1,13 @@
 {
   "$schema": "https://ui.shadcn.com/schema/registry.json",
-  "name": "atomic-crm",
-  "homepage": "https://marmelab.com/atomic-crm/",
+  "name": "myshadchan",
+  "homepage": "https://github.com/dniasoff/myshadchan",
   "items": [
     {
-      "name": "atomic-crm",
+      "name": "myshadchan",
       "type": "registry:block",
-      "title": "Atomic CRM",
-      "description": "A fully fledged CRM application built with Shadcn Admin Kit",
+      "title": "MyShadchan",
+      "description": "A private, mobile-first CRM for managing the shidduch process",
       "registryDependencies": [
         "item",
         "progress",

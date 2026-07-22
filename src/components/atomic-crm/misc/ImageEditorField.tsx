@@ -16,6 +16,9 @@ import {
 
 import "cropperjs/dist/cropper.css";
 
+const AVATAR_SIZE = 50;
+const IMAGE_SIZE = 200;
+
 const ImageEditorField = (props: ImageEditorFieldProps) => {
   const translate = useTranslate();
   const { getValues } = useFormContext();
@@ -32,8 +35,8 @@ const ImageEditorField = (props: ImageEditorFieldProps) => {
     className: `${props.className || ""}`,
   };
 
-  const width = props.width || (type === "avatar" ? 50 : 200);
-  const height = props.height || (type === "avatar" ? 50 : 200);
+  const width = props.width || (type === "avatar" ? AVATAR_SIZE : IMAGE_SIZE);
+  const height = props.height || (type === "avatar" ? AVATAR_SIZE : IMAGE_SIZE);
 
   return (
     <>
@@ -163,11 +166,11 @@ const ImageEditorDialog = (props: ImageEditorDialogProps) => {
         </DialogHeader>
         <div className="flex flex-col gap-2 justify-center">
           <div
-            className="flex flex-row justify-center bg-gray-50 cursor-pointer p-4 border-2 border-dashed border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+            className="flex flex-row justify-center bg-muted cursor-pointer p-4 border-2 border-dashed border-input rounded-lg hover:bg-muted/80 transition-colors"
             {...getRootProps()}
           >
             <input {...getInputProps()} />
-            <p className="text-gray-600">
+            <p className="text-muted-foreground">
               {translate("crm.image_editor.drop_hint", {
                 _: "Drop a file to upload, or click to select it.",
               })}

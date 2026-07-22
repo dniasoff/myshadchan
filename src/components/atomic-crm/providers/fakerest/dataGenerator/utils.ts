@@ -1,13 +1,5 @@
 import faker from "faker/locale/en";
 
-export const weightedArrayElement = (values: any[], weights: any) =>
-  faker.random.arrayElement(
-    values.reduce(
-      (acc, value, index) => acc.concat(new Array(weights[index]).fill(value)),
-      [],
-    ),
-  );
-
 export const weightedBoolean = (likelyhood: number) =>
   faker.datatype.number(99) < likelyhood;
 
@@ -23,6 +15,3 @@ export const randomDate = (minDate?: Date, maxDate?: Date) => {
   const ts = Math.sqrt(randomRange / range) * range;
   return new Date(minTs + ts);
 };
-
-export const randomFloat = (min: number, max: number) =>
-  parseFloat(faker.datatype.number({ min, max, precision: 0.01 }).toFixed(2));

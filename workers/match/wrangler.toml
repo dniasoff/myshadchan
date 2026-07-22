@@ -1,0 +1,7 @@
+name = "myshadchan-match"
+main = "index.ts"
+compatibility_date = "2026-07-21"
+compatibility_flags = ["nodejs_compat"]
+
+# Secrets (set via `wrangler secret put <NAME> --config workers/match/wrangler.toml`,
+# or the CI job in .github/workflows/deploy.yml): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.

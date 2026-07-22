@@ -1,0 +1,13 @@
+name = "myshadchan-cron"
+main = "index.ts"
+compatibility_date = "2026-07-21"
+compatibility_flags = ["nodejs_compat"]
+
+# Provisional schedule (AD-13, "sweeps due/overdue") — tune once the reminders
+# epic (E7) defines real delivery windows.
+[triggers]
+crons = ["*/15 * * * *"]
+
+# Secrets (set via `wrangler secret put <NAME> --config workers/cron/wrangler.toml`,
+# or the CI job in .github/workflows/deploy.yml): SUPABASE_URL,
+# SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY (email delivery floor).

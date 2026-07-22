@@ -1,5 +1,6 @@
 import { Paperclip } from "lucide-react";
 
+import { attachmentThumbnailClass } from "../misc/attachmentThumbnail";
 import type { AttachmentNote, ContactNote, DealNote } from "../types";
 
 /**
@@ -39,7 +40,7 @@ export const NoteAttachments = ({ note }: { note: ContactNote | DealNote }) => {
                 <img
                   src={attachment.src}
                   alt={attachment.title}
-                  className="w-[200px] h-[100px] object-cover cursor-pointer object-left border border-border"
+                  className={attachmentThumbnailClass}
                 />
               </a>
             </div>

@@ -189,8 +189,8 @@ const DealShowContent = () => {
 const ArchivedTitle = () => {
   const translate = useTranslate();
   return (
-    <div className="bg-orange-500 px-6 py-4">
-      <h3 className="text-lg font-bold text-white">
+    <div className="bg-attention-strong px-6 py-4">
+      <h3 className="text-lg font-bold text-attention-foreground">
         {translate("resources.deals.archived.title")}
       </h3>
     </div>
