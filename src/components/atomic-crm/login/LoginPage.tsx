@@ -114,7 +114,7 @@ export const LoginPage = (props: { redirectTo?: string }) => {
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Welcome back</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Sign in to your shadchan book.
+              Sign in to your records.
             </p>
           </div>
 
