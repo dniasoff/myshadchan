@@ -542,6 +542,19 @@ begin
 end;
 $$;
 
+-- Reads the demo flag for the caller's account so the SPA can show the demo
+-- banner (later stage) without a bespoke query. SECURITY DEFINER + search_path
+-- '' like current_account_id; returns false when the caller has no account.
+CREATE OR REPLACE FUNCTION "public"."current_account_demo"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select coalesce(
+    (select a.demo from public.accounts a where a.id = public.current_account_id()),
+    false
+  );
+$$;
+
 -- Auto-populate account_id from the caller's account on insert (AD-1), so the
 -- normal dataProvider.create() path for children/shadchanim/references/etc.
 -- never has to trust a client-sent account_id. Mirrors set_sales_id_default.

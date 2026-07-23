@@ -262,6 +262,7 @@ export type Account = {
   transparency_level: string;
   data_region?: string | null;
   created_at: string;
+  demo?: boolean;
 } & Pick<RaRecord, "id">;
 
 export type AccountMember = {

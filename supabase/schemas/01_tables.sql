@@ -245,7 +245,10 @@ create table public.accounts (
     subscription_status text,
     plan text,
     current_period_end timestamp with time zone,
-    trial_end timestamp with time zone
+    trial_end timestamp with time zone,
+    -- Onboarding demo-data flag (Stage A). True while the account holds the
+    -- seeded demo dataset; cleared by clear_demo. Drives the future demo banner.
+    demo boolean not null default false
 );
 
 -- One membership+role model (AD-2). The `shadchan` role is reserved in

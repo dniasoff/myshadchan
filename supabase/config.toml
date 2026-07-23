@@ -191,3 +191,7 @@ verify_jwt = false
 verify_jwt = false
 [functions.mcp]
 verify_jwt = false
+[functions.seed_demo]
+verify_jwt = false
+[functions.clear_demo]
+verify_jwt = false
