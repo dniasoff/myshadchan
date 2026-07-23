@@ -64,6 +64,9 @@ const ShadchanDirectory = () => {
 
   return (
     <div>
+      <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+        Matchmaker book
+      </p>
       <h1 className="font-display text-2xl font-bold tracking-tight">
         Shadchanim
       </h1>

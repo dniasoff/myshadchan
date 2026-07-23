@@ -27,12 +27,36 @@ const DB_URL =
 
 type Check = { name: string; passed: boolean; detail: string | null };
 
+// references_entity.sql wraps its own checks in `begin; ... rollback;`, so
+// nothing it inserts survives the run. That does not make the "first user"
+// check below self-isolating, though: it asserts that inserting a user while
+// public.account_members is EMPTY bootstraps a parent_admin membership for
+// them, and on a reused local DB (e.g. after signing up through the app, or
+// after any earlier test run's seed data) that table already has rows before
+// the suite's transaction even starts. This preamble opens the real
+// transaction itself and clears public.account_members inside it *before*
+// including the suite file, so the check always starts from the pristine
+// state it assumes. The suite file's own `begin;` then just re-enters the
+// already-open transaction (Postgres warns, does not nest), and its trailing
+// `rollback;` undoes the delete along with everything else — so this never
+// destroys real membership data, regardless of what was in the table when
+// the run started.
+function isolatedScript(): string {
+  return [
+    "\\set ON_ERROR_STOP on",
+    "begin;",
+    "delete from public.account_members;",
+    `\\i ${SQL_FILE}`,
+  ].join("\n");
+}
+
 function runSuite(): { checks: Check[]; error?: string } {
   let stdout: string;
   try {
-    stdout = execFileSync("psql", [DB_URL, "-X", "-q", "-f", SQL_FILE], {
+    stdout = execFileSync("psql", [DB_URL, "-X", "-q", "-f", "-"], {
+      input: isolatedScript(),
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       timeout: 120_000,
     });
   } catch (error) {

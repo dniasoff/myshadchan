@@ -33,7 +33,7 @@ const ChildListHeader = () => (
       <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
         Family roster
       </p>
-      <h1 className="font-display text-[2rem] font-bold tracking-tight">
+      <h1 className="font-display text-2xl font-bold tracking-tight">
         Children
       </h1>
       <p className="mt-1 text-sm text-muted-foreground">

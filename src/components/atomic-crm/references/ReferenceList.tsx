@@ -133,6 +133,29 @@ const ReferenceRow = ({
   );
 };
 
+const ReferenceListHeader = () => {
+  const translate = useTranslate();
+
+  return (
+    <div className="mb-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+        {translate("crm.references.list.eyebrow", { _: "Reference book" })}
+      </p>
+      <h1 className="font-display text-2xl font-bold tracking-tight">
+        {translate("resources.references.name", {
+          smart_count: 2,
+          _: "References",
+        })}
+      </h1>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {translate("crm.references.list.subtitle", {
+          _: "Everyone your family has spoken to about a single.",
+        })}
+      </p>
+    </div>
+  );
+};
+
 const ReferenceListLayout = () => {
   const translate = useTranslate();
   const { data, isPending, filterValues } = useListContext<ReferenceSummary>();
@@ -140,49 +163,65 @@ const ReferenceListLayout = () => {
 
   if (isPending) {
     return (
-      <div className="flex flex-col gap-3" aria-hidden="true">
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className="h-[76px] animate-pulse rounded-2xl bg-muted"
-          />
-        ))}
+      <div>
+        <ReferenceListHeader />
+        <div className="flex flex-col gap-3" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="h-[76px] animate-pulse rounded-2xl bg-muted"
+            />
+          ))}
+        </div>
       </div>
     );
   }
 
   if (!data?.length && !hasFilters) {
     return (
-      <EmptyState
-        title={translate("crm.references.list.emptyTitle", {
-          _: "No references yet",
-        })}
-        description={translate("crm.references.list.emptyDescription", {
-          _: "Add the first person you've spoken to about a single — the book grows from here, and every future mention of them links back to this one record.",
-        })}
-        actionLabel={translate("crm.references.list.emptyAction", {
-          _: "Add a reference",
-        })}
-        actionTo="/references/create"
-      />
+      <div>
+        <ReferenceListHeader />
+        <EmptyState
+          title={translate("crm.references.list.emptyTitle", {
+            _: "No references yet",
+          })}
+          description={translate("crm.references.list.emptyDescription", {
+            _: "Add the first person you've spoken to about a single — the book grows from here, and every future mention of them links back to this one record.",
+          })}
+          actionLabel={translate("crm.references.list.emptyAction", {
+            _: "Add a reference",
+          })}
+          actionTo="/references/create"
+        />
+      </div>
     );
   }
 
   if (!data?.length) {
     return (
-      <p className={cn("py-10 text-center text-sm text-muted-foreground")}>
-        {translate("crm.references.list.noMatches", {
-          _: "No references match these filters.",
-        })}
-      </p>
+      <div>
+        <ReferenceListHeader />
+        <p className={cn("py-10 text-center text-sm text-muted-foreground")}>
+          {translate("crm.references.list.noMatches", {
+            _: "No references match these filters.",
+          })}
+        </p>
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      {data.map((record, index) => (
-        <ReferenceRow key={String(record.id)} record={record} index={index} />
-      ))}
+    <div>
+      <ReferenceListHeader />
+      <div className="flex flex-col gap-3">
+        {data.map((record, index) => (
+          <ReferenceRow
+            key={String(record.id)}
+            record={record}
+            index={index}
+          />
+        ))}
+      </div>
     </div>
   );
 };

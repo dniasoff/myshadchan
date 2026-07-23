@@ -111,14 +111,17 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.21 0.015 275);
 
-  /* Primary — deep, dignified indigo-blue (trust) */
-  --primary: oklch(0.52 0.19 268);
+  /* Primary — deep, dignified indigo-blue (trust). Chroma raised a touch over
+     the original draft (design review: light read flatter than the dark
+     showpiece) — lightness held, so text contrast is unchanged (verified). */
+  --primary: oklch(0.52 0.205 268);
   --primary-foreground: oklch(0.99 0.004 95);
 
-  /* Secondary / muted — warm sand */
-  --secondary: oklch(0.965 0.008 95);
+  /* Secondary / muted — warm sand. Chroma raised slightly so surfaces read as
+     a crafted warm neutral rather than flat off-white (L held). */
+  --secondary: oklch(0.965 0.014 95);
   --secondary-foreground: oklch(0.32 0.015 275);
-  --muted: oklch(0.965 0.008 95);
+  --muted: oklch(0.965 0.014 95);
   --muted-foreground: oklch(0.53 0.014 275);
 
   /* Accent — calm sage */
@@ -147,10 +150,11 @@
   /* Destructive — restrained red (true delete only) */
   --destructive: oklch(0.57 0.21 25);
 
-  /* Lines & focus */
-  --border: oklch(0.92 0.005 95);
-  --input: oklch(0.9 0.006 95);
-  --ring: oklch(0.52 0.19 268);
+  /* Lines & focus — chroma raised a touch alongside the surfaces above so
+     hairlines stay perceptible rather than washing into the parchment bg. */
+  --border: oklch(0.9 0.01 95);
+  --input: oklch(0.885 0.012 95);
+  --ring: oklch(0.52 0.205 268);
 
   /* Charts — Calm Ledger hues (indigo, sage, honey, plum, clay) */
   --chart-1: oklch(0.52 0.19 268);
@@ -159,15 +163,16 @@
   --chart-4: oklch(0.68 0.13 320);
   --chart-5: oklch(0.64 0.14 40);
 
-  /* Sidebar — very light warm parchment, indigo active */
-  --sidebar: oklch(0.978 0.006 95);
+  /* Sidebar — very light warm parchment, indigo active. Chroma raised in step
+     with the surfaces/primary above (L held throughout). */
+  --sidebar: oklch(0.978 0.011 95);
   --sidebar-foreground: oklch(0.21 0.015 275);
-  --sidebar-primary: oklch(0.52 0.19 268);
+  --sidebar-primary: oklch(0.52 0.205 268);
   --sidebar-primary-foreground: oklch(0.99 0.004 95);
-  --sidebar-accent: oklch(0.955 0.01 95);
+  --sidebar-accent: oklch(0.955 0.016 95);
   --sidebar-accent-foreground: oklch(0.32 0.015 275);
-  --sidebar-border: oklch(0.92 0.005 95);
-  --sidebar-ring: oklch(0.52 0.19 268);
+  --sidebar-border: oklch(0.9 0.01 95);
+  --sidebar-ring: oklch(0.52 0.205 268);
 
   /* Pipeline-state colors — 7 calm, distinct hues.
      Note the deliberate distinction between a gut "For-sure-not" (--st-fsn,
@@ -201,37 +206,46 @@
   --avatar-9: oklch(0.88 0.095 290); /* violet    */
   --avatar-ink: oklch(0.3 0.03 275); /* monogram text on light avatars */
 
-  /* Elevation — warm-tinted, low & gentle (no heavy drop shadows). Alpha
-     lifted slightly over the original draft (design review: light mode read
-     flatter than the dark showpiece) — lightness/hue held, only opacity
-     raised, so text contrast is untouched. */
-  --shadow-xs: 0 1px 2px oklch(0.2 0.03 275 / 0.07);
+  /* Elevation — warm-tinted, still gentle but a further step up (design
+     review, second pass: cards read "very soft" next to the dark showpiece
+     even after the first alpha lift). Both the tint's chroma and every
+     layer's opacity are raised again here; lightness of the shadow color and
+     all text/surface tokens above are untouched, so contrast is unaffected —
+     shadows are a decorative overlay, not a text/surface color. */
+  --shadow-xs: 0 1px 2px oklch(0.2 0.045 275 / 0.09);
   --shadow-sm:
-    0 1px 2px oklch(0.2 0.03 275 / 0.08), 0 1px 3px oklch(0.2 0.03 275 / 0.07);
+    0 1px 2px oklch(0.2 0.045 275 / 0.11),
+    0 1px 3px oklch(0.2 0.045 275 / 0.09);
   --shadow-md:
-    0 2px 4px oklch(0.2 0.03 275 / 0.07), 0 6px 16px oklch(0.2 0.03 275 / 0.11);
+    0 2px 5px oklch(0.2 0.045 275 / 0.1),
+    0 8px 20px oklch(0.2 0.045 275 / 0.15);
   --shadow-lg:
-    0 8px 24px oklch(0.2 0.03 275 / 0.13), 0 2px 6px oklch(0.2 0.03 275 / 0.08);
+    0 10px 30px oklch(0.2 0.045 275 / 0.18),
+    0 3px 8px oklch(0.2 0.045 275 / 0.11);
   --shadow-xl:
-    0 16px 40px oklch(0.2 0.03 275 / 0.17),
-    0 4px 10px oklch(0.2 0.03 275 / 0.1);
+    0 20px 48px oklch(0.2 0.045 275 / 0.22),
+    0 5px 12px oklch(0.2 0.045 275 / 0.13);
 
   /* "Quiet Luminance" additive layer (design-artifacts/design-language.md §1)
      — a thin luminance layer on top of Calm Ledger. Additive only: nothing
      above this point is touched. Vibrancy rule: hold L, raise C. */
 
-  /* Violet companion to the indigo primary — the premium accent signature. */
-  --violet: oklch(0.52 0.23 300);
+  /* Violet companion to the indigo primary — the premium accent signature.
+     Chroma raised a touch alongside --primary (L held). */
+  --violet: oklch(0.52 0.24 300);
   --violet-foreground: oklch(0.99 0.004 95);
 
   /* Accent gradient stops — chrome accents, primary CTA sheen, the dashboard
-     funnel ONLY. Never on reading surfaces. */
-  --accent-grad-from: oklch(0.52 0.19 268); /* = --primary */
-  --accent-grad-to: oklch(0.52 0.23 300); /* = --violet  */
+     funnel ONLY. Never on reading surfaces. Kept in sync with --primary /
+     --violet above. */
+  --accent-grad-from: oklch(0.52 0.205 268); /* = --primary */
+  --accent-grad-to: oklch(0.52 0.24 300); /* = --violet  */
 
-  /* Accent glow — the halo behind the active nav item + primary CTA. */
-  --glow-accent: oklch(0.52 0.19 268 / 0.28);
-  --glow-accent-strong: oklch(0.52 0.19 268 / 0.4);
+  /* Accent glow — the halo behind the active nav item + primary CTA. Chroma
+     synced with --primary; alpha lifted a step so the glow reads in light,
+     not just as the dark-mode showpiece (design review). */
+  --glow-accent: oklch(0.52 0.205 268 / 0.32);
+  --glow-accent-strong: oklch(0.52 0.205 268 / 0.44);
 
   /* Glass — chrome/overlays ONLY (sidebar, top bar, bottom nav, modals). */
   --glass-bg: oklch(0.99 0.004 95 / 0.72);
@@ -239,12 +253,14 @@
   --glass-blur: 14px;
 
   /* Ambient background wash — one fixed radial bloom behind the app. Alpha
-     lifted from the original 0.05 (design review: barely perceptible on
-     parchment) — hue/lightness held, only opacity raised. */
+     lifted again (design review, second pass: still barely perceptible on
+     parchment at 0.09) and the bloom widened slightly so it actually reads
+     as a presence in the corner rather than a rumor — hue/lightness held,
+     chroma synced with --primary. */
   --wash: radial-gradient(
-    120% 90% at 100% 0%,
-    oklch(0.52 0.19 268 / 0.09) 0%,
-    transparent 55%
+    130% 95% at 100% 0%,
+    oklch(0.52 0.205 268 / 0.14) 0%,
+    transparent 60%
   );
 
   /* Motion — spring-like, restrained (design-language §4). */
