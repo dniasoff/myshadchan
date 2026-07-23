@@ -33,13 +33,11 @@ const MatchOnEntry = ({ shidduchimId }: { shidduchimId?: Identifier }) => {
   const [isLinking, setIsLinking] = useState(false);
 
   const name_en = useWatch({ name: "name_en" });
-  const name_he = useWatch({ name: "name_he" });
   const phone = useWatch({ name: "phone" });
   const school = useWatch({ name: "school" });
 
   const { candidates, dismiss } = useReferenceMatch({
     name_en,
-    name_he,
     phone,
     school,
   });
@@ -62,7 +60,6 @@ const MatchOnEntry = ({ shidduchimId }: { shidduchimId?: Identifier }) => {
       // Clear the half-typed duplicate so leaving the form prompts nothing, then
       // hand the user the record they actually wanted.
       setValue("name_en", "", { shouldDirty: false });
-      setValue("name_he", "", { shouldDirty: false });
       setValue("phone", "", { shouldDirty: false });
       redirect("show", "references", candidate.reference_id);
     } catch (error) {

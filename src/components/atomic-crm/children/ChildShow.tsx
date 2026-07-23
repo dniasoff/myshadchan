@@ -34,10 +34,7 @@ const ChildProfileHeader = ({ child }: { child: Child }) => {
   const nameEn = [child.first_name_en, child.last_name_en]
     .filter(Boolean)
     .join(" ");
-  const nameHe = [child.first_name_he, child.last_name_he]
-    .filter(Boolean)
-    .join(" ");
-  const monogramSeed = nameEn || child.first_name_he || undefined;
+  const monogramSeed = nameEn || undefined;
   const monogram = getMonogram(monogramSeed);
   const avatarIndex = getAvatarIndex(monogramSeed ?? String(child.id));
   const dob = formatDob(child.dob);
@@ -60,13 +57,8 @@ const ChildProfileHeader = ({ child }: { child: Child }) => {
           <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             Family roster
           </p>
-          <h1 className="flex flex-wrap items-baseline gap-x-3 font-display text-2xl font-bold tracking-tight">
-            <span>{nameEn || `Child #${child.id}`}</span>
-            {nameHe ? (
-              <span className="font-hebrew text-lg font-medium text-muted-foreground" dir="rtl">
-                {nameHe}
-              </span>
-            ) : null}
+          <h1 className="font-display text-2xl font-bold tracking-tight">
+            {nameEn || `Child #${child.id}`}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {[GENDER_LABEL[child.gender ?? ""], child.community, dob]

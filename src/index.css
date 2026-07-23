@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@fontsource-variable/inter";
-@import "@fontsource-variable/heebo";
 @import "@fontsource-variable/space-grotesk";
 
 @custom-variant dark (&:is(.dark *));
@@ -9,8 +8,6 @@
 @theme inline {
   /* Type */
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-hebrew:
-    "Heebo Variable", "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-display:
     "Space Grotesk Variable", "Inter Variable", ui-sans-serif, system-ui,
     sans-serif;

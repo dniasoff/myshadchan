@@ -41,7 +41,7 @@ import { CollisionResolver } from "./ReferenceMergeCollision";
  */
 
 const displayName = (reference?: Reference | null): string =>
-  reference?.name_en || reference?.name_he || "this person";
+  reference?.name_en || "this person";
 
 export const ReferenceMergeButton = () => {
   const record = useRecordContext<Reference>();
@@ -58,9 +58,9 @@ export const ReferenceMergeButton = () => {
   >({});
   const [isWorking, setIsWorking] = useState(false);
 
-  // Likely duplicates: same phone, or the same name in either script. This is a
-  // convenience shortlist for the picker, NOT a matching decision — the merge
-  // itself is always an explicit choice.
+  // Likely duplicates: same phone, or the same name. This is a convenience
+  // shortlist for the picker, NOT a matching decision — the merge itself is
+  // always an explicit choice.
   const { data: possibleDuplicates } = useGetList<Reference>(
     "references",
     {

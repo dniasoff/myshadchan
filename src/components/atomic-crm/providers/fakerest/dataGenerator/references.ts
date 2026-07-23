@@ -18,7 +18,6 @@ const ACCOUNT_ID = 1;
 
 type ReferenceSeed = {
   name_en: string;
-  name_he: string | null;
   relationship: string;
   phone: string;
   school: string | null;
@@ -32,7 +31,6 @@ type ReferenceSeed = {
 const referenceSeeds: ReferenceSeed[] = [
   {
     name_en: "Chaim Feldman",
-    name_he: "חיים פלדמן",
     relationship: "Rebbi",
     phone: "054-222-3344",
     school: "Ner Yisroel",
@@ -40,7 +38,6 @@ const referenceSeeds: ReferenceSeed[] = [
   },
   {
     name_en: "Haim Feldman",
-    name_he: null,
     relationship: "Family friend",
     phone: "+972-54-222-3344", // same number as #1, different formatting
     school: null,
@@ -48,7 +45,6 @@ const referenceSeeds: ReferenceSeed[] = [
   },
   {
     name_en: "Devorah Klein",
-    name_he: "דבורה קליין",
     relationship: "Rebbetzin",
     phone: "732-555-8890",
     school: "BMG",
@@ -56,7 +52,6 @@ const referenceSeeds: ReferenceSeed[] = [
   },
   {
     name_en: "Moshe Adler",
-    name_he: "משה אדלר",
     relationship: "Menahel",
     phone: "410-555-1120",
     school: "Ner Yisroel",
@@ -64,7 +59,6 @@ const referenceSeeds: ReferenceSeed[] = [
   },
   {
     name_en: "Yitzchok Berkowitz",
-    name_he: "יצחק ברקוביץ",
     relationship: "Chavrusa",
     phone: "201-555-4471",
     school: "Mir",
@@ -72,7 +66,6 @@ const referenceSeeds: ReferenceSeed[] = [
   },
   {
     name_en: "Chaya Fried",
-    name_he: "חיה פריד",
     relationship: "Seminary teacher",
     phone: "973-555-2298",
     school: "Bnos Chava",
@@ -80,7 +73,6 @@ const referenceSeeds: ReferenceSeed[] = [
   },
   {
     name_en: "Basya Adler",
-    name_he: "בשיה אדלר",
     relationship: "Seminary teacher",
     phone: "646-555-7734",
     school: "Bais Yaakov",
@@ -88,7 +80,6 @@ const referenceSeeds: ReferenceSeed[] = [
   },
   {
     name_en: "Yankel Cohen",
-    name_he: "יענקל כהן",
     relationship: "Neighbor",
     phone: "917-555-3321",
     school: null,
@@ -96,7 +87,6 @@ const referenceSeeds: ReferenceSeed[] = [
   },
   {
     name_en: "Shaindy Gross",
-    name_he: "שיינדי גרוס",
     relationship: "Camp counselor",
     phone: "845-555-6602",
     school: "Bnos Devorah",
@@ -266,7 +256,7 @@ export const generateReferencesDomain = (db: Db) => {
     id: i + 1,
     account_id: ACCOUNT_ID,
     name_en: seed.name_en,
-    name_he: seed.name_he,
+    name_he: null,
     relationship: seed.relationship,
     phone: seed.phone,
     school: seed.school,

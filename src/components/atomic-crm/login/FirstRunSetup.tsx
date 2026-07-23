@@ -60,9 +60,8 @@ export const FirstRunSetup = () => {
   });
   const childForm = useForm<{
     first_name_en: string;
-    first_name_he?: string;
     gender?: string;
-  }>({ defaultValues: { first_name_en: "", first_name_he: "", gender: "" } });
+  }>({ defaultValues: { first_name_en: "", gender: "" } });
 
   const stepIndex = STEPS.indexOf(step);
 
@@ -89,7 +88,6 @@ export const FirstRunSetup = () => {
       {
         data: {
           first_name_en: values.first_name_en,
-          first_name_he: values.first_name_he || null,
           gender: values.gender || null,
           status: "active",
         },
@@ -235,19 +233,6 @@ export const FirstRunSetup = () => {
                   id="child-first-name-en"
                   autoFocus
                   {...childForm.register("first_name_en", { required: true })}
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="child-first-name-he">
-                  {translate("crm.auth.onboarding.child_first_name_he", {
-                    _: "First name (Hebrew) — optional",
-                  })}
-                </Label>
-                <Input
-                  id="child-first-name-he"
-                  dir="rtl"
-                  className="font-hebrew"
-                  {...childForm.register("first_name_he")}
                 />
               </div>
               <div className="flex flex-col gap-2">

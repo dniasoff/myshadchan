@@ -3,9 +3,9 @@ import { translateLanding } from "./landingTranslate";
 
 /**
  * The seven states a suggestion moves through, in the app's own words and its
- * own colours — bilingual, and with no counts or invented records in sight.
- * It is the product's spine, so it stands beside the headline as the hero's
- * product visual: a tilted accent slab, then the real list on a raised card.
+ * own colours — with no counts or invented records in sight. It is the
+ * product's spine, so it stands beside the headline as the hero's product
+ * visual: a tilted accent slab, then the real list on a raised card.
  */
 export const LandingStatesCard = () => (
   <div className="relative">
@@ -43,9 +43,6 @@ export const LandingStatesCard = () => (
                 aria-hidden="true"
               />
               {state.label}
-            </span>
-            <span className="font-hebrew text-muted-foreground" dir="rtl">
-              {state.labelHe}
             </span>
           </li>
         ))}

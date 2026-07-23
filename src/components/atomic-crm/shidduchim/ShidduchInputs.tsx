@@ -72,23 +72,12 @@ export const ShidduchInputs = () => {
           />
         </ReferenceInput>
 
-        {/* Bilingual identity pair — English in foreground, Hebrew alongside
-            in Heebo/RTL with a real gap (never ms-* on the dir="rtl" span). */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <TextInput
-            source="name_en"
-            label="Name (English)"
-            helperText="As it will appear on the board"
-            validate={required()}
-          />
-          <TextInput
-            source="name_he"
-            label="Name (Hebrew)"
-            helperText="Optional — shown alongside the English name"
-            dir="rtl"
-            inputClassName="font-hebrew"
-          />
-        </div>
+        <TextInput
+          source="name_en"
+          label="Name"
+          helperText="As it will appear on the board"
+          validate={required()}
+        />
       </FormSection>
 
       <FormSection eyebrow="Redt by">

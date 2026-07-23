@@ -58,18 +58,8 @@ export const RecentSuggestions = ({ childId }: RecentSuggestionsProps) => {
                   focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 <div className="min-w-0">
-                  <div className="flex items-baseline gap-2 text-sm font-semibold leading-tight">
-                    <span className="min-w-0 truncate">
-                      {item.name_en ?? "Unnamed"}
-                    </span>
-                    {item.name_he ? (
-                      <span
-                        className="font-hebrew shrink-0 text-muted-foreground"
-                        dir="rtl"
-                      >
-                        {item.name_he}
-                      </span>
-                    ) : null}
+                  <div className="truncate text-sm font-semibold leading-tight">
+                    {item.name_en ?? "Unnamed"}
                   </div>
                   <div className="mt-0.5 truncate text-xs text-muted-foreground">
                     {item.shadchan_name ? `via ${item.shadchan_name}` : null}

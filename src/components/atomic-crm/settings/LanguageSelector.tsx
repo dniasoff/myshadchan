@@ -15,15 +15,13 @@ export interface LanguageSelectorProps {
 }
 
 /**
- * The bilingual identity, made a first-class control (design-language §7):
- * a prominent row, RTL-safe (logical padding, no `ms-`/`me-` next to a
- * `dir="rtl"` span — see design-artifacts note on the Foundation's fix).
+ * The interface-language control, made a first-class control (design-
+ * language §7): a prominent row.
  *
  * The UI locale catalog currently registers English + Français
  * (`providers/commons/i18nProvider.ts`, outside this lane's file ownership).
- * A full עברית interface locale needs a Hebrew message catalog wired there;
- * until then this renders whatever `useLocales()` reports, so it stays
- * correct without hardcoding a language that isn't actually translated.
+ * This renders whatever `useLocales()` reports, so it stays correct without
+ * hardcoding a language that isn't actually translated.
  */
 export const LanguageSelector = ({ className }: LanguageSelectorProps) => {
   const translate = useTranslate();

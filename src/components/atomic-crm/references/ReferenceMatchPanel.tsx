@@ -32,7 +32,7 @@ const confidenceFallback = (confidence: number): string => {
 };
 
 const displayName = (candidate: ReferenceMatchCandidate): string =>
-  candidate.name_en || candidate.name_he || "this person";
+  candidate.name_en || "this person";
 
 export const ReferenceMatchPanel = ({
   candidates,
@@ -79,11 +79,6 @@ export const ReferenceMatchPanel = ({
                 >
                   {displayName(candidate)}
                 </Link>
-                {candidate.name_he ? (
-                  <span className="ms-2 text-sm text-muted-foreground">
-                    {candidate.name_he}
-                  </span>
-                ) : null}
                 <p className="text-sm text-muted-foreground">
                   {[candidate.relationship, candidate.phone, candidate.school]
                     .filter(Boolean)

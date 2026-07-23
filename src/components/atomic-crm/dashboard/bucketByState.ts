@@ -4,7 +4,6 @@ import type { PipelineState, ShidduchSummary } from "../types";
 export interface StateBucket {
   state: PipelineState;
   label: string;
-  labelHe: string;
   token: string;
   count: number;
 }
@@ -19,7 +18,6 @@ export const bucketByState = (summaries: ShidduchSummary[]): StateBucket[] =>
   PIPELINE_STATES.map((def) => ({
     state: def.value,
     label: def.label,
-    labelHe: def.labelHe,
     token: def.token,
     count: summaries.filter((item) => item.pipeline_state === def.value)
       .length,

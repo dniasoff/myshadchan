@@ -51,28 +51,25 @@ export const targetEntityPath = (
   }
 };
 
-/** Best-effort bilingual label for a fetched entity record, whichever type it is. */
+/** Best-effort English label for a fetched entity record, whichever type it is. */
 export const targetEntityLabel = (
   type: TaskTargetType,
   record: Record<string, unknown> | undefined,
-): { label: string; labelHe?: string | null } => {
+): { label: string } => {
   if (!record) return { label: TARGET_TYPE_LABEL[type] };
 
   switch (type) {
     case "shidduch":
       return {
-        label: (record.name_en as string) || (record.name_he as string) || "Suggestion",
-        labelHe: record.name_he as string | null,
+        label: (record.name_en as string) || "Suggestion",
       };
     case "reference":
       return {
-        label: (record.name_en as string) || (record.name_he as string) || "Reference",
-        labelHe: record.name_he as string | null,
+        label: (record.name_en as string) || "Reference",
       };
     case "shadchan":
       return {
         label: (record.name as string) || "Shadchan",
-        labelHe: record.name_he as string | null,
       };
     case "contact":
     default:

@@ -136,7 +136,7 @@ const AddNote = ({
             .map((link) => (
               <option key={String(link.id)} value={String(link.id)}>
                 {translate("crm.references.timeline.noteAboutShidduch", {
-                  name: link.shidduch_name_en || link.shidduch_name_he || "",
+                  name: link.shidduch_name_en || "",
                   _: "About %{name}",
                 })}
               </option>

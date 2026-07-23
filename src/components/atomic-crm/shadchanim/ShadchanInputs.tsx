@@ -20,21 +20,12 @@ export const ShadchanInputs = () => (
   <>
     <div className="flex flex-col gap-3">
       <SectionLabel>Name</SectionLabel>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <TextInput
-          source="name"
-          label="Name (EN)"
-          validate={required()}
-          helperText={false}
-        />
-        <TextInput
-          source="name_he"
-          label="Name (HE)"
-          dir="rtl"
-          inputClassName="font-hebrew text-end"
-          helperText={false}
-        />
-      </div>
+      <TextInput
+        source="name"
+        label="Name"
+        validate={required()}
+        helperText={false}
+      />
     </div>
 
     <div className="flex flex-col gap-3">

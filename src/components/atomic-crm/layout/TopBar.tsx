@@ -49,7 +49,6 @@ export const TopBar = () => (
 
 const childLabel = (child: Child) =>
   [child.first_name_en, child.last_name_en].filter(Boolean).join(" ") ||
-  child.first_name_he ||
   `#${child.id}`;
 
 /**
@@ -90,11 +89,6 @@ const ChildSwitcherPill = () => {
             focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <span>{childLabel(selected)}</span>
-          {selected.first_name_he ? (
-            <span className="font-hebrew text-muted-foreground" dir="rtl">
-              {selected.first_name_he}
-            </span>
-          ) : null}
           <ChevronDown className="size-4 text-muted-foreground" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>

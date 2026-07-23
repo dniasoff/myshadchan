@@ -4,8 +4,7 @@ export const englishCrmMessages = {
       name: "Shidduch |||| Shidduchim",
       forcedCaseName: "Shidduch",
       fields: {
-        name_en: "Name (EN)",
-        name_he: "Name (HE)",
+        name_en: "Name",
         child_id: "Child",
         shadchan_id: "Shadchan",
         seminary_en: "Yeshiva / seminary",
@@ -24,8 +23,6 @@ export const englishCrmMessages = {
       fields: {
         first_name_en: "First name",
         last_name_en: "Last name",
-        first_name_he: "First name (HE)",
-        last_name_he: "Last name (HE)",
         community: "Community",
         status: "Status",
         gender: "Gender",
@@ -36,7 +33,6 @@ export const englishCrmMessages = {
       forcedCaseName: "Shadchan",
       fields: {
         name: "Name",
-        name_he: "Name (HE)",
         location: "Location",
         responsiveness: "Responsiveness",
         notes: "Notes",
@@ -47,7 +43,6 @@ export const englishCrmMessages = {
       forcedCaseName: "Reference",
       fields: {
         name_en: "Name",
-        name_he: "Name (HE)",
         relationship: "Relationship",
         phone: "Phone",
         school: "School",
@@ -467,7 +462,6 @@ export const englishCrmMessages = {
         eyebrow: "Shidduchim record",
         title_lead: "A record of the shidduch process",
         title_accent: "for your children.",
-        title_he: "רישום של תהליך השידוכים",
         lead: "Suggestions, shadchanim, reference calls and dates, kept in one place.",
         cta: "Sign in",
         cta_secondary: "What it does",

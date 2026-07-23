@@ -84,7 +84,7 @@ export const RepeatRecognitionPanel = ({
                   to={`/shidduchim/${link.shidduchim_id}/show`}
                   className="font-medium hover:underline"
                 >
-                  {link.shidduch_name_en || link.shidduch_name_he}
+                  {link.shidduch_name_en}
                 </Link>
                 <p className="truncate text-sm text-muted-foreground">
                   {[link.effective_relationship, link.child_first_name_en]

@@ -71,8 +71,7 @@ export const CallCaptureSheet = ({
     }
   };
 
-  const subject =
-    link.shidduch_name_en || link.shidduch_name_he || link.reference_name_en;
+  const subject = link.shidduch_name_en || link.reference_name_en;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -83,9 +82,7 @@ export const CallCaptureSheet = ({
           border-[--glass-border]"
       >
         <SheetHeader>
-          <SheetTitle>
-            {link.reference_name_en || link.reference_name_he}
-          </SheetTitle>
+          <SheetTitle>{link.reference_name_en}</SheetTitle>
           <SheetDescription>
             {translate("crm.references.call.about", {
               name: subject ?? "",

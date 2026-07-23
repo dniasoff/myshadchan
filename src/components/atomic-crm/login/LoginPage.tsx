@@ -120,9 +120,6 @@ export const LoginPage = (props: { redirectTo?: string }) => {
               _: "Sign in to your records.",
             })}
           </p>
-          <p className="font-hebrew mt-2 text-sm text-muted-foreground" dir="rtl">
-            רישום השידוכים
-          </p>
         </div>
 
         {googleEnabled || googleWorkplaceDomain ? (

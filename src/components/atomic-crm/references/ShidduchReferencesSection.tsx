@@ -70,7 +70,7 @@ export const ShidduchReferencesSection = ({
                   to={`/references/${link.reference_id}/show`}
                   className="font-medium hover:underline"
                 >
-                  {link.reference_name_en || link.reference_name_he}
+                  {link.reference_name_en}
                 </Link>
                 <p className="truncate text-xs text-muted-foreground">
                   {[link.effective_relationship, link.reference_phone]

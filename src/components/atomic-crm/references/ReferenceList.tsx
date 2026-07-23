@@ -54,8 +54,8 @@ const ReferenceRow = ({
 }) => {
   const translate = useTranslate();
   const createPath = useCreatePath();
-  const name = record.name_en || record.name_he || "?";
-  const monogram = getMonogram(record.name_en || record.name_he);
+  const name = record.name_en || "?";
+  const monogram = getMonogram(record.name_en);
   const avatarIndex = getAvatarIndex(record.name_en ?? String(record.id));
   const meta = [record.relationship, record.phone, record.school]
     .filter(Boolean)
@@ -86,17 +86,7 @@ const ReferenceRow = ({
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-2 text-sm font-semibold leading-tight">
-            <span>{name}</span>
-            {record.name_en && record.name_he ? (
-              <span
-                className="font-hebrew text-[13px] font-medium text-muted-foreground"
-                dir="rtl"
-              >
-                {record.name_he}
-              </span>
-            ) : null}
-          </div>
+          <div className="text-sm font-semibold leading-tight">{name}</div>
           {meta ? (
             <div className="mt-1 truncate text-xs text-muted-foreground">
               {meta}

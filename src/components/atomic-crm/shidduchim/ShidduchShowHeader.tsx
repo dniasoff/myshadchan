@@ -14,9 +14,9 @@ const formatSuggestedAt = (iso: string): string => {
 };
 
 /**
- * The 360 view header (Screen 18): monogram avatar, bilingual name, current
- * state, and the "via {shadchan} · Redt {date} · redt xN" meta row — the
- * board card's identity treatment, raised to hero scale.
+ * The 360 view header (Screen 18): monogram avatar, name, current state, and
+ * the "via {shadchan} · Redt {date} · redt xN" meta row — the board card's
+ * identity treatment, raised to hero scale.
  */
 export const ShidduchShowHeader = ({
   shidduch,
@@ -54,16 +54,8 @@ export const ShidduchShowHeader = ({
         </div>
         <div className="min-w-0 flex-1">
           <DialogTitle asChild>
-            <h2 className="flex flex-wrap items-baseline gap-x-3 font-display text-2xl font-bold tracking-tight">
-              <span>{name}</span>
-              {shidduch.name_he ? (
-                <span
-                  className="font-hebrew text-lg font-medium text-muted-foreground"
-                  dir="rtl"
-                >
-                  {shidduch.name_he}
-                </span>
-              ) : null}
+            <h2 className="font-display text-2xl font-bold tracking-tight">
+              {name}
             </h2>
           </DialogTitle>
           <div className="mt-2 flex flex-wrap items-center gap-2">

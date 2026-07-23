@@ -32,8 +32,8 @@ const ReferenceHeader = ({ reference }: { reference: Reference }) => {
   const translate = useTranslate();
   const { links } = useReferenceLinks(reference.id);
   const progress = summarizeCallProgress(links);
-  const name = reference.name_en || reference.name_he || "?";
-  const monogram = getMonogram(reference.name_en || reference.name_he);
+  const name = reference.name_en || "?";
+  const monogram = getMonogram(reference.name_en);
   const avatarIndex = getAvatarIndex(
     reference.name_en ?? String(reference.id),
   );
@@ -57,16 +57,8 @@ const ReferenceHeader = ({ reference }: { reference: Reference }) => {
             {monogram}
           </div>
           <div className="min-w-0">
-            <h2 className="flex flex-wrap items-baseline gap-x-2.5 font-display text-xl font-semibold leading-tight">
-              <span>{name}</span>
-              {reference.name_en && reference.name_he ? (
-                <span
-                  className="font-hebrew text-base font-medium text-muted-foreground"
-                  dir="rtl"
-                >
-                  {reference.name_he}
-                </span>
-              ) : null}
+            <h2 className="font-display text-xl font-semibold leading-tight">
+              {name}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {[
@@ -130,7 +122,7 @@ const ReferenceShowLayout = () => {
 
   if (!record) return <ReferenceShowSkeleton />;
 
-  const name = record.name_en || record.name_he || "";
+  const name = record.name_en || "";
 
   return (
     <div className="flex flex-col gap-4">

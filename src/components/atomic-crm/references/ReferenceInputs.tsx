@@ -7,9 +7,8 @@ import { NumberInput } from "@/components/admin/number-input";
  * server-side by triggers (AD-1/AD-5) and are never form inputs — the SPA does
  * not normalize and does not choose a tenant.
  *
- * Both name scripts are first-class (AD-12): a reference entered in Hebrew must
- * be as findable as one entered in English. Chunked into calm QL sections
- * (design-language §2) — visual grouping only, field `source`s are unchanged.
+ * Chunked into calm QL sections (design-language §2) — visual grouping only,
+ * field `source`s are unchanged.
  *
  * Section headers and labels go through translate() with English `_`
  * fallbacks, matching ReferenceList/ReferenceShow/ReferenceCallLog.
@@ -23,24 +22,13 @@ export const ReferenceInputs = () => {
         <h3 className="font-display text-sm font-semibold uppercase tracking-[0.06em] text-muted-foreground">
           {translate("crm.references.form.whoHeading", { _: "Who" })}
         </h3>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TextInput
-            source="name_en"
-            label={translate("crm.references.form.nameEn", {
-              _: "Name (EN)",
-            })}
-            helperText={false}
-          />
-          <TextInput
-            source="name_he"
-            label={translate("crm.references.form.nameHe", {
-              _: "Name (HE)",
-            })}
-            helperText={false}
-            dir="rtl"
-            inputClassName="font-hebrew"
-          />
-        </div>
+        <TextInput
+          source="name_en"
+          label={translate("crm.references.form.nameEn", {
+            _: "Name",
+          })}
+          helperText={false}
+        />
         <TextInput
           source="relationship"
           label={translate("crm.references.form.relationship", {

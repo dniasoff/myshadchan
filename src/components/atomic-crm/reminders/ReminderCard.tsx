@@ -65,11 +65,6 @@ export const ReminderCard = ({
                 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               <span className="min-w-0 truncate">{linkedEntity.label}</span>
-              {linkedEntity.labelHe ? (
-                <span className="font-hebrew shrink-0 text-muted-foreground" dir="rtl">
-                  {linkedEntity.labelHe}
-                </span>
-              ) : null}
             </Link>
           ) : null}
 

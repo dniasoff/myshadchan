@@ -61,9 +61,7 @@ export const CollisionResolver = ({
             className="border-amber-200 dark:border-amber-900"
           >
             <CardContent className="flex flex-col gap-3 pt-6">
-              <p className="font-medium">
-                {collision.shidduch_name_en || collision.shidduch_name_he}
-              </p>
+              <p className="font-medium">{collision.shidduch_name_en}</p>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-md border p-3 text-sm">

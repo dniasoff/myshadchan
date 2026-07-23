@@ -22,7 +22,6 @@ export interface LinkedEntityRef {
   type: TaskTargetType;
   id: Identifier;
   label: string;
-  labelHe?: string | null;
   to: string;
 }
 
@@ -129,14 +128,13 @@ export const useReminders = (): UseRemindersResult => {
           return { task, linkedEntity: null };
         }
         const record = lookup.get(`${task.target_type}:${task.target_id}`);
-        const { label, labelHe } = targetEntityLabel(task.target_type, record);
+        const { label } = targetEntityLabel(task.target_type, record);
         return {
           task,
           linkedEntity: {
             type: task.target_type,
             id: task.target_id,
             label,
-            labelHe,
             to: targetEntityPath(task.target_type, task.target_id),
           },
         };

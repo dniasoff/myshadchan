@@ -127,9 +127,6 @@ export const SignupPage = () => {
               _: "Set up the first account for your household.",
             })}
           </p>
-          <p className="font-hebrew mt-2 text-sm text-muted-foreground" dir="rtl">
-            רישום השידוכים
-          </p>
         </div>
 
         {googleEnabled || googleWorkplaceDomain ? (

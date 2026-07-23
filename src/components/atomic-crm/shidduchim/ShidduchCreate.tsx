@@ -67,7 +67,6 @@ export const ShidduchCreate = ({
         child_id: values.child_id as Identifier,
         shadchan_id: (values.shadchan_id as Identifier) ?? null,
         name_en: (values.name_en as string) ?? null,
-        name_he: (values.name_he as string) ?? null,
         parents_en: (values.parents_en as string) ?? null,
         seminary_en: (values.seminary_en as string) ?? null,
         shul_en: (values.shul_en as string) ?? null,

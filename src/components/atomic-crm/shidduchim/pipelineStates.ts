@@ -6,8 +6,6 @@ export interface PipelineStateDef {
   value: PipelineState;
   /** English label (board column header). */
   label: string;
-  /** Hebrew label shown alongside (Heebo, RTL). Bilingual domain data (AD-12/AD-18). */
-  labelHe: string;
   /** Which board half the column belongs to. */
   group: PipelineGroup;
   /** CSS custom-property token driving the column dot / underline / accent. */
@@ -26,28 +24,24 @@ export const PIPELINE_STATES: PipelineStateDef[] = [
   {
     value: "new",
     label: "New",
-    labelHe: "חדש",
     group: "triage",
     token: "--st-new",
   },
   {
     value: "look_into",
     label: "Look-into",
-    labelHe: "לבדוק",
     group: "triage",
     token: "--st-look",
   },
   {
     value: "not_sure",
     label: "Not-sure",
-    labelHe: "לא בטוחה",
     group: "triage",
     token: "--st-notsure",
   },
   {
     value: "for_sure_not",
     label: "For-sure-not",
-    labelHe: "בטוח לא",
     group: "triage",
     token: "--st-fsn",
     note: "Gut set-aside — no full look yet.",
@@ -55,21 +49,18 @@ export const PIPELINE_STATES: PipelineStateDef[] = [
   {
     value: "yes",
     label: "Yes",
-    labelHe: "כן",
     group: "decision",
     token: "--st-yes",
   },
   {
     value: "unsure",
     label: "Unsure",
-    labelHe: "מתלבטת",
     group: "decision",
     token: "--st-unsure",
   },
   {
     value: "no",
     label: "No",
-    labelHe: "לא",
     group: "decision",
     token: "--st-no",
     note: "Looked into — decided against.",

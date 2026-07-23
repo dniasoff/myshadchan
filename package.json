@@ -29,7 +29,6 @@
     "update-changelog": "gh api 'repos/{owner}/{repo}/releases' --paginate -q '.[] | \"## \\(.tag_name) - \\(.published_at[:10])\\n\\n\\(.body)\\n\"' > CHANGELOG.md"
   },
   "dependencies": {
-    "@fontsource-variable/heebo": "^5.3.0",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/space-grotesk": "^5.3.0",
     "@hello-pangea/dnd": "^18.0.1",

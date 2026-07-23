@@ -60,7 +60,6 @@ export const ShidduchCardContent = ({
 }) => {
   const redirect = useRedirect();
   const name = shidduch.name_en ?? shidduch.child_first_name_en ?? "Unnamed";
-  const nameHe = shidduch.name_he;
   const monogram = getMonogram(shidduch.name_en);
   const avatarIndex = getAvatarIndex(shidduch.name_en ?? String(shidduch.id));
   const meta = [shidduch.location_en, shidduch.seminary_en]
@@ -107,17 +106,7 @@ export const ShidduchCardContent = ({
             {monogram}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold leading-tight">
-              {name}
-              {nameHe ? (
-                <span
-                  className="font-hebrew mt-px block text-[13px] font-medium text-muted-foreground"
-                  dir="rtl"
-                >
-                  {nameHe}
-                </span>
-              ) : null}
-            </div>
+            <div className="text-sm font-semibold leading-tight">{name}</div>
             {meta ? (
               <div className="mt-1.5 text-xs text-muted-foreground">{meta}</div>
             ) : null}

@@ -13,8 +13,7 @@ import { ShidduchCreate } from "./ShidduchCreate";
 import { ShidduchimListContent } from "./ShidduchimListContent";
 import { ShidduchShow } from "./ShidduchShow";
 
-const childLabel = (child: Child) =>
-  child.first_name_en ?? child.first_name_he ?? `#${child.id}`;
+const childLabel = (child: Child) => child.first_name_en ?? `#${child.id}`;
 
 const ShidduchimList = () => {
   const { identity } = useGetIdentity();
@@ -105,7 +104,6 @@ const ShidduchimHeader = ({
   const nameEn = selected
     ? [selected.first_name_en, selected.last_name_en].filter(Boolean).join(" ")
     : "";
-  const nameHe = selected?.first_name_he;
 
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
@@ -129,16 +127,8 @@ const ShidduchimHeader = ({
             ))}
           </div>
         ) : null}
-        <h1 className="flex flex-wrap items-baseline gap-x-2 text-2xl font-bold tracking-tight">
-          <span>Pipeline{nameEn ? ` — ${nameEn}` : ""}</span>
-          {nameHe ? (
-            <span
-              className="font-hebrew text-xl font-medium text-muted-foreground"
-              dir="rtl"
-            >
-              {nameHe}
-            </span>
-          ) : null}
+        <h1 className="text-2xl font-bold tracking-tight">
+          Pipeline{nameEn ? ` — ${nameEn}` : ""}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           A calm memory of every redt, from every shadchan.

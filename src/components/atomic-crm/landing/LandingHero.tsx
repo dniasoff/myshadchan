@@ -31,17 +31,6 @@ export const LandingHero = () => (
           </span>
         </h1>
 
-        <p
-          dir="rtl"
-          lang="he"
-          className="font-hebrew mt-5 text-left text-xl font-medium text-muted-foreground"
-        >
-          {translateLanding(
-            "crm.landing.hero.title_he",
-            "רישום של תהליך השידוכים",
-          )}
-        </p>
-
         <p className="mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground text-balance">
           {translateLanding(
             "crm.landing.hero.lead",

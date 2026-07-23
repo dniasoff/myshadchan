@@ -27,7 +27,6 @@ const LinkCard = ({ link }: { link: ReferenceLinkSummary }) => {
 
   const shidduchName =
     link.shidduch_name_en ||
-    link.shidduch_name_he ||
     translate("crm.references.callLog.unlinked", {
       _: "Not linked to a single",
     });

@@ -18,21 +18,17 @@ const GENDER_LABEL: Record<string, string> = {
 
 /**
  * One child's card in the roster grid (design-language §5.1 card recipe):
- * monogram avatar, bilingual name — Hebrew on its own line, never jammed
- * against the English with a margin-start, per the RTL rule — gender/
- * community meta, and a status pill (design-language §5.5 tinted-pill
- * formula applied to `--positive` instead of a pipeline-state token).
- * Pressing the card opens the child's profile (`ChildShow`).
+ * monogram avatar, name, gender/community meta, and a status pill
+ * (design-language §5.5 tinted-pill formula applied to `--positive` instead
+ * of a pipeline-state token). Pressing the card opens the child's profile
+ * (`ChildShow`).
  */
 export const ChildCard = ({ child, index }: ChildCardProps) => {
   const nameEn = [child.first_name_en, child.last_name_en]
     .filter(Boolean)
     .join(" ");
-  const nameHe = [child.first_name_he, child.last_name_he]
-    .filter(Boolean)
-    .join(" ");
-  const displayName = nameEn || nameHe || `Child #${child.id}`;
-  const monogramSeed = nameEn || child.first_name_he || undefined;
+  const displayName = nameEn || `Child #${child.id}`;
+  const monogramSeed = nameEn || undefined;
   const monogram = getMonogram(monogramSeed);
   const avatarIndex = getAvatarIndex(monogramSeed ?? String(child.id));
   const meta = [GENDER_LABEL[child.gender ?? ""], child.community]
@@ -65,23 +61,7 @@ export const ChildCard = ({ child, index }: ChildCardProps) => {
           </div>
           <div className="min-w-0 flex-1">
             <div className="font-display text-base font-semibold leading-tight">
-              {nameEn ? (
-                nameEn
-              ) : nameHe ? (
-                <span className="font-hebrew" dir="rtl">
-                  {nameHe}
-                </span>
-              ) : (
-                displayName
-              )}
-              {nameEn && nameHe ? (
-                <span
-                  className="font-hebrew mt-0.5 block text-sm font-medium text-muted-foreground"
-                  dir="rtl"
-                >
-                  {nameHe}
-                </span>
-              ) : null}
+              {nameEn || displayName}
             </div>
             {meta ? (
               <p className="mt-1.5 text-xs text-muted-foreground">{meta}</p>

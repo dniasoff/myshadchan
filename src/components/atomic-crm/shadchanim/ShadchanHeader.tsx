@@ -12,10 +12,10 @@ export interface ShadchanHeaderProps {
 }
 
 /**
- * The shadchan detail's hero card (screen 20): monogram + bilingual name,
- * location, a tasteful responsiveness chip, contact info (when present —
- * `contacts` is a free-form jsonb column with no seeded shape yet, so
- * missing fields are simply omitted, never fabricated), and notes.
+ * The shadchan detail's hero card (screen 20): monogram + name, location, a
+ * tasteful responsiveness chip, contact info (when present — `contacts` is a
+ * free-form jsonb column with no seeded shape yet, so missing fields are
+ * simply omitted, never fabricated), and notes.
  */
 export const ShadchanHeader = ({ shadchan }: ShadchanHeaderProps) => {
   const monogram = getMonogram(shadchan.name);
@@ -38,16 +38,8 @@ export const ShadchanHeader = ({ shadchan }: ShadchanHeaderProps) => {
             {monogram}
           </div>
           <div className="min-w-0">
-            <h1 className="flex flex-wrap items-baseline gap-x-2 font-display text-2xl font-bold tracking-tight">
-              <span>{shadchan.name}</span>
-              {shadchan.name_he ? (
-                <span
-                  className="font-hebrew text-lg font-medium text-muted-foreground"
-                  dir="rtl"
-                >
-                  {shadchan.name_he}
-                </span>
-              ) : null}
+            <h1 className="font-display text-2xl font-bold tracking-tight">
+              {shadchan.name}
             </h1>
             {shadchan.location ? (
               <p className="mt-1.5 flex items-center gap-1.5 text-sm text-muted-foreground">

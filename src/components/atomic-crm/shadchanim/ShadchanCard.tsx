@@ -15,9 +15,9 @@ export interface ShadchanCardProps {
 }
 
 /**
- * One row of the shadchan book: monogram + bilingual name (mirrors
- * `ShidduchCard`'s identity pattern), location, a tasteful responsiveness
- * cue, and the count of suggestions this shadchan has redt.
+ * One row of the shadchan book: monogram + name (mirrors `ShidduchCard`'s
+ * identity pattern), location, a tasteful responsiveness cue, and the count
+ * of suggestions this shadchan has redt.
  */
 export const ShadchanCard = ({
   shadchan,
@@ -53,14 +53,6 @@ export const ShadchanCard = ({
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold leading-tight">
               {shadchan.name}
-              {shadchan.name_he ? (
-                <span
-                  className="font-hebrew mt-px block text-[13px] font-medium text-muted-foreground"
-                  dir="rtl"
-                >
-                  {shadchan.name_he}
-                </span>
-              ) : null}
             </div>
             {shadchan.location ? (
               <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">

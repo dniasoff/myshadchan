@@ -95,13 +95,12 @@ describe("LandingPage", () => {
       .toBeVisible();
   });
 
-  it("shows the seven pipeline states bilingually", async () => {
+  it("shows the seven pipeline states", async () => {
     // Arrange / Act
     const screen = await render(<LandingPage />);
 
     // Assert
     await expect.element(screen.getByText("For-sure-not")).toBeVisible();
-    await expect.element(screen.getByText("בטוח לא")).toBeVisible();
   });
 
   it("uses landmarks a screen reader can navigate", async () => {

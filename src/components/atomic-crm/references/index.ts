@@ -10,5 +10,5 @@ export default {
   create: ReferenceCreate,
   edit: ReferenceEdit,
   recordRepresentation: (record: Reference) =>
-    record.name_en || record.name_he || String(record.id),
+    record.name_en || String(record.id),
 };
