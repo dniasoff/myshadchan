@@ -7,14 +7,32 @@ import {
   useRefresh,
 } from "ra-core";
 import { useSearchParams } from "react-router";
+import { CancelButton } from "@/components/admin/cancel-button";
 import { SaveButton } from "@/components/admin/form";
 import { FormToolbar } from "@/components/admin/simple-form";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import type { CrmDataProvider } from "../providers/types";
 import type { CreateShidduchInput, PipelineState } from "../types";
 import { INITIAL_PIPELINE_STATES } from "./pipelineStates";
 import { ShidduchInputs } from "./ShidduchInputs";
+
+/** Primary CTA (design-language §5.3) — indigo→violet gradient, accent-glow,
+ * spring press. The dialog's one primary action. */
+const PRIMARY_CTA_CLASS =
+  "inline-flex items-center gap-2 rounded-xl px-4 h-11 font-semibold " +
+  "text-primary-foreground bg-[linear-gradient(135deg,var(--accent-grad-from),var(--accent-grad-to))] " +
+  "shadow-sm shadow-[0_8px_24px_-6px_var(--glow-accent)] " +
+  "transition-[transform,box-shadow] duration-[160ms] ease-[--ease-spring] " +
+  "hover:shadow-[0_10px_30px_-6px_var(--glow-accent-strong)] active:scale-[0.97] " +
+  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 " +
+  "focus-visible:ring-offset-background outline-none";
 
 /**
  * Manual "Add a suggestion" flow. Submits straight to createShidduch (AD-4
@@ -77,9 +95,30 @@ export const ShidduchCreate = ({
 
   return (
     <Dialog open={open} onOpenChange={() => handleClose()}>
-      <DialogContent className="top-1/20 max-h-9/10 translate-y-0 overflow-y-auto lg:max-w-4xl">
+      {/* Overlay surface — glass is allowed here (design-language §1.2); the
+          form panels inside stay solid (dense reading surfaces, §6.3).
+          Light mode uses a solid popover surface instead of glass: the
+          light --glass-bg (0.99 L @ 0.72 alpha) over the modal scrim reads
+          muddy/grey and drags the eyebrow + helper text contrast down —
+          dark mode keeps the glass, which is the showpiece. */}
+      <DialogContent
+        className={
+          "top-1/20 max-h-9/10 translate-y-0 overflow-y-auto lg:max-w-4xl " +
+          "bg-popover border-border shadow-lg " +
+          "dark:bg-[--glass-bg] dark:backdrop-blur-[var(--glass-blur)] dark:border-[--glass-border]"
+        }
+      >
+        <DialogHeader>
+          <DialogTitle className="font-display text-2xl font-semibold tracking-tight">
+            Add a suggestion
+          </DialogTitle>
+          <DialogDescription>
+            A calm start — fill in what you know now, add the rest later.
+          </DialogDescription>
+        </DialogHeader>
         <Form
           onSubmit={onSubmit}
+          mode="onBlur"
           defaultValues={{
             child_id: childId,
             initial_state: initialState,
@@ -88,7 +127,13 @@ export const ShidduchCreate = ({
         >
           <ShidduchInputs />
           <FormToolbar>
-            <SaveButton label="Add a suggestion" />
+            <div className="flex flex-row justify-end gap-2">
+              <CancelButton className="h-11" />
+              <SaveButton
+                label="Add a suggestion"
+                className={PRIMARY_CTA_CLASS}
+              />
+            </div>
           </FormToolbar>
         </Form>
       </DialogContent>

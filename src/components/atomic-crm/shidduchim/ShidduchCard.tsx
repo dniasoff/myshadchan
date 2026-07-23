@@ -11,7 +11,8 @@ import { cn } from "@/lib/utils";
 import type { ShidduchSummary } from "../types";
 import { formatRedtDate, getAvatarIndex, getMonogram } from "./boardUtils";
 
-const ClockIcon = () => (
+/** Shared with the 360 detail header's meta row — one small clock glyph. */
+export const ClockIcon = () => (
   <svg
     viewBox="0 0 24 24"
     fill="none"

@@ -76,7 +76,12 @@ export const CallCaptureSheet = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto">
+      <SheetContent
+        side="bottom"
+        className="max-h-[92vh] overflow-y-auto
+          bg-[--glass-bg] backdrop-blur-[var(--glass-blur)]
+          border-[--glass-border]"
+      >
         <SheetHeader>
           <SheetTitle>
             {link.reference_name_en || link.reference_name_he}
@@ -99,23 +104,34 @@ export const CallCaptureSheet = ({
             <div className="grid grid-cols-2 gap-2">
               {CALL_STATUS_DESCRIPTORS.filter(
                 (descriptor) => descriptor.id !== "not_started",
-              ).map((descriptor) => (
-                <button
-                  key={descriptor.id}
-                  type="button"
-                  aria-pressed={status === descriptor.id}
-                  onClick={() => setStatus(descriptor.id)}
-                  className={cn(
-                    "min-h-[56px] rounded-xl border px-4 py-3 text-base font-medium transition",
-                    descriptor.className,
-                    status === descriptor.id
-                      ? "ring-2 ring-primary ring-offset-2"
-                      : "opacity-80",
-                  )}
-                >
-                  {translate(descriptor.labelKey, { _: descriptor.label })}
-                </button>
-              ))}
+              ).map((descriptor) => {
+                const tokenVar = `var(${descriptor.token})`;
+                const isSelected = status === descriptor.id;
+                return (
+                  <button
+                    key={descriptor.id}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => setStatus(descriptor.id)}
+                    className={cn(
+                      "min-h-[56px] rounded-xl border px-4 py-3 text-base font-medium",
+                      "transition-[box-shadow,transform] duration-[160ms] ease-[--ease-spring]",
+                      "active:scale-[0.97]",
+                      isSelected ? "" : "opacity-80 hover:opacity-100",
+                    )}
+                    style={{
+                      color: `color-mix(in oklch, ${tokenVar} var(--chip-text-mix), black)`,
+                      backgroundColor: `color-mix(in oklch, ${tokenVar} 16%, transparent)`,
+                      borderColor: `color-mix(in oklch, ${tokenVar} 28%, transparent)`,
+                      boxShadow: isSelected
+                        ? `0 0 0 2px var(--background), 0 0 0 4px ${tokenVar}`
+                        : undefined,
+                    }}
+                  >
+                    {translate(descriptor.labelKey, { _: descriptor.label })}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -140,7 +156,12 @@ export const CallCaptureSheet = ({
           <Button
             type="button"
             size="lg"
-            className="min-h-[48px] w-full text-base"
+            className="min-h-[48px] w-full text-base text-primary-foreground
+              bg-[linear-gradient(135deg,var(--accent-grad-from),var(--accent-grad-to))]
+              shadow-sm shadow-[0_8px_24px_-6px_var(--glow-accent)]
+              transition-[transform,box-shadow] duration-[160ms] ease-[--ease-spring]
+              hover:shadow-[0_10px_30px_-6px_var(--glow-accent-strong)]
+              active:scale-[0.97]"
             disabled={isSaving}
             onClick={handleSave}
           >

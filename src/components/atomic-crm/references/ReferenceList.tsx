@@ -1,10 +1,14 @@
-import { useTranslate } from "ra-core";
+import { useCreatePath, useListContext, useTranslate } from "ra-core";
+import { Link } from "react-router";
 import { CreateButton } from "@/components/admin/create-button";
-import { DataTable } from "@/components/admin/data-table";
 import { List } from "@/components/admin/list";
 import { SearchInput } from "@/components/admin/search-input";
 import { SelectInput } from "@/components/admin/select-input";
 import { TextInput } from "@/components/admin/text-input";
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+import { getAvatarIndex, getMonogram } from "../shidduchim/boardUtils";
+import { EmptyState } from "../misc/EmptyState";
 import { TopToolbar } from "../layout/TopToolbar";
 import type { ReferenceSummary } from "../types";
 
@@ -15,7 +19,7 @@ import type { ReferenceSummary } from "../types";
  * several.
  *
  * Counts come from references_summary, so the list is one query rather than a
- * fetch per row.
+ * fetch per row. Visual-polish pass only — the query and filters are unchanged.
  */
 
 const referenceFilters = [
@@ -41,43 +45,155 @@ const ReferenceListActions = () => (
   </TopToolbar>
 );
 
-export const ReferenceList = () => {
+const ReferenceRow = ({
+  record,
+  index,
+}: {
+  record: ReferenceSummary;
+  index: number;
+}) => {
   const translate = useTranslate();
+  const createPath = useCreatePath();
+  const name = record.name_en || record.name_he || "?";
+  const monogram = getMonogram(record.name_en || record.name_he);
+  const avatarIndex = getAvatarIndex(record.name_en ?? String(record.id));
+  const meta = [record.relationship, record.phone, record.school]
+    .filter(Boolean)
+    .join(" · ");
+  const linkedCount = Number(record.linked_shidduchim_count ?? 0);
+  const openTasks = Number(record.open_task_count ?? 0);
 
   return (
-    <List
-      title={false}
-      actions={<ReferenceListActions />}
-      filters={referenceFilters}
-      sort={{ field: "name_en", order: "ASC" }}
+    <Link
+      to={createPath({ resource: "references", id: record.id, type: "show" })}
+      className="ql-enter block no-underline"
+      style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
     >
-      <DataTable rowClick="show">
-        <DataTable.Col source="name_en" label="Name" />
-        <DataTable.Col source="name_he" label="Name (HE)" />
-        <DataTable.Col source="relationship" />
-        <DataTable.Col source="phone" />
-        <DataTable.Col source="school" />
-        <DataTable.Col
-          source="linked_shidduchim_count"
-          label={translate("crm.references.list.linkedTo", {
-            _: "Linked to",
-          })}
-          render={(record: ReferenceSummary) => (
-            <span className="tabular-nums">
-              {translate("crm.references.list.linkedCount", {
-                smart_count: Number(record.linked_shidduchim_count ?? 0),
-                _: "%{smart_count} singles",
+      <Card
+        className="flex flex-row items-center gap-4 rounded-2xl p-4 shadow-sm
+          transition-[box-shadow,transform] duration-[160ms] ease-[--ease-out]
+          hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]"
+      >
+        <div
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-sm font-bold"
+          style={{
+            backgroundColor: `var(--avatar-${avatarIndex})`,
+            color: "var(--avatar-ink)",
+          }}
+          aria-hidden="true"
+        >
+          {monogram}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 text-sm font-semibold leading-tight">
+            <span>{name}</span>
+            {record.name_en && record.name_he ? (
+              <span
+                className="font-hebrew text-[13px] font-medium text-muted-foreground"
+                dir="rtl"
+              >
+                {record.name_he}
+              </span>
+            ) : null}
+          </div>
+          {meta ? (
+            <div className="mt-1 truncate text-xs text-muted-foreground">
+              {meta}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <span
+            className="inline-flex h-6 items-center rounded-full ps-2.5 pe-2.5
+              text-xs font-semibold tabular-nums text-primary
+              bg-[color-mix(in_oklch,var(--primary)_12%,transparent)]"
+          >
+            {translate("crm.references.list.linkedCount", {
+              smart_count: linkedCount,
+              _: "%{smart_count} singles",
+            })}
+          </span>
+          {openTasks > 0 ? (
+            <span
+              className="inline-flex h-6 items-center rounded-full ps-2.5 pe-2.5
+                text-xs font-semibold tabular-nums text-attention-foreground
+                bg-[color-mix(in_oklch,var(--attention)_28%,transparent)]"
+            >
+              {translate("crm.references.list.openReminders", {
+                smart_count: openTasks,
+                _: "%{smart_count} reminders",
               })}
             </span>
-          )}
-        />
-        <DataTable.Col
-          source="open_task_count"
-          label={translate("crm.references.list.openReminders", {
-            _: "Reminders",
-          })}
-        />
-      </DataTable>
-    </List>
+          ) : null}
+        </div>
+      </Card>
+    </Link>
   );
 };
+
+const ReferenceListLayout = () => {
+  const translate = useTranslate();
+  const { data, isPending, filterValues } = useListContext<ReferenceSummary>();
+  const hasFilters = filterValues && Object.keys(filterValues).length > 0;
+
+  if (isPending) {
+    return (
+      <div className="flex flex-col gap-3" aria-hidden="true">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className="h-[76px] animate-pulse rounded-2xl bg-muted"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (!data?.length && !hasFilters) {
+    return (
+      <EmptyState
+        title={translate("crm.references.list.emptyTitle", {
+          _: "No references yet",
+        })}
+        description={translate("crm.references.list.emptyDescription", {
+          _: "Add the first person you've spoken to about a single — the book grows from here, and every future mention of them links back to this one record.",
+        })}
+        actionLabel={translate("crm.references.list.emptyAction", {
+          _: "Add a reference",
+        })}
+        actionTo="/references/create"
+      />
+    );
+  }
+
+  if (!data?.length) {
+    return (
+      <p className={cn("py-10 text-center text-sm text-muted-foreground")}>
+        {translate("crm.references.list.noMatches", {
+          _: "No references match these filters.",
+        })}
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {data.map((record, index) => (
+        <ReferenceRow key={String(record.id)} record={record} index={index} />
+      ))}
+    </div>
+  );
+};
+
+export const ReferenceList = () => (
+  <List
+    title={false}
+    actions={<ReferenceListActions />}
+    filters={referenceFilters}
+    sort={{ field: "name_en", order: "ASC" }}
+  >
+    <ReferenceListLayout />
+  </List>
+);

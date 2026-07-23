@@ -40,7 +40,7 @@ export const RepeatRecognitionPanel = ({
 
   if (others.length === 0) {
     return compact ? null : (
-      <p className="text-sm text-muted-foreground">
+      <p className="py-6 text-center text-sm text-muted-foreground">
         {translate("crm.references.repeat.none", {
           _: "No other conversations with this person yet.",
         })}
@@ -51,10 +51,13 @@ export const RepeatRecognitionPanel = ({
   const progress = summarizeCallProgress(others);
 
   return (
-    <Card>
+    <Card
+      className="rounded-2xl border-[color-mix(in_oklch,var(--attention)_35%,var(--border))]
+        bg-[color-mix(in_oklch,var(--attention)_10%,var(--card))] shadow-sm"
+    >
       <CardContent className="flex flex-col gap-3 pt-6">
         <div>
-          <p className="text-base font-semibold">
+          <p className="font-display text-base font-semibold">
             {translate("crm.references.repeat.title", {
               name: referenceName,
               smart_count: others.length,
@@ -70,7 +73,7 @@ export const RepeatRecognitionPanel = ({
           </p>
         </div>
 
-        <ul className="flex flex-col divide-y">
+        <ul className="flex flex-col divide-y divide-[color-mix(in_oklch,var(--attention)_20%,var(--border))]">
           {others.map((link) => (
             <li
               key={String(link.id)}

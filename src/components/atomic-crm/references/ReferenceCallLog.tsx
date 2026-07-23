@@ -3,6 +3,7 @@ import { useTranslate } from "ra-core";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "../misc/EmptyState";
 import type { ReferenceLinkSummary } from "../types";
 import { CallStatusChip } from "./CallStatusChip";
 import { CallCaptureSheet } from "./CallCaptureSheet";
@@ -32,7 +33,10 @@ const LinkCard = ({ link }: { link: ReferenceLinkSummary }) => {
     });
 
   return (
-    <Card>
+    <Card
+      className="rounded-2xl shadow-sm transition-[box-shadow,transform]
+        duration-[160ms] ease-[--ease-out] hover:shadow-md"
+    >
       <CardContent className="flex flex-col gap-3 pt-6">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
@@ -95,7 +99,8 @@ const LinkCard = ({ link }: { link: ReferenceLinkSummary }) => {
           <Button
             type="button"
             variant="outline"
-            className="min-h-[44px]"
+            className="min-h-[44px] transition-transform duration-[160ms]
+              ease-[--ease-spring] active:scale-[0.97]"
             onClick={() => setIsCapturing(true)}
           >
             {translate("crm.references.callLog.capture", {
@@ -123,11 +128,14 @@ export const ReferenceCallLog = ({
 
   if (links.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        {translate("crm.references.callLog.empty", {
+      <EmptyState
+        title={translate("crm.references.callLog.emptyTitle", {
+          _: "Not linked to a single yet",
+        })}
+        description={translate("crm.references.callLog.empty", {
           _: "This person is not linked to any single yet.",
         })}
-      </p>
+      />
     );
   }
 

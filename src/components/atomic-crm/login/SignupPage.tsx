@@ -6,6 +6,7 @@ import { Navigate, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 import type { CrmDataProvider } from "../providers/types";
 import { useConfigurationContext } from "../root/ConfigurationContext";
@@ -17,6 +18,7 @@ import { SSOAuthButton } from "./SSOAuthButton";
 import { GoogleSignInButton } from "./GoogleSignInButton";
 import { isGoogleOAuthEnabled } from "./googleOAuth";
 import { AuthHero, LedgerMark } from "./AuthHero";
+import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
 
 export const SignupPage = () => {
   const queryClient = useQueryClient();
@@ -103,22 +105,25 @@ export const SignupPage = () => {
     <div className="min-h-screen w-full lg:grid lg:grid-cols-[1.1fr_1fr]">
       <AuthHero />
 
-      <div className="flex min-h-screen flex-col justify-center bg-background p-6 lg:p-10">
+      <div
+        className="flex min-h-screen flex-col justify-center bg-background p-6 lg:p-10"
+        style={{ backgroundImage: "var(--wash)" }}
+      >
         <div className="mx-auto w-full max-w-sm space-y-6">
           <div className="flex items-center gap-2 lg:hidden">
             <div
-              className="grid h-9 w-9 place-items-center rounded-lg text-white"
+              className="grid h-9 w-9 place-items-center rounded-lg text-primary-foreground"
               style={{ background: "var(--primary)" }}
             >
               <LedgerMark className="h-5 w-5" />
             </div>
-            <span className="text-lg font-bold tracking-tight">
+            <span className="font-display text-lg font-bold tracking-tight">
               My<span style={{ color: "var(--primary)" }}>Shadchan</span>
             </span>
           </div>
 
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">
+            <h2 className="font-display text-2xl font-bold tracking-tight">
               {translate("crm.auth.welcome_title", {
                 _: "Welcome to MyShadchan",
               })}
@@ -174,7 +179,7 @@ export const SignupPage = () => {
             <Button
               type="submit"
               disabled={!isValid || isSignUpPending}
-              className="w-full"
+              className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
             >
               {isSignUpPending ? (
                 <>

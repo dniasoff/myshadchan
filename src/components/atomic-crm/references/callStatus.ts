@@ -14,7 +14,12 @@ export type CallStatusDescriptor = {
   /** i18n key; the raw label is the fallback for tests and dev. */
   labelKey: string;
   label: string;
-  className: string;
+  /**
+   * CSS custom-property name (e.g. "--positive") driving the chip's dot/tint,
+   * mirroring StateChip's `token`-driven recipe (design-language §5.5) — never
+   * a hardcoded Tailwind palette colour.
+   */
+  token: string;
   /** Whether this status means the conversation actually happened. */
   isContacted: boolean;
   /** Whether this status leaves a follow-up owed by us. */
@@ -26,7 +31,7 @@ export const CALL_STATUS_DESCRIPTORS: readonly CallStatusDescriptor[] = [
     id: "not_started",
     labelKey: "crm.references.callStatus.not_started",
     label: "Not started",
-    className: "bg-muted text-muted-foreground border-border",
+    token: "--muted-foreground",
     isContacted: false,
     needsFollowUp: true,
   },
@@ -34,8 +39,7 @@ export const CALL_STATUS_DESCRIPTORS: readonly CallStatusDescriptor[] = [
     id: "answered",
     labelKey: "crm.references.callStatus.answered",
     label: "Answered",
-    className:
-      "bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-100 dark:border-emerald-900",
+    token: "--positive",
     isContacted: true,
     needsFollowUp: false,
   },
@@ -43,8 +47,7 @@ export const CALL_STATUS_DESCRIPTORS: readonly CallStatusDescriptor[] = [
     id: "no_answer",
     labelKey: "crm.references.callStatus.no_answer",
     label: "No answer",
-    className:
-      "bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-950 dark:text-amber-100 dark:border-amber-900",
+    token: "--attention",
     isContacted: false,
     needsFollowUp: true,
   },
@@ -52,8 +55,7 @@ export const CALL_STATUS_DESCRIPTORS: readonly CallStatusDescriptor[] = [
     id: "call_back",
     labelKey: "crm.references.callStatus.call_back",
     label: "Call back",
-    className:
-      "bg-sky-50 text-sky-900 border-sky-200 dark:bg-sky-950 dark:text-sky-100 dark:border-sky-900",
+    token: "--primary",
     isContacted: false,
     needsFollowUp: true,
   },
@@ -61,8 +63,7 @@ export const CALL_STATUS_DESCRIPTORS: readonly CallStatusDescriptor[] = [
     id: "they_will_call_back",
     labelKey: "crm.references.callStatus.they_will_call_back",
     label: "They will call back",
-    className:
-      "bg-violet-50 text-violet-900 border-violet-200 dark:bg-violet-950 dark:text-violet-100 dark:border-violet-900",
+    token: "--violet",
     isContacted: true,
     needsFollowUp: false,
   },
