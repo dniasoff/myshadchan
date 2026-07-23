@@ -9,7 +9,6 @@ import type { CrmDataProvider } from "../providers/types";
 import type { Child, Reference, Shadchan, Shidduch } from "../types";
 import { DeleteDataDialog } from "./DeleteDataDialog";
 import { collectFamilyData, downloadAsJson } from "./exportFamilyData";
-import { PrivacyLine } from "./PrivacyLine";
 import { SectionLabel } from "./SectionLabel";
 
 /**
@@ -51,8 +50,6 @@ export const PrivacySection = () => {
         {translate("crm.profile.privacy.title", { _: "Privacy" })}
       </SectionLabel>
       <div className="space-y-4 rounded-lg border p-4">
-        <PrivacyLine />
-
         <div>
           <p className="mb-2 px-1 text-sm text-muted-foreground">
             {translate("crm.profile.privacy.records_held", {

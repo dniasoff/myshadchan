@@ -247,8 +247,20 @@ begin
 
   insert into public.sales (first_name, last_name, email, user_id, administrator)
   values (
-    coalesce(new.raw_user_meta_data ->> 'first_name', new.raw_user_meta_data -> 'custom_claims' ->> 'first_name', 'Pending'),
-    coalesce(new.raw_user_meta_data ->> 'last_name', new.raw_user_meta_data -> 'custom_claims' ->> 'last_name', 'Pending'),
+    coalesce(
+      nullif(new.raw_user_meta_data ->> 'first_name', ''),
+      nullif(new.raw_user_meta_data -> 'custom_claims' ->> 'first_name', ''),
+      nullif(new.raw_user_meta_data ->> 'given_name', ''),
+      nullif(split_part(coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name', ''), ' ', 1), ''),
+      'Pending'),
+    coalesce(
+      nullif(new.raw_user_meta_data ->> 'last_name', ''),
+      nullif(new.raw_user_meta_data -> 'custom_claims' ->> 'last_name', ''),
+      nullif(new.raw_user_meta_data ->> 'family_name', ''),
+      case when position(' ' in coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name', '')) > 0
+           then substr(coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name'), position(' ' in coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name')) + 1)
+      end,
+      'Pending'),
     new.email,
     new.id,
     case when sales_count > 0 then FALSE else TRUE end
@@ -280,8 +292,20 @@ CREATE OR REPLACE FUNCTION "public"."handle_update_user"() RETURNS "trigger"
 begin
   update public.sales
   set
-    first_name = coalesce(new.raw_user_meta_data ->> 'first_name', new.raw_user_meta_data -> 'custom_claims' ->> 'first_name', 'Pending'),
-    last_name = coalesce(new.raw_user_meta_data ->> 'last_name', new.raw_user_meta_data -> 'custom_claims' ->> 'last_name', 'Pending'),
+    first_name = coalesce(
+      nullif(new.raw_user_meta_data ->> 'first_name', ''),
+      nullif(new.raw_user_meta_data -> 'custom_claims' ->> 'first_name', ''),
+      nullif(new.raw_user_meta_data ->> 'given_name', ''),
+      nullif(split_part(coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name', ''), ' ', 1), ''),
+      'Pending'),
+    last_name = coalesce(
+      nullif(new.raw_user_meta_data ->> 'last_name', ''),
+      nullif(new.raw_user_meta_data -> 'custom_claims' ->> 'last_name', ''),
+      nullif(new.raw_user_meta_data ->> 'family_name', ''),
+      case when position(' ' in coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name', '')) > 0
+           then substr(coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name'), position(' ' in coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name')) + 1)
+      end,
+      'Pending'),
     email = new.email
   where user_id = new.id;
 

@@ -264,12 +264,23 @@ async function patchUser(req: Request, currentUserSale: any) {
     return createErrorResponse(401, "Not Authorized");
   }
 
+  // A profile self-edit sends only name/avatar. Never overwrite the email
+  // (re-setting it breaks OAuth/Google users on the hosted GoTrue) or the ban
+  // state unless the caller actually changed them.
+  const userUpdate: {
+    email?: string;
+    ban_duration?: string;
+    user_metadata: { first_name?: string; last_name?: string };
+  } = { user_metadata: { first_name, last_name } };
+  if (email && email !== sale.email) {
+    userUpdate.email = email;
+  }
+  if (disabled !== undefined) {
+    userUpdate.ban_duration = disabled ? "87600h" : "none";
+  }
+
   const { data, error: userError } =
-    await supabaseAdmin.auth.admin.updateUserById(sale.user_id, {
-      email,
-      ban_duration: disabled ? "87600h" : "none",
-      user_metadata: { first_name, last_name },
-    });
+    await supabaseAdmin.auth.admin.updateUserById(sale.user_id, userUpdate);
 
   if (!data?.user || userError) {
     console.error("Error patching user:", userError);
@@ -301,11 +312,26 @@ async function patchUser(req: Request, currentUserSale: any) {
   }
 
   try {
-    await updateSaleDisabled(data.user.id, disabled);
-    const sale = await updateSaleAdministrator(data.user.id, administrator);
+    // Only touch the privileged fields an admin actually changed. On a self-edit
+    // administrator/disabled arrive undefined and must not be reset (updating a
+    // NOT NULL column to null is what previously 500'd the profile save).
+    if (disabled !== undefined) {
+      await updateSaleDisabled(data.user.id, disabled);
+    }
+    let updatedSale;
+    if (administrator !== undefined) {
+      updatedSale = await updateSaleAdministrator(data.user.id, administrator);
+    } else {
+      const { data: current } = await supabaseAdmin
+        .from("sales")
+        .select("*")
+        .eq("user_id", data.user.id)
+        .single();
+      updatedSale = current;
+    }
     return new Response(
       JSON.stringify({
-        data: sale,
+        data: updatedSale,
       }),
       {
         headers: {

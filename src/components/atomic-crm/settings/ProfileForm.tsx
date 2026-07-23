@@ -18,7 +18,6 @@ import ImageEditorField from "../misc/ImageEditorField";
 import type { CrmDataProvider } from "../providers/types";
 import type { Sale, SalesFormData } from "../types";
 import { LanguageSelector } from "./LanguageSelector";
-import { PrivacyLine } from "./PrivacyLine";
 
 export interface ProfileFormProps {
   isEditMode: boolean;
@@ -27,8 +26,8 @@ export interface ProfileFormProps {
 
 /**
  * The account card (design-artifacts ticket lane 7): avatar, name, email,
- * the prominent language toggle, and the privacy line — one QL card, one
- * primary action (Save while editing), subordinate secondaries otherwise.
+ * and the prominent language toggle — one QL card, one primary action
+ * (Save while editing), subordinate secondaries otherwise.
  */
 export const ProfileForm = ({ isEditMode, setEditMode }: ProfileFormProps) => {
   const notify = useNotify();
@@ -114,7 +113,6 @@ export const ProfileForm = ({ isEditMode, setEditMode }: ProfileFormProps) => {
           </div>
           <TextRender source="email" isEditMode={isEditMode} />
           <LanguageSelector />
-          <PrivacyLine />
         </div>
 
         <div className="flex flex-row-reverse flex-wrap items-center justify-start gap-2 border-t border-border pt-5">
