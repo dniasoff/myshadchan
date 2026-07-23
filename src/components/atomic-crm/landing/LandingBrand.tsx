@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { LedgerMark } from "../login/AuthHero";
+import { LedgerMark } from "../login/BrandLockup";
 
 interface LandingBrandProps {
   /** `md` for the page header, `sm` for the footer. */

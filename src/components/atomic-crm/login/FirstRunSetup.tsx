@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { Account } from "../types";
-import { LedgerMark } from "./AuthHero";
+import { LedgerMark } from "./BrandLockup";
 import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
 
 type Step = "account" | "child" | "done";

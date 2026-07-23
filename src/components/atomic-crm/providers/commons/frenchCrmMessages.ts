@@ -446,12 +446,22 @@ export const frenchCrmMessages = {
       sign_in_google_workspace: "Connectez-vous avec Google Workplace",
       google_oauth_not_configured:
         "La connexion avec Google n'est pas configurée. Demandez à un administrateur d'activer et de configurer le fournisseur Google dans Supabase.",
+      show_password: "Afficher le mot de passe",
+      hide_password: "Masquer le mot de passe",
+      footer_private: "Privé à votre famille",
+      back_to_home: "Retour à l'accueil",
+      login: {
+        title: "Bon retour",
+        subtitle: "Connectez-vous à vos dossiers.",
+      },
       signup: {
         create_account: "Créer un compte",
         create_first_user:
           "Créez le premier compte utilisateur pour terminer la configuration.",
         creating: "Création...",
         initial_user_created: "Utilisateur initial créé avec succès",
+        title: "Créez le dossier de votre famille",
+        subtitle: "Configurez le premier compte de votre foyer.",
       },
       welcome_title: "Bienvenue sur MyShadchan",
     },

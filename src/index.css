@@ -252,6 +252,16 @@
   --glass-border: oklch(0.52 0.02 275 / 0.1);
   --glass-blur: 14px;
 
+  /* Auth top-glow — light only. The plain indigo `--accent-grad-from` reads
+     cold/lavender at the top of the auth ground before the honey blob lower
+     down warms it up (design review). A hue-mix toward honey crosses
+     magenta on the color wheel (268°→72° the short way), which reads pink,
+     not warm — so this is a low-chroma tint in the honey family instead:
+     same hue neighborhood as `--landing-accent-hi`, desaturated enough to
+     stay a soft haze rather than a golden blob. Dark keeps the pure
+     luminous indigo (see .dark) — untouched, still the showpiece. */
+  --auth-glow-top: oklch(0.86 0.035 75);
+
   /* Ambient background wash — one fixed radial bloom behind the app. Alpha
      lifted again (design review, second pass: still barely perceptible on
      parchment at 0.09) and the bloom widened slightly so it actually reads
@@ -397,6 +407,9 @@
   --glow-accent: oklch(0.62 0.22 274 / 0.45);
   --glow-accent-strong: oklch(0.64 0.23 280 / 0.6);
 
+  /* Auth top-glow — dark keeps the pure luminous indigo, no honey blend. */
+  --auth-glow-top: var(--accent-grad-from);
+
   /* Translucent elevated indigo-night glass; hairline white border. */
   --glass-bg: oklch(0.225 0.03 273 / 0.66);
   --glass-border: oklch(1 0 0 / 0.08);
@@ -507,9 +520,28 @@ body {
   transform-origin: right;
 }
 
+/* Auth screens' ambient ground (auth-redesign.md §4): slow, low-opacity
+   drift on the AuthBackdrop glow blobs — calm and alive, not a rainbow mesh. */
+@keyframes ql-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2%, -2%, 0) scale(1.06);
+  }
+}
+
+.auth-blob {
+  animation: ql-drift 22s var(--ease-spring) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ql-enter,
   .ql-segment {
+    animation: none;
+  }
+  .auth-blob {
     animation: none;
   }
   * {

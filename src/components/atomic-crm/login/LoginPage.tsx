@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from "react";
+import { Loader2, Lock } from "lucide-react";
 import { Form, required, useLogin, useNotify, useTranslate } from "ra-core";
 import type { SubmitHandler, FieldValues } from "react-hook-form";
 import { Link, useLocation, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/admin/text-input";
-import { Notification } from "@/components/admin/notification";
 import { cn } from "@/lib/utils";
 import { useConfigurationContext } from "@/components/atomic-crm/root/ConfigurationContext.tsx";
+import { AuthLayout } from "./AuthLayout";
 import { SSOAuthButton } from "./SSOAuthButton";
 import { GoogleSignInButton } from "./GoogleSignInButton";
 import { isGoogleOAuthEnabled } from "./googleOAuth";
-import { AuthHero, LedgerMark } from "./AuthHero";
+import { PasswordInput } from "./PasswordInput";
+import { AUTH_FIELD_CLASSNAME } from "./authFieldClassName";
 import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
 
 /**
@@ -93,104 +95,103 @@ export const LoginPage = (props: { redirectTo?: string }) => {
   const googleEnabled = isGoogleOAuthEnabled();
 
   return (
-    <div className="min-h-screen w-full lg:grid lg:grid-cols-[1.1fr_1fr]">
-      {/* Vibrant brand / hero panel */}
-      <AuthHero />
-
-      {/* ---------------- Sign-in panel ---------------- */}
-      <div
-        className="flex min-h-screen flex-col justify-center bg-background p-6 lg:p-10"
-        style={{ backgroundImage: "var(--wash)" }}
-      >
-        <div className="mx-auto w-full max-w-sm space-y-6">
-          <div className="flex items-center gap-2 lg:hidden">
-            <div
-              className="grid h-9 w-9 place-items-center rounded-lg text-primary-foreground"
-              style={{ background: "var(--primary)" }}
-            >
-              <LedgerMark className="h-5 w-5" />
-            </div>
-            <span className="font-display text-lg font-bold tracking-tight">
-              My
-              <span style={{ color: "var(--primary)" }}>Shadchan</span>
-            </span>
-          </div>
-
-          <div>
-            <h2 className="font-display text-2xl font-bold tracking-tight">
-              Welcome back
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Sign in to your records.
-            </p>
-          </div>
-
-          {googleEnabled || googleWorkplaceDomain ? (
-            <div className="space-y-3">
-              {googleEnabled ? <GoogleSignInButton className="w-full" /> : null}
-              {googleWorkplaceDomain ? (
-                <SSOAuthButton
-                  className="w-full"
-                  domain={googleWorkplaceDomain}
-                >
-                  {translate("crm.auth.sign_in_google_workspace", {
-                    _: "Sign in with Google Workplace",
-                  })}
-                </SSOAuthButton>
-              ) : null}
-              {disableEmailPasswordAuthentication ? null : (
-                <div className="relative py-1">
-                  <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t" />
-                  </div>
-                  <div className="relative flex justify-center">
-                    <span className="bg-background px-2 text-xs uppercase tracking-wider text-muted-foreground">
-                      or continue with email
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : null}
-
-          {disableEmailPasswordAuthentication ? null : (
-            <Form className="space-y-5" onSubmit={handleSubmit}>
-              <TextInput
-                label="ra.auth.email"
-                source="email"
-                type="email"
-                validate={required()}
-              />
-              <TextInput
-                label="ra.auth.password"
-                source="password"
-                type="password"
-                validate={required()}
-              />
-              <Button
-                type="submit"
-                className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
-                disabled={loading}
-              >
-                {translate("ra.auth.sign_in")}
-              </Button>
-            </Form>
-          )}
-
-          {disableEmailPasswordAuthentication ? null : (
-            <Link
-              to={"/forgot-password"}
-              className="block text-center text-sm text-muted-foreground hover:text-foreground hover:underline"
-            >
-              {translate("ra-supabase.auth.forgot_password", {
-                _: "Forgot password?",
-              })}
-            </Link>
-          )}
+    <AuthLayout
+      footer={
+        <>
+          <span className="inline-flex items-center gap-1.5">
+            <Lock className="size-3.5" aria-hidden="true" />
+            {translate("crm.auth.footer_private", {
+              _: "Private to your family",
+            })}
+          </span>
+          <a href="/" className="hover:text-foreground hover:underline">
+            {translate("crm.auth.back_to_home", { _: "Back to home" })}
+          </a>
+        </>
+      }
+    >
+      <div className="space-y-6">
+        <div className="text-center">
+          <h2 className="font-display text-2xl font-bold tracking-tight">
+            {translate("crm.auth.login.title", { _: "Welcome back" })}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {translate("crm.auth.login.subtitle", {
+              _: "Sign in to your records.",
+            })}
+          </p>
+          <p className="font-hebrew mt-2 text-sm text-muted-foreground" dir="rtl">
+            רישום השידוכים
+          </p>
         </div>
-      </div>
 
-      <Notification />
-    </div>
+        {googleEnabled || googleWorkplaceDomain ? (
+          <div className="space-y-3">
+            {googleEnabled ? (
+              <GoogleSignInButton className="h-11 w-full rounded-lg" />
+            ) : null}
+            {googleWorkplaceDomain ? (
+              <SSOAuthButton
+                className="h-11 w-full rounded-lg"
+                domain={googleWorkplaceDomain}
+              >
+                {translate("crm.auth.sign_in_google_workspace", {
+                  _: "Sign in with Google Workplace",
+                })}
+              </SSOAuthButton>
+            ) : null}
+            {disableEmailPasswordAuthentication ? null : (
+              <div className="flex items-center gap-3 py-1">
+                <span className="h-px flex-1 bg-border" aria-hidden="true" />
+                <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                  or continue with email
+                </span>
+                <span className="h-px flex-1 bg-border" aria-hidden="true" />
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {disableEmailPasswordAuthentication ? null : (
+          <Form className="space-y-4" onSubmit={handleSubmit}>
+            <TextInput
+              label="ra.auth.email"
+              source="email"
+              type="email"
+              autoComplete="email"
+              inputClassName={AUTH_FIELD_CLASSNAME}
+              validate={required()}
+            />
+            <PasswordInput
+              label="ra.auth.password"
+              source="password"
+              autoComplete="current-password"
+              validate={required()}
+            />
+            <Button
+              type="submit"
+              className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="me-2 size-4 animate-spin" aria-hidden="true" />
+              ) : null}
+              {translate("ra.auth.sign_in")}
+            </Button>
+          </Form>
+        )}
+
+        {disableEmailPasswordAuthentication ? null : (
+          <Link
+            to={"/forgot-password"}
+            className="block text-center text-sm text-muted-foreground hover:text-foreground hover:underline"
+          >
+            {translate("ra-supabase.auth.forgot_password", {
+              _: "Forgot password?",
+            })}
+          </Link>
+        )}
+      </div>
+    </AuthLayout>
   );
 };

@@ -65,7 +65,7 @@ describe("GoogleSignInButton", () => {
     );
 
     // Act
-    await screen.getByRole("button", { name: /sign in with google/i }).click();
+    await screen.getByRole("button", { name: /continue with google/i }).click();
 
     // Assert
     await expect
@@ -82,7 +82,7 @@ describe("GoogleSignInButton", () => {
     const screen = await renderButton(new Error());
 
     // Act
-    await screen.getByRole("button", { name: /sign in with google/i }).click();
+    await screen.getByRole("button", { name: /continue with google/i }).click();
 
     // Assert
     await expect

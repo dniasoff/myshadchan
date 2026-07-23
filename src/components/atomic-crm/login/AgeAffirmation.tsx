@@ -4,7 +4,7 @@ import { useTranslate } from "ra-core";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { LedgerMark } from "./AuthHero";
+import { LedgerMark } from "./BrandLockup";
 import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
 
 export interface AgeAffirmationProps {

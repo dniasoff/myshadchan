@@ -440,12 +440,22 @@ export const englishCrmMessages = {
       sign_in_google_workspace: "Sign in with Google Workplace",
       google_oauth_not_configured:
         "Google sign-in is not configured. Ask an administrator to enable and configure the Google provider in Supabase.",
+      show_password: "Show password",
+      hide_password: "Hide password",
+      footer_private: "Private to your family",
+      back_to_home: "Back to home",
+      login: {
+        title: "Welcome back",
+        subtitle: "Sign in to your records.",
+      },
       signup: {
         create_account: "Create account",
         create_first_user:
           "Create the first user account to complete the setup.",
         creating: "Creating...",
         initial_user_created: "Initial user successfully created",
+        title: "Create your family's record",
+        subtitle: "Set up the first account for your household.",
       },
       welcome_title: "Welcome to MyShadchan",
     },

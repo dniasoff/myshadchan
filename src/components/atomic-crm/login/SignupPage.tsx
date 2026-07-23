@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Loader2, Lock } from "lucide-react";
 import { useDataProvider, useLogin, useNotify, useTranslate } from "ra-core";
 import { useForm, type SubmitHandler } from "react-hook-form";
 import { Navigate, useNavigate } from "react-router";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,12 +13,13 @@ import type { CrmDataProvider } from "../providers/types";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 import type { SignUpData } from "../types";
 import { LoginSkeleton } from "./LoginSkeleton";
-import { Notification } from "@/components/admin/notification";
+import { AuthLayout } from "./AuthLayout";
 import { ConfirmationRequired } from "./ConfirmationRequired";
 import { SSOAuthButton } from "./SSOAuthButton";
 import { GoogleSignInButton } from "./GoogleSignInButton";
 import { isGoogleOAuthEnabled } from "./googleOAuth";
-import { AuthHero, LedgerMark } from "./AuthHero";
+import { PasswordToggleButton } from "./PasswordToggleButton";
+import { AUTH_FIELD_CLASSNAME } from "./authFieldClassName";
 import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
 
 export const SignupPage = () => {
@@ -26,6 +28,7 @@ export const SignupPage = () => {
   const { googleWorkplaceDomain } = useConfigurationContext();
   const navigate = useNavigate();
   const translate = useTranslate();
+  const [isPasswordRevealed, setIsPasswordRevealed] = useState(false);
   const { data: isInitialized, isPending } = useQuery({
     queryKey: ["init"],
     queryFn: async () => {
@@ -102,40 +105,60 @@ export const SignupPage = () => {
   const googleEnabled = isGoogleOAuthEnabled();
 
   return (
-    <div className="min-h-screen w-full lg:grid lg:grid-cols-[1.1fr_1fr]">
-      <AuthHero />
+    <AuthLayout
+      footer={
+        <span className="inline-flex items-center gap-1.5">
+          <Lock className="size-3.5" aria-hidden="true" />
+          {translate("crm.auth.footer_private", {
+            _: "Private to your family",
+          })}
+        </span>
+      }
+    >
+      <div className="space-y-6">
+        <div className="text-center">
+          <h2 className="font-display text-2xl font-bold tracking-tight">
+            {translate("crm.auth.signup.title", {
+              _: "Create your family's record",
+            })}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {translate("crm.auth.signup.subtitle", {
+              _: "Set up the first account for your household.",
+            })}
+          </p>
+          <p className="font-hebrew mt-2 text-sm text-muted-foreground" dir="rtl">
+            רישום השידוכים
+          </p>
+        </div>
 
-      <div
-        className="flex min-h-screen flex-col justify-center bg-background p-6 lg:p-10"
-        style={{ backgroundImage: "var(--wash)" }}
-      >
-        <div className="mx-auto w-full max-w-sm space-y-6">
-          <div className="flex items-center gap-2 lg:hidden">
-            <div
-              className="grid h-9 w-9 place-items-center rounded-lg text-primary-foreground"
-              style={{ background: "var(--primary)" }}
-            >
-              <LedgerMark className="h-5 w-5" />
+        {googleEnabled || googleWorkplaceDomain ? (
+          <div className="space-y-3">
+            {googleEnabled ? (
+              <GoogleSignInButton className="h-11 w-full rounded-lg" />
+            ) : null}
+            {googleWorkplaceDomain ? (
+              <SSOAuthButton
+                className="h-11 w-full rounded-lg"
+                domain={googleWorkplaceDomain}
+              >
+                {translate("crm.auth.sign_in_google_workspace", {
+                  _: "Sign in with Google Workplace",
+                })}
+              </SSOAuthButton>
+            ) : null}
+            <div className="flex items-center gap-3 py-1">
+              <span className="h-px flex-1 bg-border" aria-hidden="true" />
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                or
+              </span>
+              <span className="h-px flex-1 bg-border" aria-hidden="true" />
             </div>
-            <span className="font-display text-lg font-bold tracking-tight">
-              My<span style={{ color: "var(--primary)" }}>Shadchan</span>
-            </span>
           </div>
+        ) : null}
 
-          <div>
-            <h2 className="font-display text-2xl font-bold tracking-tight">
-              {translate("crm.auth.welcome_title", {
-                _: "Welcome to MyShadchan",
-              })}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {translate("crm.auth.signup.create_first_user", {
-                _: "Create the first user account to complete the setup.",
-              })}
-            </p>
-          </div>
-
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-2">
               <Label htmlFor="first_name">
                 {translate("crm.auth.first_name")}
@@ -144,6 +167,8 @@ export const SignupPage = () => {
                 {...register("first_name", { required: true })}
                 id="first_name"
                 type="text"
+                autoComplete="given-name"
+                className={AUTH_FIELD_CLASSNAME}
                 required
               />
             </div>
@@ -155,77 +180,61 @@ export const SignupPage = () => {
                 {...register("last_name", { required: true })}
                 id="last_name"
                 type="text"
+                autoComplete="family-name"
+                className={AUTH_FIELD_CLASSNAME}
                 required
               />
             </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="email">{translate("ra.auth.email")}</Label>
-              <Input
-                {...register("email", { required: true })}
-                id="email"
-                type="email"
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="password">{translate("ra.auth.password")}</Label>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="email">{translate("ra.auth.email")}</Label>
+            <Input
+              {...register("email", { required: true })}
+              id="email"
+              type="email"
+              autoComplete="email"
+              className={AUTH_FIELD_CLASSNAME}
+              required
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="password">{translate("ra.auth.password")}</Label>
+            <div className="relative">
               <Input
                 {...register("password", { required: true })}
                 id="password"
-                type="password"
+                type={isPasswordRevealed ? "text" : "password"}
+                autoComplete="new-password"
+                className={cn(AUTH_FIELD_CLASSNAME, "pe-11")}
                 required
               />
+              <PasswordToggleButton
+                isRevealed={isPasswordRevealed}
+                onToggle={() => setIsPasswordRevealed((revealed) => !revealed)}
+              />
             </div>
-            <Button
-              type="submit"
-              disabled={!isValid || isSignUpPending}
-              className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
-            >
-              {isSignUpPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {translate("crm.auth.signup.creating", {
-                    _: "Creating...",
-                  })}
-                </>
-              ) : (
-                translate("crm.auth.signup.create_account", {
-                  _: "Create account",
-                })
-              )}
-            </Button>
-          </form>
-
-          {googleEnabled || googleWorkplaceDomain ? (
-            <div className="space-y-3">
-              <div className="relative py-1">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center">
-                  <span className="bg-background px-2 text-xs uppercase tracking-wider text-muted-foreground">
-                    or
-                  </span>
-                </div>
-              </div>
-              {googleEnabled ? <GoogleSignInButton className="w-full" /> : null}
-              {googleWorkplaceDomain ? (
-                <SSOAuthButton
-                  className="w-full"
-                  domain={googleWorkplaceDomain}
-                >
-                  {translate("crm.auth.sign_in_google_workspace", {
-                    _: "Sign in with Google Workplace",
-                  })}
-                </SSOAuthButton>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+          </div>
+          <Button
+            type="submit"
+            disabled={!isValid || isSignUpPending}
+            className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
+          >
+            {isSignUpPending ? (
+              <>
+                <Loader2 className="me-2 h-4 w-4 animate-spin" />
+                {translate("crm.auth.signup.creating", {
+                  _: "Creating...",
+                })}
+              </>
+            ) : (
+              translate("crm.auth.signup.create_account", {
+                _: "Create account",
+              })
+            )}
+          </Button>
+        </form>
       </div>
-
-      <Notification />
-    </div>
+    </AuthLayout>
   );
 };
 

@@ -107,7 +107,7 @@ export const GoogleSignInButton = ({
       ) : (
         <GoogleIcon />
       )}
-      {children ?? "Sign in with Google"}
+      {children ?? "Continue with Google"}
     </Button>
   );
 };
