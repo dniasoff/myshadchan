@@ -9,6 +9,7 @@ import {
 import type {
   AddRedtInput,
   AddSchoolInput,
+  AiEntitlementInfo,
   ContactNote,
   CreateShidduchInput,
   Deal,
@@ -30,6 +31,7 @@ import type {
   SignUpData,
 } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
+import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import { getIsInitialized } from "./authProvider";
 import { getSupabaseClient } from "./supabase";
@@ -545,6 +547,25 @@ const getDataProviderWithCustomMethods = () => {
         return false; // fail-soft: no banner rather than a broken app
       }
       return data === true;
+    },
+
+    // ---------------------------------------------------------------------
+    // Billing / AI entitlement (E4). The ai_entitlement() RPC is the SINGLE
+    // server-authoritative answer to "may this account spend inference?". The
+    // client cannot forge it — the decision derives from the SELECT-only
+    // `subscription` table, whose only writer is service_role. There is
+    // deliberately NO client method here that grants entitlement; the Billing
+    // page's Subscribe CTA is a stub (no real payment provider is wired yet).
+    // ---------------------------------------------------------------------
+    async aiEntitlement(): Promise<AiEntitlementInfo> {
+      const { data, error } = await getSupabaseClient().rpc("ai_entitlement");
+      if (error) {
+        console.error("ai_entitlement.error", error);
+        // Fail closed: on any error, treat the account as unentitled (free) so
+        // a broken read can never accidentally unlock the paid surface.
+        return UNENTITLED_AI;
+      }
+      return (data ?? UNENTITLED_AI) as AiEntitlementInfo;
     },
 
     async getConfiguration(): Promise<ConfigurationContextValue> {

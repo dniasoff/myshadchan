@@ -644,6 +644,32 @@ export type ShidduchCatch = {
   dates: ShidduchDatePrior[];
 };
 
+/** Billing (E4). 'free' = free-forever tier; 'ai' = the paid AI tier. */
+export type SubscriptionPlan = "free" | "ai";
+
+/**
+ * 'active' = entitled and paid; 'lapsed' = was paid, now expired (a graceful
+ * pause — AI auto-fill stops, nothing is lost, the free manual path stays);
+ * 'none' = never subscribed.
+ */
+export type SubscriptionStatus = "active" | "lapsed" | "none";
+
+/**
+ * The server-authoritative entitlement payload returned by the ai_entitlement()
+ * RPC (02_functions.sql) — the SINGLE source of truth for "may this account
+ * spend inference?". `is_entitled` is computed on the server from the
+ * SELECT-only `subscription` table, so a modified client cannot forge it; the
+ * matching field names mirror the jsonb the function returns. `resumes_used /
+ * resumes_limit` back the calm usage meter (free tier gets a limit of 0).
+ */
+export type AiEntitlementInfo = {
+  is_entitled: boolean;
+  plan: SubscriptionPlan;
+  status: SubscriptionStatus;
+  resumes_used: number;
+  resumes_limit: number;
+};
+
 export type LinkReferenceInput = {
   reference_id: Identifier;
   shidduchim_id: Identifier;

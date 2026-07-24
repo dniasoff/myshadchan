@@ -247,3 +247,22 @@ create policy "Interactions scoped to account and parent visibility" on public.i
 create policy "Identity signals readable within account" on public.identity_signals
     for select to authenticated
     using (account_id = public.current_account_id());
+
+-- Billing (E4). subscription and ai_usage are SELECT-only for the account
+-- owner — a member may read their own entitlement and usage meter, nothing
+-- else. There is deliberately NO insert/update/delete policy on either table:
+-- with RLS enabled and no write policy, authenticated cannot write at all, so
+-- there is no client-callable path to self-grant entitlement (set plan='ai' or
+-- status='active'). Every write is service_role (payment webhook / the AI edge
+-- functions incrementing the meter), which bypasses RLS. This is the tenant
+-- half of what makes ai_entitlement() unforgeable from the browser.
+alter table public.subscription enable row level security;
+alter table public.ai_usage enable row level security;
+
+create policy "Subscription readable within account" on public.subscription
+    for select to authenticated
+    using (account_id = public.current_account_id());
+
+create policy "AI usage readable within account" on public.ai_usage
+    for select to authenticated
+    using (account_id = public.current_account_id());

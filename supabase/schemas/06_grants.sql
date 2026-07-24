@@ -540,3 +540,36 @@ revoke all on function public.rehome_reference_interactions(bigint, bigint) from
 grant execute on function public.rehome_reference_interactions(bigint, bigint) to authenticated;
 grant execute on function public.rehome_reference_interactions(bigint, bigint) to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Billing / AI entitlement (E4). subscription and ai_usage are the paid-tier
+-- ledger. They are SELECT-only for authenticated: a member reads their own
+-- entitlement and usage meter, and nothing else. NO write grant is issued to
+-- authenticated, so — combined with the SELECT-only RLS policies — there is no
+-- client path that flips plan/status to a paid state. The `revoke all` also
+-- strips TRUNCATE (which bypasses RLS) from a table nobody should be able to
+-- empty. Every write is service_role: the payment webhook that provisions a
+-- subscription, and the AI edge functions that increment the usage meter after
+-- confirming entitlement. anon is denied everywhere, as across the domain.
+revoke all on table public.subscription from anon, authenticated;
+grant select on table public.subscription to authenticated;
+grant all on table public.subscription to service_role;
+
+revoke all on table public.ai_usage from anon, authenticated;
+grant select on table public.ai_usage to authenticated;
+grant all on table public.ai_usage to service_role;
+
+-- Sequences: only the server (service_role) inserts, so authenticated never
+-- needs them; anon is denied.
+revoke all on sequence public.subscription_id_seq from anon, authenticated;
+grant all on sequence public.subscription_id_seq to service_role;
+
+revoke all on sequence public.ai_usage_id_seq from anon, authenticated;
+grant all on sequence public.ai_usage_id_seq to service_role;
+
+-- ai_entitlement() is the single server-authoritative entitlement decision,
+-- called by the SPA and (future) AI edge functions alike. anon must never run
+-- it; authenticated and service_role may.
+revoke all on function public.ai_entitlement() from public, anon;
+grant execute on function public.ai_entitlement() to authenticated;
+grant execute on function public.ai_entitlement() to service_role;
+

@@ -11,6 +11,7 @@ import fakeRestDataProvider from "ra-data-fakerest";
 import type {
   AddRedtInput,
   AddSchoolInput,
+  AiEntitlementInfo,
   Company,
   Contact,
   ContactNote,
@@ -42,6 +43,7 @@ import type { ConfigurationContextValue } from "../../root/ConfigurationContext"
 import { getActivityLog } from "../commons/activity";
 import { getCompanyAvatar } from "../commons/getCompanyAvatar";
 import { getContactAvatar } from "../commons/getContactAvatar";
+import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import { mergeContacts } from "../commons/mergeContacts";
 import type { CrmDataProvider } from "../types";
 import {
@@ -872,6 +874,16 @@ export const createDataProvider = ({
       return { cleared: true };
     },
     currentAccountDemo: async (): Promise<boolean> => fakeDemo,
+    // Billing / AI entitlement (E4) -- FakeRest mirror of ai_entitlement().
+    // Demo mode defaults to the FREE tier (unentitled) with a sample usage
+    // number, so the Billing page renders realistically without a paid backend.
+    // There is no client path to flip this to entitled, exactly as in Supabase.
+    aiEntitlement: async (): Promise<AiEntitlementInfo> => ({
+      ...UNENTITLED_AI,
+      // A calm, non-zero sample so the usage meter has something to show in the
+      // demo. Still plan 'free' / not entitled: the meter is illustrative only.
+      resumes_used: 3,
+    }),
     getConfiguration: async (): Promise<ConfigurationContextValue> => {
       const { data } = await baseDataProvider.getOne("configuration", {
         id: 1,

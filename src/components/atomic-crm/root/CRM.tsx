@@ -33,6 +33,7 @@ import {
   getDataProvider as defaultDataProviderBuilder,
 } from "../providers/supabase";
 import sales from "../sales";
+import { BillingPage } from "../billing/BillingPage";
 import { SettingsPageMobile } from "../settings/SettingsPageMobile";
 import { ProfilePage } from "../settings/ProfilePage";
 import { SettingsPage } from "../settings/SettingsPage";
@@ -261,6 +262,7 @@ const DesktopAdmin = (
       <CustomRoutes>
         <Route path={ProfilePage.path} element={<ProfilePage />} />
         <Route path={SettingsPage.path} element={<SettingsPage />} />
+        <Route path={BillingPage.path} element={<BillingPage />} />
         <Route path={ImportPage.path} element={<ImportPage />} />
         <Route path={ChangelogPage.path} element={<ChangelogPage />} />
         <Route path={RemindersPage.path} element={<RemindersPage />} />
@@ -336,6 +338,7 @@ const MobileAdmin = (
             path={SettingsPageMobile.path}
             element={<SettingsPageMobile />}
           />
+          <Route path={BillingPage.path} element={<BillingPage />} />
           <Route path={ChangelogPage.path} element={<ChangelogPage />} />
           <Route path={RemindersPage.path} element={<RemindersPage />} />
         </CustomRoutes>

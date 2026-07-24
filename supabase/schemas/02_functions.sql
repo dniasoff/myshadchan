@@ -2059,3 +2059,84 @@ begin
   );
 end;
 $$;
+
+-- =====================================================================
+-- MyShadchan — Billing / AI entitlement (E4)
+-- =====================================================================
+-- THE SINGLE SERVER-AUTHORITATIVE SOURCE OF TRUTH for "may this account spend
+-- inference?". The SPA calls it to decide whether to show the research
+-- assistant, and — critically — the (future, Epic-10) AI edge functions MUST
+-- call this same function before spending a single token of inference. There is
+-- no second, client-trusted copy of the decision to drift out of sync.
+--
+-- WHY IT CANNOT BE BYPASSED FROM THE CLIENT. The answer derives entirely from
+-- the `subscription` row, and `subscription` is SELECT-only for authenticated
+-- (05_policies.sql / 06_grants.sql): the only writer is service_role. There is
+-- no RPC, no policy, and no grant that lets a browser set plan='ai' or
+-- status='active'. A modified client can therefore lie to ITSELF about the
+-- return value, but the moment real inference is requested the edge function
+-- re-runs this function server-side under the user's own JWT and gets the true,
+-- unforgeable answer. This is what the retired client-side placeholder
+-- (useAiEntitlement's hardcoded `true`) explicitly warned had to happen.
+--
+-- STABLE + security invoker (like catch_shidduch): it resolves the account with
+-- current_account_id() and reads subscription/ai_usage under the caller's RLS,
+-- so it works identically for the SPA (authenticated JWT) and an edge function
+-- that forwards the user's JWT. Returns the unentitled default for a caller with
+-- no account rather than raising, so the app degrades to the free path.
+CREATE OR REPLACE FUNCTION "public"."ai_entitlement"() RETURNS "jsonb"
+    LANGUAGE "plpgsql" STABLE
+    SET "search_path" TO ''
+    AS $$
+declare
+  -- Monthly resume auto-parse allowance for the AI tier. Named rather than
+  -- magic; the meter reads "<resumes_used> / <this>". Free tier gets 0.
+  c_ai_monthly_resume_limit constant integer := 100;
+  v_account_id bigint;
+  v_plan text := 'free';
+  v_status text := 'none';
+  v_is_entitled boolean := false;
+  v_resumes_limit integer := 0;
+  v_resumes_used integer := 0;
+  v_period text := to_char(now(), 'YYYY-MM');
+begin
+  v_account_id := public.current_account_id();
+  if v_account_id is null then
+    return jsonb_build_object(
+      'is_entitled', false,
+      'plan', 'free',
+      'status', 'none',
+      'resumes_used', 0,
+      'resumes_limit', 0
+    );
+  end if;
+
+  select s.plan, s.status
+    into v_plan, v_status
+  from public.subscription s
+  where s.account_id = v_account_id;
+
+  -- Default posture is UNENTITLED: entitlement requires EXACTLY the paid,
+  -- currently-active state. 'lapsed' (was paid, now expired) is not entitled —
+  -- AI auto-fill pauses, nothing is lost, the free manual path stays.
+  v_plan := coalesce(v_plan, 'free');
+  v_status := coalesce(v_status, 'none');
+  v_is_entitled := (v_plan = 'ai' and v_status = 'active');
+  v_resumes_limit := case when v_is_entitled then c_ai_monthly_resume_limit else 0 end;
+
+  select coalesce(u.resumes_parsed, 0)
+    into v_resumes_used
+  from public.ai_usage u
+  where u.account_id = v_account_id and u.period = v_period;
+
+  v_resumes_used := coalesce(v_resumes_used, 0);
+
+  return jsonb_build_object(
+    'is_entitled', v_is_entitled,
+    'plan', v_plan,
+    'status', v_status,
+    'resumes_used', v_resumes_used,
+    'resumes_limit', v_resumes_limit
+  );
+end;
+$$;

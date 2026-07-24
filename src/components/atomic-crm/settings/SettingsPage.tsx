@@ -1,14 +1,25 @@
-import { LogOut } from "lucide-react";
+import { ChevronRight, LogOut, Sparkles } from "lucide-react";
 import { Translate, useAuthProvider, useLogout, useTranslate } from "ra-core";
+import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
 
+import { BillingPage } from "../billing/BillingPage";
 import { AboutSection } from "./AboutSection";
 import { ChangePasswordButton } from "./ChangePasswordButton";
 import { FamilySection } from "./FamilySection";
 import { PreferencesSection } from "./PreferencesSection";
 import { PrivacySection } from "./PrivacySection";
 import { ProfileSection } from "./ProfileSection";
+import { SectionLabel } from "./SectionLabel";
 
 /**
  * Desktop /settings — the sidebar/TopBar "Settings" destination. Mirrors the
@@ -50,6 +61,30 @@ export const SettingsPage = () => {
 
         <div className="space-y-6">
           <PrivacySection />
+
+          <div>
+            <SectionLabel>
+              {translate("crm.billing.eyebrow", { _: "AI features" })}
+            </SectionLabel>
+            <ItemGroup className="overflow-hidden rounded-lg border">
+              <Item asChild size="sm" className="cursor-pointer">
+                <Link to={BillingPage.path}>
+                  <ItemMedia>
+                    <Sparkles className="size-4 text-muted-foreground" />
+                  </ItemMedia>
+                  <ItemContent>
+                    <ItemTitle className="font-normal">
+                      {translate("crm.billing.title", { _: "Billing" })}
+                    </ItemTitle>
+                  </ItemContent>
+                  <ItemActions>
+                    <ChevronRight className="size-4 text-muted-foreground" />
+                  </ItemActions>
+                </Link>
+              </Item>
+            </ItemGroup>
+          </div>
+
           <AboutSection />
 
           <div className="space-y-3 border-t border-border pt-6">
