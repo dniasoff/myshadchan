@@ -25,7 +25,7 @@ export const SettingsPage = () => {
   if (!authProvider) return null;
 
   return (
-    <div className="mx-auto mt-10 max-w-lg space-y-6 px-4 pb-16">
+    <div className="mx-auto mt-10 w-full max-w-4xl px-6 pb-16">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
           {translate("crm.settings.preferences", { _: "Preferences" })}
@@ -35,24 +35,35 @@ export const SettingsPage = () => {
         </h1>
       </div>
 
-      <div className="space-y-6">
-        <ProfileSection />
-        <FamilySection />
-        <PreferencesSection />
-        <PrivacySection />
-        <AboutSection />
-      </div>
+      {/*
+        Desktop widens into two balanced columns (single column below `lg`,
+        e.g. tablets between the mobile breakpoint and 1024px). `items-start`
+        keeps each card at its natural height instead of stretching to match
+        the taller column.
+      */}
+      <div className="mt-8 grid gap-6 lg:grid-cols-2 lg:items-start">
+        <div className="space-y-6">
+          <ProfileSection />
+          <FamilySection />
+          <PreferencesSection />
+        </div>
 
-      <div className="space-y-3 border-t border-border pt-6">
-        <ChangePasswordButton />
-        <Button
-          variant="destructive"
-          className="h-auto w-full text-base"
-          onClick={() => logout()}
-        >
-          <LogOut className="me-3 size-5" />
-          <Translate i18nKey="ra.auth.logout">Log out</Translate>
-        </Button>
+        <div className="space-y-6">
+          <PrivacySection />
+          <AboutSection />
+
+          <div className="space-y-3 border-t border-border pt-6">
+            <ChangePasswordButton />
+            <Button
+              variant="destructive"
+              className="h-auto w-full text-base"
+              onClick={() => logout()}
+            >
+              <LogOut className="me-3 size-5" />
+              <Translate i18nKey="ra.auth.logout">Log out</Translate>
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

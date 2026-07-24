@@ -6,7 +6,7 @@ import type {
 } from "ra-core";
 import { CustomRoutes, Resource } from "ra-core";
 import { useEffect, useMemo } from "react";
-import { Route } from "react-router";
+import { Navigate, Route } from "react-router";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
@@ -264,6 +264,13 @@ const DesktopAdmin = (
         <Route path={ImportPage.path} element={<ImportPage />} />
         <Route path={ChangelogPage.path} element={<ChangelogPage />} />
         <Route path={RemindersPage.path} element={<RemindersPage />} />
+        {/* The `tasks` resource stays registered so Reminders can read task
+            data via the provider, but it has no desktop list — redirect the
+            dead /tasks shell to the Reminders hub that realizes the concept. */}
+        <Route
+          path="/tasks"
+          element={<Navigate to={RemindersPage.path} replace />}
+        />
       </CustomRoutes>
       <Resource name="shidduchim" {...shidduchim} />
       <Resource name="children" {...children} />
