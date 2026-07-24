@@ -25,6 +25,7 @@ import type {
   Sale,
   SalesFormData,
   Shidduch,
+  ShidduchCatch,
   ShidduchSchool,
   SignUpData,
 } from "../../types";
@@ -359,6 +360,28 @@ const getDataProviderWithCustomMethods = () => {
       }
       const row = Array.isArray(data) ? data[0] : data;
       return row as ShidduchSchool;
+    },
+
+    /**
+     * Dedupe "catch" (E3): "you've come across this person before". Given one
+     * shidduch, returns prior suggestions (for any child in this family) and any
+     * honestly-corroborated prior date for the same person, each with confidence
+     * and deciding facts. Read-only — nothing merges. Backed by catch_shidduch(),
+     * which reuses the shared identity matcher (AD-5). FREE, never entitlement-gated.
+     */
+    async catchShidduch(id: Identifier): Promise<ShidduchCatch> {
+      const { data, error } = await getSupabaseClient().rpc("catch_shidduch", {
+        p_shidduchim_id: id,
+      });
+      if (error) {
+        console.error("catchShidduch.error", error);
+        throw new Error(error.message || "Failed to check for prior matches");
+      }
+      return (data ?? {
+        has_catch: false,
+        suggestions: [],
+        dates: [],
+      }) as ShidduchCatch;
     },
     // ---------------------------------------------------------------------
     // References (FR20, FR39-43). Match-on-entry is FREE and never gated by

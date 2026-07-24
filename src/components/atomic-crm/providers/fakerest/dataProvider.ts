@@ -28,6 +28,7 @@ import type {
   Sale,
   SalesFormData,
   Shidduch,
+  ShidduchCatch,
   ShidduchSchool,
   SignUpData,
   Task,
@@ -55,6 +56,10 @@ import {
   logReferenceCall,
 } from "./internal/referenceLinks";
 import { matchReferenceOnEntry } from "./internal/referenceMatch";
+import {
+  catchShidduch,
+  computeShidduchCatchCount,
+} from "./internal/shidduchCatch";
 import {
   mergeReferences,
   previewReferenceMerge,
@@ -249,6 +254,7 @@ export const createDataProvider = ({
     const [
       { data: shadchanim },
       { data: children },
+      { data: allShidduchim },
       refLinksResult,
       redtsResult,
     ] = await Promise.all([
@@ -258,6 +264,13 @@ export const createDataProvider = ({
         sort: { field: "id", order: "ASC" },
       }),
       baseDataProvider.getList("children", {
+        filter: {},
+        pagination: { page: 1, perPage: 10_000 },
+        sort: { field: "id", order: "ASC" },
+      }),
+      // The whole account's shidduchim, so catch_count can compare each row
+      // against every other suggestion (mirrors shidduchim_catch_summary).
+      baseDataProvider.getList("shidduchim", {
         filter: {},
         pagination: { page: 1, perPage: 10_000 },
         sort: { field: "id", order: "ASC" },
@@ -295,6 +308,7 @@ export const createDataProvider = ({
         nb_references: refLinks.filter((rl: any) => rl.shidduchim_id === row.id)
           .length,
         nb_redts: redts.filter((r: any) => r.shidduchim_id === row.id).length,
+        catch_count: computeShidduchCatchCount(row, allShidduchim as any[]),
       };
     });
   };
@@ -814,6 +828,10 @@ export const createDataProvider = ({
       });
       return data as ShidduchSchool;
     },
+    // Dedupe "catch" (E3) -- FakeRest mirror of catch_shidduch(). Read-only,
+    // nothing merges. FREE, never entitlement-gated (same as the Supabase side).
+    catchShidduch: (id: Identifier): Promise<ShidduchCatch> =>
+      catchShidduch(baseDataProvider, id),
     // ---------------------------------------------------------------------
     // References (FR20, FR39-43) -- FakeRest mirrors of the RPCs/edge function
     // in providers/supabase/dataProvider.ts. Match-on-entry is FREE and never

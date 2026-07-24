@@ -133,10 +133,51 @@ from (
     select sales.id from public.sales limit 1
 ) sub;
 
+-- Dedupe "catch" count per shidduch (E3): how many OTHER suggestions in the same
+-- account look like the same person ("you've come across this person before").
+-- Feeds the board card's calm "Suggested before" chip via
+-- shidduchim_summary.catch_count below, so the board reads catches in the SAME
+-- single query as the cards -- never an N+1 lookup per card.
+--
+-- The gate mirrors match_identity() (02_functions.sql) EXACTLY: a name match
+-- (exact normalized OR Hebrew/English variant key) corroborated by at least one
+-- non-name signal (parents / seminary / shul / location). A name match alone
+-- NEVER counts -- that is the false-merge this whole design forbids. Shidduchim
+-- carry no phone signal, so match_identity's phone branch is moot here; the full
+-- evidence for the review panel comes from catch_shidduch(), which calls
+-- match_identity() directly. security_invoker keeps the identity_signals RLS
+-- (account scope, PRV-2) applying to the caller.
+create or replace view public.shidduchim_catch_summary with (security_invoker = on) as
+select
+    a.target_id as shidduchim_id,
+    a.account_id,
+    count(distinct b.target_id) as catch_count
+from public.identity_signals a
+    join public.identity_signals b
+        on b.account_id = a.account_id
+        and b.target_type = 'shidduch'
+        and b.target_id <> a.target_id
+        and (
+            (a.name_en_norm is not null and b.name_en_norm = a.name_en_norm)
+            or (a.name_he_norm is not null and b.name_he_norm = a.name_he_norm)
+            or (a.name_en_key is not null and b.name_en_key = a.name_en_key)
+            or (a.name_he_key is not null and b.name_he_key = a.name_he_key)
+        )
+        and (
+            (a.parents_norm is not null and b.parents_norm = a.parents_norm)
+            or (a.seminary_norm is not null and b.seminary_norm = a.seminary_norm)
+            or (a.shul_norm is not null and b.shul_norm = a.shul_norm)
+            or (a.location_norm is not null and b.location_norm = a.location_norm)
+        )
+where a.target_type = 'shidduch'
+group by a.target_id, a.account_id;
+
 -- Board list/detail read path for the shidduchim pipeline (AD-10, analogous
 -- to contacts_summary/companies_summary). Joins the shadchan ("via {shadchan}")
 -- and the child so the board card needs a single fetch. security_invoker
--- so the base-table RLS still applies to the caller.
+-- so the base-table RLS still applies to the caller. catch_count (E3) is a
+-- 1:1 left join onto the pre-aggregated catch summary above, so it adds no row
+-- multiplication and the board's "Suggested before" chip costs no extra query.
 create or replace view public.shidduchim_summary with (security_invoker = on) as
 select
     s.id,
@@ -172,12 +213,14 @@ select
     c.last_name_en as child_last_name_en,
     c.last_name_he as child_last_name_he,
     count(distinct rl.id) as nb_references,
-    count(distinct r.id) as nb_redts
+    count(distinct r.id) as nb_redts,
+    coalesce(max(cat.catch_count), 0) as catch_count
 from public.shidduchim s
     left join public.shadchanim sh on sh.id = s.shadchan_id
     left join public.children c on c.id = s.child_id
     left join public.reference_links rl on rl.shidduchim_id = s.id
     left join public.redts r on r.shidduchim_id = s.id
+    left join public.shidduchim_catch_summary cat on cat.shidduchim_id = s.id
 group by s.id, sh.name, sh.name_he, c.first_name_en, c.first_name_he, c.last_name_en, c.last_name_he;
 
 -- The reference book's list read path (AD-10, mirrors contacts_summary /

@@ -8,6 +8,7 @@ import { EmptyState } from "../misc/EmptyState";
 import type { Redt, Shadchan, ShidduchSchool, ShidduchSummary } from "../types";
 import { ShidduchReferencesSection } from "../references/ShidduchReferencesSection";
 import { RedtHistorySection } from "./RedtHistorySection";
+import { ShidduchCatchSection } from "./ShidduchCatchSection";
 import { ShidduchFactsCard } from "./ShidduchFactsCard";
 import { ShidduchSchoolsSection } from "./ShidduchSchoolsSection";
 import { ShidduchShowHeader } from "./ShidduchShowHeader";
@@ -111,6 +112,8 @@ const ShidduchShowContent = ({ id }: { id: Identifier }) => {
         currentState={shidduch.pipeline_state}
         name={shidduch.name_en}
       />
+
+      <ShidduchCatchSection shidduchimId={id} />
 
       <ShidduchFactsCard shidduch={shidduch} />
 

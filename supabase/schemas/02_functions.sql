@@ -1916,3 +1916,146 @@ begin
   return p_winner_id;
 end;
 $$;
+
+-- =====================================================================
+-- MyShadchan — Dedupe "catch" engine (E3, AD-5, FR11)
+-- =====================================================================
+-- "You've come across this person before." Given one shidduch, returns the
+-- prior evidence a shadchan needs to decide whether a suggested person has
+-- already been suggested (for ANY child in this family) or already dated. It is
+-- the third caller of the shared identity service (AD-5): it reuses
+-- match_identity('shidduch', ...) rather than growing a bespoke matcher.
+--
+-- Two hard rules, inherited from the identity service:
+--   * Never merges. It returns evidence with a confidence and the deciding
+--     facts; the caller's user always confirms or dismisses. There is no
+--     threshold above which anything happens on its own.
+--   * Never name-only. A catch always needs a name match plus at least one
+--     corroborating non-name signal. Age/height are NEVER matching signals
+--     (FR11) -- age is returned only as informational context to DISPLAY, and is
+--     never part of the gate.
+--
+-- Prior dating: date_records is not (yet) wired into identity_signals (that is
+-- Epic-4), so there is no shared-store row to match against. Rather than
+-- fabricate a dating history or omit it entirely, this matches date_records
+-- DIRECTLY with the SAME shared normalizers (normalize_identity_text /
+-- identity_name_key), held to the SAME bar as the identity matcher: a name match
+-- corroborated by parents / seminary / location. Anything weaker returns no
+-- date. STABLE + security invoker, so identity_signals / date_records RLS
+-- (account scope, PRV-2) applies to the caller. NEVER gated by AI entitlement.
+CREATE OR REPLACE FUNCTION "public"."catch_shidduch"("p_shidduchim_id" bigint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" STABLE
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+  v_s public.shidduchim;
+  v_suggestions jsonb;
+  v_dates jsonb;
+  v_name_en_norm text;
+  v_name_he_norm text;
+  v_name_en_key text;
+  v_name_he_key text;
+  v_parents_norm text;
+  v_seminary_norm text;
+  v_location_norm text;
+begin
+  v_account_id := public.current_account_id();
+  if v_account_id is null then
+    return jsonb_build_object('has_catch', false, 'suggestions', '[]'::jsonb, 'dates', '[]'::jsonb);
+  end if;
+
+  select * into v_s
+  from public.shidduchim s
+  where s.id = p_shidduchim_id and s.account_id = v_account_id;
+
+  if not found then
+    raise exception 'shidduch % not found in current account', p_shidduchim_id;
+  end if;
+
+  -- Prior suggestions: the shared matcher, excluding this very row. Each
+  -- candidate is joined back to its child/shadchan so the panel renders the
+  -- prior context ("suggested for {child}, via {shadchan}, {state}") in one hop.
+  select coalesce(
+    jsonb_agg(to_jsonb(cand) order by cand.confidence desc, cand.prior_shidduchim_id asc),
+    '[]'::jsonb
+  )
+  into v_suggestions
+  from (
+    select
+      m.target_id as prior_shidduchim_id,
+      m.confidence,
+      m.deciding_facts,
+      ps.name_en,
+      ps.name_he,
+      ps.age,
+      ps.pipeline_state,
+      ps.first_suggested_at,
+      ps.redt_date,
+      ps.child_id,
+      c.first_name_en as child_first_name_en,
+      c.first_name_he as child_first_name_he,
+      sh.name as shadchan_name
+    from public.match_identity(
+      'shidduch',
+      v_s.name_en,
+      v_s.name_he,
+      null,
+      coalesce(v_s.parents_en, v_s.parents_he),
+      coalesce(v_s.seminary_en, v_s.seminary_he),
+      coalesce(v_s.shul_en, v_s.shul_he),
+      coalesce(v_s.location_en, v_s.location_he),
+      p_shidduchim_id
+    ) m
+      join public.shidduchim ps on ps.id = m.target_id
+      left join public.children c on c.id = ps.child_id
+      left join public.shadchanim sh on sh.id = ps.shadchan_id
+  ) cand;
+
+  -- Prior dating (honest, corroborated, never fabricated). date_records is not in
+  -- identity_signals, so it is compared directly with the shared normalizers.
+  v_name_en_norm := public.normalize_identity_text(v_s.name_en);
+  v_name_he_norm := public.normalize_identity_text(v_s.name_he);
+  v_name_en_key := public.identity_name_key(v_s.name_en);
+  v_name_he_key := public.identity_name_key(v_s.name_he);
+  v_parents_norm := public.normalize_identity_text(coalesce(v_s.parents_en, v_s.parents_he));
+  v_seminary_norm := public.normalize_identity_text(coalesce(v_s.seminary_en, v_s.seminary_he));
+  v_location_norm := public.normalize_identity_text(coalesce(v_s.location_en, v_s.location_he));
+
+  select coalesce(
+    jsonb_agg(to_jsonb(d) order by d.date_on desc nulls last, d.date_record_id desc),
+    '[]'::jsonb
+  )
+  into v_dates
+  from (
+    select
+      dr.id as date_record_id,
+      dr.person_name_en,
+      dr.person_name_he,
+      dr.date_on,
+      dr.outcome,
+      dr.child_id,
+      c.first_name_en as child_first_name_en
+    from public.date_records dr
+      left join public.children c on c.id = dr.child_id
+    where dr.account_id = v_account_id
+      and (
+        (v_name_en_norm is not null and public.normalize_identity_text(dr.person_name_en) = v_name_en_norm)
+        or (v_name_he_norm is not null and public.normalize_identity_text(dr.person_name_he) = v_name_he_norm)
+        or (v_name_en_key is not null and public.identity_name_key(dr.person_name_en) = v_name_en_key)
+        or (v_name_he_key is not null and public.identity_name_key(dr.person_name_he) = v_name_he_key)
+      )
+      and (
+        (v_parents_norm is not null and public.normalize_identity_text(dr.person_parents) = v_parents_norm)
+        or (v_seminary_norm is not null and public.normalize_identity_text(dr.person_seminary) = v_seminary_norm)
+        or (v_location_norm is not null and public.normalize_identity_text(dr.person_location) = v_location_norm)
+      )
+  ) d;
+
+  return jsonb_build_object(
+    'has_catch', (jsonb_array_length(v_suggestions) > 0 or jsonb_array_length(v_dates) > 0),
+    'suggestions', v_suggestions,
+    'dates', v_dates
+  );
+end;
+$$;

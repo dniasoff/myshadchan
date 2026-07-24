@@ -388,6 +388,12 @@ export type ShidduchSummary = Shidduch & {
   child_last_name_he?: string | null;
   nb_references?: number;
   nb_redts?: number;
+  /**
+   * Dedupe "catch" count (E3): how many OTHER suggestions in this account look
+   * like the same person. Drives the board card's calm "Suggested before" chip.
+   * Comes from shidduchim_summary.catch_count, so no per-card N+1 lookup.
+   */
+  catch_count?: number;
 };
 
 /**
@@ -590,6 +596,52 @@ export type MatchReferenceInput = {
   school?: string | null;
   /** Excluded from its own candidate list when re-matching an existing row. */
   exclude_id?: Identifier | null;
+};
+
+/**
+ * One prior suggestion returned by catch_shidduch() (E3): the same person was
+ * redt before, for this or another child in the family. Carries the confidence
+ * and deciding facts (never a bare score) plus enough prior context to render
+ * the "you've come across this person before" panel in one hop. age is shown as
+ * informational context only — it is NEVER a matching signal (FR11).
+ */
+export type ShidduchCatchSuggestion = {
+  prior_shidduchim_id: Identifier;
+  confidence: number;
+  deciding_facts: MatchDecidingFact[];
+  name_en?: string | null;
+  name_he?: string | null;
+  age?: number | null;
+  pipeline_state: PipelineState;
+  first_suggested_at?: string | null;
+  redt_date?: string | null;
+  child_id?: Identifier | null;
+  child_first_name_en?: string | null;
+  child_first_name_he?: string | null;
+  shadchan_name?: string | null;
+};
+
+/**
+ * A prior date for the same person, discovered honestly from date_records with
+ * the shared normalizers and held to the same name + corroborator bar as the
+ * identity matcher (never name-only, never fabricated). Omitted entirely when no
+ * corroborated match exists.
+ */
+export type ShidduchDatePrior = {
+  date_record_id: Identifier;
+  person_name_en?: string | null;
+  person_name_he?: string | null;
+  date_on?: string | null;
+  outcome?: string | null;
+  child_id?: Identifier | null;
+  child_first_name_en?: string | null;
+};
+
+/** The full catch payload for one shidduch — what catch_shidduch() returns. */
+export type ShidduchCatch = {
+  has_catch: boolean;
+  suggestions: ShidduchCatchSuggestion[];
+  dates: ShidduchDatePrior[];
 };
 
 export type LinkReferenceInput = {

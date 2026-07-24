@@ -237,6 +237,13 @@ revoke all on table public.shidduchim_summary from anon;
 grant all on table public.shidduchim_summary to authenticated;
 grant all on table public.shidduchim_summary to service_role;
 
+-- Dedupe catch count (E3). An aggregate read path over identity_signals, so it is
+-- not auto-updatable and only SELECT is meaningful for authenticated. anon never
+-- reads it, like the rest of the shidduchim domain.
+revoke all on table public.shidduchim_catch_summary from anon, authenticated;
+grant select on table public.shidduchim_catch_summary to authenticated;
+grant all on table public.shidduchim_catch_summary to service_role;
+
 -- Sequence grants
 revoke all on sequence public.accounts_id_seq from anon;
 grant all on sequence public.accounts_id_seq to authenticated;
@@ -410,6 +417,12 @@ grant execute on function public.match_identity(text, text, text, text, text, te
 revoke all on function public.match_reference_on_entry(text, text, text, text, bigint) from public, anon;
 grant execute on function public.match_reference_on_entry(text, text, text, text, bigint) to authenticated;
 grant execute on function public.match_reference_on_entry(text, text, text, text, bigint) to service_role;
+
+-- Dedupe catch (E3): read-only evidence for the "you've come across this person
+-- before" panel. FREE feature, never gated by AI entitlement; anon never runs it.
+revoke all on function public.catch_shidduch(bigint) from public, anon;
+grant execute on function public.catch_shidduch(bigint) to authenticated;
+grant execute on function public.catch_shidduch(bigint) to service_role;
 
 -- Trigger functions: never executable by anon.
 revoke all on function public.set_reference_norms() from public, anon;

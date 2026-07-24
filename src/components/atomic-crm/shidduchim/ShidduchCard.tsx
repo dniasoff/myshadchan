@@ -28,6 +28,18 @@ export const ClockIcon = () => (
   </svg>
 );
 
+/** The calm recognition glyph on the "Suggested before" catch chip (E3). */
+const SparkleIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    className="h-3 w-3 shrink-0"
+    aria-hidden="true"
+  >
+    <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z" />
+  </svg>
+);
+
 export const ShidduchCard = ({
   shidduch,
   index,
@@ -72,6 +84,7 @@ export const ShidduchCardContent = ({
     .filter(Boolean)
     .join(" · ");
   const nbRedts = shidduch.nb_redts ?? 0;
+  const catchCount = shidduch.catch_count ?? 0;
 
   const handleClick = () => {
     // Ignore the click that ends a drag.
@@ -121,10 +134,24 @@ export const ShidduchCardContent = ({
         </div>
 
         {/*
-          Catch-chip slot (dedupe / "suggested before" indicator). Intentionally
-          empty until real matchIdentity() output exists (Epic-4) — the build
-          brief forbids shipping fabricated dedupe data (§3).
+          Dedupe "catch" chip (E3): a calm "Suggested before" indicator when this
+          person looks like one already suggested for another child in the family.
+          catch_count rides along on the shidduchim_summary read (no per-card
+          query), and the honey --attention token marks recognition, never alarm.
+          The full evidence + confirm/dismiss lives on the 360 view (ShidduchCatchSection).
         */}
+        {catchCount > 0 ? (
+          <div className="mt-2.5">
+            <span
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium
+                text-attention-foreground
+                bg-[color-mix(in_oklch,var(--attention)_18%,transparent)]"
+            >
+              <SparkleIcon />
+              Suggested before
+            </span>
+          </div>
+        ) : null}
 
         <div className="mt-3 flex items-center gap-1.5 border-t pt-2.5 text-[11.5px] text-muted-foreground">
           {shidduch.shadchan_name ? (
