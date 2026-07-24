@@ -10,6 +10,8 @@ import type {
   AddRedtInput,
   AddSchoolInput,
   AiEntitlementInfo,
+  ChildPortalData,
+  ChildPortalToken,
   ContactNote,
   CreateShidduchInput,
   Deal,
@@ -31,6 +33,7 @@ import type {
   SignUpData,
 } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
+import { loadChildPortal } from "../../portal/portalClient";
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import { getIsInitialized } from "./authProvider";
@@ -385,6 +388,49 @@ const getDataProviderWithCustomMethods = () => {
         dates: [],
       }) as ShidduchCatch;
     },
+    // ---------------------------------------------------------------------
+    // Read-only child portal (E7). getChildPortal reaches the anon-safe
+    // get_child_portal() RPC — the same path the public page uses — while the
+    // token methods manage the per-child link through the authenticated,
+    // RLS-scoped path. The token secret is ALWAYS generated server-side (a DB
+    // trigger overwrites it); the client only ever reads it back after minting.
+    // ---------------------------------------------------------------------
+    getChildPortal(token: string): Promise<ChildPortalData | null> {
+      return loadChildPortal(token);
+    },
+    async getActiveChildPortalToken(
+      childId: Identifier,
+    ): Promise<ChildPortalToken | null> {
+      // Fetch this child's tokens (RLS keeps them to the caller's account) and
+      // pick the newest non-revoked one client-side, so the result never depends
+      // on a null-filter operator being wired through the adapter.
+      const { data } = await baseDataProvider.getList<ChildPortalToken>(
+        "child_portal_tokens",
+        {
+          filter: { child_id: childId },
+          pagination: { page: 1, perPage: 100 },
+          sort: { field: "created_at", order: "DESC" },
+        },
+      );
+      return data.find((entry) => entry.revoked_at == null) ?? null;
+    },
+    async mintChildPortalToken(childId: Identifier): Promise<ChildPortalToken> {
+      // Send only child_id: account_id and the CSPRNG token are set by the
+      // before-insert trigger, and the created row is returned with the token.
+      const { data } = await baseDataProvider.create<ChildPortalToken>(
+        "child_portal_tokens",
+        { data: { child_id: childId } as Partial<ChildPortalToken> },
+      );
+      return data;
+    },
+    async revokeChildPortalToken(id: Identifier): Promise<void> {
+      await baseDataProvider.update("child_portal_tokens", {
+        id,
+        data: { revoked_at: new Date().toISOString() },
+        previousData: { id },
+      });
+    },
+
     // ---------------------------------------------------------------------
     // References (FR20, FR39-43). Match-on-entry is FREE and never gated by
     // subscription state — do not add an entitlement check to any of these.

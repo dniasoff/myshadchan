@@ -178,3 +178,9 @@ create or replace trigger set_identity_signals_account_id
 create or replace trigger set_inbox_items_account_id
     before insert on public.inbox_items
     for each row execute function public.set_account_id_default();
+
+-- Child portal tokens (E7): server-set account_id AND a forced CSPRNG token on
+-- every insert, so the portal secret is never client-chosen. INSERT-only.
+create or replace trigger set_child_portal_token_defaults
+    before insert on public.child_portal_tokens
+    for each row execute function public.set_child_portal_token_defaults();

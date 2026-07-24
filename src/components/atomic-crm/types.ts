@@ -298,6 +298,49 @@ export type ChildSummary = Child & {
   open_shidduchim: number;
 };
 
+// =====================================================================
+// MyShadchan — Read-only child portal (E7)
+// =====================================================================
+
+/**
+ * An unguessable, revocable per-child portal link (child_portal_tokens). The
+ * child is NOT an account user; this token is the ONLY key to their read-only
+ * portal. `token` is server-generated (a BEFORE INSERT trigger forces a CSPRNG
+ * value) — the client never chooses it and only ever reads it back after minting.
+ */
+export type ChildPortalToken = {
+  account_id: Identifier;
+  child_id: Identifier;
+  token: string;
+  revoked_at?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
+ * One child-facing suggestion card. Deliberately narrow: the prospect's name, a
+ * calm status label, and the redt date — nothing else. get_child_portal() never
+ * returns diligence, references, private notes, age/height, the shadchan, the raw
+ * pipeline_state, or any internal id.
+ */
+export type ChildPortalSuggestion = {
+  name_en?: string | null;
+  name_he?: string | null;
+  redt_date: string;
+  status_label: string | null;
+};
+
+/**
+ * What get_child_portal(token) returns for a valid, non-revoked token. `null` is
+ * returned instead for an unknown or revoked token (no oracle either way).
+ */
+export type ChildPortalData = {
+  child: {
+    first_name_en?: string | null;
+    first_name_he?: string | null;
+  };
+  suggestions: ChildPortalSuggestion[];
+};
+
 export type Shadchan = {
   account_id: Identifier;
   name: string;

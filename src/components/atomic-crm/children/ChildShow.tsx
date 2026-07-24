@@ -9,6 +9,7 @@ import { PipelineSnapshot } from "../dashboard/PipelineSnapshot";
 import { getAvatarIndex, getMonogram } from "../shidduchim/boardUtils";
 import { TopToolbar } from "../layout/TopToolbar";
 import type { Child } from "../types";
+import { ChildPortalShare } from "./ChildPortalShare";
 
 const GENDER_LABEL: Record<string, string> = {
   female: "Female",
@@ -102,10 +103,14 @@ const ChildShowLayout = () => {
   const record = useRecordContext<Child>();
   if (!record) return null;
 
+  const childName =
+    record.first_name_en?.trim() || record.first_name_he?.trim() || null;
+
   return (
     <div className="flex flex-col gap-4">
       <ChildProfileHeader child={record} />
       <PipelineSnapshot childId={record.id} />
+      <ChildPortalShare childId={record.id} childName={childName} />
     </div>
   );
 };

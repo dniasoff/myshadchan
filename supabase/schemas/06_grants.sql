@@ -616,3 +616,41 @@ revoke all on sequence public.inbox_items_id_seq from anon;
 grant usage, select on sequence public.inbox_items_id_seq to authenticated;
 grant all on sequence public.inbox_items_id_seq to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Child portal (E7). This is a NEW EXTERNAL TRUST BOUNDARY, so the grants here
+-- are the tightest in the domain and deserve the closest read.
+--
+-- child_portal_tokens: authenticated (a parent) manages its own account's portal
+-- links — list (select), mint (insert), revoke/rotate (update). DELETE is
+-- withheld so a revoked token stays as an audit trail rather than vanishing, and
+-- the `revoke all` also strips TRUNCATE (which bypasses RLS). anon is denied
+-- EVERYTHING on the table: the token column is the secret, and anon must never be
+-- able to read, enumerate, or write it through PostgREST. The only anon path over
+-- portal data is the get_child_portal() RPC below, which never returns the token.
+revoke all on table public.child_portal_tokens from anon, authenticated;
+grant select, insert, update on table public.child_portal_tokens to authenticated;
+grant all on table public.child_portal_tokens to service_role;
+
+-- authenticated mints its own tokens, so it needs the identity sequence. anon
+-- never inserts, so it is denied.
+revoke all on sequence public.child_portal_tokens_id_seq from anon;
+grant usage, select on sequence public.child_portal_tokens_id_seq to authenticated;
+grant all on sequence public.child_portal_tokens_id_seq to service_role;
+
+-- The token-defaults trigger function: like every trigger fn in this schema it is
+-- executable by authenticated + service_role, never anon.
+revoke all on function public.set_child_portal_token_defaults() from public, anon;
+grant execute on function public.set_child_portal_token_defaults() to authenticated;
+grant execute on function public.set_child_portal_token_defaults() to service_role;
+
+-- get_child_portal() is the ONE function in the whole schema that anon may run,
+-- and the ONLY anon-reachable read path over portal data. It is SECURITY DEFINER
+-- and enforces its own token -> child scoping + the visibility+state filter (see
+-- 02_functions.sql), so bypassing RLS for an anon caller is exactly its job.
+-- Revoke from public first, then grant to anon AND authenticated (a signed-in
+-- parent previewing the link) AND service_role.
+revoke all on function public.get_child_portal(text) from public;
+grant execute on function public.get_child_portal(text) to anon;
+grant execute on function public.get_child_portal(text) to authenticated;
+grant execute on function public.get_child_portal(text) to service_role;
+

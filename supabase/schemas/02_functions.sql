@@ -2140,3 +2140,106 @@ begin
   );
 end;
 $$;
+
+-- =====================================================================
+-- MyShadchan — Read-only child portal (E7)
+-- =====================================================================
+-- The external trust boundary. A "child" (the single being suggested FOR) is
+-- NOT an account user and has no account_members row (there is no `child` role).
+-- They open a calm, read-only view of what is being looked into for them, reached
+-- only by an unguessable, revocable per-child token.
+
+-- Server-owned defaults for a portal token. account_id is derived from the caller
+-- (AD-1), exactly like set_account_id_default. `token` is ALWAYS overwritten with
+-- a fresh CSPRNG value (192 bits from pgcrypto, hex-encoded so it stays URL-safe):
+-- a client — even one issuing a raw insert — can never choose, predict or supply
+-- the secret that guards a family's private data. INSERT-only (never re-run on the
+-- revoke UPDATE), so revoking a token does not silently rotate its secret.
+CREATE OR REPLACE FUNCTION "public"."set_child_portal_token_defaults"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  if new.account_id is null then
+    new.account_id := public.current_account_id();
+  end if;
+  new.token := encode(extensions.gen_random_bytes(24), 'hex');
+  return new;
+end;
+$$;
+
+-- THE single anon-reachable path into portal data, and the crux of E7's security.
+-- SECURITY DEFINER (so it can read past RLS for an unauthenticated caller) +
+-- search_path '' (no hijacking). It therefore MUST enforce its own scoping, which
+-- it does in three stacked filters a leak would have to defeat ALL of:
+--   1. token -> (child_id, account_id), and only when revoked_at is null. An
+--      unknown OR revoked token returns SQL null, indistinguishable from any
+--      other miss — no oracle for "this token once existed".
+--   2. suggestions are restricted to that child in that account.
+--   3. AND visibility = 'shared' (never private_parent / private_child)
+--      AND public.is_child_visible_state(pipeline_state) — the ONE authority for
+--      which of the 7 states a child may see (reused, never re-listed here; it
+--      raises on an unclassified state rather than leaking it).
+-- Only child-safe fields ever leave the function: the prospect's name, a soft
+-- status label, and the redt date. Shadchan diligence, reference/call content,
+-- private notes, age/height, close_reason, the raw pipeline_state and every
+-- internal id are NEVER selected. This is why it is safe to grant to anon.
+CREATE OR REPLACE FUNCTION "public"."get_child_portal"("p_token" "text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_child public.children;
+  v_account_id bigint;
+  v_suggestions jsonb;
+begin
+  -- Treat the token as untrusted input. A too-short value cannot be a real
+  -- 48-char token, so reject it before touching any table.
+  if p_token is null or length(p_token) < 24 then
+    return null;
+  end if;
+
+  select c.* into v_child
+  from public.child_portal_tokens t
+    join public.children c
+      on c.id = t.child_id and c.account_id = t.account_id
+  where t.token = p_token
+    and t.revoked_at is null;
+
+  if not found then
+    return null;
+  end if;
+
+  v_account_id := v_child.account_id;
+
+  select coalesce(
+    jsonb_agg(to_jsonb(x) order by x.redt_date desc nulls last),
+    '[]'::jsonb
+  )
+  into v_suggestions
+  from (
+    select
+      s.name_en,
+      s.name_he,
+      s.redt_date,
+      case s.pipeline_state
+        when 'look_into' then 'Being looked into'
+        when 'unsure' then 'Still being considered'
+        when 'yes' then 'Looking promising'
+      end as status_label
+    from public.shidduchim s
+    where s.child_id = v_child.id
+      and s.account_id = v_account_id
+      and s.visibility = 'shared'
+      and public.is_child_visible_state(s.pipeline_state)
+  ) x;
+
+  return jsonb_build_object(
+    'child', jsonb_build_object(
+      'first_name_en', v_child.first_name_en,
+      'first_name_he', v_child.first_name_he
+    ),
+    'suggestions', v_suggestions
+  );
+end;
+$$;

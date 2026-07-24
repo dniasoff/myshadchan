@@ -12,6 +12,8 @@ import type {
   AddRedtInput,
   AddSchoolInput,
   AiEntitlementInfo,
+  ChildPortalData,
+  ChildPortalToken,
   Company,
   Contact,
   ContactNote,
@@ -62,6 +64,12 @@ import {
   catchShidduch,
   computeShidduchCatchCount,
 } from "./internal/shidduchCatch";
+import {
+  getActiveChildPortalToken,
+  getChildPortal,
+  mintChildPortalToken,
+  revokeChildPortalToken,
+} from "./internal/childPortal";
 import {
   mergeReferences,
   previewReferenceMerge,
@@ -834,6 +842,20 @@ export const createDataProvider = ({
     // nothing merges. FREE, never entitlement-gated (same as the Supabase side).
     catchShidduch: (id: Identifier): Promise<ShidduchCatch> =>
       catchShidduch(baseDataProvider, id),
+    // Read-only child portal (E7) -- FakeRest mirrors of get_child_portal() and
+    // the token CRUD, so demo mode's share panel and (should it be opened) the
+    // portal page behave like production: server-generated token, and only
+    // shared + child-visible suggestions ever come back.
+    getChildPortal: (token: string): Promise<ChildPortalData | null> =>
+      getChildPortal(baseDataProvider, token),
+    getActiveChildPortalToken: (
+      childId: Identifier,
+    ): Promise<ChildPortalToken | null> =>
+      getActiveChildPortalToken(baseDataProvider, childId),
+    mintChildPortalToken: (childId: Identifier): Promise<ChildPortalToken> =>
+      mintChildPortalToken(baseDataProvider, childId),
+    revokeChildPortalToken: (id: Identifier): Promise<void> =>
+      revokeChildPortalToken(baseDataProvider, id),
     // ---------------------------------------------------------------------
     // References (FR20, FR39-43) -- FakeRest mirrors of the RPCs/edge function
     // in providers/supabase/dataProvider.ts. Match-on-entry is FREE and never
