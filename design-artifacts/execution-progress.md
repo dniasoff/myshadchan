@@ -33,8 +33,11 @@ Status legend: `TODO` · `IN_PROGRESS` · `REVIEW` (agent done, awaiting verify)
 | E9d | State/theme/375px parity pass | 1 | none | TODO | — | — | per-screen empty/loading/error + dark + AA |
 | E3 | Dedupe/catch engine + review | 2 | keys+RPC | DONE | agent:catch | c9bfcee | Reused identity_signals matcher (AD-5); catch_shidduch RPC; card chip + detail panel + dashboard feed; RPC verified end-to-end + tests + visual |
 | E4 | Billing + server-side entitlement | 2 | tables+fn | DONE | agent:billing | 69320e3 | Server-authoritative ai_entitlement(); RLS SELECT-only; live bypass attempts blocked; 130 DB + 12 FE tests. SECURITY-REVIEW running (agent:secreview). |
-| E4f | Follow-up: retire decoy accounts.plan/subscription_status/stripe_* cols | 2 | table | TODO | — | — | user-writable, unused for gating today; must never become an entitlement source. Cleanup ticket. |
-| E2 | Capture funnel: share→inbox→parse | 3 | inbox_items | TODO | — | — | free manual path first; AI parse behind E4 |
+| E4f | Neutralize decoy accounts.plan/subscription_status/stripe_* cols | 2 | grants | DONE | agent:decoy | 4c234ab | revoked table UPDATE, re-granted (name,transparency_level,data_region); accounts.plan write now refused (verified) |
+| — | NOTE (Epic-10): AI inference edge fns MUST re-call ai_entitlement() server-side | — | — | NOTE | secreview | — | client gate is UX-only; real budget protection lives server-side when inference ships |
+| E2-core | Capture funnel: schema + ingress + inbox + resolve/link | 3 | inbox_items | IN_PROGRESS | agent:capture-core | — | solo DB owner. email webhook + upload + share-target(text) → inbox_items → resolve to createShidduch (E3 catch fires) |
+| E2-parse | "Confirm the details" review + heuristic field extract (entitlement-gated) | 3 | none | TODO | — | — | after E2-core; real OCR/LLM flagged as follow-up (needs AI infra) |
+| E2-ai | AI/OCR resume extraction (real inference) | 3 | edge fn | DEFERRED | — | — | needs AI provider/gateway + keys + cost decision (Epic-10). Out of scope of this run. |
 | E7 | Candidate portal (read-only) | 4 | tokens+RLS | TODO | — | — | uses existing `visibility` cols; SECURITY-REVIEWER |
 | E8 | Onboarding cluster | 4 | maybe | TODO | — | — | 18+/invite/first-run; reskin ConfirmationRequired |
 
