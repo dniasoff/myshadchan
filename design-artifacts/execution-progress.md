@@ -35,8 +35,9 @@ Status legend: `TODO` · `IN_PROGRESS` · `REVIEW` (agent done, awaiting verify)
 | E4 | Billing + server-side entitlement | 2 | tables+fn | DONE | agent:billing | 69320e3 | Server-authoritative ai_entitlement(); RLS SELECT-only; live bypass attempts blocked; 130 DB + 12 FE tests. SECURITY-REVIEW running (agent:secreview). |
 | E4f | Neutralize decoy accounts.plan/subscription_status/stripe_* cols | 2 | grants | DONE | agent:decoy | 4c234ab | revoked table UPDATE, re-granted (name,transparency_level,data_region); accounts.plan write now refused (verified) |
 | — | NOTE (Epic-10): AI inference edge fns MUST re-call ai_entitlement() server-side | — | — | NOTE | secreview | — | client gate is UX-only; real budget protection lives server-side when inference ships |
-| E2-core | Capture funnel: schema + ingress + inbox + resolve/link | 3 | inbox_items | IN_PROGRESS | agent:capture-core | — | solo DB owner. email webhook + upload + share-target(text) → inbox_items → resolve to createShidduch (E3 catch fires) |
-| E2-parse | "Confirm the details" review + heuristic field extract (entitlement-gated) | 3 | none | TODO | — | — | after E2-core; real OCR/LLM flagged as follow-up (needs AI infra) |
+| E2-core | Capture funnel: schema + inbox + upload + share-target + resolve/link | 3 | inbox_items | DONE | main (solo) | 10e77f7, 0e590fa | inbox_items table + RLS (verified: account_id auto-set, spoof/anon blocked) + Inbox UI + Add-to-inbox + PWA share-target(text) + resolve→createShidduch (E3 catch fires). typecheck/lint/tests ✓, visual ✓ |
+| E2-email | Email-webhook ingress (repurpose postmark → inbox_items) | 3 | none | TODO | — | — | deferred from E2-core; edge-function work, service_role write |
+| E2-parse | "Confirm the details" heuristic field extract (prefill resolve form) | 3 | none | TODO | — | — | resolve dialog already IS the confirm screen; this adds draft auto-fill. Gated/lower value now |
 | E2-ai | AI/OCR resume extraction (real inference) | 3 | edge fn | DEFERRED | — | — | needs AI provider/gateway + keys + cost decision (Epic-10). Out of scope of this run. |
 | E7 | Candidate portal (read-only) | 4 | tokens+RLS | TODO | — | — | uses existing `visibility` cols; SECURITY-REVIEWER |
 | E8 | Onboarding cluster | 4 | maybe | TODO | — | — | 18+/invite/first-run; reskin ConfirmationRequired |
