@@ -154,6 +154,28 @@ This is now load-bearing rather than cosmetic: invite tokens are the same mechan
 that adds a single or a helper to a household, and that establishes consent-based
 parent↔shadchan connections.
 
+## D19 — Greenfield engineering standard · **DECIDED** *(governs every epic)*
+There are no real users to protect. Therefore:
+- **All technical debt is addressed before feature work starts** — not deferred, not
+  ticketed for later.
+- **No backwards compatibility.** No compat layers, no deprecation shims, no aliased
+  views or columns kept "just in case".
+- **No fallbacks.** One code path per behaviour. If a thing is replaced, the old thing
+  is deleted in the same change.
+- **No lazy workarounds.** Fix causes, not symptoms.
+- **Tidy code** is an acceptance criterion, not a nice-to-have.
+
+Direct consequences that simplify earlier decisions:
+- **D18** — no auth migration path is required; password + Google sign-in are **deleted**,
+  not wound down.
+- **D16** — fossils are **dropped outright**, not phased out; renames are straight renames
+  with no aliases.
+- **D3/E7** — the token-link portal is **deleted**, not retained as a capability.
+- **The blocker** — `current_account_id()` is **rewritten** to be context-aware; no
+  single-account fallback is preserved.
+- Demo/seed data may be regenerated freely; schema may be rebuilt rather than patched
+  where that yields a cleaner result.
+
 ---
 
 ## Open questions
