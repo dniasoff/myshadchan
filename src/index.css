@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/space-grotesk";
+@import "@fontsource-variable/heebo";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -11,6 +12,7 @@
   --font-display:
     "Space Grotesk Variable", "Inter Variable", ui-sans-serif, system-ui,
     sans-serif;
+  --font-hebrew: "Heebo Variable", "Heebo", sans-serif;
 
   /* Radius scale (derived from --radius) */
   --radius-sm: calc(var(--radius) - 4px);

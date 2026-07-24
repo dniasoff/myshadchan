@@ -42,6 +42,7 @@ export const ShidduchSchoolsSection = ({
         shidduchim_id: shidduchimId,
         kind: (values.kind as SchoolKind) ?? "seminary",
         name_en: (values.name_en as string) ?? null,
+        name_he: (values.name_he as string) ?? null,
         start_year:
           values.start_year != null ? Number(values.start_year) : null,
         end_year: values.end_year != null ? Number(values.end_year) : null,
@@ -75,8 +76,18 @@ export const ShidduchSchoolsSection = ({
                 <Badge variant="secondary" className="capitalize">
                   {school.kind}
                 </Badge>
-                <span className="min-w-0 truncate">
-                  {school.name_en ?? "—"}
+                <span className="flex min-w-0 items-baseline gap-1">
+                  <span className="min-w-0 truncate">
+                    {school.name_en ?? school.name_he ?? "—"}
+                  </span>
+                  {school.name_he && school.name_en ? (
+                    <span
+                      className="font-hebrew shrink-0 text-muted-foreground"
+                      dir="rtl"
+                    >
+                      {school.name_he}
+                    </span>
+                  ) : null}
                 </span>
               </span>
               <span className="shrink-0 tabular-nums text-muted-foreground">
@@ -101,7 +112,14 @@ export const ShidduchSchoolsSection = ({
             />
             <TextInput
               source="name_en"
-              label="Name"
+              label="Name (EN)"
+              helperText={false}
+            />
+            <TextInput
+              source="name_he"
+              label="Name (HE)"
+              dir="rtl"
+              inputClassName="font-hebrew"
               helperText={false}
             />
             <div className="flex gap-3">

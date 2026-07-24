@@ -72,12 +72,23 @@ export const ShidduchInputs = () => {
           />
         </ReferenceInput>
 
-        <TextInput
-          source="name_en"
-          label="Name"
-          helperText="As it will appear on the board"
-          validate={required()}
-        />
+        {/* Bilingual identity pair — English in foreground, Hebrew alongside
+            in Heebo/RTL with a real gap (never ms-* on the dir="rtl" span). */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <TextInput
+            source="name_en"
+            label="Name (English)"
+            helperText="As it will appear on the board"
+            validate={required()}
+          />
+          <TextInput
+            source="name_he"
+            label="Name (Hebrew)"
+            helperText="Optional — shown alongside the English name"
+            dir="rtl"
+            inputClassName="font-hebrew"
+          />
+        </div>
       </FormSection>
 
       <FormSection eyebrow="Redt by">
@@ -110,15 +121,58 @@ export const ShidduchInputs = () => {
       </FormSection>
 
       <FormSection eyebrow="Details">
+        {/* Each context fact is a bilingual pair — English on the inline-start,
+            Hebrew (Heebo/RTL) beside it — so a fact can be recorded and read in
+            both scripts. Grid fills row by row, keeping each EN next to its HE. */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <TextInput
             source="seminary_en"
-            label="Yeshiva / seminary"
+            label="Yeshiva / seminary (English)"
             helperText={false}
           />
-          <TextInput source="location_en" label="Location" helperText={false} />
-          <TextInput source="parents_en" label="Parents" helperText={false} />
-          <TextInput source="shul_en" label="Shul" helperText={false} />
+          <TextInput
+            source="seminary_he"
+            label="Yeshiva / seminary (Hebrew)"
+            helperText={false}
+            dir="rtl"
+            inputClassName="font-hebrew"
+          />
+          <TextInput
+            source="location_en"
+            label="Location (English)"
+            helperText={false}
+          />
+          <TextInput
+            source="location_he"
+            label="Location (Hebrew)"
+            helperText={false}
+            dir="rtl"
+            inputClassName="font-hebrew"
+          />
+          <TextInput
+            source="parents_en"
+            label="Parents (English)"
+            helperText={false}
+          />
+          <TextInput
+            source="parents_he"
+            label="Parents (Hebrew)"
+            helperText={false}
+            dir="rtl"
+            inputClassName="font-hebrew"
+          />
+          <TextInput
+            source="shul_en"
+            label="Shul (English)"
+            helperText={false}
+          />
+          <TextInput
+            source="shul_he"
+            label="Shul (Hebrew)"
+            helperText={false}
+            dir="rtl"
+            inputClassName="font-hebrew"
+          />
         </div>
         <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
           {/* Age & height are informational only — never matching signals
