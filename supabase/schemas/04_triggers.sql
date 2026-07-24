@@ -174,3 +174,7 @@ create or replace trigger set_interactions_account_id
 create or replace trigger set_identity_signals_account_id
     before insert on public.identity_signals
     for each row execute function public.set_account_id_default();
+
+create or replace trigger set_inbox_items_account_id
+    before insert on public.inbox_items
+    for each row execute function public.set_account_id_default();

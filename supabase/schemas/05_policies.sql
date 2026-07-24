@@ -266,3 +266,14 @@ create policy "Subscription readable within account" on public.subscription
 create policy "AI usage readable within account" on public.ai_usage
     for select to authenticated
     using (account_id = public.current_account_id());
+
+-- Inbox items (Epic 2): full CRUD within the caller's account. Insert/update
+-- are with-check-scoped so a client can capture (share/upload) and resolve its
+-- own items but never read, write, or resolve another account's captures. The
+-- inbound-email webhook writes as service_role (RLS-exempt).
+alter table public.inbox_items enable row level security;
+
+create policy "Inbox items scoped to account" on public.inbox_items
+    for all to authenticated
+    using (account_id = public.current_account_id())
+    with check (account_id = public.current_account_id());

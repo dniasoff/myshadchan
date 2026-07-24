@@ -468,6 +468,31 @@ export type CreateShidduchInput = {
   redt_date?: string | null;
 };
 
+/** Where a captured inbox item arrived from (Epic 2 capture funnel). */
+export type InboxSource = "whatsapp" | "sms" | "email" | "photo" | "upload";
+/** Triage state of a captured item: needs confirmation, resolved, or dismissed. */
+export type InboxStatus = "unresolved" | "resolved" | "dismissed";
+
+/**
+ * An un-triaged capture in the inbox "front door" (Epic 2). Arrives by PWA
+ * share, inbound email, or manual upload and is stored verbatim until one calm
+ * resolve step (which child / which shadchan) turns it into a shidduch.
+ */
+export type InboxItem = {
+  id: Identifier;
+  account_id?: Identifier;
+  created_at: string;
+  source: InboxSource;
+  raw_text?: string | null;
+  subject?: string | null;
+  sender?: string | null;
+  attachments?: unknown[] | null;
+  status: InboxStatus;
+  child_id?: Identifier | null;
+  shadchan_id?: Identifier | null;
+  resolved_shidduchim_id?: Identifier | null;
+};
+
 export type Resume = {
   account_id: Identifier;
   shidduchim_id: Identifier;

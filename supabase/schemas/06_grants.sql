@@ -601,3 +601,18 @@ revoke all on function public.ai_entitlement() from public, anon;
 grant execute on function public.ai_entitlement() to authenticated;
 grant execute on function public.ai_entitlement() to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Inbox items (Epic 2 capture funnel). Unlike the billing ledger, authenticated
+-- needs full CRUD within its own account (RLS-scoped): capture via share/upload
+-- (insert), resolve/dismiss (update), remove (delete). The `revoke all` strips
+-- TRUNCATE (which bypasses RLS). The inbound-email webhook writes as
+-- service_role. anon is denied everywhere.
+revoke all on table public.inbox_items from anon, authenticated;
+grant select, insert, update, delete on table public.inbox_items to authenticated;
+grant all on table public.inbox_items to service_role;
+
+-- authenticated inserts its own captures, so it needs the identity sequence.
+revoke all on sequence public.inbox_items_id_seq from anon;
+grant usage, select on sequence public.inbox_items_id_seq to authenticated;
+grant all on sequence public.inbox_items_id_seq to service_role;
+
