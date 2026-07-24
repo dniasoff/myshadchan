@@ -34,13 +34,11 @@ describe("readPortalToken", () => {
     );
   });
 
-  it("falls back to the ?t= query param when there is no fragment", () => {
-    expect(readPortalToken(url({ search: "?t=querytoken" }))).toBe(
-      "querytoken",
-    );
+  it("ignores a ?t= query param (never read from the query — logged in transit)", () => {
+    expect(readPortalToken(url({ search: "?t=querytoken" }))).toBeNull();
   });
 
-  it("prefers the fragment over the query param", () => {
+  it("reads only the fragment, ignoring any query param", () => {
     expect(
       readPortalToken(url({ hash: "#hashtoken", search: "?t=querytoken" })),
     ).toBe("hashtoken");

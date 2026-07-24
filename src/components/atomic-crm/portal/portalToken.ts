@@ -17,18 +17,16 @@ export const isPortalUrl = (url: PortalUrl): boolean =>
   url.pathname === PORTAL_PATH || url.pathname === `${PORTAL_PATH}/`;
 
 /**
- * The token rides in the URL FRAGMENT by default (`/portal#<token>`): a fragment
- * is never sent to the server, so the bearer secret stays out of access logs and
- * Referer headers — the correct place for a capability token. A `?t=` query param
- * is accepted as a fallback for tools that strip fragments.
+ * The token rides ONLY in the URL FRAGMENT (`/portal#<token>`): a fragment is
+ * never sent to the server, so the bearer secret stays out of access logs and
+ * Referer headers — the correct, and only accepted, place for a capability
+ * token. A `?t=` query param is deliberately NOT accepted: query strings ARE
+ * logged, so honouring one would risk leaking the token into Vercel access logs.
+ * A link whose fragment was stripped fails safe (no access) rather than leaking.
  */
 export const readPortalToken = (url: PortalUrl): string | null => {
   const fromHash = url.hash.replace(/^#/, "").trim();
-  if (fromHash) {
-    return fromHash;
-  }
-  const fromQuery = new URLSearchParams(url.search).get("t")?.trim();
-  return fromQuery ? fromQuery : null;
+  return fromHash ? fromHash : null;
 };
 
 /** Build the shareable portal URL for a token (fragment form). */
