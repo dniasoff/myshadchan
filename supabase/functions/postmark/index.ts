@@ -4,15 +4,17 @@
 
 // Setup type definitions for built-in Supabase Runtime APIs
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { addNoteToContact } from "./addNoteToContact.ts";
 import {
   getForwardedMailContent,
   stripSubjectForwardingPrefix,
 } from "./forwardedParser.ts";
-import { extractMailContactData } from "./extractMailContactData.ts";
 import { getExpectedAuthorization } from "./getExpectedAuthorization.ts";
-import { getNoteContent } from "./getNoteContent.ts";
 import { extractAndUploadAttachments } from "./extractAndUploadAttachments.ts";
+import { buildInboxItemPayload } from "./buildInboxItemPayload.ts";
+import {
+  createInboxItemFromEmail,
+  resolveAccountIdForSalesEmail,
+} from "./createInboxItemFromEmail.ts";
 import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 
 const webhookUser = Deno.env.get("POSTMARK_WEBHOOK_USER");
@@ -39,8 +41,8 @@ Deno.serve(async (req) => {
   response = checkBody(json);
   if (response) return response;
 
-  const { FromFull, Attachments } = json;
-  let { ToFull, TextBody, Subject } = json;
+  const { FromFull, Attachments, ToFull } = json;
+  let { TextBody, Subject } = json;
 
   const salesEmail = (FromFull.Email || "").toLowerCase();
   if (!salesEmail) {
@@ -58,76 +60,49 @@ Deno.serve(async (req) => {
 
   const firstToEmail = (ToFull[0]?.Email || "").toLowerCase();
 
-  // If we have an INBOUND_EMAIL and the email is sent only to the inbound email address, and the sender is a known sales email,
-  // then we can try to extract the real recipient email from the body of the email
+  // When a known user forwards/CCs a redt to the private inbox address, strip
+  // the forwarding chrome so the captured text reads cleanly in the inbox.
   if (
     INBOUND_EMAIL &&
     ToFull.length === 1 &&
     firstToEmail === INBOUND_EMAIL &&
     salesEmails.includes(salesEmail)
   ) {
-    const emailRegex = /[\w.+%-]+@[\w.-]+\.[a-zA-Z]{2,}/g;
-    const emailsInBody = TextBody.match(emailRegex) || [];
-
-    const candidateEmails = emailsInBody
-      .map((email: string) => email.toLowerCase())
-      .filter(
-        (email: string) =>
-          email !== INBOUND_EMAIL && !salesEmails?.includes(email),
-      );
-    if (candidateEmails.length > 0) {
-      ToFull = [
-        {
-          Email: candidateEmails[0],
-          Name: "",
-        },
-      ];
-    } else {
-      // Return a 403 to let Postmark know that it's no use to retry this request
-      // https://postmarkapp.com/developer/webhooks/inbound-webhook#errors-and-retries
-      return new Response(
-        `Could not extract recipient email from transferred email body.`,
-        { status: 403 },
-      );
-    }
     TextBody = getForwardedMailContent(TextBody);
     Subject = stripSubjectForwardingPrefix(Subject);
   }
 
-  const noteContent = getNoteContent(Subject, TextBody);
+  // Shidduch capture (Epic 2): file the whole email verbatim into the sender's
+  // inbox for one calm confirm step. The sender is the family member who sent
+  // or forwarded the redt; their account is resolved via sales -> account_members.
+  // (Legacy contact/note creation is retired — contacts are no longer a resource.)
+  if (!salesEmails.includes(salesEmail)) {
+    // Only known MyShadchan users may file captures; never attribute an inbound
+    // email to an arbitrary account. 403 tells Postmark not to retry.
+    return new Response(
+      `Sender ${salesEmail} is not a known MyShadchan user`,
+      { status: 403 },
+    );
+  }
 
-  const contacts = extractMailContactData(ToFull);
+  const accountId = await resolveAccountIdForSalesEmail(salesEmail);
+  if (!accountId) {
+    return new Response(`No MyShadchan account for sender ${salesEmail}`, {
+      status: 403,
+    });
+  }
 
   const attachments = await extractAndUploadAttachments(Attachments);
 
-  for (const {
-    firstName,
-    lastName,
-    email,
-    domain,
-    companyName,
-    website,
-  } of contacts) {
-    if (!email) {
-      // Return a 403 to let Postmark know that it's no use to retry this request
-      // https://postmarkapp.com/developer/webhooks/inbound-webhook#errors-and-retries
-      return new Response(`Could not extract email from ToFull: ${ToFull}`, {
-        status: 403,
-      });
-    }
-
-    await addNoteToContact({
-      salesEmail,
-      email,
-      domain,
-      firstName,
-      lastName,
-      noteContent,
+  await createInboxItemFromEmail(
+    buildInboxItemPayload({
+      accountId,
+      textBody: TextBody,
+      subject: Subject,
+      sender: FromFull?.Email ?? null,
       attachments,
-      companyName,
-      website,
-    });
-  }
+    }),
+  );
 
   return new Response("OK");
 });
