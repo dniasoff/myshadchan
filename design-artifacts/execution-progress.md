@@ -25,11 +25,11 @@ Status legend: `TODO` · `IN_PROGRESS` · `REVIEW` (agent done, awaiting verify)
 | ID | Epic / task | Wave | Migration? | Status | Owner | Commit | Notes |
 |----|-------------|------|-----------|--------|-------|--------|-------|
 | E1 | Hebrew/RTL — shidduch profile only | 1 | none | DONE | agent:epic1 | committed | typecheck ✓ + visual ✓ (profile shows EN+HE, board stays English). Files: index.css + ShidduchShowHeader/FactsCard/SchoolsSection/Inputs + heebo dep |
-| E5 | Shadchan productivity stats | 1 | view | TODO | — | — | `shadchan_stats` view + tiles on ShadchanShow |
-| E6 | Per-child pipeline counts | 1 | view | TODO | — | — | `children_summary` view + counts on ChildCard/dashboard |
-| E9a | Dead route: `/tasks` → `/reminders` | 1 | none | TODO | — | — | redirect or drop tasks list route in root/CRM.tsx |
-| E9b | Primary-button consistency (gradient) | 1 | none | TODO | — | — | child & reference create/edit saves |
-| E9c | Desktop settings two-pane layout | 1 | none | TODO | — | — | keep MCP/inbound cards out |
+| E5 | Shadchan productivity stats | 1 | view | DONE | agent:aggregates | f17909f | `shadchan_stats` view + 3 tiles on ShadchanShow (Suggestions/Progressed/Reached-yes). "led to dates" omitted (no honest field). typecheck+tests ✓, visual ✓ |
+| E6 | Per-child pipeline counts | 1 | view | DONE | agent:aggregates | f17909f | `children_summary` view + "N in pipeline" on ChildCard (secondary useGetList). fakerest emulated + test. visual ✓ (Rivky 3 / Yaakov 2) |
+| E9a | Dead route: `/tasks` → `/reminders` | 1 | none | DONE | agent:polish1 | 13008f7 | root/CRM.tsx: Navigate redirect /tasks→/reminders (desktop); mobile list kept |
+| E9b | Primary-button consistency (gradient) | 1 | none | DONE | agent:buttons | 18e4776 | FormToolbar SaveButton → PRIMARY_CTA_CLASSNAME; child/reference forms route via FormToolbar |
+| E9c | Desktop settings two-pane layout | 1 | none | DONE | agent:polish1 | 13008f7 | settings/SettingsPage.tsx: max-w-4xl 2-col grid; MCP/inbound already absent |
 | E9d | State/theme/375px parity pass | 1 | none | TODO | — | — | per-screen empty/loading/error + dark + AA |
 | E3 | Dedupe/catch engine + review | 2 | keys+RPC | TODO | — | — | reuse references match-key infra; wire ShidduchCard catch slot |
 | E4 | Billing + server-side entitlement | 2 | tables+fn | TODO | — | — | move useAiEntitlement server-side FIRST; $2/mo tier UI |
