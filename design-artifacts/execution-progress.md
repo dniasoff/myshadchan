@@ -40,7 +40,7 @@ Status legend: `TODO` · `IN_PROGRESS` · `REVIEW` (agent done, awaiting verify)
 | E2-email | Email-webhook ingress (repurpose postmark → inbox_items) | 3 | none | DONE | main (solo) | c436143 | postmark now files sender's forwarded/CC'd email as an inbox_item (sales→account_members); pure payload builder unit-tested; auth unchanged. Live webhook run (functions server + signed POST) deferred |
 | E2-parse | "Confirm the details" heuristic field extract (prefill resolve form) | 3 | none | TODO | — | — | resolve dialog already IS the confirm screen; this adds draft auto-fill. Gated/lower value now |
 | E2-ai | AI/OCR resume extraction (real inference) | 3 | edge fn | DEFERRED | — | — | needs AI provider/gateway + keys + cost decision (Epic-10). Out of scope of this run. |
-| E7 | Candidate portal (read-only) | 4 | tokens+RLS | TODO | — | — | uses existing `visibility` cols; SECURITY-REVIEWER |
+| E7 | Candidate portal (read-only) | 4 | tokens+RLS | DONE | agent:portal | 299ec32, c4d4032 | token-scoped unauth read-only; verified live as anon. SECURITY-REVIEW (secreview7) CLEAN — no CRIT/HIGH/MED, "ship it". Applied its LOW fix (fragment-only token, dropped ?t=). |
 | E8 | Onboarding cluster | 4 | maybe | TODO | — | — | 18+/invite/first-run; reskin ConfirmationRequired |
 
 ## Security-review required
