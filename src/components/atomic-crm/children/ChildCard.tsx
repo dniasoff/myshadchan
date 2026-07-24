@@ -9,6 +9,12 @@ import type { Child } from "../types";
 export interface ChildCardProps {
   child: Child;
   index: number;
+  /**
+   * Still-in-triage suggestion count from children_summary (E6). Optional so the
+   * card renders fine when the count is unavailable (e.g. older demo data);
+   * undefined or 0 simply hides the "N in pipeline" line.
+   */
+  openCount?: number;
 }
 
 const GENDER_LABEL: Record<string, string> = {
@@ -23,7 +29,7 @@ const GENDER_LABEL: Record<string, string> = {
  * of a pipeline-state token). Pressing the card opens the child's profile
  * (`ChildShow`).
  */
-export const ChildCard = ({ child, index }: ChildCardProps) => {
+export const ChildCard = ({ child, index, openCount }: ChildCardProps) => {
   const nameEn = [child.first_name_en, child.last_name_en]
     .filter(Boolean)
     .join(" ");
@@ -35,6 +41,10 @@ export const ChildCard = ({ child, index }: ChildCardProps) => {
     .filter(Boolean)
     .join(" · ");
   const isActive = child.status === "active";
+  // "N in pipeline" — the still-in-triage suggestions for this child (E6). Only
+  // shown when a positive count is supplied; a missing count (summary
+  // unavailable, older demo data) renders nothing rather than a bare zero.
+  const showOpenCount = typeof openCount === "number" && openCount > 0;
 
   return (
     <Link
@@ -98,6 +108,11 @@ export const ChildCard = ({ child, index }: ChildCardProps) => {
             ) : null}
             {isActive ? "Active" : "Paused"}
           </span>
+          {showOpenCount ? (
+            <span className="text-xs font-medium text-muted-foreground tabular-nums">
+              {openCount} in pipeline
+            </span>
+          ) : null}
         </div>
       </Card>
     </Link>

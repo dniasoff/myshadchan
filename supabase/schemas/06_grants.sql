@@ -369,6 +369,16 @@ revoke all on table public.reference_links_summary from anon, authenticated;
 grant select on table public.reference_links_summary to authenticated;
 grant all on table public.reference_links_summary to service_role;
 
+-- Aggregate read paths (E5/E6). Both group several rows per key, so they are
+-- not auto-updatable and only SELECT is meaningful for authenticated.
+revoke all on table public.children_summary from anon, authenticated;
+grant select on table public.children_summary to authenticated;
+grant all on table public.children_summary to service_role;
+
+revoke all on table public.shadchan_stats from anon, authenticated;
+grant select on table public.shadchan_stats to authenticated;
+grant all on table public.shadchan_stats to service_role;
+
 revoke all on sequence public.interactions_id_seq from anon;
 grant all on sequence public.interactions_id_seq to authenticated;
 grant all on sequence public.interactions_id_seq to service_role;

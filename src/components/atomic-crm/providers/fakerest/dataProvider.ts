@@ -299,6 +299,65 @@ export const createDataProvider = ({
     });
   };
 
+  // Emulate the children_summary view (E6 FakeRest mirror): add each child's
+  // total suggestion count and "open" (still-in-triage) count by grouping the
+  // in-memory shidduchim. Mirrors the SQL: open = new/look_into/not_sure.
+  // Applied on the base "children" resource because withSupabaseFilterAdapter
+  // strips the "_summary" suffix before it reaches here (same reason the
+  // shidduchim/references enrichers key off their base resource name).
+  const OPEN_PIPELINE_STATES = new Set<PipelineState>([
+    "new",
+    "look_into",
+    "not_sure",
+  ]);
+  const enrichChildrenSummary = async (rows: any[]) => {
+    if (rows.length === 0) return rows;
+    const { data: shidduchim } = await baseDataProvider.getList("shidduchim", {
+      filter: {},
+      pagination: { page: 1, perPage: 10_000 },
+      sort: { field: "id", order: "ASC" },
+    });
+    return rows.map((child: any) => {
+      const forChild = shidduchim.filter((s: any) => s.child_id === child.id);
+      return {
+        ...child,
+        total_shidduchim: forChild.length,
+        open_shidduchim: forChild.filter((s: any) =>
+          OPEN_PIPELINE_STATES.has(s.pipeline_state),
+        ).length,
+      };
+    });
+  };
+
+  // Emulate the shadchan_stats view (E5 FakeRest mirror): per shadchan, count
+  // suggestions attributed to it (shidduchim.shadchan_id), those that moved
+  // past 'new', and those that reached 'yes'. Keyed on the shadchan's id so
+  // getOne("shadchan_stats", { id }) resolves like the Postgres view.
+  const computeShadchanStats = async (shadchanim: any[]) => {
+    if (shadchanim.length === 0) return shadchanim;
+    const { data: shidduchim } = await baseDataProvider.getList("shidduchim", {
+      filter: {},
+      pagination: { page: 1, perPage: 10_000 },
+      sort: { field: "id", order: "ASC" },
+    });
+    return shadchanim.map((sh: any) => {
+      const forShadchan = shidduchim.filter(
+        (s: any) => s.shadchan_id === sh.id,
+      );
+      return {
+        id: sh.id,
+        account_id: sh.account_id,
+        nb_suggestions: forShadchan.length,
+        nb_progressed: forShadchan.filter(
+          (s: any) => s.pipeline_state !== "new",
+        ).length,
+        nb_reached_yes: forShadchan.filter(
+          (s: any) => s.pipeline_state === "yes",
+        ).length,
+      };
+    });
+  };
+
   // FakeRest mirror of refresh_shidduch_redt_summary(): recompute a shidduch's
   // redt_date (= latest), shadchan_id (= latest redt's shadchan), and
   // first_suggested_by/at (= earliest) from its redt history.
@@ -449,6 +508,25 @@ export const createDataProvider = ({
           total,
         };
       }
+      // Per-child pipeline counts (E6) — the children roster reads the
+      // children_summary view, which the adapter has already collapsed to
+      // "children" here (see enrichChildrenSummary).
+      if (resource === "children") {
+        const { data, total } = await baseDataProvider.getList(
+          "children",
+          params,
+        );
+        return { data: await enrichChildrenSummary(data), total };
+      }
+      // Per-shadchan productivity counts (E5). "shadchan_stats" does not end in
+      // "_summary", so the adapter leaves it intact and it arrives here as-is.
+      if (resource === "shadchan_stats") {
+        const { data, total } = await baseDataProvider.getList(
+          "shadchanim",
+          params,
+        );
+        return { data: await computeShadchanStats(data), total };
+      }
       return baseDataProvider.getList(resource, params);
     },
     async getOne(resource: string, params: any) {
@@ -472,6 +550,11 @@ export const createDataProvider = ({
         );
         const [enriched] = await enrichReferenceLinks(baseDataProvider, [data]);
         return { data: enriched };
+      }
+      if (resource === "shadchan_stats") {
+        const { data } = await baseDataProvider.getOne("shadchanim", params);
+        const [stats] = await computeShadchanStats([data]);
+        return { data: stats };
       }
       return baseDataProvider.getOne(resource, params);
     },

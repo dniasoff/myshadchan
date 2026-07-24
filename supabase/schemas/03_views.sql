@@ -245,3 +245,54 @@ from public.reference_links rl
     left join public."references" r on r.id = rl.reference_id
     left join public.shidduchim s on s.id = rl.shidduchim_id
     left join public.children c on c.id = s.child_id;
+
+-- Per-child pipeline counts (E6). One row per child with the child's own
+-- fields plus a total suggestion count and an "open" (still-in-triage) count,
+-- so the roster card shows "N in pipeline" without an N+1 fetch. Mirrors the
+-- other summary views: account-scoped by base-table RLS via security_invoker,
+-- single-column child join (children.id is a global identity PK). "Open" is the
+-- three active triage states (new/look_into/not_sure); the terminal states
+-- (for_sure_not/yes/unsure/no, per pipelineStates.ts) are excluded so the count
+-- reflects work still in flight, not the child's whole history.
+create or replace view public.children_summary with (security_invoker = on) as
+select
+    c.id,
+    c.account_id,
+    c.created_at,
+    c.first_name_en,
+    c.first_name_he,
+    c.last_name_en,
+    c.last_name_he,
+    c.gender,
+    c.dob,
+    c.community,
+    c.status,
+    c.member_id,
+    count(s.id) as total_shidduchim,
+    count(s.id) filter (
+        where s.pipeline_state in ('new', 'look_into', 'not_sure')
+    ) as open_shidduchim
+from public.children c
+    left join public.shidduchim s on s.child_id = c.id
+group by c.id;
+
+-- Per-shadchan productivity stats (E5). One row per shadchan, keyed on the
+-- shadchan's id, mirroring the "Suggestions from this shadchan" list which
+-- filters shidduchim by shadchan_id (the latest-redt provenance, FR18) — so the
+-- tile totals match the list beneath them. Counts:
+--   nb_suggestions  = shidduchim currently attributed to this shadchan
+--   nb_progressed   = of those, any that moved past 'new'
+--   nb_reached_yes  = of those, any that reached the 'yes' decision
+-- A "led to dates" metric is deliberately omitted: date_records carries no
+-- shadchan linkage, so there is no honest field to count. account-scoped by
+-- base-table RLS via security_invoker.
+create or replace view public.shadchan_stats with (security_invoker = on) as
+select
+    sh.id,
+    sh.account_id,
+    count(s.id) as nb_suggestions,
+    count(s.id) filter (where s.pipeline_state <> 'new') as nb_progressed,
+    count(s.id) filter (where s.pipeline_state = 'yes') as nb_reached_yes
+from public.shadchanim sh
+    left join public.shidduchim s on s.shadchan_id = sh.id
+group by sh.id;

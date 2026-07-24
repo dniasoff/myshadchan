@@ -1,11 +1,13 @@
-import { useListContext } from "ra-core";
+import type { Identifier } from "ra-core";
+import { useGetList, useListContext } from "ra-core";
+import { useMemo } from "react";
 import { Link } from "react-router";
 
 import { List } from "@/components/admin/list";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { EmptyState } from "../misc/EmptyState";
-import type { Child } from "../types";
+import type { Child, ChildSummary } from "../types";
 import { ChildCard } from "./ChildCard";
 
 const ChildListSkeleton = () => (
@@ -59,6 +61,21 @@ const ChildListHeader = () => (
 
 const ChildListContent = () => {
   const { data, isPending } = useListContext<Child>();
+  // Per-child pipeline counts (E6) come from the children_summary view, fetched
+  // alongside the roster so the list resource (and its breadcrumb) stays the
+  // plain `children`. Keyed by child id; a child with no summary row just has no
+  // count. The roster is small (perPage 100), so a single 500-row read covers it.
+  const { data: summaries } = useGetList<ChildSummary>("children_summary", {
+    pagination: { page: 1, perPage: 500 },
+    sort: { field: "id", order: "ASC" },
+  });
+  const openCountById = useMemo(() => {
+    const map = new Map<Identifier, number>();
+    (summaries ?? []).forEach((summary) =>
+      map.set(summary.id, summary.open_shidduchim),
+    );
+    return map;
+  }, [summaries]);
 
   return (
     <div>
@@ -75,7 +92,12 @@ const ChildListContent = () => {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {data.map((child, index) => (
-            <ChildCard key={child.id} child={child} index={index} />
+            <ChildCard
+              key={child.id}
+              child={child}
+              index={index}
+              openCount={openCountById.get(child.id)}
+            />
           ))}
         </div>
       )}
@@ -88,7 +110,8 @@ const ChildListContent = () => {
  * children are few, and each deserves a humane presence, not a datagrid row.
  * The default admin title/actions row is suppressed (`title={false}`,
  * `actions={<></>}`); this builds its own QL header with a single gradient
- * primary CTA instead of the plain admin `CreateButton`.
+ * primary CTA instead of the plain admin `CreateButton`. Pipeline counts (E6)
+ * are joined in by ChildListContent from the children_summary view.
  */
 export const ChildList = () => (
   <List

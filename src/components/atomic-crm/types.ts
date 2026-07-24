@@ -288,6 +288,16 @@ export type Child = {
   created_at: string;
 } & Pick<RaRecord, "id">;
 
+/**
+ * children_summary — per-child pipeline counts (E6). Every Child field plus a
+ * total suggestion count and an "open" (still-in-triage) count, so the roster
+ * card shows "N in pipeline" without an N+1 fetch.
+ */
+export type ChildSummary = Child & {
+  total_shidduchim: number;
+  open_shidduchim: number;
+};
+
 export type Shadchan = {
   account_id: Identifier;
   name: string;
@@ -297,6 +307,20 @@ export type Shadchan = {
   notes?: string | null;
   responsiveness?: string | null;
   created_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
+ * shadchan_stats — per-shadchan productivity counts (E5). Keyed on the
+ * shadchan's id. Mirrors the "Suggestions from this shadchan" list, which
+ * filters shidduchim by shadchan_id, so the tiles agree with the list.
+ * A "led to dates" metric is intentionally absent: date_records carries no
+ * shadchan linkage, so there is no honest field to count.
+ */
+export type ShadchanStats = {
+  account_id: Identifier;
+  nb_suggestions: number;
+  nb_progressed: number;
+  nb_reached_yes: number;
 } & Pick<RaRecord, "id">;
 
 export type Reference = {
