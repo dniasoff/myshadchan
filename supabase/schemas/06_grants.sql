@@ -541,6 +541,34 @@ grant execute on function public.rehome_reference_interactions(bigint, bigint) t
 grant execute on function public.rehome_reference_interactions(bigint, bigint) to service_role;
 
 -- ---------------------------------------------------------------------------
+-- accounts billing columns are NOT client-writable (E4 hardening).
+--
+-- The five billing columns on `accounts` (stripe_customer_id,
+-- subscription_status, plan, current_period_end, trial_end) are legacy
+-- schema-readiness fields (AD-16, 01_tables.sql). They are UNUSED for
+-- entitlement — the only authority is the `subscription` table via
+-- public.ai_entitlement() — but they are indistinguishable from the real
+-- thing, so a client-writable `accounts.plan = 'ai'` would be an instant
+-- paywall bypass the day any code read it. Close the write path now.
+--
+-- A bare column-level `revoke update (plan, ...) on accounts` would be a
+-- no-op: the table-level `grant update on accounts` above (the TRUNCATE
+-- hardening block) covers every column, and a column-level revoke cannot
+-- subtract from a table-level grant. So revoke table-level UPDATE and re-grant
+-- UPDATE only on the mutable business columns — exactly the idiom used for
+-- `interactions` above. Today the client updates only `name` (login/
+-- FirstRunSetup.tsx); transparency_level/data_region are the account-config
+-- columns a settings screen would edit. `demo` is deliberately omitted: it is
+-- server-owned, written only by the seed_demo/clear_demo edge functions via
+-- the service_role client, which bypasses these grants. id/created_at are
+-- immutable. The five billing columns are thus unreachable by any client.
+--
+-- anon already has ALL privileges revoked on accounts (above), so it holds no
+-- UPDATE to narrow.
+revoke update on table public.accounts from authenticated;
+grant update (name, transparency_level, data_region) on public.accounts to authenticated;
+
+-- ---------------------------------------------------------------------------
 -- Billing / AI entitlement (E4). subscription and ai_usage are the paid-tier
 -- ledger. They are SELECT-only for authenticated: a member reads their own
 -- entitlement and usage meter, and nothing else. NO write grant is issued to

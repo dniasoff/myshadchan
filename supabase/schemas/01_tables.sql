@@ -240,7 +240,12 @@ create table public.accounts (
     name text not null default 'My Account',
     transparency_level text not null default 'shared',
     data_region text,
-    -- Billing (AD-16) — present for schema-readiness, wired in a later epic.
+    -- Billing (AD-16) — legacy schema-readiness columns, UNUSED. They MUST
+    -- NEVER feed an entitlement decision: the sole entitlement authority is the
+    -- `subscription` table via public.ai_entitlement(). They look identical to
+    -- the real thing, so client writes to them are revoked in 06_grants.sql
+    -- (a mislabeled `accounts.plan = 'ai'` would be an instant paywall bypass
+    -- the day any code read it).
     stripe_customer_id text,
     subscription_status text,
     plan text,
