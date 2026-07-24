@@ -3,6 +3,7 @@ import { SimpleForm } from "@/components/admin/simple-form";
 
 import { ChildFormFrame } from "./ChildFormFrame";
 import { ChildInputs } from "./ChildInputs";
+import { FormToolbar } from "../layout/FormToolbar";
 
 export const ChildCreate = () => (
   <Create redirect="show" title={false}>
@@ -10,7 +11,7 @@ export const ChildCreate = () => (
       heading="Add a child"
       description="A shidduchim pipeline belongs to a child — the single you are redting for."
     >
-      <SimpleForm>
+      <SimpleForm toolbar={<FormToolbar />}>
         <ChildInputs />
       </SimpleForm>
     </ChildFormFrame>

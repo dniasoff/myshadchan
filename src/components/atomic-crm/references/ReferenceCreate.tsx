@@ -6,6 +6,7 @@ import { Create } from "@/components/admin/create";
 import { SimpleForm } from "@/components/admin/simple-form";
 import type { CrmDataProvider } from "../providers/types";
 import type { ReferenceMatchCandidate } from "../types";
+import { FormToolbar } from "../layout/FormToolbar";
 import { ReferenceInputs } from "./ReferenceInputs";
 import { ReferenceMatchPanel } from "./ReferenceMatchPanel";
 import { useReferenceMatch } from "./useReferenceMatch";
@@ -94,7 +95,7 @@ export const ReferenceCreate = () => {
 
   return (
     <Create redirect="show">
-      <SimpleForm>
+      <SimpleForm toolbar={<FormToolbar />}>
         <ReferenceInputs />
         <MatchOnEntry shidduchimId={shidduchimId} />
       </SimpleForm>

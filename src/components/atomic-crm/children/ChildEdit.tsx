@@ -4,6 +4,7 @@ import { SimpleForm } from "@/components/admin/simple-form";
 
 import { ChildFormFrame } from "./ChildFormFrame";
 import { ChildInputs } from "./ChildInputs";
+import { FormToolbar } from "../layout/FormToolbar";
 import { TopToolbar } from "../layout/TopToolbar";
 
 /**
@@ -25,7 +26,7 @@ export const ChildEdit = () => (
       heading="Edit child"
       description="Update this child's details."
     >
-      <SimpleForm>
+      <SimpleForm toolbar={<FormToolbar />}>
         <ChildInputs />
       </SimpleForm>
     </ChildFormFrame>
