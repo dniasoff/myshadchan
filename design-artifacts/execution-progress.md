@@ -41,7 +41,7 @@ Status legend: `TODO` · `IN_PROGRESS` · `REVIEW` (agent done, awaiting verify)
 | E2-parse | "Confirm the details" heuristic field extract (prefill resolve form) | 3 | none | TODO | — | — | resolve dialog already IS the confirm screen; this adds draft auto-fill. Gated/lower value now |
 | E2-ai | AI/OCR resume extraction (real inference) | 3 | edge fn | DEFERRED | — | — | needs AI provider/gateway + keys + cost decision (Epic-10). Out of scope of this run. |
 | E7 | Candidate portal (read-only) | 4 | tokens+RLS | DONE | agent:portal | 299ec32, c4d4032 | token-scoped unauth read-only; verified live as anon. SECURITY-REVIEW (secreview7) CLEAN — no CRIT/HIGH/MED, "ship it". Applied its LOW fix (fragment-only token, dropped ?t=). |
-| E8 | Onboarding cluster | 4 | maybe | TODO | — | — | 18+/invite/first-run; reskin ConfirmationRequired |
+| E8 | Onboarding cluster | 4 | maybe | IN_PROGRESS | agent:onboarding | — | Components EXIST (AgeAffirmation, InviteAcceptance, FirstRunSetup, ConfirmationRequired). Gap = WIRING: AgeAffirmation/InviteAcceptance are orphaned. FirstRunSetup wired via OnboardingGate; ConfirmationRequired reskinned. |
 
 ## Security-review required
 E2 (external ingress + attachments), E4 (billing/entitlement), E7 (portal trust boundary).
@@ -51,3 +51,6 @@ E2 (external ingress + attachments), E4 (billing/entitlement), E7 (portal trust 
   after earlier weekly-limit failures).
 - 2026-07-24 — E1 DONE. Sub-agents confirmed working again. Committed to main. Next: batch A (E5+E6
   aggregates, single DB owner), B (E9a+E9c frontend polish), C (E9b button consistency) — file-disjoint.
+- 2026-07-24 — DEPLOYED to production. 6 migrations pushed to hosted Supabase (krlqkxlczxlgienjunmd,
+  all remote-confirmed); origin/main @ 2673d27; Vercel prod READY @ www.myshadchan.space (HTTP 200).
+  E7 external boundary security-reviewed CLEAN + LOW fix applied before shipping. E1–E7 live.
