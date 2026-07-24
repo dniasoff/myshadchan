@@ -31,8 +31,8 @@ Status legend: `TODO` · `IN_PROGRESS` · `REVIEW` (agent done, awaiting verify)
 | E9b | Primary-button consistency (gradient) | 1 | none | DONE | agent:buttons | 18e4776 | FormToolbar SaveButton → PRIMARY_CTA_CLASSNAME; child/reference forms route via FormToolbar |
 | E9c | Desktop settings two-pane layout | 1 | none | DONE | agent:polish1 | 13008f7 | settings/SettingsPage.tsx: max-w-4xl 2-col grid; MCP/inbound already absent |
 | E9d | State/theme/375px parity pass | 1 | none | TODO | — | — | per-screen empty/loading/error + dark + AA |
-| E3 | Dedupe/catch engine + review | 2 | keys+RPC | TODO | — | — | reuse references match-key infra; wire ShidduchCard catch slot |
-| E4 | Billing + server-side entitlement | 2 | tables+fn | TODO | — | — | move useAiEntitlement server-side FIRST; $2/mo tier UI |
+| E3 | Dedupe/catch engine + review | 2 | keys+RPC | DONE | agent:catch | c9bfcee | Reused identity_signals matcher (AD-5); catch_shidduch RPC; card chip + detail panel + dashboard feed; RPC verified end-to-end + tests + visual |
+| E4 | Billing + server-side entitlement | 2 | tables+fn | IN_PROGRESS | agent:billing | — | solo DB owner. Server-side entitlement + subscription/usage schema + tier UI; payment STUBbed (product decision). SECURITY-REVIEW after. |
 | E2 | Capture funnel: share→inbox→parse | 3 | inbox_items | TODO | — | — | free manual path first; AI parse behind E4 |
 | E7 | Candidate portal (read-only) | 4 | tokens+RLS | TODO | — | — | uses existing `visibility` cols; SECURITY-REVIEWER |
 | E8 | Onboarding cluster | 4 | maybe | TODO | — | — | 18+/invite/first-run; reskin ConfirmationRequired |
