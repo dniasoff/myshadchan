@@ -1,10 +1,11 @@
 import { PRIMARY_NAV } from "./navItems";
 
 describe("PRIMARY_NAV", () => {
-  it("contains exactly the 6 foundation nav items in order", () => {
+  it("contains exactly the 7 foundation nav items in order", () => {
     expect(PRIMARY_NAV.map((item) => item.to)).toEqual([
       "/",
       "/shidduchim",
+      "/inbox_items",
       "/shadchanim",
       "/references",
       "/reminders",

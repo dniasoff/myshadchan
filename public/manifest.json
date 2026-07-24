@@ -70,5 +70,14 @@
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#4f46e5",
-  "background_color": "#ffffff"
+  "background_color": "#ffffff",
+  "share_target": {
+    "action": "share-target.html",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
 }

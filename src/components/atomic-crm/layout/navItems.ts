@@ -1,6 +1,7 @@
 import {
   BellRing,
   BookUser,
+  Inbox,
   KanbanSquare,
   LayoutDashboard,
   Settings,
@@ -41,6 +42,13 @@ export const PRIMARY_NAV: NavItem[] = [
     labelDefault: "Pipeline",
     icon: KanbanSquare,
     tourId: "pipeline",
+  },
+  {
+    to: "/inbox_items",
+    labelKey: "crm.navigation.inbox",
+    labelDefault: "Inbox",
+    icon: Inbox,
+    tourId: "inbox",
   },
   {
     to: "/shadchanim",

@@ -16,6 +16,8 @@ import { SetPasswordPage } from "@/components/supabase/set-password-page";
 import { OAuthConsentPage } from "@/components/supabase/oauth-consent-page";
 
 import children from "../children";
+import inbox from "../inbox";
+import { ShareTarget } from "../inbox/ShareTarget";
 import { Dashboard } from "../dashboard/Dashboard";
 import { MobileDashboard } from "../dashboard/MobileDashboard";
 import references from "../references";
@@ -266,6 +268,7 @@ const DesktopAdmin = (
         <Route path={ImportPage.path} element={<ImportPage />} />
         <Route path={ChangelogPage.path} element={<ChangelogPage />} />
         <Route path={RemindersPage.path} element={<RemindersPage />} />
+        <Route path={ShareTarget.path} element={<ShareTarget />} />
         {/* The `tasks` resource stays registered so Reminders can read task
             data via the provider, but it has no desktop list — redirect the
             dead /tasks shell to the Reminders hub that realizes the concept. */}
@@ -276,6 +279,7 @@ const DesktopAdmin = (
       </CustomRoutes>
       <Resource name="shidduchim" {...shidduchim} />
       <Resource name="children" {...children} />
+      <Resource name="inbox_items" {...inbox} />
       <Resource name="shadchanim" {...shadchanim} />
       <Resource name="references" {...references} />
       <Resource name="reference_links" />
@@ -341,9 +345,11 @@ const MobileAdmin = (
           <Route path={BillingPage.path} element={<BillingPage />} />
           <Route path={ChangelogPage.path} element={<ChangelogPage />} />
           <Route path={RemindersPage.path} element={<RemindersPage />} />
+          <Route path={ShareTarget.path} element={<ShareTarget />} />
         </CustomRoutes>
         <Resource name="shidduchim" {...shidduchim} />
         <Resource name="children" {...children} />
+        <Resource name="inbox_items" {...inbox} />
         <Resource name="shadchanim" {...shadchanim} />
         <Resource name="references" {...references} />
         <Resource name="reference_links" />

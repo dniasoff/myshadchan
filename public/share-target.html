@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MyShadchan — filing…</title>
+  </head>
+  <body>
+    <!--
+      PWA share-target shim (Epic 2). The app routes on the hash, but a
+      share_target GET lands on this real path with the shared data in the query
+      string. Forward it verbatim to the in-app #/share handler, which files the
+      capture into the inbox. (Full PWA installability/file-share needs a service
+      worker — a follow-up; this text-share path needs none.)
+    -->
+    <script>
+      var search = window.location.search || "";
+      window.location.replace("/#/share" + search);
+    </script>
+    <noscript>Enable JavaScript to file what you shared.</noscript>
+  </body>
+</html>
