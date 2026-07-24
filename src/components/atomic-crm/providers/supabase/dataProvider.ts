@@ -487,6 +487,43 @@ const getDataProviderWithCustomMethods = () => {
       return (data as { winnerId: Identifier }).winnerId;
     },
 
+    // ---------------------------------------------------------------------
+    // Demo / onboarding (Stage B). Thin wrappers around the seed_demo /
+    // clear_demo edge functions and the current_account_demo() RPC — see
+    // supabase/functions/seed_demo|clear_demo/index.ts and 02_functions.sql.
+    // ---------------------------------------------------------------------
+    async seedDemo(): Promise<{ seeded: boolean; reason?: string }> {
+      const { data, error } = await getSupabaseClient().functions.invoke<{
+        seeded: boolean;
+        reason?: string;
+      }>("seed_demo", { method: "POST" });
+      if (error || !data) {
+        console.error("seed_demo.error", error);
+        throw new Error("Failed to load the demo data");
+      }
+      return data;
+    },
+    async clearDemo(): Promise<{ cleared: boolean }> {
+      const { data, error } = await getSupabaseClient().functions.invoke<{
+        cleared: boolean;
+      }>("clear_demo", { method: "POST" });
+      if (error || !data) {
+        console.error("clear_demo.error", error);
+        throw new Error("Failed to clear the demo data");
+      }
+      return data;
+    },
+    async currentAccountDemo(): Promise<boolean> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "current_account_demo",
+      );
+      if (error) {
+        console.error("current_account_demo.error", error);
+        return false; // fail-soft: no banner rather than a broken app
+      }
+      return data === true;
+    },
+
     async getConfiguration(): Promise<ConfigurationContextValue> {
       const { data } = await baseDataProvider.getOne("configuration", {
         id: 1,

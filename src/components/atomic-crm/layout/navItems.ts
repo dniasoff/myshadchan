@@ -18,6 +18,8 @@ export interface NavItem {
   labelKey: string;
   labelDefault: string;
   icon: LucideIcon;
+  /** Suffixed onto `data-tour="nav-"` so the walkthrough can anchor to it. */
+  tourId: string;
 }
 
 /**
@@ -31,35 +33,41 @@ export const PRIMARY_NAV: NavItem[] = [
     labelKey: "ra.page.dashboard",
     labelDefault: "Dashboard",
     icon: LayoutDashboard,
+    tourId: "dashboard",
   },
   {
     to: "/shidduchim",
     labelKey: "crm.navigation.pipeline",
     labelDefault: "Pipeline",
     icon: KanbanSquare,
+    tourId: "pipeline",
   },
   {
     to: "/shadchanim",
     labelKey: "resources.shadchanim.name",
     labelDefault: "Shadchanim",
     icon: Users,
+    tourId: "shadchanim",
   },
   {
     to: "/references",
     labelKey: "resources.references.name",
     labelDefault: "References",
     icon: BookUser,
+    tourId: "references",
   },
   {
     to: "/reminders",
     labelKey: "crm.navigation.reminders",
     labelDefault: "Reminders",
     icon: BellRing,
+    tourId: "reminders",
   },
   {
     to: "/settings",
     labelKey: "crm.settings.title",
     labelDefault: "Settings",
     icon: Settings,
+    tourId: "settings",
   },
 ];

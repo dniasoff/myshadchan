@@ -30,10 +30,9 @@ const STEPS: Step[] = ["account", "child", "done"];
 
 /**
  * First-run onboarding: name the family record, add the first child, land
- * on the dashboard. Renders after sign-up, before the first real page — but
- * is not yet wired into a route (routing lives in root/CRM.tsx, outside
- * this lane). Whoever owns that file should mount this at e.g. `/welcome`
- * and redirect there once for a brand-new account.
+ * on the dashboard. Rendered inline (no dedicated route) by
+ * `login/OnboardingChoice.tsx`'s "Start with my own family" path — see
+ * `root/OnboardingGate.tsx` for when that screen shows.
  *
  * Both steps are real writes, not mocked: `accounts` (name) and `children`
  * (first child) are both RLS-scoped, authenticated-writable tables already —
@@ -48,7 +47,10 @@ export const FirstRunSetup = () => {
 
   const { data: accounts, isPending: isAccountLoading } = useGetList<Account>(
     "accounts",
-    { pagination: { page: 1, perPage: 1 }, sort: { field: "id", order: "ASC" } },
+    {
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    },
   );
   const account = accounts?.[0];
 
@@ -126,7 +128,10 @@ export const FirstRunSetup = () => {
         </div>
 
         {/* Step dots */}
-        <div className="flex items-center justify-center gap-2" aria-hidden="true">
+        <div
+          className="flex items-center justify-center gap-2"
+          aria-hidden="true"
+        >
           {STEPS.map((s, i) => (
             <span
               key={s}
@@ -242,9 +247,7 @@ export const FirstRunSetup = () => {
                   })}
                 </Label>
                 <Select
-                  onValueChange={(value) =>
-                    childForm.setValue("gender", value)
-                  }
+                  onValueChange={(value) => childForm.setValue("gender", value)}
                 >
                   <SelectTrigger id="child-gender" className="w-full">
                     <SelectValue
@@ -316,7 +319,10 @@ export const FirstRunSetup = () => {
             </div>
             <Button
               type="button"
-              className={cn("w-full cursor-pointer gap-2", PRIMARY_CTA_CLASSNAME)}
+              className={cn(
+                "w-full cursor-pointer gap-2",
+                PRIMARY_CTA_CLASSNAME,
+              )}
               onClick={() => navigate("/")}
             >
               <Sparkles className="size-4" aria-hidden="true" />

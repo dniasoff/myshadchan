@@ -29,16 +29,22 @@ const PlusIcon = () => (
 export const ShidduchColumn = ({
   state,
   shidduchim,
+  tourAnchor = false,
 }: {
   state: PipelineStateDef;
   shidduchim: ShidduchSummary[];
+  /** Anchors `data-tour="pipeline-column"` for the walkthrough (first column only). */
+  tourAnchor?: boolean;
 }) => {
   const canAdd = INITIAL_PIPELINE_STATES.includes(state.value);
   const groupLabel =
     PIPELINE_GROUPS.find((g) => g.id === state.group)?.label ?? "";
 
   return (
-    <section className="flex w-[250px] shrink-0 flex-col gap-3">
+    <section
+      data-tour={tourAnchor ? "pipeline-column" : undefined}
+      className="flex w-[250px] shrink-0 flex-col gap-3"
+    >
       <div className="h-[15px] px-1 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
         {groupLabel}
       </div>
@@ -85,6 +91,7 @@ export const ShidduchColumn = ({
                 key={shidduch.id}
                 shidduch={shidduch}
                 index={index}
+                tourAnchor={tourAnchor && index === 0}
               />
             ))}
             {provided.placeholder}

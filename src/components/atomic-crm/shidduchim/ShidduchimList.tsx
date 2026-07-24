@@ -57,7 +57,9 @@ const ShidduchimList = () => {
 
 const ShidduchimActions = () => (
   <TopToolbar>
-    <CreateButton label="Add a suggestion" />
+    <span data-tour="add-suggestion">
+      <CreateButton label="Add a suggestion" />
+    </span>
   </TopToolbar>
 );
 

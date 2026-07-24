@@ -218,6 +218,9 @@ export const createDataProvider = ({
 }: CreateFakeRestDataProviderOptions = {}): CrmDataProvider => {
   const baseDataProvider = fakeRestDataProvider(db, !silent, latency);
   let taskUpdateType = TASK_DONE_NOT_CHANGED;
+  // Demo / onboarding (Stage B): mirrors accounts.demo for the FakeRest
+  // session. Starts false; flipped by seedDemo/clearDemo below.
+  let fakeDemo = false;
   const getIdentity = async () =>
     authProvider?.getIdentity?.() ?? defaultAuthProvider.getIdentity?.();
 
@@ -754,6 +757,20 @@ export const createDataProvider = ({
       resolutions: Record<string, MergeResolution> = {},
     ): Promise<Identifier> =>
       mergeReferences(baseDataProvider, loserId, winnerId, resolutions),
+    // ---------------------------------------------------------------------
+    // Demo / onboarding (Stage B) -- FakeRest stubs so demos/tests don't
+    // break. `fakeDemo` is module-level so the flag stays self-consistent
+    // across the three methods within one browser session.
+    // ---------------------------------------------------------------------
+    seedDemo: async (): Promise<{ seeded: boolean }> => {
+      fakeDemo = true;
+      return { seeded: true };
+    },
+    clearDemo: async (): Promise<{ cleared: boolean }> => {
+      fakeDemo = false;
+      return { cleared: true };
+    },
+    currentAccountDemo: async (): Promise<boolean> => fakeDemo,
     getConfiguration: async (): Promise<ConfigurationContextValue> => {
       const { data } = await baseDataProvider.getOne("configuration", {
         id: 1,

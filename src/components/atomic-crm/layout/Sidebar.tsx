@@ -16,24 +16,16 @@ export const Sidebar = () => {
 
   return (
     <aside
-      className="fixed inset-y-0 start-0 z-30 hidden w-[var(--sidebar-w)]
-        flex-col border-e border-[--glass-border] bg-[--glass-bg]
-        shadow-lg backdrop-blur-[var(--glass-blur)] md:flex"
+      className="fixed bottom-0 top-[var(--banner-h,0px)] start-0 z-30 hidden
+        w-[var(--sidebar-w)] flex-col border-e border-[--glass-border]
+        bg-[--glass-bg] shadow-lg backdrop-blur-[var(--glass-blur)] md:flex"
     >
       <Link
         to="/"
         className="flex items-center gap-2 px-5 py-5 text-foreground no-underline"
       >
-        <img
-          className="[.light_&]:hidden h-7"
-          src={darkModeLogo}
-          alt={title}
-        />
-        <img
-          className="[.dark_&]:hidden h-7"
-          src={lightModeLogo}
-          alt={title}
-        />
+        <img className="[.light_&]:hidden h-7" src={darkModeLogo} alt={title} />
+        <img className="[.dark_&]:hidden h-7" src={lightModeLogo} alt={title} />
         <span className="font-display text-lg font-bold tracking-tight">
           {title}
         </span>
@@ -79,6 +71,7 @@ const SidebarLink = ({ item }: { item: NavItem }) => {
     <Link
       to={item.to}
       aria-current={isActive ? "page" : undefined}
+      data-tour={`nav-${item.tourId}`}
       className={cn(
         "group relative flex h-11 items-center gap-3 rounded-xl px-3",
         "font-medium outline-none transition-colors duration-[160ms]",

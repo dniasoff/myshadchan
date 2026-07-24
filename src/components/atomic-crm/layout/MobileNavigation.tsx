@@ -78,6 +78,7 @@ export const MobileNavigation = () => {
         Icon={Home}
         label={translate("ra.page.dashboard")}
         isActive={currentPath === "/"}
+        tourId="dashboard"
       />
       <NavigationButton
         href={pipelineItem.to}
@@ -87,6 +88,7 @@ export const MobileNavigation = () => {
           _: pipelineItem.labelDefault,
         })}
         isActive={currentPath === pipelineItem.to}
+        tourId={pipelineItem.tourId}
       />
       <CreateButton />
       <NavigationButton
@@ -97,6 +99,7 @@ export const MobileNavigation = () => {
           _: shadchanimItem.labelDefault,
         })}
         isActive={currentPath === shadchanimItem.to}
+        tourId={shadchanimItem.tourId}
       />
       <MoreButton isActive={currentPath === "more"} />
     </nav>
@@ -108,11 +111,13 @@ const NavigationButton = ({
   Icon,
   label,
   isActive,
+  tourId,
 }: {
   href: string;
   Icon: LucideIcon;
   label: string;
   isActive: boolean;
+  tourId?: string;
 }) => (
   <Button
     asChild
@@ -122,7 +127,7 @@ const NavigationButton = ({
       isActive ? "text-primary" : "text-muted-foreground",
     )}
   >
-    <Link to={href}>
+    <Link to={href} data-tour={tourId ? `nav-${tourId}` : undefined}>
       <span className="relative">
         <Icon className="size-6" aria-hidden="true" />
         {isActive ? (
@@ -166,9 +171,7 @@ const CreateButton = () => {
           <DropdownMenuItem asChild>
             <Link to="/shidduchim/create">Add a suggestion</Link>
           </DropdownMenuItem>
-          <DropdownMenuItem disabled>
-            Log a call (coming soon)
-          </DropdownMenuItem>
+          <DropdownMenuItem disabled>Log a call (coming soon)</DropdownMenuItem>
           <DropdownMenuItem disabled>
             Scan a resume (coming soon)
           </DropdownMenuItem>
@@ -186,6 +189,7 @@ const MoreButton = ({ isActive }: { isActive: boolean }) => {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
+          data-tour="nav-more"
           className={cn(
             "flex h-full w-16 flex-col items-center justify-center gap-1 rounded-none px-1",
             isActive ? "text-primary" : "text-muted-foreground",
@@ -197,7 +201,11 @@ const MoreButton = ({ isActive }: { isActive: boolean }) => {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="mb-2">
         <DropdownMenuItem asChild>
-          <Link to={referencesItem.to} className="flex items-center gap-2">
+          <Link
+            to={referencesItem.to}
+            data-tour={`nav-${referencesItem.tourId}`}
+            className="flex items-center gap-2"
+          >
             <BookUser className="size-4" aria-hidden="true" />
             {translate(referencesItem.labelKey, {
               smart_count: 2,
@@ -206,7 +214,11 @@ const MoreButton = ({ isActive }: { isActive: boolean }) => {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link to={remindersItem.to} className="flex items-center gap-2">
+          <Link
+            to={remindersItem.to}
+            data-tour={`nav-${remindersItem.tourId}`}
+            className="flex items-center gap-2"
+          >
             <BellRing className="size-4" aria-hidden="true" />
             {translate(remindersItem.labelKey, {
               _: remindersItem.labelDefault,
@@ -214,7 +226,11 @@ const MoreButton = ({ isActive }: { isActive: boolean }) => {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link to={settingsItem.to} className="flex items-center gap-2">
+          <Link
+            to={settingsItem.to}
+            data-tour={`nav-${settingsItem.tourId}`}
+            className="flex items-center gap-2"
+          >
             <Settings className="size-4" aria-hidden="true" />
             {translate(settingsItem.labelKey, {
               _: settingsItem.labelDefault,

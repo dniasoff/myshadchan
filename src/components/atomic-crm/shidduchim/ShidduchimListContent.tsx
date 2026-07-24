@@ -103,12 +103,16 @@ export const ShidduchimListContent = () => {
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
-      <div className="flex gap-4 overflow-x-auto pb-5">
-        {PIPELINE_STATES.map((state) => (
+      <div
+        data-tour="pipeline-board"
+        className="flex gap-4 overflow-x-auto pb-5"
+      >
+        {PIPELINE_STATES.map((state, columnIndex) => (
           <ShidduchColumn
             key={state.value}
             state={state}
             shidduchim={byState[state.value] ?? []}
+            tourAnchor={columnIndex === 0}
           />
         ))}
       </div>

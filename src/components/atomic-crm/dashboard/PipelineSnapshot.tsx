@@ -29,7 +29,7 @@ export const PipelineSnapshot = ({ childId }: PipelineSnapshotProps) => {
   const buckets = bucketByState(summaries);
 
   return (
-    <Card className="p-5 shadow-sm">
+    <Card data-tour="pipeline-snapshot" className="p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between gap-4">
         <h2 className="font-display text-lg font-semibold">
           Pipeline snapshot
@@ -78,10 +78,7 @@ export const PipelineSnapshot = ({ childId }: PipelineSnapshotProps) => {
       ) : (
         <ul className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
           {buckets.map((bucket) => (
-            <li
-              key={bucket.state}
-              className="flex items-center gap-2 text-xs"
-            >
+            <li key={bucket.state} className="flex items-center gap-2 text-xs">
               <span
                 className="size-2 shrink-0 rounded-full"
                 style={{ backgroundColor: `var(${bucket.token})` }}

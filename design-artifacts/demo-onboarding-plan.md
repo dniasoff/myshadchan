@@ -545,3 +545,476 @@ the `set_sales_id_default` trigger; `account_id` by `set_account_id_default`;
 - `supabase/config.toml` — register both functions.
 - `src/components/atomic-crm/types.ts` — optional `Account.demo?: boolean`.
 - Do **not** git commit; local only.
+
+---
+---
+
+# Demo / Onboarding — Stage B: the UX (onboarding choice + walkthrough + demo banner)
+
+Stage A shipped the backend engine (migration + `seed_demo`/`clear_demo` edge
+functions + `current_account_demo()` RPC). Stage B is the **frontend experience**
+that drives them: a premium first-run choice screen, a clickable driver.js
+walkthrough, and a full-width demo banner — all in the LOCKED "Quiet Luminance"
+system, English-only, both themes, `make typecheck` clean, **no git commit, no
+deploy** (local only; the orchestrator deploys migration+functions+frontend
+together after this stage).
+
+## B0. Ground truth established by reading the code (Stage B)
+
+Load-bearing facts verified against the current frontend, not assumed:
+
+- **The three backend contracts** (from `supabase/functions/seed_demo/index.ts`,
+  `clear_demo/index.ts`, `02_functions.sql`):
+  - `seed_demo` — `POST` (also accepts `PATCH`). Empty body. Guards: only seeds
+    when the account has zero rows in `children/shadchanim/references/shidduchim`
+    (else HTTP 200 `{ seeded:false, reason:"account_not_empty" }`), and requires
+    an active membership (else 409). Success → `{ seeded:true, accountId,
+    children, shadchanim, references, shidduchim, referenceLinks, interactions,
+    tasks }` and sets `accounts.demo = true`.
+  - `clear_demo` — `POST` (also accepts `DELETE`). Empty body. Wipes every tenant
+    row in the caller's own account (tenancy-safe) and sets `accounts.demo =
+    false`. Success → `{ cleared:true, accountId }`.
+  - `current_account_demo()` — RPC, returns `boolean` (`false` when the caller has
+    no account). This is the banner's single source of truth.
+- **`Account.demo?: boolean`** already exists on the `Account` type
+  (`src/components/atomic-crm/types.ts:265`). No type change needed there.
+- **`CrmDataProvider` is structurally typed** — it is
+  `ReturnType<typeof supabase getDataProvider>` (`providers/types.ts` re-exports
+  from `providers/supabase/dataProvider.ts`). So the three new methods must be
+  added to the **supabase provider object** (defines the type) AND the **fakerest
+  provider object** (typed `: CrmDataProvider`, so it must implement them too, or
+  `make typecheck` fails). Mirror the `salesUpdate` / `isInitialized` pattern.
+- **The authenticated app shell is `Layout` (desktop) / `MobileLayout`
+  (mobile)**, selected in `root/CRM.tsx` via `useIsMobile()` and passed to
+  `<Admin layout=…>`. Every authenticated page renders inside one of these — this
+  is the correct single mount point for both the OnboardingGate and the demo
+  banner. `Layout` = fixed `Sidebar` (`fixed inset-y-0 start-0`, desktop-only) +
+  a `md:ps-[var(--sidebar-w)]` column holding a `sticky top-0` `TopBar` + scroll
+  `main`. `MobileLayout` = `children` + bottom `MobileNavigation`.
+- **First-run routing today:** `StartPage` (the `loginPage`) only decides
+  signed-out routing — `dataProvider.isInitialized()` (does ANY sales user exist,
+  a global install-bootstrap check) → `/sign-up` for a brand-new install, else
+  `LoginPage`. `FirstRunSetup` exists and does real writes (`accounts` name +
+  first `children` row) but **is NOT wired into any route** (confirmed: only
+  self-reference + a comment reference). Stage B is where it finally gets used —
+  reached from the OnboardingChoice "own family" path (rendered inline, no new
+  route needed; it `navigate("/")`s when done).
+- **`useStore` (ra-core) is the CRM store** — already used in
+  `ConfigurationContext.tsx`, backed by the `"CRM"` localStorage namespace
+  (`crmStore.ts`). Use it for the onboarding/tour markers. It is per-browser, not
+  per-account — acceptable for this stage.
+- **`driver.js` is NOT installed** (`package.json`) — `npm install driver.js`.
+- **Anchor host components** already read: `layout/navItems.ts` (`PRIMARY_NAV`,
+  6 items), `layout/Sidebar.tsx` (`SidebarLink` renders each `<Link>`),
+  `layout/TopBar.tsx` (`ChildSwitcherPill` trigger button),
+  `shidduchim/ShidduchimList.tsx` (`ShidduchimActions` → `CreateButton
+  label="Add a suggestion"`), `shidduchim/ShidduchimListContent.tsx` (the
+  `DragDropContext` columns row), `shidduchim/ShidduchColumn.tsx` (first column
+  `<section>`), `shidduchim/ShidduchCard.tsx` (first card),
+  `dashboard/PipelineSnapshot.tsx` (the `<Card>`).
+
+---
+
+## B1. dataProvider methods (Stage A wiring)
+
+Add three typed methods; mirror `salesUpdate` (edge fn via `functions.invoke`)
+and `transitionShidduch` (rpc).
+
+### B1a. Supabase provider — `providers/supabase/dataProvider.ts`
+
+Add alongside `isInitialized` / `mergeContacts`:
+
+```ts
+async seedDemo(): Promise<{ seeded: boolean; reason?: string }> {
+  const { data, error } = await getSupabaseClient().functions.invoke<{
+    seeded: boolean; reason?: string;
+  }>("seed_demo", { method: "POST" });
+  if (error || !data) {
+    console.error("seed_demo.error", error);
+    throw new Error("Failed to load the demo data");
+  }
+  return data;
+},
+async clearDemo(): Promise<{ cleared: boolean }> {
+  const { data, error } = await getSupabaseClient().functions.invoke<{
+    cleared: boolean;
+  }>("clear_demo", { method: "POST" });
+  if (error || !data) {
+    console.error("clear_demo.error", error);
+    throw new Error("Failed to clear the demo data");
+  }
+  return data;
+},
+async currentAccountDemo(): Promise<boolean> {
+  const { data, error } = await getSupabaseClient().rpc("current_account_demo");
+  if (error) {
+    console.error("current_account_demo.error", error);
+    return false; // fail-soft: no banner rather than a broken app
+  }
+  return data === true;
+},
+```
+
+> `functions.invoke` returns the parsed JSON as `data`. `error` is a
+> `FunctionsHttpError` on non-2xx; `seed_demo`'s `account_not_empty` no-op is a
+> **200** so it comes back as `data.seeded === false` (not an error) — the UI
+> handles that gracefully (already seeded → just refetch + move on).
+
+### B1b. FakeRest provider — `providers/fakerest/dataProvider.ts`
+
+Stubs so demos/tests don't break (add to the `dataProviderWithCustomMethod`
+object, near `isInitialized`). A module-level `let fakeDemo = false;` makes the
+stub self-consistent if anything reads it back:
+
+```ts
+seedDemo: async () => { fakeDemo = true; return { seeded: true }; },
+clearDemo: async () => { fakeDemo = false; return { cleared: true }; },
+currentAccountDemo: async () => fakeDemo,
+```
+
+### B1c. Type surface
+
+No change to `providers/types.ts` (it re-exports `CrmDataProvider` from the
+supabase provider, so adding the methods there updates the type automatically).
+`make typecheck` will force the fakerest object to implement all three.
+
+---
+
+## B2. OnboardingGate — placement + decision logic
+
+**New file:** `root/OnboardingGate.tsx`. It wraps the shell and either renders
+its children (the normal app) or replaces them with the full-screen
+OnboardingChoice.
+
+**Mount:** wrap the ENTIRE return of both `Layout` and `MobileLayout` in
+`<OnboardingGate>…</OnboardingGate>` (the gate replaces the shell, so it must sit
+outside Sidebar/TopBar). Both layouts already call `useConfigurationLoader()`;
+the gate adds its own data reads. (Placing it inside the layouts — rather than in
+`CRM.tsx` — keeps it below the `<Admin>` providers so `useGetList`,
+`useDataProvider`, `useStore` all work.)
+
+**Reads (all in the gate):**
+- `hasChildren` — `useGetList<Child>("children", { pagination:{page:1,perPage:1} })`
+  → `total === 0` (or `data.length === 0`) means empty account.
+- `demo` — `useQuery({ queryKey:["accountDemo"], queryFn:()=>dataProvider
+  .currentAccountDemo() })`.
+- `seen` — `const [seen] = useStore<boolean>("onboarding.seen", false)`.
+
+**Decision (render OnboardingChoice when ALL hold):**
+`childrenCount === 0 && demo === false && seen === false`.
+While any read is pending → render `children` (avoid a flash; the shell shows its
+own skeletons). Otherwise → `children`.
+
+**Why `seen`, and how it interacts with Clear (critical):**
+- Choosing EITHER onboarding option sets `onboarding.seen = true` → the choice
+  never loops while the user is mid-setup (e.g. FirstRunSetup before the first
+  child exists) or has demo data.
+- The demo banner's **Clear** flow resets `onboarding.seen = false` (see B5) so
+  that after wiping the account the user lands back on the OnboardingChoice — the
+  one place `seen` is intentionally re-armed.
+
+**Store keys (namespace `"onboarding"` / `"tour"`, all under the `"CRM"` store):**
+| key | type | meaning | set by | reset by |
+|---|---|---|---|---|
+| `onboarding.seen` | boolean | choice made / dismissed | OnboardingChoice (both paths) | Clear flow (B5) |
+| `onboarding.justSeeded` | boolean | seed just succeeded → auto-start tour | demo path (B3) | Tour on start |
+| `tour.completed` | boolean | walkthrough finished/skipped → don't auto-repeat | Tour onDestroyed | Clear flow (B5) |
+
+---
+
+## B3. OnboardingChoice screen — `login/OnboardingChoice.tsx` (new)
+
+Premium welcome echoing the `AuthLayout` aesthetic (centered, calm glass card on
+an ambient-glow ground) but rendered INSIDE the authenticated app (no auth
+routing). Reuse the exact atmosphere primitives:
+
+- Root: `relative flex min-h-screen ... overflow-hidden bg-background p-6` with
+  `style={{ backgroundImage: "var(--wash)" }}`, plus the `AuthBackdrop`
+  blobs/vignette from `AuthLayout.tsx` (extract `AuthBackdrop` into a tiny shared
+  file `login/AuthBackdrop.tsx` and import it in both, OR duplicate the ~30-line
+  block — prefer extraction to stay DRY and under the file ceiling).
+- Card: `ql-enter rounded-[20px] border p-7 sm:p-8 bg-[--glass-bg]
+  border-[--glass-border] backdrop-blur-[var(--glass-blur)] shadow-lg`, widened
+  to `max-w-lg` (two choices need more room than the auth `max-w-md`).
+- Header: the `BrandLockup` (or the LedgerMark + wordmark used in FirstRunSetup)
+  + a warm one-paragraph intro: *"Welcome to MyShadchan — a calm, private place
+  to track every shadchan, suggestion and reference call for your family. How
+  would you like to begin?"*
+
+**Two choices** (stacked cards/buttons; PRIMARY visually dominant with the
+`--accent-grad-from → --accent-grad-to` gradient + glow, per design-language):
+
+1. **PRIMARY — "Explore with demo data" (recommended)**
+   Sub-copy: *"We'll load a realistic sample family — two children, shadchanim,
+   suggestions across the whole pipeline, reference calls and reminders — so you
+   can see exactly how everything works. You can clear it and start fresh
+   anytime."* A small "Recommended" pill.
+   On click:
+   - set `onboarding.seen = true`;
+   - `setSeeding(true)` (button shows `Loader2` spinner + "Loading your sample
+     family…"; disable both choices);
+   - `await dataProvider.seedDemo()`;
+   - on success: set `onboarding.justSeeded = true`, `tour.completed = false`,
+     then **invalidate all queries** (`queryClient.invalidateQueries()` — use
+     `useQueryClient`) so `children`/`accountDemo`/lists refetch. The gate
+     re-evaluates: `demo` becomes `true` → children exist → it renders the shell.
+     The Tour auto-start (B4) fires off `onboarding.justSeeded`.
+   - on `{ seeded:false }` (account not actually empty): treat as success —
+     invalidate + proceed (data is already there).
+   - on throw: `notify` a friendly error, re-enable, leave `seen=true` so they
+     can retry or pick the other path.
+
+2. **SECONDARY — "Start with my own family"**
+   Sub-copy: *"Name your family's record and add your first child. You can invite
+   the demo later from Settings if you change your mind."* (No demo-later link
+   required this stage; keep copy honest to what exists.)
+   On click: set `onboarding.seen = true`, then render `<FirstRunSetup />` inline
+   (swap local state `mode: "choice" | "own"`). FirstRunSetup already renders its
+   own full-screen container, writes the account name + first child, and
+   `navigate("/")`s when done — at which point `hasChildren` is true and the gate
+   passes through to the shell. (No new route; FirstRunSetup stays a component.)
+
+Respect `prefers-reduced-motion` (the `ql-enter` / blob drift already freeze via
+`index.css`). Mobile: single column, generous spacing, buttons full-width.
+
+---
+
+## B4. Clickable walkthrough (driver.js) — `tour/` module (new)
+
+`npm install driver.js`. New folder `src/components/atomic-crm/tour/`:
+
+- **`tour.css`** — restyle the driver.js popover + overlay to Quiet Luminance in
+  BOTH themes using tokens only. Target driver.js classes:
+  `.driver-popover` → `background: var(--glass-bg)`, `border:1px solid
+  var(--glass-border)`, `backdrop-filter: blur(var(--glass-blur))`,
+  `border-radius:16px`, `box-shadow: var(--shadow-lg)` / glow, `color:
+  var(--foreground)`; `.driver-popover-title` → `font-display`, semibold;
+  `.driver-popover-description` → `text-muted-foreground` size; buttons
+  (`.driver-popover-next-btn`) → primary gradient (`--accent-grad-from/to`) +
+  `--primary-foreground`; `.driver-popover-prev-btn`/close → secondary/ghost;
+  `.driver-popover-progress-text` → muted; the overlay
+  (`.driver-overlay`/stage) → tuned so the dark scrim reads calm not harsh
+  (`color-mix` on `--background`). Dark theme is the default via
+  `@media (prefers-color-scheme)`/`.dark` — but since all values are tokens that
+  already flip per theme, one rule set covers both. Import `./tour.css` from the
+  tour module (or `App.tsx`).
+- **`tourSteps.ts`** — the ordered step list (below), each `{ element:
+  '[data-tour="…"]', popover: { title, description, side, align } }`. Plain,
+  warm, non-technical copy (audience = a parent, not a developer).
+- **`useTour.ts`** — a hook exposing `startTour()`. Builds the `driver({...})`
+  instance with: `showProgress:true`, `allowClose:true`, `nextBtnText:"Next"`,
+  `prevBtnText:"Back"`, `doneBtnText:"Done"`, `progressText:"{{current}} of
+  {{total}}"`, `animate: !prefersReducedMotion`, `smoothScroll:
+  !prefersReducedMotion`, `overlayClickBehavior:"close"`. `onDestroyed` (fires on
+  Done AND Skip/close) → set `tour.completed = true`. Reads
+  `window.matchMedia("(prefers-reduced-motion: reduce)")`.
+- **Cross-route navigation.** The tour auto-starts on the dashboard (`/`) after
+  seeding. Board anchors live on `/shidduchim`. Use `useNavigate()` inside
+  `useTour` and, on the LAST dashboard step, a per-step
+  `onNextClick: () => { navigate("/shidduchim"); requestAnimationFrame(() =>
+  setTimeout(() => driverObj.moveNext(), reducedMotion ? 0 : 350)); }` so the
+  board has mounted before the next element is highlighted. Keep board steps
+  contiguous so only ONE navigation happens. The demo banner + sidebar are global
+  (present on every route), so the closing steps need no return navigation.
+  Guard each step: if `document.querySelector(step.element)` is missing at
+  highlight time, driver.js skips gracefully — acceptable, but the single delayed
+  navigation above makes it reliable in practice.
+
+**Auto-start wiring:** a small `<TourAutostart/>` effect mounted in the shell
+(e.g. inside `Layout`/`MobileLayout`, below the gate) reads
+`onboarding.justSeeded`; when true AND `tour.completed` is false, it clears
+`justSeeded`, waits one tick for the dashboard to render, and calls
+`startTour()`. Also expose `startTour()` to the demo banner (B5) for the "Take
+the tour" button (re-launchable regardless of `tour.completed`).
+
+**Step list (auto-tour order) — targets + copy:**
+
+| # | `data-tour` target | title | description (plain-language) |
+|---|---|---|---|
+| 1 | `demo-banner` | You're exploring a sample family | "Everything you see is realistic demo data — nothing here is real. This tour shows you around; you can clear the sample anytime from this banner." |
+| 2 | `nav-dashboard` | Your dashboard | "Your calm home base — a snapshot of where every child's shidduchim stand, and what needs your attention." |
+| 3 | `nav-pipeline` | The pipeline | "Every suggestion for a child, organized from a new redt all the way to a decision." |
+| 4 | `nav-shadchanim` | Shadchanim | "Everyone redting for your family, and how responsive each one has been." |
+| 5 | `nav-references` | References | "The people you call to check into a suggestion — with every call logged in one place." |
+| 6 | `nav-reminders` | Reminders | "Follow-ups and calls you don't want to forget, so nothing slips." |
+| 7 | `child-switcher` | Switch between children | "Redting for more than one child? Switch here — every screen updates to the child you pick." |
+| 8 | `pipeline-snapshot` | Where things stand | "One glance shows how this child's suggestions are spread across the pipeline." |
+| 9 | *(navigate → /shidduchim, then)* `pipeline-board` | The board | "Each column is a stage. Drag a card from one column to the next to move a suggestion along — that's how you record a decision." |
+| 10 | `pipeline-column` | A stage | "This column holds every suggestion currently at this stage for the child." |
+| 11 | `pipeline-card` | A suggestion | "Each card is one redt. Click it to see the full story — the shadchan, references, notes and reminders." |
+| 12 | `add-suggestion` | Add a suggestion | "Got a new redt? Add it here and it lands at the start of the pipeline." |
+| 13 | `demo-banner` | Ready when you are | "When you're ready to start with your own family, clear the sample from here — you'll get a fresh, empty account. Enjoy exploring!" |
+
+> "State control" (brief) is covered by step 9's drag explanation (the board IS
+> the state control) plus step 11 pointing at the card's detail. A
+> `data-tour="state-control"` anchor is ALSO added to `ShidduchStateControl`
+> (show drawer) so a future on-that-screen step can target it, but the
+> auto-tour stays on the board route to avoid drawer/route fragility.
+
+Settings nav (`nav-settings`) gets a `data-tour` anchor for completeness but is
+omitted from the auto-tour to keep it tight; add a step only if it reads better.
+
+---
+
+## B5. Full-width demo banner — `layout/DemoBanner.tsx` (new)
+
+**Visibility:** render when `dataProvider.currentAccountDemo()` is true (shared
+`useQuery(["accountDemo"])` — same key the gate uses, so it's one fetch).
+Mounted in BOTH `Layout` and `MobileLayout` as the FIRST element of the shell
+(above sidebar/topbar / above `children`).
+
+**Placement that pushes content down, never overlaps** (Sidebar is `fixed`,
+TopBar is `sticky top-0` — so a naive banner would be overlapped). Design:
+- Banner is `position: sticky; top: 0; z-40` and **in normal flow** as the first
+  child of the layout root → it reserves its own height (pushes the column down)
+  AND stays pinned on scroll.
+- Introduce a CSS var `--banner-h` (default `0px`, e.g. on the layout root).
+  When the banner renders, measure its height with a `ref` + `ResizeObserver`
+  and set `--banner-h` on the layout root via inline style (handles the taller
+  wrapped banner on mobile). Fallback constant (e.g. `44px`) before measure.
+- Adjust the two chrome offsets to consume the var (both default to 0 → **zero
+  layout change when no banner**, satisfying "don't disturb their layout"):
+  - `Sidebar.tsx`: change `inset-y-0` → `bottom-0 top-[var(--banner-h,0px)]`.
+  - `TopBar.tsx`: change `top-0` → `top-[var(--banner-h,0px)]`.
+- Mobile: banner spans full width above `children`; `MobileNavigation` is a
+  bottom bar (unaffected). No sidebar on mobile, so only the banner height
+  matters — content already flows below it.
+
+**Appearance (amber `--attention`, warm not alarming):** a soft
+`--attention`-tinted surface (`color-mix(in oklch, var(--attention) …)` bg + a
+subtle bottom border/glow), amber icon (`Sparkles` or `Info`), foreground text
+with AA contrast in both themes. Left: text *"You're exploring demo data —
+nothing here is real."* Right: two actions.
+
+**Actions:**
+1. **"Take the tour"** (secondary/ghost) → calls `startTour()` from `useTour`
+   (re-launchable even if `tour.completed`).
+2. **"Clear it & start fresh"** (primary) → opens a confirm dialog
+   (`@/components/ui/alert-dialog` or `dialog`): title *"Clear the sample data?"*,
+   body *"This deletes the demo family and everything in it, and gives you a
+   fresh, empty account to start with. This can't be undone."*, cancel + a
+   confirm button. On confirm:
+   - `setClearing(true)` (spinner, disable);
+   - `await dataProvider.clearDemo()`;
+   - on success: reset client state so the user lands on the OnboardingChoice —
+     set `onboarding.seen = false`, `tour.completed = false`, remove
+     `onboarding.justSeeded`; then `queryClient.invalidateQueries()` (refetch
+     `children` → empty, `accountDemo` → false). The gate re-evaluates:
+     `childrenCount===0 && !demo && !seen` → OnboardingChoice renders. (A full
+     `window.location.reload()` is an acceptable simpler fallback if query
+     invalidation proves flaky, but prefer the reactive path.)
+   - on throw: `notify` friendly error, re-enable, keep the banner.
+
+**Mobile-responsive:** on narrow widths the banner stacks (text line, then the
+two actions in a row); actions remain reachable; `ResizeObserver` keeps
+`--banner-h` correct as it wraps.
+
+**Anchor:** the banner root carries `data-tour="demo-banner"` (tour steps 1 & 13).
+
+---
+
+## B6. data-tour anchors — exact placement (no layout disturbance)
+
+Additive `data-tour` attributes only; no structural/style changes.
+
+- **`layout/navItems.ts`** — add a `tourId` field to `NavItem`
+  (`"dashboard"|"pipeline"|"shadchanim"|"references"|"reminders"|"settings"`) on
+  each of the 6 entries.
+- **`layout/Sidebar.tsx`** — in `SidebarLink`, spread `data-tour={`nav-${item.tourId}`}`
+  onto the `<Link>`. (Mobile parity: add the same to `MobileNavigation`'s links
+  if the tour must run on mobile — optional; the auto-tour is primarily a desktop
+  experience. At minimum ensure the anchors exist on whichever nav is visible.)
+- **`layout/TopBar.tsx`** — `data-tour="child-switcher"` on the
+  `DropdownMenuTrigger` `<button>` in `ChildSwitcherPill`.
+- **`shidduchim/ShidduchimList.tsx`** — in `ShidduchimActions`, wrap the
+  `CreateButton` in `<span data-tour="add-suggestion">…</span>` (CreateButton is
+  an admin component; wrapping avoids modifying it).
+- **`shidduchim/ShidduchimListContent.tsx`** — `data-tour="pipeline-board"` on
+  the `<div className="flex gap-4 overflow-x-auto pb-5">` inside `DragDropContext`.
+- **`shidduchim/ShidduchColumn.tsx`** — add optional prop `tourAnchor?: boolean`;
+  when true, put `data-tour="pipeline-column"` on the `<section>`. Pass
+  `tourAnchor={index === 0}` from the `PIPELINE_STATES.map` in
+  `ShidduchimListContent`.
+- **`shidduchim/ShidduchCard.tsx`** — add optional prop `tourAnchor?: boolean`;
+  when true, `data-tour="pipeline-card"` on the card root. Pass
+  `tourAnchor={index === 0}` from `ShidduchColumn`'s `shidduchim.map` (first card
+  of the anchored first column). (If the first column is empty in demo data, the
+  card step self-skips; acceptable. Demo data guarantees populated columns.)
+- **`dashboard/PipelineSnapshot.tsx`** — `data-tour="pipeline-snapshot"` on the
+  outer `<Card>`.
+- **`shidduchim/ShidduchStateControl.tsx`** — `data-tour="state-control"` on the
+  `<section>` (not in the auto-tour; anchor kept for future/re-launch use).
+
+---
+
+## B7. File-touch checklist (Stage B)
+
+New files:
+- `src/components/atomic-crm/root/OnboardingGate.tsx`
+- `src/components/atomic-crm/login/OnboardingChoice.tsx`
+- `src/components/atomic-crm/login/AuthBackdrop.tsx` (extracted from AuthLayout)
+- `src/components/atomic-crm/layout/DemoBanner.tsx`
+- `src/components/atomic-crm/tour/tour.css`
+- `src/components/atomic-crm/tour/tourSteps.ts`
+- `src/components/atomic-crm/tour/useTour.ts`
+- `src/components/atomic-crm/tour/TourAutostart.tsx`
+
+Edited files:
+- `providers/supabase/dataProvider.ts` — add `seedDemo`/`clearDemo`/`currentAccountDemo`.
+- `providers/fakerest/dataProvider.ts` — add the three stubs.
+- `layout/Layout.tsx` — wrap in `<OnboardingGate>`, mount `<DemoBanner>` +
+  `<TourAutostart>`, set `--banner-h` on root.
+- `layout/MobileLayout.tsx` — same wrap/mount for mobile.
+- `layout/Sidebar.tsx` — `data-tour` on nav links; `top-[var(--banner-h,0px)]`.
+- `layout/TopBar.tsx` — `data-tour="child-switcher"`; `top-[var(--banner-h,0px)]`.
+- `layout/navItems.ts` — add `tourId`.
+- `layout/MobileNavigation.tsx` — optional `data-tour` parity.
+- `login/AuthLayout.tsx` — import extracted `AuthBackdrop`.
+- `shidduchim/ShidduchimList.tsx`, `ShidduchimListContent.tsx`,
+  `ShidduchColumn.tsx`, `ShidduchCard.tsx`, `ShidduchStateControl.tsx` — anchors.
+- `dashboard/PipelineSnapshot.tsx` — anchor.
+- `package.json` / lockfile — `driver.js`.
+
+Keep every file ≤ ~400 lines (the tour module split above respects this).
+
+---
+
+## B8. Local verification (the whole flow — critical)
+
+Dev server `http://localhost:5173`. Local edge runtime serves
+`seed_demo`/`clear_demo` (if functions are changed/relocated:
+`docker restart supabase_edge_runtime_atomic-crm-demo`). Account 1
+(`test@local.dev` / `testpass123`) currently has demo data + `demo=true`.
+
+1. **Banner** — sign in as `test@local.dev` → the full-width **demo banner**
+   shows at the very top, pushing sidebar+topbar down (no overlap). Screenshot
+   light + dark → `…/scratchpad/demoux-banner-{light,dark}.png`.
+2. **Tour** — click "Take the tour" → step through; screenshot a couple of steps
+   showing the highlighted element + the Quiet-Luminance popover →
+   `demoux-tour-{step1,board}.png`. Confirm popover glass/indigo styling + both
+   themes, and that reduced-motion disables animation.
+3. **Clear** — click "Clear it & start fresh" → confirm dialog → confirm →
+   account empties, banner disappears, the **OnboardingChoice** screen appears →
+   `demoux-onboarding-choice.png`.
+4. **Re-seed** — click "Explore with demo data" → spinner → data + banner return,
+   **tour auto-starts** → `demoux-reseeded.png`.
+5. `make typecheck` passes. **Do NOT git commit.** LOOK at every screenshot.
+
+Notes: `seed_demo`'s empty guard means re-seeding a non-empty account no-ops
+(200 `seeded:false`) — the UI treats that as success. `handle_new_user` only
+grants a membership to the FIRST signup, so brand-new local users have no account
+and can't seed — always test via clear+re-seed on account 1.
+
+---
+
+## B9. Security / rules bar (Stage B)
+
+- Touches auth-adjacent flows + a destructive action (Clear) → the destructive
+  path is fully server-guarded by Stage A (`clear_demo` resolves the account
+  server-side, RLS-scoped, per-statement `account_id` filter). The frontend only
+  invokes it behind an explicit confirm dialog. Flag SECURITY-REVIEWER per
+  `.claude/rules/security-triggers.md` (auth + destructive DB call).
+- No new user-input surface beyond the confirm click (empty request bodies).
+- `current_account_demo` fails soft (no banner) on error — never blocks the app.
+- English-only across all copy; tokens-only styling; both themes AA; files ≤400
+  lines; `make typecheck` green; **no git commit, no deploy**.

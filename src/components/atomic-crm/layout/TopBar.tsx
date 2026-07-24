@@ -1,6 +1,13 @@
 import type { Identifier } from "ra-core";
 import { CanAccess, useGetList, useTranslate, useUserMenu } from "ra-core";
-import { ChevronDown, FileText, Import, Settings, User, Users } from "lucide-react";
+import {
+  ChevronDown,
+  FileText,
+  Import,
+  Settings,
+  User,
+  Users,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
@@ -24,9 +31,9 @@ import type { Child } from "../types";
  */
 export const TopBar = () => (
   <header
-    className="sticky top-0 z-20 flex h-14 items-center justify-between gap-4
-      border-b border-[--glass-border] bg-[--glass-bg] px-4 shadow-sm
-      backdrop-blur-[var(--glass-blur)] sm:px-6"
+    className="sticky top-[var(--banner-h,0px)] z-20 flex h-14 items-center
+      justify-between gap-4 border-b border-[--glass-border] bg-[--glass-bg]
+      px-4 shadow-sm backdrop-blur-[var(--glass-blur)] sm:px-6"
   >
     <ChildSwitcherPill />
     <div className="flex items-center gap-1">
@@ -75,13 +82,15 @@ const ChildSwitcherPill = () => {
     return <span />;
   }
 
-  const selected = childList.find((child) => child.id === childId) ?? childList[0];
+  const selected =
+    childList.find((child) => child.id === childId) ?? childList[0];
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          data-tour="child-switcher"
           className="inline-flex h-9 items-center gap-2 rounded-full border
             border-border bg-secondary px-3 text-sm font-semibold
             text-foreground outline-none transition-colors duration-[160ms]
@@ -89,7 +98,10 @@ const ChildSwitcherPill = () => {
             focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <span>{childLabel(selected)}</span>
-          <ChevronDown className="size-4 text-muted-foreground" aria-hidden="true" />
+          <ChevronDown
+            className="size-4 text-muted-foreground"
+            aria-hidden="true"
+          />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">

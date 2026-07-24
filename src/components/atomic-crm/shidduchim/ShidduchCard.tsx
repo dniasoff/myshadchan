@@ -31,9 +31,12 @@ export const ClockIcon = () => (
 export const ShidduchCard = ({
   shidduch,
   index,
+  tourAnchor = false,
 }: {
   shidduch: ShidduchSummary;
   index: number;
+  /** Anchors `data-tour="pipeline-card"` for the walkthrough (first card only). */
+  tourAnchor?: boolean;
 }) => {
   if (!shidduch) return null;
   return (
@@ -43,6 +46,7 @@ export const ShidduchCard = ({
           provided={provided}
           snapshot={snapshot}
           shidduch={shidduch}
+          tourAnchor={tourAnchor}
         />
       )}
     </Draggable>
@@ -53,10 +57,12 @@ export const ShidduchCardContent = ({
   provided,
   snapshot,
   shidduch,
+  tourAnchor = false,
 }: {
   provided?: DraggableProvided;
   snapshot?: DraggableStateSnapshot;
   shidduch: ShidduchSummary;
+  tourAnchor?: boolean;
 }) => {
   const redirect = useRedirect();
   const name = shidduch.name_en ?? shidduch.child_first_name_en ?? "Unnamed";
@@ -82,6 +88,7 @@ export const ShidduchCardContent = ({
   return (
     <div
       className="cursor-pointer"
+      data-tour={tourAnchor ? "pipeline-card" : undefined}
       {...provided?.draggableProps}
       {...provided?.dragHandleProps}
       ref={provided?.innerRef}
