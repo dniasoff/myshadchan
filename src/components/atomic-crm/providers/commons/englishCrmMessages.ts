@@ -512,11 +512,11 @@ export const englishCrmMessages = {
         title_accent: "per family.",
         pooled: {
           title: "Not pooled",
-          body: "Records are held per family. They are not pooled with other families, and they are not used to suggest anything to anyone else.",
+          body: "Records are held per family. They are never pooled with other families, and no one's records are used to suggest anything to anyone else.",
         },
         directory: {
-          title: "No directory",
-          body: "There is no public directory. No one can look a family up.",
+          title: "Private by default",
+          body: "Nothing is discoverable unless you publish it. Families are never listed. A shadchan or a single may choose to publish a limited profile, and can withdraw it at any time.",
         },
         export: {
           title: "Export and deletion",

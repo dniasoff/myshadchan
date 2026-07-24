@@ -229,10 +229,21 @@ app). Legal specifics → confirm with counsel.
 - **PRV-1 · What we protect.** Highest-sensitivity data — **photos**, references' **candid words**,
   **health** notes, **dating outcomes**, family details. Risk model = *communal/reputational harm*,
   not merely regulatory.
-- **PRV-2 · No pooled or public database (the wedge).** Each account's data is its own. **No pooling
-  across families** (incl. references); no public/community DB. Full **export/backup**. **Deletion**
-  purges the **live system immediately**, clears **backups within the retention window**, and
-  instructs **sub-processors to delete per contract** — we promise only what is enforceable.
+- **PRV-2 · No pooling; nothing public unless published (the wedge).** *(Amended 2026-07-24 — see
+  §Amendment A1. Previously: "No pooled or public database".)* Each account's data is its own.
+  **No pooling across families** (incl. references): no record is ever placed in a shared or
+  community database, and no one's data is used to suggest anything to anyone else. **Nothing is
+  discoverable by default** — every account, single and shadchan starts **invitation-only**.
+  A **shadchan** or a **single** MAY opt in to publish a **listing profile**, subject to four hard
+  limits: publication is (a) an **explicit act**, never a default or a side effect of signing up;
+  (b) **granular** — the publisher chooses each field; (c) **revocable at any time**, with the
+  listing removed from search on withdrawal; and (d) **narrow** — a listing exposes only the
+  published profile and **never** the working record: pipeline, private notes, references' candid
+  words, diligence, dating history, medical notes, or any other family's data. **Families as such
+  are never listed**, and a listing never reveals who is researching whom. Full **export/backup**.
+  **Deletion** purges the **live system immediately**, clears **backups within the retention
+  window**, and instructs **sub-processors to delete per contract** — we promise only what is
+  enforceable.
 - **PRV-3 · Tenant isolation.** Enforced at the **database** (row-level security), not just the app.
 - **PRV-4 · RBAC + parent↔child transparency.** Roles: parent/admin, child/candidate, helper,
   self-managing single. Transparency **configurable per family. Default = private both ways** — the

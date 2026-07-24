@@ -68,10 +68,12 @@ describe("LandingPage", () => {
 
     // Assert
     await expect
-      .element(screen.getByText(/not pooled with other families/i))
+      .element(screen.getByText(/never pooled with other families/i))
       .toBeVisible();
+    // Discoverability is opt-in (PRV-2, amended): nothing is listed by default,
+    // and a published listing is always withdrawable.
     await expect
-      .element(screen.getByText(/there is no public directory/i))
+      .element(screen.getByText(/nothing is discoverable unless you publish it/i))
       .toBeVisible();
     await expect
       .element(screen.getByText(/exported or deleted at any time/i))
