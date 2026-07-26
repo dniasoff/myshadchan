@@ -2,11 +2,12 @@
 title: MyShadchan v1 — Solution Design
 status: final
 created: 2026-07-21
-updated: 2026-07-21
+updated: 2026-07-26
 companion_of: ARCHITECTURE-SPINE.md
 sources:
   - _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/prd.md
   - _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/addendum.md
+  - _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md
   - ARCHITECTURE-SPINE.md
 ---
 
@@ -105,8 +106,13 @@ erDiagram
 
 Key columns (all rows also `id`, `account_id` non-null, `created_at`):
 - **`accounts`** — `name`, `transparency_level` (AD-3), `data_region`, **+ billing** (`stripe_customer_id`, `subscription_status` = `trialing|active|past_due|canceled`, `plan`, `current_period_end`, `trial_end` — AD-16).
-- **`account_members`** — `user_id (uuid)`, `role` (`parent_admin|child_candidate|helper|self_manager|shadchan` — last **deny-only** v1), `status`, `invited_by`. Replaces `sales`.
-- **`candidates`** — `first/last_name_en/he`, `gender`, `dob`, `community`, `status`, `member_id?`.
+- **`accounts`** additionally carries **`kind`** ∈ `household | shadchanus` — an account **is** a context (AD-2).
+- **`account_members`** — `user_id (uuid)`, `role` (`parent_admin|single|helper|self_manager|shadchan` — **all active**), `status`, `invited_by`. Replaces `sales`. **A login may hold memberships of several contexts at once** — that is how one person is a single, a parent and a shadchan simultaneously (AD-2/FR79).
+- **`member_state`** *(AD-19)* — `user_id`, `active_account_id`. The server-side active context; read by `current_context_id()`, written only by `set_active_context()` after a membership check. Replaces the deleted `current_account_id()`.
+- **`connections`** *(AD-20)* — `household_account_id`, `shadchanus_account_id`, `status`. The **third scope**: conversation rows scope by `connection_id` rather than `account_id`, so a shadchan can never address a household row at all.
+- **`threads`/`thread_messages`** *(AD-22)* — subject-scoped, explicit participants, one `visibility`; exactly one scope (`connection_id` **or** `account_id`). Private ⇒ participants only.
+- **`listings`** *(AD-21)* — the published snapshot; holds **only** opted-in fields and is the **sole `anon`-readable relation** in the product. Withdrawal deletes the row.
+- **`singles`** *(was `candidates`/`children`, AD-23)* — `first/last_name_en/he`, `gender`, `dob`, `community`, `status`, `member_id?`. A self-managing adult is a `singles` row in their own household pointing at their own membership.
 - **`shadchanim`** — `name`, `location`, `contacts jsonb`, `notes`, `responsiveness`.
 - **`suggestions`** *(central, AD-4)* — `candidate_id`, `shadchan_id`, single identity (`*_en/_he`, parents, seminary, shul, location; info-only `age/height`), **one `pipeline_state` enum** (`new·look_into·not_sure·for_sure_not·yes·unsure·no`; decision states only from `look_into`; no `decision_substate`), `first_suggested_by`, `resume_id`, `close_reason`, `origin`, `owner_member_id`, `visibility`. Sole INSERT = `createSuggestion()`; sole change = `transitionSuggestion()`.
 - **`resumes`** — `files jsonb` (R2 keys), `photos jsonb` (encrypted ref), `extracted jsonb`, `sections jsonb`.
@@ -225,9 +231,26 @@ Posture = **stable-default** (majors held at CI-green lines; verified latest = t
 
 ---
 
-## 16. Phase-2 provisioning (no rework)
+## 16. The shadchan interface — delivered in Phase 1
 
-`shadchan` role in the enum but **granted nothing** in v1 RLS (deny until consent scoping); `suggestions.origin` already includes `shadchan`; the per-row visibility model (AD-3) makes per-relationship consent additive. A shadchan will see **only** their thread — never private notes/references/history/other suggestions/child data. PRV-2 (no pool) holds.
+*Amended 2026-07-26 (A2/D5). Previously "Phase-2 provisioning". The v1 bet paid off: the
+`shadchan` role and `origin='shadchan'` were provisioned from day one, so promotion needed
+no rework — only activation.*
+
+A shadchan signs in and works in a **shadchanus context** (AD-2), never inside a family's
+account. A parent and a shadchan link through an explicitly accepted **connection**
+(AD-20), which either side may end; there is no directory-driven or automatic linkage.
+Redting is in-platform: a connected shadchan calls the same `createSuggestion()` with
+`origin='shadchan'`, and it lands in the household's AD-7 confirm step like any other
+inbound — **never auto-filed**. The suggestion belongs to the household; only the
+conversation belongs to the connection.
+
+The privacy invariant is now **structural rather than policy-enforced**: because
+conversation rows scope by `connection_id` and a shadchan holds no household membership,
+a shadchan **cannot address a household row at all**. They see only threads they are
+party to — never private notes, candid reference words, dating history, other shadchanim's
+suggestions, or the single's data. PRV-2 (no pool) holds: consent-based messaging, not
+database exposure.
 
 ---
 

@@ -7,12 +7,16 @@ paradigm: 'Layered resource-oriented SPA + RLS-enforced multi-tenant data core +
 scope: 'MyShadchan v1 — whole-product architecture governing the build epics; brownfield fork of Atomic CRM on Cloudflare (host/compute/media) + Supabase (data) + Upstash, with freemium cost-recovery billing.'
 status: final
 created: '2026-07-21'
-updated: '2026-07-21'
-binds: [Epic-1..12, FR1-78, PRV-1..12, NFR-1..13]
+updated: '2026-07-26'
+binds: [Epic-1..11, FR1-119, PRV-1..13, NFR-1..14, UX-DR1..11]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/prd.md
   - _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/addendum.md
+  - _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md
+  - _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/decisions-log.md
+  - _bmad-output/planning-artifacts/epics.md
   - 'brownfield code sweep 2026-07-21 (supabase/schemas, providers, config)'
+  - 'code sweep 2026-07-26 (current_account_id drift, fork fossils)'
 companions:
   - SOLUTION-DESIGN.md
 ---
@@ -50,15 +54,16 @@ graph TD
   CH["Channels: CF Email Routing · PWA share-target (WhatsApp/SMS/any app)"] --> WK
 ```
 
-### AD-1 — Tenant isolation is `account_id` + RLS, enforced in Postgres (deny-by-default)
-- **Binds:** all domain tables; PRV-2, PRV-3; counter-metric "cross-account leaks = 0"
-- **Prevents:** any cross-account leak; app-only isolation a new query can forget; an unauthenticated leak through a forgotten policy
-- **Rule:** every domain row has non-null `account_id`. Every table has **`FORCE ROW LEVEL SECURITY`** with `USING`/`WITH CHECK` scoped to `current_account_ids()`. **`REVOKE` all table/sequence grants from `anon`** and drop the fork's `anon` default-privilege (`06_grants.sql:69-107,174-177`). **CI asserts every `public` table has `rowsecurity = true`**; each table's migration adds its RLS in the same migration. Polymorphic `interactions`/`tasks` enforce target-account integrity (composite `(account_id,id)` reference or trigger). Views are `security_invoker = on`; **no definer views** (drop `init_state`).
+### AD-1 — Tenant isolation is scope + RLS, enforced in Postgres (deny-by-default)
+- **Binds:** all domain tables; PRV-2, PRV-3, PRV-13; FR83-85, FR113; counter-metric "cross-account leaks = 0"
+- **Prevents:** any cross-account or cross-context leak; app-only isolation a new query can forget; an unauthenticated leak through a forgotten policy
+- **Rule:** every domain row is scoped by **exactly one** of two axes — a non-null `account_id` (an account is a **household** or a **shadchanus** context, AD-2) **or** a non-null `connection_id` (AD-20). Never both, never neither. Every table has **`FORCE ROW LEVEL SECURITY`** with `USING`/`WITH CHECK` scoped to `current_context_id()` (AD-19) for account-scoped rows, or to connection membership for connection-scoped rows. **`REVOKE` all table/sequence grants from `anon`** and drop the fork's `anon` default-privilege (`06_grants.sql:69-107,174-177`); the **only** anon-readable relation in the product is the published-listing snapshot (AD-21). **CI asserts every `public` table has `rowsecurity = true` and that every table declares exactly one scoping axis**; each table's migration adds its RLS in the same migration. Polymorphic `interactions`/`tasks` enforce target-scope integrity (composite `(account_id,id)` reference or trigger). Views are `security_invoker = on`; **no definer views** (drop `init_state`).
 
-### AD-2 — One membership+role model; the Phase-2 shadchan seat is provisioned but deny-only in v1
-- **Binds:** PRV-4; addendum "Phase 2 with no rework"; Epic-1
-- **Prevents:** divergent role interpretations; a Phase-2 auth/RLS rebuild; a v1 shadchan membership leaking a whole account
-- **Rule:** `account_members(account_id, user_id, role, status)`. Roles = `parent_admin | child_candidate | helper | self_manager` **+ a reserved `shadchan`** in the enum from day one, **granted nothing** in v1 RLS (deny posture, not access) until Phase-2 consent scoping. Authorization derives from membership role, never a hardcoded flag. Retire `is_admin()`/`isInitialized`.
+### AD-2 — One membership model: many personas per login, two context types, shadchan active
+- **Binds:** PRV-4; FR79-FR85, FR108-FR113; Epic-1/2/8
+- **Prevents:** divergent role interpretations; a shadchan's cross-family book landing inside a family's account; a persona change requiring re-registration; authorization drifting to a hardcoded flag
+- **Rule:** an **account is a context** and carries a `kind` ∈ `household | shadchanus`. `account_members(account_id, user_id, role, status)` grants a login membership of a context; **a login may hold memberships of several contexts simultaneously** — that is how one person is a single, a parent and a shadchan at once (FR79). Roles = `parent_admin | single | helper | self_manager | shadchan`; **`shadchan` is active, not deny-only** — its access is granted solely through a connection (AD-20), never through household membership. A **shadchanus context may never contain household domain rows**, enforced by CI and by scope checks (AD-1). Personas are **mutable for life** (FR81): adding one provisions its context on demand; removing one **archives, never deletes** (FR82). Authorization derives from membership role in the **active** context (AD-19), never a hardcoded flag. Retire `is_admin()`/`isInitialized`.
+- *Amended 2026-07-26 (A2). Supersedes the v1 "shadchan seat provisioned but deny-only" posture; `child_candidate` is renamed `single` (AD-23).*
 
 ### AD-3 — Intra-account visibility: one SQL policy, exhaustive over every state, extended to child tables, with a hard dignity floor
 - **Binds:** PRV-4, UJ-2, FR64-69; child-portal ↔ triage-board seam
@@ -68,7 +73,7 @@ graph TD
 ### AD-4 — `suggestion` is the central object: one candidate, one canonical state, one creation gate, one transition guard
 - **Binds:** FR7, FR14-18; Epic-1/2/4/6; Phase-2 origination
 - **Prevents:** competing state machines; a second INSERT path skipping dedup/provenance; a double-represented decision
-- **Rule:** **one canonical `pipeline_state` enum** (7): `new · look_into · not_sure · for_sure_not · yes · unsure · no` — decision states reachable **only** from `look_into` (no separate `decision_substate`). Gut `for_sure_not` ≠ post-investigation `no`; both preserved. **One `createSuggestion()` service = the sole INSERT path** (manual-add *and* inbox-filing call it; runs dedup + sets provenance/`visibility`/`owner_member_id`), built in the **foundation** epics. **One `transitionSuggestion()` guard owns every state change.** `origin` ∈ `channel | manual | shadchan` (shadchan reserved).
+- **Rule:** **one canonical `pipeline_state` enum** (7): `new · look_into · not_sure · for_sure_not · yes · unsure · no` — decision states reachable **only** from `look_into` (no separate `decision_substate`). Gut `for_sure_not` ≠ post-investigation `no`; both preserved. **One `createSuggestion()` service = the sole INSERT path** (manual-add *and* inbox-filing call it; runs dedup + sets provenance/`visibility`/`owner_member_id`), built in the **foundation** epics. **One `transitionSuggestion()` guard owns every state change.** `origin` ∈ `channel | manual | shadchan` — **`shadchan` is active** (FR110): a connected shadchan redts *into* a household by calling the same `createSuggestion()` and entering the same AD-7 confirm step, never by writing directly. The resulting suggestion is **owned by the household**; only the conversation about it is connection-scoped (AD-20).
 
 ### AD-5 — Identity matching is ONE account-scoped service, fed by ONE normalizer, never name-only, never auto-merge
 - **Binds:** FR10-13, FR20, FR42; NFR-6; R3; "leaks = 0" + PRV-2; Epic-4
@@ -103,7 +108,7 @@ graph TD
 ### AD-11 — Passwordless auth on Supabase; invite binds account + role server-side; 18+ affirmation
 - **Binds:** PRV-9, PRV-12, FR64; Epic-1
 - **Prevents:** password flows; open self-signup; role mass-assignment / cross-account invites; under-18 accounts
-- **Rule:** authentication is **passwordless** — **magic-link / email-OTP is the load-bearing native path**; **passkeys are a progressive enhancement** (Supabase passkeys are Beta — never the sole factor). New users join **only by a verified invite token** (not email match); the invite server-path **binds the row to the inviter's `account_id`** and authorizes `role ≤ inviter authority` (no `role` mass-assignment; never `shadchan`/`parent_admin` from the body). **18+ affirmation** (→ COPPA N/A). Recovery is passwordless.
+- **Rule:** authentication is **passwordless** — **magic-link / email-OTP is the load-bearing native path**; **passkeys are a progressive enhancement** (Supabase passkeys are Beta — never the sole factor). New users join **only by a verified invite token** (not email match); the invite server-path **binds the row to the inviter's active context** and authorizes `role ≤ inviter authority` (no `role` mass-assignment; never `shadchan`/`parent_admin` from the body). **18+ affirmation** (→ COPPA N/A). Recovery is passwordless. **Password and Google sign-in are deleted, not wound down** (NFR-14) — there is no second authentication path. **Invites are the one mechanism** (FR119) for adding a member to a household, giving a single their own login, and proposing a parent↔shadchan connection (AD-20).
 
 ### AD-12 — Hebrew+English is a data invariant; normalization is the AD-5 Postgres function
 - **Binds:** NFR-6, FR6, FR11, FR55; R3
@@ -139,6 +144,40 @@ graph TD
 - **Binds:** NFR-6, NFR-7, NFR-12; the whole SPA + candidate portal
 - **Prevents:** hardcoded English strings; a layout that breaks under Hebrew RTL; two components handling text direction incompatibly
 - **Rule:** all UI text goes through the ratified ra-core **`i18nProvider`** (polyglot) — **no hardcoded UI strings** — with **English + Hebrew** catalogs to start (extensible: one catalog per locale). Locale is **auto-detected from the browser** (`navigator.language` → supported locale, default English) with a **persisted user override**. The app is **bidirectional**: the root `dir` flips per locale and layout uses **CSS logical properties** (Tailwind `ms-/me-/ps-/pe-`, never `ml-/mr-`) so components mirror for Hebrew RTL; Radix/shadcn receive `dir`. *(Distinct from AD-12, which governs bilingual **data**; this governs the **UI**.)* `[ASSUMPTION]` Hebrew catalog via `ra-language-hebrew` + authored domain strings; the fork is LTR-only today, so RTL is a cross-cutting audit.
+
+### AD-19 — The active context is a server-side row, not a client claim
+- **Binds:** FR83, FR84; AD-1, AD-2; every RLS policy
+- **Prevents:** app-only context separation; a tampered or stale context; a revoked membership remaining usable; two contexts being readable at once by a multi-persona login
+- **Rule:** `member_state(user_id, active_account_id)` holds the caller's active context. **`current_context_id()`** is `STABLE`, `SECURITY DEFINER`, `search_path ''`, and returns that row's context **only if it is still an active membership** — otherwise NULL (fail closed). Switching goes through **`set_active_context(account_id)`**, which validates membership before writing. RLS never reads a client-supplied value. **`current_account_id()` — which returned one arbitrary account via `order by am.id limit 1` — is deleted, not wrapped** (NFR-14). Accepted cost: one active context per user, not per browser tab.
+
+### AD-20 — A connection is a third scope, owned by neither party
+- **Binds:** FR94-FR99, FR108-FR113; PRV-2; AD-1, AD-2
+- **Prevents:** a shadchan holding any read path into a household account; a family's private world sitting one policy bug from exposure; two sources of truth for one conversation
+- **Rule:** `connections(household_account_id, shadchanus_account_id, status)` records an **explicitly accepted** link between exactly two contexts; either side may end it (FR109). Conversation rows scope by **`connection_id`**, never `account_id` (AD-1), and are readable only by a member of one of the connection's two contexts. A shadchan therefore **cannot address a household row at all** — FR113 is structural, not policy-dependent. Suggestions redted through a connection still belong to the household (AD-4). No directory-driven or automatic linkage: a connection exists only after acceptance.
+
+### AD-21 — Published listings are a snapshot; it is the only anon-readable relation
+- **Binds:** FR101-FR107, PRV-13, PRV-2; AD-1
+- **Prevents:** a private field being one view-definition or column-grant away from the public; a definer view re-entering the codebase; a withdrawal that does not actually withdraw
+- **Rule:** publishing writes a **`listings`** row containing **only** the fields the publisher opted in, field by field; withdrawing **deletes** the row, which removes it from search immediately (FR105). `listings` is the **sole** relation granted to `anon`, and it physically contains no private column — so a leak is structurally impossible and AD-1's "no definer views" holds. Only the **manager** of a single may publish that single's listing (FR103), and **a single with a login may always withdraw their own** (FR104, dignity floor). **A withdrawal by the single blocks republication until that single consents** — otherwise the dignity floor is a loop a manager can simply re-publish out of. Nothing is published by default; publication is an act, never a state (PRV-13). Snapshot semantics are intended: what was published is what is shown until republished — an edit to the underlying record **never** propagates to a live listing on its own.
+
+### AD-22 — Thread visibility is a property of the thread, not of the persona pair
+- **Binds:** FR94-FR99; PRV-4; AD-20
+- **Prevents:** a permission matrix that grows with every new persona pairing; privacy that is invisible or inferred; a conversation nobody can audit
+- **Rule:** a thread is a **structured, subject-scoped record** (attached to a suggestion or to a relationship), never free-form chat (FR95). It carries **explicit participants** and one **visibility** value. Default is **open** (FR96); privacy is opted into **per discussion** (FR97) and is then enforced in RLS, not the UI. **Any two parties may hold a private thread** (FR98), including shadchan↔single, which is enabled by default rather than gated off. A family may set the default posture; the shipped default is open (FR99). Delivery is in-app + email + push; **no outbound SMS, ever** (AD-13).
+- **Resolution rules — the narrower always wins.** These are stated because scope and visibility could otherwise be read as conflicting:
+  1. **Private beats scope.** For a `private` thread, readership is **its participants only** — never "any member of the scope". This overrides the general connection-membership read in AD-20 and the general account read in AD-1.
+  2. **Open never widens AD-3.** For an `open` thread, "all parties in its context" means *those the intra-account visibility policy (AD-3) already permits* — it grants nothing new to a helper or a single, and never bypasses the dignity floor.
+  3. **A thread carries exactly one scope**, matching AD-1: `connection_id` for a cross-context conversation, `account_id` for an intra-household one. A thread is never scoped by both.
+
+### AD-23 — Entities are named for what they hold; the fork's fossils are deleted
+- **Binds:** FR86-FR89, NFR-14; every epic
+- **Prevents:** a schema that lies to the next developer or agent; "contact" meaning two different things; dead surfaces accumulating behind live ones
+- **Rule:** the person being redt for is a **`single`**, never a "child" — the term is false for a widow, divorcee or independent adult, and a self-managing person is a `single` row in their own household linked by `member_id` (FR87). The user/profile table is **`members`**, not `sales`. The fork's `contacts`, `companies`, `deals`, `deal_notes`, `contact_notes`, `tags` and `favicons_excluded_domains` are **dropped outright** with their UI, fixtures and types — no aliases, views or redirects survive (NFR-14). CI fails on a reference to a retired name.
+
+### AD-24 — One UI consistency contract: every entity uses the same shell, routes and primitives
+- **Binds:** UX-DR1-UX-DR11; FR90-FR92; every UI epic
+- **Prevents:** per-screen invention; two teams or agents building divergent detail views; a record reachable by two different URL shapes; a permission check living only in a component
+- **Rule:** every entity renders through **one `Entity360` shell** with fixed regions in fixed order (breadcrumb → identity header → stat band → alert slot → tab bar → content → optional right rail); regions are optional per entity but **never reordered or restyled**. Routes are uniform: `/{entity}`, `/{entity}/{id}`, `/{entity}/{id}/{tab}`, `/{entity}/new`, `/{entity}/{id}/edit` — **records live at URLs, not in modals**. Lists render through **one `EntityList`** with URL-held state; every record mention anywhere renders through **one `RecordLink`**. An entity contributes a **descriptor** (label, icon, avatar, title, meta, stats, tabs, actions, relationships) and **no bespoke layout code**. Tabs declare a **minimum visibility**; the shell omits what the viewer may not see and the data never reaches the client (AD-3). **A single sees the same screens as a parent** (FR90) — the difference is permission, never a parallel surface.
 
 ## Consistency Conventions
 
@@ -277,7 +316,10 @@ supabase/schemas/                           # + account_id/FORCE-RLS rewrite, re
 | Abuse / rate-limiting | edge + every Worker | AD-17 |
 
 ## Deferred
-- **Phase-2 shadchan interface** — role provisioned deny-only (AD-2); UI/origination/consent-scoping later.
+<!-- The Phase-2 shadchan interface is no longer deferred: promoted into Phase 1 by
+     Amendment A2 (D5) and now governed by AD-2, AD-20 and AD-22. -->
+- **Per-tab context** — one active context per user (AD-19). Revisit if multi-persona users report needing two contexts open at once.
+- **Listing freshness** — listings are snapshots (AD-21). Revisit if users expect edits to propagate without republishing.
 - **Native iOS wrapper** — stay pure-PWA (email-share) until the iPhone segment warrants it.
 - **Cloudflare consolidation** — CF Queues/KV (now free) vs Upstash; already all-Cloudflare for compute/media/email (SPA host is Vercel).
 - **Sentry** — Phase 2; v1 backend errors = Cloudflare native + PostHog.
