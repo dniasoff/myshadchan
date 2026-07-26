@@ -176,9 +176,41 @@ Direct consequences that simplify earlier decisions:
 - Demo/seed data may be regenerated freely; schema may be rebuilt rather than patched
   where that yields a cleaner result.
 
+## D20 — Canonical family shapes · **DECIDED**
+The system must support exactly these six shapes. Each is an onboarding provisioning path
+**and** an RLS isolation test case ("who can see what"):
+
+1. **1 self-managing single** — independent, widowed or divorced, managing themselves
+2. **1 parent** — managing their singles
+3. **2 parents** — co-managing one household
+4. **any of the above + helpers**
+5. **any of the above + singles with their own logins**
+6. **any of the above where a member is also a shadchan** (second context, D14)
+
+Explicitly **out of scope** until asked for: extended family running the process as
+first-class participants, and a single belonging to more than one household (which would
+break the "a single belongs to one household" assumption and require an explicit rule on
+who owns their record and their listing).
+
+## D21 — Architecture spine amended · **DONE** *(2026-07-26, commit `7434cb5`)*
+24 ADs. Amended AD-1 (two scoping axes), AD-2 (personas + contexts, shadchan active),
+AD-4 (`origin='shadchan'` active), AD-11 (password/Google deleted). New AD-19 (server-side
+active context), AD-20 (connection as a third scope), AD-21 (listing snapshot), AD-22
+(thread visibility + resolution rules), AD-23 (entity naming truth), AD-24 (UI consistency
+contract). Adversarial review closed two holes: private-thread readership ambiguity, and a
+dignity-floor republication loop.
+
+## D22 — Corrected privacy copy deployed · **DONE** *(2026-07-26)*
+The live site no longer claims "There is no public directory". Verified in the production
+bundle at www.myshadchan.space.
+
 ---
 
 ## Open questions
+
+*(none — O1–O5 all resolved.)*
+
+## Resolved questions
 - **O2 — May a shadchan message a single directly, without the parent?** Recommendation:
   parent visible on the thread by default; fully-direct requires explicit parent consent;
   n/a for an independent single. *Safety + PRV-4 dignity floor.*
