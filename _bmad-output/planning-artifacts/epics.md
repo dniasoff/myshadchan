@@ -156,6 +156,28 @@ Remove every trace of the Atomic CRM fork and make the schema describe shidduchi
 honestly, so that every later epic is smaller and no developer or agent has to guess
 which "contact" is real. Greenfield: delete outright, no deprecation.
 
+**Delivery order (binding): 1.1 → 1.4 → 1.5 → 1.3 → 1.2 → 1.6.** The stories are not
+interchangeable; each step below is the reason the one before it has to land first.
+
+1. **1.1 first** — it deletes the fossil resources, so every later story renames and
+   re-registers a smaller surface instead of touching files that are about to disappear.
+   Being first is also why **1.1 owns the whole `/import` surface** (see scope decisions).
+2. **1.4 before 1.3** — 1.4's migration drops a composite FK that targets
+   `children(account_id, id)`; once 1.3 renames the table that reference no longer
+   resolves.
+3. **1.5 before 1.3 and 1.2** — 1.5 replaces the `<Resource>` / `<Route>` JSX in
+   `root/CRM.tsx` with a `routeManifest.ts`, so 1.3 and 1.2 must edit manifest entries,
+   not JSX that no longer exists. 1.5 also deletes `settings/ProfileForm.tsx` and
+   `settings/ProfilePage.tsx`, which 1.2 would otherwise rename symbols inside. 1.5 owns
+   `/changelog` and `/profile`; it does **not** own `/import` (see scope decisions).
+4. **1.3 before 1.2** — no dependency between the two renames; they are sequenced rather
+   than run concurrently so each one's retired-name grep has a single correct answer.
+5. **1.1 before 1.2** — 1.1 deletes files that still carry `sales_id`, so 1.2's call-site
+   inventory is only correct once 1.1 (and 1.5) have landed.
+6. **1.6 last** — it is the closing gate: it asserts lint, typecheck, tests, CI and the
+   retired-name guard over the finished state, so running it earlier only measures work
+   in progress.
+
 ### Story 1.1: Delete the fossil resources
 
 As a developer,
@@ -236,6 +258,70 @@ So that "tidy code" is enforced rather than aspirational.
 **When** CI runs
 **Then** typecheck, lint, prettier and the full test suite pass with zero warnings
 **And** no `eslint-disable`, `@ts-ignore` or skipped test was added to achieve it.
+
+### Epic 1 scope decisions
+
+These were reviewed and decided; they are deferrals, not oversights. Anything listed here
+is out of scope for all six stories and must not be re-opened inside them.
+
+**Fork residue deliberately left in place**
+
+- `.claude/skills/delete-initial-resource/` — agent tooling, not shipped code. It is
+  retired when the skill set is next revised, not by an Epic 1 story.
+- `CHANGELOG.md` — the repo file stays. 1.5 removes the in-app `/changelog` route and
+  page; it does not remove the file.
+- `src/components/atomic-crm/` — the directory name is frozen for Epic 1. Renaming it
+  rewrites every import path in the repo and would collide with all five other stories.
+  1.6 freezes it explicitly; revisit after Epic 1, as its own change.
+
+**The `anon` grant surface survives Epic 1 by design**
+
+1.1 leaves the `alter default privileges … to anon` block, 1.2 keeps `init_state` as
+`security_invoker = off`, and 1.4 leaves the remaining fork `to anon` grants alone. This
+is intentional: the `anon` surface is closed by Epic 2 under AD-1. **1.4's acceptance
+criteria must not be read as "anon is closed"** — 1.4 only retires the token portal.
+
+**E2E suite: kept, not deleted — with a known interim red**
+
+`e2e/` and the CI `e2e-test` job both survive Epic 1. 1.1 deletes the three fossil specs
+(`bulkContactTags.spec.ts`, `onboarding.spec.ts`, `userAddingATask.spec.ts`) and keeps the
+directory, `e2e/fixtures.ts`, `playwright.config.ts` and the `test-e2e*` make targets; **1.6
+— and only 1.6 — adds the one real smoke spec** (`e2e/pipeline.spec.ts`). No other story
+writes, renames or deletes a spec.
+
+Between the two, `make test-e2e-ci` runs Playwright against an empty `testDir` and exits **1**
+with `Error: No tests found`. That red spans 1.4, 1.5, 1.3 and 1.2 and is an **accepted
+consequence of the pinned order**, stated in each of those stories so it is not mistaken for a
+regression. It is not a licence to delete the job, the directory or the make targets, and not a
+reason to keep a fossil spec alive. If the product owner wants CI green throughout, the fix is
+to move 1.6's smoke spec forward into 1.1 — a correct-course on the epic, not an improvisation
+inside a story.
+
+**The `/import` surface belongs to 1.1, not 1.5**
+
+Successive drafts moved it between the two. It is settled on **1.1** and must not be moved
+again: 1.1 runs first and deletes the three modules `misc/useImportFromJson.ts:12-15` imports
+(`Tag` from `types.ts`, `colors` from `tags/`, `contactGender` from `contacts/`), so the surface
+cannot typecheck for the two stories between 1.1 and 1.5 under any other split — and NFR-14
+forbids bridging the gap with a stub, an `any` or a `@ts-ignore`. 1.1 therefore takes the whole
+surface in one pass: `misc/ImportPage.tsx`, `misc/useImportFromJson.ts`, `misc/import-sample.json`,
+the `root/CRM.tsx` route and import, `ImportFromJsonMenuItem` (and the `Import` icon) in
+`layout/TopBar.tsx`, the `crm.import` / `crm.header.import_data` i18n keys, the fixture
+`test-data/import-sample-invalid-sale.json`, and `doc/users/import-data.mdx`.
+
+Consequence to accept, not to re-litigate: `layout/TopBar.tsx`'s `<UserMenu>` block is edited by
+1.1 (one menu item), then 1.5 (two more), then 1.2 (`UsersMenuItem`'s link). Under the pinned
+order these are sequential rebases, not concurrent edits.
+
+**Repo-wide prettier is 1.6's gate alone**
+
+`npm run prettier` fails on **89 files** on `main` (plus `mockup/MyShadchan.dc.html`, which
+prettier cannot parse), almost all of them in files stories 1.1–1.5 never open, and part of the
+remedy is `.prettierignore` policy. Stories **1.1, 1.2, 1.3, 1.4 and 1.5** therefore require
+prettier clean **only on the files each story creates, renames or modifies**; `npm run
+typecheck` and `npm run lint` (eslint) stay repo-wide gates in every story, as both pass on
+`main` today. Making repo-wide prettier green is story **1.6**'s acceptance criterion. Note that
+`make lint` bundles eslint *and* prettier, so it is not a usable gate before 1.6.
 
 ---
 

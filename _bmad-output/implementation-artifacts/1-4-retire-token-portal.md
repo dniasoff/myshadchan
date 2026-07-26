@@ -13,6 +13,34 @@ one of its tests,
 so that there is exactly one way a **single** sees their own process (Epic 6: they log in
 and open the same screens as the parent), not two.
 
+> **READ THIS FIRST — SHARING IS NOT BEING DROPPED.** (This is the most misread part of
+> this story.)
+>
+> This story deletes the **inbound, unauthenticated token portal** (E7). It does **not**
+> touch the *outbound, revocable, expiring share link* for a single's profile/resume —
+> **FR107 / CAP-12 is a live, retained requirement**, delivered by **Epic 9, Story 9.5**
+> on the AD-21 listings/sharing model (a Worker-proxied, logged, expiring link), not by
+> resurrecting `child_portal_tokens`.
+>
+> Sharing is not being dropped; it is being moved to where it belongs. **Do not build any
+> part of it here, and do not preserve any part of the E7 table "so Epic 9 can reuse it" —
+> AD-21 does not use it.** AC 12 forbids the keep-it-just-in-case reflex; AC 14 requires
+> this carry-forward to be written into the Dev Agent Record so the next reader of the git
+> history cannot misread the deletion as a scope cut.
+
+**Position in Epic 1 — this story is 2nd of 6.** The Epic 1 order is **binding**:
+**1.1 → 1.4 → 1.5 → 1.3 → 1.2 → 1.6**.
+
+- **Depends on: 1.1** (fossil-resource deletion) having landed. 1.1 owns the fork `to anon`
+  grants and the fossil tables; this story owns only the portal's own objects.
+- **Blocks: 1.3** (`children` → `singles`). This is a **hard dependency, not a preference** —
+  see AC 7 row 6 and "Sequencing — binding" in Dev Notes. `child_portal_tokens` carries a
+  composite FK onto `public.children(account_id, id)`; it must be gone before the rename
+  runs, so 1.3's migration never has to carry the portal's dependency through.
+- Every `child`-named **symbol** — SQL `is_child_visible_state`, its TypeScript twin
+  `isChildVisibleState`, `CHILD_VISIBLE_STATES` — is **1.3's** to rename, not this story's.
+  See AC 8.
+
 **Why this is a deletion and not a migration.** CAP-9 says the single "opens the same
 screens as the parent with **no parallel interface**", and FR90 restates it. The E7 token
 portal *is* a parallel interface: a second, unauthenticated, read-only rendering of the
@@ -21,12 +49,6 @@ same data, with its own shell, its own status vocabulary, its own scoping logic
 mirror. Under NFR-14 ("when something is replaced the replaced thing is deleted in the
 same change") it goes now, before Epic 6 builds the real thing, so Epic 6 never has to
 keep two code paths in step.
-
-**What is NOT being dropped.** The *outbound, revocable, expiring share link* for a
-single's profile/resume (FR107 / CAP-12) is a real, retained requirement — it is
-delivered by **Epic 9, Story 9.5**, on the AD-21 listings/sharing model (a Worker-proxied,
-logged, expiring link), not by resurrecting `child_portal_tokens`. Sharing is not being
-dropped; it is being moved to where it belongs. Do not build any part of it here.
 
 ## Acceptance Criteria
 
@@ -88,19 +110,40 @@ dropped; it is being moved to where it belongs. Do not build any part of it here
    | 12 | function `public.get_child_portal(text)` | `02_functions.sql:2187-2245` |
    | 13 | the `grant execute ... to anon` on `get_child_portal(text)` — the only `anon` grant in the shidduchim domain | `06_grants.sql:653` |
 
+   Row 6 is the **hard ordering dependency**: `child_portal_tokens_child_id_fkey` is a
+   *composite* FK `foreign key (account_id, child_id) references public.children(account_id, id)`
+   (`01_tables.sql:784-786`). It reads `children` because this story runs **before** 1.3
+   (2nd of 6 in the binding order). Do **not** write the edit defensively for a `singles`
+   target — if `01_tables.sql` says `public.singles(account_id, id)` when you open it, the
+   order has been violated: stop and report it rather than adapting.
+
    The five schema blocks removed are: `01_tables.sql` 623–645 (comment + table), 776–786
    (FKs), 822–823 (indexes); `02_functions.sql` 2144–2245 (the whole `Read-only child
    portal (E7)` section); `04_triggers.sql` 182–186; `05_policies.sql` 281–295;
    `06_grants.sql` 619–655.
 
-8. **These retained objects still exist and are untouched** (they belong to AD-3 and are
-   consumed by Epic 6, not by the portal):
-   - `public.is_child_visible_state(public.pipeline_state)` (`02_functions.sql:578`) and its
-     three grant lines (`06_grants.sql:303-305`). It will have **zero in-schema callers**
-     after this story — that is expected, not dead code to clean up.
+8. **These objects survive this story untouched — because they are 1.3's to rename next,
+   not because they are frozen.** They belong to AD-3 and are consumed by Epic 6, not by
+   the portal. This story neither deletes nor renames them; it must not "clean them up",
+   and it must not treat them as permanently fixed either:
+   - **SQL** `public.is_child_visible_state(public.pipeline_state)` (`02_functions.sql:578`)
+     and its three grant lines (`06_grants.sql:303-305`) — **left for story 1.3 to rename**
+     to `is_single_visible_state` (1.3 AC-4, Task 2). Untouched here.
+   - **TypeScript twin** `isChildVisibleState` and `CHILD_VISIBLE_STATES` in
+     `src/components/atomic-crm/shidduchim/pipelineStates.ts:111,142`, plus their coverage in
+     `pipelineStates.test.ts:5,107-116` — also **left for story 1.3 to rename**
+     (`isSingleVisibleState` / `SINGLE_VISIBLE_STATES`). Under the binding ownership ruling,
+     1.3 owns **every** `child`-named symbol including camelCase and SCREAMING_SNAKE
+     compounds; this story renames none of them.
+   - After this story both have **zero non-test callers**: deleting
+     `providers/fakerest/internal/childPortal.ts` (AC 4) removes the TS twin's only
+     production caller (`childPortal.ts:10,121` — verified as the sole import outside
+     `pipelineStates.test.ts`), and deleting `get_child_portal(text)` (AC 7 row 12) removes
+     the SQL function's only in-schema caller (`02_functions.sql:2234`). **That is expected
+     and correct** — it is a two-story window, not dead code to delete: 1.3 renames both, and
+     Epic 6's RLS is the caller that puts them back to work. Do not delete them, do not add a
+     temporary caller, do not `eslint-disable` around them.
    - `shidduchim.owner_member_id` and `shidduchim.visibility` (`01_tables.sql:364-368`).
-   - `src/components/atomic-crm/shidduchim/pipelineStates.ts` (`isChildVisibleState` and its
-     tests in `pipelineStates.test.ts`).
    - The historical migration `supabase/migrations/20260724170639_add_child_portal.sql` — it
      is *never* edited or deleted; the new migration drops what it created.
 
@@ -119,7 +162,15 @@ dropped; it is being moved to where it belongs. Do not build any part of it here
     grep -rniE "child_portal|childportal|get_child_portal|portalToken|portalClient|PortalSuggestionCard|isPortalUrl|buildPortalUrl|readPortalToken|PORTAL_PATH" \
       src/ supabase/schemas/ supabase/tests/ e2e/ workers/ scripts/ public/
     ```
-    (baseline before this story: **247 hits across 25 files**)
+    (baseline re-verified on `main` at story-fix time: **247 hits across 25 files**)
+
+    The `-i` flag is load-bearing: it is what makes `childportal` match the camelCase
+    compounds `childPortal`, `ChildPortalPage`, `ChildPortalShare`, `loadChildPortal` and
+    `dataProvider.childPortal.test.ts`. Do **not** replace it with `\bchild_portal\b` —
+    word-boundary patterns silently miss every camelCase form. Conversely, this sweep
+    deliberately does **not** carry a bare `[A-Za-z]Child|Child[A-Za-z]` pattern: that is
+    story 1.3's guard, and running it here would (correctly) fire on `isChildVisibleState` /
+    `CHILD_VISIBLE_STATES`, which AC 8 leaves standing for 1.3.
     ```bash
     ls src/components/atomic-crm/portal 2>/dev/null            # must not exist
     grep -rn "child_portal" supabase/schemas/                   # 0
@@ -144,20 +195,35 @@ dropped; it is being moved to where it belongs. Do not build any part of it here
     Record.
 
 12. **Nothing is left behind as a shim.** No compatibility alias, no `get_child_portal`
-    stub returning `null`, no view named for the dropped table, no `/portal` redirect to
-    `/singles`, no deprecated-but-kept provider method, no commented-out block "for Epic 9".
-    The deletion is total, in one change (NFR-14).
+    stub returning `null`, no view named for the dropped table, no `/portal` redirect to the
+    child list, no deprecated-but-kept provider method, no commented-out block "for Epic 9",
+    and — most tempting, most wrong — **no part of `child_portal_tokens` retained "because
+    Epic 9 needs share links". It does not: Story 9.5 builds on AD-21's listings snapshot,
+    not on this table.** The deletion is total, in one change (NFR-14).
 
-13. **Green baseline.** `npm run typecheck`, `npm run lint`, `npm run prettier`,
-    `make test` (app + functions + workers) and `npm run test:unit:db` all pass, with no
+13. **Green baseline.** `npm run typecheck`, `npm run lint` (eslint), `make test`
+    (app + functions + workers) and `npm run test:unit:db` all pass **repo-wide**, with no
     new warnings and no suppressions. The db suite must show `references_entity`,
     `shidduch_catch` and `billing_entitlement` still green and no `child portal (database)`
     suite present.
 
-14. **FR107 is documented as carried forward, not dropped.** The Completion Notes in the
-    Dev Agent Record state in one line that the revocable/expiring share link (FR107 /
-    CAP-12) is delivered by Epic 9 Story 9.5 under AD-21/AD-9, and that no part of it was
-    implemented here.
+    **Formatting is scoped to this story's own diff:**
+    `npx prettier --config ./.prettierrc.json --check <every file this story modifies>` returns
+    clean. Repo-wide `npm run prettier` is **not** achievable here and is **story 1.6's** AC-5 —
+    it fails on **89 files** on `main` (plus `mockup/MyShadchan.dc.html`, which prettier cannot
+    parse at all), and this story, being almost pure deletion, touches barely any of them.
+
+    `make test-e2e-ci` is also outside this gate: story 1.1 deleted the last Playwright spec and
+    1.6 lands the replacement, so Playwright exits 1 with `Error: No tests found` throughout
+    this story (1.1 §"Known interim red: the `e2e-test` job").
+
+14. **The two carry-forwards are written down, not left to be inferred.** The Completion
+    Notes in the Dev Agent Record state, in one line each:
+    (a) the revocable/expiring share link (**FR107 / CAP-12**) is **not dropped** — it is
+    delivered by Epic 9 Story 9.5 under AD-21/AD-9, and no part of it was implemented here;
+    (b) `is_child_visible_state`, `isChildVisibleState` and `CHILD_VISIBLE_STATES` were
+    **deliberately left standing with zero non-test callers** and are story **1.3's** to
+    rename (AC 8) — they are not an oversight and not dead code.
 
 ## Tasks / Subtasks
 
@@ -202,13 +268,17 @@ dropped; it is being moved to where it belongs. Do not build any part of it here
   - [ ] `supabase/schemas/05_policies.sql`: delete lines 281–295 (comment, `enable row level security`, policy).
   - [ ] `supabase/schemas/04_triggers.sql`: delete lines 182–186 (comment + trigger).
   - [ ] `supabase/schemas/02_functions.sql`: delete lines 2144–2245 — the banner and **both**
-        functions. Do **not** touch `is_child_visible_state` at line 578.
+        functions. Do **not** touch `is_child_visible_state` at line 578 — it keeps its
+        `child` name until story 1.3 renames it (AC 8).
   - [ ] `supabase/schemas/01_tables.sql`: delete lines 623–645 (comment + `create table`),
         776–786 (the three constraint statements) and 822–823 (the two indexes). Do **not**
-        touch the `visibility` / `owner_member_id` columns at lines 364–368.
+        touch the `visibility` / `owner_member_id` columns at lines 364–368. Confirm before
+        editing that line 786 reads `references public.children(account_id, id)` — if it reads
+        `public.singles`, 1.3 has landed out of order (see "Sequencing — binding"): stop.
   - [ ] Reword — do not delete — the 5 stale comments that promise a portal (listed in Dev
         Notes, "Stale comments"), so no comment in the repo still describes a surface that
-        no longer exists.
+        no longer exists. Reword the **prose only**: the identifiers inside those comments
+        (`is_child_visible_state`, `CHILD_VISIBLE_STATES`) still read `child` after this story.
 
 - [ ] **Task 5 — Generate and hand-check the migration (AC: 7, 11, 12)**
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f retire_child_portal`
@@ -240,11 +310,22 @@ dropped; it is being moved to where it belongs. Do not build any part of it here
         that a child's Show page renders without the share panel. There is no SQL seed file to
         change: the only fixture surface was the FakeRest generator, handled in Task 3.
 
-- [ ] **Task 8 — Verify and close (AC: 10, 11, 13, 14)**
+- [ ] **Task 8 — Verify and close (AC: 8, 10, 11, 13, 14)**
   - [ ] Run the AC 10 text sweep; it must return 0 hits (baseline 247 across 25 files).
-  - [ ] `npm run typecheck && npm run lint && npm run prettier && make test && npm run test:unit:db`.
-  - [ ] Fill the Dev Agent Record: catalog-query outputs, the FR107→Epic 9 line required by
-        AC 14, and the File List.
+  - [ ] `npm run typecheck && npm run lint && make test && npm run test:unit:db`, then
+        `npx prettier --config ./.prettierrc.json --check` over **this story's changed files
+        only** (AC 13 — repo-wide `npm run prettier` is 1.6's gate, not this one's).
+  - [ ] Confirm the hand-off to 1.3 is intact, not accidentally cleaned up.
+        `grep -rn "is_child_visible_state" supabase/schemas/` must still return the definition
+        at `02_functions.sql:578` and the 3 grants at `06_grants.sql:303-305` (the two portal
+        call sites at `02_functions.sql:2180,2234` are gone; the `05_policies.sql:186` mention
+        is inside a reworded comment and may survive in either form). And
+        `grep -rn "isChildVisibleState\|CHILD_VISIBLE_STATES" src/` must still return
+        `shidduchim/pipelineStates.ts` and `pipelineStates.test.ts` — and, after AC 4, nothing
+        else. **Zero hits on either grep means something was over-deleted: 1.3 renames these,
+        this story does not remove them.**
+  - [ ] Fill the Dev Agent Record: catalog-query outputs, **both** AC 14 lines (FR107 → Epic 9
+        Story 9.5; visible-state symbols → story 1.3), and the File List.
 
 ## Dev Notes
 
@@ -312,6 +393,14 @@ in and sees the same screens, scoped by RLS); do **not** delete the code beneath
 4. `src/components/atomic-crm/shidduchim/pipelineStates.ts:111` — "(The child portal itself is Epic-9; …)"
 5. `src/components/atomic-crm/references/ReferenceCallLog.tsx:18` — "a future candidate portal derives what a child may see by joining…"
 
+**Reword the prose only — do not rename the identifiers inside these comments.** Items 2, 3
+and 4 sit next to `is_child_visible_state` / `isChildVisibleState` / `CHILD_VISIBLE_STATES`;
+those names are **1.3's** to change (AC 8) and must still read `child…` when this story
+finishes. The comment should stop promising a *portal* while continuing to name the symbol
+exactly as the code does. Likewise, the word "child" as a **domain noun** ("a child may see")
+is 1.3's vocabulary sweep, not this story's — retarget the Epic reference (Epic-9 portal →
+Epic 6 login), leave the noun.
+
 ### Migration workflow (this repo's rules)
 
 `supabase/schemas/*.sql` is the **source of truth**; `supabase/migrations/` is generated.
@@ -368,7 +457,9 @@ introduced. This story removes 39 assertions in total (21 SQL checks + 5 FakeRes
 `ChildPortalPage` cases + 8 `portalToken` cases) because the behaviour they cover ceases to
 exist. That is a legitimate coverage *reduction* — it is not a coverage regression on retained
 code, and no retained module loses a test. `pipelineStates.test.ts` keeps its
-`isChildVisibleState` coverage.
+`isChildVisibleState` coverage untouched — 1.3 renames both the symbol and its assertions
+afterwards (AC 8); do not pre-empt that here, and do not delete the test because its only
+production caller went away.
 
 Test commands: `make test` runs the `app`, `functions` and `workers` vitest projects;
 the SQL suites are a separate project — run `npm run test:unit:db` explicitly (it needs
@@ -390,26 +481,52 @@ the SQL suites are a separate project — run `npm run test:unit:db` explicitly 
   `.claude/rules/coding-style.md` this is pure deletion — do not "refactor while you're in
   there".
 
-**Files other Epic 1 stories will also touch — expect conflicts and sequence accordingly:**
+**Files other Epic 1 stories also touch.** In the binding order (1.1 → **1.4** → 1.5 → 1.3 →
+1.2 → 1.6), 1.1 is **already landed** when this story runs and 1.5 / 1.3 / 1.2 / 1.6 all come
+**after** it — so every line number quoted here is measured on a tree where 1.1's deletions
+have been applied and nothing else has. Re-verify before editing; never carry another story's
+edit into this one.
 
-| File | Also touched by |
-|---|---|
-| `src/components/atomic-crm/types.ts` | 1.1 (drop fork types), 1.2 (`Sale`→`Member`), 1.3 (`Child`→`Single`) |
-| `providers/supabase/dataProvider.ts` | 1.1, 1.2, 1.3 |
-| `providers/fakerest/dataProvider.ts` | 1.1, 1.2, 1.3 |
-| `providers/fakerest/dataGenerator/{index,types}.ts` | 1.1, 1.2, 1.3 |
-| `src/components/atomic-crm/children/ChildShow.tsx` | 1.3 (renamed to `singles/SingleShow.tsx`) |
-| `src/App.tsx` | 1.5 (dead routes) |
-| `supabase/schemas/01_tables.sql` | 1.1, 1.2, 1.3 |
-| `supabase/schemas/02_functions.sql` | 1.1, 1.2, 1.3 |
-| `supabase/schemas/05_policies.sql`, `06_grants.sql` | 1.1 (fork grants/policies), 1.2, 1.3 |
+| File | Also touched by | Relative to this story |
+|---|---|---|
+| `src/components/atomic-crm/types.ts` | 1.1 (drop fork types), 1.3 (`Child`→`Single`), 1.2 (`Sale`→`Member`) | 1.1 before; 1.3, 1.2 after |
+| `providers/supabase/dataProvider.ts` | 1.1, 1.5, 1.3, 1.2 | 1.1 before; rest after |
+| `providers/fakerest/dataProvider.ts` | 1.1, 1.3, 1.2 | 1.1 before; rest after |
+| `providers/fakerest/dataGenerator/{index,types}.ts` | 1.1, 1.3, 1.2 | 1.1 before; rest after |
+| `src/components/atomic-crm/children/ChildShow.tsx` | 1.3 (renamed to `singles/SingleShow.tsx`) | after |
+| `src/App.tsx` | 1.5 (dead routes / route manifest) | after — remove only the `isPortalUrl` branch |
+| `supabase/schemas/01_tables.sql` | 1.1, 1.3, 1.2 | 1.1 before; rest after |
+| `supabase/schemas/02_functions.sql` | 1.1, 1.3, 1.2 | 1.1 before; rest after |
+| `supabase/schemas/05_policies.sql`, `06_grants.sql` | 1.1 (fork grants/policies), 1.3, 1.2 | 1.1 before; rest after |
 
-**Sequencing recommendation:** land **1.4 before 1.3**. `child_portal_tokens_child_id_fkey`
-is a composite FK onto `public.children(account_id, id)`; dropping the portal table first
+### Sequencing — binding
+
+The Epic 1 order is **pinned, not advisory**: **1.1 → 1.4 → 1.5 → 1.3 → 1.2 → 1.6**. This
+story is **2nd**: it lands after 1.1 and **before** 1.3.
+
+**Why 1.4 must precede 1.3.** `child_portal_tokens_child_id_fkey` is a *composite* FK onto
+`public.children(account_id, id)` (`01_tables.sql:784-786`). Dropping the portal table first
 removes a dependency the `children` → `singles` rename would otherwise have to carry through
-its migration. If 1.3 has already landed when this story runs, the FK target reads
-`public.singles(account_id, id)` — adjust the schema edit accordingly and say so in the Dev
-Agent Record.
+its `ALTER TABLE … RENAME` migration — 1.3 already hand-writes five constraint renames, and
+this would be a sixth on a table that is about to cease existing. It is also why every
+`children`-named identifier quoted in this story is correct as written.
+
+There is **no fallback branch for the reverse order.** If you open `01_tables.sql` and the FK
+target reads `public.singles(account_id, id)` — or `05_policies.sql` names
+`"Singles scoped to account"`, or `02_functions.sql` has `is_single_visible_state` — then 1.3
+has landed out of order. **Stop and report it; do not adapt the edits.** Line numbers
+throughout this story are measured against the pre-1.3, pre-1.5 tree and cannot be trusted
+once the rename has run.
+
+**What this story does *not* own, by ruling:**
+
+- Every `child`-named **symbol** — `is_child_visible_state`, `isChildVisibleState`,
+  `CHILD_VISIBLE_STATES`, and any other camelCase / SCREAMING_SNAKE compound — is **1.3's**
+  (AC 8). This story deletes the files that *contain* portal symbols; it renames nothing.
+- `src/App.tsx`'s remaining dead routes, the TopBar menu items and the `/import` surface are
+  **1.5's** (3rd). This story only removes the `isPortalUrl` branch and its import from
+  `App.tsx`; leave every other route alone (AC 2 also forbids inventing a `/portal` redirect).
+- The fork `to anon` grants in `06_grants.sql:8-172` are **1.1's** (already landed).
 
 ### References
 
@@ -419,7 +536,10 @@ Agent Record.
 - [Source: _bmad-output/specs/spec-myshadchan/SPEC.md#Constraints] — "Greenfield engineering standard… when something is replaced the replaced thing is deleted in the same change"; "Isolation is enforced in Postgres, never in the application".
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-23] — entities named for what they hold; fossils dropped outright, no aliases, views or redirects survive; CI fails on a reference to a retired name.
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-1] — REVOKE all grants from `anon`; the only anon-readable relation is the published-listing snapshot.
-- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-3] — one SQL authority for child visibility (`is_child_visible_state`), retained; the dignity floor.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-3] — one SQL authority for child visibility (`is_child_visible_state`), retained by this story and renamed by 1.3; the dignity floor.
+- [Source: _bmad-output/implementation-artifacts/EPIC1-CROSSCHECK.md#O4] — the 1.4-before-1.3 ordering, now binding rather than recommended.
+- [Source: _bmad-output/implementation-artifacts/EPIC1-CROSSCHECK.md#G4] and [#D3] — `is_child_visible_state` / `isChildVisibleState` are 1.3's to rename; this story leaves them, it does not freeze them.
+- [Source: _bmad-output/implementation-artifacts/1-3-rename-children-to-singles.md] — the story that renames them (AC-4, Task 2) and that this one must precede.
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-21] — listings/share model that carries FR107 in Epic 9.
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 9.5: Revocable share links] — where the share link is actually delivered.
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic 6: The Single's Access] — the replacement: a single logs in and sees the same app, filtered (6.2 / 6.3 RLS + field scoping).
