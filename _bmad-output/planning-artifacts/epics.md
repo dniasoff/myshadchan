@@ -1202,7 +1202,7 @@ So that I can see agreement, contradiction and gaps.
 Ten adversarial reviewers plus two cross-checks surfaced work that **no story owns**.
 Recorded here so each is a decision, not an oversight. Nothing below is scheduled.
 
-### S1 — SECURITY: the `attachments` bucket is public and account-unscoped ⚠️
+### S1 — SECURITY: the `attachments` bucket was public and account-unscoped ✅ FIXED 2026-07-26
 The bucket holding **resumes and photos** — PRV-1's highest-sensitivity data — is
 `public = true`, and its only policy is
 `for select to authenticated using (bucket_id = 'attachments')` with **no account scoping**
@@ -1214,9 +1214,17 @@ Violates **AD-1** (cross-account leaks = 0), **AD-9** (no public/pre-signed URLs
 proxy-streams), **PRV-5** (no public URLs, access-logged) and **PRV-8** (revocable,
 expiring, per-recipient).
 
-Confirmed in the declared schema and the local instance. **The hosted project was not
-verified — do that first.** Four stories *read* this bucket (3.7, 5.3, 6.3, 11.2); none
-fixes it. Needs an owning story before any epic ships more attachment traffic.
+**RESOLVED** (commit `31183f2`, deployed 2026-07-26). Confirmed live on hosted, then fixed:
+bucket set private, policies scoped to an `{account_id}/` key prefix, both upload sites
+switched to account-prefixed `crypto.randomUUID()` keys and signed expiring URLs.
+Verified on hosted — the anonymous public endpoint went from `Object not found` (bucket
+public and serving) to `Bucket not found`. Locally: anonymous read 400, cross-account
+download blocked, cross-account list empty.
+
+**Residual, still unowned:** AD-9's real answer is a Worker proxy-stream with access
+logging, not signed URLs; and the policies name `current_account_id()`, which Epic 2
+Story 2.1 deletes — 2.1 must migrate these three storage policies to `current_context_id()`
+or they break. Add that to 2.1's policy inventory.
 
 ### S2 — Repo-wide `FORCE ROW LEVEL SECURITY` retrofit + AD-1's CI assertion
 AD-1 requires `FORCE RLS` on every table and a CI check asserting it. Story 2.1 explicitly
