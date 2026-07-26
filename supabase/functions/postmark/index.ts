@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
     });
   }
 
-  const attachments = await extractAndUploadAttachments(Attachments);
+  const attachments = await extractAndUploadAttachments(Attachments, accountId);
 
   await createInboxItemFromEmail(
     buildInboxItemPayload({

@@ -30,6 +30,11 @@ export type Attachment = {
  * }]
  *
  */
+/** How long a generated attachment URL stays valid. The durable reference is the
+ * object `path`; callers re-sign on read. AD-9's Worker proxy-stream is the eventual
+ * answer (see epics.md "Unowned work" S1). */
+const SIGNED_URL_TTL_SECONDS = 60 * 60;
+
 export const extractAndUploadAttachments = async (
   Attachments: {
     Name: string;
@@ -37,6 +42,7 @@ export const extractAndUploadAttachments = async (
     ContentType: string;
     ContentLength: number;
   }[],
+  accountId: number,
 ): Promise<Attachment[]> => {
   return (
     await Promise.all(
@@ -59,7 +65,10 @@ export const extractAndUploadAttachments = async (
 
         const fileParts = Name.split(".");
         const fileExt = fileParts.length > 1 ? `.${Name.split(".").pop()}` : "";
-        const fileName = `${Math.random()}${fileExt}`;
+        // Account-prefixed, CSPRNG key. The bucket is private and its RLS policies
+        // scope on this first path segment, so the prefix is load-bearing, not
+        // cosmetic. `Math.random()` was never a secret.
+        const fileName = `${accountId}/${crypto.randomUUID()}${fileExt}`;
         const { error: uploadError } = await supabaseAdmin.storage
           .from("attachments")
           .upload(fileName, decodedContent);
@@ -69,15 +78,22 @@ export const extractAndUploadAttachments = async (
           throw new Error("Failed to upload attachment");
         }
 
-        const { data } = supabaseAdmin.storage
+        // Signed, expiring URL — never a public one (AD-9, PRV-5, PRV-8). The
+        // durable reference is `path`; `src` is a convenience that expires.
+        const { data, error: signError } = await supabaseAdmin.storage
           .from("attachments")
-          .getPublicUrl(fileName);
+          .createSignedUrl(fileName, SIGNED_URL_TTL_SECONDS);
+
+        if (signError || !data) {
+          console.error("signError", signError);
+          throw new Error("Failed to sign attachment URL");
+        }
 
         return {
           title: Name,
           type: ContentType,
           path: fileName,
-          src: fixPublicUrl(data.publicUrl),
+          src: fixPublicUrl(data.signedUrl),
         };
       }),
     )

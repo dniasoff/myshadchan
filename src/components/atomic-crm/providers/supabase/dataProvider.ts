@@ -806,6 +806,28 @@ const applyFullTextSearch = (columns: string[]) => (params: GetListParams) => {
   };
 };
 
+/** How long a generated attachment URL stays valid. The durable reference is the
+ * object `path`; readers re-sign. AD-9's Worker proxy-stream is the eventual answer
+ * (see epics.md "Unowned work" S1). */
+const ATTACHMENT_URL_TTL_SECONDS = 60 * 60;
+
+/**
+ * The caller's account id, used to namespace attachment object keys. `accounts` is
+ * RLS-scoped to the caller, so this returns their own account and nothing else.
+ */
+const getCurrentAccountId = async (): Promise<number> => {
+  const { data, error } = await getSupabaseClient()
+    .from("accounts")
+    .select("id")
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new Error("Cannot resolve the account for this attachment upload");
+  }
+  return data.id as number;
+};
+
 const uploadToBucket = async (fi: RAFile) => {
   if (!fi.src.startsWith("blob:") && !fi.src.startsWith("data:")) {
     // Sign URL check if path exists in the bucket
@@ -842,8 +864,10 @@ const uploadToBucket = async (fi: RAFile) => {
   const file = fi.rawFile;
   const fileParts = file.name.split(".");
   const fileExt = fileParts.length > 1 ? `.${file.name.split(".").pop()}` : "";
-  const fileName = `${Math.random()}${fileExt}`;
-  const filePath = `${fileName}`;
+  // Account-prefixed, CSPRNG key. The attachments bucket is private and its RLS
+  // policies scope on this first path segment, so an unprefixed key is rejected.
+  const accountId = await getCurrentAccountId();
+  const filePath = `${accountId}/${crypto.randomUUID()}${fileExt}`;
   const { error: uploadError } = await getSupabaseClient()
     .storage.from(ATTACHMENTS_BUCKET)
     .upload(filePath, dataContent);
@@ -853,12 +877,19 @@ const uploadToBucket = async (fi: RAFile) => {
     throw new Error("Failed to upload attachment");
   }
 
-  const { data } = getSupabaseClient()
+  // Signed, expiring URL — never a public one (AD-9, PRV-5, PRV-8). `path` is the
+  // durable reference; `src` expires and is re-signed on read.
+  const { data, error: signError } = await getSupabaseClient()
     .storage.from(ATTACHMENTS_BUCKET)
-    .getPublicUrl(filePath);
+    .createSignedUrl(filePath, ATTACHMENT_URL_TTL_SECONDS);
+
+  if (signError || !data) {
+    console.error("signError", signError);
+    throw new Error("Failed to sign attachment URL");
+  }
 
   fi.path = filePath;
-  fi.src = data.publicUrl;
+  fi.src = data.signedUrl;
 
   // save MIME type
   const mimeType = file.type;
