@@ -26,13 +26,14 @@ story needs), does not touch the `anon` grant or the two select policies (alread
 type-agnostic), and does not implement withdrawal or the dignity-floor lock (9.3's).
 
 **Depends on:**
-- **9.1** — the `listings` table, its shared select policies, its grants.
-- **Epic 2** Story 2.2 for `account_members.role` including `'parent_admin'`, `'self_manager'`
-  and `'single'` and for `current_context_id()`.
+- **9.1** — the `listings` table (including `listings_single_id_fkey`), its shared select
+  policies, its grants.
+- **Epic 2** — Story 2.2 for the `'single'` role (today's `account_members_role_check` already
+  holds `'parent_admin'` and `'self_manager'`); Story 2.1 for `current_context_id()`.
 - **Epic 6** for the `self_manager` shape (a single who is their own manager) actually existing
   in a household by the time this story's authorization logic runs.
-- **Epic 5** Story 5.2 (Overview tab) for the field set this story offers — see Dev Notes "Field
-  set decision" for exactly which Overview fields are and are not offered, and why.
+- *(Reference, not a build dependency:)* Epic 5 Story 5.2's Overview field list is the superset
+  Dev Notes "Field set decision" deliberately narrows — nothing from 5.2 needs to have landed.
 
 **Who may publish — precisely, because FR103 is easy to under-specify:**
 
@@ -90,8 +91,9 @@ is deliberate and is the reason 9.2 and 9.3 write different DELETE-vs-INSERT aut
 
 8. **Negative test — cross-account.** Given single S belongs to household A, when a
    `parent_admin` of household B attempts to publish, update or read-as-owner a listing for S,
-   RLS refuses all three (the `single_id` is a soft reference — Dev Notes explains why this
-   negative test matters *more*, not less, because of that).
+   RLS refuses all three — and the refusal must come from RLS itself, not surface as a
+   foreign-key error (Dev Notes explains why this test is kept even though 9.1's composite FK
+   also blocks the write at the schema).
 
 ## Tasks / Subtasks
 
@@ -154,11 +156,10 @@ is deliberate and is the reason 9.2 and 9.3 write different DELETE-vs-INSERT aut
         `settings/FamilySection.tsx`. Flag to the epic owner that a future UX pass may want this
         promoted onto the Single 360 once Epic 3's entity-descriptor `actions` field (Story 3.3)
         exists — not blocking for this story.
-  - [ ] The publish form must render the photo field as **unavailable until Epic 5 Story 5.4**
-        (Photo tab with explicit visibility) has landed — do not build a parallel, unreviewed
-        photo-upload path here. If 5.4 has landed by the time this story is implemented, wire
-        `single_photo_included` to whatever explicit-reveal photo record 5.4 established; if not,
-        ship the toggle disabled with a tooltip explaining why, and flag the sequencing gap.
+  - [ ] The publish form offers **no photo control of any kind** — not a disabled toggle, not a
+        "coming soon" placeholder. A listing never carries a photo (Dev Notes "Field set
+        decision", last row); a photo control here would imply otherwise and invite a future
+        "just wire it up" regression.
 
 - [ ] **Task 6 — Tests** (AC: all)
   - [ ] Extend `supabase/tests/listings.sql` (created by 9.1) with the `single`-branch checks:
@@ -193,7 +194,7 @@ tab. The field set this story ships is:
 | `community` | `father`, `mother` | PRV-1 names "family details" as highest-sensitivity; a third party's name is not the publisher's alone to expose the same way their own is. |
 | `location` | `marital status`, `children` | These describe the single's own history and are arguably reasonable, but are also exactly the kind of field a later story should add deliberately (with its own review), not one folded in here by default. |
 | `summary` (free text, optional) | — | Lets a manager say what the fixed fields cannot, without it becoming a second unstructured channel for the excluded fields above. |
-| photo (via 5.4, gated) | — | Explicit reveal only; never on by default (5.4's own AC). |
+| — | photo | Never part of a listing at all — not gated, not deferred: PRV-1 ranks photos highest-sensitivity, and AD-9 permits photo bytes only through the `share/` Worker's logged, revocable, expiring proxy, none of which an anonymous public listing has. Photos travel only through 9.5's share links. See 9.1 Dev Notes "No photo on a listing". |
 
 This is a **story-level scope decision**, stated and justified rather than left open, per the
 "no unresolved decisions" standard. It is not a permanent ceiling — a later story can widen the
@@ -209,16 +210,15 @@ everyone). The second `exists` clause in Task 1 closes this by joining `singles.
 to the caller's own `account_members.id` — without it, AC-3's second negative case ("self-manager
 publishing for a sibling") would pass RLS incorrectly.
 
-### Why the cross-account negative test (AC-8) matters more because `single_id` has no FK
+### Why the cross-account negative test (AC-8) still matters despite the composite FK
 
-9.1 made `listings.single_id` a soft reference (no foreign key), following the precedent set by
-`inbox_items.single_id` [Source: 1-3-rename-children-to-singles.md#AC-2]. Without a FK, nothing
-at the schema level stops a caller from supplying a `single_id` that belongs to a different
-account — the **only** thing preventing that is the RLS `with check` clause's own `single_id in
+9.1 gave `listings.single_id` the domain's composite FK (`(account_id, single_id) →
+singles(account_id, id)`), so a cross-account `single_id` now also fails at the schema. AC-8 is
+kept for the layer above it: it proves the RLS `with check` — specifically its `single_id in
 (select s.id from public.singles s where s.account_id = public.current_context_id())`
-sub-select. AC-8 exists specifically to prove that sub-select is doing its job; do not treat it
-as a routine tenant-isolation check copied from elsewhere — it is the one guard standing between
-"soft reference" and "cross-account write."
+sub-select — refuses the write **on its own**. That sub-select is the piece a future policy edit
+could silently drop while every same-account write still succeeds, and tenant refusal must come
+from RLS, not surface as a constraint-error side effect.
 
 ### Security / RLS
 
@@ -235,8 +235,8 @@ prefixed `DBUS_SESSION_BUS_ADDRESS=/dev/null`; never `db reset`/`db push` from a
 ### Testing standards
 
 `supabase/tests/listings.sql` is outside `make test` — only `npm run test:unit:db` runs it
-[Source: vitest.config.ts:124, makefile:108]. AAA structure, ≥80% coverage on new paths
-[Source: .claude/rules/testing.md].
+[Source: vitest.config.ts `db` project; makefile `test-unit` target]. AAA structure, ≥80%
+coverage on new paths [Source: .claude/rules/testing.md].
 
 ### Project Structure Notes
 
@@ -257,8 +257,7 @@ prefixed `DBUS_SESSION_BUS_ADDRESS=/dev/null`; never `db reset`/`db push` from a
 - [Source: prd.md#PRV-1] — highest-sensitivity data categories (photos, candid words, health, family details)
 - [Source: ARCHITECTURE-SPINE.md#AD-21] — listings snapshot rule
 - [Source: _bmad-output/specs/spec-myshadchan/personas-and-contexts.md] — `self_manager`, D11 shape
-- [Source: 9-1-publish-shadchan-listing.md#Dev-Notes] — the shared `listings` table shape and policy ownership map
-- [Source: 1-3-rename-children-to-singles.md#AC-2] — `inbox_items.single_id` soft-reference precedent
+- [Source: 9-1-publish-shadchan-listing.md#Dev-Notes] — the shared `listings` table shape (including `listings_single_id_fkey` and "No photo on a listing") and policy ownership map
 - [Source: .claude/rules/security-triggers.md] — negative-test requirement
 - [Source: .claude/rules/coding-style.md] — DRY / file-size conventions
 - [Source: AGENTS.md#Database-Management] — migration workflow

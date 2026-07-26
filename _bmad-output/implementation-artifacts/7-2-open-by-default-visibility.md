@@ -95,9 +95,10 @@ It does **not** touch enforcement of `'private'` — that is 7.3.
         open/private radio or toggle bound to `accounts.default_thread_visibility` via
         a standard `dataProvider.update("accounts", …)` call (no RPC needed — it's a
         plain column write, already grant-covered by Task 2).
-  - [ ] Wire it into the Settings page's section list; all copy through the
-        `i18nProvider` (`crm.settings.communication.*` keys, English + French mirror,
-        AD-18).
+  - [ ] Wire it into **both** section lists — `settings/SettingsPage.tsx` and
+        `settings/SettingsPageMobile.tsx` (the two render their sections
+        independently); all copy through the `i18nProvider`
+        (`crm.settings.communication.*` keys, English + French mirror, AD-18).
 
 - [ ] **Task 6 — Tests** (AC: 5)
   - [ ] Extend `supabase/tests/threads_entity.sql` (created by 7.1) — do not create a
@@ -112,8 +113,9 @@ It does **not** touch enforcement of `'private'` — that is 7.3.
 
 `public.accounts.transparency_level` already exists (`01_tables.sql:241`,
 `default 'shared'`) but is currently **dormant** — it is not read by any function or
-RLS policy in the schema today (`grep -rn transparency_level supabase/ src/` finds only
-the column declaration, its grant, the TS type field, and one FakeRest seed value). It
+RLS policy in the schema today (`grep -rn transparency_level supabase/schemas/ src/`
+finds only the column declaration, its grant, the TS type field, and one FakeRest
+seed value — plus, outside that scope, the frozen migrations that created it). It
 is reserved for a *different* concern: AD-3's "per-account `transparency_level`" for
 **shidduch/suggestion** visibility to a single (Epic 6's territory), using the same
 three-value vocabulary as `shidduchim.visibility` (`shared | private_parent |
@@ -126,7 +128,9 @@ with whatever Epic 6 does with it. This story adds its own column,
 
 Epics.md's AC says only "the family may set a different default posture" — it does not
 say *which* family member. The existing `accounts` RLS policy
-(`05_policies.sql:100-103`, `for all … using (id = current_context_id())`) already lets
+(`05_policies.sql:100-103` — on `main` today it reads `using (id =
+current_account_id())`; Epic 2 Story 2.1 renames the resolver to
+`current_context_id()`) already lets
 any current member of the account update `name`/`transparency_level`/`data_region`
 today; this story extends the same column-grant list rather than inventing new
 role-gating that nothing in Epic 7's ACs asks for. If the product wants this

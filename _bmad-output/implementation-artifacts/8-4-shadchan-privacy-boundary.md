@@ -22,8 +22,8 @@ requires already holds structurally, plus the CI guard that keeps it that way.
 
 Every excluded data class FR113 names is already unreachable by construction, not by a policy
 that happens to deny it: `singles`, `shidduchim`, `resumes`, `reference_links`, `date_records`,
-`interactions` and `redts` are all scoped **only** by `account_id = current_context_id()`
-(AD-1). A shadchan's `current_context_id()`, when their shadchanus context is active, is their
+`interactions` and `redts` are all scoped by `account_id = current_context_id()` (AD-1) —
+`interactions` additionally narrows within the account for parent visibility, never widens. A shadchan's `current_context_id()`, when their shadchanus context is active, is their
 **own** account id — it can never equal a household's account id, because a shadchan holds no
 `account_members` row in any household (AD-2, AD-20: "a shadchan therefore cannot address a
 household row at all"). No table this story touches grants access through any other predicate.
@@ -51,10 +51,12 @@ add one CI check that keeps a future policy from accidentally widening it.
    by the shadchan who sent it, and by no other shadchan.
 7. **Verification — the exclusion is asserted as a structural fact about the policies, not
    inferred from one test run.** A CI-runnable query against `pg_policies` asserts that the
-   `USING`/`WITH CHECK` expression for every table in AC-1–3 and AC-5 (`interactions`,
-   `reference_links`, `date_records`, `singles`, `shidduchim`, `resumes`, `redts`) contains no
-   reference to `connection` — i.e., no future migration can grant a shadchan connection-based
-   access to any of them without this check failing.
+   `USING`/`WITH CHECK` expression for every household table FR113 names, plus the suggestion
+   surfaces — the fixed list `interactions`, `reference_links`, `date_records`, `singles`,
+   `shidduchim`, `resumes`, `redts` — contains no reference to `connection`: no future
+   migration can grant a shadchan connection-based access to any of them without this check
+   failing. (`threads` is deliberately absent from the list — it legitimately carries the
+   `connection_id` axis, AD-22.)
 
 ## Tasks / Subtasks
 
@@ -73,15 +75,15 @@ add one CI check that keeps a future policy from accidentally widening it.
           A's account → 0 rows.
         - AC-3: S1's client, `select` on `date_records` in A's account → 0 rows.
         - AC-4: S2's client, `select` on the `threads` row(s) scoped to connection 1 → 0 rows;
-          and a `select count(*) from threads` scoped by S2's own `current_context_id()` does not
-          include connection 1's thread id.
+          and S2's client's unfiltered `select id from threads` (RLS applied) does not contain
+          connection 1's thread id.
         - AC-5: S1's client, `select` on `singles` and `singles_summary` in A's account → 0 rows.
         - AC-6 (positive): S1's client **can** read the thread on connection 1 it created via
           Story 8.3; S2's client cannot.
-  - [ ] Each assertion runs as the shadchan's own authenticated role (`set local role
-        authenticated; set local request.jwt.claims...` or whatever helper
-        `references_entity.sql` already uses to switch identity mid-script — reuse it, do not
-        invent a second identity-switching mechanism).
+  - [ ] Each assertion runs as the shadchan's own authenticated identity, exactly the way
+        `references_entity.sql` switches identity mid-script: `set local role authenticated;
+        set local request.jwt.claims = '{"sub":"<user uuid>","role":"authenticated"}';` —
+        reuse that mechanism, do not invent a second one.
 
 - [ ] **Task 3 — The `pg_policies` structural check** (AC: 7)
   - [ ] Add to the same test file (or a small dedicated one,
@@ -95,11 +97,14 @@ add one CI check that keeps a future policy from accidentally widening it.
 
 - [ ] **Task 4 — Audit, not implementation** (AC: all)
   - [ ] Read every RLS policy on the seven tables in Task 3's list (`05_policies.sql`) once,
-        confirming each `USING`/`WITH CHECK` is exactly `account_id = current_context_id()` (or a
-        join chain that bottoms out at that predicate, e.g. `reference_links` via its parent
-        `shidduchim`). If any policy already deviates, that is a **finding to report**, not a
-        silent fix folded into this story — flag it and stop rather than quietly rewriting
-        someone else's RLS as a side effect of a verification story.
+        confirming each `USING`/`WITH CHECK` is `account_id = current_context_id()` — either
+        alone (`reference_links`, `date_records`, `redts`, `singles`, `shidduchim`, `resumes`
+        each carry their own `account_id` and are scoped by it directly) or combined with a
+        visibility walk that stays inside the account (`interactions`' policy additionally
+        joins `reference_links` → `shidduchim` for parent visibility). If any policy already
+        deviates, that is a **finding to report**, not a silent fix folded into this story —
+        flag it and stop rather than quietly rewriting someone else's RLS as a side effect of
+        a verification story.
 
 ## Dev Notes
 
@@ -107,8 +112,8 @@ add one CI check that keeps a future policy from accidentally widening it.
 
 | FR113 phrase | Table / column | Why it's already excluded |
 |---|---|---|
-| private notes | `interactions` where `kind = 'note'` | account-scoped only; no connection predicate anywhere |
-| candid reference words | `reference_links.what_they_said`, `.conversation_log` | account-scoped only (join to parent `shidduchim` per AD-3's visibility note, itself account-scoped) |
+| private notes | `interactions` where `kind = 'note'` | account-scoped (plus an intra-account visibility walk via `reference_links`→`shidduchim`); no connection predicate anywhere |
+| candid reference words | `reference_links.what_they_said`, `.conversation_log` | scoped directly by its own `account_id` |
 | dating history | `date_records` | account-scoped only |
 | other shadchanim's suggestions | `shidduchim` (directly) / connection-scoped `threads` (indirectly) | `shidduchim` is unreachable to any shadchan, full stop, including their own; a suggestion is visible to the redting shadchan **only** as the thread Story 8.3 mirrors, scoped to their own `connection_id` and no other |
 | the single's data | `singles`, `singles_summary` | account-scoped only |

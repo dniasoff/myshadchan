@@ -13,9 +13,10 @@ so that I can find one without scanning columns.
 ## Position in Epic 4
 
 **3rd of 5.** Depends on **4.1** (`EntityListView`, `useEntityListStatus`, the
-`applyFullTextSearch` wiring pattern) and **4.2** (`useEntityListViewMode`,
-`EntityListViewToggle`) — both must land first; this story reuses their pieces directly
-rather than the `EntityList` wrapper (see Dev Notes "Why this doesn't use `<EntityList>`").
+`applyFullTextSearch` wiring pattern) and **4.2** (`EntityListView`'s
+`renderList`/`renderCards`/`viewMode` contract, `EntityListViewToggle`'s visual language) —
+both must land first; this story reuses their pieces directly rather than the `EntityList`
+wrapper (see Dev Notes "Why this doesn't use `<EntityList>`").
 
 This story also relabels the `/shidduchim` primary-nav entry from "Pipeline" to "Shidduchim"
 (its own AC-6). **Story 4.4 must not re-touch that label** — 4.4 only adds/removes other
@@ -24,13 +25,17 @@ entries; see 4.4 Dev Notes.
 ## Acceptance Criteria
 
 1. **A second view exists.** `/shidduchim` gains a "List" view alongside the existing "Board"
-   (Kanban) view, switched by a `view` URL query param (`board` default, `list`), so a link to
-   `/shidduchim?view=list` opens directly into the list.
+   (Kanban), switched by a **three-position segmented control** (Board · List · Cards)
+   rendered with the page's toolbar. The choice is persisted per user via ra-core's
+   `useStore` (key `"shidduchim.pageView"`, default `"board"`) and survives navigation and
+   reload. It is deliberately **not** a URL query param — see Dev Notes "Why the view choice
+   cannot live in the URL."
 
-2. **The list view is searchable and has its own List/Cards choice.** The list view renders
-   through `EntityListView` with a `q` search box (wired to a new `applyFullTextSearch` hook
-   for resource `"shidduchim"`) and `EntityListViewToggle` (Story 4.2), independently
-   persisted from every other entity's toggle.
+2. **The list view is searchable.** A `q` search box (wired to a new `applyFullTextSearch`
+   hook for resource `"shidduchim"`) filters server-side against Supabase in both scripts;
+   the control's List and Cards positions are the row/grid renderings of the same list
+   sub-view (`EntityListView`'s `renderList`/`renderCards`, Story 4.2), carried by the one
+   `"shidduchim.pageView"` key — independent of every other entity's List/Cards toggle.
 
 3. **Board and list share filters and context.** The selected single and the search text are
    the same state for both views — switching from Board to List (or back) with a search term
@@ -51,9 +56,10 @@ entries; see 4.4 Dev Notes.
 
 7. **Verification.** `make typecheck && npm run lint && make test` pass; prettier clean on
    changed files; a new Vitest suite covers the shared status gate and the view-mode/filter
-   sharing; an e2e spec (`e2e/shidduchim-list-view.spec.ts`) proves AC-1 and AC-3 (deep link
-   into list view; search a term in list view, switch to board, confirm the board is filtered
-   to the same term; switch back, confirm the search box still shows it).
+   sharing; an e2e spec (`e2e/shidduchim-list-view.spec.ts`) proves AC-1 and AC-3 (switch to
+   List view, search a term, switch to Board, confirm the board is filtered to the same term;
+   switch back, confirm the search box still shows it; reload, confirm the List view *and*
+   the search term and selected single are all restored).
 
 ## Tasks / Subtasks
 
@@ -71,7 +77,7 @@ entries; see 4.4 Dev Notes.
         the outer `<List filter={{ child_id: selectedChildId }}>` (a hard `filter`, computed
         from local state, that the user cannot override) with
         `<List filterDefaultValues={{ single_id: singles[0].id }}>` — ra-core's `getQuery()`
-        (`node_modules/ra-core/src/controller/list/useListParams.ts:114-123`) only falls back
+        (`useListParams.ts`, verified) only falls back
         to `filterDefaultValues` when neither the URL nor the list's stored params already
         supply a value, so this is computed exactly once, synchronously, the same moment
         today's `selectedChildId = childId ?? children[0].id` is — the existing guard (`if
@@ -87,17 +93,19 @@ entries; see 4.4 Dev Notes.
         `ListBase` behavior (Story 4.1 AC-4), simply no longer bypassed.
 
 - [ ] **Task 3 — The shared status gate and view switch (AC: 1, 4, 5)**
-  - [ ] Restructure `ShidduchimList.tsx`'s inner layout: one `<List filter={...} filters={[<SearchInput source="q" alwaysOn/>]} pagination={null} perPage={200} sort={{field:"index", order:"ASC"}} actions={<ShidduchimActions/>}>`
-        (unchanged `perPage`/`pagination={null}` — see Dev Notes "Why this list is never
-        paginated") wrapping a new `ShidduchimViewSwitch` component.
+  - [ ] Restructure `ShidduchimList.tsx`'s inner layout: one `<List filterDefaultValues={...} filters={[<SearchInput source="q" alwaysOn/>]} pagination={null} perPage={200} sort={{field:"index", order:"ASC"}} actions={<ShidduchimActions/>}>`
+        (Task 2's `filterDefaultValues`; unchanged `perPage`/`pagination={null}` — see Dev
+        Notes "Why this list is never paginated") wrapping a new `ShidduchimViewSwitch`
+        component.
   - [ ] `ShidduchimViewSwitch` calls `useEntityListStatus()` (Story 4.1) once, renders the
         shared loading/error/empty states for anything other than `"ready"`/`"no-matches"`,
-        and — for those two — reads `view` from `useSearchParams()` (`react-router`) and
-        renders either `ShidduchimListContent` (existing Kanban, unchanged) for `view !==
-        "list"`, or `EntityListView`-style output for `view === "list"` (see Task 4). A small
-        segmented control (Board icon / List icon, reusing `EntityListViewToggle`'s visual
-        language but wired to the `view` search param, not `useEntityListViewMode` — see Dev
-        Notes "Two different toggles, on purpose") switches between them.
+        and — for those two — reads
+        `useStore<"board"|"list"|"cards">("shidduchim.pageView", "board")` and renders
+        `ShidduchimListContent` (existing Kanban, unchanged) for `"board"`, or the list
+        sub-view for `"list"`/`"cards"` (Task 4). The three-position segmented control
+        (Kanban / `LayoutList` / `LayoutGrid` icons, `aria-pressed` per position, reusing
+        `EntityListViewToggle`'s visual language but writing this store key) is the AC-1
+        switch — see Dev Notes "Why the view choice cannot live in the URL."
   - [ ] The "no singles yet" precondition (`ShidduchimNoSingles`, post-1.3 name) stays a
         full early return **before** `<List>` mounts, unrelated to the status gate — while
         editing, replace its hand-rolled markup with `<EmptyState>` (`misc/EmptyState.tsx`) for
@@ -105,19 +113,19 @@ entries; see 4.4 Dev Notes.
         structural).
 
 - [ ] **Task 4 — The list sub-view (AC: 2)**
-  - [ ] Inside the `view === "list"` branch, render
-        `<EntityListView resource="shidduchim" viewMode={viewMode} renderList={...} renderCards={...} .../>`
+  - [ ] For the `"list"`/`"cards"` positions, render
+        `<EntityListView resource="shidduchim" viewMode={view === "cards" ? "cards" : "list"} renderList={...} renderCards={...} .../>`
         directly (not the `<EntityList>` wrapper — there is already an enclosing `<List>` from
-        Task 3; a second one would double-fetch). `viewMode`/`setViewMode` come from
-        `useEntityListViewMode("shidduchim", "list")` (Story 4.2), default `"list"` (a flat,
-        sortable table reads better for scanning many suggestions than cards).
+        Task 3; a second one would double-fetch). No separate `useEntityListViewMode` call —
+        the one `"shidduchim.pageView"` store key already encodes the List/Cards choice.
   - [ ] `renderList`: a compact row per suggestion — name, shadchan, pipeline-state chip
         (reuse `getPipelineStateDef` from `shidduchim/pipelineStates.ts`), redt date (reuse
         `formatRedtDate` from `boardUtils.ts`) — new file
         `src/components/atomic-crm/shidduchim/ShidduchRow.tsx`. **Do not reuse `ShidduchCard`
-        as-is** — it is wrapped in `react-dnd`'s `<Draggable>`, which requires a
-        `DragDropContext`/`Droppable` ancestor the list view does not have; reuse its utility
-        imports (`getMonogram`, `getAvatarIndex`, `formatRedtDate`), not the component itself.
+        as-is** — it is wrapped in `@hello-pangea/dnd`'s `<Draggable>`, which requires the
+        `DragDropContext`/`Droppable` ancestors only the Board provides
+        (`ShidduchimListContent`/`ShidduchColumn`); reuse its utility imports (`getMonogram`,
+        `getAvatarIndex`, `formatRedtDate`), not the component itself.
   - [ ] `renderCards`: a non-draggable card grid using the same content as `ShidduchRow`, laid
         out like `SingleCard`'s grid (`grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3`).
   - [ ] Add a `SortButton` (`fields={["name_en", "redt_date", "pipeline_state"]}`, default
@@ -136,15 +144,17 @@ entries; see 4.4 Dev Notes.
 
 - [ ] **Task 6 — Tests (AC: 7)**
   - [ ] `src/components/atomic-crm/shidduchim/ShidduchimViewSwitch.test.tsx`: given a
-        `ListContextProvider` fed data + `view=list` in the URL, renders the list sub-view;
-        given `view=board` (or absent), renders `ShidduchimListContent`; given an `error`,
-        renders the shared error state regardless of `view`.
+        `ListContextProvider` fed data + a store seeded `"list"` (or `"cards"`), renders the
+        list sub-view in that mode; given `"board"` (or an unseeded store), renders
+        `ShidduchimListContent`; given an `error`, renders the shared error state regardless
+        of the stored view.
   - [ ] `shidduchim/pipelineStates.test.ts` and `shidduchim/boardUtils.test.ts` are unaffected
         (no change to the functions they cover) — confirm they still pass unchanged.
-  - [ ] `e2e/shidduchim-list-view.spec.ts`: navigate to `/shidduchim?view=list`, assert the
-        list renders (not the board); type a search term, switch to `view=board` via the
-        control, assert the board's visible cards are filtered to the term; reload on
-        `?view=list&single_id=<id>`, assert it opens directly into that single's list.
+  - [ ] `e2e/shidduchim-list-view.spec.ts`: on `/shidduchim`, switch the control to List,
+        assert rows render (not the board); type a search term, switch to Board, assert the
+        board's visible cards are filtered to the term; switch a different single via the
+        pills; reload, assert the List view, the search term and the selected single are all
+        restored (view from the store, `q`/`single_id` from the URL's `filter` param).
 
 ## Dev Notes
 
@@ -170,23 +180,25 @@ every row (a Kanban column that silently drops rows past page 1 is a correctness
 choice). Rather than have Board and List disagree on how much data is loaded, both share the
 existing `perPage={200}`/`pagination={null}` (already true of `ShidduchimList` today) — a
 family's per-single suggestion count is bounded by real-world usage, not by dataset size the
-way a shadchan's book or the reference book might eventually be. AC-2's "search and sort" still
-work; only paging is intentionally absent for this one entity.
+way a shadchan's book or the reference book might eventually be. AC-2's search and Task 4's
+sort still work; only paging is intentionally absent for this one entity.
 
-### Two different toggles, on purpose
+### Why the view choice cannot live in the URL
 
-- **Board ⇄ List** (`view` URL param, `useSearchParams`): a page-level mode. It must be
-  shareable (a link should be able to say "open the list, not the board") and must not
-  silently diverge from whatever else is in the URL — hence a plain URL param, not a
-  `useStore`-persisted preference.
-- **List ⇄ Cards** (Story 4.2's `useEntityListViewMode`, only meaningful once `view=list`): a
-  cross-visit *preference* for how the list sub-view lays out its rows, exactly like every
-  other `EntityList` consumer's toggle. It is deliberately **not** put in the URL — persisting
-  it in `localStorage` (as 4.2 does) means a user's "I like dense rows" choice follows them
-  without needing to be encoded into every link they share.
-
-Do not conflate the two into one control — they answer different questions ("which screen" vs.
-"how do I like my rows laid out").
+The obvious design — `?view=list` — is structurally broken on this page, and the reason is
+worth writing down: ra-core's list-URL sync (`useListParams`'s `changeParams`) rebuilds the
+query string wholesale from **its own params only** (`filter`, `sort`, `order`, `page`,
+`perPage`, `displayedFilters`) on every filter/sort/page write — verified in the ra-core
+source. Any foreign query param is silently dropped, so the first search keystroke or
+single-pill click would wipe `?view=list` and dump the user back onto the Board mid-action.
+Hence one **store-persisted** key, `"shidduchim.pageView"` (`useStore`, the same `"CRM"`
+localStorage namespace as 4.2 — see 4.2 Dev Notes), holding `board | list | cards`. The
+trade — no view-addressable deep link — is accepted: the epic's AC demands shared
+filters/context between views, not linkable views, and everything shareable (`q`,
+`single_id`, sort) still lives in the URL via the `<List>`'s own sync. One control, three
+renderings; do not split it into a Board/List toggle plus a separate List/Cards toggle —
+two adjacent toggles answering overlapping questions is exactly the divergence AD-24 exists
+to prevent.
 
 ### Architecture
 
@@ -217,7 +229,8 @@ spec above is required, not optional.
 - [Source: _bmad-output/implementation-artifacts/4-1-entity-list-framework.md] —
   `EntityListView`/`useEntityListStatus`/the search-hook-naming rule.
 - [Source: _bmad-output/implementation-artifacts/4-2-list-cards-toggle.md] —
-  `useEntityListViewMode`/`EntityListViewToggle`.
+  `EntityListView`'s `renderList`/`renderCards`/`viewMode` contract and
+  `EntityListViewToggle`'s visual language.
 
 ## Dev Agent Record
 

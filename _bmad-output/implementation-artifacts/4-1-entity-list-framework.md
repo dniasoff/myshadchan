@@ -26,6 +26,12 @@ route `/singles`, type `Single`, component `SingleList`/`SingleCard`) and the fo
 resources deleted (Story 1.1). This story is written entirely in post-Epic-1 vocabulary —
 every path below is the renamed one.
 
+**Depends on Epic 3**: Story 3.3's `EntityDescriptor` registry
+(`entity360/entityDescriptor.ts`) and Story 3.9's minimal registrations (`name` +
+`buildRecordPath`) for the four live entities. `EntityList` resolves each entity's display
+label through that registry (AC-1, Task 3) — 3.3's doc comment atop `entityDescriptor.ts`
+names this story as the consumer and forbids redefining the type.
+
 ## Acceptance Criteria
 
 1. **One component owns list chrome.** `src/components/atomic-crm/misc/EntityList.tsx` (a
@@ -33,7 +39,10 @@ every path below is the renamed one.
    `src/components/atomic-crm/misc/EntityListView.tsx` are the only place search box, filter
    toggle, sort control, pagination, and loading/empty/error rendering are implemented for a
    roster-style entity list. No entity list built or touched by this story contains its own
-   skeleton, its own empty-state branch, or its own error handling.
+   skeleton, its own empty-state branch, or its own error handling. The list heading resolves
+   from the entity's `EntityDescriptor` (`label`, added to each retrofitted entity's existing
+   3.9 registration — AD-24: "an entity contributes a descriptor"), never from a per-list
+   `title` prop.
 
 2. **Three existing lists render through it**, keeping their own per-item visual as an
    injected renderer, not rebuilt: `src/components/atomic-crm/singles/SingleList.tsx`,
@@ -100,13 +109,20 @@ every path below is the renamed one.
         `@/components/admin/list`'s `<List>` (reuse — do not reimplement pagination/filter/URL
         sync, which `ListBase` already provides via `disableSyncWithLocation = false`, its
         default). Props:
-        `{ eyebrow?: string; title: string; subtitle?: string; createTo?: string; createLabel?: string; searchPlaceholder?: string; extraFilters?: ReactElement[]; sortFields?: string[]; sort?: SortPayload; perPage?: number } & Pick<EntityListViewProps, "skeleton"|"emptyState"|"noMatchesMessage"|"renderItems">`.
+        `{ eyebrow?: string; subtitle?: string; createTo?: string; createLabel?: string; searchPlaceholder?: string; extraFilters?: ReactElement[]; sortFields?: string[]; sort?: SortPayload; perPage?: number } & Pick<EntityListViewProps, "resource"|"skeleton"|"emptyState"|"noMatchesMessage"|"renderItems">`.
+        There is **no `title` prop**: the heading is
+        `translate(`resources.${resource}.name`, { smart_count: 2, _: getEntityDescriptor(resource).label })`
+        — the same key-plus-fallback pattern `ReferenceListHeader` uses today, with the
+        fallback now owned by the entity's descriptor (Story 3.3) instead of a prop.
   - [ ] Renders `<List title={false} perPage={perPage ?? 100} sort={sort} pagination={<ListPagination/>} filters={[<SearchInput source="q" alwaysOn key="q" placeholder={searchPlaceholder}/>, ...(extraFilters ?? [])]} actions={<EntityListToolbar sortFields={sortFields} createTo={createTo} createLabel={createLabel}/>}>`,
-        with `<EntityListHeader eyebrow={eyebrow} title={title} subtitle={subtitle}/>` then
+        with `<EntityListHeader eyebrow={eyebrow} title={heading} subtitle={subtitle}/>` then
         `<EntityListView .../>` as children.
   - [ ] Create `src/components/atomic-crm/misc/EntityListHeader.tsx` (eyebrow/title/subtitle
         block — the markup currently duplicated, with small variations, in
         `ChildListHeader`, `ShadchanDirectory`'s inline header, and `ReferenceListHeader`).
+        `eyebrow`/`subtitle` arrive pre-translated — each call site keeps its existing
+        `crm.<entity>.list.*` keys / `_:` fallbacks via `useTranslate` (AD-18: no
+        hardcoded strings lost in the move).
   - [ ] Create `src/components/atomic-crm/misc/EntityListToolbar.tsx`: renders
         `<FilterButton/>` (only if `extraFilters` is non-empty — reuse
         `@/components/admin/filter-form`'s `FilterButton`), a `<SortButton fields={sortFields}/>`
@@ -123,9 +139,15 @@ every path below is the renamed one.
         own `getList` override (~lines 107-147) redirects `"references"` →
         `baseDataProvider.getList("references_summary", …)` **internally**, so
         `withLifecycleCallbacks` — which pattern-matches on the resource string the *caller*
-        passed (`node_modules/ra-core/src/dataProvider/withLifecycleCallbacks.ts:128-145`) —
-        never sees `"references_summary"` and the hook never runs against Supabase. Change the
-        key to `resource: "references"`.
+        passed (verified in `ra-core`'s `withLifecycleCallbacks` source: `resource` is
+        threaded through unchanged) — never sees `"references_summary"` and the hook never
+        runs against Supabase. Change the key to `resource: "references"` **and, in the same
+        edit, replace `"phone"` with `"phone_norm"` in its column list**: `applyFullTextSearch`
+        special-cases the literal column name `phone` into `phone_fts@ilike`, and `phone_fts`
+        is a generated column that exists only on the fossil `contacts_summary` view
+        (`03_views.sql`) — the moment the re-keyed hook actually fires, that filter would 400
+        against `references_summary`, which has `phone` and `phone_norm` but no `phone_fts`.
+        `phone_norm` (the trigger-set normalized digits) is the right search column anyway.
   - [ ] Add `{ resource: "singles", beforeGetList: applyFullTextSearch(["first_name_en", "last_name_en", "first_name_he", "last_name_he"]) }`
         to the same array (this resource has no `_summary` redirect — `SingleList` queries
         `"singles"` directly — so no renaming trap here).
@@ -137,8 +159,11 @@ every path below is the renamed one.
         though the Supabase hook was dead.
 
 - [ ] **Task 5 — Retrofit `SingleList` (AC: 2, 4, 5, 6)**
+  - [ ] Extend the `singles` entry in Story 3.9's descriptor registrations (wherever 3.9 put
+        them — `entity360/RecordLink.tsx` module scope or `entity360/liveResourcePaths.ts`)
+        with `label: "Singles"`. Same one-line edit per entity in Tasks 6/7.
   - [ ] Rewrite `src/components/atomic-crm/singles/SingleList.tsx` to render
-        `<EntityList resource="singles" title="Singles" eyebrow="Family roster" createTo="/singles/create" createLabel="Add a single" searchPlaceholder="Search by name" perPage={100} sort={{field:"first_name_en", order:"ASC"}} skeleton={<SingleListSkeleton/>} emptyState={{title: "Add your first single", description: "...", actionLabel: "Add a single", actionTo: "/singles/create"}} noMatchesMessage="No singles match this search." renderItems={(data) => <SingleCardGrid data={data}/>}/>`.
+        `<EntityList resource="singles" eyebrow="Family roster" createTo="/singles/create" createLabel="Add a single" searchPlaceholder="Search by name" perPage={100} sort={{field:"first_name_en", order:"ASC"}} skeleton={<SingleListSkeleton/>} emptyState={{title: "Add your first single", description: "...", actionLabel: "Add a single", actionTo: "/singles/create"}} noMatchesMessage="No singles match this search." renderItems={(data) => <SingleCardGrid data={data}/>}/>`.
   - [ ] Keep `SingleCard` unchanged; `SingleCardGrid` is just today's grid `<div>` extracted
         so it can be passed as `renderItems`.
   - [ ] Delete `ChildListSkeleton`/`ChildListHeader` (superseded by `EntityListHeader` + the
@@ -148,12 +173,14 @@ every path below is the renamed one.
         `renderItems` callback.
 
 - [ ] **Task 6 — Retrofit `ShadchanList`** (AC: 2, 4, 5, 6)
-  - [ ] Same shape as Task 5: `<EntityList resource="shadchanim" title="Shadchanim" eyebrow="Matchmaker book" createTo="/shadchanim/create" createLabel="Add a shadchan" searchPlaceholder="Search by name" sort={{field:"name", order:"ASC"}} .../>`.
+  - [ ] Same shape as Task 5 (descriptor `label: "Shadchanim"`, then):
+        `<EntityList resource="shadchanim" eyebrow="Matchmaker book" createTo="/shadchanim/create" createLabel="Add a shadchan" searchPlaceholder="Search by name" sort={{field:"name", order:"ASC"}} .../>`.
   - [ ] Delete `ShadchanGridSkeleton`; keep the existing `shidduchim`-count enrichment
         (`countSuggestionsByShadchan`) inside `renderItems`.
 
 - [ ] **Task 7 — Retrofit `ReferenceList`** (AC: 2, 4, 5, 6)
-  - [ ] `<EntityList resource="references" title="References" eyebrow="Reference book" createTo="/references/create" createLabel="Add a reference" searchPlaceholder="Search name, phone, school..." extraFilters={[<TextInput source="relationship"/>, <SelectInput source="open_task_count@gt" .../>, <SelectInput source="contacted_count@eq" .../>]} sort={{field:"name_en", order:"ASC"}} .../>` — the three existing `referenceFilters` entries beyond `SearchInput` move into `extraFilters` unchanged; `EntityList` supplies the `SearchInput` itself, so drop `referenceFilters`' own `<SearchInput source="q" alwaysOn/>` entry.
+  - [ ] Descriptor `label: "References"`, then
+        `<EntityList resource="references" eyebrow="Reference book" createTo="/references/create" createLabel="Add a reference" searchPlaceholder="Search name, phone, school..." extraFilters={[<TextInput source="relationship"/>, <SelectInput source="open_task_count@gt" .../>, <SelectInput source="contacted_count@eq" .../>]} sort={{field:"name_en", order:"ASC"}} .../>` — the three existing `referenceFilters` entries beyond `SearchInput` move into `extraFilters` unchanged; `EntityList` supplies the `SearchInput` itself, so drop `referenceFilters`' own `<SearchInput source="q" alwaysOn/>` entry.
   - [ ] Delete `ReferenceListLayout`'s inline skeleton/empty/no-matches branches; `ReferenceRow`
         stays as the per-item renderer, passed via `renderItems`.
 
@@ -204,11 +231,13 @@ view name it happens to redirect to internally.**
   changes this to `renderList`/`renderCards` plus a persisted `viewMode`. Do not add a toggle
   here — it has no visual home yet (`EntityListToolbar` doesn't have a slot for it) and 4.2
   owns that slot.
-- **No entity descriptor integration.** Epic 3 Story 3.3 may eventually let `EntityList` read
-  `label`/`icon` from a shared descriptor registry instead of the `title`/`eyebrow` props
-  above. That registry does not exist yet as of this story; `EntityList`'s props are the
-  contract for now. If 3.3 lands with list-relevant descriptor fields, that is a follow-up
-  refactor, not this story's to anticipate.
+- **No descriptor consumption beyond `label`.** The `EntityDescriptor` registry exists
+  (Story 3.3), and Story 3.9 registered the minimal routing descriptor for all four live
+  entities. This story extends those registrations with `label` and resolves list headings
+  through it — the descriptor half of AD-24's list contract. `icon`/`meta`/`stats` have no
+  home in list chrome yet and are **not** consumed here; Epic 5 fills the full 360
+  descriptors. Never redefine the `EntityDescriptor` type — 3.3's doc comment atop
+  `entityDescriptor.ts` forbids exactly that.
 - **`shidduchim` is not touched.** It is not a plain roster (it is a Kanban board with a
   child-in-context filter) and does not fit `EntityList` as designed here. Story 4.3 owns it,
   reusing `EntityListView`/`useEntityListStatus` directly rather than the `EntityList` wrapper
@@ -222,7 +251,9 @@ view name it happens to redirect to internally.**
 - **AD-24**: "Lists render through **one `EntityList`**... An entity contributes a descriptor
   ... and no bespoke layout code." This story is that component's first landing, applied to
   the three entities whose lists are today's clearest violations (each hand-rolls its own
-  header, skeleton, and — for `SingleList`/`ShadchanList` — has no search at all).
+  header, skeleton, and — for `SingleList`/`ShadchanList` — has no search at all). The
+  "contributes a descriptor" half is served through 3.3's registry (`label`), not through
+  per-list props.
 - **UX-DR7**: "One `EntityList` framework with URL-held state." Satisfied by leaving
   `disableSyncWithLocation` at its ra-core default (`false`) on every `<List>` — this story's
   job is to stop any component from *routing around* that sync with local `useState`
@@ -254,6 +285,10 @@ Shared utilities"). None of the three retrofitted lists change directory or reso
 - [Source: ARCHITECTURE-SPINE.md#AD-24] — `EntityList`, descriptor, no bespoke layout code.
 - [Source: ARCHITECTURE-SPINE.md#AD-10] — dataProvider CRUD seam, `ResourceCallbacks[]`.
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-4] — Story 4.1 AC text (UX-DR7).
+- [Source: _bmad-output/implementation-artifacts/3-3-entity-descriptor-registry.md] — the
+  `EntityDescriptor` type/registry this story consumes `label` from.
+- [Source: _bmad-output/implementation-artifacts/3-9-recordlink-primitive.md] — the existing
+  minimal registrations Tasks 5-7 extend.
 - [Source: .claude/rules/testing.md], [Source: .claude/skills/e2e-conventions/SKILL.md]
 
 ## Dev Agent Record

@@ -21,9 +21,10 @@ a data table).
 
 ## Who may read a medical note — decided, not left open
 
-The epic's own intro text is explicit: **"unreachable by a single or a helper."** AD-2's role
-vocabulary is `parent_admin | single | helper | self_manager | shadchan`. This story reads that
-as: **readable only by `parent_admin` and `self_manager`** — the two roles that actually run a
+The epic's own AC is explicit: *"the tab and its data are absent, enforced by RLS not UI, and a
+negative test proves a single and a helper cannot read it."* AD-2's role vocabulary is
+`parent_admin | single | helper | self_manager | shadchan`. This story reads that as:
+**readable only by `parent_admin` and `self_manager`** — the two roles that actually run a
 household's shidduch process — and denied to `single` and `helper`. `self_manager` is included
 deliberately: a self-managing single (family shape #1 — a widow, divorcee, or independent adult
 with no parent above them) *is* their own process manager, and excluding them would make it
@@ -41,7 +42,7 @@ this table at all.
    the Medical tab is **absent from the DOM entirely** (Story 3.4's permission-aware tab
    omission) — not rendered-and-hidden, not disabled, absent.
 3. **Given** `public.medical_notes`, **when** its RLS is applied, **then** select/insert/update/
-   delete each require `account_id = current_account_id()` **and** the caller's
+   delete each require `account_id = current_context_id()` **and** the caller's
    `account_members.role` for that account is `parent_admin` or `self_manager`. **Negative
    test:** seed one account with four members, one per role (`parent_admin`, `single`, `helper`,
    `self_manager`), and one medical note; assert the `single` and `helper` members' clients each
@@ -66,10 +67,12 @@ this table at all.
         standard `set_account_id_default()` trigger.
   - [ ] `supabase/schemas/05_policies.sql`: `alter table public.medical_notes enable row level
         security`; one `for all` policy:
-        `using (account_id = public.current_account_id() and exists (select 1 from
-        public.account_members am where am.user_id = auth.uid() and
-        am.account_id = public.current_account_id() and am.role in ('parent_admin',
-        'self_manager'))) with check (same)`.
+        `using (account_id = public.current_context_id() and exists (select 1 from
+        public.account_members am where am.id = public.current_member_id() and
+        am.role in ('parent_admin', 'self_manager'))) with check (same)`.
+        **`current_context_id()` (AD-19) and `current_member_id()` (Story 3.5) — never
+        `current_account_id()`, which Epic 2 Story 2.1 deletes outright** (its AC requires a
+        repo-wide zero-hit grep for the old name; a policy written against it fails to apply).
   - [ ] `supabase/schemas/06_grants.sql`: `revoke all … from anon`, `grant all … to
         authenticated` (RLS is the real gate; the grant only makes the table reachable at all —
         follow the exact pattern used for every other domain table in this file).
@@ -79,9 +82,10 @@ this table at all.
   - [ ] `src/components/atomic-crm/shidduchim/MedicalTab.tsx` (or a small `medical/` folder if it
         grows past a single file — start with one, per the coding-style file-count guidance):
         list + add-a-note form against `medical_notes`, filtered by `shidduchim_id`.
-  - [ ] Declare the `medical` tab's minimum visibility on the shidduch descriptor (Story 3.4's
-        mechanism) as `parent_admin | self_manager` — use whatever field name Story 3.4 actually
-        shipped; verify with `grep`/`LSP` before guessing at the descriptor shape.
+  - [ ] Declare the tab on the shidduch descriptor with
+        `minVisibility: ["parent_admin", "self_manager"]` — the exact field Story 3.4 adds to
+        `EntityTabDescriptor` in `entity360/entityDescriptor.ts`, gated by its `hasVisibility()`
+        helper and `useViewerRole()`.
 - [ ] **Task 4 — Tests** (AC: 3, 4)
   - [ ] The negative RLS test from AC-3 — new file `supabase/tests/medical_notes.sql`, following
         the seed-two-roles-and-assert shape already used in `supabase/tests/references_entity.sql`
@@ -97,6 +101,15 @@ this table at all.
 
 "Database queries or migrations" and "Supabase RLS policies" are both explicit triggers — dispatch
 SECURITY-REVIEWER on this diff without asking whether it's warranted.
+
+### Known UI-layer limitation, not this story's to fix
+
+Story 3.4's `useViewerRole()` is a stated stand-in that maps the legacy admin flag to
+`parent_admin | helper` — it cannot yet return `self_manager`, so until it is rewired to
+`account_members.role` (Epic 6 builds `current_member_role()`; the hook rewiring is flagged in
+the cross-check as an unowned gap), a real self-manager may not *see* the tab even though the
+database grants them the rows. The RLS test in AC-3 is the authoritative boundary; do not
+"fix" the hook inside this story's diff.
 
 ### Self-contained, does not wait for Epic 6
 
@@ -136,10 +149,12 @@ per AGENTS.md), then
 
 ### References
 
-- [Source: _bmad-output/planning-artifacts/epics.md#Epic-5-Entity-360s, Story 5.5]
-- [Source: _bmad-output/planning-artifacts/epics.md#Epic-5-Entity-360s intro] — "Medical must be
-  unreachable by a single or a helper, enforced in RLS with a negative test."
+- [Source: _bmad-output/planning-artifacts/epics.md#Epic-5-Entity-360s, Story 5.5] — "the tab
+  and its data are absent, enforced by RLS not UI... a negative test proves a single and a
+  helper cannot read it."
 - [Source: ARCHITECTURE-SPINE.md#AD-2] — role vocabulary, `self_manager` inclusion rationale.
+- [Source: _bmad-output/implementation-artifacts/3-4-permission-aware-rendering.md] —
+  `minVisibility`, `hasVisibility()`, `useViewerRole()` and the hook's stated limitation.
 - [Source: ARCHITECTURE-SPINE.md#AD-20] — why no explicit shadchan check is needed.
 - [Source: .claude/rules/security-triggers.md]
 

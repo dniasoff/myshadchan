@@ -16,177 +16,194 @@ so that my book is mine and I never land on a screen that means nothing in my co
 Epic 1's. This story ships the empty container; 8.2–8.5 populate it:
 
 - **8.1 (this story)** — the shadchanus-context shell: navigation set, route isolation,
-  and a placeholder dashboard. No new tables.
-- **8.2** — the `connections` table and the invite-based propose/accept/end flow. Lights
-  up the "Connections" nav item this story creates.
+  a placeholder dashboard and a placeholder `/connections` screen. No new tables.
+- **8.2** — the connection invite/accept/end workflow on the `connections` table
+  **Epic 7 Story 7.4 already created**.
 - **8.3** — in-platform redting through a connection.
 - **8.4** — the privacy-boundary negative-test suite.
 - **8.5** — the shadchan's own CRM (Connections list/360, Conversations tab), which
-  **replaces this story's placeholder dashboard** with one backed by real data.
+  **replaces both placeholders this story ships** with descriptor-based screens.
 
 ## Acceptance Criteria
 
 1. **A shadchanus-active context renders a distinct navigation set.** `layout/navItems.ts`
    exports a second array, `SHADCHANUS_NAV`, alongside the existing `PRIMARY_NAV`
-   (household), containing exactly: Dashboard, Connections, Tasks, Reminders, Settings —
-   in that order. It excludes Pipeline, Inbox, Shidduchim, Shadchanim and References: those
-   name household-domain entities a shadchanus context can never hold (AD-2). "Conversations"
-   is deliberately **not** a nav item — per UX-DR8/UX-DR10 (a sub-record is reached from its
+   (household), containing exactly: Dashboard (`/`), Connections (`/connections`),
+   Settings (`/settings`) — in that order. It excludes the household-domain destinations
+   of the post-Epic-4 `PRIMARY_NAV` (Inbox, Shidduchim, Shadchanim — entities a shadchanus
+   context can never hold, AD-2) **and** Tasks/Reminders (no taskable target exists in a
+   shadchanus account — see Dev Notes "Why no Tasks or Reminders"). "Conversations" is
+   deliberately **not** a nav item — per UX-DR8/UX-DR10 (a sub-record is reached from its
    parent, never primary navigation), a connection's threads are a tab on the Connection 360
    (Story 8.5 owns that tab).
-2. **The nav set the user sees follows the active context, not a hardcoded list.** Wherever
-   `PRIMARY_NAV` is currently consumed (desktop Sidebar, mobile bottom nav — both read the one
-   shared array per the doc comment in `navItems.ts`), the choice of array is driven by the
-   active context's `kind` from Epic 2's context primitive (AD-19). A user with only a
-   household context never sees `SHADCHANUS_NAV` rendered, and vice versa.
+2. **The nav set the user sees follows the active context, not a hardcoded list.** The two
+   consumers of `PRIMARY_NAV` (`layout/Sidebar.tsx` desktop, `layout/MobileNavigation.tsx`
+   mobile — both read the one shared array) switch to a `useActiveNav()` selector that
+   returns `SHADCHANUS_NAV` when the active context's `kind` is `shadchanus`, else
+   `PRIMARY_NAV`. Context kind comes from Story 2.4's `useMyContexts()` hook
+   (`root/useMyContexts.ts`; the row with `is_active = true` carries `kind`) — never from a
+   URL param or local state (AD-19). A user whose active context is household never sees
+   `SHADCHANUS_NAV` rendered, and vice versa.
 3. **Household-only routes are unreachable while a shadchanus context is active, and the
-   reverse holds once Story 8.5 adds shadchan-only routes.** A single, reusable route guard —
-   not five ad-hoc checks — enforces this. Navigating to `/shidduchim`, `/singles`,
-   `/shadchanim`, `/references` or `/inbox_items` while the active context is `shadchanus`
-   redirects to `/` rather than rendering an empty or erroring screen (the same "no route
-   renders nothing" bar Epic 1 Story 1.5 set). The guard is exported from one module so
-   Story 8.5 can apply it to `/connections` in the other direction without duplicating the
-   check.
-4. **The shadchanus dashboard is honest about having nothing yet.** `/` under a shadchanus
-   active context renders a distinct dashboard component (not the household `Dashboard.tsx`,
-   which queries household resources that will simply come back empty and would show
-   nonsensical copy like "0 singles"). It shows a calm empty state ("Once you connect with a
-   family, their conversations will appear here") and does **not** query `connections` or any
-   Epic-7 `threads` table — those do not exist until Story 8.2/Epic 7 land, and this story
-   must not depend on them.
-5. **No bespoke layout code.** The shadchanus dashboard and nav are built as ordinary
-   components, not as a fork of the household `Dashboard.tsx` — no copy-pasted JSX that then
-   drifts. Reuse `layout/TopBar.tsx`, `layout/Layout.tsx` and `layout/MobileLayout.tsx`
-   unchanged; only the nav array and the routed dashboard component differ per context kind.
-6. **A negative test proves the isolation at the UI layer.** Because this story changes no
-   RLS, its negative test is a component/route test, not a SQL one: with the active context
+   mechanism is reusable in the other direction.** One route guard — not per-route ad-hoc
+   checks — enforces this: navigating to `/shidduchim`, `/singles`, `/shadchanim`,
+   `/references`, `/inbox_items`, `/tasks` or `/reminders` while the active context is
+   `shadchanus` redirects to `/` rather than rendering an empty or erroring screen (the
+   "no route renders nothing" bar Epic 1 Story 1.5 set). Mechanically: `routeManifest.ts`
+   entries gain an optional `contextKind?: "household" | "shadchanus"` field, and the two
+   `.map()` calls in `root/CRM.tsx` wrap any entry carrying it in the new
+   `<RequireContextKind>` component. Story 8.5 sets `contextKind: "shadchanus"` on the
+   `connections` resource using this same field — no second mechanism. (`surface` is
+   already taken: in the 1.5 manifest it means desktop/mobile/both, never context kind.)
+4. **`/connections` renders a real screen from day one — never a 404.** Because 1.5's
+   `findManifestViolations` fails on a nav target that resolves to no route
+   (`"unreachable-nav-target"`), this story must register `/connections` as a custom-route
+   entry with a real placeholder component (`connections/ConnectionsPlaceholder.tsx`): a
+   calm empty state ("Share your invite link with a family to connect" once 8.2 lands the
+   action; until then, copy explaining connections are coming in this release). Story 8.5
+   replaces this entry with the descriptor-based resource.
+5. **The shadchanus dashboard is honest about having nothing yet.** `/` under a shadchanus
+   active context renders `dashboard/ShadchanDashboard.tsx` (not the household
+   `Dashboard.tsx`/`MobileDashboard.tsx`, which query household resources and would show
+   nonsensical copy like "0 singles"). It shows a calm empty state ("Once you connect with
+   a family, their conversations will appear here") and does **not** query `connections`
+   content or Epic-7 `threads` — real data is Story 8.5's.
+6. **No bespoke layout code.** Reuse `layout/TopBar.tsx`, `layout/Layout.tsx` and
+   `layout/MobileLayout.tsx` unchanged; only the nav array, the routed dashboard component
+   and the placeholder route differ per context kind (AD-24).
+7. **A negative test proves the isolation at the UI layer.** This story changes no RLS, so
+   its negative test is a component/route test, not a SQL one: with the active context
    mocked to `kind: 'shadchanus'`, a render of the Sidebar/mobile nav contains no
-   `SHADCHANUS_NAV`-excluded item in the DOM, and a route test asserts `/shidduchim` (etc.)
-   redirects rather than rendering `SingleShow`/`ShidduchList`/equivalent.
+   household-only `to` path in the DOM; a route test asserts `/shidduchim` (and each other
+   guarded path) redirects rather than rendering its screen; and the mirror case — a
+   mocked `household` context against a `kind="shadchanus"` guard — redirects too.
 
 ## Tasks / Subtasks
 
 - [ ] **Task 1 — Confirm the dependency, do not re-implement it** (informs all ACs)
-  - [ ] Locate Epic 2's context primitive (expected: a hook/provider exposing the active
-        context's `id` and `kind`, backed by `current_context_id()`/`member_state`, AD-19).
-        Grep for `current_context_id`, `active_context`, `useActiveContext`, `ActiveContext`
-        before writing anything — this story consumes that primitive, it does not define a
-        second one.
-  - [ ] Confirm Epic 2 Story 2.2's database-level guarantee that a `shadchanus`-kind account
-        can never hold a row in a household-scoped table (AD-2: "enforced by CI and by scope
-        checks"). **This story does not re-test that at the SQL layer** — Task 6's negative
-        test is UI-only, precisely so 8.1 and Epic 2 Story 2.2 do not both claim the same DB
-        assertion.
+  - [ ] Epic 2's context primitives this story consumes, by name: `current_context_id()` /
+        `member_state` / `set_active_context()` (Story 2.1) and `my_contexts()` +
+        `useMyContexts()` + `getMyContexts()`/`switchActiveContext()` (Story 2.4). Read
+        `root/useMyContexts.ts` before writing anything — this story consumes that hook,
+        it does not define a second active-context source.
+  - [ ] Epic 2 Story 2.2 owns the database-level guarantee that a `shadchanus`-kind account
+        never holds household domain rows (AD-2). **This story does not re-test that at the
+        SQL layer** — Task 5's negative test is UI-only, precisely so 8.1 and 2.2 do not
+        both claim the same DB assertion.
 
 - [ ] **Task 2 — Navigation set** (AC: 1, 2)
   - [ ] `layout/navItems.ts`: add `SHADCHANUS_NAV: NavItem[]` next to `PRIMARY_NAV`, reusing
         the same `NavItem` interface (`to`, `labelKey`, `labelDefault`, `icon`, `tourId`).
-        5 entries: Dashboard (`/`), Connections (`/connections`), Tasks (`/tasks`), Reminders
-        (`/reminders`), Settings (`/settings`). New i18n keys under `crm.navigation.connections`
-        with an English default `"Connections"` (no French string yet — French catalogue
-        parity is not this story's job; leave the key to fall back).
-  - [ ] Wherever the desktop Sidebar and mobile bottom nav import `PRIMARY_NAV` today, switch
-        to a single `useActiveNav()` (or equivalently named) selector that returns
-        `SHADCHANUS_NAV` when the active context kind is `shadchanus`, else `PRIMARY_NAV`. Put
-        the selector in `navItems.ts` itself so there is one place that knows the mapping.
+        3 entries: Dashboard (`/`), Connections (`/connections`), Settings (`/settings`).
+        New i18n key `crm.navigation.connections`, English default `"Connections"`
+        (second-catalogue parity — Hebrew per AD-18 — is a cross-cutting audit, not this
+        story's job; the key falls back to `labelDefault`).
+  - [ ] Add `useActiveNav()` in `navItems.ts` itself (one place knows the mapping), reading
+        `useMyContexts()`; switch `Sidebar.tsx` and `MobileNavigation.tsx` to it.
 
 - [ ] **Task 3 — Route guard primitive** (AC: 3)
-  - [ ] Add one wrapper, e.g. `layout/RequireContextKind.tsx` (`<RequireContextKind
-        kind="household" redirectTo="/">`), that reads the same active-context primitive from
-        Task 1 and renders `<Navigate to={redirectTo} replace />` when the active context's
-        kind does not match, else renders `children`.
-  - [ ] Wrap the household-only route entries (`/shidduchim`, `/singles`, `/shadchanim`,
-        `/references`, `/inbox_items`) with `<RequireContextKind kind="household">` in the
-        route manifest introduced by Epic 1 Story 1.5 (`root/routeManifest.ts`) — extend
-        whatever field that manifest already uses to declare per-route wrapping; do not
-        reintroduce raw `<Route>` JSX in `root/CRM.tsx` (1.5 removed it for a reason).
-  - [ ] Export `RequireContextKind` so Story 8.5 can apply `kind="shadchanus"` to `/connections`
-        without a second implementation.
+  - [ ] Add `layout/RequireContextKind.tsx` (`<RequireContextKind kind="household"
+        redirectTo="/">`): reads the active context kind from `useMyContexts()` and renders
+        `<Navigate to={redirectTo} replace />` on mismatch, else `children`. Export it for
+        Story 8.5's `kind="shadchanus"` use.
+  - [ ] `root/routeManifest.ts`: add the optional `contextKind` field to
+        `CustomRouteEntry`/`ResourceEntry`; set `contextKind: "household"` on the
+        `shidduchim`, `singles`, `shadchanim`, `references`, `inbox_items`, `tasks` and
+        `reminders` entries. Wire the wrapping in `root/CRM.tsx`'s existing `.map()` calls —
+        do not reintroduce raw `<Route>` JSX (1.5 removed it for a reason).
 
-- [ ] **Task 4 — Shadchanus dashboard placeholder** (AC: 4, 5)
-  - [ ] Add `dashboard/ShadchanDashboard.tsx`: identity header ("Your shadchanus workspace")
-        + one empty-state card, no data fetching. Route `/` to `ShadchanDashboard` instead of
-        the household `Dashboard`/`MobileDashboard` when the active context kind is
-        `shadchanus`, using the same route-manifest / component-selection pattern Epic 1 Story
-        1.5 established for other context-dependent surfaces — grep for an existing
-        conditional-component-by-context pattern before inventing a new one.
-  - [ ] Empty-state copy goes through the `i18nProvider` (AD-18) — no hardcoded string outside
-        a translation key.
+- [ ] **Task 4 — Placeholder screens** (AC: 4, 5, 6)
+  - [ ] `dashboard/ShadchanDashboard.tsx`: identity header ("Your shadchanus workspace") +
+        one empty-state card, no data fetching. Register a small dashboard-route component
+        that picks `ShadchanDashboard` vs the household `Dashboard`/`MobileDashboard` by
+        active context kind — one component, one place; do not fork the manifest entry.
+  - [ ] `connections/ConnectionsPlaceholder.tsx`: empty-state screen registered as the
+        `/connections` custom route (AC-4). New folder `connections/` starts here; 8.5
+        fills it.
+  - [ ] All copy through the `i18nProvider` (AD-18) — no hardcoded string outside a
+        translation key.
 
-- [ ] **Task 5 — Tests** (AC: 6)
-  - [ ] `layout/navItems.test.ts` (new or extended): asserts `SHADCHANUS_NAV` contains none of
-        the 5 excluded `to` paths, and that the nav-selector returns `SHADCHANUS_NAV` /
-        `PRIMARY_NAV` correctly for each mocked context kind.
-  - [ ] `layout/RequireContextKind.test.tsx`: renders the guard with a mocked `shadchanus`
-        context and asserts a household-only route's content never renders and a redirect
-        occurs; and
-        the mirror case for a mocked `household` context against a `kind="shadchanus"` guard.
-  - [ ] `dashboard/ShadchanDashboard.test.tsx`: renders empty/loading (no fetch, so effectively
-        just an empty-state render) and asserts the empty-state copy is present — the minimum
-        bar UX-DR11 sets ("every screen renders empty/loading/error, light+dark, at 375px");
-        light/dark and 375px are visual-regression concerns already covered by the project's
-        existing Storybook/visual setup for other screens — reuse it, do not add a new harness.
+- [ ] **Task 5 — Tests** (AC: 7)
+  - [ ] Extend the existing `layout/navItems.test.ts`: `SHADCHANUS_NAV` contains none of the
+        7 guarded household paths; `useActiveNav()` returns the right array per mocked
+        context kind; and `findManifestViolations(...)` returns `[]` when fed
+        `SHADCHANUS_NAV.map(i => i.to)` as nav targets too (extend 1.5's positive test —
+        the validator must hold for both nav sets).
+  - [ ] `layout/RequireContextKind.test.tsx`: mocked `shadchanus` context ⇒ household-only
+        content never renders, redirect occurs; mirror case for `household` vs a
+        `kind="shadchanus"` guard.
+  - [ ] `dashboard/ShadchanDashboard.test.tsx` + `connections/ConnectionsPlaceholder.test.tsx`:
+        empty-state copy renders (no fetch, so empty state is the only state) — the minimum
+        bar UX-DR11 sets; light/dark and 375px stay with the project's existing
+        visual-regression setup — reuse it, do not add a new harness.
+  - [ ] `make typecheck && npm run lint && make test`, plus `npx prettier --config
+        ./.prettierrc.json --check` over this story's changed files only (repo-wide prettier
+        is Epic 1 Story 1.6's gate).
 
 ## Dev Notes
 
 ### What this story deliberately does not build
 
-`connections`, `shadchanim.connection_id`, threads, and the actual "Connections" list/360
-content are **not** this story's — see 8.2 (connections + invites) and 8.5 (the CRM UI). This
-story's `/connections` route (Task 2) exists in the nav from day one so the nav item never
-"appears later"; **it 404s or shows nothing meaningful until 8.5 registers the resource** —
-that interim state is accepted because Story 8.5 lands in the same epic before ship (Epic 1's
-precedent for an accepted interim gap between two pinned-order stories, e.g. its `/tasks`
-redirect discussion, is the same pattern: a documented gap between numbered stories in one
-epic, not a shipped defect).
+`connection_invites` RPCs, `shadchanim.connection_id`, threads, and the real Connections
+list/360 are 8.2/8.5's. This story ships `/connections` as a **rendered placeholder**, not a
+dead link: a nav item pointing at an unregistered route would fail 1.5's
+`"unreachable-nav-target"` manifest rule and its "none blank" e2e check, so the placeholder
+screen is the only way the nav item can exist from day one.
+
+### Why no Tasks or Reminders in `SHADCHANUS_NAV`
+
+`tasks.target_type` (post-Epic-3 widening) allows only household-book targets — `shadchan`,
+`shidduch`, `reference`, `single` — and a shadchanus account holds no rows of any of them
+(AD-2). A Tasks or Reminders screen in a shadchanus context would render empty forever and
+its create flow would offer zero valid targets: exactly the "screen that means nothing in my
+context" this story exists to prevent. When a story adds a `connection` task target (none in
+Epic 8 does), these two items join the set; flagged in the story-writing report as an
+unowned product gap.
 
 ### Current-state grounding
 
-- `layout/navItems.ts` today exports one array, `PRIMARY_NAV` — 7 items: Dashboard,
-  `/shidduchim` (Pipeline), `/inbox_items` (Inbox), `/shadchanim`, `/references`, `/reminders`,
-  `/settings`. The doc comment already states the "6 foundation nav destinations" design intent
-  (now 7) is shared by desktop Sidebar and mobile bottom nav from one source — this story adds
-  a second array to the same source, it does not fork navigation per surface.
-- `root/routeManifest.ts` (Epic 1 Story 1.5) is where routes/resources are declared today as a
-  single manifest consumed by `.map()` in `root/CRM.tsx` — extend it, do not add parallel JSX.
+- `layout/navItems.ts` exports one array, `PRIMARY_NAV`, consumed by exactly two components:
+  `layout/Sidebar.tsx` and `layout/MobileNavigation.tsx`. By the time this story runs
+  (pinned epic order), Story 4.3 has relabelled Pipeline → Shidduchim and Story 4.4 has
+  swapped References for Tasks, so `PRIMARY_NAV` is: Dashboard, Inbox, Shidduchim,
+  Shadchanim, Tasks, Reminders, Settings. `/references` and `/singles` remain reachable as
+  routes (4.4 AC-2) — hence they are in the guard list (AC-3) though not in the nav.
+- `root/routeManifest.ts` (Epic 1 Story 1.5) is the single source of truth for routes and
+  resources, mapped by `root/CRM.tsx`, with the `findManifestViolations` validator — extend
+  it, never add parallel JSX.
 
 ### Architecture citations
 
-- **AD-2**: "an account is a context and carries a `kind` ∈ `household | shadchanus`... A
-  shadchanus context may never contain household domain rows, enforced by CI and by scope
-  checks." This story's route guard is defense-in-depth on top of that DB guarantee, not a
-  replacement for it.
-- **AD-19**: the active context is `member_state(user_id, active_account_id)` resolved via
-  `current_context_id()`, server-held, never a client claim. This story's nav/route selection
-  must read whatever client-side primitive Epic 2 exposes over that server state — never
-  infer context kind from a URL param or local state.
-- **UX-DR10 / UX-DR8**: "References is not a primary destination" generalises directly to
-  "a connection's threads are not a primary destination" — hence no "Conversations" nav item.
-- **AD-24**: every entity/screen still renders through the same shell primitives
-  (`Layout.tsx`, `MobileLayout.tsx`) — this story swaps only the nav array and the routed
-  dashboard component, never the shell itself.
+- **AD-2**: a shadchanus context may never contain household domain rows, enforced by CI and
+  scope checks. This story's route guard is defense-in-depth on top of that DB guarantee.
+- **AD-19**: the active context is server-held (`member_state` via `current_context_id()`),
+  never a client claim. `useMyContexts()` reads over that server state — never infer kind
+  from a URL or local state.
+- **UX-DR10 / UX-DR8**: "References is not a primary destination" generalises to "a
+  connection's threads are not a primary destination" — hence no Conversations nav item.
+- **AD-24**: every screen renders through the same shell primitives (`Layout.tsx`,
+  `MobileLayout.tsx`) — this story swaps only the nav array and two routed components,
+  never the shell.
 
 ### Dependencies
 
-- **Epic 2 Stories 2.1 (context-aware authorisation), 2.2 (persona/context data model) and
-  2.4 (context switcher)** must land first. This story has no code to write without a working
-  `current_context_id()` / active-context read primitive and a UI mechanism to switch into a
-  shadchanus context in the first place.
-- **Epic 1** (naming) must have landed: this story writes `/singles`, `/shadchanim`, not
-  `/children`.
+- **Epic 2 Stories 2.1, 2.2, 2.4** — hard: no active-context read primitive or switcher UI
+  without them.
+- **Epic 4 Stories 4.3, 4.4** — the nav shape this story extends (Shidduchim label, Tasks in,
+  References out).
+- **Epic 1** (naming, `routeManifest.ts`) — this story writes `/singles`, never `/children`.
 
 ### Testing standard
 
 Frontend-only story: Vitest component tests per `.claude/rules/testing.md` (AAA, descriptive
-names, no shared mutable state). No SQL test file — there is no schema change in this story
-(see "What this story deliberately does not build").
+names, no shared mutable state). No SQL test file — no schema change in this story.
 
 ### Project Structure Notes
 
-New files: `layout/RequireContextKind.tsx` (+ `.test.tsx`), `dashboard/ShadchanDashboard.tsx`
-(+ `.test.tsx`). Modified: `layout/navItems.ts` (+ `.test.ts`), `root/routeManifest.ts`. All
-within existing directories — no new top-level folder for this story (Story 8.5 introduces
-`connections/`).
+New: `layout/RequireContextKind.tsx` (+ `.test.tsx`), `dashboard/ShadchanDashboard.tsx`
+(+ `.test.tsx`), `connections/ConnectionsPlaceholder.tsx` (+ `.test.tsx`). Modified:
+`layout/navItems.ts` (+ existing `.test.ts`), `layout/Sidebar.tsx`,
+`layout/MobileNavigation.tsx`, `root/routeManifest.ts`, `root/CRM.tsx`.
 
 ## Dev Agent Record
 

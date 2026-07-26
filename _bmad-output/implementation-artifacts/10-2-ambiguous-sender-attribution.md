@@ -29,15 +29,15 @@ testing; this story builds on both. Runs on the **post-Epic-1** codebase: `sales
    message's headers (FR24: "recover the original sender from headers/quoted body") —
    e.g. "Mrs. Feldman" — when it can be recovered with confidence.
 
-2. **A genuinely ambiguous original sender is flagged, never guessed.** When the
-   email's forwarded-header block cannot be parsed into exactly one confident
-   candidate — no forwarding detected (nothing to recover — not ambiguous, just no
-   signal), a doubly-nested forward (two or more separator blocks — which layer is
-   "the" sender is not decidable), no parseable "From:"-style line in the header
-   block, or the recovered address is the forwarding member's own — the item's
-   `sender` stays `null` and a new `sender_needs_confirmation` flag is `true`. The
-   Inbox UI shows this distinctly ("Who sent this?") instead of a (possibly wrong)
-   name.
+2. **A genuinely ambiguous original sender is flagged, never guessed.** When
+   forwarding *is* detected but no single confident candidate can be recovered — a
+   doubly-nested forward (two or more separator blocks: which layer is "the" sender
+   is not decidable), no parseable "From:"-style line in the one header block, more
+   than one such line, or the recovered address is the forwarding member's own — the
+   item's `sender` stays `null` and a new `sender_needs_confirmation` flag is `true`.
+   The Inbox UI shows this distinctly ("Who sent this?") instead of a (possibly
+   wrong) name. An email with **no forwarding signal at all** is not ambiguous — the
+   member composed it themselves: `sender` stays `null` and the flag stays `false`.
 
 3. **Nothing is ever auto-attributed.** Whether confident or ambiguous, the recovered
    name is a **display hint only** — it never sets `shadchan_id` on the `inbox_items`
@@ -47,9 +47,11 @@ testing; this story builds on both. Runs on the **post-Epic-1** codebase: `sales
 4. **It never crosses an account boundary.** The recovered sender is only ever shown
    as free text and only ever used to *search* the current account's own shadchan
    book (`shadchanim`, RLS-scoped) — never to look up or auto-link a shadchan record
-   directly, confident or not. **Negative test:** a recovered name/email is never
-   used anywhere as a lookup key against `shadchanim` or any other table; it flows
-   only into the `inbox_items.sender` text column.
+   directly, confident or not. **Negative test (decidable):** in
+   `postmark/index.test.ts`, for both a confident and an ambiguous recovery, assert
+   the mocked `supabaseAdmin.from` is **never called with `"shadchanim"`** and the
+   inserted row carries no `shadchan_id` — the recovered value flows only into the
+   `inbox_items.sender` text column.
 
 ## Tasks / Subtasks
 
@@ -61,9 +63,9 @@ testing; this story builds on both. Runs on the **post-Epic-1** codebase: `sales
         recovered original sender for email, not the SMTP envelope address.
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
         add_inbox_items_sender_confirmation` — a plain `ALTER TABLE ... ADD COLUMN`;
-        hand-check the generated migration touches nothing else (no view/grant
-        collateral damage this time, but verify per AGENTS.md's standing warning about
-        `db diff`).
+        hand-check the generated migration touches nothing else (none expected for an
+        ADD COLUMN, but AGENTS.md warns generated migrations sometimes need manual
+        adjustment).
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. Never
         `db reset`/`db push`.
   - [ ] `06_grants.sql`: confirm no change needed — `inbox_items` already grants
@@ -121,18 +123,22 @@ testing; this story builds on both. Runs on the **post-Epic-1** codebase: `sales
         firstToEmail === INBOUND_EMAIL` branch that currently gates the
         readability-stripping step — FR24 recovery is valuable on every forward, not
         only that one case).
-  - [ ] After extraction, if `candidate.email` case-insensitively matches any address
-        in `memberEmails` (the forwarding member's own list, already in scope in
-        `index.ts`) — override to `{name: null, email: null, needsConfirmation: true}`.
-        A self-referential "From:" (someone forwarded their own earlier message) is
-        not useful attribution and must not be shown as if it were.
+  - [ ] After extraction, if `candidate.email` case-insensitively equals the
+        forwarding member's **own** address (`memberEmail` — the post-1.2 name of
+        `salesEmail`, already in scope in `index.ts`) — override to `{name: null,
+        email: null, needsConfirmation: true}`. A self-referential "From:" (someone
+        forwarded their own earlier message) is not useful attribution and must not
+        be shown as if it were. (Do **not** compare against the in-scope list
+        `memberEmails` — post-1.2 `salesEmails` — that is *every* member's email
+        product-wide, and matching it would wrongly nullify legitimate recoveries.)
   - [ ] `supabase/functions/postmark/buildInboxItemPayload.ts`: change
         `InboxItemEmailInput` to accept `originalSender: OriginalSenderCandidate` in
         place of the old `sender: string | null`. Compute the row's `sender` as
         `candidate.name ?? candidate.email` (trimmed, collapsed to `null` if both are
         null) and set `sender_needs_confirmation: candidate.needsConfirmation`.
-  - [ ] `supabase/functions/postmark/createInboxItemFromEmail.ts`: update
-        `InboxItemRow` to include `sender_needs_confirmation: boolean`.
+  - [ ] `InboxItemRow` — defined in `buildInboxItemPayload.ts`, only *imported* by
+        `createInboxItemFromEmail.ts` — gains `sender_needs_confirmation: boolean`;
+        `createInboxItemFromEmail.ts` itself needs no change.
   - [ ] `supabase/functions/postmark/buildInboxItemPayload.test.ts`: update the two
         existing tests for the new `originalSender` input shape, and add a case for
         `needsConfirmation: true` producing `sender: null,
@@ -185,7 +191,8 @@ ARCHITECTURE-SPINE.md#AD-6].
 *display* of a recovered original sender, not about *who is allowed to email the
 account*. FR23 ("CC mode" — the shadchan's own address is the SMTP sender, auto-match
 or create the shadchan) is a different, larger capability that is **not** in Epic 10's
-FR coverage row (`FR27–28, FR78` only — [Source: epics.md#FR-Coverage-Map]) and is not
+FR coverage row (`FR27–28, FR78, PRD §13` — and §13 is auto-parse, nothing about
+CC-mode [Source: epics.md#FR-Coverage-Map]) and is not
 addressed here: `index.ts` still rejects any email whose SMTP sender isn't a known
 member. Do not fold FR23 into this story.
 
@@ -196,8 +203,9 @@ different axis from *who the message was originally from*. Land 10.3 first.
 
 ### What already exists — reuse, do not rebuild
 
-- `forwardedParser.ts`'s `FORWARD_SEPARATOR_PATTERNS` (5 locale patterns) — reuse the
-  array as-is for both the existing strip function and the new extraction function.
+- `forwardedParser.ts`'s `FORWARD_SEPARATOR_PATTERNS` (6 patterns: Gmail / Apple Mail /
+  Outlook in English, two French, one German) — reuse the array as-is for both the
+  existing strip function and the new extraction function.
   Do not add new locale patterns speculatively; if a real gap is found later, that's a
   follow-up, not a blocker here.
 - `ShidduchCatchPanel.tsx`'s `--attention` token treatment — the established "calm
@@ -254,7 +262,7 @@ content is parsed and attributed.
 
 ## Dependencies
 
-- **10.3 must land first**: this story renames-aware code depends on
+- **10.3 must land first**: this story depends on
   `resolveHouseholdAccountIdForMemberEmail` existing and on `postmark/index.ts`
   exporting its handler (for `index.test.ts`, created by 10.3).
 - **10.1 should land first** for `InboxResolveDialog.tsx`: 10.1 refactors this file's

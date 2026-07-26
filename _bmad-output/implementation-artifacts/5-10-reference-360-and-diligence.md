@@ -61,14 +61,23 @@ information that has nowhere else to go.
    whether this is a first conversation or one of several (via the shared
    `countOtherConversations` helper, excluding the current shidduch).
 3. **Given** a reference, **when** I open their own record, **then** it is reached from
-   diligence or search — never from primary navigation (`layout/navItems.ts`'s `PRIMARY_NAV`
-   already excludes it; this story must not add it there).
+   diligence or search — never from primary navigation (Epic 4 Story 4.4 removed the
+   `/references` entry from `PRIMARY_NAV` and pins that in `navItems.test.ts`; this story must
+   not add it back).
 4. **Given** a reference's own record, **when** it renders, **then** it is on the `Entity360`
-   shell at `/references/{id}/{tab}` with URL-backed tabs: `overview, conversations, notes,
-   tasks, activity, assistant`. `overview` holds the identity facts currently inline in
-   `ReferenceHeader` (relationship, phone, school, grad year); `conversations` is the existing
-   `RepeatRecognitionPanel` + `ReferenceCallLog`, unchanged; `assistant` is the existing
-   `ResearchAssistantPanel`, unchanged (still AI-entitlement-gated).
+   shell at `/references/{id}/{tab}` with URL-backed tabs in UX-DR5's order plus one
+   entity-specific extra: `overview, conversations, linked-shidduchim, notes, tasks, activity,
+   assistant`. `overview` holds the identity facts currently in `ReferenceShow.tsx`'s internal
+   `ReferenceHeader` component (relationship, phone, school, grad year); `conversations` is the
+   existing `RepeatRecognitionPanel` + `ReferenceCallLog`, unchanged; `linked-shidduchim` is
+   UX-DR5's required tab — the reference's `reference_links_summary` rows, each a `RecordLink`
+   to its shidduch (a plain list; no call-log detail, which stays in `conversations`);
+   `assistant` is the existing `ResearchAssistantPanel`, unchanged (still AI-entitlement-gated)
+   — an entity-specific tab justified by UX-DR4's "entity-specific tabs are the exception, not
+   the rule" clause, since the matrix predates the shipped assistant panel.
+   The references `buildRecordPath` registration (Story 3.9) becomes
+   ``(id) => `/references/${id}` `` and 3.9's route-pinning test is updated — every existing
+   `RecordLink` mention of a reference follows automatically.
 5. **Given** the migration to universal tabs, **when** it completes, **then**
    `ReferenceTimeline.tsx` and `ReferenceTasks.tsx` are deleted — their general-note and
    task-add/toggle behaviour now lives in Epic 3's universal Notes/Tasks components, and no
@@ -94,18 +103,22 @@ information that has nowhere else to go.
         `references_summary`'s existing `linked_shidduchim_count`, and reusing that instead of an
         N+1 fetch per row; prefer the view column if it does not already exist there).
 - [ ] **Task 3 — Reference descriptor and shell migration** (AC: 3, 4)
-  - [ ] Register the `references` entity descriptor: tabs
-        `overview, conversations, notes, tasks, activity, assistant`, in that order.
-  - [ ] Extract the identity-fact block (relationship/phone/school/grad_year) currently inline in
-        `ReferenceHeader` into an `overview` tab; keep contact-style facts (name, avatar) in the
-        shell's identity header region.
+  - [ ] Fill in the `references` entity descriptor (3.9 registered the minimal stub): tabs
+        `overview, conversations, linked-shidduchim, notes, tasks, activity, assistant`, in
+        that order; change its `buildRecordPath` to ``(id) => `/references/${id}` `` and update
+        3.9's route-pinning test.
+  - [ ] Extract the identity-fact block (relationship/phone/school/grad_year) from
+        `ReferenceShow.tsx`'s internal `ReferenceHeader` into an `overview` tab; keep
+        contact-style facts (name, avatar) in the shell's identity header region.
   - [ ] Wire `conversations` to the existing `RepeatRecognitionPanel` + `ReferenceCallLog`
-        (unchanged); wire `assistant` to the existing `ResearchAssistantPanel` (unchanged).
+        (unchanged); build `linked-shidduchim` as a `RecordLink` list over the reference's
+        `reference_links_summary` rows; wire `assistant` to the existing
+        `ResearchAssistantPanel` (unchanged).
   - [ ] Wire `notes`/`tasks`/`activity` to Epic 3's universal components with
         `target_type: "reference"`.
-  - [ ] Confirm `layout/navItems.ts`'s `PRIMARY_NAV` is untouched by this story (AC-3) —
-        add a test assertion if one does not already exist pinning "references absent from
-        primary nav."
+  - [ ] Confirm `layout/navItems.ts`'s `PRIMARY_NAV` is untouched by this story (AC-3) — Story
+        4.4's `navItems.test.ts` already pins `/references` absent; just confirm it still
+        passes.
 - [ ] **Task 4 — Retire the superseded components** (AC: 5)
   - [ ] Delete `references/ReferenceTimeline.tsx` and `references/ReferenceTasks.tsx` once the
         universal tabs cover their behaviour per AC-5's stated simplification.
@@ -146,6 +159,10 @@ information that has nowhere else to go.
   tabs.
 - [Source: UX-DR8, UX-DR9 in epics.md#UX-Design-Requirements] — references reached from a
   shidduch, not primary nav; reuse awareness mandatory.
+- [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md#UX-DR5]
+  — the reference tab matrix (`Overview · Conversations · Linked shidduchim · Notes · Tasks ·
+  Activity`) this story's tab set implements, plus UX-DR4's exception clause covering
+  `assistant`.
 
 ## Dev Agent Record
 

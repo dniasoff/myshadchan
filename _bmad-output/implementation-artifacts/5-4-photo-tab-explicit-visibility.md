@@ -12,9 +12,9 @@ so that it is never exposed by accident.
 
 ## Position in Epic 5
 
-Depends on **5.1** (the `photo` tab slot) and **5.3** (the `documents` storage bucket + its
-account-scoped path convention — reuse it verbatim, do not re-derive storage policy in this
-story).
+Depends on **5.1** (the `photo` tab slot) and **5.3** (the `documents` storage bucket and its
+path convention — reuse the bucket; this story adds only its own `photos/`-prefix policies,
+which 5.3 deliberately left undefined).
 
 ## Design decision: photos are their own table, not a JSON blob
 
@@ -27,10 +27,13 @@ with a new table, `public.resume_photos`, one row per photo, each carrying its o
 This is a genuine replacement, not an addition — `resumes.photos` is dropped in the same
 migration (NFR-14).
 
-`visibility` reuses the **existing** `shidduchim.visibility` enum (`shared | private_parent |
-private_single`, already `private_single` post Epic 1 Story 1.3) rather than inventing a new one
-— the concept is identical ("can the single being redt for see this"), and reusing it means no
-second visibility vocabulary for a reviewer or a future agent to reconcile against the first.
+`visibility` reuses the **existing** `shidduchim.visibility` vocabulary (`shared |
+private_parent | private_single`, already `private_single` post Epic 1 Story 1.3) rather than
+inventing a new one — but constrained to the **subset that means something for a photo of the
+suggested person**: `('shared', 'private_parent')`. `private_single` ("only the single sees
+it") has no coherent meaning here — the uploader is the process manager, and a photo hidden
+from the manager who uploaded it is nonsense — so the check constraint excludes it rather than
+carrying a dead state. Same vocabulary, no second one to reconcile; just fewer legal values.
 
 **Explicit reveal is a UI affordance, not a permission tier.** It is a deliberate-friction,
 click-to-view pattern (distinct from the `visibility` column, which *is* a permission tier). Do
@@ -52,17 +55,29 @@ is a persisted, RLS-enforced fact.
    that photo. **Negative test:** seed one account with a `parent_admin` member and a `single`
    member, one `private_parent` photo and one `shared` photo; assert the `single` member's
    client sees only the `shared` row.
-4. **Given** a photo, **when** any resume file is forwarded via Story 5.7's rail action, **then**
-   the photo is never included — Story 5.7's forward action reads only `resumes.files`, never
-   `resume_photos`, so this holds by construction; this story adds a test asserting
-   `resume_photos` rows are absent from whatever payload 5.7's forward action builds.
+4. **Given** the storage objects themselves, **when** a `single`-role member queries the
+   `documents` bucket directly (bypassing the table), **then** they still cannot reach a
+   `private_parent` photo: the path embeds the visibility
+   (`{account_id}/photos/{visibility}/{shidduchim_id}/{uuid}-{filename}`) and the `photos/`
+   storage policies grant a `single`-role member select **only** under the `photos/shared/`
+   prefix. Without this, the table RLS of AC-3 is decorative — Story 5.3's policies cover only
+   the `resumes/` prefix precisely so this story can write stricter rules for its own.
+   **Negative test (storage):** the `single` member's client cannot download or list the
+   `private_parent` object but can download the `shared` one; a second account can reach
+   neither. Consequence, stated so nobody "fixes" it later: changing a photo's visibility after
+   upload is not supported in this story — hide it (AC-2) and re-upload.
+5. **Given** the resume forward action (Story 5.7's rail), **when** it is built, **then**
+   photos are structurally outside it: the forward action reads only `resumes.files`;
+   `resume_photos` lives in its own table and storage prefix, never in `resumes.files`. The
+   executable payload test lives in Story 5.7 (which builds the action after this story) — this
+   story's contribution is the structural separation, asserted here by schema shape alone.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Schema** (AC: 2, 3)
+- [ ] **Task 1 — Schema** (AC: 2, 3, 4)
   - [ ] `supabase/schemas/01_tables.sql`: drop `resumes.photos`; add
         `public.resume_photos (id, account_id, resume_id, path, uploaded_at, visibility text
-        check (visibility in ('shared','private_parent','private_single')) default 'shared',
+        check (visibility in ('shared','private_parent')) default 'shared',
         hidden_at timestamptz)`. FK `resume_id` → `resumes(account_id, id)`, matching the
         composite-FK pattern already used for `reference_links.resume_id`
         (`01_tables.sql:722-723`).
@@ -70,17 +85,24 @@ is a persisted, RLS-enforced fact.
         pattern for `resume_photos.account_id` (do not write a bespoke one — every other
         account-scoped table uses the same trigger; find it and attach it).
   - [ ] `supabase/schemas/05_policies.sql`: `alter table public.resume_photos enable row level
-        security`; policy `for select/insert/update/delete` using
-        `account_id = public.current_account_id() and (visibility <> 'private_single' or
-        <caller is not a self-managing... >)` — concretely, per AC-3, the predicate needed is
-        **"exclude `private_parent` rows from a caller whose role is `single`"**:
-        `account_id = public.current_account_id() and (visibility = 'shared' or not exists
-        (select 1 from public.account_members am where am.user_id = auth.uid() and
-        am.account_id = public.current_account_id() and am.role = 'single'))`. This depends on
-        Epic 2 having added `'single'` to `account_members_role_check` — verify with
+        security`; policy `for all` — the predicate, per AC-3, is **"exclude `private_parent`
+        rows from a caller whose role is `single`"**:
+        `account_id = public.current_context_id() and (visibility = 'shared' or exists
+        (select 1 from public.account_members am where am.id = public.current_member_id() and
+        am.role <> 'single'))`, `with check` the same. **`current_context_id()` (AD-19) and
+        `current_member_id()` (Story 3.5) — never `current_account_id()`, which Epic 2 Story
+        2.1 deletes outright.** This also depends on Epic 2 having added `'single'` to
+        `account_members_role_check` — verify with
         `grep -n "account_members_role_check" supabase/schemas/01_tables.sql` before writing the
         policy; if `'single'` is not yet a valid role, Epic 2 has not landed and this story
         cannot proceed.
+  - [ ] `supabase/schemas/07_storage.sql`: add the `photos/`-prefix policies on the `documents`
+        bucket (AC-4): select requires `[1] = current_context_id()::text and [2] = 'photos' and
+        ([3] = 'shared' or <caller role is not 'single', same subquery as above>)`;
+        insert/delete require `[1] = context and [2] = 'photos' and [3] in
+        ('shared','private_parent')`. Story 5.3 deliberately left every non-`resumes/` prefix
+        deny-by-default so these can be written from scratch — permissive policies OR together,
+        so a broader account-wide grant could never be tightened after the fact.
   - [ ] Generate + hand-check migration: this is a genuine `DROP COLUMN` + `CREATE TABLE`, not a
         rename.
 - [ ] **Task 2 — Server-side write path** (AC: 2)
@@ -89,17 +111,17 @@ is a persisted, RLS-enforced fact.
         (Story 5.3) shape and doc-comment style.
 - [ ] **Task 3 — Frontend** (AC: 1, 2)
   - [ ] `src/components/atomic-crm/resumes/PhotoTab.tsx` + `PhotoRevealCard.tsx`: grid of
-        photos, each behind a reveal click; upload control with a visibility selector (reuse
-        whatever visibility-picker pattern the shidduchim form already uses for
-        `visibility`, if any, or a plain radio group over the 3 values).
-  - [ ] Upload reuses the `documents` bucket + account-scoped path convention from Story 5.3
-        (`{account_id}/photos/{shidduchim_id}/{uuid}-{filename}`) — do not re-derive the bucket
-        or its policies.
+        photos, each behind a reveal click; upload control with a visibility selector — a plain
+        two-option radio group (`shared` / `private_parent`), `shared` preselected.
+  - [ ] Upload targets the `documents` bucket at the AC-4 path
+        (`{account_id}/photos/{visibility}/{shidduchim_id}/{uuid}-{filename}`) — the bucket
+        exists from Story 5.3; only the `photos/` policies (Task 1) are new.
 - [ ] **Task 4 — Tests** (AC: 3, 4)
   - [ ] The negative RLS test from AC-3 in `supabase/tests/` (new or alongside the resume tests
         from 5.3).
-  - [ ] A frontend/unit test asserting the forward-action payload (5.7) contains no
-        `resume_photos` reference.
+  - [ ] The storage-level negative test from AC-4 (single-role member: `private_parent` object
+        unreadable/unlistable, `shared` object readable; foreign account: neither), asserted
+        against the running local Supabase storage API, not mocked.
 
 ## Dev Notes
 
@@ -139,9 +161,11 @@ Never `db reset` or `db push`.
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-5-Entity-360s, Story 5.4]
 - [Source: ARCHITECTURE-SPINE.md#AD-1] — RLS row-granularity reasoning behind the table split.
 - [Source: ARCHITECTURE-SPINE.md#AD-2] — target role vocabulary this story's RLS depends on.
-- [Source: ARCHITECTURE-SPINE.md#AD-9] — "Photo inclusion is the sharer's choice" (AC-4).
+- [Source: ARCHITECTURE-SPINE.md#AD-9] — "Photo inclusion is the sharer's choice" (AC-5).
 - [Source: _bmad-output/implementation-artifacts/1-3-rename-children-to-singles.md#AC-5] —
-  `private_child` → `private_single`, the enum this story reuses.
+  `private_child` → `private_single`, the vocabulary whose subset this story reuses.
+- [Source: _bmad-output/implementation-artifacts/3-5-universal-activity-tab.md] —
+  `current_member_id()`, the caller-resolution function this story's policies reuse.
 
 ## Dev Agent Record
 

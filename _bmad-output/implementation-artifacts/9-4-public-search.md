@@ -111,8 +111,10 @@ actually reach and use.
         to read from) or require wrapping this public page in enough of `<Admin>` to defeat the
         entire point of keeping it outside the authenticated tree.
   - [ ] No query, result, or interaction on this page is written to any table or sent to any
-        analytics call with identifying detail (AC-4) — if the codebase's PostHog wiring
-        auto-instruments page views, confirm this route either is excluded or captures no query
+        analytics call with identifying detail (AC-4). As of this story-writing pass the repo
+        carries **no** analytics wiring at all (no `posthog` reference in `src/` or
+        `package.json`; PostHog is only planned in the spine's stack table) — if one has landed
+        by implementation time, confirm this route either is excluded or captures no query
         text/listing identifiers, and say explicitly in the PR which it is.
 
 - [ ] **Task 3 — Components** (AC: 1, 2, 5, 6)
@@ -123,13 +125,15 @@ actually reach and use.
         `loadListings` props for testability, exactly as `ChildPortalPageProps` did.
   - [ ] `listings/ShadchanListingCard.tsx` and `listings/SingleListingCard.tsx` — one component
         per listing shape (AC-5), each rendering **only** the fields present (non-`null`) on the
-        row it is given — never a placeholder for an absent field (AD's "never fabricate"
-        posture, carried into the public surface).
+        row it is given — never a placeholder for an absent field (the SPEC's "Never fabricate"
+        constraint, carried into the public surface).
   - [ ] Loading / empty / error states (AC-6) as three distinct, testable render branches in
         `PublicSearchPage.tsx` — not a single generic "something went wrong" catch-all.
   - [ ] Responsive at 375px, light and dark (`UX-DR11`) — this is a fully public page, so it is
         also the product's first impression for a visitor with no account; hold it to the same
-        bar the rest of the app's screens are held to.
+        bar the rest of the app's screens are held to. Verification: screenshots at 375px in
+        both themes attached to the PR (or the repo's visual-regression setup if one exists by
+        then) — a claim without the artifact does not close this box.
 
 - [ ] **Task 4 — Tests** (AC: all)
   - [ ] `listings/PublicSearchPage.test.tsx` — mirrors `ChildPortalPage.test.tsx`'s shape: inject
@@ -140,14 +144,17 @@ actually reach and use.
         familiar framework by habit).
   - [ ] `listings/publicSearchUrl.test.ts` — `isPublicSearchUrl` correctness (query params
         present/absent, trailing slash, wrong path).
-  - [ ] `listings/publicListingsClient.test.ts` — the query builder call shape, and that a
-        withdrawn/never-published record is absent purely because the underlying `anon`-visible
-        table has no such row (this test can run against FakeRest's `listings` resource, seeded
-        and un-seeded, rather than requiring the live Postgres suite — no new RLS is added by
-        this story, so `supabase/tests/listings.sql` needs no new checks here).
-  - [ ] `src/App.test.tsx` (or wherever the existing landing/portal routing was tested before
-        Epic 1 deleted the portal) gets a case for the new pre-CRM branch, matching however
-        `isPortalUrl`'s branch was tested.
+  - [ ] `listings/publicListingsClient.test.ts` — assert the query-builder call shape against a
+        **mocked Supabase client** (`getSupabaseClient` stubbed; assert `.from("listings")` and
+        the parameterized `ilike`/`or`/`textSearch` filters are what was built — FakeRest is a
+        `dataProvider` seam and plays no part in this client's path). Do **not** claim
+        "withdrawn records never appear" from a frontend unit test: that property is the
+        database's (proven by 9.1 AC-5 / 9.3 AC-5 in `supabase/tests/listings.sql`), and no new
+        RLS is added by this story, so that suite needs no new checks here.
+  - [ ] There is no App-level routing test to extend — the portal's `App.tsx` branch was never
+        tested at the App level; its predicate was unit-tested in `portalToken.test.ts` alone.
+        Cover the new branch the same way, via `publicSearchUrl.test.ts` (previous bullet); do
+        not build an `App.tsx` render harness just for this.
   - [ ] `make typecheck && npm run lint && make test`, plus `npx prettier --check` on this
         story's changed files only. No database migration in this story, so `npm run
         test:unit:db` has nothing new to run — do not add a no-op entry to `listings.sql` just to
@@ -170,8 +177,9 @@ as specified, for different reasons.
 ### Rendering the two shapes
 
 A shadchan listing (9.1) offers up to three fields: name, area, contact info. A single listing
-(9.2) offers up to seven: first name (en/he), age, height, community, location, summary, plus a
-gated photo. `ShadchanListingCard` and `SingleListingCard` should each be simple, presentational,
+(9.2) offers up to seven: first name (en and he), age, height, community, location, summary —
+never a photo (a listing carries none; photos exist only behind 9.5's share links — 9.1 Dev
+Notes "No photo on a listing"). `ShadchanListingCard` and `SingleListingCard` should each be simple, presentational,
 and take a `Listing` (from `types.ts`, already carrying both branches' columns per 9.1 Task 5) —
 branch on `listing_type` once, at the top of `PublicSearchPage.tsx`, to choose which card to
 render per row, rather than either card trying to handle both shapes internally.

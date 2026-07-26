@@ -32,9 +32,10 @@ the same command with `OR`), so 9.2 never edits a policy this story wrote. See D
 "Policy ownership map across 9.1–9.3" for the complete table.
 
 **Depends on:**
-- **Epic 2** (Story 2.2, Persona and context data model) for `accounts.kind` (`household |
-  shadchanus`), `account_members.role` including `'shadchan'`, and `current_context_id()`
-  (AD-19) replacing the deleted `current_account_id()`.
+- **Epic 2** — Story 2.1 for `current_context_id()` (AD-19) replacing the deleted
+  `current_account_id()`; Story 2.2 for `accounts.kind` (`household | shadchanus`). The
+  `'shadchan'` role needs nothing new — today's `account_members_role_check` already includes
+  `'parent_admin', 'helper', 'self_manager', 'shadchan'`; 2.2's addition is `'single'`.
 - **Epic 8** (Story 8.1, Shadchanus context) for a shadchan actually holding a `shadchanus`-kind
   account to publish from. Without 8.1, there is no account with `kind = 'shadchanus'` for this
   story's RLS to authorize against.
@@ -90,9 +91,9 @@ through `listings`.
 
 8. **Grants are exactly as narrow as AD-1 demands.** `anon` holds `select` on `public.listings`
    and **nothing else** — no `insert`, `update`, `delete`, and no sequence privilege. `select,
-   insert, update, delete` on `public.listings` (for the `shadchan` branch only, per this
-   story's own policies) are granted to `authenticated`. `rowsecurity` and
-   `forcerowsecurity` are both `true` on `public.listings`.
+   insert, update, delete` on `public.listings` are granted to `authenticated` (restricting
+   `authenticated` to the `shadchan` branch is the policies' job, not the grant's). `rowsecurity`
+   and `forcerowsecurity` are both `true` on `public.listings`.
 
 ## Tasks / Subtasks
 
@@ -118,7 +119,8 @@ through `listings`.
             shadchan_contact_info text,
 
             -- Single fields (FR102, story 9.2). Null = not opted in. Untouched by
-            -- this story — do not write to these columns here.
+            -- this story — do not write to these columns here. There is deliberately
+            -- no photo column of any kind: see Dev Notes "No photo on a listing".
             single_first_name_en text,
             single_first_name_he text,
             single_age integer,
@@ -126,7 +128,6 @@ through `listings`.
             single_community text,
             single_location text,
             single_summary text,
-            single_photo_included boolean not null default false,
 
             constraint listings_type_check check (listing_type in ('shadchan', 'single')),
             constraint listings_single_id_presence check (
@@ -143,12 +144,29 @@ through `listings`.
             )
         );
         ```
-  - [ ] `single_id` is a **soft reference, no FK** — same precedent as `inbox_items.single_id`
-        (`01_tables.sql`, post-1.3 naming; see `1-3-rename-children-to-singles.md` AC 2, which
-        explicitly notes `inbox_items.single_id` "carries neither an FK nor an index"). A
-        conditional FK (only-when-`listing_type='single'`) is not expressible as a plain
-        `foreign key`, and this story never writes `single_id` at all — 9.2 is the one that
-        needs to decide whether to add a composite check at that point.
+  - [ ] Foreign keys, both the domain's standard ones:
+        ```sql
+        alter table public.listings
+            add constraint listings_account_id_fkey
+            foreign key (account_id) references public.accounts(id) on delete cascade;
+        alter table public.listings
+            add constraint listings_single_id_fkey
+            foreign key (account_id, single_id) references public.singles(account_id, id)
+            on delete cascade;
+        ```
+        The `accounts` FK is not boilerplate here: a `shadchan` listing has `single_id null`, so
+        without it an AD-15 account deletion would orphan a **publicly readable** listing row
+        forever — the one table in the product where an orphan is a standing privacy leak.
+        The right precedent is `shidduchim_single_id_fkey` (the same "person being redt for"
+        reference), **not** `inbox_items.single_id` — that one is FK-less because a capture row
+        may name a single who does not exist yet, which never applies here. MATCH SIMPLE
+        semantics give the two-branch table exactly the "conditional FK" it needs: a `shadchan`
+        row's null `single_id` satisfies the constraint untested (the composite-FK comment block
+        in `01_tables.sql` documents this for `reference_links`), while a `single` row must name
+        a single **in the same account** — closing at the schema the cross-tenant id-oracle that
+        same comment block warns about, and guaranteeing AD-15's per-single purge takes any live
+        listing down with its subject. Enabled by `singles_account_id_id_key` (post-1.3 name of
+        `children_account_id_id_key`).
   - [ ] Indexes: `create index listings_account_id_idx on public.listings using btree
         (account_id);` plus the two **partial unique indexes** that make "one live listing per
         subject" real:
@@ -174,10 +192,12 @@ through `listings`.
         ```
 
 - [ ] **Task 2 — RLS policies for the `shadchan` branch only** (AC: 1, 2, 6, 7, 8)
-  - [ ] `alter table public.listings enable row level security;` (and note `force row level
-        security` — AD-1 requires `FORCE` on every table, including this one, even though its
-        owner-facing policies are for `authenticated` and the table also carries a deliberate
-        `anon` grant).
+  - [ ] `alter table public.listings enable row level security;` **and** `alter table
+        public.listings force row level security;` — AD-1 requires `FORCE` on every table,
+        including one that also carries a deliberate `anon` grant. As of this story-writing pass
+        no schema file declares `FORCE` on any table (`grep -rn "force row level security"
+        supabase/schemas/` returns nothing), so there is no in-repo precedent proving the diff
+        tool carries it — declare it in the schema and hand-verify the migration (Task 4).
   - [ ] `"Listings readable by anon"` — `for select to anon using (true)`. This is deliberate
         and is the **entire point of AD-21**: a row's existence is what "published" means, so
         every column in every row is safe for `anon` to read by construction (no private column
@@ -205,21 +225,22 @@ through `listings`.
   - [ ] `revoke all on sequence public.listings_id_seq from anon;` `grant usage, select on
         sequence public.listings_id_seq to authenticated;` `grant all on sequence
         public.listings_id_seq to service_role;` — the sequence must **never** be reachable by
-        `anon` (per AD-1's "no other sequence grant to anon" posture); double-check the fork's
-        `alter default privileges ... grant all on sequences to anon` (06_grants.sql, still
-        present pending Epic-1/2's full closure of the `anon` surface — see
-        ARCHITECTURE-SPINE.md#AD-1 "the `anon` surface is closed by Epic 2") does not silently
-        hand this new sequence to `anon` — if it still applies when this story lands, add the
-        explicit `revoke` regardless of whether the default-privilege block has been dropped yet.
+        `anon` (AD-1 revokes all table/sequence grants from `anon`); double-check the fork's
+        `alter default privileges ... grant all on sequences to anon` (06_grants.sql — epics.md's
+        Epic-1 boundary note is explicit that "the `anon` surface is closed by Epic 2 under
+        AD-1", not by Epic 1) does not silently hand this new sequence to `anon` — if that block
+        still applies when this story lands, add the explicit `revoke` regardless of whether it
+        has been dropped yet.
 
 - [ ] **Task 4 — Generate and hand-check the migration** (AC: all)
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f add_listings`
         (`.claude/rules` / memory: every `npx supabase` call needs the `DBUS_SESSION_BUS_ADDRESS`
         prefix or it hangs on the keyring).
   - [ ] Hand-check per AGENTS.md and this repo's known `db diff` gaps: confirm the two partial
-        unique indexes and both CHECK constraints are emitted; confirm `FORCE ROW LEVEL
-        SECURITY` is included (AD-1) — `db diff` does emit this for a brand-new table, but
-        verify rather than assume.
+        unique indexes, the composite FK, and both CHECK constraints are emitted; confirm
+        `FORCE ROW LEVEL SECURITY` survived into the migration — if the diff dropped it, add it
+        by hand, exactly as this repo already hand-fixes diff omissions for grants and
+        `security_invoker`.
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. **Never `db
         reset` and never `db push`.**
 
@@ -271,12 +292,13 @@ through `listings`.
         per actor, JSON report, `rollback` at the end — do not invent a different test harness).
         Minimum checks: AC-1 (opted-out field stays `null`), AC-2 (CHECK constraint refuses a
         nameless shadchan listing), AC-3 (second publish updates, does not duplicate — partial
-        unique index), AC-4 (an **anon**-role `select` — `set local role anon; set local
-        request.jwt.claims = '{"role":"anon"}';`, mirroring `child_portal.sql`'s anon block —
-        returns the row), AC-5 (delete removes it from the anon-visible set), AC-6 (both
-        negative sub-cases: wrong `kind`, wrong `role`), AC-7 (cross-shadchanus isolation, both
-        directions), AC-8 (`has_table_privilege`/`has_sequence_privilege` checks against `anon`,
-        mirroring `child_portal.sql`'s grant assertions at lines ~250–262).
+        unique index), AC-4 (an **anon**-role `select` — the exact block in Dev Notes "The anon
+        verification query" — returns the row), AC-5 (delete removes it from the anon-visible
+        set), AC-6 (both negative sub-cases: wrong `kind`, wrong `role`), AC-7 (cross-shadchanus
+        isolation, both directions), AC-8 (`has_table_privilege`/`has_sequence_privilege` checks
+        against `anon`). The anon-block and grant-assertion patterns to mirror are the deleted
+        `supabase/tests/child_portal.sql`'s (its "anon reaches ONLY get_child_portal" section) —
+        the file is removed by Story 1.4 before this story starts, so read it from git history.
   - [ ] `providers/fakerest/dataProvider.summaryStats.test.ts`-style unit test or a new focused
         test file for the settings-panel upsert logic (create vs. update branch).
   - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db` (needs
@@ -312,13 +334,37 @@ adds policies without ever editing another story's SQL:
 | `Shadchan listings insert` | insert | shadchan | **9.1** |
 | `Shadchan listings update` | update | shadchan | **9.1** |
 | `Shadchan listings delete` | delete | shadchan | **9.1** |
-| `Single listings insert` | insert | single | **9.2**, later **replaced** by 9.3 (adds the dignity-floor lock predicate — the lock column does not exist until 9.3, so 9.2's version of this policy cannot reference it) |
+| `Single listings insert` | insert | single | **9.2**, later **replaced** by 9.3 (adds the dignity-floor lock predicate — the withdrawal-lock table does not exist until 9.3, so 9.2's version of this policy cannot reference it) |
 | `Single listings update` | update | single | **9.2** |
 | `Single listings delete` | delete | single | **9.3** |
 
 If you are implementing 9.1, you touch only the first five rows. Do not pre-empt 9.2/9.3 by
 writing a "single" policy "while you're in the file" — the lock semantics in 9.3 are exact and
 adding a premature policy would need to be dropped and rewritten anyway.
+
+### No photo on a listing — a decision, not an omission
+
+`listings` has no photo column, no photo flag, and no photo path — for the `single` branch too.
+PRV-1 ranks photos highest-sensitivity, and AD-9 requires every photo byte to be served through
+the `share/` Worker's logged, revocable, expiring proxied stream — an anonymous public listing
+has none of those properties to check, so there is no AD-9-conformant way to serve one to `anon`
+at all. Photos travel outward **only** through Story 9.5's share links, where the sharer chooses
+per link and every access is logged. Any future story proposing a listing photo must first
+answer how AD-9 and AD-21 are both satisfied; do not add a column "for later" here.
+
+### The anon verification query (AC-4/AC-5)
+
+Run inside the database suite (or a raw `psql` session against the local stack):
+
+```sql
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+select shadchan_name, shadchan_area, shadchan_contact_info
+  from public.listings where listing_type = 'shadchan';
+reset role;
+```
+
+Published row present ⇒ AC-4 passes; after withdrawal the same query returns zero rows ⇒ AC-5.
 
 ### `listings` vs `shadchanim` — the naming collision to not fall into
 
@@ -366,9 +412,10 @@ becomes false:
 
 AAA structure, descriptive names, isolated fixtures, ≥80% coverage on new paths
 [Source: .claude/rules/testing.md]. The database suite (`supabase/tests/listings.sql`) is
-**not** part of `make test` — it runs only under `npm run test:unit:db`
-[Source: vitest.config.ts:124, makefile:108] — call this out explicitly when reporting this
-story done, exactly as story 1.3 had to for the same reason.
+**not** part of `make test` — it runs only under `npm run test:unit:db` [Source:
+vitest.config.ts `db` project; makefile `test-unit` target, which runs only the
+app/functions/workers suites] — call this out explicitly when reporting this story done,
+exactly as story 1.3 had to for the same reason.
 
 ### Project Structure Notes
 
@@ -393,9 +440,9 @@ story done, exactly as story 1.3 had to for the same reason.
 - [Source: _bmad-output/specs/spec-myshadchan/glossary.md#Identity-and-access] — "listing" definition
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/SOLUTION-DESIGN.md §4] — `listings` in the data model, `accounts.kind`
 - [Source: supabase/schemas/02_functions.sql — `set_account_id_default()`] — the reusable trigger this story must not duplicate
-- [Source: supabase/schemas/01_tables.sql — `inbox_items.single_id`] — precedent for a soft (no-FK) reference column
-- [Source: supabase/tests/billing_entitlement.sql, supabase/tests/child_portal.sql] — the test-suite template and the anon-role test-block pattern
-- [Source: 1-3-rename-children-to-singles.md#AC-2] — `inbox_items.single_id` carries no FK/index, the precedent this story's `single_id` follows
+- [Source: supabase/schemas/01_tables.sql — the "Foreign keys (shidduchim domain)" comment block] — composite `(account_id, id)` FKs, MATCH SIMPLE on a nullable column, and the cross-tenant id-oracle rationale this story's `listings_single_id_fkey` follows
+- [Source: supabase/tests/billing_entitlement.sql] — the test-suite template; [supabase/tests/child_portal.sql — deleted by Story 1.4, read from git history] — the anon-role test-block and grant-assertion pattern
+- [Source: 1-3-rename-children-to-singles.md] — post-1.3 names this story relies on (`singles`, `singles_account_id_id_key`, `shidduchim_single_id_fkey`)
 - [Source: .claude/rules/security-triggers.md] — RLS-touching diffs require security review + negative tests
 - [Source: AGENTS.md#Database-Management] — schema-first workflow
 

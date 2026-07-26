@@ -24,7 +24,10 @@ a `kind` column (`household | shadchanus`).
 1. **A forwarded message with an attachment reaches the Inbox intact.** A known
    member forwards an email with a PDF/image attachment to the inbound address; an
    `inbox_items` row is created in their account with `attachments` populated and the
-   file byte-identical to what was sent (verified by content, not just presence).
+   file byte-identical to what was sent — decided in the integration test by
+   asserting the bytes passed to the mocked storage upload equal the decoded base64
+   sent, and in the e2e by fetching the stored attachment's `src` and comparing
+   bytes.
 
 2. **A member holding more than one context never has an email mis-routed.** Since
    Epic 2 (AD-2), a member may hold a household membership *and* a shadchanus
@@ -34,10 +37,15 @@ a `kind` column (`household | shadchanus`).
    never touches. This story replaces it with a resolver that selects the member's
    **household**-kind account specifically — capture is a household concern, never a
    shadchanus one (AD-2: *"a shadchanus context may never contain household domain
-   rows"*). **Negative test:** a member with both a household and a shadchanus
+   rows"*). **Negative tests:** a member with both a household and a shadchanus
    membership always has their forwarded email land in the household account, never
-   the shadchanus one, and a member with no household membership at all (e.g.
-   shadchan-only) gets the existing 403 refusal rather than a wrong guess.
+   the shadchanus one; a member with no household membership at all (e.g.
+   shadchan-only) gets the existing 403 refusal rather than a wrong guess; and a
+   member holding **two** household memberships (representable — e.g. a parent who is
+   also a `helper` in a sibling's household, family shape 4) is **refused (403),
+   never arbitrarily picked** — with more than one candidate there is no
+   deterministic answer, and AD-6's email rule is ambiguous → flagged, never
+   auto-picked.
 
 3. **The webhook handler itself is under test, not just its helper functions.**
    `supabase/functions/postmark/index.ts`'s handler is exported and exercised by a new
@@ -70,23 +78,27 @@ a `kind` column (`household | shadchanus`).
         `resolveAccountIdForMemberEmail` (10.2's dependency: this is the post-1.2 name
         of the pre-Epic-1 `resolveAccountIdForSalesEmail`) to
         `resolveHouseholdAccountIdForMemberEmail`. Change the `account_members` query
-        to join `accounts` and filter `accounts.kind = 'household'`:
+        to join `accounts`, filter `accounts.kind = 'household'`, and drop the
+        `.order(...).limit(1).maybeSingle()`:
         ```ts
-        const { data: member } = await supabaseAdmin
+        const { data: memberships } = await supabaseAdmin
           .from("account_members")
           .select("account_id, accounts!inner(kind)")
           .eq("user_id", member.user_id)
-          .eq("accounts.kind", "household")
-          .limit(1)
-          .maybeSingle();
+          .eq("accounts.kind", "household");
         ```
-        (adjust the exact PostgREST embed syntax to whatever
-        `providers/supabase/dataProvider.ts` already uses elsewhere for a filtered
-        join — don't introduce a new join idiom for this one call site). A person has
-        at most one household membership (personas-and-contexts.md: a single belongs
-        to exactly one household this phase), so this is a deterministic selection
-        among *at most one* candidate — not the "arbitrary pick among several" pattern
-        AD-19 forbids.
+        Return the `account_id` when **exactly one** row comes back; return `null`
+        (→ the existing 403 upstream) for zero **or two-plus**, logging the two-plus
+        case with `console.error` context. No filtered-embed idiom exists anywhere in
+        the repo yet (verified: no `!inner` under `src/`, `workers/` or `supabase/`) —
+        this standard supabase-js embed becomes the first; don't invent a two-query
+        workaround. Why fail-closed on two-plus: personas-and-contexts.md guarantees
+        a *single* belongs to one household, **not** that a *login* holds at most one
+        household membership (a parent can also be a `helper` elsewhere — family
+        shape 4); with several candidates any pick is the arbitrary-selection
+        anti-pattern AD-19 kills, and per AD-6 ambiguous is flagged, never
+        auto-picked. A refused capture is recoverable (the member shares or uploads
+        from inside the app); a mis-filed one crosses an account boundary.
   - [ ] Update the doc comment (currently: *"Resolve the MyShadchan account for a
         forwarding user, keyed by their `sales` email..."*) to state the household-only
         rule and cite AD-2.
@@ -117,6 +129,8 @@ a `kind` column (`household | shadchanus`).
           `account_id` is the household account (AC 2's negative test, exercised here
           via the mocked `supabaseAdmin` responses rather than a live DB — the DB-level
           proof is Task 4's SQL suite for RLS; this is the resolution-*logic* proof).
+        - Member with **two household memberships** → 403, `inbox_items` insert never
+          called (AC 2's fail-closed branch).
 
 - [ ] **Task 3 — Harden attachment naming (contained; not a privacy fix)** (AC: 1)
   - [ ] `supabase/functions/postmark/extractAndUploadAttachments.ts`: replace
@@ -140,15 +154,35 @@ a `kind` column (`household | shadchanus`).
         - `service_role` can insert regardless of RLS (the webhook path).
   - [ ] `npm run test:unit:db` (needs `make start`).
 
-- [ ] **Task 5 — Surface the inbound address in Settings** (AC: 5)
+- [ ] **Task 5 — Make the attachment visible in the Inbox** (AC: 1, 4)
+  - [ ] Today neither Inbox surface renders `attachments` at all — `InboxList.tsx`'s
+        card prints the placeholder "An attachment, ready to file." and
+        `InboxResolveDialog.tsx`'s preview says "No text — see the attached file."
+        with no link (verified). AC 4's "attachment reachable" is unimplementable
+        without this task.
+  - [ ] `src/components/atomic-crm/types.ts`: type the entries —
+        `InboxAttachment = { title: string; type: string; path: string; src: string }`
+        (the webhook's shape) and narrow `InboxItem.attachments` to
+        `InboxAttachment[] | null`.
+  - [ ] `InboxResolveDialog.tsx`: in the raw-capture preview block, render each
+        attachment as its `title` linking to `src` (`target="_blank"
+        rel="noreferrer"`).
+  - [ ] `InboxList.tsx` (`InboxCard`): a small paperclip chip with the attachment
+        count/first title — existing muted-text styling, no new component.
+
+- [ ] **Task 6 — Surface the inbound address in Settings** (AC: 5)
   - [ ] New `src/components/atomic-crm/settings/CaptureSection.tsx` (matches the
         existing one-file-per-section pattern: `FamilySection.tsx`,
         `PrivacySection.tsx`, `PreferencesSection.tsx`): reads
         `import.meta.env.VITE_INBOUND_EMAIL`, renders it in a monospace chip with a
-        copy-to-clipboard button (reuse whatever copy-button primitive already exists
-        in `src/components/ui/` — check before adding a new one), plus one sentence of
-        explanation ("Forward or CC any redt to this address — it lands in your own
-        Inbox.").
+        copy-to-clipboard button — no shared copy primitive exists (the two current
+        `navigator.clipboard` call sites, `children/ChildPortalShare.tsx` and
+        `contacts/ContactPersonalInfo.tsx`, are both deleted by Epic 1); a small
+        inline `navigator.clipboard.writeText` button here is correct, don't build a
+        generic component for one caller. Plus one sentence of explanation ("Forward
+        or CC any redt to this address — it lands in your own Inbox."). The mockup's
+        `isShare` desktop panel shows exactly this affordance
+        (`you@in.myshadchan.space ⧉`).
   - [ ] Wire it into `settings/SettingsPage.tsx` and `settings/SettingsPageMobile.tsx`,
         placed after `PreferencesSection` and before `PrivacySection` (matching the
         surrounding "how I use the app" grouping already established there — confirm
@@ -157,7 +191,7 @@ a `kind` column (`household | shadchanus`).
         nothing rather than an empty chip — this section is informational, not a
         blocking requirement.
 
-- [ ] **Task 6 — End-to-end test** (AC: 4)
+- [ ] **Task 7 — End-to-end test** (AC: 4)
   - [ ] New `e2e/email-ingress.spec.ts`: seed a member (via whatever helper
         `e2e/fixtures.ts` provides post-Epic-1/Epic-2 for creating an authenticated
         household member — inspect the current shape of that file rather than
@@ -167,10 +201,15 @@ a `kind` column (`household | shadchanus`).
         Basic-Auth credentials from `POSTMARK_WEBHOOK_USER`/`POSTMARK_WEBHOOK_PASSWORD`
         and an `x-forwarded-for` header matching `POSTMARK_WEBHOOK_AUTHORIZED_IPS`
         (see the docstring examples already in `postmark/index.ts` for the exact
-        payload shape). Then sign in as that member (passwordless — reuse the Epic 2
-        (2.6) sign-in helper `e2e/fixtures.ts` establishes; do not hand-roll a new
-        auth flow), navigate to `/inbox_items`, and assert the new card is visible with
-        a link/preview to the attachment.
+        payload shape). Then sign in as that member — passwordless is all that exists
+        post-2.6, and **no earlier story adds an e2e sign-in helper** (2.6's tests
+        are component-level; 1.6's AC-7 smoke spec is the only e2e work in Epics
+        1–2). Reuse whatever authenticated-session helper `e2e/fixtures.ts` holds by
+        then; if none, add one there in this story: request the email-OTP and read
+        the code from Inbucket (http://localhost:54324 — the flow 2.6 verifies
+        manually). Navigate to `/inbox_items` and assert the new card is visible with
+        the attachment reachable (Task 5's rendering), fetching its `src` and
+        comparing bytes to what was sent (AC 1).
 
 ## Dev Notes
 
@@ -186,7 +225,7 @@ numbering) — not a rebuild.
 **"Automated end-to-end test" is defined two ways here, deliberately:** (a) a
 handler-level integration test (Task 2) — the practical, fast, CI-friendly proof that
 the webhook's own logic is correct, following the exact mocking convention this repo
-already uses for edge functions; and (b) a Playwright spec (Task 6) that drives the
+already uses for edge functions; and (b) a Playwright spec (Task 7) that drives the
 real local function + real database + real UI, per this repo's own
 `e2e-conventions` rule ("touches UI" → needs a spec under `e2e/`). Neither replaces the
 other: (a) is fast and precise about branches; (b) is the actual user-visible promise
@@ -231,13 +270,13 @@ place to close this — not a new epic, not deferred.
    matching the SMTP sender against a known member's own registered email — not by a
    per-account address suffix. FR22 ("each account has a private inbound address")
    isn't in Epic 10's FR coverage row either. This story surfaces the existing global
-   address (Task 5) so the path is at least discoverable and usable; it does not
+   address (Task 6) so the path is at least discoverable and usable; it does not
    build per-account addressing.
 
 ### What already exists — reuse, do not rebuild
 
 - `supabase/functions/postmark/index.ts`'s docstring already contains two working
-  curl examples (plain forward, and forward-to-shared-address) — Task 6's e2e POST
+  curl examples (plain forward, and forward-to-shared-address) — Task 7's e2e POST
   body should match that exact JSON shape, not reinvent a Postmark payload from
   scratch.
 - `supabase/functions/postmark/addNoteToContact.test.ts`'s `vi.hoisted` +
@@ -257,7 +296,11 @@ place to close this — not a new epic, not deferred.
   `src/components/atomic-crm/settings/CaptureSection.tsx`,
   `e2e/email-ingress.spec.ts`.
 - Modified: `supabase/functions/postmark/{createInboxItemFromEmail.ts,index.ts,
-  extractAndUploadAttachments.ts}`, `settings/{SettingsPage.tsx,SettingsPageMobile.tsx}`.
+  extractAndUploadAttachments.ts}`, `settings/{SettingsPage.tsx,SettingsPageMobile.tsx}`,
+  `src/components/atomic-crm/types.ts`,
+  `src/components/atomic-crm/inbox/{InboxList.tsx,InboxResolveDialog.tsx}` (Task 5),
+  and — only if no authenticated-session helper exists by then — `e2e/fixtures.ts`
+  (Task 7).
 - No schema/migration in this story (it consumes `accounts.kind`, added by Epic 2 —
   verify that column exists before starting Task 1; if Epic 2 hasn't actually added
   it yet in the branch this is implemented against, that is a blocking prerequisite,

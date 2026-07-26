@@ -47,13 +47,16 @@ Worker, not another anon RPC").
 ## Acceptance Criteria
 
 1. **Creating a share link is explicit and scoped to one single.** Given a single I manage, when
-   I create a share link, I choose an expiry (a fixed set of durations — Dev Notes has the exact
+   I create a share link, I choose an expiry (a fixed set of durations — Task 6 has the exact
    list) and whether to include the photo; the link is generated only after I confirm.
 
-2. **The token is a forced server-side secret, never client-chosen.** Given a share-link create
-   request, the `token` column is always overwritten by a database trigger with a fresh CSPRNG
-   value (192 bits, hex-encoded) regardless of what a client supplies — mirroring
-   `set_child_portal_token_defaults()`'s exact guarantee for the deleted portal.
+2. **The token is a forced server-side secret, never client-chosen — at insert and ever after.**
+   Given a share-link create request, the `token` column is always overwritten by a database
+   trigger with a fresh CSPRNG value (192 bits, hex-encoded) regardless of what a client
+   supplies — mirroring `set_child_portal_token_defaults()`'s exact guarantee for the deleted
+   portal. Given any subsequent `update` from an `authenticated` client that touches `token`
+   (or `single_id`, `include_photo`, `expires_at`), the statement is refused: the only column
+   `authenticated` may update is `revoked_at` (column-level grant, Task 2).
 
 3. **The link works for a connected shadchan with no MyShadchan account.** Given a valid,
    unexpired, unrevoked link, when it is opened in any browser, the recipient sees the single's
@@ -70,10 +73,12 @@ Worker, not another anon RPC").
    rows are written (one per request), each with a timestamp; the sharer can see this log against
    their link.
 
-6. **Revocation is immediate and total.** Given an active link, when the sharer revokes it, the
-   very next request — profile view or file download — is refused, even one already in flight
-   with a cached response is not served from that point forward (no caching layer sits between
-   the Worker and the check).
+6. **Revocation is immediate, total, and one-way.** Given an active link, when the sharer
+   revokes it, the very next request — profile view or file download — is refused, even one
+   already in flight with a cached response is not served from that point forward (no caching
+   layer sits between the Worker and the check). Given a revoked link, an `update` setting
+   `revoked_at` back to `null` is refused by trigger — a recipient-held link never comes back
+   to life; re-sharing is a new link.
 
 7. **Expiry is enforced the same way as revocation.** Given a link whose `expires_at` has passed,
    any request against it is refused identically to a revoked one — the response does not
@@ -84,13 +89,17 @@ Worker, not another anon RPC").
    sharer's own view (in the app, not the public link) lists each access with its timestamp —
    satisfying AD-9's *"sharer sees who accessed and when."*
 
-9. **Negative test — cross-account.** Given a share link belonging to household A, when a member
-   of household B attempts to read, revoke, or view the access log for that link through the
-   authenticated app, RLS refuses all three. Given the link's `token`, a member of household B
-   opening the public link URL still only ever sees what **any** correctly-tokened recipient
-   would see (the token, not household membership, is the credential on that path) — this is
-   expected and is not a leak: the design's privacy boundary for this surface is possession of
-   the token, exactly like the deleted portal's.
+9. **Negative tests — cross-account and cross-role.** Given a share link belonging to household
+   A, when a member of household B attempts to read, revoke, or view the access log for that
+   link through the authenticated app, RLS refuses all three. Given a `helper` or a plain
+   `single` in the **same** household, when they attempt to read the share-link list, create a
+   link, or revoke one, RLS refuses all three (see Dev Notes "Why share links are
+   manager-scoped, not household-scoped" — a `share_links` row carries the bearer token, so
+   reading it is holding the key). Given the link's `token`, a member of household B opening the
+   public link URL still only ever sees what **any** correctly-tokened recipient would see (the
+   token, not household membership, is the credential on that path) — this is expected and is
+   not a leak: the design's privacy boundary for this surface is possession of the token,
+   exactly like the deleted portal's.
 10. **`share_links` and `share_access_log` are never anon-reachable via PostgREST.** Given the
     `anon` role, `select`/`insert`/`update`/`delete` on both tables are all refused — the **only**
     path to this data for an unauthenticated caller is through the `share/` Worker using the
@@ -124,13 +133,23 @@ Worker, not another anon RPC").
             user_agent text
         );
         ```
-  - [ ] `single_id` is a soft reference, no FK — same reasoning and same precedent as
-        `listings.single_id` (Story 9.1 Dev Notes, itself following `inbox_items.single_id`
-        from `1-3-rename-children-to-singles.md`). `share_access_log.share_link_id` **does** get
-        a real FK, since both rows live in the same table's namespace and cascading a delete of
-        the link to its own log rows is exactly the intended lifecycle (Dev Notes "Does revoking
-        delete the log" explains why revoke does **not** delete, but a hard link-delete, if ever
-        exposed, correctly would).
+  - [ ] `single_id` carries the domain's standard composite FK, exactly as
+        `listings.single_id` does (Story 9.1 Task 1), plus the standard `accounts` FK:
+        ```sql
+        alter table public.share_links
+            add constraint share_links_account_id_fkey
+            foreign key (account_id) references public.accounts(id) on delete cascade;
+        alter table public.share_links
+            add constraint share_links_single_id_fkey
+            foreign key (account_id, single_id) references public.singles(account_id, id)
+            on delete cascade;
+        ```
+        The cascade is load-bearing for AD-15: a per-single purge must take every outstanding
+        share link (and, via the log's own FK, its access log) down with the single — otherwise
+        a purged person's resume stays downloadable through a live link, the exact outcome a
+        data-subject removal exists to prevent. `share_access_log.share_link_id` keeps its plain
+        FK to `share_links` with cascade (Dev Notes "Does revoking delete the log" explains why
+        *revoke* never deletes, but a purge-driven hard delete correctly does).
   - [ ] `resource` on `share_access_log` records **what** was accessed on that request (e.g.
         `"profile"`, `"resume:<file-key>"`, `"photo"`) — AC-5 requires every request logged, not
         only "the link was opened once," so the log needs to distinguish a profile view from a
@@ -163,33 +182,76 @@ Worker, not another anon RPC").
         ```
         INSERT-only, never re-run on an update — revoking a link must not silently rotate its
         token (same guarantee the deleted portal made).
+  - [ ] A second, `BEFORE UPDATE` trigger makes revocation one-way (AC-6):
+        ```sql
+        create or replace function public.enforce_share_link_revoke_once()
+            returns trigger
+            language plpgsql
+            set search_path = ''
+        as $$
+        begin
+          if old.revoked_at is not null
+             and new.revoked_at is distinct from old.revoked_at then
+            raise exception 'a revoked share link cannot be un-revoked';
+          end if;
+          return new;
+        end;
+        $$;
 
-- [ ] **Task 2 — RLS: household-side management, zero `anon` reach** (AC: 9, 10)
+        create or replace trigger enforce_share_link_revoke_once
+            before update on public.share_links
+            for each row execute function public.enforce_share_link_revoke_once();
+        ```
+        Plain `SECURITY INVOKER` — it only ever blocks, never needs privilege. Together with
+        Task 2's `update (revoked_at)`-only column grant, the whole client-side update surface
+        of a share link is: `null → now()`, once.
+
+- [ ] **Task 2 — RLS: manager-side management, zero `anon` reach** (AC: 9, 10)
   - [ ] `alter table public.share_links enable row level security;` `force row level security;`
         (AD-1 requires `FORCE` on every table without exception, including one whose "real"
         readers are outside Postgres entirely).
-  - [ ] `"Share links scoped to account"` — `for all to authenticated using (account_id =
-        public.current_context_id()) with check (account_id = public.current_context_id())`.
-        Standard account-scoped CRUD for the owning household — creating, listing, and revoking
-        (revoke is an `update … set revoked_at = now()`, not a delete — see Dev Notes) all go
-        through this one policy, consistent with how most of this domain's tables are scoped
-        (`shidduchim`, `references`, etc. all use one blanket `for all` policy — do not invent a
-        four-policy split here the way `listings` needed one, because there is no cross-role
-        authorization nuance on this table: any household member who can see the single can
-        manage that single's share links).
+  - [ ] `"Share links manager scoped"` — one `for all to authenticated` policy whose `using`
+        **and** `with check` both require, with explicit parentheses (the 9.3 Task 4 precedence
+        lesson applies here too):
+        ```sql
+        account_id = public.current_context_id()
+        and (
+          exists (
+            select 1 from public.account_members am
+            where am.account_id = public.current_context_id()
+              and am.user_id = auth.uid() and am.role = 'parent_admin'
+          )
+          or exists (
+            select 1 from public.account_members am
+              join public.singles s on s.member_id = am.id
+            where am.account_id = public.current_context_id()
+              and am.user_id = auth.uid()
+              and am.role = 'self_manager' and s.id = share_links.single_id
+          )
+        )
+        ```
+        — the same manager predicate as 9.2's publish policy, **not** the domain's usual blanket
+        account scope. See Dev Notes "Why share links are manager-scoped, not household-scoped";
+        creating, listing, and revoking (revoke is an `update … set revoked_at = now()`, not a
+        delete — see Dev Notes) all go through this one policy.
   - [ ] `alter table public.share_access_log enable row level security;` `force row level
         security;` `"Share access log readable by link owner"` — `for select to authenticated
         using (exists (select 1 from public.share_links sl where sl.id =
-        share_access_log.share_link_id and sl.account_id = public.current_context_id()))`. No
+        share_access_log.share_link_id and sl.account_id = public.current_context_id()))` — the
+        subquery runs under `share_links`' own RLS, so the manager scoping narrows this too. No
         `insert`/`update`/`delete` policy for `authenticated` at all — the **only** writer of
         this table is the `share/` Worker, using the service-role key, which bypasses RLS
         entirely (AD-7). Do not grant `authenticated` any DML on this table.
   - [ ] `revoke all on table public.share_links, public.share_access_log from anon;` — no
-        `grant … to anon` line at all, on either table, ever (AC-10). `grant select, insert,
-        update on table public.share_links to authenticated;` (no `delete` — see Dev Notes "Does
-        revoking delete the log," revocation is an update). `grant all on table
-        public.share_links, public.share_access_log to service_role;` Corresponding sequence
-        grants, `anon` excluded, same pattern as 9.1 Task 3.
+        `grant … to anon` line at all, on either table, ever (AC-10). `grant select, insert on
+        table public.share_links to authenticated;` plus `grant update (revoked_at) on table
+        public.share_links to authenticated;` — **column-level, `revoked_at` only, and no
+        table-level `update` grant ever issued** (a table-level grant would override the column
+        restriction and let any member rewrite `token` — AC-2's "never client-chosen" must hold
+        for updates too). No `delete` (see Dev Notes "Does revoking delete the log" — revocation
+        is an update). `grant all on table public.share_links, public.share_access_log to
+        service_role;` Corresponding sequence grants, `anon` excluded, same pattern as 9.1
+        Task 3.
 
 - [ ] **Task 3 — Generate and hand-check the migration** (AC: all)
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f add_share_links`
@@ -250,16 +312,22 @@ Worker, not another anon RPC").
           since it is properly Epic 5's scope being pulled forward out of necessity, not an
           Epic-9 design choice.
   - [ ] Either way, the photo source is whatever Epic 5 Story 5.4's "explicit reveal" record
-        turns out to be — do not build a second, parallel photo-storage path here. If 5.4 has not
-        landed, the `include_photo` toggle (Task 6) ships disabled with an explanatory tooltip,
-        exactly as Story 9.2 Task 5 specifies for the same reason.
+        turns out to be — do not build a second, parallel photo-storage path here. If 5.4 has
+        not landed, the `include_photo` toggle (Task 6) ships disabled with an explanatory
+        tooltip. Note this is the **only** Epic-9 surface that ever carries a photo — listings
+        never do (9.1 Dev Notes "No photo on a listing"); a share link can, precisely because
+        it has the logged, revocable, expiring proxy AD-9 demands.
 
 - [ ] **Task 6 — Provider and components** (AC: 1, 6, 8)
-  - [ ] `providers/supabase/dataProvider.ts`: plain `dataProvider.create("share_links", {
-        single_id, expires_at, include_photo })` / `dataProvider.getList("share_links", …)` for
-        the sharer's own list; **revoke is `dataProvider.update("share_links", { id: { revoked_at:
-        now } })`**, not a delete (Dev Notes "Does revoking delete the log"). Add a
-        `getShareAccessLog(shareLinkId)` custom method reading `share_access_log` (AC-8).
+  - [ ] `providers/supabase/dataProvider.ts`: plain `dataProvider.create("share_links", { data:
+        { single_id, expires_at, include_photo } })` / `dataProvider.getList("share_links", …)`
+        for the sharer's own list. **Revoke is a custom method `revokeShareLink(id)`** issuing
+        `update({ revoked_at: <now> })` on that one column only — not a generic
+        `dataProvider.update`, because the generic path sends every field of the record and
+        would be refused by Task 2's `revoked_at`-only column grant; and not a delete (Dev Notes
+        "Does revoking delete the log"). Add a `getShareAccessLog(shareLinkId)` custom method
+        reading `share_access_log` (AC-8). Both follow `createShidduchViaRpc`'s thin-wrapper
+        shape.
   - [ ] `providers/fakerest/`: add `share_links` and `share_access_log` base resources; since
         FakeRest has no triggers, emulate the CSPRNG-token-on-create behavior in
         `internal/shareLinks.ts` (same "hand-written twin of a Postgres-only behavior" pattern as
@@ -293,20 +361,26 @@ Worker, not another anon RPC").
 
 - [ ] **Task 7 — Tests** (AC: all)
   - [ ] `supabase/tests/share_links.sql` + `.test.ts` — new database suite, same harness as
-        `billing_entitlement.sql`. Checks: AC-2 (token is always CSPRNG-overwritten regardless of
-        client-supplied value), AC-9 (cross-account refused on all of select/update against
-        `share_links`, and select against `share_access_log`), AC-10
+        `billing_entitlement.sql`. Checks: AC-2, both halves (token is always CSPRNG-overwritten
+        regardless of client-supplied value at insert; an `authenticated` `update` touching
+        `token` is refused — plus `has_column_privilege('authenticated', 'public.share_links',
+        'token', 'UPDATE')` false and the same for `single_id`/`include_photo`/`expires_at`),
+        AC-6's one-way half (un-revoking raises), AC-9 (cross-account refused on all of
+        select/update against `share_links`, and select against `share_access_log`; **and**
+        same-household `helper` and plain-`single` roles refused select/insert/update, plus a
+        `self_manager` refused for a sibling's `single_id`), AC-10
         (`has_table_privilege('anon', 'public.share_links', 'SELECT')` etc. all false, on both
-        tables — the direct counterpart to `child_portal.sql`'s existing "anon has NO privilege
-        on `child_portal_tokens`" checks, lines ~254–258 of that now-deleted file, cited here as
-        the template even though the file itself is gone by the time this story runs).
+        tables — the direct counterpart to the deleted `child_portal.sql`'s "anon has NO
+        privilege on `child_portal_tokens`" checks; that file is gone by the time this story
+        runs, read it from git history).
   - [ ] `workers/share/index.test.ts` — the full list under Task 4's last bullet.
   - [ ] Frontend component tests for `CreateShareLinkDialog`, `ShareLinkList` (revoke action,
         access-log rendering), `SharedProfilePage` (loading/inactive/active states, mirroring
         `ChildPortalPage.test.tsx`'s three-state shape), and the two new `App.tsx` branches.
   - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db` (the SQL suite) —
         `make test` already covers `workers/**/*.test.ts` via `test:unit:workers`
-        [Source: vitest.config.ts, makefile:108], so the Worker tests need no separate
+        [Source: vitest.config.ts `workers` project; makefile `test-workers` target], so the
+        Worker tests need no separate
         invocation, unlike the database suite. Plus `npx prettier --check` on this story's
         changed files only.
 
@@ -349,6 +423,20 @@ a hard delete would cascade and destroy the very audit trail AD-9 promises the s
 therefore deliberately **not** granted to `authenticated` on `share_links` at all (Task 2) — there
 is no product path that ever needs to hard-delete a share link.
 
+### Why share links are manager-scoped, not household-scoped
+
+The domain's blanket "scoped to account" `for all` policy would be a privilege escalation here,
+for a reason unique to this table: **a `share_links` row contains the bearer token, and the
+Worker serves the files to whoever presents it using the service-role key** — not the reader's
+own rights. A `helper` (who "sees less than parents", AD-3) or a plain `single` who could
+`select` this table, or mint a row of their own, could open `/r/:token` themselves and read
+resume/photo bytes their role is denied everywhere else. So creation, listing, and revocation
+are restricted to the same two roles FR103 trusts to publish: `parent_admin` (any single in the
+household) and `self_manager` (their own record only). One open question is deliberately
+**flagged, not resolved**: whether a plain `single` with a login should *see or revoke* links
+about themselves (a FR104-style dignity extension) — that widening needs its own story with its
+own token-exposure treatment (e.g. a token-less view), not a quiet policy tweak here.
+
 ### Dependency on Epic 5's resume shape — flag this to the epic owner
 
 `epics.md`'s Epic 9 story list assumes a single has "a profile and a resume" to share (this
@@ -368,7 +456,10 @@ operations," "user input handling") all apply at once. AC-9 and AC-10 are the re
 tests. The single highest-value review point: confirm `GET /r/:token/file/:fileKey` re-checks
 `revoked_at`/`expires_at` on **every** call rather than trusting a check performed by
 `GET /r/:token` earlier in the same session — AC-6/7 are worded "every request" specifically to
-rule out a cached-authorization shortcut.
+rule out a cached-authorization shortcut. One acknowledged gap that is not this story's:
+AD-17 names rate limiting on share-link access (anti-scraping), and no story in Epics 1–11
+owns AD-17 anywhere — this story's own mitigations are the 192-bit token and the uniform 404;
+the rate limit itself is flagged to the epic owner, not silently absorbed here.
 
 ### Migration workflow
 
@@ -379,8 +470,9 @@ every `npx supabase` call, never `db reset`/`db push`
 ### Testing standards
 
 `supabase/tests/share_links.sql` runs only under `npm run test:unit:db`, outside `make test`
-[Source: vitest.config.ts:124, makefile:108]. `workers/**/*.test.ts` **is** covered by `make test`
-via `test:unit:workers` [Source: package.json, makefile:108] — do not report this story done
+[Source: vitest.config.ts `db` project; makefile `test-unit` target]. `workers/**/*.test.ts`
+**is** covered by `make test` via `test:unit:workers` [Source: vitest.config.ts `workers`
+project; makefile `test-workers` target] — do not report this story done
 citing only `make test` for the database half, but do treat `make test` as sufficient for the
 Worker half. AAA structure, ≥80% coverage on new paths, negative tests exercise the real client-
 facing boundary [Source: .claude/rules/testing.md, .claude/rules/security-triggers.md].
@@ -408,8 +500,7 @@ facing boundary [Source: .claude/rules/testing.md, .claude/rules/security-trigge
 - [Source: workers/shared/forAccount.ts, createApp.ts, envelope.ts] — the Worker conventions this story must reuse, not reinvent
 - [Source: supabase/schemas/02_functions.sql — `set_child_portal_token_defaults()`, `get_child_portal()`] — the CSPRNG-token and no-oracle precedents (both deleted by Epic 1 Story 1.4, cited here from the pre-deletion codebase this documentation pass read)
 - [Source: 1-4-retire-token-portal.md] — confirms the portal is gone and explicitly hands FR107 to this epic
-- [Source: 9-1-publish-shadchan-listing.md#Dev-Notes] — the soft-reference (`single_id`, no FK) precedent this story also uses
-- [Source: 9-2-publish-single-listing.md, 9-3-single-controls-own-listing.md] — the "gate the photo behind Epic 5 Story 5.4" precedent this story repeats
+- [Source: 9-1-publish-shadchan-listing.md] — the composite `(account_id, single_id)` FK precedent (`listings_single_id_fkey`) this story repeats, and Dev Notes "No photo on a listing" (why a share link is the only Epic-9 photo surface)
 - [Source: _bmad-output/planning-artifacts/epics.md#Story-5.3-Resume-tab-with-version-history, #Story-5.8-Single-360] — the unstated cross-epic dependency flagged in Dev Notes
 - [Source: .claude/rules/security-triggers.md] — review triggers for external calls, file ops, user input
 - [Source: AGENTS.md#Database-Management] — migration workflow

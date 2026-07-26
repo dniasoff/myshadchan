@@ -22,8 +22,10 @@ not rebuild it). Independent of 2.4/2.6/2.7/2.8.
 1. **Adding a persona later needs no re-registration.** Settings renders
    `PersonaChecklist` (Story 2.3) pre-checked from `useMyPersonas()`. Ticking a
    previously-unchecked box calls `add_persona()` immediately (no separate "save" step
-   — each toggle is its own committed action, consistent with how every other Settings
-   toggle in this codebase already behaves). A `parent`-only user who ticks `single`
+   — each toggle is its own committed action; the existing Settings precedent is
+   `PreferencesSection.tsx`'s selects, which commit on `onValueChange` with no save
+   button — there are no boolean Settings toggles in the codebase today to copy, so
+   this select-commit pattern is the one to match). A `parent`-only user who ticks `single`
    gets a `singles` row pointing at themselves in their existing household with **no**
    new account created and **no** re-entry of anything already on file — the exact case
    named in the epic text.
@@ -36,8 +38,13 @@ not rebuild it). Independent of 2.4/2.6/2.7/2.8.
      (`account_members.status = 'archived'`). No-op if none is active.
    - **`single`** — archives the caller's own `singles` row (`status = 'archived'` —
      reusing the column `singles` already has, no schema addition needed) **only if**
-     the caller holds at least one other active persona; otherwise raises
-     `cannot remove your only persona` and changes nothing (AC-5).
+     that row points at one of the caller's **owning** memberships
+     (`parent_admin`/`self_manager` — you self-archive only a record you manage; an
+     invited `single`-role member's record is managed by their household's
+     `parent_admin` and is archived from the singles list, not by persona removal)
+     **and** the caller holds at least one other active persona; otherwise raises
+     `cannot remove your only persona` (or, for the non-owning case,
+     `ask your household admin`) and changes nothing (AC-5).
    - **`parent`** — raises `cannot remove parent — no other admin manages this
      household's other singles` when the household has active `singles` rows besides
      the caller's own **and** no other active `parent_admin` remains; otherwise, if the
@@ -76,9 +83,10 @@ not rebuild it). Independent of 2.4/2.6/2.7/2.8.
 7. **Losing your active context on removal is handled, not left dangling.** If the
    membership `remove_persona()` just archived was the caller's `member_state.active_account_id`,
    the function re-activates any **other** remaining active membership the caller holds
-   (via the same validated path `set_active_context()` uses — not a second
-   implementation), or leaves `member_state.active_account_id` NULL if none remain
-   (fail-closed, matching AD-19). The frontend's context switcher (Story 2.4, if it has
+   — via 2.1's shared private writer `activate_context_for(auth.uid(), …)`, not a
+   second implementation (`set_active_context()` itself cannot express the other half
+   of this rule: it raises rather than writes NULL) — or sets
+   `member_state.active_account_id` NULL if none remain (fail-closed, matching AD-19). The frontend's context switcher (Story 2.4, if it has
    landed) or a redirect to `/` picks up the new state on the next query, exactly as a
    manual switch does.
 
@@ -100,10 +108,13 @@ not rebuild it). Independent of 2.4/2.6/2.7/2.8.
   - [ ] `supabase/schemas/02_functions.sql`: implement per AC-2, `SECURITY DEFINER`,
         querying `account_members`/`singles` directly for `user_id = auth.uid()` — same
         pattern as `add_persona()`/`my_personas()` (2.2), not a fresh design.
-  - [ ] Implement AC-7's re-activation step by calling `set_active_context()` (2.1)
-        internally on a remaining active membership — do not write `member_state`
-        directly.
-  - [ ] `06_grants.sql`: grant `execute` to `authenticated`, none to `anon`.
+  - [ ] Implement AC-7's re-activation step by calling `activate_context_for()`
+        (2.1's single private writer) — do not write `member_state` directly and do
+        not call `set_active_context()` (it cannot set NULL and would re-validate a
+        membership this function has just proven).
+  - [ ] `06_grants.sql`: `revoke all on function public.remove_persona(text) from
+        public, anon;` then grant `execute` to `authenticated` (the file's standard
+        revoke-then-grant pattern — PUBLIC gets EXECUTE by default otherwise).
 
 - [ ] **Task 3 — Migration** (AC: 6)
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
@@ -114,10 +125,9 @@ not rebuild it). Independent of 2.4/2.6/2.7/2.8.
         "quiet summary" visual pattern), rendering `login/PersonaChecklist.tsx` (2.3)
         pre-checked from `useMyPersonas()` (2.3's hook). Each toggle calls
         `dataProvider.addPersona()` / a new `dataProvider.removePersona()` immediately
-        — no batch "save" button, matching the immediate-commit pattern already used
-        elsewhere in Settings (e.g. `PrivacySection.tsx`'s toggles, if they follow this
-        pattern — verify against the actual file before assuming and copy whichever
-        immediate-vs-batched convention Settings already uses consistently).
+        — no batch "save" button, matching `PreferencesSection.tsx`'s
+        commit-on-change selects (AC-1; `PrivacySection.tsx` has no toggles — it is
+        export/delete buttons — so `PreferencesSection` is the only live precedent).
   - [ ] Unticking `single` or `parent` when AC-2/AC-5's guard would reject it: surface
         the SQL exception's message as a specific, translated error (not the raw
         Postgres error text) via the same error-mapping pattern the codebase already
@@ -159,7 +169,8 @@ The "add" half is already fully built by Story 2.2's `add_persona('single')` —
 story's AC-1 is the Settings **wiring** for a function that already exists, not new
 provisioning logic. The "remove" half (`remove_persona()`, AC-2/3) is what this story
 actually builds new, because 2.2 deliberately stopped at provisioning and left removal
-here (see 2.2 Dev Notes "Explicitly not resolved here").
+here (2.2's scope is provisioning only; its Dev Notes "Decisions this story settles"
+records the matching `status`-constraint hand-off to this story).
 
 ### Why the two removal guards exist (AC-2, AC-5) — not invented complexity
 
@@ -190,6 +201,14 @@ a source that does not exist.
   `'archived'` into it, but the column itself needs no schema change.
 - `settings/FamilySection.tsx` — the "quiet summary section" visual pattern
   `PersonasSection.tsx` follows.
+- **Settings reachability (interim):** the desktop entry points to `/settings` (the
+  Sidebar nav item and the TopBar user-menu item) are wrapped in
+  `<CanAccess resource="configuration" action="edit">` today, which resolves true only
+  for a member whose legacy `administrator` flag is set — the mobile bottom nav is
+  ungated, and the route itself is ungated. Story 2.7's `is_admin()` retirement removes
+  those two wrappers; until it lands, this story's `PersonasSection` is reachable by
+  every member on mobile and by direct URL on desktop. Do not add a third gate or a
+  workaround here.
 
 ### Security posture
 

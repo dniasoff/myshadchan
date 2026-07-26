@@ -34,7 +34,8 @@ existing account-scoped policies on `inbox_items`, `shidduchim`, `shadchanim`,
    handler intercepts the POST (a static HTML page cannot receive a POST body), stores
    the shared file(s) client-side, and hands off to the existing SPA route. Text-only
    shares (WhatsApp/SMS, FR27/FR28) keep working through the same POST path — the old
-   GET-based query-string flow is deleted, not kept alongside it (NFR-14).
+   GET-based query-string flow **and its `public/share-target.html` shim** are deleted,
+   not kept alongside it (NFR-14).
 
 2. **The landing screen lets me set the source.** `ShareTarget.tsx` no longer
    auto-files with a hardcoded `source: "whatsapp"` and redirect. It renders three
@@ -52,8 +53,9 @@ existing account-scoped policies on `inbox_items`, `shidduchim`, `shadchanim`,
    household with exactly one single needs no picker (nothing to disambiguate).
 
 5. **I can attach it to an existing suggestion instead of creating a new one.** A
-   search over my account's own suggestions (`shidduchim_summary`, filtered by
-   `name_en`/`name_he`) shows matches with their pipeline state; picking one links the
+   search over my account's own suggestions (`useGetList("shidduchim", { filter: { q } })`
+   — Story 4.3's full-text entry, routed through `shidduchim_summary` by the
+   dataProvider) shows matches with their pipeline state; picking one links the
    captured content to that suggestion as an update — it does **not** create a second,
    duplicate suggestion. This capability is added once, to a **shared resolve module**,
    and used by both this screen and the existing `InboxResolveDialog.tsx` — not
@@ -86,7 +88,9 @@ existing account-scoped policies on `inbox_items`, `shidduchim`, `shadchanim`,
         "url", "files": [{"name": "files", "accept": ["image/*"]}]}`.
   - [ ] `vite.config.ts`: switch the `VitePWA()` plugin from the default `generateSW`
         strategy to `strategies: "injectManifest"`, `srcDir: "src"`, `filename:
-        "sw.ts"`.
+        "sw.ts"`; move the current `workbox.globPatterns` /
+        `maximumFileSizeToCacheInBytes` values into the `injectManifest: {}` option
+        (that's where they live under this strategy).
   - [ ] New `src/sw.ts`: `precacheAndRoute(self.__WB_MANIFEST)` (workbox-precaching,
         same asset globs `vite.config.ts` configures today), `clientsClaim()` +
         `self.skipWaiting()` on install/activate (autoUpdate's current behavior, now
@@ -96,12 +100,13 @@ existing account-scoped policies on `inbox_items`, `shidduchim`, `shadchanim`,
         `await event.request.formData()`, stores any `files` entries in the Cache API
         under a per-share key (e.g. `caches.open("share-target-inbox")`,
         `cache.put(key, new Response(file))`), and returns
-        `Response.redirect("/share-target.html?title=…&text=…&url=…&shareKey=" +
-        key, 303)` built from the form fields (URL-encode each).
-  - [ ] `public/share-target.html`: update the forwarding script to carry `shareKey`
-        (when present) through to `/#/share` unchanged — it already forwards
-        `window.location.search` verbatim, so no change is needed there beyond
-        confirming `shareKey` survives the round trip.
+        `Response.redirect("/#/share?title=…&text=…&url=…&shareKey=" + key, 303)`
+        built from the form fields (URL-encode each).
+  - [ ] Delete `public/share-target.html`: the SW now 303-redirects straight to
+        `/#/share?…`, so the GET shim has no remaining caller (its only references are
+        `manifest.json` and the file itself — verified). NFR-14: the replaced thing is
+        deleted in the same change; share sheets only target an installed PWA, whose
+        SW is registered, so no non-SW fallback path is kept.
   - [ ] `ShareTarget.tsx`: when `shareKey` is present, open
         `caches.open("share-target-inbox")`, read the stored file(s), and delete the
         cache entry once read (so a page refresh doesn't re-import stale files).
@@ -128,14 +133,16 @@ existing account-scoped policies on `inbox_items`, `shidduchim`, `shadchanim`,
         new suggestion" path).
 
 - [ ] **Task 3 — "Link to an existing suggestion" search, on both surfaces** (AC: 5, 8)
-  - [ ] Check whether Epic 4 (Story 4.3, Shidduchim list view) has already added an
-        `applyFullTextSearch` entry for `shidduchim_summary` in
-        `providers/supabase/dataProvider.ts` (mirroring the existing
-        `references_summary` entry at the bottom of that lifecycle-callbacks array). If
-        it exists, reuse it. If not, add one over `["name_en", "name_he"]` — do not
-        write a second, parallel search mechanism.
+  - [ ] Reuse Story 4.3's search entry (Epic 4 lands before this epic): `{ resource:
+        "shidduchim", beforeGetList: applyFullTextSearch([...]) }` in
+        `providers/supabase/dataProvider.ts`'s `lifeCycleCallbacks` — keyed to
+        `"shidduchim"`, **not** `"shidduchim_summary"` (an entry keyed to the summary
+        name never fires for `getList("shidduchim")`; 4.1/4.3 document why). Do not
+        add a second entry; if 4.3's entry is genuinely absent, this task is blocked
+        on 4.3, not a place to re-add it.
   - [ ] New small component (e.g. `inbox/LinkToShidduchSearch.tsx`): a search input
-        over `shidduchim_summary` (via `useGetList` with the `q` filter), rendering
+        querying `useGetList("shidduchim", ...)` with the `q` filter (the custom
+        `getList` routes it through `shidduchim_summary`), rendering
         each match's `name_en` + a pipeline-state label (reuse `PIPELINE_STATES` from
         `shidduchim/pipelineStates.ts` for the label/token, matching the mockup's
         "Look-into · already on the board") with a "Link" button calling
@@ -159,6 +166,12 @@ existing account-scoped policies on `inbox_items`, `shidduchim`, `shadchanim`,
         chosen inputs) and "Skip — drop it in my Inbox" (creates the bare unresolved
         row exactly as the current implementation does, then navigates to
         `/inbox_items`).
+  - [ ] Photo shares: upload the shared file(s) with the provider's existing
+        `uploadToBucket` helper (`providers/supabase/dataProvider.ts` — it already
+        handles `blob:`/`data:` sources) and write `inbox_items.attachments` entries
+        in the **same `{title, type, path, src}` shape the email webhook writes**
+        (`postmark/extractAndUploadAttachments.ts`) — one attachment shape across
+        channels (AD-6), one renderer (10.3's Inbox attachment rendering task).
   - [ ] Wrap the form portion in `<Form>` (ra-core) so `ReferenceInput`/
         `AutocompleteInput` have the RHF context they require — same pattern
         `InboxResolveDialog.tsx` already uses.
@@ -176,12 +189,12 @@ existing account-scoped policies on `inbox_items`, `shidduchim`, `shadchanim`,
         cannot drive the real Android share sheet), resolve a shadchan + single, save,
         and assert a new suggestion appears on the board. A second test: skip, and
         assert the item appears unresolved in `/inbox_items`.
-  - [ ] **Negative test (AC 8):** seed two accounts each with one suggestion; as a
-        member of account A, assert `LinkToShidduchSearch`'s query never returns
-        account B's suggestion (a `db`-project SQL check or a Playwright assertion
-        that the search result list excludes the other account's suggestion name is
-        both acceptable — pick whichever the existing `references_summary` search test,
-        if any, already establishes as this app's convention for search-scope tests).
+  - [ ] **Negative test (AC 8):** in `e2e/share-target.spec.ts`, seed two accounts
+        each with one suggestion; signed in as a member of account A, type account
+        B's suggestion name into `LinkToShidduchSearch` and assert the result list is
+        empty (row-level isolation of `shidduchim` itself is Epic 2's SQL-suite
+        territory; this asserts the new search surface passes no cross-account rows
+        through).
 
 ## Dev Notes
 
@@ -230,8 +243,7 @@ it were spec-legal.
   shows up in that suggestion's Activity/timeline automatically — no new rendering path
   needed on the receiving end.
 - `src/components/admin/autocomplete-input.tsx` already supports `create`/`onCreate`
-  (ra-core's standard AutocompleteInput contract,
-  https://marmelab.com/shadcn-admin-kit/docs/autocompleteinput/) — use the prop, don't
+  (verified: it wires both into `useSupportCreateSuggestion`) — use the prop, don't
   hand-roll a create-inline dialog from scratch.
 - `inbox/inboxMeta.ts` (`INBOX_SOURCE_META`, `INBOX_PRIMARY_CTA_CLASS`) — the existing
   source icon/label map and the app's one primary-CTA gradient class. The new source
@@ -254,16 +266,17 @@ through the email channel (FR28, Story 10.3), so there is no gap to cover there.
 
 - New files: `src/sw.ts`, `src/components/atomic-crm/inbox/useResolveInboxItem.ts`,
   `src/components/atomic-crm/inbox/LinkToShidduchSearch.tsx`, `e2e/share-target.spec.ts`.
-- Modified: `public/manifest.json`, `public/share-target.html`, `vite.config.ts`,
+- Modified: `public/manifest.json`, `vite.config.ts`,
   `src/components/atomic-crm/inbox/ShareTarget.tsx`,
   `src/components/atomic-crm/inbox/InboxResolveDialog.tsx`,
-  `src/components/atomic-crm/shidduchim/ShidduchInputs.tsx`,
-  `src/components/atomic-crm/providers/supabase/dataProvider.ts` (only if the
-  `shidduchim_summary` search entry genuinely doesn't exist yet — check first).
-- No schema change, no migration. No FakeRest changes beyond what already works
-  generically (`inbox_items`, `interactions`, `shadchanim`, `singles` are all plain
-  CRUD resources in the fakerest provider today — confirmed no bespoke fakerest
-  handling exists for any of them beyond `createShidduch`, which is untouched here).
+  `src/components/atomic-crm/shidduchim/ShidduchInputs.tsx`.
+- Deleted: `public/share-target.html` (Task 1).
+- No schema change, no migration, no `dataProvider.ts` change (Task 3 reuses 4.3's
+  search entry). No FakeRest changes: `inbox_items`, `shadchanim`, `singles` are
+  plain CRUD there; `interactions` carries `assertValidInteraction` guards mirroring
+  the DB constraints, which the AddNote-shaped insert (target_type `shidduch`, scope
+  `shidduch`, no `reference_link_id`) already satisfies; `createShidduch` is
+  untouched.
 
 ### Testing standard
 
@@ -282,11 +295,12 @@ AAA pattern, descriptive names, ≥80% coverage on new code
   covered app-wide, not re-litigated per story.
 - [Source: ARCHITECTURE-SPINE.md#AD-4] — one `createSuggestion()`/`createShidduch()`
   path; the rationale for the shared resolve module.
-- [Source: ARCHITECTURE-SPINE.md#AD-24] — `RecordLink`/`Entity360` (Epic 3/5): if those
-  land before this story is implemented, prefer `RecordLink` for the "link to an
-  existing suggestion" result rows instead of a bespoke row — check
-  `src/components/atomic-crm/misc/` (or wherever Epic 3 places it) before hand-rolling
-  the row markup.
+- [Source: ARCHITECTURE-SPINE.md#AD-24] — Epic 3 lands before this epic, so
+  `RecordLink` (Story 3.9) exists. It is a navigation anchor (a `<Link>` to the
+  record); the picker rows here are **selection** controls ("Link" files the capture
+  and must not navigate away mid-share), so they are not record mentions and stay
+  plain rows. Use `RecordLink` wherever these surfaces *mention* an already-filed
+  record navigably.
 - [Source: mockup/MyShadchan.dc.html#L529-599] — the `isShare` screen this story
   implements.
 - [Source: design-artifacts/gap-analysis-v3.md#9-Prioritised-backlog] — P1 item 7.
@@ -298,8 +312,9 @@ AAA pattern, descriptive names, ≥80% coverage on new code
 - **Epic 1** (1.1–1.6) landed: `singles`/`single_id`, `members`, no token portal.
 - **Epic 2** (2.1–2.2 at least): `current_context_id()` scoping in place — this story
   writes no new RLS but every read/write here runs under it.
-- **Soft dependency on Epic 4 Story 4.3** (Shidduchim list search): check for an
-  existing `shidduchim_summary` search entry before adding one (Task 3).
+- **Epic 3 (3.9)**: `RecordLink` exists — see References for why the picker rows
+  deliberately don't use it.
+- **Epic 4 (4.3)**: the `"shidduchim"`-keyed full-text search entry Task 3 reuses.
 - **10.2 depends on this story landing first** — 10.2 adds a "needs confirmation"
   badge to `InboxResolveDialog.tsx`, which this story refactors. Land this one first to
   avoid a rebase.

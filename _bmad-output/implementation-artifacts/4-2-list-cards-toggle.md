@@ -17,8 +17,9 @@ render contract from a single `renderItems` function to a `renderList`/`renderCa
 plus a persisted mode, and adds the toggle control to `EntityListToolbar`'s empty slot. **4.1
 must land first**, unmodified in every other respect.
 
-Story 4.3 (Shidduchim list view) consumes the `useEntityListViewMode` hook this story builds
-for its own "list" sub-view's List/Cards choice — 4.3 depends on this story too.
+Story 4.3 (Shidduchim list view) depends on this story too: it consumes the
+`renderList`/`renderCards`/`viewMode` contract this story gives `EntityListView` (Task 3)
+and `EntityListViewToggle`'s visual language for its own Board/List/Cards control.
 
 ## Acceptance Criteria
 
@@ -65,11 +66,10 @@ for its own "list" sub-view's List/Cards choice — 4.3 depends on this story to
 
 - [ ] **Task 3 — Extend `EntityList` / `EntityListView` (AC: 1, 2)**
   - [ ] `EntityListView.tsx` (Story 4.1): replace the single `renderItems` prop with
-        `renderList: (data) => ReactNode` and `renderCards: (data) => ReactNode`, plus a new
-        required `resource` is already present — add `viewMode: "list"|"cards"` as a prop
-        (lifted from the parent, not read internally, so the component stays a pure function
-        of its props for the existing unit tests from 4.1 to keep passing with a trivial
-        update).
+        `renderList: (data) => ReactNode`, `renderCards: (data) => ReactNode`, and
+        `viewMode: "list"|"cards"` — `viewMode` is lifted from the parent, never read from
+        the store internally, so the component stays a pure function of its props and 4.1's
+        unit tests keep passing with a trivial update.
   - [ ] `EntityList.tsx`: call `useEntityListViewMode(resource, defaultViewMode)` (new prop
         `defaultViewMode: "list"|"cards"`), pass `mode`/`renderList`/`renderCards` down to
         `EntityListView`, and render `<EntityListViewToggle mode={mode} onChange={setMode}/>`

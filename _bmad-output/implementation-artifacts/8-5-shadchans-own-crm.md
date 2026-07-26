@@ -12,10 +12,11 @@ so that I can do my work here instead of falling back to a notebook.
 
 ## Position in Epic 8
 
-**5th (last) of 5.** Depends on **8.1** (the shadchanus nav/dashboard shell and the
-`RequireContextKind` guard), **8.2** (the `connections` table), and **8.3** (the redt-compose
-dialog and the connection-scoped thread it mirrors). This story wires all three into a real
-descriptor-based CRM and **replaces** Story 8.1's placeholder dashboard.
+**5th (last) of 5.** Depends on **8.1** (the shadchanus nav/dashboard shell, the
+`RequireContextKind` guard and the manifest `contextKind` field), **8.2** (the connection
+workflow), and **8.3** (the redt-compose dialog and the connection-scoped thread it mirrors).
+This story wires all three into a real descriptor-based CRM and **replaces both of Story
+8.1's placeholders** — the dashboard body and the `/connections` placeholder route.
 
 ## Acceptance Criteria
 
@@ -28,11 +29,13 @@ descriptor-based CRM and **replaces** Story 8.1's placeholder dashboard.
    `Entity360` with the fixed region order (breadcrumb → identity header → stat band → alert
    slot → tab bar → content → optional right rail). The identity header shows the connected
    household's account name and connection status (accepted / ended, with the end date if
-   ended); the stat band shows at minimum the count of redts sent through this connection.
+   ended); the stat band shows at minimum the count of redts sent through this connection —
+   **derived from the connection-scoped threads Story 8.3 mirrors, never from the household's
+   `redts` or `inbox_items`** (structurally unreachable to the shadchan, AD-20/Story 8.4).
 3. **Conversations are a tab, not a destination.** The Connection 360's tab bar includes a
-   Conversations tab listing the connection's threads (reusing Epic 7's thread list/detail
-   component — no second chat UI); this is the only place a shadchan reaches a thread from,
-   consistent with UX-DR8's "reached from its parent, not primary navigation."
+   Conversations tab listing the connection's threads, reusing Epic 7's `threads/ThreadPanel.tsx`
+   (7.1, extended by 7.3) — no second chat UI; this is the only place a shadchan reaches a
+   thread from, consistent with UX-DR8's "reached from its parent, not primary navigation."
 4. **"Send a redt" is reachable without leaving the page.** The Connection 360 (right rail or an
    action in the tab bar, per AD-24's optional-right-rail region) launches Story 8.3's
    `RedtComposeDialog`, pre-bound to this connection's id.
@@ -43,13 +46,16 @@ descriptor-based CRM and **replaces** Story 8.1's placeholder dashboard.
    and any future cross-reference to a connection use the shared `RecordLink` primitive (Epic 3
    Story 3.9) — no ad-hoc `<Link>`.
 7. **The shadchanus dashboard is now real.** Story 8.1's placeholder is replaced with a stat
-   band (connection count, open-thread count) and a short list of the most recently active
-   connections, each a `RecordLink`. It still renders correctly with **zero** connections
-   (empty state, not an error) — this must not regress Story 8.1 AC-4's empty-state behaviour.
-8. **No household record is ever rendered here.** A manual smoke test (and Story 8.4's suite,
-   which this story does not re-write) confirms the Connections list and every Connection 360
-   surface only connection-scoped and the caller's own account-scoped data — never a household
-   table read directly.
+   band (accepted-connection count, unread-conversation count per Task 6's definition) and a
+   short list of the most recently active connections, each a `RecordLink`. It still renders
+   correctly with **zero** connections (empty state, not an error) — this must not regress
+   Story 8.1's empty-state behaviour.
+8. **No household record is ever rendered here, and the surfaces are sealed both ways.** The
+   Connections list and every Connection 360 tab query only connection-scoped rows and the
+   caller's own account-scoped rows — never a household table directly (Story 8.4's suite is
+   the DB proof; this story does not re-write it). The reverse holds too: a route test proves
+   a household-active session is redirected off `/connections` (the epic's "my records never
+   leak into a household context", at the UI layer — the DB layer is Epic 2's isolation suite).
 
 ## Tasks / Subtasks
 
@@ -59,33 +65,33 @@ descriptor-based CRM and **replaces** Story 8.1's placeholder dashboard.
         **zero** bespoke layout code per AD-24. Use `LSP workspaceSymbol` / `documentSymbol` on
         an existing descriptor-based resource (e.g. whatever Epic 5 shipped for `shadchanim` or
         `references`) as the template to copy the *shape* of, not the content.
-  - [ ] Locate Epic 7's thread list/detail component (Story 7.1 territory) before building
-        Task 3 — reuse its rendering, only scope its query by this connection's id.
+  - [ ] Read `threads/ThreadPanel.tsx` (Epic 7 Story 7.1, privacy toggle from 7.3) before
+        building Task 3 — reuse its rendering, only scope its query by this connection's id.
 
 - [ ] **Task 2 — `connections` resource and descriptor** (AC: 1, 2, 6)
-  - [ ] New `src/components/atomic-crm/connections/` folder: `index.ts` (descriptor + resource
-        registration, following the shape of an existing Epic-5 entity folder), `ConnectionList`
-        (thin — descriptor-driven, per AD-24 "no entity contains bespoke layout code"),
-        `ConnectionShow` (renders `Entity360` with this story's tabs).
-  - [ ] Register in `root/routeManifest.ts` (Epic 1 Story 1.5's manifest) as
-        `{ name: "connections", surface: "shadchanus", definition: connections }` or whatever
-        field the manifest uses by then to mean "only reachable in this context kind" — if the
-        manifest has no such field yet, add one rather than hand-rolling a second registration
-        mechanism, and wrap the route with **Story 8.1's `RequireContextKind`**
-        (`kind="shadchanus"`) so a household-active session cannot reach `/connections` either
-        (the mirror direction Story 8.1 Task 3 explicitly left for this story).
+  - [ ] In the existing `src/components/atomic-crm/connections/` folder (Story 8.1 created it):
+        `index.ts` (descriptor + resource registration, following the shape of an existing
+        Epic-5 entity folder), `ConnectionList` (thin — descriptor-driven, per AD-24 "no entity
+        contains bespoke layout code"), `ConnectionShow` (renders `Entity360` with this story's
+        tabs).
+  - [ ] Register in `root/routeManifest.ts` with `contextKind: "shadchanus"` — the field
+        Story 8.1 Task 3 added and `CRM.tsx` already wraps in `RequireContextKind`. Do **not**
+        touch the manifest's `surface` field for this: `surface` means desktop/mobile/both
+        (1.5), never context kind. Remove 8.1's `/connections` placeholder custom-route entry
+        and `ConnectionsPlaceholder.tsx` in the same change (NFR-14: the replaced thing is
+        deleted, not left beside its replacement). This closes the mirror direction 8.1 left
+        open: a household-active session cannot reach `/connections`.
   - [ ] `RecordLink` (Epic 3 Story 3.9) target for a connection → `/connections/{id}`.
 
 - [ ] **Task 3 — Conversations tab** (AC: 3)
-  - [ ] Add the Conversations tab to the `connections` descriptor's tab list, rendering Epic 7's
-        thread component scoped to `threads.connection_id = this connection's id`. If Epic 7
-        exposes threads as a `*_summary` view (AD-10 convention for list resources), query that;
-        do not write a bespoke thread query.
+  - [ ] Add the Conversations tab to the `connections` descriptor's tab list, rendering
+        `threads/ThreadPanel.tsx` scoped to `threads.connection_id = this connection's id`. If
+        Epic 7 exposes threads as a `*_summary` view (AD-10 convention for list resources),
+        query that; do not write a bespoke thread query.
 
 - [ ] **Task 4 — Send-a-redt action** (AC: 4)
-  - [ ] Wire Story 8.3's `RedtComposeDialog` as an action in the Connection 360's right rail (or
-        relocate the dialog into `connections/` now that the folder exists, per Story 8.3 Task 6's
-        explicit hand-off note — do not keep two copies).
+  - [ ] Wire Story 8.3's `connections/RedtComposeDialog.tsx` as an action in the Connection
+        360's right rail — launch it, do not duplicate it.
   - [ ] Disable the action with an explanatory tooltip/message when `connection.status ===
         'ended'` (AC-5).
 
@@ -95,13 +101,12 @@ descriptor-based CRM and **replaces** Story 8.1's placeholder dashboard.
 
 - [ ] **Task 6 — Shadchanus dashboard, for real** (AC: 7)
   - [ ] Replace Story 8.1's `dashboard/ShadchanDashboard.tsx` placeholder body (keep the file and
-        its route wiring — do not create a second dashboard component) with: a stat band (open
-        `EntityList`/count query against `connections` scoped to the caller, and against threads
-        for "open conversations" — definition of "open" is this story's call: an accepted
-        connection with at least one thread updated in the last N days, or simply "any thread on
-        an accepted connection" if Epic 7 has no read/updated-at signal yet — pick the simpler
-        definition and state it in a code comment, do not leave it ambiguous) and a short list of
-        the most recently active connections as `RecordLink`s.
+        its route wiring — do not create a second dashboard component) with: a stat band —
+        count of `status = 'accepted'` connections, and count of **unread** conversations using
+        Story 7.5's unread definition (a thread with a message newer than the caller's
+        `thread_participants.last_read_at`; 7.5 lands before this story, so the signal exists —
+        do not invent a second recency heuristic) — and a short list of the most recently
+        active connections (latest message first) as `RecordLink`s.
   - [ ] Zero-connections state renders the same empty-state copy Story 8.1 shipped, not a new one
         — reuse the i18n key.
 
@@ -117,6 +122,9 @@ descriptor-based CRM and **replaces** Story 8.1's placeholder dashboard.
         UX-DR11 — reuse the existing visual-regression harness, do not add a new one).
   - [ ] `dashboard/ShadchanDashboard.test.tsx` (extending Story 8.1's file): zero-connections
         empty state still passes; a populated-state render shows the stat band and `RecordLink`s.
+  - [ ] Route-guard negative test (AC-8): with a mocked `household` active context,
+        `/connections` redirects and `ConnectionList` never renders — the mirror of Story 8.1's
+        guard test, now against the real resource.
   - [ ] `make typecheck && npm run lint && make test`, plus scoped `prettier --check`.
 
 ## Dev Notes
@@ -159,9 +167,11 @@ descriptor-entity test pattern rather than inventing a new one for this resource
 
 ### Project Structure Notes
 
-New: `src/components/atomic-crm/connections/` (`index.ts`, `ConnectionList.tsx`,
-`ConnectionShow.tsx`, plus co-located tests). Modified: `dashboard/ShadchanDashboard.tsx` (from
-Story 8.1), `root/routeManifest.ts`, FakeRest data generator.
+The `connections/` folder exists since Story 8.1 (placeholder) and holds Story 8.3's
+`RedtComposeDialog.tsx`. New in it: `index.ts` (descriptor), `ConnectionList.tsx`,
+`ConnectionShow.tsx`, plus co-located tests. Deleted: `ConnectionsPlaceholder.tsx` (+ test).
+Modified: `dashboard/ShadchanDashboard.tsx` (from Story 8.1), `root/routeManifest.ts`,
+FakeRest data generator.
 
 ## Dev Agent Record
 

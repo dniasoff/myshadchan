@@ -14,7 +14,7 @@ so that permission and history are tractable for every persona pair (FR94, FR95)
 
 **1st of 5.** This story lays the schema every other Epic 7 story extends:
 
-`**7.1 (this story)** → 7.2 (default posture) → 7.3 (private enforcement) → 7.4 (connection scope) → 7.5 (notifications)`
+7.1 (this story) → 7.2 (default posture) → 7.3 (private enforcement) → 7.4 (connection scope) → 7.5 (notifications)
 
 - **7.2** adds `accounts.default_thread_visibility` and teaches `create_thread()` to read it.
 - **7.3** adds the participant-only branch to `thread_is_readable()` and a
@@ -32,23 +32,27 @@ so that permission and history are tractable for every persona pair (FR94, FR95)
 - Epic 2 Story 2.1: `current_account_id()` is deleted; **`current_context_id()`** is
   the resolver (`STABLE SECURITY DEFINER SET search_path ''`, fails closed, AD-19).
   Every reference below to `current_context_id()` is to that function.
-- Epic 2 Story 2.2: `accounts.kind` exists (`household | shadchanus`) and every table
-  ships `FORCE ROW LEVEL SECURITY` (AD-1) — this story creates its three tables with
-  `force row level security` from the start, not the `enable`-only pattern still on
-  `main` today (`supabase/schemas/05_policies.sql` has no `force` anywhere yet — that
-  gap is Epic 2's to close repo-wide; this story does not need to touch existing
-  tables to add it, only its own three new ones).
-- Epic 6 Story 6.1/6.2: `account_members.role` includes `'single'` (today's check
-  constraint is `('parent_admin','helper','self_manager','shadchan')` — no `'single'`
-  yet, `01_tables.sql:271-273`) and row-level scoping for a single is established on
-  other child tables (`interactions`, `reference_links`). **This story is the first to
-  add that same single-visibility gate to a brand-new table** — there is no template
-  to copy line-for-line, only the pattern (join to the parent `shidduchim` row, call
-  `is_single_visible_state()`), described below.
+- Epic 2 Story 2.2: `accounts.kind` exists (`household | shadchanus`) and the role
+  check includes `'single'` (2.2 AC-2 — today's constraint is
+  `('parent_admin','helper','self_manager','shadchan')`, no `'single'` yet,
+  `01_tables.sql:271-273`). **Note: Epic 2 does NOT retrofit `FORCE ROW LEVEL
+  SECURITY` repo-wide** — Story 2.1 explicitly flags that as an unassigned AD-1 gap
+  (`main` today has no `force` anywhere in `05_policies.sql`). This story ships its
+  own three new tables with `force row level security` from day one regardless; it
+  does not touch existing tables.
+- Epic 3 Story 3.5: **`public.current_member_id()`** exists (`STABLE SECURITY
+  DEFINER`, resolves the caller's own `account_members.id` in the active context) —
+  this story's triggers and policies reuse it, never re-resolve the member inline.
+- Epic 6: **`public.current_member_role()`** exists (6.2), and row-level scoping for
+  the single role is established on existing tables (`shidduchim`/`resumes` in 6.2,
+  `interactions` and friends in 6.3). **This story is the first to add the
+  single-visibility gate to a brand-new table** — there is no line to copy, only the
+  pattern (join to the parent `shidduchim` row, call `is_single_visible_state()`),
+  described below.
 
 If any of these have not actually landed when this story is picked up, stop and
-report — do not invent a local substitute for `current_context_id()` or the single
-role.
+report — do not invent a local substitute for `current_context_id()`,
+`current_member_id()`, `current_member_role()` or the single role.
 
 ## Acceptance Criteria
 
@@ -80,11 +84,15 @@ role.
    precedent). It validates `p_subject_type`, validates a `shidduch` subject exists in
    the caller's own active account, and always includes the caller as a participant.
 
-6. **Posting is participant-gated.** Only a listed `thread_participants` row for the
-   caller's own membership allows an INSERT into `messages` for that thread —
-   regardless of the thread's `visibility` (open threads are *readable* more broadly
-   per AD-3/AD-22 rule 2, but *posting* is always participant-only; see Dev Notes
-   "Why posting is participant-gated even on open threads").
+6. **Posting and participant changes are participant-gated.** Only a listed
+   `thread_participants` row for the caller's own membership allows an INSERT into
+   `messages` for that thread — regardless of the thread's `visibility` (open threads
+   are *readable* more broadly per AD-3/AD-22 rule 2, but *posting* is always
+   participant-only; see Dev Notes "Why posting is participant-gated even on open
+   threads"). Likewise, only an existing participant may INSERT a new
+   `thread_participants` row for that thread — a same-account member can never add
+   *themselves* to a conversation they are not in. Without this, 7.3's privacy would
+   be decorative: any member could self-join a private thread and then read it.
 
 7. **Tenant isolation holds from the first migration.** `threads`, `thread_participants`
    and `messages` all have `FORCE ROW LEVEL SECURITY`; a member of account A gets zero
@@ -138,18 +146,17 @@ role.
 
 - [ ] **Task 2 — Triggers: server-set scope, never client-trusted** (AC: 5, 6, 7)
   - [ ] `supabase/schemas/02_functions.sql`: `set_thread_defaults()` (`before insert on
-        threads`) — sets `account_id := current_context_id()` when null, and
-        `created_by_member_id` to the caller's own `account_members.id` in that
-        account when null (same inline resolution pattern as
-        `log_reference_call`, `02_functions.sql:1535-1539`:
-        `select am.id from account_members am where am.user_id = auth.uid() and
-        am.account_id = v_account_id and am.status = 'active'`).
+        threads`) — sets `account_id := public.current_context_id()` when null, and
+        `created_by_member_id := public.current_member_id()` when null (reuse Epic 3
+        Story 3.5's function — do **not** re-resolve the member with an inline
+        `account_members` query; the older inline pattern in `log_reference_call`
+        predates `current_member_id()` and is not the template here).
   - [ ] `set_thread_participant_defaults()` (`before insert on thread_participants`) —
         sets `account_id` from the parent thread (`select account_id from threads
         where id = new.thread_id`) when null. Never trusts a client-sent
         `account_id`.
   - [ ] `set_message_defaults()` (`before insert on messages`) — sets `account_id`
-        from the parent thread and `sender_member_id` from the caller's own member id,
+        from the parent thread and `sender_member_id := public.current_member_id()`,
         both when null.
   - [ ] `supabase/schemas/04_triggers.sql`: wire all three as `before insert` triggers,
         next to the other `set_*_account_id` triggers.
@@ -168,7 +175,7 @@ role.
         every later Epic 7 story's RLS calls (mirrors `is_single_visible_state()` being
         "the ONE authority", `02_functions.sql:573-577`). This story's body: return
         `false` if the thread's `account_id` isn't `current_context_id()`; for
-        `subject_type='shidduch'`, if the caller's role in this account is `'single'`,
+        `subject_type='shidduch'`, if `public.current_member_role() = 'single'`,
         additionally require
         `is_single_visible_state(shidduchim.pipeline_state)` on the subject row
         (dignity floor, AD-22 resolution rule 2 — "open never widens AD-3"); otherwise
@@ -181,9 +188,11 @@ role.
         current_context_id())` or raise; inserts the thread row with
         `visibility := coalesce(p_visibility, 'open')` (7.2 changes this line only);
         inserts one `thread_participants` row for the caller plus one per id in
-        `p_participant_member_ids` that belongs to the same account (dedup via
-        `distinct`, silently drop ids from a different account rather than raising —
-        keeps the RPC forgiving of a stale client-side list). Returns the thread row.
+        `p_participant_member_ids` (dedup via `distinct`); **raise** if any supplied
+        id is not an active `account_members` row of the same account — fail fast
+        (`.claude/rules/coding-style.md` input validation), and never let the caller
+        believe someone is in a conversation who silently was not added. Returns the
+        thread row.
 
 - [ ] **Task 4 — RLS** (AC: 6, 7)
   - [ ] `supabase/schemas/05_policies.sql`: `alter table threads/thread_participants/
@@ -197,14 +206,20 @@ role.
         Dev Notes "Why the INSERT policy still matters"). No UPDATE/DELETE policy for
         `authenticated`.
   - [ ] `thread_participants`: SELECT `using (thread_is_readable(thread_id))`; INSERT
-        `with check (account_id = current_context_id())`. No UPDATE/DELETE for
-        `authenticated` in this story (7.5 adds `last_read_at` writes via its own RPC).
+        `with check (account_id = current_context_id() and exists (select 1 from
+        thread_participants tp where tp.thread_id = thread_participants.thread_id and
+        tp.member_id = public.current_member_id()))` — **only an existing participant
+        may add a participant** (AC-6; the initial rows come from `create_thread()`,
+        which is SECURITY DEFINER and unaffected). Without the `exists`, any
+        same-account member could self-join any thread and 7.3's privacy would be
+        bypassable by one INSERT. No UPDATE/DELETE for `authenticated` in this story
+        (7.5 adds `last_read_at` writes via its own RPC).
   - [ ] `messages`: SELECT `using (thread_is_readable(thread_id))`; INSERT `with check
         (account_id = current_context_id() and exists (select 1 from
-        thread_participants tp join account_members am on am.id = tp.member_id where
-        tp.thread_id = messages.thread_id and am.user_id = auth.uid() and am.status =
-        'active'))` (AC-6). No UPDATE/DELETE for `authenticated` (AC-4 — messages are
-        append-only; there is no Epic 7 AC for editing or deleting a sent message).
+        thread_participants tp where tp.thread_id = messages.thread_id and
+        tp.member_id = public.current_member_id()))` (AC-6). No UPDATE/DELETE for
+        `authenticated` (AC-4 — messages are append-only; there is no Epic 7 AC for
+        editing or deleting a sent message).
 
 - [ ] **Task 5 — Grants** (AC: 6, 7)
   - [ ] `supabase/schemas/06_grants.sql`: `revoke all on table
@@ -213,10 +228,13 @@ role.
         UPDATE/DELETE for authenticated" everywhere in this story), same for
         `thread_participants` and `messages`; `grant all … to service_role;` on all
         three. Sequence grants for `threads_id_seq`, `thread_participants_id_seq`,
-        `messages_id_seq` to `authenticated`/`service_role` (not `anon`), matching the
-        existing per-table sequence-grant convention (`06_grants.sql:124-126` style).
-        Function grants for `thread_is_readable`/`create_thread` to `authenticated` and
-        `service_role` (not `anon`).
+        `messages_id_seq`: `revoke all … from anon;` then grant to
+        `authenticated`/`service_role` — the convention used for every
+        shidduchim-domain sequence (the `shidduchim_id_seq` block in `06_grants.sql`,
+        **not** the fork-fossil blocks near the top of the file that still grant
+        `anon`). Function grants: `revoke all on function thread_is_readable,
+        create_thread from public, anon;` then `grant execute … to authenticated,
+        service_role;`.
 
 - [ ] **Task 6 — Generate and hand-check the migration** (AC: 1–8)
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
@@ -249,12 +267,16 @@ role.
 - [ ] **Task 8 — Minimal UI to prove the model** (AC: 1–6)
   - [ ] Add `src/components/atomic-crm/threads/` (mirrors `references/`,
         `shadchanim/`): a `ThreadPanel` (list of messages + a composer, participant
-        gated) and a `ThreadList` (threads for a given subject). Wire `ThreadPanel`
-        into wherever the Shidduch 360 currently renders (or its nearest equivalent if
-        Epic 5's shell isn't literally called `Shidduch360` yet) as a new tab/section —
-        the exact navigation slot is **not pinned by any epics.md AC**; flagged in the
-        final report as a UX placement call this story makes pragmatically, not one
-        the epic specifies.
+        gated) and a `ThreadList` (threads for a given subject). Wire them in as a new
+        `discussions` tab on the **shidduch entity descriptor** (Epic 3 Story 3.3's
+        registry; the shidduch descriptor is registered by Epic 5 Story 5.1 and its
+        tab set extended by 5.3–5.6 — this story appends `discussions` after
+        `external-links`). Declare no `minVisibility` on the tab (3.4's mechanism):
+        which *rows* a viewer sees is `thread_is_readable()`'s job at the database,
+        and an empty tab for a role is correct, not a leak. Do **not** build a bespoke
+        tab shell — Entity360/URL-backed tabs (3.1/3.2) already handle
+        `/shidduchim/{id}/discussions`. The tab id `discussions` is a placement call
+        this story makes (no epics.md AC pins it); flagged in the final report.
   - [ ] All UI strings through the `i18nProvider` (AD-18) — add a `threads:` block to
         `englishCrmMessages.ts` (and the French mirror, English keys) following the
         `shidduchim:`/`children:` block shape (`englishCrmMessages.ts:1-30`).
@@ -266,10 +288,13 @@ role.
   - [ ] New `supabase/tests/threads_entity.sql` + `threads_entity.test.ts`, following
         the exact `references_entity.sql` shape (`results`/`ids` temp tables, one
         assertion row per check, rollback at the end, run via `npm run test:unit:db`).
-        Cover: `create_thread()` creates a thread + creator participant; a
+        Cover: `create_thread()` creates a thread + creator participant;
+        `create_thread()` raises on a participant id from another account; a
         `subject_type='shidduch'` thread rejects a `subject_id` from another account;
         a non-participant cannot INSERT into `messages` for that thread even though
-        they're in the same account; deleting the subject `shidduchim` row deletes the
+        they're in the same account; a non-participant cannot INSERT a
+        `thread_participants` row adding **themselves** to that thread (the AC-6
+        self-join gate); deleting the subject `shidduchim` row deletes the
         thread (and cascades to messages/participants); **and the mandatory negative
         RLS test (AC-9):** two accounts, one thread+message each — account A's client
         reads zero rows of account B's `threads`/`messages`/`thread_participants`.
@@ -309,12 +334,14 @@ This is why every thread needs participants recorded from creation, even open on
 
 ### Why the INSERT policy still matters despite `create_thread()` being SECURITY DEFINER
 
-`create_thread()` runs as its owner (`postgres` in Supabase, which — like every other
-SECURITY DEFINER function in this schema, e.g. `create_shidduch()` — bypasses RLS
-including `FORCE`, because superusers always bypass row security regardless of
-`FORCE`). The `with check (account_id = current_context_id())` INSERT policy on
-`threads` is defense-in-depth for the case nobody expects to use: a direct
-`dataProvider.create("threads", …)` call. It should never fire in normal operation.
+`create_thread()` runs as its owner (`postgres` — like every other SECURITY DEFINER
+function in this schema, e.g. `create_shidduch()`). Supabase's `postgres` role is
+**not** a superuser but carries the `BYPASSRLS` attribute, which bypasses row
+security even under `FORCE` — that attribute, not superuser status, is why the RPC's
+inserts are unaffected by these policies. The `with check (account_id =
+current_context_id())` INSERT policy on `threads` is defense-in-depth for the case
+nobody expects to use: a direct `dataProvider.create("threads", …)` call. It should
+never fire in normal operation.
 
 ### The dignity-floor gate — first time this pattern is written for a new table
 
@@ -323,8 +350,9 @@ Every other place `is_single_visible_state()` gates a join (today: nowhere yet i
 still says "Today every authenticated member of an account is a parent/helper… When
 the candidate portal and the `child` role land… this join is the ONE place that gains
 `is_child_visible_state`" — that landing is Epic 6's job, which precedes this story).
-By the time Epic 7 runs, Epic 6 will have written that gate onto `interactions` and
-`reference_links`; **this story writes the equivalent gate onto `threads` for the
+By the time Epic 7 runs, Epic 6 will have written that gate onto the pre-existing
+tables (`shidduchim`/`resumes` in 6.2, `interactions` and the other candid child
+tables in 6.3); **this story writes the equivalent gate onto `threads` for the
 first time**, since `threads` didn't exist when Epic 6 ran. Copy the *pattern* (join to
 `shidduchim`, call `is_single_visible_state(pipeline_state)`, deny by default), not any
 literal line — there is no line to copy yet, because this is the first application of
@@ -371,6 +399,8 @@ column with no consumer for three stories.
   function-style precedents this story's new functions match verbatim in shape).
 - `supabase/schemas/02_functions.sql:1199-1217` (`purge_polymorphic_dependents` —
   extended, not duplicated).
+- Story `3-5-universal-activity-tab.md` (`current_member_id()` — defined once there,
+  reused here) and `6-2-row-level-scoping-for-a-single.md` (`current_member_role()`).
 - `supabase/tests/references_entity.sql:1-60` (SQL test-suite shape to copy).
 
 ### Project Structure Notes

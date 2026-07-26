@@ -46,13 +46,15 @@ bucket from day one, so the gap is not inherited.
 ## Acceptance Criteria
 
 1. **A new, private bucket, never public.** A new Supabase Storage bucket
-   `entity-files` is created with `public = false`. Storage RLS policies on
-   `storage.objects` for this bucket scope every `select`/`insert`/`delete` to objects
-   whose path's first segment equals `current_context_id()::text` — i.e. paths follow
-   `entity-files/{account_id}/{target_type}/{target_id}/{uuid}_{file_name}`, and the
-   policy predicate is `(storage.foldername(name))[1] =
-   public.current_context_id()::text`. A member of account A cannot list, read or write
-   an object under account B's folder — proven by a negative test (AC 6).
+   `entity-files` is created with `public = false`. Object names within the bucket
+   follow `{account_id}/{target_type}/{target_id}/{uuid}_{file_name}` (note:
+   `storage.objects.name` does **not** include the bucket id, so `account_id` is the
+   first path segment). Storage RLS policies on `storage.objects` scope every
+   `select`/`insert`/`delete` with `bucket_id = 'entity-files' and
+   (storage.foldername(name))[1] = public.current_context_id()::text` — both halves:
+   without the `bucket_id` guard the folder predicate would leak onto other buckets'
+   objects. A member of account A cannot list, read or write an object under account
+   B's folder — proven by a negative test (AC 6).
 
 2. **`entity_files` is a new polymorphic table, matching the vocabulary 3.5 established.**
    ```sql
@@ -72,10 +74,16 @@ bucket from day one, so the gap is not inherited.
            target_type in ('reference', 'shidduch', 'shadchan', 'single')
        ),
        constraint entity_files_visibility_check check (
-           visibility in ('shared', 'private_parent')
+           visibility in ('shared', 'private_parent', 'private_single')
        )
    );
    ```
+   The visibility vocabulary deliberately matches the one the domain already has —
+   `shidduchim_visibility_check` reads `('shared', 'private_parent', 'private_single')`
+   after Epic 1 Story 1.3's `private_child` → `private_single` rename — one AD-3
+   vocabulary, not a second two-value one. This story stores the value; role-based
+   enforcement of `private_*` arrives with Epic 6's single-access work, same as for
+   every other visibility-carrying row.
    FKs: `account_id → accounts(id)`, `uploaded_by_member_id → account_members(id) on
    delete set null`. FORCE RLS, scoped to `account_id = current_context_id()`
    (AD-1/AD-19) — the same shape as `interactions`/`tasks`. `uploaded_by_member_id` is
@@ -102,9 +110,12 @@ bucket from day one, so the gap is not inherited.
    `getSupabaseClient().storage.from("entity-files").createSignedUrl(path, 60)`
    immediately before use (the same call already used, correctly, in the existing
    `uploadToBucket`'s signed-URL check at `dataProvider.ts:812-820` — reuse that idiom,
-   just not that function). A test asserts no component in `FilesTab.tsx` stores a
-   signed or public URL in component state beyond the single click/render that consumes
-   it.
+   just not that function). Two decidable checks: (a) a `?raw` source test (same
+   mechanism as 3.1 AC 3) asserts `getPublicUrl` appears nowhere under `entity360/tabs/`
+   or the new storage-helper file; (b) a component test with a mocked Supabase client
+   asserts `createSignedUrl` is called on each view/download click and that no
+   `entity_files` record or component state ever holds a URL field (the row stores
+   `storage_path`, never a URL).
 
 5. **`FilesTab` lists, uploads, replaces and deletes, per target.**
    `entity360/tabs/FilesTab.tsx` takes `{ targetType, targetId }` (same shape as
@@ -112,7 +123,11 @@ bucket from day one, so the gap is not inherited.
    size (human-formatted), uploader and date; supports upload (via
    `@/components/admin/file-input.tsx`, the existing shadcn-admin-kit primitive — reused,
    not reinvented), replace (delete + upload, sharing the same UI action), and delete.
-   Empty, loading and error states render (same treatment as 3.5/3.6).
+   Empty, loading and error states render (same treatment as 3.5/3.6). Per AD-10, the
+   FakeRest provider registers an `entity_files` collection (empty by default) and the
+   storage calls live behind the small helper module named in Project Structure Notes,
+   which the demo build swaps for an in-memory stub (object-URL previews) — the demo
+   must not crash on this tab.
 
 6. **Negative test.** Two accounts, one `entity_files` row + one storage object each:
    account A's client (a) cannot select account B's `entity_files` row, and (b) cannot
@@ -160,15 +175,19 @@ bucket from day one, so the gap is not inherited.
         not use that path, per the section above, so some of `file-input.tsx`'s default
         wiring may need to be bypassed rather than assumed to "just work").
   - [ ] `FilesTab.test.tsx`: upload happy path (mocked Supabase client), replace, delete,
-        signed-URL-on-demand (AC 4's "never persisted" assertion), empty/loading/error.
+        signed-URL-on-demand (AC 4's two checks), empty/loading/error.
+  - [ ] Register `entity_files` in the FakeRest provider and stub the storage helper for
+        demo mode (AC 5, AD-10).
 
 ## Dev Notes
 
 ### Path convention (write this down, it is the whole security boundary)
 
-`entity-files/{account_id}/{target_type}/{target_id}/{uuid}_{file_name}`. The **first**
-path segment is the only one the storage RLS predicate reads
-(`storage.foldername(name))[1]`); everything after it is free-form but must stay
+Bucket `entity-files`, object name
+`{account_id}/{target_type}/{target_id}/{uuid}_{file_name}`. The **first**
+path segment of the object name is the only one the storage RLS predicate reads
+(`storage.foldername(name))[1]`, plus the `bucket_id` guard); everything after it is
+free-form but must stay
 consistent so `FilesTab` can reconstruct a path to delete. Do not let the client choose
 the `account_id` segment — resolve it server-side or, if the upload call itself must
 run client-side against Supabase Storage directly (it does, per AC 3), validate it
@@ -215,7 +234,7 @@ the generated migration rather than expecting the diff tool to produce it).
   Supabase-Storage-based approach is the pre-Cloudflare-Workers/R2 realization of the
   same principle, not the final AD-9 architecture (that migration is out of Epic 3's
   scope — flagged, not solved, here)
-  [Source: supabase/migrations/20240730075029_init_db.sql:553-562] — the existing public
+- [Source: supabase/migrations/20240730075029_init_db.sql:553-562] — the existing public
   bucket and its policies, not extended by this story
 - [Source: supabase/schemas/07_storage.sql] — current storage policy file, edited by
   this story

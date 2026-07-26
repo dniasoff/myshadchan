@@ -93,19 +93,22 @@ control read the other's data source.
 
 - [ ] **Task 1 — `my_contexts()`** (AC: 5)
   - [ ] `supabase/schemas/02_functions.sql`: implement per AC-5.
-  - [ ] `06_grants.sql`: grant `execute` to `authenticated`, none to `anon`.
+  - [ ] `06_grants.sql`: `revoke all on function public.my_contexts() from public,
+        anon;` then grant `execute` to `authenticated` (Postgres default-grants
+        EXECUTE to PUBLIC on new functions — the file's own revoke-then-grant pattern
+        is the deny).
   - [ ] Migration: `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
         context_switcher`, hand-check grants, apply with `migration up --local`.
 
 - [ ] **Task 2 — dataProvider + hook** (AC: 6)
   - [ ] `providers/supabase/dataProvider.ts`: `getMyContexts()`,
         `switchActiveContext(accountId)`.
-  - [ ] `providers/fakerest/dataProvider.ts`: emulate both against the in-memory `db`,
-        deriving `is_active` from the fake `member_state` equivalent Story 2.1 must
-        already have added there (if 2.1 did not add a fakerest `member_state`
-        emulation because it made no frontend change, this story is the first consumer
-        and must add the minimal fake-store field itself — check before assuming it
-        exists).
+  - [ ] `providers/fakerest/dataProvider.ts`: emulate both against the in-memory `db`.
+        Story 2.1 is schema-only ("it changes no `src/` file" — its own Project
+        Structure Notes), so no fakerest `member_state` emulation exists yet: this
+        story is the first consumer and adds the minimal fake state itself (a single
+        module-level `activeAccountId` variable next to the existing `fakeDemo` flag is
+        enough — no fake table needed).
   - [ ] `root/useMyContexts.ts`, mirroring `root/useAccountDemo.ts` /
         `root/useMyPersonas.ts` exactly.
 
@@ -163,7 +166,7 @@ required there, and none should be made speculatively.
 
 ### Verified current state
 
-- `layout/TopBar.tsx` (today, 202 lines): `ChildSwitcherPill` (→ `SingleSwitcherPill`
+- `layout/TopBar.tsx` (today, 201 lines): `ChildSwitcherPill` (→ `SingleSwitcherPill`
   post-1.3) is the only pill in the bar. No context concept exists anywhere in the
   frontend today.
 - `login/OnboardingChoice.tsx:64-65` — the `queryClient.invalidateQueries()` precedent
@@ -177,7 +180,8 @@ required there, and none should be made speculatively.
 
 SQL: extend `supabase/tests/context_resolution.sql` (`.claude/rules/testing.md`, AAA,
 `npm run test:unit:db`). Component: Vitest + Testing Library, matching existing
-`*.test.tsx` files' shape (e.g. `GoogleSignInButton.test.tsx`).
+`*.test.tsx` files' shape (e.g. `tasks/TasksListFilter.test.tsx` — not
+`GoogleSignInButton.test.tsx`, which Story 2.6 deletes).
 
 ### Project Structure Notes
 

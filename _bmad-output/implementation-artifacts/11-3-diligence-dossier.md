@@ -18,17 +18,18 @@ so that I can see the whole picture without re-reading every call log entry myse
 not rebuilt here.
 
 **Cross-epic dependency the epic list does not state:** the dossier is scoped **per suggestion**
-(*"Given several logged reference calls [on a suggestion]... When I open the dossier"*) — the
-per-shidduch diligence workspace that hosts it is **Epic 5 Story 5.10**'s
-("Reference 360 and per-shidduch diligence") to build, and it lands before Epic 11 in the epic
-order but epics.md never states the dependency. This story assumes 5.10 has already relocated
-the per-shidduch reference/call-log workspace out from under the old standalone `references/`
-top-level surface (`design-artifacts/gap-analysis-v3.md` §6 calls this relocation "not a
-rebuild — most mechanics are written"). **Locate 5.10's resulting component at implementation
-time** (`grep -rn "buildCrossReferenceSummary\|useAiEntitlement" src/components/atomic-crm/` —
-do not assume a filename this document cannot verify, since 5.10 doesn't exist yet); wire this
-story's dossier fetch into whatever that component turns out to be, following the adaptation
-rule in Dev Notes.
+(*"Given several logged reference calls [on a suggestion]... When I open the dossier"*), and its
+host — the shidduch's Diligence tab — is built by **Epic 5** (5.1 relocates
+`references/ShidduchReferencesSection.tsx` into that tab; 5.10 enriches it), which lands before
+Epic 11 but is never stated as a dependency in epics.md. Two facts about the post-5.10 world
+this story is written against (verify both before starting; if either fails, 5.10 hasn't
+landed as specified): the shidduch Diligence tab renders `ShidduchReferencesSection.tsx`, and
+`ResearchAssistantPanel.tsx` sits **unchanged and still entitlement-gated on the Reference
+360's `assistant` tab** (5.10 AC-4 keeps it there — it is per-*reference*: its `links` prop is
+one reference's links across suggestions, the wrong scope for a per-suggestion dossier). The
+dossier UI is therefore a **new card on the shidduch's Diligence tab** (the mockup's
+"Cross-reference summary — 'did we check him out?'" card), not an adaptation of a relocated
+panel — see "What moves, what stays, what is deleted" in Dev Notes.
 
 **This story deletes and relocates code that predates it** — read "What moves, what stays, what
 is deleted" in Dev Notes before starting.
@@ -40,12 +41,16 @@ is deleted" in Dev Notes before starting.
    from `src/` (not aliased, not re-exported — NFR-14) and their content becomes
    `workers/ai/dossierFacts.ts` (+ `.test.ts`), unchanged in logic (`buildCrossReferenceSummary`,
    `COVERAGE_TOPICS`, the endorsement/hesitation cue lists) — this is a **move**, not a rewrite;
-   the existing 12 topic/consensus/contradiction test cases carry over verbatim onto the new
-   path. `callStatus.ts` **stays in `src/`, unmoved** — it is used outside the dossier (call-log
-   chips) and is imported into the Worker by value (see Dev Notes "The `src/` ↔ `workers/` type
-   boundary, extended").
+   the existing test cases (eight today, covering topics/consensus/contradiction/verdict-free)
+   carry over verbatim onto the new path. `ResearchAssistantPanel.tsx`'s summary section and its
+   `buildCrossReferenceSummary` import are **removed** in the same pass (the per-reference
+   summary is superseded by the per-shidduch dossier; the panel keeps its tailored-questions
+   content and its gate, otherwise untouched). `callStatus.ts` **stays in `src/`, unmoved** — it
+   is used outside the dossier (call-log chips) and is imported into the Worker by value (see
+   Dev Notes "The `src/` ↔ `workers/` type boundary, extended").
 2. **A new gated route:** `POST /dossier` in `workers/ai/index.ts`, added after `app.use("*",
-   requireAiEntitlement)` (11.1). Body: `{ shidduchim_id: number }`. Uses
+   requireAiEntitlement)` (11.1). Body: `{ shidduchim_id: number }`, Zod-validated
+   (Consistency Conventions, "Worker API / validation"); malformed → `400`. Uses
    `c.get("supabaseCaller")` — no second client, no second `ai_entitlement()` call.
 3. **Draws only on this account's own records, enforced by Postgres, not by application code**
    (AD-1). The route selects from `reference_links_summary` filtered by `shidduchim_id` through
@@ -59,8 +64,9 @@ is deleted" in Dev Notes before starting.
    precomputed `covered`/`gaps`/`hasContradiction` values — the only client input is
    `shidduchim_id`.
 5. **The narrative is AI-generated, strictly grounded, and never blocks on the model.** A
-   `DossierNarrator.compose(facts: DossierFacts): Promise<string>` interface
-   (`workers/ai/dossierNarrator.ts`); the production implementation calls Claude **only through
+   `DossierNarrator.compose(facts: CrossReferenceSummary): Promise<string>` interface
+   (`workers/ai/dossierNarrator.ts` — reuse the moved module's existing `CrossReferenceSummary`
+   type, do not mint a second name for the same facts); the production implementation calls Claude **only through
    the Cloudflare AI Gateway** (`@anthropic-ai/sdk` with `baseURL` overridden, per the Stack
    table) with a prompt containing **only** the computed topic labels/counts/booleans — never
    raw `what_they_said` text or reference names. The response is checked against a fixed
@@ -69,30 +75,38 @@ is deleted" in Dev Notes before starting.
    `deterministicNarrative(facts)` (a template string built purely from the facts, no model
    call) — the route always returns a narrative, and a broken/absent Gateway credential
    degrades the feature, it never fails the request.
-6. **The response shape:** `{ spokenToCount, outstandingCount, covered: string[], gaps:
-   string[], hasContradiction: boolean, narrative: string }` — `covered`/`gaps` are topic
-   labels (`CoverageTopic.label`), not the internal cue lists.
+6. **The response shape:** `{ spokenToCount, outstandingCount, endorsementCount,
+   reservationCount, covered: string[], gaps: string[], hasContradiction: boolean,
+   narrative: string }` — counts and topic labels (`CoverageTopic.label`) only, derived from
+   `CrossReferenceSummary`'s link arrays; the response never carries link rows, reference
+   names, or `what_they_said` text (the client already has its own RLS'd read path for those —
+   this endpoint returns only the aggregate). The two extra counts let the card render the
+   Consensus column ("2 spoke warmly, 1 raised a reservation") without parsing prose.
 7. **It never judges compatibility or suggests a match (FR63/NFR "never fabricate").** Neither
    the deterministic path nor a passed AI narrative may contain a scored verdict — enforced
    mechanically by the banned-phrase check in AC-5, plus a test asserting the same list of
    phrases never appears in `deterministicNarrative`'s own output for any fixture.
-8. **The paid gate covers only the dossier fetch — not the free reference-question feature.**
-   Whatever component 5.10 produced that also renders `relationshipQuestions.ts`'s tailored
-   questions must **not** be wrapped in the same entitlement check as the dossier call; only the
-   dossier section may show an upgrade prompt in place of content when `useAiEntitlement()`
-   reports unentitled (client-side hint, same as today) — the actual enforcement is AC-2's
-   server gate regardless of what the client renders.
-9. **The client fetches, it does not compute.** The relocated component's summary UI calls
+8. **The paid gate covers only the dossier — the free question surfaces stay free.** The new
+   `DiligenceDossierCard` is the only thing this story wraps in `useAiEntitlement()` (upgrade
+   prompt in place of content when unentitled — client-side hint; AC-2's server gate is the
+   enforcement). Post-5.11 the free tailored-questions surface is `CallCaptureSheet.tsx`:
+   `grep -n "useAiEntitlement" src/components/atomic-crm/references/CallCaptureSheet.tsx`
+   returns nothing, before and after this story. `ResearchAssistantPanel` remains a paid
+   surface exactly as 5.10 left it — this story removes its summary section (AC-1) and adds
+   no gate anywhere else.
+9. **The client fetches, it does not compute.** A new
+   `references/DiligenceDossierCard.tsx`, rendered on the shidduch's Diligence tab alongside
+   `ShidduchReferencesSection` (same tab module 5.1/5.10 wired), calls
    `callAiWorker(`${VITE_AI_WORKER_URL}/dossier`, { shidduchim_id })` (11.1) and renders the
-   returned `covered`/`gaps`/`hasContradiction`/`narrative` — it performs no local
-   `buildCrossReferenceSummary` call (there is none left to call after AC-1).
+   returned `covered`/`gaps`/`hasContradiction`/`narrative` — no component performs a local
+   `buildCrossReferenceSummary` call (there is none left in `src/` to call after AC-1).
 10. **The entitlement-gate guard test is updated, not left stale.**
-    `references/entitlementGate.guard.test.ts`'s `ALLOWED` set currently names
-    `ResearchAssistantPanel.tsx`, which this story's dependency (5.10) may have renamed or
-    relocated, and `useAiEntitlement` is still the correct hook for the client-side hint (AC-8).
-    Update `ALLOWED` to whatever file now calls `useAiEntitlement` for the dossier, confirmed
-    via `LSP findReferences` on `useAiEntitlement` — the guard must still pass, and its
-    intent (AI stays a narrow, free-features-never-touch-it gate) must still hold.
+    `references/entitlementGate.guard.test.ts`'s `ALLOWED` set gains
+    `DiligenceDossierCard.tsx`; `ResearchAssistantPanel.tsx`, `BillingPage.tsx`,
+    `useAiEntitlement.ts` and 11.2's `InboxResolveDialog.tsx` entries stay. The guard must
+    still pass, and its intent (AI stays a narrow, free-features-never-touch-it gate) must
+    still hold — confirm with `LSP findReferences` on `useAiEntitlement` that no other file
+    consults the hook.
 11. **Negative test.** The cross-account case (AC-3) already rests on RLS that
     `supabase/tests/references_entity.sql:379` already proves
     (`'RLS: reference_links_summary is invisible cross-account'`) — **do not duplicate that SQL
@@ -125,9 +139,9 @@ is deleted" in Dev Notes before starting.
   - [ ] `workers/ai/index.ts`: `app.post("/dossier", handler)` after `app.use("*",
         requireAiEntitlement)`. Handler: fetch `reference_links_summary` filtered by
         `shidduchim_id` via `c.get("supabaseCaller")`; run `buildCrossReferenceSummary`; shape
-        the AC-6 response; on zero rows return the same shape with `spokenToCount: 0,
-        outstandingCount: 0, covered: [], gaps: <all topic labels>, hasContradiction: false,
-        narrative: <the "nothing logged yet" deterministic string>` rather than a special-cased
+        the AC-6 response; on zero rows return the same shape with all four counts `0`,
+        `covered: []`, `gaps: <all topic labels>`, `hasContradiction: false`,
+        `narrative: <the "nothing logged yet" deterministic string>` rather than a special-cased
         error path (AC-3).
   - [ ] `index.test.ts`: happy path with fixture links (reuse the moved test file's fixtures —
         do not invent new ones); zero-rows case (AC-11).
@@ -138,8 +152,9 @@ is deleted" in Dev Notes before starting.
         in `ResearchAssistantPanel.tsx`'s JSX today — "X spoke warmly and Y raised a
         reservation," "Nothing recorded yet," etc. — as plain string templates, not JSX), the
         banned-phrase constant and checker, and `claudeNarrator: DossierNarrator` calling the
-        AI Gateway with `@anthropic-ai/sdk` (`baseURL` override). Extend `AiEnv` (new, in
-        `workers/ai/index.ts`) with `AI_GATEWAY_ACCOUNT_ID`, `AI_GATEWAY_ID`,
+        AI Gateway with `@anthropic-ai/sdk` (`baseURL` override). **`@anthropic-ai/sdk` is not
+        a dependency yet** — add it to `package.json` (Stack table pins 0.112.x). Extend
+        `AiEnv` (new, in `workers/ai/index.ts`) with `AI_GATEWAY_ACCOUNT_ID`, `AI_GATEWAY_ID`,
         `ANTHROPIC_API_KEY`; add all three to `workers/ai/wrangler.toml`'s secrets comment.
   - [ ] `dossierNarrator.test.ts`: a banned-phrase hit in a fake model response falls back to
         deterministic; a thrown/rejected call falls back to deterministic; `deterministicNarrative`
@@ -147,12 +162,17 @@ is deleted" in Dev Notes before starting.
         loop over the banned-phrase list.
 
 - [ ] **Task 4 — Client wiring** (AC: 8, 9, 10)
-  - [ ] Locate 5.10's resulting per-shidduch diligence/summary component (see "Position in
-        Epic 11"); replace its local `buildCrossReferenceSummary(links)` call with
-        `callAiWorker(`${import.meta.env.VITE_AI_WORKER_URL}/dossier`, { shidduchim_id })`,
-        rendering the response's `covered`/`gaps`/`hasContradiction`/`narrative`. Keep the
-        existing `useAiEntitlement()` upgrade-prompt branch (AC-8) around the dossier section
-        only — the relationship-questions section (if 5.10 kept it adjacent) stays ungated.
+  - [ ] New `references/DiligenceDossierCard.tsx`: takes `shidduchimId`; when
+        `useAiEntitlement()` reports unentitled, renders an upgrade prompt (reuse
+        `ResearchAssistantPanel.tsx`'s existing `UpgradePrompt` pattern); when entitled,
+        fetches `callAiWorker(`${import.meta.env.VITE_AI_WORKER_URL}/dossier`,
+        { shidduchim_id })` via TanStack Query and renders
+        `covered`/`gaps`/`hasContradiction`/`narrative` as the mockup's three-column
+        Consensus / Contradiction / Gaps card. Mount it on the shidduch Diligence tab, above
+        `ShidduchReferencesSection` (same tab module 5.1/5.10 wired) + a component test.
+  - [ ] `ResearchAssistantPanel.tsx`: delete the summary section and the
+        `buildCrossReferenceSummary` import (AC-1); everything else (questions, guardrail,
+        gate) stays byte-identical.
   - [ ] Update `references/entitlementGate.guard.test.ts`'s `ALLOWED` set per AC-10.
 
 - [ ] **Task 5 — Final verification** (AC: 11, 12)
@@ -170,8 +190,9 @@ is deleted" in Dev Notes before starting.
 |---|---|---|
 | `crossReferenceSummary.ts` + its test | **Moved** to `workers/ai/` | It becomes the fact input to an actual inference call (the narrative); AD-7 makes Workers the compute home, and computing the facts from rows the client never sees (AC-4) is what makes "draws only on this account's own records" a server guarantee instead of a client convention. |
 | `callStatus.ts` | **Unchanged, stays in `src/`** | Used outside the dossier (call-status chips elsewhere); it has zero React/DOM dependency in its own import chain (only `import type` from `../types`), so importing it *by value* into the Worker is safe without moving it — moving it would needlessly touch every other caller. |
-| `relationshipQuestions.ts` | **Untouched by this story** | Not part of epics.md's Story 11.3 AC (only the dossier is named). It is free today and this story must not change that (AC-8). |
-| `ResearchAssistantPanel.tsx` (or whatever 5.10 renamed it to) | **Adapted, not deleted by this story** | It is 5.10's file to relocate into the per-shidduch workspace; this story only swaps its data source from a local computation to a Worker fetch (Task 4). |
+| `relationshipQuestions.ts` | **Untouched by this story** | Not part of epics.md's Story 11.3 AC (only the dossier is named). Post-5.11 its free surface is `CallCaptureSheet`; this story must not gate it (AC-8). |
+| `ResearchAssistantPanel.tsx` | **Adapted: summary section removed, nothing else** | 5.10 keeps it on the Reference 360's `assistant` tab, per-reference. Its `links` are one reference's links across suggestions — the wrong scope for a per-suggestion dossier — and after AC-1 there is no local fact engine left for it to call. Its questions/guardrail/gate stay as-is. |
+| `DiligenceDossierCard.tsx` | **New (the one new UI file)** | The per-suggestion dossier host doesn't exist: 5.10 built the Diligence tab's reference list, not the summary card. This card is the mockup's "Cross-reference summary" card, fetching from the Worker. |
 
 ### The `src/` ↔ `workers/` type boundary, extended
 
@@ -196,12 +217,19 @@ bounded: the model can rearrange known facts into prose, or violate the banned-p
 in `DossierFacts` because it was never given one. [Source: ARCHITECTURE-SPINE.md#AD-8 "hallucination is
 guarded by field validation + low-confidence human review"]
 
+### What this story does not build
+
+**Langfuse tracing and the account-namespaced response cache** (both named by AD-8) — same
+deliberate, labeled deviation as 11.2: no story in Epics 1-11 owns that infrastructure, and
+half-building it inline here would leave two AI routes with divergent halves. Flagged to the
+epic owner as an unassigned AD-8 gap.
+
 ### Reuse — what already exists and must not be rebuilt
 
-- `buildCrossReferenceSummary`, `COVERAGE_TOPICS`, the cue lists, and their 12 existing test
-  cases are **fully built and correct today** — the only defect is that they run in the wrong
-  place (the browser, per-reference) rather than the right one (the Worker, per-shidduch). This
-  story relocates; it does not redesign the algorithm.
+- `buildCrossReferenceSummary`, `COVERAGE_TOPICS`, the cue lists, and their existing test
+  cases (eight) are **fully built and correct today** — the only defect is that they run in the
+  wrong place (the browser, per-reference) rather than the right one (the Worker, per-shidduch).
+  This story relocates; it does not redesign the algorithm.
 - `reference_links_summary` (`03_views.sql:263-290`) already carries `shidduchim_id`,
   `call_status`, `what_they_said`, `conversation_log` and is already `security_invoker = on` —
   no view change is needed.
@@ -211,10 +239,11 @@ guarded by field validation + low-confidence human review"]
 ### Project Structure Notes
 
 Moved: `workers/ai/dossierFacts.ts` (+test, from `references/crossReferenceSummary.ts`+test).
-New: `workers/ai/dossierNarrator.ts` (+test). Touched: `workers/ai/index.ts` (+test),
-`workers/ai/wrangler.toml`, `references/entitlementGate.guard.test.ts`, and 5.10's per-shidduch
-diligence component (name unknown at story-write time — locate via `LSP findReferences` on
-`useAiEntitlement` per AC-10/Task 4).
+New: `workers/ai/dossierNarrator.ts` (+test), `references/DiligenceDossierCard.tsx` (+test).
+Touched: `workers/ai/index.ts` (+test), `workers/ai/wrangler.toml`, `package.json`
+(`@anthropic-ai/sdk`), `references/ResearchAssistantPanel.tsx` (summary section removed),
+`references/entitlementGate.guard.test.ts`, and the shidduch Diligence-tab module that mounts
+`ShidduchReferencesSection` (adds the card).
 
 ### Testing standard
 
@@ -237,8 +266,11 @@ re-authoring them — they already cover consensus, contradiction and gap cases 
 - [Source: src/components/atomic-crm/references/crossReferenceSummary.ts,
   ResearchAssistantPanel.tsx, useAiEntitlement.ts, entitlementGate.guard.test.ts — the code this
   story relocates/adapts]
-- [Source: mockup/MyShadchan.dc.html:704-716 — the "Cross-reference summary" dossier card this
-  story implements the server side of]
+- [Source: mockup/MyShadchan.dc.html:703-719 — the "Cross-reference summary — 'did we check
+  him out?'" card on the per-suggestion references screen, the UI this story implements]
+- [Source: 5-10-reference-360-and-diligence.md AC-4 (ResearchAssistantPanel stays on the
+  Reference 360, gated), 5-11-call-logging-and-tailored-questions.md (CallCaptureSheet is the
+  free questions surface) — the post-Epic-5 world AC-8/Task 4 are written against]
 - [Source: design-artifacts/gap-analysis-v3.md §4 "AI diligence dossier ... ❌ absent", §6, §7
   "AI diligence dossier | inference + the entitlement gate (built)"]
 

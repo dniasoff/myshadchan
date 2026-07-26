@@ -27,11 +27,14 @@ step relies on to keep a `shadchan`-role invite from ever landing on a household
 This story builds the **mechanism** and the **invitee's** acceptance experience:
 the `invites` table, `create_invite()` (the function; its calling UI is 2.8's),
 `handle_new_user()`'s rewritten binding logic, the signup-gating Auth Hook, and
-`login/InviteAcceptance.tsx` rewritten for OTP + the 18+ affirmation. Story 2.8 builds
-the **inviter's** side: the Settings UI to send an invite, the invite list, and
-`revoke_invite()`. Do not build an invite-sending UI here — there is nothing yet for a
-real user to click that creates one (2.7's own tests seed invite rows directly in SQL);
-that is 2.8's job.
+`login/InviteAcceptance.tsx` rewritten for OTP + the 18+ affirmation. It also retires
+`is_admin()` (AC-9) — the sibling of `isInitialized` in AD-2's directive, deleted in
+the same story because both are the fork's "first user is special" world ending at
+once. Story 2.8 builds the **inviter's** side: the Settings UI to send an invite, the
+invite list, and `revoke_invite()` — and deletes the fork's parallel admin-invite
+path. Do not build an invite-sending UI here — there is nothing yet for a real user to
+click that creates one (2.7's own tests seed invite rows directly in SQL); that is
+2.8's job.
 
 ## Decision — how the very first user, ever, gets in
 
@@ -63,25 +66,49 @@ story's own resolution of a gap epics.md leaves open.
    deliberately **not** an invitable role (Dev Notes "Why `self_manager` is never
    invited").
 
-2. **RLS: a context's own active members manage its own invites; nothing else can.**
-   `using (account_id = current_context_id())` / `with check (account_id =
-   current_context_id())` for `authenticated`. Rows with `invited_by is null` (the
-   genesis seed, AC above) can only ever be inserted by `service_role` — there is no
-   `authenticated` insert policy that permits a null `invited_by`, only
-   `create_invite()` (Story 2.8's caller), which always sets it from the caller's own
-   membership. A negative test: an authenticated client cannot `insert into invites
-   (invited_by) values (null, …)` directly, bypassing `create_invite()`.
+2. **RLS: a context's own active members see its own invites; nothing writes the table
+   except this story's functions and `service_role`.** One **select-only** policy for
+   `authenticated`: `using (account_id = current_context_id())`. There is **no**
+   insert/update/delete policy and **no** DML grant to `authenticated` at all — every
+   write goes through `create_invite()` (AC-3), `revoke_invite()` (Story 2.8),
+   `handle_new_user()`'s binding step (AC-7, a definer trigger), or the `service_role`
+   genesis seed. This is deliberate, not a shortcut: if `authenticated` could insert
+   with only an account-match `with check`, all of AC-3's authority/kind checks would
+   be advisory — any active member, including a `helper`, could PostgREST-insert an
+   invite row with `role = 'parent_admin'` and a hand-picked `invited_by`, read the
+   token back through the select policy, and mint themselves (or anyone) an admin
+   membership. The authority boundary must hold at the grant, not just inside the
+   function. Negative tests: a direct `insert` into `invites` as `authenticated` is
+   refused (both with and without `invited_by`), and a direct `update` (e.g. flipping
+   `status` or `role`) is refused likewise; the `invited_by is null` genesis insert
+   succeeds only as `service_role`.
 
 3. **`public.create_invite(p_email text, p_role text) returns public.invites` is the
-   one function that creates an invitee-facing invite.** `SECURITY INVOKER` (it only
-   ever targets the caller's own **active** context — unlike `add_persona()`, there is
-   no "target a context I'm not currently in" case here, so the simpler security mode
-   is correct, not a shortcut). Raises unless: the caller holds an **owning** role
+   one function that creates an invitee-facing invite.** `SECURITY DEFINER`,
+   `SET search_path = ''` (the `handle_new_user()` precedent): AC-2 withholds every
+   DML grant on `invites` from `authenticated`, so an invoker-rights insert would be
+   refused at the grant before its own checks ever ran — the definer mode is the
+   consequence of closing the direct-write escalation, and the function's own explicit
+   checks are therefore the *only* write gate and must all be present. It starts with
+   an explicit active-membership check on `current_context_id()`
+   (`exists (select 1 from public.account_members am where am.account_id =
+   current_context_id() and am.user_id = auth.uid() and am.status = 'active')`), then
+   raises unless: the caller holds an **owning** role
    (`parent_admin`, `self_manager` or `shadchan`) in the active context — a `helper` or
    `single`-role member may never invite anyone; and `role_authority(p_role) <=
    role_authority(caller's own role)` (`public.role_authority()`, a small `IMMUTABLE`
    helper: `parent_admin = 3, self_manager = 2, helper = 1, single = 1, shadchan = 1`).
-   This is the concrete shape of "role ≤ inviter authority" from the epic text. Sets
+   This is the concrete shape of "role ≤ inviter authority" from the epic text. **It
+   also raises on a role/context-kind mismatch**: on a `household`-kind active context,
+   `p_role` must be in (`parent_admin`, `helper`, `single`); on a `shadchanus`-kind
+   one, `p_role` must be `shadchan`. Without this check, a shadchan could mint a
+   `helper` invite (authority 1 ≤ 1 passes) that 2.2's
+   `enforce_membership_role_matches_context()` trigger then rejects at acceptance —
+   an invite that can never succeed must be refused at creation, not discovered broken
+   by the invitee. Note this invite-capable list (`parent_admin`, `self_manager`,
+   `shadchan`) is deliberately **broader** than 2.2's owning-role helper
+   (`parent_admin`, `self_manager`) — a shadchan can invite into their shadchanus but
+   never owns a `singles` row; do not merge the two predicates. Sets
    `invited_by` from the caller's own `account_members.id`, never from a parameter.
 
 4. **The invitee accepts by completing OTP signup with the invite's email — there is no
@@ -93,9 +120,12 @@ story's own resolution of a gap epics.md leaves open.
    inviting account's actual data), shows the AD-11 18+ affirmation checkbox
    (`login/AgeAffirmation.tsx`, already built as a UI shell — this story is its first
    real wiring), and — once both the invite is valid and the box is checked — calls
-   Story 2.6's `login({ email: invite.email, requestOtp: true, meta: { invite_token,
-   age_affirmed: true } })`, then the OTP-verify step. `email` is read-only, taken from
-   the invite, never typed by the invitee.
+   Story 2.6's `login({ email: invite.email, requestOtp: true, allowSignup: true,
+   meta: { invite_token, age_affirmed: true } })` — `allowSignup`/`meta` are the seam
+   2.6 AC-2 built for exactly this call, and this flow is the **only** caller in the
+   product that passes `allowSignup: true` (2.6's login page hard-defaults
+   `shouldCreateUser` to false) — then the OTP-verify step. `email` is read-only, taken
+   from the invite, never typed by the invitee.
 
 5. **Signup is refused before an account is even created when there is no valid,
    unexpired, pending invite for the email — enforced in Postgres, not just hidden in
@@ -135,35 +165,71 @@ story's own resolution of a gap epics.md leaves open.
    view (`03_views.sql:130-135`) and its `anon`/`authenticated`/`service_role` grants
    are dropped from the schema.
 
-9. **The genesis seed pattern actually works, proven by a test, not just described.**
+9. **`is_admin()` is retired — the other half of AD-2's "retire
+   `is_admin()`/`isInitialized`" directive, deferred to Epic 2 by name by story 1.2
+   ("retiring `is_admin()` itself is AD-1 / Epic 2, not this story").** The SQL
+   function `public.is_admin()` is deleted with its grant lines, and the two
+   `configuration` policies that call it (`Enable insert for admins`, `Enable update
+   for admins`) are dropped **without replacement** — the `configuration` singleton
+   (branding/config jsonb) becomes read-only to `authenticated` (its existing
+   `using (true)` read policy is unchanged) and writable only by `service_role`, a
+   platform-ops runbook action exactly like this story's genesis seed. This is safe to
+   do bluntly because the write path is already dead in the app:
+   `dataProvider.updateConfiguration()` has **zero** UI callers (verified — only
+   `getConfiguration()` is called, from `root/CRM.tsx` and
+   `root/useConfigurationLoader.ts`), so `updateConfiguration` is deleted from both
+   providers along with the `resource: "configuration"` entry in the supabase
+   provider's `lifeCycleCallbacks`. The frontend's admin special-casing of
+   `configuration` goes with it: the `params.resource === "configuration"` branch in
+   `providers/commons/canAccess.ts` is removed, as are the two
+   `<CanAccess resource="configuration" action="edit">` wrappers (around the Settings
+   nav item in `layout/Sidebar.tsx` and the Settings menu item in `layout/TopBar.tsx`)
+   — Settings is a per-member surface (Personas 2.5, Invites 2.8), and the mobile
+   bottom nav already exposes it ungated, so the admin gate was both wrong and
+   inconsistent. **Kept, deliberately:** the `members.administrator` column, the
+   `"admin"`-role mapping in `authProvider.canAccess`, and the members-resource
+   gating — they feed the fork's user-management list, whose replacement is Epic 3/6's
+   `useViewerRole` work, not this story's. After this story:
+   `select to_regproc('public.is_admin')` returns NULL, and
+   `grep -rn "is_admin" supabase/schemas/ src/` returns zero hits.
+
+10. **The genesis seed pattern actually works, proven by a test, not just described.**
    A new `supabase/tests/invites.sql` + `.test.ts`: (a) a `service_role`-inserted invite
-   with `invited_by = null` succeeds, and the same insert attempted as `authenticated`
-   fails (AC-2); (b) a matching signup (simulated by inserting into `auth.users` with
+   with `invited_by = null` succeeds, and **any** direct `insert` or `update` on
+   `invites` as `authenticated` fails — including a `helper`'s hand-crafted
+   `role = 'parent_admin'` insert with a non-null `invited_by` (AC-2's escalation
+   case); (b) a matching signup (simulated by inserting into `auth.users` with
    the right `raw_user_meta_data`, mirroring `references_entity.sql`'s existing
    first-user test pattern) binds the correct `account_id`/`role` and flips the invite
    to `accepted`; (c) a signup with **no** matching invite creates zero `account_members`
-   rows (AC-7's fallback case); (d) `create_invite()` refuses a `helper`/`single` caller
-   (AC-3) and refuses granting a role above the caller's own authority.
+   rows (AC-7's fallback case); (d) `create_invite()` refuses a `helper`/`single`
+   caller (AC-3), refuses granting a role above the caller's own authority, and
+   refuses a role/context-kind mismatch (a `shadchan`-role invite from a household
+   context; a non-`shadchan`-role invite from a shadchanus context).
 
-10. **Toolchain green**: `make typecheck && npm run lint && make test &&
+11. **Toolchain green**: `make typecheck && npm run lint && make test &&
     npm run test:unit:db`.
 
 ## Tasks / Subtasks
 
 - [ ] **Task 1 — `invites` table + RLS** (AC: 1, 2)
   - [ ] `01_tables.sql`: add `invites` per AC-1.
-  - [ ] `05_policies.sql`: the account-scoped policy per AC-2, plus the explicit
-        absence of an `authenticated`-role null-`invited_by` insert path (verify by
-        writing the negative test in Task 6 before declaring this done, not after).
-  - [ ] `06_grants.sql`: `grant all on table public.invites to service_role;
-        grant select, insert, update on table public.invites to authenticated;` —
-        `insert`/`update` are gated entirely by RLS's `with check`, not withheld at the
-        grant level (consistent with every other domain table in this schema).
+  - [ ] `05_policies.sql`: `enable row level security` + `force row level security`;
+        the **select-only** account-scoped policy per AC-2 — deliberately no
+        insert/update/delete policy for `authenticated` (verify by writing the
+        negative tests in Task 9 before declaring this done, not after).
+  - [ ] `06_grants.sql`: `revoke all on table public.invites from anon;
+        grant select on table public.invites to authenticated;
+        grant all on table public.invites to service_role;` — DML is withheld at the
+        grant level (AC-2's rationale); the sequence `invites_id_seq` gets no
+        `authenticated` grant either, since `authenticated` never inserts directly.
 
 - [ ] **Task 2 — `role_authority()` + `create_invite()`** (AC: 3)
   - [ ] `02_functions.sql`: `role_authority(role text) returns int` (`IMMUTABLE`), then
         `create_invite()` per AC-3.
-  - [ ] `06_grants.sql`: `execute` to `authenticated`, none to `anon`.
+  - [ ] `06_grants.sql`: `revoke all on function … from public, anon;` for both,
+        then `execute` to `authenticated` (the file's standard revoke-then-grant
+        pattern — PUBLIC gets EXECUTE by default otherwise).
 
 - [ ] **Task 3 — `get_invite_preview()`** (AC: 4)
   - [ ] `02_functions.sql`: `SECURITY DEFINER`, `STABLE`, returns only the four fields
@@ -185,15 +251,26 @@ story's own resolution of a gap epics.md leaves open.
 - [ ] **Task 5 — The signup-gating Auth Hook** (AC: 5)
   - [ ] `02_functions.sql`: `check_signup_invite(event jsonb) returns jsonb` per AC-5.
   - [ ] `supabase/config.toml`: `[auth.hook.before_user_created]` registration.
-  - [ ] `06_grants.sql`: grant `execute` to `supabase_auth_admin` (the role GoTrue hooks
-        run as — confirm the exact role name against this Supabase version's hook
-        documentation before granting; do not grant to `anon`/`authenticated`).
+  - [ ] `06_grants.sql`: `revoke all on function public.check_signup_invite(jsonb)
+        from public, anon, authenticated;` then grant `execute` to
+        `supabase_auth_admin` (the role GoTrue hooks run as — confirm the exact role
+        name against this Supabase version's hook documentation before granting).
 
 - [ ] **Task 6 — Delete `isInitialized`/`init_state`** (AC: 8)
   - [ ] `03_views.sql`: drop `init_state` and its comment block.
   - [ ] `06_grants.sql`: drop the three `init_state` grant lines.
   - [ ] `git rm login/SignupPage.tsx`; remove its two route registrations in
         `root/CRM.tsx` (desktop + mobile) and its import.
+  - [ ] `git rm login/StartPage.tsx` — its whole purpose is the `isInitialized` branch
+        (route to `/sign-up` for an uninitialized install), which no longer exists.
+        Change `root/CRM.tsx`'s `loginPage={StartPage}` (line 230 today) to
+        `loginPage={LoginPage}` and drop the import.
+  - [ ] `git rm login/ConfirmationRequired.tsx` and its two route registrations in
+        `root/CRM.tsx` (253-254 and 330-331 today): its only navigator was
+        `SignupPage.tsx`'s email-confirmation redirect, and the OTP flow has no
+        confirmation-link step — the typed-back code is the confirmation.
+  - [ ] Remove `authProvider.ts`'s `#/sign-up` `checkAuth` special-case (line 143
+        today) — the sibling `/set-password`/`/forgot-password` cases went with 2.6.
   - [ ] `providers/supabase/dataProvider.ts`: remove `isInitialized()` and `signUp()`
         (the latter is the old password-signup path — dead once `SignupPage.tsx` is
         gone; confirm no other caller before deleting).
@@ -205,7 +282,24 @@ story's own resolution of a gap epics.md leaves open.
         emulation; confirm the FakeRest demo boot path (which never needed
         `isInitialized` to gate anything meaningful) still starts (AD-10).
 
-- [ ] **Task 7 — `InviteAcceptance.tsx` rewrite** (AC: 4)
+- [ ] **Task 7 — Retire `is_admin()` and the `configuration` write path** (AC: 9)
+  - [ ] `02_functions.sql`: delete `is_admin()` (header at line 316 today).
+        `05_policies.sql`: drop `Enable insert for admins` / `Enable update for
+        admins` on `public.configuration`; keep `Enable read for authenticated`.
+        `06_grants.sql`: delete `is_admin()`'s grant lines; leave `configuration`'s
+        table grants alone (writes are stopped by the absence of any
+        insert/update policy, and `service_role` bypasses RLS).
+  - [ ] `providers/supabase/dataProvider.ts`: delete `updateConfiguration()` and the
+        `resource: "configuration"` lifecycle-callback block;
+        `providers/fakerest/dataProvider.ts`: delete its `updateConfiguration`
+        emulation. Keep `getConfiguration()` in both.
+  - [ ] `providers/commons/canAccess.ts`: remove the `configuration` branch.
+        `layout/Sidebar.tsx` (`SidebarNavItem`) and `layout/TopBar.tsx`
+        (`SettingsMenuItem`): unwrap the two `<CanAccess resource="configuration"
+        action="edit">` wrappers so the Settings entry points render for every member.
+  - [ ] Run AC-9's `to_regproc` check and grep; both must come back empty.
+
+- [ ] **Task 8 — `InviteAcceptance.tsx` rewrite** (AC: 4)
   - [ ] Rewrite per AC-4: fetch the preview via `get_invite_preview`, render
         `AgeAffirmation` (`compact` mode, per its existing prop), then Story 2.6's
         two-step OTP form with `email` locked to the invite's.
@@ -215,8 +309,8 @@ story's own resolution of a gap epics.md leaves open.
         message ("This invite has expired — ask [inviter] for a new one"), never a
         generic error.
 
-- [ ] **Task 8 — Tests** (AC: 9)
-  - [ ] `supabase/tests/invites.sql` + `.test.ts` per AC-9, following
+- [ ] **Task 9 — Tests** (AC: 10)
+  - [ ] `supabase/tests/invites.sql` + `.test.ts` per AC-10, following
         `references_entity.sql`'s existing "insert into `auth.users`, assert the
         trigger's effect" pattern for case (b) rather than inventing a new one.
   - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`.
@@ -254,7 +348,7 @@ genuinely unavailable: the fallback is `handle_new_user()` raising an exception 
 matching invite/affirmation is found, which rolls back the whole `auth.users` insert
 transaction — a real, working data-level enforcement, just with a less friendly failure
 mode (a raw Postgres error surfaces through GoTrue rather than a clean 403). Either way,
-"signup without a valid invite is refused" must be provably true by Task 8's tests — the
+"signup without a valid invite is refused" must be provably true by Task 9's tests — the
 tests do not change based on which mechanism enforces it.
 
 ### Why `self_manager` is never invited (AC-1)
@@ -270,8 +364,11 @@ not by oversight.
 ### Verified current state
 
 - `handle_new_user()` (`02_functions.sql:237-286`): the bootstrap branch this story
-  deletes, with its own comment already flagging it as a placeholder ("Membership model
-  here is deliberately minimal and invite-free … pending the real invite-token flow").
+  deletes, with its own header comment already flagging it as a placeholder
+  ("Membership model here is deliberately minimal and invite-free (AD-11's full invite
+  binding is Epic-1) … see nothing until the invite flow grants them one" —
+  02_functions.sql:227-236; the "Epic-1" in that comment is stale pre-renumbering
+  text, the invite flow is this story).
 - `login/InviteAcceptance.tsx` (157 lines) and `login/AgeAffirmation.tsx` (119 lines):
   both explicitly self-documented as UI shells with "no backend wiring yet" — this
   story is that wiring, for both.
@@ -281,34 +378,41 @@ not by oversight.
   flagged by AD-1 ("no definer views — drop `init_state`") and by 1.1/1.2's own Dev
   Notes as "Epic 2's to delete."
 - `supabase/functions/users/index.ts:127-240` (`inviteUser`) — the fork's
-  password-based admin-invite flow. **Out of scope for this story**: it is a distinct
-  edge function serving the legacy `/members` admin UI, not the `invites` table this
-  story builds. Flagged for whoever eventually retires it (nothing in Epic 2's stated
-  scope asks for it, and Story 2.8 does not call it either).
+  password-based admin-invite flow (`auth.admin.inviteUserByEmail` → the deleted
+  set-password page). **Out of scope for this story, retired by Story 2.8** (whose
+  epic title — invites as the *one* membership mechanism — is exactly the rule it
+  violates). Note it is doubly dead after this story anyway: its emailed link lands on
+  a route 2.6 deleted, and its user creation is refused by AC-5's hook (no
+  `invite_token` in metadata) — 2.8 deletes the corpse.
 
 ### Security posture
 
-New `SECURITY DEFINER` function (`get_invite_preview`, deliberately `anon`-callable —
-the one new anon surface this story adds) and a new Auth Hook make this an unambiguous
-`.claude/rules/security-triggers.md` case. Specifically verify: `get_invite_preview`
-returns *only* the four named fields (never `invited_by`, `token` itself, or any
-household data), and the Auth Hook function is not callable by `anon`/`authenticated`
-directly (only by the GoTrue hook-invoking role).
+Two new `SECURITY DEFINER` functions (`get_invite_preview`, deliberately
+`anon`-callable — the one new anon surface this story adds — and `create_invite`,
+the sole authenticated write path onto a table with no client DML grant) and a new
+Auth Hook make this an unambiguous `.claude/rules/security-triggers.md` case.
+Specifically verify: `get_invite_preview` returns *only* the four named fields (never
+`invited_by`, `token` itself, or any household data); `create_invite` performs every
+check in AC-3 itself (as a definer function it is the entire write gate — RLS no
+longer backstops it); and the Auth Hook function is not callable by
+`anon`/`authenticated` directly (only by the GoTrue hook-invoking role).
 
 ### Testing standards
 
 New `supabase/tests/invites.sql` + `.test.ts`, same shape as the existing suite files.
 `.claude/rules/security-triggers.md`'s negative-test requirement covers AC-2 (the
-`authenticated`-cannot-null-`invited_by` case) and AC-9 case (c) (no invite, no
+`authenticated`-cannot-null-`invited_by` case) and AC-10 case (c) (no invite, no
 membership).
 
 ### Project Structure Notes
 
 Schema: `01_tables.sql`, `02_functions.sql`, `03_views.sql`, `05_policies.sql`,
 `06_grants.sql`, `config.toml`. Frontend: `login/InviteAcceptance.tsx` (rewritten),
-`login/AgeAffirmation.tsx` (wired, not rewritten), `root/CRM.tsx` (route swap),
-`providers/{supabase,fakerest}/{dataProvider,authProvider}.ts`. Deleted:
-`login/SignupPage.tsx`.
+`login/AgeAffirmation.tsx` (wired, not rewritten), `root/CRM.tsx` (route swap +
+`loginPage` swap), `providers/{supabase,fakerest}/{dataProvider,authProvider}.ts`,
+`providers/commons/canAccess.ts`, `layout/Sidebar.tsx`, `layout/TopBar.tsx` (AC-9's
+unwraps). Deleted: `login/SignupPage.tsx`, `login/StartPage.tsx`,
+`login/ConfirmationRequired.tsx`.
 
 ### References
 

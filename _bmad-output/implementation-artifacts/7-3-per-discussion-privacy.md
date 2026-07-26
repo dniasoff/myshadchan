@@ -54,7 +54,11 @@ so its negative test (AC-4) is not optional.**
    C = helper); a thread between A and B only, explicitly made `'private'`; assert
    C's client reads **zero** rows from `threads`, `messages` and `thread_participants`
    for that thread, while A and B each read exactly the same one thread and its
-   message. This is the story's defining test, not incidental coverage.
+   message. Additionally assert C **cannot break in**: C's attempt to INSERT a
+   `thread_participants` row adding themselves to the private thread is rejected by
+   RLS (7.1's participant-gated INSERT policy — re-proven here because this is the
+   story whose promise it protects), and C's `set_thread_visibility()` call on that
+   thread raises. This is the story's defining test, not incidental coverage.
 
 5. **Open threads are unaffected.** Every 7.1/7.2 assertion in `threads_entity.sql`
    (open-thread readability, the dignity-floor gate for a `single`, the account-default
@@ -70,11 +74,11 @@ so its negative test (AC-4) is not optional.**
   - [ ] `supabase/schemas/02_functions.sql`: `CREATE OR REPLACE FUNCTION
         public.thread_is_readable` — after the existing account-match + dignity-floor
         check (7.1's body, unchanged), add: if `visibility = 'private'`, return
-        `exists (select 1 from thread_participants tp join account_members am on
-        am.id = tp.member_id where tp.thread_id = p_thread_id and am.user_id =
-        auth.uid() and am.status = 'active')` — and **nothing else** (no dignity-floor
-        re-check on top; see Dev Notes "Why private doesn't re-apply the single gate").
-        If `visibility = 'open'`, keep 7.1's existing logic unchanged.
+        `exists (select 1 from thread_participants tp where tp.thread_id =
+        p_thread_id and tp.member_id = public.current_member_id())` — and **nothing
+        else** (no dignity-floor re-check on top; see Dev Notes "Why private doesn't
+        re-apply the single gate"). If `visibility = 'open'`, keep 7.1's existing
+        logic unchanged.
   - [ ] No RLS policy text changes anywhere — every policy from 7.1
         (`threads`/`thread_participants`/`messages` SELECT) already calls
         `thread_is_readable()`; extending the function extends every caller for free.
@@ -85,10 +89,10 @@ so its negative test (AC-4) is not optional.**
   - [ ] `supabase/schemas/02_functions.sql`: `public.set_thread_visibility(p_thread_id
         bigint, p_visibility text) returns public.threads` — `SECURITY DEFINER SET
         search_path ''`. Validates `p_visibility in ('open','private')`; validates the
-        caller is a current `thread_participants` member of `p_thread_id` (**not**
-        merely a same-account member — a non-participant cannot flip visibility on a
-        thread they're not even in, open or private); updates `threads.visibility`;
-        returns the updated row.
+        caller is a current `thread_participants` member of `p_thread_id`
+        (`tp.member_id = public.current_member_id()` — **not** merely a same-account
+        member: a non-participant cannot flip visibility on a thread they're not even
+        in, open or private); updates `threads.visibility`; returns the updated row.
   - [ ] Grant `execute` to `authenticated`/`service_role` in `06_grants.sql`
         (not `anon`). No table-level UPDATE grant on `threads` is added for
         `authenticated` — this RPC remains the sole write path for `visibility`,

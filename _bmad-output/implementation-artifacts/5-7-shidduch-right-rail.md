@@ -46,16 +46,20 @@ does not have to touch this table's constraint later, only add the write UI.
    there are none, it shows an empty state explaining nothing has been shared yet (not an error,
    not blank).
 3. **Given** the reminders panel, **when** I add or complete a task, **then** it writes to
-   `tasks` with `target_type = 'shidduch'`, `target_id = {id}` and reflects immediately, without
-   leaving the page — reuse `references/ReferenceTasks.tsx`'s add/toggle logic, adapted for
-   `target_type: "shidduch"` (do not write a third parallel task-add/toggle implementation; if
-   Epic 3's universal Tasks tab (3.8) already generalises this, use that component directly
-   instead of adapting `ReferenceTasks.tsx` — check which exists first).
+   `tasks` with `target_type = 'shidduch'`, `target_id = {id}` and reflects immediately,
+   without leaving the page — the panel **is** Story 3.8's `entity360/tabs/TasksTab.tsx` with
+   `{ targetType: "shidduch", targetId }` (3.8 built it precisely by generalising
+   `ReferenceTasks.tsx`'s add/toggle behaviour). Do not adapt `ReferenceTasks.tsx` itself —
+   Story 5.10 deletes it — and do not write a third task-add/toggle implementation.
 4. **Given** the shidduch has at least one resume file version (Story 5.3), **when** I press
    forward/share, **then** the newest version downloads to my device, invoking the Web Share API
    (`navigator.share` with the file) when the browser supports sharing files, else a plain
    download link. **Given** no resume file exists, **then** the button is disabled with a
-   tooltip explaining why — never a silent no-op.
+   tooltip explaining why — never a silent no-op. **And** the payload contains only that one
+   `resumes.files` entry — never anything from `resume_photos`: a unit test asserts it (this is
+   Story 5.4's "a photo is never included in a share unless chosen" guarantee, whose executable
+   half lands here because the action is built here; AD-9, "photo inclusion is the sharer's
+   choice").
 5. **Given** `interactions_kind_check`, **when** this story's migration lands, **then** it
    includes `'single_input'` in the allowed set; no other constraint on `interactions` changes
    (a `single_input` row is `target_type = 'shidduch'`, `scope = 'shidduch'`,
@@ -76,8 +80,7 @@ does not have to touch this table's constraint later, only add the write UI.
         wire into the shell's right-rail region per the shidduch descriptor.
   - [ ] `SingleInputPanel.tsx`: `useGetList("interactions", { filter: { target_type: "shidduch",
         target_id, kind: "single_input" } })`, newest-first, empty state.
-  - [ ] Reminders panel: reuse/adapt per AC-3 — check for Epic 3's universal Tasks tab component
-        first via `grep`/`LSP`; only adapt `ReferenceTasks.tsx` if no generic component exists.
+  - [ ] Reminders panel: mount 3.8's `TasksTab` with `targetType: "shidduch"` per AC-3.
 - [ ] **Task 3 — Forward/share action** (AC: 4)
   - [ ] `ForwardResumeButton.tsx`: reads the newest entry from Story 5.3's `ResumeVersionList`
         data (or a small shared hook, `useLatestResumeFile(shidduchimId)`, to avoid duplicating
@@ -88,14 +91,17 @@ does not have to touch this table's constraint later, only add the write UI.
 - [ ] **Task 4 — Tests**
   - [ ] Component tests: empty state for `SingleInputPanel`; disabled state for
         `ForwardResumeButton` with no resume; add/toggle round-trip for the reminders panel.
+  - [ ] Payload test per AC-4: the forward/share payload holds exactly one `resumes.files`
+        entry and nothing derived from `resume_photos`.
   - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`.
 
 ## Dev Notes
 
 ### Reuse
 
-- `references/ReferenceTasks.tsx` — add/toggle task UI, the exact shape needed for the reminders
-  panel if Epic 3's universal Tasks tab is not yet reusable in a "compact rail panel" form.
+- `entity360/tabs/TasksTab.tsx` (Story 3.8) — the reminders panel, direct mount. Its behaviour
+  is `ReferenceTasks.tsx` generalised; the original is deleted by Story 5.10, so nothing may
+  build on it here.
 - Story 5.3's `ResumeVersionList` sort/latest-version logic — do not re-derive "which file is
   newest."
 

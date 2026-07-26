@@ -19,14 +19,16 @@ and its generic, polymorphic file storage) for the Files half only.
 
 ## Two unrelated pieces of work, deliberately not merged
 
-**Files** — Epic 3 Story 3.7 already builds the generic, cross-entity Files tab (polymorphic
-storage, per-file visibility, no public URLs). This story's job for Files is **wiring only**:
-declare the shidduch entity's `files` tab against whatever Story 3.7 shipped. It does **not**
-re-derive file storage, a bucket, or RLS — that would duplicate Story 3.7's work and risk a
-second, divergent storage convention next to Story 5.3's `documents` bucket. **Gate:** before
-starting, `grep` for Story 3.7's generic files table/component under
-`src/components/atomic-crm/`; if it does not exist, Epic 3 has not landed and only the External
-links half of this story can proceed.
+**Files** — Epic 3 Story 3.7 already builds the generic, cross-entity Files tab:
+`entity360/tabs/FilesTab.tsx` taking `{ targetType, targetId }`, the polymorphic
+`entity_files` table (`target_type in ('reference','shidduch','shadchan','single')`, per-file
+visibility), and its own private `entity-files` bucket at
+`{account_id}/{target_type}/{target_id}/{uuid}_{file_name}` — a keyspace that cannot collide
+with Story 5.3's `documents` bucket. This story's job for Files is **wiring only**: declare the
+shidduch descriptor's `files` tab as `FilesTab` with `targetType: "shidduch"`. It does **not**
+re-derive file storage, a bucket, or RLS. **Gate:** before starting,
+`grep -rn "FilesTab\|entity_files" src/components/atomic-crm/`; if absent, Epic 3 has not
+landed and only the External links half of this story can proceed.
 
 **External links** — a genuinely new, narrow concept: a bookmark to an external profile (a
 shidduch site, a social profile) with no file behind it. Scoped to `shidduchim` only, matching
@@ -36,9 +38,9 @@ call: generalise it later if a future story actually needs it elsewhere.
 
 ## Acceptance Criteria
 
-1. **Given** the shidduch entity, **when** the `files` tab is wired, **then** it renders via
-   Epic 3's generic Files component with no shidduch-specific file storage or upload code
-   written in this story.
+1. **Given** the shidduch entity, **when** the `files` tab is wired, **then** it renders
+   Story 3.7's `FilesTab` with `targetType: "shidduch"` — no shidduch-specific file storage or
+   upload code written in this story.
 2. **Given** a suggestion, **when** I add an external link (a URL + a short label), **then** it
    appears under the `external-links` tab, separate from Files and from the Resume.
 3. **Given** an external link, **when** it renders, **then** it opens in a new tab via
@@ -46,9 +48,10 @@ call: generalise it later if a future story actually needs it elsewhere.
    here: it is what makes "share nothing back" true (no `window.opener` handoff, no referrer
    leaked to the linked site).
 4. **Given** `shidduchim_external_links`, **when** its RLS is applied, **then** it is scoped to
-   `account_id = current_account_id()` exactly like `shidduch_schools` (same shape, same test
-   coverage expectation) — no sensitivity tier, no role check (a URL bookmark is not sensitive
-   data).
+   `account_id = current_context_id()` exactly like `shidduch_schools` (whose own policy is
+   token-swapped to that name by Epic 2 Story 2.1 — mirror the post-Epic-2 text, never the
+   deleted `current_account_id()`) — no sensitivity tier, no role check (a URL bookmark is not
+   sensitive data).
 5. **Given** the Resume tab (5.3) and Files tab, **when** both render for the same shidduch,
    **then** the resume's file versions never appear under Files — they live in a structurally
    separate table (`resumes.files`) and storage path, never the generic files table.
@@ -56,15 +59,12 @@ call: generalise it later if a future story actually needs it elsewhere.
 ## Tasks / Subtasks
 
 - [ ] **Task 1 — Confirm the Epic 3 gate for Files** (AC: 1)
-  - [ ] `grep` for Story 3.7's generic files table/component. If absent, implement External links
-        only in this pass and flag Files as blocked on Epic 3 — do not build a stand-in.
+  - [ ] Run the gate grep from "Two unrelated pieces of work". If absent, implement External
+        links only in this pass and flag Files as blocked on Epic 3 — do not build a stand-in.
 - [ ] **Task 2 — Wire Files** (AC: 1, 5)
-  - [ ] Declare the shidduch descriptor's `files` tab against Story 3.7's component, scoped to
-        this shidduch's `target_type`/`target_id`.
-  - [ ] Confirm (by reading Story 3.7's actual schema) that its storage path/bucket cannot
-        collide with Story 5.3's `documents/{account_id}/resumes/...` prefix — if Story 3.7 also
-        used a `documents`-named bucket, use a distinct sub-path (e.g. `documents/{account_id}/files/...`)
-        so the two never write into the same key space.
+  - [ ] Declare the shidduch descriptor's `files` tab as `FilesTab` with
+        `targetType: "shidduch"`, `targetId` = the record id. (Storage collision is a
+        non-issue: 3.7 writes to its own `entity-files` bucket, 5.3 to `documents`.)
 - [ ] **Task 3 — Schema for External links** (AC: 2, 4)
   - [ ] `supabase/schemas/01_tables.sql`: `create table public.shidduchim_external_links (id
         bigint generated by default as identity primary key, account_id bigint not null,
@@ -73,7 +73,8 @@ call: generalise it later if a future story actually needs it elsewhere.
         exactly mirroring `shidduch_schools`'s shape (`01_tables.sql:473-485`).
   - [ ] `supabase/schemas/05_policies.sql`: `alter table … enable row level security`; policy
         `"Shidduchim external links scoped to account"` — same `for all … using (account_id =
-        current_account_id())` shape as `"Shidduch schools scoped to account"`.
+        public.current_context_id())` shape as the post-Epic-2 `"Shidduch schools scoped to
+        account"`.
   - [ ] `supabase/schemas/06_grants.sql`: same revoke-anon/grant-authenticated pattern.
   - [ ] Generate + hand-check migration (new table, generated form is fine as-is).
 - [ ] **Task 4 — Frontend for External links** (AC: 2, 3)
@@ -117,6 +118,8 @@ migration), then `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up -
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-5-Entity-360s, Story 5.6]
+- [Source: _bmad-output/implementation-artifacts/3-7-universal-files-tab.md] — `FilesTab`,
+  `entity_files`, the `entity-files` bucket this story wires against.
 - [Source: ARCHITECTURE-SPINE.md#AD-24] — Files as a universal, descriptor-driven tab; no
   bespoke per-entity file storage.
 - [Source: .claude/rules/coding-style.md#YAGNI] — rationale for not polymorphising external

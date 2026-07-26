@@ -12,10 +12,10 @@ so that redting happens here instead of over WhatsApp with nothing recorded on e
 
 ## Position in Epic 8
 
-**3rd of 5.** Depends on **8.2**'s `connections` table and the auto-linked `shadchanim` row it
-creates on acceptance. Feeds **8.4**'s negative tests (which assert the write boundary this
-story creates cannot be crossed) and **8.5** (which places the "Send a redt" action on the
-Connection 360).
+**3rd of 5.** Depends on **8.2**'s connection workflow (accepted `connections` rows — table
+from Epic 7 Story 7.4 — and the auto-linked `shadchanim` row acceptance creates). Feeds
+**8.4**'s negative tests (which assert the write boundary this story creates cannot be
+crossed) and **8.5** (which places the "Send a redt" action on the Connection 360).
 
 ## The key design decision: the shadchan never calls `create_shidduch()`
 
@@ -127,10 +127,8 @@ reading of AD-7: "all inbound, including shadchan-originated, enters via the con
       )
       returning * into v_row;
 
-      -- Epic 7 threads: mirror this redt into a connection-scoped thread so the
-      -- shadchan retains their own record (AC-5, FR112). Insert shape depends on
-      -- Epic 7's actual threads table — see Dev Notes "Thread mirroring depends
-      -- on Epic 7".
+      -- Task 3: mirror this redt into a connection-scoped thread (Epic 7 shape)
+      -- so the shadchan retains their own record (AC-5, FR112).
 
       return v_row;
     end;
@@ -145,23 +143,26 @@ reading of AD-7: "all inbound, including shadchan-originated, enters via the con
         `06_grants.sql`, matching the existing grant pattern for `create_shidduch`. **Never**
         grant to `anon` — sending a redt requires an authenticated, connected shadchan (AD-1).
 
-- [ ] **Task 3 — Thread mirroring (depends on Epic 7)** (AC: 5)
-  - [ ] Once Epic 7's `threads` table exists (AD-22: subject-scoped, explicit participants, one
-        visibility value, scoped by `connection_id` for a cross-context conversation), extend
-        `redt_via_connection()` to insert one thread row: `connection_id := p_connection_id`,
-        participants = the calling shadchan + the household's active members, an initial message
-        body = `p_raw_text`. **This is a hard dependency, not an optional enhancement** — without
-        it, AC-5 cannot be met (the shadchan would have zero record of their own redt). If Epic 7
-        has not landed when this story is implemented, land Tasks 1–2 and 4–7 and block Task 3 +
-        AC-5's verification explicitly rather than skipping it silently.
+- [ ] **Task 3 — Thread mirroring** (AC: 5)
+  - [ ] Epic 7 has necessarily landed by this story's turn (pinned order; 8.2 already builds on
+        7.4's `connections` table). Inside `redt_via_connection()`'s transaction, create one
+        connection-scoped thread (`connection_id := p_connection_id`, `account_id` null — 7.4's
+        XOR scope check), participants = the calling shadchan's membership + the household's
+        active members (the cross-context participant shape 7.4 established), and an initial
+        message with body = `p_raw_text`. Route this through Epic 7's one thread-creation
+        function (7.1's, as widened by 7.4) rather than a second bespoke INSERT — check its
+        signature first; only fall back to direct inserts inside this `SECURITY DEFINER` body
+        if that function cannot be called server-side, and say so in a code comment. Without
+        the mirror, AC-5 fails: the shadchan would have zero record of their own redt.
 
 - [ ] **Task 4 — Household-side resolve flow** (AC: 3, 4)
   - [ ] `inbox/inboxMeta.ts`: add a `shadchan` entry to `INBOX_SOURCE_META` (icon + label —
         reuse an existing Lucide icon already imported elsewhere for a person/handshake concept,
         do not add a new icon dependency for one entry).
-  - [ ] `inbox/InboxResolveDialog.tsx`: the `origin` passed into `CreateShidduchInput` (currently
-        hardcoded `"channel"` at the `onSubmit` handler, ~line 53) becomes
-        `item.source === "shadchan" ? "shadchan" : "channel"`.
+  - [ ] `inbox/InboxResolveDialog.tsx`: the `origin` passed into `CreateShidduchInput` (hardcoded
+        `"channel"` in the `onSubmit` handler today) becomes
+        `item.source === "shadchan" ? "shadchan" : "channel"`. `shidduchim`'s existing
+        `origin` check constraint already allows `'shadchan'` — no schema change for AC-4.
   - [ ] When `item.source === "shadchan"`: resolve the linked `shadchanim` row via
         `shadchanim.connection_id = item.connection_id` and pass it as the form's initial
         `shadchan_id`, **disabled** (not just defaulted) in `ShidduchInputs` for this case — the
@@ -176,30 +177,31 @@ reading of AD-7: "all inbound, including shadchan-originated, enters via the con
 - [ ] **Task 5 — Types and dataProvider** (AC: 2, 3)
   - [ ] `types.ts`: `InboxItem.source` union gains `"shadchan"`; add `InboxItem.connection_id?:
         Identifier`.
-  - [ ] `providers/supabase/dataProvider.ts`: add `redtViaConnection(input)` to the custom-methods
-        overlay, mirroring `createShidduchViaRpc`'s shape exactly (destructure `{ data, error }`
-        from `getSupabaseClient().rpc("redt_via_connection", {...})`, log+throw on error).
+  - [ ] `providers/supabase/dataProvider.ts`: add `redtViaConnection(input)` to the
+        custom-methods overlay, mirroring `createShidduchViaRpc` (same file) exactly
+        (destructure `{ data, error }` from
+        `getSupabaseClient().rpc("redt_via_connection", {...})`, log+throw on error).
   - [ ] Mirror in `providers/fakerest/` (AD-10): extend the FakeRest `inbox_items` emulation and
         add a `redtViaConnection` fake that validates the same connection-status/membership
         rules in-memory (do not silently accept any input in demo mode — the guard rails are
         part of what a reviewer/demo user should be able to see fail correctly).
 
 - [ ] **Task 6 — Shadchan-side compose UI** (AC: 1, 2, 3)
-  - [ ] Add `shadchanim/RedtComposeDialog.tsx` (or an equivalent location under a shadchan-facing
-        folder if Story 8.5 has already established `connections/` by the time this lands —
-        check first): a form with `subject` and `raw_text` fields plus optional attachment
-        upload, calling `dataProvider.redtViaConnection({ connectionId, subject, rawText,
+  - [ ] Add `connections/RedtComposeDialog.tsx` (the `connections/` folder exists since Story
+        8.1): a form with `subject` and `raw_text` fields plus optional attachment upload,
+        calling `dataProvider.redtViaConnection({ connectionId, subject, rawText,
         attachments })` on submit. **This story owns the dialog component; Story 8.5 owns where
-        it is launched from** (a button on the Connection 360) — do not duplicate the dialog if
-        8.5 lands first and already stubbed one; extend it.
+        it is launched from** (a button on the Connection 360).
 
 - [ ] **Task 7 — Negative-test suite** (AC: 6)
   - [ ] New `supabase/tests/shadchan_redting.sql` + `.test.ts`, same `results`/`ids` temp-table
         convention as `supabase/tests/references_entity.sql`. Cover: (a) no accepted connection
         ⇒ rejected, no row; (b) ended connection ⇒ rejected; (c) S2 cannot use S1's
         `connection_id`; (d) the created `inbox_items` row is invisible to household C reading
-        as themselves (re-run the existing cross-tenant `inbox_items` assertion pattern with a
-        `source = 'shadchan'` row present, to prove the new column/value doesn't loosen anything).
+        as themselves — write this cross-tenant assertion in this suite (no `inbox_items` SQL
+        suite exists at Epic 8's point in the sequence; Epic 10 adds the general one later),
+        with a `source = 'shadchan'` row present, to prove the new column/value doesn't loosen
+        anything.
   - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db` (needs
         `make start`), plus scoped `prettier --check` on this story's changed files.
 
@@ -216,16 +218,16 @@ confirm step. This also sidesteps a real access problem: the shadchan has no rea
 household's `singles` table (AD-20), so they could not supply a valid `single_id` even if the
 column were writable.
 
-### Thread mirroring depends on Epic 7
+### Thread mirroring rides Epic 7, not a bespoke table
 
 Story 8.4's AC ("a shadchan sees only the interaction and suggestion threads they are party to")
 and FR112 ("a shadchan tracks their own conversations in their own context") are only satisfiable
 if the shadchan has *some* connection-scoped record of what they sent — otherwise sending a redt
-would give them literally nothing to look at afterward. That record is Epic 7's `threads`, not a
-bespoke Epic-8 table (reuse, do not reinvent — `.claude/rules/coding-style.md` DRY). This is a
-genuine cross-epic dependency that **epics.md does not currently state**: Epic 8's own coverage
-row lists only "FR108–113, AD-4, AD-7", with no mention of AD-22 or Epic 7. Flagged to the epic
-owner in the story-writing report.
+would give them literally nothing to look at afterward. That record is Epic 7's `threads`
+(7.1's model, 7.4's `connection_id` axis), never a bespoke Epic-8 table (reuse, do not
+reinvent — `.claude/rules/coding-style.md` DRY). Note for the epic owner (repeated in the
+story-writing report): epics.md's coverage row for Epic 8 lists only "FR108–113, AD-4, AD-7" —
+the AD-22/Epic-7 dependency this story rides is real but unstated there.
 
 ### Architecture citations
 
@@ -246,23 +248,23 @@ owner in the story-writing report.
 
 ### Current-state grounding
 
-- `create_shidduch()` signature and body: `supabase/schemas/02_functions.sql` (search
-  `create_shidduch`) — confirms `account_id` is derived from the caller via
-  `current_context_id()` (post-Epic-2 name for what is `current_account_id()` today) and is
-  never a parameter; this story relies on that remaining true and does not touch the function.
+- `create_shidduch()` (`supabase/schemas/02_functions.sql`) derives `account_id` from the
+  caller via `current_context_id()` (post-Epic-2 name for what is `current_account_id()`
+  today) — never a parameter; this story relies on that remaining true and does not touch the
+  function.
 - `inbox/InboxResolveDialog.tsx` (176 lines) already implements the confirm-step UI this story
   extends: it hardcodes `origin: "channel"` and collects `shadchan_id` from a form field today —
-  both are the exact two lines Task 4 changes.
-- `providers/supabase/dataProvider.ts:71-95` (`createShidduchViaRpc`) is the pattern Task 5's
+  both are the exact two things Task 4 changes.
+- `createShidduchViaRpc` in `providers/supabase/dataProvider.ts` is the pattern Task 5's
   `redtViaConnection` follows.
 
 ### Dependencies
 
-- **Story 8.2** (connections + the auto-linked `shadchanim` row) — hard prerequisite for
-  Tasks 1–2.
-- **Epic 7 Story 7.1** (thread model, AD-22) — hard prerequisite for Task 3 / AC-5. Not stated as
-  a dependency anywhere in epics.md's Epic 8 section; see "Thread mirroring depends on Epic 7"
-  above.
+- **Story 8.2** (the connection workflow + the auto-linked `shadchanim` row) — hard
+  prerequisite for Tasks 1–2.
+- **Epic 7 Stories 7.1/7.4** (thread model + the `connection_id` scope axis, AD-22) — hard
+  prerequisite for Task 3 / AC-5; guaranteed landed by the pinned epic order. Unstated in
+  epics.md's Epic 8 coverage row — see "Thread mirroring rides Epic 7" above.
 - **Epic 1** naming (`single_id`, `create_shidduch`'s renamed parameter) must have landed.
 
 ### Testing standard
@@ -273,11 +275,9 @@ the locked `shadchan_id` field when `source === 'shadchan'`, and the compose dia
 
 ### Project Structure Notes
 
-New: `supabase/tests/shadchan_redting.sql` + `.test.ts`,
-`shadchanim/RedtComposeDialog.tsx` (relocate under `connections/` without ceremony if Story 8.5
-lands first and that folder already exists — same component, just moved). Modified:
-`inbox/inboxMeta.ts`, `inbox/InboxResolveDialog.tsx`, `shidduchim/ShidduchInputs.tsx` (new prop),
-`types.ts`, both dataProviders.
+New: `supabase/tests/shadchan_redting.sql` + `.test.ts`, `connections/RedtComposeDialog.tsx`.
+Modified: `inbox/inboxMeta.ts`, `inbox/InboxResolveDialog.tsx`, `shidduchim/ShidduchInputs.tsx`
+(new prop), `types.ts`, both dataProviders.
 
 ## Dev Agent Record
 

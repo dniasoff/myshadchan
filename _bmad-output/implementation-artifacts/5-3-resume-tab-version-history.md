@@ -13,28 +13,39 @@ so that I always have the newest and can see what changed.
 ## Position in Epic 5
 
 Depends on **5.1** (the `resume` tab slot). Nothing in the current codebase implements this
-today: `public.resumes` is "shaped but not built" (its own schema comment), there is no `resumes`
-React resource, no upload UI, and `db.resumes = []` in FakeRest. This is genuinely greenfield —
-verified by `grep -rln "resumes\b" src/components/atomic-crm` returning only type definitions,
-a billing usage-meter string, and empty FakeRest scaffolding, none of it a UI.
+today: `public.resumes` is shaped but not built (its own schema comment: *"resume detail is
+Epic-3; the table is shaped now"* — the detail work has since been re-planned into this epic),
+there is no `resumes` React resource, no upload UI, and `db.resumes = []` in FakeRest. This is
+genuinely greenfield — verified by `grep -rln "resumes" src/components/atomic-crm` returning
+only type definitions, billing usage-meter strings, and empty FakeRest scaffolding, none of it
+a UI.
 
 ## A pre-existing security gap this story must close before adding sensitive uploads
 
-`storage.objects` policies for the `attachments` bucket (`supabase/schemas/07_storage.sql`) are
-`to authenticated using (true)` / `with check (true)` — **any authenticated user, in any
-account, can read, write or delete any file in that bucket.** `uploadToBucket()`
-(`providers/supabase/dataProvider.ts:809`) writes to a flat, unprefixed path
-(`${random}${ext}`), so there is no account partition to even retrofit a path-based policy onto.
+The `attachments` bucket is **public**, and its three `storage.objects` policies
+(`supabase/schemas/07_storage.sql`) gate on nothing but `bucket_id = 'attachments'` — **any
+authenticated user, in any account, can read, write or delete any file in that bucket**, and
+`uploadToBucket()` (`providers/supabase/dataProvider.ts:809`) hands out `getPublicUrl()` links
+and writes to a flat, unprefixed path (`${Math.random()}${ext}`), so there is no account
+partition to even retrofit a path-based policy onto.
 
 This story is the first to put account-private, sensitive content (a resume) into storage. Per
 `.claude/rules/security-triggers.md` ("File system operations" and "Supabase RLS policies" are
 both explicit triggers), this is not optional cleanup — it blocks this story's own AC-4. The
 fix is scoped narrowly so it cannot regress the two existing legitimate `attachments` users
 (the config/branding logo and the member avatar, both `uploadToBucket()` callers that survive
-Epic 1's `sales`→`members` rename): **a new, separate storage bucket**, `documents`, used only by
-Resume (this story), Photo (5.4) and generic Files (5.6's wiring into Epic 3's files component).
-`attachments` and its existing policies are untouched — zero blast radius on the logo/avatar
-paths.
+Epic 1's `sales`→`members` rename): **a new, private storage bucket**, `documents`, used only by
+Resume (this story) and Photo (5.4). `attachments` and its existing policies are untouched —
+zero blast radius on the logo/avatar paths.
+
+**Why not Epic 3's `entity-files` bucket.** Story 3.7 already ships a private, account-folder-
+scoped bucket (`entity-files`) for the generic Files tab — do not confuse the two, and do not
+put resumes there. Postgres storage policies are *permissive* (they OR together): 3.7's
+account-wide select policy would grant every account member read on anything added to that
+bucket, and Story 5.4's photos need **stricter-than-account** read rules that can only be
+written against a keyspace no broader policy already covers. `documents` therefore carries
+policies scoped to its second-level prefix (`resumes/` here; 5.4 adds its own `photos/`
+policies), leaving unknown prefixes deny-by-default.
 
 ## Acceptance Criteria
 
@@ -48,9 +59,11 @@ paths.
 3. **Given** a suggestion with no resume yet, **when** I open Resume, **then** I see an empty
    state with only an upload action — no fabricated content.
 4. **Given** the new `documents` storage bucket, **when** a file is uploaded, **then** it is
-   stored under `{account_id}/resumes/{shidduchim_id}/{uuid}-{filename}`, and storage RLS permits
-   select/insert/update/delete only to members of that `account_id`. **Negative test:** a second
-   seeded account cannot read, list or delete a path under the first account's prefix.
+   stored under `{account_id}/resumes/{shidduchim_id}/{uuid}-{filename}`, and storage RLS
+   permits select/insert/update/delete only to members of that `account_id` **and only under
+   the `resumes/` second-level prefix** — other prefixes stay deny-by-default for Story 5.4 to
+   define. **Negative test:** a second seeded account cannot read, list or delete a path under
+   the first account's prefix.
 5. **Given** a download, **when** it is requested, **then** the client receives a short-lived
    signed URL (existing `createSignedUrl` pattern) — never a public or permanently valid URL.
 
@@ -60,9 +73,12 @@ paths.
   - [ ] `supabase/schemas/07_storage.sql`: create the `documents` bucket
         (`insert into storage.buckets (id, name, public) values ('documents', 'documents', false)`)
         and 4 policies (select/insert/update/delete) scoped by
-        `(storage.foldername(name))[1] = public.current_account_id()::text` — the standard
-        Supabase per-folder RLS idiom. Do **not** touch the existing `attachments` bucket or its
-        3 policies.
+        `(storage.foldername(name))[1] = public.current_context_id()::text and
+        (storage.foldername(name))[2] = 'resumes'` — the standard Supabase per-folder RLS idiom,
+        narrowed to this story's prefix. **`current_context_id()`, never `current_account_id()`:**
+        Epic 2 Story 2.1 deletes the latter outright (its AC requires
+        `to_regproc('public.current_account_id')` to be NULL), so a policy naming it fails to
+        apply. Do **not** touch the existing `attachments` bucket or its 3 policies.
   - [ ] Generate + hand-check the migration exactly as for any policy change (`db diff` on
         storage objects is often incomplete — verify the 4 policies exist in the generated file
         before applying).
@@ -72,10 +88,14 @@ paths.
 - [ ] **Task 2 — Server-side append (no client read-modify-write)** (AC: 2)
   - [ ] New SQL function `public.add_resume_file(p_shidduchim_id bigint, p_path text,
         p_filename text, p_mime_type text, p_size bigint)` in `supabase/schemas/02_functions.sql`:
-        validates the shidduch belongs to `current_account_id()`, upserts the `resumes` row
+        validates the shidduch belongs to `current_context_id()` (post-Epic-2 name — the
+        existing RPCs it sits beside will already have been token-swapped by Story 2.1), upserts
+        the `resumes` row
         (creating it on first upload), and does
-        `files = coalesce(files, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('path', p_path, 'filename', p_filename, 'uploaded_at', now(), 'uploaded_by', <member id>, 'mime_type', p_mime_type, 'size', p_size))` —
+        `files = coalesce(files, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('path', p_path, 'filename', p_filename, 'uploaded_at', now(), 'uploaded_by', public.current_member_id(), 'mime_type', p_mime_type, 'size', p_size))` —
         atomically, so two concurrent uploads cannot silently overwrite each other's entry.
+        `current_member_id()` is Story 3.5's caller-resolution function — reuse it, do not
+        re-derive the member lookup inline.
   - [ ] Grant `execute` to `authenticated`, follow the existing RPC comment/doc-block convention
         (see `add_redt`/`add_school`/`log_reference_call` immediately above/below it in
         `02_functions.sql` for the house style).

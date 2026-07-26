@@ -16,8 +16,9 @@ adding.
 **Requires Story 2.7 (hard).** This story is the **inviter-side** UI and the revoke
 path on top of the `invites` table, `create_invite()`, and the OTP-based acceptance flow
 2.7 already built. It adds no new provisioning or acceptance logic of its own.
-**Requires Story 2.2** (`role_authority()`'s companion "owning role" check — reuse, do
-not re-derive).
+**Requires Story 2.7's helpers** (`role_authority()` and the invite-capable-role
+check live there) and **Story 2.2** (whose narrower owning-role helper is a different
+predicate — see 2.7 AC-3's note; reuse each, re-derive neither).
 
 ## Scope boundary — what this story does not build
 
@@ -26,14 +27,13 @@ not re-derive).
 an `account_members` row — inviting a shadchan into a household as a *member* is
 structurally forbidden by Story 2.2's own
 `enforce_membership_role_matches_context()` trigger (`shadchan` role may only exist on
-a `shadchanus`-kind account, never a `household`-kind one). Epic 8 owns `connections`'
-schema and is explicitly the epic epics.md itself names for this bullet — what this
-story delivers is the **pattern** Epic 8 extends: a token-based, consent-required,
-revocable-before-acceptance invite row. Epic 8 will need its own schema addition
-(a `connections` table and, most likely, either a `connection_invites` table or a
-`target_kind` discriminator on `invites` distinguishing "grants a role" from "proposes a
-connection") — flagged here explicitly as **epics.md's own forward dependency onto Epic
-8**, not invented or pre-built in this story.
+a `shadchanus`-kind account, never a `household`-kind one). epics.md names Epic 8 for
+this bullet (the connection flows are its Story 8.2; the `connections` table itself is
+introduced earlier, by Epic 7's Story 7.4, per that story's own header) — what this
+story delivers is the **pattern** those stories extend: a token-based,
+consent-required, revocable-before-acceptance invite row. Flagged here explicitly as
+**epics.md's own forward dependency onto Epics 7/8**, not invented or pre-built in
+this story.
 
 ## Acceptance Criteria
 
@@ -58,10 +58,13 @@ connection") — flagged here explicitly as **epics.md's own forward dependency 
    built here.
 
 3. **An invite can be revoked before acceptance — the epic's own stated line.**
-   `public.revoke_invite(p_invite_id bigint) returns void`, `SECURITY INVOKER` (same
-   reasoning as `create_invite()` — always targets the caller's own active context, RLS
-   already scopes it). Raises unless the caller holds an owning role in the invite's
-   account, and unless the invite's `status = 'pending'` (an already-`accepted` invite
+   `public.revoke_invite(p_invite_id bigint) returns void`, `SECURITY DEFINER`,
+   `SET search_path = ''` (same reasoning as `create_invite()` — 2.7 AC-2 withholds
+   every DML grant on `invites` from `authenticated`, so an invoker-rights `update`
+   would be refused at the grant; the function's own explicit checks are the whole
+   write gate). It starts with 2.7's explicit active-membership check on the invite's
+   `account_id`, and raises unless the caller holds an invite-capable role in the
+   invite's account, and unless the invite's `status = 'pending'` (an already-`accepted` invite
    cannot be "revoked" — that member is already in; removing them is Story 2.5's
    persona-removal path, a different action for a different state). Sets
    `status = 'revoked'`. `InvitesSection.tsx` lists pending invites with a "Revoke"
@@ -85,27 +88,54 @@ connection") — flagged here explicitly as **epics.md's own forward dependency 
    emulates both RPCs against it, plus the same owning-role/authority checks
    `create_invite`/`revoke_invite` enforce in Postgres.
 
-6. **`resources.invites` is added to the i18n catalogues and to the route manifest** if
-   `invites` is exposed as a listable admin resource (it is, for the Settings screen's
-   list) — following the same registration shape every other resource uses
-   (`root/routeManifest.ts`, `providers/commons/{english,french}CrmMessages.ts`).
+6. **`invites` gets no route and no nav presence — decided, not left open.** The only
+   surface is the embedded Settings widget (AC-1/AC-4); `useGetList("invites", …)`
+   works against any table the dataProvider can reach and needs no
+   `root/routeManifest.ts` entry, and a `/invites` page nobody links to would be dead
+   weight. All UI copy lives under `crm.settings.invites_*` in both message
+   catalogues; a `resources.invites` block is added **only** if ra-core's default
+   notifications/labels for the `useGetList` calls surface a raw key in the UI —
+   verify in the running app rather than adding it speculatively.
 
-7. **No second invite-creation path exists.** `grep -rn "insert into.*invites\|\.from(\"invites\").*insert" src/`
-   returns no hit outside the one `createInvite` dataProvider method — nothing writes
-   `invites` directly, bypassing `create_invite()`'s authority check.
+7. **The fork's admin-invite membership path is deleted — this story's title made
+   literal.** The legacy path (a `members`-list admin creates a user directly:
+   `members/MemberCreate.tsx` → `dataProvider.memberCreate()` → POST
+   `supabase/functions/users` → `inviteUser()` → `auth.admin.inviteUserByEmail`) is a
+   second membership mechanism, and it is already a corpse by this point in the epic:
+   its invite email links to the set-password page 2.6 deleted, and its user creation
+   is refused by 2.7's before-user-created hook. Deleted outright (NFR-14/FR119):
+   the `inviteUser()` function and the `req.method === "POST"` branch in
+   `supabase/functions/users/index.ts` (PATCH/`patchUser` — profile edits and account
+   disabling — stays); `memberCreate` in both dataProviders;
+   `members/MemberCreate.tsx` and its create registration (the `members` resource
+   keeps list/edit); the now-unreferenced `[auth.email.template.invite]` block in
+   `supabase/config.toml` and `supabase/templates/invite.html` (GoTrue's invite
+   template is used only by `inviteUserByEmail`). Post-Epic-1 the only `memberCreate`
+   caller is `MemberCreate.tsx` — `misc/useImportFromJson.ts`'s call was deleted with
+   `/import` by story 1.1 (per 1.2's verified call-site table) — so nothing else
+   breaks; verify with `grep -rn "memberCreate" src/` returning zero hits after.
 
-8. **Toolchain green**: `make typecheck && npm run lint && make test &&
+8. **No second invite-creation path exists.** `grep -rn "insert into.*invites\|\.from(\"invites\").*insert" src/`
+   returns no hit outside the one `createInvite` dataProvider method. This grep proves
+   frontend hygiene only; the actual boundary is 2.7 AC-2's grant posture (no DML
+   grant on `invites` for `authenticated`), which closes the raw-PostgREST path a
+   grep over `src/` can never see.
+
+9. **Toolchain green**: `make typecheck && npm run lint && make test &&
    npm run test:unit:db`.
 
 ## Tasks / Subtasks
 
 - [ ] **Task 1 — `revoke_invite()`** (AC: 3)
-  - [ ] `02_functions.sql`: implement per AC-3, reusing the "owning role" predicate
-        `create_invite()` (2.7) already established — factor it into the same small
-        shared helper if 2.7 did not already do so (`role in ('parent_admin',
-        'self_manager', 'shadchan')`), rather than repeating the literal list a third
+  - [ ] `02_functions.sql`: implement per AC-3, reusing the **invite-capable-role**
+        predicate `create_invite()` (2.7) already established (`role in
+        ('parent_admin', 'self_manager', 'shadchan')` — deliberately distinct from
+        2.2's owning-role helper, per 2.7 AC-3's note); factor it into one shared
+        helper if 2.7 did not already, rather than repeating the literal list a third
         time.
-  - [ ] `06_grants.sql`: `execute` to `authenticated`, none to `anon`.
+  - [ ] `06_grants.sql`: `revoke all on function public.revoke_invite(bigint) from
+        public, anon;` then `execute` to `authenticated` (the file's standard
+        revoke-then-grant pattern).
   - [ ] Migration: `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
         invite_revocation`, hand-check, apply.
 
@@ -114,25 +144,39 @@ connection") — flagged here explicitly as **epics.md's own forward dependency 
         `revokeInvite(id)`.
   - [ ] `providers/fakerest/dataProvider.ts`: `db.invites` + emulated RPCs, including
         the authority checks.
-  - [ ] `root/routeManifest.ts` / i18n registration per AC-6, only if `invites` needs a
-        list route beyond the embedded Settings widget — confirm with the UX shape in
-        Task 3 before adding a route nobody links to.
+  - [ ] No `root/routeManifest.ts` entry and no `/invites` route (AC-6 — decided).
+        i18n keys land in Task 5.
 
 - [ ] **Task 3 — `InvitesSection.tsx`** (AC: 1, 2, 3, 4)
   - [ ] New file, visual pattern matching `FamilySection.tsx`/`PersonasSection.tsx`
         (2.5). Form (AC-1), link + copy button (AC-2), list with revoke (AC-3/4).
   - [ ] Add to `settings/SettingsPage.tsx` and `settings/SettingsPageMobile.tsx`.
 
-- [ ] **Task 4 — Copy** (AC: all UI-facing)
+- [ ] **Task 4 — Delete the legacy admin-invite path** (AC: 7)
+  - [ ] `supabase/functions/users/index.ts`: delete `inviteUser()` (lines 127-240 on
+        `main`) and the `req.method === "POST"` branch in the `Deno.serve` router;
+        keep `patchUser` and the PATCH branch.
+  - [ ] Both dataProviders: delete `memberCreate` (the fakerest emulation too).
+  - [ ] `git rm src/components/atomic-crm/members/MemberCreate.tsx`; remove it from
+        `members/index.ts` and any create-route registration; keep list/edit.
+  - [ ] `supabase/config.toml`: delete `[auth.email.template.invite]`;
+        `git rm supabase/templates/invite.html`.
+  - [ ] Verify: `grep -rn "memberCreate\|inviteUserByEmail" src/ supabase/functions/`
+        returns zero hits.
+
+- [ ] **Task 5 — Copy** (AC: all UI-facing)
   - [ ] New `crm.settings.invites_*` keys in both message catalogues.
 
-- [ ] **Task 5 — Tests** (AC: 3, 7)
+- [ ] **Task 6 — Tests** (AC: 3, 8)
   - [ ] Extend `supabase/tests/invites.sql` (2.7) with `revoke_invite()`'s guard cases:
         a non-owning caller cannot revoke; an already-accepted invite cannot be revoked;
         a pending invite in a **different** context (not the caller's active one) is
         invisible to `revoke_invite()` entirely (RLS, not an application check).
   - [ ] Component test for `InvitesSection`: role selector options match the caller's
-        own authority; revoke button only shown for `pending` rows.
+        own authority; revoke button only shown for `pending` rows. (Forward note:
+        Epic 6 Story 6.1 later removes `single` from this generic selector — a
+        single's login is invited from their own record instead — so that story, not a
+        regression, is what changes this test's expected option list.)
   - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`.
 
 ## Dev Notes
@@ -166,7 +210,11 @@ require inventing `connections`' shape ahead of the epic that owns it.
 
 ### Verified current state
 
-- No `invites`-adjacent frontend exists at all today; this story is wholly additive.
+- No `invites`-table frontend exists at all today; the additive half of this story
+  has nothing to collide with. The subtractive half's blast radius is verified small:
+  post-Epic-1 the only `memberCreate` caller is `members/MemberCreate.tsx`
+  (`useImportFromJson.ts`'s call went with `/import` in story 1.1), and
+  `inviteUserByEmail` appears only inside `supabase/functions/users/index.ts`.
 - `grep -rli resend supabase/` — zero hits, confirming AC-2's decision is grounded in
   the actual repo state, not assumed.
 - `settings/FamilySection.tsx` — the "quiet summary section" pattern `InvitesSection.tsx`
@@ -182,7 +230,9 @@ AC-3's cross-context invisibility case.
 
 New: `settings/InvitesSection.tsx`. Edited: `settings/SettingsPage.tsx`,
 `settings/SettingsPageMobile.tsx`, both `dataProvider.ts` files, `02_functions.sql`,
-`06_grants.sql`, both message catalogues.
+`06_grants.sql`, both message catalogues, `supabase/functions/users/index.ts`,
+`members/index.ts`, `supabase/config.toml`. Deleted: `members/MemberCreate.tsx`,
+`supabase/templates/invite.html`.
 
 ### References
 

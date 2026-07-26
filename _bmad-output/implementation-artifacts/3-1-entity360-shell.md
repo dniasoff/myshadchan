@@ -58,26 +58,35 @@ its own test file, the same pattern Epic 1 Story 1.5 used for `routeManifest.tes
    color. No class name or inline style in `Entity360.tsx` or `EntityAvatar.tsx` sets a
    fixed pixel width greater than 375, and the root container's layout classes include a
    responsive stack (`flex-col`) with no unconditional `min-w-` wider than the smallest
-   breakpoint. A grep-based test (`grep -nE "min-w-\[(3[89][0-9]|[4-9][0-9]{2})px\]|#[0-9a-fA-F]{3,6}\b"` over the new files) returns nothing, run as a vitest `it` that shells
-   out to the same check the way Epic 1 Story 1.5 modelled `routeManifest.test.ts` on
-   plain-logic assertions (no DOM needed for this one).
+   breakpoint. Verified by a vitest `it` that imports each new file's source as text via
+   Vite's `?raw` import (the `app` project runs in a real Chromium browser —
+   vitest.config.ts's own comment — so `child_process`/`node:fs` are unavailable; `?raw`
+   is the in-browser equivalent of the grep) and asserts
+   `/min-w-\[(3[89][0-9]|[4-9][0-9]{2})px\]|#[0-9a-fA-F]{3,6}\b/` matches nothing.
 
 4. **The identity header stops duplicating the avatar chip.** A shared `EntityAvatar`
-   component (`src/components/atomic-crm/entity360/EntityAvatar.tsx`) replaces the four
-   near-identical monogram-chip blocks currently hand-rolled in
-   `singles/SingleShow.tsx` (`ChildProfileHeader`, today `children/ChildShow.tsx:44-100`),
+   component (`src/components/atomic-crm/entity360/EntityAvatar.tsx`) is built to replace
+   the four near-identical monogram-chip blocks currently hand-rolled in
+   `singles/SingleShow.tsx` (`ChildProfileHeader`, today `children/ChildShow.tsx:34-100`),
    `shadchanim/ShadchanHeader.tsx:21-22` + its surrounding markup,
    `references/ReferenceShow.tsx:36-58` (`ReferenceHeader`), and
-   `shidduchim/ShidduchShowHeader.tsx:31-40`. `EntityAvatar` takes `{ seed, monogramSource
-   }` and renders the `size-*` rounded chip with the `--avatar-{n}` background exactly as
-   today. **This story only extracts the component and gets `getMonogram`/`getAvatarIndex`
-   into it (AC 5) — it does not yet rewire the four call sites to use `EntityAvatar`.**
-   Rewiring each header is each entity's own change, made when Epic 5 migrates that
-   entity onto `Entity360` (Stories 5.1, 5.8, 5.9, 5.10) — doing it now would touch live
-   show pages, which is out of this story's scope per "Position in Epic 3" above.
+   `shidduchim/ShidduchShowHeader.tsx:31-40`. `EntityAvatar` takes
+   `{ seed?: string | null; monogramSource?: string | null; className?: string }` —
+   `monogramSource` feeds `getMonogram`, `seed` feeds `getAvatarIndex` (all four call
+   sites today pass `name` as the monogram source and `name ?? String(id)` as the index
+   seed — two inputs, so one `seed` prop cannot serve both), `className` only for the
+   size/radius variants the four sites genuinely differ in (`h-14/rounded-2xl` vs
+   `h-12/rounded-xl`) — and renders the rounded chip with the `--avatar-{n}` background
+   and `aria-hidden` exactly as today. **This story only extracts the component and gets
+   `getMonogram`/`getAvatarIndex` into it (AC 5) — it does not yet rewire the four call
+   sites to use `EntityAvatar`.** Rewiring each header is each entity's own change, made
+   when Epic 5 migrates that entity onto `Entity360` (Stories 5.1, 5.8, 5.9, 5.10) —
+   doing it now would touch live show pages, which is out of this story's scope per
+   "Position in Epic 3" above.
 
 5. **`getMonogram`/`getAvatarIndex` move to `entity360/`.** They are cross-entity
-   utilities already imported by 9 files outside `shidduchim/` (verified:
+   utilities already imported by 9 files beyond `boardUtils.ts` itself, six of them
+   outside `shidduchim/` (verified:
    `singles/SingleCard.tsx`, `singles/SingleShow.tsx`, `references/ReferenceList.tsx`,
    `references/ReferenceShow.tsx`, `shadchanim/ShadchanCard.tsx`,
    `shadchanim/ShadchanHeader.tsx`, `shidduchim/ShidduchShowHeader.tsx`,
@@ -114,12 +123,12 @@ its own test file, the same pattern Epic 1 Story 1.5 used for `routeManifest.tes
         and `ShidduchimByState`, which are genuinely shidduchim-specific and stay put).
 
 - [ ] **Task 2 — Build `EntityAvatar`** (AC: 4)
-  - [ ] Create `entity360/EntityAvatar.tsx`: `{ seed?: string | null; className?: string
-        }` (allow a size override only, per AC 2's "no restyling" rule applying to
-        `Entity360` itself, not this leaf component), rendering the monogram chip markup
-        common to the four headers named in AC 4 (rounded-2xl/xl box,
-        `--avatar-{getAvatarIndex(seed)}` background, `getMonogram(seed)` text,
-        `aria-hidden`).
+  - [ ] Create `entity360/EntityAvatar.tsx` with the AC 4 props (`seed`,
+        `monogramSource`, `className` — the `className` override is a size/radius
+        variant only; AC 2's "no restyling" rule applies to `Entity360` itself, not this
+        leaf component), rendering the monogram chip markup common to the four headers
+        named in AC 4 (rounded box, `--avatar-{getAvatarIndex(seed)}` background,
+        `getMonogram(monogramSource)` text, `aria-hidden`).
   - [ ] Do not touch `singles/SingleShow.tsx`, `shadchanim/ShadchanHeader.tsx`,
         `references/ReferenceShow.tsx` or `shidduchim/ShidduchShowHeader.tsx` beyond what
         Task 1's import move requires. Rewiring them to render `<EntityAvatar>` is Epic
@@ -141,8 +150,9 @@ its own test file, the same pattern Epic 1 Story 1.5 used for `routeManifest.tes
         assertion (all seven populated → correct DOM order), one `it` per "region absent
         when prop undefined" case, one `it` for the `className`/no-restyle type check
         (`// @ts-expect-error` on `<Entity360 className="x" .../>`).
-  - [ ] The grep-based no-hard-pixel / no-hex-color check from AC 3, written as a plain
-        vitest `it` (no DOM), modelled on `routeManifest.test.ts`'s plain-logic style.
+  - [ ] The no-hard-pixel / no-hex-color check from AC 3, written as a plain vitest `it`
+        (no DOM) over `?raw` source imports, modelled on `routeManifest.test.ts`'s
+        plain-logic style.
   - [ ] `entity360/avatar.test.ts` — the two moved `describe` blocks, unchanged
         assertions.
 
@@ -197,9 +207,13 @@ at the time you implement this story.
 
 AAA, descriptive `it` names, no shared mutable state between tests
 [Source: .claude/rules/testing.md]. Runs in the `app` vitest project
-(`npm run test:unit:app`), same project as `routeManifest.test.ts`
-[Source: vitest.config.ts:36]. No new backend surface — no migration, no RLS, no
-`test:unit:db` involvement in this story.
+(`npm run test:unit:app`), same project as `routeManifest.test.ts` — note the `app`
+project executes in a real headless Chromium (vitest browser mode), so tests cannot
+shell out or touch `node:fs`; source-text assertions use Vite `?raw` imports instead
+[Source: vitest.config.ts — the "app" project block and its browser config]. The
+`// @ts-expect-error` case in AC 2 is enforced by `make typecheck` (an unused
+`@ts-expect-error` is itself a tsc error), not by the test runner. No new backend
+surface — no migration, no RLS, no `test:unit:db` involvement in this story.
 
 ### Project Structure Notes
 
@@ -217,7 +231,8 @@ AAA, descriptive `it` names, no shared mutable state between tests
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-3-The-360-Framework — Story 3.1]
 - [Source: ARCHITECTURE-SPINE.md#AD-24] — the shell contract this story implements
 - [Source: _bmad-output/specs/spec-myshadchan/SPEC.md#Capabilities — CAP-7]
-- [Source: _bmad-output/specs/spec-myshadchan/SPEC.md#UX-DR1, #UX-DR11 via epics.md FR-coverage map]
+- [Source: _bmad-output/planning-artifacts/epics.md#UX-Design-Requirements — UX-DR1,
+  UX-DR11] (the UX-DRs are defined in epics.md, not in SPEC.md)
 - [Source: _bmad-output/implementation-artifacts/1-5-remove-dead-routes.md#Dev-Notes §4] —
   "Epic 3/4/5 … `Entity360` … Do not restructure routes" — the scope boundary this story
   respects, and the fixture-in-test-file testing pattern (`routeManifest.test.ts`) this
@@ -225,7 +240,7 @@ AAA, descriptive `it` names, no shared mutable state between tests
 - [Source: src/components/atomic-crm/shidduchim/boardUtils.ts:34-51] — `getMonogram` /
   `getAvatarIndex`, moved by this story
 - [Source: src/components/atomic-crm/children/ChildShow.tsx:34-100,
-  shadchanim/ShadchanHeader.tsx, references/ReferenceShow.tsx:31-107,
+  shadchanim/ShadchanHeader.tsx, references/ReferenceShow.tsx:31-58,
   shidduchim/ShidduchShowHeader.tsx] — the four duplicated avatar-chip blocks `EntityAvatar`
   will eventually replace (Epic 5)
 - [Source: src/components/atomic-crm/dashboard/DashboardStat.tsx] — the stat tile the

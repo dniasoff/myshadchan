@@ -18,18 +18,19 @@ rebuilding it) and **Story 5.4** (Photo, extended the same way). Independent of 
 (those are shidduch-only). Written post-Epic-1: the entity and resource are `singles`
 (`src/components/atomic-crm/singles/`), route `/singles/{id}`.
 
-## Two schema gaps this story closes
+## One schema gap this story closes (and one it must NOT re-close)
 
-**1. `tasks`/`interactions` cannot target a single today.** Post-Epic-1 (per Story 1.1),
-`tasks_target_type_check` is `('shadchan', 'shidduch', 'reference')` and
-`interactions_target_type_check` is `('reference', 'shidduch')` — **neither includes
-`'single'`.** Epic 3's Stories 3.5/3.6/3.8 build the universal Activity/Notes/Tasks tabs
-generically, but their own ACs never mention extending these enums, and at the time Epic 3 runs
-neither the single nor the shadchan 360 exists yet to need it. This story is the first to
-actually need `target_type = 'single'`, so it owns adding it — narrowly, when the need is real,
-rather than Epic 3 speculatively widening enums for entities that don't have pages yet.
+**Already done by Epic 3 — verify, do not redo.** `target_type = 'single'` needs no migration
+here: Story 3.5's AC-1 widens `interactions_target_type_check` to
+`('reference', 'shidduch', 'shadchan', 'single')` **and** adds the
+`(scope = 'account' and target_type in ('shadchan', 'single') and reference_link_id is null)`
+branch to `interactions_scope_link_check`, with RLS branches for both new targets; Story 3.8's
+AC-1 makes `tasks_target_type_check` `('shadchan', 'shidduch', 'reference', 'single')`. A
+migration here that re-specifies those constraints from a stale assumption would silently drop
+what 3.5/3.8 shipped. This story only *verifies* the live constraints (Task 2) and consumes
+them.
 
-**2. `resumes` (and Story 5.4's `resume_photos`) can only attach to a shidduch.** The epic
+**The real gap: `resumes` (and Story 5.4's `resume_photos`) can only attach to a shidduch.** The epic
 requires the single's *own* resume ("the one I send out to shadchanim") to live in the same
 Resume/Photo tabs already built for a shidduch's suggested candidate — not a second,
 parallel resume feature. This story makes `resumes.shidduchim_id` nullable, adds
@@ -39,12 +40,12 @@ needs no schema change at all: it references `resumes.id`, so once `resumes` sup
 
 ## Acceptance Criteria
 
-1. **Given** `tasks_target_type_check` and `interactions_target_type_check`, **when** this
-   story's migration lands, **then** both include `'single'`; `interactions_scope_link_check`
-   gains the case `(scope = 'account' and target_type = 'single' and reference_link_id is
-   null)` (a single's own notes/tasks/activity are account-scoped — this epic does not ask for
-   a dignity-floor restriction on a single's *own* record, only on suggestion visibility, which
-   is unaffected by this change).
+1. **Given** the post-Epic-3 schema, **when** this story starts, **then**
+   `select pg_get_constraintdef(oid) from pg_constraint where conname in
+   ('tasks_target_type_check', 'interactions_target_type_check',
+   'interactions_scope_link_check');` confirms `'single'` is already a legal target on all
+   three (delivered by Stories 3.5/3.8) — this story ships **no** migration for these
+   constraints. If `'single'` is missing, Epic 3 has not landed: stop and report.
 2. **Given** `public.resumes`, **when** this story's migration lands, **then**
    `shidduchim_id` is nullable, a new nullable `single_id` column exists (FK to
    `singles(account_id, id)`), and a check constraint enforces exactly one of
@@ -58,8 +59,11 @@ needs no schema change at all: it references `resumes.id`, so once `resumes` sup
    `{ singleId }` as their subject prop — a single, shared implementation, two callers. No new
    upload, version-list or reveal component is written in this story.
 4. **Given** one of my singles, **when** I open their record, **then** I see Overview, Resume,
-   Photo, Files, Shidduchim, Notes, Tasks, Activity on the `Entity360` shell at
-   `/singles/{id}/{tab}`.
+   Photo, Files, Shidduchim, Notes, Tasks, Activity (UX-DR5's single tab matrix, in that order)
+   on the `Entity360` shell at `/singles/{id}/{tab}`; `singles/SingleShow.tsx`'s bespoke layout
+   is deleted once its content is relocated (same pattern as 5.1's dialog deletion), and the
+   singles `buildRecordPath` registration (Story 3.9) becomes ``(id) => `/singles/${id}` ``
+   with 3.9's route-pinning test updated — `RecordLink` call sites follow automatically.
 5. **Given** the Shidduchim tab, **when** it renders, **then** it lists every shidduch where
    `single_id = {id}` (post Epic 1 Story 1.3's rename), each row a `RecordLink` (Story 3.9) to
    that shidduch's own 360 — not a re-implementation of the board or a second ad-hoc `<Link>`.
@@ -74,20 +78,13 @@ needs no schema change at all: it references `resumes.id`, so once `resumes` sup
   - [ ] Confirm Epic 3's shell/descriptor registry and universal tabs exist (per Story 5.1's
         gate). Confirm Story 5.3 (`resumes` upload path) and Story 5.4 (`resume_photos`) have
         landed — this story extends both rather than reimplementing them.
-- [ ] **Task 2 — Extend the polymorphic enums** (AC: 1)
-  - [ ] `supabase/schemas/01_tables.sql`: add `'single'` to `tasks_target_type_check` and
-        `interactions_target_type_check`; add the new case to
-        `interactions_scope_link_check`.
-  - [ ] `types.ts`: widen `Interaction.target_type` and `Task`'s target-type union to include
-        `"single"`.
-  - [ ] Generate + hand-check migration; **this is the first of two stories that touch these same
-        constraints** — Story 5.9 lands after this one and must re-specify the *full* allowed
-        set (including `'single'`) when it adds `'shadchan'`, not blindly append its own value in
-        isolation. Leave a comment in the schema file noting this story added `'single'`, so 5.9's
-        author sees it.
-  - [ ] Negative test: an `interactions` row with `target_type = 'single'` from account B is
-        invisible to account A's client (mirrors the existing cross-account pattern in
-        `supabase/tests/references_entity.sql`).
+- [ ] **Task 2 — Verify the polymorphic targets, do not migrate them** (AC: 1)
+  - [ ] Run the AC-1 `pg_get_constraintdef` query; confirm the TypeScript unions
+        (`Interaction.target_type`, `TaskTargetType`) already carry `"single"` (3.5/3.8 own
+        those edits too). No schema or type change here.
+  - [ ] Confirm 3.5's cross-account negative tests cover `target_type = 'single'`; if its suite
+        somehow lacks that case, extend the existing pattern in
+        `supabase/tests/references_entity.sql` rather than writing a new style.
 - [ ] **Task 3 — Extend `resumes` to a single** (AC: 2)
   - [ ] `01_tables.sql`: `alter column shidduchim_id drop not null`; add `single_id bigint`; FK
         to `singles(account_id, id)`; drop the old `unique (shidduchim_id)`, add the two partial
@@ -105,8 +102,12 @@ needs no schema change at all: it references `resumes.id`, so once `resumes` sup
         `p_single_id` as an alternative to `p_shidduchim_id` (same exactly-one-of check as the
         table).
 - [ ] **Task 5 — Single descriptor and tabs** (AC: 4, 5)
-  - [ ] Register the `singles` entity descriptor with tabs
-        `overview, resume, photo, files, shidduchim, notes, tasks, activity`.
+  - [ ] Fill in the `singles` entity descriptor (3.9 registered the minimal
+        `name` + `buildRecordPath` stub) with tabs
+        `overview, resume, photo, files, shidduchim, notes, tasks, activity`; change its
+        `buildRecordPath` to ``(id) => `/singles/${id}` `` and update 3.9's route-pinning test.
+  - [ ] Relocate `SingleShow.tsx`'s content into the descriptor's identity-header/overview
+        slots, then delete it; `grep -rn "SingleShow" src/` returns nothing.
   - [ ] Overview: reuse `singles_summary`'s existing fields (name_en/he, dob, gender, community,
         status) — this data already exists; no new columns needed here.
   - [ ] Shidduchim tab: `useGetList("shidduchim", { filter: { single_id } })`, each row a
@@ -121,28 +122,27 @@ needs no schema change at all: it references `resumes.id`, so once `resumes` sup
 ### Reuse — the whole point of this story
 
 Do not write a second upload flow, a second version list, or a second reveal-photo component.
-Stories 5.3 and 5.4 already built these; this story's only novel work is (a) the two enum/schema
-extensions above and (b) threading a single as an alternative subject through existing
+Stories 5.3 and 5.4 already built these; this story's only novel work is (a) the `resumes`
+owner-column change above and (b) threading a single as an alternative subject through existing
 components. If a component ends up hard-coded to `shidduchimId` in a way that resists
 generalisation, that is a signal 5.3/5.4 under-scoped their own prop design — fix the prop shape
 there conceptually, but implement the fix here since this is the story that first needs it.
 
 ### Ownership note for Story 5.9
 
-Story 5.9 (Shadchan 360) needs the identical `target_type` extension pattern for `'shadchan'`.
-Both stories touch `tasks_target_type_check`/`interactions_target_type_check`/
-`interactions_scope_link_check`. This story lands first (per epic order); 5.9's migration must
-add `'shadchan'` to the set this story leaves behind (`'shadchan', 'shidduch', 'reference',
-'single'`), not redefine the constraint from a stale, pre-5.8 assumption.
+Story 5.9 (Shadchan 360) sits on the same Epic 3 ground: `'shadchan'` was added to
+`interactions_target_type_check` and the scope branch by Story 3.5, and `tasks` always allowed
+it. Neither 5.8 nor 5.9 migrates these constraints; both verify them. If either story finds
+itself writing `DROP CONSTRAINT` on them, it is working from a stale assumption — stop.
 
 ### Migration workflow
 
 Edit `supabase/schemas/*`, then run
-`DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f single_targeting_and_resume_owner`,
-hand-check: the constraint edits are plain `DROP`/`ADD CONSTRAINT` (correct as generated), but
-`db diff` never emits the partial-unique-index swap or the `resumes_owner_check` constraint
-description precisely — read the generated file line by line against Task 2/3 above before
-applying. Then `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. Never
+`DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f resume_single_owner`,
+hand-check: `db diff` never emits the partial-unique-index swap or the `resumes_owner_check`
+constraint precisely — read the generated file line by line against Task 3 above before
+applying, and confirm it touches **only** `resumes` (no `*_target_type_check` lines — see
+Task 2). Then `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. Never
 `db reset`/`db push`.
 
 ### Project Structure Notes
@@ -158,6 +158,9 @@ applying. Then `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --l
 - [Source: ARCHITECTURE-SPINE.md#AD-24] — "A single sees the same screens as a parent... the
   difference is permission, never a parallel surface" (why this reuses 5.3/5.4 rather than
   forking them).
+- [Source: _bmad-output/implementation-artifacts/3-5-universal-activity-tab.md#AC-1,
+  3-8-universal-tasks-tab.md#AC-1] — the `'single'` target-type widening this story verifies
+  instead of redoing.
 - [Source: _bmad-output/implementation-artifacts/1-3-rename-children-to-singles.md] — the
   post-rename names (`singles`, `single_id`) this story is written against.
 

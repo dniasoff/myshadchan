@@ -1194,3 +1194,75 @@ So that I can see agreement, contradiction and gaps.
 **Then** I see consensus, contradictions and what nobody was asked
 **And** it draws only on this account's own records
 **And** it never judges compatibility or suggests a match.
+
+---
+
+## Unowned work surfaced by the Epic 2–11 story review (2026-07-26)
+
+Ten adversarial reviewers plus two cross-checks surfaced work that **no story owns**.
+Recorded here so each is a decision, not an oversight. Nothing below is scheduled.
+
+### S1 — SECURITY: the `attachments` bucket is public and account-unscoped ⚠️
+The bucket holding **resumes and photos** — PRV-1's highest-sensitivity data — is
+`public = true`, and its only policy is
+`for select to authenticated using (bucket_id = 'attachments')` with **no account scoping**
+(`supabase/schemas/07_storage.sql`). Object keys come from `Math.random()`
+(`supabase/functions/postmark/extractAndUploadAttachments.ts`), which is not a
+cryptographic secret, and the code calls `getPublicUrl`.
+
+Violates **AD-1** (cross-account leaks = 0), **AD-9** (no public/pre-signed URLs; a Worker
+proxy-streams), **PRV-5** (no public URLs, access-logged) and **PRV-8** (revocable,
+expiring, per-recipient).
+
+Confirmed in the declared schema and the local instance. **The hosted project was not
+verified — do that first.** Four stories *read* this bucket (3.7, 5.3, 6.3, 11.2); none
+fixes it. Needs an owning story before any epic ships more attachment traffic.
+
+### S2 — Repo-wide `FORCE ROW LEVEL SECURITY` retrofit + AD-1's CI assertion
+AD-1 requires `FORCE RLS` on every table and a CI check asserting it. Story 2.1 explicitly
+declines the retrofit; no other story takes it.
+
+### S3 — Invite-token-at-rest posture is split
+2.7 stores membership-invite tokens as raw uuids; 8.2 stores connection-invite tokens as
+SHA-256 hashes. Two postures for what AD-11 calls one mechanism. Either align 2.7 to
+hashing, or have the architecture owner bless the split.
+
+### S4 — Shadchanus contexts cannot hold tasks or reminders
+`tasks.target_type` has no target that can exist in a shadchanus account, so a shadchan
+cannot record "call the Kleins Tuesday". Story 8.1 honestly omits the nav items rather than
+faking it. Wants a `connection` task target (touches AD-13's target set).
+
+### S5 — AD-13 reminder delivery is never wired
+Story 7.5 builds the first real Resend / Web-Push delivery; no story connects the reminders
+sweep to it, so reminders remain undelivered by any real channel.
+
+### S6 — AD-8 observability and AD-17 rate limiting are unowned
+Epic 11 ships the product's first real inference calls, but Langfuse tracing, the
+account-namespaced response cache (AD-8) and rate limiting on expensive surfaces (AD-17)
+belong to no story.
+
+### S7 — The list half of AD-24 is not delivered
+Story 3.3 builds the `EntityDescriptor` registry and states Epic 4 will consume it; story
+4.1 explicitly declines ("a follow-up refactor, not this story's to anticipate"), and no
+later story rewires the retrofitted lists. Every list still hard-codes its own props.
+Either correct-course a story, or amend AD-24 to put list-level descriptor consumption out
+of Phase-1 scope.
+
+### S8 — Postmark → Cloudflare Email Routing migration
+The spine's AD-6 and stack table name Cloudflare Email Routing; the shipped code is
+Postmark, and `workers/ingest/index.ts` calls the migration "separate future work".
+
+### S9 — FR22, the per-account private inbound address
+The product has one global `VITE_INBOUND_EMAIL`. No story delivers per-account addresses.
+
+### S10 — No story owns the passwordless e2e sign-in helper
+Story 2.6 deletes password auth, making `e2e/fixtures.ts`'s password helpers dead. Story
+1.6's smoke spec does not specify an auth approach, and every later epic's e2e work needs
+one. Story 10.3 adds it defensively; the hand-off should be pinned.
+
+### S11 — `TaskDeliveryChannel` vs `MessageNotificationChannel`
+Story 7.5 defers unifying the two channel enums and assigns the cleanup to nobody.
+
+### S12 — epics.md coverage rows understate real dependencies
+The Epic 8 row omits its Epic 7 (threads/AD-22), Epic 3/4 (AD-24) and Epic 2 (AD-19)
+dependencies. Other rows may be similarly thin.

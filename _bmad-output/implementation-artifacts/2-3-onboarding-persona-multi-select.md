@@ -50,7 +50,7 @@ first so 2.5 imports rather than duplicates it.
 
 4. **Ticking `single` alone lands the user on a finished record, not an empty form.**
    Because `add_persona('single')` already creates a `singles` row for the caller (2.2
-   AC-5), the wizard does not ask them to "add a single" — that step only appears when
+   AC-6), the wizard does not ask them to "add a single" — that step only appears when
    `parent` was ticked. The done screen for a single-only signup reads distinctly from
    the parent one (e.g. "Your record is ready" rather than "\<child\>'s record is
    ready").
@@ -70,8 +70,9 @@ first so 2.5 imports rather than duplicates it.
 
 7. **"Explore with demo data" keeps working for a user with zero personas.** Today's
    `seedDemo()` (`supabase/functions/seed_demo`) requires the caller to already have an
-   account; before Story 2.7 that was guaranteed by the old bootstrap-first-user
-   fallback. This story's onboarding screen calls `add_persona('parent')` immediately
+   account — which today only the very **first** user ever (the bootstrap in
+   `handle_new_user()`) or an admin-invited user gets; everyone else fails closed with
+   no membership at all. This story's onboarding screen calls `add_persona('parent')` immediately
    before `dataProvider.seedDemo()` when "Explore with demo data" is chosen, so a
    brand-new invited user always has a household to seed into. This is the one place
    this story calls `add_persona` outside the multi-select's own submit handler, and it
@@ -109,13 +110,15 @@ first so 2.5 imports rather than duplicates it.
         next to `currentAccountDemo()` (same file, same section), calling
         `getSupabaseClient().rpc("my_personas")` / `.rpc("add_persona", { p_persona })`.
   - [ ] `providers/fakerest/dataProvider.ts`: emulate both against the in-memory `db`
-        — `getMyPersonas` derives from `db.accountMembers`/`db.singles` using the same
-        "owning role" rule 2.2's SQL uses (do not invert the derivation — copy the rule,
-        don't reinvent it); `addPersona` mutates the fake `db` the same way the SQL
+        — `getMyPersonas` derives from `db.account_members`/`db.singles` using the same
+        rules 2.2's `my_personas()` uses (`parent` from `parent_admin`, `single` from a
+        `singles` row pointing at any own membership, `shadchan` from a
+        `shadchan`-role membership — copy the rules, don't reinvent them); `addPersona` mutates the fake `db` the same way the SQL
         function mutates real tables (create a household/singles row/shadchanus account
-        as appropriate). Check `providers/fakerest/dataGenerator/` for the exact fake
-        table names in play (post-1.2/1.3 rename: `accountMembers`, `singles`,
-        `accounts`).
+        as appropriate). The fake collection keys are snake_case, matching the real
+        tables: `db.account_members` (verified in
+        `providers/fakerest/dataGenerator/types.ts` and `shidduchim.ts`), `db.accounts`,
+        and — post-1.3 — `db.singles`.
   - [ ] Add matching `MyPersona` / `Persona` types to `src/components/atomic-crm/types.ts`.
 
 - [ ] **Task 2 — `useMyPersonas` hook** (AC: 9)
@@ -186,8 +189,8 @@ exactly "new user, first login" (AC-1).
 
 `supabase/functions/seed_demo/index.ts` resolves the caller's existing account before
 seeding (`resolveAccountId`, `_shared/resolveDemoAccount.ts`) and has never needed to
-create one, because the pre-2.7 world guaranteed the very first user already had a
-bootstrapped account. Story 2.7 removes that bootstrap. AC-7's fix (call
+create one — in the pre-2.7 world the only self-served user was the bootstrapped first
+one, who already had an account. Story 2.7 removes that bootstrap. AC-7's fix (call
 `add_persona('parent')` client-side before `seedDemo()`) keeps the demo path working
 without touching the edge function, but it is a workaround, not a redesign: if a caller
 somehow reaches "Explore with demo data" through a path that skips this screen (there is
@@ -201,10 +204,10 @@ forgotten.
 - `root/OnboardingGate.tsx` (today): `useGetList<Child>("children", …)`, gate on
   `hasChildren`. Post-1.3 this reads `Single`/`"singles"`; post-this-story it reads
   `useMyPersonas()` instead and drops the `singles` query entirely.
-- `login/OnboardingChoice.tsx` (today, 187 lines): two-card choice (`ExploreDemoButton`,
+- `login/OnboardingChoice.tsx` (today, 186 lines): two-card choice (`ExploreDemoButton`,
   `OwnFamilyButton`), no persona concept at all.
-- `login/FirstRunSetup.tsx` (today, 339 lines): assumes `accounts[0]` already exists
-  (works only because of the pre-2.7 bootstrap); this story's Task 5 is the fix.
+- `login/FirstRunSetup.tsx` (today, 338 lines): assumes `accounts[0]` already exists
+  (works only because of the pre-2.7 bootstrap); this story's Task 6 is the fix.
 - `root/useAccountDemo.ts` — the exact hook shape Task 2 mirrors, read in full before
   writing `useMyPersonas.ts`.
 - `providers/supabase/dataProvider.ts:587-596` (`currentAccountDemo`) and
@@ -213,8 +216,9 @@ forgotten.
 ### Testing standards
 
 Component-level tests (Vitest + Testing Library, matching the project's existing
-`*.test.tsx` convention, e.g. `GoogleSignInButton.test.tsx`) for the multi-select's
-validation and call-ordering. No new SQL in this story, so no `supabase/tests/*.sql`
+`*.test.tsx` convention, e.g. `landing/LandingGate.test.tsx` or
+`tasks/TasksListFilter.test.tsx` — not `GoogleSignInButton.test.tsx`, which Story 2.6
+deletes) for the multi-select's validation and call-ordering. No new SQL in this story, so no `supabase/tests/*.sql`
 addition — `.claude/rules/testing.md`'s AAA structure still applies to the component
 tests.
 

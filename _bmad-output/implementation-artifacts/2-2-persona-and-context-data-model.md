@@ -40,7 +40,9 @@ reads `accounts.kind` to label contexts "Household" vs "Shadchanus" and calls
 
 3. **A shadchanus context cannot hold a household domain row — enforced by Postgres,
    not by convention.** One shared trigger function,
-   `public.enforce_household_scope()` (`before insert`, one function reused across
+   `public.enforce_household_scope()` (`before insert or update of account_id` — the
+   update event too, so a row can never be *moved* onto a shadchanus account by any
+   write path RLS does not stop, e.g. a service-role caller; one function reused across
    every table per the single-owner-logic convention — mirrors
    `purge_polymorphic_dependents()`'s existing pattern), raises unless
    `exists (select 1 from public.accounts where id = new.account_id and kind =
@@ -85,19 +87,32 @@ reads `accounts.kind` to label contexts "Household" vs "Shadchanus" and calls
    for it. Idempotent: calling it twice with the same persona for the same caller
    changes nothing the second time. Behaviour per persona, matching
    personas-and-contexts.md's provisioning table exactly:
-   - **`parent`** — if the caller holds no active household-kind membership, creates one
-     (`accounts.kind = 'household'`, `account_members.role = 'parent_admin'`). If the
-     caller already holds an active household-kind membership, promotes that membership's
-     `role` to `parent_admin` (covers the self-managing-single-becomes-parent case) unless
-     it is already `parent_admin` (no-op).
-   - **`single`** — if a `singles` row already exists with `member_id` pointing at one of
-     the caller's own **owning** memberships (`role in ('parent_admin', 'self_manager')`),
-     no-op. Otherwise: if the caller holds an active household-kind membership with an
-     owning role, insert a `singles` row in that household with `member_id` = that
-     membership's id. If the caller holds **no** owning-role household membership (they
-     may hold none at all, or only a non-owning `helper`/`single` membership elsewhere —
-     see Dev Notes "Why `single` never attaches to a helper's household"), create a new
-     household with `role = 'self_manager'`, then the `singles` row inside it.
+   - **`parent`** — the branch keys on **owning** memberships (`role in ('parent_admin',
+     'self_manager')`) only, never "any household membership": if the caller already
+     holds an active `parent_admin` membership, no-op; if they hold an active
+     `self_manager` membership, promote it to `parent_admin` (the
+     self-managing-single-becomes-parent case — same household, per the "shape 1 + 2
+     combined" note); otherwise — including when their only household memberships are
+     **non-owning** (`helper` in another family, `single` in their parents' household)
+     — create a **new** household (`accounts.kind = 'household'`,
+     `account_members.role = 'parent_admin'`). A non-owning membership is never
+     promoted: promoting a `helper` would hand them admin of **someone else's**
+     household, and promoting a `single`-role child to `parent_admin` of their parents'
+     household is the same privilege escalation one generation down. A negative test
+     covers exactly this: a `helper`-only caller ticking `parent` gets a fresh
+     household and the helped family's membership row is unchanged.
+   - **`single`** — if a `singles` row already exists with `member_id` pointing at
+     **any** of the caller's own active memberships, no-op — the same predicate
+     `my_personas()` (AC-8) reports the `single` persona by, so provisioning and
+     reporting cannot diverge (this covers the invited single: `role = 'single'` in
+     their parents' household, `singles` row already pointing at them — ticking the box
+     they already hold must not create a second household). Otherwise: if the caller
+     holds an active household-kind membership with an **owning** role
+     (`parent_admin`/`self_manager`), insert a `singles` row in that household with
+     `member_id` = that membership's id. If not (no memberships at all, or only
+     non-owning `helper` memberships elsewhere — see Dev Notes "Why `single` never
+     attaches to a helper's household"), create a new household with
+     `role = 'self_manager'`, then the `singles` row inside it.
    - **`shadchan`** — if the caller holds no active `shadchan`-role membership, create a
      new `accounts.kind = 'shadchanus'` and an `account_members` row with
      `role = 'shadchan'`. Otherwise no-op.
@@ -121,10 +136,11 @@ reads `accounts.kind` to label contexts "Household" vs "Shadchanus" and calls
    it is never given a `p_user_id` parameter, so it cannot be used to inspect anyone
    else. Derives — never stores — `shadchan` from an active `shadchan`-role membership,
    `parent` from an active `parent_admin`-role membership, `single` from an active
-   `singles` row whose `member_id` matches one of the caller's own active memberships
-   (covering both `self_manager` and the parent-who-is-also-a-single case), matching
-   AC-6's rule set exactly so provisioning and reporting never diverge. 2.3, 2.4 and 2.5
-   all call this rather than re-deriving the same predicate three ways.
+   `singles` row whose `member_id` matches **any** of the caller's own active
+   memberships (covering `self_manager`, the parent-who-is-also-a-single case, and the
+   invited single holding a `single`-role membership), matching AC-6's no-op predicates
+   exactly so provisioning and reporting never diverge. 2.3, 2.4 and 2.5 all call this
+   rather than re-deriving the same predicate three ways.
 
 9. **`members` profile visibility is scoped to "shares a context with me," not
    everyone.** `public.members`'s `Enable read access for authenticated users`
@@ -159,16 +175,19 @@ reads `accounts.kind` to label contexts "Household" vs "Shadchanus" and calls
   - [ ] `supabase/schemas/02_functions.sql`: add `enforce_household_scope()` per AC-3
         and `enforce_membership_role_matches_context()` per AC-5.
   - [ ] `supabase/schemas/04_triggers.sql`: attach `enforce_household_scope_trigger`
-        (`before insert`) to each of the 13 tables in AC-3. Do **not** attach it to
+        (`before insert or update of account_id`) to each of the 13 tables in AC-3. Do **not** attach it to
         `subscription`/`ai_usage` (AC-4) — add a one-line schema comment on both
         recording the decision and pointing at this story, so the omission reads as
         deliberate to the next developer, not missed. Attach
         `enforce_membership_role_matches_context_trigger` (`before insert or update`)
         to `account_members`.
-  - [ ] `06_grants.sql`: grant `execute` on both new functions to `authenticated` and
-        `service_role` (neither is `SECURITY DEFINER` — each only reads `accounts.kind`
-        for the row it is validating, which the inserting/updating member's own RLS
-        already lets them read).
+  - [ ] `06_grants.sql`: for both new trigger functions, `revoke all on function …
+        from public, anon;` then grant `execute` to `authenticated` and `service_role`
+        — Postgres grants EXECUTE on a new function to PUBLIC by default, so "no anon
+        grant" alone is not deny; the file's own revoke-then-grant pattern is. Neither
+        is `SECURITY DEFINER` — each only reads `accounts.kind` for the row it is
+        validating, which the inserting/updating member's own RLS already lets them
+        read.
 
 - [ ] **Task 3 — `add_persona()`** (AC: 6, 7, 11)
   - [ ] `supabase/schemas/02_functions.sql`: implement per AC-6's three branches, as
@@ -176,12 +195,16 @@ reads `accounts.kind` to label contexts "Household" vs "Shadchanus" and calls
         directly filtered to `user_id = auth.uid()` — never rely on `current_context_id()`
         or on RLS having already scoped a read, since the target context may not be
         active (AC-6's rationale). Do not query across other users' rows at all.
-  - [ ] For the `single` branch's household-creation path, default the new household's
+  - [ ] For the household-creation paths (both branches), default the new household's
         `accounts.name` from the caller's `public.members` row (e.g. `"<first_name>'s
-        Family"`), falling back to `'My Family'` if the profile has no name yet — same
-        default FirstRunSetup already uses for a fresh account today, so onboarding
-        (2.3) does not need its own naming step for this case.
-  - [ ] `06_grants.sql`: grant `execute` to `authenticated`, none to `anon`.
+        Family"`), falling back to the column's own `'My Account'` default if the
+        profile has no name yet. (There is no naming precedent to copy:
+        `FirstRunSetup.tsx`'s "account" step *renames* the bootstrapped account via a
+        form — placeholder "The Klein Family" — it never generates a default. 2.3
+        keeps that rename step for the `parent` path, so this default only has to be
+        presentable, not final.)
+  - [ ] `06_grants.sql`: `revoke all on function … from public, anon;` then grant
+        `execute` to `authenticated` (the standard pattern — see Task 2's note).
 
 - [ ] **Task 4 — `my_personas()`** (AC: 8)
   - [ ] Implement per AC-8 as `SECURITY DEFINER` / `SET search_path TO ''`, sharing the
@@ -190,7 +213,8 @@ reads `accounts.kind` to label contexts "Household" vs "Shadchanus" and calls
         shared "is this an owning role" test (`role in ('parent_admin', 'self_manager')`)
         into one small `IMMUTABLE` SQL function used by both, rather than repeating the
         literal list twice.
-  - [ ] `06_grants.sql`: grant `execute` to `authenticated`, none to `anon`. Because this
+  - [ ] `06_grants.sql`: `revoke all on function … from public, anon;` then grant
+        `execute` to `authenticated` (see Task 2's note). Because this
         function is `SECURITY DEFINER` and reads across all of `auth.uid()`'s rows
         regardless of RLS, double-check it takes **no** parameter that could target
         another user — the function signature itself is the only guard, so get the
@@ -218,7 +242,10 @@ reads `accounts.kind` to label contexts "Household" vs "Shadchanus" and calls
         starting a third RLS test file for this domain — add: the 13-table
         `enforce_household_scope` negative test (AC-3), the role/context-mismatch
         negative test (AC-5), the `add_persona()` idempotency and single-household
-        (AC-7) checks, `my_personas()` output-shape checks (AC-8), and the `members`
+        (AC-7) checks, the two non-owning-membership negative tests (a `helper`-only
+        caller ticking `parent` gets a new household, never a promotion; an invited
+        `single`-role member ticking `single` is a no-op, never a second household —
+        AC-6), `my_personas()` output-shape checks (AC-8), and the `members`
         visibility negative test (AC-9/10).
   - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus
         scoped prettier per AC-12.
@@ -263,12 +290,16 @@ A `helper` is "someone a family brings in to assist, with less access than a par
 [Source: _bmad-output/specs/spec-myshadchan/glossary.md#Identity-and-access] — not a
 family member being redt for. If a helper in the Klein household also personally wants
 to use MyShadchan for their own search, adding a `singles` row for them **inside the
-Klein household** would be wrong on its face (they are not a Klein). `add_persona('single')`
-therefore only ever attaches to an **owning** membership (`parent_admin` or
-`self_manager`) — a `helper` or non-owning `single`-role membership elsewhere is never a
-target, and a fresh household is created instead. This is a real design decision, not an
-oversight; it is the reason AC-6's `single` branch reads "owning memberships," not "any
-membership."
+Klein household** would be wrong on its face (they are not a Klein).
+`add_persona('single')`'s **creation** path therefore only ever attaches to an
+**owning** membership (`parent_admin` or `self_manager`) — a `helper` membership is
+never a target, and a fresh household is created instead. The **no-op** check is
+deliberately broader (any own membership, matching `my_personas()`): an invited single
+already *has* the persona in their parents' household and must not be given a second
+household for re-ticking a box they hold. The same owning/non-owning line governs the
+`parent` branch: a non-owning membership is never promoted (a helper must not become
+admin of the family they help), only `self_manager` promotes in place. This is a real
+design decision, not an oversight.
 
 ### Why `shadchan` role and household `kind` may never mix (AC-5)
 
@@ -284,23 +315,27 @@ bug — a hand-written migration, a bad edge-function insert — from attaching 
 'shadchan'` to a household row directly. AC-5's trigger makes that structurally
 impossible, matching AD-1/AD-2's own "enforced by CI and by scope checks" language.
 
-### Explicitly not resolved here — flagged, not guessed
+### Decisions this story settles — and the one it leaves open
 
-- **A login holding two separate household-kind contexts** (e.g. a single who was a
-  `single`-role member of their parents' household, later marries and needs their own,
-  separate household as a parent). `add_persona('parent')` as written here promotes the
-  caller's **existing** household membership rather than ever creating a second one —
-  which is right for the shapes the six canonical family shapes table actually
-  describes, but does not cover this lifecycle jump. The SPEC's own "Out of scope this
-  phase" section covers the mirror case (a single belonging to more than one household)
-  and states it "needs an explicit rule on who owns their record" — the login-level
-  version of that same gap is the same kind of decision and is flagged for the same
-  owner, not invented here.
-- **Whether a shadchanus context may hold a `subscription`/`ai_usage` row** (AC-4). No
-  source resolves this either way; excluding it from `enforce_household_scope()` is the
-  conservative (does-not-block) choice, reversible later without a data migration since
-  no shadchanus-scoped subscription rows can exist yet (Epic 8 is the first thing that
-  creates a shadchanus context at all in a real user's hands).
+- **A login holding two household-kind contexts is allowed, and AC-6's `parent` branch
+  provisions it.** AD-2 states a login "may hold memberships of several contexts
+  simultaneously" with no restriction on kind. The lifecycle jump — a `single`-role
+  member of their parents' household later marries and becomes a parent — is exactly
+  AC-6's non-owning case: `add_persona('parent')` creates them a **new** household
+  (their non-owning membership is never promoted), and the context switcher (2.4)
+  handles the rest. Their old `singles` row stays in their parents' household, so the
+  SPEC's separate out-of-scope item ("a **single** belonging to more than one
+  household" — about the `singles` row, not the login) is untouched by this decision.
+- **`account_members.status` stays an unconstrained text column in this story.** The
+  only value any code writes is `'active'`; Story 2.5 introduces `'archived'` and adds
+  the check constraint in the same change, so the constraint and its second value land
+  together rather than a speculative constraint landing here first.
+- **Left open — whether a shadchanus context may hold a `subscription`/`ai_usage` row**
+  (AC-4). No source resolves this either way; excluding both from
+  `enforce_household_scope()` is the conservative (does-not-block) choice, reversible
+  later without a data migration since no shadchanus-scoped subscription rows can exist
+  yet (Epic 8 is the first thing that creates a shadchanus context in a real user's
+  hands). Flagged for the product owner; nothing in Epic 2 blocks on it.
 
 ### Security posture
 

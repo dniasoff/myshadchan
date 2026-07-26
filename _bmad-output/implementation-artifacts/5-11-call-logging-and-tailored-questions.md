@@ -62,10 +62,12 @@ capture sheet**, with no AI call, no entitlement check, and no new question cont
    tab, now live per Story 5.1), **then** the `call_logged` interaction appears there, rendered
    via `RecordLink` back to the reference — a regression check on already-working backend
    behaviour, not new backend work.
-5. **Given** `CallCaptureSheet` is invoked from two places post-5.10 (the shidduch's Diligence
-   tab, per-reference row, and the reference's own Conversations tab), **when** either call site
-   opens it, **then** both still work identically — this story does not fork the component per
-   call site.
+5. **Given** `CallCaptureSheet`'s single invocation path (it is opened only by
+   `ReferenceCallLog.tsx`, which post-5.10 renders in the reference 360's Conversations tab —
+   the shidduch's Diligence tab reaches it via each row's `RecordLink` to the reference),
+   **when** this story completes, **then** that remains the sole invoker — no second capture
+   entry point is added, and `grep -rn "CallCaptureSheet" src/ --include='*.tsx' | grep import`
+   still returns exactly the `ReferenceCallLog.tsx` hit.
 
 ## Tasks / Subtasks
 
@@ -88,8 +90,8 @@ capture sheet**, with no AI call, no entitlement check, and no new question cont
   - [ ] Add a test asserting a `call_logged` interaction renders in the Activity tab with a
         working `RecordLink` to the reference (this is the first story where the Activity tab
         actually exists to test against, per Story 5.1).
-  - [ ] Manually verify both invocation sites (Diligence tab per-reference row; Reference 360's
-        Conversations tab) render the same `CallCaptureSheet` behaviour post-5.10's migration.
+  - [ ] Run the AC-5 grep; manually verify the capture path post-5.10 (Diligence row →
+        `RecordLink` → reference 360 → Conversations tab → `CallCaptureSheet`).
 - [ ] **Task 4 — Tests**
   - [ ] Component test for the new question display (renders relationship-specific questions;
         falls back to universal questions when relationship is blank/unrecognised — reuse

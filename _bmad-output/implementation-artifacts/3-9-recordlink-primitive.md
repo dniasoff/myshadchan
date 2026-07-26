@@ -50,8 +50,13 @@ registerEntityDescriptor({ name: "references", buildRecordPath: (id) => `/refere
 
 1. **`RecordLink` renders an anchor, resolved from the registry, never a hand-built
    string.** `entity360/RecordLink.tsx` exports
-   `RecordLink({ resource, id, children, className?, onClick? }: RecordLinkProps)`,
-   rendering `<Link to={getEntityDescriptor(resource).buildRecordPath(id)} ...>`. Calling
+   `RecordLink({ resource, id, children, ...rest }: RecordLinkProps)` where
+   `RecordLinkProps = { resource: string; id: Identifier } &
+   Omit<ComponentProps<typeof Link>, "to">` — it forwards every remaining anchor prop
+   (`className`, `onClick`, `aria-*`, drag props, …) **and its ref** to the underlying
+   `<Link to={getEntityDescriptor(resource).buildRecordPath(id)}>` (the `ShidduchCard`
+   migration in AC 4 spreads `draggableProps`/`dragHandleProps` and passes
+   `provided.innerRef`, so pass-through is load-bearing, not convenience). Calling
    it with an unregistered `resource` throws immediately with a message naming the
    resource — a missing registration is a developer error to catch at build/test time,
    not a silent broken link in production (`.claude/rules/coding-style.md#Error-handling`:
@@ -59,20 +64,27 @@ registerEntityDescriptor({ name: "references", buildRecordPath: (id) => `/refere
 
 2. **The four live entities are registered exactly as above.** A test asserts
    `getEntityDescriptor("shidduchim")`, `"singles"`, `"shadchanim"`, `"references"` all
-   resolve, and that `buildRecordPath` for each matches the route that entity's real
-   `show` page is mounted at **today** (verified by cross-checking against each
-   resource's registration in `root/routeManifest.ts` / `root/CRM.tsx` — this test fails
-   loudly if a route shape changes without this registration being updated).
+   resolve and pins each `buildRecordPath(1)` to today's real show route
+   (`/{resource}/1/show`). The test cannot derive route shapes from
+   `routeManifest.ts` (its `definition` holds components, not path templates), so it
+   pins the four strings and carries a comment naming `routeManifest.ts` /
+   `root/CRM.tsx` as what to re-check when it fails — which it will, deliberately, when
+   Epic 5 changes an entity's route shape without updating its registration.
 
-3. **The 12 verified ad-hoc record-mention sites are migrated to `RecordLink`.** Running
+3. **The 12 verified ad-hoc record-mention sites (12 files) are migrated to
+   `RecordLink`.** All four of these commands return **zero** hits after this story
+   (the first returns exactly 9 hits today — verified 2026-07-26; create links contain
+   no `${` directly after the resource segment, so the pattern skips them by
+   construction):
    ```
-   grep -rn "to={\`/shidduchim/\|to={\`/references/\|to={\`/shadchanim/\|to={\`/children/\|to={\`/singles/\|redirect(\s*\`/shidduchim\|createPath({ resource: \"references\"" \
-     src/components/atomic-crm --include="*.tsx" --include="*.ts" \
-     | grep -vE "/create|reminderEntity\.ts:4[3-9]|reminderEntity\.ts:50"
+   grep -rnE 'to=\{`/(shidduchim|references|shadchanim|children|singles)/\$\{' \
+     src/components/atomic-crm --include="*.tsx" --include="*.ts"
+   grep -n "useRedirect" src/components/atomic-crm/shidduchim/ShidduchCard.tsx
+   grep -rn 'createPath({ resource: "references"' src/components/atomic-crm/references
+   grep -rn "targetEntityPath" src/components/atomic-crm
    ```
-   returns **zero** hits after this story, over the 10 files verified today (counts and
-   line numbers as they exist under the pre-Epic-1 `children/` name — see Dev Notes
-   "Verified sites" for the full table; re-verify against `LSP findReferences` /
+   The 12 sites (line numbers as they exist under the pre-Epic-1 `children/` name — see
+   Dev Notes "Verified sites" for the full table; re-verify with `LSP findReferences` /
    `workspaceSymbol` before editing, since Epic 1/2 landing first will have shifted line
    numbers and directory names):
    `dashboard/RecentSuggestions.tsx`, `dashboard/AttentionSection.tsx`,
@@ -83,7 +95,8 @@ registerEntityDescriptor({ name: "references", buildRecordPath: (id) => `/refere
    `shadchanim/ShadchanCard.tsx`, `shadchanim/ShadchanSuggestions.tsx`,
    `shidduchim/ShidduchCard.tsx`, `reminders/ReminderCard.tsx`.
    `/create`-suffixed links (e.g. `children/ChildList.tsx:46`, `shadchanim/ShadchanList.tsx:23`,
-   `shidduchim/ShidduchColumn.tsx:104`, `shidduchim/ShidduchimList.tsx:151`) and
+   `shidduchim/ShidduchColumn.tsx:104`, `shidduchim/ShidduchimList.tsx:151`,
+   `references/ShidduchReferencesSection.tsx:93`) and
    list-level links (e.g. `dashboard/PipelineSnapshot.tsx:38`'s `to="/shidduchim"`) are
    **not** record mentions and are explicitly out of scope — do not convert them, `RecordLink`
    is for a specific record's own page, not a resource's list or create route.
@@ -131,7 +144,7 @@ registerEntityDescriptor({ name: "references", buildRecordPath: (id) => `/refere
 
 - [ ] **Task 2 — The sweep** (AC: 3, 4)
   - [ ] Before editing, run `LSP findReferences` (or `workspaceSymbol`) to confirm each
-        of the 10 files in AC 3 still matches — Epic 1/2 will have renamed
+        of the 12 files in AC 3 still matches — Epic 1/2 will have renamed
         `children` → `singles` and shifted line numbers by the time this story is
         implemented; use the import statements and `to={` patterns to relocate each site,
         not the line numbers quoted here.
@@ -143,7 +156,7 @@ registerEntityDescriptor({ name: "references", buildRecordPath: (id) => `/refere
         too, even though it was already framework-correct — for consistency, and because
         `useCreatePath`'s hardcoded `/show` suffix (3.2 Dev Notes) means it will not
         follow `references`' route shape when Epic 5 changes it, while `RecordLink` will.
-  - [ ] Run the AC 3 verification grep; it must return nothing.
+  - [ ] Run all four AC 3 verification commands; each must return nothing.
 
 - [ ] **Task 3 — `reminderEntity.ts` / `ReminderCard.tsx` / `useReminders.ts`** (AC: 5)
   - [ ] Delete `targetEntityPath`; update `useReminders.ts`'s `linkedEntity` shape (it
@@ -246,7 +259,7 @@ one exists, add one if it does not. No backend/RLS surface in this story.
 - [Source: src/components/atomic-crm/references/ReferenceList.tsx:67-68] — the one
   already-framework-correct site, migrated for consistency
 - [Source: .claude/rules/lsp-usage.md] — `findReferences`/`workspaceSymbol` before editing
-  any of the 10 files, since Epic 1/2 will have moved/renamed them
+  any of the 12 files, since Epic 1/2 will have moved/renamed them
 - [Source: .claude/rules/coding-style.md#Error-handling, .claude/rules/testing.md,
   .claude/rules/english-only.md]
 

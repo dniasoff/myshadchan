@@ -55,7 +55,11 @@ migrates `references` onto `Entity360` and swaps it for `TasksTab`.
    hard-coded `"reference"` / `referenceId`: add (text + optional due date), list sorted
    by due date, toggle done/undone via `done_date`. Delivery channels default as today
    (`['in_app', 'email']`, set by the table default, per AD-13) — this story does not add
-   a channel picker.
+   a channel picker. (`single` is not in AD-13's illustrative target list, which predates
+   the four-entity tab matrix — the widening implements epics.md Story 3.8 / UX-DR5 and
+   leaves AD-13's delivery invariants untouched.) `reminders/reminderEntity.ts`'s
+   `RESOURCE_FOR_TARGET`/label maps gain their `single` entries in **Story 3.9**, not
+   here — do not edit `reminders/` in this story.
 
 3. **A completed task reflects in the global Tasks list.** Because `TasksTab` writes to
    the same `tasks` row the global list (`tasks/TasksListContent.tsx` →
@@ -101,16 +105,13 @@ carries no such conditional visibility today — its policy is a flat account ch
 
 ### Testing standard
 
-AAA, `app` project. No `db` project involvement beyond re-running the existing
-`test:unit:db` suite to confirm nothing regresses (this story's schema change is
-narrow enough that no *new* SQL test file is required — the CHECK-constraint widening is
-exercised by `TasksTab.test.tsx`'s use of the local Supabase stack the same way
-`ReferenceTasks.tsx`'s existing behaviour already is, if that component has DB-level
-tests; if it does not, this story does not need to add one either, since it changes no
-RLS policy — the security-triggers rule fires on RLS/query/migration changes, and a
-CHECK-constraint widening with no RLS change is the narrowest of those, but still run
-`npm run test:unit:db` once after migrating to confirm no existing suite assumed the old
-`contact` value survived).
+AAA, `app` project for `TasksTab.test.tsx` (fakerest/mocked provider — browser-mode
+tests never touch the local Postgres). The schema half is verified at the DB layer
+directly: after `migration up --local`, a `psql` insert of a `'single'`-targeted task
+succeeds (rolled back afterwards), and `npm run test:unit:db` passes — confirming no
+existing suite assumed the old `contact` value survived. No *new* SQL test file is
+required: this story changes no RLS policy (the security-triggers rule still applies to
+the migration itself — dispatch SECURITY-REVIEWER).
 
 ### Migration workflow
 

@@ -42,23 +42,38 @@ canonical way to write a shidduch note — but that replacement (deleting `AddNo
    this story updates `ActivityTab`'s query to add that filter (the one cross-story
    coupling flagged in 3.5's Dev Notes).
 
-2. **Only the author, or a `parent_admin`, may edit or soft-delete a note.** A new RLS
-   `UPDATE` policy branch on `interactions`, scoped to `kind = 'note'`:
+2. **Only the author, or a `parent_admin`, may edit or soft-delete a note — enforced by
+   restructuring the existing policy, never by adding a second one.** The existing
+   `"Interactions scoped to account and parent visibility"` policy is `for all`;
+   Postgres `OR`s multiple **permissive** policies for the same command, so a second,
+   narrower `UPDATE` policy would *widen* access, not restrict it. Instead, split the
+   existing policy into per-command policies (same `select`/`insert` predicates as
+   today, post-3.5), and give the `UPDATE` policy the author condition in **both**
+   `using` and `with check`, ANDed with the 3.5 visibility predicate:
    ```sql
-   with check (
-       account_id = public.current_context_id()
-       and actor_member_id = public.current_member_id()
-       -- OR the caller's active-context role is parent_admin
+   -- appended (AND) to the existing visibility predicate, in BOTH using and with check
+   and (
+       kind <> 'note'
+       or actor_member_id = public.current_member_id()
+       or exists (
+           select 1 from public.account_members am
+           where am.user_id = auth.uid()
+             and am.account_id = public.current_context_id()
+             and am.status = 'active'
+             and am.role = 'parent_admin'
+       )
    )
    ```
-   (full policy text in Dev Notes — it must compose with, not replace, the existing
-   visibility `using` clause from 3.5). Every other `kind` (`call_logged`,
-   `status_change`, `merge`, `link_created`, `link_removed`) keeps today's unrestricted
-   authenticated-member update, unchanged by this story. The column grant
+   In `using` because AC 3's observable is **zero rows affected** (a `with check`-only
+   condition errors instead of filtering); in `with check` so an update cannot re-point
+   a row into a state the caller could not have targeted. Every other `kind`
+   (`call_logged`, `status_change`, `merge`, `link_created`, `link_removed`) keeps
+   today's account-scoped update, unchanged. The column grant
    `grant update (body, metadata) on table public.interactions to authenticated`
-   [Source: 06_grants.sql:532-533] gains `deleted_at` — a client may set `deleted_at`
-   but not clear it back to `NULL` via ordinary update rights (undeleting is out of this
-   story's scope; nothing in epics.md asks for it).
+   [Source: 06_grants.sql] becomes `(body, metadata, deleted_at)`. A column grant
+   cannot distinguish setting `deleted_at` from clearing it, so an author *can*
+   technically un-delete their own note — accepted: the author could equally re-post
+   the same text, no UI offers undelete, and nothing in epics.md asks for it.
 
 3. **Negative test.** Two members of the same account (different `account_members`
    rows, e.g. a `parent_admin` and a `helper`), one note authored by each: the `helper`
@@ -72,9 +87,9 @@ canonical way to write a shidduch note — but that replacement (deleting `AddNo
 4. **`NotesTab` renders, adds, edits and soft-deletes.**
    `entity360/tabs/NotesTab.tsx` exports a component taking `{ targetType, targetId }`
    (same shape as `ActivityTab`), filtered to `kind = 'note' and deleted_at is null`,
-   newest first. It reuses `interactionLabels.ts` (3.5) for nothing new — notes have no
-   kind label to show — but reuses `formatTimelineDate`'s date formatting via the same
-   helper 3.5 relies on. Each note shows body, author (resolved from `actor_member_id`
+   newest first. Dates format via `formatTimelineDate`, which 3.5 moved into
+   `entity360/tabs/interactionLabels.ts` — import it, do not copy it. Each note shows
+   body, author (resolved from `actor_member_id`
    via a `members` reference — see Dev Notes "Resolving the author's name"), and
    timestamp. An inline textarea adds a note (posts with `kind: "note"`, `scope`/
    `reference_link_id` set per the AD-3 discriminator rule already established for
@@ -85,7 +100,7 @@ canonical way to write a shidduch note — but that replacement (deleting `AddNo
    `useNotify`, matching the existing error-handling pattern in
    `shidduchim/ShidduchTimeline.tsx:61-66`).
 
-5. **Empty, loading and error states render.** Same treatment as 3.5 AC 6: skeleton while
+5. **Empty, loading and error states render.** Same treatment as 3.5 AC 7: skeleton while
    loading, an inline "no notes yet" message when empty, a friendly message on fetch
    error — not a blank tab.
 
@@ -93,11 +108,11 @@ canonical way to write a shidduch note — but that replacement (deleting `AddNo
 
 - [ ] **Task 1 — Schema: soft delete + author-scoped edit** (AC: 1, 2)
   - [ ] Add `deleted_at` to `interactions` in `01_tables.sql`.
-  - [ ] Add the new RLS `UPDATE` policy branch (or extend the existing "for all" policy
-        with an additional `kind = 'note'`-scoped `with check` clause — pick whichever
-        composes more cleanly with the existing policy structure without duplicating the
-        account/visibility `using` predicate; do not weaken the existing `using` clause
-        while adding this).
+  - [ ] Split the existing "for all" policy into per-command policies and add the
+        author/`parent_admin` condition to the `UPDATE` policy's `using` **and**
+        `with check`, exactly as AC 2 specifies (see Dev Notes for why no second
+        permissive policy and why `using` matters). Do not weaken the 3.5 visibility
+        predicate in any of the split-out policies.
   - [ ] Widen the `deleted_at`/`body`/`metadata` column grant in `06_grants.sql` per AC 2.
   - [ ] `db diff -f add_interaction_soft_delete_and_author_edit`, hand-check, `migration
         up --local`.
@@ -109,15 +124,18 @@ canonical way to write a shidduch note — but that replacement (deleting `AddNo
         `account_members.id` for the active context, used only to decide whether to show
         edit/delete controls (AC 4) — this hook does not gate anything by itself; it is a
         UI convenience layered on top of the real RLS boundary from AC 2.
+  - [ ] Mirror whatever custom method the hook calls in the FakeRest provider (AD-10 —
+        every new dataProvider method exists in both providers): in demo mode it returns
+        the generated demo member's id, so the edit/delete controls behave in the demo
+        too.
 
 - [ ] **Task 3 — The negative test** (AC: 3)
   - [ ] Extend the DB suite from 3.5 Task 3 (or its own file if that one is already
         large) with the author-boundary + account-boundary matrix from AC 3.
 
 - [ ] **Task 4 — `NotesTab.tsx`** (AC: 4, 5)
-  - [ ] Build per AC 4, reusing `formatTimelineDate` (move it alongside
-        `interactionLabels.ts` if not already shared by 3.5 — check 3.5's actual file
-        layout before duplicating it).
+  - [ ] Build per AC 4, importing `formatTimelineDate` from
+        `entity360/tabs/interactionLabels.ts` (3.5 moved it there).
   - [ ] `NotesTab.test.tsx`: add/edit/soft-delete happy paths, author-only control
         visibility, empty/loading/error states (AAA, one behaviour per `it`).
 
@@ -130,45 +148,23 @@ canonical way to write a shidduch note — but that replacement (deleting `AddNo
 person. Rendering "who wrote this" therefore needs a join:
 `account_members.user_id → members` (or `auth.users`, depending on how Epic 1's rename
 of `sales` finally wires the FK — check `01_tables.sql`'s `account_members` definition
-at implementation time rather than assuming). Do not deno-normalize the author's name
+at implementation time rather than assuming). Do not denormalize the author's name
 onto `interactions` itself — that would be a second source of truth for a name that can
 change; resolve it at read time the same way `ShidduchTimeline`/`ShidduchShow` resolve
 `shadchanName` from a separate list fetch today
 [Source: src/components/atomic-crm/shidduchim/ShidduchShow.tsx:75-78,96-97].
 
-### Full RLS policy text for AC 2
+### Why the policy split, and why the author check sits in `using`
 
-```sql
-create policy "Notes editable by their author or a parent admin" on public.interactions
-    for update to authenticated
-    using (
-        -- reuse the same visibility predicate as the base policy (3.5) —
-        -- do not relax it here
-        account_id = public.current_context_id()
-    )
-    with check (
-        account_id = public.current_context_id()
-        and (
-            kind <> 'note'
-            or actor_member_id = public.current_member_id()
-            or exists (
-                select 1 from public.account_members am
-                where am.user_id = auth.uid()
-                  and am.account_id = public.current_context_id()
-                  and am.status = 'active'
-                  and am.role = 'parent_admin'
-            )
-        )
-    );
-```
-This is an **additional** policy alongside 3.5's existing `"Interactions scoped to
-account and parent visibility"` — Postgres RLS `OR`s multiple permissive policies for the
-same command together by default, so adding a second, narrower `UPDATE` policy here would
-actually **widen** access, not restrict it. **Do not add a second policy** — fold this
-`with check` clause into the *existing* policy's `UPDATE`-relevant `with check`
-instead (or split the existing "for all" policy into per-command policies if that is
-cleaner to reason about), so the two constraints compose with `AND`, not `OR`. Get this
-right before writing the negative test, or the test will pass for the wrong reason.
+Two failure modes to avoid, both of which make the negative test pass for the wrong
+reason: (a) adding a **second permissive** `UPDATE` policy — Postgres `OR`s permissive
+policies per command, so a "narrower" second policy widens access; (b) putting the
+author condition only in `with check` — then a helper updating another member's note
+gets a policy **error**, not the zero-rows-affected outcome AC 3 asserts, and row
+targeting is still visible. AC 2's per-command split with the condition in both
+`using` and `with check` avoids both. Preserve the 3.5 visibility predicate verbatim in
+every split-out policy — this story narrows update rights; it must not touch read/insert
+behaviour.
 
 ### Testing standard
 

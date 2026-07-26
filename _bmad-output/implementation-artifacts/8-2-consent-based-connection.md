@@ -12,17 +12,43 @@ so that nobody reaches me, or a family I don't yet know, without consent.
 
 ## Position in Epic 8
 
-**2nd of 5.** Depends on **8.1** for the `/connections` nav slot and route guard it lights up.
-Everything downstream depends on this story: **8.3** (redting) cannot resolve a household to
-redt into without an accepted connection; **8.4**'s negative tests assume connections and their
-RLS exist; **8.5**'s Connections list/360 renders this story's table.
+**2nd of 5.** Depends on **8.1** for the `/connections` placeholder and route-guard mechanics,
+and on **Epic 7 Story 7.4**, which already created the `public.connections` table (see "What
+7.4 shipped and what this story adds"). Everything downstream depends on this story: **8.3**
+(redting) cannot resolve a household without an accepted connection; **8.4**'s negative tests
+assume connections exist; **8.5**'s Connections list/360 renders this story's data.
+
+## What 7.4 shipped and what this story adds
+
+Epic 7 Story 7.4 created `public.connections` as shared scaffolding — its own text states
+"**Epic 8 must not re-create this table, its kind-enforcement trigger or its RLS policy** —
+it `ALTER`s and extends what this story ships." What exists when this story starts (7.4's
+final shape — its status vocabulary and uniqueness were deliberately chosen so this story's
+extension is purely additive):
+
+- `connections(id, household_account_id, shadchanus_account_id, status, created_at, ended_at)`
+  with `status ∈ ('accepted','ended')`, default `'accepted'` — **no `'pending'`**: per AD-20 a
+  row exists only once accepted, and the proposed-not-yet-accepted state lives entirely in this
+  story's `connection_invites`;
+- a **partial** unique index `connections_live_pair_idx` on
+  `(household_account_id, shadchanus_account_id) where status = 'accepted'` — at most one live
+  connection per pair, and reconnection after an end is a **new** row;
+- the `enforce_connection_kinds()` trigger (before insert or update) rejecting a row
+  whose two accounts are not household + shadchanus respectively (AD-2, AD-20);
+- `FORCE ROW LEVEL SECURITY` with **one select-only policy** (either party's member reads),
+  **no** insert/update/delete policy, `anon` revoked, `authenticated` granted select only.
+
+This story therefore **ALTERs, never CREATEs**: it adds the consent workflow (invites +
+`SECURITY DEFINER` write functions) and the columns that workflow needs. Because
+7.4 grants `authenticated` no DML on `connections`, **every write function in this story must
+be `SECURITY DEFINER`** — a `SECURITY INVOKER` update would be refused at the grant, before
+RLS is even consulted.
 
 ## Acceptance Criteria
 
-1. **A connection exists only after explicit acceptance.** `public.connections` records a link
-   between exactly one household account and one shadchanus account. A row is created **only**
-   by accepting a connection invite (AC-3) — there is no direct client `INSERT` policy on
-   `connections`; the only writers are the `SECURITY DEFINER` functions in this story.
+1. **A connection exists only after explicit acceptance.** A `connections` row is created
+   **only** by accepting a connection invite (AC-3); 7.4's no-client-write posture is
+   preserved — the only writers are this story's `SECURITY DEFINER` functions.
 2. **No directory-driven or automatic linkage (FR109).** A connection can only be initiated by
    one party generating an invite link and sharing it out-of-band; there is no search, browse or
    suggestion mechanism that surfaces one account to another. Public discoverability is Epic 9's
@@ -33,10 +59,12 @@ RLS exist; **8.5**'s Connections list/360 renders this story's table.
    not a reactivation).
 4. **A connection can only ever link one household to one shadchanus context — never two of the
    same kind.** Attempting to accept an invite from a household as another household (or a
-   shadchanus as another shadchanus) is rejected at the database, not just in the UI.
+   shadchanus as another shadchanus) is rejected at the database, not just in the UI — by the
+   accept function's kind check and, beneath it, 7.4's `enforce_connection_kinds()`
+   trigger.
 5. **Visibility of a `connections` row is exactly its two parties.** A member of a household or
-   shadchanus account not referenced by the row cannot read it, list it, or infer its existence.
-   Proven by negative test (AC-6).
+   shadchanus account not referenced by the row cannot read it, list it, or infer its existence
+   (7.4's select policy; re-proven here with this story's real rows, AC-6).
 6. **Verification — negative tests, at the database.**
    - A member of household C (party to no connection with shadchan S) cannot read the
      `connections` row between household A and shadchan S.
@@ -47,47 +75,38 @@ RLS exist; **8.5**'s Connections list/360 renders this story's table.
    - A revoked or expired connection invite cannot be accepted.
    - Accepting the same invite twice does not create two connection rows (idempotency /
      single-use).
+   - A direct `insert`/`update` on `connections` and on `connection_invites` as `authenticated`
+     is refused (the no-client-write posture holds after this story's grants).
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Schema: `connections`** (AC: 1, 4, 5)
-  - [ ] `supabase/schemas/01_tables.sql`: add
+- [ ] **Task 1 — Schema: ALTER `connections`** (AC: 1, 3, 4, 5)
+  - [ ] `supabase/schemas/01_tables.sql`, on 7.4's existing table. 7.4 shipped no client or RPC
+        write path, so no real `connections` row can predate this story — only local test
+        fixtures. The migration may therefore start with `delete from public.connections;`
+        (dev-fixture hygiene) so the `not null` add below is safe:
     ```sql
-    create table public.connections (
-        id bigint generated by default as identity primary key,
-        created_at timestamptz not null default now(),
-        household_account_id bigint not null references public.accounts(id),
-        shadchanus_account_id bigint not null references public.accounts(id),
-        status text not null default 'accepted',
-        proposed_by_account_id bigint not null references public.accounts(id),
-        accepted_at timestamptz not null default now(),
-        ended_by_account_id bigint references public.accounts(id),
-        ended_at timestamptz,
-        constraint connections_status_check check (status in ('accepted', 'ended')),
-        constraint connections_ended_consistency check (
-            (status = 'ended') = (ended_at is not null)
-        )
-    );
-    -- At most one live connection per pair; re-connecting after an end is a new row
-    -- (history of the ended one is kept, never overwritten — NFR-14 spirit: no
-    -- reactivation, no implicit merge of old and new).
-    create unique index connections_live_pair_idx on public.connections
-        (household_account_id, shadchanus_account_id) where status = 'accepted';
+    alter table public.connections
+        add column proposed_by_account_id bigint not null references public.accounts(id),
+        add column accepted_at timestamptz,
+        add column ended_by_account_id bigint references public.accounts(id);
+    alter table public.connections add constraint connections_ended_consistency
+        check ((status = 'ended') = (ended_at is not null));
     ```
-    There is no `'pending'` status: per AD-11's invite model, the "proposed, not yet accepted"
-    state lives entirely in `connection_invites` (Task 2) — a `connections` row is only ever
-    created already-accepted. This is a deliberate simplification over a naive 3-state
-    `pending|accepted|ended` on `connections` itself; state it as a decision in review, not a gap.
-  - [ ] A `before insert` constraint trigger `enforce_connection_kinds()` verifies
-        `household_account_id`'s `accounts.kind = 'household'` and `shadchanus_account_id`'s
-        `accounts.kind = 'shadchanus'` (AD-2, AD-20) — raises on same-kind pairing (AC-4). This
-        cannot be a plain `CHECK` (it needs a cross-table lookup).
-  - [ ] Add `connection_id bigint references public.connections(id)` to `public.shadchanim`
-        (nullable, `unique`). Populated only by `accept_connection_invite()` (Task 3) — never
-        client-writable (revoke `INSERT`/`UPDATE` on this column from `authenticated` at the
-        column-grant level per `06_grants.sql`'s existing per-column-grant pattern, or enforce
-        via trigger if the schema doesn't already do column-level grants — check
-        `06_grants.sql` for precedent before choosing).
+    That is the whole delta. 7.4 already ships the `('accepted','ended')` status vocabulary
+    (default `'accepted'`, no `'pending'`) and the live-pair partial unique index
+    `connections_live_pair_idx` — do **not** touch `connections_status_check` or the index,
+    and do **not** re-declare the table, its `enforce_connection_kinds()` trigger, its RLS or
+    its grants — all 7.4's.
+    (7.4's own SQL test suite creates its fixtures inside the test script; if any of its
+    fixture inserts omit the new `proposed_by_account_id`, updating those inserts is in-scope
+    for this story — fix them in place, do not fork the suite.)
+  - [ ] Add `connection_id bigint references public.connections(id) unique` (nullable) to
+        `public.shadchanim`. Populated only by `accept_connection_invite()` (Task 3) — never
+        client-writable: switch `shadchanim`'s `insert`/`update` grants to column-list grants
+        that omit `connection_id`, following `06_grants.sql`'s existing column-grant precedent
+        (`grant update (body, metadata) on table public.interactions`,
+        `grant update (name, transparency_level, data_region) on public.accounts`).
 
 - [ ] **Task 2 — Schema: `connection_invites`** (AC: 2, 6)
   - [ ] Add:
@@ -107,205 +126,202 @@ RLS exist; **8.5**'s Connections list/360 renders this story's table.
         constraint connection_invites_inviter_kind_check check (inviter_kind in ('household', 'shadchanus'))
     );
     ```
-    A **sibling** table to Epic 2's household-membership `invites`, not a shared row in it — see
-    Dev Notes "Why a sibling table, not a shared one" for the rationale, since this is the kind
-    of decision the story must make rather than leave open (per project convention: no
-    unresolved decisions).
-  - [ ] The token itself is never stored: only `token_hash` (reuse whatever hashing helper
-        Epic 2's invite work introduces for its own tokens — grep for it first; if none exists
-        yet, use `extensions.digest(token, 'sha256')`, already available via the `pgjwt`/`http`
-        extension setup pattern in `01_tables.sql`). The raw token is returned **once**, from
+    A **sibling** table to Epic 2's household-membership `invites` (Story 2.7), not a shared
+    row in it — see Dev Notes "Why a sibling table, not a shared one".
+  - [ ] The token itself is never stored: only `token_hash`. Generate with
+        `encode(extensions.gen_random_bytes(32), 'hex')`, hash with
+        `encode(extensions.digest(token, 'sha256'), 'hex')` — both pgcrypto, present in the
+        `extensions` schema on every Supabase database (no in-repo helper survives Epic 1:
+        Story 1.1 deletes `get_avatar_for_email` and 1.4 deletes the portal-token trigger).
+        This deliberately diverges from 2.7's stored-raw-uuid invite token: a connection
+        invite links two accounts across the tenant boundary, so a read of the table must
+        never yield a usable token. The raw token is returned **once**, from
         `create_connection_invite()`, and never persisted in plaintext anywhere.
-  - [ ] RLS: `connection_invites` is readable only by a member of `inviter_account_id` (the
-        issuer can see their own outstanding invites to manage/revoke them); it grants **no**
-        read to the eventual acceptor before acceptance (they authenticate via the token itself,
-        carried in the URL, not via a table read) — mirrors AD-9's "recipients never get a raw
-        URL to the underlying row" posture applied to invites.
+  - [ ] RLS: `FORCE ROW LEVEL SECURITY`; **one select policy**,
+        `using (inviter_account_id = current_context_id())` — the issuer manages their own
+        outstanding invites. No insert/update/delete policy and no DML grant to
+        `authenticated`: all writes go through Task 3's functions, so a client can never
+        hand-craft an invite row with a chosen `expires_at` or `token_hash` (same posture 7.4
+        set for `connections`, and AD-9's spirit: recipients authenticate via the token in the
+        URL, never via a table read). `revoke all on table public.connection_invites from anon;
+        grant select on table public.connection_invites to authenticated; grant all ... to
+        service_role;` in `06_grants.sql`.
 
-- [ ] **Task 3 — Functions** (AC: 1, 2, 3, 4, 6)
-  - [ ] `public.create_connection_invite() returns text` (`SECURITY INVOKER` — the caller's own
-        RLS already scopes them to their own account): generates a random token (32+ bytes,
-        `encode(extensions.gen_random_bytes(32), 'hex')` or the codebase's existing token-gen
-        precedent if one exists), inserts a `connection_invites` row with
+- [ ] **Task 3 — Functions** (AC: 1, 2, 3, 4, 6). All five are `SECURITY DEFINER`,
+      `SET search_path = ''`, following the `handle_new_user()` precedent
+      (`supabase/schemas/02_functions.sql`) — see Dev Notes "Why every writer is SECURITY
+      DEFINER". Every writer starts with an explicit active-membership check
+      (`exists (select 1 from public.account_members am where am.account_id = <the account>
+      and am.user_id = auth.uid() and am.status = 'active')`).
+  - [ ] `public.create_connection_invite() returns text`: caller must be an active member of
+        `current_context_id()`; inserts a `connection_invites` row with
         `inviter_account_id := current_context_id()`, `inviter_kind := (select kind from
-        accounts where id = current_context_id())`, `expires_at := now() + interval '7 days'`,
-        returns the **raw** token to the caller once.
-  - [ ] `public.revoke_connection_invite(p_invite_id bigint)`: caller must be a member of the
-        invite's `inviter_account_id`; sets `status = 'revoked'`. No-op error if already
-        accepted/revoked/expired.
+        public.accounts where id = current_context_id())`, `expires_at := now() + interval
+        '7 days'`; returns the **raw** token once.
+  - [ ] `public.revoke_connection_invite(p_invite_id bigint)`: caller must be an active member
+        of the invite's `inviter_account_id`; sets `status = 'revoked'`, `revoked_at := now()`.
+        Raises if not `pending`.
   - [ ] `public.preview_connection_invite(p_token text) returns table(inviter_name text,
-        inviter_kind text, status text, expires_at timestamptz)` (`SECURITY DEFINER`, read-only):
-        the acceptor's RLS on `connection_invites` (Task 4) does not let them read the row
-        directly — this is the one purpose-built read so the accept screen can show "You've been
-        invited by The Klein Family" before the user commits. Returns nothing (empty set, not an
-        error) for an unknown, expired or already-consumed token, so an enumeration attempt
-        learns nothing beyond "not open".
-  - [ ] `public.accept_connection_invite(p_token text) returns public.connections`
-        (`SECURITY DEFINER`, `set search_path = ''`, following the existing precedent of
-        `handle_new_user()` for a function that must write outside the caller's own account —
-        see Dev Notes "Precedent for the cross-account write"):
-        1. Look up by `token_hash = digest(p_token, 'sha256')`; must be `status = 'pending'` and
-           `expires_at > now()`, else raise (covers AC-6's revoked/expired case).
-        2. The accepting caller's active context kind (via `current_context_id()` →
-           `accounts.kind`) must differ from `invite.inviter_kind` — else raise "a connection
-           links a household and a shadchanus context, not two of the same kind" (AC-4).
+        inviter_kind text, status text, expires_at timestamptz)` (read-only): the acceptor has
+        no select path to the row (Task 2), so this is the one purpose-built read letting the
+        accept screen show "You've been invited by The Klein Family" before the user commits
+        (`inviter_name` = `accounts.name`). Returns an empty set — not an error — for an
+        unknown, expired or consumed token, so enumeration learns nothing beyond "not open".
+        Mirrors 2.7's `get_invite_preview()` shape: named fields only, never the token or ids.
+  - [ ] `public.accept_connection_invite(p_token text) returns public.connections`:
+        1. Look up by `token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex')` with
+           `select ... for update`; must be `status = 'pending'` and `expires_at > now()`,
+           else raise (AC-6 revoked/expired).
+        2. Caller must be an active member of `current_context_id()`, and that account's
+           `kind` must differ from `invite.inviter_kind` — else raise "a connection links a
+           household and a shadchanus context, not two of the same kind" (AC-4).
         3. Resolve `household_account_id` / `shadchanus_account_id` from whichever of
            inviter/acceptor is which kind.
-        4. Insert the `connections` row (`proposed_by_account_id := invite.inviter_account_id`).
-        5. If no `shadchanim` row already has this `connection_id` (it can't, the connection was
-           just created) — insert one in the household account:
-           `name := (select name from accounts where id = shadchanus_account_id)`,
-           `connection_id := <new connection id>`. This is what makes the shadchan appear in the
-           household's own book (Shadchan 360, Epic 5 Story 5.9) from the moment of connecting.
+        4. Insert the `connections` row (`status := 'accepted'`, `accepted_at := now()`,
+           `proposed_by_account_id := invite.inviter_account_id`).
+        5. Insert the household's book entry: a `shadchanim` row in `household_account_id`
+           with `name := (select name from public.accounts where id =
+           shadchanus_account_id)`, `connection_id := <new connection id>`. This is what
+           makes the shadchan appear in the household's own book (Shadchan 360, Story 5.9)
+           from the moment of connecting.
         6. Mark the invite `status = 'accepted'`, `accepted_by_account_id`, `accepted_at`.
         7. Return the new `connections` row.
-        Steps 4–6 in one transaction with step 1's row-lock (`select ... for update` on the
-        invite) to close the double-accept race (AC-6's idempotency case).
-  - [ ] `public.end_connection(p_connection_id bigint) returns public.connections`
-        (`SECURITY INVOKER` — ending only requires being a member of one of the two accounts
-        already referenced by the row, which normal RLS on `connections` already exposes to
-        them per Task 4): caller must be an active member of `household_account_id` **or**
-        `shadchanus_account_id`; sets `status = 'ended'`, `ended_at := now()`,
-        `ended_by_account_id := current_context_id()`. Raises if already ended.
-
-- [ ] **Task 4 — RLS** (AC: 1, 5, 6)
-  - [ ] `connections`: `FORCE ROW LEVEL SECURITY`; one `select` policy:
-        `using (household_account_id = current_context_id() or shadchanus_account_id =
-        current_context_id())`. **No** `insert`/`update`/`delete` policy — all writes go through
-        the `SECURITY DEFINER`/`SECURITY INVOKER` functions in Task 3, which is what makes "no
-        direct client write" (AC-1) a database fact rather than a convention.
-  - [ ] `connection_invites`: `FORCE ROW LEVEL SECURITY`; `select` policy
-        `using (inviter_account_id = current_context_id())` only, per Task 2.
-  - [ ] `shadchanim`: no RLS change — it is already account-scoped; the new `connection_id`
-        column carries no new access grant of its own.
-  - [ ] Grant `execute` on all five new functions (`create_connection_invite`,
-        `revoke_connection_invite`, `preview_connection_invite`, `accept_connection_invite`,
-        `end_connection`) to `authenticated` only — **never** `anon` (AD-1: the only
-        anon-readable relation in the product is Epic 9's future `listings` snapshot). Accepting
-        a connection requires already being logged in as the opposite-kind context; there is no
+        Steps 4–6 run in the same transaction as step 1's row-lock, closing the double-accept
+        race (AC-6 idempotency).
+  - [ ] `public.end_connection(p_connection_id bigint) returns public.connections`: caller
+        must be an active member of `household_account_id` **or** `shadchanus_account_id`;
+        sets `status = 'ended'`, `ended_at := now()`, `ended_by_account_id :=
+        current_context_id()`. Raises if already ended.
+  - [ ] Grant `execute` on all five functions to `authenticated` only — **never** `anon`
+        (AD-1: the only anon-readable relation is Epic 9's future `listings`). Accepting
+        requires already being logged in with the opposite-kind context active; there is no
         anonymous acceptance path in this phase.
 
-- [ ] **Task 5 — Migration** (AC: all)
+- [ ] **Task 4 — Migration** (AC: all)
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
-        shadchan_connections`. Hand-check per AGENTS.md/CLAUDE.md: `db diff` is known to drop
-        `security_invoker` and `REVOKE` statements on views it touches — this story adds no
-        views, but re-verify the generated migration includes the `FORCE ROW LEVEL SECURITY`
-        and `REVOKE ... FROM anon` lines for both new tables (AD-1 requires both on every table
-        in the same migration that creates it) — `db diff` does not always emit the `anon`
-        revoke automatically since `anon` may hold no default grant to revoke from by this point
-        in the epic sequence; assert it explicitly regardless.
+        connection_consent`. Hand-check the generated migration (AGENTS.md: migrations are
+        generated but sometimes need manual adjustment): it must contain the `ALTER TABLE`
+        forms from Task 1 — never a `DROP`+`CREATE` of `connections` — plus
+        `connection_invites` with its `FORCE ROW LEVEL SECURITY` and
+        `revoke ... from anon` in the **same** migration (AD-1).
   - [ ] Apply with `migration up --local`, never `db reset`/`db push`.
 
-- [ ] **Task 6 — Types and dataProvider** (AC: all)
+- [ ] **Task 5 — Types and dataProvider** (AC: all)
   - [ ] `types.ts`: add `Connection`, `ConnectionInvite` interfaces matching the tables.
   - [ ] `providers/supabase/dataProvider.ts` custom-methods overlay (same seam as
         `createShidduchViaRpc`, AD-10): `createConnectionInvite()`, `revokeConnectionInvite()`,
         `previewConnectionInvite(token)`, `acceptConnectionInvite(token)`,
-        `endConnection(connectionId)` — each a thin
-        `getSupabaseClient().rpc(...)` wrapper, matching the existing style exactly (see
-        `createShidduchViaRpc` at `providers/supabase/dataProvider.ts:71-95` for the shape to
-        follow: destructure `{ data, error }`, log+throw on error).
-  - [ ] Mirror all four in `providers/fakerest/` (AD-10: "every new resource/method is mirrored
-        in FakeRest") — an in-memory `connections`/`connection_invites` array in the data
-        generator, with the same kind/status validation logic reproduced (not skipped) so demo
-        mode exercises the same guard rails.
+        `endConnection(connectionId)` — each a thin `getSupabaseClient().rpc(...)` wrapper
+        matching `createShidduchViaRpc`'s shape exactly (destructure `{ data, error }`,
+        log+throw on error).
+  - [ ] Mirror all five in `providers/fakerest/` (AD-10): extend the `db.connections` fixture
+        7.4 already added, add an in-memory `connection_invites` array, and reproduce the
+        kind/status/expiry validation in the fakes (not skipped) so demo mode exercises the
+        same guard rails.
 
-- [ ] **Task 7 — Minimal UI to exercise the flow** (AC: 1, 2, 3)
-  - [ ] A "Connect with a shadchan" action (household side — reasonable placement: the
-        Shadchanim list, Epic 5 territory, or Settings if that resource isn't descriptor-ready
-        yet) that calls `createConnectionInvite()` and shows the resulting link with a copy
-        button. Mirror action from the shadchan's dashboard placeholder (Story 8.1) or Settings:
-        "Connect with a family."
-  - [ ] An accept screen at a route carrying the token (e.g. `/connect/:token`) that calls
-        `previewConnectionInvite(token)` on load to show who is inviting before asking for
-        confirmation, then `acceptConnectionInvite()` on confirm, routing to `/connections` (or
-        `/shadchanim` on the household side) on success. Full descriptor-based Connections
-        list/360 is **Story 8.5's** — this task only needs the accept action to exist and work,
-        not a polished list.
+- [ ] **Task 6 — Minimal UI to exercise the flow** (AC: 1, 2, 3)
+  - [ ] A "Connect with a shadchan" action (household side: the Shadchanim list or Settings)
+        calling `createConnectionInvite()` and showing the resulting link
+        (`${origin}/#/connect/${token}` — token in the URL, mirroring 2.8's share-it-yourself
+        invite-link pattern) with a copy button. Mirror action "Connect with a family" on the
+        shadchan side (Settings, or Story 8.1's dashboard placeholder).
+  - [ ] An accept screen at `/connect/:token` (registered in `root/routeManifest.ts`):
+        `previewConnectionInvite(token)` on load to show who is inviting, then
+        `acceptConnectionInvite()` on confirm; on success route the shadchan side to
+        `/connections` (8.1's placeholder until 8.5) and the household side to `/shadchanim`
+        (where the auto-created book row now is). The polished Connections list/360 is
+        **Story 8.5's** — this task only needs the flow to work.
   - [ ] An "End connection" action wherever the connection is visible (minimal — a button
         calling `endConnection()`), refined visually by Story 8.5.
 
-- [ ] **Task 8 — Negative-test suite** (AC: 6)
-  - [ ] New `supabase/tests/shadchan_connections.sql` + `.test.ts`, following the `results`
-        temp-table / JSON-emit pattern of `supabase/tests/references_entity.sql`. Cover, in
-        order: (a) household C cannot read A↔S's connection; (b) shadchan S2 cannot end A↔S1's
-        connection; (c) same-kind acceptance is rejected and creates no row; (d) an expired or
-        revoked invite cannot be accepted; (e) accepting the same invite twice yields exactly
-        one `connections` row (run `accept_connection_invite` twice in the same test, assert a
-        `count(*) = 1`, not two).
+- [ ] **Task 7 — Negative-test suite** (AC: 6)
+  - [ ] New `supabase/tests/shadchan_connections.sql` + `.test.ts`, following the
+        `results`/`ids` temp-table and `set local role authenticated; set local
+        request.jwt.claims ...` conventions of `supabase/tests/references_entity.sql`. Cover,
+        in order: (a) household C cannot read A↔S's connection; (b) shadchan S2 cannot end
+        A↔S1's connection; (c) same-kind acceptance is rejected and creates no row; (d) an
+        expired or revoked invite cannot be accepted; (e) accepting the same invite twice
+        yields exactly one `connections` row (`count(*) = 1`); (f) direct
+        `insert`/`update` on `connections` and `connection_invites` as `authenticated` fails.
   - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db` (needs
-        `make start`), plus `npx prettier --config ./.prettierrc.json --check` over this story's
-        changed files only (repo-wide prettier is Epic 1 Story 1.6's gate, not this story's).
+        `make start`), plus `npx prettier --config ./.prettierrc.json --check` over this
+        story's changed files only (repo-wide prettier is Epic 1 Story 1.6's gate).
 
 ## Dev Notes
 
 ### Why a sibling table, not a shared one
 
-FR119 / Epic 2 Story 2.8 states "the same invite mechanism establishes a parent↔shadchan
-connection." This story implements that at the **product** level — same pattern: generate a
-token, share the link out-of-band, the other party clicks and accepts — using a dedicated
-`connection_invites` table rather than literally reusing Epic 2's household-membership `invites`
-row shape. Rationale: Epic 2 has not been storied yet, so this story cannot honestly cite its
-`invites` table's real columns; and the two flows differ in a load-bearing way — a
-household-membership invite grants a role to a **new or existing person** inside the inviter's
-**own** account, while a connection invite links **two already-existing, opposite-kind accounts**
-with neither becoming a member of the other. Forcing both into one polymorphic table today would
-mean guessing Epic 2's schema. **This is a judgement call, not a gap** — flagged for the epic
-owner in the story-writing report, not left open here.
+FR119 / AD-11 make invites "the one mechanism" at the **product** level — generate a token,
+share the link out-of-band, the other party accepts — and this story keeps that shape. It does
+not reuse Epic 2's `invites` table rows: Story 2.8's own text anticipates exactly this split
+("Epic 8 will need its own schema addition ... most likely either a `connection_invites` table
+or a `target_kind` discriminator on `invites`"), and the two flows differ in a load-bearing
+way — a membership invite grants a role to a person inside the inviter's **own** account,
+while a connection invite links **two already-existing, opposite-kind accounts** with neither
+becoming a member of the other. A polymorphic merge would force 2.7's columns (`email`,
+`role`) to be nullable-and-meaningless for connections. Sibling table chosen; decision stated
+here, not left open.
 
-### Precedent for the cross-account write
+### Why every writer is SECURITY DEFINER
 
-`accept_connection_invite()` must write a `connections` row whose `household_account_id` is
-**not** the caller's own `current_context_id()` (the caller is the accepting party, on the other
-side of the pair) — a write that plain RLS would reject. The codebase already does this
-successfully: `public.handle_new_user()` (`supabase/schemas/02_functions.sql`, ~line 236) is
-`SECURITY DEFINER` and inserts into `public.accounts` and `public.account_members` from a trigger
-context that has no membership yet, despite `FORCE ROW LEVEL SECURITY` on both tables. Follow the
-same ownership/grant shape (function owned by the same role that owns `handle_new_user`,
-`SECURITY DEFINER`, `SET search_path = ''`) rather than re-deriving from Postgres RLS internals —
-this pattern is proven to work in this schema today.
+7.4 shipped `connections` read-only to `authenticated` — no DML grant, no write policy —
+precisely so a client cannot self-grant a connection (its Dev Notes walk the attack). This
+story keeps that posture and extends it to `connection_invites`. Consequence: `SECURITY
+INVOKER` functions cannot write either table (refused at the grant), so all four writers are
+`SECURITY DEFINER` with explicit active-membership checks. The codebase precedent for a
+definer function writing where the caller cannot is `public.handle_new_user()`
+(`supabase/schemas/02_functions.sql`) — same ownership/grant shape, `SET search_path = ''`.
+`accept_connection_invite()` additionally writes a `shadchanim` row into the **household's**
+account while the acceptor may be the shadchan — a cross-account write only a definer
+function can make.
+
+### What ending does and does not do
+
+`end_connection()` flips `status`/`ended_at`/`ended_by_account_id` and nothing else. The row
+is kept (history, and 8.5's Connection 360 still renders it); threads and inbox items already
+created through the connection are untouched — ending is **not retroactive**. What it blocks
+is the future: no new redt (Story 8.3's function requires `status = 'accepted'`) and no
+reactivation — reconnecting is a new invite/accept cycle producing a new row, which the
+live-pair partial index permits and the ended row's history survives.
 
 ### Architecture citations
 
 - **AD-20**: "`connections(household_account_id, shadchanus_account_id, status)` records an
   explicitly accepted link between exactly two contexts; either side may end it (FR109).
-  ...No directory-driven or automatic linkage: a connection exists only after acceptance." This
-  story's three columns are named verbatim from the spine.
-- **AD-11**: "Invites are the one mechanism (FR119) for adding a member to a household, giving a
-  single their own login, and proposing a parent↔shadchan connection." Governs the invite-based
-  shape chosen over a bare "propose/accept" RPC pair with no token.
-- **AD-1**: every table FORCE RLS, single scoping axis, `anon` revoked. `connections` and
-  `connection_invites` are new tables — both must ship RLS and the `anon` revoke in the same
-  migration that creates them.
-- **AD-2**: `accounts.kind` and the household/shadchanus split this story's trigger enforces.
+  ...No directory-driven or automatic linkage: a connection exists only after acceptance."
+- **AD-11**: "Invites are the one mechanism (FR119) for adding a member to a household, giving
+  a single their own login, and proposing a parent↔shadchan connection." Governs the
+  invite-based shape over a bare propose/accept RPC pair with no token.
+- **AD-1**: `connection_invites` is a new table — RLS and the `anon` revoke ship in the same
+  migration that creates it. `connections` already complies (7.4).
+- **AD-2**: `accounts.kind` and the household/shadchanus split the kind checks enforce.
 
 ### Dependencies
 
-- **Epic 2 Stories 2.1, 2.2** (context-aware auth, `accounts.kind`) — hard prerequisite;
-  `current_context_id()` and `accounts.kind` do not exist without them.
-- **Epic 2 Stories 2.7/2.8** (invite mechanism) — soft dependency. If Epic 2 ships a generic,
-  reusable invite/token-hashing helper by the time this story is implemented, Task 3's token
-  generation/hashing should call it rather than duplicate it (grep first); if not, this story's
-  own inline implementation (Task 3) stands alone. Either way the `connection_invites` table
-  itself remains this story's own (see "Why a sibling table, not a shared one").
-- **Story 8.1** for the `/connections` route slot and the household-route guard this story's
-  new resource will eventually sit behind (Story 8.5 applies the guard; this story does not need
-  it since it ships no descriptor-based list yet).
+- **Epic 7 Story 7.4** — hard: owns the `connections` table, its kind trigger
+  (`enforce_connection_kinds()`), RLS, grants, the `('accepted','ended')` status vocabulary
+  and the live-pair partial unique index. This story ALTERs and adds (three columns + one
+  check constraint); it re-creates and re-shapes nothing.
+- **Epic 2 Stories 2.1, 2.2** (`current_context_id()`, `accounts.kind`) — hard prerequisite.
+- **Epic 2 Stories 2.7/2.8** — pattern precedent only (`get_invite_preview` shape, share-the-
+  link UX). Their `invites` machinery stores a raw uuid token and binds roles; it is not
+  reused here (see "Why a sibling table").
+- **Story 8.1** — the `/connections` placeholder this story's accept flow routes to, and the
+  route-manifest mechanics for `/connect/:token`.
 
 ### Testing standard
 
 SQL negative-test suite per `.claude/rules/testing.md` and `.claude/rules/security-triggers.md`
 (RLS-touching diff ⇒ mandatory negative test). Follow `supabase/tests/references_entity.sql`'s
-`results`/`ids` temp-table convention exactly — do not invent a second test-harness style.
+conventions exactly — do not invent a second test-harness style.
 
 ### Project Structure Notes
 
 New: `supabase/tests/shadchan_connections.sql` + `.test.ts`. Schema edits across
-`01_tables.sql`, `02_functions.sql`, `05_policies.sql`, `06_grants.sql` (no new schema file —
-this is additive to existing files, consistent with how prior epics added tables). No new
-top-level `src/` resource folder yet (Story 8.5 introduces `connections/`); Task 7's minimal UI
-lives in existing files (Settings / Shadchanim list / a new small `login/`-adjacent accept
-route) until 8.5 formalises it.
+`01_tables.sql`, `02_functions.sql`, `05_policies.sql`, `06_grants.sql` (additive to existing
+files, consistent with prior epics). No new `src/` folder work beyond what 8.1 started;
+Task 6's minimal UI lives in Settings / the Shadchanim list / the `/connect/:token` accept
+route until 8.5 formalises it.
 
 ## Dev Agent Record
 

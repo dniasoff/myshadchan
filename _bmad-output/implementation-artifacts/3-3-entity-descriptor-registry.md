@@ -38,11 +38,15 @@ explicitly **Epic 4 Story 4.1**'s deliverable, per the epic overview table itsel
 → Epic 4) [Source: epics.md#Epic-4-Navigation-Lists]. **Resolution:** this story defines
 the descriptor fields both consumers need (`label`, `icon`, `route`, `avatar`, `title`,
 `meta`, `stats`, `tabs`, `actions`, `relationships`) and proves the **360 half** renders
-entirely from a descriptor. The **list half** of the AC is completed when Epic 4 Story
-4.1 builds `EntityList` against this same `EntityDescriptor` type — this story does not
-block on 4.1, and 4.1 does not redefine the descriptor shape, it consumes it. This split
-is stated here, in this story, rather than left implicit, and should be called out to the
-epic owner as a cross-epic dependency worth confirming.
+entirely from a descriptor. The **list half is delivered by no story currently written**:
+Story 4.1's own Dev Notes state *"No entity descriptor integration … `EntityList`'s props
+are the contract for now"* and defer descriptor consumption to *"a follow-up refactor"*
+[Source: 4-1-entity-list-framework.md#Dev-Notes]. So AD-24's "list renders entirely from
+the declaration" remains an open cross-epic gap after Epics 3 and 4 as storied — **flag
+to the epic owner**: either a later story consumes `EntityDescriptor.label/icon/meta` in
+`EntityList`'s retrofitted lists, or epics.md narrows the 3.3 AC. This story's job is
+only to make that future consumption possible: the descriptor type carries the
+list-relevant fields, and this story does not block on 4.1.
 
 ## Acceptance Criteria
 
@@ -66,8 +70,8 @@ epic owner as a cross-epic dependency worth confirming.
    `name` and `buildRecordPath` are the only required fields — a descriptor with just
    those two is legal and is exactly what 3.9 registers for the four live entities (see
    "Scope boundary"). `EntityTabDescriptor<T> = { key: string; label: string; render:
-   (record: T) => ReactNode }` — the `minVisibility` field 3.4 adds is additive to this
-   shape, not a redesign of it.
+   (record: T) => ReactNode }` — the optional `minVisibility` field 3.4 adds (to this
+   shape and to the `stats` entry type) is additive, not a redesign.
 
 2. **One registry, one lookup.** `registerEntityDescriptor(descriptor)` and
    `getEntityDescriptor(name): EntityDescriptor | undefined` are the only way to add to or
@@ -96,11 +100,12 @@ epic owner as a cross-epic dependency worth confirming.
    `EntityShow` without a stat band, without a tab bar, and without throwing — this is the
    concrete proof of AD-24's "regions are optional per entity."
 
-5. **No entity contains bespoke layout code (structural check).** A grep-based test
-   scoped to `entity360/**` asserts `EntityShow.tsx` imports no per-entity module (no
-   import path containing `/shidduchim/`, `/singles/`, `/shadchanim/`, `/references/`) —
-   proving the generic renderer cannot special-case an entity by construction, not merely
-   by convention.
+5. **No entity contains bespoke layout code (structural check).** A vitest `it` imports
+   `EntityShow.tsx`'s source as text (Vite `?raw` import — the `app` project runs in a
+   browser, so no shelling out; same mechanism as 3.1 AC 3) and asserts it contains no
+   import path matching `/(shidduchim|singles|shadchanim|references)\//` — proving the
+   generic renderer cannot special-case an entity by construction, not merely by
+   convention.
 
 ## Tasks / Subtasks
 
@@ -118,13 +123,15 @@ epic owner as a cross-epic dependency worth confirming.
   - [ ] Build the component per AC 3: descriptor lookup, region composition, delegating
         tabs to `Entity360Tabs` (3.2) and the outer layout to `Entity360` (3.1).
   - [ ] `EntityShow.test.tsx`: the two-fixture comparison test (AC 3), the
-        minimal-descriptor no-crash test (AC 4), and the import-boundary grep test
+        minimal-descriptor no-crash test (AC 4), and the import-boundary `?raw` test
         (AC 5).
 
 - [ ] **Task 3 — Document the split with Epic 4** (AC: none — coordination)
-  - [ ] Add a short doc comment atop `entityDescriptor.ts` stating that `EntityList`
-        (Epic 4 Story 4.1) consumes this same type for `label`/`icon`/`meta` and must not
-        redefine it — a forward pointer, not new code.
+  - [ ] Add a short doc comment atop `entityDescriptor.ts` stating that this type is
+        AD-24's intended single source for list metadata (`label`/`icon`/`meta`) as well,
+        that `EntityList` (Epic 4 Story 4.1) does **not** consume it yet, and that any
+        future list-descriptor wiring must consume this type rather than redefine it — a
+        forward pointer, not new code.
 
 ## Dev Notes
 
@@ -181,8 +188,10 @@ duplicate-registration throw firing across unrelated tests)
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-3-The-360-Framework — Story 3.3]
-- [Source: _bmad-output/planning-artifacts/epics.md#Epic-4-Navigation-Lists — Story 4.1]
-  — the cross-epic split this story documents rather than resolves unilaterally
+- [Source: _bmad-output/planning-artifacts/epics.md#Epic-4-Navigation-Lists — Story 4.1;
+  _bmad-output/implementation-artifacts/4-1-entity-list-framework.md#Dev-Notes] — the
+  cross-epic split this story documents rather than resolves unilaterally (4.1 explicitly
+  declines descriptor integration as written)
 - [Source: ARCHITECTURE-SPINE.md#AD-24] — "an entity contributes a descriptor … and no
   bespoke layout code"
 - [Source: _bmad-output/implementation-artifacts/1-5-remove-dead-routes.md#Task-1] —

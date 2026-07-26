@@ -26,9 +26,12 @@ so that I can find a person without knowing their type.
 
 ## Acceptance Criteria
 
-1. **One search reaches everywhere.** A search affordance (icon button + keyboard shortcut) is
-   visible from every screen — desktop `TopBar` and mobile `MobileHeader` — and opens the same
-   search overlay regardless of where it was triggered from.
+1. **One search reaches everywhere.** Desktop: a search icon button in `layout/TopBar.tsx`
+   plus a `(Cmd|Ctrl)+K` shortcut, available on every screen. Mobile: a "Search" item at the
+   top of the bottom bar's "More" menu (`layout/MobileNavigation.tsx`) — the bottom bar is
+   the only chrome present on *every* mobile screen (`MobileHeader` is a per-page wrapper
+   that the list pages do not render — verified against its consumers). Every trigger opens
+   the same search overlay.
 
 2. **Results span every entity that exists as of this epic**: `singles`, `shidduchim`,
    `shadchanim`, `references`, grouped by type, each rendered as a `RecordLink` routing to that
@@ -53,25 +56,27 @@ so that I can find a person without knowing their type.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — `globalSearch` custom method (AC: 2, 3, 4)**
-  - [ ] `providers/supabase/dataProvider.ts`: add `globalSearch(query: string):
-        Promise<GlobalSearchResult[]>` to the object returned by
-        `getDataProviderWithCustomMethods()` (the same pattern as `catchShidduch`/
-        `matchReferenceOnEntry` — a plain async method alongside the spread base provider; its
-        return type flows into `CrmDataProvider` automatically via the existing
-        `ReturnType<...>` export at the bottom of the file, no separate interface to keep in
-        sync).
-  - [ ] Guard: `if (query.trim().length < 2) return [];` before any data-provider call (AC-4).
-  - [ ] Implementation: `Promise.all` of four `this.getList(resource, { filter: { q: query },
-        pagination: { page: 1, perPage: 5 }, sort: {...} })` calls — one each for `"singles"`,
-        `"shidduchim"`, `"shadchanim"`, `"references"` — reusing the exact search hooks Stories
-        4.1/4.3 already wired. **No new SQL, no new Postgres function, no service-role client.**
-        This is the load-bearing safety property: `globalSearch` inherits whatever RLS already
-        protects those four resources (AD-1) because it calls the same `getList` path every
-        other list in the app uses, under the caller's own authenticated session — there is no
-        client-suppliable `account_id`/context parameter for a bug to mis-scope, because none
-        is threaded through (AD-19: `current_context_id()` is server-held, never a client
-        value).
+- [ ] **Task 1 — `useGlobalSearch` (AC: 2, 3, 4)**
+  - [ ] Create `src/components/atomic-crm/misc/useGlobalSearch.ts`: given the (debounced)
+        query, `Promise.all` of four
+        `dataProvider.getList(resource, { filter: { q: query }, pagination: { page: 1, perPage: 5 }, sort })`
+        calls — `"singles"` (sort `first_name_en ASC`), `"shidduchim"` (`name_en`),
+        `"shadchanim"` (`name`), `"references"` (`name_en`) — via `useDataProvider<CrmDataProvider>()`,
+        reusing the exact search hooks Stories 4.1/4.3 already wired.
+  - [ ] **Why a hook over `useDataProvider()` rather than a dataProvider custom method —
+        load-bearing, do not "improve" it back:** the `q` → `@or` search hooks are applied by
+        `withLifecycleCallbacks`, which wraps the object `getDataProviderWithCustomMethods()`
+        returns. A custom method calling `this.getList(...)` runs *inside* that wrapper, so
+        the hooks would never fire and the raw `q` would 400 against PostgREST — the same
+        class of dead-hook trap 4.1's Dev Notes document. `useDataProvider()` hands out the
+        fully wrapped provider, so this fan-out takes exactly the getList path every list
+        screen uses.
+  - [ ] Guard: `query.trim().length < 2` resolves `[]` without calling `getList` (AC-4).
+  - [ ] **No new SQL, no new Postgres function, no service-role client.** The safety property:
+        the fan-out inherits whatever RLS already protects those four resources (AD-1)
+        because it runs under the caller's own authenticated session, and there is no
+        client-suppliable `account_id`/context parameter for a bug to mis-scope (AD-19:
+        `current_context_id()` is server-held, never a client value).
   - [ ] Map each resource's rows to
         `{ resource: "singles"|"shidduchim"|"shadchanim"|"references"; id: Identifier;
         label_en: string; label_he?: string|null; subtitle?: string|null }` using each
@@ -79,12 +84,10 @@ so that I can find a person without knowing their type.
         `shidduchim` (via its existing `shidduchim_summary` redirect) → `name_en`/`name_he`,
         subtitle = `shadchan_name`; `shadchanim` → `name`/`name_he`, subtitle = `location`;
         `references` (via its existing `references_summary` redirect) → `name_en`/`name_he`,
-        subtitle = `relationship`.
-  - [ ] Mirror in `providers/fakerest/dataProvider.ts`: same method, same fan-out over
-        `this.getList(...)` — FakeRest's generic `q` handling (Story 4.1 Dev Notes) means the
-        mapping logic is the only part that needs restating, not the search itself (AD-10:
-        every new method is mirrored in FakeRest).
-  - [ ] Add the `GlobalSearchResult` type to `types.ts`.
+        subtitle = `relationship`. Add the `GlobalSearchResult` type to `types.ts`.
+  - [ ] Nothing to mirror in FakeRest (AD-10): no provider file changes at all — both
+        providers already serve `q` through `getList` (Supabase via 4.1/4.3's hooks, FakeRest
+        generically, per 4.1 Dev Notes).
 
 - [ ] **Task 2 — Debounce (AC: 4)**
   - [ ] In the UI component (Task 3), hold the raw input in local state and derive a debounced
@@ -95,13 +98,15 @@ so that I can find a person without knowing their type.
 
 - [ ] **Task 3 — `GlobalSearch` UI (AC: 1, 2)**
   - [ ] Create `src/components/atomic-crm/misc/GlobalSearch.tsx`: a `CommandDialog` (reuse
-        `@/components/ui/command.tsx` — already an installed, unused shadcn primitive built on
-        `cmdk`, which is already a `package.json` dependency; do not add a new command-palette
-        library). Controlled `open` state; opens on a search icon button and on
-        `(Cmd|Ctrl)+K` (a `keydown` listener on `document`, cleaned up on unmount).
-  - [ ] On query change (debounced), calls `dataProvider.globalSearch(query)` via
-        `useDataProvider<CrmDataProvider>()` (no React Query wiring needed — this is a
-        one-shot, cancel-on-close fetch, not cached list state).
+        `@/components/ui/command.tsx` — installed over the existing `cmdk` dependency; its
+        `CommandDialog` export has no consumer today (the autocomplete inputs use only its
+        lower-level pieces — verified); do not add a new command-palette library). Also
+        export a small `GlobalSearchProvider` + `useGlobalSearchDialog()` context exposing
+        `open()`, so any chrome trigger can open the shell's single dialog instance. The
+        dialog itself owns the `(Cmd|Ctrl)+K` `keydown` listener on `document`, cleaned up
+        on unmount.
+  - [ ] On query change (debounced), calls `useGlobalSearch` (Task 1) — no React Query
+        wiring needed; this is a one-shot, cancel-on-close fetch, not cached list state.
   - [ ] Renders one `CommandGroup` per resource with a translated heading
         (`resources.<resource>.name`), each result row as a `RecordLink` (Epic 3 Story 3.9)
         wrapped so selecting it (click or Enter) closes the dialog and navigates.
@@ -111,23 +116,25 @@ so that I can find a person without knowing their type.
         the query is empty.
 
 - [ ] **Task 4 — Mount it (AC: 1)**
-  - [ ] `layout/TopBar.tsx`: add a search icon button (opens `GlobalSearch`) alongside
-        `ThemeModeToggle`/`RefreshButton`.
-  - [ ] `layout/MobileHeader.tsx`: same icon, same component, mobile has no keyboard shortcut
-        so the icon is the only trigger there.
-  - [ ] One `GlobalSearch` instance, mounted once high in the layout tree (e.g. alongside
-        `TopBar`/`MobileHeader`'s render, not duplicated per header) so the `Cmd+K` listener
-        does not double-fire.
+  - [ ] One `GlobalSearch` instance per shell: `layout/Layout.tsx` (desktop) and
+        `layout/MobileLayout.tsx` (mobile) each render `GlobalSearchProvider` +
+        `<GlobalSearch/>` once. The shells are mutually exclusive (`root/CRM.tsx` picks by
+        `useIsMobile`), so the `Cmd+K` listener cannot double-fire.
+  - [ ] `layout/TopBar.tsx`: a search icon button alongside `ThemeModeToggle`/`RefreshButton`
+        calling `useGlobalSearchDialog().open()`.
+  - [ ] `layout/MobileNavigation.tsx`: a "Search" `DropdownMenuItem` at the top of
+        `MoreButton`'s dropdown calling the same `open()` — mobile has no keyboard shortcut,
+        so this is the only trigger there.
 
 - [ ] **Task 5 — Tests (AC: 5)**
-  - [ ] `providers/supabase/dataProvider.globalSearch.test.ts` (or the FakeRest equivalent,
-        whichever the existing custom-method test convention favors — check
-        `providers/fakerest/dataProvider.summaryStats.test.ts` for the established pattern):
-        query length < 2 returns `[]` without calling `getList`; a query matching rows across
-        all four resources returns four populated groups; a query matching only one resource
-        returns the other three as empty arrays, not omitted keys.
+  - [ ] `src/components/atomic-crm/misc/useGlobalSearch.test.ts` (wrap with
+        `CoreAdminContext` + `ra-data-fakerest`, the pattern in
+        `tasks/TasksListFilter.test.tsx`): query length < 2 resolves `[]` without calling
+        `getList` (spy on the provider); a query matching rows across all four resources
+        returns four populated groups; a query matching only one resource returns the other
+        three as empty arrays, not omitted keys.
   - [ ] `src/components/atomic-crm/misc/GlobalSearch.test.tsx`: debounce timing (fake timers —
-        assert `globalSearch` is not called before 300ms, is called once after); Escape closes
+        assert no fetch fires before 300ms, exactly one after); Escape closes
         the dialog; selecting a result calls navigation.
   - [ ] **The negative test this story owns** (see Dev Notes) in
         `supabase/tests/global_search.sql` (new file, alongside the existing per-table
@@ -135,10 +142,11 @@ so that I can find a person without knowing their type.
         seed two accounts, each with a `singles` row, a `shidduchim` row, a `shadchanim` row and
         a `references` row sharing one distinctive search term (e.g. `"Zzyx"`); assert that,
         authenticated as account A, each of the four underlying `getList`-equivalent queries
-        `globalSearch` issues (`singles`, `shidduchim_summary`, `shadchanim`, `references_summary`
+        the fan-out issues (`singles`, `shidduchim_summary`, `shadchanim`, `references_summary`
         filtered by that term) returns **only** account A's row. Run under
         `npm run test:unit:db` (needs `make start`).
-  - [ ] `e2e/global-search.spec.ts`: open via the icon and via `Cmd/Ctrl+K`; type a known
+  - [ ] `e2e/global-search.spec.ts`: open via the desktop icon and via `Cmd/Ctrl+K`, and on a
+        mobile viewport via the "More" menu's Search item; type a known
         single's name; assert a grouped result appears and clicking it navigates to that
         single's page; type one character, assert no network call fires (or assert no loading
         state appears, per whatever is externally observable).
@@ -147,7 +155,7 @@ so that I can find a person without knowing their type.
 
 ### The negative test this story owns
 
-`globalSearch` adds no new RLS policy — it fans out over `getList` calls against tables/views
+This story adds no new RLS policy — the fan-out runs over `getList` against tables/views
 that already carry `FORCE ROW LEVEL SECURITY` (AD-1) and already have their own isolation
 tests from the epics that introduced them (`singles`/`shadchanim`/`references` from Epic 1
 onward; `shidduchim` from the product's foundation; the `q`-search hooks specifically from
@@ -176,8 +184,8 @@ built — fetch via the existing provider, compose client-side.
 `singles`, `shidduchim`, `shadchanim`, `references` are every searchable entity that exists by
 the end of this epic. Epic 8 ("Shadchan Context") adds shadchanus-context entities
 (connections, shadchan-originated redts) that a shadchan will eventually want to find via this
-same search — that epic must extend `globalSearch`'s resource list and result mapping when it
-lands; it is flagged here as a forward dependency, not built now, since those resources and
+same search — that epic must extend `useGlobalSearch`'s resource list and result mapping when
+it lands; it is flagged here as a forward dependency, not built now, since those resources and
 their RLS do not exist yet.
 
 ### Why a command dialog, not a `/search` route
@@ -185,16 +193,17 @@ their RLS do not exist yet.
 AD-24 says records live at URLs, not modals — but that governs *record* pages, not a transient
 utility overlay with no persistent state of its own. "Search from anywhere" (the epic's own
 framing) is best served by an always-available overlay rather than a navigation to a dedicated
-page and back; this mirrors the standard command-palette pattern the app already ships an
-unused primitive for (`@/components/ui/command.tsx`, `cmdk`).
+page and back; this mirrors the standard command-palette pattern the app already ships a
+primitive for (`CommandDialog` in `@/components/ui/command.tsx`, over `cmdk`).
 
 ### Architecture
 
-- **AD-1 / AD-19**: no client-suppliable scope parameter exists in `globalSearch`'s signature —
+- **AD-1 / AD-19**: no client-suppliable scope parameter exists anywhere in the fan-out —
   this is the property that makes AC-3 hold structurally, not by convention.
 - **AD-24 (via Epic 3 Story 3.9)**: every result is a `RecordLink`; no ad-hoc `<Link>` in this
   component.
-- **AD-10**: the dataProvider custom-method seam; mirrored in FakeRest.
+- **AD-10**: all reads go through the dataProvider's existing `getList` path — no new seam,
+  nothing to mirror in FakeRest.
 
 ### Testing standard
 
@@ -204,9 +213,8 @@ fact. `.claude/skills/e2e-conventions` — search/interaction UI, e2e spec requi
 
 ### Project Structure Notes
 
-`GlobalSearch.tsx` lives in `src/components/atomic-crm/misc/` (cross-entity, like `EntityList`).
-`globalSearch()` lives beside every other custom method in
-`providers/supabase/dataProvider.ts` / `providers/fakerest/dataProvider.ts`. The new SQL test
+`GlobalSearch.tsx` and `useGlobalSearch.ts` live in `src/components/atomic-crm/misc/`
+(cross-entity, like `EntityList`). Neither provider file changes. The new SQL test
 file follows the existing `supabase/tests/*.sql` convention.
 
 ### References

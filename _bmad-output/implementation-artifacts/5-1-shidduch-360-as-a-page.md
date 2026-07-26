@@ -37,9 +37,9 @@ stop and report rather than improvising a shell.
    `overview | diligence | notes | tasks | activity` in that order — the five tabs that already
    have real content today. `resume`, `photo`, `medical`, `files` and `external-links` are
    **not** declared by this story; Stories 5.3–5.6 each insert their own tab at the position
-   shown in the epic's canonical order: `overview, resume, photo, medical, files, diligence,
-   external-links, notes, tasks, activity`. This story must not create empty placeholder tabs
-   for content that does not exist yet.
+   shown in UX-DR5's shidduch tab matrix (amendment A2): `overview, resume, photo, medical,
+   files, diligence, external-links, notes, tasks, activity`. This story must not create empty
+   placeholder tabs for content that does not exist yet.
 3. **Given** the existing 360 content, **when** it is relocated, **then**:
    - `ShidduchShowHeader.tsx` + `ShidduchFactsCard.tsx` + `RedtHistorySection.tsx` +
      `ShidduchSchoolsSection.tsx` + `ShidduchCatchSection.tsx` render under the `overview` tab,
@@ -47,18 +47,33 @@ stop and report rather than improvising a shell.
      moves the container).
    - `ShidduchReferencesSection.tsx` renders under the `diligence` tab, unchanged in behaviour
      (Story 5.10 later enriches it with reuse-awareness).
-   - Notes, Tasks and Activity render via whatever Epic 3 Stories 3.5/3.6/3.8 shipped as the
-     universal tabs — this story wires the shidduch entity into them, it does not build new
-     note/task/activity UI.
+   - `ShidduchStateControl.tsx` (the pipeline-transition UI the routed dialog renders today)
+     is relocated into the shell's identity-header/actions region per the descriptor contract,
+     so a state change stays available from every tab — relocated, not rewritten. Deleting the
+     dialog without re-homing it would remove the only transition UI on the 360.
+   - Notes, Tasks and Activity render via Epic 3's universal `NotesTab`/`TasksTab`/`ActivityTab`
+     (Stories 3.6/3.8/3.5) with `targetType: "shidduch"` — this story wires the shidduch entity
+     into them, it does not build new note/task/activity UI.
+   - `ShidduchTimeline.tsx` (rendered only by `ShidduchShow.tsx`) is **deleted** — its two
+     behaviours (add-a-note, timeline) are superseded by the universal Notes and Activity tabs.
+     Story 3.6's own text assigns exactly this retirement to Epic 5's migration.
+     `grep -rn "ShidduchTimeline" src/` returns nothing afterwards.
 4. **Given** the old routed dialog, **when** this story completes, **then** `ShidduchShow.tsx`
    is deleted, `ShidduchimList.tsx`'s `matchPath("/shidduchim/:id/show", …)` / `<ShidduchShow>`
    wiring is removed, and no route or component named `ShidduchShow`/`/shidduchim/:id/show`
    remains anywhere in `src/`.
-5. **Given** the three call sites that build a `/shidduchim/{id}/show` URL today
-   (`ShidduchCard.tsx:93`, `ShidduchCatchSection.tsx:37`, `ShidduchimList.tsx:77`), **when** this
-   story completes, **then** each points at `/shidduchim/{id}` instead. (`ShadchanSuggestions.tsx`'s
-   own `/shidduchim/{id}/show` link is **not** this story's to fix — Story 5.9 owns replacing
-   that whole link with `RecordLink`; touching it here would collide with 5.9's diff.)
+5. **Given** that Story 3.9's sweep already routes record mentions through `RecordLink` —
+   including `ShidduchCard.tsx` and `shadchanim/ShadchanSuggestions.tsx`, both in its 12-site
+   list — **when** this story changes the route shape, **then** the change is made in **one
+   place**: the shidduchim registration's `buildRecordPath` becomes
+   ``(id) => `/shidduchim/${id}` `` (3.9's Dev Notes name this exact edit as Epic 5's to make),
+   and 3.9's route-pinning test is updated to the new shape. Do not edit the `RecordLink`
+   call sites — they follow the registry. The **one** hand-built site 3.9's line-based
+   verification grep could not see — the multi-line `redirect()` call in
+   `ShidduchCatchSection.tsx` (~line 36, URL template on the following line) — is converted to
+   the registry path (`getEntityDescriptor("shidduchim").buildRecordPath(id)`). Afterwards
+   `grep -rn "shidduchim/" src/components/atomic-crm --include='*.tsx' --include='*.ts' | grep "/show"`
+   returns zero hits.
 6. **Given** I am on a shidduch's 360 page, **when** I press the browser back button, **then** I
    return to the board or list I came from via native history — no custom navigation stack is
    introduced.
@@ -82,14 +97,19 @@ stop and report rather than improvising a shell.
   - [ ] Move `ShidduchShowHeader`, `ShidduchFactsCard`, `RedtHistorySection`,
         `ShidduchSchoolsSection`, `ShidduchCatchSection` into the shell's identity-header /
         `overview`-tab content slots per the descriptor contract — relocate, do not rewrite.
+  - [ ] Relocate `ShidduchStateControl` into the shell's identity-header/actions region.
   - [ ] Move `ShidduchReferencesSection` into the `diligence` tab.
-  - [ ] Wire the shidduch entity into Epic 3's universal Notes/Tasks/Activity tabs.
+  - [ ] Wire the shidduch entity into Epic 3's universal `NotesTab`/`TasksTab`/`ActivityTab`
+        with `targetType: "shidduch"`, then delete `ShidduchTimeline.tsx` (superseded;
+        `grep -rn "ShidduchTimeline" src/` returns nothing).
 - [ ] **Task 4 — Delete the dialog and fix routing** (AC: 4, 5, 6)
   - [ ] Delete `src/components/atomic-crm/shidduchim/ShidduchShow.tsx`.
   - [ ] In `ShidduchimList.tsx`, remove the `matchShow`/`<ShidduchShow open={...} id={...}>`
         wiring (lines ~77, ~91 on current `main`).
-  - [ ] Update the 3 link sites in AC-5 to drop the `/show` suffix.
-  - [ ] `grep -rn "ShidduchShow\b" src/` returns nothing.
+  - [ ] Update the shidduchim `buildRecordPath` registration to `/shidduchim/{id}` and 3.9's
+        route-pinning test with it; convert `ShidduchCatchSection.tsx`'s multi-line `redirect()`
+        to the registry path (AC-5).
+  - [ ] `grep -rn "ShidduchShow\b" src/` returns nothing; the AC-5 `/show` grep returns nothing.
 - [ ] **Task 5 — Verify** (AC: 7)
   - [ ] Manual smoke at 375px, light and dark.
   - [ ] `make typecheck && npm run lint && make test` on changed files; existing
@@ -105,11 +125,18 @@ Every visual piece of the current 360 already exists and is well-built; this sto
 
 - `shidduchim/ShidduchShowHeader.tsx` — hero header (monogram, bilingual name, state chip,
   `via {shadchan} · Redt {date}`).
+- `shidduchim/ShidduchStateControl.tsx` — the pipeline-transition UI (calls
+  `dataProvider.transitionShidduch()` → the `transition_shidduch()` guard, AD-4); relocated,
+  never rebuilt.
 - `shidduchim/ShidduchFactsCard.tsx` — the facts grid (Story 5.2 extends its fields).
 - `shidduchim/RedtHistorySection.tsx` — redt history + add-a-redt form.
 - `shidduchim/ShidduchSchoolsSection.tsx`, `shidduchim/ShidduchCatchSection.tsx`.
 - `references/ShidduchReferencesSection.tsx` — this **is** the Diligence tab already; Story 5.10
   only adds the first/repeat indicator on top of it.
+
+The one component of the old dialog that is **not** carried forward is `ShidduchTimeline.tsx`:
+its add-a-note and timeline behaviours are exactly what 3.6's `NotesTab` and 3.5's `ActivityTab`
+provide, and keeping it would be two implementations of the same thing (Single-owner rule).
 
 ### Why a page, not a `Show`
 
@@ -138,8 +165,13 @@ Notes.
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-5-Entity-360s, Story 5.1]
+- [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md#UX-DR5]
+  — the shidduch tab matrix and its canonical order.
 - [Source: ARCHITECTURE-SPINE.md#AD-24] — shell, routes, `RecordLink`, no bespoke layout code.
 - [Source: ARCHITECTURE-SPINE.md#AD-23] — post-Epic-1 naming this story is written against.
+- [Source: _bmad-output/implementation-artifacts/3-9-recordlink-primitive.md] — the
+  `buildRecordPath` registration this story updates, and the 12-site sweep that already
+  converted the board card and `ShadchanSuggestions` links.
 - [Source: _bmad-output/specs/spec-myshadchan/SPEC.md#Capabilities, CAP-7]
 
 ## Dev Agent Record

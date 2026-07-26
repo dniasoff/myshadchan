@@ -33,7 +33,7 @@ the routed dialog is deleted."* [Source: epics.md#Story-5.1]
 But `ra-core`'s `<Resource>` — the framework component every current resource uses
 (AD-10, "ratified from the fork") — hard-wires a **different** shape:
 `show && <Route path=":id/show/*" .../>`, `edit && <Route path=":id/*" .../>`
-[Source: node_modules/ra-core/src/core/Resource.tsx:9-16]. Under `<Resource>`'s own
+[Source: node_modules/ra-core/src/core/Resource.tsx — the `<Routes>` block]. Under `<Resource>`'s own
 routing, `/{entity}/{id}` (no suffix) is the **edit** route, not show. Passing `show`/
 `edit`/`create` props to `<Resource>` therefore cannot produce AD-24's shape — every
 entity that adopts it needs its **own** nested `<Routes>` instead.
@@ -42,7 +42,7 @@ entity that adopts it needs its **own** nested `<Routes>` instead.
 that has adopted `Entity360` registers **only** a `list` component with
 `<Resource>` (via `routeManifest.ts`'s `ResourceEntry.definition = { list: EntityRoutes
 }`, nothing else) — `<Resource>`'s `list` route is `path="/*"`, a catch-all
-[Source: node_modules/ra-core/src/core/Resource.tsx:14], so `EntityRoutes` receives
+[Source: node_modules/ra-core/src/core/Resource.tsx], so `EntityRoutes` receives
 every sub-path and owns routing for `""` (list), `new`, `:id/edit`, `:id`, and
 `:id/:tab` itself, matching AD-24 exactly. This story builds that `EntityRoutes`
 factory; Epic 5 calls it once per migrated entity and drops the result into
@@ -64,13 +64,13 @@ factory; Epic 5 calls it once per migrated entity and drops the result into
 2. **`Entity360Tabs` reads and writes the `:tab` URL segment.**
    `entity360/Entity360Tabs.tsx` exports a component taking
    `{ tabs: { key: string; label: string; content: ReactNode }[] }`. It reads the current
-   tab from `useParams<{ tab？: string }>()` (via `react-router`, matching the rest of the
+   tab from `useParams<{ tab?: string }>()` (via `react-router`, matching the rest of the
    app's router — `.claude/rules/web-patterns.md#URL-as-state`), renders the tab bar and
-   the active tab's content, and on tab-change calls `navigate` to replace the `:tab`
-   segment **without** touching `:id` or pushing a new history-stack frame that would make
-   back/forward feel broken (use `{ replace: true }` is NOT required by the AC — plain
-   push is fine, since AD-24/UX-DR3 wants tabs deep-linkable and back/forward-navigable,
-   which requires each tab switch to be a distinct history entry).
+   the active tab's content, and on tab-change calls `navigate` with a path that changes
+   only the `:tab` segment (never `:id`). Each tab switch is an ordinary history **push**
+   — do not pass `{ replace: true }` — because AC 3 requires browser back/forward to move
+   between previously-visited tabs, which needs each switch to be a distinct history
+   entry.
 
 3. **The URL is the source of truth, and unknown tabs fall back.** Given a 360 route with
    tabs, switching tabs updates the URL to `/{entity}/{id}/{tab}`; navigating the browser
@@ -128,14 +128,14 @@ factory; Epic 5 calls it once per migrated entity and drops the result into
 
 ### The `<Resource>` routing fact this story is built on
 
-`Resource.tsx`'s routes, verbatim:
+`Resource.tsx`'s routes, condensed (elements elided, order and paths exact):
 ```js
 create && <Route path="create/*" .../>
 show && <Route path=":id/show/*" .../>
 edit && <Route path=":id/*" .../>
 list && <Route path="/*" .../>
 ```
-[Source: node_modules/ra-core/src/core/Resource.tsx:9-16]. Passing only `list` makes
+[Source: node_modules/ra-core/src/core/Resource.tsx]. Passing only `list` makes
 every sub-path fall through to it, because `path="/*"` is the last-declared, most
 permissive match and nothing else is registered to compete with it. This is not a hack —
 it is the documented, supported way to fully own a resource's routing in this framework;
@@ -187,7 +187,7 @@ tooling. No backend, RLS or migration surface in this story.
 - [Source: _bmad-output/planning-artifacts/epics.md#Story-5.1] — "it opens at
   `/shidduchim/{id}` as a page on the shell … the routed dialog is deleted" — the
   concrete downstream requirement that makes the bare `/{entity}/{id}` shape non-optional
-- [Source: node_modules/ra-core/src/core/Resource.tsx:9-16] — verbatim `<Resource>`
+- [Source: node_modules/ra-core/src/core/Resource.tsx] — `<Resource>`'s hard-wired
   routing, the conflict this story resolves
 - [Source: node_modules/ra-core/src/routing/useCreatePath.ts:39-84] — the hardcoded
   `.../show` path builder, flagged for 3.9

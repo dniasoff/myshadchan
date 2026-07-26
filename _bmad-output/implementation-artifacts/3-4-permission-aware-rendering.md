@@ -21,24 +21,31 @@ per-context **role** for the signed-in caller. Today that does not exist: the on
 signal in the codebase is `sales.administrator` (a boolean), consumed by
 `providers/commons/canAccess.ts` as a binary `"admin" | "user"`
 [Source: src/components/atomic-crm/providers/commons/canAccess.ts:16-30,
-src/components/atomic-crm/providers/supabase/authProvider.ts:166-169]. **Epic 2** (not
-yet storied at the time this story was written) is where the real 5-value role
-(`parent_admin | single | helper | self_manager | shadchan`, AD-2) becomes resolvable
-per active context. This story is written against an assumed contract — a
-`current_role()` seam — and names exactly one call site that Epic 2 must satisfy or
-retarget. **This is not this story's decision to defer** (per the harness rule "no
-unresolved decisions") — it commits to the contract below and Epic 2 either matches it
-or updates the one function documented in AC 5.
+src/components/atomic-crm/providers/supabase/authProvider.ts:166-169]. **Epic 2**
+(Stories 2.1/2.2) builds the server-side data model that makes the real 5-value role
+(`parent_admin | single | helper | self_manager | shadchan`, AD-2) resolvable per active
+context; **Epic 6 Story 6.2** builds the SQL resolver (`current_member_role()`) and
+**Story 6.4 owns the rewiring** of this story's hook onto it (6.4 Task 4 names
+`entity360/useViewerRole.ts` explicitly). This story's contribution is to make that
+swap a one-file change: it commits to the `useViewerRole()` seam below and names
+exactly one call site 6.4 retargets (AC 5). **This is not this story's decision to
+defer** (per the harness rule "no unresolved decisions") — the seam contract is decided
+here; only the real data source arrives later.
 
 ## Acceptance Criteria
 
-1. **`EntityTabDescriptor` gains `minVisibility`.** In `entity360/entityDescriptor.ts`
-   (3.3), `EntityTabDescriptor<T>` gains an optional `minVisibility?: Role[]`, where
-   `Role` is the AD-2 vocabulary: `"parent_admin" | "single" | "helper" |
-   "self_manager" | "shadchan"` (exported from the same file, the one place this union
-   is spelled out — 3.5-3.8 and Epic 5/6 import it rather than re-declaring it). A tab
-   with no `minVisibility` is visible to every role (the default is open, matching every
-   tab that exists today).
+1. **Tabs *and* fields can declare `minVisibility`** (epics.md's AC covers both). In
+   `entity360/entityDescriptor.ts` (3.3), `EntityTabDescriptor<T>` gains an optional
+   `minVisibility?: Role[]`, where `Role` is the AD-2 vocabulary: `"parent_admin" |
+   "single" | "helper" | "self_manager" | "shadchan"` (exported from the same file, the
+   one place this union is spelled out — 3.5-3.8 and Epic 5/6 import it rather than
+   re-declaring it). The descriptor's `stats` entry type gains the same optional
+   `minVisibility?: Role[]`, filtered by `EntityShow` through the same `hasVisibility`
+   before rendering — that is the "field" half at the machinery level; the actual
+   sensitive fields live inside tab bodies and are declared by Epic 5/6, which import
+   `hasVisibility`/`useViewerRole` for the purpose rather than building a second check.
+   Anything with no `minVisibility` is visible to every role (the default is open,
+   matching every tab that exists today).
 
 2. **A viewer without the required role never sees the tab, in the DOM or the tab
    bar.** `entity360/entityPermissions.ts` exports a pure function
@@ -78,25 +85,29 @@ or updates the one function documented in AC 5.
    (`"admin"` → `"parent_admin"`, else → `"helper"` — the closest honest mapping
    available today, documented as provisional) via `useGetIdentity()`
    [Source: src/components/atomic-crm/providers/supabase/authProvider.ts:9-20]. A
-   `// TODO(Epic-2)` comment states exactly what must change: read
-   `account_members.role` for `current_context_id()` (AD-19) instead. No other file in
-   `entity360/` calls `useGetIdentity()` or reads `sales.administrator` directly — a grep
-   test (`grep -rn "useGetIdentity\|\.administrator" src/components/atomic-crm/entity360/`)
-   returns exactly the one hit inside `useViewerRole.ts`.
+   `// TODO(real-role-source)` comment states exactly what must change: read
+   `account_members.role` for `current_context_id()` (AD-19) instead — Epic 2 lands the
+   data model, Epic 6 Story 6.2 the likely SQL resolver; whichever story rewires this
+   hook touches only this file. No other file in `entity360/` calls `useGetIdentity()`
+   or reads `sales.administrator` directly — a vitest `it` loads every `entity360/`
+   source file as text via `import.meta.glob("../**/*.{ts,tsx}", { query: "?raw",
+   import: "default", eager: true })` (browser-safe, same mechanism as 3.1 AC 3) and
+   asserts `useGetIdentity|\.administrator` matches only in `useViewerRole.ts`.
 
 6. **Negative test — the security-triggers rule, satisfied at this story's own
    layer.** `.claude/rules/security-triggers.md` requires a negative test for any
    diff touching authorization code. This story's negative test is AC 2 + AC 4 combined:
-   for **each** of the five AD-2 roles, a fixture descriptor with a tab restricted to a
-   different role renders with that tab absent from the DOM and its `render` uncalled —
-   one parameterised `it.each` covering all five, not one hand-picked role.
+   for **each** of the five AD-2 roles, a fixture descriptor with a tab **and a stat
+   entry** restricted to a different role renders with both absent from the DOM and the
+   tab's `render` uncalled — one parameterised `it.each` covering all five, not one
+   hand-picked role.
 
 ## Tasks / Subtasks
 
 - [ ] **Task 1 — Extend the descriptor type** (AC: 1)
-  - [ ] Add `Role` union and `minVisibility?: Role[]` to `EntityTabDescriptor` in
-        `entity360/entityDescriptor.ts` (3.3's file — this is an additive edit, not a new
-        file).
+  - [ ] Add the `Role` union and `minVisibility?: Role[]` to `EntityTabDescriptor` and
+        to the `stats` entry type in `entity360/entityDescriptor.ts` (3.3's file — this
+        is an additive edit, not a new file).
 
 - [ ] **Task 2 — `entityPermissions.ts`** (AC: 2)
   - [ ] Implement `hasVisibility` exactly as specified (fail-closed on missing
@@ -106,12 +117,14 @@ or updates the one function documented in AC 5.
 
 - [ ] **Task 3 — `useViewerRole.ts`** (AC: 5)
   - [ ] Implement the provisional mapping from `sales.administrator`, with the
-        `// TODO(Epic-2)` comment naming `account_members.role` + `current_context_id()`
-        as the real source.
-  - [ ] Add the grep-boundary test from AC 5.
+        `// TODO(real-role-source)` comment naming `account_members.role` +
+        `current_context_id()` as the real source.
+  - [ ] Add the source-boundary test from AC 5.
 
 - [ ] **Task 4 — Wire gating into `EntityShow`/`Entity360Tabs`** (AC: 2, 3, 4)
-  - [ ] `EntityShow` (3.3) filters `descriptor.tabs` through `hasVisibility(tab.minVisibility, useViewerRole())` before constructing the array passed to `Entity360Tabs`.
+  - [ ] `EntityShow` (3.3) filters `descriptor.tabs` — and the `stats` entries (AC 1) —
+        through `hasVisibility(minVisibility, useViewerRole())` before constructing what
+        it renders / passes to `Entity360Tabs`.
   - [ ] Confirm 3.2's "unknown tab falls back to first" logic in `Entity360Tabs` needs no
         change to satisfy AC 3 — it already falls back on any tab key not present in the
         (now pre-filtered) array. If it does need a change, make it in

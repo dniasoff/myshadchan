@@ -58,20 +58,30 @@ cross-checked against every Epic 1 story's stated renames (1.2 for `sales`→`me
    `SET search_path TO ''`. It raises (`no active membership of account %`) unless
    `exists (select 1 from public.account_members where user_id = auth.uid() and
    account_id = p_account_id and status = 'active')`; on success it upserts
-   `member_state`. This is the **only** write path onto `member_state` (AC-3 makes the
-   alternative — a raw client UPDATE — impossible; AD-19: "Switching goes through
-   `set_active_context(account_id)`, which validates membership before writing").
+   `member_state`. The physical upsert itself lives in **one** private helper —
+   `public.activate_context_for(p_user_id uuid, p_account_id bigint)`, `SECURITY
+   DEFINER`, EXECUTE revoked from every client role (`public`, `anon`,
+   `authenticated`) — shared with AC-5's trigger, so `member_state` still has exactly
+   one writer (AC-3 makes the alternative — a raw client UPDATE — impossible; AD-19:
+   "Switching goes through `set_active_context(account_id)`, which validates
+   membership before writing").
 
 5. **A user's first context activates itself; gaining a second never silently moves
    them.** An `after insert` trigger on `public.account_members`
-   (`activate_first_context()`) calls the **same validated path** as
-   `set_active_context()` — it does not re-implement the check — and only acts when the
-   inserted row is `active` and the user has no `member_state` row yet, or their
-   existing `active_account_id` no longer resolves through `current_context_id()`'s own
-   rule. Adding a second context to a user who already has a working active one does
-   nothing to `member_state` (this is what lets FR84's "never inferred" and 2.4's "a
-   user with one context sees no switcher clutter" both hold from the moment a context
-   exists, without a UI-side bootstrap step).
+   (`activate_first_context()`) acts only when the inserted row is `active` and
+   `new.user_id` has no `member_state` row yet, or its `active_account_id` no longer
+   matches **any** of `new.user_id`'s active memberships (the same rule
+   `current_context_id()` applies, expressed over `new.user_id`); when it acts, it
+   calls AC-4's shared `activate_context_for(new.user_id, new.account_id)`. It must
+   **not** call `set_active_context()`: memberships are also inserted by
+   `handle_new_user()` (invite acceptance, rewritten in 2.7), which runs as an
+   `auth.users` trigger where `auth.uid()` is NULL — a validation against `auth.uid()`
+   there would raise and roll back the whole signup. The inserted row itself is the
+   proof of membership; the trigger needs no second check. Adding a second context to
+   a user who already has a working active one does nothing to `member_state` (this is
+   what lets FR84's "never inferred" and 2.4's "a user with one context sees no
+   switcher clutter" both hold from the moment a context exists, without a UI-side
+   bootstrap step).
 
 6. **Every RLS policy that reads the old resolver reads the new one — all 17,
    verified.** No table is missed and no table gets a second, divergent scoping
@@ -197,7 +207,26 @@ cross-checked against every Epic 1 story's stated renames (1.2 for `sales`→`me
     `create view … as select … current_account_id()` compatibility shim of any kind
     (NFR-14).
 
-13. **Toolchain green, scoped correctly.** `make typecheck`, `npm run lint`, `make test`,
+13. **The fork's `anon` default-privilege is dropped, and the new objects are
+    explicitly revoked from `anon`.** The three
+    `alter default privileges for role postgres in schema public grant all on
+    {sequences|functions|tables} to anon;` lines in `06_grants.sql` (today at 162, 167,
+    172) are deleted — AD-1's own directive, and story 1.1 Task A6 defers exactly this
+    to Epic 2 by name ("AD-1's anon revocation is Epic 2's job"). Without this, every
+    object this epic creates (`member_state` here, `invites` in 2.7, every new
+    function) is silently auto-granted ALL to `anon` at creation, and "grant nothing to
+    anon" in a grants file does not undo an inherited default. Additionally, following
+    the file's own established revoke-then-grant pattern (`revoke all on function …
+    from public, anon;`): `member_state`, `current_context_id()`,
+    `set_active_context()`, `activate_context_for()` and `activate_first_context()`
+    each get an explicit `anon` revoke (`activate_context_for()` is revoked from
+    `authenticated` too — Task 2). Verify: `select defaclrole::regrole, defaclacl from pg_default_acl` shows
+    no `anon` entry, and `grep -n "to anon" supabase/schemas/06_grants.sql` returns
+    only the deliberate anon surfaces that remain at this point in the epic
+    (`grant usage on schema public to anon`, the fork trigger-function grants 1.2
+    leaves in place, and `init_state` — which Story 2.7 deletes).
+
+14. **Toolchain green, scoped correctly.** `make typecheck`, `npm run lint`, `make test`,
     and `npm run test:unit:db` (needs `make start`) all pass. `npx prettier --config
     ./.prettierrc.json --check` over only the files this story creates or edits — not a
     repo-wide `make lint` gate (that is a dedicated-story concern per Epic 1's own
@@ -212,9 +241,12 @@ cross-checked against every Epic 1 story's stated renames (1.2 for `sales`→`me
         level security;` and a single `select`-only policy
         (`using (user_id = auth.uid())`). Confirm no `insert`/`update`/`delete` policy
         exists for `authenticated` — the absence **is** the enforcement.
-  - [ ] `supabase/schemas/06_grants.sql`: `grant select on table public.member_state to
-        authenticated; grant all on table public.member_state to service_role;` — no
-        `anon` grant.
+  - [ ] `supabase/schemas/06_grants.sql`: `revoke all on table public.member_state from
+        anon, authenticated;` then `grant select on table public.member_state to
+        authenticated; grant all on table public.member_state to service_role;` —
+        the explicit revoke first, matching the file's own pattern (AC-13; a bare
+        "no anon grant" is not enough while the fork's anon default-privilege exists,
+        and stays as defence-in-depth after it is dropped).
 
 - [ ] **Task 2 — The resolver and the switch function** (AC: 1, 2, 4, 5, 10)
   - [ ] `supabase/schemas/02_functions.sql`: delete `current_account_id()`
@@ -223,16 +255,21 @@ cross-checked against every Epic 1 story's stated renames (1.2 for `sales`→`me
         function).
   - [ ] Add `current_context_id()` per AC-2. Keep it `SECURITY DEFINER` for the exact
         reason the old one was: called from RLS policies, must not recurse into them.
-  - [ ] Add `set_active_context(p_account_id bigint)` per AC-4.
+  - [ ] Add the private writer `activate_context_for(p_user_id uuid, p_account_id
+        bigint)` and `set_active_context(p_account_id bigint)` per AC-4.
   - [ ] Add `activate_first_context()` (trigger function) per AC-5, and its trigger:
         `create trigger activate_first_context_trigger after insert on
         public.account_members for each row when (new.status = 'active') execute
-        function public.activate_first_context();`. Implement it by calling
-        `set_active_context()` internally (same validated write, per the
-        single-owner-logic convention — do not duplicate the membership check).
-  - [ ] `06_grants.sql`: grant `execute` on both new functions to `authenticated` and
-        `service_role`, none to `anon`. Revoke `execute` on the now-deleted
-        `current_account_id()` line (it disappears with the function).
+        function public.activate_first_context();`. It calls
+        `activate_context_for()` — **never** `set_active_context()`, whose
+        `auth.uid()` validation is NULL inside the `handle_new_user()` signup path
+        (AC-5's rationale).
+  - [ ] `06_grants.sql`: for each of the four new functions, `revoke all on function …
+        from public, anon;` then grant `execute` to `authenticated` and `service_role`
+        (AC-13 — copy the exact pattern used for `current_account_demo()`) — **except**
+        `activate_context_for()`, which additionally gets no `authenticated` grant at
+        all: only `service_role` and the two `SECURITY DEFINER` callers reach it. The
+        `current_account_id()` revoke/grant lines disappear with the function.
 
 - [ ] **Task 3 — Migrate the 17 RLS policies** (AC: 6, 7)
   - [ ] Work `05_policies.sql` table by table using AC-6's list. For 15 of the 17 it is
@@ -240,14 +277,21 @@ cross-checked against every Epic 1 story's stated renames (1.2 for `sales`→`me
         existing `using`/`with check` clauses — no other change.
   - [ ] `accounts`'s and `account_members`'s policies each get AC-7's corrected shape,
         not the literal swap.
-  - [ ] Re-read `interactions`' policy in full before editing it — it has **six**
+  - [ ] Re-read `interactions`' policy in full before editing it — it has **eight**
         occurrences of the old resolver across one `using` and one `with check` clause
-        (three each); all six move together or the policy silently diverges between
-        read and write.
+        (four each: the base `account_id` check, two inside the `reference` branch's
+        join, one inside the `shidduch` branch); all eight move together or the policy
+        silently diverges between read and write.
 
-- [ ] **Task 4 — Add the hardening index** (AC: 8)
+- [ ] **Task 4 — Hardening: unique index + anon default-privilege drop** (AC: 8, 13)
   - [ ] `01_tables.sql`: add the partial unique index from AC-8 next to
         `account_members`'s existing indexes.
+  - [ ] `06_grants.sql`: delete the three `alter default privileges … to anon` lines
+        (AC-13). Do **not** touch the `postgres`/`authenticated`/`service_role`
+        default-privilege lines — AD-1 names only the `anon` ones. The schema file's
+        own comment block at 06_grants.sql:181-184 ("Full revocation of the anon
+        default-privilege itself is … deferred") is updated to record that this story
+        closed it.
 
 - [ ] **Task 5 — Migrate the 14 function bodies** (AC: 9)
   - [ ] Work `02_functions.sql` top to bottom using AC-9's list. Each is a literal
@@ -257,9 +301,13 @@ cross-checked against every Epic 1 story's stated renames (1.2 for `sales`→`me
         call site is missed (`.claude/rules/lsp-usage.md` — this is a SQL function body,
         so also cross-check with the plain-text grep in AC-10, which is the authority
         for SQL since the LSP server covers only `.ts/.tsx/.js/.jsx`).
-  - [ ] Update the three prose comments that name `current_account_id()` without calling
-        it (today at `02_functions.sql:228`, `:519`, `:1254`, `:2083` — verify against
-        the post-1.1–1.6 file before editing, since these line numbers will have moved).
+  - [ ] Update the **four** prose comments that name `current_account_id()` without
+        calling it (today at `02_functions.sql:228` (`handle_new_user`'s header),
+        `:547` (`current_account_demo`'s header), `:1254` (`match_identity`'s header),
+        `:2083` (`ai_entitlement`'s header) — verify against the post-1.1–1.6 file
+        before editing, since these line numbers will have moved). A fifth mention at
+        `:519` sits inside `current_account_id()`'s own comment block and is deleted
+        with the function in Task 2.
 
 - [ ] **Task 6 — Generate and hand-check the migration** (AC: 12)
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
@@ -272,6 +320,9 @@ cross-checked against every Epic 1 story's stated renames (1.2 for `sales`→`me
         regenerates the policy bodies but has a history of dropping the surrounding
         grant statements — see 1.2 Dev Notes precedent) and for the two new functions
         and `member_state`.
+  - [ ] Confirm the migration carries the three `alter default privileges … revoke …
+        from anon` statements (AC-13) — `db diff` may not emit default-privilege
+        changes at all; if it doesn't, write them into the migration by hand.
   - [ ] Apply with `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up
         --local`. **Never `db reset` and never `db push`.**
 
@@ -304,8 +355,10 @@ cross-checked against every Epic 1 story's stated renames (1.2 for `sales`→`me
         this new file is specifically about **one user, multiple contexts**, which no
         existing file covers.
 
-- [ ] **Task 9 — Verify** (AC: 10, 13)
+- [ ] **Task 9 — Verify** (AC: 10, 13, 14)
   - [ ] Run the AC-10 greps; both must be empty.
+  - [ ] Run AC-13's `pg_default_acl` query and `to anon` grep; confirm the survivor
+        set is exactly the deliberate one AC-13 names.
   - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`.
   - [ ] `npx prettier --config ./.prettierrc.json --check` over this story's changed
         files only.
@@ -328,7 +381,7 @@ context types, active context explicit and never inferred) and AD-19 are not
 implementable on top of that function; they require it to consult a **held choice**,
 which is what `member_state` is for.
 
-### The naming collision this story does not resolve — and does not need to
+### The `members` / `account_members` naming — decided closed, not punted
 
 1.2 (`sales`→`members`) flagged that `public.members` (the profile table) and
 `public.account_members` (the membership/role table the glossary calls "member") now
@@ -339,13 +392,16 @@ sit one word apart, and explicitly punted resolving it to Epic 2:
 > it, do not invent a third name."
 > [Source: _bmad-output/implementation-artifacts/1-2-rename-sales-to-members.md#Naming-collision]
 
-This story does not rename either table. `member_state` and `set_active_context()` are
-named for what AD-19 already calls them, and both operate on `account_members`, not
-`members`. **Decision:** leave the collision exactly as 1.2 documented it (a `comment on
-column public.tasks.member_id` pointing at `members`, everything else pointing at
-`account_members`) — inventing a third name here would be scope creep this story's own
-ACs do not ask for. Flagged again in the epic-level report for whoever owns the
-decision to ever actually resolve it.
+This story does not rename either table, and the collision is now **decided closed,
+permanently**, not merely documented: both names are the contract's own. AD-23 mandates
+`members` for the user/profile table ("The user/profile table is `members`, not
+`sales`"), and AD-2 mandates `account_members` for the membership table
+(`account_members(account_id, user_id, role, status)`, verbatim). The glossary's
+"member — a login's membership of a context, carrying a role" describes
+`account_members`; the profile row is the login itself. Two contract-mandated names
+cannot be a collision to resolve — inventing a third name would *violate* the spine,
+not tidy it. Keep 1.2's `comment on column` breadcrumbs; nothing further is owed by
+any story.
 
 ### What this story deliberately does not touch
 
@@ -356,25 +412,24 @@ decision to ever actually resolve it.
   model this story does not build (you cannot scope "who shares a context with me"
   without `accounts.kind` and the persona vocabulary) — it is **Story 2.2's** to do, and
   2.2's Dev Notes should cite this paragraph rather than re-derive the reasoning.
-- **`is_admin()` / `configuration`.** AD-2 says "retire `is_admin()`/`isInitialized`."
-  `isInitialized` is Story 2.7's (it dies with the invite-only signup gate).
-  `is_admin()` gates the single global `configuration` row (`01_tables.sql:142-146`), a
-  platform-wide singleton with no `account_id` at all — it sits outside AD-2's
-  household/shadchanus/role vocabulary entirely (there is no "platform superadmin" role
-  in that vocabulary). **Decision: leave `is_admin()` in place.** None of Epic 2's eight
-  stories' stated ACs give it a replacement, and inventing a platform-admin role to
-  retire it would be scope beyond what was asked. This is flagged to the epic owner as
-  an AD-2 directive with no assigned story — not resolved here, not silently dropped.
+- **`is_admin()` / `configuration`.** AD-2 says "retire `is_admin()`/`isInitialized`,"
+  and Epic 1 deferred both to Epic 2 by name (1.2 AC-5: "retiring `is_admin()` itself
+  is AD-1 / Epic 2, **not** this story"). Both halves are **Story 2.7's**: it deletes
+  `isInitialized`/`init_state` with the invite-only signup gate, and it retires
+  `is_admin()` and the `configuration` write path with it (see 2.7's own AC and Dev
+  Notes for the full package, including why Settings' entry points stop being
+  admin-gated). This story touches neither — it only needs to know `configuration`'s
+  `is_admin()`-gated policies call the old resolver nowhere (verified — they don't).
 - **`FORCE ROW LEVEL SECURITY`.** AD-1 calls for it on every table; none of today's
   tables have it (`alter table … enable row level security` only, never `force`). No
-  story in Epic 2's stated text asks for a table-by-table FORCE-RLS audit, and — because
-  `anon` is granted nothing on any domain table before or after this story (verified:
-  `grep -n "anon" 06_grants.sql` shows no domain-table grant surviving Epic 1) —
-  `FORCE ROW LEVEL SECURITY`'s practical effect here is defense-in-depth against a
-  future accidental grant, not a live gap this story's own negative tests exercise.
-  `member_state` (new in this story) gets ordinary RLS, matching every other table
-  added so far; a repo-wide FORCE-RLS pass is flagged as an AD-1 gap with no assigned
-  story, same as `is_admin()` above.
+  story in Epic 2's stated text asks for a table-by-table FORCE-RLS audit. With AC-13's
+  anon default-privilege drop and the per-table `anon` revokes already in
+  `06_grants.sql`, `FORCE`'s practical effect is defense-in-depth against a future
+  accidental grant (and against table-owner access), not a live gap this story's own
+  negative tests exercise. `member_state` (new in this story) gets ordinary RLS,
+  matching every other table added so far; a repo-wide FORCE-RLS pass plus AD-1's CI
+  assertion remains an AD-1 gap with no assigned story anywhere in Epics 1–11 — flagged
+  for the epic owner, not silently absorbed here.
 
 ### The `accounts` / `account_members` policy shape — read this before Task 3
 
@@ -394,21 +449,23 @@ table.
 
 ### Verified call sites (counted against `main` @ `8ad49cb`, 2026-07-26)
 
-**17 policies** call `current_account_id()` today (AC-6's table, using the pre-rename
-names `Children scoped to account` on `children` and reading `sales`/`Enable read
-access…` as out of scope since it never calls the resolver at all).
+**18 policies** call `current_account_id()` on `main` today; **17 survive Epic 1**
+(AC-6's table, using the pre-rename names `Children scoped to account` on `children`,
+and reading `sales`'s `Enable read access…` as out of scope since it never calls the
+resolver at all). The 18th — `Child portal tokens scoped to account` on
+`child_portal_tokens` (2 occurrences) — is deleted whole by story 1.4.
 `grep -c current_account_id supabase/schemas/05_policies.sql` → 41 raw occurrences
-across those 17 policies (`interactions` alone contributes 6; every other policy
-contributes 1–2 for its `using`/`with check` pair).
+today; 39 across the 17 policies this story migrates (`interactions` alone contributes
+8; every other policy contributes 1–2 for its `using`/`with check` pair).
 
 **14 functions** call it in their bodies (AC-9's list).
 `grep -c current_account_id supabase/schemas/02_functions.sql` → 21 raw occurrences:
-1 in the deleted function's own definition site (not a call), 3 in prose comments, the
-remaining spread across the 14 function bodies (most call it once into a
-`v_account_id` local; none call it more than once).
-`set_child_portal_token_defaults()` also calls it today but is deleted whole by story
-1.4 (retire token portal) — excluded from AC-9's count because it will not exist by the
-time this story runs.
+the definition site (`:527`) plus one mention inside its own comment block (`:519`),
+both deleted together in Task 2; **four** prose comments in other functions' headers
+(`:228`, `:547`, `:1254`, `:2083` — Task 5's reword list); and 15 single calls — one in
+each of AC-9's 14 functions (each into a `v_account_id` local or a `new.account_id`
+default; none calls it twice) plus one in `set_child_portal_token_defaults()`, which is
+deleted whole by story 1.4 (retire token portal) and therefore excluded from AC-9.
 
 **4 edge-function files** mention it only in comments (Task 7); **2 test files**
 (`billing_entitlement.sql`, `references_entity.sql`) call it inside assertions and are
@@ -474,8 +531,8 @@ what consume `current_context_id()`/`set_active_context()`.
   per browser tab."
 - [Source: ARCHITECTURE-SPINE.md#AD-1] — tenant isolation is scope + RLS, deny-by-default,
   FORCE RLS / anon-revoke posture (flagged above as not this story's to complete).
-- [Source: ARCHITECTURE-SPINE.md#AD-2] — "Retire `is_admin()`/`isInitialized`" (partially
-  addressed: `isInitialized` is 2.7's; `is_admin()` flagged, not resolved).
+- [Source: ARCHITECTURE-SPINE.md#AD-2] — "Retire `is_admin()`/`isInitialized`" (both
+  halves are Story 2.7's; see its is_admin retirement AC).
 - [Source: _bmad-output/specs/spec-myshadchan/SPEC.md#Constraints] — "The active context
   is a server-side row, chosen explicitly … a client-supplied context is never trusted."
 - [Source: _bmad-output/specs/spec-myshadchan/personas-and-contexts.md#The-two-context-types]

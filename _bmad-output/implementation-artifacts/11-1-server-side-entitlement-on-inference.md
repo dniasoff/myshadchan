@@ -55,7 +55,7 @@ is a fork fossil or a misdescriptive name (AD-23).
      behavior).
 2. **One caller-scoped client constructor, reused, never duplicated — and never rebuilt or
    re-fetched downstream.** `createCallerClient(authHeader: string, env: BaseEnv):
-   SupabaseClient` in the same file: a Supabase client built with `env.SUPABASE_ANON_KEY`
+   SupabaseClient` in the same file: a Supabase client built with `env.SUPABASE_PUBLISHABLE_KEY`
    (never `SUPABASE_SERVICE_ROLE_KEY`) with `global.headers.Authorization` set to the
    forwarded header verbatim, `auth: { persistSession: false }`. Both workers' `Hono` apps
    declare a typed `Variables` map (`{ supabaseCaller: SupabaseClient; aiEntitlement:
@@ -65,9 +65,13 @@ is a fork fossil or a misdescriptive name (AD-23).
    both via `c.get(...)` — it never constructs a second caller-scoped client and never issues
    a second `ai_entitlement()` call in the same request (wasteful and, per AD-16/AD-17, a
    margin concern in its own right).
-3. **`SUPABASE_ANON_KEY` joins `BaseEnv`** (`workers/shared/env.ts`), alongside the existing
-   `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. `workers/ai/wrangler.toml` and
-   `workers/parse/wrangler.toml`'s secrets comments list it.
+3. **`SUPABASE_PUBLISHABLE_KEY` joins `BaseEnv`** (`workers/shared/env.ts`), alongside the
+   existing `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. `workers/ai/wrangler.toml` and
+   `workers/parse/wrangler.toml`'s secrets comments list it. Its value is the same
+   `sb_publishable_…` key the SPA already uses as `VITE_SB_PUBLISHABLE_KEY`
+   (`.env.development:4`) — the publishable key maps to the `anon` Postgres role, so the
+   `anon`-grant reasoning in AC-1 applies to it unchanged. The name matches the repo's
+   existing publishable-key convention; do not introduce a second `*_ANON_KEY` spelling.
 4. **Both workers wire the gate globally, before any business route.**
    `workers/ai/index.ts` and `workers/parse/index.ts` each call
    `app.use("*", requireAiEntitlement)` directly after `createWorkerApp(...)` and before any
@@ -81,10 +85,11 @@ is a fork fossil or a misdescriptive name (AD-23).
    `new Error(error ?? "AI request failed")` on `success:false` or on a thrown/network
    failure. No other module in `src/` performs a `fetch()` against a Worker URL — 11.2 and
    11.3 both route through this one function.
-6. **Local dev can reach both workers.** `VITE_PARSE_WORKER_URL` and `VITE_AI_WORKER_URL` are
-   added to `.env.development` and `.env.e2e`, pointing at the local `wrangler dev` ports for
-   `workers/parse` and `workers/ai` (`8788`/`8789` — pick two free, unused local ports and use
-   them consistently across both files; document the choice in a comment).
+6. **Local dev can reach both workers, deterministically.** `VITE_PARSE_WORKER_URL=http://localhost:8788`
+   and `VITE_AI_WORKER_URL=http://localhost:8789` are added to `.env.development` and
+   `.env.e2e`, and each worker's `wrangler.toml` gains a matching `[dev] port = 8788` /
+   `port = 8789` block so `wrangler dev` always binds the port the env files name (8787,
+   wrangler's default, is left free for ad-hoc runs of the other workers).
 7. **Verification — tests, all passing under `npm run test:unit:workers` and the `app` project:**
    - `workers/shared/aiEntitlementGate.test.ts`: missing header → 401; RPC error → 402;
      `is_entitled:false` → 402; `is_entitled:true` → `next()` invoked (assert via a downstream
@@ -102,15 +107,16 @@ is a fork fossil or a misdescriptive name (AD-23).
      `success:false` throws with the server's `error` string; on a rejected `fetch` the
      rejection propagates.
 8. **No second entitlement decision.** `grep -rn '"ai_entitlement"' workers/ src/components/
-   atomic-crm/` returns exactly the existing client call site
-   (`providers/supabase/dataProvider.ts:607`) plus this story's one new call inside
-   `aiEntitlementGate.ts` — no Worker re-implements the plan/status check, caches a copy of
-   it, or introduces a second SQL function.
+   atomic-crm/ | grep -v '\.test\.'` returns exactly two production call sites: the existing
+   `aiEntitlement()` method in `providers/supabase/dataProvider.ts` and this story's one new
+   `.rpc("ai_entitlement")` inside `aiEntitlementGate.ts` (test files mock the same string and
+   are excluded) — no Worker re-implements the plan/status check, caches a copy of it, or
+   introduces a second SQL function.
 
 ## Tasks / Subtasks
 
 - [ ] **Task 1 — The shared gate** (AC: 1, 2, 3)
-  - [ ] Add `SUPABASE_ANON_KEY: string` to `BaseEnv` in `workers/shared/env.ts`.
+  - [ ] Add `SUPABASE_PUBLISHABLE_KEY: string` to `BaseEnv` in `workers/shared/env.ts`.
   - [ ] Create `workers/shared/aiEntitlementGate.ts`: `createCallerClient(authHeader, env)`
         (per AC-2), an exported `AiEntitlementVariables` type
         (`{ supabaseCaller: SupabaseClient; aiEntitlement: AiEntitlementInfo }`, importing
@@ -123,7 +129,7 @@ is a fork fossil or a misdescriptive name (AD-23).
         path explicitly, so the gate's own behavior is provable in isolation without depending
         on where each worker happens to register it).
   - [ ] Update `workers/ai/wrangler.toml` and `workers/parse/wrangler.toml`'s secrets comment
-        block to list `SUPABASE_ANON_KEY` alongside the two existing secrets.
+        block to list `SUPABASE_PUBLISHABLE_KEY` alongside the two existing secrets.
 
 - [ ] **Task 2 — Wire it into both workers** (AC: 4)
   - [ ] `workers/ai/index.ts`: `createWorkerApp` currently returns a plain `Hono<{ Bindings }>`
@@ -134,9 +140,11 @@ is a fork fossil or a misdescriptive name (AD-23).
         already widens it — try (b) first (Hono infers `Variables` from the middleware passed
         to `app.use`, no `createApp.ts` change needed in most Hono 4.x versions); fall back to
         (a) only if `tsc` disagrees. Add the `app.use("*", requireAiEntitlement);` line right
-        after `const app = createWorkerApp<AiEnv>("ai")` and before `export default app`.
-        Leave a one-line comment pointing 11.3 at where its route goes (after this line, so it
-        can `c.get("supabaseCaller")` / `c.get("aiEntitlement")`).
+        after the existing `const app = createWorkerApp("ai")` and before `export default app`
+        (neither worker has a per-worker `Env` type yet — 11.2 introduces `ParseEnv`, 11.3
+        `AiEnv`; this story adds nothing beyond `BaseEnv`). Leave a one-line comment pointing
+        11.3 at where its route goes (after this line, so it can `c.get("supabaseCaller")` /
+        `c.get("aiEntitlement")`).
   - [ ] `workers/parse/index.ts`: identical change, pointing 11.2 at its route.
 
 - [ ] **Task 3 — Client call surface** (AC: 5, 6)
@@ -144,7 +152,7 @@ is a fork fossil or a misdescriptive name (AD-23).
         `callAiWorker<T>()` per AC-5, importing `getSupabaseClient` from
         `../supabase/supabase`.
   - [ ] Add `VITE_PARSE_WORKER_URL` / `VITE_AI_WORKER_URL` to `.env.development` and
-        `.env.e2e` per AC-6.
+        `.env.e2e`, and the `[dev] port` blocks to both `wrangler.toml`s, per AC-6.
 
 - [ ] **Task 4 — Tests** (AC: 7)
   - [ ] `workers/shared/aiEntitlementGate.test.ts`, following the `vi.mock("@supabase/
@@ -187,7 +195,7 @@ AD-7 mandates `forAccount(accountId, env)` — a **service-role** client that in
 `account_id` — as "the only way a Worker touches a tenant table," because the service role
 bypasses RLS and an unscoped call would be a leak. That rule is about the service-role path.
 This story adds a **second, RLS-respecting** path: forwarding the caller's own JWT to a client
-built with the **anon key**, so PostgREST verifies the JWT itself, sets `role=authenticated`
+built with the **publishable (anon-role) key**, so PostgREST verifies the JWT itself, sets `role=authenticated`
 and `auth.uid()`, and Postgres RLS (`current_context_id()`, AD-19) scopes every row exactly as
 it would for the SPA. `ai_entitlement()`'s own comment anticipates this exact pattern: "works
 identically for the SPA (authenticated JWT) and an edge function that forwards the user's JWT"
@@ -195,7 +203,7 @@ identically for the SPA (authenticated JWT) and an edge function that forwards t
 for writes the human's own grant does not cover (e.g. `ai_usage`, still `service_role`-only —
 see 11.2). [Source: ARCHITECTURE-SPINE.md#AD-1, #AD-7, #AD-19]
 
-### Why a missing/invalid header still gets a clean 402, not a 500
+### Why an invalid or anon-role caller still gets a clean 402, not a 500
 
 An `anon`-role RPC call to `ai_entitlement()` fails with a Postgres permission error, because
 `anon` holds no `EXECUTE` grant on it (`06_grants.sql:600-602`, "revoke all on function
@@ -234,6 +242,10 @@ code into a Worker bundle. The rule for this epic: a **type-only** cross-boundar
 always fine; a **value** import is fine only when the source module's own import chain is
 provably framework-free (see 11.3's Dev Notes for the one case that needs it). Never import
 anything that transitively reaches `react`, `ra-core`, or a `@/`-aliased path into `workers/`.
+One `tsc` consequence to expect, not fear: `tsconfig.workers.json` (`include: ["workers"]`)
+pulls any file `workers/` imports into that project's check, so `types.ts` gets compiled under
+the Workers settings too — it passes because its own imports are all `import type` and
+`skipLibCheck` is on.
 
 ### Project Structure Notes
 
