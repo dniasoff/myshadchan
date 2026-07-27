@@ -280,8 +280,13 @@ so that the app never dead-ends.
         `ChangelogPage.tsx` at 473 — **4 entries are yours**; `useImportFromJson.ts` (409) and
         `ImportPage.tsx` (453) go with story 1.1, and every line number will have shifted by the
         time you run it. Also drops the `dompurify@^3.3.1` registry dependency at line 30).
-  - [x] Manually walk both viewports: `/`, `/shidduchim`, `/inbox_items`, `/shadchanim`,
+  - [ ] Manually walk both viewports: `/`, `/shidduchim`, `/inbox_items`, `/shadchanim`,
         `/references`, `/reminders`, `/settings`, `/tasks`, `/billing`, `/share` — none blank.
+        **Skipped, with rationale** (flagged by adversarial review, finding #5): no literal
+        browser click-through was performed. Substituted with the positive
+        `routeManifest.test.ts` case (proves every registered route/resource resolves to a real
+        screen — the same invariant the manual walk exists to check) plus a clean `npm run build`
+        (proves the whole tree still compiles/bundles). See Dev Agent Record, Task 7.
 
 ## Dev Notes
 
@@ -656,6 +661,42 @@ and `npm run build` were all green on the first pass after each task; only the s
   `make registry-gen` alone left both `dompurify@^3.3.1` and `marked@^17.0.1` in place; both were
   removed by hand in the same commit to keep the registry truthful.
 
+### Adversarial Review Response
+
+Fixed:
+- **Finding #1 (should-fix, NFR-14) — orphaned `settings/LanguageSelector.tsx`.** Its sole
+  importer, `ProfileForm.tsx`, was deleted by this story's own Task 4, and the identical control
+  (same `useLocales()`/`useLocaleState()`/`crm.language` shape) already lives in
+  `PreferencesSection.tsx`'s `LanguageRow`. Deleted the file (`git rm`) and re-ran
+  `make registry-gen`, which removed its 4-line entry from `registry.json` (was line 243). Kept the
+  `crm.language` catalog key in both catalogs — `PreferencesSection.tsx:53` still consumes it.
+  `grep -rn "LanguageSelector" src/` now returns no hits.
+- **Finding #5 (note) — Task 7's manual-walk checkbox overstated.** Unchecked it and appended a
+  rationale line stating the substitute actually used (positive `routeManifest.test.ts` case +
+  clean `npm run build`), matching what the Completion Notes already said.
+
+Logged, no action (as the review itself recommended):
+- **Finding #2** — `misc/MobileBackButton.tsx` also dropped to zero importers in this story; correctly
+  left in place per Dev Notes §3's flagged exception (V1, 1.1's call for AD-24's `Entity360`).
+  Re-verified: `grep -rn "MobileBackButton" src/` finds only the file's own declaration.
+- **Finding #3** — `findManifestViolations`'s `isRenderableComponent` cannot itself reject
+  `Component: Navigate` (it is a plain function); the redirect is blocked one level up by
+  `CustomRouteEntry.Component: ComponentType` under `strictFunctionTypes`. No code change: this is
+  a note about AC #6a's example wording being broader than the enforced rule, not a defect.
+- **Finding #6** — `/tasks` and `/reminders` both reading the `tasks` table is AC #1's own design
+  (story-owned), not implementer drift. No action here; left for Epic 3/4 to reconcile.
+
+Rejected:
+- **Finding #4 (note, "optional, cheap") — path-normalization and `react.memo`/`forward_ref`
+  hardening in the validator.** Not applied. Both gaps are real but neither is reachable by any
+  entry in today's `CUSTOM_ROUTES` / `RESOURCES` (no manifest path is registered slash-less, no
+  manifest `Component` is a `memo`/`forwardRef` wrapper) — the review confirms this is about a
+  *future* manifest entry, not a defect in this one. Speculative hardening of the validator for
+  shapes nothing in the repo produces is exactly what YAGNI and "do not expand scope beyond the
+  story" argue against; the story's own AC #6 fixture list doesn't cover either case either. Left
+  as-is; worth a one-line note on whichever future story is the first to register a slash-less
+  custom-route path or a memoized page component.
+
 ### File List
 
 **Added:**
@@ -674,6 +715,9 @@ and `npm run build` were all green on the first pass after each task; only the s
 - `src/components/atomic-crm/settings/AboutSection.tsx`
 - `src/components/atomic-crm/settings/ProfilePage.tsx`
 - `src/components/atomic-crm/settings/ProfileForm.tsx`
+- `src/components/atomic-crm/settings/LanguageSelector.tsx` (post-review fix: orphaned when
+  `ProfileForm.tsx` — its sole importer — was deleted above; superseded by
+  `PreferencesSection.tsx`'s `LanguageRow`)
 
 **Modified:**
 - `src/components/atomic-crm/root/CRM.tsx`
