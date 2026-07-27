@@ -88,8 +88,6 @@ export const englishCrmMessages = {
         due_short: "due",
       },
       action: {
-        add: "Add task",
-        create: "Create task",
         edit: "Edit task",
       },
       actions: {
@@ -97,17 +95,10 @@ export const englishCrmMessages = {
         postpone_tomorrow: "Postpone to tomorrow",
         title: "task actions",
       },
-      added: "Task added",
       deleted: "Task deleted successfully",
-      dialog: {
-        create: "Create task",
-        create_for: "Create task for %{name}",
-      },
       sheet: {
         edit: "Edit task",
-        edit_for: "Edit task for %{name}",
       },
-      empty: "No tasks yet",
       empty_list_hint: "Tasks you add will appear here.",
       filters: {
         later: "Later",
@@ -115,7 +106,6 @@ export const englishCrmMessages = {
         this_week: "This week",
         today: "Today",
         tomorrow: "Tomorrow",
-        with_pending: "With pending tasks",
       },
       updated: "Task updated",
     },
@@ -248,21 +238,10 @@ export const englishCrmMessages = {
       },
     },
     common: {
-      activity: "Activity",
       added: "added",
-      details: "Details",
-      last_activity_with_date: "last activity %{date}",
       load_more: "Load more",
       misc: "Misc",
-      past: "Past",
-      read_more: "Read more",
-      retry: "Retry",
-      show_less: "Show less",
       copied: "Copied!",
-      copy: "Copy",
-      loading: "Loading...",
-      me: "Me",
-      task_count: "%{smart_count} task |||| %{smart_count} tasks",
     },
     changelog: {
       title: "Changelog",

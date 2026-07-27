@@ -70,7 +70,6 @@ src/
 │   │   ├── billing/        # Billing / AI entitlement page
 │   │   ├── children/       # Single (candidate) management
 │   │   ├── dashboard/      # Dashboard widgets
-│   │   ├── filters/        # List filters
 │   │   ├── inbox/          # Capture inbox ("front door")
 │   │   ├── landing/        # Public landing page
 │   │   ├── layout/         # App layout components
@@ -85,7 +84,6 @@ src/
 │   │   ├── settings/       # Settings page
 │   │   ├── shadchanim/     # Matchmaker management
 │   │   ├── shidduchim/     # Shidduchim pipeline (Kanban)
-│   │   ├── simple-list/    # List components
 │   │   ├── tasks/          # Task management
 │   │   └── tour/           # Onboarding walkthrough
 │   ├── supabase/           # Supabase-specific auth components

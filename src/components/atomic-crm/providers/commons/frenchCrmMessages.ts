@@ -91,8 +91,6 @@ export const frenchCrmMessages = {
         due_short: "échéance",
       },
       action: {
-        add: "Ajouter une tâche",
-        create: "Créer une tâche",
         edit: "Modifier la tâche",
       },
       actions: {
@@ -100,17 +98,10 @@ export const frenchCrmMessages = {
         postpone_tomorrow: "Reporter à demain",
         title: "Actions de tâche",
       },
-      added: "Tâche ajoutée",
       deleted: "Tâche supprimée avec succès",
-      dialog: {
-        create: "Créer une tâche",
-        create_for: "Créer une tâche pour %{name}",
-      },
       sheet: {
         edit: "Modifier la tâche",
-        edit_for: "Modifier la tâche pour %{name}",
       },
-      empty: "Aucune tâche pour l'instant",
       empty_list_hint: "Les tâches que vous ajoutez apparaîtront ici.",
       filters: {
         later: "Plus tard",
@@ -118,7 +109,6 @@ export const frenchCrmMessages = {
         this_week: "Cette semaine",
         today: "Aujourd'hui",
         tomorrow: "Demain",
-        with_pending: "Avec des tâches en attente",
       },
       updated: "Tâche mise à jour",
     },
@@ -251,21 +241,10 @@ export const frenchCrmMessages = {
       },
     },
     common: {
-      activity: "Activité",
       added: "ajoutée",
-      details: "Détails",
-      last_activity_with_date: "dernière activité %{date}",
       load_more: "Charger plus",
       misc: "Divers",
-      past: "Passé",
-      read_more: "En savoir plus",
-      retry: "Réessayer",
-      show_less: "Afficher moins",
-      task_count: "%{smart_count} tâche |||| %{smart_count} tâches",
       copied: "Copié !",
-      copy: "Copier",
-      loading: "Chargement...",
-      me: "Moi",
     },
     changelog: {
       title: "Notes de version",

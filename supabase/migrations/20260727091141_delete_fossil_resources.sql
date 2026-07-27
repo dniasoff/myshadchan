@@ -410,6 +410,32 @@ drop table "public"."favicons_excluded_domains";
 
 drop table "public"."tags";
 
+-- Redefine the trigger function *before* touching the column it used to
+-- reference. `sync_task_target_trigger` fires BEFORE UPDATE on every row of
+-- `tasks`, including the defensive re-target UPDATE below (AC-6b). Until this
+-- CREATE OR REPLACE lands, that trigger still runs the pre-migration body
+-- (`new.contact_id := ...`), which errors with "record new has no field
+-- contact_id" the instant the column is gone and a row actually matches the
+-- UPDATE's WHERE clause. Locally there are zero such rows so the bug is
+-- invisible; production is not this snapshot. Installing the new body here is
+-- safe regardless of column order because it never reads or writes
+-- contact_id.
+CREATE OR REPLACE FUNCTION public.sync_task_target()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+begin
+  if new.target_id is null then
+    raise exception 'a task needs a target: set target_type + target_id'
+      using errcode = 'not_null_violation';
+  end if;
+
+  return new;
+end;
+$function$
+;
+
 alter table "public"."tasks" drop column "contact_id";
 
 alter table "public"."tasks" alter column "target_type" set default 'shidduch'::text;
@@ -457,21 +483,4 @@ create or replace view "public"."references_summary" with (security_invoker = on
 revoke all on table public.references_summary from anon, authenticated;
 grant select on table public.references_summary to authenticated;
 grant all on table public.references_summary to service_role;
-
-CREATE OR REPLACE FUNCTION public.sync_task_target()
- RETURNS trigger
- LANGUAGE plpgsql
- SET search_path TO ''
-AS $function$
-begin
-  if new.target_id is null then
-    raise exception 'a task needs a target: set target_type + target_id'
-      using errcode = 'not_null_violation';
-  end if;
-
-  return new;
-end;
-$function$
-;
-
 

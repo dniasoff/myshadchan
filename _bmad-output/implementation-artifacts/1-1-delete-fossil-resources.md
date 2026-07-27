@@ -417,6 +417,101 @@ Claude Sonnet 5 (claude-sonnet-5)
   (curl 200 on `/`) were run as additional smoke checks beyond the story's
   required gates.
 
+### Review Fixes (adversarial review of `7375d73`)
+
+- **BLOCKER (finding 1) fixed.** `CREATE OR REPLACE FUNCTION
+  public.sync_task_target()` in the migration was ordered **after** the AC-6(b)
+  data-repair `UPDATE`, so a legacy `'contact'` row hitting that `UPDATE`
+  would still fire the pre-migration trigger body (`new.contact_id := ...`)
+  and abort with `record "new" has no field "contact_id"` — invisible locally
+  only because the local snapshot has zero such rows. Moved the `CREATE OR
+  REPLACE FUNCTION` block to immediately after the last `drop table`
+  statement, before `alter table "public"."tasks" drop column "contact_id"`.
+  The new function body never references `contact_id`, so installing it
+  before the column drop is safe either way, and it now runs before the
+  `UPDATE`/`ADD CONSTRAINT`/`VALIDATE` sequence, as the finding's fix
+  prescribed. Verified empirically: replayed the fixed order against a
+  scratch table seeded with a legacy `'contact'` row (old trigger body, then
+  redefine function → drop column → `UPDATE`) inside a rolled-back
+  transaction — the `UPDATE` now succeeds and re-targets the row to
+  `'shidduch'` instead of erroring. Also reconfirmed `db diff --local` still
+  reports `No schema changes found` after the reorder (statement order does
+  not change the resulting schema).
+- **should-fix (finding 2) fixed.** Deleted three more zero-importer
+  surfaces the story's own Dev Notes precedent (§"Scope calls" item 5)
+  covers: `filters/` (whole directory, `FilterCategory.tsx`'s baseline
+  importers were `companies/CompanyListFilter.tsx` and
+  `contacts/ContactListFilter.tsx`, both already deleted), `simple-list/`
+  (whole directory — `SimpleList`'s sole importer was the already-deleted
+  `dashboard/HotContacts.tsx`; the other four files are internal-only to
+  `simple-list/`), and `sales/useGetSalesName.ts` (all 8 baseline importers
+  were in `activity/`, `companies/`, `contacts/`, `notes/`, already deleted).
+  Reverified zero references repo-wide after deletion. Dropped the `filters/`
+  and `simple-list/` rows from `AGENTS.md`'s directory tree (they were still
+  listed there). Regenerated `registry.json` (`make registry-gen`) — it had
+  stale entries for all three.
+- **should-fix (finding 3) fixed.** Deleted the dead export
+  `isBeforeFriday` from `tasks/tasksPredicate.ts`; its only caller was the
+  `filterByContact` branch this diff already removed from
+  `TasksListByDueDate.tsx`. Removed the now-unused `getDay` import alongside
+  it.
+- **should-fix (finding 4) fixed, and extended.** Re-derived the orphaned-key
+  set independently (grep each candidate key's caller count at baseline
+  `36c0098` vs. now) rather than trusting the review's list at face value, per
+  the "never fabricate, re-run the grep" instruction. The review's 14 keys
+  all reproduced as genuinely orphaned (their sole baseline callers were
+  `tasks/AddTask.tsx`, `tasks/TaskCreateSheet.tsx`, the contact `ReferenceField`
+  removed from `TaskEditSheet.tsx`, `contacts/ContactListFilter.tsx`,
+  `companies/CompanyShow.tsx`, `contacts/{ContactShow,ContactListContent}.tsx`,
+  `deals/DealShow.tsx`, `notes/Note.tsx` — all deleted by this story), but the
+  same method found **5 more** the review missed, same class of defect: baseline
+  caller > 0, current caller = 0, sole caller a file this story deleted:
+  `resources.tasks.empty` (sole caller `contacts/ContactTasksList.tsx`) and
+  `crm.common.{retry, copy, loading, me}` (sole baseline callers in
+  `activity/ActivityLogIterator.tsx`, `contacts/ContactListContent.tsx`,
+  `notes/NotesIteratorMobile.tsx`, `contacts/ContactPersonalInfo.tsx`,
+  `contacts/BulkTagButton.tsx`, `misc/InfinitePagination.tsx`,
+  `companies/CompanyListFilter.tsx`, `contacts/ContactListFilter.tsx` — all
+  deleted). Removed all 19 keys from both `englishCrmMessages.ts` and
+  `frenchCrmMessages.ts` symmetrically. Left `crm.common.{added, misc, copied}`
+  alone — verified zero callers **at baseline too** (pre-existing dead, same
+  category as `crm.settings.notes`/`.tasks`, out of this story's scope).
+  `resources.tasks.{fields.text, fields.due_date, fields.type,
+  forcedCaseName}` also show zero literal callers at both baseline and now —
+  left untouched, they are ra-core's automatic `resources.<resource>.fields.<source>`
+  / pluralized-name resolution, not literal `translate()` calls, so a
+  grep-for-caller method cannot judge them.
+- **should-fix (finding 5) fixed.** Removed `@nivo/bar`,
+  `@streamparser/json-whatwg`, `jsonexport` (+ `@types/jsonexport`), `mime`,
+  and `papaparse` (+ `@types/papaparse`) from `package.json` — each had
+  exactly one importer at baseline, all deleted by this story
+  (`dashboard/DealsChart.tsx`, `misc/useImportFromJson.ts` ×2,
+  `contacts/ContactList.tsx`, `misc/usePapaParse.tsx`). Ran `npm install` to
+  sync `package-lock.json` (47 packages removed). `jsonexport` still appears
+  in the lockfile as `ra-core`'s own transitive dependency — expected, not a
+  leftover of our direct usage.
+- **Notes 6–10 not actioned** — the task scoped this pass to blockers and
+  should-fixes ("fix every blocker and every should-fix you can do safely");
+  none of the five `note`-severity items were should-fixes. Recorded here so
+  they are not silently lost: (6) Storybook surface is empty but wired
+  (`.storybook/main.ts` still globs it, 3 devDeps + 2 scripts survive) —
+  undocumented but out of this story's AC list; (7) AC-20's `exception when
+  others` rejection assertion in `references_entity.sql` would pass on any
+  error, not just the intended `tasks_target_type_check` violation; (8) the
+  mandated interim-red PR-body statements (AC-17) were never written down —
+  moot now, this change committed straight to `main` with no PR, same as the
+  original story commit; (9) `tsconfig.app.json`'s added `"node"` types entry
+  is broader than the single `process.env.NODE_ENV` need it fixes; (10)
+  `.claude/skills/delete-initial-resource/` now targets fossil resource names
+  — explicitly flagged in the original review for story 1.6, not this one.
+- **Verification after fixes:** `npm run typecheck` (0), `npm run lint` (0),
+  `make test` (`test-app` 533/533, `test-functions` 76/76, `test-workers`
+  18/18), `npm run test:unit:db` (152/152), `npx vite build` (0), `npx
+  prettier --check` on every file this fix pass touched (excluding `.sql`,
+  matching AC-18's own scoping) — all clean. Re-ran the AC-14 and AC-15
+  greps verbatim: AC-14 still returns only the 5 allowlisted
+  `shadchanim.contacts` hits, AC-15 still returns zero hits.
+
 ### Completion Notes List
 
 - All 20 ACs satisfied; the story's own "Done" proving command for 1.1 passes
@@ -523,3 +618,16 @@ Claude Sonnet 5 (claude-sonnet-5)
 `supabase/functions/merge_references/index.ts`,
 `supabase/functions/postmark/index.ts`, `e2e/fixtures.ts`, `AGENTS.md`,
 `doc/astro.config.mjs`, `registry.json` (regenerated).
+
+**Review-fix pass (this pass, on top of the above):**
+
+- **Edited:** `supabase/migrations/20260727091141_delete_fossil_resources.sql`
+  (reordered — finding 1); `src/components/atomic-crm/tasks/tasksPredicate.ts`
+  (finding 3); `src/components/atomic-crm/providers/commons/{englishCrmMessages.ts,frenchCrmMessages.ts}`
+  (finding 4); `package.json`, `package-lock.json` (finding 5); `AGENTS.md`
+  (finding 2 — dropped `filters/`/`simple-list/` tree rows); `registry.json`
+  (regenerated).
+- **Deleted:** `src/components/atomic-crm/filters/FilterCategory.tsx` (+ the
+  now-empty `filters/` directory), `src/components/atomic-crm/simple-list/{SimpleList,SimpleListItem,SimpleListLoading,ListNoResults,ListPlaceholder}.tsx`
+  (+ the now-empty `simple-list/` directory),
+  `src/components/atomic-crm/sales/useGetSalesName.ts` (finding 2).

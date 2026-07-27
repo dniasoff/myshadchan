@@ -3,9 +3,7 @@ import { endOfToday } from "date-fns/endOfToday";
 import { endOfTomorrow } from "date-fns/endOfTomorrow";
 import { endOfWeek } from "date-fns/endOfWeek";
 
-import { getDay, isAfter } from "date-fns";
-
-export const isBeforeFriday = () => getDay(new Date()) < 5; // Friday is represented by 5
+import { isAfter } from "date-fns";
 
 type Task = {
   due_date: string;
