@@ -643,23 +643,30 @@ changed — grep (a)'s `child-` alternative is there for exactly this.
 
 ### Residual `children` after this story — the complete allow-list for AC-12 grep (c)
 
-Every one of these is React's `children` prop (rule 2). **Re-verified file-by-file against the
-tree that remains after 1.1, 1.4 and 1.5 have landed** — every entry below exists today and still
-exists at this story's position; nothing here mentions a person. **26 entries:**
+Every one of these is React's `children` prop (rule 2). **Corrected against a live re-run of
+grep (c) on the post-implementation tree** (adversarial review of this story, 2026-07-27) —
+the list below is what the grep actually returns today, not the pre-implementation draft.
+**25 entries:**
 
-`filters/FilterCategory.tsx` · `landing/LandingGate.tsx` · `landing/LandingHeading.tsx` ·
+`dashboard/MobileDashboard.tsx` · `landing/LandingGate.tsx` · `landing/LandingHeading.tsx` ·
 `landing/LandingSection.tsx` · `layout/Layout.tsx` · `layout/MobileContent.tsx` ·
 `layout/MobileHeader.tsx` · `layout/MobileLayout.tsx` · `layout/TopToolbar.tsx` ·
 `login/AuthLayout.tsx` · `login/GoogleSignInButton.tsx` · `login/GoogleSignInButton.test.tsx` ·
-`login/SSOAuthButton.tsx` · `misc/EditSheet.tsx` · `root/OnboardingGate.tsx` (lines 31, 40,
-50 only) · `settings/SectionLabel.tsx` · `shadchanim/ShadchanInputs.tsx` ·
-`shidduchim/ShidduchInputs.tsx` · `simple-list/SimpleListItem.tsx` ·
-`tasks/TasksListFilter.test.tsx` · `src/components/supabase/layout.tsx` ·
-`src/lib/genericMemo.ts` (comment) · `src/test/StoryWrapper.tsx` ·
-`supabase/functions/mcp/taskListUi.ts:101,113,114` (`children` is the third parameter of a
-generic DOM-element helper) · `supabase/tests/references_entity.sql:351` ("polymorphic
-children" = FK-dependent rows) · `supabase/functions/clear_demo/index.ts:28` *(only if the
-comment is reworded to keep the FK-cascade sense; Task 11 rewrites it, so prefer zero here)*.
+`login/SSOAuthButton.tsx` · `misc/EditSheet.tsx` · `root/OnboardingGate.tsx` (its own
+`children` prop, unrelated to the entity) · `settings/SectionLabel.tsx` ·
+`shadchanim/ShadchanInputs.tsx` · `shidduchim/ShidduchInputs.tsx` ·
+`singles/SingleFormFrame.tsx` (its `children: ReactNode` prop — the renamed `ChildFormFrame.tsx`,
+never on the pre-implementation draft) · `tasks/TasksListFilter.test.tsx` ·
+`src/components/supabase/layout.tsx` · `src/lib/genericMemo.ts` (comment) ·
+`src/test/StoryWrapper.tsx` · `supabase/functions/mcp/taskListUi.ts` (`children` is the third
+parameter of a generic DOM-element helper) · `supabase/tests/references_entity.sql` ("polymorphic
+children" = FK-dependent rows).
+
+**Removed from the pre-implementation draft — both deleted by an earlier story and absent from
+the tree, so neither can be allow-listed:** `filters/FilterCategory.tsx`,
+`simple-list/SimpleListItem.tsx`. **Also removed:** `supabase/functions/clear_demo/index.ts` —
+Task 11 reworded its FK-cascade comment as planned, so it carries **zero** `child` references
+now and needs no allow-list entry at all.
 
 **Removed from an earlier draft of this list — all three are deleted by story 1.1 and cannot be
 allowlisted:** `misc/AsideSection.tsx`, `misc/CreateSheet.tsx` and `misc/ResponsiveFilters.tsx`.
@@ -992,15 +999,73 @@ non-negotiable working rules for this dispatch).
     1.1/1.4/1.5 landed, which together deleted hundreds of lines above this story's targets).
     Every edit in this session was re-located by identifier via `grep`/`Read`, never by the
     story's line number, per the build plan's explicit landmine warning (L1).
-  - Dev Notes "Residual `children` after this story" lists 26 allow-listed survivor files;
-    2 of them (`filters/FilterCategory.tsx`, `simple-list/SimpleListItem.tsx`) no longer exist
-    in the tree (deleted by an earlier story), so the real survivor set is smaller. One file not
-    on that list, `dashboard/MobileDashboard.tsx`, legitimately survives grep (c) with its own
-    unrelated `Wrapper = ({ children }: { children: ReactNode })` — verified React's `children`
-    prop, not a documentation gap that hides real work.
+  - **Fixed post-review (2026-07-27):** Dev Notes "Residual `children` after this story"
+    originally listed 26 allow-listed survivor files against the pre-implementation tree; 2 of
+    them (`filters/FilterCategory.tsx`, `simple-list/SimpleListItem.tsx`) no longer exist
+    (deleted by an earlier story), and 2 real survivors were missing from it —
+    `dashboard/MobileDashboard.tsx` (its own unrelated
+    `Wrapper = ({ children }: { children: ReactNode })`) and `singles/SingleFormFrame.tsx` (the
+    renamed `ChildFormFrame.tsx`'s `children: ReactNode` prop, never carried by the original
+    list). `supabase/functions/clear_demo/index.ts` was also removed from the list — Task 11's
+    comment reword leaves it with zero `child` hits, so it needs no allow-list entry. The list
+    now reads 25 entries and matches a live re-run of grep (c) exactly. None of this was a
+    documentation gap that hid real renaming work — every survivor is verified React's
+    `children` prop or FK-dependent-rows prose.
   - `supabase/schemas/07_storage.sql` (new since the story's "supabase/schemas/{01..06}.sql"
     framing) was checked and confirmed to contain zero `child`/`single` references — correctly
     out of this story's scope, exactly as the build plan predicted.
+
+### Post-Review Fixes (2026-07-27)
+
+Addressing the adversarial review's findings (verdict: NEEDS-FIX, 1 should-fix + 6 notes; all 7
+"ACs claimed but not met" / "regressions" / "greenfield" / "migration defects" /
+"half-deletions" / "fabrication" categories were CLEAN):
+
+- **Fixed (should-fix) — the "Singles" stat card used lucide's `Baby` icon.**
+  `settings/PrivacySection.tsx` imported `Baby` and rendered it next to the `"Singles"` label —
+  exactly the framing AD-23 exists to kill (the icon reads as "this is a child"), and no AC-12
+  grep can see an icon import. Swapped to `Users` (`import { BookUser, Handshake, Heart, Users }
+  from "lucide-react"`, `icon={Users}`), matching the icon already used for the singles switcher
+  elsewhere (`dashboard/Dashboard.tsx`, `dashboard/MobileDashboard.tsx` both use `Users` for the
+  same entity). Two-line change, sole occurrence in the tree.
+- **Fixed (note) — Dev Notes "Residual `children` after this story" allow-list was stale.**
+  Re-ran AC-12 grep (c) against the post-implementation tree: two listed files no longer exist
+  (`filters/FilterCategory.tsx`, `simple-list/SimpleListItem.tsx` — deleted by an earlier story),
+  one entry (`supabase/functions/clear_demo/index.ts`) now carries zero `child` hits and needs no
+  allow-list entry, and two real survivors were missing from the list —
+  `dashboard/MobileDashboard.tsx` (own unrelated `children` prop) and
+  `singles/SingleFormFrame.tsx` (the renamed `ChildFormFrame.tsx`'s `children: ReactNode` prop,
+  a Rule-2 React prop the original list never carried because the file was still named
+  `ChildFormFrame.tsx` when the list was drafted). List corrected to the verified 25-entry set;
+  no code change, since grep (c) was semantically satisfied (every survivor is React's `children`
+  prop or FK-dependent-rows prose) even though the allow-list text was out of sync.
+- **Fixed (note) — File List was missing 3 changed files.** Added `registry.json` (regenerated
+  by `make registry-gen`), `src/components/atomic-crm/inbox/InboxResolveDialog.tsx` and
+  `src/components/atomic-crm/shidduchim/boardUtils.ts`, all confirmed changed by
+  `git diff 8d685c4..HEAD --stat` against those exact paths.
+- **Rejected/deferred — `AGENTS.md:78` (`portal/ # Read-only child portal (E7)`).** Confirmed:
+  this documents the directory story **1.4** deleted, not this story's rename. Per the pinned
+  epic order (1.1 → 1.4 → 1.5 → 1.3 → 1.2 → 1.6) this is a residue of 1.4's work, not 1.3's to
+  fix; leaving it in place matches the reviewer's own instruction to flag it to story 1.6 (whose
+  CI retired-name guard should cover `*.md`, not just `src/`/`supabase/`). Not touched.
+- **Rejected/deferred — `01_tables.sql:198` schema-comment terminology collision.** The comment
+  `-- Single's identity (bilingual, AD-12)` sits over `shidduchim.name_en/name_he` (the person
+  being *redt for*, i.e. the prospect), while this story's `singles`/`single_id` name the person
+  redt *for*. Verified with `git show 8d685c4:supabase/schemas/01_tables.sql` that this exact
+  wording predates this story — it was never touched by this story's diff, so rewording it now
+  would edit schema prose outside this story's own change set. Deferred to story 1.6 per the
+  reviewer's own note; not touched.
+- **Noted, no action — prettier `--write` reformatted lines the rename never touched** (e.g.
+  `supabase/functions/seed_demo/index.ts`, `clear_demo/index.ts`, `shidduchim/ShidduchInputs.tsx`,
+  `shadchanim/ShadchanShow.tsx`, `dashboard/bucketByState.ts`,
+  `landing/LandingPage.test.tsx`). Defensible under AC-13 (every file this story touches must be
+  prettier-clean) and the reviewer explicitly said no action is needed; left as-is.
+- **Noted, no action — the `private_child` → `private_single` data migration is untested in
+  practice.** `select visibility, count(*) from shidduchim` shows all rows are `'shared'` locally
+  (zero `'private_child'` rows existed), so the `update` at migration time was a no-op on this
+  database. The migration's ordering (drop constraint → update → re-add narrowed constraint) is
+  correct and will migrate real `'private_child'` rows correctly on prod; there is no local data
+  to exercise it against, and fabricating rows to test it would exceed this fix pass's scope.
 
 ### File List
 
@@ -1045,19 +1110,20 @@ non-negotiable working rules for this dispatch).
 - `src/components/atomic-crm/dashboard/AttentionSection.tsx`
 - `src/components/atomic-crm/dashboard/bucketByState.ts`
 
-**Shidduchim / layout / tour (9 files):**
+**Shidduchim / layout / tour (11 files):**
 - `src/components/atomic-crm/shidduchim/ShidduchimList.tsx`
 - `src/components/atomic-crm/shidduchim/ShidduchCreate.tsx`
 - `src/components/atomic-crm/shidduchim/ShidduchInputs.tsx`
 - `src/components/atomic-crm/shidduchim/ShidduchCard.tsx`
 - `src/components/atomic-crm/shidduchim/ShidduchShowHeader.tsx`
 - `src/components/atomic-crm/shidduchim/ShidduchCatchPanel.tsx`
+- `src/components/atomic-crm/shidduchim/boardUtils.ts`
 - `src/components/atomic-crm/shidduchim/pipelineStates.ts`
 - `src/components/atomic-crm/layout/TopBar.tsx`
 - `src/components/atomic-crm/tour/tourSteps.ts`
 - `src/components/atomic-crm/tour/useTour.ts`
 
-**Login / settings / references / shadchanim (10 files):**
+**Login / settings / references / shadchanim / inbox (12 files):**
 - `src/components/atomic-crm/login/FirstRunSetup.tsx`
 - `src/components/atomic-crm/login/OnboardingChoice.tsx`
 - `src/components/atomic-crm/settings/FamilySection.tsx`
@@ -1069,6 +1135,7 @@ non-negotiable working rules for this dispatch).
 - `src/components/atomic-crm/references/useReferenceLinks.ts`
 - `src/components/atomic-crm/shadchanim/ShadchanShow.tsx`
 - `src/components/atomic-crm/shadchanim/ShadchanSuggestions.tsx`
+- `src/components/atomic-crm/inbox/InboxResolveDialog.tsx`
 
 **i18n / landing (5 files):**
 - `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
@@ -1100,6 +1167,10 @@ non-negotiable working rules for this dispatch).
 - `src/components/atomic-crm/landing/LandingPage.test.tsx`
 - `supabase/tests/shidduch_catch.sql`
 - `supabase/tests/references_entity.sql` (also gained the new AC-14(e) negative RLS test)
+
+**Generated (1 file):**
+- `registry.json` (regenerated by `make registry-gen` after `git mv children → singles`; the
+  Shadchan Components registry entries follow the directory/component rename automatically)
 
 **Story file:**
 - `_bmad-output/implementation-artifacts/1-3-rename-children-to-singles.md` (this file — Tasks,

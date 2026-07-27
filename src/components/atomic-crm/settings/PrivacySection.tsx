@@ -1,4 +1,4 @@
-import { Baby, BookUser, Handshake, Heart } from "lucide-react";
+import { BookUser, Handshake, Heart, Users } from "lucide-react";
 import { useDataProvider, useGetList, useTranslate } from "ra-core";
 import { useState } from "react";
 
@@ -62,7 +62,7 @@ export const PrivacySection = () => {
                 _: "Singles",
               })}
               value={singlesTotal ?? 0}
-              icon={Baby}
+              icon={Users}
             />
             <DashboardStat
               label={translate("resources.shidduchim.name", {
