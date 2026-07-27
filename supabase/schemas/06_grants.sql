@@ -254,6 +254,43 @@ revoke all on function public.set_account_id_default() from public, anon;
 grant execute on function public.set_account_id_default() to authenticated;
 grant execute on function public.set_account_id_default() to service_role;
 
+-- Story 2.2 (AC-3): enforce_household_scope() is the shared trigger function
+-- backing the 13 validate_*_household_scope triggers. Not SECURITY DEFINER —
+-- it only reads accounts.kind for the row it is validating, which the
+-- caller's own RLS already lets them read — but every function gets an
+-- explicit revoke-then-grant regardless of PUBLIC's default execute grant.
+revoke all on function public.enforce_household_scope() from public, anon;
+grant execute on function public.enforce_household_scope() to authenticated;
+grant execute on function public.enforce_household_scope() to service_role;
+
+-- Story 2.2 (AC-5): enforce_membership_role_matches_context() is AC-3's
+-- mirror case on account_members itself; same posture as
+-- enforce_household_scope().
+revoke all on function public.enforce_membership_role_matches_context() from public, anon;
+grant execute on function public.enforce_membership_role_matches_context() to authenticated;
+grant execute on function public.enforce_membership_role_matches_context() to service_role;
+
+-- Story 2.2 (AC-6/AC-8): the shared IMMUTABLE "owning role" predicate used by
+-- both add_persona() and my_personas().
+revoke all on function public.is_owning_membership_role(text) from public, anon;
+grant execute on function public.is_owning_membership_role(text) to authenticated;
+grant execute on function public.is_owning_membership_role(text) to service_role;
+
+-- Story 2.2 (AC-6): add_persona() is SECURITY DEFINER — every query inside
+-- is filtered to user_id = auth.uid() alone, never a parameter, so
+-- bypassing RLS never becomes bypassing the tenant boundary; anon must
+-- never execute it.
+revoke all on function public.add_persona(text) from public, anon;
+grant execute on function public.add_persona(text) to authenticated;
+grant execute on function public.add_persona(text) to service_role;
+
+-- Story 2.2 (AC-8): my_personas() is SECURITY DEFINER and takes NO
+-- parameter — the empty signature is the only guard against it becoming a
+-- cross-user oracle; anon must never execute it.
+revoke all on function public.my_personas() from public, anon;
+grant execute on function public.my_personas() to authenticated;
+grant execute on function public.my_personas() to service_role;
+
 revoke all on function public.enforce_shidduch_initial_state() from public, anon;
 grant execute on function public.enforce_shidduch_initial_state() to authenticated;
 grant execute on function public.enforce_shidduch_initial_state() to service_role;

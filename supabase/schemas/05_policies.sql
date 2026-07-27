@@ -8,8 +8,25 @@ alter table public.members enable row level security;
 alter table public.tasks enable row level security;
 alter table public.configuration enable row level security;
 
--- Members
-create policy "Enable read access for authenticated users" on public.members for select to authenticated using (true);
+-- Members (Story 2.2, AC-9): a caller always reads their own row, plus any
+-- other member's profile row that shares an ACTIVE membership of the
+-- caller's currently active context — narrower than "everyone", and
+-- consistent with account_members' own established shape further below (a
+-- foreign member's row is visible only inside the context that member and
+-- the caller currently share). A negative test proves a member of household
+-- A cannot read the profile row of a member who belongs only to household B.
+create policy "Members readable by self or within active account" on public.members
+    for select to authenticated
+    using (
+        user_id = auth.uid()
+        or exists (
+            select 1
+            from public.account_members am
+            where am.account_id = public.current_context_id()
+              and am.status = 'active'
+              and am.user_id = members.user_id
+        )
+    );
 
 -- Tasks. Account-scoped like the rest of the shidduchim domain (AD-1);
 -- set_account_id_default() populates account_id on every insert.

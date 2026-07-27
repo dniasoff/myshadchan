@@ -289,6 +289,250 @@ begin
 end;
 $$;
 
+-- =====================================================================
+-- MyShadchan — Persona and context data model (Story 2.2, AD-2)
+-- =====================================================================
+
+-- AC-3/AC-3a: a shadchanus-kind account can never hold a household domain
+-- row, enforced by Postgres rather than by convention. Attached
+-- (04_triggers.sql) to all 13 household-only domain tables as
+-- `validate_<table>_household_scope` — NOT SECURITY DEFINER, because it only
+-- reads accounts.kind for the row it is validating, which the
+-- inserting/updating member's own RLS already lets them read. `before insert
+-- or update of account_id`, so a row can never be *moved* onto a shadchanus
+-- account either. A NULL new.account_id also raises (fail-closed): the only
+-- legitimate way to reach this trigger with a NULL account_id is a broken
+-- caller, since set_account_id_default() always fills it in first — see the
+-- trigger-naming rationale below before renaming anything. Mirrors
+-- purge_polymorphic_dependents()'s one-function-many-tables shape.
+CREATE OR REPLACE FUNCTION "public"."enforce_household_scope"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  if not exists (
+    select 1 from public.accounts
+    where id = new.account_id and kind = 'household'
+  ) then
+    raise exception 'account % is not a household-kind account', new.account_id
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+-- AC-5: the mirror case on account_members itself — a shadchan-role
+-- membership may only ever exist on a shadchanus-kind account, and every
+-- other role only on a household-kind account (AD-2: the shadchan role's
+-- access is granted solely through a connection, never through household
+-- membership). Fires on UPDATE too, so a role CHANGE on an existing
+-- membership is checked, not just the initial insert. Not SECURITY DEFINER,
+-- for the same reason as enforce_household_scope().
+CREATE OR REPLACE FUNCTION "public"."enforce_membership_role_matches_context"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_kind text;
+begin
+  select kind into v_kind from public.accounts where id = new.account_id;
+
+  if new.role = 'shadchan' and v_kind is distinct from 'shadchanus' then
+    raise exception 'a shadchan-role membership requires a shadchanus-kind account'
+      using errcode = 'check_violation';
+  end if;
+
+  if new.role <> 'shadchan' and v_kind is distinct from 'household' then
+    raise exception 'role % requires a household-kind account', new.role
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+-- Shared "is this an owning role" predicate (AC-6/AC-8): parent_admin and
+-- self_manager are the two roles entitled to have a household's `single`
+-- persona attached to them, and the only ones add_persona('parent') ever
+-- promotes in place. Factored out so add_persona() and my_personas() can
+-- never diverge on this list. IMMUTABLE: a pure function of its argument.
+CREATE OR REPLACE FUNCTION "public"."is_owning_membership_role"("p_role" "text") RETURNS boolean
+    LANGUAGE "sql" IMMUTABLE
+    SET "search_path" TO ''
+    AS $$
+  select p_role in ('parent_admin', 'self_manager');
+$$;
+
+-- Provisions a persona (AC-6) — the one function every onboarding/lifecycle
+-- screen calls (2.3, 2.5) rather than reimplementing its own
+-- household-creation rule. SECURITY DEFINER, deliberately, not SECURITY
+-- INVOKER: the target household for the single/parent branches is whichever
+-- one auth.uid() already holds an OWNING membership in, which is not
+-- necessarily the caller's currently-active context (current_context_id()),
+-- so a plain invoker-rights insert would be silently rejected by the target
+-- table's own `with check` the moment that household is not active — the
+-- exact set_active_context() problem 2.1 already solved, recurring here.
+-- Every query inside is filtered to user_id = auth.uid() alone — never a
+-- parameter, never another user's id — so bypassing RLS never becomes
+-- bypassing the tenant boundary. Idempotent per persona. Never switches the
+-- caller's active context: that stays set_active_context()'s job alone.
+CREATE OR REPLACE FUNCTION "public"."add_persona"("p_persona" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_user_id uuid := auth.uid();
+  v_first_name text;
+  v_account_id bigint;
+  v_membership_id bigint;
+begin
+  if p_persona not in ('single', 'parent', 'shadchan') then
+    raise exception 'unknown persona: %', p_persona
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  select m.first_name into v_first_name
+  from public.members m
+  where m.user_id = v_user_id;
+
+  if p_persona = 'parent' then
+    -- No-op: an active parent_admin membership already exists.
+    if exists (
+      select 1 from public.account_members
+      where user_id = v_user_id and status = 'active' and role = 'parent_admin'
+    ) then
+      return;
+    end if;
+
+    -- Promote an existing self_manager membership in place (never rewrite
+    -- account_id — that would trip enforce_household_scope() for no reason,
+    -- the household is already valid).
+    update public.account_members
+      set role = 'parent_admin'
+    where id = (
+      select id from public.account_members
+      where user_id = v_user_id and status = 'active' and role = 'self_manager'
+      order by id
+      limit 1
+    );
+
+    if found then
+      return;
+    end if;
+
+    -- Otherwise (no memberships at all, or only non-owning ones elsewhere —
+    -- e.g. a helper in someone else's household): a fresh household. A
+    -- non-owning membership is never promoted — that would hand the caller
+    -- admin of a household that is not theirs.
+    insert into public.accounts (name, kind)
+    values (coalesce(v_first_name || '''s Family', 'My Account'), 'household')
+    returning id into v_account_id;
+
+    insert into public.account_members (account_id, user_id, role, status)
+    values (v_account_id, v_user_id, 'parent_admin', 'active');
+
+    return;
+  end if;
+
+  if p_persona = 'single' then
+    -- No-op: a singles row already points at one of the caller's own active
+    -- memberships (the invited single, or re-ticking a box already held).
+    -- This predicate must match my_personas()'s single-detection exactly.
+    if exists (
+      select 1
+      from public.singles s
+      join public.account_members am on am.id = s.member_id
+      where am.user_id = v_user_id
+        and am.status = 'active'
+        and (am.role = 'single' or public.is_owning_membership_role(am.role))
+    ) then
+      return;
+    end if;
+
+    -- Attach to an existing OWNING membership if the caller has one (never a
+    -- helper's household — see the Dev Notes on why `single` never attaches
+    -- to a helper's household).
+    select am.id, am.account_id into v_membership_id, v_account_id
+    from public.account_members am
+    where am.user_id = v_user_id
+      and am.status = 'active'
+      and public.is_owning_membership_role(am.role)
+    order by am.id
+    limit 1;
+
+    if v_membership_id is null then
+      insert into public.accounts (name, kind)
+      values (coalesce(v_first_name || '''s Family', 'My Account'), 'household')
+      returning id into v_account_id;
+
+      insert into public.account_members (account_id, user_id, role, status)
+      values (v_account_id, v_user_id, 'self_manager', 'active')
+      returning id into v_membership_id;
+    end if;
+
+    insert into public.singles (account_id, member_id)
+    values (v_account_id, v_membership_id);
+
+    return;
+  end if;
+
+  if p_persona = 'shadchan' then
+    -- No-op: an active shadchan-role membership already exists.
+    if exists (
+      select 1 from public.account_members
+      where user_id = v_user_id and status = 'active' and role = 'shadchan'
+    ) then
+      return;
+    end if;
+
+    insert into public.accounts (kind)
+    values ('shadchanus')
+    returning id into v_account_id;
+
+    insert into public.account_members (account_id, user_id, role, status)
+    values (v_account_id, v_user_id, 'shadchan', 'active');
+
+    return;
+  end if;
+end;
+$$;
+
+-- The one query every later screen uses to answer "what am I" (AC-8): 2.3,
+-- 2.4 and 2.5 all call this rather than re-deriving these predicates three
+-- ways. SECURITY DEFINER for the same reason as add_persona(): a persona can
+-- sit in a context that is not the caller's currently-active one, and
+-- singles/account_members RLS is scoped to that active context only, so a
+-- plain invoker-rights read would silently under-report. Every branch is
+-- filtered to user_id = auth.uid() alone; the empty argument list is the
+-- only guard that matters, so it can never be used to inspect anyone else.
+CREATE OR REPLACE FUNCTION "public"."my_personas"() RETURNS TABLE("persona" "text", "account_id" bigint, "account_kind" "text", "role" "text")
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select 'shadchan'::text as persona, am.account_id, a.kind as account_kind, am.role
+  from public.account_members am
+  join public.accounts a on a.id = am.account_id
+  where am.user_id = auth.uid() and am.status = 'active' and am.role = 'shadchan'
+
+  union all
+
+  select 'parent'::text, am.account_id, a.kind, am.role
+  from public.account_members am
+  join public.accounts a on a.id = am.account_id
+  where am.user_id = auth.uid() and am.status = 'active' and am.role = 'parent_admin'
+
+  union all
+
+  select 'single'::text, am.account_id, a.kind, am.role
+  from public.singles s
+  join public.account_members am on am.id = s.member_id
+  join public.accounts a on a.id = am.account_id
+  where am.user_id = auth.uid()
+    and am.status = 'active'
+    and (am.role = 'single' or public.is_owning_membership_role(am.role));
+$$;
+
 -- The ONE authority for which pipeline states a single may see (AD-3, D5).
 -- Closed enumeration over ALL 7 states: visible = look_into/yes/unsure;
 -- hidden = new/not_sure/for_sure_not/no. No include/exclude gap — an

@@ -6,13 +6,17 @@ import { describe, expect, it } from "vitest";
 import { bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 /**
- * Runs Story 2.1's context-aware-authorisation database suite against the
- * local Supabase stack.
+ * Runs Story 2.1's context-aware-authorisation and Story 2.2's
+ * persona/context data model database suites against the local Supabase
+ * stack.
  *
  * The assertions themselves live in context_resolution.sql, because what
  * they check — current_context_id()'s fail-closed resolution, member_state's
- * single-writer RLS posture, the activate_first_context trigger, and the
- * account/account_members corrected policy shapes — only exists inside
+ * single-writer RLS posture, the activate_first_context trigger, the
+ * account/account_members corrected policy shapes, enforce_household_scope()/
+ * enforce_membership_role_matches_context()'s trigger-ordering-dependent
+ * enforcement, add_persona()/my_personas()'s provisioning and reporting
+ * predicates, and the tightened `members` read policy — only exists inside
  * Postgres and cannot be meaningfully exercised through a mock. The SQL
  * emits one JSON row per check; this file turns each into a named test so a
  * failure names the invariant that broke.
@@ -83,7 +87,7 @@ describe("context-aware authorisation (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   it("runs a non-trivial number of checks", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(35);
+    expect(checks.length).toBeGreaterThanOrEqual(75);
   });
 
   for (const check of checks) {

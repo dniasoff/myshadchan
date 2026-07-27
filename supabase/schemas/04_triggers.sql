@@ -124,3 +124,81 @@ create or replace trigger set_identity_signals_account_id
 create or replace trigger set_inbox_items_account_id
     before insert on public.inbox_items
     for each row execute function public.set_account_id_default();
+
+-- =====================================================================
+-- MyShadchan — Persona and context data model (Story 2.2)
+-- =====================================================================
+
+-- AC-3/AC-3a: a shadchanus-kind account can never hold a household domain
+-- row, enforced BEFORE insert or update of account_id on all 13
+-- household-only domain tables (AD-1) — the exact set that already carries a
+-- set_<table>_account_id trigger above. Postgres fires same-event BEFORE
+-- triggers in ALPHABETICAL trigger-name order, and the SPA never sends
+-- account_id on insert (set_account_id_default() fills it in) — so these are
+-- named `validate_<table>_household_scope`, deliberately sorting AFTER every
+-- `set_...`/`sync_...` trigger above ('v' > 's'). Renaming any of these is a
+-- migration-time total insert outage, not a refactor: read
+-- enforce_household_scope()'s comment (02_functions.sql) before touching a
+-- single name here. subscription/ai_usage are deliberately NOT in this list
+-- (AC-4 — see the `comment on table` in 01_tables.sql).
+create or replace trigger validate_singles_household_scope
+    before insert or update of account_id on public.singles
+    for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_shadchanim_household_scope
+    before insert or update of account_id on public.shadchanim
+    for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_references_household_scope
+    before insert or update of account_id on public."references"
+    for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_shidduchim_household_scope
+    before insert or update of account_id on public.shidduchim
+    for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_resumes_household_scope
+    before insert or update of account_id on public.resumes
+    for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_reference_links_household_scope
+    before insert or update of account_id on public.reference_links
+    for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_date_records_household_scope
+    before insert or update of account_id on public.date_records
+    for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_redts_household_scope
+    before insert or update of account_id on public.redts
+    for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_shidduch_schools_household_scope
+    before insert or update of account_id on public.shidduch_schools
+    for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_interactions_household_scope
+    before insert or update of account_id on public.interactions
+    for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_identity_signals_household_scope
+    before insert or update of account_id on public.identity_signals
+    for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_inbox_items_household_scope
+    before insert or update of account_id on public.inbox_items
+    for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_tasks_household_scope
+    before insert or update of account_id on public.tasks
+    for each row execute function public.enforce_household_scope();
+
+-- AC-5: the mirror case on account_members itself — a shadchan-role
+-- membership may only exist on a shadchanus-kind account, and every other
+-- role only on a household-kind account. Fires on UPDATE too, so a role
+-- CHANGE on an existing membership is checked, not just the initial insert.
+-- No ordering hazard: account_members carries no other BEFORE trigger today
+-- (activate_first_context_trigger above is AFTER INSERT).
+create or replace trigger enforce_membership_role_matches_context_trigger
+    before insert or update on public.account_members
+    for each row execute function public.enforce_membership_role_matches_context();

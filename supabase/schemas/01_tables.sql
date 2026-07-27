@@ -121,7 +121,15 @@ create table public.accounts (
     trial_end timestamp with time zone,
     -- Onboarding demo-data flag (Stage A). True while the account holds the
     -- seeded demo dataset; cleared by clear_demo. Drives the future demo banner.
-    demo boolean not null default false
+    demo boolean not null default false,
+    -- Story 2.2 (AC-1, AD-2): a context is typed household or shadchanus.
+    -- Every account created before this column existed becomes 'household'
+    -- (correct — no shadchanus context exists in this codebase before this
+    -- story's own add_persona() provisions the first one). enforce_household_scope()
+    -- (02_functions.sql) is what makes the household/shadchanus split more than
+    -- a label: a shadchanus-kind account can never hold a household domain row.
+    kind text not null default 'household',
+    constraint accounts_kind_check check (kind in ('household', 'shadchanus'))
 );
 
 -- One membership+role model (AD-2). The `shadchan` role is reserved in
@@ -137,8 +145,13 @@ create table public.account_members (
     role text not null default 'parent_admin',
     status text not null default 'active',
     invited_by bigint,
+    -- Story 2.2 (AC-2): `single` — "a single with their own login"
+    -- (personas-and-contexts.md shape 5) — joins the five-role vocabulary
+    -- AD-2 specifies. enforce_membership_role_matches_context() (AC-5) further
+    -- restricts `shadchan` to shadchanus-kind accounts and every other role,
+    -- including this one, to household-kind accounts.
     constraint account_members_role_check check (
-        role in ('parent_admin', 'helper', 'self_manager', 'shadchan')
+        role in ('parent_admin', 'single', 'helper', 'self_manager', 'shadchan')
     )
 );
 
@@ -501,6 +514,13 @@ create table public.ai_usage (
     resumes_parsed integer not null default 0,
     constraint ai_usage_resumes_parsed_nonneg check (resumes_parsed >= 0)
 );
+
+-- Story 2.2 (AC-4): deliberately excluded from enforce_household_scope()'s 13
+-- household-only tables. No source restricts a shadchanus context from
+-- holding billing/entitlement rows; left scoped generically by
+-- current_context_id() until a future story states a rule either way.
+comment on table public.subscription is 'Deliberately excluded from enforce_household_scope() (Story 2.2 AC-4): no source restricts a shadchanus context from holding billing/entitlement rows; scoped generically by current_context_id() until a story states a rule.';
+comment on table public.ai_usage is 'Deliberately excluded from enforce_household_scope() (Story 2.2 AC-4): same open question as public.subscription — no source restricts entitlement usage-metering to household contexts.';
 
 --
 -- Foreign keys (shidduchim domain)
