@@ -28,7 +28,6 @@ import { Layout } from "../layout/Layout";
 import { MobileLayout } from "../layout/MobileLayout";
 import { SignupPage } from "../login/SignupPage";
 import { ConfirmationRequired } from "../login/ConfirmationRequired";
-import { ImportPage } from "../misc/ImportPage";
 import { ChangelogPage } from "../misc/ChangelogPage";
 import {
   getAuthProvider as defaultAuthProviderBuilder,
@@ -46,14 +45,8 @@ import {
 import { createCrmStore } from "./crmStore";
 import type { CrmDataProvider } from "../providers/types";
 import {
-  defaultCompanySectors,
-  defaultCurrency,
   defaultDarkModeLogo,
-  defaultDealCategories,
-  defaultDealPipelineStatuses,
-  defaultDealStages,
   defaultLightModeLogo,
-  defaultNoteStatuses,
   defaultTaskTypes,
   defaultTitle,
 } from "./defaultConfiguration";
@@ -81,15 +74,9 @@ export type CRMProps = {
  * default configurations and themes but allows for customization through props. The component
  * seeds the store with any custom prop values for backwards compatibility.
  *
- * @param {LabeledValue[]} companySectors - The list of company sectors used in the application.
- * @param {string} currency - The ISO 4217 currency code used to format monetary values (e.g. "USD", "EUR", "GBP").
  * @param {RaThemeOptions} darkTheme - The theme to use when the application is in dark mode.
- * @param {LabeledValue[]} dealCategories - The categories of deals used in the application.
- * @param {string[]} dealPipelineStatuses - The statuses of deals in the pipeline used in the application.
- * @param {DealStage[]} dealStages - The stages of deals used in the application.
  * @param {RaThemeOptions} lightTheme - The theme to use when the application is in light mode.
  * @param {string} logo - The logo used in the CRM application.
- * @param {NoteStatus[]} noteStatuses - The statuses of notes used in the application.
  * @param {LabeledValue[]} taskTypes - The types of tasks used in the application.
  * @param {string} title - The title of the CRM application.
  *
@@ -115,14 +102,8 @@ export type CRMProps = {
  * export default App;
  */
 export const CRM = ({
-  companySectors = defaultCompanySectors,
-  currency = defaultCurrency,
-  dealCategories = defaultDealCategories,
-  dealPipelineStatuses = defaultDealPipelineStatuses,
-  dealStages = defaultDealStages,
   darkModeLogo = defaultDarkModeLogo,
   lightModeLogo = defaultLightModeLogo,
-  noteStatuses = defaultNoteStatuses,
   taskTypes = defaultTaskTypes,
   title = defaultTitle,
   dataProvider = defaultDataProviderBuilder(),
@@ -154,12 +135,6 @@ export const CRM = ({
   useEffect(() => {
     if (!store.getItem(CONFIGURATION_STORE_KEY)) {
       store.setItem(CONFIGURATION_STORE_KEY, {
-        companySectors,
-        currency,
-        dealCategories,
-        dealPipelineStatuses,
-        dealStages,
-        noteStatuses,
         taskTypes,
         title,
         darkModeLogo,
@@ -265,7 +240,6 @@ const DesktopAdmin = (
         <Route path={ProfilePage.path} element={<ProfilePage />} />
         <Route path={SettingsPage.path} element={<SettingsPage />} />
         <Route path={BillingPage.path} element={<BillingPage />} />
-        <Route path={ImportPage.path} element={<ImportPage />} />
         <Route path={ChangelogPage.path} element={<ChangelogPage />} />
         <Route path={RemindersPage.path} element={<RemindersPage />} />
         <Route path={ShareTarget.path} element={<ShareTarget />} />

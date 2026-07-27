@@ -12,7 +12,6 @@ const createTask = (id: number, dueDate: Date, doneDate?: Date) => ({
   id,
   due_date: iso(dueDate),
   done_date: doneDate ? iso(doneDate) : null,
-  contact_id: null,
   sales_id: null,
   type: "Call",
   text: `Task ${id}`,
@@ -20,7 +19,7 @@ const createTask = (id: number, dueDate: Date, doneDate?: Date) => ({
 
 const Wrapper = ({ children }: { children: React.ReactNode }) => (
   <CoreAdminContext
-    dataProvider={fakeDataProvider({ tasks: [], contacts: [], sales: [] })}
+    dataProvider={fakeDataProvider({ tasks: [], sales: [] })}
     i18nProvider={{
       translate: (key, options) => {
         if (typeof options?._ === "string") {

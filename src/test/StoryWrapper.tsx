@@ -7,7 +7,7 @@ import { Notification } from "@/components/admin/notification";
 import { createDataProvider } from "@/components/atomic-crm/providers/fakerest";
 import { DEFAULT_USER } from "@/components/atomic-crm/providers/fakerest/authProvider";
 import type { Db } from "@/components/atomic-crm/providers/fakerest/dataGenerator/types";
-import type { Contact, Sale } from "@/components/atomic-crm/types";
+import type { Sale } from "@/components/atomic-crm/types";
 import { CRM } from "@/components/atomic-crm/root/CRM";
 import { testI18nProvider } from "@/components/atomic-crm/providers/commons/i18nProvider";
 
@@ -40,40 +40,11 @@ const baseSale: Sale = {
 // that matter for each scenario.
 export const createCrmDb = (overrides: Partial<Db> = {}): Db =>
   ({
-    companies: [],
     configuration: [{ config: {}, id: 1 }],
-    contact_notes: [],
-    contacts: [],
-    deal_notes: [],
-    deals: [],
     sales: [baseSale],
-    tags: [],
     tasks: [],
     ...overrides,
   }) as Db;
-
-// Build a valid contact record with sensible defaults to keep tests and stories terse.
-export const buildContact = (overrides: Partial<Contact> = {}): Contact => ({
-  background: "",
-  company_id: null,
-  company_name: undefined,
-  email_jsonb: [{ email: "ada@example.com", type: "Work" }],
-  first_name: "Ada",
-  first_seen: "2025-01-01T09:00:00.000Z",
-  gender: "female",
-  has_newsletter: false,
-  id: 1,
-  last_name: "Lovelace",
-  last_seen: "2025-01-02T10:00:00.000Z",
-  linkedin_url: null,
-  nb_tasks: 0,
-  phone_jsonb: [],
-  sales_id: 0,
-  status: "warm",
-  tags: [],
-  title: "CTO",
-  ...overrides,
-});
 
 export const StoryWrapper = ({
   children,

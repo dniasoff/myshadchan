@@ -234,11 +234,13 @@ describe("getList", () => {
       withSupabaseFilterAdapter(mockDataProvider);
 
     await expect(
-      getListAdapter("resource", { filter: { "tags@cs": "{1,2,a}" } }),
+      getListAdapter("resource", {
+        filter: { "delivery_channels@cs": "{1,2,a}" },
+      }),
     ).resolves.toEqual([{ id: 1 }]);
 
     expect(getList).toHaveBeenCalledWith("resource", {
-      filter: { tags: [1, 2, "a"] },
+      filter: { delivery_channels: [1, 2, "a"] },
     });
   });
 
@@ -573,7 +575,7 @@ describe("getManyReference", () => {
         target: "target",
         pagination: { page: 1, perPage: 10 },
         sort: { field: "id", order: "ASC" },
-        filter: { "tags@cs": "{1,2,a}" },
+        filter: { "delivery_channels@cs": "{1,2,a}" },
       }),
     ).resolves.toEqual([{ id: 1 }]);
 
@@ -582,7 +584,7 @@ describe("getManyReference", () => {
       target: "target",
       pagination: { page: 1, perPage: 10 },
       sort: { field: "id", order: "ASC" },
-      filter: { tags: [1, 2, "a"] },
+      filter: { delivery_channels: [1, 2, "a"] },
     });
   });
 

@@ -22,7 +22,6 @@ export const RESOURCE_FOR_TARGET: Record<TaskTargetType, string> = {
   shidduch: "shidduchim",
   reference: "references",
   shadchan: "shadchanim",
-  contact: "contacts",
 };
 
 /** Calm, singular English label for each target type (used in pickers/cards). */
@@ -30,7 +29,6 @@ export const TARGET_TYPE_LABEL: Record<TaskTargetType, string> = {
   shidduch: "Suggestion",
   reference: "Reference",
   shadchan: "Shadchan",
-  contact: "Contact",
 };
 
 /** Route to the entity's detail page. `shadchanim` has no /show — edit is its detail view. */
@@ -44,10 +42,8 @@ export const targetEntityPath = (
     case "reference":
       return `/references/${id}/show`;
     case "shadchan":
-      return `/shadchanim/${id}`;
-    case "contact":
     default:
-      return `/contacts/${id}/show`;
+      return `/shadchanim/${id}`;
   }
 };
 
@@ -68,16 +64,9 @@ export const targetEntityLabel = (
         label: (record.name_en as string) || "Reference",
       };
     case "shadchan":
-      return {
-        label: (record.name as string) || "Shadchan",
-      };
-    case "contact":
     default:
       return {
-        label:
-          [record.first_name, record.last_name]
-            .filter(Boolean)
-            .join(" ") || "Contact",
+        label: (record.name as string) || "Shadchan",
       };
   }
 };

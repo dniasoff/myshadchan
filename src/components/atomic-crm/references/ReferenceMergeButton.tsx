@@ -26,14 +26,14 @@ import type {
 import { CollisionResolver } from "./ReferenceMergeCollision";
 
 /**
- * Merging two duplicate references (§4), forked from ContactMergeButton.
+ * Merging two duplicate references (§4).
  *
- * Where it deliberately diverges: references are linked many-to-many to
- * shidduchim, so two duplicates can each hold a call log for the SAME single.
- * Contacts have no equivalent of that, so the contacts merge has no answer for
- * it. Here the merge is blocked until the user says what should happen to each
- * collision, and no side's what_they_said is ever discarded — the losing entry
- * is preserved on the timeline.
+ * References are linked many-to-many to shidduchim, so two duplicates can
+ * each hold a call log for the SAME single — a collision a simple
+ * reassign-then-delete merge never has to handle. Here the merge is blocked
+ * until the user says what should happen to each collision, and no side's
+ * what_they_said is ever discarded — the losing entry is preserved on the
+ * timeline.
  *
  * PRODUCT NOTE: there is no FR id for post-hoc reference merge. It is implied by
  * "reusable, cross-shidduch" (FR39/FR42) and was built to explicit requirement;

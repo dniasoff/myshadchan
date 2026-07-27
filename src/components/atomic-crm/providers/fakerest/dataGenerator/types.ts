@@ -3,12 +3,7 @@ import type {
   AccountMember,
   Child,
   ChildPortalToken,
-  Company,
-  Contact,
-  ContactNote,
   DateRecord,
-  Deal,
-  DealNote,
   InboxItem,
   Interaction,
   PipelineTransition,
@@ -20,19 +15,12 @@ import type {
   Shadchan,
   Shidduch,
   ShidduchSchool,
-  Tag,
   Task,
 } from "../../../types";
 import type { ConfigurationContextValue } from "../../../root/ConfigurationContext";
 
 export interface Db {
-  companies: Company[];
-  contacts: Contact[];
-  contact_notes: ContactNote[];
-  deals: Deal[];
-  deal_notes: DealNote[];
   sales: Sale[];
-  tags: Tag[];
   tasks: Task[];
   configuration: Array<{ id: number; config: ConfigurationContextValue }>;
   // Shidduchim pipeline domain

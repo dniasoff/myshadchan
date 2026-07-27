@@ -7,8 +7,8 @@ export type ShidduchimByState = Record<PipelineState, ShidduchSummary[]>;
 
 /**
  * Group a child's shidduchim into per-state columns, ordered by `index`
- * within each column (mirrors getDealsByStage for the deals Kanban). A row with
- * an unknown state is bucketed into the first state, never dropped.
+ * within each column, for the pipeline Kanban board. A row with an unknown
+ * state is bucketed into the first state, never dropped.
  */
 export const getShidduchimByState = (
   items: ShidduchSummary[],

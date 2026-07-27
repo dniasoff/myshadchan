@@ -288,7 +288,7 @@ export const generateShidduchimDomain = (db: Db) => {
     created_at: `${seed.redt_date}T00:00:00.000Z`,
   }));
 
-  // Per-child, per-state board ordering (mirrors generateDeals()).
+  // Per-child, per-state board ordering.
   [1, 2].forEach((childId) => {
     const states = new Set(shidduchim.map((s) => s.pipeline_state));
     states.forEach((state) => {

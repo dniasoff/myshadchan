@@ -29,16 +29,16 @@ export const TASK_LIST_HTML = /*html*/ `
   .task-text { font-weight:500; white-space:pre-wrap; word-break:break-word; }
   .task-meta { margin-top:3px; font-size:12px; color:#6b7280; display:flex; flex-wrap:wrap; gap:10px; }
   .pill { display:inline-block; padding:1px 6px; border-radius:4px; background:rgba(128,128,128,0.22); color:#374151; }
-  .contact { color:#2563eb; font-weight:500; }
-  a.contact { text-decoration:none; }
-  a.contact:hover { text-decoration:underline; }
+  .target-link { color:#2563eb; font-weight:500; }
+  a.target-link { text-decoration:none; }
+  a.target-link:hover { text-decoration:underline; }
   .empty { text-align:center; color:#6b7280; padding:16px 8px; }
   .error { padding:8px 10px; border-radius:6px; border:1px solid rgba(220,38,38,0.4); background:rgba(220,38,38,0.08); color:#dc2626; font-size:12px; margin-bottom:8px; }
   html.dark body { color:#f5f5f5; }
   html.dark .task { background:rgba(255,255,255,0.04); }
   html.dark .task-meta { color:#b8b8b8; }
   html.dark .pill { color:#e5e5e5; }
-  html.dark .contact { color:#93c5fd; }
+  html.dark .target-link { color:#93c5fd; }
   html.dark .empty { color:#b8b8b8; }
   html.dark .error { color:#f87171; }
   html.dark .check:hover:not(:disabled) { border-color:#60a5fa; background:rgba(96,165,250,0.18); }
@@ -47,7 +47,7 @@ export const TASK_LIST_HTML = /*html*/ `
     html:not(.light) .task { background:rgba(255,255,255,0.04); }
     html:not(.light) .task-meta { color:#b8b8b8; }
     html:not(.light) .pill { color:#e5e5e5; }
-    html:not(.light) .contact { color:#93c5fd; }
+    html:not(.light) .target-link { color:#93c5fd; }
     html:not(.light) .empty { color:#b8b8b8; }
     html:not(.light) .error { color:#f87171; }
     html:not(.light) .check:hover:not(:disabled) { border-color:#60a5fa; background:rgba(96,165,250,0.18); }
@@ -59,7 +59,7 @@ export const TASK_LIST_HTML = /*html*/ `
 <script>
 (() => {
   // Injected server-side; empty string when not configured, in which case
-  // contact names render as plain text instead of links.
+  // target labels render as plain text instead of links.
   const CRM_BASE_URL = '__CRM_BASE_URL__';
 
   // -------- JSON-RPC plumbing over postMessage --------
@@ -89,8 +89,16 @@ export const TASK_LIST_HTML = /*html*/ `
   // -------- Rendering (vanilla DOM) --------
   const root = document.getElementById('app');
 
-  const contactUrl = (id) =>
-    CRM_BASE_URL ? CRM_BASE_URL + '/#/contacts/' + id + '/show' : '';
+  // Mirrors reminderEntity.ts's targetEntityPath() — the reminder's
+  // polymorphic target (shadchan/shidduch/reference) resolves to its own
+  // CRM route. shadchanim has no /show; edit is its detail view.
+  const targetUrl = (type, id) => {
+    if (!CRM_BASE_URL) return '';
+    if (type === 'shidduch') return CRM_BASE_URL + '/#/shidduchim/' + id + '/show';
+    if (type === 'reference') return CRM_BASE_URL + '/#/references/' + id + '/show';
+    if (type === 'shadchan') return CRM_BASE_URL + '/#/shadchanim/' + id;
+    return '';
+  };
 
   const formatDate = (value) => {
     const d = new Date(value);
@@ -145,16 +153,19 @@ export const TASK_LIST_HTML = /*html*/ `
       if (upd) classes.push('updating');
 
       const meta = [];
-      if (t.contact_name && t.contact_id && contactUrl(t.contact_id)) {
+      const linkUrl = t.target_label && t.target_type && t.target_id != null
+        ? targetUrl(t.target_type, t.target_id)
+        : '';
+      if (t.target_label && linkUrl) {
         meta.push(el('a', {
-          class: 'contact',
-          href: contactUrl(t.contact_id),
+          class: 'target-link',
+          href: linkUrl,
           target: '_blank',
           rel: 'noopener noreferrer',
-          text: t.contact_name,
+          text: t.target_label,
         }));
-      } else if (t.contact_name) {
-        meta.push(el('span', { class: 'contact', text: t.contact_name }));
+      } else if (t.target_label) {
+        meta.push(el('span', { class: 'target-link', text: t.target_label }));
       }
       if (t.type) meta.push(el('span', { class: 'pill', text: t.type }));
       if (t.due_date) meta.push(el('span', { text: 'Due ' + formatDate(t.due_date) }));

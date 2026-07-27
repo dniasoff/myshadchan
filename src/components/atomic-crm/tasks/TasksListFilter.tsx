@@ -10,16 +10,10 @@ import { TasksIterator } from "./TasksIterator";
 type TaskListProps = {
   tasks: any[];
   title: string;
-  showContact?: boolean;
   isMobile: boolean;
 };
 
-export const TaskListFilter = ({
-  tasks,
-  title,
-  showContact,
-  isMobile,
-}: TaskListProps) => {
+export const TaskListFilter = ({ tasks, title, isMobile }: TaskListProps) => {
   const translate = useTranslate();
   const listContext = useList({
     data: tasks,
@@ -38,7 +32,7 @@ export const TaskListFilter = ({
       </p>
       <ResourceContextProvider value="tasks">
         <ListContextProvider value={listContext}>
-          <TasksIterator showContact={showContact} />
+          <TasksIterator />
         </ListContextProvider>
       </ResourceContextProvider>
       {total > listContext.perPage && (

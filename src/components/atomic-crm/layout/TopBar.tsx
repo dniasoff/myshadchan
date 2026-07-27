@@ -1,13 +1,6 @@
 import type { Identifier } from "ra-core";
 import { CanAccess, useGetList, useTranslate, useUserMenu } from "ra-core";
-import {
-  ChevronDown,
-  FileText,
-  Import,
-  Settings,
-  User,
-  Users,
-} from "lucide-react";
+import { ChevronDown, FileText, Settings, User, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
@@ -22,7 +15,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { ChangelogPage } from "../misc/ChangelogPage";
-import { ImportPage } from "../misc/ImportPage";
 import type { Child } from "../types";
 
 /**
@@ -47,7 +39,6 @@ export const TopBar = () => (
         <CanAccess resource="configuration" action="edit">
           <SettingsMenuItem />
         </CanAccess>
-        <ImportFromJsonMenuItem />
         <ChangelogMenuItem />
       </UserMenu>
     </div>
@@ -163,22 +154,6 @@ const SettingsMenuItem = () => {
       <Link to="/settings" className="flex items-center gap-2">
         <Settings />
         {translate("crm.settings.title")}
-      </Link>
-    </DropdownMenuItem>
-  );
-};
-
-const ImportFromJsonMenuItem = () => {
-  const translate = useTranslate();
-  const userMenuContext = useUserMenu();
-  if (!userMenuContext) {
-    throw new Error("<ImportFromJsonMenuItem> must be used inside <UserMenu>");
-  }
-  return (
-    <DropdownMenuItem asChild onClick={userMenuContext.onClose}>
-      <Link to={ImportPage.path} className="flex items-center gap-2">
-        <Import />
-        {translate("crm.header.import_data")}
       </Link>
     </DropdownMenuItem>
   );

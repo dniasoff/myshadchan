@@ -3,13 +3,7 @@ import { useListContext } from "ra-core";
 import { Task } from "./Task";
 import { isDone, isRecentlyDone } from "./tasksPredicate";
 
-export const TasksIterator = ({
-  showContact,
-  className,
-}: {
-  showContact?: boolean;
-  className?: string;
-}) => {
+export const TasksIterator = ({ className }: { className?: string }) => {
   const { data, error, isPending } = useListContext();
   if (isPending || error || data.length === 0) return null;
 
@@ -19,7 +13,7 @@ export const TasksIterator = ({
   return (
     <div className={`space-y-4 md:space-y-2 ${className || ""}`}>
       {tasks.map((task) => (
-        <Task task={task} showContact={showContact} key={task.id} />
+        <Task task={task} key={task.id} />
       ))}
     </div>
   );

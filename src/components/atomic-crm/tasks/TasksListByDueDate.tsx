@@ -1,16 +1,9 @@
 import { useMemo } from "react";
-import {
-  type Identifier,
-  useGetIdentity,
-  useGetList,
-  useTimeout,
-  useTranslate,
-} from "ra-core";
+import { useGetIdentity, useGetList, useTimeout, useTranslate } from "ra-core";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 import { TaskListFilter } from "./TasksListFilter";
 import {
-  isBeforeFriday,
   isDone,
   isDueLater,
   isDueThisWeek,
@@ -21,11 +14,9 @@ import {
 } from "./tasksPredicate";
 
 export const TasksListByDueDate = ({
-  filterByContact,
   emptyPlaceholder,
   pendingPlaceholder,
 }: {
-  filterByContact?: Identifier;
   emptyPlaceholder?: React.ReactNode;
   pendingPlaceholder?: React.ReactNode;
 }) => {
@@ -38,16 +29,10 @@ export const TasksListByDueDate = ({
     {
       pagination: { page: 1, perPage: 1000 },
       sort: { field: "due_date", order: "ASC" },
-      filter: {
-        ...(filterByContact != null
-          ? { contact_id: filterByContact }
-          : { sales_id: identity?.id }),
-      },
+      filter: { sales_id: identity?.id },
     },
-    { enabled: filterByContact != null ? true : !!identity },
+    { enabled: !!identity },
   );
-
-  const showContact = filterByContact == null;
 
   const ongoingTasks = useMemo(
     () => tasks?.filter((task) => !isDone(task) || isRecentlyDone(task)) || [],
@@ -104,33 +89,26 @@ export const TasksListByDueDate = ({
       <TaskListFilter
         tasks={overdueTasks}
         title={translate("resources.tasks.filters.overdue")}
-        showContact={showContact}
         isMobile={isMobile}
       />
       <TaskListFilter
         tasks={dueTodayTasks}
         title={translate("resources.tasks.filters.today")}
-        showContact={showContact}
         isMobile={isMobile}
       />
       <TaskListFilter
         tasks={dueTomorrowTasks}
         title={translate("resources.tasks.filters.tomorrow")}
-        showContact={showContact}
         isMobile={isMobile}
       />
-      {(!filterByContact || (filterByContact && isBeforeFriday())) && (
-        <TaskListFilter
-          tasks={dueThisWeekTasks}
-          title={translate("resources.tasks.filters.this_week")}
-          showContact={showContact}
-          isMobile={isMobile}
-        />
-      )}
+      <TaskListFilter
+        tasks={dueThisWeekTasks}
+        title={translate("resources.tasks.filters.this_week")}
+        isMobile={isMobile}
+      />
       <TaskListFilter
         tasks={dueLaterTasks}
         title={translate("resources.tasks.filters.later")}
-        showContact={showContact}
         isMobile={isMobile}
       />
     </div>

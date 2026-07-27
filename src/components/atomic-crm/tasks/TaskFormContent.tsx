@@ -1,18 +1,11 @@
-import { AutocompleteInput } from "@/components/admin/autocomplete-input";
-import { ReferenceInput } from "@/components/admin/reference-input";
 import { SelectInput } from "@/components/admin/select-input";
 import { TextInput } from "@/components/admin/text-input";
 import { required } from "ra-core";
 import { DateTimeInput } from "@/components/admin";
 
-import { contactOptionText } from "../misc/ContactOption";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 
-export const TaskFormContent = ({
-  selectContact,
-}: {
-  selectContact?: boolean;
-}) => {
+export const TaskFormContent = () => {
   const { taskTypes } = useConfigurationContext();
   return (
     <div className="flex flex-col gap-4">
@@ -24,17 +17,6 @@ export const TaskFormContent = ({
         className="m-0"
         helperText={false}
       />
-      {selectContact && (
-        <ReferenceInput source="contact_id" reference="contacts_summary">
-          <AutocompleteInput
-            label="resources.tasks.fields.contact_id"
-            optionText={contactOptionText}
-            helperText={false}
-            validate={required()}
-            modal
-          />
-        </ReferenceInput>
-      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <DateTimeInput

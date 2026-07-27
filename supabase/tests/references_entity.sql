@@ -2,9 +2,9 @@
 -- References entity — database test suite.
 --
 -- Covers what the References epic added: the shared identity matcher, the
--- reference write paths, the merge (including the collision case that does not
--- exist for contacts), and RLS on every new table with explicit cross-account
--- attempts.
+-- reference write paths, the merge (including the collision case where both
+-- duplicate references share a link to the same shidduch), and RLS on every
+-- new table with explicit cross-account attempts.
 --
 -- Every check appends one row to `results`; the script emits them as JSON at the
 -- end and rolls back, so it leaves nothing behind. The runner
@@ -209,7 +209,7 @@ from public.reference_links_summary v
 where v.reference_id = :ref1 and v.effective_relationship = 'family friend';
 
 insert into results (name, passed)
-select 'summary view aggregates links, contacts and conversations',
+select 'summary view aggregates links, calls and conversations',
        v.linked_shidduchim_count = 2 and v.contacted_count = 1 and v.last_conversation_at is not null
 from public.references_summary v where v.id = :ref1;
 
@@ -220,8 +220,8 @@ insert into public.tasks (target_type, target_id, text, due_date)
 values ('reference', :ref1, 'Call back Sunday', now() + interval '2 days');
 
 insert into results (name, passed)
-select 'a task can target a reference with no contact at all',
-       t.contact_id is null and t.account_id = public.current_account_id()
+select 'a task can target a reference directly',
+       t.target_type = 'reference' and t.target_id = :ref1 and t.account_id = public.current_account_id()
 from public.tasks t where t.target_type = 'reference' and t.target_id = :ref1;
 
 insert into results (name, passed)
@@ -234,16 +234,11 @@ select 'open reference tasks surface on the summary view', v.open_task_count = 1
 from public.references_summary v where v.id = :ref1;
 
 do $$
-declare v_contact_id bigint;
 begin
-  insert into public.contacts (first_name, last_name) values ('Legacy', 'Contact') returning id into v_contact_id;
-  insert into public.tasks (contact_id, text) values (v_contact_id, 'Legacy contact task');
-  insert into results (name, passed)
-  select 'a legacy contact task still works and back-fills its polymorphic target',
-         t.target_type = 'contact' and t.target_id = t.contact_id
-  from public.tasks t where t.contact_id = v_contact_id;
+  insert into public.tasks (target_type, target_id, text) values ('contact', 1, 'A retired target type');
+  insert into results values ('the retired ''contact'' target type is rejected', false, 'no exception raised');
 exception when others then
-  insert into results values ('a legacy contact task still works and back-fills its polymorphic target', false, sqlerrm);
+  insert into results values ('the retired ''contact'' target type is rejected', true, sqlerrm);
 end $$;
 
 do $$

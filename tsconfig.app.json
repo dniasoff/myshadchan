@@ -24,7 +24,14 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
 
-    "types": ["vitest/globals", "faker"],
+    // "node" was previously pulled in only transitively, via @types/papaparse's
+    // `/// <reference types="node" />` (misc/usePapaParse.tsx was the sole
+    // importer of papaparse). Deleting that fossil-only file removed the
+    // accidental path by which several surviving files (src/components/admin/*,
+    // root/CRM.tsx, src/components/supabase/set-password-page.tsx) resolved the
+    // ambient `process` global they use directly. Declare it explicitly instead
+    // of depending on an unrelated import graph to carry it.
+    "types": ["vitest/globals", "faker", "node"],
 
     // Shadcn
     "baseUrl": ".",

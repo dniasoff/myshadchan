@@ -33,9 +33,9 @@ const getReferenceOrThrow = async (
 
 /**
  * What a merge would do, before anything is destroyed (FakeRest mirror of
- * preview_reference_merge). `collisions` is the case the contacts merge never
- * has to handle: both duplicates hold a reference_links row for the SAME
- * shidduchim_id. The UI must make the user resolve each one before merging.
+ * preview_reference_merge). `collisions` is the case where both duplicates
+ * hold a reference_links row for the SAME shidduchim_id. The UI must make the
+ * user resolve each one before merging.
  */
 export async function previewReferenceMerge(
   baseDataProvider: DataProvider,

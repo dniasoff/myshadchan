@@ -24,9 +24,9 @@ import { SectionLabel } from "./SectionLabel";
 /**
  * Desktop /settings — the sidebar/TopBar "Settings" destination. Mirrors the
  * mobile Settings sections (account, family, preferences, privacy, about) in
- * the same Quiet-Luminance card system, instead of the Atomic CRM
- * Branding/Companies/Deals/Notes/Tasks configuration template this replaced
- * (those entities no longer exist in MyShadchan).
+ * the same Quiet-Luminance card system, instead of the generic CRM branding
+ * configuration template this replaced (those fork resources no longer exist
+ * in MyShadchan).
  */
 export const SettingsPage = () => {
   const translate = useTranslate();

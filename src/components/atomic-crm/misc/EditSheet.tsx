@@ -65,17 +65,17 @@ export interface EditSheetProps extends EditBaseProps {
  *
  * return (
  *   <>
- *     <Button onClick={() => setOpen(true)}>Edit Contact</Button>
+ *     <Button onClick={() => setOpen(true)}>Edit Task</Button>
  *     <EditSheet
- *       resource="contacts"
- *       id={contactId}
- *       title="Edit Contact"
+ *       resource="tasks"
+ *       id={taskId}
+ *       title="Edit Task"
  *       open={open}
  *       onOpenChange={setOpen}
  *     >
- *       <TextInput source="first_name" />
- *       <TextInput source="last_name" />
- *       <TextInput source="email" />
+ *       <TextInput source="text" />
+ *       <TextInput source="type" />
+ *       <DateTimeInput source="due_date" />
  *     </EditSheet>
  *   </>
  * );

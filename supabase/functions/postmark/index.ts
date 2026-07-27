@@ -75,14 +75,12 @@ Deno.serve(async (req) => {
   // Shidduch capture (Epic 2): file the whole email verbatim into the sender's
   // inbox for one calm confirm step. The sender is the family member who sent
   // or forwarded the redt; their account is resolved via sales -> account_members.
-  // (Legacy contact/note creation is retired — contacts are no longer a resource.)
   if (!salesEmails.includes(salesEmail)) {
     // Only known MyShadchan users may file captures; never attribute an inbound
     // email to an arbitrary account. 403 tells Postmark not to retry.
-    return new Response(
-      `Sender ${salesEmail} is not a known MyShadchan user`,
-      { status: 403 },
-    );
+    return new Response(`Sender ${salesEmail} is not a known MyShadchan user`, {
+      status: 403,
+    });
   }
 
   const accountId = await resolveAccountIdForSalesEmail(salesEmail);

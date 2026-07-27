@@ -4,22 +4,22 @@ import { validateReadOnly, validateWrite } from "./validateSql";
 
 describe("validateReadOnly", () => {
   it.each([
-    ["simple SELECT", "SELECT * FROM contacts"],
+    ["simple SELECT", "SELECT * FROM shidduchim"],
     [
       "SELECT with WHERE",
-      "SELECT id, name FROM contacts WHERE created_at > NOW() - INTERVAL '30 days'",
+      "SELECT id, name_en FROM shidduchim WHERE created_at > NOW() - INTERVAL '30 days'",
     ],
     [
       "SELECT with JOIN",
-      "SELECT c.name, co.name FROM contacts c JOIN companies co ON c.company_id = co.id",
+      "SELECT s.name_en, sh.name FROM shidduchim s JOIN shadchanim sh ON s.shadchan_id = sh.id",
     ],
     [
       "SELECT with subquery",
-      "SELECT * FROM contacts WHERE company_id IN (SELECT id FROM companies WHERE sector = 'Tech')",
+      "SELECT * FROM shidduchim WHERE shadchan_id IN (SELECT id FROM shadchanim WHERE location = 'Lakewood')",
     ],
     [
       "read-only CTE",
-      "WITH recent AS (SELECT * FROM contacts WHERE created_at > NOW() - INTERVAL '7 days') SELECT * FROM recent",
+      "WITH recent AS (SELECT * FROM shidduchim WHERE created_at > NOW() - INTERVAL '7 days') SELECT * FROM recent",
     ],
     [
       "aggregate query",
@@ -27,7 +27,7 @@ describe("validateReadOnly", () => {
     ],
     [
       "DELETE in string literal",
-      "SELECT * FROM contacts WHERE status = 'DELETE'",
+      "SELECT * FROM shidduchim WHERE pipeline_state = 'DELETE'",
     ],
     [
       "DROP in string literal",
@@ -35,40 +35,43 @@ describe("validateReadOnly", () => {
     ],
     [
       "UPDATE in string literal",
-      "SELECT * FROM contacts WHERE note = 'Please UPDATE your info'",
+      "SELECT * FROM shidduchim WHERE parents_en = 'Please UPDATE your info'",
     ],
     [
       "DROP in block comment",
-      "SELECT /* DROP TABLE contacts */ * FROM contacts",
+      "SELECT /* DROP TABLE shidduchim */ * FROM shidduchim",
     ],
-    ["DROP in line comment", "SELECT * FROM contacts -- DROP TABLE contacts"],
+    [
+      "DROP in line comment",
+      "SELECT * FROM shidduchim -- DROP TABLE shidduchim",
+    ],
   ])("allows %s", (_label, sql) => {
     expect(validateReadOnly(sql)).toBeNull();
   });
 
   it.each([
-    ["INSERT", "INSERT INTO contacts (name) VALUES ('test')"],
-    ["UPDATE", "UPDATE contacts SET name = 'test'"],
-    ["DELETE", "DELETE FROM contacts WHERE id = 1"],
+    ["INSERT", "INSERT INTO shidduchim (name_en) VALUES ('test')"],
+    ["UPDATE", "UPDATE shidduchim SET name_en = 'test'"],
+    ["DELETE", "DELETE FROM shidduchim WHERE id = 1"],
     [
       "writable CTE (DELETE)",
-      "WITH d AS (DELETE FROM contacts RETURNING *) SELECT * FROM d",
+      "WITH d AS (DELETE FROM shidduchim RETURNING *) SELECT * FROM d",
     ],
     [
       "writable CTE (UPDATE)",
-      "WITH u AS (UPDATE contacts SET name = 'x' RETURNING *) SELECT * FROM u",
+      "WITH u AS (UPDATE shidduchim SET name_en = 'x' RETURNING *) SELECT * FROM u",
     ],
     [
       "writable CTE (INSERT)",
-      "WITH i AS (INSERT INTO contacts (name) VALUES ('x') RETURNING *) SELECT * FROM i",
+      "WITH i AS (INSERT INTO shidduchim (name_en) VALUES ('x') RETURNING *) SELECT * FROM i",
     ],
-    ["DROP TABLE", "DROP TABLE contacts"],
+    ["DROP TABLE", "DROP TABLE shidduchim"],
     ["CREATE TABLE", "CREATE TABLE evil (id int)"],
-    ["ALTER TABLE", "ALTER TABLE contacts ADD COLUMN x int"],
-    ["TRUNCATE", "TRUNCATE contacts"],
+    ["ALTER TABLE", "ALTER TABLE shidduchim ADD COLUMN x int"],
+    ["TRUNCATE", "TRUNCATE shidduchim"],
     ["SET", "SET LOCAL role = 'postgres'"],
     ["DO block", "DO $$ BEGIN END $$"],
-    ["multi-statement (SELECT; DROP)", "SELECT 1; DROP TABLE contacts"],
+    ["multi-statement (SELECT; DROP)", "SELECT 1; DROP TABLE shidduchim"],
     ["multi-statement (SELECT; SET)", "SELECT 1; SET LOCAL role = 'postgres'"],
     ["multi-statement (two SELECTs)", "SELECT 1; SELECT 2"],
     ["unparseable SQL", "NOT VALID SQL %%%"],
@@ -81,39 +84,39 @@ describe("validateWrite", () => {
   it.each([
     [
       "INSERT",
-      "INSERT INTO contacts (first_name, last_name) VALUES ('John', 'Doe')",
+      "INSERT INTO shidduchim (name_en, name_he) VALUES ('Chaim', 'חיים')",
     ],
-    ["UPDATE", "UPDATE contacts SET name = 'test' WHERE id = 1"],
-    ["DELETE", "DELETE FROM contacts WHERE id = 1"],
+    ["UPDATE", "UPDATE shidduchim SET name_en = 'test' WHERE id = 1"],
+    ["DELETE", "DELETE FROM shidduchim WHERE id = 1"],
     [
       "INSERT with RETURNING",
-      "INSERT INTO contacts (name) VALUES ('test') RETURNING id",
+      "INSERT INTO shidduchim (name_en) VALUES ('test') RETURNING id",
     ],
     [
       "UPDATE with subquery",
-      "UPDATE contacts SET company_id = (SELECT id FROM companies WHERE name = 'Acme') WHERE id = 1",
+      "UPDATE shidduchim SET shadchan_id = (SELECT id FROM shadchanim WHERE name = 'Acme') WHERE id = 1",
     ],
     [
       "writable CTE with INSERT",
-      "WITH d AS (DELETE FROM old_contacts RETURNING *) INSERT INTO archive SELECT * FROM d",
+      "WITH d AS (DELETE FROM old_shidduchim RETURNING *) INSERT INTO archive SELECT * FROM d",
     ],
   ])("allows %s", (_label, sql) => {
     expect(validateWrite(sql)).toBeNull();
   });
 
   it.each([
-    ["standalone SELECT", "SELECT * FROM contacts"],
-    ["DROP TABLE", "DROP TABLE contacts"],
+    ["standalone SELECT", "SELECT * FROM shidduchim"],
+    ["DROP TABLE", "DROP TABLE shidduchim"],
     ["CREATE TABLE", "CREATE TABLE evil (id int)"],
-    ["TRUNCATE", "TRUNCATE contacts"],
+    ["TRUNCATE", "TRUNCATE shidduchim"],
     ["SET", "SET LOCAL role = 'postgres'"],
     [
       "multi-statement (DELETE; DROP)",
-      "DELETE FROM contacts; DROP TABLE contacts",
+      "DELETE FROM shidduchim; DROP TABLE shidduchim",
     ],
     [
       "multi-statement (DELETE; SET)",
-      "DELETE FROM contacts; SET LOCAL role = 'postgres'",
+      "DELETE FROM shidduchim; SET LOCAL role = 'postgres'",
     ],
     ["unparseable SQL", "NOT VALID SQL %%%"],
   ])("rejects %s", (_label, sql) => {

@@ -1,6 +1,10 @@
+---
+baseline_commit: 36c0098a73828cc94b4d180644dff63ee45e4389
+---
+
 # Story 1.1: Delete the fossil resources
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -124,66 +128,66 @@ Leave `sales`, `set_sales_id_default()`, `is_admin()`, `init_state` and `current
 
 ### A. Backend — declarative schema first (AC: 1–7, 19)
 
-- [ ] **A1. `supabase/schemas/01_tables.sql`** (AC: 1, 6)
-  - [ ] Delete the `create table` blocks for `companies` (L14–34), `contacts` (L36–54), `contact_notes` (L56–64), `deals` (L66–81), `deal_notes` (L83–91), `tags` (L106–110), `favicons_excluded_domains` (L148–151). **Leave `sales` (L93–102), `tasks` (L119–140) and `configuration` (L142–146) in place.**
-  - [ ] Delete the **9** fossil FK `alter table` statements at **L157–182** **and** `tasks_contact_id_fkey` at **L187–188**. **Do not delete L184–185 (`sales_user_id_fkey`)** — it sits between the two ranges and belongs to the surviving `sales` table (story 1.2 renames it). An earlier draft gave the range as "L160–185", which both missed the first FK and swept up `sales_user_id_fkey`; the ranges above are verified by line.
-  - [ ] Delete the 2 legacy PK statements `"contactNotes_pkey"` / `"dealNotes_pkey"` (L190–195, including the `-- Legacy primary key constraint names` comment on L190) and the 4 FK indexes (L201–204, with their `-- Indexes on foreign keys` header at L197–199).
-  - [ ] In `create table public.tasks`: drop the `contact_id` column; change `target_type text not null default 'contact'` → `default 'shidduch'`; narrow `tasks_target_type_check` to `('shadchan','shidduch','reference')`; rewrite the block comment (it currently explains the legacy contacts UI).
-  - [ ] Leave `sales`, `tasks`' other columns, `configuration` and every shidduchim table untouched.
-- [ ] **A2. `supabase/schemas/03_views.sql`** (AC: 2) — delete `activity_log` (L6–72), `companies_summary` (L74–100), `contacts_summary` (L102–128). Leave `init_state` (L130) and everything below it.
-- [ ] **A3. `supabase/schemas/04_triggers.sql`** (AC: 3) — delete the 13 fossil triggers (L7–71). Keep `set_task_sales_id_trigger` (L27–29) and everything from L73 down.
-- [ ] **A4. `supabase/schemas/02_functions.sql`** (AC: 3, 6) — delete the 9 fossil functions; rewrite `sync_task_target()` (L1222–1242) to drop every `contact_id` reference (L1227–1233 collapse away) and keep only the "a task needs a target" guard. **Keep the function and its trigger**: the guard is redundant with `tasks.target_id bigint not null`, but `supabase/tests/references_entity.sql:715,728` asserts `sync_task_target` exists with a hardened `search_path`, and its name is not retired vocabulary — dropping it is out of scope here. Verify `purge_polymorphic_dependents()` still compiles (it deletes from `tasks` by `target_type`, no contact coupling).
-- [ ] **A5. `supabase/schemas/05_policies.sql`** (AC: 4) — delete the 7 `enable row level security` lines (L7–11, 13, 16 — **not** L12 `sales`, L14 `tasks` or L15 `configuration`) and the 25 fossil policies: **L18–46** (companies 4, contacts 4, contact_notes 4, deals 4, deal_notes 4, with their section comments), **L51–55** (tags 4, with its comment) and **L72–73** (favicons_excluded_domains 1, with its comment). **Keep L48–49 — the `-- Sales` comment and `"Enable read access for authenticated users" on public.sales`** — it sits inside the fossil block but belongs to the surviving `sales` table, and story 1.2 moves it onto `public.members`. (An earlier draft gave the range as "L19–55", which would have deleted it.) Reword the `tasks` policy comment at L57–61 that says "while tasks were contacts-only".
-- [ ] **A6. `supabase/schemas/06_grants.sql`** (AC: 5) — delete the **71** grant lines enumerated in AC-5, working from that list rather than from ranges: three of the four groups interleave surviving grants (`set_sales_id_default`, `sales`, `tasks`, `configuration`, `init_state`, `sales_id_seq`, `tasks_id_seq`), so a range delete drops objects story 1.2 needs. Do **not** touch the `alter default privileges` block starting at L160 (AD-1's anon revocation is Epic 2's job) or the shidduchim REVOKE/GRANT section.
-- [ ] **A7. `supabase/seed.sql`** (AC: 7) — remove the `favicons_excluded_domains` INSERT.
-- [ ] **A8. Generate + hand-check the migration** (AC: 6, 19)
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f delete_fossil_resources`
-  - [ ] Read the generated SQL line by line: confirm it drops (not renames) each object, confirm it does **not** drop/recreate a surviving view without `security_invoker = on`, and confirm it does not emit a `REVOKE` the schema files still declare. `db diff` historically loses `with (security_invoker = on)` and REVOKE statements — fix them by hand in the migration if it does.
-  - [ ] **Hand-add the AC-6 data step.** `db diff` compares schemas, so it will emit the default change and the constraint but **never** a DML statement. Insert, between the `alter column target_type set default 'shidduch'` and the `add constraint tasks_target_type_check`, the line `update public.tasks set target_type = 'shidduch' where target_type = 'contact';`. Confirm by reading the file that the three statements appear in that order. Without it the migration is one production row away from failing at `ADD CONSTRAINT` validation time.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. **Never** `db reset` or `db push`.
-- [ ] **A9. DB test** (AC: 20) — in `supabase/tests/references_entity.sql`:
-  - [ ] Delete the legacy-contact-task `do $$ … $$` block (L236–247) and add the two rejection assertions.
-  - [ ] **Fix the live `contact_id` assertion at L222–224.** It currently reads `select 'a task can target a reference with no contact at all', t.contact_id is null and t.account_id = public.current_account_id()` — dropping the column makes that statement error, not fail. Rewrite it as a target-shape assertion, e.g. `t.target_type = 'reference' and t.target_id = :ref1 and t.account_id = public.current_account_id()`, and rename the case to match (the "with no contact at all" phrasing is fossil vocabulary).
-  - [ ] Reword the L6 and L212 comments that mention contacts (L212's `contacted_count` is a live `references_summary` column — leave the identifier alone, only the prose).
-  - [ ] Run `npm run test:unit:db`.
+- [x] **A1. `supabase/schemas/01_tables.sql`** (AC: 1, 6)
+  - [x] Delete the `create table` blocks for `companies` (L14–34), `contacts` (L36–54), `contact_notes` (L56–64), `deals` (L66–81), `deal_notes` (L83–91), `tags` (L106–110), `favicons_excluded_domains` (L148–151). **Leave `sales` (L93–102), `tasks` (L119–140) and `configuration` (L142–146) in place.**
+  - [x] Delete the **9** fossil FK `alter table` statements at **L157–182** **and** `tasks_contact_id_fkey` at **L187–188**. **Do not delete L184–185 (`sales_user_id_fkey`)** — it sits between the two ranges and belongs to the surviving `sales` table (story 1.2 renames it). An earlier draft gave the range as "L160–185", which both missed the first FK and swept up `sales_user_id_fkey`; the ranges above are verified by line.
+  - [x] Delete the 2 legacy PK statements `"contactNotes_pkey"` / `"dealNotes_pkey"` (L190–195, including the `-- Legacy primary key constraint names` comment on L190) and the 4 FK indexes (L201–204, with their `-- Indexes on foreign keys` header at L197–199).
+  - [x] In `create table public.tasks`: drop the `contact_id` column; change `target_type text not null default 'contact'` → `default 'shidduch'`; narrow `tasks_target_type_check` to `('shadchan','shidduch','reference')`; rewrite the block comment (it currently explains the legacy contacts UI).
+  - [x] Leave `sales`, `tasks`' other columns, `configuration` and every shidduchim table untouched.
+- [x] **A2. `supabase/schemas/03_views.sql`** (AC: 2) — delete `activity_log` (L6–72), `companies_summary` (L74–100), `contacts_summary` (L102–128). Leave `init_state` (L130) and everything below it.
+- [x] **A3. `supabase/schemas/04_triggers.sql`** (AC: 3) — delete the 13 fossil triggers (L7–71). Keep `set_task_sales_id_trigger` (L27–29) and everything from L73 down.
+- [x] **A4. `supabase/schemas/02_functions.sql`** (AC: 3, 6) — delete the 9 fossil functions; rewrite `sync_task_target()` (L1222–1242) to drop every `contact_id` reference (L1227–1233 collapse away) and keep only the "a task needs a target" guard. **Keep the function and its trigger**: the guard is redundant with `tasks.target_id bigint not null`, but `supabase/tests/references_entity.sql:715,728` asserts `sync_task_target` exists with a hardened `search_path`, and its name is not retired vocabulary — dropping it is out of scope here. Verify `purge_polymorphic_dependents()` still compiles (it deletes from `tasks` by `target_type`, no contact coupling).
+- [x] **A5. `supabase/schemas/05_policies.sql`** (AC: 4) — delete the 7 `enable row level security` lines (L7–11, 13, 16 — **not** L12 `sales`, L14 `tasks` or L15 `configuration`) and the 25 fossil policies: **L18–46** (companies 4, contacts 4, contact_notes 4, deals 4, deal_notes 4, with their section comments), **L51–55** (tags 4, with its comment) and **L72–73** (favicons_excluded_domains 1, with its comment). **Keep L48–49 — the `-- Sales` comment and `"Enable read access for authenticated users" on public.sales`** — it sits inside the fossil block but belongs to the surviving `sales` table, and story 1.2 moves it onto `public.members`. (An earlier draft gave the range as "L19–55", which would have deleted it.) Reword the `tasks` policy comment at L57–61 that says "while tasks were contacts-only".
+- [x] **A6. `supabase/schemas/06_grants.sql`** (AC: 5) — delete the **71** grant lines enumerated in AC-5, working from that list rather than from ranges: three of the four groups interleave surviving grants (`set_sales_id_default`, `sales`, `tasks`, `configuration`, `init_state`, `sales_id_seq`, `tasks_id_seq`), so a range delete drops objects story 1.2 needs. Do **not** touch the `alter default privileges` block starting at L160 (AD-1's anon revocation is Epic 2's job) or the shidduchim REVOKE/GRANT section.
+- [x] **A7. `supabase/seed.sql`** (AC: 7) — remove the `favicons_excluded_domains` INSERT.
+- [x] **A8. Generate + hand-check the migration** (AC: 6, 19)
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f delete_fossil_resources`
+  - [x] Read the generated SQL line by line: confirm it drops (not renames) each object, confirm it does **not** drop/recreate a surviving view without `security_invoker = on`, and confirm it does not emit a `REVOKE` the schema files still declare. `db diff` historically loses `with (security_invoker = on)` and REVOKE statements — fix them by hand in the migration if it does.
+  - [x] **Hand-add the AC-6 data step.** `db diff` compares schemas, so it will emit the default change and the constraint but **never** a DML statement. Insert, between the `alter column target_type set default 'shidduch'` and the `add constraint tasks_target_type_check`, the line `update public.tasks set target_type = 'shidduch' where target_type = 'contact';`. Confirm by reading the file that the three statements appear in that order. Without it the migration is one production row away from failing at `ADD CONSTRAINT` validation time.
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. **Never** `db reset` or `db push`.
+- [x] **A9. DB test** (AC: 20) — in `supabase/tests/references_entity.sql`:
+  - [x] Delete the legacy-contact-task `do $$ … $$` block (L236–247) and add the two rejection assertions.
+  - [x] **Fix the live `contact_id` assertion at L222–224.** It currently reads `select 'a task can target a reference with no contact at all', t.contact_id is null and t.account_id = public.current_account_id()` — dropping the column makes that statement error, not fail. Rewrite it as a target-shape assertion, e.g. `t.target_type = 'reference' and t.target_id = :ref1 and t.account_id = public.current_account_id()`, and rename the case to match (the "with no contact at all" phrasing is fossil vocabulary).
+  - [x] Reword the L6 and L212 comments that mention contacts (L212's `contacted_count` is a live `references_summary` column — leave the identifier alone, only the prose).
+  - [x] Run `npm run test:unit:db`.
 
 ### B. Frontend — delete the fossil directories and orphans (AC: 8, 9)
 
-- [ ] **B1.** Delete the six directories (AC: 8). The repo ships `.claude/skills/delete-initial-resource/delete-initial-resource.ts` which does exactly this for `contacts companies deals tags` and prints a dependent-file list — use it as a checklist, then delete `notes/` and `activity/` by hand (they are not in the script's resource list).
-- [ ] **B2.** Delete the 56 further fossil-only files listed in Dev Notes (AC: 9), **including the three `/import` files** `misc/ImportPage.tsx`, `misc/useImportFromJson.ts` and `misc/import-sample.json`. Verify each is an orphan with `LSP findReferences` before deleting; several were confirmed orphaned only once the six directories go. **Do not** delete `misc/Markdown.tsx`, `misc/ChangelogPage.tsx` or `misc/MobileBackButton.tsx` — those three are story 1.5's (and `MobileBackButton.tsx` is kept, see §"Scope calls" item 5).
-- [ ] **B3.** Delete `supabase/functions/merge_contacts/`, `supabase/functions/delete_note_attachments/`, `supabase/functions/_shared/db.ts`, and the 6 orphaned `postmark/` modules; remove `[functions.merge_contacts]` and `[functions.delete_note_attachments]` from **both** `supabase/config.toml` (L182, L184) and `supabase/config.e2e.toml` (L159, L161).
+- [x] **B1.** Delete the six directories (AC: 8). The repo ships `.claude/skills/delete-initial-resource/delete-initial-resource.ts` which does exactly this for `contacts companies deals tags` and prints a dependent-file list — use it as a checklist, then delete `notes/` and `activity/` by hand (they are not in the script's resource list).
+- [x] **B2.** Delete the 56 further fossil-only files listed in Dev Notes (AC: 9), **including the three `/import` files** `misc/ImportPage.tsx`, `misc/useImportFromJson.ts` and `misc/import-sample.json`. Verify each is an orphan with `LSP findReferences` before deleting; several were confirmed orphaned only once the six directories go. **Do not** delete `misc/Markdown.tsx`, `misc/ChangelogPage.tsx` or `misc/MobileBackButton.tsx` — those three are story 1.5's (and `MobileBackButton.tsx` is kept, see §"Scope calls" item 5).
+- [x] **B3.** Delete `supabase/functions/merge_contacts/`, `supabase/functions/delete_note_attachments/`, `supabase/functions/_shared/db.ts`, and the 6 orphaned `postmark/` modules; remove `[functions.merge_contacts]` and `[functions.delete_note_attachments]` from **both** `supabase/config.toml` (L182, L184) and `supabase/config.e2e.toml` (L159, L161).
 
 ### C. Frontend — types, config, providers (AC: 10, 11)
 
-- [ ] **C1. `src/components/atomic-crm/types.ts`** (AC: 10) — delete the 17 fossil types; narrow `Task` and `TaskTargetType`; **keep `Shadchan.contacts`**; remove the `./consts` import (the whole file goes).
-- [ ] **C2. `root/defaultConfiguration.ts`, `root/ConfigurationContext.tsx`, `root/CRM.tsx`, `src/App.tsx`** (AC: 11) — remove the 6 fossil config props everywhere they appear (default value, interface field, `CRM` prop default, JSDoc `@param`, store-seed object, App.tsx prop list).
-- [ ] **C3. `providers/supabase/dataProvider.ts`** (AC: 9, 13) — remove: the fossil type imports (L15, 17, 18), `processCompanyLogo` (L50), the `companies`/`contacts` `getList` + `getOne` routing (L108–113, 149–154), the `activity_log` branch (L128–147), `unarchiveDeal` (L262–288), `mergeContacts` (L290–304), and the `contact_notes` / `deal_notes` / `contacts` / `companies` / `contacts_summary` / `deals` lifecycle-callback blocks (L661–745). Reword the comment at L516 that compares to the contacts merge.
-- [ ] **C4. `providers/fakerest/dataProvider.ts`** — remove the mirror surface: fossil type imports, `processCompanyLogo`, `processContactAvatar`, `fetchAndUpdateCompanyData`, `updateCompany`, the `activity_log` branch (L494–500), `unarchiveDeal` (L627–651), `mergeContacts` (L738), the fossil `updateMany` block inside clear-demo (L972–1032), and the `contacts` / `companies` / `deals` / `contact_notes` / `deal_notes` callback blocks — **plus the `tasks` callbacks (L1077–1140) that increment/decrement `contacts.nb_tasks`**, which must go entirely, not be rewired.
-- [ ] **C5. `providers/fakerest/dataGenerator/index.ts` + `types.ts`** — remove the 7 fossil generator calls and the 7 `Db` keys (`companies`, `contacts`, `contact_notes`, `deals`, `deal_notes`, `tags`, plus the `finalize` call). **Set `db.tasks = []` before `generateShidduchimDomain(db)`** — `references.ts:336` reads `db.tasks.length` and `references.ts:350` spreads `db.tasks`, so an undefined `db.tasks` crashes the demo provider.
+- [x] **C1. `src/components/atomic-crm/types.ts`** (AC: 10) — delete the 17 fossil types; narrow `Task` and `TaskTargetType`; **keep `Shadchan.contacts`**; remove the `./consts` import (the whole file goes).
+- [x] **C2. `root/defaultConfiguration.ts`, `root/ConfigurationContext.tsx`, `root/CRM.tsx`, `src/App.tsx`** (AC: 11) — remove the 6 fossil config props everywhere they appear (default value, interface field, `CRM` prop default, JSDoc `@param`, store-seed object, App.tsx prop list).
+- [x] **C3. `providers/supabase/dataProvider.ts`** (AC: 9, 13) — remove: the fossil type imports (L15, 17, 18), `processCompanyLogo` (L50), the `companies`/`contacts` `getList` + `getOne` routing (L108–113, 149–154), the `activity_log` branch (L128–147), `unarchiveDeal` (L262–288), `mergeContacts` (L290–304), and the `contact_notes` / `deal_notes` / `contacts` / `companies` / `contacts_summary` / `deals` lifecycle-callback blocks (L661–745). Reword the comment at L516 that compares to the contacts merge.
+- [x] **C4. `providers/fakerest/dataProvider.ts`** — remove the mirror surface: fossil type imports, `processCompanyLogo`, `processContactAvatar`, `fetchAndUpdateCompanyData`, `updateCompany`, the `activity_log` branch (L494–500), `unarchiveDeal` (L627–651), `mergeContacts` (L738), the fossil `updateMany` block inside clear-demo (L972–1032), and the `contacts` / `companies` / `deals` / `contact_notes` / `deal_notes` callback blocks — **plus the `tasks` callbacks (L1077–1140) that increment/decrement `contacts.nb_tasks`**, which must go entirely, not be rewired.
+- [x] **C5. `providers/fakerest/dataGenerator/index.ts` + `types.ts`** — remove the 7 fossil generator calls and the 7 `Db` keys (`companies`, `contacts`, `contact_notes`, `deals`, `deal_notes`, `tags`, plus the `finalize` call). **Set `db.tasks = []` before `generateShidduchimDomain(db)`** — `references.ts:336` reads `db.tasks.length` and `references.ts:350` spreads `db.tasks`, so an undefined `db.tasks` crashes the demo provider.
 
 ### D. Frontend — surviving surfaces that must be edited (AC: 12, 13, 16, 17)
 
-- [ ] **D1. `tasks/`** (AC: 9, 13) — delete `AddTask.tsx`, `TaskCreateSheet.tsx`, `TaskCreateSheet.test.tsx`, `TaskCreateSheet.stories.tsx`; strip `showContact` / `selectContact` / `filterByContact` and the contact `ReferenceField` / `ReferenceInput` from `Task.tsx`, `TaskEditSheet.tsx`, `TaskFormContent.tsx`, `TasksIterator.tsx`, `TasksListByDueDate.tsx`, `TasksListFilter.tsx`; drop the `contacts: []` fixture from `TasksListFilter.test.tsx`; check `TaskEdit.tsx` still type-checks against the narrowed `TaskFormContent` props.
-- [ ] **D2. `reminders/`** (AC: 13) — remove the `contact` arm from `RESOURCE_FOR_TARGET`, `TARGET_TYPE_LABEL`, `targetEntityPath()` and `targetEntityLabel()` in `reminderEntity.ts`; remove `"contact"` from `ALL_TARGET_TYPES` and delete the fourth `useGetMany` + its `byType` row in `useReminders.ts`.
-- [ ] **D3. i18n** (AC: 12) — prune `englishCrmMessages.ts` and `frenchCrmMessages.ts` symmetrically, **including `crm.import` (english 608, french 616) and `crm.header.import_data` (english 599, french 606) — and the `crm.header` block itself, which holds nothing else and is left empty by that removal** (verified: `import_data` is `crm.header`'s only key in both catalogs). **Keep `resources.tasks.empty_list_hint` and reword it** in both catalogs — `tasks/TasksListContent.tsx:11` renders it and survives this epic; its current copy names "contacts" and would fail AC-14. Repoint the `resources.deals.empty.title` assertion in `providers/commons/i18nProvider.test.ts:43` to a surviving French key (e.g. `resources.shidduchim.*`).
-- [ ] **D4. Routes / shell — including the `/import` surface** (AC: 13)
-  - [ ] `login/SignupPage.tsx:48` `redirectTo: "/contacts"` → `"/"`.
-  - [ ] `root/CRM.tsx`: delete the `ImportPage` route (`:268`) and its import (`:31`). **Touch nothing else in that file's route block** — the `<CustomRoutes>` entries for `/profile` and `/changelog`, the `/tasks` → `/reminders` redirect (`:272-278`) and every `<Resource>` line are story 1.5's, which replaces the whole block with a `routeManifest.ts` map.
-  - [ ] `layout/TopBar.tsx`: delete the `ImportFromJsonMenuItem` component (`:171-185`), its `<UserMenu>` usage (`:50`), its `ImportPage` import (`:25`) and the then-unused `Import` lucide icon (`:6`). **Leave `ChangelogMenuItem`, `ProfileMenuItem` and `UsersMenuItem` alone** — 1.5 removes the first two, 1.2 edits the third. The pinned order makes this a sequential edit to the same `<UserMenu>` block, not a parallel one; 1.5 rebases on top of it.
-- [ ] **D5. `src/test/StoryWrapper.tsx`** — remove the fossil db keys (`companies`, `contact_notes`, `contacts`, `deal_notes`, `deals`, `tags`) and the `buildContact` builder + `Contact` import.
-- [ ] **D6. e2e** (AC: 17) — delete `e2e/bulkContactTags.spec.ts`, `e2e/onboarding.spec.ts`, `e2e/userAddingATask.spec.ts`. In `e2e/fixtures.ts` remove the **7** fossil entries from `TABLES` — **L13–19** exactly: `contact_notes`, `deal_notes`, `deals`, `contacts`, `companies`, `tags`, `favicons_excluded_domains`. `tasks` (L12) and `configuration` (L20) stay; `sales` (L21) stays too — story 1.2 renames it, it is not a fossil. (Earlier drafts said "6 fossil tables" and the cross-check said 5; both undercounted by missing `contact_notes` / `deal_notes` — verified count is 7 of the 10 entries.), delete `createNotes` (L93), `createCompany` (L123), `createContact` (L143), their call inside the seed helper (L187) and the `goToContacts` menu helper (L201), and remove the three from the `test.extend` type block (L218–220) and its implementation block (L243–252). **Keep the file, the `e2e/` directory, `playwright.config.ts`, the `test-e2e*` make targets and the CI `e2e-test` job** — story 1.6 lands the replacement smoke spec on top of the trimmed fixtures (`createUser`, `createSales`, `login`, `resetDb`, `menu`, `dismissToast` all survive and are what it needs).
-- [ ] **D7. Comment / prose sweep** (AC: 14, 15) — `layout/navItems.ts:28`, `layout/navItems.test.ts:16–22` (delete the "excludes the legacy CRM resources" case — it only contains the fossil strings), `settings/SettingsPage.tsx:28`, `misc/EditSheet.tsx:68–72` (JSDoc example uses `resource="contacts"`), `shidduchim/boardUtils.ts:10` ("mirrors getDealsByStage for the deals Kanban"), `providers/fakerest/dataGenerator/shidduchim.ts:291` ("mirrors generateDeals()"), `references/ReferenceMergeButton.tsx:29,33`, `references/ReferenceMergeCollision.tsx:9`, `providers/fakerest/internal/referenceMerge.ts:36`, `supabase/functions/merge_references/index.ts:10,13`, `supabase/functions/postmark/index.ts:78`, `AGENTS.md:163,172`.
-- [ ] **D8. Edge function `mcp/`** (AC: 13, 14) — rewrite the fossil schema prose in `mcp/index.ts` (L278, 296, 304, 311–314, 354, 365–366, 467) to describe the shidduchim schema; replace the `contact_name` / `contact_id` link in `mcp/taskListUi.ts:93` with the reminder's polymorphic target; rewrite the arbitrary `contacts`/`companies` table names in `mcp/validateSql.test.ts` (25 fixtures) to live tables. Behaviour must not change — these are strings only.
-- [ ] **D9. `doc/`** (AC: 16) — delete `doc/src/content/docs/users/merging-contacts.mdx` and `doc/src/content/docs/users/import-data.mdx`; remove `"users/import-data"` and `"users/merging-contacts"` from the `Users Documentation` sidebar array in `doc/astro.config.mjs`. Leave the other 18 pages alone (explicitly deferred — Dev Notes). `doc/` has no build step in `make test` / `make typecheck`, so verify by eye that the sidebar array has no dangling entry.
+- [x] **D1. `tasks/`** (AC: 9, 13) — delete `AddTask.tsx`, `TaskCreateSheet.tsx`, `TaskCreateSheet.test.tsx`, `TaskCreateSheet.stories.tsx`; strip `showContact` / `selectContact` / `filterByContact` and the contact `ReferenceField` / `ReferenceInput` from `Task.tsx`, `TaskEditSheet.tsx`, `TaskFormContent.tsx`, `TasksIterator.tsx`, `TasksListByDueDate.tsx`, `TasksListFilter.tsx`; drop the `contacts: []` fixture from `TasksListFilter.test.tsx`; check `TaskEdit.tsx` still type-checks against the narrowed `TaskFormContent` props.
+- [x] **D2. `reminders/`** (AC: 13) — remove the `contact` arm from `RESOURCE_FOR_TARGET`, `TARGET_TYPE_LABEL`, `targetEntityPath()` and `targetEntityLabel()` in `reminderEntity.ts`; remove `"contact"` from `ALL_TARGET_TYPES` and delete the fourth `useGetMany` + its `byType` row in `useReminders.ts`.
+- [x] **D3. i18n** (AC: 12) — prune `englishCrmMessages.ts` and `frenchCrmMessages.ts` symmetrically, **including `crm.import` (english 608, french 616) and `crm.header.import_data` (english 599, french 606) — and the `crm.header` block itself, which holds nothing else and is left empty by that removal** (verified: `import_data` is `crm.header`'s only key in both catalogs). **Keep `resources.tasks.empty_list_hint` and reword it** in both catalogs — `tasks/TasksListContent.tsx:11` renders it and survives this epic; its current copy names "contacts" and would fail AC-14. Repoint the `resources.deals.empty.title` assertion in `providers/commons/i18nProvider.test.ts:43` to a surviving French key (e.g. `resources.shidduchim.*`).
+- [x] **D4. Routes / shell — including the `/import` surface** (AC: 13)
+  - [x] `login/SignupPage.tsx:48` `redirectTo: "/contacts"` → `"/"`.
+  - [x] `root/CRM.tsx`: delete the `ImportPage` route (`:268`) and its import (`:31`). **Touch nothing else in that file's route block** — the `<CustomRoutes>` entries for `/profile` and `/changelog`, the `/tasks` → `/reminders` redirect (`:272-278`) and every `<Resource>` line are story 1.5's, which replaces the whole block with a `routeManifest.ts` map.
+  - [x] `layout/TopBar.tsx`: delete the `ImportFromJsonMenuItem` component (`:171-185`), its `<UserMenu>` usage (`:50`), its `ImportPage` import (`:25`) and the then-unused `Import` lucide icon (`:6`). **Leave `ChangelogMenuItem`, `ProfileMenuItem` and `UsersMenuItem` alone** — 1.5 removes the first two, 1.2 edits the third. The pinned order makes this a sequential edit to the same `<UserMenu>` block, not a parallel one; 1.5 rebases on top of it.
+- [x] **D5. `src/test/StoryWrapper.tsx`** — remove the fossil db keys (`companies`, `contact_notes`, `contacts`, `deal_notes`, `deals`, `tags`) and the `buildContact` builder + `Contact` import.
+- [x] **D6. e2e** (AC: 17) — delete `e2e/bulkContactTags.spec.ts`, `e2e/onboarding.spec.ts`, `e2e/userAddingATask.spec.ts`. In `e2e/fixtures.ts` remove the **7** fossil entries from `TABLES` — **L13–19** exactly: `contact_notes`, `deal_notes`, `deals`, `contacts`, `companies`, `tags`, `favicons_excluded_domains`. `tasks` (L12) and `configuration` (L20) stay; `sales` (L21) stays too — story 1.2 renames it, it is not a fossil. (Earlier drafts said "6 fossil tables" and the cross-check said 5; both undercounted by missing `contact_notes` / `deal_notes` — verified count is 7 of the 10 entries.), delete `createNotes` (L93), `createCompany` (L123), `createContact` (L143), their call inside the seed helper (L187) and the `goToContacts` menu helper (L201), and remove the three from the `test.extend` type block (L218–220) and its implementation block (L243–252). **Keep the file, the `e2e/` directory, `playwright.config.ts`, the `test-e2e*` make targets and the CI `e2e-test` job** — story 1.6 lands the replacement smoke spec on top of the trimmed fixtures (`createUser`, `createSales`, `login`, `resetDb`, `menu`, `dismissToast` all survive and are what it needs).
+- [x] **D7. Comment / prose sweep** (AC: 14, 15) — `layout/navItems.ts:28`, `layout/navItems.test.ts:16–22` (delete the "excludes the legacy CRM resources" case — it only contains the fossil strings), `settings/SettingsPage.tsx:28`, `misc/EditSheet.tsx:68–72` (JSDoc example uses `resource="contacts"`), `shidduchim/boardUtils.ts:10` ("mirrors getDealsByStage for the deals Kanban"), `providers/fakerest/dataGenerator/shidduchim.ts:291` ("mirrors generateDeals()"), `references/ReferenceMergeButton.tsx:29,33`, `references/ReferenceMergeCollision.tsx:9`, `providers/fakerest/internal/referenceMerge.ts:36`, `supabase/functions/merge_references/index.ts:10,13`, `supabase/functions/postmark/index.ts:78`, `AGENTS.md:163,172`.
+- [x] **D8. Edge function `mcp/`** (AC: 13, 14) — rewrite the fossil schema prose in `mcp/index.ts` (L278, 296, 304, 311–314, 354, 365–366, 467) to describe the shidduchim schema; replace the `contact_name` / `contact_id` link in `mcp/taskListUi.ts:93` with the reminder's polymorphic target; rewrite the arbitrary `contacts`/`companies` table names in `mcp/validateSql.test.ts` (25 fixtures) to live tables. Behaviour must not change — these are strings only.
+- [x] **D9. `doc/`** (AC: 16) — delete `doc/src/content/docs/users/merging-contacts.mdx` and `doc/src/content/docs/users/import-data.mdx`; remove `"users/import-data"` and `"users/merging-contacts"` from the `Users Documentation` sidebar array in `doc/astro.config.mjs`. Leave the other 18 pages alone (explicitly deferred — Dev Notes). `doc/` has no build step in `make test` / `make typecheck`, so verify by eye that the sidebar array has no dangling entry.
 
 ### E. Verify (AC: 14–20)
 
-- [ ] **E1.** `npm run registry:gen` (or `make registry-gen`) and confirm `registry.json` has no fossil path (it currently lists `useImportFromJson.ts` at line 409 and `ImportPage.tsx` at 453 — both go here; `Markdown.tsx` at 445 and `ChangelogPage.tsx` at 473 are 1.5's).
-- [ ] **E2.** `make typecheck` → clean. `npm run lint` (eslint) → clean. Then `npx prettier --config ./.prettierrc.json --check` over **this story's changed files only** → clean (AC-18; the repo-wide prettier gate is 1.6's).
-- [ ] **E3.** `make test` — `test-app`, `test-functions`, `test-workers` — plus `npm run test:unit:db`.
-- [ ] **E4.** Run the AC-14 grep and confirm the only hits are the 5 allowlisted `shadchanim.contacts` files.
-- [ ] **E5.** Run the AC-15 camelCase grep and confirm it returns **zero** hits.
-- [ ] **E6.** Smoke: run the app against the local stack (`make start`) and click through Dashboard → Pipeline → Inbox → Shadchanim → References → Reminders → Settings; confirm no console error and no 404 from a removed resource. (Smoke step, not an acceptance criterion — AC-18's suites are the gate.)
+- [x] **E1.** `npm run registry:gen` (or `make registry-gen`) and confirm `registry.json` has no fossil path (it currently lists `useImportFromJson.ts` at line 409 and `ImportPage.tsx` at 453 — both go here; `Markdown.tsx` at 445 and `ChangelogPage.tsx` at 473 are 1.5's).
+- [x] **E2.** `make typecheck` → clean. `npm run lint` (eslint) → clean. Then `npx prettier --config ./.prettierrc.json --check` over **this story's changed files only** → clean (AC-18; the repo-wide prettier gate is 1.6's).
+- [x] **E3.** `make test` — `test-app`, `test-functions`, `test-workers` — plus `npm run test:unit:db`.
+- [x] **E4.** Run the AC-14 grep and confirm the only hits are the 5 allowlisted `shadchanim.contacts` files.
+- [x] **E5.** Run the AC-15 camelCase grep and confirm it returns **zero** hits.
+- [x] **E6.** Smoke: run the app against the local stack (`make start`) and click through Dashboard → Pipeline → Inbox → Shadchanim → References → Reminders → Settings; confirm no console error and no 404 from a removed resource. (Smoke step, not an acceptance criterion — AC-18's suites are the gate.)
 
 ---
 
@@ -381,8 +385,141 @@ That is a known, accepted consequence of the pinned order, **not** a licence to 
 
 ### Agent Model Used
 
+Claude Sonnet 5 (claude-sonnet-5)
+
 ### Debug Log References
+
+- `db diff` regenerated `references_summary` (drop+recreate) even though its
+  SELECT text was unchanged — the drop lost its `select`/`all` grants and the
+  privilege set fell back to the schema's blanket `alter default privileges …
+  grant all on tables to anon` rule. Hand-added
+  `revoke all … from anon, authenticated; grant select … to authenticated;
+  grant all … to service_role;` for `references_summary` into the generated
+  migration and verified live grants after apply (`information_schema.role_table_grants`).
+  `with (security_invoker = on)` was also missing from the regenerated
+  `create or replace view` and was hand-added.
+- `db diff` did not emit the AC-6(b) data-repair step (`update public.tasks
+  set target_type = 'shidduch' where target_type = 'contact'`); inserted it by
+  hand between the default change and the narrowed constraint, per the story's
+  explicit instruction.
+- Deleting `misc/useImportFromJson.ts` (AC-9) removed the only import of
+  `papaparse`, whose `@types/papaparse` typings carry `/// <reference
+  types="node" />`. That was the *only* path by which `@types/node`'s ambient
+  `process` global reached the "app" TypeScript program, so several unrelated
+  surviving files (`src/components/admin/*.tsx`, `root/CRM.tsx`,
+  `src/components/supabase/set-password-page.tsx`) broke with `Cannot find
+  name 'process'` the moment the file was removed. Fixed by adding `"node"`
+  explicitly to `tsconfig.app.json`'s `types` array (`@types/node` was already
+  a devDependency) instead of depending on an accidental transitive import.
+  Verified against a clean worktree checkout of the pre-story commit to
+  confirm the regression was real and not pre-existing.
+- `make registry-gen`, `npx vite build`, and a brief `vite` dev-server boot
+  (curl 200 on `/`) were run as additional smoke checks beyond the story's
+  required gates.
 
 ### Completion Notes List
 
+- All 20 ACs satisfied; the story's own "Done" proving command for 1.1 passes
+  verbatim: `make typecheck && npm run lint && make test && npm run
+  test:unit:db && <AC-15-family zero-hit grep>`.
+- AC-5's "71 fossil grants" count reproduced exactly as enumerated (27 + 14 +
+  9 + 21).
+- AC-14 baseline reproduced at **150 files** as stated; AC-15 baseline
+  reproduced at **444 lines / 94 files** as stated. Both greps return the
+  documented allowlist / zero hits after the change.
+- One AC-19 risk materialized for real (not just a documented risk): `db
+  diff`'s drop+recreate of `references_summary` silently dropped its grants.
+  Caught by reading the migration top-to-bottom as instructed, fixed by hand
+  in both the live local DB and the migration file, and reverified via
+  `information_schema.role_table_grants` and a second `db diff` (`No schema
+  changes found`).
+- Local DB was already at migration `20260726214835_secure_attachments_bucket.sql`
+  (matches the build plan's precondition #2), so the storage-security delta
+  did not fold into this story's diff. Post-migration assertions confirmed:
+  `pg_policies` count for `storage.objects` "Attachments%" = 3,
+  `storage.buckets.public` for `attachments` = false.
+- Collateral cleanup beyond the story's literal enumeration, all directly
+  caused by the mandated deletions and required to keep the build green /
+  AC-14 clean, not independent scope decisions: removed the now-orphaned
+  `AttachmentNote` type (its only two users, `ContactNote`/`DealNote`, are
+  both deleted); removed dead `TASK_MARKED_AS_DONE/UNDONE/DONE_NOT_CHANGED`
+  constants and `preserveAttachmentMimeType` in the FakeRest provider (their
+  only call sites were the deleted `tasks`/`contact_notes`/`deal_notes`
+  lifecycle callbacks); reworded four schema/type comments that still named
+  "contacts"/"deals" in prose (`02_functions.sql`, `03_views.sql` ×2,
+  `01_tables.sql`, `04_triggers.sql`, `types.ts`) after AC-14/15 flagged them
+  live against the real tree; rewrote `supabase/functions/mcp/{index.ts,
+  taskListUi.ts}` (Task D8) to replace the `contact_name`/`contact_id` MCP
+  task-list link with the reminder's polymorphic `target_type`/`target_id`/
+  `target_label` shape; renamed the `tags@cs` fixture in
+  `supabaseAdapter.test.ts` to `delivery_channels@cs` (Dev Notes scope call
+  #3); rewrote `mcp/validateSql.test.ts`'s 25 arbitrary-table fixtures from
+  `contacts`/`companies` to `shidduchim`/`shadchanim` (Task D8); updated
+  `AGENTS.md`'s directory tree, `<CRM>` prop list, "Adding Custom Fields"
+  section, and removed its now-false "Running with Test Data" section (the
+  referenced CSV and Import button are both gone). `crm.settings.deals` /
+  `crm.settings.companies` and the "in_use" validation string in both i18n
+  catalogs were removed/reworded because they are dead, zero-caller keys
+  (verified by grep) whose literal names/prose fail the AC-14 grep — not
+  independently decided to prune; `crm.settings.notes` and
+  `crm.settings.tasks` were left alone (dead but do not contain a forbidden
+  word, and are outside the story's explicit AC-12 list).
+- Some claims in the story did not need re-verification beyond what a normal
+  implementation pass already confirms (line numbers, counts) — all matched
+  the tree as stated; no story claim was found stale against `main` at
+  `36c0098`.
+
 ### File List
+
+**Schema (edited):** `supabase/schemas/01_tables.sql`, `02_functions.sql`,
+`03_views.sql`, `04_triggers.sql`, `05_policies.sql`, `06_grants.sql`;
+`supabase/seed.sql` (emptied); `supabase/tests/references_entity.sql`.
+
+**Migration (new):** `supabase/migrations/20260727091141_delete_fossil_resources.sql`.
+
+**Config:** `supabase/config.toml`, `supabase/config.e2e.toml` (removed
+`merge_contacts`/`delete_note_attachments` function entries); `tsconfig.app.json`
+(added `"node"` to `types`).
+
+**Deleted directories (119 files):** `src/components/atomic-crm/{contacts,companies,deals,notes,tags,activity}/`.
+
+**Deleted files (58):** 6 dashboard orphans (`DashboardActivityLog.tsx`,
+`DealsChart.tsx`, `HotContacts.tsx`, `DashboardStepper.tsx`, `TasksList.tsx`,
+`Welcome.tsx`); 17 `misc/` files (`useImportFromJson.ts`, `ImportPage.tsx`,
+`import-sample.json`, `ContactOption.tsx`, `Status.tsx`,
+`attachmentThumbnail.ts`, `unsupportedDomains.const.ts`, `CreateSheet.tsx`,
+`usePapaParse.tsx`, `isLinkedInUrl.ts`, `RelativeDate.tsx`,
+`ActiveFilterButton.tsx`, `AsideSection.tsx`, `InfinitePagination.tsx`,
+`ResponsiveFilters.tsx`, `fetchWithTimeout.ts`, `useAppBarHeight.ts`); 6
+`providers/commons/` files (`activity.ts`, `getCompanyAvatar.ts`,
+`getCompanyAvatar.test.ts`, `getContactAvatar.ts`, `getContactAvatar.test.ts`,
+`mergeContacts.ts`); 8 `providers/fakerest/dataGenerator/` files
+(`companies.ts`, `contacts.ts`, `contactNotes.ts`, `deals.ts`, `dealNotes.ts`,
+`tags.ts`, `tasks.ts`, `finalize.ts`); 4 `tasks/` files (`AddTask.tsx`,
+`TaskCreateSheet.tsx`, `TaskCreateSheet.test.tsx`,
+`TaskCreateSheet.stories.tsx`); `consts.ts`; 2 `test-data/` fixtures
+(`contacts.csv`, `import-sample-invalid-sale.json`); 3 e2e specs
+(`bulkContactTags.spec.ts`, `onboarding.spec.ts`, `userAddingATask.spec.ts`);
+9 edge-function files (`merge_contacts/index.ts`,
+`delete_note_attachments/index.ts`, `_shared/db.ts`,
+`postmark/{addNoteToContact.ts,addNoteToContact.test.ts,extractMailContactData.ts,extractMailContactData.test.ts,getNoteContent.ts,mailProvider.const.ts}`);
+2 `doc/` pages (`users/merging-contacts.mdx`, `users/import-data.mdx`).
+
+**Frontend (edited):** `src/App.tsx`, `types.ts`,
+`root/{CRM.tsx,ConfigurationContext.tsx,defaultConfiguration.ts}`,
+`layout/{TopBar.tsx,navItems.ts,navItems.test.ts}`, `login/SignupPage.tsx`,
+`settings/SettingsPage.tsx`, `misc/EditSheet.tsx`,
+`providers/supabase/dataProvider.ts`, `providers/fakerest/dataProvider.ts`,
+`providers/fakerest/dataGenerator/{index.ts,types.ts,shidduchim.ts}`,
+`providers/fakerest/internal/supabaseAdapter.test.ts`,
+`providers/commons/{englishCrmMessages.ts,frenchCrmMessages.ts,i18nProvider.test.ts}`,
+`reminders/{reminderEntity.ts,useReminders.ts}`,
+`references/{ReferenceMergeButton.tsx,ReferenceMergeCollision.tsx}`,
+`shidduchim/boardUtils.ts`,
+`tasks/{Task.tsx,TaskEditSheet.tsx,TaskFormContent.tsx,TasksIterator.tsx,TasksListByDueDate.tsx,TasksListFilter.tsx,TasksListFilter.test.tsx}`,
+`src/test/StoryWrapper.tsx`.
+
+**Elsewhere (edited):** `supabase/functions/mcp/{index.ts,taskListUi.ts,validateSql.test.ts}`,
+`supabase/functions/merge_references/index.ts`,
+`supabase/functions/postmark/index.ts`, `e2e/fixtures.ts`, `AGENTS.md`,
+`doc/astro.config.mjs`, `registry.json` (regenerated).

@@ -67,23 +67,27 @@ src/
 ├── components/
 │   ├── admin/              # Shadcn Admin Kit components (mutable dependency)
 │   ├── atomic-crm/         # Main CRM application code (~15,000 LOC)
-│   │   ├── activity/       # Activity logs
-│   │   ├── companies/      # Company management
-│   │   ├── contacts/       # Contact management (includes CSV import/export)
+│   │   ├── billing/        # Billing / AI entitlement page
+│   │   ├── children/       # Single (candidate) management
 │   │   ├── dashboard/      # Dashboard widgets
-│   │   ├── deals/          # Deal pipeline (Kanban)
 │   │   ├── filters/        # List filters
+│   │   ├── inbox/          # Capture inbox ("front door")
+│   │   ├── landing/        # Public landing page
 │   │   ├── layout/         # App layout components
 │   │   ├── login/          # Authentication pages
 │   │   ├── misc/           # Shared utilities
-│   │   ├── notes/          # Note management
+│   │   ├── portal/         # Read-only child portal (E7)
 │   │   ├── providers/      # Data providers (Supabase + FakeRest)
+│   │   ├── references/     # Reference book (calls, diligence)
+│   │   ├── reminders/      # Reminders hub (polymorphic tasks)
 │   │   ├── root/           # Root CRM component
 │   │   ├── sales/          # Sales team management
 │   │   ├── settings/       # Settings page
+│   │   ├── shadchanim/     # Matchmaker management
+│   │   ├── shidduchim/     # Shidduchim pipeline (Kanban)
 │   │   ├── simple-list/    # List components
-│   │   ├── tags/           # Tag management
-│   │   └── tasks/          # Task management
+│   │   ├── tasks/          # Task management
+│   │   └── tour/           # Onboarding walkthrough
 │   ├── supabase/           # Supabase-specific auth components
 │   └── ui/                 # Shadcn UI components (mutable dependency)
 ├── hooks/                  # Custom React hooks
@@ -109,10 +113,6 @@ The codebase includes mutable dependencies that should be modified directly if n
 #### Configuration via `<CRM>` Component
 
 The `src/App.tsx` file renders the `<CRM>` component, which accepts props for domain-specific configuration:
-- `contactGender`: Gender options
-- `companySectors`: Company industry sectors
-- `dealCategories`, `dealStages`, `dealPipelineStatuses`: Deal configuration
-- `noteStatuses`: Note status options with colors
 - `taskTypes`: Task type options
 - `logo`, `title`: Branding
 - `lightTheme`, `darkTheme`: Theme customization
@@ -120,7 +120,7 @@ The `src/App.tsx` file renders the `<CRM>` component, which accepts props for do
 
 #### Database Views
 
-Complex queries are handled via database views to simplify frontend code and reduce HTTP overhead. For example, `contacts_summary` provides aggregated contact data including task counts.
+Complex queries are handled via database views to simplify frontend code and reduce HTTP overhead. For example, `shidduchim_summary` provides aggregated pipeline data including reference and redt counts.
 
 #### Database Triggers
 
@@ -156,20 +156,13 @@ The project uses TypeScript path aliases configured in `tsconfig.json` and `comp
 
 ### Adding Custom Fields
 
-When modifying contact or company data structures:
+When modifying an entity's data structures (e.g. `shidduchim`, `references`):
 1. Edit the relevant schema file in `supabase/schemas/` (table in `01_tables.sql`, views in `03_views.sql`, etc.)
 2. Generate a migration: `npx supabase db diff --local -f <name>`
 3. Apply it: `npx supabase migration up --local`
-4. Update the sample CSV: `src/components/atomic-crm/contacts/contacts_export.csv`
-5. Update the import function: `src/components/atomic-crm/contacts/useContactImport.tsx`
-6. If using FakeRest, update data generators in `src/components/atomic-crm/providers/fakerest/dataGenerator/`
-7. Don't forget to update the related view (`contacts_summary`, `companies_summary`) in `03_views.sql`
-8. Don't forget the export functions
-9. Don't forget the contact merge logic
-
-### Running with Test Data
-
-Import `test-data/contacts.csv` via the Contacts page → Import button.
+4. If using FakeRest, update data generators in `src/components/atomic-crm/providers/fakerest/dataGenerator/`
+5. Don't forget to update the related summary view (e.g. `shidduchim_summary`, `references_summary`) in `03_views.sql`
+6. Don't forget the merge logic if the entity supports merging (e.g. `merge_references()`)
 
 ### Git Hooks
 

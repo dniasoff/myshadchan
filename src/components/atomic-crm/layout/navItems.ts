@@ -25,8 +25,8 @@ export interface NavItem {
 
 /**
  * The 6 foundation nav destinations, in display order. Deliberately excludes
- * the legacy CRM resources (Contacts, Companies, Deals, Tags) — this is a
- * shidduchim app, not a general CRM (foundation-plan §2).
+ * every generic CRM resource — this is a shidduchim app, not a general CRM
+ * (foundation-plan §2).
  */
 export const PRIMARY_NAV: NavItem[] = [
   {

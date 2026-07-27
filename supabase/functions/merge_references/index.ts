@@ -7,12 +7,12 @@ import { AuthMiddleware, UserMiddleware } from "../_shared/authentication.ts";
 /**
  * Merge two duplicate references.
  *
- * Unlike merge_contacts, the reassign-then-delete logic is NOT reimplemented
- * here: it lives in the merge_references() SQL function, which runs as one
- * transaction with the caller's RLS applied. That matters because a reference
- * merge has a failure mode contacts do not — both duplicates can hold a call log
- * for the SAME shidduch — and the resolution of that conflict has to be atomic
- * with the rest of the merge. This function is the transport: it authenticates,
+ * The reassign-then-delete logic is NOT implemented here: it lives in the
+ * merge_references() SQL function, which runs as one transaction with the
+ * caller's RLS applied. That matters because a reference merge has a
+ * collision case a simple reassign never hits — both duplicates can hold a
+ * call log for the SAME shidduch — and the resolution of that conflict has to
+ * be atomic with the rest of the merge. This function is the transport: it authenticates,
  * validates the payload, and forwards the user's own JWT so the database sees
  * the real caller.
  *
@@ -101,7 +101,9 @@ Deno.serve(async (req: Request) =>
         // isolation entirely.
         const client = createClient(
           Deno.env.get("SUPABASE_URL") ?? "",
-          Deno.env.get("SB_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+          Deno.env.get("SB_PUBLISHABLE_KEY") ??
+            Deno.env.get("SUPABASE_ANON_KEY") ??
+            "",
           {
             global: {
               headers: { Authorization: req.headers.get("Authorization")! },

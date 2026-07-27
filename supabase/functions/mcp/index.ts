@@ -275,7 +275,7 @@ function createMcpServer(authInfo: AuthInfo): McpServer {
     {
       title: "Get Database Schema",
       description:
-        "Retrieve the database schema for the user's Atomic CRM instance including all tables, views, columns, types, and foreign key relationships. Views (like contacts_summary, companies_summary) are read-only and provide pre-joined/aggregated data. Use them for search and list queries.",
+        "Retrieve the database schema for the user's MyShadchan instance including all tables, views, columns, types, and foreign key relationships. Views (like shidduchim_summary, references_summary) are read-only and provide pre-joined/aggregated data. Use them for search and list queries.",
       annotations: { readOnlyHint: true },
     },
     async () => {
@@ -293,25 +293,25 @@ function createMcpServer(authInfo: AuthInfo): McpServer {
 IMPORTANT: Before using this tool, you MUST call the get_schema tool first to understand what tables and columns are available in the database.
 
 Use this tool when the user asks about their CRM data such as:
-- Contacts, companies, and deals
-- Sales pipeline and forecasting data
-- Customer interactions and notes
+- Shidduchim (suggested matches), references, and shadchanim
+- The pipeline and where each suggestion stands
+- Reference calls and diligence notes
 - Tasks and follow-ups
 - Custom fields and metadata
 
 Row Level Security (RLS) is enforced - queries automatically return only data the authenticated user has permission to access.
 
-Use the *_summary views (contacts_summary, companies_summary) for queries that need aggregated data or search capabilities.
+Use the *_summary views (shidduchim_summary, references_summary) for queries that need aggregated data or search capabilities.
 
 To filter by the current user, if the table has a sales_id column, add a WHERE sales_id = auth.uid() clause to your query.
 
 This tool only supports SELECT queries. For INSERT, UPDATE, or DELETE operations, use the mutate tool.
 
 Examples:
-- "SELECT id, first_name, last_name, email_fts FROM contacts_summary WHERE email_fts LIKE '%@company.com%'"
-- "SELECT name, stage, amount FROM deals WHERE created_at > NOW() - INTERVAL '30 days' ORDER BY amount DESC"
+- "SELECT id, name_en, name_he FROM shidduchim_summary WHERE pipeline_state = 'look_into'"
+- "SELECT name_en, pipeline_state, redt_date FROM shidduchim WHERE created_at > NOW() - INTERVAL '30 days' ORDER BY redt_date DESC"
 - "SELECT COUNT(*) as total_tasks, type FROM tasks WHERE done_date IS NULL GROUP BY type"
-- "SELECT c.first_name, c.last_name, co.name as company_name FROM contacts c JOIN companies co ON c.company_id = co.id WHERE co.sector = 'Technology'"`,
+- "SELECT s.name_en, sh.name as shadchan_name FROM shidduchim s JOIN shadchanim sh ON s.shadchan_id = sh.id WHERE s.pipeline_state = 'yes'"`,
       inputSchema: z.object({
         sql: z.string().describe("The SQL SELECT query to execute"),
       }),
@@ -351,7 +351,7 @@ Examples:
 IMPORTANT: Before using this tool, you MUST call the get_schema tool first to understand what tables and columns are available in the database.
 
 Use this tool for data modifications such as:
-- Creating new contacts, companies, deals, tasks, or notes
+- Creating new shadchanim, references, or tasks
 - Updating existing records
 - Deleting records
 
@@ -362,8 +362,8 @@ IMPORTANT: Never specify sales_id in INSERT or UPDATE statements — it is autom
 For read-only queries, use the query tool instead.
 
 Examples:
-- "INSERT INTO contacts (first_name, last_name, email) VALUES ('John', 'Doe', 'john@example.com')"
-- "UPDATE deals SET stage = 'won-deal' WHERE id = 123"
+- "INSERT INTO shadchanim (name, location) VALUES ('Mrs. Feldman', 'Lakewood')"
+- "UPDATE shadchanim SET location = 'Passaic' WHERE id = 123"
 - "DELETE FROM tasks WHERE id = 456"`,
       inputSchema: z.object({
         sql: z
@@ -400,7 +400,7 @@ Examples:
   // --- UI resource for the task-list MCP App ---
 
   // Inject the CRM base URL into the task-list guest HTML
-  // so contact names can link back to the CRM
+  // so linked-entity labels can link back to the CRM
   const taskListHtml = TASK_LIST_HTML.replace(
     /__CRM_BASE_URL__/g,
     CRM_BASE_URL,
@@ -442,19 +442,24 @@ Examples:
       .nullable()
       .optional()
       .describe("ISO timestamp if already done; null or omitted for pending"),
-    contact_name: z
-      .string()
+    target_type: z
+      .enum(["shadchan", "shidduch", "reference"])
       .nullable()
       .optional()
-      .describe("Full name of the linked contact, if any"),
-    contact_id: z
+      .describe("Type of the linked entity, if any (AD-13 polymorphic target)"),
+    target_id: z
       .number()
       .int()
       .nullable()
       .optional()
       .describe(
-        "Id of the linked contact — used to render the contact name as a link to the CRM contact page",
+        "Id of the linked entity — used with target_type to render target_label as a link to the CRM",
       ),
+    target_label: z
+      .string()
+      .nullable()
+      .optional()
+      .describe("Display label of the linked entity, if any"),
   });
   type Task = z.infer<typeof taskSchema>;
 
@@ -464,9 +469,9 @@ Examples:
       title: "Display Task List",
       description: `Render an array of task rows as an interactive UI (MCP App) where the user can mark each task as done.
 
-This tool is presentational: it does not query the database. Fetch the rows yourself via the query tool (joining contacts for contact_name when useful), then pass them here. Prefer this over replying with a bulleted list of tasks.
+This tool is presentational: it does not query the database. Fetch the rows yourself via the query tool (joining shidduchim/references/shadchanim for target_label when useful), then pass them here. Prefer this over replying with a bulleted list of tasks.
 
-Each task should include at least: id (required, used for the mark-as-done action), text, type, due_date, done_date, and optionally contact_name + contact_id (the UI renders the name as a link to the CRM contact page when contact_id is provided).`,
+Each task should include at least: id (required, used for the mark-as-done action), text, type, due_date, done_date, and optionally target_type + target_id + target_label (the UI renders the label as a link to the CRM when target_type and target_id are provided).`,
       inputSchema: {
         tasks: z.array(taskSchema).describe("Array of task objects to render"),
       },

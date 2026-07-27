@@ -6,7 +6,7 @@ import type { MergeResolution, ReferenceMergeCollision } from "../types";
 import { CallStatusChip } from "./CallStatusChip";
 
 /**
- * Resolving the collision that has no contacts equivalent: both duplicates hold
+ * Resolving the collision unique to reference merges: both duplicates hold
  * a call log for the SAME shidduch.
  *
  * The merge cannot proceed until every one of these has an answer. Showing both

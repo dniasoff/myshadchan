@@ -8,18 +8,7 @@ const adminSupabase = createClient(
 );
 
 // Tables in FK-safe deletion order (children before parents)
-const TABLES = [
-  "tasks",
-  "contact_notes",
-  "deal_notes",
-  "deals",
-  "contacts",
-  "companies",
-  "tags",
-  "favicons_excluded_domains",
-  "configuration",
-  "sales",
-];
+const TABLES = ["tasks", "configuration", "sales"];
 
 async function resetDb() {
   for (const table of TABLES) {
@@ -90,116 +79,9 @@ async function createSales({
   return data;
 }
 
-async function createNotes({
-  contactId,
-  salesId,
-  notes,
-}: {
-  contactId: string | number;
-  salesId: string | number;
-  notes: {
-    text: string;
-    date?: string;
-    status?: "cold" | "warm" | "hot";
-  }[];
-}) {
-  if (notes.length === 0) return;
-
-  const { error } = await adminSupabase.from("contact_notes").insert(
-    notes.map(({ text, date, status = "cold" }) => ({
-      contact_id: contactId,
-      sales_id: salesId,
-      text,
-      date,
-      status,
-    })),
-  );
-
-  if (error) {
-    throw new Error(`Failed to create notes: ${error.message}`);
-  }
-}
-
-async function createCompany({
-  name,
-  salesId,
-}: {
-  name: string;
-  salesId: string | number;
-}) {
-  const { data, error } = await adminSupabase
-    .from("companies")
-    .insert({ name, sales_id: salesId })
-    .select("id")
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to create company: ${error.message}`);
-  }
-
-  return data;
-}
-
-async function createContact({
-  first_name,
-  last_name,
-  title = "",
-  company_id = null,
-  sales_id,
-  notes = [],
-}: {
-  first_name: string;
-  last_name: string;
-  title?: string;
-  company_id?: string | number | null;
-  sales_id: string | number;
-  notes?: {
-    text: string;
-    date?: string;
-    status?: "cold" | "warm" | "hot";
-  }[];
-}) {
-  const { data, error } = await adminSupabase
-    .from("contacts")
-    .insert({
-      first_name,
-      last_name,
-      title,
-      company_id,
-      sales_id,
-      first_seen: new Date().toISOString(),
-      last_seen: new Date().toISOString(),
-      has_newsletter: false,
-      tags: [],
-      gender: "unknown",
-      status: "cold",
-      background: "",
-      email_jsonb: [],
-      phone_jsonb: [],
-    })
-    .select("id")
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to create contact: ${error.message}`);
-  }
-
-  await createNotes({
-    contactId: data.id,
-    salesId: sales_id,
-    notes,
-  });
-
-  return data;
-}
-
 const getMenuMethod = ({ page }: { page: Page; isMobile: boolean }) => ({
   goToDashboard: async () => {
     await page.getByRole("link", { name: "Dashboard" }).click();
-    await page.waitForLoadState("networkidle");
-  },
-  goToContacts: async () => {
-    await page.getByRole("link", { name: "Contacts" }).click();
     await page.waitForLoadState("networkidle");
   },
 });
@@ -215,9 +97,6 @@ export const test = base.extend<{
   resetDb: void;
   createUser: typeof createUser;
   createSales: typeof createSales;
-  createCompany: typeof createCompany;
-  createContact: typeof createContact;
-  createNotes: typeof createNotes;
   menu: ReturnType<typeof getMenuMethod>;
   dismissToast: (content: string) => Promise<void>;
 }>({
@@ -238,18 +117,6 @@ export const test = base.extend<{
   // eslint-disable-next-line no-empty-pattern
   createSales: async ({}, cb) => {
     await cb(createSales);
-  },
-  // eslint-disable-next-line no-empty-pattern
-  createCompany: async ({}, cb) => {
-    await cb(createCompany);
-  },
-  // eslint-disable-next-line no-empty-pattern
-  createContact: async ({}, cb) => {
-    await cb(createContact);
-  },
-  // eslint-disable-next-line no-empty-pattern
-  createNotes: async ({}, cb) => {
-    await cb(createNotes);
   },
   menu: async ({ page, isMobile }, cb) => {
     await cb(getMenuMethod({ page, isMobile }));
