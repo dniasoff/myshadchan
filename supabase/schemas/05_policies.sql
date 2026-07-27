@@ -88,16 +88,45 @@ create policy "Account access scoped to member" on public.accounts
 -- above. A caller always sees their own membership rows (every context they
 -- belong to), plus other members' rows only inside the context they are
 -- currently active in.
-create policy "Account members scoped to account" on public.account_members
-    for all to authenticated
+--
+-- Command-scoped on purpose (post-review hardening, Story 2.1 finding #1):
+-- a single `for all` policy with this same `using`/`with check` predicate is
+-- a cross-tenant takeover. `grant insert, update, delete` (06_grants.sql)
+-- plus a permissive `with check (user_id = auth.uid() or ...)` lets ANY
+-- authenticated caller INSERT themselves an `active` membership row into ANY
+-- account id (the `user_id = auth.uid()` disjunct alone satisfies the
+-- check), then legitimately `set_active_context()` into it — read, write and
+-- even evict the legitimate owner. The widened, `user_id = auth.uid()`-or-
+-- `current_context_id()` predicate is only safe for SELECT: reading your own
+-- membership rows across every context you hold does not let you touch
+-- anyone else's data. INSERT/UPDATE/DELETE stay scoped to the caller's
+-- ACTIVE context ONLY, on both `using` and `with check`. Do NOT add a
+-- `for select` policy alongside a `for all` one to "restore" this shape —
+-- permissive policies OR together, so the wide `for all` predicate would
+-- still govern writes and the hole would survive. (A narrower, still-open
+-- gap: an insert scoped to `current_context_id()` alone still lets a
+-- `helper` self-promote to `parent_admin` inside their OWN tenant, since
+-- `role` is unconstrained here — pre-existing, not this policy's to close;
+-- flagged for Story 2.2/2.7.)
+create policy "Account members readable by owner or within active account" on public.account_members
+    for select to authenticated
     using (
         user_id = auth.uid()
         or account_id = public.current_context_id()
-    )
-    with check (
-        user_id = auth.uid()
-        or account_id = public.current_context_id()
     );
+
+create policy "Account members insertable within active account" on public.account_members
+    for insert to authenticated
+    with check (account_id = public.current_context_id());
+
+create policy "Account members updatable within active account" on public.account_members
+    for update to authenticated
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
+
+create policy "Account members deletable within active account" on public.account_members
+    for delete to authenticated
+    using (account_id = public.current_context_id());
 
 -- The active-context pointer (Story 2.1, AD-19). SELECT only — there is no
 -- insert/update/delete policy for authenticated at all, so the only way this

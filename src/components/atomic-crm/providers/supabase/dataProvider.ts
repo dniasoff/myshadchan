@@ -601,20 +601,21 @@ const applyFullTextSearch = (columns: string[]) => (params: GetListParams) => {
 const ATTACHMENT_URL_TTL_SECONDS = 60 * 60;
 
 /**
- * The caller's account id, used to namespace attachment object keys. `accounts` is
- * RLS-scoped to the caller, so this returns their own account and nothing else.
+ * The caller's ACTIVE account id, used to namespace attachment object keys so the
+ * `Attachments writable within account` storage policy (keyed on
+ * `current_context_id()`) accepts the upload. Since Story 2.1 (AC-7), `accounts` is
+ * RLS-scoped to every membership the caller holds — active or not — so a first-row
+ * pick off that table is an arbitrary context, not necessarily the active one.
+ * `current_context_id()` is the single source of truth for "which context", so this
+ * calls that RPC directly rather than reading `accounts`.
  */
 const getCurrentAccountId = async (): Promise<number> => {
-  const { data, error } = await getSupabaseClient()
-    .from("accounts")
-    .select("id")
-    .limit(1)
-    .maybeSingle();
+  const { data, error } = await getSupabaseClient().rpc("current_context_id");
 
-  if (error || !data) {
+  if (error || data == null) {
     throw new Error("Cannot resolve the account for this attachment upload");
   }
-  return data.id as number;
+  return data as number;
 };
 
 const uploadToBucket = async (fi: RAFile) => {

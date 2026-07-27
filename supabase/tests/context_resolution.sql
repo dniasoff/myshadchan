@@ -184,6 +184,40 @@ from public.account_members
 where account_id = :acct_c;
 
 -- ---------------------------------------------------------------------------
+-- Review finding #1 (BLOCKER, post-review hardening): account_members'
+-- INSERT/UPDATE stay scoped to the caller's ACTIVE context only. The
+-- `user_id = auth.uid()` disjunct that widens SELECT must NOT also widen
+-- writes — otherwise any authenticated caller could INSERT (or UPDATE their
+-- way into) a membership row in an account they do not belong to, then
+-- legitimately set_active_context() into it. u1 is still active in household
+-- A here; household C is a foreign account u1 holds no membership in at all.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  insert into public.account_members (account_id, user_id, role, status)
+  values ((select value from ids where name = 'acct_c'), 'c1c1c1c1-1111-1111-1111-111111111111', 'parent_admin', 'active');
+  insert into results values ('a caller cannot INSERT their own membership into a foreign (non-active) account', false, 'insert succeeded');
+exception when others then
+  insert into results values ('a caller cannot INSERT their own membership into a foreign (non-active) account', true, sqlerrm);
+end $$;
+
+do $$
+begin
+  update public.account_members set account_id = (select value from ids where name = 'acct_c')
+  where user_id = 'c1c1c1c1-1111-1111-1111-111111111111'
+    and account_id = (select value from ids where name = 'acct_a');
+  insert into results values ('a caller cannot UPDATE their own membership row''s account_id to a foreign account', false, 'update succeeded');
+exception when others then
+  insert into results values ('a caller cannot UPDATE their own membership row''s account_id to a foreign account', true, sqlerrm);
+end $$;
+
+insert into results (name, passed)
+select 'the exploit never planted a membership row in the foreign account',
+       count(*) = 0
+from public.account_members
+where account_id = :acct_c and user_id = 'c1c1c1c1-1111-1111-1111-111111111111';
+
+-- ---------------------------------------------------------------------------
 -- AC-4/AC-11: switch to household B via the validated function.
 -- ---------------------------------------------------------------------------
 select public.set_active_context(:acct_b);

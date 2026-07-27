@@ -434,9 +434,10 @@ end $$;
 
 -- ---------------------------------------------------------------------------
 -- Fail-closed membership: a user with no account_members row is nobody.
--- Previously current_context_id() fell back to the first account, so an
--- unprovisioned user silently became a member of account #1 and could read its
--- candid call logs.
+-- Previously the fork's first-row resolver (the `order by am.id limit 1`
+-- function Story 2.1 deleted in favor of current_context_id()) fell back to
+-- the first account, so an unprovisioned user silently became a member of
+-- account #1 and could read its candid call logs.
 -- ---------------------------------------------------------------------------
 set local request.jwt.claims = '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}';
 

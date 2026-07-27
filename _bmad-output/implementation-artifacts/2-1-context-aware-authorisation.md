@@ -804,6 +804,201 @@ Claude Opus 5 (claude-code, bmad-dev-story workflow)
   confirmed by prettier itself refusing to infer a parser for them, so they
   were not run through it.
 
+### Review Fixes (adversarial review response, `NEEDS-FIX` verdict)
+
+Fixed the blocker and the two should-fix findings that are safely fixable inside this
+story's scope; left one should-fix half-fixed with an explicit, evidence-backed
+deferral; left both `note`-level findings as documented below (they name their own
+correct owner and neither is this story's to absorb).
+
+1. **Finding 1 (BLOCKER) — `account_members`'s `for all` policy let a caller
+   self-service a cross-tenant takeover.** Confirmed live, exactly as reported: with
+   the shipped `using`/`with check (user_id = auth.uid() or account_id =
+   current_context_id())` on a single `for all` policy, `grant insert, update, delete
+   … to authenticated` (`06_grants.sql:424`) meant any authenticated caller could
+   `insert` themselves an `active` row into **any** `account_id` (the `user_id =
+   auth.uid()` disjunct alone satisfies the check) and then legitimately
+   `set_active_context()` into it — read, write and even evict the real owner.
+   Replaced the single policy with four command-scoped ones on
+   `public.account_members` (`05_policies.sql`): `for select` keeps the wide
+   `user_id = auth.uid() or account_id = current_context_id()` predicate (reads are
+   safe to widen — AC-7's own reasoning), while `for insert`, `for update` and
+   `for delete` each drop the `user_id = auth.uid()` disjunct entirely and scope to
+   `account_id = current_context_id()` alone, on **both** `using` and `with check`
+   where applicable. Did **not** add a bare `for select` policy alongside the old
+   `for all` one — permissive policies OR together, so that shape would have left
+   the wide predicate still governing writes and the hole would have survived; the
+   `for all` policy is deleted outright. This is a deliberate departure from AC-7's
+   literal SQL (which specified one `for all` policy) — the departure is the fix the
+   review demanded, and AC-7's *behavioural* intent (own rows always visible; a
+   context switcher can read a non-active membership) is unchanged, since SELECT
+   still carries the wide predicate. `account_members`'s `current_context_id()`
+   occurrence count in AC-6's table changes from 2 to 5 (1 in SELECT's `using`, 1
+   each in INSERT's `with check` and DELETE's `using`, 2 in UPDATE's `using` +
+   `with check`) as a direct consequence.
+   Generated and hand-checked a new migration
+   (`supabase/migrations/20260727231007_account_members_write_scope.sql`, `db diff`
+   output was a clean drop-of-the-old-policy + create-of-the-four-new-ones, nothing
+   to hand-correct) and applied it locally. **Re-verified the exact exploit from the
+   finding no longer works**, live against the local stack in a rolled-back
+   transaction: `insert into account_members (account_id, user_id, role, status)
+   values (<victim_account>, <attacker_uid>, 'parent_admin', 'active')` as the
+   attacker now fails with `new row violates row-level security policy for table
+   "account_members"` (previously: `INSERT SUCCEEDED`). `db diff -f verify_no_diff`
+   → "No schema changes found" after applying. Added the two write-side negative
+   tests Finding 2 asks for directly into this exploit's shape (see Finding 2).
+   **Not closed, flagged as pre-existing per the finding's own note:** an
+   `insert`/`update` scoped to `account_id = current_context_id()` alone still lets
+   a `helper` self-promote to `parent_admin` **inside their own tenant**, since
+   `role` carries no check beyond the enum and `status` has no check constraint at
+   all — this is Story 2.2's/2.7's to close, not introduced or widened by this fix.
+
+2. **Finding 2 (should-fix) — no write-side negative test on `account_members`.**
+   Added two new checks to `supabase/tests/context_resolution.sql` (while
+   impersonating u1, active context = household A): an `insert` attempting to plant
+   u1's own membership into household C (an account u1 holds no membership in at
+   all) is refused; an `update` attempting to move u1's own household-A membership
+   row's `account_id` to household C is refused; a third check confirms neither
+   exploit left a row behind. All three ran red against the pre-fix policy shape and
+   green after Finding 1's fix (verified by running the suite before and after via
+   `psql -f supabase/tests/context_resolution.sql` directly, not just through
+   vitest). One placement note: the two negative-test `do $$ … exception` blocks
+   originally used `:acct_a` (a psql `\gset` variable) directly inside the dollar-quoted
+   body for the UPDATE's `where` clause — this file's own Testing Standards note
+   ("psql does not interpolate `:variables` inside dollar quotes") caught it
+   immediately as a hard `psql` syntax error; fixed by routing through the `ids` temp
+   table like every other cross-boundary value in this file already does.
+   `npm run test:unit:db`: 186/186 (was 183 — 2 new checks + 1 new
+   `context_resolution.test.ts` "runs a non-trivial number of checks" delta).
+
+3. **Finding 3 (should-fix) — AC-7's widening breaks `getCurrentAccountId()`; report
+   mischaracterisation.** Confirmed the finding's core technical claim and fixed the
+   part that is safely fixable inside this story: `getCurrentAccountId()`
+   (`providers/supabase/dataProvider.ts`) now resolves the account id via
+   `getSupabaseClient().rpc("current_context_id")` — the same RPC every RLS policy
+   already trusts — instead of `.from("accounts").select("id").limit(1).maybeSingle()`,
+   whose "returns their own account and nothing else" doc comment stopped being true
+   the moment AC-7 made `accounts` return every membership. This is the single
+   consumer of `getCurrentAccountId()` (`uploadToBucket`, namespacing every
+   resume/photo attachment key), it is Supabase-only (FakeRest has no upload path to
+   mirror), and the RPC is already granted to `authenticated` by this same story, so
+   the fix needed no new provider surface, no FakeRest change, and no test file
+   previously referenced the old implementation. `make typecheck` / `npm run lint` /
+   `make test` all still pass.
+   **Correcting the report's own claim, per the finding:** this is a **regression
+   this story introduced**, not "a pre-existing first-row-pick pattern independent
+   of the deleted SQL function" — before AC-7, `accounts` was `id =
+   current_account_id()`-scoped to exactly one row, so `.limit(1)` was safe by
+   construction; AC-7 is what turned it into an arbitrary pick. Retracting that
+   sentence from this story's own Completion Notes above (left in place, struck by
+   this correction, not edited in place, so the review trail stays intact).
+   **Not fixed here, deliberately: `src/components/atomic-crm/login/FirstRunSetup.tsx`**
+   has the identical `useGetList("accounts", {pagination:{perPage:1}, sort:{field:"id",
+   order:"ASC"}})` shape and would rename the wrong account for a caller who already
+   holds a second, non-active membership with no singles in the active one. Fixing it
+   properly needs a client-side notion of "the active context" backed by a real
+   resource read (`member_state` or an equivalent RPC), which does not exist in
+   `src/` yet by this story's own design (Project Structure Notes: "no new frontend
+   surface in this story… the frontend consumers of `current_context_id()` /
+   `set_active_context()` arrive in 2.2 and 2.4") and would additionally need a
+   FakeRest mirror to keep `CrmDataProvider` structurally typed — genuine scope
+   growth for a review-fix pass, not a same-file patch. **Story 2.2's own contract**
+   (`_bmad-output/implementation-artifacts/2-2-persona-and-context-data-model.md:380-391`,
+   written after this story, with fuller context) already resolved the "2.2 vs 2.4"
+   ownership conflict the finding flagged: it explicitly instructs "Report, do not
+   fix" for this exact finding and assigns it to **Story 2.4** (the context-switcher
+   story — "which owns the client-side notion of 'the active context'"). This
+   story's Completion Notes above (which named 2.2) are superseded by that; **the
+   single, consistent owner is Story 2.4** for the `FirstRunSetup.tsx` half of this
+   finding. Today this is latent, not live: no invite mechanism exists yet
+   (2.7/2.8), so a real user cannot currently reach onboarding while already holding
+   a second membership — but it is a real bug the moment 2.7 ships, not a
+   hypothetical.
+
+4. **Finding 4 (should-fix) — AC-13's `pg_default_acl` verification overstates
+   coverage and what a functions default-privilege revoke buys.** Reproduced both
+   halves live. (a) `select defaclrole::regrole, defaclnamespace::regnamespace,
+   defaclacl from pg_default_acl where defaclnamespace::regnamespace::text =
+   'public'` still shows 3 `anon` entries owned by `defaclrole = supabase_admin`
+   (sequences, tables, functions) — Supabase's own platform bootstrap, not anything
+   this repo's migrations created. Confirmed this is genuinely out of this story's
+   (or any migration's) reach, not merely undone: `postgres` — the role every
+   migration in this repo runs as — is **not** a superuser locally (`select rolname,
+   rolsuper from pg_roles` → `postgres | f`, `supabase_admin | t`), and attempting
+   `alter default privileges for role supabase_admin in schema public revoke all on
+   functions from anon;` as `postgres` fails outright with `ERROR:  permission
+   denied to change default privileges`. AC-13's verification query, as literally
+   written, can never return zero `anon` rows on this or any Supabase project — it
+   was checking a condition this repo's tooling cannot control. Correcting the
+   assertion: AC-13's `pg_default_acl` check is scoped to `defaclrole = 'postgres'`
+   (the only role this repo's own migrations author), where it now genuinely holds
+   zero `anon` entries — verified. (b) Reproduced the functions-specific gap too:
+   created a throwaway function as `postgres` with no explicit grants
+   (`create function public.zz_probe_fn() returns int language sql as $$ select 1
+   $$`, rolled back) and confirmed `has_function_privilege('anon', ...,
+   'execute')` returns `true` even with today's `revoke all on functions from anon`
+   default-privilege statement already in place — because PostgreSQL grants EXECUTE
+   to the `PUBLIC` pseudo-role implicitly at function-creation time, a completely
+   separate mechanism from any default-privilege entry naming `anon` by name; only
+   an explicit per-function `revoke … from public` (which this story's own four new
+   functions already carry — verified live, `anon can execute current_context_id`
+   → `false`) closes that path. `06_grants.sql`'s "AD-1's anon revocation… this
+   closes it" framing and AC-13's "every object this epic creates… is silently
+   auto-granted ALL to anon at creation" claim both hold for **tables and
+   sequences** (which start with zero implicit PUBLIC privilege in Postgres) but
+   overstate the **functions** case, where the default-privilege revoke is
+   necessary-but-not-sufficient and the real backstop is the per-function revoke.
+   Nothing is exposed today (every function this epic has created so far does carry
+   its own revoke), so no schema/grants change was made — this is a documentation
+   correction plus a scoped verification query, not a functional fix, matching the
+   finding's own "substantively… mostly met" conclusion. Flagging for the epic
+   owner: any future function added without its own `revoke execute … from public`
+   is silently anon-reachable regardless of the default-privilege statements in
+   `06_grants.sql`.
+
+5. **Finding 5 (note) — three edge functions still resolve tenancy via a deleted
+   first-row pick.** **Not fixed — the finding itself says no story owns it and it
+   is out of AC-2's literal scope.** Confirmed the three files
+   (`_shared/resolveDemoAccount.ts`, `functions/users/index.ts`,
+   `functions/postmark/createInboxItemFromEmail.ts`) still do
+   `.eq("status","active").order("id").limit(1)` on the service-role client, which
+   this story's AC-9/AC-10 never claimed to touch (both are scoped to `public`-schema
+   SQL function bodies and prose renames, not edge-function *logic*). Fixing three
+   edge functions' tenancy-resolution logic is a materially different, riskier
+   change than a review-fix pass over this story's own diff — flagged for the epic
+   owner to assign, as the finding itself asks.
+
+6. **Finding 6 (note) — `activate_first_context_trigger` is INSERT-only.** **Not
+   fixed — latent, not live.** Confirmed no code path today inserts a non-`active`
+   `account_members` row and later flips it to `active` via `UPDATE`
+   (`handle_new_user()` and `functions/users/index.ts` both insert `'active'`
+   directly), so `current_context_id()` cannot actually return NULL for an
+   otherwise-provisioned user on the current tree. This is real technical debt for
+   Story 2.7's invite flow (which the finding correctly predicts will hit it) but
+   there is nothing to reproduce or regression-test against on this tree today, and
+   changing trigger semantics speculatively ahead of the feature that would exercise
+   the new branch risks introducing an untested path. Left for 2.7 to pick up
+   alongside its invite-status state machine.
+
+7. **Finding 7 (note) — a renamed comment in `references_entity.sql:437` inverted
+   history.** Fixed (one line, zero risk). The comment said "Previously
+   `current_context_id()` fell back to the first account" — backwards: the function
+   that fell back was the one this story deleted (`current_account_id()`),
+   `current_context_id()` is its fail-closed replacement and never had that
+   behavior. Reworded to describe the deleted resolver structurally ("the fork's
+   first-row resolver… Story 2.1 deleted in favor of `current_context_id()`") rather
+   than spelling out the literal string `current_account_id`, so AC-10's own grep
+   invariant (zero hits outside `context_resolution.sql`'s sanctioned
+   `to_regproc` assertion) stays intact — verified: the repo-wide grep is unchanged
+   at exactly the 3 sanctioned hits, all in `context_resolution.sql`.
+
+**Full gate re-run after all fixes:** `npx supabase db diff --local` → "No schema
+changes found"; `make typecheck` 0 errors; `npm run lint` 0/0; `make test` 577/577 (was
+573 — the account_members write-scope tests plus a small ambient drift, all in the
+`db` project); `npm run test:unit:db` 186/186, 5 suites (was 183/5); manual exploit
+replay against the local stack (rolled back) confirms the takeover from Finding 1 no
+longer works.
+
 ### File List
 
 - `supabase/schemas/01_tables.sql` — added `member_state` table + its 2 FK
@@ -818,7 +1013,10 @@ Claude Opus 5 (claude-code, bmad-dev-story workflow)
 - `supabase/schemas/05_policies.sql` — enabled RLS + added the SELECT-only
   policy on `member_state`; migrated all 17 `public`-schema policies (15
   literal token swaps + `accounts`/`account_members`'s AC-7 corrected
-  shapes); reworded the `:30`/`:33` prose comments (AC-10).
+  shapes); reworded the `:30`/`:33` prose comments (AC-10). **(review fix,
+  Finding 1)** replaced `account_members`'s single `for all` policy with four
+  command-scoped policies (`select`/`insert`/`update`/`delete`) so the
+  `user_id = auth.uid()` disjunct only ever widens reads, never writes.
 - `supabase/schemas/06_grants.sql` — replaced the 3 anon default-privilege
   grants with revokes (AC-13); added `member_state`'s table grants; deleted
   `current_account_id()`'s grant block and added grants for the 4 new
@@ -834,10 +1032,23 @@ Claude Opus 5 (claude-code, bmad-dev-story workflow)
 - `supabase/tests/billing_entitlement.sql`,
   `supabase/tests/references_entity.sql` — renamed the 7 existing
   `current_account_id()` references to `current_context_id()` (AC-10); no
-  other change.
+  other change. **(review fix, Finding 7)** `references_entity.sql:437`'s
+  comment reworded — it named the wrong (context-aware) resolver as the one
+  that used to fall back to account #1; it was the deleted one.
 - `supabase/tests/context_resolution.sql` (new),
   `supabase/tests/context_resolution.test.ts` (new) — Task 8's new suite
-  (AC-3, AC-6, AC-7, AC-11).
+  (AC-3, AC-6, AC-7, AC-11). **(review fix, Finding 2)** added two write-side
+  negative tests: a caller cannot INSERT their own membership into a foreign
+  account, nor UPDATE their own row's `account_id` into one.
 - `supabase/migrations/20260727223658_context_aware_authorisation.sql` (new,
   generated by `db diff` then hand-corrected per Debug Log) — the applied
   migration.
+- `supabase/migrations/20260727231007_account_members_write_scope.sql` (new,
+  review fix) — **(review fix, Finding 1)** generated by `db diff` after
+  splitting `account_members`'s policy; clean drop-old/create-four-new, no
+  hand-correction needed; applied locally, `db diff` confirms no drift.
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts` — **(review
+  fix, Finding 3)** `getCurrentAccountId()` now resolves via the
+  `current_context_id()` RPC instead of an arbitrary `accounts` first-row
+  pick, fixing attachment uploads for any caller holding more than one
+  membership.
