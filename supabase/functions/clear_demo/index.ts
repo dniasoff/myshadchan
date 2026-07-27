@@ -19,7 +19,7 @@ import {
  *  1. accountId is resolved from the caller's own active account_members
  *     row via supabaseAdmin — never from the request body.
  *  2. Every delete runs on the USER-scoped client `db`, so RLS confines each
- *     statement to current_account_id() regardless of the WHERE clause.
+ *     statement to current_context_id() regardless of the WHERE clause.
  *  3. Every delete also carries an explicit `.eq('account_id', accountId)`
  *     filter (belt + braces) — there is no unfiltered/blanket delete here.
  *

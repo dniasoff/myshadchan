@@ -69,7 +69,7 @@ async function updateMemberAvatar(user_id: string, avatar: string) {
 /**
  * Binds an invited user to the inviter's account.
  *
- * current_account_id() fails closed, so a user with no account_members row can
+ * current_context_id() fails closed, so a user with no account_members row can
  * log in and then find a completely empty, unwritable app. Creating the auth
  * user is therefore only half of an invite — this is the other half.
  *

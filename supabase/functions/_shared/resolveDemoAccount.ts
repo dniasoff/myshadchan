@@ -24,7 +24,7 @@ export async function resolveAccountId(userId: string): Promise<number | null> {
 
 /**
  * A client scoped to the caller's own JWT, so RLS (not application code)
- * confines every query it makes to current_account_id().
+ * confines every query it makes to current_context_id().
  */
 export function userScopedClient(req: Request): SupabaseClient {
   return createClient(

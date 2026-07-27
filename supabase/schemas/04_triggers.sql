@@ -17,6 +17,15 @@ create or replace trigger on_auth_user_updated
     after update on auth.users
     for each row execute function public.handle_update_user();
 
+-- Auto-activates a user's first live context (AC-5, AD-19). Fires only when
+-- the inserted membership is itself active; activate_first_context() does
+-- the rest of the "already has a working active context" check itself.
+create or replace trigger activate_first_context_trigger
+    after insert on public.account_members
+    for each row
+    when (new.status = 'active')
+    execute function public.activate_first_context();
+
 -- Shidduchim: enforce the transition graph on every pipeline_state change
 -- (AD-4 invariant 2) so no raw UPDATE can bypass transition_shidduch().
 create or replace trigger enforce_shidduch_transition

@@ -15,8 +15,8 @@ create policy "Enable read access for authenticated users" on public.members for
 -- set_account_id_default() populates account_id on every insert.
 create policy "Tasks scoped to account" on public.tasks
     for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
 
 -- Configuration (admin-only for writes)
 create policy "Enable read for authenticated" on public.configuration for select to authenticated using (true);
@@ -27,15 +27,16 @@ create policy "Enable update for admins" on public.configuration for update to a
 -- =====================================================================
 -- MyShadchan — Shidduchim pipeline RLS (AD-1)
 -- =====================================================================
--- Every domain row is account-scoped via current_account_id(). Access is
--- authenticated-only and deny-by-default for anon (no anon policy, and no
--- anon grants — see 06_grants.sql). This is strictly stronger than the
--- fork's using(true). Full FORCE RLS + multi-account current_account_ids()
--- + CI RLS assertions are Epic-1 (deferred); the shape here lets that land
--- WITHOUT a schema change.
+-- Every domain row is account-scoped via current_context_id(), which reads
+-- the caller's explicit, server-held active context (member_state, AD-19)
+-- rather than an arbitrary membership. Access is authenticated-only and
+-- deny-by-default for anon (no anon policy, and no anon grants — see
+-- 06_grants.sql). Full FORCE RLS + CI RLS assertions remain a flagged gap
+-- with no assigned story (see Story 2.1's Dev Notes).
 
 alter table public.accounts enable row level security;
 alter table public.account_members enable row level security;
+alter table public.member_state enable row level security;
 alter table public.singles enable row level security;
 alter table public.shadchanim enable row level security;
 alter table public."references" enable row level security;
@@ -47,63 +48,110 @@ alter table public.redts enable row level security;
 alter table public.shidduch_schools enable row level security;
 alter table public.pipeline_transitions enable row level security;
 
--- Accounts: a member sees only their own account.
+-- Accounts: a member sees every account they hold ANY membership in
+-- (active or not) — a strict superset of "the currently active one", never
+-- a subset. This is AC-7's corrected shape: a literal
+-- `id = current_context_id()` swap would make a user's own non-active
+-- context invisible to them, breaking Story 2.4's context switcher (it must
+-- read the name/kind of a context that is not currently active, to render
+-- it as a switch target) before that story is even built. No `user_id`
+-- column exists on `accounts` itself, so the check is a membership lookup
+-- rather than a direct comparison. Reading account_members from inside this
+-- policy is safe only because account_members's own policy never reads
+-- accounts back — see Story 2.1's Dev Notes on the recursion risk before
+-- changing either.
 create policy "Account access scoped to member" on public.accounts
     for all to authenticated
-    using (id = public.current_account_id())
-    with check (id = public.current_account_id());
+    using (
+        exists (
+            select 1 from public.account_members am
+            where am.account_id = accounts.id
+              and am.user_id = auth.uid()
+              and am.status = 'active'
+        )
+    )
+    with check (
+        exists (
+            select 1 from public.account_members am
+            where am.account_id = accounts.id
+              and am.user_id = auth.uid()
+              and am.status = 'active'
+        )
+    );
 
--- Account members: scoped to the caller's account. NOTE the reserved
--- `shadchan` role is granted nothing beyond this baseline in v1 (AD-2).
+-- Account members: scoped to the caller's account, PLUS always the caller's
+-- own membership rows regardless of which context is active. NOTE the
+-- reserved `shadchan` role is granted nothing beyond this baseline in v1
+-- (AD-2). AC-7's corrected shape: a literal `account_id = current_context_id()`
+-- swap would hide a caller's own membership row in a context they are not
+-- currently active in — the same context-switcher regression as `accounts`
+-- above. A caller always sees their own membership rows (every context they
+-- belong to), plus other members' rows only inside the context they are
+-- currently active in.
 create policy "Account members scoped to account" on public.account_members
     for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
+    using (
+        user_id = auth.uid()
+        or account_id = public.current_context_id()
+    )
+    with check (
+        user_id = auth.uid()
+        or account_id = public.current_context_id()
+    );
+
+-- The active-context pointer (Story 2.1, AD-19). SELECT only — there is no
+-- insert/update/delete policy for authenticated at all, so the only way this
+-- table changes is through set_active_context() / activate_context_for(),
+-- both SECURITY DEFINER and both bypassing RLS internally. That absence IS
+-- the enforcement.
+create policy "Member state readable by owner" on public.member_state
+    for select to authenticated
+    using (user_id = auth.uid());
 
 create policy "Singles scoped to account" on public.singles
     for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
 
 create policy "Shadchanim scoped to account" on public.shadchanim
     for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
 
 create policy "References scoped to account" on public."references"
     for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
 
 create policy "Shidduchim scoped to account" on public.shidduchim
     for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
 
 create policy "Resumes scoped to account" on public.resumes
     for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
 
 create policy "Reference links scoped to account" on public.reference_links
     for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
 
 create policy "Date records scoped to account" on public.date_records
     for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
 
 create policy "Redts scoped to account" on public.redts
     for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
 
 create policy "Shidduch schools scoped to account" on public.shidduch_schools
     for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
 
 -- Pipeline transitions are static, non-tenant reference data (the legal
 -- state graph). Read-only for authenticated users; seeded by migration.
@@ -139,7 +187,7 @@ alter table public.identity_signals enable row level security;
 create policy "Interactions scoped to account and parent visibility" on public.interactions
     for all to authenticated
     using (
-        account_id = public.current_account_id()
+        account_id = public.current_context_id()
         and (
             scope = 'account'
             or (
@@ -149,8 +197,8 @@ create policy "Interactions scoped to account and parent visibility" on public.i
                     from public.reference_links rl
                         join public.shidduchim s on s.id = rl.shidduchim_id
                     where rl.id = interactions.reference_link_id
-                      and rl.account_id = public.current_account_id()
-                      and s.account_id = public.current_account_id()
+                      and rl.account_id = public.current_context_id()
+                      and s.account_id = public.current_context_id()
                 )
             )
             or (
@@ -159,13 +207,13 @@ create policy "Interactions scoped to account and parent visibility" on public.i
                     select 1
                     from public.shidduchim s
                     where s.id = interactions.target_id
-                      and s.account_id = public.current_account_id()
+                      and s.account_id = public.current_context_id()
                 )
             )
         )
     )
     with check (
-        account_id = public.current_account_id()
+        account_id = public.current_context_id()
         and (
             scope = 'account'
             or (
@@ -175,8 +223,8 @@ create policy "Interactions scoped to account and parent visibility" on public.i
                     from public.reference_links rl
                         join public.shidduchim s on s.id = rl.shidduchim_id
                     where rl.id = interactions.reference_link_id
-                      and rl.account_id = public.current_account_id()
-                      and s.account_id = public.current_account_id()
+                      and rl.account_id = public.current_context_id()
+                      and s.account_id = public.current_context_id()
                 )
             )
             or (
@@ -185,7 +233,7 @@ create policy "Interactions scoped to account and parent visibility" on public.i
                     select 1
                     from public.shidduchim s
                     where s.id = interactions.target_id
-                      and s.account_id = public.current_account_id()
+                      and s.account_id = public.current_context_id()
                 )
             )
         )
@@ -197,7 +245,7 @@ create policy "Interactions scoped to account and parent visibility" on public.i
 -- account-scoped (PRV-2: identity is never pooled across accounts).
 create policy "Identity signals readable within account" on public.identity_signals
     for select to authenticated
-    using (account_id = public.current_account_id());
+    using (account_id = public.current_context_id());
 
 -- Billing (E4). subscription and ai_usage are SELECT-only for the account
 -- owner — a member may read their own entitlement and usage meter, nothing
@@ -212,11 +260,11 @@ alter table public.ai_usage enable row level security;
 
 create policy "Subscription readable within account" on public.subscription
     for select to authenticated
-    using (account_id = public.current_account_id());
+    using (account_id = public.current_context_id());
 
 create policy "AI usage readable within account" on public.ai_usage
     for select to authenticated
-    using (account_id = public.current_account_id());
+    using (account_id = public.current_context_id());
 
 -- Inbox items (Epic 2): full CRUD within the caller's account. Insert/update
 -- are with-check-scoped so a client can capture (share/upload) and resolve its
@@ -226,5 +274,5 @@ alter table public.inbox_items enable row level security;
 
 create policy "Inbox items scoped to account" on public.inbox_items
     for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());

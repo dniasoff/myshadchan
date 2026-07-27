@@ -61,18 +61,27 @@ grant all on sequence public.tasks_id_seq to authenticated;
 grant all on sequence public.tasks_id_seq to service_role;
 
 -- Default privileges
+--
+-- AD-1's anon revocation (Epic 2, Story 2.1): the fork's default privileges
+-- used to auto-grant `anon` ALL on every new sequence/function/table. These
+-- three lines withdraw that from the live database (an `alter default privileges`
+-- edits pg_default_acl only, so it affects objects created AFTER it runs —
+-- it is NOT retroactive; every pre-existing object still needs its own
+-- per-object `revoke ... from anon`, which this file already does for the
+-- shidduchim domain below). Story 1.1 Task A6 deferred exactly this to
+-- Epic 2 by name; this closes it.
 alter default privileges for role postgres in schema public grant all on sequences to postgres;
-alter default privileges for role postgres in schema public grant all on sequences to anon;
+alter default privileges for role postgres in schema public revoke all on sequences from anon;
 alter default privileges for role postgres in schema public grant all on sequences to authenticated;
 alter default privileges for role postgres in schema public grant all on sequences to service_role;
 
 alter default privileges for role postgres in schema public grant all on functions to postgres;
-alter default privileges for role postgres in schema public grant all on functions to anon;
+alter default privileges for role postgres in schema public revoke all on functions from anon;
 alter default privileges for role postgres in schema public grant all on functions to authenticated;
 alter default privileges for role postgres in schema public grant all on functions to service_role;
 
 alter default privileges for role postgres in schema public grant all on tables to postgres;
-alter default privileges for role postgres in schema public grant all on tables to anon;
+alter default privileges for role postgres in schema public revoke all on tables from anon;
 alter default privileges for role postgres in schema public grant all on tables to authenticated;
 alter default privileges for role postgres in schema public grant all on tables to service_role;
 
@@ -80,11 +89,13 @@ alter default privileges for role postgres in schema public grant all on tables 
 -- =====================================================================
 -- MyShadchan — Shidduchim pipeline grants (AD-1, F6)
 -- =====================================================================
--- The fork's default privileges above auto-grant ALL on every new table to
--- `anon`. Each shidduchim-domain object is therefore EXPLICITLY revoked from
--- anon and granted only to authenticated + service_role. (Full revocation of
--- the anon default-privilege itself is Epic-1 / F6 and deferred; this build
--- must not silently inherit anon on its own tables.)
+-- The fork's default privileges used to auto-grant ALL on every new table to
+-- `anon`; that default privilege itself is now revoked above (AD-1 / F6,
+-- Story 2.1). Each shidduchim-domain object below is ALSO explicitly revoked
+-- from anon and granted only to authenticated + service_role, as
+-- defense-in-depth: the default-privilege revoke only affects objects
+-- created after it runs, so every pre-existing object still needs its own
+-- explicit revoke.
 
 -- Table grants
 revoke all on table public.accounts from anon;
@@ -94,6 +105,14 @@ grant all on table public.accounts to service_role;
 revoke all on table public.account_members from anon;
 grant all on table public.account_members to authenticated;
 grant all on table public.account_members to service_role;
+
+-- member_state (Story 2.1, AD-19): SELECT-only for authenticated, like
+-- identity_signals below. The only write path is set_active_context() /
+-- activate_context_for(), both SECURITY DEFINER; a client has no grant to
+-- write this table directly even if RLS did not already refuse it.
+revoke all on table public.member_state from anon, authenticated;
+grant select on table public.member_state to authenticated;
+grant all on table public.member_state to service_role;
 
 revoke all on table public.singles from anon;
 grant all on table public.singles to authenticated;
@@ -193,10 +212,30 @@ grant all on sequence public.shidduch_schools_id_seq to authenticated;
 grant all on sequence public.shidduch_schools_id_seq to service_role;
 
 -- Function grants (execute for authenticated + service_role, never anon).
--- current_account_id() is SECURITY DEFINER, so anon must never execute it.
-revoke all on function public.current_account_id() from public, anon;
-grant execute on function public.current_account_id() to authenticated;
-grant execute on function public.current_account_id() to service_role;
+-- current_context_id() is SECURITY DEFINER, so anon must never execute it.
+revoke all on function public.current_context_id() from public, anon;
+grant execute on function public.current_context_id() to authenticated;
+grant execute on function public.current_context_id() to service_role;
+
+-- set_active_context() is SECURITY DEFINER and is the only validated way a
+-- client switches its active context (AD-19); anon must never execute it.
+revoke all on function public.set_active_context(bigint) from public, anon;
+grant execute on function public.set_active_context(bigint) to authenticated;
+grant execute on function public.set_active_context(bigint) to service_role;
+
+-- activate_context_for() is the private member_state writer shared by
+-- set_active_context() and the activate_first_context trigger. It does no
+-- membership validation of its own, so — unlike every other function in
+-- this file — it gets NO grant to authenticated either: only service_role
+-- and its two SECURITY DEFINER callers can reach it.
+revoke all on function public.activate_context_for(uuid, bigint) from public, anon, authenticated;
+grant execute on function public.activate_context_for(uuid, bigint) to service_role;
+
+-- activate_first_context() is the activate_first_context_trigger function
+-- (04_triggers.sql); anon must never execute it.
+revoke all on function public.activate_first_context() from public, anon;
+grant execute on function public.activate_first_context() to authenticated;
+grant execute on function public.activate_first_context() to service_role;
 
 -- current_account_demo() is SECURITY DEFINER, so anon must never execute it.
 revoke all on function public.current_account_demo() from public, anon;

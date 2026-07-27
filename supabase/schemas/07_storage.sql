@@ -26,19 +26,19 @@ create policy "Attachments readable within account" on storage.objects
     for select to authenticated
     using (
         bucket_id = 'attachments'
-        and (storage.foldername(name))[1] = public.current_account_id()::text
+        and (storage.foldername(name))[1] = public.current_context_id()::text
     );
 
 create policy "Attachments writable within account" on storage.objects
     for insert to authenticated
     with check (
         bucket_id = 'attachments'
-        and (storage.foldername(name))[1] = public.current_account_id()::text
+        and (storage.foldername(name))[1] = public.current_context_id()::text
     );
 
 create policy "Attachments deletable within account" on storage.objects
     for delete to authenticated
     using (
         bucket_id = 'attachments'
-        and (storage.foldername(name))[1] = public.current_account_id()::text
+        and (storage.foldername(name))[1] = public.current_context_id()::text
     );

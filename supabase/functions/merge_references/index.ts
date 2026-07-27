@@ -96,7 +96,7 @@ Deno.serve(async (req: Request) =>
           return createErrorResponse(400, resolutions.error as string);
         }
 
-        // Forward the caller's JWT so RLS and current_account_id() resolve to
+        // Forward the caller's JWT so RLS and current_context_id() resolve to
         // the real user. A service-role client here would bypass tenant
         // isolation entirely.
         const client = createClient(

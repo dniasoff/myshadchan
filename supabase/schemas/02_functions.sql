@@ -13,7 +13,7 @@ END;
 $_$;
 
 -- Provisions a new auth user: the `members` profile row, plus — since
--- current_account_id() now fails closed — the account_members row without which
+-- current_context_id() now fails closed — the account_members row without which
 -- the user would see nothing at all.
 --
 -- Membership model here is deliberately minimal and invite-free (AD-11's full
@@ -128,48 +128,148 @@ $$;
 -- MyShadchan — Shidduchim pipeline functions (AD-2, AD-3, AD-4)
 -- =====================================================================
 
--- Resolves the caller's account (AD-1) from their active account_members row.
+-- Resolves the caller's ACTIVE context (AD-19) from member_state, validated
+-- against a live active-status membership every time it is called.
 --
--- FAILS CLOSED. An earlier version fell back to the first account when the
--- caller had no membership, which meant any authenticated user with no
--- membership silently became a member of account #1 — and since nothing ever
--- created membership rows, that was every user. Returning NULL is what makes
--- the tenant boundary real: every policy reads
--- `account_id = public.current_account_id()`, which is NULL-false, so a caller
--- with no membership sees and writes nothing.
+-- FAILS CLOSED. The single-account resolver this replaces fell back to an
+-- arbitrary membership (`order by am.id limit 1`) whenever the caller held
+-- one, which meant a user in two contexts could never choose which one
+-- they were looking at. Returning NULL — never a guessed
+-- fallback — is what makes the tenant boundary real: every policy reads
+-- `account_id = public.current_context_id()`, which is NULL-false, so a
+-- caller with no live active context sees and writes nothing.
 --
--- The other half of this lives in handle_new_user(), which must actually grant
--- a membership or nobody can use the app at all.
+-- The other half of this lives in activate_first_context() (04_triggers.sql),
+-- which must actually grant an active context on first membership or nobody
+-- can use the app at all.
 --
 -- SECURITY DEFINER so it can be called from RLS policies without recursing into
 -- the very policies it feeds.
-CREATE OR REPLACE FUNCTION "public"."current_account_id"() RETURNS bigint
+CREATE OR REPLACE FUNCTION "public"."current_context_id"() RETURNS bigint
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
   v_account_id bigint;
 begin
-  select am.account_id into v_account_id
-  from public.account_members am
-  where am.user_id = auth.uid()
-    and am.status = 'active'
-  order by am.id
-  limit 1;
+  select ms.active_account_id into v_account_id
+  from public.member_state ms
+  where ms.user_id = auth.uid()
+    and exists (
+      select 1
+      from public.account_members am
+      where am.user_id = ms.user_id
+        and am.account_id = ms.active_account_id
+        and am.status = 'active'
+    );
 
   return v_account_id;
 end;
 $$;
 
+-- Private writer shared by set_active_context() and the
+-- activate_first_context trigger (AC-4/AC-5) — the ONLY code path that ever
+-- writes member_state. Does no membership validation of its own: callers are
+-- responsible for proving p_user_id actually holds an active membership of
+-- p_account_id before calling this. EXECUTE is revoked from every client
+-- role (06_grants.sql) — only its two SECURITY DEFINER callers and
+-- service_role can reach it.
+CREATE OR REPLACE FUNCTION "public"."activate_context_for"("p_user_id" "uuid", "p_account_id" bigint) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  insert into public.member_state (user_id, active_account_id, updated_at)
+  values (p_user_id, p_account_id, now())
+  on conflict (user_id) do update
+    set active_account_id = excluded.active_account_id,
+        updated_at = excluded.updated_at;
+end;
+$$;
+
+-- The one validated way a client switches its active context (AD-19:
+-- "Switching goes through set_active_context(account_id), which validates
+-- membership before writing"). Raises rather than silently no-op-ing when
+-- the caller does not hold a live active membership of p_account_id — a
+-- raw client write to member_state is impossible (AC-3: no insert/update
+-- policy for authenticated), so this function is the only door.
+CREATE OR REPLACE FUNCTION "public"."set_active_context"("p_account_id" bigint) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if not exists (
+    select 1
+    from public.account_members
+    where user_id = auth.uid()
+      and account_id = p_account_id
+      and status = 'active'
+  ) then
+    raise exception 'no active membership of account %', p_account_id;
+  end if;
+
+  perform public.activate_context_for(auth.uid(), p_account_id);
+end;
+$$;
+
+-- Trigger function for activate_first_context_trigger (04_triggers.sql):
+-- AFTER INSERT on account_members, WHEN (new.status = 'active'). Auto-
+-- activates a user's first live context so FR84 ("active context explicit,
+-- never inferred") and 2.4's "no switcher clutter with one context" both
+-- hold from the moment a context exists, without a UI-side bootstrap step.
+--
+-- Calls activate_context_for() directly, NEVER set_active_context():
+-- handle_new_user() inserts the bootstrap membership from an auth.users
+-- trigger, where auth.uid() is NULL — set_active_context()'s membership
+-- check would raise there and roll back the entire signup. The newly
+-- inserted row itself is the proof of membership; no second check is
+-- needed.
+--
+-- Tolerates new.user_id is null (account_members.user_id is nullable, ON
+-- DELETE SET NULL) by doing nothing — there is no user to activate a
+-- context for.
+--
+-- Only acts when the user currently has NO live active context: either no
+-- member_state row exists yet, or the existing row's active_account_id no
+-- longer names any of the user's own active memberships (the same rule
+-- current_context_id() applies, expressed over new.user_id instead of
+-- auth.uid()). Gaining a SECOND context while the first is still live is a
+-- deliberate no-op — a new membership must never silently move someone's
+-- active context.
+CREATE OR REPLACE FUNCTION "public"."activate_first_context"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if new.user_id is null then
+    return new;
+  end if;
+
+  if not exists (
+    select 1
+    from public.member_state ms
+      join public.account_members am
+        on am.user_id = ms.user_id
+       and am.account_id = ms.active_account_id
+       and am.status = 'active'
+    where ms.user_id = new.user_id
+  ) then
+    perform public.activate_context_for(new.user_id, new.account_id);
+  end if;
+
+  return new;
+end;
+$$;
+
 -- Reads the demo flag for the caller's account so the SPA can show the demo
 -- banner (later stage) without a bespoke query. SECURITY DEFINER + search_path
--- '' like current_account_id; returns false when the caller has no account.
+-- '' like current_context_id; returns false when the caller has no account.
 CREATE OR REPLACE FUNCTION "public"."current_account_demo"() RETURNS boolean
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
   select coalesce(
-    (select a.demo from public.accounts a where a.id = public.current_account_id()),
+    (select a.demo from public.accounts a where a.id = public.current_context_id()),
     false
   );
 $$;
@@ -183,7 +283,7 @@ CREATE OR REPLACE FUNCTION "public"."set_account_id_default"() RETURNS "trigger"
     AS $$
 begin
   if new.account_id is null then
-    new.account_id := public.current_account_id();
+    new.account_id := public.current_context_id();
   end if;
   return new;
 end;
@@ -289,7 +389,7 @@ declare
   v_redt_date date;
   v_gender text;
 begin
-  v_account_id := public.current_account_id();
+  v_account_id := public.current_context_id();
   if v_account_id is null then
     raise exception 'no account context for create_shidduch (no account exists)';
   end if;
@@ -481,7 +581,7 @@ CREATE OR REPLACE FUNCTION "public"."add_redt"(
 declare
   v_account_id bigint;
 begin
-  v_account_id := public.current_account_id();
+  v_account_id := public.current_context_id();
 
   if not exists (
     select 1 from public.shidduchim s
@@ -521,7 +621,7 @@ CREATE OR REPLACE FUNCTION "public"."add_school"(
 declare
   v_account_id bigint;
 begin
-  v_account_id := public.current_account_id();
+  v_account_id := public.current_context_id();
 
   if not exists (
     select 1 from public.shidduchim s
@@ -863,7 +963,7 @@ $$;
 -- (parents / seminary-school / shul / location). Name-only similarity returns
 -- nothing, because acting on it is exactly the false-merge this design forbids.
 --
--- PRV-2: every read is filtered by current_account_id(). Identity is never
+-- PRV-2: every read is filtered by current_context_id(). Identity is never
 -- pooled or matched across accounts, no matter how identical the details look.
 CREATE OR REPLACE FUNCTION "public"."match_identity"(
     "p_target_type" "text",
@@ -896,7 +996,7 @@ begin
       using errcode = 'check_violation';
   end if;
 
-  v_account_id := public.current_account_id();
+  v_account_id := public.current_context_id();
   if v_account_id is null then
     return;
   end if;
@@ -1052,7 +1152,7 @@ declare
   v_existing_id bigint;
   v_new_id bigint;
 begin
-  v_account_id := public.current_account_id();
+  v_account_id := public.current_context_id();
 
   if not exists (
     select 1 from public."references" r
@@ -1117,7 +1217,7 @@ declare
   v_member_id bigint;
   v_entry jsonb;
 begin
-  v_account_id := public.current_account_id();
+  v_account_id := public.current_context_id();
 
   select * into v_link
   from public.reference_links rl
@@ -1198,7 +1298,7 @@ declare
   v_account_id bigint;
   v_moved integer;
 begin
-  v_account_id := public.current_account_id();
+  v_account_id := public.current_context_id();
   if v_account_id is null then
     raise exception 'no account context';
   end if;
@@ -1248,7 +1348,7 @@ declare
   v_account_id bigint;
   v_moved integer;
 begin
-  v_account_id := public.current_account_id();
+  v_account_id := public.current_context_id();
   if v_account_id is null then
     raise exception 'no account context';
   end if;
@@ -1290,7 +1390,7 @@ declare
   v_loser public."references";
   v_winner public."references";
 begin
-  v_account_id := public.current_account_id();
+  v_account_id := public.current_context_id();
 
   select * into v_loser from public."references" r
   where r.id = p_loser_id and r.account_id = v_account_id;
@@ -1381,7 +1481,7 @@ begin
     raise exception 'cannot merge a reference into itself' using errcode = 'check_violation';
   end if;
 
-  v_account_id := public.current_account_id();
+  v_account_id := public.current_context_id();
 
   if not exists (
     select 1 from public."references" r
@@ -1572,7 +1672,7 @@ declare
   v_seminary_norm text;
   v_location_norm text;
 begin
-  v_account_id := public.current_account_id();
+  v_account_id := public.current_context_id();
   if v_account_id is null then
     return jsonb_build_object('has_catch', false, 'suggestions', '[]'::jsonb, 'dates', '[]'::jsonb);
   end if;
@@ -1692,7 +1792,7 @@ $$;
 -- (useAiEntitlement's hardcoded `true`) explicitly warned had to happen.
 --
 -- STABLE + security invoker (like catch_shidduch): it resolves the account with
--- current_account_id() and reads subscription/ai_usage under the caller's RLS,
+-- current_context_id() and reads subscription/ai_usage under the caller's RLS,
 -- so it works identically for the SPA (authenticated JWT) and an edge function
 -- that forwards the user's JWT. Returns the unentitled default for a caller with
 -- no account rather than raising, so the app degrades to the free path.
@@ -1712,7 +1812,7 @@ declare
   v_resumes_used integer := 0;
   v_period text := to_char(now(), 'YYYY-MM');
 begin
-  v_account_id := public.current_account_id();
+  v_account_id := public.current_context_id();
   if v_account_id is null then
     return jsonb_build_object(
       'is_entitled', false,

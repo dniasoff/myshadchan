@@ -99,7 +99,7 @@ do $$
 begin
   begin
     insert into public.subscription (account_id, plan, status)
-      select public.current_account_id(), 'ai', 'active';
+      select public.current_context_id(), 'ai', 'active';
     insert into results (name, passed, detail)
       values ('subscription: a member cannot self-grant via INSERT', false, 'INSERT unexpectedly succeeded');
   exception when others then
@@ -129,7 +129,7 @@ begin
   begin
     update public.subscription
       set status = 'active', plan = 'ai'
-      where account_id = public.current_account_id();
+      where account_id = public.current_context_id();
     insert into results (name, passed, detail)
       values ('subscription: a member cannot self-grant via UPDATE', false, 'UPDATE unexpectedly succeeded');
   exception when others then

@@ -111,7 +111,7 @@ insert into ids values ('ref1', :ref1);
 
 insert into results (name, passed)
 select 'account_id is server-set, never client-supplied',
-       r.account_id = public.current_account_id()
+       r.account_id = public.current_context_id()
 from public."references" r where r.id = :ref1;
 
 insert into results (name, passed)
@@ -221,7 +221,7 @@ values ('reference', :ref1, 'Call back Sunday', now() + interval '2 days');
 
 insert into results (name, passed)
 select 'a task can target a reference directly',
-       t.target_type = 'reference' and t.target_id = :ref1 and t.account_id = public.current_account_id()
+       t.target_type = 'reference' and t.target_id = :ref1 and t.account_id = public.current_context_id()
 from public.tasks t where t.target_type = 'reference' and t.target_id = :ref1;
 
 insert into results (name, passed)
@@ -363,7 +363,7 @@ insert into results (name, passed) values (
 set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
 
 insert into results (name, passed)
-select 'RLS: tenant B resolves to its own account', public.current_account_id() = :acct_b;
+select 'RLS: tenant B resolves to its own account', public.current_context_id() = :acct_b;
 
 insert into results (name, passed) select 'RLS: references are invisible cross-account', count(*) = 0 from public."references";
 insert into results (name, passed) select 'RLS: reference_links are invisible cross-account', count(*) = 0 from public.reference_links;
@@ -434,7 +434,7 @@ end $$;
 
 -- ---------------------------------------------------------------------------
 -- Fail-closed membership: a user with no account_members row is nobody.
--- Previously current_account_id() fell back to the first account, so an
+-- Previously current_context_id() fell back to the first account, so an
 -- unprovisioned user silently became a member of account #1 and could read its
 -- candid call logs.
 -- ---------------------------------------------------------------------------
@@ -442,7 +442,7 @@ set local request.jwt.claims = '{"sub":"33333333-3333-3333-3333-333333333333","r
 
 insert into results (name, passed)
 select 'a user with no membership resolves to NO account, not account #1',
-       public.current_account_id() is null;
+       public.current_context_id() is null;
 
 insert into results (name, passed) select 'unprovisioned user sees no references', count(*) = 0 from public."references";
 insert into results (name, passed) select 'unprovisioned user sees no reference_links', count(*) = 0 from public.reference_links;

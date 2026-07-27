@@ -79,10 +79,11 @@ alter table public.members
 -- (tenant isolation, AD-1) and is RLS-scoped by account. Bilingual
 -- identity fields store both scripts (`_en`/`_he`, AD-12).
 --
--- Full RLS enforcement (FORCE + multi-account current_account_ids +
--- anon-grant revocation + invite binding) is Epic-1 and DEFERRED; this
--- build ships the account_id columns, account-scoped policies, and no
--- anon grants, so RLS can be hardened later WITHOUT a schema change.
+-- Account-scoping now resolves through current_context_id() and the
+-- server-held member_state.active_account_id (Story 2.1, AD-19) rather than
+-- an arbitrary first membership. anon-grant revocation and invite binding
+-- landed alongside it; FORCE ROW LEVEL SECURITY remains a flagged gap with
+-- no assigned story (see 2.1's Dev Notes).
 --
 
 -- The one canonical pipeline state (AD-4): exactly 7 values, decision
@@ -139,6 +140,19 @@ create table public.account_members (
     constraint account_members_role_check check (
         role in ('parent_admin', 'helper', 'self_manager', 'shadchan')
     )
+);
+
+-- The server-held active-context pointer (AD-19). One row per user;
+-- active_account_id NULL means "no active context" — the fail-closed case
+-- current_context_id() relies on. Written by exactly one code path:
+-- activate_context_for(), the private SECURITY DEFINER helper shared by
+-- set_active_context() and the activate_first_context trigger — never by a
+-- raw client write (05_policies.sql grants authenticated no insert/update/
+-- delete policy on this table at all).
+create table public.member_state (
+    user_id uuid not null primary key,
+    active_account_id bigint,
+    updated_at timestamp with time zone not null default now()
 );
 
 -- The single being suggested FOR (one isolated pipeline each).
@@ -519,6 +533,11 @@ alter table public.account_members
 alter table public.account_members
     add constraint account_members_user_id_fkey foreign key (user_id) references auth.users(id) on delete set null;
 
+alter table public.member_state
+    add constraint member_state_user_id_fkey foreign key (user_id) references auth.users(id) on delete cascade;
+alter table public.member_state
+    add constraint member_state_active_account_id_fkey foreign key (active_account_id) references public.accounts(id) on delete set null;
+
 alter table public.singles
     add constraint singles_account_id_fkey foreign key (account_id) references public.accounts(id) on delete cascade;
 alter table public.singles
@@ -621,6 +640,11 @@ alter table public.ai_usage
 -- Indexes on foreign keys (shidduchim domain)
 --
 create index account_members_account_id_idx on public.account_members using btree (account_id);
+-- A duplicate active membership in the same account is a schema error, not a
+-- silent ambiguity current_context_id() has to paper over with an ORDER BY.
+-- user_id is nullable, so NULL-user_id rows are not constrained here — a row
+-- with no user is not a membership anyone resolves through anyway.
+create unique index account_members_account_user_active_uq on public.account_members (account_id, user_id) where status = 'active';
 create index singles_account_id_idx on public.singles using btree (account_id);
 create index shadchanim_account_id_idx on public.shadchanim using btree (account_id);
 create index references_account_id_idx on public."references" using btree (account_id);
