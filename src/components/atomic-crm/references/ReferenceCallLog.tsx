@@ -15,9 +15,9 @@ import { sortConversationLog } from "./callStatus";
  * conversation log for that link.
  *
  * The candid content lives on reference_links, which has no visibility column of
- * its own — a future candidate portal derives what a child may see by joining
- * back to the parent shidduch (AD-3). Nothing here may be given its own
- * visibility flag.
+ * its own — a future single-facing screen (Epic 6) derives what a child may see
+ * by joining back to the parent shidduch (AD-3). Nothing here may be given its
+ * own visibility flag.
  */
 
 const LinkCard = ({ link }: { link: ReferenceLinkSummary }) => {

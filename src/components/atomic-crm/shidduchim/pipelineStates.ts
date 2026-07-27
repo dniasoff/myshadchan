@@ -108,7 +108,7 @@ export const INITIAL_PIPELINE_STATES: PipelineState[] = [
 /**
  * Closed enumeration (AD-3, D5) of which states a child may see. All 7 states
  * are classified explicitly, mirroring is_child_visible_state() in Postgres —
- * no include/exclude gap. (The child portal itself is Epic-9; this locks the
+ * no include/exclude gap. (The single's own login is Epic 6; this locks the
  * decision now so the schema needs no breaking change later.)
  */
 export const CHILD_VISIBLE_STATES: Record<PipelineState, boolean> = {

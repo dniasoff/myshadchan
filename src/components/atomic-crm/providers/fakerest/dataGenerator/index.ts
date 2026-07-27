@@ -55,9 +55,6 @@ export default (): Db => {
       resolved_shidduchim_id: null,
     },
   ];
-  // Child portal tokens (E7) start empty; the demo mints them on demand via the
-  // provider's mintChildPortalToken so the share panel works without a backend.
-  db.child_portal_tokens = [];
 
   return db;
 };

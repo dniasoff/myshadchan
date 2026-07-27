@@ -2,7 +2,6 @@ import type {
   Account,
   AccountMember,
   Child,
-  ChildPortalToken,
   DateRecord,
   InboxItem,
   Interaction,
@@ -38,5 +37,4 @@ export interface Db {
   pipeline_transitions: PipelineTransition[];
   interactions: Interaction[];
   inbox_items: InboxItem[];
-  child_portal_tokens: ChildPortalToken[];
 }

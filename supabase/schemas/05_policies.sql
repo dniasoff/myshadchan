@@ -132,8 +132,8 @@ alter table public.identity_signals enable row level security;
 -- belongs to another account denies rather than falling through.
 --
 -- Today every authenticated member of an account is a parent/helper, so the
--- derived predicate resolves to the account check. When the candidate portal and
--- the `child` role land (Epic-9), this join is the ONE place that gains
+-- derived predicate resolves to the account check. When the single logs in and
+-- the `child` role lands (Epic 6), this join is the ONE place that gains
 -- `and public.is_child_visible_state(s.pipeline_state)`, and the `scope =
 -- 'account'` branch becomes an outright deny for the child role.
 create policy "Interactions scoped to account and parent visibility" on public.interactions
@@ -225,22 +225,6 @@ create policy "AI usage readable within account" on public.ai_usage
 alter table public.inbox_items enable row level security;
 
 create policy "Inbox items scoped to account" on public.inbox_items
-    for all to authenticated
-    using (account_id = public.current_account_id())
-    with check (account_id = public.current_account_id());
-
--- Child portal tokens (E7). A parent (authenticated) manages the portal links for
--- their OWN account only: list them (select), mint (insert), revoke/rotate
--- (update revoked_at). There is deliberately NO anon policy — anon holds no grant
--- on this table at all (06_grants.sql), so the token secret is never readable
--- through PostgREST; the only anon path over portal data is the SECURITY DEFINER
--- get_child_portal() RPC, which never returns the token. The with-check pins
--- account_id to the caller's account; the trigger sets it and the composite FK to
--- children keeps child_id in the same account, so a token cannot be aimed across
--- the tenant boundary.
-alter table public.child_portal_tokens enable row level security;
-
-create policy "Child portal tokens scoped to account" on public.child_portal_tokens
     for all to authenticated
     using (account_id = public.current_account_id())
     with check (account_id = public.current_account_id());

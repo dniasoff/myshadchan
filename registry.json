@@ -518,10 +518,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/providers/fakerest/internal/childPortal.ts",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/providers/fakerest/dataGenerator/utils.ts",
           "type": "registry:component"
         },
@@ -567,30 +563,6 @@
         },
         {
           "path": "src/components/atomic-crm/providers/commons/aiEntitlement.ts",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/portal/portalToken.ts",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/portal/portalClient.ts",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/portal/index.ts",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/portal/childPortalStatus.ts",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/portal/PortalSuggestionCard.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/portal/ChildPortalPage.tsx",
           "type": "registry:component"
         },
         {
@@ -879,10 +851,6 @@
         },
         {
           "path": "src/components/atomic-crm/children/ChildShow.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/children/ChildPortalShare.tsx",
           "type": "registry:component"
         },
         {

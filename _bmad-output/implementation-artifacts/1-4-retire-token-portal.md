@@ -1,6 +1,10 @@
+---
+baseline_commit: d66119c34ac6d63a2bc634d2662a0fb6a08d452c
+---
+
 # Story 1.4: Retire the token portal
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -227,62 +231,62 @@ keep two code paths in step.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Unwire the two entry points first, so nothing renders the portal mid-change (AC: 2, 3)**
-  - [ ] Edit `src/App.tsx`: drop the `portal` import (line 2), drop the `isPortalUrl` branch
+- [x] **Task 1 — Unwire the two entry points first, so nothing renders the portal mid-change (AC: 2, 3)**
+  - [x] Edit `src/App.tsx`: drop the `portal` import (line 2), drop the `isPortalUrl` branch
         (lines 35–37), drop the `/portal` JSDoc paragraph (lines 7–10). Result: `App` returns
         `<LandingGate><CRM disableTelemetry /></LandingGate>` only.
-  - [ ] Edit `src/components/atomic-crm/children/ChildShow.tsx`: drop the `ChildPortalShare`
+  - [x] Edit `src/components/atomic-crm/children/ChildShow.tsx`: drop the `ChildPortalShare`
         import (line 12), drop `<ChildPortalShare … />` (line 113), drop the now-unused
         `childName` local in `ChildShowLayout`.
-  - [ ] Run `npm run typecheck` — expect errors only in files scheduled for deletion.
+  - [x] Run `npm run typecheck` — expect errors only in files scheduled for deletion.
 
-- [ ] **Task 2 — Delete the frontend surface (AC: 1, 3, 4)**
-  - [ ] `rm -r src/components/atomic-crm/portal/` (8 source files + `__screenshots__/ChildPortalPage.test.tsx/` with 5 PNGs).
-  - [ ] `rm src/components/atomic-crm/children/ChildPortalShare.tsx`.
-  - [ ] `rm src/components/atomic-crm/providers/fakerest/internal/childPortal.ts`.
-  - [ ] Use `LSP findReferences` on `ChildPortalPage`, `isPortalUrl`, `buildPortalUrl`,
+- [x] **Task 2 — Delete the frontend surface (AC: 1, 3, 4)**
+  - [x] `rm -r src/components/atomic-crm/portal/` (8 source files + `__screenshots__/ChildPortalPage.test.tsx/` with 5 PNGs).
+  - [x] `rm src/components/atomic-crm/children/ChildPortalShare.tsx`.
+  - [x] `rm src/components/atomic-crm/providers/fakerest/internal/childPortal.ts`.
+  - [x] Use `LSP findReferences` on `ChildPortalPage`, `isPortalUrl`, `buildPortalUrl`,
         `loadChildPortal` and `ChildPortalShare` before/after to confirm no live call site is
         left (per `.claude/rules/lsp-usage.md` — do not use `grep` for TS symbol lookup; the
         text sweep in Task 8 is the separate, deliberate string check).
 
-- [ ] **Task 3 — Strip the provider methods and types (AC: 4, 5, 6)**
-  - [ ] `providers/supabase/dataProvider.ts`: remove the `ChildPortalData` / `ChildPortalToken`
+- [x] **Task 3 — Strip the provider methods and types (AC: 4, 5, 6)**
+  - [x] `providers/supabase/dataProvider.ts`: remove the `ChildPortalData` / `ChildPortalToken`
         type imports (lines 13–14), the `loadChildPortal` import (line 36) and the four methods
         with their section comment (lines 391–431).
-  - [ ] `providers/fakerest/dataProvider.ts`: remove the two type imports (lines 15–16), the
+  - [x] `providers/fakerest/dataProvider.ts`: remove the two type imports (lines 15–16), the
         `./internal/childPortal` import block (lines 67–72) and the four delegating methods with
         their comment (lines 845–858).
-  - [ ] `types.ts`: delete lines 301–342 (`ChildPortalToken`, `ChildPortalSuggestion`,
+  - [x] `types.ts`: delete lines 301–342 (`ChildPortalToken`, `ChildPortalSuggestion`,
         `ChildPortalData` and the section banner).
-  - [ ] `providers/fakerest/dataGenerator/types.ts`: remove `ChildPortalToken` from the type
+  - [x] `providers/fakerest/dataGenerator/types.ts`: remove `ChildPortalToken` from the type
         import (line 5) and the `child_portal_tokens: ChildPortalToken[];` field (line 53).
-  - [ ] `providers/fakerest/dataGenerator/index.ts`: remove lines 70–72 (`db.child_portal_tokens = []`
+  - [x] `providers/fakerest/dataGenerator/index.ts`: remove lines 70–72 (`db.child_portal_tokens = []`
         and its two comment lines).
-  - [ ] `npm run typecheck` must now be clean: `CrmDataProvider` is `ReturnType<typeof
+  - [x] `npm run typecheck` must now be clean: `CrmDataProvider` is `ReturnType<typeof
         getDataProviderWithCustomMethods>` (`providers/supabase/dataProvider.ts:636`) and the
         FakeRest object is annotated `: CrmDataProvider` (`providers/fakerest/dataProvider.ts:491`),
         so removing a method on only one side is a compile error — that is the intended guard.
 
-- [ ] **Task 4 — Edit the declarative schema (AC: 7, 8)**
-  - [ ] `supabase/schemas/06_grants.sql`: delete the whole `Child portal (E7)` block, lines 619–655.
-  - [ ] `supabase/schemas/05_policies.sql`: delete lines 281–295 (comment, `enable row level security`, policy).
-  - [ ] `supabase/schemas/04_triggers.sql`: delete lines 182–186 (comment + trigger).
-  - [ ] `supabase/schemas/02_functions.sql`: delete lines 2144–2245 — the banner and **both**
+- [x] **Task 4 — Edit the declarative schema (AC: 7, 8)**
+  - [x] `supabase/schemas/06_grants.sql`: delete the whole `Child portal (E7)` block, lines 619–655.
+  - [x] `supabase/schemas/05_policies.sql`: delete lines 281–295 (comment, `enable row level security`, policy).
+  - [x] `supabase/schemas/04_triggers.sql`: delete lines 182–186 (comment + trigger).
+  - [x] `supabase/schemas/02_functions.sql`: delete lines 2144–2245 — the banner and **both**
         functions. Do **not** touch `is_child_visible_state` at line 578 — it keeps its
         `child` name until story 1.3 renames it (AC 8).
-  - [ ] `supabase/schemas/01_tables.sql`: delete lines 623–645 (comment + `create table`),
+  - [x] `supabase/schemas/01_tables.sql`: delete lines 623–645 (comment + `create table`),
         776–786 (the three constraint statements) and 822–823 (the two indexes). Do **not**
         touch the `visibility` / `owner_member_id` columns at lines 364–368. Confirm before
         editing that line 786 reads `references public.children(account_id, id)` — if it reads
         `public.singles`, 1.3 has landed out of order (see "Sequencing — binding"): stop.
-  - [ ] Reword — do not delete — the 5 stale comments that promise a portal (listed in Dev
+  - [x] Reword — do not delete — the 5 stale comments that promise a portal (listed in Dev
         Notes, "Stale comments"), so no comment in the repo still describes a surface that
         no longer exists. Reword the **prose only**: the identifiers inside those comments
         (`is_child_visible_state`, `CHILD_VISIBLE_STATES`) still read `child` after this story.
 
-- [ ] **Task 5 — Generate and hand-check the migration (AC: 7, 11, 12)**
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f retire_child_portal`
-  - [ ] Hand-check the generated SQL before applying. `db diff` is known in this repo to
+- [x] **Task 5 — Generate and hand-check the migration (AC: 7, 11, 12)**
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f retire_child_portal`
+  - [x] Hand-check the generated SQL before applying. `db diff` is known in this repo to
         under-emit privilege statements (see the `HAND-FIXED (E7)` note at
         `supabase/migrations/20260724170639_add_child_portal.sql:113-120`) and to drop
         `security_invoker`. Confirm the migration contains, in this order:
@@ -294,28 +298,28 @@ keep two code paths in step.
         sequence drop with the table; the two `drop function` statements are the ones most
         likely to be missing or mis-ordered (the trigger depends on one of them). Do not add a
         `cascade` you did not verify the need for.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`
-  - [ ] Never run `npx supabase db reset` or `npx supabase db push` in this story.
-  - [ ] Run the catalog queries from AC 11 and record the output.
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`
+  - [x] Never run `npx supabase db reset` or `npx supabase db push` in this story.
+  - [x] Run the catalog queries from AC 11 and record the output.
 
-- [ ] **Task 6 — Delete the tests (AC: 9)**
-  - [ ] `rm supabase/tests/child_portal.sql supabase/tests/child_portal.test.ts`.
-  - [ ] `rm src/components/atomic-crm/providers/fakerest/dataProvider.childPortal.test.ts`.
-  - [ ] Confirm no remaining suite imports from the deleted modules and that
+- [x] **Task 6 — Delete the tests (AC: 9)**
+  - [x] `rm supabase/tests/child_portal.sql supabase/tests/child_portal.test.ts`.
+  - [x] `rm src/components/atomic-crm/providers/fakerest/dataProvider.childPortal.test.ts`.
+  - [x] Confirm no remaining suite imports from the deleted modules and that
         `supabase/tests/` still holds exactly 3 pairs (`billing_entitlement`,
         `references_entity`, `shidduch_catch`).
 
-- [ ] **Task 7 — Seed / demo data (AC: 6)**
-  - [ ] Boot demo mode (`npm run dev:demo`) and confirm it starts with no console error and
+- [x] **Task 7 — Seed / demo data (AC: 6)**
+  - [x] Boot demo mode (`npm run dev:demo`) and confirm it starts with no console error and
         that a child's Show page renders without the share panel. There is no SQL seed file to
         change: the only fixture surface was the FakeRest generator, handled in Task 3.
 
-- [ ] **Task 8 — Verify and close (AC: 8, 10, 11, 13, 14)**
-  - [ ] Run the AC 10 text sweep; it must return 0 hits (baseline 247 across 25 files).
-  - [ ] `npm run typecheck && npm run lint && make test && npm run test:unit:db`, then
+- [x] **Task 8 — Verify and close (AC: 8, 10, 11, 13, 14)**
+  - [x] Run the AC 10 text sweep; it must return 0 hits (baseline 247 across 25 files).
+  - [x] `npm run typecheck && npm run lint && make test && npm run test:unit:db`, then
         `npx prettier --config ./.prettierrc.json --check` over **this story's changed files
         only** (AC 13 — repo-wide `npm run prettier` is 1.6's gate, not this one's).
-  - [ ] Confirm the hand-off to 1.3 is intact, not accidentally cleaned up.
+  - [x] Confirm the hand-off to 1.3 is intact, not accidentally cleaned up.
         `grep -rn "is_child_visible_state" supabase/schemas/` must still return the definition
         at `02_functions.sql:578` and the 3 grants at `06_grants.sql:303-305` (the two portal
         call sites at `02_functions.sql:2180,2234` are gone; the `05_policies.sql:186` mention
@@ -324,7 +328,7 @@ keep two code paths in step.
         `shidduchim/pipelineStates.ts` and `pipelineStates.test.ts` — and, after AC 4, nothing
         else. **Zero hits on either grep means something was over-deleted: 1.3 renames these,
         this story does not remove them.**
-  - [ ] Fill the Dev Agent Record: catalog-query outputs, **both** AC 14 lines (FR107 → Epic 9
+  - [x] Fill the Dev Agent Record: catalog-query outputs, **both** AC 14 lines (FR107 → Epic 9
         Story 9.5; visible-state symbols → story 1.3), and the File List.
 
 ## Dev Notes
@@ -554,8 +558,140 @@ once the rename has run.
 
 ### Agent Model Used
 
+Claude Opus 5 (claude-opus-5), running the bmad-dev-story workflow.
+
 ### Debug Log References
+
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f retire_child_portal`
+  generated `supabase/migrations/20260727102904_retire_child_portal.sql` in the exact
+  required order on the first try (no hand-fixing needed):
+  `drop trigger set_child_portal_token_defaults` →
+  `drop policy "Child portal tokens scoped to account"` → revokes →
+  `drop constraint` (account_id_fkey, child_id_fkey, token_key) →
+  `drop function get_child_portal(p_token text)` →
+  `drop function set_child_portal_token_defaults()` →
+  `drop constraint child_portal_tokens_pkey` → `drop index` x4 → `drop table`.
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local` applied cleanly.
+- Post-migration catalog queries (AC 11), all `0` as required:
+  - `select count(*) from pg_class where relname like 'child_portal%';` → `0`
+  - `select count(*) from pg_proc ... where proname in ('get_child_portal','set_child_portal_token_defaults');` → `0`
+  - `select count(*) from pg_policies where tablename = 'child_portal_tokens';` → `0`
+  - `select count(*) from pg_trigger where tgname = 'set_child_portal_token_defaults';` → `0`
+  - `... has_function_privilege('anon', p.oid, 'execute') and p.proname = 'get_child_portal';` → `0`
+  - Storage sentinel (L7 in the build plan, unrelated to this story but re-checked after
+    every `migration up`): `pg_policies` count for `storage.objects` policies named
+    `Attachments%` → `3`; `storage.buckets.public` for `attachments` → `false`.
+- Re-ran `db diff` after `migration up` (`check_no_drift`, discarded) — `No schema changes
+  found`, confirming the schema files and the applied migration are in sync with no phantom
+  diff from the deleted functions/table.
+- Demo-mode boot check (Task 7): started `npm run dev:demo`, drove it headlessly with
+  Playwright (`chromium`) since the `claude-in-chrome` extension was not connected in this
+  environment. Zero console errors on boot and on navigating to
+  `#/children/1/show`; the Show page renders `ChildProfileHeader` + `PipelineSnapshot`
+  only, no share/portal panel or text on the page.
+- `make registry-gen` was re-run after the source deletions — `registry.json` had 7 stale
+  path entries under the deleted `portal/`, `ChildPortalShare.tsx` and
+  `providers/fakerest/internal/childPortal.ts`; regenerating it removed all of them. This
+  file is outside AC 10's swept directories but was still stale, so it is included in the
+  File List.
 
 ### Completion Notes List
 
+- All 8 tasks and their subtasks completed in the order specified by the story.
+- **Story claim that did not reproduce:** every schema line number in AC 7 / Task 4 / Task 5
+  is a pre-1.1 measurement (1.1 landed first, per the binding order, and deleted ~190 lines
+  from `01_tables.sql` and shifted everything below). All edits were re-located by
+  identifier per the build plan's L1 warning, not by the story's line numbers. Verified
+  before editing that `01_tables.sql` still read `references public.children(account_id,
+  id)` for the composite FK — 1.3 had not landed out of order.
+- **Story claim that did not reproduce:** AC 1 / Dev Notes describe the 5
+  `__screenshots__/ChildPortalPage.test.tsx/*.png` files as "committed PNG baselines". They
+  were not committed — `git ls-files` showed them untracked, and `.gitignore:13` explicitly
+  ignores `__screenshots__`. They were still deleted (via `rm -rf`, since `git rm` only
+  matched the 8 tracked source files under `portal/`), so AC 1's outcome ("the directory no
+  longer exists") is unaffected; only the "committed" characterization is wrong.
+- **db diff needed no hand-fixing.** Contrary to the story's expectation that the two
+  `drop function` statements would be missing or mis-ordered, `db diff` emitted every drop
+  in the exact required order on the first attempt. Read line-by-line and confirmed; no
+  edits were made to the generated migration.
+- File count matches the story's verified baseline: 13 files deleted (8 in `portal/`,
+  `ChildPortalShare.tsx`, `providers/fakerest/internal/childPortal.ts`,
+  `dataProvider.childPortal.test.ts`, `supabase/tests/child_portal.sql`,
+  `supabase/tests/child_portal.test.ts`) + 1 directory (`portal/__screenshots__/`, 5 PNGs,
+  untracked) + 12 edited files (App.tsx, ChildShow.tsx, types.ts, both dataProviders, both
+  dataGenerator files, and the 5 schema files) + `registry.json` regenerated.
+- `supabase/tests/` now holds exactly 3 pairs (`billing_entitlement`, `references_entity`,
+  `shidduch_catch`), as required.
+- All 5 stale comments were reworded (prose only — the `is_child_visible_state` /
+  `isChildVisibleState` / `CHILD_VISIBLE_STATES` identifiers next to 3 of them still read
+  `child`, left for story 1.3 per AC 8):
+  `01_tables.sql` (shidduchim.visibility comment), `02_functions.sql`
+  (`is_child_visible_state`'s doc comment), `05_policies.sql` (interactions policy
+  comment), `shidduchim/pipelineStates.ts` (`CHILD_VISIBLE_STATES` doc comment),
+  `references/ReferenceCallLog.tsx` (`ReferenceCallLog` doc comment). Each now points at
+  Epic 6 (the single's own login) instead of the retired Epic-9 portal.
+- **AC 14(a):** the revocable/expiring share link (FR107 / CAP-12) is **not dropped** by
+  this story — it is delivered by Epic 9 Story 9.5 on the AD-21 listings/sharing model, and
+  no part of it (share-link UI, token, RPC) was built here. `child_portal_tokens` was
+  deleted outright and not preserved for Epic 9's reuse, per AC 12.
+- **AC 14(b):** SQL `is_child_visible_state(public.pipeline_state)`
+  (`02_functions.sql:197`, grants `06_grants.sql:206-208`) and TypeScript
+  `isChildVisibleState` / `CHILD_VISIBLE_STATES` (`shidduchim/pipelineStates.ts:114,142`,
+  covered by `pipelineStates.test.ts`) were deliberately left standing with zero
+  non-test callers after this story. This is expected and correct (AC 8) — they are
+  **story 1.3's** to rename to `is_single_visible_state` / `isSingleVisibleState` /
+  `SINGLE_VISIBLE_STATES`; they are not dead code and not an oversight. Verified both grep
+  checks in Task 8 return the expected non-zero hits (definition + 3 grants; the TS symbol
+  in exactly 2 files).
+- Full green baseline: `npm run typecheck` (clean), `npm run lint` (clean, only the
+  pre-existing baseline `ESLintIgnoreWarning`), `make test` (48+3+9 = 60 test files, 587
+  tests, all app/functions/workers projects passed), `npm run test:unit:db` (3 test files,
+  130 tests passed — `references_entity`, `shidduch_catch`, `billing_entitlement`, no
+  `child_portal` suite). `npx prettier --config ./.prettierrc.json --check` passed on every
+  non-SQL file this story modified (SQL is outside the project's prettier glob). Repo-wide
+  `npm run prettier` and `make test-e2e-ci` are intentionally out of this story's gate
+  (1.6's AC-5 and the documented interim e2e red, respectively) and were not run as a gate.
+- No `it.skip`, `test.fixme`, `describe.skip`, `@ts-ignore` or `eslint-disable` was
+  introduced.
+- `LSP` was not available as a tool in this session; symbol-impact verification for
+  `ChildPortalPage`, `isPortalUrl`, `buildPortalUrl`, `loadChildPortal` and
+  `ChildPortalShare` (Task 2) was done with `grep -rn` across `src/` before and after
+  deletion instead, per the rule's intent (confirm no live call site remains).
+
 ### File List
+
+**Deleted (13 files + 1 untracked directory):**
+- `src/components/atomic-crm/portal/ChildPortalPage.tsx`
+- `src/components/atomic-crm/portal/ChildPortalPage.test.tsx`
+- `src/components/atomic-crm/portal/PortalSuggestionCard.tsx`
+- `src/components/atomic-crm/portal/childPortalStatus.ts`
+- `src/components/atomic-crm/portal/index.ts`
+- `src/components/atomic-crm/portal/portalClient.ts`
+- `src/components/atomic-crm/portal/portalToken.ts`
+- `src/components/atomic-crm/portal/portalToken.test.ts`
+- `src/components/atomic-crm/portal/__screenshots__/ChildPortalPage.test.tsx/` (5 PNGs, untracked)
+- `src/components/atomic-crm/children/ChildPortalShare.tsx`
+- `src/components/atomic-crm/providers/fakerest/internal/childPortal.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.childPortal.test.ts`
+- `supabase/tests/child_portal.sql`
+- `supabase/tests/child_portal.test.ts`
+
+**Modified:**
+- `src/App.tsx`
+- `src/components/atomic-crm/children/ChildShow.tsx`
+- `src/components/atomic-crm/types.ts`
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/types.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts`
+- `src/components/atomic-crm/references/ReferenceCallLog.tsx` (stale comment reword)
+- `src/components/atomic-crm/shidduchim/pipelineStates.ts` (stale comment reword)
+- `supabase/schemas/01_tables.sql`
+- `supabase/schemas/02_functions.sql`
+- `supabase/schemas/04_triggers.sql`
+- `supabase/schemas/05_policies.sql`
+- `supabase/schemas/06_grants.sql`
+- `registry.json` (regenerated via `make registry-gen`, not in AC 10's swept dirs but stale)
+
+**Added:**
+- `supabase/migrations/20260727102904_retire_child_portal.sql`
