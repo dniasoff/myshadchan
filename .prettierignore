@@ -1,12 +1,19 @@
-*.md
 node_modules
-lib
-esm
-es6
 dist
 .astro
 /public
 /storybook-static
+
+# Markdown is ignored by default (vendored docs, top-level README, _bmad/,
+# mockup/, design-artifacts/ notes), but AC-5 requires every file under src/,
+# workers/, supabase/, e2e/ and scripts/ to be formatted — re-include those
+# trees explicitly rather than letting a bare `*.md` shadow them.
+*.md
+!src/**/*.md
+!workers/**/*.md
+!supabase/**/*.md
+!e2e/**/*.md
+!scripts/**/*.md
 
 # Vendored / generated trees — formatted upstream or by another tool, not by
 # this repo's prettier gate.

@@ -1,4 +1,4 @@
-import { test as base, expect, type Page } from "@playwright/test";
+import { test as base, expect } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 
 const adminSupabase = createClient(
@@ -28,26 +28,6 @@ async function resetDb() {
   await Promise.all(
     data.users.map((user) => adminSupabase.auth.admin.deleteUser(user.id)),
   );
-}
-
-async function createUser({
-  email,
-  password,
-}: {
-  email: string;
-  password: string;
-}) {
-  const { data, error } = await adminSupabase.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-  });
-
-  if (error) {
-    throw new Error(`Failed to create user: ${error.message}`);
-  }
-
-  return data.user;
 }
 
 async function createMember({
@@ -123,27 +103,10 @@ async function createSingle({
   return data;
 }
 
-const getMenuMethod = ({ page }: { page: Page; isMobile: boolean }) => ({
-  goToDashboard: async () => {
-    await page.getByRole("link", { name: "Dashboard" }).click();
-    await page.waitForLoadState("networkidle");
-  },
-});
-
-const dismissToast = async (page: Page, content: string) => {
-  await expect(page.getByText(content)).toBeVisible();
-  await page.getByLabel("Close toast").first().click();
-  // Since we are in optimistic UI, dismissing the toast trigger the request to the api linked to the toast message
-  await page.waitForLoadState("networkidle");
-};
-
 export const test = base.extend<{
   resetDb: void;
-  createUser: typeof createUser;
   createMember: typeof createMember;
   createSingle: typeof createSingle;
-  menu: ReturnType<typeof getMenuMethod>;
-  dismissToast: (content: string) => Promise<void>;
 }>({
   // The first argument to a Playwright fixture function must use object destructuring ({}) — _ is not allowed.
   // Playwright uses this to statically analyze which fixtures are requested.
@@ -157,9 +120,6 @@ export const test = base.extend<{
     },
     { auto: true },
   ],
-  createUser: async ({}, cb) => {
-    await cb(createUser);
-  },
   createMember: async ({}, cb) => {
     await cb(createMember);
   },
@@ -167,12 +127,6 @@ export const test = base.extend<{
     await cb(createSingle);
   },
   /* eslint-enable no-empty-pattern */
-  menu: async ({ page, isMobile }, cb) => {
-    await cb(getMenuMethod({ page, isMobile }));
-  },
-  dismissToast: async ({ page }, cb) => {
-    await cb((content: string) => dismissToast(page, content));
-  },
 });
 
 export { expect };

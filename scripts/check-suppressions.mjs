@@ -62,17 +62,58 @@ function treeFor(relPath) {
   );
 }
 
-const TEST_FILE_PATTERN = /\.(test\.(ts|tsx|mjs)|spec\.ts)$/;
+const TEST_FILE_PATTERN = /\.(test|spec)\.(ts|tsx|mjs|js)$/;
+
+// Non-test-named helper modules living inside these trees (e.g. a `*.ts` a
+// suite imports, not a `*.test.ts`/`*.spec.ts` itself) are scanned for skip
+// directives too — Task 8's unreachable-db-suite branch can legitimately be
+// hoisted into a shared helper there, and file naming alone must not decide
+// whether the rule applies.
+const TEST_BEARING_TREES = ["supabase/tests", "e2e"];
+
+function isSkipScanTarget(relPath) {
+  if (TEST_FILE_PATTERN.test(relPath)) return true;
+  return TEST_BEARING_TREES.some(
+    (tree) => relPath === tree || relPath.startsWith(`${tree}/`),
+  );
+}
+
+// The third element marks a pattern as exemptable under the sanctioned
+// "throw in CI, skip locally" shape (Task 8, AC-9): only the plain
+// `it`/`test`/`describe`.skip("...") calls that shape produces are
+// exemptable. `.only`/`.todo`/`.fixme`/`xit`/`xdescribe` never are — they
+// signal a different problem (focused or quarantined tests) that Task 8
+// does not legitimize.
 const SKIP_PATTERNS = [
-  [/\bit\.skip\(\s*["'`]/, 'it.skip("...")'],
-  [/\btest\.skip\(\s*["'`]/, 'test.skip("...")'],
-  [/\bdescribe\.skip\(\s*["'`]/, 'describe.skip("...")'],
-  [/\.only\(/, ".only("],
-  [/\.todo\(/, ".todo("],
-  [/\.fixme\(/, ".fixme("],
-  [/\bxit\(/, "xit("],
-  [/\bxdescribe\(/, "xdescribe("],
+  [/\bit\.skip\(\s*["'`]/, 'it.skip("...")', true],
+  [/\btest\.skip\(\s*["'`]/, 'test.skip("...")', true],
+  [/\bdescribe\.skip\(\s*["'`]/, 'describe.skip("...")', true],
+  [/\.only\(/, ".only(", false],
+  [/\.todo\(/, ".todo(", false],
+  [/\.fixme\(/, ".fixme(", false],
+  [/\bxit\(/, "xit(", false],
+  [/\bxdescribe\(/, "xdescribe(", false],
 ];
+
+const CI_ENV_CHECK_PATTERN = /process\.env\.CI/;
+const THROW_PATTERN = /\bthrow\b/;
+
+/**
+ * Task 8's sanctioned shape: `if (process.env.CI) { throw ... }` earlier in
+ * the same file, guarding an unconditional `it.skip(...)` that only runs
+ * locally when CI is unset. Recognizing this by content — a CI check
+ * followed by a throw, both before the skip line — is what lets this guard
+ * scan every file in a test-bearing tree without also flagging Task 8's own
+ * sanctioned local-dev skip (e.g. supabase/tests/dbSuiteHelpers.ts).
+ */
+function hasSanctionedCiThrowGuard(lines, skipLineIndex) {
+  let sawCiCheck = false;
+  for (let i = 0; i < skipLineIndex; i++) {
+    if (CI_ENV_CHECK_PATTERN.test(lines[i])) sawCiCheck = true;
+    if (sawCiCheck && THROW_PATTERN.test(lines[i])) return true;
+  }
+  return false;
+}
 
 function countOccurrences(lines, needle) {
   return lines.filter((line) => line.includes(needle)).length;
@@ -99,6 +140,21 @@ export function buildBareCall(name, reason) {
 /** A conditional skip — same shape, but never matches SKIP_PATTERNS (no leading string arg). */
 export function buildConditionalSkip(prefix, suffix, conditionVar, reason) {
   return `${prefix}${"."}${suffix}(${conditionVar}, ${JSON.stringify(reason)});`;
+}
+
+/**
+ * The Task 8 "throw in CI, skip locally" shape: an `if (process.env.CI)`
+ * throw ahead of an unconditional skip call. Matches SKIP_PATTERNS but is
+ * exempted by hasSanctionedCiThrowGuard.
+ */
+export function buildCiGuardedSkip(prefix, suffix, reason) {
+  return [
+    "if (process.env.CI) {",
+    '  throw new Error("unreachable in CI");',
+    "}",
+    "",
+    buildSuffixCall(prefix, suffix, reason),
+  ].join("\n");
 }
 
 /** Builds a realistic disable-comment line for the suppression-census tests. */
@@ -134,14 +190,19 @@ export function runSuppressionCheck(scanRoot) {
       tsSuppressionCounts[tree] = (tsSuppressionCounts[tree] ?? 0) + tsHits;
     }
 
-    if (TEST_FILE_PATTERN.test(relPath)) {
+    if (isSkipScanTarget(relPath)) {
       lines.forEach((line, index) => {
-        for (const [pattern, label] of SKIP_PATTERNS) {
-          if (pattern.test(line)) {
-            skipViolations.push(
-              `${relPath}:${index + 1}: unconditional ${label}`,
-            );
+        for (const [pattern, label, exemptableUnderCiGuard] of SKIP_PATTERNS) {
+          if (!pattern.test(line)) continue;
+          if (
+            exemptableUnderCiGuard &&
+            hasSanctionedCiThrowGuard(lines, index)
+          ) {
+            continue;
           }
+          skipViolations.push(
+            `${relPath}:${index + 1}: unconditional ${label}`,
+          );
         }
       });
     }

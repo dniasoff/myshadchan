@@ -37,4 +37,3 @@ Shadcn Admin Kit components are actively maintained and updated. To update the c
 ```
 npx shadcn@latest add -o https://marmelab.com/shadcn-admin-kit/r/admin.json
 ```
-

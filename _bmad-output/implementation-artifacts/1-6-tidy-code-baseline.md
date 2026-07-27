@@ -976,6 +976,13 @@ already deleted by 1.1).
   a hard parse error, now excluded via `mockup/`). No file under `src/`, `workers/`,
   `supabase/`, `e2e/` or `scripts/` was excluded.
 
+  **[Corrected in the review-fix pass — see "Review Fixes" below.] This last sentence was
+  wrong and the check it describes was not actually performed:** the bare `lib`/`esm`/`es6`
+  entries left alone above are gitignore-syntax directory names, which match at any depth, not
+  just at the repo root — they were silently excluding `src/lib/` (6 files, including a
+  mis-formatted `src/lib/utils.ts`), and the untouched top-level `*.md` was excluding
+  `src/components/ui/README.md` and `src/components/admin/Readme.md`. Fixed below.
+
 **Task 5 (vitest warnings/skips).** No-op: `getContactAvatar.test.ts` and `ContactList.test.tsx`
 were both already deleted by story 1.1, so the `vi.mock`-in-`beforeAll` warning and the one
 unconditional `it.skip` are already gone. Confirmed via a full run: 0 `^Warning:` lines, 0
@@ -1115,15 +1122,108 @@ count, not removed); `MobileBackButton.tsx` (build-plan landmine L3 — resolved
 having 0 importers after landing, so nothing was left for this story to find); the newly
 discovered `PasswordInput.tsx` label-association bug (see Task 6 above).
 
+### Review Fixes (adversarial review response)
+
+Addressed the `NEEDS-FIX` verdict from the adversarial review. Fixed the blocker and both
+should-fix findings; left the two `note`-level findings as documented below.
+
+1. **Finding 1 (blocker, AC-5) — `.prettierignore`'s bare `lib`/`esm`/`es6` matched `src/lib`.**
+   Confirmed: gitignore-syntax bare directory names match at any depth, so `src/lib/` (6 files)
+   was silently excluded from prettier, and `*.md` excluded `src/components/ui/README.md` +
+   `src/components/admin/Readme.md`. No top-level `lib/`, `esm/` or `es6/` exists anywhere in the
+   tree (only `src/lib`) — deleted all three dead entries. For `*.md`, kept the blanket ignore
+   for non-`src` markdown (top-level `README.md`, `_bmad/`, `mockup/`, `design-artifacts/`,
+   `docs`) but added `!src/**/*.md` (+ the sibling `workers/`, `supabase/`, `e2e/`, `scripts/`
+   negations, for the same trees AC-5 names, even though only `src/` currently has any `.md`
+   files) so AC-5's unconditional "no file under src/, workers/, supabase/, e2e/ or scripts/ may
+   be excluded" actually holds. Ran `prettier:apply`: reformatted exactly the 3 files the finding
+   named (`src/lib/utils.ts` — one stray trailing blank line; the two vendored READMEs —
+   whitespace-only). `npm run prettier` now exits 0 with these trees included, verified by
+   pointing an unignored check directly at `src/lib/**/*.ts` and the two READMEs before and after.
+
+2. **Finding 2 (should-fix, AC-9/AC-10) — suppression guard blind spot on non-test-named files.**
+   Confirmed: `TEST_FILE_PATTERN` only scanned `*.test.{ts,tsx,mjs}`/`*.spec.ts` for skip
+   directives, so Task 8's `bailIfDbUnreachable()` helper — hoisted into
+   `supabase/tests/dbSuiteHelpers.ts`, a non-test-named file — carried an `it.skip(` the guard
+   could never see; the secondary hole (`.test.js`/`.spec.tsx`/`.spec.mjs` unrecognized) was real
+   too, though no such files exist in this repo today. Fixed both in `check-suppressions.mjs`:
+   widened `TEST_FILE_PATTERN` to `/\.(test|spec)\.(ts|tsx|mjs|js)$/`, and added
+   `TEST_BEARING_TREES = ["supabase/tests", "e2e"]` so every file in those trees is scanned for
+   skip directives regardless of name — file naming no longer decides whether the rule applies.
+   To avoid flagging Task 8's own sanctioned "throw in CI, skip locally" shape, added
+   `hasSanctionedCiThrowGuard()`: an `it`/`test`/`describe`.skip("...") is exempted only when the
+   same file has a `process.env.CI` check followed by a `throw` earlier in the file.
+   `.only`/`.todo`/`.fixme`/`xit`/`xdescribe` are never exempted — the CI-throw shape only
+   legitimizes the three `.skip` forms Task 8 actually produces. Added a matching
+   `buildCiGuardedSkip()` fixture builder (composed at runtime, per the file's existing
+   self-reference-trap convention) and 5 new tests in `check-suppressions.test.mjs`: an
+   unconditional `it.skip` in a non-test-named `supabase/tests/` file fails, same in `e2e/`
+   fails, the same call guarded by a CI-throw in the same file passes, a bare `xit` is never
+   exempted even alongside a CI guard, and a `.test.js` file is now recognized. 18/18 tests pass
+   (12 pre-existing + 6 new — 1 replaced an assertion that itself needed the runtime-composition
+   treatment once it started matching its own host file). `node scripts/check-suppressions.mjs`
+   still exits 0 against the real tree.
+
+3. **Finding 3 (should-fix, NFR-14) — 3 dead Playwright fixtures in `e2e/fixtures.ts`.**
+   Confirmed via `grep` across `e2e/*.spec.ts`: `createUser`, `getMenuMethod`/the `menu` fixture
+   (including its unused `isMobile` destructure) and `dismissToast` have no caller — their only
+   importers were the three fossil specs story 1.1 deleted. Deleted all three functions, their
+   `base.extend<>` type-map entries and factory wiring, and the now-unused `type Page` import.
+   `e2e/pipeline.spec.ts` only uses `page`, `createMember`, `createSingle`, `resetDb` (auto) —
+   unaffected. Verified: `npm run typecheck` 0 errors, `npm run lint` 0/0, and
+   `make test-e2e-ci` still `2 passed` on both Playwright projects (chromium, Mobile Chrome).
+
+4. **Finding 4 (note, pre-existing) — unquoted lint glob is shell-dependent.** Fixed anyway
+   (one-line, zero risk): quoted both `lint` and `lint:apply`'s glob in `package.json`
+   (`eslint "**/*.{mjs,ts,tsx}"`). Reproduced the bug and the fix: under `bash` as
+   `script-shell`, the unquoted glob brace-expanded to a literal `**/*.mjs` (no globstar) and
+   ESLint saw 18 files; quoted, it correctly sees all 462 files under both `sh` and `bash`. `npm
+   run lint` still exits 0, 462 files, 0 errors, 0 warnings.
+
+5. **Finding 5 (note) — suppression guard's `.claude` scan depends on untracked local files.**
+   **Not changed — rejected.** `.claude` is in `SCAN_DIRS` because Task 1 explicitly scoped the
+   re-measurement census to include it (`grep -rn ... .claude/`), and `.claude/skills` carries a
+   real, committed budget of 2. Restricting the scan to git-tracked files would require shelling
+   out to `git ls-files` from inside the guard, which breaks its own unit test (fixtures live in
+   `mkdtemp` temp directories that are never git repos) and is a materially bigger change than a
+   `note`-level finding warrants — genuinely out of this story's scope. The specific risk
+   described (a future untracked skill directory carrying a disable comment fails a developer's
+   local run while CI stays green) is also not new: it is an inherent property of scanning the
+   filesystem rather than the git index, true of every tree in `SCAN_DIRS`, not something this
+   story's change introduced. Currently harmless — verified the 7 untracked skill directories
+   present in this working copy (`banner-design`, `brand`, `design-system`, `design`, `slides`,
+   `ui-styling`, `ui-ux-pro-max`) contain no `eslint-disable`/`@ts-*` needles, so
+   `node scripts/check-suppressions.mjs` is green for the right reason today.
+
+**Full gate re-run after all fixes:** `npm run typecheck` 0 errors (3 projects); `npm run lint`
+462 files, 0/0; `npm run prettier` exit 0 (all matched files use Prettier style); `npm run test`
+54 files / 534 tests / 0 skipped; `node scripts/check-suppressions.mjs` OK; `node
+scripts/check-retired-names.mjs` OK; `make test-e2e-ci` 2 passed (chromium, Mobile Chrome);
+`npm run build` exit 0 (only the pre-existing chunk-size warning).
+
 ### File List
 
 **Modified:**
 - `.github/workflows/check.yml` — replaced `wearerequired/lint-action`, added `test-db` and
   `guards` jobs, added a `test:unit:scripts` step
 - `.prettierignore` — added `mockup/`, `design-artifacts/`, `_bmad/`, `.claude/skills/`; pruned
-  dead react-admin-era entries
+  dead react-admin-era entries; **(review fix)** deleted dead `lib`/`esm`/`es6` entries that were
+  matching `src/lib/`, added `!src|workers|supabase|e2e|scripts/**/*.md` negations so AC-5's
+  markdown files stay covered
 - `e2e/fixtures.ts` — added `accounts` to `resetDb()`'s `TABLES`, added a `createSingle`
-  fixture, consolidated the `no-empty-pattern` eslint-disables into one disable/enable pair
+  fixture, consolidated the `no-empty-pattern` eslint-disables into one disable/enable pair;
+  **(review fix)** deleted the dead `createUser`, `menu`/`getMenuMethod` and `dismissToast`
+  fixtures and the now-unused `Page` type import
+- `package.json` — **(review fix)** quoted the `lint`/`lint:apply` glob so it no longer degrades
+  under a `bash` script-shell
+- `scripts/check-suppressions.mjs` — **(review fix)** widened `TEST_FILE_PATTERN`, added
+  `TEST_BEARING_TREES` (`supabase/tests`, `e2e`) so non-test-named helper files are scanned for
+  skip directives, added `hasSanctionedCiThrowGuard()` to exempt Task 8's legitimate
+  "throw in CI, skip locally" shape, added the `buildCiGuardedSkip()` fixture builder
+- `scripts/check-suppressions.test.mjs` — **(review fix)** 5 new tests covering the widened scan
+  and the CI-guard exemption
+- `src/lib/utils.ts`, `src/components/admin/Readme.md`, `src/components/ui/README.md` —
+  **(review fix)** reformatted by `prettier:apply` once no longer wrongly excluded (Finding 1)
 - `eslint.config.js` — added `linterOptions.reportUnusedDisableDirectives`, added a
   `no-console: off` override for `scripts/**/*.mjs` and `supabase/functions/**/*.ts`
 - `makefile` — `test` now calls `npm run test`; removed the `test-unit`/`test-app`/
