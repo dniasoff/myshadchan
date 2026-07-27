@@ -449,14 +449,24 @@ table.
 
 ### Verified call sites (counted against `main` @ `8ad49cb`, 2026-07-26)
 
-**18 policies** call `current_account_id()` on `main` today; **17 survive Epic 1**
+**21 policies** call `current_account_id()` on `main` today; **20 survive Epic 1**
 (AC-6's table, using the pre-rename names `Children scoped to account` on `children`,
 and reading `sales`'s `Enable read access…` as out of scope since it never calls the
-resolver at all). The 18th — `Child portal tokens scoped to account` on
-`child_portal_tokens` (2 occurrences) — is deleted whole by story 1.4.
-`grep -c current_account_id supabase/schemas/05_policies.sql` → 41 raw occurrences
-today; 39 across the 17 policies this story migrates (`interactions` alone contributes
-8; every other policy contributes 1–2 for its `using`/`with check` pair).
+resolver at all). The one that does not survive — `Child portal tokens scoped to
+account` on `child_portal_tokens` (2 occurrences) — is deleted whole by story 1.4.
+`grep -c current_account_id supabase/schemas/05_policies.sql` → 40 raw occurrences
+today, plus **3 in `supabase/schemas/07_storage.sql`**.
+
+> **⚠️ Do not miss the storage policies.** Commit `31183f2` (2026-07-26) made the
+> `attachments` bucket private and added three account-scoped policies on
+> `storage.objects` — `Attachments readable within account`, `Attachments writable
+> within account`, `Attachments deletable within account` — each calling
+> `current_account_id()` in `supabase/schemas/07_storage.sql`. They live in a
+> **different schema file** from every other policy this story touches, so an inventory
+> built only from `05_policies.sql` silently misses them. Deleting the resolver without
+> migrating these three breaks **every attachment upload and read** (resumes and
+> photos). They must move to `current_context_id()` in this story, and AC-6's table
+> must list them.
 
 **14 functions** call it in their bodies (AC-9's list).
 `grep -c current_account_id supabase/schemas/02_functions.sql` → 21 raw occurrences:
