@@ -20,8 +20,8 @@ import type {
   ReferenceLink,
   ReferenceMatchCandidate,
   ReferenceMergePreview,
-  Sale,
-  SalesFormData,
+  Member,
+  MemberFormData,
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
@@ -140,16 +140,16 @@ const getDataProviderWithCustomMethods = () => {
         password,
       };
     },
-    async salesCreate(body: SalesFormData) {
+    async memberCreate(body: MemberFormData) {
       const { data, error } = await getSupabaseClient().functions.invoke<{
-        data: Sale;
+        data: Member;
       }>("users", {
         method: "POST",
         body,
       });
 
       if (!data || error) {
-        console.error("salesCreate.error", error);
+        console.error("memberCreate.error", error);
         const errorDetails = await (async () => {
           try {
             return (await error?.context?.json()) ?? {};
@@ -162,20 +162,20 @@ const getDataProviderWithCustomMethods = () => {
 
       return data.data;
     },
-    async salesUpdate(
+    async memberUpdate(
       id: Identifier,
-      data: Partial<Omit<SalesFormData, "password">>,
+      data: Partial<Omit<MemberFormData, "password">>,
     ) {
       const { email, first_name, last_name, administrator, avatar, disabled } =
         data;
 
       const { data: updatedData, error } =
         await getSupabaseClient().functions.invoke<{
-          data: Sale;
+          data: Member;
         }>("users", {
           method: "PATCH",
           body: {
-            sales_id: id,
+            member_id: id,
             email,
             first_name,
             last_name,
@@ -186,19 +186,17 @@ const getDataProviderWithCustomMethods = () => {
         });
 
       if (!updatedData || error) {
-        console.error("salesCreate.error", error);
+        console.error("memberCreate.error", error);
         throw new Error("Failed to update account manager");
       }
 
       return updatedData.data;
     },
-    async updatePassword(id: Identifier) {
+    async updatePassword(_id: Identifier) {
       const { data: passwordUpdated, error } =
         await getSupabaseClient().functions.invoke<boolean>("update_password", {
           method: "PATCH",
-          body: {
-            sales_id: id,
-          },
+          body: {},
         });
 
       if (!passwordUpdated || error) {
@@ -525,8 +523,8 @@ const lifeCycleCallbacks: ResourceCallbacks[] = [
     },
   },
   {
-    resource: "sales",
-    beforeSave: async (data: Sale, _, __) => {
+    resource: "members",
+    beforeSave: async (data: Member, _, __) => {
       if (data.avatar) {
         await uploadToBucket(data.avatar);
       }

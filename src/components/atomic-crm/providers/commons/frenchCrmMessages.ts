@@ -55,7 +55,7 @@ export const frenchCrmMessages = {
         open_task_count: "Rappels ouverts",
       },
     },
-    sales: {
+    members: {
       name: "Utilisateur |||| Utilisateurs",
       fields: {
         first_name: "Prénom",

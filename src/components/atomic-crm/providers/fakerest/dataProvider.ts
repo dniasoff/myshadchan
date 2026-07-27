@@ -18,8 +18,8 @@ import type {
   ReferenceLink,
   ReferenceMatchCandidate,
   ReferenceMergePreview,
-  Sale,
-  SalesFormData,
+  Member,
+  MemberFormData,
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
@@ -495,7 +495,7 @@ export const createDataProvider = ({
       email: string;
       password: string;
     }> => {
-      const user = await baseDataProvider.create("sales", {
+      const user = await baseDataProvider.create("members", {
         data: {
           email,
           first_name,
@@ -508,8 +508,8 @@ export const createDataProvider = ({
         password,
       };
     },
-    salesCreate: async ({ ...data }: SalesFormData): Promise<Sale> => {
-      const response = await dataProvider.create("sales", {
+    memberCreate: async ({ ...data }: MemberFormData): Promise<Member> => {
+      const response = await dataProvider.create("members", {
         data: {
           ...data,
           password: "new_password",
@@ -518,32 +518,35 @@ export const createDataProvider = ({
 
       return response.data;
     },
-    salesUpdate: async (
+    memberUpdate: async (
       id: Identifier,
-      data: Partial<Omit<SalesFormData, "password">>,
-    ): Promise<Sale> => {
-      const { data: previousData } = await dataProvider.getOne<Sale>("sales", {
-        id,
-      });
+      data: Partial<Omit<MemberFormData, "password">>,
+    ): Promise<Member> => {
+      const { data: previousData } = await dataProvider.getOne<Member>(
+        "members",
+        {
+          id,
+        },
+      );
 
       if (!previousData) {
         throw new Error("User not found");
       }
 
-      const { data: sale } = await dataProvider.update<Sale>("sales", {
+      const { data: member } = await dataProvider.update<Member>("members", {
         id,
         data,
         previousData,
       });
-      return { ...sale, user_id: sale.id.toString() };
+      return { ...member, user_id: member.id.toString() };
     },
     isInitialized: async (): Promise<boolean> => {
-      const sales = await dataProvider.getList<Sale>("sales", {
+      const members = await dataProvider.getList<Member>("members", {
         filter: {},
         pagination: { page: 1, perPage: 1 },
         sort: { field: "id", order: "ASC" },
       });
-      if (sales.data.length === 0) {
+      if (members.data.length === 0) {
         return false;
       }
       return true;
@@ -553,15 +556,18 @@ export const createDataProvider = ({
       if (!currentUser) {
         throw new Error("User not found");
       }
-      const { data: previousData } = await dataProvider.getOne<Sale>("sales", {
-        id: currentUser.id,
-      });
+      const { data: previousData } = await dataProvider.getOne<Member>(
+        "members",
+        {
+          id: currentUser.id,
+        },
+      );
 
       if (!previousData) {
         throw new Error("User not found");
       }
 
-      await dataProvider.update("sales", {
+      await dataProvider.update("members", {
         id,
         data: {
           password: "demo_newPassword",
@@ -763,7 +769,7 @@ export const createDataProvider = ({
         },
       },
       {
-        resource: "sales",
+        resource: "members",
         beforeCreate: async (params) => {
           const { data } = params;
           // If administrator role is not set, we simply set it to false
@@ -781,7 +787,7 @@ export const createDataProvider = ({
           }
           return data;
         },
-      } satisfies ResourceCallbacks<Sale>,
+      } satisfies ResourceCallbacks<Member>,
     ],
   ) as CrmDataProvider;
 

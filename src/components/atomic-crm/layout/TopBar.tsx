@@ -31,7 +31,7 @@ export const TopBar = () => (
       <ThemeModeToggle />
       <RefreshButton />
       <UserMenu>
-        <CanAccess resource="sales" action="list">
+        <CanAccess resource="members" action="list">
           <UsersMenuItem />
         </CanAccess>
         <CanAccess resource="configuration" action="edit">
@@ -116,9 +116,9 @@ const UsersMenuItem = () => {
   }
   return (
     <DropdownMenuItem asChild onClick={userMenuContext.onClose}>
-      <Link to="/sales" className="flex items-center gap-2">
+      <Link to="/members" className="flex items-center gap-2">
         <Users />
-        {translate("resources.sales.name", { smart_count: 2 })}
+        {translate("resources.members.name", { smart_count: 2 })}
       </Link>
     </DropdownMenuItem>
   );

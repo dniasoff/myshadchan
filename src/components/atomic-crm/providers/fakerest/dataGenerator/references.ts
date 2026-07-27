@@ -341,7 +341,7 @@ export const generateReferencesDomain = (db: Db) => {
     text: seed.text,
     due_date: seed.dueDate,
     done_date: undefined,
-    sales_id: 0,
+    member_id: 0,
   }));
 
   db.references = references;

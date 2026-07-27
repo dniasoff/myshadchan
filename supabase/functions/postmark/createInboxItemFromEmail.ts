@@ -2,30 +2,30 @@ import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import type { InboxItemRow } from "./buildInboxItemPayload.ts";
 
 /**
- * Resolve the MyShadchan account for a forwarding user, keyed by their `sales`
+ * Resolve the MyShadchan account for a forwarding user, keyed by their `members`
  * email → user_id → account_members. Returns null when the sender is not a
  * known user or belongs to no account (the webhook then refuses the capture,
  * rather than filing it into an arbitrary account).
  */
-export async function resolveAccountIdForSalesEmail(
-  salesEmail: string,
+export async function resolveAccountIdForMemberEmail(
+  memberEmail: string,
 ): Promise<number | null> {
-  const { data: sales } = await supabaseAdmin
-    .from("sales")
+  const { data: memberRow } = await supabaseAdmin
+    .from("members")
     .select("user_id")
-    .eq("email", salesEmail)
+    .eq("email", memberEmail)
     .maybeSingle();
-  if (!sales?.user_id) return null;
+  if (!memberRow?.user_id) return null;
 
-  const { data: member } = await supabaseAdmin
+  const { data: membership } = await supabaseAdmin
     .from("account_members")
     .select("account_id")
-    .eq("user_id", sales.user_id)
+    .eq("user_id", memberRow.user_id)
     .order("account_id", { ascending: true })
     .limit(1)
     .maybeSingle();
 
-  return member?.account_id ?? null;
+  return membership?.account_id ?? null;
 }
 
 /**

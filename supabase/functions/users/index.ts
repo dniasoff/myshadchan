@@ -3,33 +3,33 @@ import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { corsHeaders, OptionsMiddleware } from "../_shared/cors.ts";
 import { createErrorResponse } from "../_shared/utils.ts";
 import { AuthMiddleware, UserMiddleware } from "../_shared/authentication.ts";
-import { getUserSale } from "../_shared/getUserSale.ts";
+import { getUserMember } from "../_shared/getUserMember.ts";
 
-async function updateSaleDisabled(user_id: string, disabled: boolean) {
+async function updateMemberDisabled(user_id: string, disabled: boolean) {
   return await supabaseAdmin
-    .from("sales")
+    .from("members")
     .update({ disabled: disabled ?? false })
     .eq("user_id", user_id);
 }
 
-async function updateSaleAdministrator(
+async function updateMemberAdministrator(
   user_id: string,
   administrator: boolean,
 ) {
-  const { data: sales, error: salesError } = await supabaseAdmin
-    .from("sales")
+  const { data: members, error: membersError } = await supabaseAdmin
+    .from("members")
     .update({ administrator })
     .eq("user_id", user_id)
     .select("*");
 
-  if (!sales?.length || salesError) {
-    console.error("Error updating user:", salesError);
-    throw salesError ?? new Error("Failed to update sale");
+  if (!members?.length || membersError) {
+    console.error("Error updating user:", membersError);
+    throw membersError ?? new Error("Failed to update member");
   }
-  return sales.at(0);
+  return members.at(0);
 }
 
-async function createSale(
+async function createMember(
   user_id: string,
   data: {
     email: string;
@@ -40,30 +40,30 @@ async function createSale(
     administrator: boolean;
   },
 ) {
-  const { data: sales, error: salesError } = await supabaseAdmin
-    .from("sales")
+  const { data: members, error: membersError } = await supabaseAdmin
+    .from("members")
     .insert({ ...data, user_id })
     .select("*");
 
-  if (!sales?.length || salesError) {
-    console.error("Error creating user:", salesError);
-    throw salesError ?? new Error("Failed to create sale");
+  if (!members?.length || membersError) {
+    console.error("Error creating user:", membersError);
+    throw membersError ?? new Error("Failed to create member");
   }
-  return sales.at(0);
+  return members.at(0);
 }
 
-async function updateSaleAvatar(user_id: string, avatar: string) {
-  const { data: sales, error: salesError } = await supabaseAdmin
-    .from("sales")
+async function updateMemberAvatar(user_id: string, avatar: string) {
+  const { data: members, error: membersError } = await supabaseAdmin
+    .from("members")
     .update({ avatar })
     .eq("user_id", user_id)
     .select("*");
 
-  if (!sales?.length || salesError) {
-    console.error("Error updating user:", salesError);
-    throw salesError ?? new Error("Failed to update sale");
+  if (!members?.length || membersError) {
+    console.error("Error updating user:", membersError);
+    throw membersError ?? new Error("Failed to update member");
   }
-  return sales.at(0);
+  return members.at(0);
 }
 
 /**
@@ -124,11 +124,11 @@ async function provisionAccountMembership(
   }
 }
 
-async function inviteUser(req: Request, currentUserSale: any) {
+async function inviteUser(req: Request, currentUserMember: any) {
   const { email, password, first_name, last_name, disabled, administrator } =
     await req.json();
 
-  if (!currentUserSale.administrator) {
+  if (!currentUserMember.administrator) {
     return createErrorResponse(401, "Not Authorized");
   }
 
@@ -142,7 +142,7 @@ async function inviteUser(req: Request, currentUserSale: any) {
 
   if (!user && userError?.code === "email_exists") {
     // This may happen if users cleared their database but not the users
-    // We have to create the sale directly
+    // We have to create the member directly
     const { data, error } = await supabaseAdmin.rpc("get_user_id_by_email", {
       email,
     });
@@ -156,23 +156,23 @@ async function inviteUser(req: Request, currentUserSale: any) {
 
     user = data[0];
     try {
-      const { data: existingSale, error: salesError } = await supabaseAdmin
-        .from("sales")
+      const { data: existingMember, error: membersError } = await supabaseAdmin
+        .from("members")
         .select("*")
         .eq("user_id", user.id);
-      if (salesError) {
-        return createErrorResponse(salesError.status, salesError.message, {
-          code: salesError.code,
+      if (membersError) {
+        return createErrorResponse(membersError.status, membersError.message, {
+          code: membersError.code,
         });
       }
-      if (existingSale.length > 0) {
+      if (existingMember.length > 0) {
         return createErrorResponse(
           400,
-          "A sales for this email already exists",
+          "A member for this email already exists",
         );
       }
 
-      const sale = await createSale(user.id, {
+      const member = await createMember(user.id, {
         email,
         password,
         first_name,
@@ -181,11 +181,11 @@ async function inviteUser(req: Request, currentUserSale: any) {
         administrator,
       });
 
-      await provisionAccountMembership(currentUserSale.user_id, user.id);
+      await provisionAccountMembership(currentUserMember.user_id, user.id);
 
       return new Response(
         JSON.stringify({
-          data: sale,
+          data: member,
         }),
         {
           headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -221,27 +221,27 @@ async function inviteUser(req: Request, currentUserSale: any) {
   }
 
   try {
-    await provisionAccountMembership(currentUserSale.user_id, user.id);
-    await updateSaleDisabled(user.id, disabled);
-    const sale = await updateSaleAdministrator(user.id, administrator);
+    await provisionAccountMembership(currentUserMember.user_id, user.id);
+    await updateMemberDisabled(user.id, disabled);
+    const member = await updateMemberAdministrator(user.id, administrator);
 
     return new Response(
       JSON.stringify({
-        data: sale,
+        data: member,
       }),
       {
         headers: { "Content-Type": "application/json", ...corsHeaders },
       },
     );
   } catch (e) {
-    console.error("Error patching sale:", e);
+    console.error("Error patching member:", e);
     return createErrorResponse(500, "Internal Server Error");
   }
 }
 
-async function patchUser(req: Request, currentUserSale: any) {
+async function patchUser(req: Request, currentUserMember: any) {
   const {
-    sales_id,
+    member_id,
     email,
     first_name,
     last_name,
@@ -249,18 +249,18 @@ async function patchUser(req: Request, currentUserSale: any) {
     administrator,
     disabled,
   } = await req.json();
-  const { data: sale } = await supabaseAdmin
-    .from("sales")
+  const { data: member } = await supabaseAdmin
+    .from("members")
     .select("*")
-    .eq("id", sales_id)
+    .eq("id", member_id)
     .single();
 
-  if (!sale) {
+  if (!member) {
     return createErrorResponse(404, "Not Found");
   }
 
   // Users can only update their own profile unless they are an administrator
-  if (!currentUserSale.administrator && currentUserSale.id !== sale.id) {
+  if (!currentUserMember.administrator && currentUserMember.id !== member.id) {
     return createErrorResponse(401, "Not Authorized");
   }
 
@@ -272,7 +272,7 @@ async function patchUser(req: Request, currentUserSale: any) {
     ban_duration?: string;
     user_metadata: { first_name?: string; last_name?: string };
   } = { user_metadata: { first_name, last_name } };
-  if (email && email !== sale.email) {
+  if (email && email !== member.email) {
     userUpdate.email = email;
   }
   if (disabled !== undefined) {
@@ -280,7 +280,7 @@ async function patchUser(req: Request, currentUserSale: any) {
   }
 
   const { data, error: userError } =
-    await supabaseAdmin.auth.admin.updateUserById(sale.user_id, userUpdate);
+    await supabaseAdmin.auth.admin.updateUserById(member.user_id, userUpdate);
 
   if (!data?.user || userError) {
     console.error("Error patching user:", userError);
@@ -288,19 +288,19 @@ async function patchUser(req: Request, currentUserSale: any) {
   }
 
   if (avatar) {
-    await updateSaleAvatar(data.user.id, avatar);
+    await updateMemberAvatar(data.user.id, avatar);
   }
 
   // Only administrators can update the administrator and disabled status
-  if (!currentUserSale.administrator) {
-    const { data: new_sale } = await supabaseAdmin
-      .from("sales")
+  if (!currentUserMember.administrator) {
+    const { data: new_member } = await supabaseAdmin
+      .from("members")
       .select("*")
-      .eq("id", sales_id)
+      .eq("id", member_id)
       .single();
     return new Response(
       JSON.stringify({
-        data: new_sale,
+        data: new_member,
       }),
       {
         headers: {
@@ -316,22 +316,25 @@ async function patchUser(req: Request, currentUserSale: any) {
     // administrator/disabled arrive undefined and must not be reset (updating a
     // NOT NULL column to null is what previously 500'd the profile save).
     if (disabled !== undefined) {
-      await updateSaleDisabled(data.user.id, disabled);
+      await updateMemberDisabled(data.user.id, disabled);
     }
-    let updatedSale;
+    let updatedMember;
     if (administrator !== undefined) {
-      updatedSale = await updateSaleAdministrator(data.user.id, administrator);
+      updatedMember = await updateMemberAdministrator(
+        data.user.id,
+        administrator,
+      );
     } else {
       const { data: current } = await supabaseAdmin
-        .from("sales")
+        .from("members")
         .select("*")
         .eq("user_id", data.user.id)
         .single();
-      updatedSale = current;
+      updatedMember = current;
     }
     return new Response(
       JSON.stringify({
-        data: updatedSale,
+        data: updatedMember,
       }),
       {
         headers: {
@@ -341,7 +344,7 @@ async function patchUser(req: Request, currentUserSale: any) {
       },
     );
   } catch (e) {
-    console.error("Error patching sale:", e);
+    console.error("Error patching member:", e);
     return createErrorResponse(500, "Internal Server Error");
   }
 }
@@ -350,17 +353,17 @@ Deno.serve(async (req: Request) =>
   OptionsMiddleware(req, async (req) =>
     AuthMiddleware(req, async (req) =>
       UserMiddleware(req, async (req, user) => {
-        const currentUserSale = await getUserSale(user);
-        if (!currentUserSale) {
+        const currentUserMember = await getUserMember(user);
+        if (!currentUserMember) {
           return createErrorResponse(401, "Unauthorized");
         }
 
         if (req.method === "POST") {
-          return inviteUser(req, currentUserSale);
+          return inviteUser(req, currentUserMember);
         }
 
         if (req.method === "PATCH") {
-          return patchUser(req, currentUserSale);
+          return patchUser(req, currentUserMember);
         }
 
         return createErrorResponse(405, "Method Not Allowed");

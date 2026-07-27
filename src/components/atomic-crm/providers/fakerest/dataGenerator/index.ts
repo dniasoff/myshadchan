@@ -1,11 +1,11 @@
+import { generateMembers } from "./members";
 import { generateReferencesDomain } from "./references";
-import { generateSales } from "./sales";
 import { generateShidduchimDomain } from "./shidduchim";
 import type { Db } from "./types";
 
 export default (): Db => {
   const db = {} as Db;
-  db.sales = generateSales(db);
+  db.members = generateMembers(db);
   db.configuration = [
     {
       id: 1,

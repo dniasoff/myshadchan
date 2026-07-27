@@ -2,11 +2,11 @@ import { email, required, useGetIdentity, useRecordContext } from "ra-core";
 import { BooleanInput } from "@/components/admin/boolean-input";
 import { TextInput } from "@/components/admin/text-input";
 
-import type { Sale } from "../types";
+import type { Member } from "../types";
 
-export function SalesInputs() {
+export function MemberInputs() {
   const { identity } = useGetIdentity();
-  const record = useRecordContext<Sale>();
+  const record = useRecordContext<Member>();
   return (
     <div className="space-y-4 w-full">
       <TextInput source="first_name" validate={required()} helperText={false} />

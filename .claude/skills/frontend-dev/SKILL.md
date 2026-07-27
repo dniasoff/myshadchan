@@ -39,7 +39,7 @@ Resources are registered in `root/CRM.tsx` via `<Resource name="contacts" {...co
 ## Data fetching
 
 - For standard CRUD, use ra-core hooks: `useListContext()`, `useShowContext()`, `useGetList()`, `useGetOne()`, `useGetIdentity()`.
-- When a query or mutation isn't covered by ra-core hooks, add a custom dataProvider method and call it via `useQuery`/`useMutation` with `useDataProvider<CrmDataProvider>()` (e.g. `dataProvider.getActivityLog()` in `ActivityLog.tsx`, `dataProvider.salesCreate()` in `SalesCreate.tsx`).
+- When a query or mutation isn't covered by ra-core hooks, add a custom dataProvider method and call it via `useQuery`/`useMutation` with `useDataProvider<CrmDataProvider>()` (e.g. `dataProvider.getActivityLog()` in `ActivityLog.tsx`, `dataProvider.memberCreate()` in `MemberCreate.tsx`).
 
 ## Forms
 

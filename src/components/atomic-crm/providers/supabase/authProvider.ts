@@ -7,24 +7,24 @@ import { getSupabaseClient } from "./supabase";
 const getBaseAuthProvider = () =>
   supabaseAuthProvider(getSupabaseClient(), {
     getIdentity: async () => {
-      const sale = await getSale();
+      const member = await getMember();
 
-      if (sale == null) {
+      if (member == null) {
         throw new Error();
       }
 
       return {
-        id: sale.id,
-        fullName: `${sale.first_name} ${sale.last_name}`,
-        avatar: sale.avatar?.src,
+        id: member.id,
+        fullName: `${member.first_name} ${member.last_name}`,
+        avatar: member.avatar?.src,
       };
     },
   });
 
 // To speed up checks, we cache the initialization state
-// and the current sale in the local storage. They are cleared on logout.
+// and the current member in the local storage. They are cleared on logout.
 const IS_INITIALIZED_CACHE_KEY = "RaStore.auth.is_initialized";
-const CURRENT_SALE_CACHE_KEY = "RaStore.auth.current_sale";
+const CURRENT_MEMBER_CACHE_KEY = "RaStore.auth.current_member";
 
 function getLocalStorage(): Storage | null {
   if (typeof window !== "undefined" && window.localStorage) {
@@ -52,9 +52,9 @@ export async function getIsInitialized() {
   return isInitialized;
 }
 
-const getSale = async () => {
+const getMember = async () => {
   const storage = getLocalStorage();
-  const cachedValue = storage?.getItem(CURRENT_SALE_CACHE_KEY);
+  const cachedValue = storage?.getItem(CURRENT_MEMBER_CACHE_KEY);
   if (cachedValue != null) {
     return JSON.parse(cachedValue);
   }
@@ -67,25 +67,25 @@ const getSale = async () => {
     return undefined;
   }
 
-  const { data: dataSale, error: errorSale } = await getSupabaseClient()
-    .from("sales")
+  const { data: dataMember, error: errorMember } = await getSupabaseClient()
+    .from("members")
     .select("id, first_name, last_name, avatar, administrator")
     .match({ user_id: dataSession?.session?.user.id })
     .single();
 
-  // Shouldn't happen either as all users are sales but just in case
-  if (dataSale == null || errorSale) {
+  // Shouldn't happen either as all users are members but just in case
+  if (dataMember == null || errorMember) {
     return undefined;
   }
 
-  storage?.setItem(CURRENT_SALE_CACHE_KEY, JSON.stringify(dataSale));
-  return dataSale;
+  storage?.setItem(CURRENT_MEMBER_CACHE_KEY, JSON.stringify(dataMember));
+  return dataMember;
 };
 
 function clearCache() {
   const storage = getLocalStorage();
   storage?.removeItem(IS_INITIALIZED_CACHE_KEY);
-  storage?.removeItem(CURRENT_SALE_CACHE_KEY);
+  storage?.removeItem(CURRENT_MEMBER_CACHE_KEY);
 }
 
 export const getAuthProvider = (): AuthProvider => {
@@ -162,11 +162,11 @@ export const getAuthProvider = (): AuthProvider => {
       if (!isInitialized) return false;
 
       // Get the current user
-      const sale = await getSale();
-      if (sale == null) return false;
+      const member = await getMember();
+      if (member == null) return false;
 
-      // Compute access rights from the sale role
-      const role = sale.administrator ? "admin" : "user";
+      // Compute access rights from the member role
+      const role = member.administrator ? "admin" : "user";
       return canAccess(role, params);
     },
     getAuthorizationDetails(authorizationId: string) {

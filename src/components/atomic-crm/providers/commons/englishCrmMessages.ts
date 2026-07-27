@@ -53,7 +53,7 @@ export const englishCrmMessages = {
         open_task_count: "Open reminders",
       },
     },
-    sales: {
+    members: {
       name: "User |||| Users",
       fields: {
         first_name: "First name",

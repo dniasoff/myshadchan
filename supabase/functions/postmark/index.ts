@@ -13,7 +13,7 @@ import { extractAndUploadAttachments } from "./extractAndUploadAttachments.ts";
 import { buildInboxItemPayload } from "./buildInboxItemPayload.ts";
 import {
   createInboxItemFromEmail,
-  resolveAccountIdForSalesEmail,
+  resolveAccountIdForMemberEmail,
 } from "./createInboxItemFromEmail.ts";
 import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 
@@ -44,19 +44,19 @@ Deno.serve(async (req) => {
   const { FromFull, Attachments, ToFull } = json;
   let { TextBody, Subject } = json;
 
-  const salesEmail = (FromFull.Email || "").toLowerCase();
-  if (!salesEmail) {
+  const memberEmail = (FromFull.Email || "").toLowerCase();
+  if (!memberEmail) {
     // Return a 403 to let Postmark know that it's no use to retry this request
     // https://postmarkapp.com/developer/webhooks/inbound-webhook#errors-and-retries
     return new Response(
-      `Could not extract sales email from FromFull: ${FromFull}`,
+      `Could not extract member email from FromFull: ${FromFull}`,
       { status: 403 },
     );
   }
 
-  const allSales = await supabaseAdmin.from("sales").select("email");
-  const salesEmails =
-    allSales.data?.map((s: { email: string }) => s.email) ?? [];
+  const allMembers = await supabaseAdmin.from("members").select("email");
+  const memberEmails =
+    allMembers.data?.map((m: { email: string }) => m.email) ?? [];
 
   const firstToEmail = (ToFull[0]?.Email || "").toLowerCase();
 
@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
     INBOUND_EMAIL &&
     ToFull.length === 1 &&
     firstToEmail === INBOUND_EMAIL &&
-    salesEmails.includes(salesEmail)
+    memberEmails.includes(memberEmail)
   ) {
     TextBody = getForwardedMailContent(TextBody);
     Subject = stripSubjectForwardingPrefix(Subject);
@@ -74,18 +74,21 @@ Deno.serve(async (req) => {
 
   // Shidduch capture (Epic 2): file the whole email verbatim into the sender's
   // inbox for one calm confirm step. The sender is the family member who sent
-  // or forwarded the redt; their account is resolved via sales -> account_members.
-  if (!salesEmails.includes(salesEmail)) {
+  // or forwarded the redt; their account is resolved via members -> account_members.
+  if (!memberEmails.includes(memberEmail)) {
     // Only known MyShadchan users may file captures; never attribute an inbound
     // email to an arbitrary account. 403 tells Postmark not to retry.
-    return new Response(`Sender ${salesEmail} is not a known MyShadchan user`, {
-      status: 403,
-    });
+    return new Response(
+      `Sender ${memberEmail} is not a known MyShadchan user`,
+      {
+        status: 403,
+      },
+    );
   }
 
-  const accountId = await resolveAccountIdForSalesEmail(salesEmail);
+  const accountId = await resolveAccountIdForMemberEmail(memberEmail);
   if (!accountId) {
-    return new Response(`No MyShadchan account for sender ${salesEmail}`, {
+    return new Response(`No MyShadchan account for sender ${memberEmail}`, {
       status: 403,
     });
   }
@@ -158,7 +161,7 @@ const checkBody = (json: any) => {
 
 /* To invoke locally:
   1. Run `make start`
-  2. Make sure to have a Sales with email "support@postmarkapp.com" (create it if needed)
+  2. Make sure to have a Member with email "support@postmarkapp.com" (create it if needed)
   3. OPTIONAL: Create a Contact with email "firstname.lastname@marmelab.com"
   4. In another terminal, run `make start-supabase-functions`
   5. In another terminal, make an HTTP request:
@@ -246,7 +249,7 @@ const checkBody = (json: any) => {
       }'
 
       
-  To trigger the email forwarding feature, you can change the "To" and "ToFull" fields to have the INBOUND_EMAIL, and add an email address that is neither a sales nor the INBOUND_EMAIL, for example:
+  To trigger the email forwarding feature, you can change the "To" and "ToFull" fields to have the INBOUND_EMAIL, and add an email address that is neither a member nor the INBOUND_EMAIL, for example:
   curl -i --location --request POST 'http://127.0.0.1:54321/functions/v1/postmark' \
     --header 'Content-Type: application/json' \
     --header 'Authorization: Basic dGVzdHVzZXI6dGVzdHB3ZA==' \

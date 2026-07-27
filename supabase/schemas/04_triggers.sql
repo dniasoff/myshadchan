@@ -3,12 +3,12 @@
 -- This file declares all triggers.
 --
 
--- Auto-populate sales_id from current auth user on insert
-create or replace trigger set_task_sales_id_trigger
+-- Auto-populate member_id from current auth user on insert
+create or replace trigger set_task_member_id_trigger
     before insert on public.tasks
-    for each row execute function public.set_sales_id_default();
+    for each row execute function public.set_member_id_default();
 
--- Auth triggers: sync auth.users to public.sales
+-- Auth triggers: sync auth.users to public.members
 create or replace trigger on_auth_user_created
     after insert on auth.users
     for each row execute function public.handle_new_user();

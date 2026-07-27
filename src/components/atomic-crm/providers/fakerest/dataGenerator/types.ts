@@ -4,12 +4,12 @@ import type {
   DateRecord,
   InboxItem,
   Interaction,
+  Member,
   PipelineTransition,
   Redt,
   Reference,
   ReferenceLink,
   Resume,
-  Sale,
   Shadchan,
   Shidduch,
   ShidduchSchool,
@@ -19,7 +19,7 @@ import type {
 import type { ConfigurationContextValue } from "../../../root/ConfigurationContext";
 
 export interface Db {
-  sales: Sale[];
+  members: Member[];
   tasks: Task[];
   configuration: Array<{ id: number; config: ConfigurationContextValue }>;
   // Shidduchim pipeline domain

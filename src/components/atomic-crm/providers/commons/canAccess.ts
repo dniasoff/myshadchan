@@ -17,8 +17,8 @@ export const canAccess = <
     return true;
   }
 
-  // Non admins can't access the sales resource
-  if (params.resource === "sales") {
+  // Non admins can't access the members resource
+  if (params.resource === "members") {
     return false;
   }
 

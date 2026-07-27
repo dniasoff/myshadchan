@@ -25,7 +25,7 @@ Prefer frontend-only solutions via custom dataProvider methods calling the Postg
 When backend logic is needed:
 
 - **Aggregation/read optimization**: Create a database view (`CREATE OR REPLACE VIEW` in a new migration). PostgREST exposes views like tables. When underlying table columns change, update the `contacts_summary` and `companies_summary` views too.
-- **Complex mutations** (multi-table writes): Create a Supabase edge function in Deno. Stored procedures via RPC are less preferred (code lives in migrations, harder to maintain). On the frontend, expose the edge function as a custom dataProvider method (using `httpClient(`${supabaseUrl}/functions/v1/<name>`)`) and call it via react-query. (e.g. `salesCreate()` → `/functions/v1/users`, `mergeContacts()` → `/functions/v1/merge_contacts`)
+- **Complex mutations** (multi-table writes): Create a Supabase edge function in Deno. Stored procedures via RPC are less preferred (code lives in migrations, harder to maintain). On the frontend, expose the edge function as a custom dataProvider method (using `httpClient(`${supabaseUrl}/functions/v1/<name>`)`) and call it via react-query. (e.g. `memberCreate()` → `/functions/v1/users`, `mergeContacts()` → `/functions/v1/merge_contacts`)
 
 ## Edge function conventions
 
@@ -35,7 +35,7 @@ When backend logic is needed:
 
 ## Other conventions
 
-- New tables need RLS policies and the auto-set `sales_id` trigger (see migration `20260108160722`)
+- New tables need RLS policies and the auto-set `member_id` trigger (see migration `20260108160722`)
 
 ## RLS enforcement pitfalls (security-critical)
 
@@ -46,7 +46,7 @@ When backend logic is needed:
 
 - Reaching for an edge function or RPC where a custom dataProvider method against PostgREST would do.
 - Adding a column to a table that feeds `contacts_summary`/`companies_summary` without updating the view.
-- A new table without RLS policies or the `sales_id` trigger.
+- A new table without RLS policies or the `member_id` trigger.
 - A row-counting limit enforced by a `SECURITY INVOKER` function it under-counts and never fires.
 - A `WITH CHECK` that constrains only ownership while leaving `status`/`type`/amounts client-settable.
 - An edge function handler that runs before `authenticate()` in the middleware chain.
@@ -55,7 +55,7 @@ When backend logic is needed:
 
 - [ ] The logic genuinely needs the backend no frontend-only path was available.
 - [ ] New/changed views keep `contacts_summary` and `companies_summary` in sync.
-- [ ] New tables have RLS policies and the `sales_id` trigger.
+- [ ] New tables have RLS policies and the `member_id` trigger.
 - [ ] Any limit-enforcing count runs `SECURITY DEFINER` with a fixed `search_path`.
 - [ ] Every column a non-admin can set is constrained by policy, trigger, or `CHECK`.
 - [ ] Edge functions follow CORS → `authenticate()` → handler.

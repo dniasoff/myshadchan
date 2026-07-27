@@ -118,7 +118,7 @@ describe("LandingPage", () => {
   });
 
   it("stays out of marketing register", async () => {
-    // Arrange: sales language, second-person reassurance and the scene-setting
+    // Arrange: marketing language, second-person reassurance and the scene-setting
     // the copy was rewritten to remove.
     const bannedPhrases = [
       "revolutionize",

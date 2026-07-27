@@ -4,12 +4,12 @@
 --
 
 -- Enable RLS on all tables
-alter table public.sales enable row level security;
+alter table public.members enable row level security;
 alter table public.tasks enable row level security;
 alter table public.configuration enable row level security;
 
--- Sales
-create policy "Enable read access for authenticated users" on public.sales for select to authenticated using (true);
+-- Members
+create policy "Enable read access for authenticated users" on public.members for select to authenticated using (true);
 
 -- Tasks. Account-scoped like the rest of the shidduchim domain (AD-1);
 -- set_account_id_default() populates account_id on every insert.

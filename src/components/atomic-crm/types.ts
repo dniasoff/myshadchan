@@ -7,7 +7,7 @@ export type SignUpData = {
   last_name: string;
 };
 
-export type SalesFormData = {
+export type MemberFormData = {
   avatar?: string;
   email: string;
   password?: string;
@@ -17,7 +17,7 @@ export type SalesFormData = {
   disabled: boolean;
 };
 
-export type Sale = {
+export type Member = {
   first_name: string;
   last_name: string;
   administrator: boolean;
@@ -53,7 +53,7 @@ export type Task = {
   text: string;
   due_date: string;
   done_date?: string | null;
-  sales_id?: Identifier;
+  member_id?: Identifier;
   account_id?: Identifier;
   target_type?: TaskTargetType;
   target_id?: Identifier;

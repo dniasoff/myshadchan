@@ -8,10 +8,10 @@ import { Badge } from "@/components/ui/badge";
 
 import { TopToolbar } from "../layout/TopToolbar";
 
-const SalesListActions = () => (
+const MemberListActions = () => (
   <TopToolbar>
     <ExportButton />
-    <CreateButton label="resources.sales.action.new" />
+    <CreateButton label="resources.members.action.new" />
   </TopToolbar>
 );
 
@@ -25,23 +25,23 @@ const OptionsField = (_props: { label?: string | boolean }) => {
     <div className="flex flex-row gap-1">
       {record.administrator && (
         <Badge variant="outline" className="border-primary">
-          {translate("resources.sales.fields.administrator")}
+          {translate("resources.members.fields.administrator")}
         </Badge>
       )}
       {record.disabled && (
         <Badge variant="outline" className="border-attention">
-          {translate("resources.sales.fields.disabled")}
+          {translate("resources.members.fields.disabled")}
         </Badge>
       )}
     </div>
   );
 };
 
-export function SalesList() {
+export function MemberList() {
   return (
     <List
       filters={filters}
-      actions={<SalesListActions />}
+      actions={<MemberListActions />}
       sort={{ field: "first_name", order: "ASC" }}
     >
       <DataTable>

@@ -7,7 +7,7 @@ import { Notification } from "@/components/admin/notification";
 import { createDataProvider } from "@/components/atomic-crm/providers/fakerest";
 import { DEFAULT_USER } from "@/components/atomic-crm/providers/fakerest/authProvider";
 import type { Db } from "@/components/atomic-crm/providers/fakerest/dataGenerator/types";
-import type { Sale } from "@/components/atomic-crm/types";
+import type { Member } from "@/components/atomic-crm/types";
 import { CRM } from "@/components/atomic-crm/root/CRM";
 import { testI18nProvider } from "@/components/atomic-crm/providers/commons/i18nProvider";
 
@@ -24,9 +24,9 @@ export const createTestAuthProvider = (): AuthProvider => ({
   logout: async () => undefined,
 });
 
-const baseSale: Sale = {
+const baseMember: Member = {
   administrator: true,
-  avatar: DEFAULT_USER.avatar as Sale["avatar"],
+  avatar: DEFAULT_USER.avatar as Member["avatar"],
   disabled: false,
   email: DEFAULT_USER.email,
   first_name: DEFAULT_USER.first_name,
@@ -41,7 +41,7 @@ const baseSale: Sale = {
 export const createCrmDb = (overrides: Partial<Db> = {}): Db =>
   ({
     configuration: [{ config: {}, id: 1 }],
-    sales: [baseSale],
+    members: [baseMember],
     tasks: [],
     ...overrides,
   }) as Db;

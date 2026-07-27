@@ -8,7 +8,7 @@ const adminSupabase = createClient(
 );
 
 // Tables in FK-safe deletion order (children before parents)
-const TABLES = ["tasks", "configuration", "sales"];
+const TABLES = ["tasks", "configuration", "members"];
 
 async function resetDb() {
   for (const table of TABLES) {
@@ -16,7 +16,7 @@ async function resetDb() {
     await adminSupabase.from(table).delete().not("id", "is", null);
   }
 
-  // Delete all auth users (cascades to sales via DB trigger)
+  // Delete all auth users (cascades to members via DB trigger)
   const { data } = await adminSupabase.auth.admin.listUsers();
   await Promise.all(
     data.users.map((user) => adminSupabase.auth.admin.deleteUser(user.id)),
@@ -43,7 +43,7 @@ async function createUser({
   return data.user;
 }
 
-async function createSales({
+async function createMember({
   first_name,
   last_name,
   email,
@@ -62,18 +62,18 @@ async function createSales({
     });
 
   if (userError) {
-    throw new Error(`Failed to create sales: ${userError.message}`);
+    throw new Error(`Failed to create member: ${userError.message}`);
   }
 
   const { data, error } = await adminSupabase
-    .from("sales")
+    .from("members")
     .update({ first_name, last_name, administrator: false })
     .eq("user_id", userData.user?.id)
     .select()
     .single();
 
   if (error) {
-    throw new Error(`Failed to create sales: ${error.message}`);
+    throw new Error(`Failed to create member: ${error.message}`);
   }
 
   return data;
@@ -96,7 +96,7 @@ const dismissToast = async (page: Page, content: string) => {
 export const test = base.extend<{
   resetDb: void;
   createUser: typeof createUser;
-  createSales: typeof createSales;
+  createMember: typeof createMember;
   menu: ReturnType<typeof getMenuMethod>;
   dismissToast: (content: string) => Promise<void>;
 }>({
@@ -115,8 +115,8 @@ export const test = base.extend<{
     await cb(createUser);
   },
   // eslint-disable-next-line no-empty-pattern
-  createSales: async ({}, cb) => {
-    await cb(createSales);
+  createMember: async ({}, cb) => {
+    await cb(createMember);
   },
   menu: async ({ page, isMobile }, cb) => {
     await cb(getMenuMethod({ page, isMobile }));

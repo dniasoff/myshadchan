@@ -5,10 +5,10 @@ import { SimpleForm } from "@/components/admin/simple-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import type { CrmDataProvider } from "../providers/types";
-import type { SalesFormData } from "../types";
-import { SalesInputs } from "./SalesInputs";
+import type { MemberFormData } from "../types";
+import { MemberInputs } from "./MemberInputs";
 
-export function SalesCreate() {
+export function MemberCreate() {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const translate = useTranslate();
@@ -16,21 +16,21 @@ export function SalesCreate() {
 
   const { mutate } = useMutation({
     mutationKey: ["signup"],
-    mutationFn: async (data: SalesFormData) => {
-      return dataProvider.salesCreate(data);
+    mutationFn: async (data: MemberFormData) => {
+      return dataProvider.memberCreate(data);
     },
     onSuccess: () => {
-      notify("resources.sales.create.success", {
+      notify("resources.members.create.success", {
         messageArgs: {
           _: "User created. They will soon receive an email to set their password.",
         },
       });
-      redirect("/sales");
+      redirect("/members");
     },
     onError: (error) => {
       notify(
         error.message ||
-          translate("resources.sales.create.error", {
+          translate("resources.members.create.error", {
             _: "An error occurred while creating the user.",
           }),
         {
@@ -39,7 +39,7 @@ export function SalesCreate() {
       );
     },
   });
-  const onSubmit: SubmitHandler<SalesFormData> = async (data) => {
+  const onSubmit: SubmitHandler<MemberFormData> = async (data) => {
     mutate(data);
   };
 
@@ -48,14 +48,14 @@ export function SalesCreate() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {translate("resources.sales.create.title", {
+            {translate("resources.members.create.title", {
               _: "Create a new user",
             })}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <SimpleForm onSubmit={onSubmit as SubmitHandler<any>}>
-            <SalesInputs />
+            <MemberInputs />
           </SimpleForm>
         </CardContent>
       </Card>

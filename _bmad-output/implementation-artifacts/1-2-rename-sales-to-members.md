@@ -1,6 +1,10 @@
+---
+baseline_commit: c38e9e52c9ed7f7068e676308b1a8eb6c17626dd
+---
+
 # Story 1.2: Rename `sales` to `members`
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -93,24 +97,24 @@ salesperson concept that does not exist in shidduchim.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Rename the table and its dependent objects in the declarative schema** (AC: 1, 2)
-  - [ ] `supabase/schemas/01_tables.sql`: rename `create table public.sales` → `public.members` (lines 93-101); rename `uq__sales__user_id` → `uq__members__user_id` (line 104); rename constraint `sales_user_id_fkey` → `members_user_id_fkey` (lines 184-185); rewrite the two prose comments that name `sales` (line 11 "used by sales policies migration", line 261 "Replaces the fork's `sales` concept …").
-  - [ ] `supabase/schemas/01_tables.sql`: rename `tasks.sales_id` → `tasks.member_id` (line 126). **Do not touch** lines 27/50/61/79/89 (`companies`/`contacts`/`contact_notes`/`deals`/`deal_notes`) or their FKs on lines 158/164/170/176/182 — those tables are deleted by story 1.1.
-  - [ ] `supabase/schemas/05_policies.sql`: `alter table public.members enable row level security` (line 12); move the `"Enable read access for authenticated users"` policy onto `public.members` (lines 48-49, including the `-- Sales` section comment).
-  - [ ] `supabase/schemas/06_grants.sql`: table grants (lines 89-90) → `public.members`; sequence grants (lines 148-150) → `public.members_id_seq`; function grants (lines 64-66) → `public.set_member_id_default()`.
+- [x] **Task 1 — Rename the table and its dependent objects in the declarative schema** (AC: 1, 2)
+  - [x] `supabase/schemas/01_tables.sql`: rename `create table public.sales` → `public.members` (lines 93-101); rename `uq__sales__user_id` → `uq__members__user_id` (line 104); rename constraint `sales_user_id_fkey` → `members_user_id_fkey` (lines 184-185); rewrite the two prose comments that name `sales` (line 11 "used by sales policies migration", line 261 "Replaces the fork's `sales` concept …").
+  - [x] `supabase/schemas/01_tables.sql`: rename `tasks.sales_id` → `tasks.member_id` (line 126). **Do not touch** lines 27/50/61/79/89 (`companies`/`contacts`/`contact_notes`/`deals`/`deal_notes`) or their FKs on lines 158/164/170/176/182 — those tables are deleted by story 1.1.
+  - [x] `supabase/schemas/05_policies.sql`: `alter table public.members enable row level security` (line 12); move the `"Enable read access for authenticated users"` policy onto `public.members` (lines 48-49, including the `-- Sales` section comment).
+  - [x] `supabase/schemas/06_grants.sql`: table grants (lines 89-90) → `public.members`; sequence grants (lines 148-150) → `public.members_id_seq`; function grants (lines 64-66) → `public.set_member_id_default()`.
 
-- [ ] **Task 2 — Rename the trigger function, its trigger, and the four functions that read the table** (AC: 4, 5)
-  - [ ] `supabase/schemas/02_functions.sql`: `set_sales_id_default()` → `set_member_id_default()` (header at line 496); body reads `NEW.member_id` and `from public.members` (lines 501-502).
-  - [ ] `supabase/schemas/02_functions.sql`: `handle_new_user()` (header line 237) — `sales_count` → `member_count` (lines 242, 245-246, 266), `from public.sales` → `from public.members`, `insert into public.members …` (line 248); `handle_update_user()` (header line 288) — `update public.members` (line 293); `is_admin()` (header line 316) — `from public.members` (line 322). Keep the exact `pg_dump` formatting of these bodies (see Dev Notes).
-  - [ ] `supabase/schemas/04_triggers.sql`: rename `set_task_sales_id_trigger` → `set_task_member_id_trigger` (lines 27-29) and rewrite the two prose comments (line 6 "Auto-populate sales_id…", line 73 "sync auth.users to public.sales"). Leave the five fossil triggers on lines 7-25 to story 1.1.
-  - [ ] Leave `merge_contacts()` (line 468) alone — it is deleted by story 1.1.
+- [x] **Task 2 — Rename the trigger function, its trigger, and the four functions that read the table** (AC: 4, 5)
+  - [x] `supabase/schemas/02_functions.sql`: `set_sales_id_default()` → `set_member_id_default()` (header at line 496); body reads `NEW.member_id` and `from public.members` (lines 501-502).
+  - [x] `supabase/schemas/02_functions.sql`: `handle_new_user()` (header line 237) — `sales_count` → `member_count` (lines 242, 245-246, 266), `from public.sales` → `from public.members`, `insert into public.members …` (line 248); `handle_update_user()` (header line 288) — `update public.members` (line 293); `is_admin()` (header line 316) — `from public.members` (line 322). Keep the exact `pg_dump` formatting of these bodies (see Dev Notes).
+  - [x] `supabase/schemas/04_triggers.sql`: rename `set_task_sales_id_trigger` → `set_task_member_id_trigger` (lines 27-29) and rewrite the two prose comments (line 6 "Auto-populate sales_id…", line 73 "sync auth.users to public.sales"). Leave the five fossil triggers on lines 7-25 to story 1.1.
+  - [x] Leave `merge_contacts()` (line 468) alone — it is deleted by story 1.1.
 
-- [ ] **Task 3 — Rename the reference inside `init_state`** (AC: 6)
-  - [ ] `supabase/schemas/03_views.sql` lines 130-134 (`init_state`): `select members.id from public.members limit 1`. Keep `with (security_invoker = off)` and the `anon`/`authenticated`/`service_role` grants exactly as they are — deleting this definer view is AD-1 / Epic 2 work, not this story's.
+- [x] **Task 3 — Rename the reference inside `init_state`** (AC: 6)
+  - [x] `supabase/schemas/03_views.sql` lines 130-134 (`init_state`): `select members.id from public.members limit 1`. Keep `with (security_invoker = off)` and the `anon`/`authenticated`/`service_role` grants exactly as they are — deleting this definer view is AD-1 / Epic 2 work, not this story's.
 
-- [ ] **Task 4 — Generate and hand-check the migration** (AC: 1, 2, 3, 4, 5, 6)
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f rename_sales_to_members`
-  - [ ] **Hand-edit the generated file**: `db diff` emits a rename as `DROP TABLE` + `CREATE TABLE`, which destroys every existing profile row. Replace it with the explicit rename sequence:
+- [x] **Task 4 — Generate and hand-check the migration** (AC: 1, 2, 3, 4, 5, 6)
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f rename_sales_to_members`
+  - [x] **Hand-edit the generated file**: `db diff` emits a rename as `DROP TABLE` + `CREATE TABLE`, which destroys every existing profile row. Replace it with the explicit rename sequence:
         `alter table public.sales rename to members;`
         `alter table public.members rename constraint sales_pkey to members_pkey;`
         `alter table public.members rename constraint sales_user_id_fkey to members_user_id_fkey;`
@@ -120,74 +124,74 @@ salesperson concept that does not exist in shidduchim.
         `alter function public.set_sales_id_default() rename to set_member_id_default;`
         `alter trigger set_task_sales_id_trigger on public.tasks rename to set_task_member_id_trigger;`
         then `create or replace function` for the four rewritten bodies and `create or replace view public.init_state`.
-  - [ ] Confirm the migration re-declares `security_invoker`/`security_definer` on `init_state` and re-issues any `revoke`/`grant` the diff dropped (see Dev Notes).
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. **Never** `db reset --local` or `db push`.
-  - [ ] Re-run `db diff` and confirm it reports no drift.
+  - [x] Confirm the migration re-declares `security_invoker`/`security_definer` on `init_state` and re-issues any `revoke`/`grant` the diff dropped (see Dev Notes).
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. **Never** `db reset --local` or `db push`.
+  - [x] Re-run `db diff` and confirm it reports no drift.
 
-- [ ] **Task 5 — Rename the TypeScript types** (AC: 8)
-  - [ ] `src/components/atomic-crm/types.ts`: `SalesFormData` → `MemberFormData` (line 19), `Sale` → `Member` (line 29), `Task.sales_id` → `Task.member_id` (line 164). The other ten `sales_id` fields (lines 63, 97, 109, 126, 134, 175, 182, 189, 197, 204) belong to `Company`/`Contact`/`ContactNote`/`Deal`/`DealNote`/`Activity*` types that story 1.1 deletes — leave them to 1.1.
-  - [ ] Use LSP `findReferences` on `Sale` and `SalesFormData` before editing. Re-run it at the start of the ticket rather than trusting a count taken on `main` — 1.1 and 1.5 land first and delete roughly a quarter of the references (on `main`: 56 `Sale`/`SalesFormData` references across 17 files; in the files that survive to this story: 43 across 12).
+- [x] **Task 5 — Rename the TypeScript types** (AC: 8)
+  - [x] `src/components/atomic-crm/types.ts`: `SalesFormData` → `MemberFormData` (line 19), `Sale` → `Member` (line 29), `Task.sales_id` → `Task.member_id` (line 164). The other ten `sales_id` fields (lines 63, 97, 109, 126, 134, 175, 182, 189, 197, 204) belong to `Company`/`Contact`/`ContactNote`/`Deal`/`DealNote`/`Activity*` types that story 1.1 deletes — leave them to 1.1.
+  - [x] Use LSP `findReferences` on `Sale` and `SalesFormData` before editing. Re-run it at the start of the ticket rather than trusting a count taken on `main` — 1.1 and 1.5 land first and delete roughly a quarter of the references (on `main`: 56 `Sale`/`SalesFormData` references across 17 files; in the files that survive to this story: 43 across 12).
 
-- [ ] **Task 6 — Rename the resource directory and its manifest entry** (AC: 7)
-  - [ ] `git mv src/components/atomic-crm/sales src/components/atomic-crm/members`; rename the four component files and `useGetSalesName.ts` → `useGetMemberName.ts` (plus `index.ts`); rename the exported symbols (`SalesCreate`→`MemberCreate`, `SalesEdit`→`MemberEdit`, `SalesInputs`→`MemberInputs`, `SalesList`→`MemberList`, `SalesListActions`→`MemberListActions`, `SaleEditTitle`→`MemberEditTitle`, `useGetSalesName`→`useGetMemberName`).
-  - [ ] `src/components/atomic-crm/root/routeManifest.ts` (created by story 1.5, which lands before this story): change the module import `../sales` → `../members` and the `RESOURCES` entry's `name: "sales"` → `name: "members"`. Keep `surface: "desktop"` — `/members` is desktop-only today and this story does not change that.
-  - [ ] **Do not edit `root/CRM.tsx` for the registration.** After 1.5 it contains no `<Resource name=…>` / `<Route path=…>` literals — it maps over the manifest — so the JSX at `CRM.tsx:290` and the import at `CRM.tsx:37` that this story was originally written against no longer exist. If you find them, 1.5 has not landed: stop and report rather than re-introducing JSX.
-  - [ ] `src/components/atomic-crm/layout/TopBar.tsx`: `<CanAccess resource="members" …>` (line 44), `<Link to="/members">` (line 131), `translate("resources.members.name", …)` (line 133).
-  - [ ] `src/components/atomic-crm/providers/commons/canAccess.ts`: `params.resource === "members"` (lines 20-21).
-  - [ ] `useGetSalesName` is imported by **10** files today (`notes/Note.tsx`, `notes/NoteShowPage.tsx`, `notes/NotesIteratorMobile.tsx`, `contacts/ContactBackgroundInfo.tsx`, `companies/CompanyAside.tsx`, and the five `activity/ActivityLog*Created.tsx`) — **all ten** are deleted by story 1.1, so at this story's position the hook has zero call sites. Keep it (it is the members resource's own hook); do not delete it in this story.
+- [x] **Task 6 — Rename the resource directory and its manifest entry** (AC: 7)
+  - [x] `git mv src/components/atomic-crm/sales src/components/atomic-crm/members`; rename the four component files and `useGetSalesName.ts` → `useGetMemberName.ts` (plus `index.ts`); rename the exported symbols (`SalesCreate`→`MemberCreate`, `SalesEdit`→`MemberEdit`, `SalesInputs`→`MemberInputs`, `SalesList`→`MemberList`, `SalesListActions`→`MemberListActions`, `SaleEditTitle`→`MemberEditTitle`, `useGetSalesName`→`useGetMemberName`).
+  - [x] `src/components/atomic-crm/root/routeManifest.ts` (created by story 1.5, which lands before this story): change the module import `../sales` → `../members` and the `RESOURCES` entry's `name: "sales"` → `name: "members"`. Keep `surface: "desktop"` — `/members` is desktop-only today and this story does not change that.
+  - [x] **Do not edit `root/CRM.tsx` for the registration.** After 1.5 it contains no `<Resource name=…>` / `<Route path=…>` literals — it maps over the manifest — so the JSX at `CRM.tsx:290` and the import at `CRM.tsx:37` that this story was originally written against no longer exist. If you find them, 1.5 has not landed: stop and report rather than re-introducing JSX.
+  - [x] `src/components/atomic-crm/layout/TopBar.tsx`: `<CanAccess resource="members" …>` (line 44), `<Link to="/members">` (line 131), `translate("resources.members.name", …)` (line 133).
+  - [x] `src/components/atomic-crm/providers/commons/canAccess.ts`: `params.resource === "members"` (lines 20-21).
+  - [x] `useGetSalesName` is imported by **10** files today (`notes/Note.tsx`, `notes/NoteShowPage.tsx`, `notes/NotesIteratorMobile.tsx`, `contacts/ContactBackgroundInfo.tsx`, `companies/CompanyAside.tsx`, and the five `activity/ActivityLog*Created.tsx`) — **all ten** are deleted by story 1.1, so at this story's position the hook has zero call sites. Keep it (it is the members resource's own hook); do not delete it in this story.
 
-- [ ] **Task 7 — Rename provider methods and the auth path** (AC: 8, 11)
-  - [ ] `providers/supabase/dataProvider.ts`: `salesCreate` → `memberCreate` (line 194), `salesUpdate` → `memberUpdate` (line 216), the two `console.error("salesCreate.error", …)` strings, the `sales_id: id` body field on the `users` invoke (line 229) → `member_id`, and the `resource: "sales"` lifecycle-callback block (line 684).
-  - [ ] `providers/supabase/dataProvider.ts` line 251: the `update_password` invoke body sends `sales_id`, which the `update_password` edge function never reads (it resolves the user from the JWT). **Delete the dead field** — the `body` becomes `{}`. Renaming it to `member_id` is not an option: NFR-14 forbids carrying a dead surface through a rename, and a renamed dead field is still a dead field.
-  - [ ] `providers/supabase/authProvider.ts`: `getSale()` → `getMember()` (line 55), `.from("members")` (line 71), `CURRENT_SALE_CACHE_KEY` → `CURRENT_MEMBER_CACHE_KEY = "RaStore.auth.current_member"` (line 27 + lines 57, 81, 88), locals `sale`/`dataSale`/`errorSale` → `member`/`dataMember`/`errorMember`, and the comment on line 25.
-  - [ ] `providers/fakerest/dataProvider.ts` (35 hits): `salesCreate`/`salesUpdate` (lines 675, 685), every `"sales"` resource string (lines 662, 676, 689, 697, 705, 720, 728, 947), `filter.sales_id` (line 499), `newSaleId` (line 970) and the `sales_id` update payloads (lines 1011-1029). The `beforeDelete` reassignment block (starting line 965) fans out to `companies`/`contacts`/`contact_notes`/`deals` — those four arms are removed by story 1.1; rename what survives and coordinate.
-  - [ ] `providers/fakerest/authProvider.ts`: `getList("members")` (line 24), `Sale` → `Member` (lines 3, 68, 77), locals.
-  - [ ] `providers/fakerest/dataGenerator/`: `git mv sales.ts members.ts`, `generateSales` → `generateMembers`; `index.ts` line 8/16; `types.ts` `Db.sales` → `Db.members` (line 34) and the `Sale` import (line 19); `tasks.ts` line 50 and `references.ts` line 344 `sales_id: 0` → `member_id: 0`.
+- [x] **Task 7 — Rename provider methods and the auth path** (AC: 8, 11)
+  - [x] `providers/supabase/dataProvider.ts`: `salesCreate` → `memberCreate` (line 194), `salesUpdate` → `memberUpdate` (line 216), the two `console.error("salesCreate.error", …)` strings, the `sales_id: id` body field on the `users` invoke (line 229) → `member_id`, and the `resource: "sales"` lifecycle-callback block (line 684).
+  - [x] `providers/supabase/dataProvider.ts` line 251: the `update_password` invoke body sends `sales_id`, which the `update_password` edge function never reads (it resolves the user from the JWT). **Delete the dead field** — the `body` becomes `{}`. Renaming it to `member_id` is not an option: NFR-14 forbids carrying a dead surface through a rename, and a renamed dead field is still a dead field.
+  - [x] `providers/supabase/authProvider.ts`: `getSale()` → `getMember()` (line 55), `.from("members")` (line 71), `CURRENT_SALE_CACHE_KEY` → `CURRENT_MEMBER_CACHE_KEY = "RaStore.auth.current_member"` (line 27 + lines 57, 81, 88), locals `sale`/`dataSale`/`errorSale` → `member`/`dataMember`/`errorMember`, and the comment on line 25.
+  - [x] `providers/fakerest/dataProvider.ts` (35 hits): `salesCreate`/`salesUpdate` (lines 675, 685), every `"sales"` resource string (lines 662, 676, 689, 697, 705, 720, 728, 947), `filter.sales_id` (line 499), `newSaleId` (line 970) and the `sales_id` update payloads (lines 1011-1029). The `beforeDelete` reassignment block (starting line 965) fans out to `companies`/`contacts`/`contact_notes`/`deals` — those four arms are removed by story 1.1; rename what survives and coordinate.
+  - [x] `providers/fakerest/authProvider.ts`: `getList("members")` (line 24), `Sale` → `Member` (lines 3, 68, 77), locals.
+  - [x] `providers/fakerest/dataGenerator/`: `git mv sales.ts members.ts`, `generateSales` → `generateMembers`; `index.ts` line 8/16; `types.ts` `Db.sales` → `Db.members` (line 34) and the `Sale` import (line 19); `tasks.ts` line 50 and `references.ts` line 344 `sales_id: 0` → `member_id: 0`.
 
-- [ ] **Task 8 — Rename the settings and tasks surfaces** (AC: 8, 9)
-  - [ ] `settings/ProfileSection.tsx` (lines 23, 29, 44, 54-57, 83-86, 126, 134, 142 — including the three `resources.sales.fields.*` labels). It is the **only** settings file in scope: `settings/ProfileForm.tsx` and `settings/ProfilePage.tsx` are deleted by story 1.5 with the `/profile` route, and `ProfileSection` is the surviving profile editor on both `/settings` surfaces.
-  - [ ] `tasks/TasksListByDueDate.tsx:44` — `sales_id: identity?.id` → `member_id: identity?.id`. It is the only `tasks/` file in scope: `tasks/AddTask.tsx:109` and `tasks/TaskCreateSheet.tsx:82` are deleted by story 1.1.
+- [x] **Task 8 — Rename the settings and tasks surfaces** (AC: 8, 9)
+  - [x] `settings/ProfileSection.tsx` (lines 23, 29, 44, 54-57, 83-86, 126, 134, 142 — including the three `resources.sales.fields.*` labels). It is the **only** settings file in scope: `settings/ProfileForm.tsx` and `settings/ProfilePage.tsx` are deleted by story 1.5 with the `/profile` route, and `ProfileSection` is the surviving profile editor on both `/settings` surfaces.
+  - [x] `tasks/TasksListByDueDate.tsx:44` — `sales_id: identity?.id` → `member_id: identity?.id`. It is the only `tasks/` file in scope: `tasks/AddTask.tsx:109` and `tasks/TaskCreateSheet.tsx:82` are deleted by story 1.1.
 
-- [ ] **Task 9 — Rename the i18n resource block and prove it** (AC: 9)
-  - [ ] `providers/commons/englishCrmMessages.ts`: the `sales: { … }` block at line 339 → `members: { … }`. Lines 77 and 140 (`sales_id: "Account manager"` under `companies` / `contacts`) and line 619 belong to fossil resources — story 1.1's.
-  - [ ] `providers/commons/frenchCrmMessages.ts`: the same block at line 344; lines 79 and 143 are 1.1's.
-  - [ ] Grep for `resources.sales` across `src/` and update every `translate()` / `label=` / `notify()` key.
-  - [ ] Extend `providers/commons/i18nProvider.test.ts` (AAA, one behaviour per `it`): `"resolves the members resource name in english and french"` — `changeLocale("en")` then `translate("resources.members.name", { smart_count: 2 })` is `"Users"`, `changeLocale("fr")` then the same call is `"Utilisateurs"`; and `"carries no retired sales catalogue block"` — import both message objects and assert `"sales" in englishCrmMessages.resources` and `"sales" in frenchCrmMessages.resources` are both `false`.
+- [x] **Task 9 — Rename the i18n resource block and prove it** (AC: 9)
+  - [x] `providers/commons/englishCrmMessages.ts`: the `sales: { … }` block at line 339 → `members: { … }`. Lines 77 and 140 (`sales_id: "Account manager"` under `companies` / `contacts`) and line 619 belong to fossil resources — story 1.1's.
+  - [x] `providers/commons/frenchCrmMessages.ts`: the same block at line 344; lines 79 and 143 are 1.1's.
+  - [x] Grep for `resources.sales` across `src/` and update every `translate()` / `label=` / `notify()` key.
+  - [x] Extend `providers/commons/i18nProvider.test.ts` (AAA, one behaviour per `it`): `"resolves the members resource name in english and french"` — `changeLocale("en")` then `translate("resources.members.name", { smart_count: 2 })` is `"Users"`, `changeLocale("fr")` then the same call is `"Utilisateurs"`; and `"carries no retired sales catalogue block"` — import both message objects and assert `"sales" in englishCrmMessages.resources` and `"sales" in frenchCrmMessages.resources` are both `false`.
 
-- [ ] **Task 10 — Rename the edge functions** (AC: 10)
-  - [ ] `git mv supabase/functions/_shared/getUserSale.ts supabase/functions/_shared/getUserMember.ts`; export `getUserMember`; `.from("members")`; update the one importer (`users/index.ts:6`).
-  - [ ] `supabase/functions/users/index.ts` (53 hits): `createSale`/`updateSaleAdministrator`/`updateSaleAvatar`/`updateSaleDisabled` → `createMember`/`updateMemberAdministrator`/`updateMemberAvatar`/`updateMemberDisabled`; `currentUserSale` → `currentUserMember`; every `.from("sales")` → `.from("members")`; the destructured request field `sales_id` → `member_id` (line 244) and its two `.eq("id", …)` uses (lines 255, 299); the error strings ("Failed to update sale", "A sales for this email already exists", "Error patching sale:").
-  - [ ] `supabase/functions/postmark/createInboxItemFromEmail.ts`: `resolveAccountIdForSalesEmail` → `resolveAccountIdForMemberEmail`, param `salesEmail` → `memberEmail`, `.from("members")`, and the doc comment.
-  - [ ] `supabase/functions/postmark/index.ts` (19 hits): the import (line 16), `salesEmail`/`allSales`/`salesEmails` locals, `.from("members")` (line 57), the three error strings and the two explanatory comments (lines 52, 77, 83, 90, 251).
-  - [ ] `supabase/functions/mcp/index.ts`: the two tool-description sentences that mention `sales_id` (lines 306, 360) → `member_id`. The "Sales pipeline" bullet on line 297 is fossil CRM vocabulary — story 1.1's.
-  - [ ] **Not in scope:** `supabase/functions/_shared/db.ts` (`TasksTable.sales_id`). Story 1.1 deletes the file — verified its sole importer is `supabase/functions/merge_contacts/index.ts:3`, which 1.1 also deletes. If it is still present when this story runs, 1.1 has not landed; report rather than renaming it.
+- [x] **Task 10 — Rename the edge functions** (AC: 10)
+  - [x] `git mv supabase/functions/_shared/getUserSale.ts supabase/functions/_shared/getUserMember.ts`; export `getUserMember`; `.from("members")`; update the one importer (`users/index.ts:6`).
+  - [x] `supabase/functions/users/index.ts` (53 hits): `createSale`/`updateSaleAdministrator`/`updateSaleAvatar`/`updateSaleDisabled` → `createMember`/`updateMemberAdministrator`/`updateMemberAvatar`/`updateMemberDisabled`; `currentUserSale` → `currentUserMember`; every `.from("sales")` → `.from("members")`; the destructured request field `sales_id` → `member_id` (line 244) and its two `.eq("id", …)` uses (lines 255, 299); the error strings ("Failed to update sale", "A sales for this email already exists", "Error patching sale:").
+  - [x] `supabase/functions/postmark/createInboxItemFromEmail.ts`: `resolveAccountIdForSalesEmail` → `resolveAccountIdForMemberEmail`, param `salesEmail` → `memberEmail`, `.from("members")`, and the doc comment.
+  - [x] `supabase/functions/postmark/index.ts` (19 hits): the import (line 16), `salesEmail`/`allSales`/`salesEmails` locals, `.from("members")` (line 57), the three error strings and the two explanatory comments (lines 52, 77, 83, 90, 251).
+  - [x] `supabase/functions/mcp/index.ts`: the two tool-description sentences that mention `sales_id` (lines 306, 360) → `member_id`. The "Sales pipeline" bullet on line 297 is fossil CRM vocabulary — story 1.1's.
+  - [x] **Not in scope:** `supabase/functions/_shared/db.ts` (`TasksTable.sales_id`). Story 1.1 deletes the file — verified its sole importer is `supabase/functions/merge_contacts/index.ts:3`, which 1.1 also deletes. If it is still present when this story runs, 1.1 has not landed; report rather than renaming it.
 
-- [ ] **Task 11 — Rename the tests and e2e fixtures** (AC: 12)
-  - [ ] `e2e/fixtures.ts` — the part that survives story 1.1 (which deletes `createNotes`, `createCompany`, `createContact` and the fossil `TABLES` entries): `TABLES` entry `"sales"` → `"members"` (line 21) and the `resetDb` cascade comment (line 30); `createSales` → `createMember` (declaration line 57, the two `Failed to create sales:` strings on lines 76 and 87, `.from("sales")` line 80, the `test.extend` type field line 217, the fixture wrapper lines 239-240). Do **not** rename the `salesId` params (lines 95, 99, 125, 128, 189) or the `sales_id` insert fields (lines 111, 132, 148, 155, 169) — every one of them is inside a helper 1.1 deletes.
-  - [ ] **No spec to update.** `e2e/` holds only `fixtures.ts` at this point — 1.1 deleted the three fossil specs and 1.6 has not yet landed `e2e/pipeline.spec.ts`. After renaming the helper, confirm with `ls e2e/*.spec.ts` (no matches) and `grep -rn "createSales" e2e/` (no hits). `make test-e2e-ci` still exits 1 with `Error: No tests found`; that is the documented interim red (AC 12), not something to fix here.
-  - [ ] `src/test/StoryWrapper.tsx`: `Sale` → `Member` (lines 10, 27, 29), `sales: [baseSale]` → `members: [baseMember]` (line 49), `sales_id: 0` → `member_id: 0` (line 71).
-  - [ ] `tasks/TasksListFilter.test.tsx:16` (`sales_id: null`) and `:23` (`sales: []` in the `fakeDataProvider` seed). `tasks/TaskCreateSheet.test.tsx` is deleted by story 1.1 — leave it alone.
-  - [ ] Reword `landing/LandingPage.test.tsx:119` `sales language` → `marketing language`.
+- [x] **Task 11 — Rename the tests and e2e fixtures** (AC: 12)
+  - [x] `e2e/fixtures.ts` — the part that survives story 1.1 (which deletes `createNotes`, `createCompany`, `createContact` and the fossil `TABLES` entries): `TABLES` entry `"sales"` → `"members"` (line 21) and the `resetDb` cascade comment (line 30); `createSales` → `createMember` (declaration line 57, the two `Failed to create sales:` strings on lines 76 and 87, `.from("sales")` line 80, the `test.extend` type field line 217, the fixture wrapper lines 239-240). Do **not** rename the `salesId` params (lines 95, 99, 125, 128, 189) or the `sales_id` insert fields (lines 111, 132, 148, 155, 169) — every one of them is inside a helper 1.1 deletes.
+  - [x] **No spec to update.** `e2e/` holds only `fixtures.ts` at this point — 1.1 deleted the three fossil specs and 1.6 has not yet landed `e2e/pipeline.spec.ts`. After renaming the helper, confirm with `ls e2e/*.spec.ts` (no matches) and `grep -rn "createSales" e2e/` (no hits). `make test-e2e-ci` still exits 1 with `Error: No tests found`; that is the documented interim red (AC 12), not something to fix here.
+  - [x] `src/test/StoryWrapper.tsx`: `Sale` → `Member` (lines 10, 27, 29), `sales: [baseSale]` → `members: [baseMember]` (line 49), `sales_id: 0` → `member_id: 0` (line 71).
+  - [x] `tasks/TasksListFilter.test.tsx:16` (`sales_id: null`) and `:23` (`sales: []` in the `fakeDataProvider` seed). `tasks/TaskCreateSheet.test.tsx` is deleted by story 1.1 — leave it alone.
+  - [x] Reword `landing/LandingPage.test.tsx:119` `sales language` → `marketing language`.
 
-- [ ] **Task 12 — Add the database test** (AC: 13)
-  - [ ] Create `supabase/tests/members_rename.sql` and `supabase/tests/members_rename.test.ts` modelled on `supabase/tests/billing_entitlement.{sql,test.ts}`: `\set ON_ERROR_STOP on`, `begin;`, a temp `results(name, passed, detail)` table, one row per check, JSON output, `rollback;`. The `.test.ts` runner skips itself when the database is unreachable.
-  - [ ] Checks: `to_regclass('public.sales') is null`; `to_regclass('public.members') is not null`; `to_regproc('public.set_sales_id_default') is null`; no `pg_class` row in schema `public` with `relname like 'sales%'`; `anon` **cannot** read `public.members` (negative test); `set_member_id_default()` fills `tasks.member_id` from `auth.uid()`; `handle_new_user()` writes a `members` row and the first user's `account_members` row.
+- [x] **Task 12 — Add the database test** (AC: 13)
+  - [x] Create `supabase/tests/members_rename.sql` and `supabase/tests/members_rename.test.ts` modelled on `supabase/tests/billing_entitlement.{sql,test.ts}`: `\set ON_ERROR_STOP on`, `begin;`, a temp `results(name, passed, detail)` table, one row per check, JSON output, `rollback;`. The `.test.ts` runner skips itself when the database is unreachable.
+  - [x] Checks: `to_regclass('public.sales') is null`; `to_regclass('public.members') is not null`; `to_regproc('public.set_sales_id_default') is null`; no `pg_class` row in schema `public` with `relname like 'sales%'`; `anon` **cannot** read `public.members` (negative test); `set_member_id_default()` fills `tasks.member_id` from `auth.uid()`; `handle_new_user()` writes a `members` row and the first user's `account_members` row.
 
-- [ ] **Task 13 — Update the developer documentation that describes the renamed surface** (AC: 14)
-  - [ ] `AGENTS.md` line 82 (`sales/  # Sales team management` → `members/  # Member (user/profile) management`) and line 127 (the `auth.users` ↔ `sales` trigger sentence).
-  - [ ] `.claude/skills/backend-dev/SKILL.md` lines 28, 38, 49, 58 (`salesCreate()`, "the auto-set `sales_id` trigger") and `.claude/skills/frontend-dev/SKILL.md` line 42 (`dataProvider.salesCreate()` in `SalesCreate.tsx`).
-  - [ ] `doc/src/content/docs/developers/architecture-choices.mdx:46` — the paragraph explaining the `sales` table is the one doc page describing a surface that survives; update it to `members`. `users/import-data.mdx` is already gone (deleted by story 1.1, its AC-16). The remaining four (`users/inbound-email.mdx`, `developers/custom-fields.mdx`, `developers/sso.mdx`, `index.mdx`) document the fossil CRM contacts flow and sit inside 1.1's deferred `doc/` rebrand — see Dev Notes for the scope call.
-  - [ ] `make registry-gen` (also runs on pre-commit) so `registry.json` no longer lists `sales/*` paths.
-  - [ ] Repo-root `MEMORY.md` lines 7 and 9 are maintained by the `documentator` agent — flag, do not hand-edit.
+- [x] **Task 13 — Update the developer documentation that describes the renamed surface** (AC: 14)
+  - [x] `AGENTS.md` line 82 (`sales/  # Sales team management` → `members/  # Member (user/profile) management`) and line 127 (the `auth.users` ↔ `sales` trigger sentence).
+  - [x] `.claude/skills/backend-dev/SKILL.md` lines 28, 38, 49, 58 (`salesCreate()`, "the auto-set `sales_id` trigger") and `.claude/skills/frontend-dev/SKILL.md` line 42 (`dataProvider.salesCreate()` in `SalesCreate.tsx`).
+  - [x] `doc/src/content/docs/developers/architecture-choices.mdx:46` — the paragraph explaining the `sales` table is the one doc page describing a surface that survives; update it to `members`. `users/import-data.mdx` is already gone (deleted by story 1.1, its AC-16). The remaining four (`users/inbound-email.mdx`, `developers/custom-fields.mdx`, `developers/sso.mdx`, `index.mdx`) document the fossil CRM contacts flow and sit inside 1.1's deferred `doc/` rebrand — see Dev Notes for the scope call.
+  - [x] `make registry-gen` (also runs on pre-commit) so `registry.json` no longer lists `sales/*` paths.
+  - [x] Repo-root `MEMORY.md` lines 7 and 9 are maintained by the `documentator` agent — flag, do not hand-edit.
 
-- [ ] **Task 14 — Run the gate** (AC: 14, 16)
-  - [ ] `grep -rni 'sale' --exclude=i18nProvider.test.ts --exclude=members_rename.sql src/ e2e/ supabase/schemas/ supabase/functions/ supabase/tests/ | grep -vi wholesale` → zero hits. Substring, case-insensitive, **not** `\bsales?\b` — the word-boundary form matches none of `sales_id`, `salesId`, `SalesCreate`, `useGetSalesName`, `getUserSale`, `CURRENT_SALE_CACHE_KEY`. (Do **not** include `supabase/migrations/` — see AC 14.)
-  - [ ] Then run the bounded check on the two excluded files — `grep -ni 'sale' src/components/atomic-crm/providers/commons/i18nProvider.test.ts supabase/tests/members_rename.sql` — and confirm every printed line is a retirement assertion or its name (AC 14). Paste the output in the PR body.
-  - [ ] `grep -rni 'sale' registry.json` → zero hits.
-  - [ ] `psql "$SUPABASE_DB_URL" -c "select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and relname like 'sales%'"` → zero rows.
-  - [ ] `npm run typecheck && npm run lint` → clean repo-wide. Then `npx prettier --config ./.prettierrc.json --check` over **this story's changed files only** → clean (AC 16; the repo-wide prettier gate is 1.6's).
-  - [ ] `npm run test:unit:app`, `npm run test:unit:functions`, `npm run test:unit:db` → green. **Not** `make test-e2e-ci` — it exits 1 with `Error: No tests found` until 1.6 lands the smoke spec (AC 12).
-  - [ ] Smoke: sign in against the local stack, open `/members`, edit the profile at `/settings`, create a reminder — the three paths that write through `members` / `member_id`.
+- [x] **Task 14 — Run the gate** (AC: 14, 16)
+  - [x] `grep -rni 'sale' --exclude=i18nProvider.test.ts --exclude=members_rename.sql src/ e2e/ supabase/schemas/ supabase/functions/ supabase/tests/ | grep -vi wholesale` → zero hits. Substring, case-insensitive, **not** `\bsales?\b` — the word-boundary form matches none of `sales_id`, `salesId`, `SalesCreate`, `useGetSalesName`, `getUserSale`, `CURRENT_SALE_CACHE_KEY`. (Do **not** include `supabase/migrations/` — see AC 14.)
+  - [x] Then run the bounded check on the two excluded files — `grep -ni 'sale' src/components/atomic-crm/providers/commons/i18nProvider.test.ts supabase/tests/members_rename.sql` — and confirm every printed line is a retirement assertion or its name (AC 14). Paste the output in the PR body.
+  - [x] `grep -rni 'sale' registry.json` → zero hits.
+  - [x] `psql "$SUPABASE_DB_URL" -c "select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and relname like 'sales%'"` → zero rows.
+  - [x] `npm run typecheck && npm run lint` → clean repo-wide. Then `npx prettier --config ./.prettierrc.json --check` over **this story's changed files only** → clean (AC 16; the repo-wide prettier gate is 1.6's).
+  - [x] `npm run test:unit:app`, `npm run test:unit:functions`, `npm run test:unit:db` → green. **Not** `make test-e2e-ci` — it exits 1 with `Error: No tests found` until 1.6 lands the smoke spec (AC 12).
+  - [x] Smoke: sign in against the local stack, open `/members`, edit the profile at `/settings`, create a reminder — the three paths that write through `members` / `member_id`.
 
 ## Dev Notes
 
@@ -336,8 +340,79 @@ All four predecessors land before this story (see "Position in Epic 1" above), s
 
 ### Agent Model Used
 
+Claude Sonnet 5 (claude-sonnet-5), via the bmad-dev-story workflow.
+
 ### Debug Log References
+
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f rename_sales_to_members` generated a DROP TABLE + CREATE TABLE for the rename (as documented); hand-replaced with the explicit `alter table ... rename to members` sequence in `supabase/migrations/20260727122733_rename_sales_to_members.sql` per Task 4, preserving all 3 rows in the local `members` table.
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local` applied cleanly; a follow-up `db diff` reported "No schema changes found" — zero drift between the hand-written migration and the declarative schema.
+- Post-migration assertions (run directly against the local DB): `pg_policies` count for `storage.objects` "Attachments%" = 3, `storage.buckets.public` for `attachments` = false (both unaffected, per the L7 landmine warning), `pg_class` rows matching `sales%` = 0, `public.members` row count = 3 (data preserved), grants on `public.members` match the pre-rename `public.sales` posture exactly (anon: REFERENCES/TRIGGER/TRUNCATE only; authenticated/service_role: full DML), `init_state`'s `security_invoker=off` reloption preserved, live PostgREST check: `GET /rest/v1/sales` → 404, `GET /rest/v1/members` (unauthenticated) → 42501 permission denied (grant absence proven live, not just via the SQL suite).
+- `npm run typecheck`, `npm run lint`, `npm run test:unit:app` (516 tests, all projects), `npm run test:unit:functions` (76 tests), `npm run test:unit:db` (143 tests across 4 suites including the new `members_rename` suite) all pass. `npm run build` succeeds.
+- Discrepancy found and resolved: my first draft of `supabase/tests/members_rename.test.ts` had "sales" in its file-level doc comment and `describe()` string. AC 14 explicitly forbids this (the `.test.ts` runner must not itself carry the retired word — only the `.sql`'s check names may). Reworded both to avoid the word entirely; re-ran the gate to confirm zero hits outside the two AC-14-sanctioned files.
 
 ### Completion Notes List
 
+- Schema rename executed in the order specified by Task 1–4: `01_tables.sql` (table, index, FK, tasks.sales_id→member_id, comments), `05_policies.sql` (RLS + policy), `06_grants.sql` (function/table/sequence grants), `02_functions.sql` (trigger function body + the 4 reader functions: `handle_new_user`, `handle_update_user`, `is_admin`), `04_triggers.sql` (trigger + trigger name + comments), `03_views.sql` (`init_state`). Hand-wrote the migration as an 8-statement `ALTER ... RENAME` sequence (never the generated DROP+CREATE) plus `CREATE OR REPLACE` for the 4 rewritten function bodies and the view, exactly per Dev Notes. Added `comment on column public.tasks.member_id` documenting the naming collision with the `account_members`-referencing `*_member_id` columns, per the Dev Notes decision.
+- Renamed the React resource: `git mv sales/ → members/`, all 4 components + `index.ts`, exported symbols (`SalesCreate`→`MemberCreate`, `SalesEdit`→`MemberEdit`, `SalesInputs`→`MemberInputs`, `SalesList`→`MemberList`, `SalesListActions`→`MemberListActions`, `SaleEditTitle`→`MemberEditTitle`), the `routeManifest.ts` entry and import, `TopBar.tsx`, `canAccess.ts`.
+- Renamed both dataProviders' methods (`salesCreate`/`salesUpdate` → `memberCreate`/`memberUpdate`), the `resource: "sales"` lifecycle blocks, `authProvider.ts` on both sides (`getSale`→`getMember`, `CURRENT_SALE_CACHE_KEY`→`CURRENT_MEMBER_CACHE_KEY`), and the FakeRest dataGenerator (`git mv sales.ts members.ts`, `Db.sales`→`Db.members`, `generateSales`→`generateMembers`).
+- Deleted the dead `sales_id` body field from `updatePassword`'s edge-function call (body is now `{}`) rather than renaming it to `member_id`, per Task 7 / NFR-14 — the `update_password` function never reads it. Prefixed the now-unused `id` param as `_id` in the supabase provider (fakerest's `updatePassword` still uses `id` because its own edge-simulation code does consume it).
+- Renamed all 5 edge-function files/exports in `supabase/functions/` (`_shared/getUserSale.ts`→`getUserMember.ts`, `users/index.ts` — 6 helper functions + the `member_id` body field, `postmark/createInboxItemFromEmail.ts`, `postmark/index.ts`, `mcp/index.ts` tool-description strings).
+- Added the i18n test case (Task 9) and the `members_rename.{sql,test.ts}` database suite (Task 12), modelled on `billing_entitlement.{sql,test.ts}`: 10 checks covering positive proof of deletion (`to_regclass`/`to_regproc`), the mandatory anon-cannot-read negative test (both a catalog `has_table_privilege` check and a live `SET ROLE anon` attempted SELECT), `set_member_id_default()` populating `tasks.member_id` from `auth.uid()`, and `handle_new_user()` writing both the `members` row and the first user's `account_members` bootstrap row.
+- Updated developer docs (Task 13): `AGENTS.md`, `.claude/skills/{backend-dev,frontend-dev}/SKILL.md`, `doc/.../architecture-choices.mdx`, and regenerated `registry.json`. Left the other four doc pages and the two skill files' unrelated fossil-resource mentions (`mergeContacts`, `contacts_summary`, etc.) untouched — out of this story's scope per the Dev Notes' scope calls.
+- **Stale story claim, does not reproduce:** AC 7 / Task 6 assume `src/components/atomic-crm/sales/useGetSalesName.ts` exists and instruct keeping/renaming it to `useGetMemberName.ts`. It does not exist on this tree — story 1.1's own review-findings commit (`d66119c`, "Epic 1 1-1-delete-fossil-resources: address review findings") already deleted it as dead code (all 10 of its importers were fossil files 1.1 was deleting in that same pass). I did not recreate a zero-caller hook to satisfy the file-list wording — doing so would reintroduce exactly the dead code NFR-14 forbids, and no task's actual operation is "create a new hook," only "rename an existing one." Flagging for epic-owner attention rather than improvising.
+- All other story counts/line-number claims were re-verified against the live tree (post-1.1/1.4/1.5/1.3) rather than trusted from the story text, per the build-plan's warning that schema/provider line numbers shift with every predecessor story. Where they differed I worked from the current file content and identifiers, not the stated line numbers.
+- Gate results: `grep -rni 'sale' --exclude=i18nProvider.test.ts --exclude=members_rename.sql src/ e2e/ supabase/schemas/ supabase/functions/ supabase/tests/ | grep -vi wholesale` → 0 hits. `grep -rni 'sale' registry.json` → 0 hits. `grep -rni 'sale' AGENTS.md .claude/skills/backend-dev/SKILL.md .claude/skills/frontend-dev/SKILL.md` → 0 hits. `grep -rni 'sale' doc/src/content/docs/developers/architecture-choices.mdx` → 0 hits. The bounded check on the two AC-14-excluded files shows only retirement assertions, as required.
+
 ### File List
+
+**Modified:**
+- `supabase/schemas/01_tables.sql`
+- `supabase/schemas/02_functions.sql`
+- `supabase/schemas/03_views.sql`
+- `supabase/schemas/04_triggers.sql`
+- `supabase/schemas/05_policies.sql`
+- `supabase/schemas/06_grants.sql`
+- `src/components/atomic-crm/types.ts`
+- `src/components/atomic-crm/root/routeManifest.ts`
+- `src/components/atomic-crm/layout/TopBar.tsx`
+- `src/components/atomic-crm/providers/commons/canAccess.ts`
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/i18nProvider.test.ts`
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts`
+- `src/components/atomic-crm/providers/supabase/authProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/authProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/types.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/references.ts`
+- `src/components/atomic-crm/settings/ProfileSection.tsx`
+- `src/components/atomic-crm/tasks/TasksListByDueDate.tsx`
+- `src/components/atomic-crm/tasks/TasksListFilter.test.tsx`
+- `src/components/atomic-crm/landing/LandingPage.test.tsx`
+- `src/test/StoryWrapper.tsx`
+- `e2e/fixtures.ts`
+- `supabase/functions/users/index.ts`
+- `supabase/functions/postmark/index.ts`
+- `supabase/functions/postmark/createInboxItemFromEmail.ts`
+- `supabase/functions/mcp/index.ts`
+- `AGENTS.md`
+- `.claude/skills/backend-dev/SKILL.md`
+- `.claude/skills/frontend-dev/SKILL.md`
+- `doc/src/content/docs/developers/architecture-choices.mdx`
+- `registry.json` (regenerated via `make registry-gen`)
+
+**Renamed (git mv):**
+- `src/components/atomic-crm/sales/` → `src/components/atomic-crm/members/`
+  - `index.ts`
+  - `SalesCreate.tsx` → `MemberCreate.tsx`
+  - `SalesEdit.tsx` → `MemberEdit.tsx`
+  - `SalesInputs.tsx` → `MemberInputs.tsx`
+  - `SalesList.tsx` → `MemberList.tsx`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/sales.ts` → `members.ts`
+- `supabase/functions/_shared/getUserSale.ts` → `getUserMember.ts`
+
+**Added:**
+- `supabase/migrations/20260727122733_rename_sales_to_members.sql`
+- `supabase/tests/members_rename.sql`
+- `supabase/tests/members_rename.test.ts`

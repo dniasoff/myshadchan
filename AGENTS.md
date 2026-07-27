@@ -80,7 +80,7 @@ src/
 │   │   ├── references/     # Reference book (calls, diligence)
 │   │   ├── reminders/      # Reminders hub (polymorphic tasks)
 │   │   ├── root/           # Root CRM component
-│   │   ├── sales/          # Sales team management
+│   │   ├── members/        # Member (user/profile) management
 │   │   ├── settings/       # Settings page
 │   │   ├── shadchanim/     # Matchmaker management
 │   │   ├── shidduchim/     # Shidduchim pipeline (Kanban)
@@ -122,7 +122,7 @@ Complex queries are handled via database views to simplify frontend code and red
 
 #### Database Triggers
 
-User data syncs between Supabase's `auth.users` table and the CRM's `sales` table via triggers (see `supabase/schemas/04_triggers.sql`).
+User data syncs between Supabase's `auth.users` table and the CRM's `members` table via triggers (see `supabase/schemas/04_triggers.sql`).
 
 #### Edge Functions
 

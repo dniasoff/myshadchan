@@ -12,7 +12,7 @@ BEGIN
 END;
 $_$;
 
--- Provisions a new auth user: the legacy `sales` row, plus — since
+-- Provisions a new auth user: the legacy `members` row, plus — since
 -- current_account_id() now fails closed — the account_members row without which
 -- the user would see nothing at all.
 --
@@ -27,13 +27,13 @@ CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
     SET "search_path" TO ''
     AS $$
 declare
-  sales_count int;
+  member_count int;
   v_account_id bigint;
 begin
-  select count(id) into sales_count
-  from public.sales;
+  select count(id) into member_count
+  from public.members;
 
-  insert into public.sales (first_name, last_name, email, user_id, administrator)
+  insert into public.members (first_name, last_name, email, user_id, administrator)
   values (
     coalesce(
       nullif(new.raw_user_meta_data ->> 'first_name', ''),
@@ -51,7 +51,7 @@ begin
       'Pending'),
     new.email,
     new.id,
-    case when sales_count > 0 then FALSE else TRUE end
+    case when member_count > 0 then FALSE else TRUE end
   );
 
   if not exists (select 1 from public.account_members) then
@@ -78,7 +78,7 @@ CREATE OR REPLACE FUNCTION "public"."handle_update_user"() RETURNS "trigger"
     SET "search_path" TO ''
     AS $$
 begin
-  update public.sales
+  update public.members
   set
     first_name = coalesce(
       nullif(new.raw_user_meta_data ->> 'first_name', ''),
@@ -107,18 +107,18 @@ CREATE OR REPLACE FUNCTION "public"."is_admin"() RETURNS boolean
     AS $$
 begin
   return exists (
-    select 1 from public.sales where user_id = auth.uid() and administrator = true
+    select 1 from public.members where user_id = auth.uid() and administrator = true
   );
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."set_sales_id_default"() RETURNS "trigger"
+CREATE OR REPLACE FUNCTION "public"."set_member_id_default"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     SET "search_path" TO 'public'
     AS $$
 BEGIN
-  IF NEW.sales_id IS NULL THEN
-    SELECT id INTO NEW.sales_id FROM sales WHERE user_id = auth.uid();
+  IF NEW.member_id IS NULL THEN
+    SELECT id INTO NEW.member_id FROM members WHERE user_id = auth.uid();
   END IF;
   RETURN NEW;
 END;
@@ -176,7 +176,7 @@ $$;
 
 -- Auto-populate account_id from the caller's account on insert (AD-1), so the
 -- normal dataProvider.create() path for singles/shadchanim/references/etc.
--- never has to trust a client-sent account_id. Mirrors set_sales_id_default.
+-- never has to trust a client-sent account_id. Mirrors set_member_id_default.
 CREATE OR REPLACE FUNCTION "public"."set_account_id_default"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     SET "search_path" TO ''

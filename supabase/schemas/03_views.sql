@@ -6,7 +6,7 @@
 create or replace view public.init_state with (security_invoker = off) as
 select count(sub.id) as is_initialized
 from (
-    select sales.id from public.sales limit 1
+    select members.id from public.members limit 1
 ) sub;
 
 -- Dedupe "catch" count per shidduch (E3): how many OTHER suggestions in the same

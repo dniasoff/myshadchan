@@ -25,9 +25,9 @@ grant all on function public.is_admin() to anon;
 grant all on function public.is_admin() to authenticated;
 grant all on function public.is_admin() to service_role;
 
-grant all on function public.set_sales_id_default() to anon;
-grant all on function public.set_sales_id_default() to authenticated;
-grant all on function public.set_sales_id_default() to service_role;
+grant all on function public.set_member_id_default() to anon;
+grant all on function public.set_member_id_default() to authenticated;
+grant all on function public.set_member_id_default() to service_role;
 
 -- Table grants
 --
@@ -35,8 +35,8 @@ grant all on function public.set_sales_id_default() to service_role;
 -- `anon` is never granted DML on them (it keeps only the REFERENCES / TRIGGER /
 -- TRUNCATE privileges Postgres attaches at table creation). Views that must be
 -- readable before sign-in (init_state and friends) are granted separately below.
-grant all on table public.sales to authenticated;
-grant all on table public.sales to service_role;
+grant all on table public.members to authenticated;
+grant all on table public.members to service_role;
 
 grant all on table public.tasks to authenticated;
 grant all on table public.tasks to service_role;
@@ -52,9 +52,9 @@ grant all on table public.init_state to authenticated;
 grant all on table public.init_state to service_role;
 
 -- Sequence grants
-grant all on sequence public.sales_id_seq to anon;
-grant all on sequence public.sales_id_seq to authenticated;
-grant all on sequence public.sales_id_seq to service_role;
+grant all on sequence public.members_id_seq to anon;
+grant all on sequence public.members_id_seq to authenticated;
+grant all on sequence public.members_id_seq to service_role;
 
 grant all on sequence public.tasks_id_seq to anon;
 grant all on sequence public.tasks_id_seq to authenticated;

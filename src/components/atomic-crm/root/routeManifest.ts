@@ -12,7 +12,7 @@ import { ConfirmationRequired } from "../login/ConfirmationRequired";
 import { SignupPage } from "../login/SignupPage";
 import references from "../references";
 import { RemindersPage } from "../reminders/RemindersPage";
-import sales from "../sales";
+import members from "../members";
 import shadchanim from "../shadchanim";
 import shidduchim from "../shidduchim";
 import { SettingsPage } from "../settings/SettingsPage";
@@ -117,8 +117,7 @@ export const RESOURCES: ResourceEntry[] = [
   { name: "shadchanim", surface: "both", definition: shadchanim },
   { name: "references", surface: "both", definition: references },
   { name: "tasks", surface: "both", definition: { list: TasksListPage } },
-  // Registered under its current name — story 1.2 renames this entry to "members".
-  { name: "sales", surface: "desktop", definition: sales },
+  { name: "members", surface: "desktop", definition: members },
 ];
 
 function appliesToSurface(

@@ -14,8 +14,8 @@ import { SaveButton } from "@/components/admin/form";
 import { Card, CardContent } from "@/components/ui/card";
 
 import type { CrmDataProvider } from "../providers/types";
-import type { Sale, SalesFormData } from "../types";
-import { SalesInputs } from "./SalesInputs";
+import type { Member, MemberFormData } from "../types";
+import { MemberInputs } from "./MemberInputs";
 
 function EditToolbar() {
   return (
@@ -26,7 +26,7 @@ function EditToolbar() {
   );
 }
 
-export function SalesEdit() {
+export function MemberEdit() {
   const { record } = useEditController();
 
   const dataProvider = useDataProvider<CrmDataProvider>();
@@ -36,26 +36,26 @@ export function SalesEdit() {
 
   const { mutate } = useMutation({
     mutationKey: ["signup"],
-    mutationFn: async (data: SalesFormData) => {
+    mutationFn: async (data: MemberFormData) => {
       if (!record) {
         throw new Error(
-          translate("resources.sales.edit.record_not_found", {
+          translate("resources.members.edit.record_not_found", {
             _: "Record not found",
           }),
         );
       }
-      return dataProvider.salesUpdate(record.id, data);
+      return dataProvider.memberUpdate(record.id, data);
     },
     onSuccess: () => {
-      redirect("/sales");
-      notify("resources.sales.edit.success", {
+      redirect("/members");
+      notify("resources.members.edit.success", {
         messageArgs: {
           _: "User updated successfully",
         },
       });
     },
     onError: () => {
-      notify("resources.sales.edit.error", {
+      notify("resources.members.edit.error", {
         type: "error",
         messageArgs: {
           _: "An error occurred. Please try again.",
@@ -64,7 +64,7 @@ export function SalesEdit() {
     },
   });
 
-  const onSubmit: SubmitHandler<SalesFormData> = async (data) => {
+  const onSubmit: SubmitHandler<MemberFormData> = async (data) => {
     mutate(data);
   };
 
@@ -77,8 +77,8 @@ export function SalesEdit() {
             onSubmit={onSubmit as SubmitHandler<any>}
             record={record}
           >
-            <SaleEditTitle />
-            <SalesInputs />
+            <MemberEditTitle />
+            <MemberInputs />
           </SimpleForm>
         </CardContent>
       </Card>
@@ -86,13 +86,13 @@ export function SalesEdit() {
   );
 }
 
-const SaleEditTitle = () => {
-  const record = useRecordContext<Sale>();
+const MemberEditTitle = () => {
+  const record = useRecordContext<Member>();
   const translate = useTranslate();
   if (!record) return null;
   return (
     <h2 className="text-lg font-semibold mb-4">
-      {translate("resources.sales.edit.title", {
+      {translate("resources.members.edit.title", {
         name: `${record.first_name} ${record.last_name}`,
       })}
     </h2>

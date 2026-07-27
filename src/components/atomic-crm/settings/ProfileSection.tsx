@@ -20,13 +20,13 @@ import {
 
 import ImageEditorField from "../misc/ImageEditorField";
 import type { CrmDataProvider } from "../providers/types";
-import type { SalesFormData } from "../types";
+import type { MemberFormData } from "../types";
 import { SectionLabel } from "./SectionLabel";
 
 /** Avatar + tap-to-edit name/email rows — the mobile Settings account card. */
 export const ProfileSection = () => {
   const { identity, refetch: refetchIdentity } = useGetIdentity();
-  const { data, refetch: refetchUser } = useGetOne("sales", {
+  const { data, refetch: refetchUser } = useGetOne("members", {
     id: identity?.id,
   });
   const translate = useTranslate();
@@ -41,7 +41,7 @@ export const ProfileSection = () => {
       if (value === current) return;
 
       const queryKey = [
-        "sales",
+        "members",
         "getOne",
         { id: String(identity.id), meta: undefined },
       ];
@@ -51,10 +51,10 @@ export const ProfileSection = () => {
       );
 
       try {
-        await dataProvider.salesUpdate(identity.id, {
+        await dataProvider.memberUpdate(identity.id, {
           ...data,
           [field]: value,
-        } as SalesFormData);
+        } as MemberFormData);
         refetchIdentity();
         refetchUser();
         notify("crm.profile.updated", {
@@ -80,10 +80,10 @@ export const ProfileSection = () => {
   );
 
   const handleAvatarUpdate = useCallback(
-    async (values: SalesFormData) => {
+    async (values: MemberFormData) => {
       if (!data) return;
       try {
-        await dataProvider.salesUpdate(data.id, values);
+        await dataProvider.memberUpdate(data.id, values);
         refetchIdentity();
         refetchUser();
         notify("crm.profile.updated", {
@@ -123,7 +123,7 @@ export const ProfileSection = () => {
         <ItemSeparator />
 
         <InlineEditRow
-          label={translate("resources.sales.fields.first_name")}
+          label={translate("resources.members.fields.first_name")}
           value={data.first_name ?? ""}
           onSave={(v) => saveField("first_name", v)}
         />
@@ -131,7 +131,7 @@ export const ProfileSection = () => {
         <ItemSeparator />
 
         <InlineEditRow
-          label={translate("resources.sales.fields.last_name")}
+          label={translate("resources.members.fields.last_name")}
           value={data.last_name ?? ""}
           onSave={(v) => saveField("last_name", v)}
         />
@@ -139,7 +139,7 @@ export const ProfileSection = () => {
         <ItemSeparator />
 
         <InlineEditRow
-          label={translate("resources.sales.fields.email")}
+          label={translate("resources.members.fields.email")}
           value={data.email ?? ""}
           onSave={(v) => saveField("email", v)}
         />
