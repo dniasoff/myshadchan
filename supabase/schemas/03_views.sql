@@ -50,7 +50,7 @@ group by a.target_id, a.account_id;
 
 -- Board list/detail read path for the shidduchim pipeline (AD-10). Joins the
 -- shadchan ("via {shadchan}")
--- and the child so the board card needs a single fetch. security_invoker
+-- and the single so the board card needs a single fetch. security_invoker
 -- so the base-table RLS still applies to the caller. catch_count (E3) is a
 -- 1:1 left join onto the pre-aggregated catch summary above, so it adds no row
 -- multiplication and the board's "Suggested before" chip costs no extra query.
@@ -59,7 +59,7 @@ select
     s.id,
     s.account_id,
     s.created_at,
-    s.child_id,
+    s.single_id,
     s.shadchan_id,
     s.name_en,
     s.name_he,
@@ -84,16 +84,16 @@ select
     s.index,
     sh.name as shadchan_name,
     sh.name_he as shadchan_name_he,
-    c.first_name_en as child_first_name_en,
-    c.first_name_he as child_first_name_he,
-    c.last_name_en as child_last_name_en,
-    c.last_name_he as child_last_name_he,
+    c.first_name_en as single_first_name_en,
+    c.first_name_he as single_first_name_he,
+    c.last_name_en as single_last_name_en,
+    c.last_name_he as single_last_name_he,
     count(distinct rl.id) as nb_references,
     count(distinct r.id) as nb_redts,
     coalesce(max(cat.catch_count), 0) as catch_count
 from public.shidduchim s
     left join public.shadchanim sh on sh.id = s.shadchan_id
-    left join public.children c on c.id = s.child_id
+    left join public.singles c on c.id = s.single_id
     left join public.reference_links rl on rl.shidduchim_id = s.id
     left join public.redts r on r.shidduchim_id = s.id
     left join public.shidduchim_catch_summary cat on cat.shidduchim_id = s.id
@@ -157,23 +157,23 @@ select
     s.name_he as shidduch_name_he,
     s.pipeline_state as shidduch_pipeline_state,
     s.visibility as shidduch_visibility,
-    s.child_id,
-    c.first_name_en as child_first_name_en,
-    c.first_name_he as child_first_name_he
+    s.single_id,
+    c.first_name_en as single_first_name_en,
+    c.first_name_he as single_first_name_he
 from public.reference_links rl
     left join public."references" r on r.id = rl.reference_id
     left join public.shidduchim s on s.id = rl.shidduchim_id
-    left join public.children c on c.id = s.child_id;
+    left join public.singles c on c.id = s.single_id;
 
--- Per-child pipeline counts (E6). One row per child with the child's own
+-- Per-single pipeline counts (E6). One row per single with the single's own
 -- fields plus a total suggestion count and an "open" (still-in-triage) count,
 -- so the roster card shows "N in pipeline" without an N+1 fetch. Mirrors the
 -- other summary views: account-scoped by base-table RLS via security_invoker,
--- single-column child join (children.id is a global identity PK). "Open" is the
+-- single-column join (singles.id is a global identity PK). "Open" is the
 -- three active triage states (new/look_into/not_sure); the terminal states
 -- (for_sure_not/yes/unsure/no, per pipelineStates.ts) are excluded so the count
--- reflects work still in flight, not the child's whole history.
-create or replace view public.children_summary with (security_invoker = on) as
+-- reflects work still in flight, not the single's whole history.
+create or replace view public.singles_summary with (security_invoker = on) as
 select
     c.id,
     c.account_id,
@@ -191,8 +191,8 @@ select
     count(s.id) filter (
         where s.pipeline_state in ('new', 'look_into', 'not_sure')
     ) as open_shidduchim
-from public.children c
-    left join public.shidduchim s on s.child_id = c.id
+from public.singles c
+    left join public.shidduchim s on s.single_id = c.id
 group by c.id;
 
 -- Per-shadchan productivity stats (E5). One row per shadchan, keyed on the

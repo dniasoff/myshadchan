@@ -60,13 +60,13 @@ insert into public.account_members (account_id, user_id, role)
 values (:acct_a, '11111111-1111-1111-1111-111111111111', 'parent_admin'),
        (:acct_b, '22222222-2222-2222-2222-222222222222', 'parent_admin');
 
-insert into public.children (account_id, first_name_en, gender)
-values (:acct_a, 'Leah', 'female') returning id as child_a \gset
-insert into ids values ('child_a', :child_a);
-insert into public.shidduchim (account_id, child_id, name_en)
-values (:acct_a, :child_a, 'Yosef Klein') returning id as shid1 \gset
-insert into public.shidduchim (account_id, child_id, name_en)
-values (:acct_a, :child_a, 'Dovid Weiss') returning id as shid2 \gset
+insert into public.singles (account_id, first_name_en, gender)
+values (:acct_a, 'Leah', 'female') returning id as single_a \gset
+insert into ids values ('single_a', :single_a);
+insert into public.shidduchim (account_id, single_id, name_en)
+values (:acct_a, :single_a, 'Yosef Klein') returning id as shid1 \gset
+insert into public.shidduchim (account_id, single_id, name_en)
+values (:acct_a, :single_a, 'Dovid Weiss') returning id as shid2 \gset
 insert into ids values ('shid1', :shid1), ('shid2', :shid2);
 
 -- ---------------------------------------------------------------------------
@@ -462,7 +462,7 @@ end $$;
 -- Cross-account foreign keys: a link can only ever join records in its own
 -- account. Without the composite FK, tenant B could point a reference_link at
 -- tenant A's shidduch — a cross-tenant id oracle, and a dangling parent for the
--- branch that will later carry child visibility.
+-- branch that will later carry single visibility.
 -- ---------------------------------------------------------------------------
 set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
 
@@ -485,7 +485,7 @@ end $$;
 -- ---------------------------------------------------------------------------
 -- AD-3: every interaction must declare which parent its visibility derives
 -- from. A row that answers neither is what would have leaked free-text notes to
--- a candidate once the child role exists.
+-- a candidate once the single role exists.
 -- ---------------------------------------------------------------------------
 set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
@@ -601,19 +601,19 @@ end $$;
 
 -- ---------------------------------------------------------------------------
 -- Cross-tenant cascade destruction: every FK that joins two tenant-owned tables
--- carries account_id, so one account deleting its own child can never cascade
+-- carries account_id, so one account deleting its own single can never cascade
 -- into another account's rows.
 -- ---------------------------------------------------------------------------
 set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
 
 do $$
-declare v_child_a bigint;
+declare v_single_a bigint;
 begin
-  select value into v_child_a from ids where name = 'child_a';
-  insert into public.shidduchim (child_id, name_en) values (v_child_a, 'stolen child');
-  insert into results values ('cannot create a shidduch on another account''s child', false, 'insert succeeded');
+  select value into v_single_a from ids where name = 'single_a';
+  insert into public.shidduchim (single_id, name_en) values (v_single_a, 'stolen single');
+  insert into results values ('cannot create a shidduch on another account''s single', false, 'insert succeeded');
 exception when others then
-  insert into results values ('cannot create a shidduch on another account''s child', true, sqlerrm);
+  insert into results values ('cannot create a shidduch on another account''s single', true, sqlerrm);
 end $$;
 
 do $$
@@ -647,16 +647,35 @@ exception when others then
 end $$;
 
 do $$
-declare v_child_a bigint;
+declare v_single_a bigint;
 begin
-  select value into v_child_a from ids where name = 'child_a';
-  insert into public.date_records (child_id) values (v_child_a);
-  insert into results values ('cannot attach a date record to another account''s child', false, 'insert succeeded');
+  select value into v_single_a from ids where name = 'single_a';
+  insert into public.date_records (single_id) values (v_single_a);
+  insert into results values ('cannot attach a date record to another account''s single', false, 'insert succeeded');
 exception when others then
-  insert into results values ('cannot attach a date record to another account''s child', true, sqlerrm);
+  insert into results values ('cannot attach a date record to another account''s single', true, sqlerrm);
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- AD-1 / AC-14(e): a member of one account must never read another account's
+-- singles, from either the base table or the singles_summary view. Still
+-- tenant B's role/claims here (set above), so this single lands in tenant B's
+-- own account via set_account_id_default().
+-- ---------------------------------------------------------------------------
+insert into public.singles (first_name_en, gender) values ('Devora', 'female')
+returning id as single_b_isolation \gset
+
 set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'tenant A reads only its own single from public.singles, never tenant B''s',
+       (select count(*) from public.singles where id = :single_a) = 1
+   and (select count(*) from public.singles where id = :single_b_isolation) = 0;
+
+insert into results (name, passed)
+select 'tenant A reads only its own single from public.singles_summary, never tenant B''s',
+       (select count(*) from public.singles_summary where id = :single_a) = 1
+   and (select count(*) from public.singles_summary where id = :single_b_isolation) = 0;
 
 -- The merge's definer helper is the one way an interaction can be re-parented.
 -- It must not become a way to move a note onto a DIFFERENT shidduch, which is
@@ -734,7 +753,7 @@ select 'authenticated cannot TRUNCATE any table carrying candid data',
    and not has_table_privilege('authenticated', 'public.tasks', 'TRUNCATE')
    and not has_table_privilege('authenticated', 'public.reference_links', 'TRUNCATE')
    and not has_table_privilege('authenticated', 'public.shidduchim', 'TRUNCATE')
-   and not has_table_privilege('authenticated', 'public.children', 'TRUNCATE')
+   and not has_table_privilege('authenticated', 'public.singles', 'TRUNCATE')
    -- Emptying the legal state graph makes enforce_pipeline_transition() reject
    -- every state change, for every tenant.
    and not has_table_privilege('authenticated', 'public.pipeline_transitions', 'TRUNCATE');
@@ -790,7 +809,7 @@ select 'AD-3: nothing hanging off a reference has its own visibility column',
          select 1 from information_schema.columns
          where table_schema = 'public'
            and table_name in ('reference_links', 'interactions', 'tasks', 'identity_signals')
-           and column_name in ('visibility', 'child_visible', 'is_visible')
+           and column_name in ('visibility', 'single_visible', 'is_visible')
        );
 
 \t on

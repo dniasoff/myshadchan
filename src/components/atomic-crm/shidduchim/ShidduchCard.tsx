@@ -77,7 +77,7 @@ export const ShidduchCardContent = ({
   tourAnchor?: boolean;
 }) => {
   const redirect = useRedirect();
-  const name = shidduch.name_en ?? shidduch.child_first_name_en ?? "Unnamed";
+  const name = shidduch.name_en ?? shidduch.single_first_name_en ?? "Unnamed";
   const monogram = getMonogram(shidduch.name_en);
   const avatarIndex = getAvatarIndex(shidduch.name_en ?? String(shidduch.id));
   const meta = [shidduch.location_en, shidduch.seminary_en]
@@ -135,7 +135,7 @@ export const ShidduchCardContent = ({
 
         {/*
           Dedupe "catch" chip (E3): a calm "Suggested before" indicator when this
-          person looks like one already suggested for another child in the family.
+          person looks like one already suggested for another single in the family.
           catch_count rides along on the shidduchim_summary read (no per-card
           query), and the honey --attention token marks recognition, never alarm.
           The full evidence + confirm/dismiss lives on the 360 view (ShidduchCatchSection).

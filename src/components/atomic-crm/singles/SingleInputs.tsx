@@ -5,10 +5,10 @@ import { TextInput } from "@/components/admin/text-input";
 import { Separator } from "@/components/ui/separator";
 
 /**
- * Form inputs for a child (the single/child being matched). account_id is
+ * Form inputs for a single (the person being matched). account_id is
  * set server-side by a trigger — never a form input.
  */
-export const ChildInputs = () => (
+export const SingleInputs = () => (
   <div className="flex flex-col gap-6">
     <div className="flex flex-col gap-4">
       <h3 className="text-sm font-semibold text-muted-foreground">Name</h3>

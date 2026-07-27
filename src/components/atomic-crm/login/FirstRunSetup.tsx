@@ -24,18 +24,18 @@ import type { Account } from "../types";
 import { LedgerMark } from "./BrandLockup";
 import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
 
-type Step = "account" | "child" | "done";
+type Step = "account" | "single" | "done";
 
-const STEPS: Step[] = ["account", "child", "done"];
+const STEPS: Step[] = ["account", "single", "done"];
 
 /**
- * First-run onboarding: name the family record, add the first child, land
+ * First-run onboarding: name the family record, add the first single, land
  * on the dashboard. Rendered inline (no dedicated route) by
  * `login/OnboardingChoice.tsx`'s "Start with my own family" path — see
  * `root/OnboardingGate.tsx` for when that screen shows.
  *
- * Both steps are real writes, not mocked: `accounts` (name) and `children`
- * (first child) are both RLS-scoped, authenticated-writable tables already —
+ * Both steps are real writes, not mocked: `accounts` (name) and `singles`
+ * (first single) are both RLS-scoped, authenticated-writable tables already —
  * see supabase/schemas/05_policies.sql / 06_grants.sql.
  */
 export const FirstRunSetup = () => {
@@ -43,7 +43,7 @@ export const FirstRunSetup = () => {
   const notify = useNotify();
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("account");
-  const [childName, setChildName] = useState<string>("");
+  const [singleName, setSingleName] = useState<string>("");
 
   const { data: accounts, isPending: isAccountLoading } = useGetList<Account>(
     "accounts",
@@ -55,12 +55,12 @@ export const FirstRunSetup = () => {
   const account = accounts?.[0];
 
   const [updateAccount, { isPending: isSavingAccount }] = useUpdate();
-  const [createChild, { isPending: isSavingChild }] = useCreate();
+  const [createSingle, { isPending: isSavingSingle }] = useCreate();
 
   const accountForm = useForm<{ name: string }>({
     values: account ? { name: account.name } : undefined,
   });
-  const childForm = useForm<{
+  const singleForm = useForm<{
     first_name_en: string;
     gender?: string;
   }>({ defaultValues: { first_name_en: "", gender: "" } });
@@ -73,7 +73,7 @@ export const FirstRunSetup = () => {
       "accounts",
       { id: account.id, data: { name: values.name }, previousData: account },
       {
-        onSuccess: () => setStep("child"),
+        onSuccess: () => setStep("single"),
         onError: () => {
           notify("crm.auth.onboarding.account_save_error", {
             type: "error",
@@ -84,9 +84,9 @@ export const FirstRunSetup = () => {
     );
   });
 
-  const handleChildSubmit = childForm.handleSubmit((values) => {
-    createChild(
-      "children",
+  const handleSingleSubmit = singleForm.handleSubmit((values) => {
+    createSingle(
+      "singles",
       {
         data: {
           first_name_en: values.first_name_en,
@@ -96,13 +96,13 @@ export const FirstRunSetup = () => {
       },
       {
         onSuccess: () => {
-          setChildName(values.first_name_en);
+          setSingleName(values.first_name_en);
           setStep("done");
         },
         onError: () => {
-          notify("crm.auth.onboarding.child_save_error", {
+          notify("crm.auth.onboarding.single_save_error", {
             type: "error",
-            messageArgs: { _: "Couldn't add that child. Try again." },
+            messageArgs: { _: "Couldn't add that single. Try again." },
           });
         },
       },
@@ -199,7 +199,7 @@ export const FirstRunSetup = () => {
           </div>
         ) : null}
 
-        {step === "child" ? (
+        {step === "single" ? (
           <div className="space-y-5">
             <div className="space-y-2 text-center">
               <div
@@ -216,55 +216,57 @@ export const FirstRunSetup = () => {
                 />
               </div>
               <h1 className="font-display text-2xl font-bold tracking-tight">
-                {translate("crm.auth.onboarding.child_title", {
-                  _: "Add your first child",
+                {translate("crm.auth.onboarding.single_title", {
+                  _: "Add your first single",
                 })}
               </h1>
               <p className="text-sm leading-relaxed text-muted-foreground">
-                {translate("crm.auth.onboarding.child_body", {
-                  _: "Every suggestion, shadchan and reference call is tracked per child. You can add more any time.",
+                {translate("crm.auth.onboarding.single_body", {
+                  _: "Every suggestion, shadchan and reference call is tracked per single. You can add more any time.",
                 })}
               </p>
             </div>
 
-            <form onSubmit={handleChildSubmit} className="space-y-4">
+            <form onSubmit={handleSingleSubmit} className="space-y-4">
               <div className="flex flex-col gap-2">
-                <Label htmlFor="child-first-name-en">
-                  {translate("crm.auth.onboarding.child_first_name", {
+                <Label htmlFor="single-first-name-en">
+                  {translate("crm.auth.onboarding.single_first_name", {
                     _: "First name",
                   })}
                 </Label>
                 <Input
-                  id="child-first-name-en"
+                  id="single-first-name-en"
                   autoFocus
-                  {...childForm.register("first_name_en", { required: true })}
+                  {...singleForm.register("first_name_en", { required: true })}
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="child-gender">
-                  {translate("crm.auth.onboarding.child_gender", {
+                <Label htmlFor="single-gender">
+                  {translate("crm.auth.onboarding.single_gender", {
                     _: "Gender — optional",
                   })}
                 </Label>
                 <Select
-                  onValueChange={(value) => childForm.setValue("gender", value)}
+                  onValueChange={(value) =>
+                    singleForm.setValue("gender", value)
+                  }
                 >
-                  <SelectTrigger id="child-gender" className="w-full">
+                  <SelectTrigger id="single-gender" className="w-full">
                     <SelectValue
                       placeholder={translate(
-                        "crm.auth.onboarding.child_gender_placeholder",
+                        "crm.auth.onboarding.single_gender_placeholder",
                         { _: "Select..." },
                       )}
                     />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="female">
-                      {translate("crm.children.gender_female", {
+                      {translate("crm.singles.gender_female", {
                         _: "Female",
                       })}
                     </SelectItem>
                     <SelectItem value="male">
-                      {translate("crm.children.gender_male", { _: "Male" })}
+                      {translate("crm.singles.gender_male", { _: "Male" })}
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -273,13 +275,13 @@ export const FirstRunSetup = () => {
               <Button
                 type="submit"
                 className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
-                disabled={isSavingChild}
+                disabled={isSavingSingle}
               >
-                {isSavingChild ? (
+                {isSavingSingle ? (
                   <Loader2 className="me-2 h-4 w-4 animate-spin" />
                 ) : null}
-                {translate("crm.auth.onboarding.add_child", {
-                  _: "Add child",
+                {translate("crm.auth.onboarding.add_single", {
+                  _: "Add single",
                 })}
               </Button>
             </form>
@@ -307,10 +309,10 @@ export const FirstRunSetup = () => {
                 })}
               </h1>
               <p className="text-sm leading-relaxed text-muted-foreground">
-                {childName
+                {singleName
                   ? translate("crm.auth.onboarding.done_body_named", {
-                      _: `${childName}'s record is ready. Start by logging a suggestion.`,
-                      childName,
+                      _: `${singleName}'s record is ready. Start by logging a suggestion.`,
+                      singleName,
                     })
                   : translate("crm.auth.onboarding.done_body", {
                       _: "Your record is ready. Start by logging a suggestion.",

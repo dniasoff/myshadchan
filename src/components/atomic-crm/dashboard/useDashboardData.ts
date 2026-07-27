@@ -2,52 +2,52 @@ import type { Identifier } from "ra-core";
 import { useGetIdentity, useGetList } from "ra-core";
 import { useEffect, useState } from "react";
 
-import type { Child } from "../types";
+import type { Single } from "../types";
 
 export interface DashboardData {
-  /** True while identity, the child list, or the selected child's count is loading. */
+  /** True while identity, the single list, or the selected single's count is loading. */
   isPending: boolean;
-  children: Child[];
-  childId: Identifier | undefined;
-  setChildId: (id: Identifier) => void;
+  singles: Single[];
+  singleId: Identifier | undefined;
+  setSingleId: (id: Identifier) => void;
   hasSuggestions: boolean;
   totalShadchanim: number;
   totalReferences: number;
 }
 
 /**
- * Data + local child-selection state shared by the desktop and mobile
+ * Data + local single-selection state shared by the desktop and mobile
  * dashboards (foundation-plan §4), mirroring the pattern already used in
- * `ShidduchimList`. No global ChildContext yet (risk #3) — TODO: hoist this
+ * `ShidduchimList`. No global SingleContext yet (risk #3) — TODO: hoist this
  * once a second screen needs to share the selection.
  */
 export const useDashboardData = (): DashboardData => {
   const { identity } = useGetIdentity();
-  const { data: children, isPending: childrenPending } = useGetList<Child>(
-    "children",
+  const { data: singles, isPending: singlesPending } = useGetList<Single>(
+    "singles",
     {
       pagination: { page: 1, perPage: 100 },
       sort: { field: "first_name_en", order: "ASC" },
     },
   );
-  const [childId, setChildId] = useState<Identifier | undefined>();
+  const [singleId, setSingleId] = useState<Identifier | undefined>();
 
   useEffect(() => {
-    if (childId == null && children && children.length > 0) {
-      setChildId(children[0].id);
+    if (singleId == null && singles && singles.length > 0) {
+      setSingleId(singles[0].id);
     }
-  }, [children, childId]);
+  }, [singles, singleId]);
 
-  const selectedChildId = childId ?? children?.[0]?.id;
+  const selectedSingleId = singleId ?? singles?.[0]?.id;
 
-  const { total: totalForChild, isPending: totalForChildPending } =
+  const { total: totalForSingle, isPending: totalForSinglePending } =
     useGetList(
       "shidduchim",
       {
-        filter: { child_id: selectedChildId },
+        filter: { single_id: selectedSingleId },
         pagination: { page: 1, perPage: 1 },
       },
-      { enabled: selectedChildId != null },
+      { enabled: selectedSingleId != null },
     );
 
   const { total: totalShadchanim } = useGetList("shadchanim", {
@@ -60,12 +60,12 @@ export const useDashboardData = (): DashboardData => {
   return {
     isPending:
       !identity ||
-      childrenPending ||
-      (selectedChildId != null && totalForChildPending),
-    children: children ?? [],
-    childId: selectedChildId,
-    setChildId,
-    hasSuggestions: (totalForChild ?? 0) > 0,
+      singlesPending ||
+      (selectedSingleId != null && totalForSinglePending),
+    singles: singles ?? [],
+    singleId: selectedSingleId,
+    setSingleId,
+    hasSuggestions: (totalForSingle ?? 0) > 0,
     totalShadchanim: totalShadchanim ?? 0,
     totalReferences: totalReferences ?? 0,
   };

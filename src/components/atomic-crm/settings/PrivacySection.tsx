@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 
 import { DashboardStat } from "../dashboard/DashboardStat";
 import type { CrmDataProvider } from "../providers/types";
-import type { Child, Reference, Shadchan, Shidduch } from "../types";
+import type { Reference, Shadchan, Shidduch, Single } from "../types";
 import { DeleteDataDialog } from "./DeleteDataDialog";
 import { collectFamilyData, downloadAsJson } from "./exportFamilyData";
 import { SectionLabel } from "./SectionLabel";
@@ -21,7 +21,7 @@ export const PrivacySection = () => {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const [isExporting, setIsExporting] = useState(false);
 
-  const { total: childrenTotal } = useGetList<Child>("children", {
+  const { total: singlesTotal } = useGetList<Single>("singles", {
     pagination: { page: 1, perPage: 1 },
   });
   const { total: shidduchimTotal } = useGetList<Shidduch>("shidduchim", {
@@ -58,10 +58,10 @@ export const PrivacySection = () => {
           </p>
           <div className="grid grid-cols-2 gap-3">
             <DashboardStat
-              label={translate("crm.profile.family.children", {
-                _: "Children",
+              label={translate("crm.profile.family.singles", {
+                _: "Singles",
               })}
-              value={childrenTotal ?? 0}
+              value={singlesTotal ?? 0}
               icon={Baby}
             />
             <DashboardStat

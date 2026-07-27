@@ -4,7 +4,10 @@ import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { corsHeaders, OptionsMiddleware } from "../_shared/cors.ts";
 import { createErrorResponse } from "../_shared/utils.ts";
 import { AuthMiddleware, UserMiddleware } from "../_shared/authentication.ts";
-import { resolveAccountId, userScopedClient } from "../_shared/resolveDemoAccount.ts";
+import {
+  resolveAccountId,
+  userScopedClient,
+} from "../_shared/resolveDemoAccount.ts";
 
 /**
  * Wipes every tenant row in the CALLER'S OWN account and clears
@@ -25,8 +28,8 @@ import { resolveAccountId, userScopedClient } from "../_shared/resolveDemoAccoun
  * purge_polymorphic_dependents trigger on shidduchim/references, and by the
  * ON DELETE CASCADE from reference_links (interactions.reference_link_id).
  * Deletion order is FK-safe: every dependent of shidduchim/references is
- * removed before the parent, and children go last because
- * shidduchim.child_id/date_records.child_id cascade from children.
+ * removed before the parent, and singles go last because
+ * shidduchim.single_id/date_records.single_id cascade from singles.
  */
 
 // Deliberately explicit rather than looped over a table-name array — keeping
@@ -41,7 +44,7 @@ const DELETE_ORDER = [
   "shidduchim",
   "references",
   "shadchanim",
-  "children",
+  "singles",
 ] as const;
 
 async function clearDemoData(req: Request, accountId: number) {
@@ -58,7 +61,8 @@ async function clearDemoData(req: Request, accountId: number) {
     .from("accounts")
     .update({ demo: false })
     .eq("id", accountId);
-  if (flagError) throw new Error(`failed to clear accounts.demo: ${flagError.message}`);
+  if (flagError)
+    throw new Error(`failed to clear accounts.demo: ${flagError.message}`);
 
   return { cleared: true as const, accountId };
 }

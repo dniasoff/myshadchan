@@ -4,9 +4,12 @@ import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { corsHeaders, OptionsMiddleware } from "../_shared/cors.ts";
 import { createErrorResponse } from "../_shared/utils.ts";
 import { AuthMiddleware, UserMiddleware } from "../_shared/authentication.ts";
-import { resolveAccountId, userScopedClient } from "../_shared/resolveDemoAccount.ts";
 import {
-  CHILDREN,
+  resolveAccountId,
+  userScopedClient,
+} from "../_shared/resolveDemoAccount.ts";
+import {
+  SINGLES,
   SHADCHANIM,
   REFERENCES,
   RIVKY_SUGGESTIONS,
@@ -21,7 +24,7 @@ import {
 } from "./dataset.ts";
 
 /**
- * Plants the curated realistic demo dataset (children/shadchanim/references/
+ * Plants the curated realistic demo dataset (singles/shadchanim/references/
  * shidduchim/tasks/interactions) into the caller's own, currently-empty
  * account, then flips accounts.demo = true.
  *
@@ -33,12 +36,12 @@ import {
  */
 
 // Tables checked by the empty-account guard below. Broader than "just
-// children": an account that already has shadchanim/references/shidduchim
-// but (for whatever reason) zero children should not be re-seeded either —
+// singles": an account that already has shadchanim/references/shidduchim
+// but (for whatever reason) zero singles should not be re-seeded either —
 // re-seeding on top of partial data would produce a mixed, inconsistent
 // state. Any row in any of these means "not empty".
 const NON_EMPTY_GUARD_TABLES = [
-  "children",
+  "singles",
   "shadchanim",
   "references",
   "shidduchim",
@@ -70,7 +73,7 @@ async function isAccountEmpty(accountId: number): Promise<boolean> {
 // tasks) can address the right row.
 async function seedSuggestions(
   db: SupabaseClient,
-  childId: number,
+  singleId: number,
   suggestions: DemoSuggestion[],
   shadchanIdByKey: Map<string, number>,
 ): Promise<Map<string, number>> {
@@ -79,11 +82,13 @@ async function seedSuggestions(
   for (const s of suggestions) {
     const shadchanId = shadchanIdByKey.get(s.shadchanKey);
     const isDecisionState =
-      s.targetState === "yes" || s.targetState === "unsure" || s.targetState === "no";
+      s.targetState === "yes" ||
+      s.targetState === "unsure" ||
+      s.targetState === "no";
     const initialState = isDecisionState ? "look_into" : s.targetState;
 
     const { data, error } = await db.rpc("create_shidduch", {
-      p_child_id: childId,
+      p_single_id: singleId,
       p_shadchan_id: shadchanId,
       p_name_en: s.name_en,
       p_parents_en: s.parents_en,
@@ -121,17 +126,19 @@ async function seedSuggestions(
 async function seedDemoData(req: Request, accountId: number) {
   const db = userScopedClient(req);
 
-  const { data: children, error: childrenError } = await db
-    .from("children")
-    .insert(CHILDREN)
+  const { data: singles, error: singlesError } = await db
+    .from("singles")
+    .insert(SINGLES)
     .select("id, gender");
-  if (childrenError || !children) {
-    throw new Error(`insert children failed: ${childrenError?.message}`);
+  if (singlesError || !singles) {
+    throw new Error(`insert singles failed: ${singlesError?.message}`);
   }
-  const girlId = children.find((c) => c.gender === "female")?.id;
-  const boyId = children.find((c) => c.gender === "male")?.id;
+  const girlId = singles.find((c) => c.gender === "female")?.id;
+  const boyId = singles.find((c) => c.gender === "male")?.id;
   if (!girlId || !boyId) {
-    throw new Error("expected exactly one female and one male child after insert");
+    throw new Error(
+      "expected exactly one female and one male single after insert",
+    );
   }
 
   const { data: shadchanim, error: shadchanimError } = await db
@@ -198,7 +205,9 @@ async function seedDemoData(req: Request, accountId: number) {
       },
     );
     if (linkError || !linkData?.[0]) {
-      throw new Error(`link_reference_to_shidduch failed: ${linkError?.message}`);
+      throw new Error(
+        `link_reference_to_shidduch failed: ${linkError?.message}`,
+      );
     }
     const { error: logError } = await db.rpc("log_reference_call", {
       p_reference_link_id: linkData[0].id,
@@ -206,7 +215,8 @@ async function seedDemoData(req: Request, accountId: number) {
       p_what_they_said: link.whatTheySaid,
       p_source: "manual",
     });
-    if (logError) throw new Error(`log_reference_call failed: ${logError.message}`);
+    if (logError)
+      throw new Error(`log_reference_call failed: ${logError.message}`);
     referenceLinkCount++;
   }
 
@@ -218,8 +228,11 @@ async function seedDemoData(req: Request, accountId: number) {
     kind: "note",
     body: n.body,
   }));
-  const { error: notesError } = await db.from("interactions").insert(notesToInsert);
-  if (notesError) throw new Error(`insert timeline notes failed: ${notesError.message}`);
+  const { error: notesError } = await db
+    .from("interactions")
+    .insert(notesToInsert);
+  if (notesError)
+    throw new Error(`insert timeline notes failed: ${notesError.message}`);
 
   const tasksToInsert = TASKS.map((t) => ({
     text: t.text,
@@ -241,12 +254,13 @@ async function seedDemoData(req: Request, accountId: number) {
     .from("accounts")
     .update({ demo: true })
     .eq("id", accountId);
-  if (flagError) throw new Error(`failed to set accounts.demo: ${flagError.message}`);
+  if (flagError)
+    throw new Error(`failed to set accounts.demo: ${flagError.message}`);
 
   return {
     seeded: true as const,
     accountId,
-    children: CHILDREN.length,
+    singles: SINGLES.length,
     shadchanim: SHADCHANIM.length,
     references: REFERENCES.length,
     shidduchim: RIVKY_SUGGESTIONS.length + YAAKOV_SUGGESTIONS.length,
@@ -270,8 +284,8 @@ Deno.serve((req: Request) =>
           return createErrorResponse(409, "No active account for user");
         }
 
-        // Guard: only ever seed an empty account (checks children,
-        // shadchanim, references, and shidduchim — not children alone —
+        // Guard: only ever seed an empty account (checks singles,
+        // shadchanim, references, and shidduchim — not singles alone —
         // so a partially-populated account can't be re-seeded into a
         // mixed state).
         let accountEmpty: boolean;

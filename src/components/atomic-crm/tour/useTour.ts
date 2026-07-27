@@ -44,7 +44,7 @@ export const useTour = () => {
   const startTour = useCallback(() => {
     const reducedMotion = prefersReducedMotion();
 
-    // The tour's dashboard steps (nav items, child-switcher, pipeline
+    // The tour's dashboard steps (nav items, single-switcher, pipeline
     // snapshot) only exist on "/". The demo banner's "Take the tour" button
     // is reachable from every route, so without this the tour could start
     // mid-sequence with no anchors to highlight. Navigating first means the

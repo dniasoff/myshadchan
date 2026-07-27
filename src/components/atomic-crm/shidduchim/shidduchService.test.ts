@@ -2,7 +2,7 @@ import { createDataProvider } from "../providers/fakerest/dataProvider";
 
 // These tests exercise the single-owner service guards in the FakeRest mirror
 // (createShidduch / transitionShidduch), which mirror the create_shidduch and
-// transition_shidduch Postgres functions. Child id 1 is seeded by the demo
+// transition_shidduch Postgres functions. Single id 1 is seeded by the demo
 // data generator (see dataGenerator/shidduchim.ts).
 const makeProvider = () => createDataProvider({ latency: 0, silent: true });
 
@@ -12,7 +12,7 @@ describe("createShidduch (sole INSERT path)", () => {
     const dataProvider = makeProvider();
     // Act
     const created = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Test Single",
       shadchan_id: 1,
       initial_state: "look_into",
@@ -28,7 +28,7 @@ describe("createShidduch (sole INSERT path)", () => {
   it("defaults a new shidduch to the 'new' state", async () => {
     const dataProvider = makeProvider();
     const created = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Defaulted",
     });
     expect(created.pipeline_state).toBe("new");
@@ -38,7 +38,7 @@ describe("createShidduch (sole INSERT path)", () => {
     const dataProvider = makeProvider();
     await expect(
       dataProvider.createShidduch({
-        child_id: 1,
+        single_id: 1,
         name_en: "Illegal",
         initial_state: "yes",
       }),
@@ -50,7 +50,7 @@ describe("transitionShidduch (sole state writer)", () => {
   it("performs a legal triage transition new -> look_into", async () => {
     const dataProvider = makeProvider();
     const created = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Mover",
       initial_state: "new",
     });
@@ -65,7 +65,7 @@ describe("transitionShidduch (sole state writer)", () => {
   it("allows a decision only from look_into (look_into -> yes)", async () => {
     const dataProvider = makeProvider();
     const created = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Decider",
       initial_state: "look_into",
     });
@@ -80,7 +80,7 @@ describe("transitionShidduch (sole state writer)", () => {
   it("rejects an illegal transition new -> yes", async () => {
     const dataProvider = makeProvider();
     const created = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Jumper",
       initial_state: "new",
     });
@@ -92,7 +92,7 @@ describe("transitionShidduch (sole state writer)", () => {
   it("rejects moving out of a terminal state (for_sure_not -> look_into)", async () => {
     const dataProvider = makeProvider();
     const created = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Gut No",
       initial_state: "for_sure_not",
     });
@@ -104,7 +104,7 @@ describe("transitionShidduch (sole state writer)", () => {
   it("rejects a stale transition when `from` does not match the live state", async () => {
     const dataProvider = makeProvider();
     const created = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Stale",
       initial_state: "new",
     });
@@ -116,7 +116,7 @@ describe("transitionShidduch (sole state writer)", () => {
   it("is a no-op when from and to are the same state", async () => {
     const dataProvider = makeProvider();
     const created = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Same",
       initial_state: "look_into",
     });

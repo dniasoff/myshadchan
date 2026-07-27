@@ -7,7 +7,7 @@ const makeShidduch = (
 ): ShidduchSummary =>
   ({
     account_id: 1,
-    child_id: 1,
+    single_id: 1,
     pipeline_state: "new",
     redt_date: "2026-07-01",
     first_suggested_at: "2026-07-01T00:00:00.000Z",
@@ -19,7 +19,7 @@ const makeShidduch = (
   }) as ShidduchSummary;
 
 describe("bucketByState", () => {
-  it("returns 7 buckets in PIPELINE_STATES order for an empty child", () => {
+  it("returns 7 buckets in PIPELINE_STATES order for an empty single", () => {
     const buckets = bucketByState([]);
 
     expect(buckets.map((bucket) => bucket.state)).toEqual(

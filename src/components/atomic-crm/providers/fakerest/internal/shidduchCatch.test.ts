@@ -15,7 +15,7 @@ const shidduch = (overrides: Partial<Shidduch>): Shidduch =>
   ({
     id: 0,
     account_id: 1,
-    child_id: 10,
+    single_id: 10,
     name_en: null,
     name_he: null,
     parents_en: null,
@@ -151,19 +151,19 @@ describe("catchShidduch", () => {
     // Arrange
     const target = shidduch({
       id: 1,
-      child_id: 10,
+      single_id: 10,
       name_en: "Chaim Cohen",
       parents_en: "Yaakov Cohen",
     });
     const prior = shidduch({
       id: 2,
-      child_id: 11,
+      single_id: 11,
       name_en: "Chaim Cohen",
       parents_en: "Yaakov Cohen",
     });
     const provider = providerFor({
       shidduchim: [target, prior],
-      children: [{ id: 11, first_name_en: "Rivka" }],
+      singles: [{ id: 11, first_name_en: "Rivka" }],
       shadchanim: [],
       date_records: [],
     });
@@ -177,7 +177,7 @@ describe("catchShidduch", () => {
     expect(
       result.suggestions[0].deciding_facts.map((f) => f.signal).sort(),
     ).toEqual(["name", "parents"]);
-    expect(result.suggestions[0].child_first_name_en).toBe("Rivka");
+    expect(result.suggestions[0].single_first_name_en).toBe("Rivka");
   });
 
   it("never returns the row itself and never catches on name alone", async () => {
@@ -194,7 +194,7 @@ describe("catchShidduch", () => {
     });
     const provider = providerFor({
       shidduchim: [target, nameOnly],
-      children: [],
+      singles: [],
       shadchanim: [],
       date_records: [],
     });
@@ -211,19 +211,19 @@ describe("catchShidduch", () => {
     // Arrange
     const target = shidduch({
       id: 1,
-      child_id: 10,
+      single_id: 10,
       name_en: "Chaim Cohen",
       seminary_en: "Yeshivas Ohr",
     });
     const provider = providerFor({
       shidduchim: [target],
-      children: [{ id: 10, first_name_en: "Leah" }],
+      singles: [{ id: 10, first_name_en: "Leah" }],
       shadchanim: [],
       date_records: [
         {
           id: 100,
           account_id: 1,
-          child_id: 10,
+          single_id: 10,
           person_name_en: "Chaim Cohen",
           person_seminary: "Yeshivas Ohr",
           outcome: "no_second_date",
@@ -232,7 +232,7 @@ describe("catchShidduch", () => {
         {
           id: 101,
           account_id: 1,
-          child_id: 10,
+          single_id: 10,
           person_name_en: "Chaim Cohen",
           outcome: "ended",
           date_on: "2025-12-01",

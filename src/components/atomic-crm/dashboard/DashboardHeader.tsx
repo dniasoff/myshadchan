@@ -2,26 +2,26 @@ import type { Identifier } from "ra-core";
 
 import { cn } from "@/lib/utils";
 
-import type { Child } from "../types";
+import type { Single } from "../types";
 
 export interface DashboardHeaderProps {
-  childList: Child[];
-  childId: Identifier;
-  onSelectChild: (id: Identifier) => void;
+  singleList: Single[];
+  singleId: Identifier;
+  onSelectSingle: (id: Identifier) => void;
 }
 
-const childLabel = (child: Child) =>
-  [child.first_name_en, child.last_name_en].filter(Boolean).join(" ") ||
-  `#${child.id}`;
+const singleLabel = (single: Single) =>
+  [single.first_name_en, single.last_name_en].filter(Boolean).join(" ") ||
+  `#${single.id}`;
 
-/** Greeting + the prominent child switcher that drives the whole dashboard. */
+/** Greeting + the prominent single switcher that drives the whole dashboard. */
 export const DashboardHeader = ({
-  childList,
-  childId,
-  onSelectChild,
+  singleList,
+  singleId,
+  onSelectSingle,
 }: DashboardHeaderProps) => {
-  const selected = childList.find((child) => child.id === childId);
-  const nameEn = selected ? childLabel(selected) : "";
+  const selected = singleList.find((single) => single.id === singleId);
+  const nameEn = selected ? singleLabel(selected) : "";
 
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -34,23 +34,23 @@ export const DashboardHeader = ({
         </h1>
       </div>
 
-      {childList.length > 1 ? (
+      {singleList.length > 1 ? (
         <div className="inline-flex gap-0.5 rounded-full border border-border bg-secondary p-0.5">
-          {childList.map((child) => (
+          {singleList.map((single) => (
             <button
-              key={child.id}
+              key={single.id}
               type="button"
-              onClick={() => onSelectChild(child.id)}
+              onClick={() => onSelectSingle(single.id)}
               className={cn(
                 "rounded-full px-4 py-1.5 text-[13px] font-semibold outline-none",
                 "transition-colors duration-[160ms]",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                child.id === childId
+                single.id === singleId
                   ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {childLabel(child)}
+              {singleLabel(single)}
             </button>
           ))}
         </div>

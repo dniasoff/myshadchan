@@ -41,54 +41,54 @@ insert into public.account_members (account_id, user_id, role)
 values (:acct_a, 'a1a1a1a1-1111-1111-1111-111111111111', 'parent_admin'),
        (:acct_b, 'b2b2b2b2-2222-2222-2222-222222222222', 'parent_admin');
 
--- Tenant A: two children so a catch can cross children in the same family.
-insert into public.children (account_id, first_name_en, gender)
-values (:acct_a, 'Leah', 'female') returning id as child_leah \gset
-insert into public.children (account_id, first_name_en, gender)
-values (:acct_a, 'Rivka', 'female') returning id as child_rivka \gset
+-- Tenant A: two singles so a catch can cross singles in the same family.
+insert into public.singles (account_id, first_name_en, gender)
+values (:acct_a, 'Leah', 'female') returning id as single_leah \gset
+insert into public.singles (account_id, first_name_en, gender)
+values (:acct_a, 'Rivka', 'female') returning id as single_rivka \gset
 
--- The same boy, suggested for both children, spelled two ways (Chaim / Haim) and
+-- The same boy, suggested for both singles, spelled two ways (Chaim / Haim) and
 -- corroborated by the same parents + seminary -> a catch each way.
-insert into public.shidduchim (account_id, child_id, name_en, parents_en, seminary_en, age)
-values (:acct_a, :child_leah, 'Chaim Cohen', 'Yaakov Cohen', 'Yeshivas Ohr', 24)
+insert into public.shidduchim (account_id, single_id, name_en, parents_en, seminary_en, age)
+values (:acct_a, :single_leah, 'Chaim Cohen', 'Yaakov Cohen', 'Yeshivas Ohr', 24)
 returning id as shid_chaim \gset
-insert into public.shidduchim (account_id, child_id, name_en, parents_en, seminary_en, age)
-values (:acct_a, :child_rivka, 'Haim Cohen', 'Yaakov Cohen', 'Yeshivas Ohr', 25)
+insert into public.shidduchim (account_id, single_id, name_en, parents_en, seminary_en, age)
+values (:acct_a, :single_rivka, 'Haim Cohen', 'Yaakov Cohen', 'Yeshivas Ohr', 25)
 returning id as shid_haim \gset
 
 -- A solo suggestion with a unique name -> never a catch.
-insert into public.shidduchim (account_id, child_id, name_en, parents_en, seminary_en)
-values (:acct_a, :child_leah, 'Shloime Klein', 'Berel Klein', 'Mir')
+insert into public.shidduchim (account_id, single_id, name_en, parents_en, seminary_en)
+values (:acct_a, :single_leah, 'Shloime Klein', 'Berel Klein', 'Mir')
 returning id as shid_solo \gset
 
 -- Same exact name as shid_chaim but nothing else shared -> name-only, NOT a catch.
-insert into public.shidduchim (account_id, child_id, name_en, parents_en, seminary_en)
-values (:acct_a, :child_leah, 'Chaim Cohen', 'Shimon Berger', 'Ponovezh')
+insert into public.shidduchim (account_id, single_id, name_en, parents_en, seminary_en)
+values (:acct_a, :single_leah, 'Chaim Cohen', 'Shimon Berger', 'Ponovezh')
 returning id as shid_nameonly \gset
 
 -- Two suggestions sharing an exact name AND an age, but no real corroborator:
 -- age must never be the signal that ties them (FR11).
-insert into public.shidduchim (account_id, child_id, name_en, parents_en, age)
-values (:acct_a, :child_leah, 'Yosef Stern', 'Avi Stern', 22)
+insert into public.shidduchim (account_id, single_id, name_en, parents_en, age)
+values (:acct_a, :single_leah, 'Yosef Stern', 'Avi Stern', 22)
 returning id as shid_age1 \gset
-insert into public.shidduchim (account_id, child_id, name_en, parents_en, age)
-values (:acct_a, :child_rivka, 'Yosef Stern', 'Dovid Frank', 22)
+insert into public.shidduchim (account_id, single_id, name_en, parents_en, age)
+values (:acct_a, :single_rivka, 'Yosef Stern', 'Dovid Frank', 22)
 returning id as shid_age2 \gset
 
 -- Honest prior dating: one date record for the same person WITH a corroborator
 -- (seminary), one with only the name.
-insert into public.date_records (account_id, child_id, person_name_en, person_seminary, outcome, date_on)
-values (:acct_a, :child_leah, 'Chaim Cohen', 'Yeshivas Ohr', 'no_second_date', '2026-01-10')
+insert into public.date_records (account_id, single_id, person_name_en, person_seminary, outcome, date_on)
+values (:acct_a, :single_leah, 'Chaim Cohen', 'Yeshivas Ohr', 'no_second_date', '2026-01-10')
 returning id as date_corrob \gset
-insert into public.date_records (account_id, child_id, person_name_en, outcome, date_on)
-values (:acct_a, :child_leah, 'Chaim Cohen', 'ended', '2025-12-01')
+insert into public.date_records (account_id, single_id, person_name_en, outcome, date_on)
+values (:acct_a, :single_leah, 'Chaim Cohen', 'ended', '2025-12-01')
 returning id as date_nameonly \gset
 
 -- Tenant B: an IDENTICAL person. Must never appear in tenant A's catches.
-insert into public.children (account_id, first_name_en, gender)
-values (:acct_b, 'Miriam', 'female') returning id as child_b \gset
-insert into public.shidduchim (account_id, child_id, name_en, parents_en, seminary_en)
-values (:acct_b, :child_b, 'Chaim Cohen', 'Yaakov Cohen', 'Yeshivas Ohr')
+insert into public.singles (account_id, first_name_en, gender)
+values (:acct_b, 'Miriam', 'female') returning id as single_b \gset
+insert into public.shidduchim (account_id, single_id, name_en, parents_en, seminary_en)
+values (:acct_b, :single_b, 'Chaim Cohen', 'Yaakov Cohen', 'Yeshivas Ohr')
 returning id as shid_b \gset
 
 -- ---------------------------------------------------------------------------

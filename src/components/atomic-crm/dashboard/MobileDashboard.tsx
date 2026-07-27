@@ -40,9 +40,9 @@ const Wrapper = ({ children }: { children: ReactNode }) => {
 export const MobileDashboard = () => {
   const {
     isPending,
-    children,
-    childId,
-    setChildId,
+    singles,
+    singleId,
+    setSingleId,
     hasSuggestions,
     totalShadchanim,
     totalReferences,
@@ -50,41 +50,41 @@ export const MobileDashboard = () => {
 
   if (isPending) return null;
 
-  if (children.length === 0) {
+  if (singles.length === 0) {
     return (
       <Wrapper>
         <EmptyState
-          title="Add your first child"
-          description="A shidduchim pipeline belongs to a child — the single you are redting for. Add a child to start tracking suggestions."
-          actionLabel="Add a child"
-          actionTo="/children/create"
+          title="Add your first single"
+          description="A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions."
+          actionLabel="Add a single"
+          actionTo="/singles/create"
         />
       </Wrapper>
     );
   }
 
-  const selectedChildId = childId ?? children[0].id;
+  const selectedSingleId = singleId ?? singles[0].id;
 
   return (
     <Wrapper>
       <div className="flex flex-col gap-5">
         <DashboardHeader
-          childList={children}
-          childId={selectedChildId}
-          onSelectChild={setChildId}
+          singleList={singles}
+          singleId={selectedSingleId}
+          onSelectSingle={setSingleId}
         />
 
         {!hasSuggestions ? (
           <EmptyState
             title="Capture your first suggestion"
-            description="Every redt starts here — add the first suggestion for this child to see the pipeline come to life."
+            description="Every redt starts here — add the first suggestion for this single to see the pipeline come to life."
             actionLabel="Add a suggestion"
             actionTo="/shidduchim/create"
           />
         ) : (
           <>
-            <PipelineSnapshot childId={selectedChildId} />
-            <RecentSuggestions childId={selectedChildId} />
+            <PipelineSnapshot singleId={selectedSingleId} />
+            <RecentSuggestions singleId={selectedSingleId} />
             <div className="grid grid-cols-2 gap-4">
               <DashboardStat
                 label="Shadchanim"

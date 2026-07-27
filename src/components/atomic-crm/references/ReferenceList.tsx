@@ -14,7 +14,7 @@ import type { ReferenceSummary } from "../types";
 
 /**
  * The reference book (§5a): every person the family has spoken to, across every
- * child and every shidduch in the account (FR51-52) — deliberately not scoped to
+ * single and every shidduch in the account (FR51-52) — deliberately not scoped to
  * one single, because the whole point is that the same person gets asked about
  * several.
  *
@@ -205,11 +205,7 @@ const ReferenceListLayout = () => {
       <ReferenceListHeader />
       <div className="flex flex-col gap-3">
         {data.map((record, index) => (
-          <ReferenceRow
-            key={String(record.id)}
-            record={record}
-            index={index}
-          />
+          <ReferenceRow key={String(record.id)} record={record} index={index} />
         ))}
       </div>
     </div>

@@ -10,9 +10,9 @@ import type { ReferenceLinkSummary } from "../types";
  * "you've spoken to him about 2 other boys" string per mock reference. Repeat
  * recognition (FR42) has to come from reference_links or it is decoration.
  *
- * Scope note (FR51-52): deliberately NOT filtered by child. The reference book
- * is shared across every child in the account, so "other singles" means every
- * shidduch, not just this child's.
+ * Scope note (FR51-52): deliberately NOT filtered by single. The reference book
+ * is shared across every single in the account, so "other singles" means every
+ * shidduch, not just this single's.
  *
  * PRV-2: account scoping is enforced by RLS, never by a client-side filter.
  */

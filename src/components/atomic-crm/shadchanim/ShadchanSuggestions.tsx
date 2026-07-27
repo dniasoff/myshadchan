@@ -14,7 +14,7 @@ export interface ShadchanSuggestionsProps {
 
 /**
  * "Suggestions from this shadchan" (screen 20) — every shidduch this
- * matchmaker has redt, across every child, newest first. Real productivity
+ * matchmaker has redt, across every single, newest first. Real productivity
  * stats (# progressed to Look-into/Decision, # led to dates) would need an
  * aggregate that does not exist yet — this list itself is the informative,
  * non-judgmental payload the ticket calls for; no numbers are fabricated.
@@ -38,7 +38,10 @@ export const ShadchanSuggestions = ({
       {isPending ? (
         <div className="mt-4 flex flex-col gap-2">
           {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="h-14 animate-pulse rounded-xl bg-muted" />
+            <div
+              key={index}
+              className="h-14 animate-pulse rounded-xl bg-muted"
+            />
           ))}
         </div>
       ) : items.length === 0 ? (
@@ -67,10 +70,10 @@ export const ShadchanSuggestions = ({
                     {item.name_en ?? "Unnamed"}
                   </div>
                   <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {item.child_first_name_en
-                      ? `for ${item.child_first_name_en}`
+                    {item.single_first_name_en
+                      ? `for ${item.single_first_name_en}`
                       : null}
-                    {item.child_first_name_en && item.redt_date ? " · " : null}
+                    {item.single_first_name_en && item.redt_date ? " · " : null}
                     {item.redt_date
                       ? `Redt ${formatRedtDate(item.redt_date)}`
                       : null}

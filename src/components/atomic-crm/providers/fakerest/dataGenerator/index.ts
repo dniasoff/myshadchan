@@ -15,7 +15,7 @@ export default (): Db => {
   // Set before generateShidduchimDomain(db): references.ts reads db.tasks.length
   // and spreads db.tasks, so an undefined db.tasks would crash the demo provider.
   db.tasks = [];
-  // Shidduchim pipeline domain (accounts, children, shadchanim, shidduchim, ...)
+  // Shidduchim pipeline domain (accounts, singles, shadchanim, shidduchim, ...)
   generateShidduchimDomain(db);
   // References domain (references, reference_links, interactions, reference
   // tasks) -- runs after shidduchim so it can link against real shidduchim ids.
@@ -35,7 +35,7 @@ export default (): Db => {
       subject: null,
       attachments: null,
       status: "unresolved",
-      child_id: null,
+      single_id: null,
       shadchan_id: null,
       resolved_shidduchim_id: null,
     },
@@ -50,7 +50,7 @@ export default (): Db => {
         "Attached is a resume — Shmuli Katz, Passaic, learning in Beis Medrash. Please call to discuss.",
       attachments: null,
       status: "unresolved",
-      child_id: null,
+      single_id: null,
       shadchan_id: null,
       resolved_shidduchim_id: null,
     },

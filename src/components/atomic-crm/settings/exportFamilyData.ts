@@ -2,7 +2,7 @@ import type { DataProvider } from "ra-core";
 
 /** Resources that make up "this family's records" for the export bundle. */
 const EXPORT_RESOURCES = [
-  "children",
+  "singles",
   "shidduchim",
   "shadchanim",
   "references",

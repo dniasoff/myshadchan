@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { PipelineSnapshot } from "../dashboard/PipelineSnapshot";
 import { getAvatarIndex, getMonogram } from "../shidduchim/boardUtils";
 import { TopToolbar } from "../layout/TopToolbar";
-import type { Child } from "../types";
+import type { Single } from "../types";
 
 const GENDER_LABEL: Record<string, string> = {
   female: "Female",
@@ -30,15 +30,15 @@ const formatDob = (dateString?: string | null): string | null => {
   return `${formatted} (age ${age})`;
 };
 
-const ChildProfileHeader = ({ child }: { child: Child }) => {
-  const nameEn = [child.first_name_en, child.last_name_en]
+const SingleProfileHeader = ({ single }: { single: Single }) => {
+  const nameEn = [single.first_name_en, single.last_name_en]
     .filter(Boolean)
     .join(" ");
   const monogramSeed = nameEn || undefined;
   const monogram = getMonogram(monogramSeed);
-  const avatarIndex = getAvatarIndex(monogramSeed ?? String(child.id));
-  const dob = formatDob(child.dob);
-  const isActive = child.status === "active";
+  const avatarIndex = getAvatarIndex(monogramSeed ?? String(single.id));
+  const dob = formatDob(single.dob);
+  const isActive = single.status === "active";
 
   return (
     <Card className="shadow-sm">
@@ -58,10 +58,10 @@ const ChildProfileHeader = ({ child }: { child: Child }) => {
             Family roster
           </p>
           <h1 className="font-display text-2xl font-bold tracking-tight">
-            {nameEn || `Child #${child.id}`}
+            {nameEn || `Single #${single.id}`}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {[GENDER_LABEL[child.gender ?? ""], child.community, dob]
+            {[GENDER_LABEL[single.gender ?? ""], single.community, dob]
               .filter(Boolean)
               .join(" · ")}
           </p>
@@ -98,31 +98,31 @@ const ChildProfileHeader = ({ child }: { child: Child }) => {
   );
 };
 
-const ChildShowLayout = () => {
-  const record = useRecordContext<Child>();
+const SingleShowLayout = () => {
+  const record = useRecordContext<Single>();
   if (!record) return null;
 
   return (
     <div className="flex flex-col gap-4">
-      <ChildProfileHeader child={record} />
-      <PipelineSnapshot childId={record.id} />
+      <SingleProfileHeader single={record} />
+      <PipelineSnapshot singleId={record.id} />
     </div>
   );
 };
 
-const ChildShowActions = () => (
+const SingleShowActions = () => (
   <TopToolbar>
     <EditButton />
   </TopToolbar>
 );
 
 /**
- * The child profile (screen 32b): identity + status at a glance, and the
+ * The single profile (screen 32b): identity + status at a glance, and the
  * same "moment" pipeline-snapshot component the dashboard uses (reused, not
- * reimplemented) as the "open pipeline" affordance for this child.
+ * reimplemented) as the "open pipeline" affordance for this single.
  */
-export const ChildShow = () => (
-  <Show title={false} actions={<ChildShowActions />}>
-    <ChildShowLayout />
+export const SingleShow = () => (
+  <Show title={false} actions={<SingleShowActions />}>
+    <SingleShowLayout />
   </Show>
 );

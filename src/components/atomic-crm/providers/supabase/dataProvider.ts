@@ -50,7 +50,7 @@ const createShidduchViaRpc = async (
   input: CreateShidduchInput,
 ): Promise<Shidduch> => {
   const { data, error } = await getSupabaseClient().rpc("create_shidduch", {
-    p_child_id: input.child_id,
+    p_single_id: input.single_id,
     p_shadchan_id: input.shadchan_id ?? null,
     p_name_en: input.name_en ?? null,
     p_name_he: input.name_he ?? null,
@@ -94,7 +94,7 @@ const getDataProviderWithCustomMethods = () => {
       }
       if (resource === "reference_links") {
         // Both the per-shidduch call-log cards and the repeat-recognition panel
-        // need the joined shidduch/child names, so they read the summary view.
+        // need the joined shidduch/single names, so they read the summary view.
         return baseDataProvider.getList("reference_links_summary", params);
       }
 
@@ -277,7 +277,7 @@ const getDataProviderWithCustomMethods = () => {
 
     /**
      * Dedupe "catch" (E3): "you've come across this person before". Given one
-     * shidduch, returns prior suggestions (for any child in this family) and any
+     * shidduch, returns prior suggestions (for any single in this family) and any
      * honestly-corroborated prior date for the same person, each with confidence
      * and deciding facts. Read-only — nothing merges. Backed by catch_shidduch(),
      * which reuses the shared identity matcher (AD-5). FREE, never entitlement-gated.

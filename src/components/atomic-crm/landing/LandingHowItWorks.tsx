@@ -14,7 +14,7 @@ const steps = (): Step[] => [
     title: translateLanding("crm.landing.how.enter.title", "Enter the resume"),
     body: translateLanding(
       "crm.landing.how.enter.body",
-      "A resume is entered against a child. If that name has been suggested before, the earlier suggestion is shown at that point.",
+      "A resume is entered against a single. If that name has been suggested before, the earlier suggestion is shown at that point.",
     ),
   },
   {

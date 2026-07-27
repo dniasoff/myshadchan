@@ -106,12 +106,12 @@ export const INITIAL_PIPELINE_STATES: PipelineState[] = [
 ];
 
 /**
- * Closed enumeration (AD-3, D5) of which states a child may see. All 7 states
- * are classified explicitly, mirroring is_child_visible_state() in Postgres —
+ * Closed enumeration (AD-3, D5) of which states a single may see. All 7 states
+ * are classified explicitly, mirroring is_single_visible_state() in Postgres —
  * no include/exclude gap. (The single's own login is Epic 6; this locks the
  * decision now so the schema needs no breaking change later.)
  */
-export const CHILD_VISIBLE_STATES: Record<PipelineState, boolean> = {
+export const SINGLE_VISIBLE_STATES: Record<PipelineState, boolean> = {
   new: false,
   look_into: true,
   not_sure: false,
@@ -139,5 +139,5 @@ export const getPipelineStateDef = (
 ): PipelineStateDef | undefined =>
   PIPELINE_STATES.find((s) => s.value === value);
 
-export const isChildVisibleState = (value: PipelineState): boolean =>
-  CHILD_VISIBLE_STATES[value] ?? false;
+export const isSingleVisibleState = (value: PipelineState): boolean =>
+  SINGLE_VISIBLE_STATES[value] ?? false;

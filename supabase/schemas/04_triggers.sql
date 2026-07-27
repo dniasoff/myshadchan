@@ -34,8 +34,8 @@ create or replace trigger enforce_shidduch_initial_state
     for each row execute function public.enforce_shidduch_initial_state();
 
 -- Shidduchim domain: server-set account_id on insert (AD-1).
-create or replace trigger set_children_account_id
-    before insert on public.children
+create or replace trigger set_singles_account_id
+    before insert on public.singles
     for each row execute function public.set_account_id_default();
 
 create or replace trigger set_shadchanim_account_id

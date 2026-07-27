@@ -6,11 +6,11 @@ export interface TourStepsOptions {
   /** Skips the settle delay before highlighting the board when true. */
   prefersReducedMotion: boolean;
   /**
-   * `MobileLayout` renders no `TopBar` (no child-switcher pill), and
+   * `MobileLayout` renders no `TopBar` (no single-switcher pill), and
    * References/Reminders/Settings live inside the closed "More" dropdown of
    * `MobileNavigation` rather than as standalone nav items — so those
    * anchors don't exist in the DOM until opened. On mobile we drop the
-   * child-switcher step and collapse the three individual nav steps into
+   * single-switcher step and collapse the three individual nav steps into
    * one step anchored to the "More" button instead of leaving dead,
    * unhighlighted popovers.
    */
@@ -57,13 +57,13 @@ const mobileMoreStep: DriveStep = {
   },
 };
 
-/** Desktop only: the `TopBar` child-switcher pill doesn't exist on mobile. */
-const desktopChildSwitcherStep: DriveStep = {
-  element: '[data-tour="child-switcher"]',
+/** Desktop only: the `TopBar` single-switcher pill doesn't exist on mobile. */
+const desktopSingleSwitcherStep: DriveStep = {
+  element: '[data-tour="single-switcher"]',
   popover: {
-    title: "Switch between children",
+    title: "Switch between singles",
     description:
-      "Redting for more than one child? Switch here — every screen updates to the child you pick.",
+      "Redting for more than one single? Switch here — every screen updates to the single you pick.",
     side: "bottom",
     align: "start",
   },
@@ -75,7 +75,7 @@ const desktopChildSwitcherStep: DriveStep = {
  * dashboard; step 9 crosses over to `/shidduchim` (the only navigation in
  * the tour, driven by step 8's `onNextClick`); steps 9-12 live on the board;
  * step 13 returns attention to the always-present demo banner. On mobile,
- * the References/Reminders/Settings/child-switcher steps are adapted — see
+ * the References/Reminders/Settings/single-switcher steps are adapted — see
  * `TourStepsOptions.isMobile`.
  */
 export const buildTourSteps = ({
@@ -98,7 +98,7 @@ export const buildTourSteps = ({
     popover: {
       title: "Your dashboard",
       description:
-        "Your calm home base — a snapshot of where every child's shidduchim stand, and what needs your attention.",
+        "Your calm home base — a snapshot of where every single's shidduchim stand, and what needs your attention.",
       side: "right",
       align: "start",
     },
@@ -108,7 +108,7 @@ export const buildTourSteps = ({
     popover: {
       title: "The pipeline",
       description:
-        "Every suggestion for a child, organized from a new redt all the way to a decision.",
+        "Every suggestion for a single, organized from a new redt all the way to a decision.",
       side: "right",
       align: "start",
     },
@@ -124,13 +124,13 @@ export const buildTourSteps = ({
     },
   },
   ...(isMobile ? [mobileMoreStep] : desktopNavSteps),
-  ...(isMobile ? [] : [desktopChildSwitcherStep]),
+  ...(isMobile ? [] : [desktopSingleSwitcherStep]),
   {
     element: '[data-tour="pipeline-snapshot"]',
     popover: {
       title: "Where things stand",
       description:
-        "One glance shows how this child's suggestions are spread across the pipeline.",
+        "One glance shows how this single's suggestions are spread across the pipeline.",
       side: "top",
       align: "start",
       // The only cross-route step: navigate to the board, then advance once
@@ -159,7 +159,7 @@ export const buildTourSteps = ({
     popover: {
       title: "A stage",
       description:
-        "This column holds every suggestion currently at this stage for the child.",
+        "This column holds every suggestion currently at this stage for the single.",
       side: "right",
       align: "start",
     },

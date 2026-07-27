@@ -9,15 +9,15 @@ import { formatRedtDate } from "../shidduchim/boardUtils";
 import type { ShidduchSummary } from "../types";
 
 export interface RecentSuggestionsProps {
-  childId: Identifier;
+  singleId: Identifier;
 }
 
 const RECENT_LIMIT = 5;
 
-/** The most recently added shidduchim for a child, each a state-chipped card. */
-export const RecentSuggestions = ({ childId }: RecentSuggestionsProps) => {
+/** The most recently added shidduchim for a single, each a state-chipped card. */
+export const RecentSuggestions = ({ singleId }: RecentSuggestionsProps) => {
   const { data, isPending } = useGetList<ShidduchSummary>("shidduchim", {
-    filter: { child_id: childId },
+    filter: { single_id: singleId },
     pagination: { page: 1, perPage: RECENT_LIMIT },
     sort: { field: "created_at", order: "DESC" },
   });

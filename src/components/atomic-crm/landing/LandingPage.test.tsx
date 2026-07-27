@@ -16,7 +16,7 @@ describe("LandingPage", () => {
     // Assert
     await expect
       .element(screen.getByRole("heading", { level: 1 }))
-      .toHaveTextContent("A record of the shidduch process for your children.");
+      .toHaveTextContent("A record of the shidduch process for your singles.");
   });
 
   it("offers a keyboard-reachable way into the app", async () => {
@@ -73,7 +73,9 @@ describe("LandingPage", () => {
     // Discoverability is opt-in (PRV-2, amended): nothing is listed by default,
     // and a published listing is always withdrawable.
     await expect
-      .element(screen.getByText(/nothing is discoverable unless you publish it/i))
+      .element(
+        screen.getByText(/nothing is discoverable unless you publish it/i),
+      )
       .toBeVisible();
     await expect
       .element(screen.getByText(/exported or deleted at any time/i))

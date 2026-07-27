@@ -4,13 +4,13 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 import { getAvatarIndex, getMonogram } from "../shidduchim/boardUtils";
-import type { Child } from "../types";
+import type { Single } from "../types";
 
-export interface ChildCardProps {
-  child: Child;
+export interface SingleCardProps {
+  single: Single;
   index: number;
   /**
-   * Still-in-triage suggestion count from children_summary (E6). Optional so the
+   * Still-in-triage suggestion count from singles_summary (E6). Optional so the
    * card renders fine when the count is unavailable (e.g. older demo data);
    * undefined or 0 simply hides the "N in pipeline" line.
    */
@@ -23,32 +23,32 @@ const GENDER_LABEL: Record<string, string> = {
 };
 
 /**
- * One child's card in the roster grid (design-language §5.1 card recipe):
+ * One single's card in the roster grid (design-language §5.1 card recipe):
  * monogram avatar, name, gender/community meta, and a status pill
  * (design-language §5.5 tinted-pill formula applied to `--positive` instead
- * of a pipeline-state token). Pressing the card opens the child's profile
- * (`ChildShow`).
+ * of a pipeline-state token). Pressing the card opens the single's profile
+ * (`SingleShow`).
  */
-export const ChildCard = ({ child, index, openCount }: ChildCardProps) => {
-  const nameEn = [child.first_name_en, child.last_name_en]
+export const SingleCard = ({ single, index, openCount }: SingleCardProps) => {
+  const nameEn = [single.first_name_en, single.last_name_en]
     .filter(Boolean)
     .join(" ");
-  const displayName = nameEn || `Child #${child.id}`;
+  const displayName = nameEn || `Single #${single.id}`;
   const monogramSeed = nameEn || undefined;
   const monogram = getMonogram(monogramSeed);
-  const avatarIndex = getAvatarIndex(monogramSeed ?? String(child.id));
-  const meta = [GENDER_LABEL[child.gender ?? ""], child.community]
+  const avatarIndex = getAvatarIndex(monogramSeed ?? String(single.id));
+  const meta = [GENDER_LABEL[single.gender ?? ""], single.community]
     .filter(Boolean)
     .join(" · ");
-  const isActive = child.status === "active";
-  // "N in pipeline" — the still-in-triage suggestions for this child (E6). Only
+  const isActive = single.status === "active";
+  // "N in pipeline" — the still-in-triage suggestions for this single (E6). Only
   // shown when a positive count is supplied; a missing count (summary
   // unavailable, older demo data) renders nothing rather than a bare zero.
   const showOpenCount = typeof openCount === "number" && openCount > 0;
 
   return (
     <Link
-      to={`/children/${child.id}/show`}
+      to={`/singles/${single.id}/show`}
       className="ql-enter block cursor-pointer rounded-xl outline-none
         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
         focus-visible:ring-offset-background"

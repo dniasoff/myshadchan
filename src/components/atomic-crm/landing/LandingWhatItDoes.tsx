@@ -18,7 +18,7 @@ const capabilities = (): Capability[] => [
     title: translateLanding("crm.landing.what.resumes.title", "Resumes"),
     body: translateLanding(
       "crm.landing.what.resumes.body",
-      "Resumes arrive by message, email, photo, or on paper and scanned in. Each is stored and filed against the child it was suggested for.",
+      "Resumes arrive by message, email, photo, or on paper and scanned in. Each is stored and filed against the single it was suggested for.",
     ),
   },
   {

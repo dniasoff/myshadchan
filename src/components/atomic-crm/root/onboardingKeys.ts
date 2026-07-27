@@ -5,7 +5,7 @@
  * DemoBanner, tour/*) never drift on the string literal.
  *
  * `OnboardingGate`'s decision to show the welcome screen is driven purely by
- * data (no children yet, not in demo mode) — deliberately NOT by a
+ * data (no singles yet, not in demo mode) — deliberately NOT by a
  * "seen/dismissed" flag; see `OnboardingGate.tsx` for why an earlier version
  * with such a flag broke the "start with my own family" path.
  *

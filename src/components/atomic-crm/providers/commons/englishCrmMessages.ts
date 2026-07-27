@@ -5,7 +5,7 @@ export const englishCrmMessages = {
       forcedCaseName: "Shidduch",
       fields: {
         name_en: "Name",
-        child_id: "Child",
+        single_id: "Single",
         shadchan_id: "Shadchan",
         seminary_en: "Yeshiva / seminary",
         location_en: "Location",
@@ -17,9 +17,9 @@ export const englishCrmMessages = {
         pipeline_state: "State",
       },
     },
-    children: {
-      name: "Child |||| Children",
-      forcedCaseName: "Child",
+    singles: {
+      name: "Single |||| Singles",
+      forcedCaseName: "Single",
       fields: {
         first_name_en: "First name",
         last_name_en: "Last name",
@@ -152,7 +152,7 @@ export const englishCrmMessages = {
       hero: {
         eyebrow: "Shidduchim record",
         title_lead: "A record of the shidduch process",
-        title_accent: "for your children.",
+        title_accent: "for your singles.",
         lead: "Suggestions, shadchanim, reference calls and dates, kept in one place.",
         cta: "Sign in",
         cta_secondary: "What it does",
@@ -164,7 +164,7 @@ export const englishCrmMessages = {
         title_accent: "resumes, calls, dates and decisions.",
         resumes: {
           title: "Resumes",
-          body: "Resumes arrive by message, email, photo, or on paper and scanned in. Each is stored and filed against the child it was suggested for.",
+          body: "Resumes arrive by message, email, photo, or on paper and scanned in. Each is stored and filed against the single it was suggested for.",
         },
         repeats: {
           title: "Repeat suggestions",
@@ -186,7 +186,7 @@ export const englishCrmMessages = {
         title_accent: "from a resume to a decision.",
         enter: {
           title: "Enter the resume",
-          body: "A resume is entered against a child. If that name has been suggested before, the earlier suggestion is shown at that point.",
+          body: "A resume is entered against a single. If that name has been suggested before, the earlier suggestion is shown at that point.",
         },
         record: {
           title: "Record what happens",

@@ -1,7 +1,6 @@
 import type { DataProvider, Identifier } from "ra-core";
 
 import type {
-  Child,
   DateRecord,
   MatchDecidingFact,
   Shadchan,
@@ -9,6 +8,7 @@ import type {
   ShidduchCatch,
   ShidduchCatchSuggestion,
   ShidduchDatePrior,
+  Single,
 } from "../../../types";
 import { normalizeIdentityText } from "./referenceIdentity";
 
@@ -123,7 +123,7 @@ export async function catchShidduch(
 ): Promise<ShidduchCatch> {
   const [
     { data: shidduchim },
-    { data: children },
+    { data: singles },
     { data: shadchanim },
     dateRecordsResult,
   ] = await Promise.all([
@@ -132,7 +132,7 @@ export async function catchShidduch(
       pagination: PAGE_ALL,
       sort: { field: "id", order: "ASC" },
     }),
-    baseDataProvider.getList<Child>("children", {
+    baseDataProvider.getList<Single>("singles", {
       filter: {},
       pagination: PAGE_ALL,
       sort: { field: "id", order: "ASC" },
@@ -156,7 +156,7 @@ export async function catchShidduch(
     throw new Error(`shidduch ${id} not found`);
   }
 
-  const childById = new Map(children.map((c) => [String(c.id), c]));
+  const singleById = new Map(singles.map((c) => [String(c.id), c]));
   const shadchanById = new Map(shadchanim.map((s) => [String(s.id), s]));
   const a = signalsOf(target);
 
@@ -171,8 +171,8 @@ export async function catchShidduch(
       }
       const facts = gate(a, signalsOf(ps));
       if (!facts) continue;
-      const child =
-        ps.child_id != null ? childById.get(String(ps.child_id)) : undefined;
+      const single =
+        ps.single_id != null ? singleById.get(String(ps.single_id)) : undefined;
       const shadchan =
         ps.shadchan_id != null
           ? shadchanById.get(String(ps.shadchan_id))
@@ -187,9 +187,9 @@ export async function catchShidduch(
         pipeline_state: ps.pipeline_state,
         first_suggested_at: ps.first_suggested_at,
         redt_date: ps.redt_date,
-        child_id: ps.child_id,
-        child_first_name_en: child?.first_name_en ?? null,
-        child_first_name_he: child?.first_name_he ?? null,
+        single_id: ps.single_id,
+        single_first_name_en: single?.first_name_en ?? null,
+        single_first_name_he: single?.first_name_he ?? null,
         shadchan_name: shadchan?.name ?? null,
       });
     }
@@ -218,16 +218,16 @@ export async function catchShidduch(
         (a.location !== null &&
           normalizeIdentityText(dr.person_location) === a.location);
       if (!corroborated) continue;
-      const child =
-        dr.child_id != null ? childById.get(String(dr.child_id)) : undefined;
+      const single =
+        dr.single_id != null ? singleById.get(String(dr.single_id)) : undefined;
       dates.push({
         date_record_id: dr.id,
         person_name_en: dr.person_name_en,
         person_name_he: dr.person_name_he,
         date_on: dr.date_on,
         outcome: dr.outcome,
-        child_id: dr.child_id,
-        child_first_name_en: child?.first_name_en ?? null,
+        single_id: dr.single_id,
+        single_first_name_en: single?.first_name_en ?? null,
       });
     }
     dates.sort((x, y) =>

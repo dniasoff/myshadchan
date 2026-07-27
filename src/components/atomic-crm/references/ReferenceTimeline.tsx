@@ -54,7 +54,7 @@ const GENERAL_NOTE = "general";
  *
  * That is not busywork. A note tied to a shidduch inherits that shidduch's
  * visibility (AD-3); a general note has no shidduch parent and so can never be
- * child-visible. The database refuses a row that answers neither, so the choice
+ * single-visible. The database refuses a row that answers neither, so the choice
  * is made here rather than guessed later.
  */
 const AddNote = ({

@@ -86,7 +86,7 @@ export type MemberRole =
 
 export type ShidduchOrigin = "channel" | "manual" | "shadchan";
 
-export type ShidduchVisibility = "shared" | "private_parent" | "private_child";
+export type ShidduchVisibility = "shared" | "private_parent" | "private_single";
 
 export type Account = {
   name: string;
@@ -105,7 +105,7 @@ export type AccountMember = {
   created_at: string;
 } & Pick<RaRecord, "id">;
 
-export type Child = {
+export type Single = {
   account_id: Identifier;
   first_name_en?: string | null;
   first_name_he?: string | null;
@@ -120,11 +120,11 @@ export type Child = {
 } & Pick<RaRecord, "id">;
 
 /**
- * children_summary — per-child pipeline counts (E6). Every Child field plus a
+ * singles_summary — per-single pipeline counts (E6). Every Single field plus a
  * total suggestion count and an "open" (still-in-triage) count, so the roster
  * card shows "N in pipeline" without an N+1 fetch.
  */
-export type ChildSummary = Child & {
+export type SingleSummary = Single & {
   total_shidduchim: number;
   open_shidduchim: number;
 };
@@ -180,10 +180,10 @@ export type ReferenceSummary = Reference & {
   open_task_count: number;
 };
 
-/** The central object (AD-4): one child, one canonical pipeline_state. */
+/** The central object (AD-4): one single, one canonical pipeline_state. */
 export type Shidduch = {
   account_id: Identifier;
-  child_id: Identifier;
+  single_id: Identifier;
   shadchan_id?: Identifier | null;
   name_en?: string | null;
   name_he?: string | null;
@@ -213,10 +213,10 @@ export type Shidduch = {
 export type ShidduchSummary = Shidduch & {
   shadchan_name?: string | null;
   shadchan_name_he?: string | null;
-  child_first_name_en?: string | null;
-  child_first_name_he?: string | null;
-  child_last_name_en?: string | null;
-  child_last_name_he?: string | null;
+  single_first_name_en?: string | null;
+  single_first_name_he?: string | null;
+  single_last_name_en?: string | null;
+  single_last_name_he?: string | null;
   nb_references?: number;
   nb_redts?: number;
   /**
@@ -279,7 +279,7 @@ export type AddSchoolInput = {
 
 /** Input accepted by createShidduch() — mirrors the create_shidduch RPC (AD-4). */
 export type CreateShidduchInput = {
-  child_id: Identifier;
+  single_id: Identifier;
   shadchan_id?: Identifier | null;
   name_en?: string | null;
   name_he?: string | null;
@@ -307,7 +307,7 @@ export type InboxStatus = "unresolved" | "resolved" | "dismissed";
 /**
  * An un-triaged capture in the inbox "front door" (Epic 2). Arrives by PWA
  * share, inbound email, or manual upload and is stored verbatim until one calm
- * resolve step (which child / which shadchan) turns it into a shidduch.
+ * resolve step (which single / which shadchan) turns it into a shidduch.
  */
 export type InboxItem = {
   id: Identifier;
@@ -319,7 +319,7 @@ export type InboxItem = {
   sender?: string | null;
   attachments?: unknown[] | null;
   status: InboxStatus;
-  child_id?: Identifier | null;
+  single_id?: Identifier | null;
   shadchan_id?: Identifier | null;
   resolved_shidduchim_id?: Identifier | null;
 };
@@ -385,9 +385,9 @@ export type ReferenceLinkSummary = ReferenceLink & {
   shidduch_name_he?: string | null;
   shidduch_pipeline_state?: PipelineState | null;
   shidduch_visibility?: string | null;
-  child_id?: Identifier | null;
-  child_first_name_en?: string | null;
-  child_first_name_he?: string | null;
+  single_id?: Identifier | null;
+  single_first_name_en?: string | null;
+  single_first_name_he?: string | null;
 };
 
 /** Polymorphic interaction timeline (AD-13). A note is just kind === "note". */
@@ -456,7 +456,7 @@ export type MatchReferenceInput = {
 
 /**
  * One prior suggestion returned by catch_shidduch() (E3): the same person was
- * redt before, for this or another child in the family. Carries the confidence
+ * redt before, for this or another single in the family. Carries the confidence
  * and deciding facts (never a bare score) plus enough prior context to render
  * the "you've come across this person before" panel in one hop. age is shown as
  * informational context only — it is NEVER a matching signal (FR11).
@@ -471,9 +471,9 @@ export type ShidduchCatchSuggestion = {
   pipeline_state: PipelineState;
   first_suggested_at?: string | null;
   redt_date?: string | null;
-  child_id?: Identifier | null;
-  child_first_name_en?: string | null;
-  child_first_name_he?: string | null;
+  single_id?: Identifier | null;
+  single_first_name_en?: string | null;
+  single_first_name_he?: string | null;
   shadchan_name?: string | null;
 };
 
@@ -489,8 +489,8 @@ export type ShidduchDatePrior = {
   person_name_he?: string | null;
   date_on?: string | null;
   outcome?: string | null;
-  child_id?: Identifier | null;
-  child_first_name_en?: string | null;
+  single_id?: Identifier | null;
+  single_first_name_en?: string | null;
 };
 
 /** The full catch payload for one shidduch — what catch_shidduch() returns. */
@@ -574,7 +574,7 @@ export type ReferenceMergePreview = {
 
 export type DateRecord = {
   account_id: Identifier;
-  child_id?: Identifier | null;
+  single_id?: Identifier | null;
   person_name_en?: string | null;
   person_name_he?: string | null;
   person_parents?: string | null;

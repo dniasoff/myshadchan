@@ -36,7 +36,7 @@ create policy "Enable update for admins" on public.configuration for update to a
 
 alter table public.accounts enable row level security;
 alter table public.account_members enable row level security;
-alter table public.children enable row level security;
+alter table public.singles enable row level security;
 alter table public.shadchanim enable row level security;
 alter table public."references" enable row level security;
 alter table public.shidduchim enable row level security;
@@ -60,7 +60,7 @@ create policy "Account members scoped to account" on public.account_members
     using (account_id = public.current_account_id())
     with check (account_id = public.current_account_id());
 
-create policy "Children scoped to account" on public.children
+create policy "Singles scoped to account" on public.singles
     for all to authenticated
     using (account_id = public.current_account_id())
     with check (account_id = public.current_account_id());
@@ -126,16 +126,16 @@ alter table public.identity_signals enable row level security;
 -- account-scoped row has no shidduch parent at all. There is no third state a
 -- row can fall into, which is what an earlier `reference_link_id is null`
 -- shortcut allowed — every free-text note took it and would have bypassed
--- child visibility entirely once the child role existed.
+-- single visibility entirely once the single role existed.
 --
 -- The join is INNER, deliberately: a link whose parent shidduch is missing or
 -- belongs to another account denies rather than falling through.
 --
 -- Today every authenticated member of an account is a parent/helper, so the
 -- derived predicate resolves to the account check. When the single logs in and
--- the `child` role lands (Epic 6), this join is the ONE place that gains
--- `and public.is_child_visible_state(s.pipeline_state)`, and the `scope =
--- 'account'` branch becomes an outright deny for the child role.
+-- the `single` role lands (Epic 6), this join is the ONE place that gains
+-- `and public.is_single_visible_state(s.pipeline_state)`, and the `scope =
+-- 'account'` branch becomes an outright deny for the single role.
 create policy "Interactions scoped to account and parent visibility" on public.interactions
     for all to authenticated
     using (

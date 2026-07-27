@@ -2,24 +2,24 @@ import type { ReactNode } from "react";
 
 import { Card, CardContent } from "@/components/ui/card";
 
-export interface ChildFormFrameProps {
+export interface SingleFormFrameProps {
   heading: string;
   description: string;
   children: ReactNode;
 }
 
 /**
- * The QL page frame shared by `ChildCreate` and `ChildEdit` (design-language
+ * The QL page frame shared by `SingleCreate` and `SingleEdit` (design-language
  * §2): an eyebrow + `font-display` heading over a calm form card. `Create`/
  * `Edit` are used with `title={false}` so this replaces the plain admin
  * title bar; `SimpleForm`/`FormToolbar` are admin components and stay
  * unforked inside.
  */
-export const ChildFormFrame = ({
+export const SingleFormFrame = ({
   heading,
   description,
   children,
-}: ChildFormFrameProps) => (
+}: SingleFormFrameProps) => (
   <div className="flex flex-col gap-6">
     <div>
       <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">

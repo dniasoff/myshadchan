@@ -1,6 +1,10 @@
+---
+baseline_commit: 8d685c491b72884fa745e8635b3c7d4c4b7eb614
+---
+
 # Story 1.3: Rename `children` to `singles`
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -205,71 +209,71 @@ Two stories land **after**: 1.2 (`sales` → `members`) and 1.6 (CI baseline).
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Rename the table and its attached objects in the declarative schema** (AC: 1, 2, 5)
-  - [ ] `supabase/schemas/01_tables.sql`: `create table public.children` → `public.singles`
+- [x] **Task 1 — Rename the table and its attached objects in the declarative schema** (AC: 1, 2, 5)
+  - [x] `supabase/schemas/01_tables.sql`: `create table public.children` → `public.singles`
         (line 277) and rewrite the section comment at line 276.
-  - [ ] Rename in the constraints block: `children_account_id_id_key` (661),
+  - [x] Rename in the constraints block: `children_account_id_id_key` (661),
         `children_account_id_fkey` (679), `children_member_id_fkey` (681),
         `shidduchim_child_id_fkey` (692-693), `date_records_child_id_fkey` (728-729) —
         each `references public.children(account_id, id)` becomes `public.singles(...)`.
-  - [ ] Rename the columns: `shidduchim.child_id` (336), `inbox_items.child_id` (405),
+  - [x] Rename the columns: `shidduchim.child_id` (336), `inbox_items.child_id` (405),
         `date_records.child_id` (442) → `single_id`.
-  - [ ] Rename the indexes: `children_account_id_idx` (792), `shidduchim_child_id_idx` (796),
+  - [x] Rename the indexes: `children_account_id_idx` (792), `shidduchim_child_id_idx` (796),
         `date_records_child_id_idx` (803).
-  - [ ] Change `shidduchim_visibility_check` (371-373) to `'private_single'`.
-  - [ ] Refresh the prose comments that call the entity a child: lines 276, 329, 364, 390,
+  - [x] Change `shidduchim_visibility_check` (371-373) to `'private_single'`.
+  - [x] Refresh the prose comments that call the entity a child: lines 276, 329, 364, 390,
         413, 513-514, 654.
-  - [ ] The `child_portal_tokens` block is **already gone** (story 1.4). If you still find one
+  - [x] The `child_portal_tokens` block is **already gone** (story 1.4). If you still find one
         at ~624-652 / 775-786 / 822-823, the pinned order has been violated — stop and report.
 
-- [ ] **Task 2 — Rename the dependent schema objects** (AC: 1, 3, 4)
-  - [ ] `supabase/schemas/05_policies.sql`: `alter table public.children enable row level
+- [x] **Task 2 — Rename the dependent schema objects** (AC: 1, 3, 4)
+  - [x] `supabase/schemas/05_policies.sql`: `alter table public.children enable row level
         security` (88) → `public.singles`; policy `"Children scoped to account"` (112) →
         `"Singles scoped to account" on public.singles`; refresh comments 178, 185-187
         (`is_child_visible_state` → `is_single_visible_state`).
-  - [ ] `supabase/schemas/04_triggers.sql`: `set_children_account_id` (99-101) →
+  - [x] `supabase/schemas/04_triggers.sql`: `set_children_account_id` (99-101) →
         `set_singles_account_id … before insert on public.singles`.
-  - [ ] `supabase/schemas/03_views.sql`: rewrite `shidduchim_summary` (181-229),
+  - [x] `supabase/schemas/03_views.sql`: rewrite `shidduchim_summary` (181-229),
         `reference_links_summary` (263-290) and `children_summary` → `singles_summary`
         (292-320) — new column names per AC-3, joins onto `public.singles`, keeping
         `with (security_invoker = on)` on all three.
-  - [ ] `supabase/schemas/02_functions.sql`: rename `is_child_visible_state` (578) and its
+  - [x] `supabase/schemas/02_functions.sql`: rename `is_child_visible_state` (578) and its
         exception text (592); rename `create_shidduch`'s `p_child_id` (644) and the four body
         sites (686-689, 708, 716, 735); rename the `catch_shidduch` output keys (1995-1997,
         2011, 2037-2040) and its `public.children` joins; refresh comments 559, 573, 683, 732,
         1925, 1977-1978.
-  - [ ] `supabase/schemas/06_grants.sql`: table grants (195-197 and 484-485), sequence grants
+  - [x] `supabase/schemas/06_grants.sql`: table grants (195-197 and 484-485), sequence grants
         (256-258 → `singles_id_seq`), `is_child_visible_state` grants (303-305), and
         `children_summary` view grants (381-383).
 
-- [ ] **Task 3 — Generate and hand-check the migration** (AC: 1, 2, 3, 4, 5, 11, 14)
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f rename_children_to_singles`
-  - [ ] **Replace the generated `DROP TABLE public.children` + `CREATE TABLE public.singles`
+- [x] **Task 3 — Generate and hand-check the migration** (AC: 1, 2, 3, 4, 5, 11, 14)
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f rename_children_to_singles`
+  - [x] **Replace the generated `DROP TABLE public.children` + `CREATE TABLE public.singles`
         with `ALTER TABLE public.children RENAME TO public.singles;`** — the generated form
         destroys data and breaks every FK (AGENTS.md explicitly calls this out for renames).
         Same for the three renamed columns (`ALTER TABLE … RENAME COLUMN`).
-  - [ ] Add the renames `db diff` never emits: `ALTER SEQUENCE public.children_id_seq RENAME
+  - [x] Add the renames `db diff` never emits: `ALTER SEQUENCE public.children_id_seq RENAME
         TO singles_id_seq;`, `ALTER INDEX … RENAME TO …` (×3), `ALTER TABLE … RENAME
         CONSTRAINT … TO …` (×5), `ALTER POLICY "Children scoped to account" ON public.singles
         RENAME TO "Singles scoped to account";`, `ALTER TRIGGER set_children_account_id ON
         public.singles RENAME TO set_singles_account_id;`.
-  - [ ] `DROP FUNCTION public.is_child_visible_state(public.pipeline_state);` and
+  - [x] `DROP FUNCTION public.is_child_visible_state(public.pipeline_state);` and
         `DROP FUNCTION public.create_shidduch(<18-arg signature>);` **before** creating the
         renamed versions — `CREATE OR REPLACE` cannot rename a parameter, and a rename that
         leaves the old function in place is an alias (AC-11). Re-issue every `REVOKE`/`GRANT`
         for both, because grants die with the dropped function.
-  - [ ] `DROP VIEW` the three views before recreating them (a `CREATE OR REPLACE VIEW` cannot
+  - [x] `DROP VIEW` the three views before recreating them (a `CREATE OR REPLACE VIEW` cannot
         rename or drop a column), in dependency-safe order, then re-apply
         `alter view … set (security_invoker = on);` and the `revoke anon` / `grant select
         authenticated` / `grant all service_role` triplet for each — `db diff` emits neither.
-  - [ ] Migrate the data value: `update public.shidduchim set visibility = 'private_single'
+  - [x] Migrate the data value: `update public.shidduchim set visibility = 'private_single'
         where visibility = 'private_child';` **before** re-adding
         `shidduchim_visibility_check`.
-  - [ ] Apply with `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
+  - [x] Apply with `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
         **Never `db reset` and never `db push`.**
 
-- [ ] **Task 4 — Types** (AC: 7, 5)
-  - [ ] `src/components/atomic-crm/types.ts`: `Child` → `Single` (277), `ChildSummary` →
+- [x] **Task 4 — Types** (AC: 7, 5)
+  - [x] `src/components/atomic-crm/types.ts`: `Child` → `Single` (277), `ChildSummary` →
         `SingleSummary` (296) and its doc comment (291-295), `ShidduchVisibility`'s
         `"private_child"` → `"private_single"` (258), then the member renames on `Shidduch`
         (398), `ShidduchSummary` (428-431), `CreateShidduchInput` (494), `InboxItem` (534),
@@ -278,115 +282,115 @@ Two stories land **after**: 1.2 (`sales` → `members`) and 1.6 (CI baseline).
         (currently 311-342) are **already deleted** by 1.4 — if they are still there, the
         pinned order has been violated; stop and report.
 
-- [ ] **Task 5 — Data providers** (AC: 6, 7, 3, 4, 8)
-  - [ ] `providers/supabase/dataProvider.ts`: `p_child_id` → `p_single_id` (75) and the
+- [x] **Task 5 — Data providers** (AC: 6, 7, 3, 4, 8)
+  - [x] `providers/supabase/dataProvider.ts`: `p_child_id` → `p_single_id` (75) and the
         comment at 125.
-  - [ ] `providers/fakerest/dataProvider.ts`: the `"children"` base-resource reads (266, 276,
+  - [x] `providers/fakerest/dataProvider.ts`: the `"children"` base-resource reads (266, 276,
         538, 540), the `children_summary` emulation `enrichChildrenSummary` →
         `enrichSinglesSummary` (337, 537, 543) with its `forChild` local (345, 348, 349), the
         `child_first_name_*` / `child_last_name_*` enrichment and its `childById` map
         (304-317), and the `createShidduch` emulation (418-479).
-  - [ ] `providers/fakerest/internal/shidduchCatch.ts` (`childById` 159, 175, 222) and
+  - [x] `providers/fakerest/internal/shidduchCatch.ts` (`childById` 159, 175, 222) and
         `providers/fakerest/internal/referenceSummary.ts` (`childById` 123, 131): same
         key/resource/local renames.
 
-- [ ] **Task 6 — Rename the resource directory and its components** (AC: 6, 8)
-  - [ ] `git mv src/components/atomic-crm/children src/components/atomic-crm/singles`, then
+- [x] **Task 6 — Rename the resource directory and its components** (AC: 6, 8)
+  - [x] `git mv src/components/atomic-crm/children src/components/atomic-crm/singles`, then
         rename `ChildCard.tsx` → `SingleCard.tsx`, `ChildCreate.tsx` → `SingleCreate.tsx`,
         `ChildEdit.tsx` → `SingleEdit.tsx`, `ChildFormFrame.tsx` → `SingleFormFrame.tsx`,
         `ChildInputs.tsx` → `SingleInputs.tsx`, `ChildList.tsx` → `SingleList.tsx`,
         `ChildShow.tsx` → `SingleShow.tsx`, and rename the exported symbols to match.
-  - [ ] Rename the file-local compounds too (AC-8): `ChildCardProps` (`ChildCard.tsx:9,30,32`),
+  - [x] Rename the file-local compounds too (AC-8): `ChildCardProps` (`ChildCard.tsx:9,30,32`),
         `ChildFormFrameProps` (`ChildFormFrame.tsx:5,12,18,22`), `ChildListSkeleton` /
         `ChildListHeader` / `ChildListContent` (`ChildList.tsx:13,32,62,82,84,114,124`),
         `ChildShowLayout` / `ChildProfileHeader` / `ChildShowActions` / `childName`
         (`ChildShow.tsx:34,102,106,111,113,118,129,130,131`), `ChildEditActions`
         (`ChildEdit.tsx:17,24`).
-  - [ ] `index.ts`: `recordRepresentation` fallback `Child #${record.id}` → `Single #${record.id}`.
-  - [ ] `SingleList.tsx`: `useGetList<SingleSummary>("children_summary")` (68) →
+  - [x] `index.ts`: `recordRepresentation` fallback `Child #${record.id}` → `Single #${record.id}`.
+  - [x] `SingleList.tsx`: `useGetList<SingleSummary>("children_summary")` (68) →
         `"singles_summary"`.
-  - [ ] `ChildPortalShare.tsx` no longer exists (deleted by 1.4). If it does, stop and report.
+  - [x] `ChildPortalShare.tsx` no longer exists (deleted by 1.4). If it does, stop and report.
 
-- [ ] **Task 7 — Registration point and routes** (AC: 6)
-  - [ ] `src/components/atomic-crm/root/routeManifest.ts` (created by story 1.5): change the
+- [x] **Task 7 — Registration point and routes** (AC: 6)
+  - [x] `src/components/atomic-crm/root/routeManifest.ts` (created by story 1.5): change the
         resource entry `{ name: "children", … }` to `{ name: "singles", … }` and the import
         `import children from "../children"` to `import singles from "../singles"`. **Do not
         look for `<Resource name="children">` JSX in `root/CRM.tsx` — 1.5 removed it; `CRM.tsx`
         now only maps over the manifest.** If you still find the JSX, the pinned order has been
         violated: stop and report rather than adapting.
-  - [ ] Re-run `routeManifest.test.ts` — it asserts route/resource shape, not names, so it must
+  - [x] Re-run `routeManifest.test.ts` — it asserts route/resource shape, not names, so it must
         pass unchanged.
-  - [ ] Rewrite the 7 `/children…` links: `singles/SingleCard.tsx:51`,
+  - [x] Rewrite the 7 `/children…` links: `singles/SingleCard.tsx:51`,
         `singles/SingleList.tsx:46,90`, `dashboard/MobileDashboard.tsx:60`,
         `dashboard/Dashboard.tsx:36`, `shidduchim/ShidduchimList.tsx:151`,
         `settings/FamilySection.tsx:26`.
-  - [ ] `settings/exportFamilyData.ts:5`: `EXPORT_RESOURCES` `"children"` → `"singles"`.
-  - [ ] `layout/navItems.ts` needs **no** change — it never listed the resource. Confirm and
+  - [x] `settings/exportFamilyData.ts:5`: `EXPORT_RESOURCES` `"children"` → `"singles"`.
+  - [x] `layout/navItems.ts` needs **no** change — it never listed the resource. Confirm and
         move on.
 
-- [ ] **Task 8 — Remaining consumers, including every compound identifier** (AC: 6, 7, 8)
-  - [ ] Work the file list in Dev Notes "Compound identifiers" top to bottom. It is the
+- [x] **Task 8 — Remaining consumers, including every compound identifier** (AC: 6, 7, 8)
+  - [x] Work the file list in Dev Notes "Compound identifiers" top to bottom. It is the
         verified enumeration of everything grep (b) of AC-12 will catch; nothing on it is
         optional.
-  - [ ] `shidduchim/pipelineStates.ts`: `CHILD_VISIBLE_STATES` (114, 143) →
+  - [x] `shidduchim/pipelineStates.ts`: `CHILD_VISIBLE_STATES` (114, 143) →
         `SINGLE_VISIBLE_STATES`, `isChildVisibleState` (142) → `isSingleVisibleState`,
         comments 109-111. Then `shidduchim/pipelineStates.test.ts` (3, 5, 101, 107-109,
         113-116). This keeps the TS twin in lockstep with the SQL function renamed in Task 2 —
         story 1.4 deliberately left both for this story (1.4 §"Position and dependencies",
         bullet "Every `child`-named **symbol** … is **1.3's** to rename"; and 1.4 **AC 8**,
         "left for story 1.3 to rename … Untouched here").
-  - [ ] `layout/TopBar.tsx`: `ChildSwitcherPill` (38, 68), `childLabel` (57, 100, 113),
+  - [x] `layout/TopBar.tsx`: `ChildSwitcherPill` (38, 68), `childLabel` (57, 100, 113),
         `childList` (69, 76, 77, 79, 81, 86, 108), `childId` / `setChildId` (73, 76, 77, 79,
         86, 111), the `ChildContext` TODO comment (65), and `data-tour="child-switcher"` (93).
-  - [ ] `tour/tourSteps.ts`: `desktopChildSwitcherStep` (61, 127), the
+  - [x] `tour/tourSteps.ts`: `desktopChildSwitcherStep` (61, 127), the
         `[data-tour="child-switcher"]` anchor (62) — which must change on **both** sides — and
         the copy at 9, 13, 60, 64, 78. Then `tour/useTour.ts`.
-  - [ ] `dashboard/`: `useDashboardData.ts` (`setChildId` 12/33/37/67, `childrenPending`
+  - [x] `dashboard/`: `useDashboardData.ts` (`setChildId` 12/33/37/67, `childrenPending`
         26/63, `selectedChildId` 41/47/50/64/66, `totalForChild` + `totalForChildPending`
         43/64/68, `ChildContext` comment 21, `child_id` filter 47), `DashboardHeader.tsx`
         (`childList` 8/19/23/37/39, `childLabel` 13/24/53, `onSelectChild` 10/21/43),
         `Dashboard.tsx` (22, 41, 46, 47, 48, 60, 63), `MobileDashboard.tsx` (45, 66, 72, 73,
         74, 86, 87), `PipelineSnapshot.tsx`, `AttentionSection.tsx`, `RecentSuggestions.tsx`,
         `bucketByState.ts`.
-  - [ ] `shidduchim/ShidduchimList.tsx`: `ShidduchimNoChildren` → `ShidduchimNoSingles`
+  - [x] `shidduchim/ShidduchimList.tsx`: `ShidduchimNoChildren` → `ShidduchimNoSingles`
         (36, 143), `childLabel` (16, 127), `childrenPending` (20, 35), `childId` / `setChildId`
         (27, 31, 105), `selectedChildId` (38, 51), `childList` (50, 67, 71, 85, 97, 101, 105,
         113, 115), `onSelectChild` (52, 69, 73, 87), the `child_id` filter (44) and the "No
         children yet" copy (145).
-  - [ ] `login/FirstRunSetup.tsx`: `childName` / `setChildName` (46, 99), `createChild` /
+  - [x] `login/FirstRunSetup.tsx`: `childName` / `setChildName` (46, 99), `createChild` /
         `isSavingChild` (58, 88, 276, 278), `childForm` (63, 87, 240, 250),
         `handleChildSubmit` (87, 230), plus the i18n keys handled in Task 9.
-  - [ ] `root/OnboardingGate.tsx`: `childrenTotal` / `childrenPending` (32, 39),
+  - [x] `root/OnboardingGate.tsx`: `childrenTotal` / `childrenPending` (32, 39),
         `hasChildren` (43, 44), the `"children"` resource read (33), comments 10, 15, 26.
         **Careful:** lines 31, 40 and 50 use React's `children` prop in the same file — they
         stay. `root/onboardingKeys.ts` (8).
-  - [ ] `settings/PrivacySection.tsx`: `childrenTotal` (24, 64), the `"children"` read (24),
+  - [x] `settings/PrivacySection.tsx`: `childrenTotal` (24, 64), the `"children"` read (24),
         the label key + fallback (61-62). `settings/FamilySection.tsx`: comments 11-13, the
         link (26) and the label key (29).
-  - [ ] `providers/fakerest/dataGenerator/shidduchim.ts`: `childrenSeed` (61, 356, 385),
+  - [x] `providers/fakerest/dataGenerator/shidduchim.ts`: `childrenSeed` (61, 356, 385),
         `childGenderById` (356, 364), the `childId` loop variable (292, 296), the 15 `child_id`
         seed rows and `db.children = childrenSeed` (385).
-  - [ ] `providers/fakerest/dataProvider.summaryStats.test.ts`: `ChildSummary` (2, 12, 13),
+  - [x] `providers/fakerest/dataProvider.summaryStats.test.ts`: `ChildSummary` (2, 12, 13),
         `childSummaryById` (9, 69, 82), `childId` (69), and the
         `describe("children_summary emulation (E6)")` heading.
-  - [ ] The remaining single-hit consumers: `shidduchim/ShidduchCreate.tsx`,
+  - [x] The remaining single-hit consumers: `shidduchim/ShidduchCreate.tsx`,
         `ShidduchInputs.tsx`, `ShidduchCard.tsx`, `ShidduchShowHeader.tsx`,
         `ShidduchCatchPanel.tsx`, `boardUtils.ts`, `shadchanim/ShadchanSuggestions.tsx`,
         `shadchanim/ShadchanShow.tsx`, `inbox/InboxResolveDialog.tsx`,
         `references/ReferenceCallLog.tsx`, `RepeatRecognitionPanel.tsx`, `ReferenceList.tsx`,
         `ReferenceTimeline.tsx`, `useReferenceLinks.ts`, `login/OnboardingChoice.tsx`.
-  - [ ] Use `LSP findReferences` on `Child`, `ChildSummary`, `isChildVisibleState` and each
+  - [x] Use `LSP findReferences` on `Child`, `ChildSummary`, `isChildVisibleState` and each
         renamed component before editing, so no call site is missed
         (`.claude/rules/lsp-usage.md`).
 
-- [ ] **Task 9 — Copy and i18n** (AC: 9)
-  - [ ] `providers/commons/englishCrmMessages.ts`: `resources.shidduchim.fields.child_id`
+- [x] **Task 9 — Copy and i18n** (AC: 9)
+  - [x] `providers/commons/englishCrmMessages.ts`: `resources.shidduchim.fields.child_id`
         (8) → `single_id: "Single"`; the `children:` resource block (20-30) →
         `singles: { name: "Single |||| Singles", forcedCaseName: "Single", … }`; the landing
         strings at 464, 476, 498.
-  - [ ] `providers/commons/frenchCrmMessages.ts`: the mirrored `child_id` (10) and `children`
+  - [x] `providers/commons/frenchCrmMessages.ts`: the mirrored `child_id` (10) and `children`
         block (22-32) — French labels, English keys (`.claude/rules/english-only.md`).
-  - [ ] Rename the runtime keys and their `_:` fallbacks: `crm.children.gender_female|male`
+  - [x] Rename the runtime keys and their `_:` fallbacks: `crm.children.gender_female|male`
         → `crm.singles.gender_*` (`FirstRunSetup.tsx:262,267`);
         `crm.profile.family.children` → `crm.profile.family.singles`
         (`FamilySection.tsx:29`, `PrivacySection.tsx:61`);
@@ -394,27 +398,27 @@ Two stories land **after**: 1.2 (`sales` → `members`) and 1.6 (CI baseline).
         → `single_*` / `add_single` (`FirstRunSetup.tsx:103,219,224,233,245,255,281`). None of
         these keys is defined in the message catalogues — they resolve to their `_:` default,
         so this is a code-only rename plus a copy rewrite.
-  - [ ] Landing copy: `LandingHero.tsx:29` and `englishCrmMessages.ts:464`
+  - [x] Landing copy: `LandingHero.tsx:29` and `englishCrmMessages.ts:464`
         `"for your children."` → `"for your singles."`; `LandingWhatItDoes.tsx:21` and
         `LandingHowItWorks.tsx:17` "the child it was suggested for" / "against a child" →
         "the single it was suggested for" / "against a single"; update
         `LandingPage.test.tsx:19` to the new sentence.
 
-- [ ] **Task 10 — Tests, TypeScript and SQL** (AC: 13, 14)
-  - [ ] Update the 9 TypeScript suites that carry the old vocabulary:
+- [x] **Task 10 — Tests, TypeScript and SQL** (AC: 13, 14)
+  - [x] Update the 9 TypeScript suites that carry the old vocabulary:
         `dashboard/bucketByState.test.ts`, `shidduchim/boardUtils.test.ts`,
         `shidduchim/redts.test.ts`, `shidduchim/schools.test.ts`,
         `shidduchim/pipelineStates.test.ts`, `shidduchim/shidduchService.test.ts`,
         `shidduchim/ShidduchCatchPanel.test.tsx`,
         `providers/fakerest/internal/shidduchCatch.test.ts`,
         `providers/fakerest/dataProvider.summaryStats.test.ts`.
-  - [ ] **`supabase/tests/shidduch_catch.sql` — 26 lines, all of them domain**
+  - [x] **`supabase/tests/shidduch_catch.sql` — 26 lines, all of them domain**
         (44, 45, 46, 47, 48, 50, 52, 53, 55, 56, 60, 61, 65, 66, 71, 72, 74, 75, 80, 81, 83,
         84, 88, 89, 90, 91). Rename `insert into public.children` → `public.singles` (45, 47,
         88), every `shidduchim.child_id` / `date_records.child_id` → `single_id`, the psql
         `\gset` variables `child_leah` / `child_rivka` / `child_b` → `single_leah` /
         `single_rivka` / `single_b`, and the two prose comments (44, 50).
-  - [ ] **`supabase/tests/references_entity.sql` — 23 matching lines, 22 of which change**
+  - [x] **`supabase/tests/references_entity.sql` — 23 matching lines, 22 of which change**
         (63, 64, 65, 66, 67, 68, 69, 470, 493, 609, 615, 617, 618, 619, 621, 655, 657, 658,
         659, 661, 742, 798). Rename `public.children` (63, 742), `child_id` (66, 68, 618, 658),
         the `child_a` id-table key and `v_child_a` locals (64, 65, 67, 69, 615, 617, 618, 655,
@@ -425,39 +429,39 @@ Two stories land **after**: 1.2 (`sales` → `members`) and 1.6 (CI baseline).
         meaning-preserving). **Line 351 stays**: *"Deleting a reference must take its
         polymorphic children with it"* means FK-dependent rows, not people (see the rule in
         Dev Notes).
-  - [ ] `supabase/tests/child_portal.sql` / `.test.ts` are **already deleted** by 1.4. If they
+  - [x] `supabase/tests/child_portal.sql` / `.test.ts` are **already deleted** by 1.4. If they
         are still present, stop and report.
-  - [ ] Add the **negative RLS test** required by AC-14(e): two accounts, one row each in
+  - [x] Add the **negative RLS test** required by AC-14(e): two accounts, one row each in
         `singles`; assert account A's client reads exactly its own row from both
         `singles` and `singles_summary`. `.claude/rules/security-triggers.md` makes this
         mandatory for any policy-touching diff. Put it in `supabase/tests/references_entity.sql`
         next to the existing cross-tenant checks, so it runs under `npm run test:unit:db`.
-  - [ ] `make test` **and `npm run test:unit:db`** (needs `make start`) / `make typecheck` /
+  - [x] `make test` **and `npm run test:unit:db`** (needs `make start`) / `make typecheck` /
         `npm run lint` — plus `npx prettier --config ./.prettierrc.json --check` over this
         story's changed files only (AC-13; **not** `make lint`, whose prettier half is 1.6's).
 
-- [ ] **Task 11 — Seed and demo data** (AC: 10, 8)
-  - [ ] `supabase/functions/seed_demo/dataset.ts`: `DemoChild` → `DemoSingle` (17),
+- [x] **Task 11 — Seed and demo data** (AC: 10, 8)
+  - [x] `supabase/functions/seed_demo/dataset.ts`: `DemoChild` → `DemoSingle` (17),
         `CHILDREN` → `SINGLES` (26), comments at 123 and 212.
-  - [ ] `supabase/functions/seed_demo/index.ts`: the import (9), the emptiness guard list
+  - [x] `supabase/functions/seed_demo/index.ts`: the import (9), the emptiness guard list
         (41), `.from("children")` (125), `CHILDREN` (126), the `childId` parameter and
         `p_child_id` RPC argument (73, 86), the local `children` / `childrenError` bindings and
         the error text (124-134), the `children:` response count key (249), comments 24, 36-37,
         273-274.
-  - [ ] `supabase/functions/clear_demo/index.ts`: the `"children"` entry (44) and the
+  - [x] `supabase/functions/clear_demo/index.ts`: the `"children"` entry (44) and the
         FK-order comment (28-29).
-  - [ ] FakeRest generators: `dataGenerator/types.ts:41` (`children: Child[]` →
+  - [x] FakeRest generators: `dataGenerator/types.ts:41` (`children: Child[]` →
         `singles: Single[]`), `dataGenerator/index.ts:30,50,65`,
         `dataGenerator/shidduchim.ts` (handled in Task 8).
 
-- [ ] **Task 12 — Final verification** (AC: 11, 12, 13, 14)
-  - [ ] Run AC-12 greps (a) and (b) — both must print nothing at all.
-  - [ ] Run AC-12 grep (c) and diff its output against Dev Notes "Residual `children` after
+- [x] **Task 12 — Final verification** (AC: 11, 12, 13, 14)
+  - [x] Run AC-12 greps (a) and (b) — both must print nothing at all.
+  - [x] Run AC-12 grep (c) and diff its output against Dev Notes "Residual `children` after
         this story". Any extra line is a defect.
-  - [ ] Confirm the new migration contains no `create view public.children`, no
+  - [x] Confirm the new migration contains no `create view public.children`, no
         `alter table … rename to children`, and no second function/route/type carrying the old
         name.
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`, then
+  - [x] `make typecheck && npm run lint && make test && npm run test:unit:db`, then
         `npx prettier --config ./.prettierrc.json --check` over this story's changed files only
         (AC-13). Then a manual smoke of `/singles`, `/singles/create`, `/singles/:id/show`, the
         dashboard switcher and the pipeline board.
@@ -852,8 +856,251 @@ six files are edited throughout Epic 1 and line numbers rot within a story or tw
 
 ### Agent Model Used
 
+Claude Sonnet 5 (claude-sonnet-5), via the bmad-dev-story workflow, dispatched directly as
+the sole agent on `main` for this story (no harness worktrees — see the orchestrator's
+non-negotiable working rules for this dispatch).
+
 ### Debug Log References
+
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f rename_children_to_singles`
+  — generated the naive DROP TABLE `children` + CREATE TABLE `singles` (plus DROP+ADD COLUMN
+  for every renamed FK column). Discarded; hand-written as `ALTER TABLE … RENAME` /
+  `ALTER … RENAME CONSTRAINT/COLUMN/INDEX` throughout, per Task 3 and AGENTS.md.
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local` — applied cleanly,
+  zero errors.
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f phantom_check` (re-run
+  after `migration up`) — "No schema changes found": the hand-written migration reproduces the
+  declarative schema exactly, no drift, no stray migration file written.
+- `make typecheck` / `npm run lint` / `npm run test:unit:app` / `npm run test:unit:functions` /
+  `npm run test:unit:workers` / `npm run test:unit:db` — all green (see Completion Notes for
+  counts).
+- `npx prettier --config ./.prettierrc.json --check <this story's changed .ts/.tsx files>` —
+  16 files needed `--write` (pre-existing wrapping conventions this story's edits touched);
+  reformatted, then re-verified typecheck/lint/all four test projects still green.
 
 ### Completion Notes List
 
+- **Schema (Task 1-3).** `public.children` → `public.singles` in `01_tables.sql`, with every
+  attached object renamed: `singles_account_id_id_key`, `singles_account_id_fkey`,
+  `singles_member_id_fkey`, `singles_account_id_idx`, `singles_id_seq`, the RLS policy
+  `"Singles scoped to account"`, the trigger `set_singles_account_id`. `child_id` → `single_id`
+  on `shidduchim` (NOT NULL preserved), `date_records`, and `inbox_items` (no FK/index on that
+  column, confirmed). `shidduchim_visibility_check` narrowed to
+  `'shared' | 'private_parent' | 'private_single'`, with existing `'private_child'` rows
+  migrated to `'private_single'` in the same migration, before the constraint was re-added.
+  `is_child_visible_state` → `is_single_visible_state` (incl. the exception text),
+  `create_shidduch`'s `p_child_id` → `p_single_id`, `catch_shidduch`'s output keys `child_id` /
+  `child_first_name_en` / `child_first_name_he` → `single_*`. Three views recreated with
+  `child_*` output columns renamed (`shidduchim_summary`, `reference_links_summary`,
+  `children_summary` → `singles_summary`), each with `security_invoker = on` and the
+  anon-revoke/authenticated-grant/service_role-grant triplet re-applied by hand (confirmed:
+  `db diff` does not diff either).
+- **Migration hand-fix (Task 3).** `db diff` emitted a destructive DROP TABLE + CREATE TABLE
+  (would have deleted every single and every FK to them) and DROP+ADD COLUMN for the three
+  renamed FK columns (data-losing). Replaced with `ALTER TABLE … RENAME TO singles`,
+  `ALTER SEQUENCE children_id_seq RENAME TO singles_id_seq` (a table rename does not rename its
+  owned identity sequence), `ALTER TABLE … RENAME CONSTRAINT` (×6: `singles_pkey`,
+  `singles_account_id_id_key`, `singles_account_id_fkey`, `singles_member_id_fkey`,
+  `shidduchim_single_id_fkey`, `date_records_single_id_fkey`), `ALTER INDEX … RENAME` (×3),
+  `ALTER TABLE … RENAME COLUMN` (×3, lossless — preserves data and the `shidduchim.single_id`
+  NOT NULL), `ALTER POLICY … RENAME`, `ALTER TRIGGER … RENAME`. Because the table itself was
+  renamed rather than dropped, its existing grants (`grant all … to authenticated/service_role`,
+  the later hardening `grant select,insert,update,delete … to authenticated`) carried over
+  automatically — no table-level revoke/re-grant was needed for `singles` itself (only for the
+  three recreated views, whose privileges genuinely do not survive a `DROP VIEW` + `CREATE
+  VIEW`). `is_child_visible_state` and `create_shidduch` were dropped and recreated (per Task 3's
+  explicit instruction and because `create_shidduch`'s parameter name changed, which
+  `CREATE OR REPLACE FUNCTION` cannot do), with their grants re-issued by hand; `catch_shidduch`
+  kept its exact signature so `CREATE OR REPLACE` was safe and its grants persisted
+  automatically. Verified post-migration: `public.children` no longer exists (0 rows in
+  `pg_class`), RLS still enabled + not forced (matches pre-existing `relforcerowsecurity=false`
+  baseline), all three views show `security_invoker=on`, zero `anon` grants on `singles` /
+  `singles_summary`, and a second `db diff` shows **zero drift** ("No schema changes found").
+- **Negative RLS test (AC-14e, mandated by `.claude/rules/security-triggers.md`).** Added to
+  `supabase/tests/references_entity.sql`: a tenant-B `singles` row inserted under tenant B's
+  own RLS context, then asserted that tenant A's authenticated session reads exactly its own
+  row (count = 1) and zero of tenant B's row from both `public.singles` and
+  `public.singles_summary`. Both assertions pass under `npm run test:unit:db`.
+- **Frontend (Tasks 4-9).** `Child`/`ChildSummary` → `Single`/`SingleSummary` in `types.ts`;
+  every `child_id`/`child_first_name_*`/`child_last_name_*` member renamed across `Shidduch`,
+  `ShidduchSummary`, `CreateShidduchInput`, `InboxItem`, `ReferenceLinkSummary`,
+  `ShidduchCatchSuggestion`, `ShidduchDatePrior`, `DateRecord`. Both data providers
+  (`supabase/dataProvider.ts`, `fakerest/dataProvider.ts` + its two `internal/` helpers)
+  updated. `git mv children → singles`, 7 components renamed (`SingleCard`, `SingleCreate`,
+  `SingleEdit`, `SingleFormFrame`, `SingleInputs`, `SingleList`, `SingleShow`) plus every
+  file-local compound (`SingleCardProps`, `SingleFormFrameProps`, `SingleListSkeleton/Header/
+  Content`, `SingleShowLayout/Actions`, `SingleProfileHeader`, `SingleEditActions`).
+  `routeManifest.ts` resource entry + import retargeted to `"singles"` — `routeManifest.test.ts`
+  passes unchanged (it asserts shape, not names). All 7 `/children…` links now resolve to
+  `/singles…`. Every camelCase/PascalCase/UPPER_SNAKE compound enumerated in Dev Notes
+  "Compound identifiers" was renamed: `isSingleVisibleState`/`SINGLE_VISIBLE_STATES`,
+  `SingleSwitcherPill`, `singleLabel`, `singleList`, `singleId`/`setSingleId`, `singleName`/
+  `setSingleName`, `singleForm`, `handleSingleSubmit`, `createSingle`, `isSavingSingle`,
+  `singleById`, `singleSummaryById`, `singleGenderById`, `singlesSeed`, `singlesPending`,
+  `totalForSingle`/`totalForSinglePending`, `onSelectSingle`, `ShidduchimNoSingles`,
+  `desktopSingleSwitcherStep`, `DemoSingle`, `SINGLES`. The `data-tour="child-switcher"` anchor
+  renamed to `"single-switcher"` on both `TopBar.tsx` and `tourSteps.ts`. i18n:
+  `resources.children` → `resources.singles` (English + French — French keeps English keys,
+  French values updated to "Célibataire(s)"), `resources.shidduchim.fields.child_id` →
+  `single_id`, all `crm.auth.onboarding.child_*` / `crm.children.gender_*` /
+  `crm.profile.family.children` runtime keys renamed to their `single_*` equivalents (none were
+  defined in the catalogues, so this is a code + fallback-copy change only, exactly as the story
+  predicted), and every landing-page "for your children" / "against the child" string reworded
+  to "singles"/"single" (English + French + the pinned `LandingPage.test.tsx` assertion).
+- **Seed/demo (Task 11).** `seed_demo/dataset.ts` (`DemoChild`→`DemoSingle`,
+  `CHILDREN`→`SINGLES`), `seed_demo/index.ts` (the `"children"` table read/insert,
+  `p_child_id`→`p_single_id`, the `children:` response count key), `clear_demo/index.ts` (the
+  `"children"` deletion-order entry). FakeRest generator: `dataGenerator/shidduchim.ts`
+  (`childrenSeed`→`singlesSeed`, all 15 seed rows' `child_id`→`single_id`,
+  `childGenderById`→`singleGenderById`), `dataGenerator/index.ts`, `dataGenerator/types.ts`
+  (`Db.children: Child[]` → `Db.singles: Single[]`).
+- **Tests (Task 10).** 9 TypeScript suites updated (`bucketByState.test.ts`,
+  `boardUtils.test.ts` [not separately listed by the story but carried a stray `child_id` seed
+  field, fixed], `redts.test.ts`, `schools.test.ts`, `pipelineStates.test.ts`,
+  `shidduchService.test.ts`, `ShidduchCatchPanel.test.tsx`, `shidduchCatch.test.ts`,
+  `dataProvider.summaryStats.test.ts`). `supabase/tests/shidduch_catch.sql` (26 domain lines:
+  `public.children`→`public.singles`, `child_id`→`single_id`, the `\gset` variables
+  `child_leah`/`child_rivka`/`child_b`→`single_leah`/`single_rivka`/`single_b`, both prose
+  comments). `supabase/tests/references_entity.sql`: renamed `public.children`, `child_id`, the
+  `child_a` ids-table key and `v_child_a` locals (→ `single_a` / `v_single_a`), the
+  `'stolen child'` fixture string, the four "another account's child" assertion names, the two
+  prose comments about "child visibility"/"the child role", and the forbidden-column-name list
+  (`'child_visible'`→`'single_visible'`). Line 346 (`"Deleting a reference must take its
+  polymorphic children with it"`) correctly left unchanged — FK-dependent rows, not people
+  (Dev Notes rule 2). Added the AC-14(e) negative RLS test (see above).
+- **Verification (Task 12).** All three AC-12 greps run clean: (a) snake_case/quoted/route
+  patterns — **zero** hits; (b) camelCase/PascalCase/UPPER_SNAKE compounds — **zero** hits;
+  (c) the plain English word — **62** surviving lines, 100% either React's `children` prop, DOM
+  `appendChild`/`removeChild`, `node:child_process`, `childhood` (relationshipQuestions.ts,
+  explicitly excluded by rule), or the one FK-dependent-rows prose line the Dev Notes call out.
+  New migration contains only `ALTER … RENAME` / `DROP`+`CREATE` (the three views, forced by
+  Postgres — `CREATE OR REPLACE VIEW` cannot rename an output column) — no
+  `create view public.children`, no second function/route/type carrying the old name.
+  `make typecheck && npm run lint && make test && npm run test:unit:db` all pass, plus the
+  changed-files-only `npx prettier --check` (after one `--write` pass to fix 16 files' wrapping
+  — see Debug Log). Manual smoke of `/singles`, `/singles/create`, the dashboard switcher and
+  the pipeline board was not run interactively in this session (no browser tool invoked); the
+  full automated suite (`test:unit:app` 503 tests, `test:unit:functions` 76, `test:unit:workers`
+  18, `test:unit:db` 132 incl. the 2 new negative-RLS assertions) is the verification basis.
+- **Tool-use note.** `.claude/rules/lsp-usage.md` recommends the `LSP` tool for TS symbol
+  rename/reference work; it was not present in this session's tool set, so `grep`/`rg` was used
+  throughout instead, closed out by the exhaustive AC-12 grep suite (a)+(b)+(c) as the
+  correctness backstop for "no call site missed."
+- **Story-claim drift (per the orchestrator's build-plan §2 and this story's own "verified at
+  `main`@`8ad49cb`" caveat) — all cosmetic, none load-bearing:**
+  - Every line number cited in the story's Task list and Dev Notes is stale (measured before
+    1.1/1.4/1.5 landed, which together deleted hundreds of lines above this story's targets).
+    Every edit in this session was re-located by identifier via `grep`/`Read`, never by the
+    story's line number, per the build plan's explicit landmine warning (L1).
+  - Dev Notes "Residual `children` after this story" lists 26 allow-listed survivor files;
+    2 of them (`filters/FilterCategory.tsx`, `simple-list/SimpleListItem.tsx`) no longer exist
+    in the tree (deleted by an earlier story), so the real survivor set is smaller. One file not
+    on that list, `dashboard/MobileDashboard.tsx`, legitimately survives grep (c) with its own
+    unrelated `Wrapper = ({ children }: { children: ReactNode })` — verified React's `children`
+    prop, not a documentation gap that hides real work.
+  - `supabase/schemas/07_storage.sql` (new since the story's "supabase/schemas/{01..06}.sql"
+    framing) was checked and confirmed to contain zero `child`/`single` references — correctly
+    out of this story's scope, exactly as the build plan predicted.
+
 ### File List
+
+**Schema (6 files, hand-edited) + 1 new migration:**
+- `supabase/schemas/01_tables.sql`
+- `supabase/schemas/02_functions.sql`
+- `supabase/schemas/03_views.sql`
+- `supabase/schemas/04_triggers.sql`
+- `supabase/schemas/05_policies.sql`
+- `supabase/schemas/06_grants.sql`
+- `supabase/migrations/20260727112521_rename_children_to_singles.sql` (new; hand-rewritten from
+  the `db diff` draft — see Debug Log / Completion Notes)
+
+**Types, providers, routing (9 files):**
+- `src/components/atomic-crm/types.ts`
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/internal/shidduchCatch.ts`
+- `src/components/atomic-crm/providers/fakerest/internal/referenceSummary.ts`
+- `src/components/atomic-crm/root/routeManifest.ts`
+- `src/components/atomic-crm/root/OnboardingGate.tsx`
+- `src/components/atomic-crm/root/onboardingKeys.ts`
+- `src/components/atomic-crm/settings/exportFamilyData.ts`
+
+**Resource directory rename (8 files, `git mv children/ → singles/` + content rewrite):**
+- `src/components/atomic-crm/singles/index.ts` (was `children/index.ts`)
+- `src/components/atomic-crm/singles/SingleCard.tsx` (was `ChildCard.tsx`)
+- `src/components/atomic-crm/singles/SingleCreate.tsx` (was `ChildCreate.tsx`)
+- `src/components/atomic-crm/singles/SingleEdit.tsx` (was `ChildEdit.tsx`)
+- `src/components/atomic-crm/singles/SingleFormFrame.tsx` (was `ChildFormFrame.tsx`)
+- `src/components/atomic-crm/singles/SingleInputs.tsx` (was `ChildInputs.tsx`)
+- `src/components/atomic-crm/singles/SingleList.tsx` (was `ChildList.tsx`)
+- `src/components/atomic-crm/singles/SingleShow.tsx` (was `ChildShow.tsx`)
+
+**Dashboard (7 files):**
+- `src/components/atomic-crm/dashboard/useDashboardData.ts`
+- `src/components/atomic-crm/dashboard/DashboardHeader.tsx`
+- `src/components/atomic-crm/dashboard/Dashboard.tsx`
+- `src/components/atomic-crm/dashboard/MobileDashboard.tsx`
+- `src/components/atomic-crm/dashboard/PipelineSnapshot.tsx`
+- `src/components/atomic-crm/dashboard/RecentSuggestions.tsx`
+- `src/components/atomic-crm/dashboard/AttentionSection.tsx`
+- `src/components/atomic-crm/dashboard/bucketByState.ts`
+
+**Shidduchim / layout / tour (9 files):**
+- `src/components/atomic-crm/shidduchim/ShidduchimList.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchCreate.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchInputs.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchCard.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchShowHeader.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchCatchPanel.tsx`
+- `src/components/atomic-crm/shidduchim/pipelineStates.ts`
+- `src/components/atomic-crm/layout/TopBar.tsx`
+- `src/components/atomic-crm/tour/tourSteps.ts`
+- `src/components/atomic-crm/tour/useTour.ts`
+
+**Login / settings / references / shadchanim (10 files):**
+- `src/components/atomic-crm/login/FirstRunSetup.tsx`
+- `src/components/atomic-crm/login/OnboardingChoice.tsx`
+- `src/components/atomic-crm/settings/FamilySection.tsx`
+- `src/components/atomic-crm/settings/PrivacySection.tsx`
+- `src/components/atomic-crm/references/ReferenceCallLog.tsx`
+- `src/components/atomic-crm/references/ReferenceList.tsx`
+- `src/components/atomic-crm/references/ReferenceTimeline.tsx`
+- `src/components/atomic-crm/references/RepeatRecognitionPanel.tsx`
+- `src/components/atomic-crm/references/useReferenceLinks.ts`
+- `src/components/atomic-crm/shadchanim/ShadchanShow.tsx`
+- `src/components/atomic-crm/shadchanim/ShadchanSuggestions.tsx`
+
+**i18n / landing (5 files):**
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts`
+- `src/components/atomic-crm/landing/LandingHero.tsx`
+- `src/components/atomic-crm/landing/LandingHowItWorks.tsx`
+- `src/components/atomic-crm/landing/LandingWhatItDoes.tsx`
+
+**FakeRest seed/demo (3 files):**
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/shidduchim.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/types.ts`
+
+**Edge functions (3 files):**
+- `supabase/functions/seed_demo/dataset.ts`
+- `supabase/functions/seed_demo/index.ts`
+- `supabase/functions/clear_demo/index.ts`
+
+**Tests, TS (9 files) + SQL (2 files):**
+- `src/components/atomic-crm/dashboard/bucketByState.test.ts`
+- `src/components/atomic-crm/shidduchim/boardUtils.test.ts`
+- `src/components/atomic-crm/shidduchim/redts.test.ts`
+- `src/components/atomic-crm/shidduchim/schools.test.ts`
+- `src/components/atomic-crm/shidduchim/pipelineStates.test.ts`
+- `src/components/atomic-crm/shidduchim/shidduchService.test.ts`
+- `src/components/atomic-crm/shidduchim/ShidduchCatchPanel.test.tsx`
+- `src/components/atomic-crm/providers/fakerest/internal/shidduchCatch.test.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.summaryStats.test.ts`
+- `src/components/atomic-crm/landing/LandingPage.test.tsx`
+- `supabase/tests/shidduch_catch.sql`
+- `supabase/tests/references_entity.sql` (also gained the new AC-14(e) negative RLS test)
+
+**Story file:**
+- `_bmad-output/implementation-artifacts/1-3-rename-children-to-singles.md` (this file — Tasks,
+  Dev Agent Record, Status)

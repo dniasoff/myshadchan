@@ -6,7 +6,6 @@ import { OAuthConsentPage } from "@/components/supabase/oauth-consent-page";
 import { SetPasswordPage } from "@/components/supabase/set-password-page";
 
 import { BillingPage } from "../billing/BillingPage";
-import children from "../children";
 import inbox from "../inbox";
 import { ShareTarget } from "../inbox/ShareTarget";
 import { ConfirmationRequired } from "../login/ConfirmationRequired";
@@ -18,6 +17,7 @@ import shadchanim from "../shadchanim";
 import shidduchim from "../shidduchim";
 import { SettingsPage } from "../settings/SettingsPage";
 import { SettingsPageMobile } from "../settings/SettingsPageMobile";
+import singles from "../singles";
 import { TasksListPage } from "../tasks/TasksListPage";
 
 /**
@@ -112,8 +112,7 @@ export const CUSTOM_ROUTES: CustomRouteEntry[] = [
 
 export const RESOURCES: ResourceEntry[] = [
   { name: "shidduchim", surface: "both", definition: shidduchim },
-  // Registered under its current name — story 1.3 renames this entry to "singles".
-  { name: "children", surface: "both", definition: children },
+  { name: "singles", surface: "both", definition: singles },
   { name: "inbox_items", surface: "both", definition: inbox },
   { name: "shadchanim", surface: "both", definition: shadchanim },
   { name: "references", surface: "both", definition: references },

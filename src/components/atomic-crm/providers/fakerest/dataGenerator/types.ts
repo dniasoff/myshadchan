@@ -1,7 +1,6 @@
 import type {
   Account,
   AccountMember,
-  Child,
   DateRecord,
   InboxItem,
   Interaction,
@@ -14,6 +13,7 @@ import type {
   Shadchan,
   Shidduch,
   ShidduchSchool,
+  Single,
   Task,
 } from "../../../types";
 import type { ConfigurationContextValue } from "../../../root/ConfigurationContext";
@@ -25,7 +25,7 @@ export interface Db {
   // Shidduchim pipeline domain
   accounts: Account[];
   account_members: AccountMember[];
-  children: Child[];
+  singles: Single[];
   shadchanim: Shadchan[];
   references: Reference[];
   shidduchim: Shidduch[];

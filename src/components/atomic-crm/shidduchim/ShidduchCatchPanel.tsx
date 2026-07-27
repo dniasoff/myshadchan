@@ -40,8 +40,8 @@ const displayName = (nameEn?: string | null, nameHe?: string | null): string =>
 
 const priorContext = (suggestion: ShidduchCatchSuggestion): string =>
   [
-    suggestion.child_first_name_en
-      ? `suggested for ${suggestion.child_first_name_en}`
+    suggestion.single_first_name_en
+      ? `suggested for ${suggestion.single_first_name_en}`
       : null,
     suggestion.shadchan_name ? `via ${suggestion.shadchan_name}` : null,
     typeof suggestion.age === "number" ? `age ${suggestion.age}` : null,
@@ -160,8 +160,8 @@ export const ShidduchCatchPanel = ({
                 >
                   <span className="min-w-0 text-sm">
                     {displayName(prior.person_name_en, prior.person_name_he)}
-                    {prior.child_first_name_en
-                      ? ` · with ${prior.child_first_name_en}`
+                    {prior.single_first_name_en
+                      ? ` · with ${prior.single_first_name_en}`
                       : ""}
                   </span>
                   <span className="shrink-0 text-sm tabular-nums text-muted-foreground">

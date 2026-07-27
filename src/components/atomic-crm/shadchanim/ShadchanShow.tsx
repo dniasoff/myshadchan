@@ -13,7 +13,7 @@ import { ShadchanSuggestions } from "./ShadchanSuggestions";
 
 /**
  * The shadchan detail page (screen 20) — contact info, productivity stats, and
- * every suggestion this matchmaker has sent, across every child.
+ * every suggestion this matchmaker has sent, across every single.
  */
 
 const ShadchanShowSkeleton = () => (
@@ -21,7 +21,10 @@ const ShadchanShowSkeleton = () => (
     <div className="h-[132px] animate-pulse rounded-2xl bg-muted" />
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
       {Array.from({ length: 3 }).map((_, index) => (
-        <div key={index} className="h-[116px] animate-pulse rounded-2xl bg-muted" />
+        <div
+          key={index}
+          className="h-[116px] animate-pulse rounded-2xl bg-muted"
+        />
       ))}
     </div>
     <div className="h-40 animate-pulse rounded-2xl bg-muted" />

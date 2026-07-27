@@ -87,7 +87,7 @@ export const RepeatRecognitionPanel = ({
                   {link.shidduch_name_en}
                 </Link>
                 <p className="truncate text-sm text-muted-foreground">
-                  {[link.effective_relationship, link.child_first_name_en]
+                  {[link.effective_relationship, link.single_first_name_en]
                     .filter(Boolean)
                     .join(" · ")}
                 </p>

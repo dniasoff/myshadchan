@@ -14,10 +14,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-import type { Child } from "../types";
+import type { Single } from "../types";
 
 /**
- * The slim desktop top app-bar (foundation-plan §1): child-switcher pill +
+ * The slim desktop top app-bar (foundation-plan §1): single-switcher pill +
  * theme toggle + refresh + user menu. Glass chrome, sticky.
  */
 export const TopBar = () => (
@@ -26,7 +26,7 @@ export const TopBar = () => (
       justify-between gap-4 border-b border-[--glass-border] bg-[--glass-bg]
       px-4 shadow-sm backdrop-blur-[var(--glass-blur)] sm:px-6"
   >
-    <ChildSwitcherPill />
+    <SingleSwitcherPill />
     <div className="flex items-center gap-1">
       <ThemeModeToggle />
       <RefreshButton />
@@ -42,50 +42,50 @@ export const TopBar = () => (
   </header>
 );
 
-const childLabel = (child: Child) =>
-  [child.first_name_en, child.last_name_en].filter(Boolean).join(" ") ||
-  `#${child.id}`;
+const singleLabel = (single: Single) =>
+  [single.first_name_en, single.last_name_en].filter(Boolean).join(" ") ||
+  `#${single.id}`;
 
 /**
- * Self-contained child switcher, mirroring the local-state pattern in
+ * Self-contained single switcher, mirroring the local-state pattern in
  * ShidduchimList. Purely a display/selection affordance for now — it does
  * not drive any other screen.
- * TODO: hoist to a shared ChildContext once a second consumer needs the
+ * TODO: hoist to a shared SingleContext once a second consumer needs the
  * selection (foundation-plan risk #3).
  */
-const ChildSwitcherPill = () => {
-  const { data: childList } = useGetList<Child>("children", {
+const SingleSwitcherPill = () => {
+  const { data: singleList } = useGetList<Single>("singles", {
     pagination: { page: 1, perPage: 100 },
     sort: { field: "first_name_en", order: "ASC" },
   });
-  const [childId, setChildId] = useState<Identifier | undefined>();
+  const [singleId, setSingleId] = useState<Identifier | undefined>();
 
   useEffect(() => {
-    if (childId == null && childList && childList.length > 0) {
-      setChildId(childList[0].id);
+    if (singleId == null && singleList && singleList.length > 0) {
+      setSingleId(singleList[0].id);
     }
-  }, [childList, childId]);
+  }, [singleList, singleId]);
 
-  if (!childList || childList.length === 0) {
+  if (!singleList || singleList.length === 0) {
     return <span />;
   }
 
   const selected =
-    childList.find((child) => child.id === childId) ?? childList[0];
+    singleList.find((single) => single.id === singleId) ?? singleList[0];
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          data-tour="child-switcher"
+          data-tour="single-switcher"
           className="inline-flex h-9 items-center gap-2 rounded-full border
             border-border bg-secondary px-3 text-sm font-semibold
             text-foreground outline-none transition-colors duration-[160ms]
             hover:bg-secondary/80
             focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
-          <span>{childLabel(selected)}</span>
+          <span>{singleLabel(selected)}</span>
           <ChevronDown
             className="size-4 text-muted-foreground"
             aria-hidden="true"
@@ -93,12 +93,12 @@ const ChildSwitcherPill = () => {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        {childList.map((child) => (
+        {singleList.map((single) => (
           <DropdownMenuItem
-            key={child.id}
-            onSelect={() => setChildId(child.id)}
+            key={single.id}
+            onSelect={() => setSingleId(single.id)}
           >
-            {childLabel(child)}
+            {singleLabel(single)}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

@@ -27,11 +27,9 @@ export const ShidduchShowHeader = ({
    * against the shadchanim list it already fetches for the redt history). */
   firstSuggestedByName?: string | null;
 }) => {
-  const name = shidduch.name_en ?? shidduch.child_first_name_en ?? "Shidduch";
+  const name = shidduch.name_en ?? shidduch.single_first_name_en ?? "Shidduch";
   const monogram = getMonogram(shidduch.name_en);
-  const avatarIndex = getAvatarIndex(
-    shidduch.name_en ?? String(shidduch.id),
-  );
+  const avatarIndex = getAvatarIndex(shidduch.name_en ?? String(shidduch.id));
   const meta = [shidduch.location_en, shidduch.seminary_en]
     .filter(Boolean)
     .join(" · ");
@@ -101,7 +99,8 @@ export const ShidduchShowHeader = ({
 
       {hasFirstSuggested ? (
         <p className="text-xs text-muted-foreground">
-          First suggested{firstSuggestedByName ? ` by ${firstSuggestedByName}` : ""}
+          First suggested
+          {firstSuggestedByName ? ` by ${firstSuggestedByName}` : ""}
           {shidduch.first_suggested_at
             ? ` · ${formatSuggestedAt(shidduch.first_suggested_at)}`
             : ""}

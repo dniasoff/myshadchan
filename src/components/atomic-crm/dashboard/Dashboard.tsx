@@ -9,17 +9,17 @@ import { RecentSuggestions } from "./RecentSuggestions";
 import { useDashboardData } from "./useDashboardData";
 
 /**
- * The magical per-child dashboard (foundation-plan §4): a greeting + child
+ * The magical per-single dashboard (foundation-plan §4): a greeting + single
  * switcher, the pipeline snapshot "moment", recent suggestions, directory
  * stats, and a calm "needs your attention" section — all driven from the
- * seeded shidduchim data for the selected child.
+ * seeded shidduchim data for the selected single.
  */
 export const Dashboard = () => {
   const {
     isPending,
-    children,
-    childId,
-    setChildId,
+    singles,
+    singleId,
+    setSingleId,
     hasSuggestions,
     totalShadchanim,
     totalReferences,
@@ -27,40 +27,40 @@ export const Dashboard = () => {
 
   if (isPending) return null;
 
-  if (children.length === 0) {
+  if (singles.length === 0) {
     return (
       <EmptyState
-        title="Add your first child"
-        description="A shidduchim pipeline belongs to a child — the single you are redting for. Add a child to start tracking suggestions."
-        actionLabel="Add a child"
-        actionTo="/children/create"
+        title="Add your first single"
+        description="A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions."
+        actionLabel="Add a single"
+        actionTo="/singles/create"
       />
     );
   }
 
-  const selectedChildId = childId ?? children[0].id;
+  const selectedSingleId = singleId ?? singles[0].id;
 
   return (
     <div className="flex flex-col gap-6">
       <DashboardHeader
-        childList={children}
-        childId={selectedChildId}
-        onSelectChild={setChildId}
+        singleList={singles}
+        singleId={selectedSingleId}
+        onSelectSingle={setSingleId}
       />
 
       {!hasSuggestions ? (
         <EmptyState
           title="Capture your first suggestion"
-          description="Every redt starts here — add the first suggestion for this child to see the pipeline come to life."
+          description="Every redt starts here — add the first suggestion for this single to see the pipeline come to life."
           actionLabel="Add a suggestion"
           actionTo="/shidduchim/create"
         />
       ) : (
         <div className="flex flex-col gap-6">
-          <PipelineSnapshot childId={selectedChildId} />
+          <PipelineSnapshot singleId={selectedSingleId} />
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
             <div className="lg:col-span-8">
-              <RecentSuggestions childId={selectedChildId} />
+              <RecentSuggestions singleId={selectedSingleId} />
             </div>
             <div className="flex flex-col gap-6 lg:col-span-4">
               <div className="grid grid-cols-2 gap-4">

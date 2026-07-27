@@ -22,7 +22,7 @@ describe("redt history", () => {
     // Arrange / Act
     const dataProvider = makeProvider();
     const shidduch = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "First Redt",
       shadchan_id: 1,
       redt_date: "2026-05-01",
@@ -38,7 +38,7 @@ describe("redt history", () => {
   it("advances redt_date to the latest when redt again on a newer date", async () => {
     const dataProvider = makeProvider();
     const shidduch = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Advancer",
       shadchan_id: 1,
       redt_date: "2026-05-01",
@@ -56,7 +56,7 @@ describe("redt history", () => {
   it("keeps redt_date as the last date when an EARLIER redt is added", async () => {
     const dataProvider = makeProvider();
     const shidduch = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Backfill",
       shadchan_id: 1,
       redt_date: "2026-05-01",
@@ -73,7 +73,7 @@ describe("redt history", () => {
   it("allows the same shadchan to redt again (multiple redts by the same person)", async () => {
     const dataProvider = makeProvider();
     const shidduch = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Same Shadchan Twice",
       shadchan_id: 1,
       redt_date: "2026-05-01",
@@ -91,7 +91,7 @@ describe("redt history", () => {
   it("surfaces the redt count on the shidduch summary", async () => {
     const dataProvider = makeProvider();
     const shidduch = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Counted",
       shadchan_id: 1,
       redt_date: "2026-05-01",

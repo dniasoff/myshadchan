@@ -14,7 +14,7 @@ export function daysFromNowIso(n: number): string {
   return new Date(Date.now() + n * 86_400_000).toISOString();
 }
 
-export type DemoChild = {
+export type DemoSingle = {
   first_name_en: string;
   last_name_en: string;
   gender: "male" | "female";
@@ -23,7 +23,7 @@ export type DemoChild = {
   status: string;
 };
 
-export const CHILDREN: DemoChild[] = [
+export const SINGLES: DemoSingle[] = [
   {
     first_name_en: "Rivky",
     last_name_en: "Stern",
@@ -50,11 +50,36 @@ export type DemoShadchan = {
 };
 
 export const SHADCHANIM: DemoShadchan[] = [
-  { key: "S1", name: "Mrs. Leah Feldman", location: "Lakewood, NJ", responsiveness: "high" },
-  { key: "S2", name: "Rabbi Shmuel Weiss", location: "Lakewood, NJ", responsiveness: "medium" },
-  { key: "S3", name: "Mrs. Chaya Rosenberg", location: "Monsey, NY", responsiveness: "high" },
-  { key: "S4", name: "Mrs. Sarah Greenberg", location: "Brooklyn, NY", responsiveness: "low" },
-  { key: "S5", name: "Rabbi Yosef Kanarek", location: "Passaic, NJ", responsiveness: "medium" },
+  {
+    key: "S1",
+    name: "Mrs. Leah Feldman",
+    location: "Lakewood, NJ",
+    responsiveness: "high",
+  },
+  {
+    key: "S2",
+    name: "Rabbi Shmuel Weiss",
+    location: "Lakewood, NJ",
+    responsiveness: "medium",
+  },
+  {
+    key: "S3",
+    name: "Mrs. Chaya Rosenberg",
+    location: "Monsey, NY",
+    responsiveness: "high",
+  },
+  {
+    key: "S4",
+    name: "Mrs. Sarah Greenberg",
+    location: "Brooklyn, NY",
+    responsiveness: "low",
+  },
+  {
+    key: "S5",
+    name: "Rabbi Yosef Kanarek",
+    location: "Passaic, NJ",
+    responsiveness: "medium",
+  },
 ];
 
 export type DemoReference = {
@@ -96,13 +121,7 @@ export const REFERENCES: DemoReference[] = [
 ];
 
 export type PipelineState =
-  | "new"
-  | "look_into"
-  | "not_sure"
-  | "for_sure_not"
-  | "yes"
-  | "unsure"
-  | "no";
+  "new" | "look_into" | "not_sure" | "for_sure_not" | "yes" | "unsure" | "no";
 
 export type DemoSuggestion = {
   key: string;
@@ -120,7 +139,7 @@ export type DemoSuggestion = {
   closeReason?: string;
 };
 
-// Rivky's pipeline (child = girl) — 7 boys, one per pipeline state.
+// Rivky's pipeline (single = girl) — 7 boys, one per pipeline state.
 export const RIVKY_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "AhronKlein",
@@ -209,7 +228,7 @@ export const RIVKY_SUGGESTIONS: DemoSuggestion[] = [
   },
 ];
 
-// Yaakov's pipeline (child = boy) — 5 girls across several states.
+// Yaakov's pipeline (single = boy) — 5 girls across several states.
 export const YAAKOV_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "EstherMalkaWeiss",

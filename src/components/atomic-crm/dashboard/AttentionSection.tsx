@@ -65,11 +65,11 @@ export const AttentionSection = () => {
                 className="flex flex-wrap items-baseline justify-between gap-2 hover:underline"
               >
                 <span className="min-w-0 truncate text-sm font-medium">
-                  {s.name_en ?? s.child_first_name_en ?? "Unnamed"}
+                  {s.name_en ?? s.single_first_name_en ?? "Unnamed"}
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  {s.child_first_name_en
-                    ? `for ${s.child_first_name_en}`
+                  {s.single_first_name_en
+                    ? `for ${s.single_first_name_en}`
                     : "Suggested before"}
                 </span>
               </Link>

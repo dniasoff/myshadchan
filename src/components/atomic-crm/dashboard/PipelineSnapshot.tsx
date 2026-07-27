@@ -8,18 +8,18 @@ import type { ShidduchSummary } from "../types";
 import { bucketByState } from "./bucketByState";
 
 export interface PipelineSnapshotProps {
-  childId: Identifier;
+  singleId: Identifier;
 }
 
 /**
  * The signature "moment" (design-language §4.4/§5.6): a single horizontal
  * bar segmented by the 7 pipeline states, each segment its token colour and
- * width = share of the child's shidduchim, with a tabular-count legend below.
+ * width = share of the single's shidduchim, with a tabular-count legend below.
  * Segments grow in once on mount via `.ql-segment`. Never a pie, never 3-D.
  */
-export const PipelineSnapshot = ({ childId }: PipelineSnapshotProps) => {
+export const PipelineSnapshot = ({ singleId }: PipelineSnapshotProps) => {
   const { data, isPending } = useGetList<ShidduchSummary>("shidduchim", {
-    filter: { child_id: childId },
+    filter: { single_id: singleId },
     pagination: { page: 1, perPage: 200 },
     sort: { field: "index", order: "ASC" },
   });

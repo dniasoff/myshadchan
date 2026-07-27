@@ -22,11 +22,11 @@ const getSchools = async (
 
 describe("shidduch schools", () => {
   it("records the headline seminary as the first school — a yeshiva for a girl's match", async () => {
-    // Arrange — child 1 (Rivky, female); her match is a boy -> yeshiva
+    // Arrange — single 1 (Rivky, female); her match is a boy -> yeshiva
     const dataProvider = makeProvider();
     // Act
     const shidduch = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "A boy",
       seminary_en: "BMG",
     });
@@ -37,11 +37,11 @@ describe("shidduch schools", () => {
     expect(schools[0].kind).toBe("yeshiva");
   });
 
-  it("records a seminary for a boy's match (child is male)", async () => {
+  it("records a seminary for a boy's match (single is male)", async () => {
     const dataProvider = makeProvider();
-    // child 2 (Yaakov, male); his match is a girl -> seminary
+    // single 2 (Yaakov, male); his match is a girl -> seminary
     const shidduch = await dataProvider.createShidduch({
-      child_id: 2,
+      single_id: 2,
       name_en: "A girl",
       seminary_en: "Bnos Chava",
     });
@@ -52,7 +52,7 @@ describe("shidduch schools", () => {
   it("creates no school when no seminary is given", async () => {
     const dataProvider = makeProvider();
     const shidduch = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "No school",
     });
     expect(await getSchools(dataProvider, shidduch.id)).toHaveLength(0);
@@ -61,7 +61,7 @@ describe("shidduch schools", () => {
   it("links multiple schools with optional years", async () => {
     const dataProvider = makeProvider();
     const shidduch = await dataProvider.createShidduch({
-      child_id: 1,
+      single_id: 1,
       name_en: "Multi",
       seminary_en: "BMG",
     });

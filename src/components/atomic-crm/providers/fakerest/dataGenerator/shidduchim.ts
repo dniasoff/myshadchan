@@ -1,13 +1,13 @@
 import type {
   Account,
   AccountMember,
-  Child,
   DateRecord,
   Redt,
   Resume,
   Shadchan,
   Shidduch,
   ShidduchSchool,
+  Single,
 } from "../../../types";
 import { PIPELINE_TRANSITIONS } from "../../../shidduchim/pipelineStates";
 import type { Db } from "./types";
@@ -58,7 +58,7 @@ const shadchanimSeed: Shadchan[] = [
   },
 ];
 
-const childrenSeed: Child[] = [
+const singlesSeed: Single[] = [
   {
     id: 1,
     account_id: ACCOUNT_ID,
@@ -84,7 +84,7 @@ const childrenSeed: Child[] = [
 ];
 
 type Seed = {
-  child_id: number;
+  single_id: number;
   shadchan_id: number;
   name_en: string;
   location_en: string;
@@ -96,7 +96,7 @@ type Seed = {
 // Rivky's pipeline (matches the reference mockup, all 7 states populated).
 const rivkySeeds: Seed[] = [
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 1,
     name_en: "Ari Rosenberg",
     location_en: "Baltimore, MD",
@@ -105,7 +105,7 @@ const rivkySeeds: Seed[] = [
     pipeline_state: "new",
   },
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 2,
     name_en: "Menachem Stern",
     location_en: "Brooklyn, NY",
@@ -114,7 +114,7 @@ const rivkySeeds: Seed[] = [
     pipeline_state: "new",
   },
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 3,
     name_en: "Boruch Sofer",
     location_en: "Lakewood, NJ",
@@ -123,7 +123,7 @@ const rivkySeeds: Seed[] = [
     pipeline_state: "new",
   },
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 4,
     name_en: "Dovid Berkowitz",
     location_en: "Lakewood, NJ",
@@ -132,7 +132,7 @@ const rivkySeeds: Seed[] = [
     pipeline_state: "look_into",
   },
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 3,
     name_en: "Shmuli Katz",
     location_en: "Monsey, NY",
@@ -141,7 +141,7 @@ const rivkySeeds: Seed[] = [
     pipeline_state: "look_into",
   },
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 4,
     name_en: "Yisroel Fried",
     location_en: "Cleveland, OH",
@@ -150,7 +150,7 @@ const rivkySeeds: Seed[] = [
     pipeline_state: "look_into",
   },
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 3,
     name_en: "Yehuda Klein",
     location_en: "Lakewood, NJ",
@@ -159,7 +159,7 @@ const rivkySeeds: Seed[] = [
     pipeline_state: "not_sure",
   },
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 1,
     name_en: "Moshe Diamond",
     location_en: "Monsey, NY",
@@ -168,7 +168,7 @@ const rivkySeeds: Seed[] = [
     pipeline_state: "not_sure",
   },
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 4,
     name_en: "Eli Traube",
     location_en: "Baltimore, MD",
@@ -177,7 +177,7 @@ const rivkySeeds: Seed[] = [
     pipeline_state: "for_sure_not",
   },
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 1,
     name_en: "Chaim Landau",
     location_en: "Monsey, NY",
@@ -186,7 +186,7 @@ const rivkySeeds: Seed[] = [
     pipeline_state: "yes",
   },
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 3,
     name_en: "Yosef Gross",
     location_en: "Lakewood, NJ",
@@ -195,7 +195,7 @@ const rivkySeeds: Seed[] = [
     pipeline_state: "yes",
   },
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 2,
     name_en: "Tzvi Adler",
     location_en: "Baltimore, MD",
@@ -204,7 +204,7 @@ const rivkySeeds: Seed[] = [
     pipeline_state: "unsure",
   },
   {
-    child_id: 1,
+    single_id: 1,
     shadchan_id: 4,
     name_en: "Naftali Berger",
     location_en: "Lakewood, NJ",
@@ -214,11 +214,11 @@ const rivkySeeds: Seed[] = [
   },
 ];
 
-// A smaller pipeline for Yaakov, so the per-child isolation (FR50) is
-// visible when switching children.
+// A smaller pipeline for Yaakov, so the per-single isolation (FR50) is
+// visible when switching singles.
 const yaakovSeeds: Seed[] = [
   {
-    child_id: 2,
+    single_id: 2,
     shadchan_id: 2,
     name_en: "Leah Steinberg",
     location_en: "Passaic, NJ",
@@ -227,7 +227,7 @@ const yaakovSeeds: Seed[] = [
     pipeline_state: "new",
   },
   {
-    child_id: 2,
+    single_id: 2,
     shadchan_id: 1,
     name_en: "Miriam Roth",
     location_en: "Baltimore, MD",
@@ -236,7 +236,7 @@ const yaakovSeeds: Seed[] = [
     pipeline_state: "look_into",
   },
   {
-    child_id: 2,
+    single_id: 2,
     shadchan_id: 3,
     name_en: "Sara Weinberg",
     location_en: "Lakewood, NJ",
@@ -262,7 +262,7 @@ export const generateShidduchimDomain = (db: Db) => {
   const shidduchim: Shidduch[] = allSeeds.map((seed, i) => ({
     id: i + 1,
     account_id: ACCOUNT_ID,
-    child_id: seed.child_id,
+    single_id: seed.single_id,
     shadchan_id: seed.shadchan_id,
     name_en: seed.name_en,
     name_he: null,
@@ -288,12 +288,12 @@ export const generateShidduchimDomain = (db: Db) => {
     created_at: `${seed.redt_date}T00:00:00.000Z`,
   }));
 
-  // Per-child, per-state board ordering.
-  [1, 2].forEach((childId) => {
+  // Per-single, per-state board ordering.
+  [1, 2].forEach((singleId) => {
     const states = new Set(shidduchim.map((s) => s.pipeline_state));
     states.forEach((state) => {
       shidduchim
-        .filter((s) => s.child_id === childId && s.pipeline_state === state)
+        .filter((s) => s.single_id === singleId && s.pipeline_state === state)
         .forEach((s, index) => {
           s.index = index;
         });
@@ -351,9 +351,9 @@ export const generateShidduchimDomain = (db: Db) => {
   });
 
   // Education history: each shidduch's seminary/yeshiva as its first school
-  // (kind = opposite of the child's gender), plus an extra school with years on
+  // (kind = opposite of the single's gender), plus an extra school with years on
   // one shidduch to show multiple institutions.
-  const childGenderById = new Map(childrenSeed.map((c) => [c.id, c.gender]));
+  const singleGenderById = new Map(singlesSeed.map((c) => [c.id, c.gender]));
   let schoolId = 1;
   const shidduchSchools: ShidduchSchool[] = shidduchim
     .filter((s) => s.seminary_en)
@@ -361,7 +361,8 @@ export const generateShidduchimDomain = (db: Db) => {
       id: schoolId++,
       account_id: ACCOUNT_ID,
       shidduchim_id: s.id,
-      kind: childGenderById.get(s.child_id) === "male" ? "seminary" : "yeshiva",
+      kind:
+        singleGenderById.get(s.single_id) === "male" ? "seminary" : "yeshiva",
       name_en: s.seminary_en ?? null,
       name_he: null,
       start_year: null,
@@ -382,7 +383,7 @@ export const generateShidduchimDomain = (db: Db) => {
 
   db.accounts = accounts;
   db.account_members = account_members;
-  db.children = childrenSeed;
+  db.singles = singlesSeed;
   db.shadchanim = shadchanimSeed;
   db.shidduchim = shidduchim;
   db.resumes = [] as Resume[];

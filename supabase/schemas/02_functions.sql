@@ -175,7 +175,7 @@ CREATE OR REPLACE FUNCTION "public"."current_account_demo"() RETURNS boolean
 $$;
 
 -- Auto-populate account_id from the caller's account on insert (AD-1), so the
--- normal dataProvider.create() path for children/shadchanim/references/etc.
+-- normal dataProvider.create() path for singles/shadchanim/references/etc.
 -- never has to trust a client-sent account_id. Mirrors set_sales_id_default.
 CREATE OR REPLACE FUNCTION "public"."set_account_id_default"() RETURNS "trigger"
     LANGUAGE "plpgsql"
@@ -189,12 +189,12 @@ begin
 end;
 $$;
 
--- The ONE authority for which pipeline states a child may see (AD-3, D5).
+-- The ONE authority for which pipeline states a single may see (AD-3, D5).
 -- Closed enumeration over ALL 7 states: visible = look_into/yes/unsure;
 -- hidden = new/not_sure/for_sure_not/no. No include/exclude gap — an
 -- unclassified value raises rather than silently leaking. Both RLS and the
 -- Epic 6 single-login screens will call this, never re-implement it.
-CREATE OR REPLACE FUNCTION "public"."is_child_visible_state"("s" public.pipeline_state) RETURNS boolean
+CREATE OR REPLACE FUNCTION "public"."is_single_visible_state"("s" public.pipeline_state) RETURNS boolean
     LANGUAGE "plpgsql" IMMUTABLE
     SET "search_path" TO ''
     AS $$
@@ -208,7 +208,7 @@ begin
     when 'for_sure_not' then return false;
     when 'no' then return false;
     else
-      raise exception 'unclassified pipeline_state in child-visibility policy: %', s;
+      raise exception 'unclassified pipeline_state in single-visibility policy: %', s;
   end case;
 end;
 $$;
@@ -260,7 +260,7 @@ $$;
 -- (yes/unsure/no) can NEVER be created directly — they are reachable only
 -- from look_into via transition_shidduch. SECURITY INVOKER so RLS applies.
 CREATE OR REPLACE FUNCTION "public"."create_shidduch"(
-    "p_child_id" bigint,
+    "p_single_id" bigint,
     "p_shadchan_id" bigint DEFAULT NULL,
     "p_name_en" text DEFAULT NULL,
     "p_name_he" text DEFAULT NULL,
@@ -299,13 +299,13 @@ begin
       using errcode = 'check_violation';
   end if;
 
-  -- Never cross the account boundary (AD-1): the child/shadchan must
+  -- Never cross the account boundary (AD-1): the single/shadchan must
   -- belong to the caller's account.
   if not exists (
-    select 1 from public.children c
-    where c.id = p_child_id and c.account_id = v_account_id
+    select 1 from public.singles c
+    where c.id = p_single_id and c.account_id = v_account_id
   ) then
-    raise exception 'child % not found in current account', p_child_id;
+    raise exception 'single % not found in current account', p_single_id;
   end if;
 
   if p_shadchan_id is not null and not exists (
@@ -324,7 +324,7 @@ begin
   v_redt_date := coalesce(p_redt_date, current_date);
 
   insert into public.shidduchim (
-    account_id, child_id, shadchan_id,
+    account_id, single_id, shadchan_id,
     name_en, name_he,
     parents_en, parents_he, seminary_en, seminary_he,
     shul_en, shul_he, location_en, location_he,
@@ -332,7 +332,7 @@ begin
     pipeline_state, first_suggested_by, first_suggested_at, redt_date,
     origin, owner_member_id, visibility
   ) values (
-    v_account_id, p_child_id, p_shadchan_id,
+    v_account_id, p_single_id, p_shadchan_id,
     p_name_en, p_name_he,
     p_parents_en, p_parents_he, p_seminary_en, p_seminary_he,
     p_shul_en, p_shul_he, p_location_en, p_location_he,
@@ -348,10 +348,10 @@ begin
   values (v_account_id, v_id, p_shadchan_id, v_redt_date);
 
   -- Record the headline seminary/yeshiva as the first school entry. The prospect
-  -- is the opposite gender of the child (a match for a girl is a boy -> yeshiva;
+  -- is the opposite gender of the single (a match for a girl is a boy -> yeshiva;
   -- a match for a boy is a girl -> seminary). Additional schools via add_school().
   if p_seminary_en is not null or p_seminary_he is not null then
-    select gender into v_gender from public.children where id = p_child_id;
+    select gender into v_gender from public.singles where id = p_single_id;
     insert into public.shidduch_schools (account_id, shidduchim_id, kind, name_en, name_he)
     values (
       v_account_id, v_id,
@@ -1534,7 +1534,7 @@ $$;
 -- =====================================================================
 -- "You've come across this person before." Given one shidduch, returns the
 -- prior evidence a shadchan needs to decide whether a suggested person has
--- already been suggested (for ANY child in this family) or already dated. It is
+-- already been suggested (for ANY single in this family) or already dated. It is
 -- the third caller of the shared identity service (AD-5): it reuses
 -- match_identity('shidduch', ...) rather than growing a bespoke matcher.
 --
@@ -1586,8 +1586,8 @@ begin
   end if;
 
   -- Prior suggestions: the shared matcher, excluding this very row. Each
-  -- candidate is joined back to its child/shadchan so the panel renders the
-  -- prior context ("suggested for {child}, via {shadchan}, {state}") in one hop.
+  -- candidate is joined back to its single/shadchan so the panel renders the
+  -- prior context ("suggested for {single}, via {shadchan}, {state}") in one hop.
   select coalesce(
     jsonb_agg(to_jsonb(cand) order by cand.confidence desc, cand.prior_shidduchim_id asc),
     '[]'::jsonb
@@ -1604,9 +1604,9 @@ begin
       ps.pipeline_state,
       ps.first_suggested_at,
       ps.redt_date,
-      ps.child_id,
-      c.first_name_en as child_first_name_en,
-      c.first_name_he as child_first_name_he,
+      ps.single_id,
+      c.first_name_en as single_first_name_en,
+      c.first_name_he as single_first_name_he,
       sh.name as shadchan_name
     from public.match_identity(
       'shidduch',
@@ -1620,7 +1620,7 @@ begin
       p_shidduchim_id
     ) m
       join public.shidduchim ps on ps.id = m.target_id
-      left join public.children c on c.id = ps.child_id
+      left join public.singles c on c.id = ps.single_id
       left join public.shadchanim sh on sh.id = ps.shadchan_id
   ) cand;
 
@@ -1646,10 +1646,10 @@ begin
       dr.person_name_he,
       dr.date_on,
       dr.outcome,
-      dr.child_id,
-      c.first_name_en as child_first_name_en
+      dr.single_id,
+      c.first_name_en as single_first_name_en
     from public.date_records dr
-      left join public.children c on c.id = dr.child_id
+      left join public.singles c on c.id = dr.single_id
     where dr.account_id = v_account_id
       and (
         (v_name_en_norm is not null and public.normalize_identity_text(dr.person_name_en) = v_name_en_norm)

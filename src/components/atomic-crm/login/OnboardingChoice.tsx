@@ -139,7 +139,7 @@ const ExploreDemoButton = ({
       </span>
     </div>
     <p className="mt-2 text-[13px] leading-relaxed opacity-90">
-      We'll load a realistic sample family — two children, shadchanim,
+      We'll load a realistic sample family — two singles, shadchanim,
       suggestions across the whole pipeline, reference calls and reminders — so
       you can see exactly how everything works. You can clear it and start fresh
       anytime.
@@ -179,7 +179,7 @@ const OwnFamilyButton = ({
       </span>
     </div>
     <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-      Name your family's record and add your first child. You can invite the
+      Name your family's record and add your first single. You can invite the
       demo later from Settings if you change your mind.
     </p>
   </button>

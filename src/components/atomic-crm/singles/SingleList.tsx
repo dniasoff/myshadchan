@@ -7,10 +7,10 @@ import { List } from "@/components/admin/list";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { EmptyState } from "../misc/EmptyState";
-import type { Child, ChildSummary } from "../types";
-import { ChildCard } from "./ChildCard";
+import type { Single, SingleSummary } from "../types";
+import { SingleCard } from "./SingleCard";
 
-const ChildListSkeleton = () => (
+const SingleListSkeleton = () => (
   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
     {Array.from({ length: 3 }).map((_, index) => (
       <div key={index} className="rounded-xl border p-5">
@@ -29,21 +29,21 @@ const ChildListSkeleton = () => (
   </div>
 );
 
-const ChildListHeader = () => (
+const SingleListHeader = () => (
   <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
     <div>
       <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
         Family roster
       </p>
       <h1 className="font-display text-2xl font-bold tracking-tight">
-        Children
+        Singles
       </h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Every single you are redting for, each with their own pipeline.
       </p>
     </div>
     <Link
-      to="/children/create"
+      to="/singles/create"
       className="inline-flex h-11 items-center gap-2 rounded-xl px-4
         font-semibold text-primary-foreground
         bg-[linear-gradient(135deg,var(--accent-grad-from),var(--accent-grad-to))]
@@ -54,18 +54,19 @@ const ChildListHeader = () => (
         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
         focus-visible:ring-offset-background outline-none"
     >
-      Add a child
+      Add a single
     </Link>
   </div>
 );
 
-const ChildListContent = () => {
-  const { data, isPending } = useListContext<Child>();
-  // Per-child pipeline counts (E6) come from the children_summary view, fetched
+const SingleListContent = () => {
+  const { data, isPending } = useListContext<Single>();
+  // Per-single pipeline counts (E6) come from the singles_summary view, fetched
   // alongside the roster so the list resource (and its breadcrumb) stays the
-  // plain `children`. Keyed by child id; a child with no summary row just has no
-  // count. The roster is small (perPage 100), so a single 500-row read covers it.
-  const { data: summaries } = useGetList<ChildSummary>("children_summary", {
+  // plain `singles`. Keyed by single id; a single with no summary row just has
+  // no count. The roster is small (perPage 100), so a single 500-row read
+  // covers it.
+  const { data: summaries } = useGetList<SingleSummary>("singles_summary", {
     pagination: { page: 1, perPage: 500 },
     sort: { field: "id", order: "ASC" },
   });
@@ -79,24 +80,24 @@ const ChildListContent = () => {
 
   return (
     <div>
-      <ChildListHeader />
+      <SingleListHeader />
       {isPending ? (
-        <ChildListSkeleton />
+        <SingleListSkeleton />
       ) : !data || data.length === 0 ? (
         <EmptyState
-          title="Add your first child"
-          description="A shidduchim pipeline belongs to a child — the single you are redting for. Add a child to start tracking suggestions."
-          actionLabel="Add a child"
-          actionTo="/children/create"
+          title="Add your first single"
+          description="A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions."
+          actionLabel="Add a single"
+          actionTo="/singles/create"
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {data.map((child, index) => (
-            <ChildCard
-              key={child.id}
-              child={child}
+          {data.map((single, index) => (
+            <SingleCard
+              key={single.id}
+              single={single}
               index={index}
-              openCount={openCountById.get(child.id)}
+              openCount={openCountById.get(single.id)}
             />
           ))}
         </div>
@@ -106,14 +107,14 @@ const ChildListContent = () => {
 };
 
 /**
- * The children roster (screen 32): a card grid, not a table — the family's
- * children are few, and each deserves a humane presence, not a datagrid row.
+ * The singles roster (screen 32): a card grid, not a table — the family's
+ * singles are few, and each deserves a humane presence, not a datagrid row.
  * The default admin title/actions row is suppressed (`title={false}`,
  * `actions={<></>}`); this builds its own QL header with a single gradient
  * primary CTA instead of the plain admin `CreateButton`. Pipeline counts (E6)
- * are joined in by ChildListContent from the children_summary view.
+ * are joined in by SingleListContent from the singles_summary view.
  */
-export const ChildList = () => (
+export const SingleList = () => (
   <List
     title={false}
     actions={<></>}
@@ -121,6 +122,6 @@ export const ChildList = () => (
     pagination={null}
     sort={{ field: "first_name_en", order: "ASC" }}
   >
-    <ChildListContent />
+    <SingleListContent />
   </List>
 );

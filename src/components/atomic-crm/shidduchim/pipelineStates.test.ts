@@ -1,12 +1,12 @@
 import type { PipelineState } from "../types";
 import {
-  CHILD_VISIBLE_STATES,
   INITIAL_PIPELINE_STATES,
-  isChildVisibleState,
+  isSingleVisibleState,
   isValidTransition,
   PIPELINE_STATE_VALUES,
   PIPELINE_STATES,
   PIPELINE_TRANSITIONS,
+  SINGLE_VISIBLE_STATES,
 } from "./pipelineStates";
 
 const ALL_STATES: PipelineState[] = [
@@ -95,24 +95,24 @@ describe("INITIAL_PIPELINE_STATES", () => {
   });
 });
 
-describe("child visibility (closed enumeration, AD-3/D5)", () => {
+describe("single visibility (closed enumeration, AD-3/D5)", () => {
   it("classifies all 7 states explicitly with no gap", () => {
     // Arrange / Act
-    const keys = Object.keys(CHILD_VISIBLE_STATES).sort();
+    const keys = Object.keys(SINGLE_VISIBLE_STATES).sort();
     // Assert
     expect(keys).toEqual([...ALL_STATES].sort());
   });
 
-  it("shows the child only look_into, yes, and unsure", () => {
-    expect(isChildVisibleState("look_into")).toBe(true);
-    expect(isChildVisibleState("yes")).toBe(true);
-    expect(isChildVisibleState("unsure")).toBe(true);
+  it("shows the single only look_into, yes, and unsure", () => {
+    expect(isSingleVisibleState("look_into")).toBe(true);
+    expect(isSingleVisibleState("yes")).toBe(true);
+    expect(isSingleVisibleState("unsure")).toBe(true);
   });
 
-  it("hides new, not_sure, for_sure_not, and no from the child", () => {
-    expect(isChildVisibleState("new")).toBe(false);
-    expect(isChildVisibleState("not_sure")).toBe(false);
-    expect(isChildVisibleState("for_sure_not")).toBe(false);
-    expect(isChildVisibleState("no")).toBe(false);
+  it("hides new, not_sure, for_sure_not, and no from the single", () => {
+    expect(isSingleVisibleState("new")).toBe(false);
+    expect(isSingleVisibleState("not_sure")).toBe(false);
+    expect(isSingleVisibleState("for_sure_not")).toBe(false);
+    expect(isSingleVisibleState("no")).toBe(false);
   });
 });

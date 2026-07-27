@@ -6,7 +6,7 @@ import { PIPELINE_STATE_VALUES } from "./pipelineStates";
 export type ShidduchimByState = Record<PipelineState, ShidduchSummary[]>;
 
 /**
- * Group a child's shidduchim into per-state columns, ordered by `index`
+ * Group a single's shidduchim into per-state columns, ordered by `index`
  * within each column, for the pipeline Kanban board. A row with an unknown
  * state is bucketed into the first state, never dropped.
  */

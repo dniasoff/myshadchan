@@ -7,7 +7,7 @@ export const frenchCrmMessages = {
       forcedCaseName: "Shidduch",
       fields: {
         name_en: "Nom",
-        child_id: "Enfant",
+        single_id: "Célibataire",
         shadchan_id: "Shadchan",
         seminary_en: "Yeshiva / séminaire",
         location_en: "Lieu",
@@ -19,9 +19,9 @@ export const frenchCrmMessages = {
         pipeline_state: "État",
       },
     },
-    children: {
-      name: "Enfant |||| Enfants",
-      forcedCaseName: "Enfant",
+    singles: {
+      name: "Célibataire |||| Célibataires",
+      forcedCaseName: "Célibataire",
       fields: {
         first_name_en: "Prénom",
         last_name_en: "Nom",
@@ -155,7 +155,7 @@ export const frenchCrmMessages = {
       hero: {
         eyebrow: "Registre des shidduchim",
         title_lead: "Un registre du processus de shidduch",
-        title_accent: "pour vos enfants.",
+        title_accent: "pour vos célibataires.",
         lead: "Propositions, shadchanim, appels de références et rencontres, réunis au même endroit.",
         cta: "Se connecter",
         cta_secondary: "Ce que fait le logiciel",
@@ -167,7 +167,7 @@ export const frenchCrmMessages = {
         title_accent: "les CV, les appels, les rencontres et les décisions.",
         resumes: {
           title: "CV",
-          body: "Les CV arrivent par message, par e-mail, en photo, ou sur papier et sont numérisés. Chacun est enregistré et classé auprès de l'enfant pour lequel il a été proposé.",
+          body: "Les CV arrivent par message, par e-mail, en photo, ou sur papier et sont numérisés. Chacun est enregistré et classé auprès du célibataire pour lequel il a été proposé.",
         },
         repeats: {
           title: "Propositions répétées",
@@ -189,7 +189,7 @@ export const frenchCrmMessages = {
         title_accent: "du CV à la décision.",
         enter: {
           title: "Saisir le CV",
-          body: "Un CV est saisi pour un enfant. Si ce nom a déjà été proposé, la proposition antérieure est affichée à ce moment-là.",
+          body: "Un CV est saisi pour un célibataire. Si ce nom a déjà été proposé, la proposition antérieure est affichée à ce moment-là.",
         },
         record: {
           title: "Consigner ce qui se passe",

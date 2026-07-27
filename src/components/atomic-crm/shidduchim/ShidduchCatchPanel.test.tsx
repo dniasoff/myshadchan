@@ -28,9 +28,9 @@ const suggestion = (
   pipeline_state: "look_into",
   first_suggested_at: "2026-01-01T00:00:00Z",
   redt_date: "2026-01-01",
-  child_id: 7,
-  child_first_name_en: "Rivka",
-  child_first_name_he: null,
+  single_id: 7,
+  single_first_name_en: "Rivka",
+  single_first_name_he: null,
   shadchan_name: "Mrs Klein",
   ...overrides,
 });
@@ -43,8 +43,8 @@ const priorDate = (
   person_name_he: null,
   date_on: "2026-01-10",
   outcome: "no_second_date",
-  child_id: 7,
-  child_first_name_en: "Leah",
+  single_id: 7,
+  single_first_name_en: "Leah",
   ...overrides,
 });
 

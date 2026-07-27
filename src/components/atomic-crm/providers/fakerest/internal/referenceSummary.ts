@@ -1,13 +1,13 @@
 import type { DataProvider } from "ra-core";
 
 import type {
-  Child,
   Interaction,
   Reference,
   ReferenceLink,
   ReferenceLinkSummary,
   ReferenceSummary,
   Shidduch,
+  Single,
   Task,
 } from "../../../types";
 
@@ -95,7 +95,7 @@ export async function enrichReferenceLinks(
 ): Promise<ReferenceLinkSummary[]> {
   if (rows.length === 0) return [];
 
-  const [{ data: references }, { data: shidduchim }, { data: children }] =
+  const [{ data: references }, { data: shidduchim }, { data: singles }] =
     await Promise.all([
       baseDataProvider.getList<Reference>("references", {
         filter: {},
@@ -107,7 +107,7 @@ export async function enrichReferenceLinks(
         pagination: PAGE_ALL,
         sort: BY_ID_ASC,
       }),
-      baseDataProvider.getList<Child>("children", {
+      baseDataProvider.getList<Single>("singles", {
         filter: {},
         pagination: PAGE_ALL,
         sort: BY_ID_ASC,
@@ -120,7 +120,7 @@ export async function enrichReferenceLinks(
   const shidduchById = new Map(
     shidduchim.map((shidduch) => [shidduch.id, shidduch]),
   );
-  const childById = new Map(children.map((child) => [child.id, child]));
+  const singleById = new Map(singles.map((single) => [single.id, single]));
 
   return rows.map((link) => {
     const reference = referenceById.get(link.reference_id);
@@ -128,7 +128,7 @@ export async function enrichReferenceLinks(
       link.shidduchim_id != null
         ? shidduchById.get(link.shidduchim_id)
         : undefined;
-    const child = shidduch ? childById.get(shidduch.child_id) : undefined;
+    const single = shidduch ? singleById.get(shidduch.single_id) : undefined;
 
     return {
       ...link,
@@ -142,9 +142,9 @@ export async function enrichReferenceLinks(
       shidduch_name_he: shidduch?.name_he ?? null,
       shidduch_pipeline_state: shidduch?.pipeline_state ?? null,
       shidduch_visibility: shidduch?.visibility ?? null,
-      child_id: shidduch?.child_id ?? null,
-      child_first_name_en: child?.first_name_en ?? null,
-      child_first_name_he: child?.first_name_he ?? null,
+      single_id: shidduch?.single_id ?? null,
+      single_first_name_en: single?.first_name_en ?? null,
+      single_first_name_he: single?.first_name_he ?? null,
     };
   });
 }

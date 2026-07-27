@@ -127,13 +127,13 @@ export const createDataProvider = ({
     authProvider?.getIdentity?.() ?? defaultAuthProvider.getIdentity?.();
 
   // Emulate the shidduchim_summary view (AD-10 FakeRest mirror): enrich each
-  // shidduch with its shadchan name ("via {shadchan}"), child names, and
+  // shidduch with its shadchan name ("via {shadchan}"), single names, and
   // reference count, joining the in-memory tables.
   const enrichShidduchim = async (rows: any[]) => {
     if (rows.length === 0) return rows;
     const [
       { data: shadchanim },
-      { data: children },
+      { data: singles },
       { data: allShidduchim },
       refLinksResult,
       redtsResult,
@@ -143,7 +143,7 @@ export const createDataProvider = ({
         pagination: { page: 1, perPage: 10_000 },
         sort: { field: "id", order: "ASC" },
       }),
-      baseDataProvider.getList("children", {
+      baseDataProvider.getList("singles", {
         filter: {},
         pagination: { page: 1, perPage: 10_000 },
         sort: { field: "id", order: "ASC" },
@@ -171,20 +171,20 @@ export const createDataProvider = ({
         .catch(() => ({ data: [] as any[] })),
     ]);
     const shadchanById = new Map(shadchanim.map((s: any) => [s.id, s]));
-    const childById = new Map(children.map((c: any) => [c.id, c]));
+    const singleById = new Map(singles.map((c: any) => [c.id, c]));
     const refLinks = refLinksResult.data;
     const redts = redtsResult.data;
     return rows.map((row: any) => {
       const sh = shadchanById.get(row.shadchan_id);
-      const c = childById.get(row.child_id);
+      const c = singleById.get(row.single_id);
       return {
         ...row,
         shadchan_name: sh?.name ?? null,
         shadchan_name_he: sh?.name_he ?? null,
-        child_first_name_en: c?.first_name_en ?? null,
-        child_first_name_he: c?.first_name_he ?? null,
-        child_last_name_en: c?.last_name_en ?? null,
-        child_last_name_he: c?.last_name_he ?? null,
+        single_first_name_en: c?.first_name_en ?? null,
+        single_first_name_he: c?.first_name_he ?? null,
+        single_last_name_en: c?.last_name_en ?? null,
+        single_last_name_he: c?.last_name_he ?? null,
         nb_references: refLinks.filter((rl: any) => rl.shidduchim_id === row.id)
           .length,
         nb_redts: redts.filter((r: any) => r.shidduchim_id === row.id).length,
@@ -193,10 +193,10 @@ export const createDataProvider = ({
     });
   };
 
-  // Emulate the children_summary view (E6 FakeRest mirror): add each child's
+  // Emulate the singles_summary view (E6 FakeRest mirror): add each single's
   // total suggestion count and "open" (still-in-triage) count by grouping the
   // in-memory shidduchim. Mirrors the SQL: open = new/look_into/not_sure.
-  // Applied on the base "children" resource because withSupabaseFilterAdapter
+  // Applied on the base "singles" resource because withSupabaseFilterAdapter
   // strips the "_summary" suffix before it reaches here (same reason the
   // shidduchim/references enrichers key off their base resource name).
   const OPEN_PIPELINE_STATES = new Set<PipelineState>([
@@ -204,19 +204,21 @@ export const createDataProvider = ({
     "look_into",
     "not_sure",
   ]);
-  const enrichChildrenSummary = async (rows: any[]) => {
+  const enrichSinglesSummary = async (rows: any[]) => {
     if (rows.length === 0) return rows;
     const { data: shidduchim } = await baseDataProvider.getList("shidduchim", {
       filter: {},
       pagination: { page: 1, perPage: 10_000 },
       sort: { field: "id", order: "ASC" },
     });
-    return rows.map((child: any) => {
-      const forChild = shidduchim.filter((s: any) => s.child_id === child.id);
+    return rows.map((single: any) => {
+      const forSingle = shidduchim.filter(
+        (s: any) => s.single_id === single.id,
+      );
       return {
-        ...child,
-        total_shidduchim: forChild.length,
-        open_shidduchim: forChild.filter((s: any) =>
+        ...single,
+        total_shidduchim: forSingle.length,
+        open_shidduchim: forSingle.filter((s: any) =>
           OPEN_PIPELINE_STATES.has(s.pipeline_state),
         ).length,
       };
@@ -285,7 +287,7 @@ export const createDataProvider = ({
 
   // The SOLE INSERT path into shidduchim (AD-4 invariant 1) — FakeRest mirror of
   // the create_shidduch RPC. Validates the initial state and resolves the
-  // account from the child so account_id is always populated. Used by both
+  // account from the single so account_id is always populated. Used by both
   // the createShidduch method and the create() override below.
   const createShidduchImpl = async (
     input: CreateShidduchInput,
@@ -296,14 +298,14 @@ export const createDataProvider = ({
         `invalid initial pipeline_state: ${initialState} (decision states are reachable only from look_into)`,
       );
     }
-    const { data: child } = await baseDataProvider.getOne("children", {
-      id: input.child_id,
+    const { data: single } = await baseDataProvider.getOne("singles", {
+      id: input.single_id,
     });
     const now = new Date().toISOString();
     const { data } = await baseDataProvider.create("shidduchim", {
       data: {
-        account_id: child?.account_id ?? 1,
-        child_id: input.child_id,
+        account_id: single?.account_id ?? 1,
+        single_id: input.single_id,
         shadchan_id: input.shadchan_id ?? null,
         name_en: input.name_en ?? null,
         name_he: input.name_he ?? null,
@@ -332,7 +334,7 @@ export const createDataProvider = ({
     // Record the first redt event so the redt history starts at creation.
     await baseDataProvider.create("redts", {
       data: {
-        account_id: child?.account_id ?? 1,
+        account_id: single?.account_id ?? 1,
         shidduchim_id: (data as Shidduch).id,
         shadchan_id: input.shadchan_id ?? null,
         redt_date: input.redt_date ?? now.split("T")[0],
@@ -344,9 +346,9 @@ export const createDataProvider = ({
     if (input.seminary_en || input.seminary_he) {
       await baseDataProvider.create("shidduch_schools", {
         data: {
-          account_id: child?.account_id ?? 1,
+          account_id: single?.account_id ?? 1,
           shidduchim_id: (data as Shidduch).id,
-          kind: child?.gender === "male" ? "seminary" : "yeshiva",
+          kind: single?.gender === "male" ? "seminary" : "yeshiva",
           name_en: input.seminary_en ?? null,
           name_he: input.seminary_he ?? null,
           start_year: null,
@@ -391,15 +393,15 @@ export const createDataProvider = ({
           total,
         };
       }
-      // Per-child pipeline counts (E6) — the children roster reads the
-      // children_summary view, which the adapter has already collapsed to
-      // "children" here (see enrichChildrenSummary).
-      if (resource === "children") {
+      // Per-single pipeline counts (E6) — the singles roster reads the
+      // singles_summary view, which the adapter has already collapsed to
+      // "singles" here (see enrichSinglesSummary).
+      if (resource === "singles") {
         const { data, total } = await baseDataProvider.getList(
-          "children",
+          "singles",
           params,
         );
-        return { data: await enrichChildrenSummary(data), total };
+        return { data: await enrichSinglesSummary(data), total };
       }
       // Per-shadchan productivity counts (E5). "shadchan_stats" does not end in
       // "_summary", so the adapter leaves it intact and it arrives here as-is.

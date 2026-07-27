@@ -26,7 +26,7 @@ export const LandingHero = () => (
           <span className="text-landing-accent">
             {translateLanding(
               "crm.landing.hero.title_accent",
-              "for your children.",
+              "for your singles.",
             )}
           </span>
         </h1>

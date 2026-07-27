@@ -1,19 +1,19 @@
 import { createDataProvider } from "./dataProvider";
-import type { Child, ChildSummary, Shadchan } from "../../types";
+import type { Shadchan, Single, SingleSummary } from "../../types";
 
 const makeProvider = () => createDataProvider({ latency: 0, silent: true });
 
-// The children roster reads children_summary via useGetList; the adapter
-// collapses "_summary" to "children", so the test reads it the same way and
-// picks the target child out of the enriched list.
-const childSummaryById = async (
+// The singles roster reads singles_summary via useGetList; the adapter
+// collapses "_summary" to "singles", so the test reads it the same way and
+// picks the target single out of the enriched list.
+const singleSummaryById = async (
   dataProvider: ReturnType<typeof makeProvider>,
-  childId: number,
-): Promise<ChildSummary> => {
-  const { data } = await dataProvider.getList<ChildSummary>(
-    "children_summary",
+  singleId: number,
+): Promise<SingleSummary> => {
+  const { data } = await dataProvider.getList<SingleSummary>(
+    "singles_summary",
     {
-      filter: { id: childId },
+      filter: { id: singleId },
       pagination: { page: 1, perPage: 1 },
       sort: { field: "id", order: "ASC" },
     },
@@ -22,64 +22,66 @@ const childSummaryById = async (
 };
 
 /**
- * Builds an isolated child + shadchan with three suggestions in known states, so
- * the children_summary (E6) and shadchan_stats (E5) emulation can be asserted
+ * Builds an isolated single + shadchan with three suggestions in known states, so
+ * the singles_summary (E6) and shadchan_stats (E5) emulation can be asserted
  * without depending on the seed data's exact counts.
  *
  *   A: new           -> open,  not progressed
  *   B: look_into->yes-> not open, progressed, reached yes
  *   C: for_sure_not  -> not open, progressed
  */
-const buildScenario = async (
-  dataProvider: ReturnType<typeof makeProvider>,
-) => {
-  const { data: child } = await dataProvider.create<Child>("children", {
-    data: { account_id: 1, first_name_en: "Test", status: "active" } as Child,
+const buildScenario = async (dataProvider: ReturnType<typeof makeProvider>) => {
+  const { data: single } = await dataProvider.create<Single>("singles", {
+    data: { account_id: 1, first_name_en: "Test", status: "active" } as Single,
   });
   const { data: shadchan } = await dataProvider.create<Shadchan>("shadchanim", {
     data: { account_id: 1, name: "Test Shadchan" } as Shadchan,
   });
 
   await dataProvider.createShidduch({
-    child_id: child.id,
+    single_id: single.id,
     shadchan_id: shadchan.id,
     initial_state: "new",
   });
   const suggestionB = await dataProvider.createShidduch({
-    child_id: child.id,
+    single_id: single.id,
     shadchan_id: shadchan.id,
     initial_state: "look_into",
   });
   await dataProvider.transitionShidduch(suggestionB.id, "look_into", "yes");
   await dataProvider.createShidduch({
-    child_id: child.id,
+    single_id: single.id,
     shadchan_id: shadchan.id,
     initial_state: "for_sure_not",
   });
 
-  return { childId: child.id, shadchanId: shadchan.id };
+  return { singleId: single.id, shadchanId: shadchan.id };
 };
 
-describe("children_summary emulation (E6)", () => {
-  it("counts total and open (still-in-triage) suggestions per child", async () => {
+describe("singles_summary emulation (E6)", () => {
+  it("counts total and open (still-in-triage) suggestions per single", async () => {
     // Arrange
     const dataProvider = makeProvider();
-    const { childId } = await buildScenario(dataProvider);
+    const { singleId } = await buildScenario(dataProvider);
     // Act
-    const summary = await childSummaryById(dataProvider, childId as number);
+    const summary = await singleSummaryById(dataProvider, singleId as number);
     // Assert -- 3 total; only the 'new' one stays open (yes/for_sure_not exit triage)
     expect(summary.total_shidduchim).toBe(3);
     expect(summary.open_shidduchim).toBe(1);
   });
 
-  it("reports zero counts for a child with no suggestions", async () => {
+  it("reports zero counts for a single with no suggestions", async () => {
     // Arrange
     const dataProvider = makeProvider();
-    const { data: child } = await dataProvider.create<Child>("children", {
-      data: { account_id: 1, first_name_en: "Lonely", status: "active" } as Child,
+    const { data: single } = await dataProvider.create<Single>("singles", {
+      data: {
+        account_id: 1,
+        first_name_en: "Lonely",
+        status: "active",
+      } as Single,
     });
     // Act
-    const summary = await childSummaryById(dataProvider, child.id as number);
+    const summary = await singleSummaryById(dataProvider, single.id as number);
     // Assert
     expect(summary.total_shidduchim).toBe(0);
     expect(summary.open_shidduchim).toBe(0);
@@ -105,9 +107,12 @@ describe("shadchan_stats emulation (E5)", () => {
   it("returns a zeroed row for a shadchan with no suggestions", async () => {
     // Arrange
     const dataProvider = makeProvider();
-    const { data: shadchan } = await dataProvider.create<Shadchan>("shadchanim", {
-      data: { account_id: 1, name: "Idle Shadchan" } as Shadchan,
-    });
+    const { data: shadchan } = await dataProvider.create<Shadchan>(
+      "shadchanim",
+      {
+        data: { account_id: 1, name: "Idle Shadchan" } as Shadchan,
+      },
+    );
     // Act
     const { data } = await dataProvider.getOne("shadchan_stats", {
       id: shadchan.id,

@@ -19,7 +19,7 @@ import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
 /**
  * Resolve a captured inbox item into a shidduch (Epic 2). The raw capture is
  * shown verbatim for context; the same `ShidduchInputs` used by the manual
- * "Add a suggestion" flow collects which child / which shadchan / the name, and
+ * "Add a suggestion" flow collects which single / which shadchan / the name, and
  * submit goes through `createShidduch` (AD-4 sole INSERT) with `origin:'channel'`
  * so the E3 catch fires exactly as it would for a manual add. On success the
  * item is marked resolved and linked to the new suggestion. Nothing is ever
@@ -43,7 +43,7 @@ export const InboxResolveDialog = ({
   const onSubmit = async (values: Record<string, unknown>) => {
     try {
       const input: CreateShidduchInput = {
-        child_id: values.child_id as Identifier,
+        single_id: values.single_id as Identifier,
         shadchan_id: (values.shadchan_id as Identifier) ?? null,
         name_en: (values.name_en as string) ?? null,
         name_he: (values.name_he as string) ?? null,
@@ -64,7 +64,7 @@ export const InboxResolveDialog = ({
         data: {
           status: "resolved",
           resolved_shidduchim_id: created.id,
-          child_id: input.child_id,
+          single_id: input.single_id,
           shadchan_id: input.shadchan_id ?? null,
         },
         previousData: item,
@@ -144,7 +144,7 @@ export const InboxResolveDialog = ({
           onSubmit={onSubmit}
           mode="onBlur"
           defaultValues={{
-            child_id: item.child_id ?? undefined,
+            single_id: item.single_id ?? undefined,
             shadchan_id: item.shadchan_id ?? undefined,
             initial_state: "new",
             redt_date: item.created_at?.split("T")[0],

@@ -95,9 +95,9 @@ revoke all on table public.account_members from anon;
 grant all on table public.account_members to authenticated;
 grant all on table public.account_members to service_role;
 
-revoke all on table public.children from anon;
-grant all on table public.children to authenticated;
-grant all on table public.children to service_role;
+revoke all on table public.singles from anon;
+grant all on table public.singles to authenticated;
+grant all on table public.singles to service_role;
 
 revoke all on table public.shadchanim from anon;
 grant all on table public.shadchanim to authenticated;
@@ -156,9 +156,9 @@ revoke all on sequence public.account_members_id_seq from anon;
 grant all on sequence public.account_members_id_seq to authenticated;
 grant all on sequence public.account_members_id_seq to service_role;
 
-revoke all on sequence public.children_id_seq from anon;
-grant all on sequence public.children_id_seq to authenticated;
-grant all on sequence public.children_id_seq to service_role;
+revoke all on sequence public.singles_id_seq from anon;
+grant all on sequence public.singles_id_seq to authenticated;
+grant all on sequence public.singles_id_seq to service_role;
 
 revoke all on sequence public.shadchanim_id_seq from anon;
 grant all on sequence public.shadchanim_id_seq to authenticated;
@@ -203,9 +203,9 @@ revoke all on function public.current_account_demo() from public, anon;
 grant execute on function public.current_account_demo() to authenticated;
 grant execute on function public.current_account_demo() to service_role;
 
-revoke all on function public.is_child_visible_state(public.pipeline_state) from public, anon;
-grant execute on function public.is_child_visible_state(public.pipeline_state) to authenticated;
-grant execute on function public.is_child_visible_state(public.pipeline_state) to service_role;
+revoke all on function public.is_single_visible_state(public.pipeline_state) from public, anon;
+grant execute on function public.is_single_visible_state(public.pipeline_state) to authenticated;
+grant execute on function public.is_single_visible_state(public.pipeline_state) to service_role;
 
 revoke all on function public.enforce_pipeline_transition() from public, anon;
 grant execute on function public.enforce_pipeline_transition() to authenticated;
@@ -281,9 +281,9 @@ grant all on table public.reference_links_summary to service_role;
 
 -- Aggregate read paths (E5/E6). Both group several rows per key, so they are
 -- not auto-updatable and only SELECT is meaningful for authenticated.
-revoke all on table public.children_summary from anon, authenticated;
-grant select on table public.children_summary to authenticated;
-grant all on table public.children_summary to service_role;
+revoke all on table public.singles_summary from anon, authenticated;
+grant select on table public.singles_summary to authenticated;
+grant all on table public.singles_summary to service_role;
 
 revoke all on table public.shadchan_stats from anon, authenticated;
 grant select on table public.shadchan_stats to authenticated;
@@ -384,8 +384,8 @@ grant select, insert, update, delete on table public.accounts to authenticated;
 revoke all on table public.account_members from anon, authenticated;
 grant select, insert, update, delete on table public.account_members to authenticated;
 
-revoke all on table public.children from anon, authenticated;
-grant select, insert, update, delete on table public.children to authenticated;
+revoke all on table public.singles from anon, authenticated;
+grant select, insert, update, delete on table public.singles to authenticated;
 
 revoke all on table public.shadchanim from anon, authenticated;
 grant select, insert, update, delete on table public.shadchanim to authenticated;

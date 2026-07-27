@@ -42,10 +42,10 @@ const PRIMARY_CTA_CLASS =
  */
 export const ShidduchCreate = ({
   open,
-  childId,
+  singleId,
 }: {
   open: boolean;
-  childId?: Identifier;
+  singleId?: Identifier;
 }) => {
   const redirect = useRedirect();
   const refresh = useRefresh();
@@ -64,7 +64,7 @@ export const ShidduchCreate = ({
   const onSubmit = async (values: Record<string, unknown>) => {
     try {
       const input: CreateShidduchInput = {
-        child_id: values.child_id as Identifier,
+        single_id: values.single_id as Identifier,
         shadchan_id: (values.shadchan_id as Identifier) ?? null,
         name_en: (values.name_en as string) ?? null,
         parents_en: (values.parents_en as string) ?? null,
@@ -119,7 +119,7 @@ export const ShidduchCreate = ({
           onSubmit={onSubmit}
           mode="onBlur"
           defaultValues={{
-            child_id: childId,
+            single_id: singleId,
             initial_state: initialState,
             redt_date: new Date().toISOString().split("T")[0],
           }}

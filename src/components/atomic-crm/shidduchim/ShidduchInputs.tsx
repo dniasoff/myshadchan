@@ -64,9 +64,9 @@ export const ShidduchInputs = () => {
   return (
     <div className="flex flex-col gap-4">
       <FormSection eyebrow="Who">
-        <ReferenceInput source="child_id" reference="children">
+        <ReferenceInput source="single_id" reference="singles">
           <AutocompleteInput
-            label="Child (whose pipeline)"
+            label="Single (whose pipeline)"
             helperText="Whose suggestion board this will appear on"
             validate={required()}
           />
@@ -93,10 +93,7 @@ export const ShidduchInputs = () => {
 
       <FormSection eyebrow="Redt by">
         <div
-          className={cn(
-            "grid gap-4",
-            isMobile ? "grid-cols-1" : "grid-cols-3",
-          )}
+          className={cn("grid gap-4", isMobile ? "grid-cols-1" : "grid-cols-3")}
         >
           <ReferenceInput source="shadchan_id" reference="shadchanim">
             <AutocompleteInput
