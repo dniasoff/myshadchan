@@ -186,7 +186,7 @@ const getDataProviderWithCustomMethods = () => {
         });
 
       if (!updatedData || error) {
-        console.error("memberCreate.error", error);
+        console.error("memberUpdate.error", error);
         throw new Error("Failed to update account manager");
       }
 

@@ -303,7 +303,7 @@ Row Level Security (RLS) is enforced - queries automatically return only data th
 
 Use the *_summary views (shidduchim_summary, references_summary) for queries that need aggregated data or search capabilities.
 
-To filter by the current user, if the table has a member_id column, add a WHERE member_id = auth.uid() clause to your query.
+To filter by the current user: on tasks, add a WHERE member_id = auth.uid() clause. On other tables with a member_id column (e.g. singles), member_id references account_members, not the authenticated user — do not filter it against auth.uid().
 
 This tool only supports SELECT queries. For INSERT, UPDATE, or DELETE operations, use the mutate tool.
 
@@ -357,7 +357,7 @@ Use this tool for data modifications such as:
 
 Row Level Security (RLS) is enforced - mutations only affect data the authenticated user has permission to modify.
 
-IMPORTANT: Never specify member_id in INSERT or UPDATE statements — it is automatically set to the authenticated user by a database trigger.
+IMPORTANT: On tasks, never specify member_id in INSERT or UPDATE statements — it is automatically set to the authenticated user by a database trigger. On other tables (e.g. singles.member_id), member_id references account_members and may be set normally.
 
 For read-only queries, use the query tool instead.
 

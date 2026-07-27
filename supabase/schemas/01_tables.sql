@@ -8,7 +8,7 @@ create extension if not exists "http" with schema "extensions";
 create extension if not exists "citext" with schema "extensions";
 create extension if not exists "pgjwt" with schema "extensions";
 
--- Private schema (used by members policies migration)
+-- Private schema (created by a historical RLS-cleanup migration; currently unused, kept to avoid a spurious drop)
 create schema if not exists "private";
 
 create table public.members (

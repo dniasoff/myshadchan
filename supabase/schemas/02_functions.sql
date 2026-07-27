@@ -12,7 +12,7 @@ BEGIN
 END;
 $_$;
 
--- Provisions a new auth user: the legacy `members` row, plus — since
+-- Provisions a new auth user: the `members` profile row, plus — since
 -- current_account_id() now fails closed — the account_members row without which
 -- the user would see nothing at all.
 --
