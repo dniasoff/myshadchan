@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { bailIfDbUnreachable } from "./dbSuiteHelpers";
+
 /**
  * Runs the Epic-4 billing / AI-entitlement database suite against the local
  * Supabase stack. The assertions live in billing_entitlement.sql, because what
@@ -73,10 +75,7 @@ function runSuite(): { checks: Check[]; error?: string } {
 const { checks, error } = runSuite();
 
 describe("billing / AI entitlement (database)", () => {
-  if (error) {
-    it.skip(`skipped — local Supabase unreachable: ${error.split("\n")[0]}`, () => {});
-    return;
-  }
+  if (bailIfDbUnreachable(error)) return;
 
   it("runs the full set of checks", () => {
     expect(checks.length).toBeGreaterThanOrEqual(11);

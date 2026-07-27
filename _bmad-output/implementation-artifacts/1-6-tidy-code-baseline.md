@@ -1,6 +1,10 @@
+---
+baseline_commit: 3b00014d4f7e406701e4119c26d3413c898af485
+---
+
 # Story 1.6: Establish the tidy-code baseline
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -482,169 +486,169 @@ declares two browser projects (`chromium`, `Mobile Chrome`) over `testDir: "./e2
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Confirm the prerequisite and re-measure (AC: 1)**
-  - [ ] Confirm the pinned order held and that 1.1, 1.4, 1.5, 1.3 and 1.2 are all merged into the
+- [x] **Task 1 — Confirm the prerequisite and re-measure (AC: 1)**
+  - [x] Confirm the pinned order held and that 1.1, 1.4, 1.5, 1.3 and 1.2 are all merged into the
         working base; otherwise stop with `BLOCKED: awaiting 1.x`.
-  - [ ] Re-run and capture: `npm run typecheck`; `npx eslint "**/*.{mjs,ts,tsx}" --format json`
+  - [x] Re-run and capture: `npm run typecheck`; `npx eslint "**/*.{mjs,ts,tsx}" --format json`
         (count files/errors/warnings); `npm run prettier`;
         `npx vitest --config vitest.config.ts --run`; each `npm run test:unit:*`; `npm run build`.
-  - [ ] Re-run the suppression census and record per-tree counts:
+  - [x] Re-run the suppression census and record per-tree counts:
         `grep -rn "eslint-disable" --include="*.ts" --include="*.tsx" --include="*.mjs" --include="*.js" src/ workers/ supabase/ e2e/ scripts/ .claude/`
         and the same for `@ts-ignore\|@ts-expect-error\|@ts-nocheck`.
-  - [ ] Write the re-measured numbers into Completion Notes before changing anything — they are
+  - [x] Write the re-measured numbers into Completion Notes before changing anything — they are
         the ratchet values for AC-10.
 
-- [ ] **Task 2 — Close the typecheck coverage hole (AC: 2, 3)**
-  - [ ] Extend `tsconfig.node.json` (or add one sibling project) to include `e2e/**/*.ts`,
+- [x] **Task 2 — Close the typecheck coverage hole (AC: 2, 3)**
+  - [x] Extend `tsconfig.node.json` (or add one sibling project) to include `e2e/**/*.ts`,
         `playwright.config.ts`, `vitest.config.ts`, `vite.config.ts`, `vite.demo.config.ts`,
         `.storybook/*.ts`, `supabase/tests/**/*.ts`; keep `strict`, `noUnusedLocals`,
         `noUnusedParameters`, `noFallthroughCasesInSwitch` on.
-  - [ ] Add `"types": ["node", "vitest/globals"]` and the `@/*` path alias so the probe result
+  - [x] Add `"types": ["node", "vitest/globals"]` and the `@/*` path alias so the probe result
         (0 errors) reproduces.
-  - [ ] Add an explicit `exclude` for `supabase/functions/**` with a one-line comment: Deno
+  - [x] Add an explicit `exclude` for `supabase/functions/**` with a one-line comment: Deno
         runtime, `jsr:`/`https:` specifiers and the `Deno` global — 111 `tsc` errors, checked by
         ESLint and the `functions` vitest project instead.
-  - [ ] Add the new project to the `npm run typecheck` script and to `tsconfig.json` `references`.
-  - [ ] Verify with `--listFiles`.
+  - [x] Add the new project to the `npm run typecheck` script and to `tsconfig.json` `references`.
+  - [x] Verify with `--listFiles`.
 
-- [ ] **Task 3 — Make lint warning-free (AC: 4)**
-  - [ ] Delete `.eslintignore`; move any still-relevant pattern into `ignores` in
+- [x] **Task 3 — Make lint warning-free (AC: 4)**
+  - [x] Delete `.eslintignore`; move any still-relevant pattern into `ignores` in
         `eslint.config.js`.
-  - [ ] Add `--max-warnings=0` to the `lint` script (and to `lint:apply`'s sibling if relevant).
-  - [ ] Re-run and confirm 0/0 and no `ESLintIgnoreWarning`.
+  - [x] Add `--max-warnings=0` to the `lint` script (and to `lint:apply`'s sibling if relevant).
+  - [x] Re-run and confirm 0/0 and no `ESLintIgnoreWarning`.
 
-- [ ] **Task 4 — Make prettier green (AC: 5)**
-  - [ ] Add `mockup/`, `design-artifacts/`, `_bmad/`, `.claude/skills/` to `.prettierignore`;
+- [x] **Task 4 — Make prettier green (AC: 5)**
+  - [x] Add `mockup/`, `design-artifacts/`, `_bmad/`, `.claude/skills/` to `.prettierignore`;
         prune the dead react-admin-era entries (`packages/create-react-admin/templates/**`,
         `examples/**`, `cypress/*`, `.yarn/*`, `docs/_site/`) — none exists in this repo (NFR-14).
-  - [ ] Run `npm run prettier:apply`, then `npm run prettier` to confirm exit 0.
-  - [ ] Confirm no `src/`, `workers/`, `supabase/`, `e2e/` or `scripts/` path was ignored.
-  - [ ] Note the `src/components/ui/*.tsx` prettier override (`semi: false`) — reformatting
+  - [x] Run `npm run prettier:apply`, then `npm run prettier` to confirm exit 0.
+  - [x] Confirm no `src/`, `workers/`, `supabase/`, `e2e/` or `scripts/` path was ignored.
+  - [x] Note the `src/components/ui/*.tsx` prettier override (`semi: false`) — reformatting
         `src/components/ui/spinner.tsx` will strip semicolons; that is the configured intent.
 
-- [ ] **Task 5 — Make the vitest suite warning-free and skip-free (AC: 6)**
-  - [ ] If `src/components/atomic-crm/providers/commons/getContactAvatar.test.ts` survived 1.1,
+- [x] **Task 5 — Make the vitest suite warning-free and skip-free (AC: 6)**
+  - [x] If `src/components/atomic-crm/providers/commons/getContactAvatar.test.ts` survived 1.1,
         hoist the `vi.mock(...)` out of `beforeAll` to module top level; if 1.1 deleted it,
         confirm the warning is gone.
-  - [ ] If `src/components/atomic-crm/contacts/ContactList.test.tsx` survived 1.1, un-skip
+  - [x] If `src/components/atomic-crm/contacts/ContactList.test.tsx` survived 1.1, un-skip
         line 39 or delete the case — never leave it skipped.
-  - [ ] Re-run and confirm no `^Warning:` line and no unconditional skip.
+  - [x] Re-run and confirm no `^Warning:` line and no unconditional skip.
 
-- [ ] **Task 6 — Restore one real e2e smoke spec (AC: 7)**
-  - [ ] Confirm story 1.1 deleted the three fossil specs and that `e2e/` now holds only
+- [x] **Task 6 — Restore one real e2e smoke spec (AC: 7)**
+  - [x] Confirm story 1.1 deleted the three fossil specs and that `e2e/` now holds only
         `fixtures.ts`; confirm `npx playwright test` in that state exits **1** with
         `Error: No tests found` — that is precisely the failure this task prevents.
-  - [ ] Do **not** delete `e2e/`, the `e2e-test` job (`.github/workflows/check.yml:97-116`) or the
+  - [x] Do **not** delete `e2e/`, the `e2e-test` job (`.github/workflows/check.yml:97-116`) or the
         `test-e2e` / `test-e2e-ci` targets (`makefile:121-126`).
-  - [ ] Extend `e2e/fixtures.ts` with a `createSingle` helper — there is none today. Two traps:
+  - [x] Extend `e2e/fixtures.ts` with a `createSingle` helper — there is none today. Two traps:
         (a) the pipeline route renders the "no singles yet" empty state, not the board, when the
         account has zero singles (`shidduchim/ShidduchimList.tsx:36,143-155` today), so the seed
         is what makes the assertion meaningful; (b) the fixture's service-role client bypasses the
         `set_account_id_default` trigger, whose `current_account_id()` is NULL for `service_role`,
         so `account_id` must be read off the signed-up member and passed explicitly.
-  - [ ] Add `e2e/pipeline.spec.ts`: seed member + one single → sign in via the email/password form
+  - [x] Add `e2e/pipeline.spec.ts`: seed member + one single → sign in via the email/password form
         on `/#/login` → click the `Pipeline` nav entry → assert the `data-tour="pipeline-board"`
         container and at least one `PIPELINE_STATES` column label are visible.
-  - [ ] Deterministic waits only (`expect(locator).toBeVisible()`, `waitForResponse`); no
+  - [x] Deterministic waits only (`expect(locator).toBeVisible()`, `waitForResponse`); no
         `waitForTimeout`, no `test.skip`, no `test.fixme` — AC-10's ratchet fails on all three.
-  - [ ] Run it on both Playwright projects: locally via `make start-e2e` + `npx playwright test`,
+  - [x] Run it on both Playwright projects: locally via `make start-e2e` + `npx playwright test`,
         then `make test-e2e-ci`. Confirm ≥1 passing test per project in the `list` reporter.
 
-- [ ] **Task 7 — Fix the vitest project set and the npm scripts (AC: 8)**
-  - [ ] Delete the `claude` project from `vitest.config.ts`, its `test:unit:claude` script, its
+- [x] **Task 7 — Fix the vitest project set and the npm scripts (AC: 8)**
+  - [x] Delete the `claude` project from `vitest.config.ts`, its `test:unit:claude` script, its
         paragraph in the config's header comment, and the `.claude/**` entry from the `app`
         project's `exclude` — unless 1.1–1.5 added `.claude/**/*.test.mjs` files.
-  - [ ] Add a `scripts` project (`environment: "node"`, `include: ["scripts/**/*.test.mjs"]`) plus
+  - [x] Add a `scripts` project (`environment: "node"`, `include: ["scripts/**/*.test.mjs"]`) plus
         a `test:unit:scripts` script — it is the home for the two guard tests (Tasks 10, 11).
-  - [ ] Add `scripts/**` to the `app` project's `exclude`: `app` uses vitest's default `include`,
+  - [x] Add `scripts/**` to the `app` project's `exclude`: `app` uses vitest's default `include`,
         which would otherwise pull those Node tests into the browser runner.
-  - [ ] Change `test:unit:app` to pass `--project app`.
-  - [ ] Add `"test": "vitest --config vitest.config.ts --run"` and point `make test` at it;
+  - [x] Change `test:unit:app` to pass `--project app`.
+  - [x] Add `"test": "vitest --config vitest.config.ts --run"` and point `make test` at it;
         remove the now-redundant `test-unit`/`test-app`/`test-functions`/`test-workers` fan-out
         in the `makefile` if it no longer earns its keep. Leave `test-e2e` / `test-e2e-ci` alone.
 
-- [ ] **Task 8 — Make the db suite fail loudly instead of skipping (AC: 9)**
-  - [ ] In each surviving `supabase/tests/*.test.ts`, change the unreachable branch to throw
+- [x] **Task 8 — Make the db suite fail loudly instead of skipping (AC: 9)**
+  - [x] In each surviving `supabase/tests/*.test.ts`, change the unreachable branch to throw
         when `process.env.CI` is set, keeping the local-dev skip.
-  - [ ] Do not touch `supabase/tests/child_portal.{sql,test.ts}` — Story 1.4 deletes them.
-  - [ ] Verify: stack up → suites run; `CI=1` with stack down → non-zero exit.
+  - [x] Do not touch `supabase/tests/child_portal.{sql,test.ts}` — Story 1.4 deletes them.
+  - [x] Verify: stack up → suites run; `CI=1` with stack down → non-zero exit.
 
-- [ ] **Task 9 — Remove line-level suppressions that are really config bugs (AC: 10)**
-  - [ ] Add a `no-console` override in `eslint.config.js` for `scripts/**` and
+- [x] **Task 9 — Remove line-level suppressions that are really config bugs (AC: 10)**
+  - [x] Add a `no-console` override in `eslint.config.js` for `scripts/**` and
         `supabase/functions/**` (server/CLI code legitimately logs).
-  - [ ] Delete the 6 now-redundant `// eslint-disable-next-line no-console` comments in
+  - [x] Delete the 6 now-redundant `// eslint-disable-next-line no-console` comments in
         `supabase/functions/mcp/index.ts` (321, 376, 482, 521) and
         `scripts/supabase-remote-init.mjs` (162, 212).
-  - [ ] Set `linterOptions: { reportUnusedDisableDirectives: "error" }` and fix whatever it
+  - [x] Set `linterOptions: { reportUnusedDisableDirectives: "error" }` and fix whatever it
         surfaces by **deleting** the dead directive.
 
-- [ ] **Task 10 — Write the suppression ratchet and its test (AC: 10)**
-  - [ ] Add `scripts/check-suppressions.mjs`: per-tree budgets for `eslint-disable`,
+- [x] **Task 10 — Write the suppression ratchet and its test (AC: 10)**
+  - [x] Add `scripts/check-suppressions.mjs`: per-tree budgets for `eslint-disable`,
         `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`, seeded with Task 1's re-measured
         numbers; plus a hard zero for unconditional `it.skip` / `describe.skip` /
         `test.skip("…")` / `.only(` / `.todo(` / `.fixme(` / `xit(` / `xdescribe(` in test files.
-  - [ ] Give it a scan-root argument defaulting to `process.cwd()`, so the test can point it at a
+  - [x] Give it a scan-root argument defaulting to `process.cwd()`, so the test can point it at a
         temp tree.
-  - [ ] Keep it ≤ ~150 lines, no new dependency, exit 1 with a diff-style message naming the
+  - [x] Keep it ≤ ~150 lines, no new dependency, exit 1 with a diff-style message naming the
         offending file and tree.
-  - [ ] Add `scripts/check-suppressions.test.mjs` under the `scripts` project: build the input
+  - [x] Add `scripts/check-suppressions.test.mjs` under the `scripts` project: build the input
         with `fs.mkdtemp` and assert over-budget fails, at-budget passes, unconditional skip
         fails, conditional `test.skip(cond, reason)` passes. This test — not a working-tree
         seed-and-revert — is the evidence that the gate bites.
-  - [ ] Compose the offending literals at runtime from the guard's own pattern list. A literal
+  - [x] Compose the offending literals at runtime from the guard's own pattern list. A literal
         `it.skip("…")` typed into the test source would be found by the guard's repo-wide run
         over `scripts/` and fail its own test.
 
-- [ ] **Task 11 — Land the retired-name guard on one shared artifact (AC: 12)**
-  - [ ] Check what story 1.1 shipped for its AC-14 gate. If it created
+- [x] **Task 11 — Land the retired-name guard on one shared artifact (AC: 12)**
+  - [x] Check what story 1.1 shipped for its AC-14 gate. If it created
         `scripts/retired-names.json` + `scripts/check-retired-names.mjs`, **extend** them; if it
         shipped an inline `grep` with `--exclude-dir=admin --exclude-dir=ui`, lift that command's
         patterns and exclusions verbatim into the JSON and create the script here. Never a second
         list or a second script (NFR-14).
-  - [ ] Put the full Epic-1 pattern set from AC-12(b) into `scripts/retired-names.json`, including
+  - [x] Put the full Epic-1 pattern set from AC-12(b) into `scripts/retired-names.json`, including
         the `[A-Za-z]Child|Child[A-Za-z]` and `[A-Za-z]Sale|Sale[A-Za-z]` alternations —
         `\bchild\b` alone misses `isChildVisibleState`, `selectedChildId`, `ChildSwitcherPill`,
         `enrichChildrenSummary`, `ShidduchimNoChildren`, `desktopChildSwitcherStep`,
         `ChildSummary` and `setChildId`.
-  - [ ] Put the allowlist from AC-12(c) in the same file: the 5 `shadchanim.contacts` files, the
+  - [x] Put the allowlist from AC-12(c) in the same file: the 5 `shadchanim.contacts` files, the
         `src/components/admin/` and `src/components/ui/` trees, the React-`children` forms, and
         `supabase/migrations/`. Keep `reference` / `references` out of the pattern list entirely.
-  - [ ] Give the guard the same scan-root argument, then add
+  - [x] Give the guard the same scan-root argument, then add
         `scripts/check-retired-names.test.mjs` covering the five cases in AC-12(e), with the
         invalid input built in a temp directory and the offending identifiers **read out of
         `scripts/retired-names.json` at runtime** — a committed fixture, or a hard-coded
         `selectedChildId` in the test source, would make the guard fail on its own test once
         `scripts/` is in scope.
-  - [ ] Confirm `node scripts/check-retired-names.mjs` exits 0 on the post-Epic-1 tree.
+  - [x] Confirm `node scripts/check-retired-names.mjs` exits 0 on the post-Epic-1 tree.
 
-- [ ] **Task 12 — Delete the dead `useGetMemberName` hook (AC: 13)**
-  - [ ] Run LSP `findReferences` on `useGetMemberName` (post-1.2 name of `useGetSalesName`) and
+- [x] **Task 12 — Delete the dead `useGetMemberName` hook (AC: 13)**
+  - [x] Run LSP `findReferences` on `useGetMemberName` (post-1.2 name of `useGetSalesName`) and
         confirm zero call sites — story 1.1 deleted all 10 importers.
-  - [ ] Delete `src/components/atomic-crm/members/useGetMemberName.ts`. There is no barrel
+  - [x] Delete `src/components/atomic-crm/members/useGetMemberName.ts`. There is no barrel
         re-export to clean (`members/index.ts` exports only the resource object) — confirm that
         is still true, then re-run `npm run typecheck`.
-  - [ ] If story 1.2 already deleted it, record that in Completion Notes and move on.
+  - [x] If story 1.2 already deleted it, record that in Completion Notes and move on.
 
-- [ ] **Task 13 — Rebuild the CI gates so a red gate fails the build (AC: 11, 12)**
-  - [ ] Replace the `lint` job's `wearerequired/lint-action@v3` step with plain
+- [x] **Task 13 — Rebuild the CI gates so a red gate fails the build (AC: 11, 12)**
+  - [x] Replace the `lint` job's `wearerequired/lint-action@v3` step with plain
         `run: npm run lint` and `run: npm run prettier` steps.
-  - [ ] Split the test job into one step per vitest project, each with `--project <name>`
+  - [x] Split the test job into one step per vitest project, each with `--project <name>`
         (including the new `scripts` project).
-  - [ ] Add a job that boots the local Supabase stack and runs `npm run test:unit:db` (reuse the
+  - [x] Add a job that boots the local Supabase stack and runs `npm run test:unit:db` (reuse the
         `make start-supabase-e2e` pattern already used by the `e2e-test` job).
-  - [ ] Add steps for `node scripts/check-suppressions.mjs` and
+  - [x] Add steps for `node scripts/check-suppressions.mjs` and
         `node scripts/check-retired-names.mjs`.
-  - [ ] Leave the `e2e-test` job in place and confirm it is green against the new smoke spec.
-  - [ ] Confirm
+  - [x] Leave the `e2e-test` job in place and confirm it is green against the new smoke spec.
+  - [x] Confirm
         `grep -nE "continue-on-error|continue_on_error|\|\| true|--no-verify|wearerequired" .github/workflows/check.yml`
         returns nothing, and that the CI prettier glob is byte-identical to the
         `npm run prettier` glob.
 
-- [ ] **Task 14 — Prove it (AC: 11, 14)**
-  - [ ] Run `npm run test:unit:scripts` and confirm both guard tests pass — they are the
+- [x] **Task 14 — Prove it (AC: 11, 14)**
+  - [x] Run `npm run test:unit:scripts` and confirm both guard tests pass — they are the
         proof-that-it-bites artifact; no file is mis-formatted or suppressed in the working tree
         for evidence.
-  - [ ] Run the full AC-14 command list from a clean tree with Supabase up; paste outputs into
+  - [x] Run the full AC-14 command list from a clean tree with Supabase up; paste outputs into
         Completion Notes.
 
 ---
@@ -908,8 +912,252 @@ and non-TS sweeps the guard performs [Source: .claude/rules/lsp-usage.md].
 
 ### Agent Model Used
 
+Claude Opus 5 (claude-opus-5), implementing directly (bmad-dev-story workflow), on a tree
+where stories 1.1, 1.4, 1.5, 1.3 and 1.2 were already merged into `main` in the pinned order
+(HEAD at start: `3b00014`).
+
 ### Debug Log References
+
+None — no HALT conditions were hit. One in-flight correction is worth recording: two
+`make test-e2e-ci` runs were accidentally piped through `tail -150`, which buffers until EOF
+and never got it because `start-app-e2e-ci`'s `serve` process is intentionally backgrounded
+and stays alive; the runs had actually finished (visible via `test-results/.last-run.json`)
+but produced no console output. Killed the stuck shells, reran with output redirected to a
+file instead of a pipe, and confirmed both Playwright projects pass.
 
 ### Completion Notes List
 
+**AC-1 (prerequisite gate).** Confirmed 1.1, 1.4, 1.5, 1.3, 1.2 all merged, in that order
+(`git log --oneline`, HEAD `3b00014`). Re-measured the six baseline commands on that tree
+before changing anything — **numbers differ from the story's measured baseline** because the
+tree moved since it was written (1.1/1.2 already landed). Reported as real numbers, not the
+story's stale ones, per the working rules:
+
+| Gate | Result on `3b00014` (before this story) |
+|---|---|
+| Typecheck | PASS — 0 errors |
+| Lint | PASS — 0 errors, 0 warnings, but prints `ESLintIgnoreWarning` |
+| Prettier | FAIL — exit 2; **69** unformatted files + 1 parse error (`mockup/MyShadchan.dc.html`) = **70 total**, not 89+1=90 |
+| Tests (default `vitest --run`, all projects) | PASS — 52 files, 516 tests, 0 skipped, 0 `^Warning:` lines |
+| `test:unit:claude` | FAIL — exit 1, "No test files found" (confirmed dead, as the story expected) |
+| Build | PASS — only the pre-existing >500kB chunk-size warning |
+
+Suppression census on `3b00014` (before Task 9's cleanup — this is the **pre-ratchet** number):
+`eslint-disable` **81** total (54 `admin`, **3** `atomic-crm` [not 8 — 1.1 already deleted 5 of
+the 8 sites the story listed], 8 `hooks`, **3** `e2e` [not 6 — 1.1/1.2 already pruned 3 of the
+fixtures], 4 `supabase/functions`, 3 `lib`, 2 `test`, 2 `scripts`, 2 `.claude/skills`, 0 `ui`,
+0 `workers`). TS suppressions **6** (not 8 — `AttachmentField.tsx` and `DealsChart.tsx` were
+already deleted by 1.1).
+
+**Tasks 2–4 (typecheck/lint/prettier gates).**
+- Extended `tsconfig.node.json` in place (kept the same file rather than adding a sibling —
+  simpler, and nothing else referenced it) to cover `e2e/**/*.ts`, `playwright.config.ts`,
+  `vitest.config.ts`, `vite.config.ts`, `vite.demo.config.ts`, `.storybook/*.ts`,
+  `supabase/tests/**/*.ts`, plus `src/vite-env.d.ts` (ambient `vite/client` types only, needed
+  because `.storybook/preview.ts` imports a `.css` file). Added an explicit
+  `exclude: ["supabase/functions/**"]` with the Deno-runtime comment. **Discovered and fixed a
+  pre-existing, previously-unexercised bug**: `tsconfig.node.json`'s original
+  `moduleResolution: "nodenext"` made `tsc` resolve `@swc/html` (a transitive type-only import
+  from `vite-plugin-simple-html`) to that package's checked-in `index.ts` source instead of its
+  `index.d.ts`, producing 5 errors from inside `node_modules`. Switched `module`/`moduleResolution`
+  to `ESNext`/`bundler` (matching `tsconfig.app.json`'s convention and upstream Vite's own
+  `tsconfig.node.json` template) — this was never caught before because nothing ran this
+  config directly; it's wired into `npm run typecheck` now. Verified with `--listFiles` that
+  every named file is covered and `supabase/functions/**` is excluded.
+- Deleted `.eslintignore` (its 5 non-`node_modules` entries matched nothing real, confirmed by
+  hand). Added `--max-warnings=0` to the `lint` script.
+- Added `mockup/`, `design-artifacts/`, `_bmad/`, `.claude/skills/` to `.prettierignore` and
+  pruned the dead react-admin-era entries named in Task 4 (`packages/create-react-admin/…`,
+  `examples/**`, `cypress/*`, `.yarn/*` + its negations, `docs/_site/` + siblings,
+  `yarn-error.log`, `lerna-debug.log`, `.pnp.*`, `.github`) — left `*.md`, `node_modules`, `lib`,
+  `esm`, `es6`, `dist`, `.astro`, `/public`, `/storybook-static` alone (untouched by the story's
+  named list, and `/public`/`/storybook-static` hold generated/served assets outside AC-5's
+  scope). Ran `prettier:apply`; 45 files reformatted (69 unformatted + the 1 that was previously
+  a hard parse error, now excluded via `mockup/`). No file under `src/`, `workers/`,
+  `supabase/`, `e2e/` or `scripts/` was excluded.
+
+**Task 5 (vitest warnings/skips).** No-op: `getContactAvatar.test.ts` and `ContactList.test.tsx`
+were both already deleted by story 1.1, so the `vi.mock`-in-`beforeAll` warning and the one
+unconditional `it.skip` are already gone. Confirmed via a full run: 0 `^Warning:` lines, 0
+unconditional skips.
+
+**Task 6 (e2e smoke spec, AC-7).** Confirmed `e2e/` held only `fixtures.ts` and that
+`npx playwright test` exited 1 with "No tests found" before this task. Added a `createSingle`
+fixture and `e2e/pipeline.spec.ts`. Two things needed fixing beyond the story's own callouts:
+1. **`resetDb()` didn't clear `account_members`/`accounts`.** `handle_new_user()`'s "first user
+   bootstraps the tenant" logic checks `not exists (select 1 from public.account_members)`, and
+   `account_members.user_id` is `ON DELETE SET NULL` (not cascade) — so after the first ever
+   test run, stale `account_members` rows survive a `members`-table wipe forever, and every
+   later signup gets **zero** membership. This only surfaces when the same spec runs twice
+   against one live stack (exactly what happens across the two Playwright projects). Fixed by
+   adding `"accounts"` to `TABLES` — deleting it cascades away `account_members`, `singles`,
+   `shidduchim`, etc. in one shot (all FKs to `accounts` are `on delete cascade`).
+2. **`PasswordInput.tsx` has an accessibility bug**: its `FormControl` `Slot` wraps two children
+   (`<Input>` + the reveal-toggle `<button>`), so the injected `id` lands on the wrapping `<div>`
+   instead of the `<input>`, and `getByLabel("Password")` matches the toggle button's
+   `aria-label="Show password"` instead of the real field. **Not fixed** — out of this story's
+   "touches no product code beyond two exceptions" scope; worked around in the spec with
+   `input[autocomplete="current-password"]` and documented inline. Flagging here for whichever
+   story next touches the login form.
+
+   Verified: `make test-e2e-ci` → `2 passed (3.1s)` on both `chromium` and `Mobile Chrome`, run
+   twice for stability.
+
+**Tasks 7–8 (vitest project set, DB CI failure mode).** Deleted the `claude` project (confirmed
+zero `.claude/**/*.test.mjs` files exist), added a `scripts` project, added `scripts/**` to
+`app`'s exclude, changed `test:unit:app` to pass `--project app`, added `npm run test` and
+pointed `make test` at it (removed the now-redundant `test-unit`/`test-app`/`test-functions`/
+`test-workers` makefile fan-out — nothing else referenced those targets). For AC-9, extracted
+the repeated "skip locally / throw in CI" idiom out of the 4 `supabase/tests/*.test.ts` files
+into one shared `supabase/tests/dbSuiteHelpers.ts` (`bailIfDbUnreachable`) rather than
+patching each file's `if (error) { it.skip(...); return; }` block separately — same behavior,
+DRY. Verified both directions: stack up → all 4 suites run (143 tests); `CI=1` with the DB
+pointed at a dead port → all 4 files fail loudly (exit 1) instead of skipping.
+
+**Task 9 (no-console cleanup).** Added a per-path `no-console: "off"` override for
+`scripts/**/*.mjs` and `supabase/functions/**/*.ts`, deleted the 6 now-redundant
+`eslint-disable-next-line no-console` comments (4 in `mcp/index.ts`, 2 in
+`supabase-remote-init.mjs`), and set `linterOptions.reportUnusedDisableDirectives: "error"`.
+Re-measured suppressions **after** this cleanup (per the build-plan warning — seeding the
+ratchet before Task 9 would leave it 6 slots loose): `eslint-disable` **73** total (54 admin, 3
+atomic-crm, 8 hooks, 1 e2e, 0 supabase/functions, 3 lib, 2 test, 0 scripts, 2 `.claude/skills`,
+0 ui, 0 workers). TS suppressions unchanged at 6 (5 admin, 1 lib). These are the numbers seeded
+into `check-suppressions.mjs`'s budgets.
+
+**Tasks 10–11 (the two guards).** Story 1.1 shipped its AC-14 gate as an inline `grep`, not a
+file — confirmed by reading `1-1-delete-fossil-resources.md`, no `scripts/retired-names.json`
+or `check-retired-names.mjs` existed. Created both fresh, lifting 1.1's two verbatim grep
+patterns (word-boundary fossil words + camelCase compounds) into the JSON, and added the
+1.2/1.3/1.4 families. For the `sale` and `children` families, re-verified 1.2's and 1.3's own
+**already-shipped, already-verified** gate commands against the current tree (not reinvented)
+and encoded them the same way:
+- `sale` is a bare, case-insensitive **substring** (not word-bounded), exempting only
+  `wholesale` — a word-boundary form misses `sales_id`/`salesId`/`SalesCreate`.
+- `children`/`Child` uses two separate patterns, not one blanket word-boundary match: a
+  contextual one (`child_`, `_child`, `public.children`, `"children"`, `/children`, …) and a
+  case-sensitive camelCase-compound one, each with its own exemption list. **Verified this is
+  load-bearing, not cosmetic**: `src/components/admin/` and `src/components/ui/` alone contain
+  dozens of legitimate, unrelated `child`/`Children` uses (`Children` imported from `react`,
+  generic-guesser locals named `child`/`setChild`/`inferredChild`, `childText`,
+  `BulkActionsToolbarChildren`) that a blanket substring match would flag — which is exactly why
+  AC-12(c) excludes those two trees wholesale rather than trying to exempt each one.
+
+Extracted a shared `scripts/fsScan.mjs` (file-tree walking) so the two guards don't duplicate
+it — extended it to accept a bare file path (not just a directory) so `supabase/seed.sql` could
+be scanned as a single entry per AC-12(d)'s scope list.
+
+**The self-reference trap (AC-10/AC-12's "derive at runtime, never hard-code" requirement) was
+real, not theoretical** — it fired three times while writing this:
+1. `check-suppressions.mjs`'s own source necessarily contains the strings `"eslint-disable"`,
+   `"@ts-ignore"`, etc. (it has to search for them) — its own repo-wide run flagged itself.
+   Fixed by building every needle via runtime concatenation (`` `${"eslint"}-${"disable"}` ``)
+   so the contiguous substring never appears in the file's committed bytes, and rewording every
+   comment that had spelled the same substrings out in prose.
+2. The first draft of `check-suppressions.test.mjs` wrote literal
+   `` `// eslint-disable-next-line no-explicit-any` `` fixture strings directly in its own
+   source — caught by the same mechanism, since `.test.mjs` files are in scope for the
+   eslint-disable census (not just the skip-pattern check). Fixed with a `buildDisableComment()`
+   builder exported from the guard itself.
+3. `retired-names.json`'s `.json` extension was originally **excluded** from the scan, which
+   would have made the AC-12(e) "exact-path exemption" test meaningless (a file that's never
+   scanned "passes" for the wrong reason). Added `.json` to the retired-name guard's scanned
+   extensions specifically (checked the only other `.json` file in scope,
+   `supabase/functions/postmark/deno.json`, is clean) so the exact-path allowlist entry for
+   `scripts/retired-names.json` is doing real work, and added a test case that proves the
+   sibling path `scripts/anything-else.json` (same content) does fail.
+
+Both guards' tests derive every offending fixture at runtime from the guard's own exported
+builders / the real `retired-names.json`'s `exampleFragments` — nothing resembling a retired
+name or a suppression directive is typed contiguously into either `.test.mjs` file.
+
+**Task 12 (AC-13).** `useGetMemberName` does not exist anywhere in the tree — story 1.2 already
+deleted it along with its 10 importers via story 1.1. Confirmed via `grep` (zero hits for
+`useGetMemberName`/`useGetSalesName`/`getSalesName`/`getMemberName`) and by reading
+`members/index.ts` (exports only the resource object, no barrel re-export). AC satisfied by
+absence, as the story anticipated; nothing to delete.
+
+**Task 13 (CI).** Replaced the `wearerequired/lint-action@v3` step with plain `npm run lint` +
+`npm run prettier` steps — this also makes the CI prettier glob **byte-identical by
+construction** rather than by keeping two copies in sync: there is now only one glob, in
+`package.json`, and CI just calls the script. Added a `test:unit:scripts` step to the
+`test-app` job. Added two new jobs: `test-db` (boots the local stack via the existing
+`make start-supabase-e2e`, runs `test:unit:db` against its port 54342, tears it down in an
+`if: always()` step) and `guards` (runs both new guard scripts). Left `e2e-test` and `build`
+untouched. `grep -nE "continue-on-error|continue_on_error|\|\| true|--no-verify|wearerequired"`
+returns nothing.
+
+**Task 14 (final proof).** Ran the full AC-14 command list from the working tree with the local
+Supabase stack up. All nine commands exit 0:
+
+```
+npm run typecheck        → 0 errors (app + workers + node projects)
+npm run lint              → 0 errors, 0 warnings, no ESLintIgnoreWarning
+npm run prettier           → "All matched files use Prettier code style!"
+npm run test               → 54 test files, 529 tests passed, 0 skipped, 0 warnings
+npm run test:unit:db       → 4 test files, 143 tests passed
+node scripts/check-suppressions.mjs   → "Suppression ratchet OK."
+node scripts/check-retired-names.mjs  → "Retired-name guard OK."
+make test-e2e-ci            → 2 passed (chromium, Mobile Chrome) — run twice, both green
+npm run build               → built in ~3.7s (only the pre-existing chunk-size warning)
+```
+
+**Deviations from the story's own numbers, all because the tree moved since it was written
+(1.1 and 1.2 already landed):** prettier baseline was 69+1=70, not 89+1=90; `eslint-disable`
+baseline (before Task 9) was 81, not 89 (`atomic-crm` 3 not 8, `e2e` 3 not 6); TS suppressions
+were 6, not 8. No AC's substance changed as a result — every gate still closes the same hole,
+just measured against the real tree instead of the stale one.
+
+**Not touched, on purpose:** the `@typescript-eslint/no-explicit-any` global-off config-level
+suppression (Dev Notes scope ambiguity #1 — a multi-hundred-site change, explicitly out of
+scope); the rollup >500kB chunk-size build warning (scope ambiguity #2); the 54 `eslint-disable`s
+in `src/components/admin/` (scope ambiguity #3 — upstream framework debt, frozen at its current
+count, not removed); `MobileBackButton.tsx` (build-plan landmine L3 — resolved by 1.5 already
+having 0 importers after landing, so nothing was left for this story to find); the newly
+discovered `PasswordInput.tsx` label-association bug (see Task 6 above).
+
 ### File List
+
+**Modified:**
+- `.github/workflows/check.yml` — replaced `wearerequired/lint-action`, added `test-db` and
+  `guards` jobs, added a `test:unit:scripts` step
+- `.prettierignore` — added `mockup/`, `design-artifacts/`, `_bmad/`, `.claude/skills/`; pruned
+  dead react-admin-era entries
+- `e2e/fixtures.ts` — added `accounts` to `resetDb()`'s `TABLES`, added a `createSingle`
+  fixture, consolidated the `no-empty-pattern` eslint-disables into one disable/enable pair
+- `eslint.config.js` — added `linterOptions.reportUnusedDisableDirectives`, added a
+  `no-console: off` override for `scripts/**/*.mjs` and `supabase/functions/**/*.ts`
+- `makefile` — `test` now calls `npm run test`; removed the `test-unit`/`test-app`/
+  `test-functions`/`test-workers` fan-out
+- `package.json` — added `test` and `test:unit:scripts` scripts, `test:unit:app` now passes
+  `--project app`, `lint` now passes `--max-warnings=0`, `typecheck` now also checks
+  `tsconfig.node.json`
+- `scripts/supabase-remote-init.mjs` — removed 2 redundant `eslint-disable-next-line no-console`
+- `src/components/admin/*.tsx` (26 files) — reformatted only
+- `src/components/atomic-crm/**/*.{ts,tsx}` (16 files) — reformatted only
+- `src/components/ui/spinner.tsx` — reformatted only (the `semi: false` override strips
+  semicolons — intended)
+- `src/index.css` — reformatted only
+- `supabase/functions/_shared/authentication.ts`, `supabase/functions/_shared/resolveDemoAccount.ts`
+  — reformatted only
+- `supabase/functions/mcp/index.ts` — removed 4 redundant `eslint-disable-next-line no-console`
+- `supabase/tests/billing_entitlement.test.ts`, `references_entity.test.ts`,
+  `shidduch_catch.test.ts`, `members_rename.test.ts` — unreachable-DB branch now uses the
+  shared `bailIfDbUnreachable()` helper (throws under `CI`, skips locally)
+- `tsconfig.node.json` — extended coverage (e2e/, playwright/vitest/vite configs, .storybook/,
+  supabase/tests/), fixed `moduleResolution` (`nodenext` → `bundler`) to resolve a pre-existing
+  `@swc/html` type-resolution bug
+- `vitest.config.ts` — deleted the `claude` project, added the `scripts` project, excluded
+  `scripts/**` from `app`
+
+**Deleted:**
+- `.eslintignore`
+
+**Added:**
+- `e2e/pipeline.spec.ts` — the one e2e smoke spec (AC-7)
+- `scripts/check-retired-names.mjs`, `scripts/check-retired-names.test.mjs` — the retired-name
+  CI guard (AC-12) and its unit test
+- `scripts/check-suppressions.mjs`, `scripts/check-suppressions.test.mjs` — the suppression
+  ratchet (AC-10) and its unit test
+- `scripts/fsScan.mjs` — shared file-tree walker used by both guards
+- `scripts/retired-names.json` — the one shared pattern-list + allowlist artifact (AC-12a)
+- `supabase/tests/dbSuiteHelpers.ts` — shared `bailIfDbUnreachable()` used by the 4 db suites

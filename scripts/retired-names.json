@@ -1,0 +1,92 @@
+{
+  "scanPaths": [
+    "src",
+    "supabase/schemas",
+    "supabase/functions",
+    "supabase/tests",
+    "supabase/seed.sql",
+    "workers",
+    "scripts",
+    "e2e"
+  ],
+  "extensions": [".ts", ".tsx", ".mjs", ".js", ".sql", ".json"],
+  "excludeDirs": ["src/components/admin", "src/components/ui"],
+  "exactFileAllowlist": [
+    "supabase/schemas/01_tables.sql",
+    "src/components/atomic-crm/types.ts",
+    "src/components/atomic-crm/shadchanim/shadchanUtils.ts",
+    "src/components/atomic-crm/shadchanim/shadchanUtils.test.ts",
+    "src/components/atomic-crm/shadchanim/ShadchanHeader.tsx",
+    "scripts/retired-names.json",
+    "supabase/tests/members_rename.sql",
+    "src/components/atomic-crm/providers/commons/i18nProvider.test.ts"
+  ],
+  "patterns": [
+    {
+      "id": "1.1-fossil-words",
+      "description": "Bare fossil resource/column names from the Atomic CRM fork (contacts, companies, deals, tags, ...). Lifted verbatim from Story 1.1's AC-14 word-boundary grep.",
+      "regex": "\\b(?:contacts|contact_notes|contact_id|contact_ids|companies|company_id|company_name|companies_summary|contacts_summary|nb_contacts|deals|deal_notes|deal_id|nb_deals|tags|favicons_excluded_domains|merge_contacts|activity_log|position_at_company)\\b",
+      "flags": "",
+      "exampleFragments": ["compan", "ies"]
+    },
+    {
+      "id": "1.1-camelcase-compounds",
+      "description": "camelCase/PascalCase compounds of the fossil vocabulary a word-boundary grep on the bare word would miss. Lifted verbatim from Story 1.1's AC-14 second grep.",
+      "regex": "ContactNote|DealNote|contactNote|dealNote|contactNotes|dealNotes|ContactGender|contactGender|DealStage|NoteStatus|noteStatuses|ActivityCompanyCreated|ActivityContactCreated|ActivityContactNoteCreated|ActivityDealCreated|ActivityDealNoteCreated|processCompanyLogo|processContactAvatar|fetchAndUpdateCompanyData|updateCompany|getCompanyAvatar|getContactAvatar|mergeContacts|unarchiveDeal|showContact|selectContact|filterByContact|getContactRepresentation|contactOptionText|buildContact|companySectors|dealCategories|dealPipelineStatuses|dealStages|generateCompanies|generateContacts|generateContactNotes|generateDeals|generateDealNotes|generateTags|getDealsByStage|HotContacts|DealsChart|DashboardActivityLog|useContactImport|createCompany|createContact|createNotes|goToContacts",
+      "flags": "",
+      "exampleFragments": ["getContact", "Avatar"]
+    },
+    {
+      "id": "1.2-sale",
+      "description": "Every spelling of the retired sales/Sale family (renamed to members) — deliberately a bare, case-insensitive substring, not word-bounded: a word-boundary form misses sales_id, salesId, SalesCreate, useGetSalesName, CURRENT_SALE_CACHE_KEY.",
+      "regex": "sale",
+      "flags": "i",
+      "exempt": ["wholesale"],
+      "exampleFragments": ["sale", "s_id"]
+    },
+    {
+      "id": "1.3-children-contextual",
+      "description": "The retired children resource in its SQL/route/dataProvider contexts. Deliberately not a bare \"children\" word — that also matches React's children prop everywhere.",
+      "regex": "child_|_child|child-|public\\.children|children_summary|\"children\"|/children|db\\.children|resources\\.children|crm\\.children",
+      "flags": "i",
+      "exempt": [
+        "node:child_process",
+        "first-child",
+        "last-child",
+        "only-child",
+        "nth-child"
+      ],
+      "exampleFragments": ["child", "_", "id"]
+    },
+    {
+      "id": "1.3-children-camelcase",
+      "description": "Child/Children as a bare word or compound identifier (isChildVisibleState, selectedChildId, ChildSwitcherPill, ...). Case-sensitive so it doesn't drown in React's own `children` prop.",
+      "regex": "\\bChild\\b|\\bChildren\\b|Child[A-Za-z]|[a-z]Child|CHILD|child[a-z]*[A-Z]",
+      "flags": "",
+      "exempt": [
+        "asChild",
+        "appendChild",
+        "removeChild",
+        "firstChild",
+        "lastChild",
+        "replaceChildren",
+        "nbChildren",
+        "PropsWithChildren",
+        "React.Children",
+        "Children.toArray",
+        "Children.only",
+        "Children.map",
+        "Children.count",
+        "Children.forEach"
+      ],
+      "exampleFragments": ["selecte", "d", "Child", "Id"]
+    },
+    {
+      "id": "1.4-child-portal",
+      "description": "The retired token-portal schema objects.",
+      "regex": "child_portal_tokens|get_child_portal|set_child_portal_token_defaults",
+      "flags": "i",
+      "exampleFragments": ["get_child_", "portal"]
+    }
+  ]
+}

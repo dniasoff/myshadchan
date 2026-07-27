@@ -159,7 +159,6 @@ async function selectRegion() {
 }
 
 async function waitForProjectToBeReady({ projectRef }) {
-  // eslint-disable-next-line no-console
   console.log("Waiting for project to be ready...");
   const { stdout } = await execa(
     "npx",
@@ -209,7 +208,6 @@ async function linkProject({ projectRef, databasePassword }) {
   ).catch(() => {
     retry++;
     if (retry === 1) {
-      // eslint-disable-next-line no-console
       console.log("Waiting for project to be ready...");
     }
     return sleep(1000).then(() =>

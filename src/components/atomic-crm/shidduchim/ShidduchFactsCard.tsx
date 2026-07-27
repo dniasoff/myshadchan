@@ -84,9 +84,7 @@ export const ShidduchFactsCard = ({
           <FactRow label="Height" plain={shidduch.height ?? null} />
         </dl>
       ) : (
-        <p className="text-sm text-muted-foreground">
-          No details on file yet.
-        </p>
+        <p className="text-sm text-muted-foreground">No details on file yet.</p>
       )}
     </section>
   );

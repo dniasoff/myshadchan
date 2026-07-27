@@ -37,10 +37,7 @@ export const ReminderCard = ({
   const overdue = isOverdue(task.due_date);
 
   return (
-    <li
-      className="ql-enter"
-      style={{ animationDelay: `${enterDelayMs}ms` }}
-    >
+    <li className="ql-enter" style={{ animationDelay: `${enterDelayMs}ms` }}>
       <div
         className={cn(
           "flex items-start gap-3 rounded-2xl border p-4 shadow-sm transition-[box-shadow,transform] duration-[160ms] ease-[--ease-out] hover:shadow-md",

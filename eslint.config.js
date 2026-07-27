@@ -10,6 +10,13 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   { ignores: ["dist"] },
   {
+    // A suppression that no longer suppresses anything fails the lint gate
+    // instead of rotting silently (AC-10).
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+    },
+  },
+  {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx,mjs}"],
     ignores: ["**/node_modules/**", "**/dist/**", "**/.astro/**"],
@@ -71,6 +78,14 @@ export default tseslint.config(
     rules: {
       "react-refresh/only-export-components": "off",
       "@typescript-eslint/consistent-type-imports": "off",
+    },
+  },
+  {
+    // Server/CLI code legitimately logs — a rule that's wrong for a whole
+    // path is configured per path, never suppressed per line (AC-10).
+    files: ["scripts/**/*.mjs", "supabase/functions/**/*.ts"],
+    rules: {
+      "no-console": "off",
     },
   },
   storybook.configs["flat/recommended"],

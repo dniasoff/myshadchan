@@ -318,7 +318,6 @@ Examples:
       annotations: { readOnlyHint: true },
     },
     async ({ sql }: { sql: string }) => {
-      // eslint-disable-next-line no-console
       console.log(`[MCP query] user=${authInfo.userId} sql=${sql}`);
       const result = await executeQueryWithRLS(
         sql,
@@ -373,7 +372,6 @@ Examples:
       annotations: { destructiveHint: true },
     },
     async ({ sql }: { sql: string }) => {
-      // eslint-disable-next-line no-console
       console.log(`[MCP mutate] user=${authInfo.userId} sql=${sql}`);
       const result = await executeQueryWithRLS(
         sql,
@@ -484,7 +482,6 @@ Each task should include at least: id (required, used for the mark-as-done actio
       },
     },
     ({ tasks }: { tasks: Task[] }) => {
-      // eslint-disable-next-line no-console
       console.log(
         `[MCP display_task_list] user=${authInfo.userId} count=${tasks.length}`,
       );
@@ -523,7 +520,6 @@ Each task should include at least: id (required, used for the mark-as-done actio
       // RLS-blocked or non-existent row (executeQueryWithRLS would otherwise
       // report success on 0 rows affected).
       const sql = `UPDATE tasks SET done_date = NOW() WHERE id = ${id} RETURNING id`;
-      // eslint-disable-next-line no-console
       console.log(`[MCP complete_task] user=${authInfo.userId} id=${id}`);
       const result = await executeQueryWithRLS(
         sql,

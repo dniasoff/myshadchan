@@ -110,11 +110,7 @@ export const ShidduchSchoolsSection = ({
               choices={SCHOOL_KIND_CHOICES}
               helperText={false}
             />
-            <TextInput
-              source="name_en"
-              label="Name (EN)"
-              helperText={false}
-            />
+            <TextInput source="name_en" label="Name (EN)" helperText={false} />
             <TextInput
               source="name_he"
               label="Name (HE)"

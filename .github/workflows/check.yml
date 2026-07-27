@@ -20,7 +20,7 @@ permissions:
 
 jobs:
     lint:
-        name: 🔬 ESLint
+        name: 🔬 ESLint & Prettier
         runs-on: ubuntu-latest
         timeout-minutes: 10
         if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
@@ -38,12 +38,10 @@ jobs:
               run: npm ci
 
             - name: 🔬 Lint
-              uses: wearerequired/lint-action@v3
-              with:
-                  eslint: true
-                  eslint_args: "**/*.{mjs,ts,tsx}"
-                  prettier: true
-                  prettier_args: "--config ./.prettierrc.json \"**/*.{js,json,ts,tsx,css,md,html}\""
+              run: npm run lint
+
+            - name: 🎨 Prettier
+              run: npm run prettier
 
     typecheck:
         name: 🏷️ Typecheck
@@ -93,6 +91,60 @@ jobs:
               run: CI=1 npm run test:unit:functions -- --run
             - name: 🔎 Unit Tests on Cloudflare Workers
               run: CI=1 npm run test:unit:workers -- --run
+            - name: 🔎 Unit Tests on repo scripts
+              run: CI=1 npm run test:unit:scripts -- --run
+
+    test-db:
+        name: 🗄️ Test (database)
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
+        steps:
+            - name: 📥 Checkout repo
+              uses: actions/checkout@v7
+
+            - name: ⚙️ Setup node
+              uses: actions/setup-node@v7
+              with:
+                  node-version-file: .nvmrc
+                  cache: npm
+
+            - name: 📥 Download deps
+              run: npm ci
+
+            - name: 🐘 Start local Supabase stack
+              run: make start-supabase-e2e
+
+            - name: 🔎 Unit Tests on the database (RLS / SECURITY DEFINER suite)
+              run: CI=1 SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54342/postgres npm run test:unit:db -- --run
+
+            - name: 🛑 Stop local Supabase stack
+              if: always()
+              run: make stop-supabase-e2e
+
+    guards:
+        name: 🛡️ Suppression & retired-name guards
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
+        steps:
+            - name: 📥 Checkout repo
+              uses: actions/checkout@v7
+
+            - name: ⚙️ Setup node
+              uses: actions/setup-node@v7
+              with:
+                  node-version-file: .nvmrc
+                  cache: npm
+
+            - name: 📥 Download deps
+              run: npm ci
+
+            - name: 🛡️ Suppression ratchet
+              run: node scripts/check-suppressions.mjs
+
+            - name: 🏷️ Retired-name guard
+              run: node scripts/check-retired-names.mjs
 
     e2e-test:
         timeout-minutes: 10

@@ -171,7 +171,10 @@ export const LoginPage = (props: { redirectTo?: string }) => {
               disabled={loading}
             >
               {loading ? (
-                <Loader2 className="me-2 size-4 animate-spin" aria-hidden="true" />
+                <Loader2
+                  className="me-2 size-4 animate-spin"
+                  aria-hidden="true"
+                />
               ) : null}
               {translate("ra.auth.sign_in")}
             </Button>

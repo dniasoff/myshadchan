@@ -1,6 +1,11 @@
 import { useMutation } from "@tanstack/react-query";
 import { KeyRound } from "lucide-react";
-import { useDataProvider, useGetIdentity, useNotify, useTranslate } from "ra-core";
+import {
+  useDataProvider,
+  useGetIdentity,
+  useNotify,
+  useTranslate,
+} from "ra-core";
 
 import { Button } from "@/components/ui/button";
 

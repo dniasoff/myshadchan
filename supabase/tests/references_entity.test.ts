@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { bailIfDbUnreachable } from "./dbSuiteHelpers";
+
 /**
  * Runs the References epic's database suite against the local Supabase stack.
  *
@@ -82,10 +84,7 @@ function runSuite(): { checks: Check[]; error?: string } {
 const { checks, error } = runSuite();
 
 describe("references entity (database)", () => {
-  if (error) {
-    it.skip(`skipped — local Supabase unreachable: ${error.split("\n")[0]}`, () => {});
-    return;
-  }
+  if (bailIfDbUnreachable(error)) return;
 
   it("runs a non-trivial number of checks", () => {
     expect(checks.length).toBeGreaterThan(50);

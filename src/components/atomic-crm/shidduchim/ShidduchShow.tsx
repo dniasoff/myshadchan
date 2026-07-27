@@ -37,11 +37,7 @@ export const ShidduchShow = ({
         className="top-1/20 max-h-9/10 translate-y-0 overflow-y-auto border-border
           bg-card shadow-lg lg:max-w-2xl"
       >
-        {id ? (
-          <ShidduchShowContent id={id} />
-        ) : (
-          <ShidduchShowSkeleton />
-        )}
+        {id ? <ShidduchShowContent id={id} /> : <ShidduchShowSkeleton />}
       </DialogContent>
     </Dialog>
   );
@@ -63,10 +59,11 @@ const ShidduchShowSkeleton = () => (
 );
 
 const ShidduchShowContent = ({ id }: { id: Identifier }) => {
-  const { data: shidduch, isPending, error } = useGetOne<ShidduchSummary>(
-    "shidduchim",
-    { id },
-  );
+  const {
+    data: shidduch,
+    isPending,
+    error,
+  } = useGetOne<ShidduchSummary>("shidduchim", { id });
   const { data: redts } = useGetList<Redt>("redts", {
     filter: { shidduchim_id: id },
     pagination: { page: 1, perPage: 100 },

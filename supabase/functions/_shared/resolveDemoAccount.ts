@@ -32,7 +32,9 @@ export function userScopedClient(req: Request): SupabaseClient {
     // Hosted edge functions only auto-inject SUPABASE_ANON_KEY; SB_PUBLISHABLE_KEY
     // is a local-.env-only name, so it is empty on hosted and the user-scoped
     // client would then send no apikey and 401 on every RLS query. Fall back.
-    Deno.env.get("SB_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+    Deno.env.get("SB_PUBLISHABLE_KEY") ??
+      Deno.env.get("SUPABASE_ANON_KEY") ??
+      "",
     {
       global: {
         headers: { Authorization: req.headers.get("Authorization")! },

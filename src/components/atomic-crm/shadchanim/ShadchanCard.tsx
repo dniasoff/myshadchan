@@ -67,7 +67,8 @@ export const ShadchanCard = ({
           <ResponsivenessChip value={shadchan.responsiveness} />
           <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11.5px] tabular-nums text-muted-foreground">
             <Send className="size-3 shrink-0" aria-hidden="true" />
-            {suggestionCount} {suggestionCount === 1 ? "suggestion" : "suggestions"}
+            {suggestionCount}{" "}
+            {suggestionCount === 1 ? "suggestion" : "suggestions"}
           </span>
         </div>
       </Card>

@@ -36,8 +36,7 @@ export const InviteAcceptance = ({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  const passwordsMatch =
-    password.length >= 8 && password === confirmPassword;
+  const passwordsMatch = password.length >= 8 && password === confirmPassword;
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -67,8 +66,7 @@ export const InviteAcceptance = ({
           <div
             className="mx-auto grid h-14 w-14 place-items-center rounded-full shadow-[0_0_32px_-8px_var(--glow-accent)]"
             style={{
-              background:
-                "color-mix(in oklch, var(--violet) 16%, transparent)",
+              background: "color-mix(in oklch, var(--violet) 16%, transparent)",
             }}
           >
             <UserPlus
@@ -94,9 +92,7 @@ export const InviteAcceptance = ({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="invite-email">
-              {translate("ra.auth.email")}
-            </Label>
+            <Label htmlFor="invite-email">{translate("ra.auth.email")}</Label>
             <Input
               id="invite-email"
               type="email"

@@ -65,11 +65,7 @@ describe("isResponsivenessLevel", () => {
 describe("countSuggestionsByShadchan", () => {
   it("counts how many suggestions belong to each shadchan_id", () => {
     // Arrange
-    const items = [
-      { shadchan_id: 1 },
-      { shadchan_id: 1 },
-      { shadchan_id: 2 },
-    ];
+    const items = [{ shadchan_id: 1 }, { shadchan_id: 1 }, { shadchan_id: 2 }];
     // Act
     const result = countSuggestionsByShadchan(items);
     // Assert

@@ -26,7 +26,9 @@ export const parseContactInfo = (contacts: unknown): ShadchanContactInfo => {
   }
   const record = contacts as Record<string, unknown>;
   const pick = (key: string): string | undefined =>
-    typeof record[key] === "string" && record[key] ? record[key] as string : undefined;
+    typeof record[key] === "string" && record[key]
+      ? (record[key] as string)
+      : undefined;
 
   return {
     phone: pick("phone"),

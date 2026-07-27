@@ -16,8 +16,7 @@ export const ConfirmationRequired = () => {
         <div
           className="mx-auto grid h-14 w-14 place-items-center rounded-full shadow-[0_0_32px_-8px_var(--glow-accent)]"
           style={{
-            background:
-              "color-mix(in oklch, var(--primary) 14%, transparent)",
+            background: "color-mix(in oklch, var(--primary) 14%, transparent)",
           }}
         >
           <Mail

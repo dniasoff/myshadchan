@@ -3,10 +3,8 @@ import { defineConfig } from "vitest/config";
 import { playwright } from "@vitest/browser-playwright";
 import react from "@vitejs/plugin-react";
 
-// Three test projects (https://vitest.dev/guide/projects.html):
+// Five test projects (https://vitest.dev/guide/projects.html):
 //   - "app":       React/DOM unit tests, run in a real browser (Playwright/Chromium).
-//   - "claude":    agent-harness hook tests, plain Node integration tests that spawn
-//                  the .claude/hooks/*.mjs hooks as subprocesses. No DOM, no browser.
 //   - "functions": Supabase Edge Function tests. Written for Deno with JSR imports;
 //                  Node-only here, with the jsr:/npm: specifiers aliased to their
 //                  installed npm equivalents. Aliases are scoped to this project.
@@ -15,9 +13,12 @@ import react from "@vitejs/plugin-react";
 //   - "db":        SQL-level tests (RLS, triggers, SECURITY DEFINER boundaries) run
 //                  through psql against the local Supabase stack. Skips itself when
 //                  the database is unreachable.
-// Run everything with `npm run test:unit:app`, or a single suite with
-// `npm run test:unit:claude` / `npm run test:unit:functions` / `npm run test:unit:workers`
-// / `npm run test:unit:db` (none of the latter four boot a browser).
+//   - "scripts":   Plain Node tests for the repo's own tooling under scripts/ (e.g.
+//                  the suppression and retired-name CI guards) — no DOM, no browser.
+// Run everything with `npm run test`, or a single suite with
+// `npm run test:unit:app` / `npm run test:unit:functions` / `npm run test:unit:workers`
+// / `npm run test:unit:db` / `npm run test:unit:scripts` (none of the latter four boot
+// a browser).
 export default defineConfig({
   test: {
     projects: [
@@ -65,27 +66,16 @@ export default defineConfig({
             "supabase/**",
             ".supabase-e2e/**",
             "e2e/**/*.spec.{ts,tsx}",
-            // Harness hook tests are Node-only (they import node:fs / node:path
-            // and spawn subprocesses); they run under the "claude" project below.
-            ".claude/**",
             "workers/**",
+            // Node-only tests for the repo's own tooling; run under the
+            // "scripts" project below instead of the browser runner.
+            "scripts/**",
           ],
           server: {
             deps: {
               external: [/playwright/],
             },
           },
-        },
-      },
-      {
-        test: {
-          name: "claude",
-          environment: "node",
-          include: [".claude/**/*.test.mjs"],
-          // These tests spawn `node` subprocesses and do real git/worktree work,
-          // so they need more headroom than the default 5s.
-          testTimeout: 30000,
-          hookTimeout: 30000,
         },
       },
       {
@@ -129,6 +119,14 @@ export default defineConfig({
           // These shell out to psql against the local stack.
           testTimeout: 120000,
           hookTimeout: 120000,
+        },
+      },
+      {
+        test: {
+          name: "scripts",
+          environment: "node",
+          include: ["scripts/**/*.test.mjs"],
+          exclude: ["**/node_modules/**"],
         },
       },
     ],

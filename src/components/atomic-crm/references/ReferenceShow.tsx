@@ -34,9 +34,7 @@ const ReferenceHeader = ({ reference }: { reference: Reference }) => {
   const progress = summarizeCallProgress(links);
   const name = reference.name_en || "?";
   const monogram = getMonogram(reference.name_en);
-  const avatarIndex = getAvatarIndex(
-    reference.name_en ?? String(reference.id),
-  );
+  const avatarIndex = getAvatarIndex(reference.name_en ?? String(reference.id));
   const meterPct =
     progress.total > 0
       ? Math.round((progress.contacted / progress.total) * 100)

@@ -10,11 +10,12 @@ export interface ResponsivenessInputProps extends Partial<InputProps> {
   label?: string;
 }
 
-const CHOICES: { value: ResponsivenessLevel; label: string; token?: string }[] = [
-  { value: "high", label: "High", token: "--positive" },
-  { value: "medium", label: "Medium" },
-  { value: "low", label: "Low", token: "--attention" },
-];
+const CHOICES: { value: ResponsivenessLevel; label: string; token?: string }[] =
+  [
+    { value: "high", label: "High", token: "--positive" },
+    { value: "medium", label: "Medium" },
+    { value: "low", label: "Low", token: "--attention" },
+  ];
 
 /**
  * A calm segmented chooser for shadchan responsiveness — pills tinted with

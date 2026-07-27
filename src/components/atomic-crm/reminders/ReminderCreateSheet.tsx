@@ -1,5 +1,11 @@
 import type { Identifier } from "ra-core";
-import { useCreate, useGetList, useNotify, useRefresh, useTranslate } from "ra-core";
+import {
+  useCreate,
+  useGetList,
+  useNotify,
+  useRefresh,
+  useTranslate,
+} from "ra-core";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -205,7 +211,10 @@ export const ReminderCreateSheet = ({
               {translate("crm.reminders.create.linkedTo", { _: "Linked to" })}
             </Label>
             <Select value={linkType} onValueChange={handleTypeChange}>
-              <SelectTrigger id="reminder-link-type" className="min-h-[44px] w-full">
+              <SelectTrigger
+                id="reminder-link-type"
+                className="min-h-[44px] w-full"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -226,7 +235,9 @@ export const ReminderCreateSheet = ({
                 <SelectValue
                   placeholder={
                     optionsPending
-                      ? translate("crm.reminders.create.loading", { _: "Loading…" })
+                      ? translate("crm.reminders.create.loading", {
+                          _: "Loading…",
+                        })
                       : entityOptions.length === 0
                         ? translate("crm.reminders.create.noOptions", {
                             _: `No ${TARGET_TYPE_LABEL[linkType].toLowerCase()}s yet`,

@@ -45,7 +45,10 @@ const ShadchanListActions = () => (
 const ShadchanGridSkeleton = () => (
   <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
     {Array.from({ length: 3 }).map((_, index) => (
-      <div key={index} className="h-[126px] animate-pulse rounded-2xl bg-muted" />
+      <div
+        key={index}
+        className="h-[126px] animate-pulse rounded-2xl bg-muted"
+      />
     ))}
   </div>
 );
