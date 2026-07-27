@@ -6,38 +6,22 @@ import type {
 } from "ra-core";
 import { CustomRoutes, Resource } from "ra-core";
 import { useEffect, useMemo } from "react";
-import { Navigate, Route } from "react-router";
+import { Route } from "react-router";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { Admin } from "@/components/admin/admin";
-import { ForgotPasswordPage } from "@/components/supabase/forgot-password-page";
-import { SetPasswordPage } from "@/components/supabase/set-password-page";
-import { OAuthConsentPage } from "@/components/supabase/oauth-consent-page";
+import { AccessDenied } from "@/components/admin/access-denied";
+import { AuthenticationError } from "@/components/admin/authentication-error";
 
-import children from "../children";
-import inbox from "../inbox";
-import { ShareTarget } from "../inbox/ShareTarget";
 import { Dashboard } from "../dashboard/Dashboard";
 import { MobileDashboard } from "../dashboard/MobileDashboard";
-import references from "../references";
-import { RemindersPage } from "../reminders/RemindersPage";
-import shadchanim from "../shadchanim";
-import shidduchim from "../shidduchim";
 import { Layout } from "../layout/Layout";
 import { MobileLayout } from "../layout/MobileLayout";
-import { SignupPage } from "../login/SignupPage";
-import { ConfirmationRequired } from "../login/ConfirmationRequired";
-import { ChangelogPage } from "../misc/ChangelogPage";
 import {
   getAuthProvider as defaultAuthProviderBuilder,
   getDataProvider as defaultDataProviderBuilder,
 } from "../providers/supabase";
-import sales from "../sales";
-import { BillingPage } from "../billing/BillingPage";
-import { SettingsPageMobile } from "../settings/SettingsPageMobile";
-import { ProfilePage } from "../settings/ProfilePage";
-import { SettingsPage } from "../settings/SettingsPage";
 import {
   CONFIGURATION_STORE_KEY,
   type ConfigurationContextValue,
@@ -53,9 +37,24 @@ import {
 import { i18nProvider as defaulti18nProvider } from "../providers/commons/i18nProvider";
 import { StartPage } from "../login/StartPage.tsx";
 import { useIsMobile } from "@/hooks/use-mobile.ts";
-import { MobileTasksList } from "../tasks/MobileTasksList.tsx";
+import type { CustomRouteEntry, ResourceEntry } from "./routeManifest";
+import { routesFor, resourcesFor } from "./routeManifest";
 
 const defaultStore = createCrmStore();
+
+/** The sole place `<Route>` elements are written — reused for every
+ * surface/chrome combination by mapping over `routeManifest.ts`. */
+const renderCustomRoutes = (entries: CustomRouteEntry[]) =>
+  entries.map(({ path, Component }) => (
+    <Route path={path} key={path} element={<Component />} />
+  ));
+
+/** The sole place `<Resource>` elements are written — reused for both
+ * surfaces by mapping over `routeManifest.ts`. */
+const renderResources = (entries: ResourceEntry[]) =>
+  entries.map(({ name, definition }) => (
+    <Resource name={name} key={name} {...definition} />
+  ));
 
 export type CRMProps = {
   dataProvider?: CrmDataProvider;
@@ -220,48 +219,17 @@ const DesktopAdmin = (
     <Admin
       layout={props.layout ?? Layout}
       dashboard={props.dashboard ?? Dashboard}
+      accessDenied={AccessDenied}
+      authenticationError={AuthenticationError}
       {...props}
     >
       <CustomRoutes noLayout>
-        <Route path={SignupPage.path} element={<SignupPage />} />
-        <Route
-          path={ConfirmationRequired.path}
-          element={<ConfirmationRequired />}
-        />
-        <Route path={SetPasswordPage.path} element={<SetPasswordPage />} />
-        <Route
-          path={ForgotPasswordPage.path}
-          element={<ForgotPasswordPage />}
-        />
-        <Route path={OAuthConsentPage.path} element={<OAuthConsentPage />} />
+        {renderCustomRoutes(routesFor("desktop", "bare"))}
       </CustomRoutes>
-
       <CustomRoutes>
-        <Route path={ProfilePage.path} element={<ProfilePage />} />
-        <Route path={SettingsPage.path} element={<SettingsPage />} />
-        <Route path={BillingPage.path} element={<BillingPage />} />
-        <Route path={ChangelogPage.path} element={<ChangelogPage />} />
-        <Route path={RemindersPage.path} element={<RemindersPage />} />
-        <Route path={ShareTarget.path} element={<ShareTarget />} />
-        {/* The `tasks` resource stays registered so Reminders can read task
-            data via the provider, but it has no desktop list — redirect the
-            dead /tasks shell to the Reminders hub that realizes the concept. */}
-        <Route
-          path="/tasks"
-          element={<Navigate to={RemindersPage.path} replace />}
-        />
+        {renderCustomRoutes(routesFor("desktop", "shell"))}
       </CustomRoutes>
-      <Resource name="shidduchim" {...shidduchim} />
-      <Resource name="children" {...children} />
-      <Resource name="inbox_items" {...inbox} />
-      <Resource name="shadchanim" {...shadchanim} />
-      <Resource name="references" {...references} />
-      <Resource name="reference_links" />
-      <Resource name="interactions" />
-      <Resource name="redts" />
-      <Resource name="shidduch_schools" />
-      <Resource name="tasks" />
-      <Resource name="sales" {...sales} />
+      {renderResources(resourcesFor("desktop"))}
     </Admin>
   );
 };
@@ -296,39 +264,17 @@ const MobileAdmin = (
         queryClient={queryClient}
         layout={props.layout ?? MobileLayout}
         dashboard={props.dashboard ?? MobileDashboard}
+        accessDenied={AccessDenied}
+        authenticationError={AuthenticationError}
         {...props}
       >
         <CustomRoutes noLayout>
-          <Route path={SignupPage.path} element={<SignupPage />} />
-          <Route
-            path={ConfirmationRequired.path}
-            element={<ConfirmationRequired />}
-          />
-          <Route path={SetPasswordPage.path} element={<SetPasswordPage />} />
-          <Route
-            path={ForgotPasswordPage.path}
-            element={<ForgotPasswordPage />}
-          />
-          <Route path={OAuthConsentPage.path} element={<OAuthConsentPage />} />
+          {renderCustomRoutes(routesFor("mobile", "bare"))}
         </CustomRoutes>
         <CustomRoutes>
-          <Route
-            path={SettingsPageMobile.path}
-            element={<SettingsPageMobile />}
-          />
-          <Route path={BillingPage.path} element={<BillingPage />} />
-          <Route path={ChangelogPage.path} element={<ChangelogPage />} />
-          <Route path={RemindersPage.path} element={<RemindersPage />} />
-          <Route path={ShareTarget.path} element={<ShareTarget />} />
+          {renderCustomRoutes(routesFor("mobile", "shell"))}
         </CustomRoutes>
-        <Resource name="shidduchim" {...shidduchim} />
-        <Resource name="children" {...children} />
-        <Resource name="inbox_items" {...inbox} />
-        <Resource name="shadchanim" {...shadchanim} />
-        <Resource name="references" {...references} />
-        <Resource name="reference_links" />
-        <Resource name="interactions" />
-        <Resource name="tasks" list={MobileTasksList} />
+        {renderResources(resourcesFor("mobile"))}
       </Admin>
     </PersistQueryClientProvider>
   );

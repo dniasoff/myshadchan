@@ -1,6 +1,6 @@
 import type { Identifier } from "ra-core";
 import { CanAccess, useGetList, useTranslate, useUserMenu } from "ra-core";
-import { ChevronDown, FileText, Settings, User, Users } from "lucide-react";
+import { ChevronDown, Settings, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
@@ -14,7 +14,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-import { ChangelogPage } from "../misc/ChangelogPage";
 import type { Child } from "../types";
 
 /**
@@ -32,14 +31,12 @@ export const TopBar = () => (
       <ThemeModeToggle />
       <RefreshButton />
       <UserMenu>
-        <ProfileMenuItem />
         <CanAccess resource="sales" action="list">
           <UsersMenuItem />
         </CanAccess>
         <CanAccess resource="configuration" action="edit">
           <SettingsMenuItem />
         </CanAccess>
-        <ChangelogMenuItem />
       </UserMenu>
     </div>
   </header>
@@ -127,22 +124,6 @@ const UsersMenuItem = () => {
   );
 };
 
-const ProfileMenuItem = () => {
-  const translate = useTranslate();
-  const userMenuContext = useUserMenu();
-  if (!userMenuContext) {
-    throw new Error("<ProfileMenuItem> must be used inside <UserMenu>");
-  }
-  return (
-    <DropdownMenuItem asChild onClick={userMenuContext.onClose}>
-      <Link to="/profile" className="flex items-center gap-2">
-        <User />
-        {translate("crm.profile.title")}
-      </Link>
-    </DropdownMenuItem>
-  );
-};
-
 const SettingsMenuItem = () => {
   const translate = useTranslate();
   const userMenuContext = useUserMenu();
@@ -154,22 +135,6 @@ const SettingsMenuItem = () => {
       <Link to="/settings" className="flex items-center gap-2">
         <Settings />
         {translate("crm.settings.title")}
-      </Link>
-    </DropdownMenuItem>
-  );
-};
-
-const ChangelogMenuItem = () => {
-  const translate = useTranslate();
-  const userMenuContext = useUserMenu();
-  if (!userMenuContext) {
-    throw new Error("<ChangelogMenuItem> must be used inside <UserMenu>");
-  }
-  return (
-    <DropdownMenuItem asChild onClick={userMenuContext.onClose}>
-      <Link to={ChangelogPage.path} className="flex items-center gap-2">
-        <FileText />
-        {translate("crm.changelog.title")}
       </Link>
     </DropdownMenuItem>
   );

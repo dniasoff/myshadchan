@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/item";
 
 import { BillingPage } from "../billing/BillingPage";
-import { AboutSection } from "./AboutSection";
 import { ChangePasswordButton } from "./ChangePasswordButton";
 import { FamilySection } from "./FamilySection";
 import { PreferencesSection } from "./PreferencesSection";
@@ -23,8 +22,8 @@ import { SectionLabel } from "./SectionLabel";
 
 /**
  * Desktop /settings — the sidebar/TopBar "Settings" destination. Mirrors the
- * mobile Settings sections (account, family, preferences, privacy, about) in
- * the same Quiet-Luminance card system, instead of the generic CRM branding
+ * mobile Settings sections (account, family, preferences, privacy) in the
+ * same Quiet-Luminance card system, instead of the generic CRM branding
  * configuration template this replaced (those fork resources no longer exist
  * in MyShadchan).
  */
@@ -84,8 +83,6 @@ export const SettingsPage = () => {
               </Item>
             </ItemGroup>
           </div>
-
-          <AboutSection />
 
           <div className="space-y-3 border-t border-border pt-6">
             <ChangePasswordButton />

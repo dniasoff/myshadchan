@@ -246,9 +246,6 @@ export const frenchCrmMessages = {
       misc: "Divers",
       copied: "Copié !",
     },
-    changelog: {
-      title: "Notes de version",
-    },
     image_editor: {
       change: "Changer",
       drop_hint:
@@ -258,7 +255,6 @@ export const frenchCrmMessages = {
       update_image: "Mettre à jour l'image",
     },
     settings: {
-      about: "À propos",
       dark_mode_logo: "Logo du mode sombre",
       light_mode_logo: "Logo du mode clair",
       notes: {
@@ -299,16 +295,6 @@ export const frenchCrmMessages = {
       label: "Navigation CRM",
     },
     profile: {
-      inbound: {
-        description:
-          "Vous pouvez commencer à envoyer des e-mails vers l'adresse de réception de votre serveur, par exemple en l'ajoutant au champ %{field}. MyShadchan les classera dans votre boîte de réception pour une confirmation rapide.",
-        title: "E-mail entrant",
-      },
-      mcp: {
-        title: "Serveur MCP",
-        description:
-          "Utilisez cette URL pour connecter votre assistant IA aux données de votre CRM via le Model Context Protocol (MCP).",
-      },
       password: {
         change: "Changer le mot de passe",
       },

@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 
 import { MobileContent } from "../layout/MobileContent";
 import MobileHeader from "../layout/MobileHeader";
-import { AboutSection } from "./AboutSection";
 import { ChangePasswordButton } from "./ChangePasswordButton";
 import { FamilySection } from "./FamilySection";
 import { PreferencesSection } from "./PreferencesSection";
@@ -39,7 +38,6 @@ export const SettingsPageMobile = () => {
             <FamilySection />
             <PreferencesSection />
             <PrivacySection />
-            <AboutSection />
           </div>
 
           <div className="mb-4 mt-auto space-y-3 pt-6">

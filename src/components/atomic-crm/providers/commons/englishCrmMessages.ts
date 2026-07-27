@@ -243,9 +243,6 @@ export const englishCrmMessages = {
       misc: "Misc",
       copied: "Copied!",
     },
-    changelog: {
-      title: "Changelog",
-    },
     image_editor: {
       change: "Change",
       drop_hint: "Drop a file to upload, or click to select it.",
@@ -254,7 +251,6 @@ export const englishCrmMessages = {
       update_image: "Update Image",
     },
     settings: {
-      about: "About",
       dark_mode_logo: "Dark Mode Logo",
       light_mode_logo: "Light Mode Logo",
       notes: {
@@ -294,16 +290,6 @@ export const englishCrmMessages = {
       label: "CRM navigation",
     },
     profile: {
-      inbound: {
-        description:
-          "You can start sending emails to your server's inbound email address, e.g. by adding it to the %{field} field. MyShadchan will file them into your inbox for a quick confirm.",
-        title: "Inbound email",
-      },
-      mcp: {
-        title: "MCP Server",
-        description:
-          "Use this URL to connect your AI assistant to your CRM data via the Model Context Protocol (MCP).",
-      },
       password: {
         change: "Change password",
       },

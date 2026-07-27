@@ -27,8 +27,6 @@
         "zod@^4.0.5",
         "@tanstack/query-async-storage-persister@^5.90.22",
         "@tanstack/react-query-persist-client@^5.90.22",
-        "dompurify@^3.3.1",
-        "marked@^17.0.1",
         "@streamparser/json-whatwg@^0.0.22",
         "mime@^4.1.0"
       ],
@@ -51,6 +49,10 @@
         },
         {
           "path": "src/components/atomic-crm/tasks/tasksPredicate.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/tasks/TasksListPage.tsx",
           "type": "registry:component"
         },
         {
@@ -83,10 +85,6 @@
         },
         {
           "path": "src/components/atomic-crm/tasks/Task.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/tasks/MobileTasksList.tsx",
           "type": "registry:component"
         },
         {
@@ -234,14 +232,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/settings/ProfilePage.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/settings/ProfileForm.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/settings/PrivacySection.tsx",
           "type": "registry:component"
         },
@@ -263,10 +253,6 @@
         },
         {
           "path": "src/components/atomic-crm/settings/ChangePasswordButton.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/settings/AboutSection.tsx",
           "type": "registry:component"
         },
         {
@@ -295,6 +281,10 @@
         },
         {
           "path": "src/components/atomic-crm/root/useAccountDemo.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/root/routeManifest.ts",
           "type": "registry:component"
         },
         {
@@ -574,10 +564,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/misc/Markdown.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/misc/ImageEditorField.tsx",
           "type": "registry:component"
         },
@@ -587,10 +573,6 @@
         },
         {
           "path": "src/components/atomic-crm/misc/EditSheet.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/misc/ChangelogPage.tsx",
           "type": "registry:component"
         },
         {
