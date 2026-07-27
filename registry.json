@@ -88,6 +88,38 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/singles/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/singles/SingleShow.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/singles/SingleList.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/singles/SingleInputs.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/singles/SingleFormFrame.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/singles/SingleEdit.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/singles/SingleCreate.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/singles/SingleCard.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/useShidduchCatch.ts",
           "type": "registry:component"
         },
@@ -821,38 +853,6 @@
         },
         {
           "path": "src/components/atomic-crm/dashboard/AttentionSection.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/children/index.ts",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/children/ChildShow.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/children/ChildList.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/children/ChildInputs.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/children/ChildFormFrame.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/children/ChildEdit.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/children/ChildCreate.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/children/ChildCard.tsx",
           "type": "registry:component"
         },
         {
