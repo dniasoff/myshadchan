@@ -388,6 +388,13 @@ export const englishCrmMessages = {
       overview: {
         empty: "No details on file yet.",
       },
+      // Story 3-10 Task 6 / Story 3.3b — RelatedRecordsTab's own pending /
+      // error / empty states (UX-DR11).
+      related: {
+        loading: "Loading…",
+        error: "Could not load related records.",
+        empty: "Nothing here yet.",
+      },
       // Story 3.2 — ShowBase's explicit `loading` / `error` elements (AC 2).
       record_pending: "Loading…",
       record_unavailable: "This record is unavailable.",

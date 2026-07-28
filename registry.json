@@ -880,6 +880,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/entity360/mergeEntityTabs.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/entity360/entityPaths.ts",
           "type": "registry:component"
         },
@@ -916,6 +920,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/entity360/EntityShow.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/entity360/EntityAvatar.tsx",
           "type": "registry:component"
         },
@@ -925,6 +933,14 @@
         },
         {
           "path": "src/components/atomic-crm/entity360/Entity360.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/DefaultIdentityHeader.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/tabs/RelatedRecordsTab.tsx",
           "type": "registry:component"
         },
         {

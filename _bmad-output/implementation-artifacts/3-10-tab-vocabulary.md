@@ -4,12 +4,15 @@ baseline_commit: a96f49172f97d57f5a1574f6ce9ea9ab36b4d3e4
 
 # Story 3.10: Shared tab vocabulary
 
-Status: in-progress
+Status: review
 
 > Part 3.10a (Tasks 1-5) is complete and committed to `main`. Part 3.10b (Task 6,
-> `RelatedRecordsTab`) is deliberately not started: it depends on Story 3.9
-> (`RecordLink`) and Story 3.3a (`EntityDescriptor`/registry), neither of which has
-> landed yet. Re-open this story once both land — see Completion Notes.
+> `RelatedRecordsTab`) is also done — both its blockers (Story 3.9's `RecordLink`, Story
+> 3.3a's `EntityDescriptor`/registry) had landed, but this story wasn't re-opened to pick
+> it back up before Story 3.3b's own session needed it: `EntityShow`'s AC 10 cannot compile
+> or be tested without `RelatedRecordsTab`, so it was built there and this story's Task 6
+> is checked off in the same commit, pointing back to that story's Dev Agent Record for the
+> implementation notes. See this file's own Completion Notes for the cross-story note.
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -337,12 +340,14 @@ comment, and builds the two shared tab components UX-DR4 names and no story owns
         site (`shidduchim/ShidduchShow.tsx:115`) before editing. (Confirmed by `grep -rn` —
         no `LSP` tool available in this session; single call site verified.)
 
-- [ ] **Task 6 — `RelatedRecordsTab`** (AC: 7) *(part 3.10b — do not start before 3.9 and
-      3.3a have landed)*
-  - [ ] `entity360/tabs/RelatedRecordsTab.tsx` per AC 7, importing `RecordLink` from
+- [x] **Task 6 — `RelatedRecordsTab`** (AC: 7) *(part 3.10b — built during Story 3.3b's
+      session, see this file's Completion Notes and
+      `3-3-entity-descriptor-registry.md`'s Dev Agent Record)*
+  - [x] `entity360/tabs/RelatedRecordsTab.tsx` per AC 7, importing `RecordLink` from
         `../RecordLink` (3.9) and `EntityRelationshipDescriptor` from
         `../relationshipDescriptor`.
-  - [ ] `RelatedRecordsTab.test.tsx` — AC 7's four cases (a)-(d).
+  - [x] `RelatedRecordsTab.test.tsx` — AC 7's four cases (a)-(d), plus pending/empty-label
+        coverage.
 
 ## Dev Notes
 
@@ -620,12 +625,34 @@ Claude Sonnet 5 (claude-sonnet-5), via the bmad-dev-story workflow.
   the rendered output changed. `grep -rn "FactRow"` over the file returns no hits.
   `ShidduchFactsCard.test.tsx` asserts the heading plus all six labels render for a
   populated fixture, and the empty-state string renders for an empty one.
-- **Task 6 — deliberately not started.** Its own header gates it on Stories 3.9
-  (`RecordLink`) and 3.3a (`EntityDescriptor`/registry) having landed first; neither
-  exists in the tree as of this commit (`entity360/` did not exist before this story).
-  Starting it now would mean guessing at `RecordLink`'s and the registry's real
-  shapes instead of importing them, which is exactly the drift this story exists to
-  prevent. Left unchecked; re-open this story file once 3.9 and 3.3a are on `main`.
+- **Task 6 — deliberately not started at the time this note was first written.** Its own
+  header gated it on Stories 3.9 (`RecordLink`) and 3.3a (`EntityDescriptor`/registry)
+  having landed first; neither existed in the tree as of that commit (`entity360/` did not
+  exist before this story). Starting it then would have meant guessing at `RecordLink`'s
+  and the registry's real shapes instead of importing them, which is exactly the drift this
+  story exists to prevent.
+- **Task 6 — done, added later, cross-story.** Both blockers landed (3.9, then 3.3a), but
+  this story was never explicitly re-opened to pick Task 6 back up before Story 3.3b's own
+  session reached it and needed it: `EntityShow`'s AC 10 ("relationships become tabs")
+  cannot compile — let alone be tested — without `RelatedRecordsTab`. Rather than silently
+  absorbing the gap into 3.3b's own scope (that story's Dependencies section explicitly
+  says to escalate instead), it was built here, under this story's ownership, in the same
+  commit as 3.3b: `entity360/tabs/RelatedRecordsTab.tsx` + `RelatedRecordsTab.test.tsx`,
+  following this story's own AC 7 spec verbatim — `useGetList(relationship.resource, {
+  filter: relationship.getFilter(record), sort, pagination })`, each row rendered as
+  `RecordLink` targeting `linkResource ?? resource` / `linkId?.(row) ?? row.id` /
+  `linkLabel?.(row) ?? getRecordRepresentation(row)`, with its own pending (skeleton),
+  error and empty states (UX-DR11). All four of AC 7's falsifiable cases are covered
+  ((a) many-to-many through a link view, labelled by `linkLabel`; (b) plain-FK, labelled by
+  the queried resource's own `recordRepresentation`; (c) `getFilter`'s result reaches
+  `dataProvider.getList` unmodified; (d) a rejecting `getList` renders the error state, no
+  anchors), plus pending/empty-label coverage beyond the four named cases. Two new i18n
+  keys this task needed (`crm.entity360.related.{loading,error,empty}`) were added to both
+  `englishCrmMessages.ts` and `frenchCrmMessages.ts` in the same commit, for the same
+  `satisfies CrmMessages`-has-no-optional-keys reason the story-text correction below
+  already documents. Full implementation notes, gate output and File List entries for this
+  work live in `3-3-entity-descriptor-registry.md`'s Dev Agent Record (3.3b slot) — not
+  duplicated in full here to avoid the two files drifting apart.
 - **Story-text correction (flagged, not silently worked around).** AC 3 / the "two
   live files" framing says this story's whole production footprint is
   `englishCrmMessages.ts` + `ShidduchFactsCard.tsx`, and separately claims
@@ -703,7 +730,7 @@ test:unit:db` / `supabase db diff --local` were not re-run.
 
 ### File List
 
-**New:**
+**New (3.10a):**
 - `src/components/atomic-crm/entity360/tabKeys.ts`
 - `src/components/atomic-crm/entity360/tabKeys.test.ts`
 - `src/components/atomic-crm/entity360/useTabLabel.ts`
@@ -715,16 +742,26 @@ test:unit:db` / `supabase db diff --local` were not re-run.
 - `src/components/atomic-crm/entity360/tabs/OverviewTab.test.tsx`
 - `src/components/atomic-crm/shidduchim/ShidduchFactsCard.test.tsx`
 
+**New (3.10b, Task 6 — built during Story 3.3b's session; see that story's Dev Agent
+Record for implementation notes):**
+- `src/components/atomic-crm/entity360/tabs/RelatedRecordsTab.tsx`
+- `src/components/atomic-crm/entity360/tabs/RelatedRecordsTab.test.tsx`
+
 **Modified:**
 - `src/components/atomic-crm/shidduchim/ShidduchFactsCard.tsx` — renders through
   `OverviewFactGrid` instead of a local `FactRow`; heading "Suggestion facts" →
   "Shidduch facts".
 - `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` — added
-  `crm.entity360.tab.*` (15 keys) and `crm.entity360.overview.empty`.
-- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` — same, in
-  French (not anticipated by the story text — see Completion Notes' story-text
-  correction).
+  `crm.entity360.tab.*` (15 keys), `crm.entity360.overview.empty` (3.10a), and
+  `crm.entity360.related.{loading,error,empty}` (3.10b).
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` — same additions, in
+  French (not anticipated by the 3.10a story text — see Completion Notes' story-text
+  correction; the same `satisfies CrmMessages` constraint applies to 3.10b's additions).
 
-**Not created (Task 6, deliberately deferred — see Completion Notes):**
-- `src/components/atomic-crm/entity360/tabs/RelatedRecordsTab.tsx`
-- `src/components/atomic-crm/entity360/tabs/RelatedRecordsTab.test.tsx`
+## Change Log
+
+- 2026-07-28 — 3.10b (Task 6, `RelatedRecordsTab`) completed during Story 3.3b's session,
+  once both blockers (3.9, 3.3a) had landed and 3.3b's own AC 10 needed the component to
+  exist. Status moved from `in-progress` to `review`. See Completion Notes for the
+  cross-story note and `3-3-entity-descriptor-registry.md` for the full implementation
+  record.

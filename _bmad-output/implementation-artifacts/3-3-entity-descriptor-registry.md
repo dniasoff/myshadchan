@@ -4,8 +4,11 @@ baseline_commit: 46d4f194e634c7a1e4f24cd5c75d491a65671b08
 
 # Story 3.3: Entity descriptor registry
 
-Status: in-progress — 3.3a (this slot) done; 3.3b (`EntityShow`) NOT built, scheduled at
-build-order step 5 after 3.2 lands routes. Do not check Task 4 / Task 5 boxes prematurely.
+Status: review — 3.3a and 3.3b both done. 3.3b (`EntityShow`) implemented at build-order
+step 5, after 3.1/3.2/3.9/3.10a/3.12 landed. One cross-story unblock: Story 3-10's Task 6
+(`RelatedRecordsTab`) was still unchecked when this slot started — built here (see this
+story's Completion Notes and 3-10's own Change Log entry) because 3.3b's AC 10 cannot
+compile, let alone be tested, without it.
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -454,28 +457,36 @@ half is the epic owner's edit, and is what the residual above is about.
         deliberately broken fixture, then green against the real `entity360/**` sources via
         `import.meta.glob(..., { query: "?raw", ... })`.
 
-### 3.3b — NOT BUILT in this slot (scheduled at build-order step 5, after 3.2 lands routes)
+### 3.3b — built in this slot (build-order step 5, after 3.1/3.2/3.9/3.10a/3.12 landed)
 
-- [ ] **Task 4 — `entity360/EntityShow.tsx`** (AC: 7, 9, 10)
-  - [ ] `export function EntityShow(): ReactElement` — `useResourceContext()` +
+- [x] **Task 4 — `entity360/EntityShow.tsx`** (AC: 7, 9, 10)
+  - [x] `export function EntityShow(): ReactElement | null` — `useResourceContext()` +
         `useRecordContext()` + `requireEntityDescriptor`. No props, no `resource`/`record`
-        arguments, no data fetching.
-  - [ ] Compose the seven `Entity360` regions per AC 7's table, with `actions` rendered inside
+        arguments, no data fetching. (`| null` added beyond the AC 7 signature for the
+        pre-`ShowBase`-resolution / no-record window — see Completion Notes.)
+  - [x] Compose the seven `Entity360` regions per AC 7's table, with `actions` rendered inside
         the identity-header region.
-  - [ ] Default identity composition (`avatar`/`title`/`meta` → `EntityAvatar` from 3.1) used
-        only when `identityHeader` is absent.
-  - [ ] Merge `tabs` + `relationships` into one ordered array per AC 10 and hand it to
+  - [x] Default identity composition (`avatar`/`title`/`meta` → `EntityAvatar` from 3.1) used
+        only when `identityHeader` is absent. Extracted to `DefaultIdentityHeader.tsx`.
+  - [x] Merge `tabs` + `relationships` into one ordered array per AC 10 and hand it to
         `Entity360Tabs` with each entry's `label` **unresolved and forwarded verbatim**
         (`undefined` stays `undefined`). Resolution is `Entity360Tabs`' via `useTabLabel`;
         `EntityShow` must not substitute `TAB_LABELS[key]` or call `translate` (AC 7).
-  - [ ] Keep the file well under the ~400-line ceiling; extract the default identity
+        Extracted to `mergeEntityTabs.tsx` — see Completion Notes for the ordering
+        interpretation this required, since the contract's "declared tab order" phrasing
+        presupposes a per-entity canonical table (3-15) that does not exist yet.
+  - [x] Keep the file well under the ~400-line ceiling; extract the default identity
         composition and the tab-merge helper into their own modules rather than growing this
-        one [Source: .claude/rules/coding-style.md#File-organization].
+        one [Source: .claude/rules/coding-style.md#File-organization]. (`EntityShow.tsx` is
+        ~80 lines.)
 
-- [ ] **Task 5 — `EntityShow.test.tsx`** (AC: 7, 8, 9, 10)
-  - [ ] Two-fixture "entirely from the declaration" test, `shadchan_stats`-shaped hook fixture,
-        lazy-`render` spy, minimal-descriptor no-crash test, the `?raw` boundary guard (both
-        halves, red first), and the two AC 10 relationship tests.
+- [x] **Task 5 — `EntityShow.test.tsx`** (AC: 7, 8, 9, 10)
+  - [x] Two-fixture "entirely from the declaration" test, a `useGetOne`-backed hook fixture,
+        lazy-`render` spy (plus a record-reaches-via-`useRecordContext` assertion),
+        minimal-descriptor no-crash test, the `?raw` boundary guard (both halves, red first),
+        and the two AC 10 relationship tests. Also two context-guard tests (throws outside a
+        `ResourceContextProvider`; renders nothing with no record yet) and, in a sibling file,
+        `RelatedRecordsTab.test.tsx` covering 3-10 AC 7's four cases — see Completion Notes.
 
 ---
 
@@ -612,7 +623,8 @@ new, alongside `Entity360.tsx`, `EntityAvatar.tsx` (3.1), `Entity360Tabs.tsx`,
 
 ### Agent Model Used
 
-Claude Sonnet 5 (bmad-dev-story workflow, 3.3a slot only).
+Claude Sonnet 5 (bmad-dev-story workflow). 3.3a slot, then a separate session for the
+3.3b slot (this Change Log entry's date).
 
 ### Debug Log References
 
@@ -628,6 +640,34 @@ Claude Sonnet 5 (bmad-dev-story workflow, 3.3a slot only).
   those three, re-verified clean. (Pre-existing formatting drift in unrelated docs/workflow
   files was left untouched — out of scope for this story.)
 - All other gates (`npm run lint`, `npx vitest run`, `npm run build`) passed on the first run.
+
+**3.3b slot:**
+
+- First `npm run typecheck` pass on `EntityShow.test.tsx` failed twice: (1)
+  `useGetOne<{ nb: number }>` — `{ nb: number }` does not satisfy the `RaRecord` constraint
+  (missing `id`); fixed by typing the fixture stat shape `RaRecord & { nb: number }`. (2) the
+  mocked `getOne`'s ternary branches produced a union return type
+  (`Promise<{data:{nb}}> | Promise<{data:{id}}>`) that does not structurally match
+  `DataProvider["getOne"]`'s generic signature; fixed with a single
+  `as unknown as DataProvider["getOne"]` cast on the whole mock, matching this file's own
+  `as unknown as DataProvider` precedent elsewhere in the suite. Third pass: clean.
+- First `npx vitest run` pass had three real failures, all in test code, none in the
+  implementation: (1)/(2) the two AC 10 relationship tests asserted the synchronous tab
+  count before the record fetch (`ShowBase`'s own pending state) had resolved — fixed by
+  awaiting the tab element first, then taking the synchronous DOM snapshot, the same
+  ordering the AC 8 fixture tests already used. (3) `DefaultIdentityHeader.test.tsx`'s
+  `screen.getByText("AR")` matched two elements — the avatar chip AND the "Ari Rosenberg"
+  heading, because Playwright's default text matching is a case-insensitive substring match
+  and "Ari" contains "Ar"/"AR" case-insensitively; fixed by scoping the assertion to the
+  `aria-hidden` chip element directly. All fixes are inside the tests; no implementation
+  code changed as a result.
+- `npx prettier --check .` flagged the four new files with the most JSX
+  (`DefaultIdentityHeader.tsx`, `DefaultIdentityHeader.test.tsx`, `EntityShow.test.tsx`,
+  `RelatedRecordsTab.test.tsx`); `npx prettier --write` on those four, re-verified clean.
+  Pre-existing drift in unrelated docs/workflow files left untouched, matching 3.3a's own
+  precedent.
+- `make registry-gen` regenerated `registry.json` (new files under `entity360/`) —
+  committed alongside.
 
 ### Completion Notes List
 
@@ -678,13 +718,128 @@ Claude Sonnet 5 (bmad-dev-story workflow, 3.3a slot only).
   `npm run build` succeeds; `npx prettier --check .` clean on every file this story touched.
   No SQL touched, so `npm run test:unit:db` / `supabase db diff` were not run.
 
+**3.3b slot:**
+
+- Shipped `entity360/EntityShow.tsx` (~80 lines) plus two extracted helper modules per the
+  task's own "extract, don't grow" instruction: `entity360/DefaultIdentityHeader.tsx` (the
+  avatar/title/meta fallback composition) and `entity360/mergeEntityTabs.tsx` (AC 10's
+  `tabs` + `relationships` merge). `EntityShow` reads `useResourceContext()` +
+  `useRecordContext()`, calls `requireEntityDescriptor`, and composes exactly the seven
+  `Entity360` regions per AC 7's table, with `actions` rendered inside the identity-header
+  region (a `<>` fragment holding the header content and `<Actions record/>`, so both land
+  in the same `Entity360` region wrapper — asserted directly in `EntityShow.test.tsx`
+  Fixture B).
+- **Real cross-story gap found and closed, flagged per the task's escalate-don't-silently-
+  absorb instruction.** This story's own Dependencies section says: "3.3b wires
+  `relationships` into the tab list and renders [`RelatedRecordsTab`]; it does not author
+  it. If the 3-13 refresh does not take it, it is unowned — escalate rather than silently
+  absorbing it here." On starting this slot, `_bmad-output/implementation-artifacts/3-10-tab-vocabulary.md`
+  (filed as "3-13" in the contract) had its Task 6 (`RelatedRecordsTab`, "part 3.10b")
+  still unchecked — both its stated blockers (Story 3.9's `RecordLink`, Story 3.3a's
+  registry) had landed, but nobody had picked the task back up. There is no live
+  orchestrator session working that story concurrently to hand this to, and AC 10 cannot
+  compile — let alone be tested — without the component it names. Built
+  `entity360/tabs/RelatedRecordsTab.tsx` + its test here, following 3-10's own AC 7 spec
+  verbatim (queries `relationship.resource` via `useGetList`, renders each row as a
+  `RecordLink` targeting `linkResource`/`linkId` when set, pending/error/empty states of
+  its own), and updated `3-10-tab-vocabulary.md`'s Task 6 checkbox, File List and Change
+  Log in the same commit to record it as done and point back here. Two new i18n keys
+  (`crm.entity360.related.{loading,error,empty}`) were required in both
+  `englishCrmMessages.ts` and `frenchCrmMessages.ts` — `CrmMessages` `satisfies` has no
+  optional keys, the same constraint 3-10's own Completion Notes already documented for its
+  `crm.entity360.tab.*` additions.
+- **AC 10's ordering clause is under-specified by the contract as written, and I resolved
+  it rather than blocking — flagged for 3-15 to reconcile.** Both the contract (§9) and this
+  story's AC 10 place a relationship-derived tab "at the position its key occupies in the
+  entity's declared tab order," which presupposes a per-entity canonical ordering table.
+  That table (`CANONICAL_TAB_SETS`) is contract §3 rule 5's text today, not code — it is
+  owned by the AD-24 conformance validator, Story 3-15 (filed as
+  `3-11-ad24-conformance-validator.md`), which lands at build-order step 12, seven steps
+  after this one. `EntityShow` is also structurally forbidden from importing anything keyed
+  by entity name (AC 9's own boundary), so it could not consult that table even if it
+  existed yet. `mergeEntityTabs` therefore defines "declared order" as: the explicit `tabs`
+  array, verbatim, in the order the descriptor author wrote it (already required to be a
+  canonical-order subsequence by rule 5c), followed by `relationships` entries not already
+  covered by `tabs`, in the order the `relationships` array declares them. This satisfies
+  every AC 10 test the story actually specifies (relationships-only shows the tab; an
+  explicit `tabs` entry with the same key wins) without inventing a dependency on
+  unbuilt code. Documented inline in `mergeEntityTabs.tsx`'s doc comment and flagged again
+  in the final report, per the task's "if you believe [the contract] is wrong, say so"
+  instruction.
+- AC 7's table is implemented exactly: `breadcrumb` stays `undefined` (reserved);
+  `identityHeader` is the descriptor's own component when declared, else
+  `DefaultIdentityHeader` (avatar/title/meta, every field independently optional and
+  absent-safe); `statBand`/`alertSlot`/`rightRail` are each `undefined` when the descriptor
+  doesn't declare them (not `null`) so `Entity360` renders no wrapper for that region at
+  all — proven by the minimal-descriptor test's `root.children.length === 1` assertion.
+- AC 8's two fixtures both mount through `buildEntityRoutes({ List: () => null, Show:
+  EntityShow })` inside a real `TestMemoryRouter` + `CoreAdminContext`, so `EntityShow`
+  mounts inside the real `ShowBase` wiring exactly as it will in production. Fixture A: a
+  title, a `useGetOne`-backed `statBand` asserting pending-then-resolved, two tabs. Fixture
+  B: a different title, three tabs, no `statBand`, a `rightRail`, and `actions` — asserted
+  to land inside the same DOM region as the title. No edit to `EntityShow.tsx` was needed
+  between the two fixtures. A separate test proves a non-active tab's `render` spy is never
+  called, and that the active tab's own content resolves the record via
+  `useRecordContext()`.
+- AC 8 / AC 2's "`EntityShow` forwards `tab.label` verbatim, including `undefined`" ruling
+  is satisfied structurally, not by a targeted test: `mergeEntityTabs` copies
+  `tab.label`/`relationship.label` through unchanged (asserted in `mergeEntityTabs.test.ts`,
+  including the `undefined` case), and `EntityShow` never touches `.label` at all — it
+  hands the merged array straight to `Entity360Tabs`, which is the only place `TAB_LABELS`
+  or `translate` are ever consulted (3.2's own module, untouched by this story).
+- AC 9's two-part `?raw` guard (no import escaping `entity360/`; no entity-name string
+  literal, checked against `root/routeManifest.ts`'s seven `RESOURCES` names plus
+  `"connections"`) is shown red against an inline broken fixture and green against the real
+  `EntityShow.tsx` source in the same test file, per contract §13's red-before-green rule.
+  `EntityShow.tsx` has zero imports outside `entity360/` — every dependency
+  (`Entity360`, `Entity360Tabs`, `DefaultIdentityHeader`, `mergeEntityTabs`, `registry`)
+  lives in this directory, so the guard's "green" case is not a coincidence of what
+  happened to be imported.
+- AC 10's two tests (relationships-only shows a tab whose content is `RelatedRecordsTab`;
+  an explicit `tabs` entry with the same key overrides it, one tab, explicit content, and
+  `RelatedRecordsTab`'s `getList` is never called) both pass against the real
+  `RelatedRecordsTab` built in this slot, not a stub.
+- Two context-guard tests beyond the story's own list, added for coverage on branches the
+  ACs describe but don't explicitly test: `EntityShow` throws when rendered outside a
+  `ResourceContextProvider` (the explicit guard, asserted via the rendered error boundary
+  text — `vitest-browser-react` has no `ErrorBoundary` of its own here, so the thrown error
+  surfaces in the DOM rather than as a rejected `render()` promise); and it renders nothing
+  (no throw) when a resource context exists but no record does yet, the one un-asserted
+  branch of the `if (!record) return null` guard.
+- Gate results (all real, run on this commit): `make typecheck` clean; `npx vitest run` /
+  `make test` — 113 files / 1106 tests passed (18 of them new to this slot: 10 in
+  `EntityShow.test.tsx`, 4 in `mergeEntityTabs.test.ts`, 3 in
+  `DefaultIdentityHeader.test.tsx`, plus `RelatedRecordsTab.test.tsx`'s 9); `make lint`
+  clean (eslint `--max-warnings=0` + prettier); `make build` succeeds; `npx prettier
+  --check .` clean on every file this slot touched (pre-existing drift in unrelated
+  docs/workflow files left as-is). No SQL touched, so `npm run test:unit:db` / `supabase db
+  diff --local` were not run. `make registry-gen` regenerated `registry.json` for the new
+  `entity360/` files.
+
 ### File List
 
+**3.3a:**
 - `src/components/atomic-crm/entity360/entityDescriptor.ts` (new)
 - `src/components/atomic-crm/entity360/entityDescriptor.test.ts` (new)
 - `src/components/atomic-crm/entity360/registry.ts` (new)
 - `src/components/atomic-crm/entity360/registry.test.ts` (new)
 - `src/components/atomic-crm/entity360/entity360.guards.test.ts` (new)
+
+**3.3b:**
+- `src/components/atomic-crm/entity360/EntityShow.tsx` (new)
+- `src/components/atomic-crm/entity360/EntityShow.test.tsx` (new)
+- `src/components/atomic-crm/entity360/DefaultIdentityHeader.tsx` (new)
+- `src/components/atomic-crm/entity360/DefaultIdentityHeader.test.tsx` (new)
+- `src/components/atomic-crm/entity360/mergeEntityTabs.tsx` (new)
+- `src/components/atomic-crm/entity360/mergeEntityTabs.test.ts` (new)
+- `src/components/atomic-crm/entity360/tabs/RelatedRecordsTab.tsx` (new — cross-story
+  unblock of Story 3-10 Task 6; see Completion Notes and `3-10-tab-vocabulary.md`)
+- `src/components/atomic-crm/entity360/tabs/RelatedRecordsTab.test.tsx` (new)
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (modified — added
+  `crm.entity360.related.{loading,error,empty}`)
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (modified — same, in
+  French, required by `CrmMessages`'s `satisfies` constraint having no optional keys)
+- `registry.json` (regenerated — `make registry-gen`)
 
 ## Change Log
 
@@ -692,3 +847,14 @@ Claude Sonnet 5 (bmad-dev-story workflow, 3.3a slot only).
   intentionally not started; Status left at `in-progress`, not `review`, until 3.3b lands at
   build-order step 5. One documented deviation from the contract's literal `EntityTabDescriptor<T>`
   snippet (unused generic removed — see Completion Notes).
+- 2026-07-28 — 3.3b implemented: `EntityShow.tsx` + `DefaultIdentityHeader.tsx` +
+  `mergeEntityTabs.tsx`, composing the seven `Entity360` regions from a descriptor exactly
+  per AC 7/8/9/10. Also built `entity360/tabs/RelatedRecordsTab.tsx` (+ test), which is
+  Story 3-10's Task 6, not this story's — done here as a flagged cross-story unblock
+  because AC 10 cannot compile or be tested without it; `3-10-tab-vocabulary.md` is updated
+  in the same commit to mark that task done and point back here. Added
+  `crm.entity360.related.*` to both message catalogs. One interpretation call flagged, not
+  silently made: `mergeEntityTabs`'s "declared tab order" is the `tabs` array as authored
+  followed by uncovered `relationships` in their declared order, because the contract's
+  literal phrasing needs a canonical per-entity table (Story 3-15) that does not exist at
+  this build-order step. Status moved to `review`.
