@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useDataProvider, useNotify, useTranslate } from "ra-core";
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { PersonaChecklist } from "../login/PersonaChecklist";
 import type { CrmDataProvider } from "../providers/types";
@@ -9,10 +10,11 @@ import type { Persona } from "../types";
 import { SectionLabel } from "./SectionLabel";
 
 /**
- * Maps `remove_persona()`'s two guard messages (2.5 AC-5) to a specific,
- * translated error key — never raw Postgres text in the UI. Order matters:
- * check the more specific "ask your household admin" phrase before the
- * generic "cannot remove parent" one, since both mention removal.
+ * Maps `remove_persona()`'s guard messages (2.5 AC-5; review finding #1's
+ * added guard) to a specific, translated error key — never raw Postgres
+ * text in the UI. Order matters: check the more specific "ask your
+ * household admin" phrase before the generic "cannot remove parent" one,
+ * since both mention removal.
  */
 const removalErrorCopy = (
   message: string,
@@ -28,6 +30,13 @@ const removalErrorCopy = (
     return {
       key: "crm.settings.persona_remove_error_only_persona",
       fallback: "You can't remove your only persona. Add another first.",
+    };
+  }
+  if (message.includes("cannot remove your last active membership")) {
+    return {
+      key: "crm.settings.persona_remove_error_last_access",
+      fallback:
+        "You're the only one who can still reach this account's records — add another member before removing this.",
     };
   }
   if (message.includes("cannot remove parent")) {
@@ -60,6 +69,7 @@ export const PersonasSection = () => {
   const notify = useNotify();
   const dataProvider = useDataProvider<CrmDataProvider>();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { data: personas } = useMyPersonas();
   const [isPending, setIsPending] = useState(false);
 
@@ -80,10 +90,31 @@ export const PersonasSection = () => {
     try {
       if (added) {
         await dataProvider.addPersona(persona);
+        // add_persona() never switches the caller's active context (Story
+        // 2.2's Dev Notes) — a scoped invalidation is enough.
+        await queryClient.invalidateQueries({
+          queryKey: MY_PERSONAS_QUERY_KEY,
+        });
       } else {
         await dataProvider.removePersona(persona);
+        // Review finding #5: removing `shadchan` or `parent` can archive
+        // the membership backing the caller's active context, moving or
+        // NULLing member_state.active_account_id server-side (AC-7) — the
+        // scope of every other cached query, not just my_personas(). A
+        // `single` removal only ever archives a `singles` row, never
+        // account_members, so it can never touch the active context and a
+        // scoped invalidation stays correct there. This mirrors
+        // ContextSwitcher's own handler for the identical event ("a context
+        // switch invalidates EVERYTHING, not a scoped queryKey").
+        if (persona === "single") {
+          await queryClient.invalidateQueries({
+            queryKey: MY_PERSONAS_QUERY_KEY,
+          });
+        } else {
+          await queryClient.invalidateQueries();
+          navigate("/");
+        }
       }
-      await queryClient.invalidateQueries({ queryKey: MY_PERSONAS_QUERY_KEY });
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       const { key, fallback } = added

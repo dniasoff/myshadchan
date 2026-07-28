@@ -1,6 +1,7 @@
 import type { DataProvider, Identifier } from "ra-core";
 
 import type { AccountMember, Persona, Single } from "../../../types";
+import { guardPersonaRemoval } from "./accountDomainData";
 import { getMyPersonas } from "./personas";
 import {
   activeMembershipsFor,
@@ -58,19 +59,33 @@ export async function removePersona(
   if (persona === "shadchan") {
     const membership = memberships.find((m) => m.role === "shadchan");
     if (!membership) return; // no-op: no active shadchan membership
+    // Review finding #1: refuse if this is the account's last active member
+    // and it still holds domain data.
+    await guardPersonaRemoval(
+      baseDataProvider,
+      membership.id,
+      membership.account_id,
+    );
     await archiveMembership(membership);
     return;
   }
 
   if (persona === "single") {
+    // Review finding #3: owning-role candidates (self-managed) must always
+    // be checked before a non-owning invited-single candidate, or a caller
+    // who both self-manages their own single AND is invited as a `single`
+    // elsewhere could be told "ask your household admin" for the record
+    // they DO own, depending on membership-id order. Mirrors the SQL fix's
+    // `order by is_owning_membership_role(role) desc, id`.
+    const orderedCandidates = [
+      ...memberships.filter((m) => isOwningMembershipRole(m.role)),
+      ...memberships.filter(
+        (m) => m.role === "single" && !isOwningMembershipRole(m.role),
+      ),
+    ];
+
     let target: { single: Single; membership: AccountMember } | undefined;
-    for (const membership of memberships) {
-      if (
-        membership.role !== "single" &&
-        !isOwningMembershipRole(membership.role)
-      ) {
-        continue;
-      }
+    for (const membership of orderedCandidates) {
       const { data } = await baseDataProvider.getList<Single>("singles", {
         filter: { member_id: membership.id, status: "active" },
         pagination: { page: 1, perPage: 1 },
@@ -151,6 +166,15 @@ export async function removePersona(
       return;
     }
 
+    // Review finding #1: refuse if this is the account's last active member
+    // and it still holds domain data — covers a household with only paused
+    // singles, or only references/shadchanim/tasks and no singles at all,
+    // which the dependents check above cannot catch on its own.
+    await guardPersonaRemoval(
+      baseDataProvider,
+      membership.id,
+      membership.account_id,
+    );
     await archiveMembership(membership);
     return;
   }

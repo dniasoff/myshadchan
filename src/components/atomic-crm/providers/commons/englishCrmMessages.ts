@@ -290,16 +290,19 @@ export const englishCrmMessages = {
         statuses: "Statuses",
       },
       // Story 2.5: the "add or remove a persona at any time" section.
-      // persona_add_error is the generic add_persona() failure; the three
+      // persona_add_error is the generic add_persona() failure; the
       // persona_remove_error_* keys map 1:1 to remove_persona()'s specific
       // guard messages (02_functions.sql) so Settings never shows raw
-      // Postgres text.
+      // Postgres text. persona_remove_error_last_access is review finding
+      // #1's added guard_persona_removal() guard.
       personas_title: "Personas",
       persona_add_error: "Couldn't set that up. Try again.",
       persona_remove_error_ask_admin:
         "This record is managed by your household admin — ask them to make this change.",
       persona_remove_error_only_persona:
         "You can't remove your only persona. Add another first.",
+      persona_remove_error_last_access:
+        "You're the only one who can still reach this account's records — add another member before removing this.",
       persona_remove_error_parent_guard:
         "Another admin needs to manage your household's other singles before you can remove this.",
       persona_remove_error_generic: "Couldn't remove that. Try again.",

@@ -442,6 +442,105 @@ Claude Opus 5 (claude-code, bmad-dev-story workflow)
 - `npm run test:unit:db` before any story-2.5 edit landed: 98 checks green (2.1/2.2/2.4 baseline).
   After Task 1/2/6: 122 checks green (24 new).
 - `make test`: 731 tests / 64 files green (includes the 3 new frontend test files).
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f persona_lifecycle_review_fixes`
+  (review fix pass) — same documented pitfall, `db diff` dropped the new
+  `account_has_domain_data()`/`guard_persona_removal()` GRANT/REVOKE block; added by hand, then
+  verified with a follow-up no-op `db diff` (`"No schema changes found"`) and a direct
+  `has_function_privilege` query against the local DB (`anon=f, authenticated=t, service_role=t`
+  for both new functions).
+
+### Review Fix Pass (2026-07-28)
+
+Addressed the NEEDS-FIX verdict from the code review. All four toolchain gates
+re-verified green after the fixes: `npm run typecheck` (exit 0), `make lint`
+(ESLint + Prettier, exit 0), `npm run test` (745/745 across 64 files, up from
+731/64 — 14 new tests), `npm run test:unit:db` (272/272 across 5 db suites, up
+from 265 — 7 new assertions in `context_resolution`).
+
+**Fixed:**
+
+- **[BLOCKER] Finding #1 — orphaning a household by removing `parent`/
+  `shadchan`.** Added `public.account_has_domain_data(account_id)` (checks all
+  13 household-only domain tables `enforce_household_scope()` enumerates,
+  status-agnostic) and `public.guard_persona_removal(membership_id,
+  account_id)` (refuses archiving the account's LAST active membership when
+  that account still holds any domain row). Wired into `remove_persona()`'s
+  `shadchan` branch and the `parent` branch's archive-outright arm (never the
+  demote arm — a demote never archives `account_members`, so nothing is at
+  risk there). Deliberately account-scoped, not a global "only persona
+  anywhere" check — the caller may hold other personas elsewhere and still
+  orphan this specific account. Mirrored in FakeRest as
+  `providers/fakerest/internal/accountDomainData.ts` (`accountHasDomainData`,
+  `guardPersonaRemoval`), wired into the same two branches in
+  `removePersona.ts`. New guard message `cannot remove your last active
+  membership of this account` maps to a new, translated
+  `crm.settings.persona_remove_error_last_access` key (both `en`/`fr`) — never
+  raw Postgres text. Pinned by three new `context_resolution.sql` fixtures
+  (r10 is finding #3, below; r11: household holding only a reference, no
+  singles at all; r12: household whose only single is `paused`, not
+  `active`) plus five new FakeRest unit tests.
+- **Finding #3 — `single` removal could target the wrong row for a
+  dual-membership user.** Changed the SQL's candidate selection from `order
+  by s.id` to `order by public.is_owning_membership_role(am.role) desc,
+  s.id` — an owning (self-managed) candidate is now always preferred over a
+  non-owning invited one, so "ask your household admin" is only ever raised
+  when no owning candidate exists at all. Mirrored in
+  `providers/fakerest/internal/removePersona.ts` (owning candidates checked
+  before non-owning ones, replacing the single `memberships`-order loop).
+  Pinned by `context_resolution.sql`'s r10 fixture (household Y's non-owning
+  single deliberately given the lower id, to exercise the pre-fix ordering
+  bug) and a new FakeRest unit test.
+- **Finding #4 — missing negative test on the permission change.** Added a
+  `context_resolution.sql` assertion, still acting as r8 (now archived)
+  before switching to r9's JWT, that r8 reads zero singles/shidduchim/
+  references from the household they just left — pinning "archive = revoke",
+  not just "current_context_id() is null" in isolation.
+- **Finding #5 — `PersonasSection` under-invalidated after a removal that
+  changes the active context.** `handleChange` now branches on which persona
+  was removed: `single` (can never touch `member_state.active_account_id` —
+  it only ever archives a `singles` row, never `account_members`) keeps the
+  existing scoped `MY_PERSONAS_QUERY_KEY` invalidation; `parent`/`shadchan`
+  (both can archive the membership backing the active context, per AC-7) now
+  run a full `queryClient.invalidateQueries()` + `navigate("/")`, matching
+  `ContextSwitcher`'s own handler for the identical event. Two new component
+  tests pin both branches (single stays on `/settings`; parent/shadchan
+  navigate home).
+
+**Rejected (with evidence):**
+
+- **Finding #2's specific fix — "apply the same `count(*) from my_personas()
+  <= 1` guard in all three branches."** Implementing this literally breaks
+  the story's own r1 fixture (`context_resolution.sql`), which explicitly
+  removes both `shadchan` then `parent` for a user down to zero personas and
+  asserts success at every step (`AC-2: removing parent with no dependents
+  and no single held archives the membership outright`, `AC-8: my_personas()
+  reports zero personas once both are removed`) — precisely because r1's
+  accounts hold no domain data, so ending at zero personas loses nothing and
+  is the documented, intended "back to onboarding" path. AC-2's own text
+  scopes the "only persona" refusal to `single` alone (plus the
+  parent-with-unmanaged-dependents case); AC-5 restates those same two cases,
+  not a new general rule. The actual risk finding #2 points at — probe 3's
+  "one-click entry point to finding #1" — is closed instead by finding #1's
+  account-scoped `guard_persona_removal()`: a shadchan-only or parent-only
+  user can still legitimately reach zero personas when their account holds
+  no data (r1, still green), but is now refused the moment doing so would
+  orphan real data (r11/r12, new). Applying finding #2's literal suggestion
+  on top would additionally have been redundant with, and in conflict with,
+  that already-shipped behavior.
+
+**Still open (not fixed — informational findings, no code change):**
+
+- **Finding #6 (note) — `single` re-add is not a true round trip; `SingleInputs.tsx` still offers `active` as a selectable (non-disabled) choice on an archived record.** Matches the story's own explicit design (pinned by `context_resolution.sql`'s r5 fixture: "two rows total, only the new one active") and is flagged as a known, accepted limitation, not a defect this story claims to close. Left as-is per the story's contract and to avoid scope creep.
+- **Finding #7 (note) — AC-4's "no RLS policy reads `account_members.status` directly" is factually inaccurate** (`05_policies.sql:26,87,95` do read it, filtering `'active'` in the same direction as the resolver, so harmless). A documentation-accuracy note about the AC's own justification text, not a code defect; left the AC text unchanged since ACs are the contract and the underlying safety property it describes still holds for the reason stated in the finding.
+- **Finding #8 (note) — the shadchanus orphan is latent, not damaging today**, since `enforce_household_scope()` structurally prevents any shadchanus account from holding domain data. `account_has_domain_data()`/`guard_persona_removal()` (finding #1's fix) are already general rather than household-only, so this stays correct without further change the moment Epic 8 gives a shadchanus account its own domain rows.
+
+**Also discovered, out of scope (not a listed finding, left unfixed):**
+`providers/fakerest/internal/personas.ts`'s `hasLinkedSingle()` filters only
+by `member_id`, not `status: 'active'` — unlike the SQL `my_personas()`,
+which the story explicitly patched to filter `s.status = 'active'`. This
+means FakeRest's `getMyPersonas()` can still report an archived `single`
+persona as held. Did not affect any fix in this pass (verified) but is a
+pre-existing FakeRest/SQL divergence worth a follow-up ticket.
 
 ### Completion Notes List
 
@@ -540,21 +639,33 @@ Claude Opus 5 (claude-code, bmad-dev-story workflow)
 - `src/components/atomic-crm/providers/fakerest/internal/removePersona.test.ts`
 - `src/components/atomic-crm/layout/TopBar.test.tsx`
 - `supabase/migrations/20260728021544_persona_lifecycle_changes.sql`
+- `src/components/atomic-crm/providers/fakerest/internal/accountDomainData.ts` — review fix pass:
+  `accountHasDomainData()`/`guardPersonaRemoval()`, the FakeRest mirror of
+  `account_has_domain_data()`/`guard_persona_removal()` (finding #1).
+- `supabase/migrations/20260728030236_persona_lifecycle_review_fixes.sql` — review fix pass migration.
 
 **Edited**
 - `supabase/schemas/01_tables.sql` — `account_members_status_check`.
 - `supabase/schemas/02_functions.sql` — new `remove_persona()`; `s.status = 'active'` fix to
-  `add_persona()` and `my_personas()`'s `single` predicates.
-- `supabase/schemas/06_grants.sql` — `remove_persona()` grant/revoke block.
+  `add_persona()` and `my_personas()`'s `single` predicates. Review fix pass: new
+  `account_has_domain_data()`/`guard_persona_removal()` (finding #1); `remove_persona()`'s
+  `shadchan`/`parent`-archive branches call the new guard; `single` branch's candidate ordering
+  fixed to owning-role-first (finding #3).
+- `supabase/schemas/06_grants.sql` — `remove_persona()` grant/revoke block. Review fix pass:
+  grant/revoke for `account_has_domain_data()`/`guard_persona_removal()`.
 - `supabase/tests/context_resolution.sql` — Story 2.5 test section (24 new assertions); fixed the
-  pre-existing `'revoked'` fixture literal to `'archived'`.
+  pre-existing `'revoked'` fixture literal to `'archived'`. Review fix pass: r10 (finding #3
+  ordering fix), r11/r12 (finding #1 orphan guard — references-only and paused-single-only
+  households), and a negative read-access assertion on the r8/r9 fixture (finding #4).
 - `src/components/atomic-crm/providers/supabase/dataProvider.ts` — `removePersona()`.
 - `src/components/atomic-crm/providers/fakerest/dataProvider.ts` — wired `removePersona()`.
 - `src/components/atomic-crm/settings/SettingsPage.tsx` — mounted `<PersonasSection />`.
 - `src/components/atomic-crm/settings/SettingsPageMobile.tsx` — mounted `<PersonasSection />`.
 - `src/components/atomic-crm/login/PersonaChecklist.tsx` — added optional `disabled` prop.
 - `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` — `crm.settings.persona*` keys.
+  Review fix pass: added `persona_remove_error_last_access` (finding #1).
 - `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` — `crm.settings.persona*` keys.
+  Review fix pass: added `persona_remove_error_last_access` (finding #1).
 - `src/components/atomic-crm/layout/TopBar.tsx` — archived-exclusion filter; exported
   `SingleSwitcherPill` for testability.
 - `src/components/atomic-crm/shidduchim/ShidduchimList.tsx` — archived-exclusion filter.
@@ -564,6 +675,20 @@ Claude Opus 5 (claude-code, bmad-dev-story workflow)
 - `src/components/atomic-crm/singles/SingleInputs.tsx` — disabled `archived` choice.
 - `src/components/atomic-crm/singles/SingleCard.tsx` — three-way `STATUS_LABEL`.
 - `src/components/atomic-crm/singles/SingleShow.tsx` — three-way `STATUS_LABEL`.
-- `registry.json` — regenerated (`make registry-gen`).
+- `src/components/atomic-crm/settings/PersonasSection.tsx` — review fix pass: new
+  `persona_remove_error_last_access` mapping (finding #1); `handleChange` now does a full
+  `invalidateQueries()` + `navigate("/")` for `parent`/`shadchan` removal, scoped invalidation
+  kept for `single` (finding #5).
+- `src/components/atomic-crm/settings/PersonasSection.test.tsx` — review fix pass: wrapped in
+  `TestMemoryRouter`; new tests for the last-access guard error and the split
+  scoped-vs-full-invalidation behavior (findings #1, #5).
+- `src/components/atomic-crm/providers/fakerest/internal/removePersona.ts` — review fix pass:
+  wired `guardPersonaRemoval()` into the `shadchan`/`parent`-archive branches (finding #1); `single`
+  branch's candidate ordering fixed to owning-role-first (finding #3).
+- `src/components/atomic-crm/providers/fakerest/internal/removePersona.test.ts` — review fix pass:
+  expanded the test `Db` to cover every `accountHasDomainData()` resource; five new tests for
+  findings #1 and #3.
+- `registry.json` — regenerated (`make registry-gen`); review fix pass re-run picked up the new
+  `accountDomainData.ts` file.
 </content>
 </invoke>

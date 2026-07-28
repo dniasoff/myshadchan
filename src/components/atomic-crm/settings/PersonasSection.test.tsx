@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import { CoreAdminContext } from "ra-core";
+import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import { QueryClient } from "@tanstack/react-query";
 
 import { Notification } from "@/components/admin/notification";
@@ -54,19 +54,27 @@ const renderSection = async (
     getMyPersonas: vi.fn().mockResolvedValue(personas),
     ...dataProviderOverrides,
   });
+  let pathname: string | undefined;
 
   const screen = await render(
-    <CoreAdminContext
-      dataProvider={dataProvider}
-      queryClient={queryClient}
-      i18nProvider={testI18nProvider}
+    <TestMemoryRouter
+      initialEntries={["/settings"]}
+      locationCallback={(location) => {
+        pathname = location.pathname;
+      }}
     >
-      <PersonasSection />
-      <Notification />
-    </CoreAdminContext>,
+      <CoreAdminContext
+        dataProvider={dataProvider}
+        queryClient={queryClient}
+        i18nProvider={testI18nProvider}
+      >
+        <PersonasSection />
+        <Notification />
+      </CoreAdminContext>
+    </TestMemoryRouter>,
   );
 
-  return { screen, queryClient, dataProvider };
+  return { screen, queryClient, dataProvider, getPathname: () => pathname };
 };
 
 describe("PersonasSection", () => {
@@ -147,6 +155,52 @@ describe("PersonasSection", () => {
       .not.toBeChecked();
   });
 
+  it("removing `single` never navigates away — archiving a singles row can never touch the active context", async () => {
+    // Arrange — review finding #5: `single` removal only ever archives a
+    // `singles` row, never `account_members`, so it can never move or NULL
+    // the active context and a scoped invalidation (already covered above)
+    // stays correct — no full invalidateQueries()/navigate("/") needed.
+    const removePersona = vi.fn().mockResolvedValue(undefined);
+    const { screen, getPathname } = await renderSection(
+      [parentPersona, singlePersona],
+      { removePersona },
+    );
+
+    // Act
+    await screen
+      .getByRole("checkbox", {
+        name: "I'm looking for a shidduch for myself",
+      })
+      .click();
+
+    // Assert
+    await expect.poll(() => removePersona).toHaveBeenCalledTimes(1);
+    expect(getPathname()).toBe("/settings");
+  });
+
+  it("removing `parent` invalidates every query and navigates home, matching ContextSwitcher's handler for the same event", async () => {
+    // Arrange — review finding #5: removing `shadchan`/`parent` can archive
+    // the membership backing the caller's active context (AC-7), which is
+    // the scope of every other cached query, not just my_personas().
+    const removePersona = vi.fn().mockResolvedValue(undefined);
+    const { screen, queryClient, getPathname } = await renderSection(
+      [parentPersona, singlePersona],
+      { removePersona },
+    );
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+    // Act
+    await screen
+      .getByRole("checkbox", {
+        name: "I'm looking for a shidduch for my children",
+      })
+      .click();
+
+    // Assert
+    await expect.poll(() => getPathname()).toBe("/");
+    expect(invalidateQueries).toHaveBeenCalledWith(); // no scoped queryKey
+  });
+
   it("surfaces the 'only persona' guard as a specific, translated error and leaves the checkbox checked", async () => {
     // Arrange — single is the caller's only persona.
     const removePersona = vi
@@ -176,6 +230,43 @@ describe("PersonasSection", () => {
       .element(
         screen.getByRole("checkbox", {
           name: "I'm looking for a shidduch for myself",
+        }),
+      )
+      .toBeChecked();
+  });
+
+  it("surfaces the 'last active membership' orphan guard as a specific, translated error and leaves the checkbox checked", async () => {
+    // Arrange — review finding #1: removing the account's last active
+    // membership while it still holds domain data is refused.
+    const removePersona = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("cannot remove your last active membership of this account"),
+      );
+    const { screen } = await renderSection([parentPersona], {
+      removePersona,
+    });
+
+    // Act
+    await screen
+      .getByRole("checkbox", {
+        name: "I'm looking for a shidduch for my children",
+      })
+      .click();
+
+    // Assert — the specific translated copy, never a generic toast or raw
+    // Postgres text.
+    await expect
+      .element(
+        screen.getByText(
+          "You're the only one who can still reach this account's records — add another member before removing this.",
+        ),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByRole("checkbox", {
+          name: "I'm looking for a shidduch for my children",
         }),
       )
       .toBeChecked();

@@ -977,7 +977,10 @@ values
   ('faaaaaa6-6666-6666-6666-666666666666', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r6@test.local', null),
   ('faaaaaa7-7777-7777-7777-777777777777', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r7@test.local', null),
   ('faaaaaa8-8888-8888-8888-888888888888', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r8-admin1@test.local', null),
-  ('faaaaaa9-9999-9999-9999-999999999999', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r9-admin2@test.local', null);
+  ('faaaaaa9-9999-9999-9999-999999999999', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r9-admin2@test.local', null),
+  ('fbbbbbb0-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r10-dual-household@test.local', null),
+  ('fbbbbbb1-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r11-references-only@test.local', null),
+  ('fbbbbbb2-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r12-paused-single@test.local', null);
 
 -- ---------------------------------------------------------------------------
 -- AC-6: the check constraint this story adds rejects any status outside
@@ -1275,6 +1278,16 @@ insert into results (name, passed)
 select 'AC-7: r8''s own active context clears to NULL after archiving their sole membership',
        public.current_context_id() is null;
 
+-- Review finding #4: the actual invariant "archive = revoke", pinned as a
+-- negative test — r8's membership is now archived and their active context
+-- is NULL, so RLS must show them ZERO rows of the household they just left,
+-- not merely "current_context_id() is null" in isolation.
+insert into results (name, passed)
+select 'review finding #4: r8 (now archived) reads zero singles/shidduchim/references from the household they just left',
+       (select count(*) from public.singles where id = :r89_single) = 0
+   and (select count(*) from public.shidduchim where id = :r89_shidduch) = 0
+   and (select count(*) from public."references" where id = :r89_reference) = 0;
+
 set local request.jwt.claims = '{"sub":"faaaaaa9-9999-9999-9999-999999999999","role":"authenticated"}';
 
 insert into results (name, passed)
@@ -1300,6 +1313,117 @@ select 'AC-3: remove_persona() contains zero DELETE statements (every removal is
        prosrc not ilike '%delete from%'
 from pg_proc
 where proname = 'remove_persona';
+
+-- ---------------------------------------------------------------------------
+-- r10: review finding #3 — a user who is BOTH a self-managed single in one
+-- household AND an invited (non-owning) single-role member in another must
+-- always get their OWN (owning) record archived, never the non-owning one,
+-- regardless of which singles row happens to have the lower id.
+-- household Y's (non-owning) single is inserted FIRST, deliberately giving
+-- it the lower id, so the pre-fix `order by s.id limit 1` would have picked
+-- it and wrongly raised "ask your household admin" for a record the caller
+-- does own elsewhere.
+-- ---------------------------------------------------------------------------
+insert into public.accounts (name, kind) values ('R10 Household Y (invited)', 'household') returning id as r10_house_y \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:r10_house_y, 'fbbbbbb0-0000-0000-0000-000000000000', 'single', 'active')
+returning id as r10_membership_y \gset
+insert into public.singles (account_id, member_id, first_name_en, status)
+values (:r10_house_y, :r10_membership_y, 'R10 Invited', 'active')
+returning id as r10_single_y \gset
+
+insert into public.accounts (name, kind) values ('R10 Household X (own)', 'household') returning id as r10_house_x \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:r10_house_x, 'fbbbbbb0-0000-0000-0000-000000000000', 'self_manager', 'active')
+returning id as r10_membership_x \gset
+insert into public.singles (account_id, member_id, first_name_en, status)
+values (:r10_house_x, :r10_membership_x, 'R10 Self', 'active')
+returning id as r10_single_x \gset
+
+insert into results (name, passed)
+select 'setup sanity: household Y''s (non-owning) single has the lower id, exercising the pre-fix ordering bug',
+       :r10_single_y < :r10_single_x;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"fbbbbbb0-0000-0000-0000-000000000000","role":"authenticated"}';
+
+select public.remove_persona('single');
+
+reset role;
+
+-- Checked as superuser (not the still-authenticated fbbbbbb0): fbbbbbb0's
+-- active context is household Y (the FIRST membership auto-activated by
+-- activate_first_context_trigger), so an RLS-scoped read here would only
+-- ever see household Y's rows and silently miss whatever remove_persona()
+-- did to household X's row.
+insert into results (name, passed)
+select 'review finding #3: removing single archives the caller''s OWN (owning) record, not the lower-id non-owning one',
+       (select status from public.singles where id = :r10_single_x) = 'archived'
+   and (select status from public.singles where id = :r10_single_y) = 'active';
+
+-- ---------------------------------------------------------------------------
+-- r11: review finding #1 (BLOCKER) — a household holding only a reference
+-- (no singles at all) bypassed the old dependents guard unconditionally,
+-- since that guard only ever counted `singles`. Sole admin, no dependents,
+-- no other admin: the new account-scoped orphan guard must refuse.
+-- ---------------------------------------------------------------------------
+insert into public.accounts (name, kind) values ('R11 Household', 'household') returning id as r11_house \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:r11_house, 'fbbbbbb1-1111-1111-1111-111111111111', 'parent_admin', 'active')
+returning id as r11_membership \gset
+insert into public."references" (account_id, name_en) values (:r11_house, 'R11 Reference') returning id as r11_reference \gset
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"fbbbbbb1-1111-1111-1111-111111111111","role":"authenticated"}';
+
+do $$
+begin
+  perform public.remove_persona('parent');
+  insert into results values ('review finding #1: removing the sole member of a household holding only a reference (no singles) is refused, not silently accepted', false, 'no exception raised');
+exception when others then
+  insert into results values ('review finding #1: removing the sole member of a household holding only a reference (no singles) is refused, not silently accepted',
+    sqlerrm like '%cannot remove your last active membership%', sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'the refused r11 removal changed nothing — membership still active, reference still there',
+       (select status from public.account_members where id = :r11_membership) = 'active'
+   and (select count(*) from public."references" where id = :r11_reference) = 1;
+
+-- ---------------------------------------------------------------------------
+-- r12: review finding #1 (BLOCKER) — a household whose only single is
+-- `paused` (a first-class UI status, not `active`) bypassed the old
+-- dependents guard too, since that guard's count filtered `status =
+-- 'active'`. Sole admin, no other admin: the new orphan guard must refuse
+-- regardless of the single's status.
+-- ---------------------------------------------------------------------------
+insert into public.accounts (name, kind) values ('R12 Household', 'household') returning id as r12_house \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:r12_house, 'fbbbbbb2-2222-2222-2222-222222222222', 'parent_admin', 'active')
+returning id as r12_membership \gset
+insert into public.singles (account_id, first_name_en, status)
+values (:r12_house, 'R12 Paused Dependent', 'paused') returning id as r12_single \gset
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"fbbbbbb2-2222-2222-2222-222222222222","role":"authenticated"}';
+
+do $$
+begin
+  perform public.remove_persona('parent');
+  insert into results values ('review finding #1: removing the sole admin of a household whose only single is paused (not active) is refused, not silently accepted', false, 'no exception raised');
+exception when others then
+  insert into results values ('review finding #1: removing the sole admin of a household whose only single is paused (not active) is refused, not silently accepted',
+    sqlerrm like '%cannot remove your last active membership%', sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'the refused r12 removal changed nothing — membership still active, paused single still there, unchanged',
+       (select status from public.account_members where id = :r12_membership) = 'active'
+   and (select status from public.singles where id = :r12_single) = 'paused';
 
 \t on
 \a

@@ -16,6 +16,20 @@ type Db = {
   accounts: Account[];
   account_members: AccountMember[];
   singles: Single[];
+  // Review finding #1: every other household-only domain resource
+  // accountHasDomainData() (called by guardPersonaRemoval()) iterates over —
+  // must exist even empty, or its getList() throws "Unknown resource".
+  shadchanim: Record<string, unknown>[];
+  references: Record<string, unknown>[];
+  shidduchim: Record<string, unknown>[];
+  resumes: Record<string, unknown>[];
+  reference_links: Record<string, unknown>[];
+  date_records: Record<string, unknown>[];
+  redts: Record<string, unknown>[];
+  shidduch_schools: Record<string, unknown>[];
+  interactions: Record<string, unknown>[];
+  inbox_items: Record<string, unknown>[];
+  tasks: Record<string, unknown>[];
 };
 
 const emptyDb = (): Db => ({
@@ -23,6 +37,17 @@ const emptyDb = (): Db => ({
   accounts: [],
   account_members: [],
   singles: [],
+  shadchanim: [],
+  references: [],
+  shidduchim: [],
+  resumes: [],
+  reference_links: [],
+  date_records: [],
+  redts: [],
+  shidduch_schools: [],
+  interactions: [],
+  inbox_items: [],
+  tasks: [],
 });
 
 const buildProvider = (db: Db): DataProvider => {
@@ -237,6 +262,32 @@ describe("removePersona", () => {
       // Assert
       expect(setActiveAccountId).not.toHaveBeenCalled();
     });
+
+    it("refuses when the caller is the account's last active member and it still holds domain data (review finding #1)", async () => {
+      // Arrange — sole shadchan membership, but the account already holds a
+      // domain row (shadchanim, in this fixture only — production's
+      // enforce_household_scope() trigger forbids this on a real
+      // shadchanus account today, but the guard logic must still hold).
+      const db = emptyDb();
+      db.accounts.push(account({ id: 2, kind: "shadchanus" }));
+      db.account_members.push(
+        accountMember({ id: 1, account_id: 2, user_id: "0", role: "shadchan" }),
+      );
+      db.shadchanim.push({ id: 1, account_id: 2, name: "A Matchmaker" });
+      const provider = buildProvider(db);
+
+      // Act / Assert
+      await expect(
+        removePersona(
+          provider,
+          identityFor(0),
+          "shadchan",
+          () => null,
+          vi.fn(),
+        ),
+      ).rejects.toThrow("cannot remove your last active membership");
+      expect(db.account_members[0].status).toBe("active");
+    });
   });
 
   describe("single", () => {
@@ -321,6 +372,50 @@ describe("removePersona", () => {
       // Assert
       expect(db.singles).toHaveLength(1);
       expect(db.singles[0].status).toBe("archived");
+    });
+
+    it("archives the caller's OWN (owning) record, never a non-owning invited record elsewhere (review finding #3)", async () => {
+      // Arrange — the caller both self-manages their own single (household
+      // X, membership id 2) AND is invited as `single` in another household
+      // (household Y, membership id 1, deliberately the LOWER id/singles-row
+      // id so the pre-fix `order by s.id limit 1` would have picked it).
+      const db = emptyDb();
+      db.accounts.push(
+        account({ id: 10, name: "Household Y (invited)" }),
+        account({ id: 20, name: "Household X (own)" }),
+      );
+      db.account_members.push(
+        accountMember({
+          id: 1,
+          account_id: 10,
+          user_id: "0",
+          role: "single",
+        }),
+        accountMember({
+          id: 2,
+          account_id: 20,
+          user_id: "0",
+          role: "self_manager",
+        }),
+      );
+      db.singles.push(
+        single({ id: 1, account_id: 10, member_id: 1 }), // invited, non-owning, lower id
+        single({ id: 2, account_id: 20, member_id: 2 }), // own, owning, higher id
+      );
+      const provider = buildProvider(db);
+
+      // Act
+      await removePersona(
+        provider,
+        identityFor(0),
+        "single",
+        () => null,
+        vi.fn(),
+      );
+
+      // Assert — the OWN record is archived; the invited one is untouched.
+      expect(db.singles.find((s) => s.id === 2)?.status).toBe("archived");
+      expect(db.singles.find((s) => s.id === 1)?.status).toBe("active");
     });
   });
 
@@ -448,6 +543,46 @@ describe("removePersona", () => {
         status: "archived",
       });
       expect(setActiveAccountId).toHaveBeenCalledExactlyOnceWith(2);
+    });
+
+    it("refuses when the caller is the sole member of a household holding only a reference — no singles at all (review finding #1)", async () => {
+      // Arrange — the old dependents guard only ever counted `singles`, so a
+      // household holding only a reference bypassed it unconditionally.
+      const db = emptyDb();
+      db.accounts.push(account({ id: 1 }));
+      db.account_members.push(
+        accountMember({ id: 1, account_id: 1, user_id: "0" }),
+      );
+      db.references.push({ id: 1, account_id: 1, name_en: "A Reference" });
+      const provider = buildProvider(db);
+
+      // Act / Assert
+      await expect(
+        removePersona(provider, identityFor(0), "parent", () => null, vi.fn()),
+      ).rejects.toThrow("cannot remove your last active membership");
+      expect(db.account_members[0].status).toBe("active");
+    });
+
+    it("refuses when the caller is the sole admin and the household's only single is paused, not active (review finding #1)", async () => {
+      // Arrange — the old dependents guard's count filtered `status =
+      // 'active'`, so a `paused` single (a first-class UI status) bypassed
+      // it too.
+      const db = emptyDb();
+      db.accounts.push(account({ id: 1 }));
+      db.account_members.push(
+        accountMember({ id: 1, account_id: 1, user_id: "0" }),
+      );
+      db.singles.push(
+        single({ id: 1, account_id: 1, member_id: null, status: "paused" }),
+      );
+      const provider = buildProvider(db);
+
+      // Act / Assert
+      await expect(
+        removePersona(provider, identityFor(0), "parent", () => null, vi.fn()),
+      ).rejects.toThrow("cannot remove your last active membership");
+      expect(db.account_members[0].status).toBe("active");
+      expect(db.singles[0].status).toBe("paused");
     });
   });
 });

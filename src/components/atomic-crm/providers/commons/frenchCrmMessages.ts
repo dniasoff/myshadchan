@@ -290,6 +290,8 @@ export const frenchCrmMessages = {
         "Cet enregistrement est géré par l'administrateur de votre foyer — demandez-lui de faire ce changement.",
       persona_remove_error_only_persona:
         "Vous ne pouvez pas retirer votre seul profil. Ajoutez-en un autre d'abord.",
+      persona_remove_error_last_access:
+        "Vous êtes la seule personne à pouvoir encore accéder aux données de ce compte — ajoutez un autre membre avant de retirer ceci.",
       persona_remove_error_parent_guard:
         "Un autre administrateur doit gérer les autres célibataires de votre foyer avant que vous puissiez retirer ceci.",
       persona_remove_error_generic: "Impossible de retirer cela. Réessayez.",

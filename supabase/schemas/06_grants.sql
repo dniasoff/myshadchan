@@ -298,6 +298,20 @@ revoke all on function public.my_personas() from public, anon;
 grant execute on function public.my_personas() to authenticated;
 grant execute on function public.my_personas() to service_role;
 
+-- Review finding #1 (2.5): account_has_domain_data() is a plain read-only
+-- predicate used by guard_persona_removal(); safe to grant broadly (RLS
+-- still applies unless called from within a SECURITY DEFINER caller).
+revoke all on function public.account_has_domain_data(bigint) from public, anon;
+grant execute on function public.account_has_domain_data(bigint) to authenticated;
+grant execute on function public.account_has_domain_data(bigint) to service_role;
+
+-- Review finding #1 (2.5): guard_persona_removal() is the shared refusal
+-- check remove_persona()'s shadchan/parent branches call before archiving a
+-- membership outright.
+revoke all on function public.guard_persona_removal(bigint, bigint) from public, anon;
+grant execute on function public.guard_persona_removal(bigint, bigint) to authenticated;
+grant execute on function public.guard_persona_removal(bigint, bigint) to service_role;
+
 -- Story 2.5 (AC-2): remove_persona() is SECURITY DEFINER — every query
 -- inside is filtered to user_id = auth.uid() alone, never a parameter, so
 -- bypassing RLS never becomes bypassing the tenant boundary; anon must

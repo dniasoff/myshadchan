@@ -591,6 +591,71 @@ CREATE OR REPLACE FUNCTION "public"."my_personas"() RETURNS TABLE("persona" "tex
     and (am.role = 'single' or public.is_owning_membership_role(am.role));
 $$;
 
+-- Review finding #1 (2.5): "does this account still hold real data" —
+-- checked against every one of the 13 household-only domain tables
+-- enforce_household_scope() already enumerates (04_triggers.sql's
+-- validate_<table>_household_scope list), status-agnostic (an
+-- archived/paused row is still data per AC-3's "remains auditable"). Kept
+-- general rather than household-only: a shadchanus account can never have a
+-- row in any of these tables today (the same trigger forbids it), so this
+-- is structurally always false there — but it stays correct the moment
+-- Epic 8 gives a shadchanus account its own domain rows.
+CREATE OR REPLACE FUNCTION "public"."account_has_domain_data"("p_account_id" bigint) RETURNS boolean
+    LANGUAGE "sql" STABLE
+    SET "search_path" TO ''
+    AS $$
+  select
+       exists (select 1 from public.singles where account_id = p_account_id)
+    or exists (select 1 from public.shadchanim where account_id = p_account_id)
+    or exists (select 1 from public."references" where account_id = p_account_id)
+    or exists (select 1 from public.shidduchim where account_id = p_account_id)
+    or exists (select 1 from public.resumes where account_id = p_account_id)
+    or exists (select 1 from public.reference_links where account_id = p_account_id)
+    or exists (select 1 from public.date_records where account_id = p_account_id)
+    or exists (select 1 from public.redts where account_id = p_account_id)
+    or exists (select 1 from public.shidduch_schools where account_id = p_account_id)
+    or exists (select 1 from public.interactions where account_id = p_account_id)
+    or exists (select 1 from public.identity_signals where account_id = p_account_id)
+    or exists (select 1 from public.inbox_items where account_id = p_account_id)
+    or exists (select 1 from public.tasks where account_id = p_account_id);
+$$;
+
+-- Review finding #1 (2.5, BLOCKER): shared refusal guard for
+-- remove_persona()'s shadchan branch and the parent branch's
+-- archive-outright arm — the two places that archive an account_members row
+-- without checking anything first. Not used by the single branch: archiving
+-- a singles row never touches account_members, so there is no membership
+-- (and therefore no account-level orphan) at stake there.
+--
+-- Refuses archiving `p_membership_id` when it is the caller's LAST active
+-- membership of `p_account_id` (no other active member, of any role, could
+-- ever reach it again) AND that account still holds any domain row. Without
+-- this, add_persona() re-provisioning always mints a brand-new, empty
+-- account rather than reactivating the archived one (there is no
+-- un-archive path today), so this specific account's history becomes
+-- permanently unreachable — the opposite of AC-3/AC-4's "archived, never
+-- deleted, remains auditable forever." Deliberately account-scoped, not a
+-- global "is this your only persona anywhere" check: the caller may hold
+-- other personas on other accounts and still orphan this one.
+CREATE OR REPLACE FUNCTION "public"."guard_persona_removal"("p_membership_id" bigint, "p_account_id" bigint) RETURNS "void"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_has_other_member boolean;
+begin
+  select exists (
+    select 1 from public.account_members
+    where account_id = p_account_id and status = 'active' and id <> p_membership_id
+  ) into v_has_other_member;
+
+  if not v_has_other_member and public.account_has_domain_data(p_account_id) then
+    raise exception 'cannot remove your last active membership of this account'
+      using errcode = 'check_violation';
+  end if;
+end;
+$$;
+
 -- Story 2.5 (AC-2/AC-3/AC-5/AC-7): the one function that owns persona
 -- removal, mirroring add_persona()'s shape and rationale exactly — SECURITY
 -- DEFINER because the target membership may not be the caller's currently
@@ -646,6 +711,9 @@ begin
     limit 1;
 
     if v_membership_id is not null then
+      -- Review finding #1: refuse if this is the account's last active
+      -- member and it still holds domain data (see guard_persona_removal()).
+      perform public.guard_persona_removal(v_membership_id, v_account_id);
       update public.account_members set status = 'archived' where id = v_membership_id;
       v_archived_account_id := v_account_id;
     end if;
@@ -657,6 +725,14 @@ begin
   -- this function) and the caller holds at least one other active persona.
   -- No-op if the caller holds no active single persona at all.
   if p_persona = 'single' then
+    -- Review finding #3: owning-role candidates (self-managed) must always
+    -- be picked over a non-owning invited-single candidate, or a caller who
+    -- both self-manages their own single AND is invited as a `single`
+    -- elsewhere would be told "ask your household admin" for the record
+    -- they DO own, whenever `order by s.id` happened to surface the
+    -- non-owning row first. Ordering owning-role first means the
+    -- "ask your household admin" branch below is only ever reached when no
+    -- owning candidate exists at all.
     select s.id, am.role into v_single_id, v_role
     from public.singles s
     join public.account_members am on am.id = s.member_id
@@ -664,7 +740,7 @@ begin
       and am.status = 'active'
       and s.status = 'active'
       and (am.role = 'single' or public.is_owning_membership_role(am.role))
-    order by s.id
+    order by public.is_owning_membership_role(am.role) desc, s.id
     limit 1;
 
     if v_single_id is not null then
@@ -725,6 +801,12 @@ begin
       if v_holds_single then
         update public.account_members set role = 'self_manager' where id = v_membership_id;
       else
+        -- Review finding #1: refuse if this is the account's last active
+        -- member and it still holds domain data (see guard_persona_removal()).
+        -- Covers the case the dependents check above cannot: a household
+        -- with only paused singles, or only references/shadchanim/tasks and
+        -- no singles at all, still gets orphaned by an outright archive.
+        perform public.guard_persona_removal(v_membership_id, v_account_id);
         update public.account_members set status = 'archived' where id = v_membership_id;
         v_archived_account_id := v_account_id;
       end if;
