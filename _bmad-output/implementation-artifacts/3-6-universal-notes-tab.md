@@ -358,8 +358,8 @@ one-line filter addition to the query 3.5 built, flagged in 3.5's own Dev Notes 
 
 - [ ] **Task 7 — Validate**
   - [ ] `npm run typecheck` · `npx vitest run` · `npm run test:unit:db` · `npm run lint` ·
-        `npm run build`. (There is **no `Makefile`** in this repo; `make typecheck` / `make
-        test` do not exist.)
+        `npm run build`. (Equivalently `make typecheck` / `make test` / `make lint` /
+        `make build`.)
 
 ## Dev Notes
 

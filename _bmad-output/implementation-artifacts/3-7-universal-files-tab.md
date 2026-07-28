@@ -630,9 +630,9 @@ descriptive test names, no `waitForTimeout`, ≥80% coverage on new code
 `db` project for `entity_files.sql`. Cross-tenant negatives are **one login with memberships
 in two accounts**, never two disjoint users.
 
-Validation commands — **there is no `Makefile` in this repo**; `make test` / `make typecheck`
-do not exist: `npm run typecheck`, `npx vitest run`, `npm run test:unit:db`, `npm run lint`,
-`npm run build` [Source: package.json:6-17].
+Validation commands: `npm run typecheck`, `npx vitest run`, `npm run test:unit:db`,
+`npm run lint`, `npm run build` (equivalently `make typecheck` / `make test` / `make lint` /
+`make build`) [Source: package.json:6-17].
 
 Every `npx supabase` invocation must be prefixed `DBUS_SESSION_BUS_ADDRESS=/dev/null` or it
 hangs on the keyring.

@@ -406,9 +406,9 @@ touch `node:fs`.
   (`package.json:17`), not by the test runner — an unused `@ts-expect-error` is itself a tsc
   error, and `tsconfig.app.json`'s `include: ["src","demo","vitest-browser.d.ts"]` covers
   `.test.tsx` files under `src/`.
-- **There is no `Makefile` in this repo.** `make typecheck` and `make test` do not exist.
-  The validation set is `npm run typecheck`, `npm run test:unit:app`, `npm run lint`,
-  `npm run build`.
+- The validation set is `npm run typecheck`, `npm run test:unit:app`, `npm run lint`,
+  `npm run build` (equivalently `make typecheck`, `make test`, `make lint`, `make build` — the
+  repo's lowercase `makefile` resolves these).
 
 ### Project Structure Notes
 

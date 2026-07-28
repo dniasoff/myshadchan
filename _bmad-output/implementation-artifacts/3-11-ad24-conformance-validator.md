@@ -625,7 +625,8 @@ added later, those are the repo's tools and React Testing Library is **not** a d
 [Source: src/components/atomic-crm/layout/ContextSwitcher.test.tsx:1-3,68-71]. No backend
 surface, no migration, no `test:unit:db` involvement — AC 7 reads the schema file, it does
 not query a database. Validation set: `npm run typecheck`, `npx vitest run`,
-`npm run lint`, `npm run build` — **there is no `Makefile`**
+`npm run lint`, `npm run build` (equivalently `make typecheck` / `make test` / `make lint` /
+`make build`)
 [Source: package.json:5-18].
 
 ### Project Structure Notes

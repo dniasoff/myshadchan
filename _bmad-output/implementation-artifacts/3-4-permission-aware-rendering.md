@@ -428,8 +428,9 @@ AAA, no `waitForTimeout`, `it.each` for the role sweeps, ≥80% coverage on new 
 memberships**, never two disjoint users — two disjoint users pass without ever exercising
 `current_context_id()`.
 
-Validation commands — **there is no `Makefile`**: `npm run typecheck`, `npm run test:unit:app`,
-`npm run lint` [Source: package.json:6-20]. This story touches no SQL, so
+Validation commands: `npm run typecheck`, `npm run test:unit:app`,
+`npm run lint` (equivalently `make typecheck` / `make test` / `make lint`)
+[Source: package.json:6-20]. This story touches no SQL, so
 `npm run test:unit:db` is not in its gate (AC 9).
 
 ### Security review

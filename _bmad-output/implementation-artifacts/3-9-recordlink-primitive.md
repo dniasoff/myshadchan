@@ -532,8 +532,8 @@ under `strict`.
 
 - [ ] **Task 7 — validation**
   - [ ] `npm run typecheck` · `npx vitest run` · `npm run lint` · `npm run build`.
-        (There is **no `Makefile`** in this repo; `make typecheck` / `make test` do not
-        exist.) No DB change in this story, so `npm run test:unit:db` is unchanged but must
+        (Equivalently `make typecheck` / `make test` / `make lint` / `make build`.) No DB
+        change in this story, so `npm run test:unit:db` is unchanged but must
         still pass.
 
 ## Dev Notes

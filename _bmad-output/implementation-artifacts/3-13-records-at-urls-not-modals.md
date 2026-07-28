@@ -346,7 +346,7 @@ assertions use
 behaviour per `it`, descriptive names, no `waitForTimeout`
 [Source: .claude/rules/testing.md]. No backend, RLS or migration surface in this story, so
 no `db`-project test. Validation commands are `npm run typecheck`, `npm run lint`,
-`npx vitest run --project app` — there is **no `Makefile`** in this repo.
+`npx vitest run --project app` (equivalently `make typecheck` / `make lint` / `make test`).
 
 ### Project Structure Notes
 

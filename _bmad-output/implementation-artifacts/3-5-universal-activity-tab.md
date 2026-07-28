@@ -460,8 +460,8 @@ shared module they will both import (AC 7), and Epic 5 replaces both surfaces la
         existence).
 
 - [ ] **Task 9 — Validation** — `npm run typecheck`, `npx vitest run`, `npm run test:unit:db`,
-      `npm run lint`, `npm run build` [Source: package.json:6,10,14,17,20 — there is **no
-      `Makefile`**; `make typecheck` / `make test` do not exist].
+      `npm run lint`, `npm run build` [Source: package.json:6,10,14,17,20 — equivalently
+      `make typecheck` / `make test` / `make lint` / `make build`].
 
 ## Dev Notes
 

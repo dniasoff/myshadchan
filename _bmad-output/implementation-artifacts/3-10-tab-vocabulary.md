@@ -452,8 +452,9 @@ AAA, descriptive `it` names, no shared mutable state, no `waitForTimeout`
 `@ts-expect-error` cases in AC 2 are enforced by `npm run typecheck`
 (`package.json:17` — `tsc --noEmit --project tsconfig.app.json && …`), not by the runner;
 an unused `@ts-expect-error` is itself a tsc error, which is what makes AC 2 falsifiable.
-There is **no `Makefile`** in this repo — `make typecheck` / `make test` do not exist. The
-validation set is `npm run typecheck`, `npx vitest run`, `npm run lint`, `npm run build`.
+The validation set is `npm run typecheck`, `npx vitest run`, `npm run lint`, `npm run build`
+(equivalently `make typecheck`, `make test`, `make lint`, `make build` — the repo's lowercase
+`makefile` resolves these).
 
 No backend surface: no migration, no RLS, no policy, no `npm run test:unit:db` involvement.
 

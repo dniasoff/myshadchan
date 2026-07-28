@@ -301,8 +301,8 @@ pattern.
 
 - [ ] **Task 6 — Validation** (AC: all)
   - [ ] `npm run typecheck`, `npx vitest run`, `npm run test:unit:db`, `npm run lint`,
-        `npm run build`. (There is no `Makefile` in this repo; `make typecheck` / `make test`
-        do not exist.)
+        `npm run build`. (Equivalently `make typecheck` / `make test` / `make lint` /
+        `make build`.)
   - [ ] The diff touches a database migration, so `.claude/rules/security-triggers.md` applies:
         dispatch SECURITY-REVIEWER.
 

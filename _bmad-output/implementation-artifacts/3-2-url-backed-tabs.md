@@ -424,9 +424,9 @@ use `TestMemoryRouter`'s `locationCallback`; the worked pattern for both is
 names, fixtures reset in `beforeEach`, no `waitForTimeout`, ≥80% coverage on new code
 [Source: .claude/rules/testing.md]. All tests run in the `app` vitest project.
 
-Validation commands (**there is no `Makefile` in this repo**):
-`npm run typecheck` · `npx vitest run` (or `npm run test:unit:app`) · `npm run lint` ·
-`npm run build` [Source: package.json:6-20]. No backend, RLS or migration surface in this
+Validation commands: `npm run typecheck` · `npx vitest run` (or `npm run test:unit:app`) ·
+`npm run lint` · `npm run build` (equivalently `make typecheck` / `make test` / `make lint` /
+`make build`) [Source: package.json:6-20]. No backend, RLS or migration surface in this
 story, so `npm run test:unit:db` is unaffected.
 
 ### Project Structure Notes

@@ -18,7 +18,7 @@ not sources for anything in this contract.**
 | Wrong | Correct |
 |---|---|
 | `[Source: ARCHITECTURE-SPINE.md#AD-24]` | `[Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-24]` — full path, always. Two files share the bare name; the other one has no AD-22/23/24. |
-| `make typecheck` / `make test` | There is **no `Makefile`**. Validation set: `npm run typecheck`, `npx vitest run`, `npm run test:unit:db`, `npm run lint`, `npm run build`. |
+| "There is no `Makefile`" | **False — corrected.** The repo has a lowercase `makefile` (GNU make resolves `GNUmakefile`, then `makefile`, then `Makefile`, in that order, so the lowercase name is found). `make typecheck`, `make test`, `make lint`, `make build` all work and expand to the `npm run …` equivalents (`npm run typecheck`, `npx vitest run`, `npm run lint`, `npm run build`). Either idiom is valid; `AGENTS.md` documents the real commands. |
 | React Testing Library, `screen.queryByText`, `MemoryRouter` | Not dependencies. Use `vitest-browser-react` + `TestMemoryRouter` from `ra-core` in real Chromium. Negative idiom: `await expect.element(screen.getByRole(...)).not.toBeInTheDocument()`. Pattern file: `src/components/atomic-crm/layout/ContextSwitcher.test.tsx:1-10,60-72`. |
 | `children/`, `ChildShow.tsx`, `ChildCard.tsx`, `ChildProfileHeader` | Deleted by Epic 1. Real: `src/components/atomic-crm/singles/SingleShow.tsx:42` (`SingleProfileHeader`), `singles/SingleCard.tsx`. `scripts/check-retired-names.mjs` fails CI on the old names. |
 | `simple-list/SimpleListItem.tsx` | Deleted. Row-click primitive is `src/components/admin/data-table.tsx:23,233` (`useGetPathForRecordCallback`). |

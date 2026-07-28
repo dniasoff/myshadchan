@@ -418,9 +418,9 @@ AAA, descriptive names, mocks reset in `beforeEach`, no `waitForTimeout`, at lea
 on new code [Source: .claude/rules/testing.md]. No database, RLS, migration or edge-function
 surface in this story.
 
-Validation commands (there is **no `Makefile`**):
-`npm run typecheck` · `npx vitest run` (or `npm run test:unit:app` / `npm run test:unit:scripts`)
-· `npm run lint` · `npm run build`.
+Validation commands: `npm run typecheck` · `npx vitest run` (or `npm run test:unit:app` /
+`npm run test:unit:scripts`) · `npm run lint` · `npm run build` (equivalently `make typecheck` /
+`make test` / `make lint` / `make build`).
 
 ### Project Structure Notes
 

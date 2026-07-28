@@ -551,7 +551,7 @@ through a hook re-evaluated after a context switch), and context-**kind** routin
   `waitForTimeout`, ≥80% coverage on new code
   [Source: .claude/rules/testing.md].
 
-### Validation commands (there is no `Makefile`)
+### Validation commands (also runnable via `make typecheck` / `make test` / `make lint` / `make build`)
 
 `npm run typecheck` [Source: package.json:17] — this is what evaluates AC 1's
 `@ts-expect-error` block. Then `npx vitest run` (or `npm run test:unit:app`
