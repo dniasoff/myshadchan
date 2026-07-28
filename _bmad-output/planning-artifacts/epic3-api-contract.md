@@ -102,7 +102,11 @@ export type EntityDescriptor<T extends RaRecord = RaRecord> = {
 
 export type EntityTabDescriptor<T = RaRecord> = {
   key: TabKey;                    // closed union — §3
-  label: string;                  // canonical label from TAB_LABELS unless overridden
+  /** OPTIONAL — and omitting it is the NORMAL case, not the exception. Absent, the label
+   *  resolves through the i18n catalog with TAB_LABELS[key] as the untranslated fallback
+   *  (§3 rule 2). Set it ONLY for a genuine per-entity deviation from the canonical
+   *  vocabulary, and carry a one-line comment saying why THAT entity deviates. */
+  label?: string;
   render: () => ReactNode;        // LAZY. See rule 4 below.
   visibleTo?: MemberRole[];       // absent = visible to every role
 };
@@ -130,6 +134,15 @@ Rules:
 6. There is no `stats?: (record) => {label,value}[]` field. It is deleted. `statBand` replaces it.
 7. There is no `minVisibility`. The field is `visibleTo`, an **allow-list**, not a threshold.
    Absent means visible to every role.
+8. **`EntityTabDescriptor.label` is optional, and `EntityShow` passes it as `useTabLabel`'s
+   `override` only when the descriptor explicitly set one** (owner ruling, §3 rule 2).
+   `EntityShow` must never substitute `TAB_LABELS[key]` itself and pass that as an override —
+   doing so makes every tab an override, the translation catalog is never consulted, and the
+   i18n path is dead while its round-trip test still passes. `EntityShow` passes
+   `tab.label` (possibly `undefined`) straight through; it never calls `translate` for a tab
+   label and never applies a `?? TAB_LABELS[...]` default. A descriptor that *does* set
+   `label` carries a one-line comment saying why that entity deviates from the canonical
+   vocabulary; a `label` without such a comment is a review-blocking defect.
 
 ---
 
@@ -174,9 +187,38 @@ Rulings that close the drift already present in the story set:
 
 Rules:
 1. `EntityTabDescriptor["key"]` is `TabKey`. Free strings are a review-blocking defect.
-2. `label` defaults to `TAB_LABELS[key]`. An entity may override the string, never the key.
-   Rendering goes through the `i18nProvider` with an `_:` fallback (AD-18 / spine i18n
-   convention), key namespace `entity360.tab.<key>` — same pattern as 4-1's `label` use.
+2. **Label resolution is exactly, and only:**
+
+   ```ts
+   // entity360/useTabLabel.ts
+   export function useTabLabel(key: TabKey, override?: string): string;
+   //   override ?? translate("crm.entity360.tab." + key, { _: TAB_LABELS[key] })
+   ```
+
+   i18n first, the canonical catalog as the **untranslated fallback** — never the other way
+   round. The key namespace is **`crm.entity360.tab.<key>`** (the whole CRM catalog nests
+   under a single `crm` root, `providers/commons/englishCrmMessages.ts:104`, so a bare
+   `entity360.tab.<key>` can never resolve; earlier revisions of this contract said the bare
+   form and were wrong). `_:` fallback per AD-18 / the spine i18n convention — same pattern as
+   4-1's `label` use.
+
+   An entity may override the string, never the key — but `EntityTabDescriptor.label` is
+   **optional** and normally absent (§2 rule 8). `override` is reserved for a genuine
+   per-entity deviation from the canonical vocabulary and must carry a one-line comment
+   explaining that entity's deviation. Nothing between the descriptor and `useTabLabel` may
+   synthesise an override out of `TAB_LABELS`.
+
+   **Round-trip test (3-10 AC 3) must be able to fail if resolution bypasses the catalog.**
+   Three assertions, all falsifiable:
+   (a) for **every** key in `TAB_KEYS`, `translate("crm.entity360.tab." + key)` under the real
+   English catalog equals `TAB_LABELS[key]` — this is what fails when the union grows and the
+   catalog does not, drift the `_:` fallback would otherwise hide (`polyglotI18nProvider` is
+   configured `{ allowMissing: true }`, `i18nProvider.ts:48`);
+   (b) a tab descriptor with **no** `label` renders the canonical label; and
+   (c) with a translation registered for `crm.entity360.tab.<key>` that differs from
+   `TAB_LABELS[key]`, **the registered translation wins** over the canonical label for that
+   same descriptor. (c) is the assertion that goes red if the catalog is bypassed; a test suite
+   that only proves an explicit override is returned proves nothing about i18n.
 3. **Adding a tab key is a one-line edit to `TAB_KEYS` plus one to `TAB_LABELS`, made in the same
    diff as the story that needs it.** The union being closed is the point; widening it is cheap
    and reviewable. A story that needs a key not listed here adds it — it does not fall back to a
@@ -267,7 +309,19 @@ propagates to edit links, tab links and deep links at once. Nothing in the app b
 
 ---
 
-## 5. Routes (Story 3.2)
+## 5. Routes (Story 3.2 declares the shape; **Story 3.12 adopts it app-wide**)
+
+**Scope boundary — binding, and not re-mergeable.** **3.2** owns the route *table*
+(`buildEntityRoutes`, which declares the `new` segment) and the *path builders*
+(`entityPaths.ts`, §4). **3.12** owns *everything that must now point at them*: the
+`/create` → `/new` rename of the 14 live sites plus the `/create` compatibility redirect, the
+`useCreatePath` / `CreateButton` / `EditButton` / `ShowButton` overrides, the four
+`redirect="show"` props, `RECORD_FLAG_EXEMPTIONS` + explicit `hasShow`/`hasEdit`, and the
+`check-route-convention` CI guard. Rules 2–4 below are therefore **3.12's**, not 3.2's. 3.2
+ships with the app still on `/create` and that is correct, not an incomplete story. A builder
+who folds 3.12 back into 3.2 has merged a framework story with a 14-file app-wide sweep — do
+not do it.
+
 
 ```ts
 // src/components/atomic-crm/entity360/buildEntityRoutes.tsx
@@ -294,23 +348,30 @@ Rules:
    routes.** Nothing else under `buildEntityRoutes` fetches. Without this the first migrated 360
    renders an empty shell and every Epic 5 story improvises its own fetch. `ShowBase` supplies
    `RecordContext`, pending and error state.
-2. **The route segment is `new`, never `create`** (UX-DR2 / AD-24). The app is `/create` in 14
-   places today (`dashboard/Dashboard.tsx:36,56`, `layout/MobileNavigation.tsx:172`,
-   `singles/SingleList.tsx:46`, `shidduchim/ShidduchimList.tsx:78` `matchPath("/shidduchim/create")`,
-   …); 3.2 renames all of them.
-3. **`useCreatePath` is broken for `edit` and `create`, not only `show`**
+2. **[3.12]** **The route segment is `new`, never `create`** (UX-DR2 / AD-24). 3.2's route table
+   declares it; the app is `/create` in 14 places today (`dashboard/Dashboard.tsx:36,56`,
+   `layout/MobileNavigation.tsx:172`, `singles/SingleList.tsx:46`,
+   `shidduchim/ShidduchimList.tsx:78` `matchPath("/shidduchim/create")`, …) and **3.12** renames
+   all of them — each to `buildNewPath("<entity>")`, never to a hand-written `"/x/new"` — and
+   adds the `/{entity}/create` → `/{entity}/new` permanent redirect that keeps the query string
+   (`references/ReferenceCreate.tsx:89` and `shidduchim/ShidduchCreate.tsx:54-56` read it).
+3. **[3.12]** **`useCreatePath` is broken for `edit` and `create`, not only `show`**
    (`node_modules/ra-core/dist/routing/useCreatePath.js:46,48,56`): `create` →
    `/{resource}/create`; `edit` → `/{resource}/{id}`, **byte-identical to AD-24's show URL**.
-   3.2 overrides `admin/create-button.tsx` and `admin/edit-button.tsx` to build `to` from
-   `buildNewPath` / `buildEditPath` for any resource that has a descriptor, falling back to
-   `useCreatePath` for those that do not. Assert: Edit lands on `/{entity}/{id}/edit`, Create
-   lands on `/{entity}/new`.
-4. **A migrated entity registers `list` only on `<Resource>` AND passes explicit
+   **3.12** overrides `admin/create-button.tsx`, `admin/edit-button.tsx` and
+   `admin/show-button.tsx` to build `to` from `buildNewPath` / `buildEditPath` /
+   `buildRecordPath` for any resource that has a descriptor, falling back to `useCreatePath` for
+   those that do not, and switches the four `redirect="show"` props onto a `RedirectToFunction`
+   built from `buildRecordPath`. Assert: Edit lands on `/{entity}/{id}/edit`, Create lands on
+   `/{entity}/new`, and the no-descriptor fallback is asserted too.
+4. **[3.12]** **A migrated entity registers `list` only on `<Resource>` AND passes explicit
    `hasShow`/`hasEdit`** (`ra-core/dist/core/Resource.js:33-34` reads `!!show || !!hasShow`).
    Without them `useGetPathForRecord` resolves nothing and **every `<DataTable>` row stops being
    clickable** (`src/components/admin/data-table.tsx:233`). Assert with a row-click test before a
-   migration is called done. (`shidduchim` is already list-only and unaffected — it is a Kanban
-   board and never goes through `<DataTable>`.)
+   migration is called done. **3.12** adds `RECORD_FLAG_EXEMPTIONS` to `root/routeManifest.ts`
+   and the manifest rule that enforces this. (`shidduchim` is already list-only and unaffected —
+   it is a Kanban board and never goes through `<DataTable>` — so it is one of the three seeded
+   exemptions, with its reason written down.)
 5. **Unknown tab** → `replace`-navigate to the **first visible** tab (§6). Re-evaluated on
    **every location change**, not only on mount.
 6. **Role pending** (`useViewerRole()` returns `undefined`) → render a pending state and **do not
@@ -336,7 +397,10 @@ Rules:
 ```ts
 // entity360/Entity360Tabs.tsx
 export function Entity360Tabs(props: {
-  tabs: { key: TabKey; label: string; render: () => ReactNode }[];
+  // `label` is OPTIONAL and is the caller's *override*, not a resolved string: `Entity360Tabs`
+  // renders `useTabLabel(key, label)` (§3 rule 2). `EntityShow` forwards `tab.label` verbatim,
+  // including `undefined` — it must not fill it in from TAB_LABELS (§2 rule 8).
+  tabs: { key: TabKey; label?: string; render: () => ReactNode }[];
 }): ReactElement;
 
 // entity360/visibility.ts
@@ -382,10 +446,23 @@ export function RecordLink(props: {
   id: Identifier;
   children: ReactNode;
   className?: string;
+  /** The one escape hatch, and the only one. Two swept sites (`singles/SingleCard.tsx:60-61`,
+   *  `references/ReferenceList.tsx:70`) set `style={{ animationDelay }}` on the anchor next to
+   *  the `.ql-enter` class; `.ql-enter` is `animation: ql-rise … both` (`src/index.css:496-498`)
+   *  and `animation-fill-mode: both` keeps the final keyframe's `transform` applied, so moving
+   *  the pair onto the inner `<Card>` would override its `hover:-translate-y-0.5` /
+   *  `active:scale-[0.98]`. Same concern `className` already covers. Forwarded verbatim on both
+   *  the `<a>` and the degraded `<span>` (rule 2). */
+  style?: CSSProperties;
 }): ReactElement;
 ```
 
 Rules:
+0. **Exactly these five props.** No `onClick`, no `ref` forwarding, no `{...rest}` spread — a
+   caller that needs drag props, a ref or a click guard puts them on its own wrapper element
+   (§7 rule 4). `style` is the single sanctioned addition to the original four and is not a
+   precedent for a sixth; `@hello-pangea/dnd` sets its own inline `transform` on the node it
+   owns, and that node must not also be the anchor.
 1. Path = `getEntityDescriptor(resource)?.buildRecordPath(id)`.
 2. **Unregistered resource → render an inert `<span>{children}</span>` plus one
    `console.error`. It MUST NOT throw.** 3.5 links from `interactions.metadata`, which is
@@ -436,7 +513,7 @@ Rules:
    `import x from "./y?raw"` needs a `*?raw` module declaration to typecheck under `strict`.)
 3. **Every new target type gets a purge trigger in the story that adds it.**
    `purge_polymorphic_dependents()` (`02_functions.sql:1799-1817`) is wired only at
-   `04_triggers.sql:94-96` (`references`) and `:103-105` (`shidduchim`), and
+   `04_triggers.sql:109-111` (`references`) and `:118-120` (`shidduchim`), and
    `interactions.target_id` carries no FK by design. **Story 3.5 adds the triggers on
    `public.singles` and `public.shadchanim`. Story 3.7 extends the function to cover
    `entity_files` and to delete the storage objects.** Assert: deleting a single or a shadchan
@@ -460,9 +537,14 @@ made expressive, and Epic 3 ships the renderer — otherwise three stories hand-
 (`5-8:113`, `5-10:106-114`, `8-5:24`).
 
 ```ts
+// src/components/atomic-crm/entity360/relationshipDescriptor.ts
+// Its own module, NOT entityDescriptor.ts: it is keyed by `TabKey` and consumed by
+// `RelatedRecordsTab`, both of which land in the tab-vocabulary story (§12 step 0) — before
+// 3.3a exists. 3.3a's `EntityDescriptor.relationships` imports it from here and re-exports it,
+// so `entity360/entityDescriptor.ts` stays the one import site consumers need to know about.
 export type EntityRelationshipDescriptor<T = RaRecord> = {
   key: TabKey;                                   // e.g. "shidduchim"
-  label?: string;                                // defaults to TAB_LABELS[key]
+  label?: string;                                // override only; resolves per §3 rule 2
   /** resource to query — MAY be a summary view that already resolves a join table */
   resource: string;
   getFilter: (record: T) => Record<string, unknown>;
@@ -489,7 +571,12 @@ export function RelatedRecordsTab(props: { relationship: EntityRelationshipDescr
 - Worked example (reference → shidduchim):
   `{ key: "shidduchim", resource: "reference_links_summary",
      getFilter: (r) => ({ reference_id: r.id }), linkResource: "shidduchim",
-     linkId: (row) => row.shidduch_id }`.
+     linkId: (row) => row.shidduchim_id }`.
+  The column is **`shidduchim_id`** (`supabase/schemas/03_views.sql:139`, from
+  `reference_links.shidduchim_id`). There is no `shidduch_id` on that view — `:150-153` has
+  `shidduch_name_en` / `shidduch_name_he` / `shidduch_pipeline_state`, which is where the
+  singular crept into an earlier revision of this example. A builder copying the singular gets
+  `undefined` ids and every row in the Reference-360 shidduchim tab links nowhere.
 - Worked example (single → shidduchim): `{ key: "shidduchim", resource: "shidduchim",
   getFilter: (r) => ({ single_id: r.id }) }`.
 - Every row renders a `RecordLink`. Empty / loading / error states are the tab's, not the
@@ -508,11 +595,12 @@ export function RelatedRecordsTab(props: { relationship: EntityRelationshipDescr
 | Stat data loading | **the entity's descriptor module**, never `EntityShow` | §2 rule 1. `EntityShow` fetches nothing beyond `ShowBase`'s record. |
 | `providers/commons/canAccess.ts` | **3.4** | §6 rule 6. |
 | Record fetching / `RecordContext` | **3.2** | §5 rule 1. |
-| `/{entity}/new` rename + `useCreatePath`/`CreateButton`/`EditButton` overrides + explicit `hasShow`/`hasEdit` | **3.2** | §5 rules 2–4. |
-| `TabKey` union + `TAB_LABELS` + the `overview` / `related` shared components | **3-13** | §3. |
+| Route **table** (`buildEntityRoutes`, incl. the `new` segment) + **path builders** (`entityPaths.ts`) | **3.2** | §4 "Path builders", §5 rules 1 and 5–9. 3.2 declares the shape and adopts nothing. |
+| **All adoption** of that shape: the `/create`→`/new` rename (14 live sites) + the `/create` compatibility redirect; the `useCreatePath`/`CreateButton`/`EditButton`/`ShowButton` overrides; the four `redirect="show"` props; `RECORD_FLAG_EXEMPTIONS` + explicit `hasShow`/`hasEdit`; the `check-route-convention` CI guard | **3.12** | §5 rules 2–4 and the scope boundary at the head of §5. **Not re-mergeable with 3.2.** |
+| `TabKey` union + `TAB_LABELS` + `useTabLabel` + `relationshipDescriptor.ts` + the `overview` / `related` shared components | **3-13** (filed as `3-10-tab-vocabulary.md`) | §3, §9. See the story-number note at the head of §12. |
 | The `enforce_household_scope` lift for `tasks` + `interactions` | **3-14** | §11 Ruling 1. |
-| AD-24 conformance validator | **3-15** | §12. |
-| UX-DR3 residue — `shidduchim/ShidduchCreate.tsx`, `tasks/TaskEdit.tsx` (modals no story owns; `ShidduchShow.tsx:35` is killed by 5.1) | **3-15**, or explicitly deferred with a written trigger in that story | Named by no story from Epic 3 through Epic 9. |
+| AD-24 conformance validator | **3-15** (filed as `3-11-ad24-conformance-validator.md`) | §12. |
+| UX-DR3 residue — `shidduchim/ShidduchCreate.tsx` becomes the page at `/shidduchim/new`; `tasks/TaskEdit.tsx` is an exemption with a written reopening trigger; plus the dialog-surface guard (`ShidduchShow.tsx:35` is killed by 5.1) | **3.13** (`3-13-records-at-urls-not-modals.md`) | Split out of 3-15's provisional "or explicitly deferred" wording so 3-15 stays a pure validator and these two rulings get a real owner. |
 
 ---
 
@@ -521,15 +609,15 @@ export function RelatedRecordsTab(props: { relationship: EntityRelationshipDescr
 ### Ruling 1 — `tasks` and `interactions` leave the household-only scope (Story **3-14**)
 
 `enforce_household_scope()` (`02_functions.sql:387-402`) raises unless
-`accounts.kind = 'household'`, and is attached to 13 tables at `04_triggers.sql:146-194`,
-including `interactions` (`:180-182`) and `tasks` (`:192-194`). Combined with
+`accounts.kind = 'household'`, and is attached to 13 tables at `04_triggers.sql:159-209`,
+including `interactions` (`:195-197`) and `tasks` (`:207-209`). Combined with
 `set_tasks_account_id` / `set_interactions_account_id` assigning `current_context_id()`, **every
 task and interaction insert by a shadchan in their own context fails with a raw Postgres
 exception** — while Epic 8.5 ("the shadchan's own CRM") is built entirely on them. The owner
 lifted the restriction. Terms:
 
 1. **Do not modify `enforce_household_scope()`. Do not rename any trigger.** The comment at
-   `04_triggers.sql:138-145` warns that renaming is "a migration-time total insert outage, not a
+   `04_triggers.sql:147-158` warns that renaming is "a migration-time total insert outage, not a
    refactor" *because* Postgres fires same-event BEFORE triggers in alphabetical name order and
    the `validate_*` names are chosen to sort after every `set_*`. The migration is therefore
    exactly two statements, in one transaction:
@@ -537,7 +625,7 @@ lifted the restriction. Terms:
    `drop trigger if exists validate_tasks_household_scope on public.tasks;`
    DDL is transactional; there is no window in which the check is half-applied. The other 11
    tables are untouched.
-2. Update the two comments that count the set (`04_triggers.sql:138-145` "13 household-only
+2. Update the two comments that count the set (`04_triggers.sql:147-158` "13 household-only
    domain tables" → 11, and `enforce_household_scope()`'s own comment) in the same migration.
 3. `db`-project tests, all four required: insert into `tasks` under a **shadchanus** context
    succeeds; insert into `interactions` under a shadchanus context succeeds; insert into
@@ -578,24 +666,69 @@ export function TasksRailSummary(props: UniversalTabProps & { limit?: number }):
 
 ## 12. Build order
 
+**Story-number note — read this before using the table.** Epic 3 is **14 stories**. Two of the
+labels in this table are *aliases* that predate the current file set, and one of them collides
+with a real story number. The mapping is:
+
+| Label used in this contract | The file it means |
+|---|---|
+| **3-13** at step 0 (`TabKey` / `TAB_LABELS` / `useTabLabel` / `relationshipDescriptor.ts` / `overview` + `related`) | `3-10-tab-vocabulary.md` |
+| **3-15** at step 12 (AD-24 conformance validator) | `3-11-ad24-conformance-validator.md` |
+| **3.13** at step 4b (records at URLs, not modals) | `3-13-records-at-urls-not-modals.md` — **a different story from step 0's "3-13"** |
+
+The **step numbers are stable and are cited by the story files** (3.2 is "step 4", 3.3b is
+"step 5", and so on). The two stories added after this table was first written are therefore
+inserted as **4a** and **4b** rather than renumbering. Steps 0–12 keep their original numbers;
+the count of rows is no longer the count of stories.
+
 | # | Story | Why here |
 |---|---|---|
-| 0 | **3-13** — `TabKey` union, `TAB_LABELS`, the shared `overview` / `related` components; plus the §2 `EntityDescriptor` rewrite and §10 ownership decisions recorded in the story files | The closed union and the rewritten descriptor are **inputs to 3.3a**, and 3.3a is an input to everything. Landing this after 3.3 means widening a shipped public type mid-Epic-5. |
+| 0 | **3-13** (= `3-10-tab-vocabulary.md`) — `TabKey` union, `TAB_LABELS`, `useTabLabel`, `relationshipDescriptor.ts`, the shared `overview` / `related` components; plus the §2 `EntityDescriptor` rewrite and §10 ownership decisions recorded in the story files | The closed union and the rewritten descriptor are **inputs to 3.3a**, and 3.3a is an input to everything. Landing this after 3.3 means widening a shipped public type mid-Epic-5. (Its `RelatedRecordsTab` half needs 3.9 + 3.3a and lands between steps 3 and 5; the type-and-constants half is what step 0 gates on.) |
 | 1 | **3.1** — `Entity360` + `EntityAvatar` | No dependencies, purely presentational. Resolve the AC3/AC4 inline-`backgroundColor` contradiction (§1 rule 6) first. `EntityAvatar` must rewire its four call sites here — do not ship a tested-but-dead module. |
 | 2 | **3.3a** — descriptor types + registry only (no `EntityShow`) | The registry has no dependency on the shell and 3.9 needs it immediately. Ships `EntityDescriptor`, `EntityTabDescriptor`, `register/get/require`, and the `<entity>/entityDescriptor.ts` convention. |
 | 3 | **3.9** — `RecordLink` + the four stub descriptors + `types.ts` target-type vocabulary + `reminders/` | Needs 3.3a. **Must precede 3.8**: it owns `reminderEntity.ts`'s `Record<TaskTargetType,…>` maps and `useReminders.ts:42-45,69-97`, which 3.8's `single` widening breaks while 3.8's own AC 2 forbids editing `reminders/`. Only this order compiles; 3.8's contradicting ordering note is deleted. Also the only Epic 3 story touching live files, so it lands the AD-23 `"Suggestion"` fix. Re-estimate: ~11 new test files, not "a small leaf component". |
-| 4 | **3.2** — `buildEntityRoutes`, `Entity360Tabs`, `ShowBase` wiring, `hasShow`/`hasEdit`, `/new` rename, button overrides | Needs 3.1's `tabBar`/`children` regions. Owns every routing conflict — framework-wide and far cheaper before any consumer exists. |
-| 5 | **3.3b** — `EntityShow` | Needs 3.1 (shell), 3.2 (`Entity360Tabs`), 3.3a (descriptor). The piece that composes seven regions from a declaration. |
+| 4 | **3.2** — `buildEntityRoutes` (route table, incl. the `new` segment), `entityPaths.ts` (path builders), `Entity360Tabs`, `ShowBase` wiring | Needs 3.1's `tabBar`/`children` regions. Declares the AD-24 route shape framework-wide, before any consumer exists. **Adoption is not in this story** — see step 4a and the §5 scope boundary. |
+| 4a | **3.12** — route-convention *adoption*: the 14-site `/create`→`/new` rename + the `/create` compatibility redirect, the `CreateButton`/`EditButton`/`ShowButton` overrides, the four `redirect="show"` props, `RECORD_FLAG_EXEMPTIONS` + `hasShow`/`hasEdit`, and the `check-route-convention` CI guard | Needs **3.2** (it adopts `entityPaths.ts`'s builders and re-declares none of them), **3.3a** (every path resolves through the registry — `buildNewPath("singles")` throws without a descriptor) and **3.9** (the four stub descriptors, and the removal of the last app-level `useCreatePath({type:"show"})` at `references/ReferenceList.tsx:68`, without which the guard cannot go green). Must precede **3.3b** and every Epic 5 migration, whose one-line `buildRecordPath` flip is what makes Edit/Show follow automatically. Also blocks **4.1** (its `createTo` props) and **3-15**. |
+| 4b | **3.13** (= `3-13-records-at-urls-not-modals.md`) — UX-DR3 residue: `ShidduchCreate` becomes the page at `/shidduchim/new`, the `tasks/TaskEdit.tsx` exemption is recorded with its reopening trigger, and the dialog-wrapped-record-surface guard lands | Needs **3.2** (`buildListPath` for the post-save redirect), **3.9** (the `shidduchim` stub descriptor that makes `buildListPath("shidduchim")` resolve) and **3.12** (its `matchPath("/shidduchim/create")` → `"/shidduchim/new"` rename and the five sibling call sites live in files 3.12 is editing — doing them here would collide). Must precede **3-15**, whose `MODAL_RECORD_SURFACES` table consumes these two rulings instead of re-deriving them. Independent of 3.3b, 3.4 and every universal tab. |
+| 5 | **3.3b** — `EntityShow` | Needs 3.1 (shell), 3.2 (`Entity360Tabs`), 3.3a (descriptor), and step 4a's route-convention adoption to be in place. The piece that composes seven regions from a declaration. |
 | 6 | **3.4** — permission-aware rendering, `useViewerRole`, `canAccess.ts` | Additive `visibleTo` on 3.3a's types; needs 3.3b to have somewhere to filter and 3.2's fallback path to make the pending-state rule meaningful. |
 | 7 | **3-14** — the household-scope lift | **Blocks 3.5, 3.6 and 3.8.** Pure DB, no framework dependency, so it can be rehearsed in parallel with steps 1–6, but it must be applied before any of them. |
 | 8 | **3.5** — Activity | First universal tab. Owns the `interactions` widening, `current_member_id()`, the two purge triggers, `Interaction` in `types.ts`. Everything downstream reuses these. Needs 3-14. |
 | 9 | **3.6** — Notes | Hard dependency on 3.5's `current_member_id()`, `set_interaction_actor_member_id`, `interactionLabels.ts` and the widened enum. Needs 3-14. Must call `public.is_owning_membership_role(am.role)` (`02_functions.sql:439-444`), never `am.role = 'parent_admin'`, and must resolve note authorship by **`user_id` via a join**, never by `account_members.id` (archive+re-add issues a new id — `01_tables.sql:710`'s partial unique index — permanently stripping an author of their own notes). |
 | 10 | **3.8** — Tasks | Needs 3.9 (the `Record` maps) and 3-14 (the trigger). Independent of 3.5/3.6 otherwise. |
 | 11 | **3.7** — Files | Heaviest new surface (bucket + table + policies + grants + FakeRest mirror); depends on 3.5's four-value vocabulary and `current_member_id()`. Last, so its premise rewrite has the most information. The `attachments` policies at `supabase/schemas/07_storage.sql:25-44` are the **correct template to copy** with the bucket id swapped — the story currently says the opposite. |
-| 12 | **3-15** — AD-24 conformance validator | Needs every primitive to exist before it can assert on them. Modelled on `root/routeManifest.ts:175+`'s `findManifestViolations` + fixture-in-test-file. Asserts: every `RESOURCES` entry has a descriptor or an explicit exemption; every registered descriptor's tab set matches §3 rule 5; no detail/`Show` component outside `entity360/` is route-reachable; no `<Dialog>` wraps a primary record surface; every `buildRecordPath` matches `/{entity}/{id}`; `PENDING_DB_WIDENINGS` is empty. **Must land inside Epic 3, before Epic 5's first migration, or it never lands.** |
+| 12 | **3-15** (= `3-11-ad24-conformance-validator.md`) — AD-24 conformance validator | Needs every primitive to exist before it can assert on them, **plus steps 4a and 4b**: 3.12 supplies the `create-route-on-resource` / `record-flags-missing` violation codes and `RECORD_FLAG_EXEMPTIONS`, and 3.13 supplies the two UX-DR3 rulings its `MODAL_RECORD_SURFACES` table consumes. Modelled on `root/routeManifest.ts:175+`'s `findManifestViolations` + fixture-in-test-file. Asserts: every `RESOURCES` entry has a descriptor or an explicit exemption; every registered descriptor's tab set matches §3 rule 5; no detail/`Show` component outside `entity360/` is route-reachable; no `<Dialog>` wraps a primary record surface; every `buildRecordPath` matches `/{entity}/{id}`; `PENDING_DB_WIDENINGS` is empty. **Must land inside Epic 3, before Epic 5's first migration, or it never lands.** |
 
-Epic 5 does not start until 0–12 are done. 5.1 is the pilot and hits the missing descriptor
-fields, the record context and the Create button on its first day.
+**Acyclicity, re-verified over all 14 stories after 4a/4b were inserted.** Read the table as the
+total order `0 → 1 → 2 → 3 → 4 → 4a → 4b → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12`. Every declared
+dependency edge points strictly forward in it, so the graph has no cycle:
+
+| Story (step) | Depends on (step) |
+|---|---|
+| 3-13 part A (0) | — |
+| 3.1 (1) | — |
+| 3.3a (2) | 3-13 part A (0) |
+| 3.9 (3) | 3.3a (2) |
+| 3-13 part B — `RelatedRecordsTab` (between 3 and 5) | 3.3a (2), 3.9 (3) |
+| 3.2 (4) | 3.1 (1) |
+| **3.12 (4a)** | 3.3a (2), 3.9 (3), 3.2 (4) |
+| **3.13 (4b)** | 3.9 (3), 3.2 (4), 3.12 (4a) |
+| 3.3b (5) | 3.1 (1), 3.3a (2), 3-13 part B, 3.2 (4), 3.12 (4a) |
+| 3.4 (6) | 3.2 (4), 3.3b (5) |
+| 3-14 (7) | — (pure DB; may be rehearsed in parallel with 1–6, but applied before 8/9/10) |
+| 3.5 (8) | 3-14 (7) |
+| 3.6 (9) | 3-14 (7), 3.5 (8) |
+| 3.8 (10) | 3.9 (3), 3-14 (7) |
+| 3.7 (11) | 3.5 (8) |
+| 3-15 (12) | every row above |
+
+The two constraints most often got wrong are both satisfied and both load-bearing: **3-14 blocks
+3.5, 3.6 and 3.8** (7 < 8, 9, 10), and **3.9 precedes 3.8** (3 < 10) because 3.9 owns
+`reminders/reminderEntity.ts`'s `Record<TaskTargetType, …>` maps and `useReminders.ts:42-45,69-97`,
+which 3.8's `single` widening breaks while 3.8's own AC 2 forbids editing `reminders/`.
+
+Epic 5 does not start until 0–12, including 4a and 4b, are done. 5.1 is the pilot and hits the
+missing descriptor fields, the record context and the Create button on its first day.
 
 ---
 

@@ -7,7 +7,7 @@ Status: ready-for-dev
 ## Story
 
 As a parent,
-I want diligence to live under the suggestion it is about,
+I want diligence to live under the shidduch it is about,
 so that a reference is never orphaned from its context.
 
 ## Position in Epic 5
@@ -39,8 +39,9 @@ duplication** that migration exposes: `ReferenceTimeline.tsx` already mixes two 
 now provides as separate universal tabs (Notes and Activity), and `ReferenceTasks.tsx` is a
 bespoke reminders implementation Epic 3's universal Tasks tab supersedes. Keeping all three
 alongside the new universal tabs would be two ways to do the same thing (violates the
-"Single-owner rule" in ARCHITECTURE-SPINE.md's Design Paradigm section) — so this story retires
-them.
+"Single-owner rule" in
+`_bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md`'s
+Design Paradigm section) — so this story retires them.
 
 **One deliberate behaviour simplification, stated so it is not mistaken for a regression:**
 `ReferenceTimeline.tsx`'s `AddNote` lets a note be scoped either "generally" or "about a specific
@@ -55,7 +56,7 @@ information that has nowhere else to go.
 
 ## Acceptance Criteria
 
-1. **Given** a suggestion, **when** I open its Diligence tab, **then** I see people to speak to
+1. **Given** a shidduch, **when** I open its Diligence tab, **then** I see people to speak to
    with progress ("N of M spoken to") — unchanged, already built.
 2. **Given** each reference row in the Diligence tab, **when** it renders, **then** it states
    whether this is a first conversation or one of several (via the shared
@@ -66,15 +67,23 @@ information that has nowhere else to go.
    not add it back).
 4. **Given** a reference's own record, **when** it renders, **then** it is on the `Entity360`
    shell at `/references/{id}/{tab}` with URL-backed tabs in UX-DR5's order plus one
-   entity-specific extra: `overview, conversations, linked-shidduchim, notes, tasks, activity,
-   assistant`. `overview` holds the identity facts currently in `ReferenceShow.tsx`'s internal
+   entity-specific extra: `overview, conversations, shidduchim, notes, tasks, activity,
+   assistant` — the canonical reference tab set and order. The tab **key** for the reference's
+   linked shidduchim is `shidduchim` (label "Shidduchim"), from the closed `TabKey` union in
+   `entity360/tabKeys.ts`; `linked-shidduchim` is not a member of that union and does not
+   typecheck. `conversations` is a **different** key and stays: it is the reference **call log**,
+   not a list of shidduchim and not an Epic 7 thread panel — the two are not interchangeable.
+   `overview` holds the identity facts currently in `ReferenceShow.tsx`'s internal
    `ReferenceHeader` component (relationship, phone, school, grad year); `conversations` is the
-   existing `RepeatRecognitionPanel` + `ReferenceCallLog`, unchanged; `linked-shidduchim` is
+   existing `RepeatRecognitionPanel` + `ReferenceCallLog`, unchanged; `shidduchim` is
    UX-DR5's required tab — the reference's `reference_links_summary` rows, each a `RecordLink`
    to its shidduch (a plain list; no call-log detail, which stays in `conversations`);
    `assistant` is the existing `ResearchAssistantPanel`, unchanged (still AI-entitlement-gated)
    — an entity-specific tab justified by UX-DR4's "entity-specific tabs are the exception, not
    the rule" clause, since the matrix predates the shipped assistant panel.
+   [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#3 — the `TabKey` union, the
+   drift-closing ruling table (`conversations` kept and distinct), and rule 5's per-entity tab
+   sets]
    The references `buildRecordPath` registration (Story 3.9) becomes
    ``(id) => `/references/${id}` `` and 3.9's route-pinning test is updated — every existing
    `RecordLink` mention of a reference follows automatically.
@@ -103,17 +112,29 @@ information that has nowhere else to go.
         `references_summary`'s existing `linked_shidduchim_count`, and reusing that instead of an
         N+1 fetch per row; prefer the view column if it does not already exist there).
 - [ ] **Task 3 — Reference descriptor and shell migration** (AC: 3, 4)
-  - [ ] Fill in the `references` entity descriptor (3.9 registered the minimal stub): tabs
-        `overview, conversations, linked-shidduchim, notes, tasks, activity, assistant`, in
-        that order; change its `buildRecordPath` to ``(id) => `/references/${id}` `` and update
-        3.9's route-pinning test.
+  - [ ] Re-register the `references` descriptor over 3.9's stub with
+        `registerEntityDescriptor(descriptor, { replace: true })` — the whole descriptor, not a
+        partial merge: tabs `overview, conversations, shidduchim, notes, tasks, activity,
+        assistant`, in that order (keys from `entity360/tabKeys.ts`); change its
+        `buildRecordPath` to ``(id) => `/references/${id}` `` and update 3.9's route-pinning
+        test. [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#4 — rule 2]
   - [ ] Extract the identity-fact block (relationship/phone/school/grad_year) from
         `ReferenceShow.tsx`'s internal `ReferenceHeader` into an `overview` tab; keep
         contact-style facts (name, avatar) in the shell's identity header region.
   - [ ] Wire `conversations` to the existing `RepeatRecognitionPanel` + `ReferenceCallLog`
-        (unchanged); build `linked-shidduchim` as a `RecordLink` list over the reference's
-        `reference_links_summary` rows; wire `assistant` to the existing
-        `ResearchAssistantPanel` (unchanged).
+        (unchanged); wire `assistant` to the existing `ResearchAssistantPanel` (unchanged).
+  - [ ] Do **not** hand-roll the `shidduchim` list. Epic 3 ships the renderer
+        (`entity360/tabs/RelatedRecordsTab.tsx`); declare it as a `relationships` entry on the
+        descriptor and let `EntityShow` render it at the position its key occupies in the tab
+        order:
+        `{ key: "shidduchim", resource: "reference_links_summary",
+           getFilter: (r) => ({ reference_id: r.id }), linkResource: "shidduchim",
+           linkId: (row) => row.shidduchim_id }`.
+        Empty / loading / error states belong to `RelatedRecordsTab`, not to this story
+        (UX-DR11). **Column-name check:** the contract's worked example writes
+        `row.shidduch_id`; the verified column on `reference_links_summary` is
+        **`shidduchim_id`** (`supabase/schemas/03_views.sql:139`). Use `shidduchim_id`.
+        [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#9]
   - [ ] Wire `notes`/`tasks`/`activity` to Epic 3's universal components with
         `target_type: "reference"`.
   - [ ] Confirm `layout/navItems.ts`'s `PRIMARY_NAV` is untouched by this story (AC-3) — Story
@@ -128,7 +149,8 @@ information that has nowhere else to go.
 - [ ] **Task 5 — Verify** (AC: 6)
   - [ ] Confirm `ReferenceMergeButton.tsx` and `ReferenceMergeCollision.tsx` are unaffected — no
         edits to merge logic in this story.
-  - [ ] `make typecheck && npm run lint && make test`.
+  - [ ] `npm run typecheck && npm run lint && npx vitest run && npm run build`
+        (plus `npm run test:unit:db` if Task 2 adds the `reference_links_summary` column).
 
 ## Dev Notes
 
@@ -151,10 +173,17 @@ information that has nowhere else to go.
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-5-Entity-360s, Story 5.10]
+- [Source: _bmad-output/planning-artifacts/epic3-api-contract.md] — binding. §3 (`TabKey`:
+  `shidduchim`, not `linked-shidduchim`; `conversations` kept and distinct), §4 (registry
+  `{ replace: true }`), §9 (`relationships` + `RelatedRecordsTab` — do not hand-roll the list),
+  §11 Ruling 2 point 5 (this story deletes `ReferenceTasks.tsx`), §0 (validation commands,
+  AD-23 vocabulary).
 - [Source: _bmad-output/specs/spec-myshadchan/glossary.md#The-process] — "reference: reusable
-  across suggestions, but always consulted *about* a particular suggestion" — the design
+  across suggestions, but always consulted *about* a particular suggestion" (quoted verbatim; the
+  glossary predates AD-23 and reads "shidduchim" today) — the design
   principle behind keeping diligence on the shidduch, not the reference.
-- [Source: ARCHITECTURE-SPINE.md#Design-Paradigm, Single-owner-rule] — rationale for retiring
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#Design-Paradigm, Single-owner-rule]
+  — rationale for retiring
   `ReferenceTimeline.tsx`/`ReferenceTasks.tsx` rather than keeping them alongside the universal
   tabs.
 - [Source: UX-DR8, UX-DR9 in epics.md#UX-Design-Requirements] — references reached from a

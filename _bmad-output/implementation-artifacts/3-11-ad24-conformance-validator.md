@@ -30,7 +30,7 @@ It does **not** depend on 3.4 or 3.6, and it is not depended on by anything insi
 It is nonetheless **not deferrable past the end of Epic 3**: Epic 5 migrates the four
 entities one story at a time, and a conformance rule written after the first migration is a
 rule written around whatever that migration happened to do
-[Source: /tmp/claude-1000/-home-daniel-repos-myshadchan/c6badcce-b0a1-4dd4-a9e3-16d3bfec7653/scratchpad/epic3-preflight-brief.md#3-G].
+[Source: _bmad-output/planning-artifacts/epic3-preflight-brief.md#3-G].
 
 **Scope boundary — read before starting.** This story ships a validator, its exemption
 tables and its tests. It migrates no entity, converts no modal to a page and changes no
@@ -70,7 +70,7 @@ Entries are one of two kinds, and the kind is a required field:
 - `{ kind: "pending", retiredBy: "<story id>" }` — known debt with a named owner.
 - `{ kind: "permanent", reason: "<why this is not an AD-24 entity>" }` — a resource that
   never gets a 360 (`tasks`, `inbox_items`, `members` — [Source:
-  /tmp/claude-1000/-home-daniel-repos-myshadchan/c6badcce-b0a1-4dd4-a9e3-16d3bfec7653/scratchpad/epic3-preflight-brief.md#7-Not-problems] — *"`shidduchim`/tasks/reminders/inbox/members
+  _bmad-output/planning-artifacts/epic3-preflight-brief.md#7-Not-problems] — *"`shidduchim`/tasks/reminders/inbox/members
   never migrate"*). A `permanent` exemption is **auto-invalidated**: if the resource it
   names ever acquires a registered `EntityDescriptor`, the validator reports
   `permanent-exemption-for-360-entity`. That is the mechanically-enforced trigger behind
@@ -157,7 +157,7 @@ Entries are one of two kinds, and the kind is a required field:
    (c) contain `<Dialog`. **The resource-name alternation is built from `RESOURCES` at test
    time, never hard-coded** — a four-name literal is the exact defect that made 3.3 AC 5
    unfalsifiable
-   [Source: /tmp/claude-1000/-home-daniel-repos-myshadchan/c6badcce-b0a1-4dd4-a9e3-16d3bfec7653/scratchpad/epic3-preflight-brief.md#6-Landmines — item 15]. That set is passed to
+   [Source: _bmad-output/planning-artifacts/epic3-preflight-brief.md#6-Landmines — item 15]. That set is passed to
    `findAd24Violations` as `modalRecordSurfaces`; the **validator** — not the guard test
    — does the symmetric comparison against `MODAL_RECORD_SURFACES`, reporting
    `modal-record-surface` for an unexempted file and `stale-exemption` for an entry no
@@ -254,10 +254,17 @@ Entries are one of two kinds, and the kind is a required field:
 8. **No scan can pass vacuously.** Every `?raw` scan in AC 4, 5(b) and 7 is accompanied by
    a sanity `it` — the same device the repo's existing guard uses
    [Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:79-86] —
-   asserting that the glob actually resolved: the `.tsx` scan sees more than 100 files and
-   includes `shidduchim/ShidduchShow.tsx`; the SQL scan's text is non-empty and contains
-   `create table if not exists public.tasks`. A mistyped glob returns `{}` and every other
-   assertion in this story would pass green; these `it`s are what makes that impossible.
+   asserting that the glob actually resolved: the `.tsx` scan sees more than 100 files
+   (151 on `main` at 2026-07-28) and includes `shidduchim/ShidduchShow.tsx`; the SQL scan's
+   text is non-empty and contains **`create table public.tasks (`** — the literal DDL on `main`
+   [Source: supabase/schemas/01_tables.sql:31]. **Verify this needle against the tree before
+   writing the assertion, and re-verify it if the scan comes back empty.** `01_tables.sql` uses
+   the bare `create table public.<name> (` form for its domain tables, *not*
+   `create table if not exists` (that form appears four times in the file, and for none of the
+   tables this story reads). A needle that matches nothing makes the sanity `it` permanently
+   red, and the predictable "fix" is to weaken or delete it — which restores exactly the
+   vacuity this AC exists to prevent. A mistyped glob returns `{}` and every other assertion in
+   this story would pass green; these `it`s are what makes that impossible.
 
 ## Tasks / Subtasks
 
@@ -366,7 +373,7 @@ contract's literal wording — see "Contract deviations", below.
 ### `?raw` scans that can actually fail
 
 Three guards in the original Epic 3 story set could not fail at all
-[Source: /tmp/claude-1000/-home-daniel-repos-myshadchan/c6badcce-b0a1-4dd4-a9e3-16d3bfec7653/scratchpad/epic3-preflight-brief.md#6-Landmines — item 15]: a regex
+[Source: _bmad-output/planning-artifacts/epic3-preflight-brief.md#6-Landmines — item 15]: a regex
 matching only 3-digit pixel values, a four-name alternation that a `resource === "x"`
 comparison walks straight past, and a grep for `getPublicUrl`, a symbol with zero hits
 repo-wide. The three defences this story uses against joining them:
@@ -412,7 +419,7 @@ UX-DR3 is mapped to Epic 3 [Source: _bmad-output/planning-artifacts/epics.md:127
 question cannot simply be passed downstream. The answer is that a task is not one of
 AD-24's entities: it has no `EntityDescriptor`, no row in the UX-DR5 tab matrix, no 360,
 and `tasks` is named as a resource that never migrates onto the framework
-[Source: /tmp/claude-1000/-home-daniel-repos-myshadchan/c6badcce-b0a1-4dd4-a9e3-16d3bfec7653/scratchpad/epic3-preflight-brief.md#7-Not-problems]. AD-24's
+[Source: _bmad-output/planning-artifacts/epic3-preflight-brief.md#7-Not-problems]. AD-24's
 "records live at URLs, not in modals" governs **primary records**; a task edited inline
 from the task list is a subordinate object, the same category as
 `references/ReferenceMergeButton.tsx`'s confirm dialog. The deferral is written as a
@@ -428,7 +435,7 @@ entity and 5.1 owns its `buildEntityRoutes` wiring, including the `New` slot.
 JSX `to={` prop. `shidduchim/ShidduchCatchSection.tsx:34-45` builds the same path shape and
 passes it to `useRedirect()`, so it is outside that pattern by construction and is not one
 of 3.9's 12 verified sites (whose inventory is correct and must not be "corrected"
-[Source: /tmp/claude-1000/-home-daniel-repos-myshadchan/c6badcce-b0a1-4dd4-a9e3-16d3bfec7653/scratchpad/epic3-preflight-brief.md#7-Not-problems]). AC 5(b)'s scan
+[Source: _bmad-output/planning-artifacts/epic3-preflight-brief.md#7-Not-problems]). AC 5(b)'s scan
 is keyed on the **path literal**, not the prop, so it finds it. Task 5 fixes it here rather
 than exempting it, because an exemption with no retiring story is exactly the rot this
 story exists to prevent. `reminders/reminderEntity.ts:41,43,46` is the other non-`to={`
@@ -451,7 +458,7 @@ present when this story starts, 3.9 is not done and this story is blocked.
 3. **`hasShow` / `hasEdit` are not asserted here.** Contract §5 rule 4 assigns them to 3.2,
    and `shidduchim` is list-only today without them by design (it is a Kanban board and
    never renders a `<DataTable>` row
-   [Source: /tmp/claude-1000/-home-daniel-repos-myshadchan/c6badcce-b0a1-4dd4-a9e3-16d3bfec7653/scratchpad/epic3-preflight-brief.md#7-Not-problems]). A rule
+   [Source: _bmad-output/planning-artifacts/epic3-preflight-brief.md#7-Not-problems]). A rule
    here would need a special case on its first day and would contradict 3.2's own AC.
 
 ### Testing standard
@@ -487,7 +494,7 @@ not query a database. Validation set: `npm run typecheck`, `npx vitest run`,
 - [Source: _bmad-output/planning-artifacts/epic3-api-contract.md] — the binding Epic 3 API contract; §3
   (`TabKey` + per-entity tab sets), §4 (registry, `entityPaths.ts`), §5 (routes), §8
   (target-type vocabulary, `PENDING_DB_WIDENINGS`), §12 (build order), §13 (test shapes)
-- [Source: /tmp/claude-1000/-home-daniel-repos-myshadchan/c6badcce-b0a1-4dd4-a9e3-16d3bfec7653/scratchpad/epic3-preflight-brief.md#3-G] — the finding this story
+- [Source: _bmad-output/planning-artifacts/epic3-preflight-brief.md#3-G] — the finding this story
   answers: *"Without this, Epic 3 hands Epic 5 zero enforcement and AD-24 is a document,
   not a contract"*
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md:177-180] — AD-24, the rule

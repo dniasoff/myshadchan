@@ -179,7 +179,10 @@ Three further framework facts this story owns, all verified on `main`:
 
    ```ts
    export function Entity360Tabs(props: {
-     tabs: { key: TabKey; label: string; render: () => ReactNode }[];
+     // `label` is OPTIONAL and is the caller's *override*, not a resolved string:
+     // `Entity360Tabs` renders `useTabLabel(key, label)`. `EntityShow` forwards
+     // `tab.label` verbatim, including `undefined`, and must not fill it in from TAB_LABELS.
+     tabs: { key: TabKey; label?: string; render: () => ReactNode }[];
    }): ReactElement;
    ```
 
@@ -195,12 +198,15 @@ Three further framework facts this story owns, all verified on `main`:
    translate call here. The catalog key is `crm.entity360.tab.<key>`, **not** the contract §3
    sketch's bare `entity360.tab.<key>`: `englishCrmMessages.ts:104` nests everything under a
    single `crm` root, so a bare `entity360.*` key can never resolve (contract §3 rule 2,
-   §13 rule 6; 3-10 AC 3's namespace note is the ruling). **Open question for the tab-vocabulary
-   owner, flagged not guessed:** `useTabLabel(key, override)` returns `override ?? translate(…)`,
-   while `EntityTabDescriptor.label` is required and defaults to `TAB_LABELS[key]` — so passing
-   `tab.label` as the override unconditionally would bypass the catalog for every tab. Resolve
-   the precedence rule with 3-13 before implementing; do not invent a third label path. **Test:**
-   with a
+   §13 rule 6). **Precedence is settled — implement it, do not re-open it.**
+   `useTabLabel(key, override)` returns `override ?? translate("crm.entity360.tab." + key,
+   { _: TAB_LABELS[key] })`, and `EntityTabDescriptor.label` is **optional and normally
+   absent** (contract §2 rule 8). `Entity360Tabs` passes `tab.label` straight into
+   `useTabLabel` as `override`, `undefined` included — it must not apply a
+   `?? TAB_LABELS[key]` default of its own, and neither may `EntityShow` upstream. Filling the
+   label in anywhere before `useTabLabel` makes every tab an override, so the catalog is never
+   consulted and i18n is dead while its round-trip test still passes. Do not invent a third
+   label path. **Test:** with a
    two-tab fixture at `/fixtures/1/overview`, (a) each trigger's `href` equals the
    corresponding `buildTabPath` value, (b) clicking the second trigger leaves
    `location.pathname` at `/fixtures/1/notes`, (c) browser back returns to

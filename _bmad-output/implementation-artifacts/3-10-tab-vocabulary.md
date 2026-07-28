@@ -122,18 +122,33 @@ comment, and builds the two shared tab components UX-DR4 names and no story owns
    `overview.empty` (AC 5).
    `entity360/useTabLabel.ts` exports
    `useTabLabel(key: TabKey, override?: string): string` returning
-   `override ?? translate(tabLabelKey(key), { _: TAB_LABELS[key] })`. Two assertions, both
-   able to fail: for **every** key in `TAB_KEYS`,
-   `testI18nProvider.translate(tabLabelKey(key))` equals `TAB_LABELS[key]` (this fails the
-   moment the union grows and the catalog does not — the drift the `_:` fallback would
-   otherwise hide, because `polyglotI18nProvider` here is configured
-   `{ allowMissing: true }`, `i18nProvider.ts:48`); and `useTabLabel("shidduchim", "Linked shidduchim")` returns
-   the override, proving contract §3 rule 2's "an entity may override the string, never
-   the key".
-   **Namespace note:** the key is `crm.entity360.tab.<key>`, not the contract's bare
-   `entity360.tab.<key>`. The catalog nests everything under a single `crm` root
-   (`englishCrmMessages.ts:104`), so a bare `entity360.*` key can never resolve and would
-   make this AC vacuous. French inherits English automatically —
+   `override ?? translate(tabLabelKey(key), { _: TAB_LABELS[key] })`.
+
+   `EntityTabDescriptor.label` is **optional and normally absent** (contract §2 rule 8), so
+   the override is the exception, not the rule. **Three assertions, all falsifiable** — a
+   suite that only proves an explicit override is returned proves nothing about i18n and is
+   worse than no test, because it stays green while the feature it guards is inert:
+
+   (a) for **every** key in `TAB_KEYS`, `testI18nProvider.translate(tabLabelKey(key))` equals
+   `TAB_LABELS[key]` — this fails the moment the union grows and the catalog does not, the
+   drift the `_:` fallback would otherwise hide, because `polyglotI18nProvider` here is
+   configured `{ allowMissing: true }` (`i18nProvider.ts:48`);
+   (b) a tab descriptor with **no** `label` renders the canonical label — i.e.
+   `useTabLabel("shidduchim")` with no second argument returns `"Shidduchim"`; and
+   (c) with a translation registered for `crm.entity360.tab.shidduchim` that **differs** from
+   `TAB_LABELS.shidduchim`, that registered translation **wins** for the same label-less
+   descriptor.
+
+   **(c) is the assertion that goes red if resolution bypasses the catalog** — if anything
+   between the descriptor and `useTabLabel` synthesises an override out of `TAB_LABELS`, (c)
+   returns the canonical string instead of the registered one and the test fails. Keep the
+   explicit-override case (`useTabLabel("shidduchim", "Linked shidduchim")` returns the
+   override) as a fourth, subordinate assertion; it documents §3 rule 2's "an entity may
+   override the string, never the key" but it is **not** the i18n proof.
+   **Namespace note:** the key is `crm.entity360.tab.<key>`. The catalog nests everything
+   under a single `crm` root (`englishCrmMessages.ts:104`), so a bare `entity360.*` key can
+   never resolve and would make this AC vacuous. (Earlier revisions of the contract wrote the
+   bare form; §3 rule 2 now carries `crm.entity360.tab.<key>` and the two agree.) French inherits English automatically —
    `frenchCatalog = mergeTranslations(englishCatalog, …)` (`i18nProvider.ts:16-21`) — so no
    `frenchCrmMessages.ts` edit is required, and adding one is out of scope.
 
@@ -254,7 +269,11 @@ comment, and builds the two shared tab components UX-DR4 names and no story owns
         `providers/commons/englishCrmMessages.ts`, one entry per `TabKey`.
   - [ ] `entity360/useTabLabel.ts` — `useTranslate()` from `ra-core`, the override rule
         from AC 3, nothing else.
-  - [ ] `useTabLabel.test.tsx` — the whole-union catalog round-trip and the override case.
+  - [ ] `useTabLabel.test.tsx` — AC 3's assertions (a) whole-union catalog round-trip,
+        (b) label-less descriptor renders the canonical label, (c) a registered
+        `crm.entity360.tab.<key>` translation beats the canonical label, plus the subordinate
+        explicit-override case. (c) is the one that must be shown red against a build in which
+        the label is pre-filled from `TAB_LABELS`.
         The catalog round-trip needs no React: assert directly against
         `testI18nProvider.translate` (`providers/commons/i18nProvider.ts:51-56`). The
         override case renders a one-line probe component inside `CoreAdminContext` with

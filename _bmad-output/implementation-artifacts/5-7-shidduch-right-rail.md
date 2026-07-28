@@ -23,13 +23,13 @@ external, revocable share mechanism — that is Epic 9's job (Story 9.5), which 
 whose AD-9 Worker-proxied-stream infrastructure does not exist yet (see Story 5.3's Dev Notes).
 Building a second, ad-hoc sharing path here would violate AD-9's single-owner intent for outbound
 sharing. This story reads "forward resume and share" as **one combined action**: the OS-native
-share/download of the suggestion's newest resume file (Story 5.3), using the Web Share API where
+share/download of the shidduch's newest resume file (Story 5.3), using the Web Share API where
 supported and a plain download as the fallback. It explicitly does **not** generate a link, a
 token, or anything Epic 9 will later own — when Epic 9 lands, its share-link feature replaces
 this button's implementation, not adds a second button beside it.
 
 **"The single's input" has no write path yet.** Epic 6 Story 6.4 ("The single's input") is what
-lets a single actually submit input on a suggestion, and it lands after Epic 5. This story
+lets a single actually submit input on a shidduch, and it lands after Epic 5. This story
 builds the **read-side panel** now — it queries `interactions` for a new `kind = 'single_input'`
 value and renders whatever it finds, correctly showing an empty state until Epic 6 wires up the
 write path. The panel is not decorative: extending `interactions_kind_check` now means Epic 6
@@ -38,19 +38,24 @@ does not have to touch this table's constraint later, only add the write UI.
 ## Acceptance Criteria
 
 1. **Given** a shidduch's 360, **when** it renders, **then** the right rail shows three panels:
-   the single's input, reminders on this suggestion, and a combined forward/share action. No
-   other entity's descriptor declares this rail in this story (Story 3.1's regions are optional
-   per entity).
+   the single's input, a read-only reminders summary for this shidduch, and a combined
+   forward/share action. No other entity's descriptor declares this rail in this story (Story
+   3.1's regions are optional per entity).
 2. **Given** `interactions` rows with `target_type = 'shidduch'`, `target_id = {id}`,
    `kind = 'single_input'`, **when** the panel renders, **then** it lists them newest-first; when
    there are none, it shows an empty state explaining nothing has been shared yet (not an error,
    not blank).
-3. **Given** the reminders panel, **when** I add or complete a task, **then** it writes to
-   `tasks` with `target_type = 'shidduch'`, `target_id = {id}` and reflects immediately,
-   without leaving the page — the panel **is** Story 3.8's `entity360/tabs/TasksTab.tsx` with
-   `{ targetType: "shidduch", targetId }` (3.8 built it precisely by generalising
-   `ReferenceTasks.tsx`'s add/toggle behaviour). Do not adapt `ReferenceTasks.tsx` itself —
-   Story 5.10 deletes it — and do not write a third task-add/toggle implementation.
+3. **Given** the reminders panel, **when** it renders, **then** it is
+   `entity360/tabs/TasksRailSummary.tsx` with `{ targetType: "shidduch", targetId }` — a
+   **compact, read-only "next few reminders" summary**: the next `limit` (default 3) incomplete
+   tasks for this shidduch by due date, plus a link to `buildTabPath("shidduchim", id, "tasks")`.
+   It has **no add, no toggle, no edit, no delete**. Adding and completing a reminder happens in
+   the shidduch's **Tasks tab** (Story 3.8's `entity360/tabs/TasksTab.tsx`), which is the only
+   component in the codebase that mutates tasks from a 360 — the "reflects immediately, without
+   leaving the page" behaviour is satisfied by the tab, not the rail. The rail must not duplicate
+   the tab's mutation surface. Do not adapt `ReferenceTasks.tsx` — Story 5.10 deletes it — and do
+   not write a second task-add/toggle implementation.
+   [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#11 — Ruling 2, points 1–4]
 4. **Given** the shidduch has at least one resume file version (Story 5.3), **when** I press
    forward/share, **then** the newest version downloads to my device, invoking the Web Share API
    (`navigator.share` with the file) when the browser supports sharing files, else a plain
@@ -80,7 +85,9 @@ does not have to touch this table's constraint later, only add the write UI.
         wire into the shell's right-rail region per the shidduch descriptor.
   - [ ] `SingleInputPanel.tsx`: `useGetList("interactions", { filter: { target_type: "shidduch",
         target_id, kind: "single_input" } })`, newest-first, empty state.
-  - [ ] Reminders panel: mount 3.8's `TasksTab` with `targetType: "shidduch"` per AC-3.
+  - [ ] Reminders panel: mount 3.8's `TasksRailSummary` with `targetType: "shidduch"` per AC-3
+        (read-only; the mutating `TasksTab` stays in the Tasks tab, which the summary links to
+        via `buildTabPath`).
 - [ ] **Task 3 — Forward/share action** (AC: 4)
   - [ ] `ForwardResumeButton.tsx`: reads the newest entry from Story 5.3's `ResumeVersionList`
         data (or a small shared hook, `useLatestResumeFile(shidduchimId)`, to avoid duplicating
@@ -90,18 +97,24 @@ does not have to touch this table's constraint later, only add the write UI.
         download>` when unsupported or when no file exists (disabled state, not hidden).
 - [ ] **Task 4 — Tests**
   - [ ] Component tests: empty state for `SingleInputPanel`; disabled state for
-        `ForwardResumeButton` with no resume; add/toggle round-trip for the reminders panel.
+        `ForwardResumeButton` with no resume; the reminders summary lists at most `limit`
+        incomplete tasks, newest due first, and renders a link to the Tasks tab.
+  - [ ] Read-only guard per AC-3: assert the rail exposes no add/complete affordance (3.8 owns
+        the `TasksRailSummary.tsx` source guard for `useCreate`/`useUpdate`/`useDelete`/
+        `useMutation`/form imports; this story must not reintroduce one via the rail's own
+        wrapper).
   - [ ] Payload test per AC-4: the forward/share payload holds exactly one `resumes.files`
         entry and nothing derived from `resume_photos`.
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`.
+  - [ ] `npm run typecheck && npm run lint && npx vitest run && npm run test:unit:db`.
 
 ## Dev Notes
 
 ### Reuse
 
-- `entity360/tabs/TasksTab.tsx` (Story 3.8) — the reminders panel, direct mount. Its behaviour
-  is `ReferenceTasks.tsx` generalised; the original is deleted by Story 5.10, so nothing may
-  build on it here.
+- `entity360/tabs/TasksRailSummary.tsx` (Story 3.8) — the reminders panel, direct mount,
+  read-only. `entity360/tabs/TasksTab.tsx` is the canonical mutating surface and belongs to the
+  Tasks tab, not the rail (contract §11 Ruling 2). Their shared behaviour is `ReferenceTasks.tsx`
+  generalised; the original is deleted by Story 5.10, so nothing may build on it here.
 - Story 5.3's `ResumeVersionList` sort/latest-version logic — do not re-derive "which file is
   newest."
 
@@ -123,8 +136,12 @@ new RLS branch for this — that would be solving a problem that does not exist.
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-5-Entity-360s, Story 5.7]
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-6-The-Singles-Access, Story 6.4] —
   the future write path this story's read-side panel anticipates.
-- [Source: ARCHITECTURE-SPINE.md#AD-9] — why forward/share does not build a revocable link here.
-- [Source: ARCHITECTURE-SPINE.md#AD-13] — reminders are polymorphic `tasks`, no SMS channel.
+- [Source: _bmad-output/planning-artifacts/epic3-api-contract.md] — binding. §11 Ruling 2 (rail
+  vs. tab), §3 (`TabKey`), §0 (validation commands, vocabulary).
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-9]
+  — why forward/share does not build a revocable link here.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-13]
+  — reminders are polymorphic `tasks`, no SMS channel.
 
 ## Dev Agent Record
 

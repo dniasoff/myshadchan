@@ -45,9 +45,14 @@ real data source, now.
    field — `visibleTo?: MemberRole[]` (an **allow-list**; absent means "visible to every
    role") — and `EntityDescriptor` itself carries none. `MemberRole` is imported from
    `src/components/atomic-crm/types.ts:109-110`; no union of role literals is written
-   anywhere under `entity360/`. The name `minVisibility` does not exist:
-   `grep -rn "minVisibility" src/` returns zero hits.
-   **Falsifiable by typecheck**, in `entity360/visibility.types.test.ts`:
+   anywhere under `entity360/`. The field is named `visibleTo`, never `minVisibility`.
+   **This AC is falsified by typecheck, not by a repo-wide grep.** A bare
+   `grep -rn "minVisibility" src/` would return zero hits *today* — `entity360/` does not
+   exist yet — so it cannot fail at the moment it is checked and proves nothing
+   [Source: _bmad-output/planning-artifacts/epic3-preflight-brief.md#6-Landmines — item 15].
+   The name-absence half is therefore carried by AC 4's `?raw` guard, which first asserts the
+   scan actually saw this story's files. The two cases below are the falsification mechanism:
+   in `entity360/visibility.types.test.ts`:
    (a) `const _exhaustive: Record<MemberRole, true> = { parent_admin: true, helper: true,
    self_manager: true, shadchan: true, single: true };` — fails if a sixth role is added and
    this story's tables are not updated with it;
@@ -106,11 +111,29 @@ real data source, now.
    the one in-repo precedent
    [Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:16-20] — and
    asserts that inside `entity360/`: `useMyContexts` appears only in `useViewerRole.ts`, and
-   `administrator` and `useGetIdentity` appear **nowhere**. The matcher is an exported pure
-   function `findForbiddenRoleSources(files: Record<string, string>): string[]`, and the same
-   test file asserts it returns a non-empty result for the synthetic fixture
-   `{ "./Bad.tsx": "const { identity } = useGetIdentity();" }`. A guard that cannot fail is
-   not coverage.
+   `administrator`, `useGetIdentity` and `minVisibility` (AC 1's retired name) appear
+   **nowhere**.
+   **The scan excludes `.test.` and `.guard.` paths**, exactly as the precedent file does
+   [Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:44-52], and this
+   exclusion is load-bearing, not tidiness: 3.3a's `entityDescriptor.test.ts` carries a
+   deliberate `@ts-expect-error` case on a tab literal with `minVisibility`
+   (`3-3-entity-descriptor-registry.md` AC 1(e)), and this story's own
+   `visibility.types.test.ts` and `visibility.test.ts` must spell every `MemberRole` literal to
+   satisfy AC 1(a) and AC 2. Scanning test files would make the guard fire on the very
+   assertions that prove the type rejects the retired name. The matcher is an exported pure
+   function
+   `findForbiddenRoleSources(files: Record<string, string>): string[]`, and the same test file
+   asserts it returns a non-empty result for each of the three synthetic fixtures
+   `{ "./Bad.tsx": "const { identity } = useGetIdentity();" }`,
+   `{ "./Bad.tsx": "if (member.administrator) {}" }` and
+   `{ "./Bad.tsx": "type T = { minVisibility?: MemberRole[] };" }`.
+   **The scan must first prove it scanned something.** Before any absence assertion, the test
+   asserts the glob result contains this story's own files — at minimum
+   `./visibility.ts` and `./useViewerRole.ts` — and fails if either is missing. Without that
+   precondition an empty or mis-rooted glob makes every "appears nowhere" assertion pass
+   vacuously, which is exactly how a guard over a directory that does not yet exist reports
+   green [Source: _bmad-output/planning-artifacts/epic3-preflight-brief.md#6-Landmines — item 15].
+   A guard that cannot fail is not coverage.
 
 5. **A tab whose `visibleTo` excludes the viewer is absent from the DOM and its `render` is
    never called.** `EntityShow` (3.3b) filters `descriptor.tabs` through

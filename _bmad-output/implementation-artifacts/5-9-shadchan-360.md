@@ -27,8 +27,16 @@ graduation of an existing page onto the shared shell, not a modal-to-page conver
   fully built. Reuse verbatim as the shell's identity-header content.
 - `ShadchanStatsRow` (defined inside `ShadchanShow.tsx` — extract it to its own file when the
   `<Show>` wrapper is deleted) / the `shadchan_stats` view already provide the "stat band"
-  (suggestions, progressed, reached-yes counts) — reuse as the shell's stat-band region.
-- `ShadchanSuggestions.tsx` already lists every suggestion from this shadchan, and Story 3.9's
+  (`nb_suggestions` / `nb_progressed` / `nb_reached_yes` — shidduchim attributed to this
+  shadchan, those past `new`, those that reached `yes`; the column names are pre-existing DB
+  identifiers and this story does not rename them, but every **label** rendered from them uses
+  AD-23 vocabulary: "Shidduchim", not "Suggestions") — reuse as the shell's stat-band region.
+  This is also the contract's proof case for `statBand` being a `ComponentType<{record}>` that
+  loads its own data (`useGetOne<ShadchanStats>("shadchan_stats", { id })`), not a
+  `(record) => ReactNode`
+  [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#2 — rule 1].
+- `ShadchanSuggestions.tsx` (file name unchanged by this story) already lists every shidduch
+  from this shadchan, and Story 3.9's
   sweep already converted its link to `RecordLink` (it is in 3.9's 12-site list) — the URL it
   renders follows the shidduchim registry entry Story 5.1 updates. This story's own routing
   change is one line in the registry: the **shadchanim** `buildRecordPath` (see AC-4).
@@ -37,7 +45,8 @@ graduation of an existing page onto the shared shell, not a modal-to-page conver
 
 `shadchanim.notes text` is a single free-text column, predating the polymorphic
 `interactions`-backed Notes pattern every other entity uses (the Single-owner rule in
-ARCHITECTURE-SPINE.md's Design Paradigm). Once the shadchan has a real universal Notes tab (this story wires it in per
+`_bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md`'s
+Design Paradigm). Once the shadchan has a real universal Notes tab (this story wires it in per
 Task 3), keeping a second, parallel `notes` column is exactly the kind of duplicate concept
 NFR-14 forbids. This story migrates existing `shadchanim.notes` values into `interactions`
 (`kind = 'note'`, `target_type = 'shadchan'`) and drops the column in the same migration —
@@ -59,13 +68,20 @@ in the same change; notes now live only in the Notes tab.
    `scope = 'account'`, `kind = 'note'`, `body = notes`) and the `notes` column is dropped in the
    same migration. `ShadchanHeader.tsx` no longer renders a notes block.
 3. **Given** a shadchan, **when** I open their record, **then** it renders via the `Entity360`
-   shell at `/shadchanim/{id}/{tab}` with tabs `overview, suggestions, notes, tasks, activity`;
-   the identity header is `ShadchanHeader.tsx` unchanged (contact quick actions intact) and the
-   stat band is the existing `shadchan_stats` reuse, unchanged.
+   shell at `/shadchanim/{id}/{tab}` with tabs `overview, shidduchim, notes, tasks, activity`
+   — the canonical shadchan tab set and order. The tab **key** is `shidduchim` (label
+   "Shidduchim"), taken from the closed `TabKey` union in `entity360/tabKeys.ts`; `suggestions`
+   is not a member of that union, so it does not typecheck, and it is an AD-23 vocabulary
+   violation as a user-facing word. The identity header is `ShadchanHeader.tsx` unchanged
+   (contact quick actions intact) and the stat band is the existing `shadchan_stats` reuse,
+   unchanged.
+   [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#3 — the `TabKey` union, the
+   drift-closing ruling table, and rule 5's per-entity tab sets]
 4. **Given** Story 3.9 already routes every shadchan record mention through `RecordLink`,
    **when** this story changes the shadchan route shape, **then** the change is one line: the
    shadchanim registration's `buildRecordPath` becomes ``(id) => `/shadchanim/${id}` `` and
-   3.9's route-pinning test is updated. `ShadchanSuggestions.tsx` needs no edit — verify it
+   3.9's route-pinning test is updated. `ShadchanSuggestions.tsx` needs no structural edit —
+   only its user-facing strings follow AD-23 ("Shidduchim", never "Suggestions"). Verify it
    renders `RecordLink` rows targeting `/shidduchim/{id}` (Story 5.1's registry update) and
    that `grep -rn "/show" src/components/atomic-crm/shadchanim/` returns nothing.
 5. **Given** the migration, **when** a negative RLS test runs, **then** a member with no
@@ -92,13 +108,27 @@ in the same change; notes now live only in the Notes tab.
         `DemoShadchan` has no `notes` field and `dataGenerator/shidduchim.ts`'s `shadchanimSeed`
         sets none. Just confirm both still compile once `Shadchan.notes` is removed.
 - [ ] **Task 3 — Shell wiring** (AC: 3)
-  - [ ] Register the `shadchanim` descriptor: identity header = `ShadchanHeader`, stat band =
-        `ShadchanStatsRow`, tabs `overview, suggestions, notes, tasks, activity`.
+  - [ ] Re-register the `shadchanim` descriptor over 3.9's stub with
+        `registerEntityDescriptor(descriptor, { replace: true })` — the whole descriptor, not a
+        partial merge: identity header = `ShadchanHeader`, stat band = `ShadchanStatsRow`, tabs
+        `overview, shidduchim, notes, tasks, activity` (keys from `entity360/tabKeys.ts`).
+        [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#4 — rule 2]
   - [ ] `overview` tab: whatever `Shadchan` fields remain outside the header (location, if not
         already in the header — check `ShadchanHeader.tsx` before adding a duplicate render of
         the same field).
-  - [ ] `suggestions` tab: `ShadchanSuggestions.tsx`, unchanged (already `RecordLink`-based
-        post-3.9).
+  - [ ] `shidduchim` tab: `ShadchanSuggestions.tsx`, structurally unchanged (already
+        `RecordLink`-based post-3.9), mounted as an explicit `tabs` entry with
+        `key: "shidduchim"`. An explicit `tabs` entry legitimately overrides the generic
+        `relationships` → `RelatedRecordsTab` rendering for the same key
+        [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#9], which is why this
+        story keeps the existing component instead of re-deriving the list. Its heading/label
+        text becomes "Shidduchim" per AD-23. Verified live AD-23 violations inside the files this
+        story already relocates: `ShadchanSuggestions.tsx:36` `"Suggestions from this shadchan"`
+        → `"Shidduchim from this shadchan"`, `:49` `"No suggestions from this shadchan yet."`
+        → `"No shidduchim from this shadchan yet."`, and `ShadchanShow.tsx:61`
+        `label="Suggestions"` → `label="Shidduchim"` (the stat tile bound to `nb_suggestions`;
+        the DB column keeps its name). `ShadchanCard.tsx:70-71`'s `"suggestion"/"suggestions"`
+        is the **list** page — out of this story's scope, flagged for the Epic 5 refresh pass.
   - [ ] `notes`/`tasks`/`activity`: Epic 3's universal components with `target_type: "shadchan"`.
   - [ ] Delete `ShadchanShow.tsx`'s standalone `<Show>` wrapper once its content is relocated
         into the descriptor (extract the inline `ShadchanStatsRow` to its own file in the same
@@ -109,7 +139,10 @@ in the same change; notes now live only in the Notes tab.
   - [ ] `grep -rn "/show" src/components/atomic-crm/shadchanim/` returns nothing afterward.
 - [ ] **Task 5 — Tests** (AC: 5)
   - [ ] Extend the existing cross-account `interactions` test to cover `target_type = 'shadchan'`.
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`.
+        Cross-tenant negatives are **one login with memberships in two accounts, active in one**
+        — never two disjoint users
+        [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#13 — rule 3].
+  - [ ] `npm run typecheck && npm run lint && npx vitest run && npm run test:unit:db`.
 
 ## Dev Notes
 
@@ -125,7 +158,7 @@ story is the `shadchanim.notes` backfill-and-drop (Task 2). If a generated diff 
 
 - `ShadchanHeader.tsx` — identity header + contact quick actions, unchanged.
 - `shadchan_stats` view + `ShadchanStatsRow` — stat band, unchanged.
-- `ShadchanSuggestions.tsx` — suggestions list, one link-primitive swap only.
+- `ShadchanSuggestions.tsx` — the shidduchim list, one link-primitive swap plus AD-23 label text.
 
 ### Migration workflow
 
@@ -143,8 +176,14 @@ the data is gone before it is copied. Then
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-5-Entity-360s, Story 5.9]
-- [Source: ARCHITECTURE-SPINE.md#AD-24] — `RecordLink` as the single record-mention primitive;
+- [Source: _bmad-output/planning-artifacts/epic3-api-contract.md] — binding. §3 (`TabKey`:
+  `shidduchim`, not `suggestions`), §4 (registry `{ replace: true }`), §2 rule 1 (`statBand` is a
+  `ComponentType`), §0 (validation commands, AD-23 vocabulary).
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-24]
+  — `RecordLink` as the single record-mention primitive;
   the route-shape change flows through the registry, never through call-site edits.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-23]
+  — the domain vocabulary: shidduch/shidduchim, never "suggestion".
 - [Source: _bmad-output/implementation-artifacts/3-5-universal-activity-tab.md#AC-1] — the
   `'shadchan'` interactions widening this story verifies instead of redoing.
 

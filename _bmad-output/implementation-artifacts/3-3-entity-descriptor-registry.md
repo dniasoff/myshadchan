@@ -141,7 +141,11 @@ half is the epic owner's edit, and is what the residual above is about.
 
    export type EntityTabDescriptor<T = RaRecord> = {
      key: TabKey;
-     label: string;
+     /** OPTIONAL — and omitting it is the NORMAL case, not the exception. Absent, the label
+      *  resolves through the i18n catalog with TAB_LABELS[key] as the untranslated fallback
+      *  (contract §3 rule 2). Set it ONLY for a genuine per-entity deviation from the
+      *  canonical vocabulary, and carry a one-line comment saying why THAT entity deviates. */
+     label?: string;
      render: () => ReactNode;                         // LAZY — no argument
      visibleTo?: MemberRole[];                        // absent = every role
    };
@@ -149,20 +153,25 @@ half is the epic owner's edit, and is what the residual above is about.
 
    Four properties are **absent by decision, not by omission**, and each is asserted:
    there is no `stats?: (record) => …` field (deleted — `statBand` replaces it); no
-   `minVisibility` (the field is `visibleTo`, an allow-list); `label` is not optional; and no
-   region is `(record) => ReactNode`.
+   `minVisibility` (the field is `visibleTo`, an allow-list); `EntityDescriptor.label` — the
+   **entity-level** label 4.1 consumes as a `translate` fallback — is **not** optional; and no
+   region is `(record) => ReactNode`. Note the asymmetry, which is deliberate and is the owner's
+   ruling: `EntityDescriptor.label` is required, `EntityTabDescriptor.label` is optional.
 
    **How this fails:** `entityDescriptor.test.ts` carries `@ts-expect-error` assertions that
    `npm run typecheck` evaluates (`tsconfig.app.json` `include: ["src", …]`, `strict: true`) —
    an unused `@ts-expect-error` is itself a compile error, so each assertion fails loudly if
    the type stops rejecting what it must reject:
-   (a) a descriptor literal missing `label`;
+   (a) a descriptor literal missing the entity-level `label`;
    (b) `statBand: (record) => <div/>` (a function, not a `ComponentType`);
    (c) a literal carrying `stats: []` (excess property);
    (d) a tab with `key: "not-a-tab"`;
    (e) a tab with `minVisibility: […]`;
    (f) `render: (record) => …` (arity — `render` takes no argument).
-   Plus one positive that must compile clean: `{ name, buildRecordPath, label }` alone.
+   Plus two positives that must compile clean: `{ name, buildRecordPath, label }` alone; and a
+   tab literal `{ key: "overview", render: () => null }` carrying **no** `label` — the normal
+   case under the owner's ruling. A `@ts-expect-error` on that second positive is itself the
+   defect: it would mean `EntityTabDescriptor.label` has been re-required.
 
 2. **Regions are a component boundary, not a data shape — and the proof is a hook.** Because
    every region is `ComponentType<{ record }>`, a descriptor module may load its own data.
@@ -333,14 +342,18 @@ half is the epic owner's edit, and is what the residual above is about.
    `useRecordContext()` — which resolves because `EntityShow` mounts inside `ShowBase`
    [Source: Contract §2:123-126, §5:292-296].
 
-   Tab labels: `EntityShow` supplies `tab.label ?? TAB_LABELS[tab.key]` to `Entity360Tabs`;
-   the `i18nProvider` `_:`-fallback rendering under key **`crm.entity360.tab.<key>`** — the
-   catalog nests under a single `crm` root (`englishCrmMessages.ts:104`), so the contract §3
-   sketch's bare `entity360.tab.<key>` can never resolve; 3-13's AC 3 namespace note is the
-   ruling — is `Entity360Tabs`' (3.2 / 3-13), via `useTabLabel`, not this file's
-   [Source: Contract §3:175-183]. **`EntityShow` must not call `translate` for a tab label.**
-   The precedence question (`useTabLabel`'s `override` vs. the required `label`) is 3-13's to
-   settle; this story passes `tab.label` through unchanged and does not resolve it.
+   Tab labels: **`EntityShow` forwards `tab.label` verbatim — including `undefined` — to
+   `Entity360Tabs`, and does nothing else.** It must **never** substitute `TAB_LABELS[tab.key]`
+   itself and pass that as an override, never call `translate` for a tab label, and never apply
+   a `?? TAB_LABELS[…]` default. This is the owner's ruling and it is load-bearing: because
+   `useTabLabel(key, override)` returns `override ?? translate(…)`, an `EntityShow` that fills
+   the label in makes **every** tab an override, so the translation catalog is never consulted
+   and the i18n path is dead while its round-trip test still passes. Resolution happens in one
+   place only — `Entity360Tabs` calling `useTabLabel(key, label)` (3.2 / 3-13), under key
+   **`crm.entity360.tab.<key>`**; the catalog nests under a single `crm` root
+   (`englishCrmMessages.ts:104`), so a bare `entity360.tab.<key>` can never resolve
+   [Source: _bmad-output/planning-artifacts/epic3-api-contract.md §2 rule 8, §3 rule 2].
+   The precedence question is **settled, not deferred** — do not re-open it with 3-13.
    **Visibility filtering is 3.4's**: until 3.4 lands, `EntityShow` passes every declared tab
    through, and 3.4 inserts the `hasVisibility` filter **before** the array reaches
    `Entity360Tabs` [Source: Contract §6:334-372].
@@ -418,7 +431,9 @@ half is the epic owner's edit, and is what the residual above is about.
   - [ ] Default identity composition (`avatar`/`title`/`meta` → `EntityAvatar` from 3.1) used
         only when `identityHeader` is absent.
   - [ ] Merge `tabs` + `relationships` into one ordered array per AC 10 and hand it to
-        `Entity360Tabs` with resolved labels.
+        `Entity360Tabs` with each entry's `label` **unresolved and forwarded verbatim**
+        (`undefined` stays `undefined`). Resolution is `Entity360Tabs`' via `useTabLabel`;
+        `EntityShow` must not substitute `TAB_LABELS[key]` or call `translate` (AC 7).
   - [ ] Keep the file well under the ~400-line ceiling; extract the default identity
         composition and the tab-merge helper into their own modules rather than growing this
         one [Source: .claude/rules/coding-style.md#File-organization].
