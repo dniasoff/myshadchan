@@ -60,9 +60,14 @@ const singleLabel = (single: Single) =>
  * TODO: hoist to a shared SingleContext once a second consumer needs the
  * selection (foundation-plan risk #3).
  */
-const SingleSwitcherPill = () => {
+export const SingleSwitcherPill = () => {
   const translate = useTranslate();
   const { data: singleList } = useGetList<Single>("singles", {
+    // 2.5 AC-8: an archived single must not be selectable as the "current"
+    // single here — the mandatory minimum bar this story sets for the
+    // switcher, mirrored in ShidduchimList/useDashboardData's own local
+    // single-switchers.
+    filter: { "status@neq": "archived" },
     pagination: { page: 1, perPage: 100 },
     sort: { field: "first_name_en", order: "ASC" },
   });

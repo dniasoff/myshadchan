@@ -15,6 +15,7 @@ import {
 import { BillingPage } from "../billing/BillingPage";
 import { ChangePasswordButton } from "./ChangePasswordButton";
 import { FamilySection } from "./FamilySection";
+import { PersonasSection } from "./PersonasSection";
 import { PreferencesSection } from "./PreferencesSection";
 import { PrivacySection } from "./PrivacySection";
 import { ProfileSection } from "./ProfileSection";
@@ -55,6 +56,7 @@ export const SettingsPage = () => {
         <div className="space-y-6">
           <ProfileSection />
           <FamilySection />
+          <PersonasSection />
           <PreferencesSection />
         </div>
 

@@ -26,6 +26,8 @@ export const useDashboardData = (): DashboardData => {
   const { data: singles, isPending: singlesPending } = useGetList<Single>(
     "singles",
     {
+      // 2.5 AC-8: an archived single is not a selectable "current" single.
+      filter: { "status@neq": "archived" },
       pagination: { page: 1, perPage: 100 },
       sort: { field: "first_name_en", order: "ASC" },
     },

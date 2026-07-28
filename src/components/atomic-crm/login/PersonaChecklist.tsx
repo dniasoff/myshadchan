@@ -10,6 +10,10 @@ export interface PersonaChecklistProps {
   /** Called with the full next selection whenever a box is (un)ticked. */
   onChange: (next: Persona[]) => void;
   className?: string;
+  /** Disables every checkbox — Settings (2.5) sets this while a toggle's
+   * add_persona()/remove_persona() call is in flight, so a second click
+   * can't race the first. Onboarding never passes it. */
+  disabled?: boolean;
 }
 
 const PERSONA_OPTIONS: Array<{
@@ -50,6 +54,7 @@ export const PersonaChecklist = ({
   value,
   onChange,
   className,
+  disabled = false,
 }: PersonaChecklistProps) => {
   const translate = useTranslate();
 
@@ -65,12 +70,16 @@ export const PersonaChecklist = ({
         <Label
           key={persona}
           htmlFor={`persona-checkbox-${persona}`}
-          className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-4 text-start font-normal text-foreground shadow-sm transition-colors duration-[160ms] hover:bg-secondary/50"
+          className={cn(
+            "flex items-start gap-3 rounded-xl border border-border bg-card p-4 text-start font-normal text-foreground shadow-sm transition-colors duration-[160ms]",
+            disabled ? "opacity-60" : "cursor-pointer hover:bg-secondary/50",
+          )}
         >
           <Checkbox
             id={`persona-checkbox-${persona}`}
             checked={value.includes(persona)}
             onCheckedChange={(checked) => toggle(persona, checked === true)}
+            disabled={disabled}
             className="mt-0.5"
           />
           <span className="text-sm font-medium">

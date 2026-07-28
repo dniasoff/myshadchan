@@ -298,6 +298,14 @@ revoke all on function public.my_personas() from public, anon;
 grant execute on function public.my_personas() to authenticated;
 grant execute on function public.my_personas() to service_role;
 
+-- Story 2.5 (AC-2): remove_persona() is SECURITY DEFINER — every query
+-- inside is filtered to user_id = auth.uid() alone, never a parameter, so
+-- bypassing RLS never becomes bypassing the tenant boundary; anon must
+-- never execute it.
+revoke all on function public.remove_persona(text) from public, anon;
+grant execute on function public.remove_persona(text) to authenticated;
+grant execute on function public.remove_persona(text) to service_role;
+
 revoke all on function public.enforce_shidduch_initial_state() from public, anon;
 grant execute on function public.enforce_shidduch_initial_state() to authenticated;
 grant execute on function public.enforce_shidduch_initial_state() to service_role;

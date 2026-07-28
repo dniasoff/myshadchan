@@ -9,6 +9,7 @@ import MobileHeader from "../layout/MobileHeader";
 import { useMyContexts } from "../root/useMyContexts";
 import { ChangePasswordButton } from "./ChangePasswordButton";
 import { FamilySection } from "./FamilySection";
+import { PersonasSection } from "./PersonasSection";
 import { PreferencesSection } from "./PreferencesSection";
 import { PrivacySection } from "./PrivacySection";
 import { ProfileSection } from "./ProfileSection";
@@ -40,6 +41,7 @@ export const SettingsPageMobile = () => {
             <ContextSwitcherSection />
             <ProfileSection />
             <FamilySection />
+            <PersonasSection />
             <PreferencesSection />
             <PrivacySection />
           </div>

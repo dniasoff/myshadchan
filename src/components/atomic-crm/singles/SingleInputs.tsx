@@ -43,6 +43,13 @@ export const SingleInputs = () => (
           choices={[
             { id: "active", name: "Active" },
             { id: "paused", name: "Paused" },
+            // 2.5 AC-8: read-only — the only writer of 'archived' is
+            // remove_persona() (a persona-removal side effect, never a
+            // direct edit). Listed so an archived single's edit form has a
+            // matching choice instead of rendering blank and silently
+            // resetting to "active" on save; disabled so it can never be
+            // chosen going the other way.
+            { id: "archived", name: "Archived", disabled: true },
           ]}
           defaultValue="active"
           helperText={false}

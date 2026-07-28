@@ -284,6 +284,15 @@ export const frenchCrmMessages = {
       notes: {
         statuses: "Statuts",
       },
+      personas_title: "Profils",
+      persona_add_error: "Impossible de configurer cela. Réessayez.",
+      persona_remove_error_ask_admin:
+        "Cet enregistrement est géré par l'administrateur de votre foyer — demandez-lui de faire ce changement.",
+      persona_remove_error_only_persona:
+        "Vous ne pouvez pas retirer votre seul profil. Ajoutez-en un autre d'abord.",
+      persona_remove_error_parent_guard:
+        "Un autre administrateur doit gérer les autres célibataires de votre foyer avant que vous puissiez retirer ceci.",
+      persona_remove_error_generic: "Impossible de retirer cela. Réessayez.",
       reset_defaults: "Réinitialiser aux valeurs par défaut",
       save_error: "Échec de l'enregistrement de la configuration",
       saved: "Configuration enregistrée avec succès",

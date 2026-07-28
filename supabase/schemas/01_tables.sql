@@ -152,6 +152,14 @@ create table public.account_members (
     -- including this one, to household-kind accounts.
     constraint account_members_role_check check (
         role in ('parent_admin', 'single', 'helper', 'self_manager', 'shadchan')
+    ),
+    -- Story 2.5 (AC-6): 'archived' is the one lifecycle transition
+    -- remove_persona() ever writes to this column — never a delete. Safe to
+    -- add now: the only literal comparison anywhere in the schema is
+    -- current_context_id()'s `and am.status = 'active'`, and every existing
+    -- write site already writes 'active'.
+    constraint account_members_status_check check (
+        status in ('active', 'archived')
     )
 );
 

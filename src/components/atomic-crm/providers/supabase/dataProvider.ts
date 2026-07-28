@@ -508,6 +508,22 @@ const getDataProviderWithCustomMethods = () => {
         throw new Error("Couldn't set that up. Try again.");
       }
     },
+    // Retires one persona (2.5 AC-2). Unlike addPersona()'s generic message
+    // above, this propagates the RPC's own error message rather than
+    // swallowing it: remove_persona()'s two guards (AC-5) raise a specific,
+    // human-readable reason ("cannot remove your only persona", "ask your
+    // household admin", "cannot remove parent — ...") that Settings needs
+    // verbatim to pick a translated, specific error — the opposite of
+    // aiEntitlement()'s deliberate fail-soft UNENTITLED_AI below.
+    async removePersona(persona: Persona): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("remove_persona", {
+        p_persona: persona,
+      });
+      if (error) {
+        console.error("remove_persona.error", error);
+        throw new Error(error.message);
+      }
+    },
 
     // ---------------------------------------------------------------------
     // Billing / AI entitlement (E4). The ai_entitlement() RPC is the SINGLE

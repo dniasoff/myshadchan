@@ -49,6 +49,7 @@ import {
 } from "./internal/referenceLinks";
 import { matchReferenceOnEntry } from "./internal/referenceMatch";
 import { addPersona, getMyPersonas } from "./internal/personas";
+import { removePersona } from "./internal/removePersona";
 import { getMyContexts, switchActiveContext } from "./internal/contexts";
 import {
   catchShidduch,
@@ -739,6 +740,20 @@ export const createDataProvider = ({
       getMyPersonas(baseDataProvider, getIdentity),
     addPersona: (persona: Persona): Promise<void> =>
       addPersona(baseDataProvider, getIdentity, persona),
+    // Persona lifecycle (2.5 AC-2) -- FakeRest mirror of remove_persona() in
+    // ./internal/removePersona.ts. Shares the same closure-local
+    // activeAccountId as switchActiveContext below for the AC-7
+    // dangling-context handoff.
+    removePersona: (persona: Persona): Promise<void> =>
+      removePersona(
+        baseDataProvider,
+        getIdentity,
+        persona,
+        () => activeAccountId,
+        (id) => {
+          activeAccountId = id;
+        },
+      ),
     // Context switcher (2.4 AC-6) -- FakeRest mirrors of
     // my_contexts()/set_active_context() in ./internal/contexts.ts. Derive
     // from the in-memory account_members/accounts tables, never a stub.

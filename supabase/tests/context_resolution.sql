@@ -395,15 +395,21 @@ select 'the resolver current_account_id() no longer exists',
 --
 -- Review finding #5 (should-fix): every fixture membership above is
 -- status = 'active', so deleting my_contexts()'s `and am.status = 'active'`
--- clause would fail no check. u1 also holds a REVOKED membership of a
+-- clause would fail no check. u1 also holds an ARCHIVED membership of a
 -- fourth household (D) — inserted here, while still running with the
 -- elevated role, exactly like acct_a/b/c's own fixtures above — to pin that
 -- the filter is load-bearing, not just true by accident.
+--
+-- Story 2.5 note: this fixture originally used the placeholder literal
+-- 'revoked', which predates account_members_status_check (AC-6) and would
+-- now be rejected outright — 'archived' is both schema-valid and the exact
+-- real-world value this suite needs to prove my_contexts()/current_context_id()
+-- ignore once Story 2.5 ships persona removal.
 -- ---------------------------------------------------------------------------
-insert into public.accounts (name) values ('Context Household D (revoked)') returning id as acct_d \gset
+insert into public.accounts (name) values ('Context Household D (archived)') returning id as acct_d \gset
 insert into ids values ('acct_d', :acct_d);
 insert into public.account_members (account_id, user_id, role, status)
-values (:acct_d, 'c1c1c1c1-1111-1111-1111-111111111111', 'helper', 'revoked');
+values (:acct_d, 'c1c1c1c1-1111-1111-1111-111111111111', 'helper', 'archived');
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"c1c1c1c1-1111-1111-1111-111111111111","role":"authenticated"}';
@@ -416,7 +422,7 @@ select 'my_contexts() reports exactly the caller''s two contexts, never a third 
    and (select count(*) from public.my_contexts() where account_id = :acct_c) = 0;
 
 insert into results (name, passed)
-select 'my_contexts() excludes a REVOKED membership (pins the status = ''active'' filter itself, not just its usual outcome)',
+select 'my_contexts() excludes an ARCHIVED membership (pins the status = ''active'' filter itself, not just its usual outcome)',
        (select count(*) from public.my_contexts() where account_id = :acct_d) = 0;
 
 insert into results (name, passed)
@@ -947,6 +953,353 @@ select 'AC-9: members no longer has the old using(true) read policy',
          select 1 from pg_policies
          where schemaname = 'public' and tablename = 'members' and qual = 'true'
        );
+
+-- =====================================================================
+-- Story 2.5 — Personas change over a lifetime (remove_persona()).
+-- =====================================================================
+-- Fresh users/accounts, independent of every fixture above. Each scenario
+-- builds its own fixture directly as superuser (reset role — same pattern
+-- as the Story 2.2 section), then `set local role authenticated` + the
+-- caller's own JWT claim exercises remove_persona() as that user would.
+-- Inside a `do $$ ... $$` block, values are read back through the `ids`
+-- temp table rather than a psql `:var` — the established convention in this
+-- file for exactly that context.
+
+reset role;
+
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data)
+values
+  ('faaaaaa1-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r1@test.local', null),
+  ('faaaaaa2-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r2@test.local', null),
+  ('faaaaaa3-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r3-admin@test.local', null),
+  ('faaaaaa4-4444-4444-4444-444444444444', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r4-invited-single@test.local', null),
+  ('faaaaaa5-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r5@test.local', null),
+  ('faaaaaa6-6666-6666-6666-666666666666', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r6@test.local', null),
+  ('faaaaaa7-7777-7777-7777-777777777777', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r7@test.local', null),
+  ('faaaaaa8-8888-8888-8888-888888888888', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r8-admin1@test.local', null),
+  ('faaaaaa9-9999-9999-9999-999999999999', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-remove-r9-admin2@test.local', null);
+
+-- ---------------------------------------------------------------------------
+-- AC-6: the check constraint this story adds rejects any status outside
+-- active/archived.
+-- ---------------------------------------------------------------------------
+insert into public.accounts (name, kind) values ('R-Status-Check Household', 'household') returning id as r_status_house \gset
+insert into ids values ('r_status_house', :r_status_house);
+
+do $$
+begin
+  insert into public.account_members (account_id, user_id, role, status)
+  values ((select value from ids where name = 'r_status_house'), null, 'helper', 'bogus');
+  insert into results values ('AC-6: account_members_status_check rejects a status outside active/archived', false, 'insert succeeded');
+exception when others then
+  insert into results values ('AC-6: account_members_status_check rejects a status outside active/archived', true, sqlerrm);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- r1: shadchan + parent — AC-2/AC-7 shadchan removal, the dangling-context
+-- handoff to a remaining membership, the handoff to NULL once none remain,
+-- and idempotent no-ops on both personas once already archived.
+-- ---------------------------------------------------------------------------
+insert into public.accounts (name, kind) values ('R1 Household', 'household') returning id as r1_house \gset
+insert into public.accounts (kind) values ('shadchanus') returning id as r1_shad \gset
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:r1_house, 'faaaaaa1-1111-1111-1111-111111111111', 'parent_admin', 'active')
+returning id as r1_house_membership \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:r1_shad, 'faaaaaa1-1111-1111-1111-111111111111', 'shadchan', 'active')
+returning id as r1_shad_membership \gset
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"faaaaaa1-1111-1111-1111-111111111111","role":"authenticated"}';
+
+-- activate_first_context_trigger only auto-activates the FIRST membership
+-- (r1_house); switch to the shadchanus context explicitly so removing it is
+-- the one that dangles the active context.
+select public.set_active_context(:r1_shad);
+
+select public.remove_persona('shadchan');
+
+insert into results (name, passed)
+select 'AC-2: removing shadchan archives that membership',
+       (select status from public.account_members where id = :r1_shad_membership) = 'archived';
+
+insert into results (name, passed)
+select 'AC-7: removing the active shadchan context hands off to the caller''s remaining membership',
+       public.current_context_id() = :r1_house;
+
+-- r1's only remaining membership (r1_house, parent_admin) has no dependents
+-- and no single persona attached — archives outright, and since it was just
+-- handed the active context above, this is also r1's LAST membership.
+select public.remove_persona('parent');
+
+insert into results (name, passed)
+select 'AC-2: removing parent with no dependents and no single held archives the membership outright',
+       (select status from public.account_members where id = :r1_house_membership) = 'archived';
+
+insert into results (name, passed)
+select 'AC-7: archiving the caller''s last remaining membership clears the active context to NULL, never a stale value',
+       public.current_context_id() is null;
+
+insert into results (name, passed)
+select 'AC-8: my_personas() reports zero personas once both are removed',
+       (select count(*) from public.my_personas()) = 0;
+
+-- Idempotency: calling remove_persona() again on already-archived personas
+-- raises nothing and changes nothing (mirrors add_persona()'s own idiom).
+select public.remove_persona('shadchan');
+select public.remove_persona('parent');
+
+insert into results (name, passed)
+select 'remove_persona is idempotent — re-calling it on an already-archived persona is a silent no-op',
+       (select count(*) from public.account_members
+        where user_id = 'faaaaaa1-1111-1111-1111-111111111111' and status = 'active') = 0;
+
+-- ---------------------------------------------------------------------------
+-- r2: single is the caller's ONLY persona — AC-5's "only persona" guard.
+-- ---------------------------------------------------------------------------
+reset role;
+
+insert into public.accounts (name, kind) values ('R2 Household', 'household') returning id as r2_house \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:r2_house, 'faaaaaa2-2222-2222-2222-222222222222', 'self_manager', 'active')
+returning id as r2_membership \gset
+insert into public.singles (account_id, member_id, first_name_en, status)
+values (:r2_house, :r2_membership, 'R2 Self', 'active')
+returning id as r2_single \gset
+insert into ids values ('r2_single', :r2_single), ('r2_membership', :r2_membership);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"faaaaaa2-2222-2222-2222-222222222222","role":"authenticated"}';
+
+do $$
+begin
+  perform public.remove_persona('single');
+  insert into results values ('AC-5: removing your only persona (single) is refused, not silently accepted', false, 'no exception raised');
+exception when others then
+  insert into results values ('AC-5: removing your only persona (single) is refused, not silently accepted',
+    sqlerrm like '%cannot remove your only persona%', sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'the refused only-persona removal changed nothing',
+       (select status from public.singles where id = (select value from ids where name = 'r2_single')) = 'active'
+   and (select status from public.account_members where id = (select value from ids where name = 'r2_membership')) = 'active';
+
+-- ---------------------------------------------------------------------------
+-- r3 (admin) + r4 (invited single, non-owning) — AC-5's "ask your household
+-- admin" guard: an invited single-role member's record is managed by the
+-- household's admin, never self-archived.
+-- ---------------------------------------------------------------------------
+insert into public.accounts (name, kind) values ('R3-R4 Household', 'household') returning id as r34_house \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:r34_house, 'faaaaaa3-3333-3333-3333-333333333333', 'parent_admin', 'active');
+insert into public.account_members (account_id, user_id, role, status)
+values (:r34_house, 'faaaaaa4-4444-4444-4444-444444444444', 'single', 'active')
+returning id as r4_membership \gset
+insert into public.singles (account_id, member_id, first_name_en, status)
+values (:r34_house, :r4_membership, 'R4 Invited', 'active')
+returning id as r4_single \gset
+insert into ids values ('r4_single', :r4_single);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"faaaaaa4-4444-4444-4444-444444444444","role":"authenticated"}';
+
+do $$
+begin
+  perform public.remove_persona('single');
+  insert into results values ('AC-5: an invited single-role member cannot self-archive a record their household admin manages', false, 'no exception raised');
+exception when others then
+  insert into results values ('AC-5: an invited single-role member cannot self-archive a record their household admin manages',
+    sqlerrm like '%ask your household admin%', sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'the refused non-owning single removal changed nothing',
+       (select status from public.singles where id = (select value from ids where name = 'r4_single')) = 'active';
+
+-- ---------------------------------------------------------------------------
+-- r5: parent + single in the SAME household — successful single removal
+-- (archives, never deletes), the AC-1 re-add round trip against the now-
+-- archived row, and the parent demote-to-self_manager path (role only,
+-- never account_id).
+-- ---------------------------------------------------------------------------
+insert into public.accounts (name, kind) values ('R5 Household', 'household') returning id as r5_house \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:r5_house, 'faaaaaa5-5555-5555-5555-555555555555', 'parent_admin', 'active')
+returning id as r5_membership \gset
+insert into public.singles (account_id, member_id, first_name_en, status)
+values (:r5_house, :r5_membership, 'R5 Self', 'active')
+returning id as r5_single \gset
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"faaaaaa5-5555-5555-5555-555555555555","role":"authenticated"}';
+
+select public.remove_persona('single');
+
+insert into results (name, passed)
+select 'AC-3: removing single archives the singles row (status only) — it still exists, never deleted',
+       (select count(*) from public.singles where id = :r5_single) = 1
+   and (select status from public.singles where id = :r5_single) = 'archived';
+
+insert into results (name, passed)
+select 'after removing single, my_personas() no longer reports it but still reports parent',
+       (select count(*) from public.my_personas() where persona = 'single') = 0
+   and (select count(*) from public.my_personas() where persona = 'parent') = 1;
+
+-- AC-1's round trip: re-adding single after removal must create a fresh
+-- active row, not silently no-op against the now-archived one (the
+-- s.status = 'active' fix to add_persona()/my_personas() above).
+select public.add_persona('single');
+
+insert into results (name, passed)
+select 'AC-1: re-adding single after removal creates a fresh active singles row rather than staying no-op''d against the archived one',
+       (select count(*) from public.my_personas() where persona = 'single') = 1
+   and (select count(*) from public.singles where member_id = :r5_membership and status = 'active') = 1
+   and (select count(*) from public.singles where member_id = :r5_membership) = 2;
+
+-- The parent-demote path: r5 still holds single (freshly re-added) in this
+-- same household, with no other dependents and no other admin — the guard
+-- does not fire, so this demotes rather than raising.
+select public.remove_persona('parent');
+
+insert into results (name, passed)
+select 'AC-2: removing parent while the caller still holds single in the same household demotes role only, never account_id, and never archives',
+       (select role from public.account_members where id = :r5_membership) = 'self_manager'
+   and (select status from public.account_members where id = :r5_membership) = 'active'
+   and (select account_id from public.account_members where id = :r5_membership) = :r5_house;
+
+-- ---------------------------------------------------------------------------
+-- r6: sole admin of a household with an unmanaged dependent single (no login
+-- of their own) and no other admin — AC-2's dependents guard.
+-- ---------------------------------------------------------------------------
+reset role;
+
+insert into public.accounts (name, kind) values ('R6 Household', 'household') returning id as r6_house \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:r6_house, 'faaaaaa6-6666-6666-6666-666666666666', 'parent_admin', 'active')
+returning id as r6_membership \gset
+insert into public.singles (account_id, first_name_en, status)
+values (:r6_house, 'R6 Dependent', 'active');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"faaaaaa6-6666-6666-6666-666666666666","role":"authenticated"}';
+
+do $$
+begin
+  perform public.remove_persona('parent');
+  insert into results values ('AC-2: removing the sole admin of a household with an unmanaged dependent and no other admin is refused', false, 'no exception raised');
+exception when others then
+  insert into results values ('AC-2: removing the sole admin of a household with an unmanaged dependent and no other admin is refused',
+    sqlerrm like '%cannot remove parent%', sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'the refused parent removal changed nothing',
+       (select status from public.account_members where id = :r6_membership) = 'active'
+   and (select role from public.account_members where id = :r6_membership) = 'parent_admin';
+
+-- ---------------------------------------------------------------------------
+-- r7: sole admin who ALSO holds their own single persona, plus an unmanaged
+-- dependent and no other admin — the dependents guard is checked BEFORE the
+-- demote branch, so holding single yourself does not bypass it.
+-- ---------------------------------------------------------------------------
+insert into public.accounts (name, kind) values ('R7 Household', 'household') returning id as r7_house \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:r7_house, 'faaaaaa7-7777-7777-7777-777777777777', 'parent_admin', 'active')
+returning id as r7_membership \gset
+insert into public.singles (account_id, member_id, first_name_en, status)
+values (:r7_house, :r7_membership, 'R7 Self', 'active');
+insert into public.singles (account_id, first_name_en, status)
+values (:r7_house, 'R7 Dependent', 'active');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"faaaaaa7-7777-7777-7777-777777777777","role":"authenticated"}';
+
+do $$
+begin
+  perform public.remove_persona('parent');
+  insert into results values ('AC-2: the dependents guard is checked before the demote branch — holding single yourself does not bypass it', false, 'no exception raised');
+exception when others then
+  insert into results values ('AC-2: the dependents guard is checked before the demote branch — holding single yourself does not bypass it',
+    sqlerrm like '%cannot remove parent%', sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'the blocked demote-path attempt left the membership fully unchanged (still parent_admin, still active)',
+       (select role from public.account_members where id = :r7_membership) = 'parent_admin'
+   and (select status from public.account_members where id = :r7_membership) = 'active';
+
+-- ---------------------------------------------------------------------------
+-- r8 + r9: two-admin household with real domain data — AC-4 (a remaining
+-- parent_admin keeps full access after another member's persona is
+-- archived) and AC-3 (archiving deletes nothing — the rows still exist,
+-- unchanged, under the now-archived context).
+-- ---------------------------------------------------------------------------
+insert into public.accounts (name, kind) values ('R8-R9 Household', 'household') returning id as r89_house \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:r89_house, 'faaaaaa8-8888-8888-8888-888888888888', 'parent_admin', 'active')
+returning id as r8_membership \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:r89_house, 'faaaaaa9-9999-9999-9999-999999999999', 'parent_admin', 'active')
+returning id as r9_membership \gset
+
+insert into public.singles (account_id, first_name_en, status) values (:r89_house, 'R89 Single', 'active') returning id as r89_single \gset
+insert into public.shidduchim (account_id, single_id, name_en) values (:r89_house, :r89_single, 'R89 Shidduch') returning id as r89_shidduch \gset
+insert into public."references" (account_id, name_en) values (:r89_house, 'R89 Reference') returning id as r89_reference \gset
+insert into public.interactions (account_id, target_type, target_id) values (:r89_house, 'reference', :r89_reference) returning id as r89_interaction \gset
+insert into public.redts (account_id, shidduchim_id) values (:r89_house, :r89_shidduch) returning id as r89_redt \gset
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"faaaaaa8-8888-8888-8888-888888888888","role":"authenticated"}';
+
+-- r89_single is an unmanaged dependent (no member_id), but r9 remains as a
+-- second active parent_admin, so the dependents guard does NOT fire — this
+-- pins the "no OTHER admin" half of the predicate, not just its "no other
+-- singles" half (already covered by r1/r5 above).
+select public.remove_persona('parent');
+
+insert into results (name, passed)
+select 'AC-2: removing parent with another admin present and unmanaged dependents archives the membership outright (the guard needs BOTH conditions)',
+       (select status from public.account_members where id = :r8_membership) = 'archived';
+
+insert into results (name, passed)
+select 'AC-7: r8''s own active context clears to NULL after archiving their sole membership',
+       public.current_context_id() is null;
+
+set local request.jwt.claims = '{"sub":"faaaaaa9-9999-9999-9999-999999999999","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-4: a remaining parent_admin still reads the household''s singles/shidduchim/references/interactions/redts fully after another member''s persona is archived',
+       (select count(*) from public.singles where id = :r89_single) = 1
+   and (select count(*) from public.shidduchim where id = :r89_shidduch) = 1
+   and (select count(*) from public."references" where id = :r89_reference) = 1
+   and (select count(*) from public.interactions where id = :r89_interaction) = 1
+   and (select count(*) from public.redts where id = :r89_redt) = 1;
+
+reset role;
+
+insert into results (name, passed)
+select 'AC-3: archiving a persona deletes nothing — the household''s domain rows all still exist, unchanged',
+       (select count(*) from public.singles where id = :r89_single and first_name_en = 'R89 Single') = 1
+   and (select count(*) from public.shidduchim where id = :r89_shidduch and name_en = 'R89 Shidduch') = 1
+   and (select count(*) from public."references" where id = :r89_reference and name_en = 'R89 Reference') = 1
+   and (select count(*) from public.interactions where id = :r89_interaction) = 1
+   and (select count(*) from public.redts where id = :r89_redt) = 1;
+
+insert into results (name, passed)
+select 'AC-3: remove_persona() contains zero DELETE statements (every removal is a status/role transition)',
+       prosrc not ilike '%delete from%'
+from pg_proc
+where proname = 'remove_persona';
 
 \t on
 \a

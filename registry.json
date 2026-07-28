@@ -272,6 +272,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/settings/PersonasSection.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/settings/FamilySection.tsx",
           "type": "registry:component"
         },
@@ -500,6 +504,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/removePersona.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/fakerest/internal/referenceSummary.ts",
           "type": "registry:component"
         },
@@ -529,6 +537,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/internal/contexts.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/accountMemberships.ts",
           "type": "registry:component"
         },
         {

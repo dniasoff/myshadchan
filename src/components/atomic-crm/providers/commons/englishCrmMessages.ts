@@ -289,6 +289,20 @@ export const englishCrmMessages = {
       notes: {
         statuses: "Statuses",
       },
+      // Story 2.5: the "add or remove a persona at any time" section.
+      // persona_add_error is the generic add_persona() failure; the three
+      // persona_remove_error_* keys map 1:1 to remove_persona()'s specific
+      // guard messages (02_functions.sql) so Settings never shows raw
+      // Postgres text.
+      personas_title: "Personas",
+      persona_add_error: "Couldn't set that up. Try again.",
+      persona_remove_error_ask_admin:
+        "This record is managed by your household admin — ask them to make this change.",
+      persona_remove_error_only_persona:
+        "You can't remove your only persona. Add another first.",
+      persona_remove_error_parent_guard:
+        "Another admin needs to manage your household's other singles before you can remove this.",
+      persona_remove_error_generic: "Couldn't remove that. Try again.",
       reset_defaults: "Reset to Defaults",
       save_error: "Failed to save configuration",
       saved: "Configuration saved successfully",

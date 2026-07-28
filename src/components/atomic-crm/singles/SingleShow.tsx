@@ -15,6 +15,15 @@ const GENDER_LABEL: Record<string, string> = {
   male: "Male",
 };
 
+// 2.5 AC-8: SingleList/SingleShow keep archived singles reachable (the full
+// family record), so the pill must read "Archived" rather than the generic
+// non-active "Paused" — mirrors SingleCard.tsx's own STATUS_LABEL.
+const STATUS_LABEL: Record<string, string> = {
+  active: "Active",
+  paused: "Paused",
+  archived: "Archived",
+};
+
 /** Format a YYYY-MM-DD date of birth as "9 Jul 2010" (timezone-safe). */
 const formatDob = (dateString?: string | null): string | null => {
   if (!dateString) return null;
@@ -39,6 +48,7 @@ const SingleProfileHeader = ({ single }: { single: Single }) => {
   const avatarIndex = getAvatarIndex(monogramSeed ?? String(single.id));
   const dob = formatDob(single.dob);
   const isActive = single.status === "active";
+  const statusLabel = STATUS_LABEL[single.status] ?? single.status;
 
   return (
     <Card className="shadow-sm">
@@ -91,7 +101,7 @@ const SingleProfileHeader = ({ single }: { single: Single }) => {
               aria-hidden="true"
             />
           ) : null}
-          {isActive ? "Active" : "Paused"}
+          {statusLabel}
         </span>
       </CardContent>
     </Card>

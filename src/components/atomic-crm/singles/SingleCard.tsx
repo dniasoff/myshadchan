@@ -22,6 +22,15 @@ const GENDER_LABEL: Record<string, string> = {
   male: "Male",
 };
 
+// 2.5 AC-8: this roster keeps showing archived singles (the full family
+// record, not just the active ones), so the status pill must say "Archived"
+// rather than falling into the generic non-active "Paused" label.
+const STATUS_LABEL: Record<string, string> = {
+  active: "Active",
+  paused: "Paused",
+  archived: "Archived",
+};
+
 /**
  * One single's card in the roster grid (design-language §5.1 card recipe):
  * monogram avatar, name, gender/community meta, and a status pill
@@ -41,6 +50,7 @@ export const SingleCard = ({ single, index, openCount }: SingleCardProps) => {
     .filter(Boolean)
     .join(" · ");
   const isActive = single.status === "active";
+  const statusLabel = STATUS_LABEL[single.status] ?? single.status;
   // "N in pipeline" — the still-in-triage suggestions for this single (E6). Only
   // shown when a positive count is supplied; a missing count (summary
   // unavailable, older demo data) renders nothing rather than a bare zero.
@@ -106,7 +116,7 @@ export const SingleCard = ({ single, index, openCount }: SingleCardProps) => {
                 aria-hidden="true"
               />
             ) : null}
-            {isActive ? "Active" : "Paused"}
+            {statusLabel}
           </span>
           {showOpenCount ? (
             <span className="text-xs font-medium text-muted-foreground tabular-nums">

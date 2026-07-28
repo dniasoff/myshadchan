@@ -64,7 +64,13 @@ export const ShidduchInputs = () => {
   return (
     <div className="flex flex-col gap-4">
       <FormSection eyebrow="Who">
-        <ReferenceInput source="single_id" reference="singles">
+        {/* 2.5 AC-8: an archived single is not offered as the pipeline owner
+            for a brand-new shidduch. */}
+        <ReferenceInput
+          source="single_id"
+          reference="singles"
+          filter={{ "status@neq": "archived" }}
+        >
           <AutocompleteInput
             label="Single (whose pipeline)"
             helperText="Whose suggestion board this will appear on"
