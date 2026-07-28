@@ -574,6 +574,49 @@ So that navigation is predictable.
 **Then** it uses the single `RecordLink` component and routes to that record's 360
 **And** no ad-hoc record links remain in the codebase.
 
+### Story 3.10: Shared tab vocabulary (UX-DR4)
+
+A closed `TabKey` union, canonical tab labels, and the shared `Overview` / `Related` tab
+components that ~30 downstream Epic 4–11 stories converge on instead of each inventing its own
+tab name.
+
+### Story 3.11: AD-24 conformance validator
+
+A test-enforced guard — modelled on `root/routeManifest.ts`'s `findManifestViolations` — that
+fails CI if a future entity bypasses the 360 framework: an unregistered descriptor, a `<Show>`
+outside `entity360/`, a `<Dialog>` wrapping a primary record, or a `buildRecordPath` that
+doesn't match the AD-24 shape.
+
+### Story 3.12: One route convention — `/{entity}/new`
+
+Renames the 14 live `/create` links to `/new`, overrides `useCreatePath` / `CreateButton` /
+`EditButton` so Create and Edit stop colliding with the AD-24 show URL, and gives list-only
+`<Resource>` registrations explicit `hasShow` / `hasEdit` so `<DataTable>` row clicks keep
+resolving.
+
+### Story 3.13: Records at URLs, not modals (UX-DR3)
+
+Converts the last primary-record modals (`shidduchim/ShidduchCreate.tsx`, `tasks/TaskEdit.tsx`)
+to routed pages, closing the UX-DR3 gap that no story from Epic 3 through Epic 9 otherwise owned.
+
+### Story 3.14: Context scope lift — `tasks` and `interactions`
+
+Lifts `enforce_household_scope()` off `public.tasks` and `public.interactions` (project-owner
+Ruling 1) via a carefully staged migration rehearsed against a seeded local database, so a
+shadchan can record a task or log an interaction inside their own shadchanus context. Blocking
+dependency of 3.5, 3.6 and 3.8.
+
+**Build order (binding — [Source: `_bmad-output/planning-artifacts/epic3-api-contract.md` §12]):**
+the epic is not built 3.1→3.14 in file order. Canonical sequence: **3.10** (step 0 — tab
+vocabulary and the `EntityDescriptor` rewrite) → **3.1** → **3.3a** (descriptor types + registry,
+split out of 3.3) → **3.9** (`RecordLink` + the four stub descriptors — must precede 3.8) →
+**3.2** (routes) → **3.12** (route-convention adoption, immediately after 3.2) → **3.3b**
+(`EntityShow`) → **3.4** (permission-aware rendering) → **3.14** (household-scope lift — blocks
+3.5/3.6/3.8; may be rehearsed in parallel with the steps above) → **3.5** → **3.6** → **3.8** →
+**3.7** → **3.11** (conformance validator, last). **3.13** has no fixed numeric slot: it depends
+on 3.2 and 3.12 and must land before Epic 5's first migration. Epic 5 does not start until every
+step above is done.
+
 ---
 
 ## Epic 4: Navigation & Lists
@@ -1228,7 +1271,16 @@ or they break. Add that to 2.1's policy inventory.
 
 ### S2 — Repo-wide `FORCE ROW LEVEL SECURITY` retrofit + AD-1's CI assertion
 AD-1 requires `FORCE RLS` on every table and a CI check asserting it. Story 2.1 explicitly
-declines the retrofit; no other story takes it.
+declines the retrofit; no other story takes it. **Still not done, and the surface has grown:**
+live DB is 22/22 tables RLS-enabled, 0 forced; 20 `SECURITY DEFINER` functions in `public`, all
+owned by `postgres` (which bypasses unforced RLS on every table it touches). The only artefact
+is the comment at `01_tables.sql:85`. Note `accept_invite` does an unscoped read of `invites`
+that only works *because* RLS is unforced — a blanket retrofit breaks invite acceptance unless
+designed with bypasses. AD-1's "one scoping axis" clause also needs a justified allowlist
+(`accounts`, `members`, `member_state`, `configuration`, `pipeline_transitions` legitimately have
+none; zero tables have `connection_id`). **Disposition: own story, before Epic 3 — urgent, but
+not Epic 3's to build.** Split it: (a) the CI assertion + allowlist is cheap, ship now; (b) the
+retrofit with designed bypasses is the larger piece.
 
 ### S3 — Invite-token-at-rest posture is split
 2.7 stores membership-invite tokens as raw uuids; 8.2 stores connection-invite tokens as
@@ -1238,7 +1290,11 @@ hashing, or have the architecture owner bless the split.
 ### S4 — Shadchanus contexts cannot hold tasks or reminders
 `tasks.target_type` has no target that can exist in a shadchanus account, so a shadchan
 cannot record "call the Kleins Tuesday". Story 8.1 honestly omits the nav items rather than
-faking it. Wants a `connection` task target (touches AD-13's target set).
+faking it. Wants a `connection` task target (touches AD-13's target set). **Partially
+superseded by S14 / Story 3.14**: the structural trigger block on inserting into `tasks` /
+`interactions` from a shadchanus context is lifted there, for the target types that already
+exist (`shadchan`, `shidduch`, `reference`). The residual here is narrower — adding the
+`connection` target-type value itself remains Epic 8's (8.2/8.5).
 
 ### S5 — AD-13 reminder delivery is never wired
 Story 7.5 builds the first real Resend / Web-Push delivery; no story connects the reminders
@@ -1249,12 +1305,15 @@ Epic 11 ships the product's first real inference calls, but Langfuse tracing, th
 account-namespaced response cache (AD-8) and rate limiting on expensive surfaces (AD-17)
 belong to no story.
 
-### S7 — The list half of AD-24 is not delivered
-Story 3.3 builds the `EntityDescriptor` registry and states Epic 4 will consume it; story
-4.1 explicitly declines ("a follow-up refactor, not this story's to anticipate"), and no
-later story rewires the retrofitted lists. Every list still hard-codes its own props.
-Either correct-course a story, or amend AD-24 to put list-level descriptor consumption out
-of Phase-1 scope.
+### S7 — The list half of AD-24 ✅ OWNED by Story 4.1 (2026-07-28 Epic 3 refresh)
+Originally recorded as unowned because 4.1 said "a follow-up refactor, not this story's to
+anticipate" — **that text was deleted by the same commit that recorded this gap.** Today
+`4-1:29` reads "Depends on Epic 3: Story 3.3's `EntityDescriptor` registry", and `4-1:114`
+consumes `getEntityDescriptor(resource).label`. **Residual, still unowned:** `icon` / `meta` /
+`stats` on the descriptor have no list consumer, and `shidduchim`, `tasks`, `reminders`,
+`inbox_items` and `members` never migrate onto `EntityList` at all. That residual is one Epic 4
+story, not Epic 3's — Epic 3 Story 3.3 ships the registry `4-1` needs; it does not itself
+migrate every list.
 
 ### S8 — Postmark → Cloudflare Email Routing migration
 The spine's AD-6 and stack table name Cloudflare Email Routing; the shipped code is
@@ -1263,10 +1322,10 @@ Postmark, and `workers/ingest/index.ts` calls the migration "separate future wor
 ### S9 — FR22, the per-account private inbound address
 The product has one global `VITE_INBOUND_EMAIL`. No story delivers per-account addresses.
 
-### S10 — No story owns the passwordless e2e sign-in helper
-Story 2.6 deletes password auth, making `e2e/fixtures.ts`'s password helpers dead. Story
-1.6's smoke spec does not specify an auth approach, and every later epic's e2e work needs
-one. Story 10.3 adds it defensively; the hand-off should be pinned.
+### S10 — Passwordless e2e sign-in helper ✅ CLOSED (2026-07-28 Epic 3 refresh)
+**Done.** `e2e/fixtures.ts` exports a shared `fetchOtpCode` plus a two-step passwordless
+sign-in, consumed by multiple specs. (`e2e/` is being rewritten concurrently; the finding is
+"the shared helper exists", not particular line numbers.)
 
 ### S11 — `TaskDeliveryChannel` vs `MessageNotificationChannel`
 Story 7.5 defers unifying the two channel enums and assigns the cleanup to nobody.
@@ -1274,3 +1333,23 @@ Story 7.5 defers unifying the two channel enums and assigns the cleanup to nobod
 ### S12 — epics.md coverage rows understate real dependencies
 The Epic 8 row omits its Epic 7 (threads/AD-22), Epic 3/4 (AD-24) and Epic 2 (AD-19)
 dependencies. Other rows may be similarly thin.
+
+### S13 — The five-value role has a DB half and no client half (added 2026-07-28)
+`account_members.role` carries the AD-2 constraint (`01_tables.sql:153-155`) and
+`my_contexts()` exposes it (`02_functions.sql:341`), but the client still resolves permissions
+from a single boolean: `authProvider.ts:151` → `canAccess.ts:16`. There is no
+`current_member_role()` among the `SECURITY DEFINER` functions. Epic 3 Story 3.4 takes the
+client half (`useViewerRole()` reads `my_contexts()`, and 3.4 owns `canAccess.ts`). The
+*server-side* role helper and the full retirement of the boolean check remain unowned.
+
+### S14 — Household/shadchanus scope of the universal tabs ✅ CLOSED by Story 3.14 (added,
+then closed, 2026-07-28)
+`enforce_household_scope()` is attached to 13 tables (`04_triggers.sql:146-194`), including
+`interactions` and `tasks`, which made the universal Activity, Notes and Tasks tabs
+structurally unavailable in a shadchanus context — exactly what Epic 8 Story 8.5 ("the
+shadchan's own CRM") is built on. The project owner ruled (Ruling 1) to lift `tasks` and
+`interactions` out of the household-only scope rather than rescope or defer 8.5. **Owned by
+Epic 3 Story 3.14**, which stages the migration and rehearses it against a seeded local
+database before it reaches production (the schema comment at `04_triggers.sql:138-145` warns
+this is "a migration-time total insert outage, not a refactor" if the drop/re-add or the check
+widening happens in the wrong order). 3.14 is a blocking dependency of 3.5, 3.6 and 3.8.

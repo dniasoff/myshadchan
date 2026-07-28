@@ -12,238 +12,682 @@ so that documents live where they belong.
 
 ## Position in Epic 3
 
-**Depends on 3.3** (tab descriptor shape). Does not depend on 3.5/3.6 (separate table,
-no shared migration), but reuses the same four-target-type vocabulary they establish —
-build after 3.5 so the vocabulary is already settled in one place rather than defined
-twice. Suggested order unchanged: `... → 3.5 → 3.6 → 3.7 → 3.8`.
+**Build order: contract §12 step 11** — the last universal tab, immediately before **3.11**, the
+AD-24 conformance validator (`3-11-ad24-conformance-validator.md`; the contract calls it "3-15")
+[Source: _bmad-output/planning-artifacts/epic3-api-contract.md §12].
+It is the heaviest new surface in the epic (bucket + table + view + policies + grants +
+triggers + three dataProvider methods + FakeRest mirror), so it goes last, when the
+vocabulary and the seams it builds on are already settled.
 
-**Scope boundary.** Standalone, tested `FilesTab` component + its own storage bucket and
-table. Not mounted into any live entity's tab bar (Epic 5's job).
+**Hard dependencies:**
 
-## A pre-existing gap this story must not extend, and does not fix
+| Depends on | For what |
+|---|---|
+| **3.9** | `ENTITY_TARGET_TYPES` / `EntityTargetType` in `src/components/atomic-crm/types.ts` (contract §8, §10), and the `single` entry it adds to `RESOURCE_FOR_TARGET` (`src/components/atomic-crm/reminders/reminderEntity.ts:21-25`), which this story reuses to map a target type to its resource name. |
+| **3.5** | `current_member_id()` (server-set uploader, contract §10); `UniversalTabProps` in `src/components/atomic-crm/entity360/tabs/types.ts` (contract §8); the `?raw` DB-vocabulary guard test and its `PENDING_DB_WIDENINGS` constant, which this story extends. |
+| **3.10** — `3-10-tab-vocabulary.md` (the contract calls it "3-13") | The `files` key in `TAB_KEYS` / `TAB_LABELS` (contract §3). This story does not add a key. |
 
-The **only** file storage this codebase has today is the `attachments` Supabase Storage
-bucket, created **public** (`insert into storage.buckets (id, name, public) values
-('attachments', 'attachments', true)`
-[Source: supabase/migrations/20240730075029_init_db.sql:555-558]) with storage
-policies that let **any authenticated user read or write any object in the bucket**,
-regardless of account [Source: supabase/schemas/07_storage.sql:6-8]. The data-provider
-helper that uses it, `uploadToBucket`
-[Source: src/components/atomic-crm/providers/supabase/dataProvider.ts:809-861], always
-resolves to `getPublicUrl` — a permanent, unauthenticated, un-revocable link — and writes
-to a flat path with no account or record scoping at all (`fileName` is just a random
-string). This is a real gap against AD-1 and directly against this story's own AC
-("files are access-controlled with no public URLs"). **This story does not fix the
-`attachments` bucket** — it is still load-bearing for the `sales`/`members` avatar and
-the app logo upload (`dataProvider.ts:650-691`), both low-sensitivity, publicly-embeddable
-assets by design, and hardening it is a separate, focused change with its own blast
-radius (every avatar `<img>` tag). **Flag to the epic owner:** the `attachments` bucket's
-public-URL, unscoped-path pattern should get its own hardening story once its actual
-sensitivity is assessed — this story instead gives the *new*, genuinely sensitive
-capability (resumes, screenshots, voice notes on a record) a **separate, private**
-bucket from day one, so the gap is not inherited.
+**Explicitly NOT a dependency: 3.14** (`3-14-context-scope-lift-tasks-interactions.md`, the
+`enforce_household_scope` lift). `entity_files`
+is a new table and is **never attached** to `enforce_household_scope()`, so it works in a
+`shadchanus` context from day one — see AC 2(f). Contract §8 rule 5 makes this a term, not
+a preference; it is what closes the brief's §3-J question for files.
+
+**Scope boundary.** A standalone, tested `FilesTab` plus its own bucket, table, summary
+view and dataProvider methods. **Not mounted into any entity's tab bar** — Epic 5 does
+that. Nothing in this story edits an existing entity folder.
+
+## Storage on `main`: what already exists, and why a second bucket anyway
+
+The previous revision of this story argued for a private `entity-files` bucket because the
+`attachments` bucket was public, unscoped, and handed out permanent `getPublicUrl` links.
+**All three of those statements are false on `main`.** The gap was closed before Epic 2
+shipped. Present facts, each read directly:
+
+- The bucket is **private**: `update storage.buckets set public = false where id = 'attachments';`
+  [Source: supabase/schemas/07_storage.sql:19].
+- The three inherited unscoped `Attachments 1mt4rzk_*` policies are **dropped**
+  [Source: supabase/schemas/07_storage.sql:21-23] and replaced by three context-scoped ones —
+  `bucket_id = 'attachments' and (storage.foldername(name))[1] = public.current_context_id()::text`
+  for select, insert and delete [Source: supabase/schemas/07_storage.sql:25-44].
+- Object keys are **account-prefixed and CSPRNG-random**: `` `${accountId}/${crypto.randomUUID()}${fileExt}` ``,
+  with `accountId` resolved from the `current_context_id` RPC, never from client state
+  [Source: src/components/atomic-crm/providers/supabase/dataProvider.ts:654-661, :697-702].
+- Reads are **signed and expiring**, and a signing failure throws rather than degrading to
+  anything permanent [Source: src/components/atomic-crm/providers/supabase/dataProvider.ts:712-721].
+- **`getPublicUrl` has zero occurrences** across `src/`, `supabase/` and `workers/` (verified
+  count: 0).
+- The whole shape is regression-tested at the SQL level — bucket privacy, cross-tenant
+  read/insert/delete denial, and the anon vector
+  [Source: supabase/tests/context_rls_hardening.sql:68-251].
+
+**So the justification is different, and narrower.** A second bucket is still the right call,
+for three reasons that survive the corrected premise:
+
+1. **Different lifetime owner.** `attachments` objects are owned by the row that references
+   them through ra-core's `RAFile` shape (`{path, src, type}` written back onto the record by
+   `uploadToBucket`) — today that is the member avatar
+   [Source: src/components/atomic-crm/providers/supabase/dataProvider.ts:566-575]. `entity_files`
+   objects are owned by a **first-class row in a polymorphic table** with its own lifecycle,
+   purge trigger and grants. Mixing the two in one bucket means one prefix namespace with two
+   incompatible cleanup rules.
+2. **Different key grammar.** `attachments` keys are two segments (`{account_id}/{random}`);
+   this story's keys are four (`{account_id}/{target_type}/{target_id}/{random}`) so that a
+   target's objects can be enumerated and removed as a unit. Both are valid under a
+   `foldername(name)[1]` predicate, but a single bucket with two grammars is a trap for the
+   next person who writes a sweep.
+3. **Different blast radius on change.** Every future change to entity-file handling (AD-9's
+   eventual R2/Worker-proxy migration) can be made against a bucket the avatar path does not
+   touch.
+
+**What this story does NOT claim:** it is not a security fix, it does not harden anything,
+and it does not "avoid inheriting" a gap. It adds a capability alongside an already-correct
+one and copies that one's policy shape verbatim.
+
+**What this story does NOT reach:** AD-9's end state is R2 behind a `share/` Worker that
+proxy-streams bytes and writes `share_access_log`, with recipients never receiving even a
+pre-signed URL [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-9 — :98-101].
+Supabase Storage + short-lived signed URLs is the pre-R2 realization of the same principle,
+identical to what `attachments` does today. The Worker half is unowned Epic-9 work
+(`workers/share/index.ts` is a 14-line stub), and this story does not open it.
 
 ## Acceptance Criteria
 
-1. **A new, private bucket, never public.** A new Supabase Storage bucket
-   `entity-files` is created with `public = false`. Object names within the bucket
-   follow `{account_id}/{target_type}/{target_id}/{uuid}_{file_name}` (note:
-   `storage.objects.name` does **not** include the bucket id, so `account_id` is the
-   first path segment). Storage RLS policies on `storage.objects` scope every
-   `select`/`insert`/`delete` with `bucket_id = 'entity-files' and
-   (storage.foldername(name))[1] = public.current_context_id()::text` — both halves:
-   without the `bucket_id` guard the folder predicate would leak onto other buckets'
-   objects. A member of account A cannot list, read or write an object under account
-   B's folder — proven by a negative test (AC 6).
+### AC 1 — A new private bucket with exactly three storage policies, and deliberately no UPDATE policy
 
-2. **`entity_files` is a new polymorphic table, matching the vocabulary 3.5 established.**
-   ```sql
-   create table public.entity_files (
-       id bigint generated by default as identity primary key,
-       account_id bigint not null,
-       created_at timestamp with time zone not null default now(),
-       target_type text not null,
-       target_id bigint not null,
-       storage_path text not null,
-       file_name text not null,
-       mime_type text not null,
-       size_bytes bigint not null,
-       visibility text not null default 'shared',
-       uploaded_by_member_id bigint,
-       constraint entity_files_target_type_check check (
-           target_type in ('reference', 'shidduch', 'shadchan', 'single')
-       ),
-       constraint entity_files_visibility_check check (
-           visibility in ('shared', 'private_parent', 'private_single')
-       )
-   );
-   ```
-   The visibility vocabulary deliberately matches the one the domain already has —
-   `shidduchim_visibility_check` reads `('shared', 'private_parent', 'private_single')`
-   after Epic 1 Story 1.3's `private_child` → `private_single` rename — one AD-3
-   vocabulary, not a second two-value one. This story stores the value; role-based
-   enforcement of `private_*` arrives with Epic 6's single-access work, same as for
-   every other visibility-carrying row.
-   FKs: `account_id → accounts(id)`, `uploaded_by_member_id → account_members(id) on
-   delete set null`. FORCE RLS, scoped to `account_id = current_context_id()`
-   (AD-1/AD-19) — the same shape as `interactions`/`tasks`. `uploaded_by_member_id` is
-   server-set by a trigger calling `current_member_id()` (3.5), exactly like
-   `actor_member_id` on `interactions` — no second implementation of that resolution.
+A bucket `entity-files` is created with `public = false`. Its policies are added to
+`supabase/schemas/07_storage.sql` by **copying the three `attachments` policies at
+`07_storage.sql:25-44` with the bucket id swapped** — that file is the correct template, not
+a counter-example:
 
-3. **Upload writes storage then the row, never the reverse; delete removes both.**
-   `FilesTab`'s upload flow: (a) upload the raw file to `entity-files` at the scoped path
-   from AC 1, via the Supabase client directly (not through `uploadToBucket`, which is
-   out of scope per the section above and produces the wrong URL shape); (b) on success,
-   `dataProvider.create("entity_files", {...})` with the resulting `storage_path`,
-   `file_name`, `mime_type`, `size_bytes`. If step (b) fails, the uploaded object is
-   removed (no orphan file with no row). Delete does the reverse: remove the
-   `entity_files` row, then the storage object — implemented as a single dataProvider
-   method or `ResourceCallbacks.afterDelete`, not two independently-triggered client
-   calls a user could interrupt halfway (if the story cannot guarantee atomicity across
-   two systems, the row deletion is authoritative and a stray storage object is a
-   cleanup job's problem, not a correctness one — the row's absence is what the rest of
-   the app reads).
+```sql
+create policy "Entity files readable within account" on storage.objects
+    for select to authenticated
+    using (
+        bucket_id = 'entity-files'
+        and (storage.foldername(name))[1] = public.current_context_id()::text
+    );
+-- ...and the identical pair for insert (with check) and delete (using).
+```
 
-4. **Every render of a file goes through a signed URL, minted on demand, never
-   persisted.** `FilesTab` never stores or passes around a `getPublicUrl`-style
-   permanent link. Viewing or downloading a file calls
-   `getSupabaseClient().storage.from("entity-files").createSignedUrl(path, 60)`
-   immediately before use (the same call already used, correctly, in the existing
-   `uploadToBucket`'s signed-URL check at `dataProvider.ts:812-820` — reuse that idiom,
-   just not that function). Two decidable checks: (a) a `?raw` source test (same
-   mechanism as 3.1 AC 3) asserts `getPublicUrl` appears nowhere under `entity360/tabs/`
-   or the new storage-helper file; (b) a component test with a mocked Supabase client
-   asserts `createSignedUrl` is called on each view/download click and that no
-   `entity_files` record or component state ever holds a URL field (the row stores
-   `storage_path`, never a URL).
+Both halves of the predicate are required: without `bucket_id` the folder predicate would
+apply to every other bucket's objects.
 
-5. **`FilesTab` lists, uploads, replaces and deletes, per target.**
-   `entity360/tabs/FilesTab.tsx` takes `{ targetType, targetId }` (same shape as
-   `ActivityTab`/`NotesTab`), lists `entity_files` for that pair with file name, type,
-   size (human-formatted), uploader and date; supports upload (via
-   `@/components/admin/file-input.tsx`, the existing shadcn-admin-kit primitive — reused,
-   not reinvented), replace (delete + upload, sharing the same UI action), and delete.
-   Empty, loading and error states render (same treatment as 3.5/3.6). Per AD-10, the
-   FakeRest provider registers an `entity_files` collection (empty by default) and the
-   storage calls live behind the small helper module named in Project Structure Notes,
-   which the demo build swaps for an in-memory stub (object-URL previews) — the demo
-   must not crash on this tab.
+**Exactly three policies: select, insert, delete. No UPDATE policy, and this is load-bearing.**
+`supabase/tests/context_rls_hardening.sql:141-146` asserts
+`not exists (select 1 from pg_policies where schemaname='storage' and tablename='objects' and cmd in ('UPDATE','ALL'))`
+— a **table-wide** tripwire, not a per-bucket one. Adding an UPDATE policy for `entity-files`
+turns that existing test red. The tripwire's own comment
+[Source: supabase/tests/context_rls_hardening.sql:126-139] explains why: an UPDATE policy scoped
+only by bucket, without re-deriving the prefix check, is exactly the shape that lets a tenant
+rename an object across the account boundary. No UPDATE is needed here — "replace" is
+delete + upload (AC 4), not an object rename.
 
-6. **Negative test.** Two accounts, one `entity_files` row + one storage object each:
-   account A's client (a) cannot select account B's `entity_files` row, and (b) cannot
-   read, list or delete account B's storage object at the folder-scoped path — asserted
-   against the running local Supabase storage API, not mocked.
+**Falsifiable:** drop the `bucket_id` half of any one predicate → AC 8's cross-context storage
+check goes red. Add a fourth (UPDATE) policy → `context_rls_hardening` goes red.
+
+### AC 2 — `entity_files`, a new polymorphic table at full four-value parity
+
+```sql
+create table public.entity_files (
+    id bigint generated by default as identity primary key,
+    account_id bigint not null,
+    created_at timestamp with time zone not null default now(),
+    target_type text not null,
+    target_id bigint not null,
+    storage_path text not null,
+    file_name text not null,
+    mime_type text not null,
+    size_bytes bigint not null,
+    visibility text not null default 'shared',
+    uploaded_by_member_id bigint,
+    constraint entity_files_target_type_check check (
+        target_type in ('reference', 'shidduch', 'shadchan', 'single')
+    ),
+    constraint entity_files_visibility_check check (
+        visibility in ('shared', 'private_parent', 'private_single')
+    ),
+    -- A non-'shared' value is a statement about who in a household may see the
+    -- file. A shadchan and a reference are not household members, so the value
+    -- would describe nothing. Narrows the check above; it does not replace it.
+    constraint entity_files_visibility_target_check check (
+        visibility = 'shared' or target_type in ('shidduch', 'single')
+    ),
+    -- The two-phase upload's consistency guarantee, enforced by the database
+    -- rather than by a test: account_id is trigger-assigned from
+    -- current_context_id(), so if the caller switched context between the
+    -- storage PUT and this INSERT, the row is rejected instead of being written
+    -- with a path pointing into the other account's folder.
+    constraint entity_files_storage_path_scope_check check (
+        storage_path like account_id::text || '/%'
+    )
+);
+```
+
+(a) **Target vocabulary is at parity from creation.** All four values of
+`ENTITY_TARGET_TYPES` are legal, matching contract §8's requirement that
+`tasks_target_type_check` (`supabase/schemas/01_tables.sql:45-47`, today
+`('shadchan','shidduch','reference')`), `interactions_target_type_check`
+(`:458-459`, today `('reference','shidduch')`) and this constraint end up with the same four.
+Because it starts at parity, **this story adds `entity_files_target_type_check` to the scanned
+set of 3.5's `?raw` vocabulary guard and adds nothing to `PENDING_DB_WIDENINGS`.**
+
+(b) **Visibility is the domain's existing vocabulary, and it is settable.** The three values
+match `shidduchim_visibility_check`
+[Source: supabase/schemas/01_tables.sql:304-306] after Epic 1 Story 1.3's
+`private_child` → `private_single` rename — one AD-3 vocabulary, not a second. `epics.md`'s
+own AC for this story requires *per-file visibility*
+[Source: _bmad-output/planning-artifacts/epics.md:538-550], so the value must be **changeable
+after upload**, which AC 6(e) delivers through a column-level UPDATE grant. Role-based
+*enforcement* of `private_*` arrives with Epic 6's single-access work, exactly as for every
+other visibility-carrying row; this story stores and exposes the value.
+
+(c) **FKs and indexes.** `account_id → accounts(id) on delete cascade` (the shape every domain
+table uses, e.g. `supabase/schemas/01_tables.sql:675`); `uploaded_by_member_id →
+account_members(id) on delete set null` (the shape `interactions.actor_member_id` uses,
+`:680`). Indexes: `entity_files_account_id_idx (account_id)` and
+`entity_files_target_idx (account_id, target_type, target_id, created_at desc)` — the
+`interactions_target_idx` shape **including its `created_at desc` tail**
+[Source: supabase/schemas/01_tables.sql:729], because the tab lists newest-first.
+
+(d) **RLS.** `alter table public.entity_files enable row level security;` plus one `for all`
+policy scoped to `account_id = public.current_context_id()` in both `using` and `with check`,
+copying `"Tasks scoped to account"` [Source: supabase/schemas/05_policies.sql:33-36].
+**Not `FORCE ROW LEVEL SECURITY`.** AD-1 asks for it
+[Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-1 — :57-60],
+but **no table in this repo has it** — the only artefact is the comment recording it as an
+open gap [Source: supabase/schemas/01_tables.sql:85], and repo-wide FORCE RLS is tracked as
+unowned work S2 with a designed-bypass list. A single forced table would diverge from the
+other 22 and break the definer-function paths that rely on RLS being unforced. This story
+follows the repo's shipped shape and does not unilaterally close S2.
+
+(e) **Grants** [Source: supabase/schemas/06_grants.sql:693-700 for the pattern]:
+
+```sql
+revoke all on table public.entity_files from anon, authenticated;
+grant select, insert, delete on table public.entity_files to authenticated;
+grant all on table public.entity_files to service_role;
+
+-- Only visibility is mutable after the fact. Every other column is a fact about
+-- a stored object; changing one would desynchronise the row from the bucket.
+-- Same column-level shape interactions uses (06_grants.sql:615-616).
+grant update (visibility) on table public.entity_files to authenticated;
+
+revoke all on sequence public.entity_files_id_seq from anon;
+grant usage, select on sequence public.entity_files_id_seq to authenticated;
+grant all on sequence public.entity_files_id_seq to service_role;
+```
+
+The sequence revoke is not optional — every domain table in `06_grants.sql` pairs its table
+grant with one (e.g. `interactions_id_seq` at `:460-462`).
+
+(f) **Two BEFORE INSERT triggers, and no third.**
+`set_entity_files_account_id` → `public.set_account_id_default()` (the shape at
+`supabase/schemas/04_triggers.sql:123-125`), and `set_entity_files_uploaded_by`, a new trigger
+function that assigns `new.uploaded_by_member_id := public.current_member_id()` when the
+client did not supply it. `current_member_id()` is 3.5's; there is **no existing
+uploader-setting trigger to imitate** — `actor_member_id` on `interactions` is written inline
+inside RPC bodies, not by a trigger, so this is the first one.
+
+**No `validate_entity_files_household_scope` trigger is created.** `entity_files` is
+deliberately outside the 13-table household-only set
+[Source: supabase/schemas/04_triggers.sql:147-158 (the comment), :159-209 (the triggers)] so
+that a shadchan can attach files in their own `shadchanus` context from day one, which is what
+Epic 8.5 is built on. AC 8(c) asserts this positively; AC 8(d) asserts the catalog has no such
+trigger, so a later "consistency" migration cannot silently add one.
+
+**Falsifiable:** drop `entity_files_storage_path_scope_check` → AC 4's context-switch test goes
+red. Drop `entity_files_visibility_target_check` → AC 8(e) goes red. Add the household-scope
+trigger → AC 8(c) and 8(d) both go red.
+
+### AC 3 — A summary view is the read surface
+
+`public.entity_files_summary`, `with (security_invoker = on)` (AD-1: no definer views; the
+shape every summary view in `03_views.sql` uses, e.g. `supabase/schemas/03_views.sql:202`),
+selecting every `entity_files` column plus `uploaded_by_name` resolved through
+`account_members.user_id = members.user_id`. Account scoping comes from base-table RLS via
+`security_invoker`; the view declares none of its own.
+
+Grants mirror the other views [Source: supabase/schemas/06_grants.sql:452-458]:
+`revoke all ... from anon, authenticated; grant select ... to authenticated; grant all ... to service_role;`
+
+`FilesTab` **lists** through `entity_files_summary` and **writes** through `entity_files`, per
+AD-10's "list/summary resources route through a `*_summary` view"
+[Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-10 — :103-106].
+
+**Falsifiable:** a member of account A queries `entity_files_summary` and gets zero of account
+B's rows (AC 8(b)); removing `security_invoker = on` makes the view definer-owned and that
+check goes red.
+
+### AC 4 — All file I/O crosses the dataProvider seam, never `getSupabaseClient()` in a component
+
+AD-10 exists to prevent *"components calling Supabase directly"*
+[Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-10 — :103-106],
+and there is no build-time swap seam for a bare helper module: `demo/App.tsx` selects the
+FakeRest provider by **passing a different `dataProvider` to `<CRM>`**, and nothing else. So
+three custom methods are added to the existing custom-methods overlay
+[Source: src/components/atomic-crm/providers/supabase/dataProvider.ts:84, :400, :538-559 — the
+`getMyContexts` / `createInvite` / `revokeInvite` precedent]:
+
+```ts
+uploadEntityFile(params: {
+  targetType: EntityTargetType;
+  targetId: Identifier;
+  file: File;
+  visibility?: EntityFileVisibility;
+}): Promise<EntityFile>;
+
+signEntityFileUrl(params: { storagePath: string; fileName: string }): Promise<string>;
+
+deleteEntityFile(params: { id: Identifier; storagePath: string }): Promise<void>;
+```
+
+Implementations live in a new `src/components/atomic-crm/providers/supabase/entityFiles.ts`
+(not in `dataProvider.ts`, which is already ~730 lines —
+`.claude/rules/coding-style.md` file-size guidance), and are mirrored in
+`src/components/atomic-crm/providers/fakerest/internal/entityFiles.ts` alongside the other
+mirrored custom methods [Source: src/components/atomic-crm/providers/fakerest/dataProvider.ts:693-694, :740-749].
+
+**Ordering and failure handling in `uploadEntityFile`:**
+
+1. Resolve the key. `{account_id}/{target_type}/{target_id}/{uuid}{ext}` where `account_id`
+   comes from the `current_context_id` RPC, never from client state
+   [Source: src/components/atomic-crm/providers/supabase/dataProvider.ts:654-661], `uuid` is
+   `crypto.randomUUID()`, and `ext` is derived exactly as `:697-698` does. **No path segment is
+   user-supplied** — the original file name is stored in the `file_name` column and re-attached
+   at download time (AC 5), never placed in the key. This story deliberately drops the previous
+   revision's `{uuid}_{file_name}` suffix: a name containing `/` would create an extra folder
+   level, which is not a tenant escape (the predicate reads segment `[1]`) but is avoidable.
+2. Upload the bytes with the Supabase storage client.
+3. `dataProvider.create("entity_files", { data: { target_type, target_id, storage_path, file_name, mime_type, size_bytes, visibility } })`.
+   `account_id` and `uploaded_by_member_id` are **not** sent — both are trigger-assigned.
+4. **If step 3 fails, remove the uploaded object and rethrow.** No object without a row.
+
+`deleteEntityFile` runs the reverse: `dataProvider.delete("entity_files", {id})` first, then
+`storage.from("entity-files").remove([storagePath])`. **The row deletion is authoritative** —
+the row's absence is what every other surface reads — and a failure of the second step is
+logged, not surfaced as a failed delete. That asymmetry is deliberate and stated so nobody
+"fixes" it into a two-call flow a user can interrupt halfway.
+
+**Falsifiable:** with a stubbed storage client whose `create` rejects, assert `remove` was
+called with the just-uploaded key and no `entity_files` row exists. With a stub that switches
+the RPC's returned account id between step 1 and step 3, assert the insert is rejected by
+`entity_files_storage_path_scope_check` (AC 2) and the object is removed.
+
+### AC 5 — Signed URLs are minted per click and never persisted
+
+`signEntityFileUrl` calls
+`getSupabaseClient().storage.from("entity-files").createSignedUrl(storagePath, ENTITY_FILE_URL_TTL_SECONDS, { download: fileName })`
+and throws on a signing error — the same idiom, including the throw, as
+`src/components/atomic-crm/providers/supabase/dataProvider.ts:712-721`. The `download` option
+is what restores the original file name to the browser without ever putting it in the object
+key; it is supported by the installed storage client
+[Source: node_modules/@supabase/storage-js/dist/index.d.mts:1209-1221].
+
+`ENTITY_FILE_URL_TTL_SECONDS = 60`. Not the one-hour `ATTACHMENT_URL_TTL_SECONDS`
+[Source: src/components/atomic-crm/providers/supabase/dataProvider.ts:643]: that value exists
+because an avatar URL is written onto a record and re-read; this one is minted at click time
+and consumed immediately.
+
+Two decidable checks, both behavioural:
+
+(a) **Per-click minting.** With a stubbed provider, clicking download on the same row twice
+calls `signEntityFileUrl` **twice**. An implementation that caches the URL in component state
+or in the row fails this.
+
+(b) **No URL ever lands in a row or in list state.** A `?raw` assertion, using the
+`import.meta.glob(..., { query: "?raw" })` mechanism already proven in-repo
+[Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:16-20], reads
+`supabase/schemas/01_tables.sql` and asserts the `create table public.entity_files` block
+declares no column named `url` or ending in `_url`. **Prove it red first** by adding a
+`url text` column to a scratch copy of the block (contract §13 rule 2).
+
+The residual window is stated, not hidden: a signed URL is a bearer token with its own TTL and
+**survives a context switch**; `ContextSwitcher` only invalidates React Query caches. A 60-second
+TTL bounds it. Closing it entirely is AD-9's Worker proxy-stream, which is out of scope here.
+
+**Not an AC, deliberately:** a repo-wide `getPublicUrl` scan. `getPublicUrl` has **zero**
+occurrences repo-wide, so such an assertion cannot fail today and is not coverage — the
+previous revision's AC 4(a) was exactly that. It is kept as a **regression tripwire** in Task 5
+instead, where its vacuity is honest.
+
+### AC 6 — `FilesTab` lists, uploads, replaces, deletes and sets visibility, per target
+
+`src/components/atomic-crm/entity360/tabs/FilesTab.tsx` takes **exactly** `UniversalTabProps`
+(`{ targetType: EntityTargetType; targetId: Identifier }`, contract §8) — no extra props, no
+per-entity variants — and sits beside `ActivityTab.tsx` / `NotesTab.tsx`.
+
+(a) **List.** `useGetList("entity_files_summary", { filter: { target_type, target_id }, sort: { field: "created_at", order: "DESC" } })`.
+Each row shows file name, MIME type, human-formatted size, uploader name and date.
+
+(b) **Upload.** A file picker plus an upload action calling `uploadEntityFile`.
+
+**Neither `@/components/admin/file-input.tsx` nor `@/components/admin/file-field.tsx` is
+reused, and both exclusions are verified, not assumed.** `file-input.tsx` calls `useInput`
+[Source: src/components/admin/file-input.tsx:132], which requires a `source` prop and a
+surrounding react-hook-form context; `FilesTab` is a list plus an action, with no form and no
+record field to bind to. `file-field.tsx` renders an `<a href>` from a **URL held in the
+record** [Source: src/components/admin/file-field.tsx:4 (`useFieldValue`), :26-31], and AC 5
+forbids storing one. The previous revision listed reuse of `file-input.tsx` as an acceptance
+condition while conceding in its own task list that it might not work; that contradiction is
+removed. `react-dropzone` is already a dependency if drag-and-drop is wanted, but it is not
+required by this AC.
+
+(c) **Replace** = `deleteEntityFile` then `uploadEntityFile`, sharing one UI action, carrying
+the previous row's `visibility` forward. No in-place object rename (AC 1).
+
+(d) **Delete** = `deleteEntityFile`.
+
+(e) **Visibility control.** A per-row control offering `shared / private_parent /
+private_single`, issuing `dataProvider.update("entity_files", { data: { visibility } })` — the
+only column the grant permits (AC 2(e)). **The control is rendered only when `targetType` is
+`shidduch` or `single`**, matching `entity_files_visibility_target_check`; for `shadchan` and
+`reference` targets the row shows no control and stays `'shared'`. This is what makes
+`epics.md`'s "per-file visibility" real rather than a column that is `'shared'` forever.
+
+(f) **Empty, loading and error states all render** (UX-DR11
+[Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md:186-187]),
+same treatment as 3.5/3.6.
+
+(g) **Framework-layer strings go through the `i18nProvider`** with an `_:` English fallback
+(contract §13 rule 6). No hardcoded English label map inside `entity360/`.
+
+**Falsifiable:** render with a stubbed provider returning `[]` → the empty state is present and
+no row is; return two rows → both render with uploader and formatted size; make `getList`
+reject → the error state renders and the upload control is still reachable; render with
+`targetType: "reference"` → `await expect.element(screen.getByRole("combobox", { name: /visibility/i })).not.toBeInTheDocument()`.
+
+### AC 7 — Deleting a parent leaves no rows, and the byte cleanup is at the layer that can actually do it
+
+(a) **Rows: enforced in Postgres.** `purge_polymorphic_dependents()`
+[Source: supabase/schemas/02_functions.sql:1799-1817] gains a fourth delete:
+
+```sql
+delete from public.entity_files
+where account_id = old.account_id and target_type = v_target_type and target_id = old.id;
+```
+
+It is wired today only to `references` and `shidduchim`
+[Source: supabase/schemas/04_triggers.sql:109-111, :118-120]; **3.5 adds the triggers on
+`public.singles` and `public.shadchanim`** (contract §8 rule 3), and this story inherits all
+four. Because the function takes its target type as `TG_ARGV[0]`, the edit is one statement and
+covers every parent at once.
+
+(b) **Bytes: at the dataProvider seam, because SQL cannot do it.** Verified on the local stack:
+`storage.objects` carries a BEFORE-DELETE **statement-level** trigger
+`protect_objects_delete → storage.protect_delete()`, which raises
+`'Direct deletion from storage tables is not allowed. Use the Storage API instead.'`
+(SQLSTATE `42501`) unless `storage.allow_delete_query` is set
+[Source: supabase/tests/context_rls_hardening.sql:180-190, which documents and works around
+exactly this]. And even with the guard lifted, deleting the catalog row does **not** reclaim
+the object bytes — only the Storage API does. So the purge trigger cleans rows and nothing
+else.
+
+Byte cleanup is therefore a `ResourceCallbacks.beforeDelete` entry
+[Source: src/components/atomic-crm/providers/supabase/dataProvider.ts:566-575 for the
+`lifeCycleCallbacks` shape] registered for each of the four parent resources, generated from
+`ENTITY_TARGET_TYPES` via `RESOURCE_FOR_TARGET`
+[Source: src/components/atomic-crm/reminders/reminderEntity.ts:21-25, gaining its `single`
+entry in 3.9]. The callback reads the target's `entity_files` rows — still present at that
+point — and calls `storage.from("entity-files").remove(paths)`
+[Source: node_modules/@supabase/storage-js/dist/index.d.mts:1506-1512].
+
+(c) **The residual limitation is named, not hidden.** A parent deleted by any path that does
+not go through the SPA's dataProvider (a `service_role` job, a psql session, a future edge
+function) leaves the rows correctly purged and the **bytes orphaned**. This story does not
+build a sweeper. **Written trigger for the follow-up:** the first of (i) AD-9's R2/Worker
+migration, which replaces this storage layer wholesale, or (ii) the first non-SPA writer of
+`entity_files`. Whichever lands first owns an orphan sweep.
+
+**Deviation from contract §8 rule 3, stated rather than silently taken:** the contract says
+3.7 *"extends the function to cover `entity_files` and to delete the storage objects."* The
+first half is done here; the second half is not implementable inside that function, for the two
+verified reasons in (b). The contract's assertion — *"deleting a single or a shadchan leaves
+zero `tasks` / `interactions` / `entity_files` rows for it"* — is met in full by (a).
+
+**Falsifiable:** `db` project — insert a shidduch, an `entity_files` row for it, delete the
+shidduch, assert zero `entity_files` rows remain; repeat for a `single` and a `shadchan` (which
+also proves 3.5's two new triggers are wired). `app` project — `dataProvider.delete("singles",
+{id})` with a stubbed storage client issues exactly one `remove()` carrying every path the
+target owned.
+
+### AC 8 — Negative tests: one login, two contexts, active in one
+
+The previous revision's "two accounts, one user each" passes trivially and never exercises
+`current_context_id()`'s active-context resolution — the thing that actually regresses
+(contract §13 rule 3). A new `supabase/tests/entity_files.sql` + `entity_files.test.ts` pair,
+modelled on `references_entity.test.ts`'s harness
+[Source: supabase/tests/references_entity.test.ts:21-28] with `bailIfDbUnreachable`
+[Source: supabase/tests/dbSuiteHelpers.ts:15]. The storage half is **not new harness work**:
+`context_rls_hardening.sql:77-88` already inserts into `storage.objects` under a set
+`request.jwt.claims`, and `:221-244` already demonstrates the `storage.allow_delete_query`
+dance. The context-switching half uses `public.set_active_context()`
+[Source: supabase/schemas/02_functions.sql:249], as `context_resolution.sql:228-232` does.
+
+**Arrange:** one `auth.users` row `u1` with active memberships in household account A and
+household account B, active in A; plus a `shadchanus` account C with a `shadchan`-role
+membership for `u1`. One `entity_files` row and one `entity-files` storage object per account.
+
+Required checks:
+
+- (a) **Storage, active in A:** `u1` reads its own object under A's prefix (1 row); reads
+  **zero** rows for B's object; an INSERT under B's prefix raises; a DELETE of B's object (with
+  `storage.allow_delete_query` set, so the statement guard is not what denies it) leaves B's
+  object intact, while `u1` deleting its own A object succeeds — the positive control that
+  proves the denial is RLS and not a broken delete path.
+- (b) **Table, active in A:** `u1` reads exactly one `entity_files` row, and **zero** rows
+  filtered on B's `account_id`. After `set_active_context(B)`, the **same login** reads exactly
+  B's row and zero of A's. This is the check the previous revision could not make.
+- (c) **Shadchanus positive:** with C active, `insert into public.entity_files (target_type,
+  target_id, storage_path, file_name, mime_type, size_bytes)` with `target_type = 'shadchan'`
+  and `storage_path` prefixed with C's account id **succeeds** — proving
+  `enforce_household_scope()` is not attached. (`target_id` needs no real parent row:
+  `entity_files` is polymorphic and carries no FK on it, by the same design as
+  `interactions.target_id`, which the purge function's own comment states outright:
+  *"interactions/tasks/identity_signals are polymorphic, so no FK cascades them"*
+  [Source: supabase/schemas/02_functions.sql:1792-1798].) Contrast control: `insert into public.singles`
+  under C still **raises** `'account % is not a household-kind account'`
+  [Source: supabase/schemas/02_functions.sql:387-402].
+- (d) **Catalog:** no trigger named `validate_entity_files_household_scope` exists on
+  `public.entity_files`, and `pg_class.relrowsecurity` is true for it.
+- (e) **Constraint:** inserting a `reference`-targeted row with `visibility = 'private_parent'`
+  raises; the same row with `'shared'` succeeds.
+- (f) **Constraint:** inserting a row whose `storage_path` does not begin with the
+  trigger-assigned `account_id` raises `entity_files_storage_path_scope_check`.
+- (g) **anon:** `anon` reads zero `entity_files` rows and zero `entity_files_summary` rows, and
+  holds no privilege on either.
+
+Every check is written so that reverting the corresponding policy/constraint to something
+permissive turns it red, and that must be **demonstrated by hand once** on the local stack
+before the file is committed — the standard `context_rls_hardening.sql:21-25` already sets for
+this suite.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Storage: new bucket + policies** (AC: 1)
-  - [ ] Add `entity-files` bucket creation (private) and its four storage policies
-        (`select`/`insert`/`update`/`delete`, all folder-scoped) to
-        `supabase/schemas/07_storage.sql`, following the existing `attachments` bucket
-        policy naming convention but with the folder-scoping predicate from AC 1 (the
-        `attachments` bucket's policies do **not** have this predicate — do not copy them
-        verbatim).
-  - [ ] `db diff -f add_entity_files_bucket`, hand-check (bucket creation via `insert into
-        storage.buckets` may need to be added by hand if `db diff` does not pick up
-        bucket rows — verify against the local stack rather than assuming), `migration up
-        --local`.
+- [ ] **Task 1 — Storage: bucket + three policies** (AC 1)
+  - [ ] Append the `entity-files` bucket and its **three** policies to
+        `supabase/schemas/07_storage.sql`, copying `:25-44` with the bucket id swapped.
+        Do not add an UPDATE policy (AC 1).
+  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f add_entity_files_bucket`.
+        `db diff` produces DDL, and a bucket is a **row** in `storage.buckets`, so verify
+        empirically whether the insert appears; if it does not, add
+        `insert into storage.buckets (id, name, public) values ('entity-files','entity-files',false) on conflict do nothing;`
+        to the generated migration by hand. Check the file, do not assume either way.
+  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
+  - [ ] Re-run `npm run test:unit:db` and confirm `context_rls_hardening`'s
+        "no UPDATE-applicable policy exists on storage.objects" check is still green.
 
-- [ ] **Task 2 — Schema: `entity_files` table** (AC: 2)
-  - [ ] Add the table, FKs, index (`account_id`, `(account_id, target_type, target_id)`
-        matching `interactions_target_idx`'s shape), FORCE RLS policy, and the
-        `uploaded_by_member_id`-setting trigger (reusing `current_member_id()` from 3.5)
-        to the relevant schema files (`01_tables.sql`, `04_triggers.sql`, `05_policies.sql`,
-        `06_grants.sql` — `revoke ... from anon, authenticated` then `grant select,
-        insert, delete` to `authenticated`, no `update` needed since "replace" is
-        delete+upload per AC 3, not an in-place row edit).
+- [ ] **Task 2 — Schema: table, view, triggers, policy, grants** (AC 2, AC 3)
+  - [ ] `01_tables.sql`: the table, its four constraints, the two FKs, the two indexes.
+  - [ ] `03_views.sql`: `entity_files_summary` with `security_invoker = on`.
+  - [ ] `04_triggers.sql`: `set_entity_files_account_id` and `set_entity_files_uploaded_by`.
+        Add **no** `validate_entity_files_household_scope`.
+  - [ ] `02_functions.sql`: the `set_entity_files_uploaded_by()` trigger function, in exact
+        `pg_dump` form — `CREATE OR REPLACE FUNCTION "public"."name"() RETURNS "trigger" LANGUAGE "plpgsql" SET "search_path" TO '' AS $$…$$;`
+        — modelled byte-for-byte on `supabase/schemas/02_functions.sql:201-203`'s header shape.
+        A lowercase/unquoted header produces a phantom `db diff` (AGENTS.md).
+  - [ ] `05_policies.sql`: `enable row level security` + the `for all` policy.
+  - [ ] `06_grants.sql`: table grants, the `grant update (visibility)` line, the sequence
+        revoke/grants, and the view grants.
+  - [ ] Extend 3.5's `?raw` DB-vocabulary guard to scan `entity_files_target_type_check`. Do
+        **not** add it to `PENDING_DB_WIDENINGS` — it ships at parity.
   - [ ] `db diff -f add_entity_files_table`, hand-check, `migration up --local`.
 
-- [ ] **Task 3 — The negative tests** (AC: 6)
-  - [ ] A new `supabase/tests/entity_files.sql` + `.test.ts` pair, modelled on
-        `references_entity.test.ts`'s harness, covering both the table-level RLS
-        (`entity_files` row) and the storage-level RLS (folder-scoped object access) —
-        the storage half needs the local Supabase Storage API reachable from the test
-        (check how, if at all, an existing suite already exercises `storage.objects`;
-        if none does, this is new harness work and should be called out honestly rather
-        than faked with a mock).
+- [ ] **Task 3 — Purge** (AC 7)
+  - [ ] Add the `entity_files` delete to `purge_polymorphic_dependents()`
+        (`02_functions.sql:1799-1817`), preserving the exact `pg_dump` header.
+  - [ ] `db diff`, hand-check, `migration up --local`.
 
-- [ ] **Task 4 — `FilesTab.tsx`** (AC: 3, 4, 5)
-  - [ ] Build per AC 3, 4, 5, reusing `@/components/admin/file-input.tsx` /
-        `file-field.tsx` for the upload/preview UI primitives (confirm their prop shape
-        fits a direct-to-Supabase-Storage flow rather than the dataProvider's built-in
-        file handling, which assumes `uploadToBucket`'s public-URL flow — this story does
-        not use that path, per the section above, so some of `file-input.tsx`'s default
-        wiring may need to be bypassed rather than assumed to "just work").
-  - [ ] `FilesTab.test.tsx`: upload happy path (mocked Supabase client), replace, delete,
-        signed-URL-on-demand (AC 4's two checks), empty/loading/error.
-  - [ ] Register `entity_files` in the FakeRest provider and stub the storage helper for
-        demo mode (AC 5, AD-10).
+- [ ] **Task 4 — dataProvider: three methods + FakeRest mirror + byte cleanup** (AC 4, AC 7(b))
+  - [ ] `providers/supabase/entityFiles.ts` — `uploadEntityFile`, `signEntityFileUrl`,
+        `deleteEntityFile`, `removeEntityFileObjects`.
+  - [ ] Wire them into the custom-methods overlay
+        (`providers/supabase/dataProvider.ts:84-559`) and add the four `beforeDelete`
+        `ResourceCallbacks` entries to `lifeCycleCallbacks` (`:566-593`).
+  - [ ] `providers/fakerest/internal/entityFiles.ts` — the AD-10 mirror: an in-memory blob map
+        with `URL.createObjectURL` previews, wired at
+        `providers/fakerest/dataProvider.ts:693-749`.
+  - [ ] Add `entity_files: EntityFile[]` to the `Db` interface
+        (`providers/fakerest/dataGenerator/types.ts:22-44`) and seed it empty in
+        `dataGenerator/index.ts`. **The demo build must not crash on this tab.**
+  - [ ] Add `EntityFile` and `EntityFileVisibility` to `src/components/atomic-crm/types.ts`
+        (this story owns them; contract §10 assigns `EntityTargetType` to 3.9 and
+        `Interaction` to 3.5, and neither covers these).
+
+- [ ] **Task 5 — `FilesTab.tsx`** (AC 5, AC 6)
+  - [ ] Build per AC 6, calling only `useDataProvider()` / `useGetList` — no
+        `getSupabaseClient()` import anywhere under `entity360/`.
+  - [ ] `FilesTab.test.tsx` (`app` project): list with rows, empty, loading, error;
+        upload happy path; upload with a failing row-create (object removed); replace;
+        delete; per-click signing (AC 5(a)); visibility control present for `shidduch`,
+        absent for `reference`.
+  - [ ] The AC 5(b) schema-shape guard, **proven red once** against a scratch block carrying a
+        `url text` column.
+  - [ ] **Regression tripwire, explicitly not coverage:** an `import.meta.glob`-based scan
+        asserting `getPublicUrl` appears in no `src/` file. It passes vacuously today (0 hits
+        repo-wide) and exists only so a future reintroduction is caught. Do not count it toward
+        this story's coverage and do not present it as an acceptance criterion.
+
+- [ ] **Task 6 — The negative suite** (AC 8)
+  - [ ] `supabase/tests/entity_files.sql` + `entity_files.test.ts`, all seven check groups,
+        modelled on `context_rls_hardening.sql` (storage + JWT claims) and
+        `context_resolution.sql` (`set_active_context`).
+  - [ ] Demonstrate each check red by loosening the thing it names, then restore. Record which
+        ones were demonstrated in the Completion Notes.
 
 ## Dev Notes
 
-### Path convention (write this down, it is the whole security boundary)
+### Path convention — the whole security boundary, in one line
 
-Bucket `entity-files`, object name
-`{account_id}/{target_type}/{target_id}/{uuid}_{file_name}`. The **first**
-path segment of the object name is the only one the storage RLS predicate reads
-(`storage.foldername(name))[1]`, plus the `bucket_id` guard); everything after it is
-free-form but must stay
-consistent so `FilesTab` can reconstruct a path to delete. Do not let the client choose
-the `account_id` segment — resolve it server-side or, if the upload call itself must
-run client-side against Supabase Storage directly (it does, per AC 3), validate it
-against `current_context_id()` inside the storage `insert` policy's `with check`, not
-merely trust the client-sent path.
+Bucket `entity-files`, object name `{account_id}/{target_type}/{target_id}/{uuid}{ext}`.
 
-### Reuse and non-reuse, both intentional
+Only the **first** segment is read by the storage RLS predicate
+(`(storage.foldername(name))[1]`, plus the `bucket_id` guard). The remaining three are
+addressing, not security: they let a target's objects be enumerated and removed as a unit
+(AC 7(b)). **No segment is user-supplied.** The client does send the full key on upload, so the
+`with check` on the insert policy — not client honesty — is what enforces the first segment,
+and `entity_files_storage_path_scope_check` (AC 2) is what stops the *row* from disagreeing
+with the *object* if the caller's context changed mid-upload.
 
-Reuse: `current_member_id()` (3.5) for `uploaded_by_member_id`; the `createSignedUrl`
-idiom already present (correctly) in `dataProvider.ts:812-820`; `file-input.tsx` /
-`file-field.tsx` from `components/admin/` for the picker/preview UI.
-Non-reuse, deliberately: `uploadToBucket` and the `attachments` bucket — see "A
-pre-existing gap this story must not extend" above. Do not "just point `uploadToBucket`
-at the new bucket" as a shortcut; it still ends in `getPublicUrl`, which is exactly the
-outcome this story exists to avoid for entity files.
+### Reuse and non-reuse, both deliberate
+
+**Reuse:** the three `attachments` policies at `07_storage.sql:25-44` as the literal template
+(bucket id swapped); the `createSignedUrl`-and-throw idiom at `dataProvider.ts:712-721`; the
+account-prefixed CSPRNG key derivation at `:697-702`; `current_member_id()` from 3.5;
+`RESOURCE_FOR_TARGET` from `reminders/reminderEntity.ts:21-25`; the `Tasks scoped to account`
+policy shape (`05_policies.sql:33-36`); the `inbox_items` grant block (`06_grants.sql:693-700`);
+the column-level update grant shape (`:615-616`).
+
+**Non-reuse:** `uploadToBucket` (`dataProvider.ts:663-731`) — it writes ra-core's `RAFile`
+shape back onto a record (`fi.path`, `fi.src`, `fi.type`) and belongs to the `attachments`
+lifecycle; `entity_files` rows are the durable reference here and no URL is ever written
+anywhere. Pointing `uploadToBucket` at the new bucket would work and would still be wrong: it
+would produce a stored `src` (a URL with a one-hour life) on a row that AC 5 says must never
+hold one. `admin/file-input.tsx` and `admin/file-field.tsx` — see AC 6(b) for the verified
+reasons.
+
+### Household scope — settled, not deferred
+
+`enforce_household_scope()` (`02_functions.sql:387-402`) is attached to 13 tables
+(`04_triggers.sql:159-209`). `entity_files` is **not** the fourteenth. That is a decision made
+in the contract (§8 rule 5), not a question left for the developer, and AC 8(c)/8(d) pin it
+from both directions. Nothing in this story touches `enforce_household_scope()` or renames any
+existing trigger — the comment at `04_triggers.sql:147-158` is explicit that renaming any
+`validate_*` trigger is a migration-time insert outage, because Postgres fires same-event
+BEFORE triggers in alphabetical name order and those names are chosen to sort after every
+`set_*`.
 
 ### Testing standard
 
-AAA; `app` project for `FilesTab.test.tsx`; `db` project for the new SQL suite. Security
-review required — this story adds storage RLS and a new domain table
-[Source: .claude/rules/security-triggers.md — "File system operations", "Database
-queries or migrations", "Supabase RLS policies" all fire here].
+`app` project for `FilesTab.test.tsx` — **`vitest-browser-react` in real Chromium with
+`TestMemoryRouter` from `ra-core`** [Source: src/components/atomic-crm/layout/ContextSwitcher.test.tsx:1-12, :60-75].
+There is no React Testing Library in this repo: `@testing-library/*` is not a dependency and
+`screen.queryByText` has zero hits in `src/`. Negative assertions use
+`await expect.element(screen.getByRole(...)).not.toBeInTheDocument()`. AAA structure,
+descriptive test names, no `waitForTimeout`, ≥80% coverage on new code
+[Source: .claude/rules/testing.md].
+
+`db` project for `entity_files.sql`. Cross-tenant negatives are **one login with memberships
+in two accounts**, never two disjoint users.
+
+Validation commands — **there is no `Makefile` in this repo**; `make test` / `make typecheck`
+do not exist: `npm run typecheck`, `npx vitest run`, `npm run test:unit:db`, `npm run lint`,
+`npm run build` [Source: package.json:6-17].
+
+Every `npx supabase` invocation must be prefixed `DBUS_SESSION_BUS_ADDRESS=/dev/null` or it
+hangs on the keyring.
+
+**Security review required** — this story adds storage RLS, a new domain table, new
+policies, new grants and a migration
+[Source: .claude/rules/security-triggers.md — "File system operations", "Database queries or
+migrations", "Supabase RLS policies"].
 
 ### Migration workflow
 
-Same as 3.5/3.6. Storage bucket/policy changes go through `07_storage.sql` specifically
-— confirm `db diff` actually picks up `storage.buckets` row inserts (it may not, since
-that is data, not DDL; if so, add the `insert into storage.buckets` statement by hand in
-the generated migration rather than expecting the diff tool to produce it).
+Declarative schema first (`supabase/schemas/` is the source of truth), then
+`DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f <name>`, hand-check the
+generated file, then `migration up --local`. `02_functions.sql` edits must preserve exact
+`pg_dump` form or the next `db diff` produces a phantom diff (AGENTS.md). Rehearse the whole
+sequence against a freshly reset local database (`npx supabase db reset --local` + seed +
+`npm run test:unit:db`) before it goes anywhere near production.
 
 ### Project Structure Notes
 
-- `entity360/tabs/FilesTab.tsx` beside `ActivityTab.tsx`, `NotesTab.tsx`.
-- A new `providers/supabase/entityFiles.ts` (or similarly named, small, single-purpose
-  file) is a reasonable home for the upload/signed-URL helper functions `FilesTab` calls
-  — do not add them to the already-large `providers/supabase/dataProvider.ts`
-  (`.claude/rules/coding-style.md`'s file-size guidance).
+- `src/components/atomic-crm/entity360/tabs/FilesTab.tsx` (beside `ActivityTab.tsx`,
+  `NotesTab.tsx` — `entity360/` does not exist on `main`; 3.1 creates it).
+- `src/components/atomic-crm/providers/supabase/entityFiles.ts` (new).
+- `src/components/atomic-crm/providers/fakerest/internal/entityFiles.ts` (new, AD-10 mirror).
+- `supabase/tests/entity_files.sql` + `entity_files.test.ts` (new).
 
 ### References
 
-- [Source: _bmad-output/planning-artifacts/epics.md#Epic-3-The-360-Framework — Story 3.7]
-- [Source: ARCHITECTURE-SPINE.md#AD-1] — one scoping axis, FORCE RLS, no `anon` grants
-- [Source: ARCHITECTURE-SPINE.md#AD-9] — "recipients never get a raw URL"; this story's
-  Supabase-Storage-based approach is the pre-Cloudflare-Workers/R2 realization of the
-  same principle, not the final AD-9 architecture (that migration is out of Epic 3's
-  scope — flagged, not solved, here)
-- [Source: supabase/migrations/20240730075029_init_db.sql:553-562] — the existing public
-  bucket and its policies, not extended by this story
-- [Source: supabase/schemas/07_storage.sql] — current storage policy file, edited by
-  this story
-- [Source: src/components/atomic-crm/providers/supabase/dataProvider.ts:809-861] —
-  `uploadToBucket`, explicitly not reused for the new capability, with its one reusable
-  idiom (`createSignedUrl`) called out
-- [Source: 3-5-universal-activity-tab.md] — `current_member_id()`, reused here
-- [Source: .claude/rules/security-triggers.md, .claude/rules/testing.md,
-  .claude/rules/coding-style.md, .claude/rules/english-only.md]
+- [Source: _bmad-output/planning-artifacts/epics.md:538-550] — Story 3.7's epic-level AC
+- [Source: _bmad-output/planning-artifacts/epic3-api-contract.md] — §8 (universal tab props, target-type vocabulary, purge, the `entity_files` scope ruling), §10 (ownership), §12 (build order), §13 (test shapes)
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-1 — :57-60] — one scoping axis, RLS on `current_context_id()`, no `anon` grants, `security_invoker` views
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-9 — :98-101] — recipients never get a raw URL; R2 + Worker proxy-stream is the end state, out of scope here
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-10 — :103-106] — the dataProvider is the only CRUD seam; summary views for lists; keep FakeRest in sync
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-23 — :172-176] — *single*, *shidduch*, *shadchan*, *reference*; never "child"
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-24 — :177-180] — one shell, one route convention, one descriptor
+- [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md:166-172] — UX-DR4 shared tab vocabulary (Files is one of the six) and UX-DR5's per-entity matrix
+- [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md:186-187] — UX-DR11 empty/loading/error, light and dark, 375px
+- [Source: supabase/schemas/07_storage.sql:19, :21-23, :25-44] — the private `attachments` bucket and the three context-scoped policies this story copies
+- [Source: supabase/schemas/01_tables.sql:45-47, :304-306, :675, :680, :729, :85] — the `tasks` target check, the visibility vocabulary, the FK shapes, the target-index shape, the FORCE-RLS gap comment
+- [Source: supabase/schemas/02_functions.sql:201, :249, :387-402, :1799-1817] — `current_context_id()`, `set_active_context()`, `enforce_household_scope()`, `purge_polymorphic_dependents()`
+- [Source: supabase/schemas/04_triggers.sql:123-125, :147-158, :159-209] — the `set_*_account_id` shape, the trigger-naming warning, the 13 household-only tables
+- [Source: supabase/schemas/05_policies.sql:33-36] — the `for all` account-scoped policy shape
+- [Source: supabase/schemas/06_grants.sql:452-458, :460-462, :615-616, :693-700] — view grants, sequence revoke, column-level update grant, the `inbox_items` table-grant block
+- [Source: supabase/tests/context_rls_hardening.sql:21-25, :68-251] — the storage-RLS harness, the `storage.allow_delete_query` mechanics, and the no-UPDATE-policy tripwire this story must not break
+- [Source: supabase/tests/references_entity.test.ts:21-28, supabase/tests/dbSuiteHelpers.ts:15] — the `db`-project runner shape
+- [Source: src/components/atomic-crm/providers/supabase/dataProvider.ts:84, :400, :538-559, :566-593, :643, :654-661, :663-731] — the custom-methods overlay, `lifeCycleCallbacks`, the TTL constant, `getCurrentAccountId`, `uploadToBucket`
+- [Source: src/components/atomic-crm/providers/fakerest/dataProvider.ts:693-749, providers/fakerest/dataGenerator/types.ts:22-44] — the AD-10 mirror seam and the `Db` collection list
+- [Source: src/components/admin/file-input.tsx:132, src/components/admin/file-field.tsx:26-31] — why neither is reused
+- [Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:16-20] — the only in-repo `?raw` precedent
+- [Source: src/components/atomic-crm/layout/ContextSwitcher.test.tsx:1-12, :60-75] — the browser-mode test idiom
+- [Source: src/components/atomic-crm/reminders/reminderEntity.ts:21-25] — `RESOURCE_FOR_TARGET`, widened by 3.9
+- [Source: node_modules/@supabase/storage-js/dist/index.d.mts:1209-1221, :1506-1512] — `createSignedUrl(path, expiresIn, { download })` and `remove(paths)`
+- [Source: 3-5-universal-activity-tab.md] — `current_member_id()`, `UniversalTabProps`, the `?raw` vocabulary guard, the `singles`/`shadchanim` purge triggers
+- [Source: 3-9-recordlink-primitive.md] — `ENTITY_TARGET_TYPES` / `EntityTargetType`, the widened `RESOURCE_FOR_TARGET`
+- [Source: .claude/rules/security-triggers.md, .claude/rules/testing.md, .claude/rules/coding-style.md, .claude/rules/english-only.md, .claude/rules/typescript.md]
 
 ## Dev Agent Record
 

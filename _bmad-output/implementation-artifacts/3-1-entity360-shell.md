@@ -12,149 +12,293 @@ so that I learn the app once.
 
 ## Position in Epic 3
 
-**1st of 9.** Nothing in this epic exists yet — this story creates the directory
-(`src/components/atomic-crm/entity360/`) every later Epic 3 story adds to. It has no
-in-epic dependency, but it depends structurally on **Epic 1** having landed
-(`children` → `singles`, `sales` → `members`, `root/routeManifest.ts` created by Epic 1
-Story 1.5) and this story is itself a dependency of 3.2 (tabs slot into the shell) and
-3.3 (the descriptor registry renders 360s through this shell).
+**Step 1 of the Epic 3 build order** (Epic 3 canonical API contract §12; that table lists 13 steps, while the file set is 14 stories — 3.12 and 3.13 were split out after it was written, so step numbers are authoritative and totals are not). Epics 1
+and 2 are implemented and Epic 2 is deployed; every path in this story is a path that
+exists on `main` today.
 
-**Scope boundary — read before starting.** This story builds and tests the shell as a
-**generic, presentational primitive** using a fixture record, not a real entity. Wiring
-a real resource (`shidduchim`, `singles`, `shadchanim`, `references`) onto `Entity360`
-is explicitly **Epic 5's** job (Stories 5.1, 5.8, 5.9, 5.10) — Epic 1 Story 1.5's Dev
-Notes table states this in writing: *"Epic 3/4/5 | `Entity360`, `EntityList`, AD-24
-route shape … | Do not restructure routes."* Do not migrate `ShidduchShow.tsx`,
-`ShadchanShow.tsx`, `singles/SingleShow.tsx` or `ReferenceShow.tsx` onto `Entity360` in
-this story — that would pre-empt Epic 5 and leave two parallel show surfaces live at
-once, which NFR-14 forbids. Prove the shell with a fixture record and role-play props in
-its own test file, the same pattern Epic 1 Story 1.5 used for `routeManifest.test.ts`
-("a deliberately-invalid fixture manifest declared inside the test file").
+- **Depends on:** nothing inside Epic 3. Step 0 — the tab-vocabulary story, which the contract
+  calls `3-13` but which is **filed as
+  `_bmad-output/implementation-artifacts/3-10-tab-vocabulary.md`** (not
+  `3-13-records-at-urls-not-modals.md`, a different story) — is a separate module with no
+  relationship to the shell, so this story may start immediately.
+  Structurally it depends on Epic 1 having landed — `singles/` (there is no `children/`),
+  `members` (there is no `sales`), `root/routeManifest.ts` — all of which is true on `main`.
+- **Blocks:** `3.2` (`Entity360Tabs` fills the `tabBar` and `children` regions), `3.3b`
+  (`EntityShow` composes all seven regions from a descriptor), and through them every
+  Epic 4–11 story that renders a 360.
+- `src/components/atomic-crm/entity360/` **does not exist**. This story creates it.
+
+### Scope boundary — read before starting
+
+Two different things are easy to confuse here, and only one of them is in scope.
+
+**In scope.** Build the shell as a generic, presentational primitive, proven with fixture
+content (no real entity, no data fetching, no router). Extract the duplicated monogram-chip
+markup into `EntityAvatar` **and rewire the four header components that render it today**
+— that is a like-for-like JSX extraction inside four files, not a layout change.
+
+**Out of scope.** Migrating any entity's show page *onto* `Entity360`. Do not restructure
+`singles/SingleShow.tsx`, `shadchanim/ShadchanShow.tsx`, `references/ReferenceShow.tsx` or
+`shidduchim/ShidduchShowHeader.tsx` into shell regions, do not touch their routes, do not
+introduce a second parallel show surface. That is Epic 5 (Stories 5.1, 5.8, 5.9, 5.10),
+and Epic 1 Story 1.5 wrote the boundary down: *"Epic 3/4/5 | `Entity360`, `EntityList`,
+AD-24 route shape … | Do not restructure routes."*
+[Source: _bmad-output/implementation-artifacts/1-5-remove-dead-routes.md:456]
+
+The shell itself ships with **no production consumer** — that is deliberate and matches
+step 1 of the build order. `EntityAvatar` does **not** ship without a consumer: AC 5
+rewires its four call sites in this story, because a tested-but-dead module is how the
+duplication survives (contract §12, step 1).
+
+### The contract this story implements
+
+Reproduced verbatim from the Epic 3 canonical API contract §1 so this story stands alone:
+
+```ts
+// src/components/atomic-crm/entity360/Entity360.tsx
+export interface Entity360Props {
+  breadcrumb?: ReactNode;
+  identityHeader?: ReactNode;
+  statBand?: ReactNode;
+  alertSlot?: ReactNode;
+  tabBar?: ReactNode;
+  children?: ReactNode;   // tab content
+  rightRail?: ReactNode;
+}
+export function Entity360(props: Entity360Props): ReactElement;
+```
+
+1. Regions render in **exactly** that order, whether or not neighbours are present. No
+   reorder prop, no slot-order prop, no variant prop.
+2. All regions optional. An absent region renders **nothing** — no wrapper, no spacer.
+3. **No `className`, no `...rest`, no `style`.** Seven named props and nothing else.
+4. `breadcrumb` and `alertSlot` have no consumer in Epics 4–11 today. They are **reserved**
+   (AD-24 names them): keep them, do not delete them, do not repurpose them.
+5. Works at 375px, light and dark, with empty/loading/error content (UX-DR11). Root is
+   `flex flex-col`; the right rail is a sibling column at `lg:` and above, stacked below
+   the content beneath that.
+6. `EntityAvatar` **may set `backgroundColor` inline**. The ban on inline style covers
+   **layout** properties only. See AC 4.
 
 ## Acceptance Criteria
 
 1. **`Entity360` renders seven fixed regions, in fixed DOM order, each optional.**
-   `src/components/atomic-crm/entity360/Entity360.tsx` exports a component accepting one
-   prop per region — `breadcrumb`, `identityHeader`, `statBand`, `alertSlot`, `tabBar`,
-   `children` (the content region), `rightRail` — each `ReactNode | undefined`. When a
-   region's prop is `undefined`, nothing renders for it (no empty wrapper `<div>` left in
-   the DOM). When two or more regions ARE populated, they appear in the DOM in exactly
-   the order breadcrumb → identityHeader → statBand → alertSlot → tabBar → children →
-   rightRail, regardless of the order the props are passed in JSX. A render test with all
-   seven populated asserts this order via `container.textContent.indexOf(...)` (or
-   `compareDocumentPosition`) on distinguishable marker text in each region.
+   `src/components/atomic-crm/entity360/Entity360.tsx` exports `Entity360` and the
+   `Entity360Props` interface above — exactly seven optional props, each
+   `ReactNode | undefined`, one per region. When two or more regions are populated they
+   appear in the DOM in the order breadcrumb → identityHeader → statBand → alertSlot →
+   tabBar → children → rightRail, **regardless of the order the props are written in JSX**.
+   When a region's prop is `undefined`, nothing is emitted for it — no wrapper element, no
+   spacer. When **both** `children` and `rightRail` are absent, the content/rail wrapper is
+   not emitted either.
+   *Falsifiable by:* a render test with all seven populated with distinct marker text,
+   asserting order via `Node.compareDocumentPosition` (or
+   `container.textContent.indexOf`); plus one `it` per region asserting its marker is
+   absent and the shell root's child-element count drops by one when that prop is omitted.
+   Reordering any two regions in the implementation, or wrapping an absent region in an
+   empty `<div>`, fails it.
 
-2. **Regions cannot be restyled or reordered by the caller.** `Entity360`'s props carry
-   no `className` (per-region or root) and no `order`/`layout` prop. Each region is
-   wrapped in a fixed, non-overridable container the shell owns; only the **content**
-   inside a region is caller-supplied. A test asserts `Entity360` accepts no `className`
-   prop at the type level (a `// @ts-expect-error` test case) and that passing extra DOM
-   props is not plumbed through to the root element.
+2. **The signature is closed.** `Entity360Props` declares no `className` (root or
+   per-region), no `style`, no `order`/`layout`/`variant` prop, and `Entity360` performs no
+   JSX spread of caller-supplied props onto any element. A consumer that wants different
+   spacing edits `Entity360.tsx` for every entity or does not get it.
+   *Falsifiable by:* two `// @ts-expect-error` cases in `Entity360.test.tsx` —
+   `<Entity360 className="x" />` and `<Entity360 data-testid="x" />`. An unused
+   `@ts-expect-error` is itself a tsc error, so `npm run typecheck` fails the moment either
+   prop becomes accepted. The source guard in AC 4 additionally asserts `Entity360.tsx`
+   contains no `{...` spread. **This AC governs `Entity360` only** — `EntityAvatar` (AC 5)
+   deliberately does take a `className`.
 
-3. **Renders in light and dark, and does not overflow at 375px.** `Entity360` uses only
-   Tailwind semantic tokens / CSS custom properties already used elsewhere in the app
-   (`bg-card`, `text-muted-foreground`, `border-border`, etc. — see Dev Notes "Theme
-   tokens already in use") — no hard-coded hex/rgb color and no inline `style` background
-   color. No class name or inline style in `Entity360.tsx` or `EntityAvatar.tsx` sets a
-   fixed pixel width greater than 375, and the root container's layout classes include a
-   responsive stack (`flex-col`) with no unconditional `min-w-` wider than the smallest
-   breakpoint. Verified by a vitest `it` that imports each new file's source as text via
-   Vite's `?raw` import (the `app` project runs in a real Chromium browser —
-   vitest.config.ts's own comment — so `child_process`/`node:fs` are unavailable; `?raw`
-   is the in-browser equivalent of the grep) and asserts
-   `/min-w-\[(3[89][0-9]|[4-9][0-9]{2})px\]|#[0-9a-fA-F]{3,6}\b/` matches nothing.
+3. **The layout is 375px-safe, and the right rail is a column only from `lg` up.**
+   Asserted behaviourally in the `app` project (real Chromium), using
+   `page.viewport(width, height)` from `@vitest/browser/context`:
+   - at a **375 × 720** viewport, with all seven regions populated with long unbroken
+     strings, the shell root satisfies `root.scrollWidth <= root.clientWidth` (no
+     horizontal overflow);
+   - at **375 × 720**, `rightRail.getBoundingClientRect().top >=`
+     `content.getBoundingClientRect().bottom` (rail stacked below the content);
+   - at **1280 × 720**, `rightRail.getBoundingClientRect().left >=`
+     `content.getBoundingClientRect().right` (rail beside the content).
 
-4. **The identity header stops duplicating the avatar chip.** A shared `EntityAvatar`
-   component (`src/components/atomic-crm/entity360/EntityAvatar.tsx`) is built to replace
-   the four near-identical monogram-chip blocks currently hand-rolled in
-   `singles/SingleShow.tsx` (`ChildProfileHeader`, today `children/ChildShow.tsx:34-100`),
-   `shadchanim/ShadchanHeader.tsx:21-22` + its surrounding markup,
-   `references/ReferenceShow.tsx:36-58` (`ReferenceHeader`), and
-   `shidduchim/ShidduchShowHeader.tsx:31-40`. `EntityAvatar` takes
-   `{ seed?: string | null; monogramSource?: string | null; className?: string }` —
-   `monogramSource` feeds `getMonogram`, `seed` feeds `getAvatarIndex` (all four call
-   sites today pass `name` as the monogram source and `name ?? String(id)` as the index
-   seed — two inputs, so one `seed` prop cannot serve both), `className` only for the
-   size/radius variants the four sites genuinely differ in (`h-14/rounded-2xl` vs
-   `h-12/rounded-xl`) — and renders the rounded chip with the `--avatar-{n}` background
-   and `aria-hidden` exactly as today. **This story only extracts the component and gets
-   `getMonogram`/`getAvatarIndex` into it (AC 5) — it does not yet rewire the four call
-   sites to use `EntityAvatar`.** Rewiring each header is each entity's own change, made
-   when Epic 5 migrates that entity onto `Entity360` (Stories 5.1, 5.8, 5.9, 5.10) —
-   doing it now would touch live show pages, which is out of this story's scope per
-   "Position in Epic 3" above.
+   Each test restores the viewport in an `afterEach` so no test depends on another's
+   viewport [Source: .claude/rules/testing.md#Test-isolation].
+   *Falsifiable by:* adding `min-w-[420px]` to any region wrapper (breaks the first
+   assertion), or making the rail wrapper unconditionally `flex-row` (breaks the second).
 
-5. **`getMonogram`/`getAvatarIndex` move to `entity360/`.** They are cross-entity
-   utilities already imported by 9 files beyond `boardUtils.ts` itself, six of them
-   outside `shidduchim/` (verified:
-   `singles/SingleCard.tsx`, `singles/SingleShow.tsx`, `references/ReferenceList.tsx`,
-   `references/ReferenceShow.tsx`, `shadchanim/ShadchanCard.tsx`,
-   `shadchanim/ShadchanHeader.tsx`, `shidduchim/ShidduchShowHeader.tsx`,
-   `shidduchim/ShidduchCard.tsx`, plus `shidduchim/boardUtils.test.ts` — 9 files today
-   under the pre-rename names `children/ChildCard.tsx` and `children/ChildShow.tsx`).
-   Move both functions from `shidduchim/boardUtils.ts` to
-   `src/components/atomic-crm/entity360/avatar.ts`; `boardUtils.ts` no longer exports
-   either; all 8 non-test importers switch their import to
-   `"../entity360/avatar"`; the two `describe("getMonogram")` /
-   `describe("getAvatarIndex")` blocks move from `shidduchim/boardUtils.test.ts` to a new
-   `entity360/avatar.test.ts` unchanged. `grep -rn "getMonogram\|getAvatarIndex" src/components/atomic-crm/shidduchim/boardUtils.ts` returns no hits afterward.
+4. **No hard-coded colour anywhere; no inline *layout* style; `EntityAvatar`'s inline
+   `backgroundColor` is explicitly permitted.** The rule that AC 4 of the previous revision
+   of this story and its AC 3 contradicted is settled here, once:
 
-6. **The stat band reuses `DashboardStat`, never a bespoke tile.** `Entity360`'s
-   `statBand` prop accepts `ReactNode` (a caller-composed row) rather than a data shape —
-   the shell does not fetch or format stats itself (that is 3.3's job, per-entity). Dev
-   Notes name `dashboard/DashboardStat.tsx` as the tile every future stat band must
-   render through; this AC is satisfied by the shell imposing no bespoke tile of its own
-   and by a code comment/JSDoc on the `statBand` prop pointing implementers at it.
+   - `Entity360.tsx` contains **no `style=` attribute at all** and no colour literal.
+   - `EntityAvatar.tsx` **may** carry inline `style`, and the only CSS properties it may
+     assign are `backgroundColor` and `color`, both to `var(--avatar-*)` values. Any layout
+     property (`width`, `height`, `min*`, `max*`, `margin`, `padding`, `position`, `top`,
+     `right`, `bottom`, `left`, `display`, `flex`, `grid`, `gap`, `inset`) inside a `style`
+     object is a violation. The `--avatar-{0..9}` index is dynamic and Tailwind cannot
+     express it without a safelist; all four existing chips already set it inline
+     (`singles/SingleShow.tsx:58-61`, `shadchanim/ShadchanHeader.tsx:33-36`,
+     `references/ReferenceShow.tsx:49-52`, `shidduchim/ShidduchShowHeader.tsx:45-48`).
+   - Neither file contains a colour literal:
+     `/#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(|\boklch\(/`.
+   - Neither file contains an arbitrary-value pixel width above 375: scan
+     `/\b(?:min-w|w|basis)-\[(\d+)px\]/g` and compare the captured number numerically
+     (**not** by digit count — the previous revision's regex matched three-digit values
+     only, so `min-w-[1024px]` passed clean).
 
-7. **The alert slot reuses shadcn's `Alert`.** Same treatment as the stat band: the
-   `alertSlot` prop is `ReactNode`, and Dev Notes direct implementers to
-   `@/components/ui/alert.tsx` rather than a new banner component.
+   *Implementation, and how it is made falsifiable:* the check is a pure predicate
+   `findStyleViolations(fileName: string, source: string): string[]` declared **inside**
+   `entity360/entity360Style.guard.test.ts`, modelled on `findManifestViolations`
+   [Source: src/components/atomic-crm/root/routeManifest.test.ts:17-31]. It is run over
+   the two real sources (expect `[]`) **and** over four deliberately broken fixture
+   strings declared in the test file — a hex literal, an `oklch(` literal, a
+   `min-w-[1024px]`, and an `EntityAvatar` style object assigning `minWidth` — each of
+   which must produce a violation. The guard is therefore shown red and green in the same
+   run, permanently (contract §13 rule 2).
+
+   Separately and behaviourally: rendering `<EntityAvatar seed={s} />` for two seeds whose
+   `getAvatarIndex` values differ produces two **different** computed
+   `background-color` values, and each equals the computed `background-color` of a probe
+   element styled `background-color: var(--avatar-${getAvatarIndex(seed)})`. Asserting the
+   computed colour — not the absence of the string `style=` — is what makes hard-coding
+   index `0` fail.
+
+5. **`EntityAvatar` is built *and* the four duplicated header chips are rewired onto it.**
+   `src/components/atomic-crm/entity360/EntityAvatar.tsx` exports
+   `EntityAvatar({ seed, monogramSource, className }: { seed?: string | null; monogramSource?: string | null; className?: string })`.
+   `monogramSource` feeds `getMonogram`, `seed` feeds `getAvatarIndex` — two separate
+   inputs, because every call site today passes the name as the monogram source and
+   `name ?? String(id)` as the palette seed, and one prop cannot serve both.
+
+   - Base classes owned by the component: `grid shrink-0 place-items-center font-bold`.
+     They carry **no size, no radius and no text size**, so the caller's `className` is
+     appended without a `tailwind-merge` conflict (`size-14` vs `h-14 w-14` is exactly the
+     case that would otherwise be ambiguous). When `className` is `undefined` the component
+     falls back to `"h-14 w-14 rounded-2xl text-lg"` — a fallback, not a merge.
+   - The chip always renders `aria-hidden="true"`. **This is a decision, not a copy:**
+     three of the four chips set it (`singles/SingleShow.tsx:62`,
+     `references/ReferenceShow.tsx:53`, `shidduchim/ShidduchShowHeader.tsx:49`) and
+     `shadchanim/ShadchanHeader.tsx:31-39` does not. The monogram is decorative in all four
+     — the name renders as an adjacent heading in every case (e.g.
+     `ShadchanHeader.tsx:41-43`) — so the shadchan chip gains `aria-hidden` and the
+     inconsistency ends.
+   - The four rewires, with the exact `className` each must keep so the rendered chip is
+     visually unchanged:
+
+     | File | Chip today | `className` passed |
+     |---|---|---|
+     | `singles/SingleShow.tsx` (`SingleProfileHeader`, `:42`) | `:56-65` | `h-14 w-14 rounded-2xl text-xl` |
+     | `shadchanim/ShadchanHeader.tsx` (`:20`) | `:31-39` | `h-14 w-14 rounded-2xl text-lg` |
+     | `references/ReferenceShow.tsx` (`ReferenceHeader`, `:31`) | `:47-56` | `h-12 w-12 rounded-xl text-base` |
+     | `shidduchim/ShidduchShowHeader.tsx` | `:43-52` | `size-14 rounded-2xl text-lg` |
+
+   *Falsifiable by:* a component test per variant asserting the rendered chip carries its
+   size/radius/text classes and `aria-hidden="true"`; plus `LSP findReferences` on
+   `getMonogram` returning **no** reference inside those four files afterwards. Shipping
+   `EntityAvatar` without the rewires fails this AC.
+
+   **Not in scope, and named so nobody guesses:** the four *card* chips
+   (`singles/SingleCard.tsx:47-48`, `shadchanim/ShadchanCard.tsx:27-28`,
+   `references/ReferenceList.tsx:58-59`, `shidduchim/ShidduchCard.tsx:81-82`) keep their
+   inline chips in this story. They are list-row surfaces and are re-rendered by Epic 4's
+   `EntityList` `renderItems` retrofit; rewiring them here would collide with that diff.
+   They still switch their **import path** under AC 6.
+
+6. **`getMonogram` / `getAvatarIndex` move to `entity360/avatar.ts`.** They are
+   cross-entity utilities living in a shidduchim-specific file by historical accident:
+   9 files import them beyond `boardUtils.ts` itself, **six of them outside `shidduchim/`**
+   — `singles/SingleCard.tsx:6`, `singles/SingleShow.tsx:9`,
+   `references/ReferenceList.tsx:10`, `references/ReferenceShow.tsx:6`,
+   `shadchanim/ShadchanCard.tsx:6`, `shadchanim/ShadchanHeader.tsx:5`,
+   `shidduchim/ShidduchShowHeader.tsx:7`, `shidduchim/ShidduchCard.tsx:12`, plus
+   `shidduchim/boardUtils.test.ts:4-5`. **This census is verified against `main`; do not
+   "correct" it.**
+
+   Move both functions verbatim (no behaviour change) from
+   `shidduchim/boardUtils.ts:35-51` to `src/components/atomic-crm/entity360/avatar.ts`.
+   Every surviving importer switches to `"../entity360/avatar"` (or `"./avatar"` inside
+   `entity360/`). Note that `shidduchim/ShidduchCard.tsx:12` and
+   `shidduchim/ShidduchShowHeader.tsx:7` also import `formatRedtDate` from the same line,
+   so those two keep a `./boardUtils` import alongside the new one — except that
+   `ShidduchShowHeader.tsx`, rewired under AC 5, no longer needs the two avatar functions
+   at all and keeps only `formatRedtDate`.
+
+   The `describe("getMonogram")` (`boardUtils.test.ts:67-80`) and
+   `describe("getAvatarIndex")` (`:82-96`) blocks move unchanged into a new
+   `entity360/avatar.test.ts`; `describe("getShidduchimByState")` and
+   `describe("formatRedtDate")` stay in `boardUtils.test.ts`.
+   *Falsifiable by:* `LSP documentSymbol` on `shidduchim/boardUtils.ts` returning exactly
+   `ShidduchimByState`, `getShidduchimByState` and `formatRedtDate`; plus `npm run typecheck`
+   and `npm run test:unit:app` green.
+
+7. **The shell composes; it owns no primitives of its own.** `Entity360.tsx` imports
+   **only** from `react` (types) and `@/lib/utils` — no import from `@/components/ui/*`, no
+   import from any sibling directory of `entity360/`, no `Card`, no bespoke stat tile, no
+   bespoke banner. `statBand` and `alertSlot` are plain `ReactNode`: the shell neither
+   fetches nor formats stats (the descriptor module owns that — contract §2 rule 1), and
+   neither renders a banner. JSDoc on the two props names the primitive each must be
+   composed from: `src/components/atomic-crm/dashboard/DashboardStat.tsx` for stat tiles
+   and `src/components/ui/alert.tsx` (`Alert` / `AlertTitle` / `AlertDescription`) for
+   banners.
+   *Falsifiable by:* the AC 4 guard predicate, extended with an import allowlist for
+   `Entity360.tsx` and a fixture importing `@/components/ui/card` that must be reported as
+   a violation; plus an assertion that the `statBand` and `alertSlot` JSDoc blocks name
+   `DashboardStat` and `Alert` respectively.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Move the avatar utilities** (AC: 5)
-  - [ ] Create `src/components/atomic-crm/entity360/avatar.ts`; move `getMonogram` and
-        `getAvatarIndex` out of `shidduchim/boardUtils.ts` verbatim (no behaviour change).
-  - [ ] Update the 8 non-test importers listed in AC 5 to import from `"../entity360/avatar"`.
-        Use `LSP findReferences` on both symbols first to confirm the count before editing
-        (`.claude/rules/lsp-usage.md`) — do not re-grep by hand.
-  - [ ] Move `entity360/avatar.test.ts` out of `boardUtils.test.ts`'s two `describe`
-        blocks; confirm `boardUtils.ts` still type-checks (it keeps `getShidduchimByState`
-        and `ShidduchimByState`, which are genuinely shidduchim-specific and stay put).
+- [ ] **Task 1 — Move the avatar utilities** (AC: 6)
+  - [ ] Create `src/components/atomic-crm/entity360/avatar.ts`; move `getMonogram`
+        (`shidduchim/boardUtils.ts:35-42`) and `getAvatarIndex` (`:44-51`) verbatim,
+        JSDoc included. `boardUtils.ts` keeps `ShidduchimByState`,
+        `getShidduchimByState` and `formatRedtDate`.
+  - [ ] Run `LSP findReferences` on both symbols **before** editing to confirm the
+        importer set matches AC 6 [Source: .claude/rules/lsp-usage.md] — do not re-derive
+        it with `grep`.
+  - [ ] Repoint every importer at `"../entity360/avatar"`. Keep `formatRedtDate` on
+        `"./boardUtils"` in `shidduchim/ShidduchCard.tsx`.
+  - [ ] Create `entity360/avatar.test.ts` with the two moved `describe` blocks, assertions
+        unchanged; delete them from `shidduchim/boardUtils.test.ts`.
 
-- [ ] **Task 2 — Build `EntityAvatar`** (AC: 4)
-  - [ ] Create `entity360/EntityAvatar.tsx` with the AC 4 props (`seed`,
-        `monogramSource`, `className` — the `className` override is a size/radius
-        variant only; AC 2's "no restyling" rule applies to `Entity360` itself, not this
-        leaf component), rendering the monogram chip markup common to the four headers
-        named in AC 4 (rounded box, `--avatar-{getAvatarIndex(seed)}` background,
-        `getMonogram(monogramSource)` text, `aria-hidden`).
-  - [ ] Do not touch `singles/SingleShow.tsx`, `shadchanim/ShadchanHeader.tsx`,
-        `references/ReferenceShow.tsx` or `shidduchim/ShidduchShowHeader.tsx` beyond what
-        Task 1's import move requires. Rewiring them to render `<EntityAvatar>` is Epic
-        5's job (see "Position in Epic 3").
+- [ ] **Task 2 — Build `EntityAvatar` and rewire its four call sites** (AC: 4, 5)
+  - [ ] Create `entity360/EntityAvatar.tsx` per AC 5: base classes
+        `grid shrink-0 place-items-center font-bold`, `className` appended (fallback
+        `"h-14 w-14 rounded-2xl text-lg"` when absent), inline
+        `{ backgroundColor: \`var(--avatar-${getAvatarIndex(seed)})\`, color: "var(--avatar-ink)" }`,
+        `getMonogram(monogramSource)` as the child, `aria-hidden="true"` always.
+  - [ ] Replace the chip `<div>` in `singles/SingleShow.tsx:56-65`,
+        `shadchanim/ShadchanHeader.tsx:31-39`, `references/ReferenceShow.tsx:47-56` and
+        `shidduchim/ShidduchShowHeader.tsx:43-52` with `<EntityAvatar>`, passing the
+        `monogramSource` / `seed` pair each file already computes and the `className` from
+        AC 5's table. Delete the now-unused local `monogram` / `avatarIndex` consts and
+        their imports (`noUnusedLocals` is on — `tsconfig.app.json:21`).
+  - [ ] Do **not** touch the four card chips named in AC 5, beyond Task 1's import move.
 
-- [ ] **Task 3 — Build the `Entity360` shell** (AC: 1, 2, 3, 6, 7)
-  - [ ] Create `entity360/Entity360.tsx` with the seven props from AC 1, each rendered
-        inside its own fixed wrapper element in the pinned order; no prop controls order
-        or styling (AC 2).
-  - [ ] Root layout: `flex flex-col gap-*` (stacks regions vertically, which is
-        375px-safe by construction); `rightRail`, when present, renders after `children`
-        in the DOM but may lay out side-by-side at a wider breakpoint via a responsive
-        grid/flex wrapper — still no fixed pixel `min-w` above 375 (AC 3).
-  - [ ] JSDoc on `statBand` and `alertSlot` props naming `DashboardStat` and `Alert`
-        respectively as the tile/banner primitive to compose them from (AC 6, 7).
+- [ ] **Task 3 — Build the `Entity360` shell** (AC: 1, 2, 3, 7)
+  - [ ] Create `entity360/Entity360.tsx`: the seven props from AC 1, each rendered inside
+        its own fixed wrapper in the pinned order; no prop controls order or styling.
+  - [ ] Root is `flex flex-col gap-*`. `children` and `rightRail` share one wrapper that is
+        `flex flex-col gap-*` up to `lg` and `lg:flex-row lg:items-start` above it, with
+        the content column `min-w-0 flex-1` and the rail `lg:w-80 lg:shrink-0`. DOM order
+        stays content → rail. The wrapper is not emitted when both are absent (AC 1).
+  - [ ] JSDoc on `statBand` and `alertSlot` naming `DashboardStat` and `Alert` (AC 7).
+        Imports limited to `react` and `@/lib/utils` (AC 7).
 
-- [ ] **Task 4 — Tests** (AC: 1, 2, 3)
-  - [ ] `entity360/Entity360.test.tsx`, AAA-structured: one `it` per region-order
-        assertion (all seven populated → correct DOM order), one `it` per "region absent
-        when prop undefined" case, one `it` for the `className`/no-restyle type check
-        (`// @ts-expect-error` on `<Entity360 className="x" .../>`).
-  - [ ] The no-hard-pixel / no-hex-color check from AC 3, written as a plain vitest `it`
-        (no DOM) over `?raw` source imports, modelled on `routeManifest.test.ts`'s
-        plain-logic style.
-  - [ ] `entity360/avatar.test.ts` — the two moved `describe` blocks, unchanged
-        assertions.
+- [ ] **Task 4 — Tests** (AC: 1, 2, 3, 4, 5, 7)
+  - [ ] `entity360/Entity360.test.tsx`, AAA-structured: region order with all seven
+        populated and with the props written in scrambled JSX order; one `it` per
+        "region absent emits nothing"; the `children`+`rightRail`-both-absent case; the two
+        `// @ts-expect-error` cases from AC 2.
+  - [ ] `entity360/Entity360.responsive.test.tsx` (or the same file): the three
+        `page.viewport()` assertions from AC 3, with an `afterEach` restoring the viewport.
+  - [ ] `entity360/EntityAvatar.test.tsx`: the four `className` variants render their
+        classes and `aria-hidden`; the computed-`background-color` assertions from AC 4.
+  - [ ] `entity360/entity360Style.guard.test.ts`: `findStyleViolations` run over the two
+        real sources **and** over the four broken fixtures, per AC 4, plus AC 7's import
+        allowlist and its `@/components/ui/card` fixture.
+  - [ ] `entity360/avatar.test.ts` — the two moved `describe` blocks.
+  - [ ] Validation before hand-off: `npm run typecheck`, `npm run test:unit:app`,
+        `npm run lint`, `npm run build`. **No DB surface in this story** — no migration, no
+        RLS, no `npm run test:unit:db`.
 
 ## Dev Notes
 
@@ -162,93 +306,147 @@ its own test file, the same pattern Epic 1 Story 1.5 used for `routeManifest.tes
 
 AD-24: *"every entity renders through one `Entity360` shell with fixed regions in fixed
 order (breadcrumb → identity header → stat band → alert slot → tab bar → content →
-optional right rail); regions are optional per entity but never reordered or
-restyled."* [Source: ARCHITECTURE-SPINE.md#AD-24] This story delivers exactly that
-sentence as a component, proven with fixture content — it does **not** decide what goes
-in the tab bar (3.2), does not fetch or declare per-entity data (3.3), and does not gate
-by viewer role (3.4). Those are named, separate stories precisely so this one stays a
-small, reusable layout primitive.
+optional right rail); regions are optional per entity but never reordered or restyled."*
+[Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md:177-180]
+
+**Cite the full path.** Two files in this repo are named `ARCHITECTURE-SPINE.md`;
+`mockup/uploads/ARCHITECTURE-SPINE.md` contains no AD-22/AD-23/AD-24 at all and is not a
+source for anything.
+
+This story delivers exactly that sentence as a component, proven with fixture content. It
+does **not** decide what goes in the tab bar (3.2), does not fetch or declare per-entity
+data (3.3a/3.3b), and does not gate by viewer role (3.4). Those are named, separate
+stories precisely so this one stays a small, reusable layout primitive.
+
+### Vocabulary (AD-23)
+
+*shidduch/shidduchim*, *redt*, *shadchan/shadchanim*, *reference*, and **single** — never
+"child" and never "candidate", in code, comments, tests or UI strings.
+[Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md:172-176]
+`scripts/check-retired-names.mjs` fails CI on the retired names.
 
 ### Theme tokens already in use (reuse, do not invent new ones)
 
-Every existing show page in the repo already themes exclusively through CSS custom
-properties consumed via Tailwind semantic classes — `bg-card`, `text-muted-foreground`,
-`border-border`, `--avatar-{n}` / `--avatar-ink`, `--positive`, `--glass-bg` /
-`--glass-border` — see `singles/SingleShow.tsx` (today `children/ChildShow.tsx`),
-`shadchanim/ShadchanShow.tsx`, `references/ReferenceShow.tsx` for the pattern. Dark mode
-is therefore automatic wherever `Entity360` sticks to the same tokens; it needs no
-`dark:` variant classes of its own, matching how the rest of the app themes.
+Every show page in the repo themes exclusively through CSS custom properties consumed via
+Tailwind semantic classes — `bg-card`, `text-muted-foreground`, `border-border`,
+`--avatar-{0..9}` / `--avatar-ink`, `--positive`, `--glass-bg` / `--glass-border` — all
+defined for both schemes in `src/index.css` (light `:196-206`, `:248`; dark `:376-386`,
+`:411`). See `singles/SingleShow.tsx`, `shadchanim/ShadchanShow.tsx` and
+`references/ReferenceShow.tsx` for the pattern. Dark mode is therefore automatic wherever
+`Entity360` sticks to the same tokens; it needs no `dark:` variants of its own, matching
+how the rest of the app themes. This is why AC 4's colour-literal ban is a real constraint
+and not a style preference: a hex value is the one thing that would not follow the theme.
 
-### Why the avatar move, and why call-site rewiring is deferred
+### Why the avatar move, and why the four headers *are* rewired here
 
-Nine files import `getMonogram`/`getAvatarIndex` from `shidduchim/boardUtils.ts` today —
-a shidduchim-specific file hosting a cross-entity primitive purely by historical
-accident. `.claude/rules/coding-style.md` ("organize by feature/domain") and DRY both
-point at relocating it into the shell's own home now that `entity360/` exists as that
-home. But the four *header* components that build the avatar chip inline
-(`ChildProfileHeader`, `ShadchanHeader`, `ReferenceHeader`, `ShidduchShowHeader`) are live
-production show pages outside this epic's "machinery only" boundary — editing their JSX
-now duplicates work Epic 5 does anyway when it moves each entity onto `Entity360`, and
-risks a visual regression in a screen this story has no reason to touch. The import-path
-fix (Task 1) is mechanical and safe; the JSX extraction (`EntityAvatar`, Task 2) is built
-and tested but not yet consumed by production code — same posture as the shell itself.
+Nine files import `getMonogram`/`getAvatarIndex` from `shidduchim/boardUtils.ts` — a
+shidduchim-specific file hosting a cross-entity primitive by historical accident.
+`.claude/rules/coding-style.md` ("organize by feature/domain") and DRY both point at
+relocating it into the shell's own home now that `entity360/` exists.
 
-### Post-Epic-1 naming
+The four *header* chips are rewired in the same story, against the earlier revision of this
+story, which deferred them to Epic 5. The reason for the reversal: the deferral shipped a
+module with **zero consumers**, and a primitive nobody renders is a primitive nobody
+notices is wrong. Rewiring is four `<div>` → `<EntityAvatar>` substitutions inside header
+components whose surrounding layout is untouched — it does not migrate any page onto
+`Entity360`, does not change a route, and does not create a second show surface. Each
+rewire is covered by a per-variant render test (AC 5), which is the regression protection
+the deferral was trying to buy.
 
-Written against the state after Epic 1 lands: `singles/` (not `children/`), `members`
-(not `sales`), `root/routeManifest.ts` exists. On `main` today (Epics 1-2 are storied but
-not yet implemented) the same 9 avatar call sites live under `children/ChildCard.tsx` and
-`children/ChildShow.tsx` — locate them by import statement
-(`from "../shidduchim/boardUtils"` importing `getMonogram`/`getAvatarIndex`) rather than
-by the file paths quoted here, and use whatever the resource directory is actually named
-at the time you implement this story.
+The four *card* chips are a different case and stay put: Epic 4 Story 4.1 re-renders list
+rows through `EntityList`'s injected `renderItems`, so touching them now guarantees a
+collision. AC 5 names them explicitly so this is a decision on the record rather than an
+oversight.
+
+### The AC 3 / AC 4 contradiction in the previous revision, and how it is resolved
+
+The previous revision banned inline `style` background in `Entity360.tsx` **and**
+`EntityAvatar.tsx` while simultaneously requiring the `--avatar-{n}` background "exactly as
+today" — and every one of the four chips sets it inline. Tailwind cannot express a dynamic
+`--avatar-{0..9}` without an arbitrary-value class or a safelist. The ban is therefore
+scoped to **layout** properties, `backgroundColor`/`color` are carved out for
+`EntityAvatar` only, and the behavioural assertion is on the **computed** colour rather
+than on the absence of the string `style=`. See AC 4.
+
+Its regex was also unfalsifiable: `/min-w-\[(3[89][0-9]|[4-9][0-9]{2})px\]|#[0-9a-fA-F]{3,6}\b/`
+matched three-digit pixel values only (so `min-w-[1024px]` passed), had no `rgb(`/`oklch(`
+branch despite the prose banning them, and covered no inline-style case — and with a
+`flex flex-col` root it was true before a line was written. AC 3 now asserts the overflow
+behaviour it always claimed to, in a real browser at a real 375px viewport; AC 4 compares
+captured pixel values numerically and proves itself red against fixtures.
 
 ### Testing standard
 
-AAA, descriptive `it` names, no shared mutable state between tests
-[Source: .claude/rules/testing.md]. Runs in the `app` vitest project
-(`npm run test:unit:app`), same project as `routeManifest.test.ts` — note the `app`
-project executes in a real headless Chromium (vitest browser mode), so tests cannot
-shell out or touch `node:fs`; source-text assertions use Vite `?raw` imports instead
-[Source: vitest.config.ts — the "app" project block and its browser config]. The
-`// @ts-expect-error` case in AC 2 is enforced by `make typecheck` (an unused
-`@ts-expect-error` is itself a tsc error), not by the test runner. No new backend
-surface — no migration, no RLS, no `test:unit:db` involvement in this story.
+AAA, descriptive `it` names, no shared mutable state between tests, ≥80% coverage on new
+code [Source: .claude/rules/testing.md]. Tests run in the `app` vitest project
+(`npm run test:unit:app`), which executes in a **real headless Chromium** via
+`@vitest/browser-playwright` [Source: vitest.config.ts:36-49], so tests cannot shell out or
+touch `node:fs`.
+
+- **React Testing Library is not a dependency.** There is no `screen.queryByText` and no
+  `MemoryRouter` in this repo. Use `render` from `vitest-browser-react`; the negative idiom
+  is `await expect.element(screen.getByRole(...)).not.toBeInTheDocument()`
+  [Source: src/components/atomic-crm/layout/ContextSwitcher.test.tsx:1-3].
+- `render()` returns `container`, so `container.textContent` assertions survive.
+- `Entity360` and `EntityAvatar` are context-free — no router, no data provider, no
+  `CoreAdminContext` wrapper is needed. If a later test ever needs one, the repo pattern is
+  `TestMemoryRouter` from `ra-core` [Source: src/components/atomic-crm/layout/ContextSwitcher.test.tsx:3,69-71],
+  never `MemoryRouter` from `react-router`.
+- Viewport control: `import { page } from "@vitest/browser/context"` then
+  `await page.viewport(375, 720)` [Source: node_modules/@vitest/browser/context.d.ts:814-816].
+- **`?raw` source scanning.** A bare `import source from "./Entity360.tsx?raw"` typechecks:
+  Vite's `declare module '*?raw'` (`node_modules/vite/client.d.ts:243`) is in scope via
+  `/// <reference types="vite/client" />` in `src/vite-env.d.ts:1`, and `src` is in
+  `tsconfig.app.json`'s `include`. The alternative, if a whole directory must be scanned,
+  is the repo's existing `import.meta.glob("…", { query: "?raw", import: "default", eager: true })`
+  precedent [Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:16-20].
+  Either is acceptable; AC 4 only cares that the predicate is pure, exported inside the test
+  file, and exercised against broken fixtures.
+- The `// @ts-expect-error` cases in AC 2 are enforced by **`npm run typecheck`**
+  (`package.json:17`), not by the test runner — an unused `@ts-expect-error` is itself a tsc
+  error, and `tsconfig.app.json`'s `include: ["src","demo","vitest-browser.d.ts"]` covers
+  `.test.tsx` files under `src/`.
+- **There is no `Makefile` in this repo.** `make typecheck` and `make test` do not exist.
+  The validation set is `npm run typecheck`, `npm run test:unit:app`, `npm run lint`,
+  `npm run build`.
 
 ### Project Structure Notes
 
 - New directory `src/components/atomic-crm/entity360/` is this epic's home; every
-  subsequent Epic 3 story adds files here (`entity360/tabs/` for 3.5-3.8,
-  `entity360/RecordLink.tsx` for 3.9, etc.). Do not scatter shell code into an existing
-  entity folder.
-- File sizes stay well inside the 200-400 line typical ceiling
+  subsequent Epic 3 story adds files here (`entity360/tabs/` for 3.5–3.8,
+  `entity360/RecordLink.tsx` for 3.9, `entity360/tabKeys.ts` for 3-13, etc.). Do not
+  scatter shell code into an entity folder.
+- File sizes stay well inside the 200–400 line typical ceiling
   [Source: .claude/rules/coding-style.md#File-organization] — `Entity360.tsx` is a pure
-  layout component with no data fetching, so it should land under 150 lines.
+  layout component with no data fetching and should land under 150 lines.
+- Immutability, KISS, explicit error handling and the naming conventions in
+  `.claude/rules/coding-style.md` apply.
 - English-only in all new files and comments [Source: .claude/rules/english-only.md].
 
 ### References
 
-- [Source: _bmad-output/planning-artifacts/epics.md#Epic-3-The-360-Framework — Story 3.1]
-- [Source: ARCHITECTURE-SPINE.md#AD-24] — the shell contract this story implements
-- [Source: _bmad-output/specs/spec-myshadchan/SPEC.md#Capabilities — CAP-7]
-- [Source: _bmad-output/planning-artifacts/epics.md#UX-Design-Requirements — UX-DR1,
-  UX-DR11] (the UX-DRs are defined in epics.md, not in SPEC.md)
-- [Source: _bmad-output/implementation-artifacts/1-5-remove-dead-routes.md#Dev-Notes §4] —
-  "Epic 3/4/5 … `Entity360` … Do not restructure routes" — the scope boundary this story
-  respects, and the fixture-in-test-file testing pattern (`routeManifest.test.ts`) this
-  story follows
-- [Source: src/components/atomic-crm/shidduchim/boardUtils.ts:34-51] — `getMonogram` /
-  `getAvatarIndex`, moved by this story
-- [Source: src/components/atomic-crm/children/ChildShow.tsx:34-100,
-  shadchanim/ShadchanHeader.tsx, references/ReferenceShow.tsx:31-58,
-  shidduchim/ShidduchShowHeader.tsx] — the four duplicated avatar-chip blocks `EntityAvatar`
-  will eventually replace (Epic 5)
-- [Source: src/components/atomic-crm/dashboard/DashboardStat.tsx] — the stat tile the
-  stat band must compose from
-- [Source: src/components/ui/alert.tsx] — the alert primitive the alert slot must compose
-  from
-- [Source: .claude/rules/coding-style.md, .claude/rules/testing.md,
-  .claude/rules/lsp-usage.md, .claude/rules/english-only.md]
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md:177-180] — AD-24, the shell contract this story implements
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md:172-176] — AD-23, the vocabulary
+- [Source: _bmad-output/planning-artifacts/epics.md:452-469] — Epic 3 preamble and Story 3.1's epic-level acceptance criteria
+- [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md:157-161] — UX-DR1, the region list; [:186-187] — UX-DR11, empty/loading/error, light+dark, 375px. (Indexed at `_bmad-output/planning-artifacts/epics.md:109,119`.) **The mockup is not a source:** `mockup/MyShadchan.dc.html` predates AD-24 and is internally inconsistent.
+- [Source: _bmad-output/specs/spec-myshadchan/SPEC.md:50] — CAP-7, "One consistent 360° view of every entity"
+- [Source: _bmad-output/implementation-artifacts/1-5-remove-dead-routes.md:442,456] — Dev Notes §4, "Epic 3/4/5 … `Entity360` … Do not restructure routes", the scope boundary this story respects
+- [Source: _bmad-output/implementation-artifacts/1-5-remove-dead-routes.md:126] — the fixture-declared-inside-the-test-file pattern this story's guard test follows
+- [Source: src/components/atomic-crm/shidduchim/boardUtils.ts:35-51] — `getMonogram` / `getAvatarIndex`, moved by this story
+- [Source: src/components/atomic-crm/shidduchim/boardUtils.test.ts:67-96] — the two `describe` blocks that move to `entity360/avatar.test.ts`
+- [Source: src/components/atomic-crm/singles/SingleShow.tsx:42,56-65] — `SingleProfileHeader` and its chip
+- [Source: src/components/atomic-crm/shadchanim/ShadchanHeader.tsx:20,31-39] — the one chip with no `aria-hidden`
+- [Source: src/components/atomic-crm/references/ReferenceShow.tsx:31,47-56] — `ReferenceHeader` and its chip
+- [Source: src/components/atomic-crm/shidduchim/ShidduchShowHeader.tsx:43-52] — the `size-14` chip
+- [Source: src/components/atomic-crm/dashboard/DashboardStat.tsx:7-12] — `DashboardStatProps`, the stat tile every stat band composes from
+- [Source: src/components/ui/alert.tsx:66] — `Alert` / `AlertTitle` / `AlertDescription`, the banner primitives the alert slot composes from
+- [Source: src/components/atomic-crm/root/routeManifest.test.ts:17-31] — `findManifestViolations`, the pure-predicate-plus-fixture guard pattern AC 4 copies
+- [Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:16-20] — the repo's `?raw` scanning precedent
+- [Source: src/components/atomic-crm/layout/ContextSwitcher.test.tsx:1-3,69-71] — `vitest-browser-react` + `TestMemoryRouter`; the negative-assertion idiom
+- [Source: src/index.css:196-206,248,376-386,411] — the `--avatar-*`, `--glass-*` and `--positive` tokens in both schemes
+- [Source: vitest.config.ts:36-49] — the `app` project's Chromium browser mode
+- [Source: package.json:7,17,20] — `test:unit:app`, `typecheck`, `lint`
+- [Source: .claude/rules/coding-style.md, .claude/rules/testing.md, .claude/rules/lsp-usage.md, .claude/rules/english-only.md, .claude/rules/typescript.md]
 
 ## Dev Agent Record
 

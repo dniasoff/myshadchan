@@ -12,281 +12,651 @@ so that I can see what happened without hunting.
 
 ## Position in Epic 3
 
-**Depends on 3.3** (its `EntityTabDescriptor` shape) and **3.9** (`RecordLink`, for the
-"entries link to related records" requirement). **Suggested delivery order across the
-epic, since dependencies do not follow the story numbers:** `3.1 → 3.2 → 3.3 → 3.9 → 3.4
-→ 3.5 → 3.6 → 3.7 → 3.8`. Build 3.9 before this story even though it is numbered last —
-epics.md's own AC text for this story ("entries link to related records via
-`RecordLink`") makes the dependency real, not optional, and Epic 1 set the precedent for
-an epic's delivery order departing from its story numbers when dependencies demand it
-(1.1 → 1.4 → 1.5 → 1.3 → 1.2 → 1.6).
+This story is **step 8** of the build order in
+`_bmad-output/planning-artifacts/epic3-api-contract.md` §12. It is the **first universal
+tab**, and every later tab reuses what it lands.
 
-**3.6 depends on this story** (they share the same widened `interactions` table and
-migration) and adds one filter this story's query must later respect: 3.6 adds a
-`deleted_at` column for note soft-delete, and updates `ActivityTab`'s query (built here)
-to add `deleted_at is null` so a soft-deleted note stops appearing in the Activity feed
-too. **This story's `ActivityTab` query is edited again by 3.6 — that is expected, not a
-regression.**
+**Blocking dependencies — all must be merged before this story starts:**
 
-**Scope boundary — read before starting.** This story delivers a **standalone,
-tested** `ActivityTab` component plus the backend widening that makes it correct for
-all four AD-24 base entities. It does **not** mount the component into
-`ShidduchShow.tsx`, `ReferenceShow.tsx`, `ShadchanShow.tsx` or `singles/SingleShow.tsx`
-— wiring a tab into a live entity's tab bar is Epic 5's job (5.1, 5.8, 5.9, 5.10), same
-posture as 3.1-3.4. `ShidduchTimeline.tsx`'s current inline read of `interactions`
-survives unchanged until Epic 5 replaces it with this tab.
+| Dependency | What this story consumes from it |
+|---|---|
+| **3-14** — `3-14-context-scope-lift-tasks-interactions.md` (household-scope lift) | Drops `validate_interactions_household_scope` (`supabase/schemas/04_triggers.sql:195-197`). Without it, an `interactions` insert in a `shadchanus` context dies with a raw Postgres exception and half of AC 10 cannot pass. Contract §11 Ruling 1. |
+| **3.9** — `3-9-recordlink-primitive.md` (`RecordLink` + target-type vocabulary) | `ENTITY_TARGET_TYPES` / `EntityTargetType` in `src/components/atomic-crm/types.ts` (contract §10), `entity360/RecordLink.tsx` (contract §7), and the `?raw` schema guard with its `PENDING_DB_WIDENINGS` constant (contract §8 rule 2). |
+| **3.3a** — `3-3-entity-descriptor-registry.md` (descriptor + registry) | `getEntityDescriptor` — the guarded accessor `RecordLink` degrades through (contract §4 rule 3). |
+| **3-10** — `3-10-tab-vocabulary.md` (`TabKey` union) | The `activity` key and its `TAB_LABELS` entry. This story does **not** register a tab on any descriptor; it ships the component the key will point at. |
+
+**Stories that depend on this one:** 3.6 (Notes — `current_member_id()`,
+`set_interaction_actor_member_id`, `interactionLabels.ts`, the widened `target_type`, the
+`deleted_at` column), 3.7 (Files — the four-value target vocabulary and
+`current_member_id()`), and the AD-24 conformance validator
+(`3-11-ad24-conformance-validator.md`, which asserts `PENDING_DB_WIDENINGS` is empty).
+
+> **Numbering note.** The contract (§10, §12) refers to the tab-vocabulary story as "3-13" and
+> the conformance validator as "3-15". The files that actually exist are
+> `3-10-tab-vocabulary.md` and `3-11-ad24-conformance-validator.md`; `3-13-records-at-urls-not-modals.md`
+> is the UX-DR3 story. This story cites the **filenames**, which are authoritative over the
+> contract's provisional numbers.
+
+**Scope boundary — read before starting.** This story delivers a **standalone, tested**
+`ActivityTab` component plus the backend widening that makes it correct for all four AD-24
+base entities. It does **not** mount the component into `ShidduchShow.tsx`,
+`ReferenceShow.tsx`, `ShadchanShow.tsx` or `singles/SingleShow.tsx`, and it registers no
+`tabs` entry on any `EntityDescriptor` — that is Epic 5 (5.1, 5.8, 5.9, 5.10), the same
+posture as 3.1–3.4. `shidduchim/ShidduchTimeline.tsx` and `references/ReferenceTimeline.tsx`
+keep working as they are; this story only lifts their duplicated label/date helpers into the
+shared module they will both import (AC 7), and Epic 5 replaces both surfaces later.
 
 ## Acceptance Criteria
 
-1. **`interactions` accepts all four base entity types.** In
-   `supabase/schemas/01_tables.sql`, `interactions_target_type_check` becomes
-   `target_type in ('reference', 'shidduch', 'shadchan', 'single')` (was `('reference',
-   'shidduch')`). `interactions_scope_link_check` gains a fourth branch —
-   `(scope = 'account' and target_type in ('shadchan', 'single') and reference_link_id is
-   null)` — **this is required, not optional**: without it, the three existing branches
-   are exhaustive over the *old* two target types, so an insert with
-   `target_type = 'shadchan'` or `'single'` fails the check regardless of the
-   `target_type_check` widening. Verify by inserting a `shadchan`-targeted interaction
-   locally after the migration and confirming it succeeds.
+1. **`interactions` accepts all four base entity types.** In `supabase/schemas/01_tables.sql`,
+   `interactions_target_type_check` (`:458-460`) becomes
+   `target_type in ('reference', 'shidduch', 'shadchan', 'single')` — the same four values as
+   `ENTITY_TARGET_TYPES` (contract §8), in any order.
+   `interactions_scope_link_check` (`:473-476`) gains a **fourth branch**:
 
-2. **RLS covers the two new target types — by refining the `scope = 'account'` branch,
-   not by adding `or` branches.** The existing policy `"Interactions scoped to account
-   and parent visibility"` (`supabase/schemas/05_policies.sql`) is
-   `account-check AND (scope = 'account' OR shidduch-derived OR reference-derived)`.
-   Because AC 1's constraint forces every `shadchan`/`single`-targeted row to
-   `scope = 'account'`, appending new `or` branches would be **dead code** — the
-   `scope = 'account'` disjunct already matches those rows unconditionally. Instead, the
-   `scope = 'account'` disjunct itself becomes target-aware, in both `using` and
-   `with check`:
    ```sql
-   scope = 'account' and (
-       target_type = 'reference'  -- today's behaviour, unchanged
-       or (target_type = 'shadchan' and exists (
-           select 1 from public.shadchanim sh
-           where sh.id = interactions.target_id
-             and sh.account_id = public.current_context_id()))
-       or (target_type = 'single' and exists (
-           select 1 from public.singles si
-           where si.id = interactions.target_id
-             and si.account_id = public.current_context_id()))
+   or (scope = 'account' and target_type in ('shadchan', 'single') and reference_link_id is null)
+   ```
+
+   **This is required, not optional.** The existing three branches are exhaustive over the
+   *old* two target types, so a row with `target_type = 'shadchan'` or `'single'` fails
+   `interactions_scope_link_check` on every insert regardless of the `target_type_check`
+   widening. **Falsifiable:** with only the `target_type_check` widened and the fourth branch
+   omitted, an insert of a `shadchan`-targeted row raises
+   `new row ... violates check constraint "interactions_scope_link_check"`; with both changes
+   it succeeds. Both halves are asserted in the `db` suite (AC 10).
+
+   A `shadchan`- or `single`-targeted interaction is **always** `scope = 'account'` with
+   `reference_link_id is null`: neither entity has one shidduch parent from which visibility
+   could derive (a single belongs to many shidduchim; a shadchan to many more), so there is no
+   shidduch whose `visibility` could ever gate the row. The AD-3 exhaustiveness the two schema
+   comments describe (`01_tables.sql:465-472`, `05_policies.sql:242-247`) is preserved: every
+   `(scope, target_type, reference_link_id)` triple is still either explicitly legal or
+   rejected.
+
+2. **The comment blocks that describe the constraint are rewritten in the same edit, and the
+   retired word goes with them.** `01_tables.sql:438-451` (the `scope` discriminator comment)
+   and `:465-472` (the `scope_link_check` comment) currently describe **two** target types.
+   Both are rewritten to describe all four, including why `shadchan`/`single` can only ever be
+   account-scoped. `:451`'s *"…would have leaked to a **candidate**"* uses a name AD-23 retires
+   [Source: `_bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md:175`]
+   — it becomes **single** in the same edit. **Falsifiable:**
+   `grep -n "candidate" supabase/schemas/01_tables.sql` returns no hit inside `:425-477`.
+
+3. **RLS covers the two new target types by refining the `scope = 'account'` disjunct — not by
+   appending `or` branches.** The policy `"Interactions scoped to account and parent
+   visibility"` (`supabase/schemas/05_policies.sql:262-313`) is
+   `account-check AND (scope = 'account' OR shidduch-derived OR reference-derived)`. Because
+   AC 1 forces every `shadchan`/`single`-targeted row to `scope = 'account'`, a new top-level
+   `or` branch would be **dead code** — the bare `scope = 'account'` disjunct already matches
+   those rows unconditionally. The disjunct itself becomes target-aware, identically in
+   `using` **and** `with check`:
+
+   ```sql
+   (
+       scope = 'account'
+       and (
+           target_type = 'reference'   -- today's behaviour, unchanged
+           or (target_type = 'shadchan' and exists (
+               select 1 from public.shadchanim sh
+               where sh.id = interactions.target_id
+                 and sh.account_id = public.current_context_id()))
+           or (target_type = 'single' and exists (
+               select 1 from public.singles si
+               where si.id = interactions.target_id
+                 and si.account_id = public.current_context_id()))
+       )
    )
    ```
-   This gives the two new target types the target-scope integrity AD-1 demands (a row
-   cannot point at another account's shadchan/single). The pre-existing
-   `reference`-targeted account-scope branch carries no such exists-check today; leave it
-   as-is — tightening it is a separate change with its own blast radius, not smuggled in
-   here. **Uses `current_context_id()` (AD-19), not `current_account_id()`** — this story
-   assumes Epic 2 has landed; see Dev Notes "Epic 2 dependency" for what to do if it has
-   not.
 
-3. **`actor_member_id` is server-set, never client-supplied.** A new
-   `current_member_id()` function (`STABLE`, `SECURITY DEFINER`, `search_path ''` —
-   same shape as `current_context_id()`) resolves the caller's own
-   `account_members.id` for the active context: `select id from public.account_members
-   where user_id = auth.uid() and account_id = public.current_context_id() and status =
-   'active' order by id limit 1` (the `order by id limit 1` keeps it deterministic —
-   `account_members` has no unique `(account_id, user_id)` constraint today, and the two
-   existing inline copies of this lookup in `02_functions.sql` order the same way). A
-   new trigger (`set_interaction_actor_member_id`, `before insert on
-   public.interactions`) calls it and writes the result into `NEW.actor_member_id`,
-   overriding any client-supplied value. **`current_member_id()` is defined once, here,
-   as a named, reusable function — not inlined into the trigger body** — because Story
-   3.6 needs the identical resolution for its own RLS policy and for a client-visible
-   "is this mine" signal (single-owner rule, ARCHITECTURE-SPINE.md's Consistency
-   Conventions). The same rule means the **two inline copies that already exist** in
-   `02_functions.sql` (`log_reference_call` and the reference-merge function both run
-   `select am.id … order by am.id limit 1` themselves) are replaced by calls to the new
-   function in the same migration — note the function adds `status = 'active'`, a
-   deliberate tightening the inline copies lacked. Enforcement of "never
-   client-supplied" is the **trigger**, not a grant: today's `INSERT` grant on
-   `interactions` is table-wide (only `UPDATE` is column-scoped to `(body, metadata)` —
-   `06_grants.sql`), and it stays table-wide; the trigger makes a client-sent
-   `actor_member_id` irrelevant by overwriting it. The DB suite (Task 3) proves it: an
-   authenticated insert supplying a spoofed `actor_member_id` lands with the caller's
-   real member id.
+   This gives the two new target types the target-scope integrity AD-1 requires — a row cannot
+   point at another context's shadchan or single
+   [Source: `.../ARCHITECTURE-SPINE.md:60`]. The enumeration is deliberately **closed**: an
+   account-scoped row with any other `target_type` (including `shidduch`, which AC 1 keeps
+   illegal in this bucket) is denied rather than falling through, so a future constraint
+   loosening fails closed.
 
-4. **`ActivityTab` renders a read-only, paginated, newest-first feed for any of the four
-   target types.** `entity360/tabs/ActivityTab.tsx` exports a component taking
-   `{ targetType: "shidduch" | "single" | "shadchan" | "reference"; targetId: Identifier
-   }`, fetching `interactions` filtered to that pair, sorted `created_at DESC`, paged at
-   20 per page. Pagination controls reuse `@/components/admin/list-pagination.tsx`
-   (`ListPagination` reads `useListPaginationContext`, so wrap the tab's `useGetList`
-   page state in ra-core's `ListPaginationContextProvider` — decided here so no third
-   pagination pattern appears). Each row shows a kind label (the `KIND_LABELS` map from
-   `shidduchim/ShidduchTimeline.tsx:19-26` and the `formatTimelineDate` helper from
-   `:12-17`, both moved into `entity360/tabs/interactionLabels.ts` so 3.6 reuses them
-   too), the timestamp, and `body` when present.
+   The pre-existing `reference`-targeted account-scope branch carries no such `exists` check
+   today; **leave it as-is** — tightening it is a separate change with its own blast radius and
+   is not smuggled in here.
 
-5. **A referenced record renders via `RecordLink`, never a hand-built `Link`.** When an
-   interaction's `metadata` carries `{ linkedResource: string; linkedId: Identifier }`,
-   the row renders that mention through `RecordLink` (3.9) rather than plain text or an
-   ad-hoc `<Link>`. Rows without that shape in `metadata` render plain text — this story
-   does not retrofit the existing interaction-writers to populate `metadata`. (Those
-   writers are the SQL functions in `02_functions.sql` — the reference link/merge RPCs
-   insert the `merge`/`link_created`/`link_removed` rows, not the panels that call them
-   — so adopting the convention is a future SQL change, made when Epic 5 migrates those
-   surfaces onto `Entity360`.)
+   The policy's own comment (`05_policies.sql:255-261`) says a future Epic 6 story turns the
+   `scope = 'account'` disjunct into "an outright deny for the single role". That instruction
+   still holds and now applies to a three-way disjunct rather than a bare predicate — **update
+   that comment in the same edit** so Epic 6 is not told to edit something that no longer looks
+   like what the comment describes.
 
-6. **FakeRest stays in sync (AD-10).** The FakeRest provider mirrors the interactions
-   constraints in `assertValidInteraction`
-   (`providers/fakerest/dataProvider.ts` — it currently rejects any `target_type`
-   other than `'reference'`/`'shidduch'` and knows only the three old scope branches).
-   It is widened in lockstep with AC 1 — same four target types, same fourth scope
-   branch — otherwise demo mode rejects rows the real backend accepts and this story's
-   own fakerest-backed component tests cannot cover the two new target types.
+4. **`actor_member_id` is server-set, never client-supplied.** A new `current_member_id()`
+   function is added to `supabase/schemas/02_functions.sql`, in **exact `pg_dump` form**
+   (`CREATE OR REPLACE FUNCTION "public"."current_member_id"() RETURNS bigint / LANGUAGE
+   "plpgsql" STABLE SECURITY DEFINER / SET "search_path" TO ''`) — the same shape as
+   `current_context_id()` at `:201-203`, because anything else produces a phantom diff
+   [Source: AGENTS.md#Database-Management]. Body:
 
-7. **Empty, loading and error states render.** Loading shows a skeleton (matching the
-   existing `Skeleton`-based pattern in `shidduchim/ShidduchShowHeader.tsx` /
-   `ShidduchShow.tsx`'s own skeletons); an empty result shows a plain inline message
-   (matching `shidduchim/ShidduchTimeline.tsx:120-122`'s "Nothing logged … yet" pattern —
-   the tab-level empty state does not need the full `misc/EmptyState.tsx` CTA treatment,
-   which is for whole-page emptiness); a fetch error shows a message, not a blank tab.
+   ```sql
+   select am.id into v_member_id
+   from public.account_members am
+   where am.user_id = auth.uid()
+     and am.account_id = public.current_context_id()
+     and am.status = 'active'
+   order by am.id
+   limit 1;
+   ```
+
+   `execute` is granted to `authenticated` and `service_role` and revoked from `public, anon`
+   in `06_grants.sql`, following the `current_context_id()` block at `:224-227` exactly —
+   Story 3.6 calls it from RLS and from a client-visible "is this mine" read.
+
+   A trigger function `set_interaction_actor_member_id()` (plain `LANGUAGE "plpgsql"`, **not**
+   `SECURITY DEFINER` — it mirrors `set_account_id_default()` at `:359-369`, and the definer
+   privilege it needs lives inside `current_member_id()`) assigns
+   `new.actor_member_id := public.current_member_id()` unconditionally, and is attached in
+   `04_triggers.sql` as `set_interaction_actor_member_id before insert on public.interactions`.
+   It **overwrites** any client-supplied value; it does not merely default it.
+
+   Enforcement is the **trigger**, not a grant: the `INSERT` grant on `interactions` is
+   table-wide (`06_grants.sql:421`; only `UPDATE` is column-scoped, `:615-616`) and stays
+   table-wide. **Falsifiable:** an authenticated insert that explicitly supplies
+   `actor_member_id = <some other member's id>` lands with the caller's own
+   `current_member_id()` value (AC 10c).
+
+   `current_member_id()` is defined **once, here, as a named reusable function** — not inlined
+   into the trigger body — because 3.6 needs the identical resolution. By the same
+   single-owner rule
+   [Source: `.../ARCHITECTURE-SPINE.md:190`], the **two inline copies that already exist** are
+   replaced by calls to it in the same migration: `log_reference_call` (`02_functions.sql:2128-2132`)
+   and `merge_references` (`:2381-2385`). Both currently omit `and am.status = 'active'`; adding
+   it is a **bug fix**, not merely a tightening — a login holding both an archived and an active
+   membership in the same account has two `account_members` rows (the unique index at
+   `01_tables.sql:710` is partial, `where status = 'active'`), and `order by am.id limit 1`
+   picks the **archived, lower-id** one. `order by am.id limit 1` is nonetheless kept in
+   `current_member_id()` as a defensive tiebreak, so the function can never start raising
+   "more than one row" if that partial index is ever dropped.
+
+5. **Deleting a single or a shadchan leaves no orphaned polymorphic rows.** `interactions.target_id`
+   carries no FK by design, and `purge_polymorphic_dependents()` (`02_functions.sql:1799-1817`)
+   is wired to only two parents today: `04_triggers.sql:109-111` (`references`) and `:118-120`
+   (`shidduchim`). This story adds the two missing parents, following those two verbatim:
+
+   ```sql
+   create or replace trigger purge_single_dependents
+       before delete on public.singles
+       for each row execute function public.purge_polymorphic_dependents('single');
+
+   create or replace trigger purge_shadchan_dependents
+       before delete on public.shadchanim
+       for each row execute function public.purge_polymorphic_dependents('shadchan');
+   ```
+
+   The function itself is **not modified** — its `TG_ARGV[0]` design is exactly why one
+   function serves every polymorphic parent. **Falsifiable:** deleting a `singles` row leaves
+   zero `interactions`, zero `tasks` and zero `identity_signals` rows with
+   `(target_type, target_id)` pointing at it; likewise for `shadchanim` (AC 10d).
+   `entity_files` joins this function in 3.7 (contract §10).
+
+6. **`types.ts` and the soft-delete column land here, not in 3.6.** Per contract §10:
+   - `src/components/atomic-crm/types.ts:477` — `target_type: "reference" | "shidduch"` becomes
+     `target_type: EntityTargetType`, importing the union 3.9 defined. It is **not** re-spelled
+     as a local four-value literal.
+   - `Interaction` gains `deleted_at?: string | null`.
+   - `supabase/schemas/01_tables.sql` — `interactions` gains
+     `deleted_at timestamp with time zone` (nullable, no default). **This story owns the column
+     and the read filter; 3.6 owns the soft-delete write path, its moderation policy and its
+     UI, and must not re-add the column.**
+
+   Without the `types.ts` edit `npm run typecheck` fails on this story's first fixture, which
+   is why it cannot be deferred.
+
+   **`PENDING_DB_WIDENINGS`** (the constant `3-9-recordlink-primitive.md` ships alongside the `?raw` schema guard,
+   contract §8 rule 2) loses its `interactions_target_type_check` entry, and the guard passes.
+   `tasks_target_type_check` and the not-yet-existing `entity_files` check stay listed — 3.8
+   and 3.7 remove those. **Falsifiable:** reverting AC 1's constraint edit turns the guard red.
+
+7. **`interactionLabels.ts` is the one home for interaction presentation, and it is
+   translated.** A new `src/components/atomic-crm/entity360/tabs/interactionLabels.ts` exports:
+   - `formatTimelineDate(iso: string): string` — moved **verbatim** from
+     `shidduchim/ShidduchTimeline.tsx:12-17` (the only definition in the repo, so no behaviour
+     change).
+   - `INTERACTION_KIND_LABELS: Record<InteractionKind, { key: string; fallback: string }>` —
+     the i18n-keyed shape `references/ReferenceTimeline.tsx:27-47` already uses, under the
+     framework namespace `crm.entity360.activity.kind.<kind>`. Hardcoding an English map at the
+     framework layer is forbidden (contract §13 rule 6, AD-18 at `.../ARCHITECTURE-SPINE.md:143`);
+     rendering goes through `useTranslate()` with the `_:` fallback, exactly as
+     `ReferenceTimeline.tsx:196` does today.
+
+   The six keys are added to `providers/commons/englishCrmMessages.ts` and
+   `frenchCrmMessages.ts`. Both existing duplicated maps are **deleted** and both components
+   import the shared one: `ShidduchTimeline.tsx:19-26` and `ReferenceTimeline.tsx:27-47`. Two
+   deliberate wording changes fall out and are asserted by test:
+   - `link_created` / `link_removed` become **"Linked to a shidduch" / "Unlinked from a
+     shidduch"**. The only writer of those rows is `create_reference_link`
+     (`02_functions.sql:2071-2076`), which always writes `target_type = 'reference'` with
+     `metadata = {shidduchim_id}`. So `ShidduchTimeline`'s "Linked to a reference" labels a row
+     that no code path produces, and `ReferenceTimeline`'s "Linked to a single" is factually
+     wrong — a `reference_link` joins a reference to a **shidduch**.
+   - The now-dead `crm.references.timeline.kind.*` block (`englishCrmMessages.ts:437-444` and
+     its French counterpart) is removed.
+
+8. **`ActivityTab` renders a read-only, paginated, newest-first feed for any of the four
+   target types.** `src/components/atomic-crm/entity360/tabs/ActivityTab.tsx` exports a
+   component taking **exactly** `UniversalTabProps` (contract §8) and nothing else. This story
+   is the first universal tab, so it also creates
+   `src/components/atomic-crm/entity360/tabs/types.ts`:
+
+   ```ts
+   import type { Identifier } from "ra-core";
+   import type { EntityTargetType } from "../../types";
+   export type UniversalTabProps = { targetType: EntityTargetType; targetId: Identifier };
+   ```
+
+   The feed is built on **`ListBase` from `ra-core`** — not on a bare `useGetList`:
+
+   ```tsx
+   <ListBase<Interaction>
+     resource="interactions"
+     disableSyncWithLocation
+     filter={{ target_type: targetType, target_id: targetId, "deleted_at@is": null }}
+     sort={{ field: "created_at", order: "DESC" }}
+     perPage={20}
+     loading={<ActivitySkeleton />}
+     empty={<ActivityEmpty />}
+     error={<ActivityError />}
+   >
+     <ActivityFeed />
+     <ListPagination rowsPerPageOptions={[20, 50]} />
+   </ListBase>
+   ```
+
+   **There is no `ListPaginationContextProvider` in `ra-core`** — only the raw
+   `ListPaginationContext` and a 10-field `ListPaginationContextValue`
+   (`node_modules/ra-core/dist/controller/list/ListPaginationContext.d.ts`), and
+   `useListPaginationContext` **throws** when the context is absent
+   (`useListPaginationContext.js:16`), which would be a hard crash inside
+   `@/components/admin/list-pagination.tsx:56`, not a degraded render. `ListBase` calls
+   `useListController` and wraps its result in `ListContextProvider`, which supplies
+   `ListPaginationContext` with all ten fields (`ListContextProvider.js:36`) — so
+   `<ListPagination>` works with no hand-synthesised context. Do not hand-roll one.
+
+   `disableSyncWithLocation` is required: it keeps the tab's paging out of the URL (the URL
+   belongs to the 360's route shape, UX-DR2) and defaults `storeKey` to `false`
+   (`useListParams.js:59`), so two 360s open in sequence do not share a page number.
+
+   Each row shows the translated kind label, `formatTimelineDate(created_at)`, and `body` when
+   present. **Falsifiable:** for a fixture of three interactions the rendered order is strictly
+   newest-first; with 25 rows exactly 20 render and the pagination control advances to the
+   remaining 5.
+
+9. **A referenced record renders via `RecordLink`, and an unknown one degrades to plain text.**
+   Rows carry a mention when `metadata` matches one of exactly two recognised shapes:
+   - `{ linkedResource: string; linkedId: Identifier }` — the forward-looking convention; renders
+     `<RecordLink resource={linkedResource} id={linkedId}>`.
+   - `{ shidduchim_id: number }` — **the one shape a live writer produces today**
+     (`create_reference_link`, `02_functions.sql:2071-2076`, and the merge collision rows at
+     `:2422-2432`); renders `<RecordLink resource="shidduchim" id={shidduchim_id}>`. This is what
+     makes `epics.md:523`'s *"entries link to related records via `RecordLink`"* reachable on
+     production data rather than only in fixtures.
+
+   The shapes are checked **in that order** and at most **one** mention renders per row: if a
+   row carries both, `{linkedResource, linkedId}` wins. A row renders at most one mention, never
+   a list.
+
+   Everything else renders plain text — explicitly including `{ merged_from_reference_id }`
+   (`02_functions.sql:2500-2506`), whose referent is **deleted by the same function** two
+   statements later, so linking it would produce a guaranteed dead link.
+
+   `metadata` is free-form client-writable `jsonb` (`06_grants.sql:615-616` grants
+   `update (body, metadata)`), so a malformed value must never break the feed: the shape check
+   is a runtime guard, not a cast, and `RecordLink` itself degrades to an inert `<span>` plus
+   one `console.error` for an unregistered resource (contract §7 rule 2). **Falsifiable:** a
+   fixture row with `metadata = { linkedResource: "nope", linkedId: 1 }` and another with
+   `metadata = { linkedResource: 5 }` both leave the remaining rows rendered and the tab
+   interactive.
+
+   **Stated limitation:** no SQL writer populates the `{linkedResource, linkedId}` shape today.
+   Teaching the `02_functions.sql` writers to emit it is **not** this story's work and is
+   **not** unowned — it belongs to the Epic 5 story that migrates each surface onto
+   `Entity360` (5.1 for shidduchim, 5.10 for references), because only then is there a
+   descriptor whose `buildRecordPath` the link should resolve through.
+
+10. **The `db` suite proves the boundary, with one login holding two contexts.** A new
+    `supabase/tests/interactions_targets.sql` + `interactions_targets.test.ts` pair, following
+    the harness shape of `context_rls_hardening.test.ts:23-60` (`isolatedScript()`, one JSON row
+    per check, `bailIfDbUnreachable` from `dbSuiteHelpers.ts:16-27`) and the fixture shape of
+    `context_resolution.sql:33-45` — **one login with active memberships in households A and
+    B, active in A**, never two disjoint users (contract §13 rule 3; two disjoint users pass
+    without ever exercising `current_context_id()`'s active-context resolution). The login also
+    holds a membership of a third, `shadchanus`-kind account for check (f). Role switching uses
+    the established `set local role authenticated;` + `set local request.jwt.claims =
+    '{"sub":"…","role":"authenticated"}'` / `reset role;` idiom
+    (`context_rls_hardening.sql:77-78,111`). Required checks:
+
+    a. Inserting a `shadchan`-targeted and a `single`-targeted interaction in A succeeds
+       (AC 1). With the fourth `scope_link_check` branch reverted, both raise.
+    b. While active in A, the caller reads its own `shadchan`/`single`-targeted rows and **zero**
+       of B's; after `set_active_context(B)` the visibility swaps (AC 3, `using`).
+    c. While active in A, an insert whose `target_id` is **B's** shadchan (or single) is
+       rejected by the refined `with check` (AC 3, target integrity).
+    d. An insert supplying a spoofed `actor_member_id` lands with the caller's real
+       `current_member_id()` (AC 4).
+    e. `delete from public.singles where id = …` leaves zero `interactions`, `tasks` and
+       `identity_signals` rows for that id; likewise for `shadchanim` (AC 5).
+    f. **3-14's guarantee, asserted at the trigger layer only.** `pg_trigger` holds no
+       `validate_interactions_household_scope` on `public.interactions`, and an insert of an
+       `interactions` row whose `account_id` is a `shadchanus` account succeeds when performed
+       **as `postgres`** (i.e. with `reset role`, before any `set local role authenticated`), so
+       RLS is not in the picture. Re-adding that trigger turns this check red.
+
+       It is deliberately **not** an authenticated insert: AC 3's `exists` clauses require the
+       target row to be visible in the active context, and `references`/`shadchanim`/`singles`
+       are all still household-only, so no target legal for an authenticated caller exists inside
+       a shadchanus context yet. That is the intended end state, not a gap — see Dev Notes,
+       "What 3-14 does and does not unlock". Epic 8.5 adds the branch its own target type needs.
+       Do not "fix" this by loosening AC 3.
+
+    This is the story's `.claude/rules/security-triggers.md`-mandated negative test. Every check
+    must be **shown red once** against a deliberately reverted schema before it is shown green
+    (contract §13 rule 2), the way `context_rls_hardening.sql:21-25` documents having done it.
+
+11. **FakeRest stays in sync (AD-10).** `assertValidInteraction`
+    (`providers/fakerest/dataProvider.ts:95-123`, called at `:463`) mirrors the database's
+    structural guarantees and today rejects any `target_type` other than
+    `'reference'`/`'shidduch'` and knows only the three old scope branches. It is widened in
+    lockstep with AC 1 — same four target types, same fourth branch — and its doc comment
+    (`:85-94`) updated. `dataProvider.interactions.test.ts` gains: one accept case per new
+    target type, and a reject case for a `shadchan`-targeted row claiming `scope = 'shidduch'`.
+    Without this, demo mode rejects rows the real backend accepts and this story's own
+    fakerest-backed component tests cannot cover the two new target types.
+
+    The `deleted_at@is: null` filter must also work in demo mode: `transformFilter.ts:26-29`
+    maps `@is` to FakeRest's `_eq`, so the interactions data generator writes an explicit
+    `deleted_at: null` on every row. **Falsifiable:** an `ActivityTab` test against the FakeRest
+    provider with a `deleted_at`-set row present renders every other row and not that one. If
+    `_eq: null` proves not to match, the fix is in the FakeRest adapter — **never** a
+    client-side `.filter()` in `ActivityTab`, which would silently disagree with the real
+    backend's paging and totals.
+
+12. **Empty, loading and error states render (UX-DR11).** Loading shows a `Skeleton`-based
+    placeholder in the existing idiom (`shidduchim/ShidduchShow.tsx:46-58`); empty shows a
+    plain inline translated message in the idiom of `ShidduchTimeline.tsx:120-123` — the
+    tab-level empty state does **not** get `misc/EmptyState.tsx`'s CTA treatment, which is for
+    whole-page emptiness; a fetch error shows a translated message, never a blank tab. All
+    three are `ListBase`'s `loading` / `empty` / `error` props (`ListBase.js:40,81-98`), so the
+    branch logic is the framework's and not re-implemented.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Schema: widen `interactions`** (AC: 1, 6)
-  - [ ] Edit `01_tables.sql`'s `interactions_target_type_check` and
-        `interactions_scope_link_check` exactly as specified in AC 1. Update the
-        surrounding comment block (`01_tables.sql:505-518`) to describe all four target
-        types, not just the original two.
-  - [ ] Widen `assertValidInteraction` in `providers/fakerest/dataProvider.ts` to the
-        same four target types and fourth scope branch (AC 6), and extend
-        `dataProvider.interactions.test.ts` with one accept case per new target type
-        plus a reject case for a `shadchan`/`single` row claiming `scope = 'shidduch'`.
+- [ ] **Task 1 — Schema: widen `interactions`, add `deleted_at`** (AC: 1, 2, 6)
+  - [ ] Edit `01_tables.sql`'s `interactions_target_type_check` (`:458-460`) and
+        `interactions_scope_link_check` (`:473-476`) exactly as AC 1 specifies; add the
+        `deleted_at` column.
+  - [ ] Rewrite the two comment blocks (`:438-451`, `:465-472`) for four target types and
+        replace "candidate" at `:451` (AC 2).
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
-        widen_interactions_targets` — a CHECK-constraint change is a normal
-        `ALTER TABLE … DROP CONSTRAINT … / ADD CONSTRAINT …` pair; confirm the diff is
-        exactly that and not a `DROP TABLE`/`CREATE TABLE` pair (it should not be, since
-        no column or table is renamed — hand-check anyway per this repo's standing rule
-        that generated migrations are never applied unread).
+        widen_interactions_targets`. A CHECK-constraint change is a normal
+        `ALTER TABLE … DROP CONSTRAINT … / ADD CONSTRAINT …` pair plus one `ADD COLUMN`;
+        confirm the diff is exactly that and not a `DROP TABLE`/`CREATE TABLE` pair. Generated
+        migrations are never applied unread [Source: AGENTS.md#Database-Management].
 
-- [ ] **Task 2 — Schema: RLS + actor trigger** (AC: 2, 3)
-  - [ ] Rework the `scope = 'account'` disjunct of `"Interactions scoped to account and
-        parent visibility"` in `05_policies.sql` (`using` and `with check`) exactly as
-        AC 2 specifies — target-aware, not appended `or` branches.
-  - [ ] Add `current_member_id()` to `02_functions.sql` (beside `current_context_id()`,
-        same `STABLE SECURITY DEFINER search_path ''` shape) and
-        `set_interaction_actor_member_id()` (mirrors the shape of
-        `set_account_id_default()`) plus its `before insert on public.interactions`
-        trigger in `04_triggers.sql`. Grant `execute` on `current_member_id()` to
-        `authenticated` in `06_grants.sql` — Story 3.6 calls it directly from RLS and (via
-        a thin read) from the client.
-  - [ ] Replace the two inline member-id lookups in `02_functions.sql`
-        (`log_reference_call`, reference-merge) with `public.current_member_id()`
-        (AC 3 — single-owner rule; the added `status = 'active'` filter is intended).
-  - [ ] `db diff -f ...` (can combine with Task 1's migration or a second one — prefer
-        one migration for this story unless the diff output is easier to hand-check
-        split), hand-check, then `migration up --local`.
+- [ ] **Task 2 — Schema: RLS, `current_member_id()`, the actor trigger, the purge triggers**
+      (AC: 3, 4, 5)
+  - [ ] Rework the `scope = 'account'` disjunct of `"Interactions scoped to account and parent
+        visibility"` (`05_policies.sql:262-313`) in `using` **and** `with check`, and update the
+        Epic-6 instruction in its comment (`:255-261`).
+  - [ ] Add `current_member_id()` to `02_functions.sql` beside `current_context_id()`
+        (`:201-221`) in exact `pg_dump` form; add `set_interaction_actor_member_id()` in the
+        shape of `set_account_id_default()` (`:359-369`); attach the `before insert on
+        public.interactions` trigger in `04_triggers.sql` next to `set_interactions_account_id`
+        (`:131-133`).
+  - [ ] Grant/revoke `current_member_id()` in `06_grants.sql` following `:224-227`.
+  - [ ] Replace the two inline member-id lookups (`02_functions.sql:2128-2132`, `:2381-2385`)
+        with `public.current_member_id()`.
+  - [ ] Add `purge_single_dependents` and `purge_shadchan_dependents` to `04_triggers.sql`,
+        copying `:109-111` / `:118-120`.
+  - [ ] `db diff -f …` (prefer one migration for the whole story unless splitting makes the
+        diff easier to hand-check), hand-check, then
+        `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
 
-- [ ] **Task 3 — The negative RLS test** (AC: 2, 3)
-  - [ ] Add to `supabase/tests/references_entity.sql` (or a new
-        `supabase/tests/interactions_targets.sql` + `.test.ts` pair if the existing file
-        would grow past its own reasonable size — follow the existing
-        `references_entity.test.ts` harness shape, `isolatedScript()` wrapper, JSON-row
-        result pattern): two accounts, a `shadchan` row and a `single` row in each;
-        assert (a) account A's client reads/writes only its own `shadchan`/`single`-targeted
-        interactions and gets zero rows for account B's; (b) an insert by A targeting
-        **B's** shadchan/single id is rejected by the refined `with check` (AC 2's
-        target-integrity half); (c) an insert supplying a spoofed `actor_member_id`
-        lands with the caller's real member id (AC 3). This is the story's
-        security-triggers-mandated negative test (`.claude/rules/security-triggers.md`).
+- [ ] **Task 3 — The `db` suite** (AC: 10)
+  - [ ] Write `supabase/tests/interactions_targets.sql` + `interactions_targets.test.ts` with
+        checks (a)–(f). A new pair rather than an extension of `references_entity.sql`: this
+        suite's fixture is one login in two contexts, which that file does not have.
+  - [ ] Prove each check red against a reverted schema, then green. Record which reversion was
+        used for each, in the SQL file's header comment, as
+        `context_rls_hardening.sql:21-25` does.
 
-- [ ] **Task 4 — `ActivityTab.tsx` + `interactionLabels.ts`** (AC: 4, 5, 7)
-  - [ ] Move `KIND_LABELS` and `formatTimelineDate` out of
-        `shidduchim/ShidduchTimeline.tsx` into `entity360/tabs/interactionLabels.ts`;
-        `ShidduchTimeline.tsx` imports them from there (a mechanical import-path fix,
-        not a behaviour change — `ShidduchTimeline` itself is not otherwise touched, per
-        this story's scope boundary). Story 3.6 imports the same file — no second copy.
-  - [ ] Build `ActivityTab.tsx` per AC 4, 5, 7.
-  - [ ] `ActivityTab.test.tsx`: one `it` per target type using fakerest/mock data (loading
-        skeleton, empty state, populated feed newest-first, pagination Prev/Next, and the
-        `RecordLink`-vs-plain-text branch from AC 5).
+- [ ] **Task 4 — TS types and the schema guard** (AC: 6)
+  - [ ] `types.ts:477` → `EntityTargetType`; add `deleted_at?: string | null` to `Interaction`.
+  - [ ] Remove `interactions_target_type_check` from `PENDING_DB_WIDENINGS` and run 3.9's
+        `?raw` guard.
+  - [ ] `npm run typecheck`.
+
+- [ ] **Task 5 — `interactionLabels.ts` and its two existing consumers** (AC: 7)
+  - [ ] Create `entity360/tabs/interactionLabels.ts` with `formatTimelineDate` and
+        `INTERACTION_KIND_LABELS`.
+  - [ ] Add `crm.entity360.activity.kind.*` to `englishCrmMessages.ts` and
+        `frenchCrmMessages.ts`; delete the dead `crm.references.timeline.kind` block from both.
+  - [ ] Delete the local maps in `ShidduchTimeline.tsx:12-26` and `ReferenceTimeline.tsx:27-47`
+        and import the shared module. `ReferenceTimeline` already calls `useTranslate()`;
+        `ShidduchTimeline` gains it.
+
+- [ ] **Task 6 — `ActivityTab.tsx` + `entity360/tabs/types.ts`** (AC: 8, 9, 12)
+  - [ ] Create `entity360/tabs/types.ts` with `UniversalTabProps`.
+  - [ ] Build `ActivityTab.tsx` on `ListBase` + `ListPagination` per AC 8, with the AC 9 mention
+        branch and the AC 12 states.
+
+- [ ] **Task 7 — FakeRest parity** (AC: 11)
+  - [ ] Widen `assertValidInteraction` (`providers/fakerest/dataProvider.ts:95-123`) and its
+        doc comment; extend `dataProvider.interactions.test.ts`.
+  - [ ] Make the interactions data generator write `deleted_at: null`.
+
+- [ ] **Task 8 — Component tests** (AC: 8, 9, 11, 12)
+  - [ ] `ActivityTab.test.tsx` under the `app` project: one `it` per target type; plus loading
+        skeleton, empty state, error state, newest-first ordering, 20-per-page + advance, the
+        `RecordLink` branch, the `{shidduchim_id}` branch, the malformed-`metadata` branch, and
+        the soft-deleted-row exclusion.
+  - [ ] `interactionLabels.test.ts`: the two changed link labels, and that every
+        `InteractionKind` has an entry (a `Record<InteractionKind, …>` makes this a compile-time
+        guarantee — the test's job is the *label text*, so assert the strings, not the keys'
+        existence).
+
+- [ ] **Task 9 — Validation** — `npm run typecheck`, `npx vitest run`, `npm run test:unit:db`,
+      `npm run lint`, `npm run build` [Source: package.json:6,10,14,17,20 — there is **no
+      `Makefile`**; `make typecheck` / `make test` do not exist].
 
 ## Dev Notes
 
-### Epic 2 dependency — what to do if `current_context_id()` is not there yet
+### What 3-14 does and does not unlock
 
-AD-19 names the function this story's RLS depends on:
-*"`current_context_id()` is `STABLE`, `SECURITY DEFINER`, `search_path ''`... `current_account_id()` … is deleted, not wrapped."* [Source: ARCHITECTURE-SPINE.md#AD-19]
-Epic 3 is written assuming Epic 2 has landed. If, at implementation time, Epic 2 has not
-shipped this function under this exact name, this story has exactly **one** thing to
-retarget: the two new RLS branches in Task 2 (plus AC 2's wording). Do not fall back to
-`current_account_id()` "temporarily" — NFR-14 forbids a fallback path, and
-`current_account_id()` is slated for deletion by Epic 2 regardless.
+3-14 drops `validate_interactions_household_scope` (`04_triggers.sql:195-197`) and
+`validate_tasks_household_scope` (`:207-209`), so `interactions.account_id` may now be a
+`shadchanus` context. It does **not** widen RLS. AC 3's target-integrity `exists` clauses still
+require the target row to be visible in the **active** context — and `public.shadchanim` and
+`public.singles` remain household-only (`validate_shadchanim_household_scope`,
+`validate_singles_household_scope`, untouched by 3-14). So a `shadchan`- or `single`-targeted
+interaction is still, correctly, a household-context row: you cannot log an interaction against
+a target you cannot see.
+
+That is the intended end state, not a gap. What 3-14 unlocks is that `interactions` **as a
+table** now accepts a shadchanus `account_id` at all; Epic 8.5 adds its own target type
+(`'connection'`, contract §8 rule 4) and its own `exists` branch in the same policy when it
+needs one. AC 10f therefore asserts only the trigger-layer fact, as `postgres` — an
+authenticated shadchanus-context insert would still, correctly, be denied by AC 3's
+target-integrity clauses, because there is no target row it could name in that context yet.
+
+If a reviewer reads that as "3-14 changed nothing for interactions": it changed the failure
+mode from a raw `check_violation` exception raised by a trigger *before* RLS ever runs, to an
+ordinary RLS denial that Epic 8.5 can lift by adding one branch. That is exactly the difference
+between a structural block and an extensible one.
 
 ### Why the `scope_link_check` branch is not optional (the easy-to-miss part)
 
 `interactions_scope_link_check` is written as an **exhaustive, total** predicate over
-`(scope, target_type, reference_link_id)`. The schema's own comments say so twice: the
-policy comment — *"There is no third state a row can fall into"*
-[Source: supabase/schemas/05_policies.sql — the comment above "Interactions scoped to
-account and parent visibility"] — and the table comment — *"Without this discriminator a
-row with a null reference_link_id silently fell through BOTH branches, which is how a
-free-text note would have leaked to a candidate"*
-[Source: supabase/schemas/01_tables.sql:505-518]. (Both comments are the schema's record
-of implementing AD-3's "any state left unclassified" prevention — the words are the
-schema's, not the spine's.) Widening `target_type_check` alone would let a
-`shadchan`/`single`-targeted row pass the target-type check and then fail the scope-link
-check on every insert, because none of its three existing branches mention those two
-target types. Get the fourth branch in before testing anything else in this story, or
-every subsequent test will fail on the wrong constraint and look like an RLS bug.
+`(scope, target_type, reference_link_id)`. The schema says so twice: the policy comment —
+*"There is no third state a row can fall into"* (`05_policies.sql:242-247`) — and the table
+comment — *"Without this discriminator a row with a null reference_link_id silently fell through
+BOTH branches"* (`01_tables.sql:449-451`). Both are the schema's own record of implementing
+AD-3's "any state left unclassified" prevention
+[Source: `.../ARCHITECTURE-SPINE.md:70-71`]; the words are the schema's, not the spine's.
+Widening `target_type_check` alone lets a `shadchan`/`single`-targeted row pass the target-type
+check and then fail the scope-link check on **every** insert. Get the fourth branch in before
+testing anything else, or every subsequent failure looks like an RLS bug.
+
+### Consequence this story creates for Epic 6
+
+`single`-targeted interactions are account-scoped by construction (AC 1). The `scope` comment
+at `01_tables.sql:445-447` states that the account bucket is one *"the future single policy
+denies wholesale"*, and `05_policies.sql:255-261` says the same. Taken literally, a
+`single`-role member would be denied the notes written **about them** on their own 360. That is
+a real Epic 6 design decision, not a defect this story can settle — record it in the rewritten
+comment (AC 2) so Epic 6 meets it as a written question rather than discovering it in
+production. It does not change any acceptance criterion here.
+
+### Trigger mechanics
+
+`set_interaction_actor_member_id` is the **second** BEFORE INSERT trigger on `interactions`
+(the first is `set_interactions_account_id`, `04_triggers.sql:131-133`). Postgres fires
+same-event BEFORE triggers in alphabetical **name** order, and here the order is irrelevant:
+neither reads the other's output — `current_member_id()` resolves through
+`current_context_id()`, not through `new.account_id`. The name is singular
+(`set_interaction_…`) rather than matching the `set_<table>_…` convention because contract §12
+fixes it as the symbol 3.6 depends on; do not "correct" it in this story.
+
+`current_member_id()` returns **NULL** when there is no active context, because
+`current_context_id()` does (`02_functions.sql:201-221`, fail-closed by design). A NULL
+`actor_member_id` is legal (`01_tables.sql:454` is nullable) and correct — such a caller cannot
+insert at all, since RLS's `account_id = public.current_context_id()` is NULL-false.
+
+Two behaviour changes the trigger causes, both intended: rows written by
+`create_reference_link` (`02_functions.sql:2071-2076`) previously had `actor_member_id = null`
+and are now attributed to the caller; rows written by `log_reference_call` and
+`merge_references` already computed the same value inline and are unchanged once AC 4's
+replacement lands.
+
+### The `exists` checks carry no `status` filter — deliberately
+
+`public.singles` has a `status` column (`01_tables.sql:210-223`, default `'active'`);
+`public.shadchanim` has none (`:226-236`). An archived single's activity history stays readable,
+which is what an audit timeline should do, and a symmetric filter is impossible for shadchanim
+anyway. Do not add one.
 
 ### Reuse already confirmed
 
-`shidduchim/ShidduchTimeline.tsx:19-26` (`KIND_LABELS`), `:12-17`
-(`formatTimelineDate`), `:97-101` (the `useGetList<Interaction>` filter shape) are the
-existing, working reference implementation for exactly this data — this story
-generalises it, it does not invent a new read pattern.
-`@/components/admin/list-pagination.tsx` + ra-core's `ListPaginationContextProvider`
-are the pagination reuse decided in AC 4.
-`supabase/tests/references_entity.test.ts` is the existing harness shape for the new
-negative test (`isolatedScript()`, JSON-row results, `npm run test:unit:db`).
+- `references/ReferenceTimeline.tsx:27-47` — the i18n-keyed `{key, fallback}` label shape AC 7
+  generalises. `:166-170` is the `useGetList<Interaction>` filter shape; `:178-187` the
+  loading/empty idiom.
+- `shidduchim/ShidduchTimeline.tsx:12-17` (`formatTimelineDate`), `:97-101` (filter shape),
+  `:115-123` (skeleton + empty).
+- `@/components/admin/list-pagination.tsx:40-56` — reads `useListPaginationContext()`, which
+  `ListBase` supplies.
+- `01_tables.sql:729` — `interactions_target_idx (account_id, target_type, target_id,
+  created_at desc)` already indexes exactly this story's query, including its sort direction.
+  No new index is needed.
+- `supabase/tests/context_resolution.sql:33-45` — the one-login-two-contexts fixture;
+  `context_rls_hardening.test.ts:23-60` — the runner shape.
+- `src/components/atomic-crm/layout/ContextSwitcher.test.tsx:1-12,60-72` — the component-test
+  shape: `vitest-browser-react`'s `render`, `TestMemoryRouter` + `CoreAdminContext` +
+  `testI18nProvider`.
 
 ### Testing standard
 
-AAA; `app` project for `ActivityTab.test.tsx`; `db` project
-(`npm run test:unit:db`, needs `make start`) for the new SQL suite
-[Source: .claude/rules/testing.md]. Every RLS-touching change needs the negative test —
-`.claude/rules/security-triggers.md` — done in Task 3.
+`app` project (browser-mode vitest in real Chromium, `vitest-browser-react` +
+`TestMemoryRouter` from `ra-core`) for `ActivityTab.test.tsx` and `interactionLabels.test.ts`;
+`db` project (`npm run test:unit:db`, needs the local stack up) for the SQL suite. **React
+Testing Library is not a dependency** — no `screen.queryByText`, no `MemoryRouter`. The negative
+idiom is `await expect.element(screen.getByRole(...)).not.toBeInTheDocument()`. AAA, no
+`waitForTimeout`, ≥80% coverage on new code
+[Source: `.claude/rules/testing.md`; contract §13].
 
 ### Migration workflow
 
 Edit `supabase/schemas/*.sql` → `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff
---local -f <name>` → hand-check → `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase
-migration up --local`. Never `db reset --local`, never `db push`
-[Source: AGENTS.md#Database-Management; memory/supabase-cli-dbus-hang.md].
+--local -f <name>` → hand-check → `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up
+--local`. Never `db reset --local` outside a deliberate rehearsal, never `db push`
+[Source: AGENTS.md#Database-Management; memory/supabase-cli-dbus-hang.md]. Every table grant
+stays paired with its sequence revoke (`06_grants.sql:460-462` for `interactions_id_seq`) — this
+story adds no table, so no new pair is needed.
 
 ### Project Structure Notes
 
-- `entity360/tabs/` is new (this is the first Epic 3 story to add a file under it).
-  `ActivityTab.tsx` and `interactionLabels.ts` are separate files — the label map is a
-  small, reusable lookup that 3.6 also imports, so it does not belong inside the tab
-  component itself.
+`src/components/atomic-crm/entity360/tabs/` does not exist yet; this story creates it, adding
+`types.ts`, `interactionLabels.ts`, `ActivityTab.tsx` and their tests. Keeping the labels out of
+`ActivityTab.tsx` is not gold-plating — 3.6 imports the same module, and a second copy is
+exactly what AC 7 exists to remove.
 
-### References
+## References
 
-- [Source: _bmad-output/planning-artifacts/epics.md#Epic-3-The-360-Framework — Story 3.5]
-- [Source: ARCHITECTURE-SPINE.md#AD-1] — one polymorphic table, FORCE RLS,
-  `current_context_id()`-scoped
-- [Source: ARCHITECTURE-SPINE.md#AD-3] — the exhaustive-scope-classification precedent
-  this story's constraint widening must not violate
-- [Source: ARCHITECTURE-SPINE.md#AD-19] — `current_context_id()`
-- [Source: supabase/schemas/01_tables.sql:499-545] — the current `interactions` table,
-  its two check constraints and their comments
-- [Source: supabase/schemas/05_policies.sql:163-241] — the current RLS policy this story
-  extends
-- [Source: supabase/schemas/06_grants.sql:341-351,528-533] — the existing
-  `actor_member_id` column-grant withholding this story's trigger complements
-- [Source: src/components/atomic-crm/shidduchim/ShidduchTimeline.tsx] — the existing,
-  working single-entity implementation this story generalises
-- [Source: src/components/atomic-crm/providers/fakerest/dataProvider.ts —
-  `assertValidInteraction`] — the FakeRest constraint mirror widened in lockstep (AD-10)
-- [Source: supabase/tests/references_entity.sql, references_entity.test.ts] — the
-  existing DB-suite harness shape
-- [Source: .claude/rules/security-triggers.md, .claude/rules/testing.md,
-  .claude/rules/coding-style.md, .claude/rules/english-only.md]
-- [Source: 3-3-entity-descriptor-registry.md, 3-9-recordlink-primitive.md] — this epic's
-  own prior stories this one depends on
+- [Source: `_bmad-output/planning-artifacts/epics.md:512-523`] — Epic 3, Story 3.5
+- [Source: `_bmad-output/planning-artifacts/epic3-api-contract.md`] — §7 (`RecordLink`), §8
+  (universal tab props, target-type vocabulary, purge rule), §10 (ownership), §11 Ruling 1
+  (3-14), §12 (build order), §13 (test shapes)
+- [Source: `_bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md:57,60`]
+  — AD-1: one polymorphic table, `current_context_id()`-scoped, target-scope integrity
+- [Source: `.../ARCHITECTURE-SPINE.md:68,70-71`] — AD-3: the exhaustive-classification
+  precedent this story's constraint widening must not violate
+- [Source: `.../ARCHITECTURE-SPINE.md:143`] — AD-18: internationalized UI
+- [Source: `.../ARCHITECTURE-SPINE.md:148,151`] — AD-19: `current_context_id()`
+- [Source: `.../ARCHITECTURE-SPINE.md:172,175`] — AD-23: `single`, never "candidate"/"child"
+- [Source: `.../ARCHITECTURE-SPINE.md:177,180`] — AD-24: one shell, one route convention, one
+  `RecordLink`
+- [Source: `.../ARCHITECTURE-SPINE.md:190`] — Consistency Conventions: single-owner logic
+- [Source: `_bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md:166-167`]
+  — UX-DR4 shared tab vocabulary (Activity is one of the six)
+- [Source: `.../amendment-a2.md:168-172`] — UX-DR5: Activity is on all four entity 360s
+- [Source: `.../amendment-a2.md:173-175`] — UX-DR6: every record mention is a `RecordLink`
+- [Source: `.../amendment-a2.md:186-187`] — UX-DR11: empty, loading and error states
+- [Source: `supabase/schemas/01_tables.sql:425-477`] — the `interactions` table, its four check
+  constraints and their comments; `:458-460` `target_type_check`, `:473-476` `scope_link_check`,
+  `:454` `actor_member_id`, `:457` `metadata`
+- [Source: `supabase/schemas/01_tables.sql:710`] — `account_members_account_user_active_uq`, the
+  **partial** unique index behind AC 4's archived-row bug
+- [Source: `supabase/schemas/01_tables.sql:729`] — `interactions_target_idx`, already covering
+  this story's query and sort
+- [Source: `supabase/schemas/02_functions.sql:201-221`] — `current_context_id()`: the exact
+  `pg_dump` shape `current_member_id()` copies, and its `status = 'active'` filter at `:216`
+- [Source: `supabase/schemas/02_functions.sql:359-369`] — `set_account_id_default()`, the shape
+  `set_interaction_actor_member_id()` mirrors
+- [Source: `supabase/schemas/02_functions.sql:1799-1817`] — `purge_polymorphic_dependents()`,
+  used unmodified by AC 5
+- [Source: `supabase/schemas/02_functions.sql:2071-2076,2422-2432,2500-2506`] — every live
+  writer of `interactions.metadata`, and the shapes AC 9 recognises
+- [Source: `supabase/schemas/02_functions.sql:2128-2132,2381-2385`] — the two inline
+  member-id lookups AC 4 replaces
+- [Source: `supabase/schemas/04_triggers.sql:109-111,118-120`] — the two existing purge
+  triggers AC 5 copies; `:131-133` `set_interactions_account_id`; `:195-197`,`:207-209` the two
+  triggers 3-14 drops
+- [Source: `supabase/schemas/05_policies.sql:234-261,262-313`] — the policy comment and the
+  policy AC 3 refines
+- [Source: `supabase/schemas/06_grants.sql:224-227`] — the grant/revoke pattern for a
+  `SECURITY DEFINER` function; `:412-422` and `:595-597` the `interactions` grants (DELETE
+  withheld); `:611-616` the column-scoped UPDATE that makes `metadata` client-writable
+- [Source: `src/components/atomic-crm/types.ts:475-487`] — `Interaction`; `:477` the two-value
+  `target_type` AC 6 widens
+- [Source: `src/components/atomic-crm/shidduchim/ShidduchTimeline.tsx:12-17,19-26,97-101,115-123`]
+- [Source: `src/components/atomic-crm/references/ReferenceTimeline.tsx:27-47,166-170,178-187`]
+- [Source: `src/components/atomic-crm/providers/commons/englishCrmMessages.ts:433-445`;
+  `providers/commons/i18nProvider.ts:16-21`] — the catalog block AC 7 replaces, and why a
+  missing French key falls back to English
+- [Source: `src/components/atomic-crm/providers/fakerest/dataProvider.ts:85-123,463`] —
+  `assertValidInteraction`, widened in lockstep (AD-10)
+- [Source: `src/components/atomic-crm/providers/fakerest/internal/transformFilter.ts:26-29`] —
+  `@is` support behind the `deleted_at@is: null` filter
+- [Source: `src/components/atomic-crm/providers/fakerest/dataProvider.interactions.test.ts`] —
+  the parity-test shape AC 11 extends
+- [Source: `src/components/admin/list-pagination.tsx:40-56`] — `ListPagination`
+- [Source: `node_modules/ra-core/dist/controller/list/ListPaginationContext.d.ts`;
+  `useListPaginationContext.js:16`; `ListContextProvider.js:36`; `ListBase.js:40,66-98`;
+  `useListParams.js:59`] — why `ListBase`, and why there is no `ListPaginationContextProvider`
+- [Source: `supabase/tests/context_resolution.sql:33-45`;
+  `supabase/tests/context_rls_hardening.test.ts:23-60`; `supabase/tests/dbSuiteHelpers.ts:16-27`]
+  — the `db` suite fixture and runner shapes
+- [Source: `src/components/atomic-crm/layout/ContextSwitcher.test.tsx:1-12,60-72`] — the
+  browser-mode component-test shape
+- [Source: `.claude/rules/security-triggers.md`, `.claude/rules/testing.md`,
+  `.claude/rules/coding-style.md`, `.claude/rules/english-only.md`,
+  `.claude/rules/lsp-usage.md`]
+- [Source: `_bmad-output/implementation-artifacts/3-9-recordlink-primitive.md`,
+  `3-3-entity-descriptor-registry.md`, `3-10-tab-vocabulary.md`,
+  `3-14-context-scope-lift-tasks-interactions.md`] — this story's blocking dependencies
 
 ## Dev Agent Record
 

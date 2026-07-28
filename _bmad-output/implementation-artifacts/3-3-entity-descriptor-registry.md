@@ -10,199 +10,554 @@ As a developer,
 I want each entity to declare its 360 rather than hand-roll it,
 so that no entity drifts.
 
-## Position in Epic 3
+## Canonical contract
 
-**3rd of 9. Depends on 3.1** (renders through `Entity360`) **and 3.2** (tab routing
-comes from `buildEntityRoutes`/`Entity360Tabs`). **3.4-3.9 all depend on the
-`EntityDescriptor` type this story defines** — 3.4 adds `minVisibility` to its tab/field
-shape, 3.5-3.8 are the four tab kinds a descriptor's `tabs` array can reference, 3.9's
-`RecordLink` resolves a record's path through this story's registry.
+This story does not invent an API. The binding shape lives in the Epic 3 canonical contract:
 
-**Scope boundary — read before starting.** Same posture as 3.1/3.2. This story defines
-the `EntityDescriptor` **contract**, the registry, and a generic `EntityShow` component
-that renders a fully-wired `Entity360` from any registered descriptor — proven against a
-fixture descriptor in tests. It does **not** register descriptors for `shidduchim`,
-`singles`, `shadchanim` or `references` — populating a real entity's full descriptor
-(avatar, meta, stats, tabs, actions, relationships) and pointing that entity's
-`routeManifest.ts` entry at `buildEntityRoutes` is Epic 5's job, one story per entity
-(5.1, 5.8, 5.9, 5.10). The one exception, scoped narrowly, is Story 3.9, which registers
-only the *routing* half of a descriptor (not the full 360) for the four live entities so
-`RecordLink` has something real to resolve today — see 3.9 for why that is not the same
-as this epic doing Epic 5's job.
+**Contract** = `_bmad-output/planning-artifacts/epic3-api-contract.md`
 
-## Epic list AC vs. this story's actual scope — flagged, resolved here
+Cited below as `[Source: Contract §N:lines]`. Where this story and the contract disagree, the
+contract wins and this file is the bug.
 
-The epic list's AC for this story reads: *"its 360 and list render entirely from that
-declaration."* [Source: epics.md#Story-3.3] But `EntityList` (the list framework) is
-explicitly **Epic 4 Story 4.1**'s deliverable, per the epic overview table itself (`UX-DR7`
-→ Epic 4) [Source: epics.md#Epic-4-Navigation-Lists]. **Resolution:** this story defines
-the descriptor fields both consumers need (`label`, `icon`, `route`, `avatar`, `title`,
-`meta`, `stats`, `tabs`, `actions`, `relationships`) and proves the **360 half** renders
-entirely from a descriptor. The **list half is delivered by no story currently written**:
-Story 4.1's own Dev Notes state *"No entity descriptor integration … `EntityList`'s props
-are the contract for now"* and defer descriptor consumption to *"a follow-up refactor"*
-[Source: 4-1-entity-list-framework.md#Dev-Notes]. So AD-24's "list renders entirely from
-the declaration" remains an open cross-epic gap after Epics 3 and 4 as storied — **flag
-to the epic owner**: either a later story consumes `EntityDescriptor.label/icon/meta` in
-`EntityList`'s retrofitted lists, or epics.md narrows the 3.3 AC. This story's job is
-only to make that future consumption possible: the descriptor type carries the
-list-relevant fields, and this story does not block on 4.1.
+## Split: 3.3a and 3.3b
+
+Per the contract's build order this story is **two shippable units**, in this order
+[Source: Contract §12:579-598]:
+
+| Unit | Ships | Build-order slot |
+|---|---|---|
+| **3.3a** | `entity360/entityDescriptor.ts` (types) + `entity360/registry.ts` (three functions) + the `<entity>/entityDescriptor.ts` convention | step **2** — after 3-13, after 3.1, **before 3.9** |
+| **3.3b** | `entity360/EntityShow.tsx` | step **5** — after 3.2 |
+
+They are split because the registry has no dependency on the shell, and **3.9 needs the
+registry immediately** (`RecordLink` resolves through it) while `EntityShow` needs 3.2's
+`Entity360Tabs`. Shipping them as one unit blocks 3.9 on routing work it does not use.
+
+## Dependencies
+
+**3.3a needs, before it starts:**
+
+- **3-13** — the tab-vocabulary story. **Filed as
+  `_bmad-output/implementation-artifacts/3-10-tab-vocabulary.md`**; the contract's build order
+  calls it "3-13" and every sibling story cites it under both names. It is **not**
+  `3-13-records-at-urls-not-modals.md`, which is a different story. From it: `entity360/tabKeys.ts`
+  (the closed `TabKey` union, 15 keys, and `TAB_LABELS`) and
+  `entity360/relationshipDescriptor.ts` (`EntityRelationshipDescriptor`, AC 6).
+  `EntityTabDescriptor["key"]` is `TabKey`; this story cannot type it without that file
+  [Source: Contract §3:136-193].
+- `src/components/atomic-crm/types.ts:109-110` — `MemberRole`. Already live; imported, never
+  re-declared.
+
+**3.3b additionally needs:**
+
+- **3.1** — `entity360/Entity360.tsx` (the seven-region shell) and `EntityAvatar`.
+- **3.2** — `entity360/Entity360Tabs.tsx`, `buildEntityRoutes` (which wraps the `:id` and
+  `:id/:tab` routes in `ShowBase`, so a `RecordContext` exists), and `entityPaths.ts`
+  [Source: Contract §5:270-330].
+- **3-13** — `entity360/tabs/RelatedRecordsTab.tsx`. Contract §10 assigns "the `overview` /
+  `related` shared components" to 3-13 [Source: Contract §10:500-516]; §9 only requires that
+  *Epic 3* ship it [Source: Contract §9:455-497]. 3.3b **wires** `relationships` into the tab
+  list and renders that component; it does not author it. If the 3-13 refresh does not take
+  it, it is unowned — escalate rather than silently absorbing it here.
+
+**Downstream — what breaks if 3.3a's shape is wrong:** 3.2 (`entityPaths.ts` goes through
+`requireEntityDescriptor`), 3.4 (`visibleTo` filtering), 3.9 (`RecordLink` + four stub
+descriptor modules), 3.5–3.8 (tab `render` closures), 4.1
+[Source: _bmad-output/implementation-artifacts/4-1-entity-list-framework.md:29-33,43-44,114],
+5.1 / 5.8 / 5.9 / 5.10 (which each *replace* a stub descriptor), 8.5, 9.2.
+
+## Scope boundary — read before starting
+
+This story defines the `EntityDescriptor` **contract**, the **registry**, and the generic
+**`EntityShow`** that renders a fully-wired `Entity360` from any registered descriptor —
+proven against fixture descriptors in tests.
+
+It registers **no descriptor for any real entity**. Story 3.9 writes the four stub modules
+(`singles/`, `shadchanim/`, `references/`, `shidduchim/entityDescriptor.ts`) carrying `name`,
+`buildRecordPath` and `label` only; Epic 5 stories 5.1 / 5.8 / 5.9 / 5.10 **replace** each
+stub with the full 360 declaration via `registerEntityDescriptor(d, { replace: true })`
+[Source: Contract §4:196-231]. `entity360/` therefore contains zero entity names when this
+story is done — AC 9 is the machine check for that.
+
+## The real cross-epic escalation (replaces the stale one)
+
+The previous version of this story escalated a 3.3↔4.1 gap by quoting 4.1 as declining
+descriptor integration. **That text no longer exists in 4.1.** 4.1 today declares Epic 3
+Story 3.3's registry a hard dependency and consumes `label` as a `translate` fallback
+[Source: _bmad-output/implementation-artifacts/4-1-entity-list-framework.md:29-33,114]. The
+escalation is closed; `epics.md`'s S7 entry (`:1252-1257`) records the *old* state and is
+itself stale.
+
+**The residual, and the only thing worth escalating from this story:** `icon` and `meta`
+survive on the descriptor with **no list consumer**. 4.1 states in writing that
+`icon`/`meta`/`stats` "have no home in list chrome yet and are **not** consumed here"
+[Source: _bmad-output/implementation-artifacts/4-1-entity-list-framework.md:234-240], while
+8.5 expects a Connections descriptor carrying "label, icon, route, avatar, title, meta"
+[Source: _bmad-output/implementation-artifacts/8-5-shadchans-own-crm.md:23-26]. The
+fields are kept (AD-24 names them); wiring them into `EntityList` is an **Epic 4** decision,
+not Epic 3's. This story does not block on it and does not build a list consumer.
+
+`epics.md`'s Story 3.3 AC reads "its 360 **and list** render entirely from that declaration"
+[Source: _bmad-output/planning-artifacts/epics.md:485-496]. This story delivers the **360
+half** and the descriptor fields the list half needs. Narrowing the epics.md AC to the 360
+half is the epic owner's edit, and is what the residual above is about.
+
+---
 
 ## Acceptance Criteria
 
-1. **`EntityDescriptor` is a typed contract with two required fields and the rest
-   optional.** `src/components/atomic-crm/entity360/entityDescriptor.ts` exports:
+### 3.3a — types and registry
+
+1. **`EntityDescriptor` is the contract's shape exactly — three required fields, region
+   renderers as components.** `src/components/atomic-crm/entity360/entityDescriptor.ts`
+   exports [Source: Contract §2:70-133]:
+
    ```ts
-   interface EntityDescriptor<T extends RaRecord = RaRecord> {
-     name: string;                 // matches routeManifest.ts's ResourceEntry.name (plural)
-     buildRecordPath: (id: Identifier) => string;
-     label?: string;
+   import type { ComponentType, ReactNode } from "react";
+   import type { Identifier, RaRecord } from "ra-core";
+   import type { LucideIcon } from "lucide-react";
+   import type { MemberRole } from "../types";        // types.ts:109-110 — never re-declared
+   import type { TabKey } from "./tabKeys";           // 3-13 — closed union
+
+   export type EntityDescriptor<T extends RaRecord = RaRecord> = {
+     name: string;                                    // as registered in routeManifest.ts (plural, snake_case)
+     buildRecordPath: (id: Identifier) => string;     // REQUIRED
+     label: string;                                   // REQUIRED
      icon?: LucideIcon;
-     avatar?: (record: T) => { seed: string | null };
+
+     identityHeader?: ComponentType<{ record: T }>;
+     statBand?: ComponentType<{ record: T }>;
+     rightRail?: ComponentType<{ record: T }>;
+     actions?: ComponentType<{ record: T }>;          // rendered INSIDE the identityHeader region
+     alertSlot?: ComponentType<{ record: T }>;
+
+     avatar?: (record: T) => { seed: string | null }; // used ONLY when identityHeader is absent
      title?: (record: T) => string;
      meta?: (record: T) => (string | null | undefined)[];
-     stats?: (record: T) => { label: string; value: number; icon: LucideIcon; to?: string }[];
+
      tabs?: EntityTabDescriptor<T>[];
-     actions?: (record: T) => ReactNode;
-     relationships?: EntityRelationshipDescriptor[];
-   }
+     relationships?: EntityRelationshipDescriptor<T>[];
+   };
+
+   export type EntityTabDescriptor<T = RaRecord> = {
+     key: TabKey;
+     label: string;
+     render: () => ReactNode;                         // LAZY — no argument
+     visibleTo?: MemberRole[];                        // absent = every role
+   };
    ```
-   `name` and `buildRecordPath` are the only required fields — a descriptor with just
-   those two is legal and is exactly what 3.9 registers for the four live entities (see
-   "Scope boundary"). `EntityTabDescriptor<T> = { key: string; label: string; render:
-   (record: T) => ReactNode }` — the optional `minVisibility` field 3.4 adds (to this
-   shape and to the `stats` entry type) is additive, not a redesign.
 
-2. **One registry, one lookup.** `registerEntityDescriptor(descriptor)` and
-   `getEntityDescriptor(name): EntityDescriptor | undefined` are the only way to add to or
-   read from the registry (a private `Map` keyed by `name`, not exported directly).
-   Registering the same `name` twice throws — this is caught by a test — so no descriptor
-   can silently shadow another's routing.
+   Four properties are **absent by decision, not by omission**, and each is asserted:
+   there is no `stats?: (record) => …` field (deleted — `statBand` replaces it); no
+   `minVisibility` (the field is `visibleTo`, an allow-list); `label` is not optional; and no
+   region is `(record) => ReactNode`.
 
-3. **`EntityShow` renders a complete 360 from a descriptor and nothing else.**
-   `entity360/EntityShow.tsx` exports a component that takes `{ resource: string; record:
-   T }` (or reads both from `ra-core` context when mounted inside a resource, matching
-   the existing `useRecordContext()`/`useResourceContext()` pattern every current Show
-   page already uses — see `singles/SingleShow.tsx`, `references/ReferenceShow.tsx`),
-   looks up the descriptor via `getEntityDescriptor(resource)`, and renders `Entity360`
-   with: `identityHeader` built from `avatar`/`title`/`meta`; `statBand` built from
-   `stats` (each entry rendered as a `DashboardStat`, per 3.1 AC 6); `tabBar` +
-   `children` built from `tabs` via `Entity360Tabs` (3.2); nothing else — **no field, tab
-   or region is hard-coded per entity inside `EntityShow.tsx`.** A test with a fixture
-   descriptor (name, title, one stat, two tabs) asserts the rendered output contains
-   exactly the title, exactly one stat tile, and exactly two tabs — and a second test
-   with a **different** fixture descriptor (different title, three tabs, no stats)
-   asserts the differences without any change to `EntityShow.tsx` itself, proving the
-   "entirely from that declaration" half of the AC for the 360 view.
+   **How this fails:** `entityDescriptor.test.ts` carries `@ts-expect-error` assertions that
+   `npm run typecheck` evaluates (`tsconfig.app.json` `include: ["src", …]`, `strict: true`) —
+   an unused `@ts-expect-error` is itself a compile error, so each assertion fails loudly if
+   the type stops rejecting what it must reject:
+   (a) a descriptor literal missing `label`;
+   (b) `statBand: (record) => <div/>` (a function, not a `ComponentType`);
+   (c) a literal carrying `stats: []` (excess property);
+   (d) a tab with `key: "not-a-tab"`;
+   (e) a tab with `minVisibility: […]`;
+   (f) `render: (record) => …` (arity — `render` takes no argument).
+   Plus one positive that must compile clean: `{ name, buildRecordPath, label }` alone.
 
-4. **Missing optional fields degrade gracefully, never crash.** A fixture descriptor with
-   only `name` + `buildRecordPath` (no `avatar`, no `stats`, no `tabs`) renders through
-   `EntityShow` without a stat band, without a tab bar, and without throwing — this is the
-   concrete proof of AD-24's "regions are optional per entity."
+2. **Regions are a component boundary, not a data shape — and the proof is a hook.** Because
+   every region is `ComponentType<{ record }>`, a descriptor module may load its own data.
+   `entityDescriptor.test.ts` (or `EntityShow.test.tsx` for the render half) uses a fixture
+   `statBand` that calls `useGetOne` and asserts it renders both its pending state and its
+   resolved values. **The fixture must not be `singles`**: `singles_summary` carries its counts
+   inline [Source: supabase/schemas/03_views.sql:170], so a `singles` fixture passes even
+   under the deleted `(record) => stats[]` shape, while 5.9's real band —
+   `useGetOne<ShadchanStats>("shadchan_stats", { id })`
+   [Source: src/components/atomic-crm/shadchanim/ShadchanShow.tsx:40-43], view at
+   [Source: supabase/schemas/03_views.sql:202] — dies. Use a `shadchan_stats`-shaped fixture.
 
-5. **No entity contains bespoke layout code (structural check).** A vitest `it` imports
-   `EntityShow.tsx`'s source as text (Vite `?raw` import — the `app` project runs in a
-   browser, so no shelling out; same mechanism as 3.1 AC 3) and asserts it contains no
-   import path matching `/(shidduchim|singles|shadchanim|references)\//` — proving the
-   generic renderer cannot special-case an entity by construction, not merely by
-   convention.
+3. **One registry, three functions, one private `Map`.**
+   `src/components/atomic-crm/entity360/registry.ts` exports exactly
+   [Source: Contract §4:196-231]:
+
+   ```ts
+   export function registerEntityDescriptor<T extends RaRecord>(
+     descriptor: EntityDescriptor<T>,
+     opts?: { replace?: boolean },
+   ): void;
+   export function getEntityDescriptor(name: string): EntityDescriptor | undefined;
+   export function requireEntityDescriptor(name: string): EntityDescriptor;
+   ```
+
+   Behaviour, each a test:
+   - the backing `Map<string, EntityDescriptor>` is module-private and is **not** exported;
+   - register → `getEntityDescriptor` round-trips the same object;
+   - registering the same `name` a second time **without** `{ replace: true }` throws;
+   - registering the same `name` **with** `{ replace: true }` succeeds and the subsequent
+     lookup returns the **new** object. This `replace` is the whole extend API — it is what
+     4.1 [`:161-163`], 5.1 [`:92-93`], 5.8 [`:105-108`], 5.9 [`:95-96`] and 5.10 [`:106-108`]
+     each mean by "extend" / "fill in". There is **no** `updateEntityDescriptor` and **no**
+     partial merge: the replacing module supplies the whole descriptor;
+   - `getEntityDescriptor("nope")` returns `undefined` — it never throws;
+   - `requireEntityDescriptor("nope")` throws
+     `Error('No entity descriptor registered for resource "nope"')`, asserted on the message.
+
+   Which accessor to use is not a style choice: `root/routeManifest.ts:92-100` registers
+   **seven** resources (`shidduchim, singles, inbox_items, shadchanim, references, tasks,
+   members`) and Epic 3 + Epic 5 give descriptors to **four**, so `EntityList` over
+   `tasks` / `inbox_items` / `members` must use the guarded form, and `EntityShow` /
+   `entityPaths.ts` must use the fail-fast form
+   [Source: .claude/rules/coding-style.md#Error-handling].
+
+4. **The registration convention is documented in the file the downstream story cites, and
+   this story registers nothing.**
+   - A descriptor's home is `src/components/atomic-crm/<entity>/entityDescriptor.ts`. The
+     module exports the descriptor object **and** calls `registerEntityDescriptor` at module
+     scope; `<entity>/index.ts` adds `import "./entityDescriptor";` as its first line.
+     Registration is complete before first render because `root/routeManifest.ts:6-18` imports
+     every resource index module at module scope and `CRM.tsx` maps over `RESOURCES` at boot —
+     **no lazy import, no registration inside a component, no `useEffect`**.
+   - **No descriptor may read another descriptor at module scope.** Registry order is
+     irrelevant and must stay irrelevant.
+   - A doc comment at the top of `entityDescriptor.ts` states: this type is AD-24's single
+     source for list metadata (`label`/`icon`/`meta`) as well as 360 metadata; `EntityList`
+     (Story 4.1) consumes `label` only today; any future list wiring **consumes this type and
+     never redefines it**. 4.1 cites this comment by name as its contract
+     [Source: _bmad-output/implementation-artifacts/4-1-entity-list-framework.md:31-33,239-240],
+     which is why it carries an AC instead of being a coordination note.
+   - **How this fails:** a guard test asserts (i) `entityDescriptor.ts`'s leading doc block
+     contains the strings `EntityList` and `never redefine`, and (ii) neither
+     `entityDescriptor.ts` nor `registry.ts` calls `registerEntityDescriptor` — Epic 3
+     registers descriptors only from 3.9's four entity modules.
+
+5. **`MemberRole` and `TabKey` are imported, never re-declared, anywhere under `entity360/`.**
+   A guard test globs `entity360/**/*.{ts,tsx}` as raw source — the in-repo precedent is
+   `import.meta.glob("…", { query: "?raw", import: "default", eager: true })`
+   [Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:16-20] — and
+   asserts no file contains the literal `"parent_admin"` or a `TAB_KEYS`-shadowing
+   `type TabKey =`. `MemberRole` lives at
+   [Source: src/components/atomic-crm/types.ts:109-110] and `InvitableRole` (`types.ts:117`)
+   already derives from it; a second spelling is a review-blocking defect
+   [Source: Contract §2:120-122]. Prove the guard **red** against a fixture file containing the
+   literal before shipping it green [Source: Contract §13:602-619].
+
+6. **`EntityRelationshipDescriptor` is *imported and re-exported* here, not re-declared; the
+   renderer is 3-13's and the wiring is AC 10's.** [Source: Contract §9:455-497]
+
+   **Ownership, settled — do not duplicate.** The type is authored by story 3-13
+   (`_bmad-output/implementation-artifacts/3-10-tab-vocabulary.md` AC 6) in
+   `src/components/atomic-crm/entity360/relationshipDescriptor.ts`, because it is keyed by
+   3-13's `TabKey` and consumed by 3-13's `RelatedRecordsTab`, and 3-13 is build-order step 0
+   while this story is step 2 — the import can only run in that direction.
+   `entityDescriptor.ts` therefore does
+   `import type { EntityRelationshipDescriptor } from "./relationshipDescriptor";` and
+   `export type { EntityRelationshipDescriptor };`, so consumers still need to know about only
+   one module. **A second `export type EntityRelationshipDescriptor = …` anywhere under
+   `entity360/` is a review-blocking defect**, on the same footing as re-declaring `MemberRole`
+   or `TabKey` (AC 5), and AC 5's guard is extended to catch it. The shape below is reproduced
+   for reference only — if it and `relationshipDescriptor.ts` disagree, 3-13 wins:
+
+   ```ts
+   export type EntityRelationshipDescriptor<T = RaRecord> = {
+     key: TabKey;
+     label?: string;                       // defaults to TAB_LABELS[key]
+     resource: string;                     // MAY be a summary view that already resolves a join
+     getFilter: (record: T) => Record<string, unknown>;
+     sort?: { field: string; order: "ASC" | "DESC" };
+     perPage?: number;
+     linkResource?: string;                // resource the row's RecordLink targets; defaults to `resource`
+     linkId?: (row: any) => Identifier;    // defaults to (row) => row.id
+     linkLabel?: (row: any) => string;     // defaults to the resource's recordRepresentation
+     emptyLabel?: string;
+   };
+   ```
+
+   `{ resource, foreignKey }` is **not** sufficient and is not what is built: the one
+   many-to-many the domain has is reference → shidduchim, which is queried through
+   `reference_links_summary` [Source: supabase/schemas/03_views.sql:133] whose rows are *link*
+   rows — the `RecordLink` must target a different resource and a different id column
+   (`rl.shidduchim_id`, [Source: supabase/schemas/03_views.sql:139]). Both worked examples
+   must typecheck in the test file:
+
+   ```ts
+   // reference → shidduchim (many-to-many, through the link view)
+   { key: "shidduchim", resource: "reference_links_summary",
+     getFilter: (r) => ({ reference_id: r.id }),
+     linkResource: "shidduchim", linkId: (row) => row.shidduchim_id }
+
+   // single → shidduchim (plain FK)
+   { key: "shidduchim", resource: "shidduchim", getFilter: (r) => ({ single_id: r.id }) }
+
+   // shadchan → shidduchim (plain FK; the column is shadchan_id, as ShadchanSuggestions
+   //   already queries it — src/components/atomic-crm/shadchanim/ShadchanSuggestions.tsx:25-26)
+   { key: "shidduchim", resource: "shidduchim", getFilter: (r) => ({ shadchan_id: r.id }) }
+   ```
+
+### 3.3b — `EntityShow`
+
+7. **`EntityShow` takes no props and reads both resource and record from context.**
+   `src/components/atomic-crm/entity360/EntityShow.tsx` exports
+   `export function EntityShow(): ReactElement;` — **no `{ resource, record }` props, and no
+   "or" between the two mechanisms**. It reads `useResourceContext()` and `useRecordContext()`
+   (the repo pattern; `admin/show.tsx` gets the record from `ShowBase`, imported from `ra-core`
+   at [Source: src/components/admin/show.tsx:6-17]), looks the descriptor up with
+   `requireEntityDescriptor`, and renders `Entity360` with **exactly**:
+
+   | `Entity360` region | Source |
+   |---|---|
+   | `breadcrumb` | reserved — currently `undefined` |
+   | `identityHeader` | `<IdentityHeader record/>` if declared, else the `avatar`/`title`/`meta` default composition — **immediately followed, inside the same region, by `<Actions record/>`** |
+   | `statBand` | `<StatBand record/>` |
+   | `alertSlot` | `<AlertSlot record/>` |
+   | `tabBar` + `children` | `<Entity360Tabs tabs={…}/>` (3.2) |
+   | `rightRail` | `<RightRail record/>` |
+
+   `actions` is **never a region of its own** on `Entity360` — the shell's prop list stays at
+   exactly seven [Source: Contract §1:33-67, §2:117-119]. This is where 5.1's
+   `ShidduchStateControl` and 9.2's Single-360 action land
+   [Source: _bmad-output/implementation-artifacts/9-2-publish-single-listing.md:156-158].
+   **`EntityShow` fetches nothing** beyond the record `ShowBase` already supplies; stat and
+   rail data loading belongs to the descriptor module [Source: Contract §10:500-516].
+
+8. **A 360 renders entirely from the declaration — proven by two fixtures and no edit to
+   `EntityShow.tsx` between them.** Fixture A: title, a `statBand` that calls `useGetOne`, two
+   tabs. Fixture B: a different title, three tabs, no stat band, a `rightRail`, an `actions`.
+   Both are asserted through `vitest-browser-react` + `ra-core`'s `TestMemoryRouter` in real
+   Chromium [Source: src/components/atomic-crm/layout/ContextSwitcher.test.tsx:1-3,68-71] —
+   never React Testing Library, which is not a dependency. Assertions: exactly the declared
+   title, exactly the declared number of tab triggers, the stat band present for A and
+   **absent** for B (`await expect.element(...).not.toBeInTheDocument()`), and `actions`
+   rendered inside the identity-header region for B.
+
+   Tab `render` is **lazy** (`() => ReactNode`): a test asserts a non-active tab's `render`
+   spy is **not called**, and that a tab's own content reaches the record through
+   `useRecordContext()` — which resolves because `EntityShow` mounts inside `ShowBase`
+   [Source: Contract §2:123-126, §5:292-296].
+
+   Tab labels: `EntityShow` supplies `tab.label ?? TAB_LABELS[tab.key]` to `Entity360Tabs`;
+   the `i18nProvider` `_:`-fallback rendering under key **`crm.entity360.tab.<key>`** — the
+   catalog nests under a single `crm` root (`englishCrmMessages.ts:104`), so the contract §3
+   sketch's bare `entity360.tab.<key>` can never resolve; 3-13's AC 3 namespace note is the
+   ruling — is `Entity360Tabs`' (3.2 / 3-13), via `useTabLabel`, not this file's
+   [Source: Contract §3:175-183]. **`EntityShow` must not call `translate` for a tab label.**
+   The precedence question (`useTabLabel`'s `override` vs. the required `label`) is 3-13's to
+   settle; this story passes `tab.label` through unchanged and does not resolve it.
+   **Visibility filtering is 3.4's**: until 3.4 lands, `EntityShow` passes every declared tab
+   through, and 3.4 inserts the `hasVisibility` filter **before** the array reaches
+   `Entity360Tabs` [Source: Contract §6:334-372].
+
+9. **Missing optional fields degrade; the generic renderer cannot special-case an entity.**
+   - A descriptor with only `name`, `buildRecordPath` and `label` renders through `EntityShow`
+     with no stat band, no tab bar, no rail, no alert slot — and does not throw. This is the
+     concrete proof of AD-24's "regions are optional per entity"
+     [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md:177-180].
+   - A `?raw` guard scoped to **`EntityShow.tsx` alone** asserts two things: (i) it imports
+     from **no sibling directory of `entity360/`** — expressed as "no relative import that
+     escapes `entity360/`", *not* as a four-name alternation, because `connections/` arrives in
+     8.5 and `if (resource === "shidduchim")` contains no `/` and would slip a name-only
+     pattern; and (ii) the file contains **no entity-name string literal** (checked against
+     `RESOURCES`' seven names from `root/routeManifest.ts:92-100` plus `"connections"`). The
+     bare `?raw` import typechecks without a new ambient declaration — `vite/client` already
+     declares `*?raw` [Source: node_modules/vite/client.d.ts:243], referenced from
+     [Source: src/vite-env.d.ts:1].
+   - **Both halves of the guard must be shown red against a deliberately broken fixture before
+     they are shown green** [Source: Contract §13:602-619]. A guard that cannot fail is not
+     coverage — the previous version of this AC was one of three in Epic 3 that could not fail.
+
+10. **`relationships` become tabs, in declared order, and an explicit `tabs` entry wins.**
+    `EntityShow` turns each `relationships` entry into a tab rendering
+    `<RelatedRecordsTab relationship={…}/>` (3-13's component), placed at the position its
+    `key` occupies in the entity's declared tab order. If `tabs` already contains an entry with
+    the same `key`, the explicit entry **overrides** the relationship-derived one and
+    `RelatedRecordsTab` is not mounted for it. Two tests: a descriptor with only
+    `relationships: [{key: "shidduchim", …}]` shows a "Shidduchim" tab whose content is
+    `RelatedRecordsTab`; the same descriptor plus an explicit `tabs` entry keyed `shidduchim`
+    shows **one** tab, rendering the explicit content. Empty / loading / error states belong to
+    `RelatedRecordsTab`, not to `EntityShow` (UX-DR11,
+    [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md:186-187]).
+
+---
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — `entityDescriptor.ts`** (AC: 1, 2)
-  - [ ] Define `EntityDescriptor`, `EntityTabDescriptor`, `EntityRelationshipDescriptor`
-        (a light `{ resource: string; foreignKey: string; label: string }` shape — only
-        as much as Epic 5 needs to declare "this entity's suggestions/references live
-        over there"; no relationship-rendering behaviour is built by this story).
-  - [ ] Implement `registerEntityDescriptor` / `getEntityDescriptor` over a
-        module-private `Map<string, EntityDescriptor>`; throw on duplicate `name`.
-  - [ ] `entityDescriptor.test.ts`: register/lookup round-trip, duplicate-name throws,
-        minimal descriptor (name + buildRecordPath only) is valid at the type level.
+### 3.3a
 
-- [ ] **Task 2 — `EntityShow.tsx`** (AC: 3, 4, 5)
-  - [ ] Build the component per AC 3: descriptor lookup, region composition, delegating
-        tabs to `Entity360Tabs` (3.2) and the outer layout to `Entity360` (3.1).
-  - [ ] `EntityShow.test.tsx`: the two-fixture comparison test (AC 3), the
-        minimal-descriptor no-crash test (AC 4), and the import-boundary `?raw` test
-        (AC 5).
+- [ ] **Task 1 — `entity360/entityDescriptor.ts`** (AC: 1, 4, 6)
+  - [ ] Write the doc comment required by AC 4 (list metadata, 4.1 consumes `label`, never
+        redefine the type) as the file's leading block.
+  - [ ] Declare `EntityDescriptor`, `EntityTabDescriptor`, `EntityRelationshipDescriptor`
+        exactly as AC 1 / AC 6 spell them. Import `MemberRole` from `../types` and `TabKey`
+        from `./tabKeys`. Declare neither locally.
+  - [ ] No `stats`, no `minVisibility`, no `(record) => ReactNode` region. If a reviewer finds
+        one, AC 1's `@ts-expect-error` block is missing an entry.
 
-- [ ] **Task 3 — Document the split with Epic 4** (AC: none — coordination)
-  - [ ] Add a short doc comment atop `entityDescriptor.ts` stating that this type is
-        AD-24's intended single source for list metadata (`label`/`icon`/`meta`) as well,
-        that `EntityList` (Epic 4 Story 4.1) does **not** consume it yet, and that any
-        future list-descriptor wiring must consume this type rather than redefine it — a
-        forward pointer, not new code.
+- [ ] **Task 2 — `entity360/registry.ts`** (AC: 3)
+  - [ ] Module-private `Map<string, EntityDescriptor>`; export only the three functions.
+  - [ ] `registerEntityDescriptor(d, opts)` — throw on duplicate `name` unless
+        `opts.replace === true`; replace wholesale when it is.
+  - [ ] `getEntityDescriptor` returns `| undefined`. `requireEntityDescriptor` throws the exact
+        AC 3 message.
+
+- [ ] **Task 3 — Tests** (AC: 1, 2, 3, 4, 5, 6)
+  - [ ] `entityDescriptor.test.ts` — the `@ts-expect-error` block (AC 1), the two positive
+        compile fixtures, the three `EntityRelationshipDescriptor` worked examples (AC 6).
+  - [ ] `registry.test.ts` — round-trip, duplicate throws, `{replace:true}` replaces,
+        `getEntityDescriptor` undefined, `requireEntityDescriptor` message. **Unique fixture
+        `name` per test** (or a per-test `replace: true`) so no test depends on another's
+        registry state [Source: .claude/rules/testing.md#Test-isolation].
+  - [ ] `entity360.guards.test.ts` — AC 4's doc-block + no-self-registration checks and AC 5's
+        no-re-declaration glob. Show each red against a broken fixture first.
+
+### 3.3b
+
+- [ ] **Task 4 — `entity360/EntityShow.tsx`** (AC: 7, 9, 10)
+  - [ ] `export function EntityShow(): ReactElement` — `useResourceContext()` +
+        `useRecordContext()` + `requireEntityDescriptor`. No props, no `resource`/`record`
+        arguments, no data fetching.
+  - [ ] Compose the seven `Entity360` regions per AC 7's table, with `actions` rendered inside
+        the identity-header region.
+  - [ ] Default identity composition (`avatar`/`title`/`meta` → `EntityAvatar` from 3.1) used
+        only when `identityHeader` is absent.
+  - [ ] Merge `tabs` + `relationships` into one ordered array per AC 10 and hand it to
+        `Entity360Tabs` with resolved labels.
+  - [ ] Keep the file well under the ~400-line ceiling; extract the default identity
+        composition and the tab-merge helper into their own modules rather than growing this
+        one [Source: .claude/rules/coding-style.md#File-organization].
+
+- [ ] **Task 5 — `EntityShow.test.tsx`** (AC: 7, 8, 9, 10)
+  - [ ] Two-fixture "entirely from the declaration" test, `shadchan_stats`-shaped hook fixture,
+        lazy-`render` spy, minimal-descriptor no-crash test, the `?raw` boundary guard (both
+        halves, red first), and the two AC 10 relationship tests.
+
+---
 
 ## Dev Notes
 
 ### Why the registry is separate from `routeManifest.ts`
 
-`root/routeManifest.ts` (created by Epic 1 Story 1.5) answers *"is every registered
-route reachable"* — its `ResourceEntry { name, surface, definition }` is deliberately
-thin and framework-shaped (`definition` is `Omit<ResourceProps, "name">`, i.e. exactly
-what `<Resource>` accepts) [Source:
-_bmad-output/implementation-artifacts/1-5-remove-dead-routes.md#Task-1]. The
-`EntityDescriptor` registry answers a different question — *"what does this entity's 360
-look like"* — and is consumed **by** the route-builder (3.2's `buildEntityRoutes`) rather
-than folded into it. Keeping them separate means Epic 1's manifest validator
-(`findManifestViolations`) never needs to understand 360 semantics, and this registry
-never needs to understand route reachability. When Epic 5 migrates an entity, it does
-both: registers the full descriptor here, and points that entity's
-`routeManifest.ts` `ResourceEntry.definition` at
-`buildEntityRoutes({ Show: () => <EntityShow />, ... })`.
+`root/routeManifest.ts` (Epic 1 Story 1.5) answers *"is every registered route reachable"*.
+Its `ResourceEntry { name, surface, definition }` is deliberately thin and framework-shaped —
+`definition` is `Omit<ResourceProps, "name">`, i.e. exactly what `<Resource>` accepts
+[Source: src/components/atomic-crm/root/routeManifest.ts:39-43]. It gains an optional
+`contextKind?: "household" | "shadchanus"` in Epic 8
+[Source: _bmad-output/implementation-artifacts/8-1-shadchanus-context.md:52-55]; that is a
+routing concern and does **not** belong on the descriptor.
 
-### The `name` vs. target-type distinction — a real gotcha, write it down
+The `EntityDescriptor` registry answers a different question — *"what does this entity's 360
+look like"* — and is consumed **by** the route builder (3.2's `buildEntityRoutes` and
+`entityPaths.ts`), not folded into it. Keeping them separate means Epic 1's
+`findManifestViolations` never learns 360 semantics and this registry never learns route
+reachability. When Epic 5 migrates an entity it does both: replaces the descriptor here, and
+points that entity's `ResourceEntry.definition` at `buildEntityRoutes({ Show: EntityShow, … })`.
 
-Resource names in `routeManifest.ts` are **plural** (`shidduchim`, `singles`,
-`shadchanim`, `references`) — that is also `EntityDescriptor.name`. The polymorphic
-`interactions`/`tasks` (and, from 3.7, `entity_files`) tables use a **singular**
-`target_type` value (`shidduch`, `single`, `shadchan`, `reference`) — see
-`01_tables.sql:525-527,134-136`. These are related but not interchangeable strings; a
-descriptor's `tabs` entries that render 3.5-3.8's universal tab components must pass the
-**singular** `target_type`, derived explicitly (e.g. a small
-`ENTITY_NAME_TO_TARGET_TYPE` map, or a `targetType` field the future full descriptor
-carries) — not assumed to equal `name` with the trailing letter stripped. This story does
-not need to build that map (no real descriptor is registered yet), but Dev Notes for
-3.5-3.8 and for Epic 5 point back here so the distinction is not rediscovered per-entity.
+### `name` (plural resource) vs `target_type` (singular) — corrected
+
+Resource names are **plural** (`shidduchim`, `singles`, `shadchanim`, `references`); that is
+`EntityDescriptor.name` [Source: src/components/atomic-crm/root/routeManifest.ts:92-100]. The
+polymorphic tables use a **singular** `target_type`. The present, verified state of that
+vocabulary:
+
+| Table | Column | Check constraint, today |
+|---|---|---|
+| `public.tasks` | `target_type` [Source: supabase/schemas/01_tables.sql:44] | `('shadchan','shidduch','reference')` [Source: supabase/schemas/01_tables.sql:45-47] |
+| `public.interactions` | `target_type` [Source: supabase/schemas/01_tables.sql:436] | `('reference','shidduch')` [Source: supabase/schemas/01_tables.sql:458-459] |
+| `public.entity_files` | — | table does not exist yet; created by 3.7 |
+
+So **`single` is legal in neither table today, and `shadchan` is illegal in `interactions`.**
+Widening all three to the same four values is **this epic's future work**, owned by 3.5
+(`interactions`), 3.7 (`entity_files`) and 3.8 (`tasks`), with the TS vocabulary
+(`ENTITY_TARGET_TYPES` / `EntityTargetType`, widening `TaskTargetType` at
+[Source: src/components/atomic-crm/types.ts:71]) owned by **3.9**
+[Source: Contract §8:409-452, §10:500-516].
+
+**This story builds no `ENTITY_NAME_TO_TARGET_TYPE` map, and the descriptor carries no
+`targetType` field.** It does not need one: a tab's `render` closure lives inside that
+entity's own descriptor module, which already knows which entity it is, so 5.8's singles
+descriptor simply writes `render: () => <ActivityTab targetType="single" targetId={id}/>`.
+Deriving a singular from a plural by string surgery is the trap this note exists to prevent.
+
+### `replace` is the extend API — what "fill in" means downstream
+
+Five stories say they will "extend" or "fill in" a registration. All five mean
+`registerEntityDescriptor(fullDescriptor, { replace: true })` from that entity's own
+`entityDescriptor.ts`, replacing 3.9's stub wholesale:
+4.1 [`:161-163`], 5.1 [`:92-93`], 5.8 [`:105-108`], 5.9 [`:95-96`], 5.10 [`:106-108`].
+There is no partial-merge path, and none is wanted — a merge makes "what does this entity
+declare" un-answerable by reading one file.
+
+### The registry is not broken by context switching — do not re-key it
+
+No story needs two descriptors for one `name`. 8.5 registers a **new** resource
+(`connections`), so the duplicate-name throw is never reached
+[Source: _bmad-output/implementation-artifacts/8-5-shadchans-own-crm.md:23-26].
+Per-viewer variation happens at render (region renderers are components; 3.4 gates tabs
+through a hook re-evaluated after a context switch), and context-**kind** routing lives on
+`routeManifest.ts` via 8.1's `<RequireContextKind>`
+[Source: _bmad-output/implementation-artifacts/8-1-shadchanus-context.md:52-55].
+**Do not key the registry by `(name, contextKind)`.**
 
 ### Reuse already confirmed
 
-`DashboardStat` (`dashboard/DashboardStat.tsx`) for `stats`, `EntityAvatar` (3.1) for
-`avatar`, `Entity360`/`Entity360Tabs` (3.1/3.2) for layout and tab routing. `EntityShow`
-composes these; it introduces no new visual primitive.
+`EntityAvatar` (3.1) for the default `avatar` composition; `Entity360` / `Entity360Tabs`
+(3.1 / 3.2) for layout and tab routing; `RelatedRecordsTab` (3-13) for `relationships`;
+`ShowBase` from `ra-core`, wired by 3.2 [Source: src/components/admin/show.tsx:6-17].
+`EntityShow` introduces **no new visual primitive**.
 
 ### Testing standard
 
-AAA, `app` vitest project, fixture descriptors declared per-test (no shared mutable
-registry state between tests — reset or use unique fixture `name`s per test to avoid the
-duplicate-registration throw firing across unrelated tests)
-[Source: .claude/rules/testing.md].
+- Browser-mode vitest: `vitest-browser-react` + `ra-core`'s `TestMemoryRouter` in real
+  Chromium [Source: src/components/atomic-crm/layout/ContextSwitcher.test.tsx:1-3,68-71;
+  vitest.config.ts:36-49]. `render()` returns `container`, so `container.textContent`
+  assertions survive. Negative assertions are
+  `await expect.element(screen.getByRole(...)).not.toBeInTheDocument()` — **not**
+  `screen.queryByText`, which does not exist here.
+- `?raw` source scanning: `import.meta.glob(..., { query: "?raw", import: "default", eager: true })`
+  [Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:16-20], or a bare
+  `import src from "./EntityShow.tsx?raw"` (typechecks — `vite/client` declares `*?raw`,
+  [Source: node_modules/vite/client.d.ts:243]). Every guard is shown **red once** first.
+- AAA, per-test fixture descriptors with unique `name`s, no shared mutable registry state, no
+  `waitForTimeout`, ≥80% coverage on new code
+  [Source: .claude/rules/testing.md].
 
-### Project Structure Notes
+### Validation commands (there is no `Makefile`)
 
-- `entity360/entityDescriptor.ts` and `entity360/EntityShow.tsx` are new, alongside
-  `Entity360.tsx`, `Entity360Tabs.tsx`, `entityRoutes.tsx`, `avatar.ts`,
-  `EntityAvatar.tsx` from 3.1/3.2. The directory is filling out exactly along
-  feature lines, not growing one mega-file — keep each under ~300 lines.
+`npm run typecheck` [Source: package.json:17] — this is what evaluates AC 1's
+`@ts-expect-error` block. Then `npx vitest run` (or `npm run test:unit:app`
+[Source: package.json:7]), `npm run lint` [Source: package.json:20], `npm run build`
+[Source: package.json:14]. `make typecheck` / `make test` do not exist.
+
+### Project structure
+
+`entity360/entityDescriptor.ts`, `entity360/registry.ts` and `entity360/EntityShow.tsx` are
+new, alongside `Entity360.tsx`, `EntityAvatar.tsx` (3.1), `Entity360Tabs.tsx`,
+`buildEntityRoutes.tsx`, `entityPaths.ts` (3.2) and `tabKeys.ts`, `tabs/RelatedRecordsTab.tsx`
+(3-13). The directory grows by **file count**, not file size — keep each module well under the
+~400-line typical ceiling [Source: .claude/rules/coding-style.md#File-organization].
 
 ### References
 
-- [Source: _bmad-output/planning-artifacts/epics.md#Epic-3-The-360-Framework — Story 3.3]
-- [Source: _bmad-output/planning-artifacts/epics.md#Epic-4-Navigation-Lists — Story 4.1;
-  _bmad-output/implementation-artifacts/4-1-entity-list-framework.md#Dev-Notes] — the
-  cross-epic split this story documents rather than resolves unilaterally (4.1 explicitly
-  declines descriptor integration as written)
-- [Source: ARCHITECTURE-SPINE.md#AD-24] — "an entity contributes a descriptor … and no
-  bespoke layout code"
-- [Source: _bmad-output/implementation-artifacts/1-5-remove-dead-routes.md#Task-1] —
-  `routeManifest.ts`'s `ResourceEntry`/`CustomRouteEntry` shape this registry sits beside
-- [Source: supabase/schemas/01_tables.sql:134-136,525-527] — the singular `target_type`
-  vocabulary vs. the plural resource-name vocabulary
-- [Source: src/components/atomic-crm/dashboard/DashboardStat.tsx]
-- [Source: 3-1-entity360-shell.md, 3-2-url-backed-tabs.md] — this epic's own prior
-  stories, whose components this one wires together
-- [Source: .claude/rules/coding-style.md, .claude/rules/testing.md,
-  .claude/rules/english-only.md]
+- [Source: _bmad-output/planning-artifacts/epic3-api-contract.md] — §2 (`EntityDescriptor`, `:70-133`), §3 (`TabKey`, `:136-193`), §4 (registry + `EntityShow`, `:196-266`), §9 (`relationships`, `:455-497`), §10 (ownership, `:500-516`), §12 (build order, `:579-598`), §13 (test shapes, `:602-619`)
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md:177-180] — AD-24: "an entity contributes a descriptor (label, icon, avatar, title, meta, stats, tabs, actions, relationships) and no bespoke layout code"; regions in fixed order
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md:174-176] — AD-23 vocabulary (`single`, never "child"; `members`, never `sales`)
+- [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md:157-160] — UX-DR1 region order; `:166-167` UX-DR4 shared tab vocabulary; `:168-172` UX-DR5 per-entity matrix; `:186-187` UX-DR11
+- [Source: _bmad-output/planning-artifacts/epics.md:485-496] — the epic-list AC this story delivers the 360 half of
+- [Source: _bmad-output/implementation-artifacts/4-1-entity-list-framework.md:29-33,43-44,114,161-163,234-240] — 4.1 depends on this registry and consumes `label`; `icon`/`meta`/`stats` deliberately unconsumed
+- [Source: _bmad-output/implementation-artifacts/5-1-shidduch-360-as-a-page.md:92-93; 5-8-single-360.md:105-108; 5-9-shadchan-360.md:95-96; 5-10-reference-360-and-diligence.md:106-108] — the four `{ replace: true }` consumers
+- [Source: _bmad-output/implementation-artifacts/8-1-shadchanus-context.md:52-55] — `contextKind` belongs to `routeManifest.ts`, not the descriptor
+- [Source: _bmad-output/implementation-artifacts/8-5-shadchans-own-crm.md:23-26] — a fifth resource, not a second descriptor for an existing name
+- [Source: _bmad-output/implementation-artifacts/9-2-publish-single-listing.md:156-158] — a future consumer of `actions`
+- [Source: src/components/atomic-crm/types.ts:109-110] `MemberRole`; `:71` `TaskTargetType`
+- [Source: src/components/atomic-crm/root/routeManifest.ts:6-18,39-43,92-100] — eager resource imports, `ResourceEntry`, the seven `RESOURCES`
+- [Source: src/components/atomic-crm/shadchanim/ShadchanShow.tsx:40-43] and [Source: supabase/schemas/03_views.sql:202] — the only real stat band; why `statBand` must be a `ComponentType`
+- [Source: supabase/schemas/03_views.sql:133,139,170] — `reference_links_summary` (`shidduchim_id`), `singles_summary`
+- [Source: src/components/atomic-crm/shadchanim/ShadchanSuggestions.tsx:25-26] — the shadchan → shidduchim filter column
+- [Source: supabase/schemas/01_tables.sql:44,45-47,436,458-459] — the singular `target_type` vocabulary as it stands today
+- [Source: src/components/admin/show.tsx:6-17] — `ShowBase` from `ra-core`, the record-context source 3.2 wires
+- [Source: src/components/atomic-crm/layout/ContextSwitcher.test.tsx:1-3,68-71] — the browser-mode test pattern
+- [Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:16-20] — the `?raw` glob precedent
+- [Source: node_modules/vite/client.d.ts:243; src/vite-env.d.ts:1] — the `*?raw` module declaration already exists
+- [Source: package.json:7,14,17,20] — the real validation commands
+- [Source: _bmad-output/implementation-artifacts/3-1-entity360-shell.md, _bmad-output/implementation-artifacts/3-2-url-backed-tabs.md, _bmad-output/implementation-artifacts/3-9-recordlink-primitive.md] — this epic's own prior and adjacent stories. Story **3-13** (tab vocabulary) is new in this refresh pass; its file does not exist yet, so it is cited by story number only until it lands.
+- [Source: .claude/rules/coding-style.md, .claude/rules/testing.md, .claude/rules/english-only.md, .claude/rules/lsp-usage.md]
 
 ## Dev Agent Record
 
