@@ -36,6 +36,13 @@ function isAllowlistedForPattern(relPath, pattern) {
  * route-convention.json) and returns human-readable violation messages —
  * empty when clean. None of the configured patterns use the "g" flag, so a
  * fresh RegExp per pattern has no cross-line state to worry about.
+ *
+ * An allowlisted file is not a blanket exemption when the pattern also sets
+ * `maxMatchesPerAllowlistedFile`: the file may match at most that many times
+ * before it becomes a violation too. This is what keeps
+ * `create-path-hook-type`'s "each of the three buttons keeps ONE fallback
+ * call" (Story 3.12 AC 6) from silently degrading into "as many as it
+ * wants" — a per-file allowlist alone cannot express a count.
  */
 export function runRouteConventionCheck(scanRoot, config = loadConfig()) {
   const files = collectFiles(scanRoot, config.scanPaths, config.extensions);
@@ -50,13 +57,29 @@ export function runRouteConventionCheck(scanRoot, config = loadConfig()) {
     if (isExcludedDir(relPath, config)) continue;
 
     const lines = readFileSync(file, "utf8").split("\n");
-    lines.forEach((line, index) => {
-      for (const pattern of patterns) {
-        if (isAllowlistedForPattern(relPath, pattern)) continue;
-        if (!pattern.compiled.test(line)) continue;
-        violations.push(`${relPath}:${index + 1}: matches "${pattern.id}"`);
+
+    for (const pattern of patterns) {
+      const matchedLineNumbers = [];
+      lines.forEach((line, index) => {
+        if (pattern.compiled.test(line)) matchedLineNumbers.push(index + 1);
+      });
+      if (matchedLineNumbers.length === 0) continue;
+
+      if (!isAllowlistedForPattern(relPath, pattern)) {
+        for (const lineNumber of matchedLineNumbers) {
+          violations.push(`${relPath}:${lineNumber}: matches "${pattern.id}"`);
+        }
+        continue;
       }
-    });
+
+      const max = pattern.maxMatchesPerAllowlistedFile;
+      if (max != null && matchedLineNumbers.length > max) {
+        violations.push(
+          `${relPath}: matches "${pattern.id}" ${matchedLineNumbers.length} time(s) ` +
+            `(lines ${matchedLineNumbers.join(", ")}), but its allowlist entry permits at most ${max}`,
+        );
+      }
+    }
   }
 
   return violations;

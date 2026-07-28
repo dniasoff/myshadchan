@@ -16,9 +16,12 @@ import {
   useTranslate,
   type EditBaseProps,
   type FormProps,
+  type RedirectionSideEffect,
 } from "ra-core";
 import { type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { getEntityDescriptor } from "../entity360/registry";
+import { redirectToRecord } from "../entity360/routeConvention";
 
 export interface EditSheetProps extends EditBaseProps {
   /**
@@ -86,7 +89,7 @@ export const EditSheet = ({
   open,
   onOpenChange,
   title,
-  redirect: redirectTo = "show",
+  redirect: redirectProp,
   mutationOptions,
   mutationMode = "undoable",
   defaultValues,
@@ -97,6 +100,17 @@ export const EditSheet = ({
   const translate = useTranslate();
   const notify = useNotify();
   const redirect = useRedirect();
+  // AD-24 (Story 3.12 AC 4): an unspecified `redirect` must not silently
+  // resolve through `useRedirect`'s hardcoded `/{resource}/{id}/show`
+  // (`useRedirect.js:55`) for a migrated entity — that is exactly the dead
+  // URL this story retires everywhere else. A resource with a registered
+  // entity descriptor defaults to `redirectToRecord`, which follows
+  // `buildRecordPath` (and so tracks Epic 5's flip automatically); a
+  // resource with none (e.g. `tasks`) keeps today's `"show"` verb, since it
+  // has no AD-24 shape to diverge from.
+  const redirectTo: RedirectionSideEffect =
+    redirectProp ??
+    (resource && getEntityDescriptor(resource) ? redirectToRecord : "show");
 
   // Handle success - close sheet in addition to default behavior
   const handleSuccess = (...args: any[]) => {

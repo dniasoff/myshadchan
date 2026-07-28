@@ -2,19 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, Resource, TestMemoryRouter } from "ra-core";
 import type { DataProvider, ResourceProps } from "ra-core";
-import { Route, Routes } from "react-router";
+import { matchPath, Route, Routes } from "react-router";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
-import type { EntityDescriptor } from "./entityDescriptor";
-import { registerEntityDescriptor } from "./registry";
-import { buildCreateRoutes } from "./routeConvention";
-// The real, post-change `singles` / `references` resource definitions — the
-// same objects `<CRM>` spreads onto `<Resource>` (`root/routeManifest.ts`'s
-// `RESOURCES`, `root/CRM.tsx:54-56`). Neither `SingleCreate` nor
-// `ReferenceCreate` fetches on mount, so this proves the real production
-// wiring, not a stand-in.
+import { buildNewPath } from "./entityPaths";
+// The real, post-change `singles` / `references` / `shidduchim` resource
+// definitions — the same objects `<CRM>` spreads onto `<Resource>`
+// (`root/routeManifest.ts`'s `RESOURCES`, `root/CRM.tsx:54-56`). Neither
+// `SingleCreate` nor `ReferenceCreate` fetches on mount, so this proves the
+// real production wiring, not a stand-in. `shidduchim`'s own `list`
+// (`ShidduchimList`) is swapped for a fixture below — it boots an identity +
+// singles fetch that is orthogonal to what this story changes — but its
+// `children` (`buildCreateRoutes("shidduchim")`) is used exactly as shipped.
 import singles from "../singles";
 import references from "../references";
+import shidduchim from "../shidduchim";
 
 /**
  * Story 3.12 AC 1's five assertions: mounting the resource tree at the new
@@ -134,37 +136,46 @@ describe("route-convention adoption — references (AC 1)", () => {
 });
 
 describe("route-convention adoption — shidduchim (AC 1)", () => {
-  // A fixture stands in for the real `ShidduchimList` here: shidduchim's
-  // create surface is a modal matched INSIDE that component
-  // (`shidduchim/ShidduchimList.tsx`), so proving the redirect lands on the
-  // right URL does not require booting its board (identity + singles
-  // fetch). `shidduchim/index.ts` wires the identical
-  // `buildCreateRoutes("shidduchim")` call (no `New`) onto the real list.
-  const FIXTURE_RESOURCE = "route-convention-shidduchim-fixture";
+  // The real `shidduchim` resource definition — `shidduchim/index.ts`'s own
+  // `children: buildCreateRoutes("shidduchim")` (no `New`: the create
+  // surface is a modal matched INSIDE `ShidduchimList`,
+  // `shidduchim/ShidduchimList.tsx:79`), not a hand-rolled descriptor +
+  // `buildCreateRoutes` call standing in for it. Only `list` is swapped for
+  // a fixture, to avoid booting `ShidduchimList`'s identity + singles fetch,
+  // which is orthogonal to what this story changes.
   const FixtureList = () => <span>FIXTURE_LIST</span>;
+  const shidduchimWithFixtureList = { ...shidduchim, list: FixtureList };
 
-  it("redirects /create?state=contacted to /new?state=contacted, query intact", async () => {
-    // Arrange
-    const descriptor: EntityDescriptor = {
-      name: FIXTURE_RESOURCE,
-      label: "Fixture",
-      buildRecordPath: (id) => `/${FIXTURE_RESOURCE}/${id}/show`,
-    };
-    registerEntityDescriptor(descriptor, { replace: true });
-
-    // Act — mirrors `shidduchim/ShidduchCreate.tsx:54-56`, which reads
-    // `state` off exactly this query string.
+  it("redirects /shidduchim/create?state=contacted to /shidduchim/new?state=contacted, query intact", async () => {
+    // Arrange / Act — mirrors `shidduchim/ShidduchCreate.tsx:54-56`, which
+    // reads `state` off exactly this query string.
     const { getPathname, getSearch } = await renderResourceAt(
-      FIXTURE_RESOURCE,
-      {
-        list: FixtureList,
-        children: buildCreateRoutes(FIXTURE_RESOURCE),
-      },
-      [`/${FIXTURE_RESOURCE}/create?state=contacted`],
+      "shidduchim",
+      shidduchimWithFixtureList,
+      [`${legacyCreatePath("shidduchim")}?state=contacted`],
     );
 
     // Assert
-    await expect.poll(() => getPathname()).toBe(`/${FIXTURE_RESOURCE}/new`);
+    await expect.poll(() => getPathname()).toBe("/shidduchim/new");
     expect(getSearch()).toBe("?state=contacted");
+  });
+
+  it("matches ShidduchimList's own matchPath(buildNewPath('shidduchim'), …) at /shidduchim/new — the modal opens", async () => {
+    // Arrange / Act
+    const { getPathname } = await renderResourceAt(
+      "shidduchim",
+      shidduchimWithFixtureList,
+      ["/shidduchim/new"],
+    );
+    await expect.poll(() => getPathname()).toBe("/shidduchim/new");
+
+    // Assert — the exact expression `ShidduchimList.tsx:79` evaluates to
+    // decide whether `ShidduchCreate`'s dialog is open. This is the
+    // production entry point Task 5 site 13's manual walkthrough would have
+    // exercised; asserting it here means a future divergence between the
+    // route table and `buildNewPath` fails CI instead of a human miss.
+    expect(
+      matchPath(buildNewPath("shidduchim"), getPathname() ?? ""),
+    ).not.toBeNull();
   });
 });

@@ -103,6 +103,28 @@ describe("runRouteConventionCheck — create-path-hook-type", () => {
       false,
     );
   });
+
+  it("fails when an allowlisted file accumulates more calls than maxMatchesPerAllowlistedFile permits", async () => {
+    // Arrange — the allowlist exempts the file from a flat ban, not from
+    // the "one fallback call" the story's own AC 6 text promises.
+    const { allowlistedFiles, maxMatchesPerAllowlistedFile } = patternById(
+      "create-path-hook-type",
+    );
+    const [allowlistedFile] = allowlistedFiles;
+    const offendingContent = Array.from(
+      { length: maxMatchesPerAllowlistedFile + 1 },
+      () => 'createPath({ resource, type: "edit" });',
+    ).join("\n");
+    await writeFixture(allowlistedFile, `${offendingContent}\n`);
+
+    // Act
+    const violations = runRouteConventionCheck(tempRoot, config);
+
+    // Assert
+    expect(violations.some((v) => v.includes("create-path-hook-type"))).toBe(
+      true,
+    );
+  });
 });
 
 describe("runRouteConventionCheck — redirect-to-show", () => {

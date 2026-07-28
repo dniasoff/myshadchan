@@ -623,6 +623,67 @@ Claude Opus 5 (claude-sonnet-5 execution model), via the bmad-dev-story skill.
   - This is **not** an issue with the contract or story text otherwise — both matched the
     repository closely; the two items above are the only measurable drift found.
 
+### Review Fixes (adversarial review pass, commit `27f74cc` reviewed)
+
+**Fixed:**
+
+- **Blocker — F1: `routeConvention.redirect.test.tsx`'s AC-4 integration tests were
+  unfalsifiable.** Both tests asserted against the real `singles` stub descriptor's
+  `buildRecordPath` (`/singles/{id}/show`), which is byte-identical to what the retired
+  hardcoded show-record verb would have produced — reverting `redirect={redirectToRecord}`
+  back to that verb in either `<Create>`/`<Edit>` still passed 2/2. Fixed by registering an
+  AD-24-shaped `singles` descriptor (`buildRecordPath: (id) => \`/singles/${id}\``) via
+  `registerEntityDescriptor(..., { replace: true })` before each test and restoring the real
+  stub in `afterEach`, exactly as `edit-button.test.tsx` / `show-button.test.tsx` already do.
+  Re-verified by mutation: reverting either `redirect` prop back to the retired verb now fails
+  both assertions.
+- **Should-fix — F2: the shidduchim create flow's only automated coverage used a hand-rolled
+  fixture descriptor, not the real production wiring.** `routeConvention.routes.test.tsx`'s
+  shidduchim block registered its own `EntityDescriptor` and called `buildCreateRoutes`
+  directly under a synthetic resource name, so it never touched `shidduchim/index.ts`'s actual
+  `children: buildCreateRoutes("shidduchim")` or proved `ShidduchimList.tsx:79`'s own
+  `matchPath(buildNewPath("shidduchim"), location.pathname)` expression resolves correctly.
+  Rewrote the block to mount the real `shidduchim` resource definition (only `list` swapped for
+  a lightweight fixture, to skip its identity/singles fetch) and added a second test asserting
+  `matchPath(buildNewPath("shidduchim"), …)` is non-null at `/shidduchim/new` — the exact
+  expression the "Add a suggestion" / "Add here" entry points depend on. This is the automated
+  stand-in for Task 5's un-performed manual `npm run dev` walkthrough of that entry point.
+- **Should-fix — F3: `misc/EditSheet.tsx`'s `redirect: redirectTo = "show"` default survives
+  the CI guard and reintroduces the retired hardcoded show-record verb.** The guard's
+  `redirect-to-show` pattern only matches a JSX-attribute-shaped `redirect="show"`, not a
+  destructuring default — so this default (dead today only because `TaskEditSheet` explicitly
+  passes `redirect={false}` and `tasks` has no descriptor) would silently emit a dead
+  `/{entity}/{id}/show` for the first future `EditSheet` consumer on a migrated entity. Fixed
+  the actual default rather than only widening the guard (which cannot see which resource is in
+  play): it now resolves through `redirectToRecord` when the resource has a registered entity
+  descriptor, and keeps today's `"show"` verb when it does not — mirroring `EditButton`/
+  `ShowButton`'s existing per-resource degrade (AC 3). Added `misc/EditSheet.test.tsx`, one test
+  per branch.
+- **Should-fix — F4: the `create-path-hook-type` allowlist was per-file with no bound on
+  count**, so the three button files could accumulate any number of
+  `useCreatePath({ type: ... })` fallback calls, though the story's own text says "each keeps
+  one." Added a `maxMatchesPerAllowlistedFile` field to `route-convention.json` (set to `1` for
+  this pattern) and taught `runRouteConventionCheck` to count matches per file per pattern: a
+  non-allowlisted match is still an unconditional violation, but an allowlisted file now also
+  fails once its match count exceeds the configured max. Added a red-fixture test proving a
+  second call in an allowlisted file now fails.
+
+**Not fixed (agree with the review's own classification as informational):**
+
+- **F5 — `hasAd24RecordShape`'s unencoded comparison string vs. `buildEditPath`'s
+  composition.** The review itself flags this as informational with no reproducible defect
+  today (ids are bigints) and matching AC 3's literal spec. Left as-is, flagged for Epic 5's
+  attention same as the review did.
+- **F6 — story front-matter `baseline_commit: 8ad49cb` points at a pre-Epic-1 tree.** The
+  review classifies this as "story hygiene, no code impact" and confirms AC 5 is materially
+  complete regardless. No code change made; front matter left untouched.
+
+**Toolchain re-verified after fixes:** `npm run typecheck` clean, `npm run lint` (eslint
+`--max-warnings=0` + prettier) clean, `npx vitest run` → **1070/1070 passed, 106 files**
+(+4 tests / +1 file over the reviewed 1066/105 — the four fixes above), `npm run build` clean,
+`node scripts/check-route-convention.mjs` → "Route-convention guard OK.". No SQL touched, so
+`npm run test:unit:db` / `supabase db diff --local` were not run.
+
 ### File List
 
 **New files:**
@@ -635,6 +696,7 @@ Claude Opus 5 (claude-sonnet-5 execution model), via the bmad-dev-story skill.
 - `src/components/admin/create-button.test.tsx`
 - `src/components/admin/edit-button.test.tsx`
 - `src/components/admin/show-button.test.tsx`
+- `src/components/atomic-crm/misc/EditSheet.test.tsx` (review fix F3)
 - `scripts/route-convention.json`
 - `scripts/check-route-convention.mjs`
 - `scripts/check-route-convention.test.mjs`
@@ -663,6 +725,7 @@ Claude Opus 5 (claude-sonnet-5 execution model), via the bmad-dev-story skill.
 - `src/components/atomic-crm/layout/MobileNavigation.tsx`
 - `src/components/atomic-crm/root/routeManifest.ts`
 - `src/components/atomic-crm/root/routeManifest.test.ts`
+- `src/components/atomic-crm/misc/EditSheet.tsx` (review fix F3)
 - `.github/workflows/check.yml`
 - `registry.json` (regenerated via `npm run registry:gen`)
 

@@ -12,14 +12,15 @@
     },
     {
       "id": "create-path-hook-type",
-      "description": "ra-core's useCreatePath({ type: 'create' | 'edit' | 'show' }) hardcodes the pre-AD-24 path shapes (useCreatePath.js:46-62). Only the three admin-kit buttons that this story overrides may keep one fallback call each, for resources with no registered entity descriptor.",
+      "description": "ra-core's useCreatePath({ type: 'create' | 'edit' | 'show' }) hardcodes the pre-AD-24 path shapes (useCreatePath.js:46-62). Only the three admin-kit buttons that this story overrides may keep one fallback call each, for resources with no registered entity descriptor. maxMatchesPerAllowlistedFile enforces the 'one' literally: an allowlisted file may match at most that many times before it is a violation too.",
       "regex": "type:\\s*[\"'](?:create|edit|show)[\"']",
       "flags": "",
       "allowlistedFiles": [
         "src/components/admin/create-button.tsx",
         "src/components/admin/edit-button.tsx",
         "src/components/admin/show-button.tsx"
-      ]
+      ],
+      "maxMatchesPerAllowlistedFile": 1
     },
     {
       "id": "redirect-to-show",
