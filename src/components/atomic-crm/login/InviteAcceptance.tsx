@@ -5,13 +5,12 @@ import {
   required,
   useAuthProvider,
   useDataProvider,
-  useLogin,
   useNotify,
   useTranslate,
 } from "ra-core";
 import type { SubmitHandler, FieldValues } from "react-hook-form";
-import { useParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useNavigate, useParams } from "react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/admin/text-input";
 import { cn } from "@/lib/utils";
@@ -44,12 +43,22 @@ type InviteStep = "affirm" | "code";
  * simply not found) renders a clear, specific message instead of the
  * affirmation/OTP flow — get_invite_preview() returns no inviter name, so
  * the copy never promises one.
+ *
+ * Review finding #4: the invite is bound to a real membership and marked
+ * `accepted` by `accept_invite()`, called here right after `verifyOtp()`
+ * succeeds — never by the earlier OTP-request step. Requesting a code
+ * (`authProvider.login({ requestOtp: true, ... })` in `requestCode()` below)
+ * already creates the `auth.users` row; without this split, anyone who
+ * merely obtained the invite link could burn it before ever proving mailbox
+ * control, leaving the real invitee locked out with "this invite has
+ * already been used."
  */
 export const InviteAcceptance = () => {
   const { token } = useParams<{ token: string }>();
   const dataProvider = useDataProvider<CrmDataProvider>();
   const authProvider = useAuthProvider();
-  const login = useLogin();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const notify = useNotify();
   const translate = useTranslate();
   const [step, setStep] = useState<InviteStep>("affirm");
@@ -111,20 +120,52 @@ export const InviteAcceptance = () => {
       });
   };
 
+  // Review finding #4 (2.7): calls `authProvider.login()` directly rather
+  // than ra-core's `useLogin()` wrapper, and navigates only after
+  // `acceptInvite()` resolves. `useLogin()`'s own callback navigates the
+  // instant `authProvider.login()` resolves (before returning control to
+  // this component), which would race this component's post-verify
+  // `acceptInvite()` call — the invite must be bound and marked accepted
+  // BEFORE landing in the app shell, not after, or `OnboardingGate` could
+  // flash its welcome screen for the split second the membership doesn't
+  // exist yet.
+  //
+  // Invalidates `['auth']` (covering ra-core's `useAuthState()` query,
+  // `['auth', 'checkAuth', ...]`) before navigating — found empirically via
+  // a live e2e run: this route's `checkAuth()` had already been called
+  // (and cached as unauthenticated) once on mount, since `chrome: "bare"`
+  // routes still sit under `<Admin requireAuth>`'s top-level auth-state
+  // observer. Landing on "/" right after a real login reused that STALE
+  // cached "unauthenticated" result (react-query only refetches on a fresh
+  // mount or explicit invalidation, neither of which a same-instance
+  // client-side `navigate()` triggers on its own) — `requireAuth`'s
+  // `logoutOnFailure` then fired an immediate, silent logout. Reproduced
+  // and fixed against the running e2e stack, not merely reasoned about:
+  // without this invalidation, `npx playwright test
+  // e2e/invite-acceptance.spec.ts` failed exactly as the review predicted.
+  // 2.6's own `LoginPage` never trips this because its `/login` route is
+  // `<Admin>`'s OWN internal unauthenticated view (never previously
+  // rendered while cached-false), not a bare custom route reached before
+  // any auth check ever ran.
   const handleVerifyCode: SubmitHandler<FieldValues> = (values) => {
-    if (!invite) return;
+    if (!invite || !token || !authProvider) return;
     setIsVerifying(true);
-    login({ email: invite.email, token: values.token, verifyOtp: true }).catch(
-      (error: unknown) => {
-        notify(
-          error instanceof Error
-            ? error.message
-            : "crm.auth.login.invalid_code",
-          { type: "error" },
-        );
-        setIsVerifying(false);
-      },
-    );
+    (async () => {
+      await authProvider.login({
+        email: invite.email,
+        token: values.token,
+        verifyOtp: true,
+      });
+      await dataProvider.acceptInvite(token);
+      await queryClient.invalidateQueries({ queryKey: ["auth"] });
+      navigate("/");
+    })().catch((error: unknown) => {
+      notify(
+        error instanceof Error ? error.message : "crm.auth.login.invalid_code",
+        { type: "error" },
+      );
+      setIsVerifying(false);
+    });
   };
 
   if (!token || isPending) {

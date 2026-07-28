@@ -8,6 +8,11 @@ import { OnboardingGate } from "./OnboardingGate";
  * Pins 2.3 AC-1: onboarding shows exactly when a login holds no persona yet
  * (`my_personas()` returns zero rows) and the account is not in demo mode —
  * replacing the old `singles`-count gate.
+ *
+ * Also pins 2.7 review finding #2: a login that holds a context
+ * (`my_contexts()` returns ≥1 row) is never onboarded, even with zero
+ * personas — an invited `helper` or a `single`-role invitee before their
+ * `singles` row exists both land in the app shell, not the welcome screen.
  */
 
 const i18nProvider = {
@@ -20,7 +25,12 @@ const i18nProvider = {
 const buildDataProvider = (overrides: {
   getMyPersonas: () => Promise<unknown[]>;
   currentAccountDemo: () => Promise<boolean>;
-}): DataProvider => overrides as unknown as DataProvider;
+  getMyContexts?: () => Promise<unknown[]>;
+}): DataProvider =>
+  ({
+    getMyContexts: () => Promise.resolve([]),
+    ...overrides,
+  }) as unknown as DataProvider;
 
 const renderGate = (dataProvider: DataProvider) =>
   render(
@@ -99,6 +109,35 @@ describe("OnboardingGate", () => {
       .not.toBeInTheDocument();
   });
 
+  it("shows the app for a personaless login that already holds a context (invited helper)", async () => {
+    // Arrange: my_personas() reports zero rows (helper is not one of the
+    // three onboarding personas) but my_contexts() reports the household
+    // membership the invite already bound.
+    const dataProvider = buildDataProvider({
+      getMyPersonas: () => Promise.resolve([]),
+      currentAccountDemo: () => Promise.resolve(false),
+      getMyContexts: () =>
+        Promise.resolve([
+          {
+            account_id: 1,
+            kind: "household",
+            name: "The Klein Family",
+            role: "helper",
+            is_active: true,
+          },
+        ]),
+    });
+
+    // Act
+    const screen = await renderGate(dataProvider);
+
+    // Assert
+    await expect.element(screen.getByText("The signed-in app")).toBeVisible();
+    await expect
+      .element(screen.getByText("Welcome to MyShadchan"))
+      .not.toBeInTheDocument();
+  });
+
   it("shows the app for a personaless login already in demo mode", async () => {
     // Arrange
     const dataProvider = buildDataProvider({
@@ -122,6 +161,26 @@ describe("OnboardingGate", () => {
       getMyPersonas: () =>
         Promise.reject(new Error("Failed to load your account")),
       currentAccountDemo: () => Promise.resolve(false),
+    });
+
+    // Act
+    const screen = await renderGate(dataProvider);
+
+    // Assert
+    await expect.element(screen.getByText("The signed-in app")).toBeVisible();
+    await expect
+      .element(screen.getByText("Welcome to MyShadchan"))
+      .not.toBeInTheDocument();
+  });
+
+  it("shows the app, not onboarding, when getMyContexts() rejects", async () => {
+    // Arrange: same fail-TOWARD-the-shell contract as getMyPersonas above,
+    // now for the second query this gate reads (2.7 review finding #2).
+    const dataProvider = buildDataProvider({
+      getMyPersonas: () => Promise.resolve([]),
+      currentAccountDemo: () => Promise.resolve(false),
+      getMyContexts: () =>
+        Promise.reject(new Error("Failed to load your contexts")),
     });
 
     // Act

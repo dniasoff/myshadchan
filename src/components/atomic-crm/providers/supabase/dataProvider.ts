@@ -528,6 +528,27 @@ const getDataProviderWithCustomMethods = () => {
       const row = Array.isArray(data) ? data[0] : data;
       return (row ?? null) as InvitePreview | null;
     },
+    // Review finding #4 (2.7): binds the invite to a real membership and
+    // marks it `accepted` only once a genuine session exists —
+    // InviteAcceptance.tsx calls this immediately after its own
+    // verifyOtp() succeeds, never at the earlier OTP-request step
+    // (requestOtp()/authProvider.login({requestOtp: true}) above already
+    // creates the auth.users row; GoTrue does that the moment the code is
+    // requested, before anyone has typed anything back — see
+    // accept_invite()'s own comment in 02_functions.sql for why no
+    // auth.users column can be used to tell "requested" from "verified"
+    // apart here). Propagates accept_invite()'s own message: it is already
+    // the specific, safe-to-show copy (mirrors get_invite_preview's
+    // wording), not a generic one.
+    async acceptInvite(token: string): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("accept_invite", {
+        p_token: token,
+      });
+      if (error) {
+        console.error("accept_invite.error", error);
+        throw new Error(error.message);
+      }
+    },
   } satisfies DataProvider;
 };
 

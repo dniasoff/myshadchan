@@ -362,6 +362,14 @@ grant execute on function public.get_invite_preview(uuid) to service_role;
 revoke all on function public.check_signup_invite(jsonb) from public, anon, authenticated;
 grant execute on function public.check_signup_invite(jsonb) to supabase_auth_admin;
 
+-- Story 2.7 review finding #4: accept_invite() is SECURITY DEFINER and
+-- requires a real authenticated session (auth.uid()) — never anon, since a
+-- bare, unauthenticated caller can never satisfy its own "requires an
+-- authenticated caller" check.
+revoke all on function public.accept_invite(uuid) from public, anon;
+grant execute on function public.accept_invite(uuid) to authenticated;
+grant execute on function public.accept_invite(uuid) to service_role;
+
 revoke all on function public.enforce_shidduch_initial_state() from public, anon;
 grant execute on function public.enforce_shidduch_initial_state() to authenticated;
 grant execute on function public.enforce_shidduch_initial_state() to service_role;

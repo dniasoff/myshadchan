@@ -727,6 +727,14 @@ export const createDataProvider = ({
     // "this invite link isn't valid" branch is for.
     getInvitePreview: async (_token: string): Promise<InvitePreview | null> =>
       null,
+    // Story 2.7 review finding #4 -- FakeRest mirror of accept_invite().
+    // Unreachable in the demo world for the same reason as getInvitePreview
+    // above (no `invites` collection): getInvitePreview() always resolves
+    // "not found", so InviteAcceptance never renders the OTP step that would
+    // call this. Kept as a real, honest no-op rather than a throw, matching
+    // the "satisfies the interface without pretending to be real" shape
+    // getInvitePreview already uses.
+    acceptInvite: async (_token: string): Promise<void> => undefined,
   };
 
   const dataProvider = withLifecycleCallbacks(

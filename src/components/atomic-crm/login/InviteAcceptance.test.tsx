@@ -17,6 +17,10 @@ import { InviteAcceptance } from "./InviteAcceptance";
  * the product that ever passes `allowSignup: true`), `email` is read-only
  * (never a typed field), and an invite that is not `pending` renders a
  * clear, specific message instead of the affirmation/OTP flow.
+ *
+ * Also pins 2.7 review finding #4: `acceptInvite()` is called only AFTER
+ * `verifyOtp()` succeeds, and only then does the flow navigate away — never
+ * at the earlier OTP-request step.
  */
 
 const buildAuthProvider = (login: AuthProvider["login"]): AuthProvider => ({
@@ -37,20 +41,26 @@ const PENDING_INVITE: InvitePreview = {
 const renderInviteAcceptance = ({
   invite,
   login = vi.fn().mockResolvedValue(undefined),
+  acceptInvite = vi.fn().mockResolvedValue(undefined),
   token = "test-token",
 }: {
   invite: InvitePreview | null;
   login?: AuthProvider["login"];
+  acceptInvite?: ReturnType<typeof vi.fn>;
   token?: string;
 }) => {
   const dataProvider = {
     getInvitePreview: vi.fn().mockResolvedValue(invite),
+    acceptInvite,
   } as unknown as DataProvider;
 
   // The router must be the OUTERMOST element: CoreAdminContext's internal
   // AdminRouter only skips creating its own Router when it detects it is
   // already inside one (useInRouterContext()) — which requires the real
   // router to be an ANCESTOR of CoreAdminContext, not a descendant of it.
+  // A "/" route exists because a successful verify navigates there
+  // (review finding #4) — without it, react-router logs an unmatched-route
+  // warning even though nothing in these tests asserts on its content.
   const router = createMemoryRouter(
     [
       {
@@ -65,6 +75,7 @@ const renderInviteAcceptance = ({
           </CoreAdminContext>
         ),
       },
+      { path: "/", element: <div>The signed-in app</div> },
     ],
     { initialEntries: [`/accept-invite/${token}`] },
   );
@@ -156,6 +167,84 @@ describe("InviteAcceptance", () => {
       token: "123456",
       verifyOtp: true,
     });
+  });
+
+  it("calls acceptInvite() only after verifyOtp() succeeds, then navigates away (review finding #4)", async () => {
+    // Arrange
+    const login = vi.fn().mockResolvedValue(undefined);
+    const acceptInvite = vi.fn().mockResolvedValue(undefined);
+    const screen = await renderInviteAcceptance({
+      invite: PENDING_INVITE,
+      login,
+      acceptInvite,
+      token: "the-real-token",
+    });
+    await screen.getByRole("checkbox").click();
+    await screen.getByRole("button", { name: "Continue" }).click();
+
+    // Act
+    await screen.getByLabelText(/code/i).fill("123456");
+    await screen.getByRole("button", { name: "Sign in" }).click();
+
+    // Assert: bound to the SAME token the page was reached with, and the
+    // app shell only renders once acceptInvite() has resolved.
+    await expect.element(screen.getByText("The signed-in app")).toBeVisible();
+    expect(acceptInvite).toHaveBeenCalledExactlyOnceWith("the-real-token");
+  });
+
+  it("does not call acceptInvite() when verifyOtp() itself fails", async () => {
+    // Arrange
+    const login = vi
+      .fn()
+      .mockResolvedValueOnce(undefined) // the requestOtp call
+      .mockRejectedValueOnce(new Error("Invalid code")); // the verifyOtp call
+    const acceptInvite = vi.fn().mockResolvedValue(undefined);
+    const screen = await renderInviteAcceptance({
+      invite: PENDING_INVITE,
+      login,
+      acceptInvite,
+    });
+    await screen.getByRole("checkbox").click();
+    await screen.getByRole("button", { name: "Continue" }).click();
+
+    // Act
+    await screen.getByLabelText(/code/i).fill("000000");
+    await screen.getByRole("button", { name: "Sign in" }).click();
+
+    // Assert: a rejected verifyOtp must never reach acceptInvite() — there
+    // is no session yet for it to bind against.
+    await expect
+      .element(screen.getByRole("button", { name: "Sign in" }))
+      .toBeInTheDocument();
+    expect(acceptInvite).not.toHaveBeenCalled();
+  });
+
+  it("surfaces acceptInvite()'s own error when verifyOtp() succeeds but binding fails", async () => {
+    // Arrange
+    const login = vi.fn().mockResolvedValue(undefined);
+    const acceptInvite = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("This invite is invalid, expired, or has already been used."),
+      );
+    const screen = await renderInviteAcceptance({
+      invite: PENDING_INVITE,
+      login,
+      acceptInvite,
+    });
+    await screen.getByRole("checkbox").click();
+    await screen.getByRole("button", { name: "Continue" }).click();
+
+    // Act
+    await screen.getByLabelText(/code/i).fill("123456");
+    await screen.getByRole("button", { name: "Sign in" }).click();
+
+    // Assert: verifyOtp succeeded (a real session exists) but the app shell
+    // must not render on an acceptInvite() failure.
+    await expect
+      .element(screen.getByText("The signed-in app"))
+      .not.toBeInTheDocument();
+    expect(acceptInvite).toHaveBeenCalledExactlyOnceWith("test-token");
   });
 
   it("shows a clear, specific message for an expired invite, never a generic error", async () => {

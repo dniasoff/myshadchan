@@ -48,6 +48,30 @@ jobs:
               name: 📡 Push supabase migrations
               run: npx supabase db push
 
+            # Story 2.7 review finding #1: `[auth.hook.before_user_created]` in
+            # supabase/config.toml is never synced to the hosted project, so
+            # check_signup_invite() exists in the database but GoTrue never calls
+            # it in production — invite-only signup is enforced locally only.
+            # Deliberately a SCOPED Management API patch, not `supabase config
+            # push`: config.toml's `[auth]` block also carries this repo's local
+            # dev values (`site_url = "http://localhost:5173"`,
+            # `additional_redirect_urls = ["https://localhost:5173/..."]`) —
+            # `config push` sends the whole auth config and would overwrite the
+            # hosted project's real production site_url/redirect allow-list with
+            # those localhost values on every deploy. This PATCHes only the two
+            # hook fields, leaving everything else the dashboard already has
+            # untouched.
+            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+              name: 📡 Enable the invite-signup Auth Hook (before_user_created)
+              run: |
+                  curl -sSf -X PATCH "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_ID/config/auth" \
+                    -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+                    -H "Content-Type: application/json" \
+                    -d '{
+                      "hook_before_user_created_enabled": true,
+                      "hook_before_user_created_uri": "pg-functions://postgres/public/check_signup_invite"
+                    }'
+
             - if: ${{ env.IS_SUPABASE_CONFIGURED && env.RESEND_API_KEY }}
               name: 📡 Push supabase function secrets
               run: |

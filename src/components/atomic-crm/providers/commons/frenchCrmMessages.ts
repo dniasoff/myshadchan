@@ -115,8 +115,6 @@ export const frenchCrmMessages = {
   },
   crm: {
     auth: {
-      show_password: "Afficher le mot de passe",
-      hide_password: "Masquer le mot de passe",
       footer_private: "Privé à votre famille",
       back_to_home: "Retour à l'accueil",
       login: {

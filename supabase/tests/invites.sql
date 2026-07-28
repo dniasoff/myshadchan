@@ -303,11 +303,10 @@ select 'check_signup_invite is reachable by supabase_auth_admin (the GoTrue hook
        has_function_privilege('supabase_auth_admin', 'public.check_signup_invite(jsonb)', 'execute');
 
 -- ---------------------------------------------------------------------------
--- AC-6/AC-7: handle_new_user()'s invite-binding rewrite. (a) a matching
--- signup binds the invite's account_id/role/invited_by and flips the invite
--- to accepted; (b) a signup with no matching invite creates zero
--- account_members rows — the replacement for the deleted first-user
--- bootstrap; (c) a malformed invite_token does not crash the trigger.
+-- AC-6/AC-7 + review finding #4: handle_new_user() creates ONLY the members
+-- profile row, never a membership — binding moved to accept_invite(),
+-- gated on a real verified session (auth.uid()), not on the bare `/otp`
+-- request that used to fire it via an AFTER INSERT trigger on auth.users.
 -- ---------------------------------------------------------------------------
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data)
 values (
@@ -318,7 +317,45 @@ values (
 );
 
 insert into results (name, passed)
-select 'handle_new_user() binds the invite''s account_id/role/invited_by for a matching signup',
+select 'handle_new_user() creates the members profile row on signup',
+       exists (select 1 from public.members where user_id = 'b0000000-0000-0000-0000-00000000b001');
+
+insert into results (name, passed)
+select 'handle_new_user() does NOT bind a membership at signup, even with a valid invite_token in metadata (review finding #4)',
+       not exists (
+         select 1 from public.account_members
+         where user_id = 'b0000000-0000-0000-0000-00000000b001'
+       );
+
+insert into results (name, passed)
+select 'the invite is still pending after signup alone, not yet accepted (review finding #4)',
+       status = 'pending' and accepted_at is null
+from public.invites where email = 'hook-probe@test.local';
+
+insert into auth.users (id, instance_id, aud, role, email)
+values ('c0000000-0000-0000-0000-00000000c001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'no-invite@test.local');
+
+insert into results (name, passed)
+select 'a signup with no invite_token at all gets NO membership (AC-7 fallback replaces the old first-user bootstrap)', count(*) = 0
+from public.account_members where user_id = 'c0000000-0000-0000-0000-00000000c001';
+
+-- ---------------------------------------------------------------------------
+-- Review finding #4: accept_invite() — the ONLY place a membership is ever
+-- bound. Requires a real authenticated caller (auth.uid()), and re-validates
+-- the token AND the caller's own email against the invite (finding #3's
+-- fix lives here: no code path can bind a membership from a bare token
+-- anymore, only this definer function, and only for the session's own
+-- email).
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"b0000000-0000-0000-0000-00000000b001","role":"authenticated"}';
+
+select public.accept_invite(:'hook_token'::uuid);
+
+reset role;
+
+insert into results (name, passed)
+select 'accept_invite() binds the invite''s account_id/role/invited_by for the matching, authenticated caller',
        exists (
          select 1 from public.account_members
          where user_id = 'b0000000-0000-0000-0000-00000000b001'
@@ -329,36 +366,106 @@ select 'handle_new_user() binds the invite''s account_id/role/invited_by for a m
        );
 
 insert into results (name, passed)
-select 'the accepted invite is marked accepted with a timestamp',
+select 'the invite is marked accepted with a timestamp once accept_invite() succeeds',
        status = 'accepted' and accepted_at is not null
 from public.invites where email = 'hook-probe@test.local';
 
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"b0000000-0000-0000-0000-00000000b001","role":"authenticated"}';
+
+-- Note: `do $$ ... $$` blocks are dollar-quoted, so psql's `:'var'`
+-- interpolation does NOT reach inside them (confirmed against the running
+-- local stack) — every lookup below fetches its token from `public.invites`
+-- by the email this script itself assigned, matching the existing
+-- do-block convention above (the `ids` temp table for bigint values).
+do $$
+declare
+  v_token uuid;
+begin
+  select token into v_token from public.invites where email = 'hook-probe@test.local';
+  perform public.accept_invite(v_token);
+  insert into results values ('accept_invite() is idempotent for a retry by the same already-bound caller', true, null);
+exception when others then
+  insert into results values ('accept_invite() is idempotent for a retry by the same already-bound caller', false, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'a retried accept_invite() call does not create a second account_members row',
+       count(*) = 1
+from public.account_members where user_id = 'b0000000-0000-0000-0000-00000000b001';
+
 insert into auth.users (id, instance_id, aud, role, email)
-values ('c0000000-0000-0000-0000-00000000c001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'no-invite@test.local');
+values ('c0000000-0000-0000-0000-00000000c004', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'someone-else@test.local');
+
+insert into public.invites (email, account_id, role, invited_by)
+values ('mismatch-probe@test.local', :acct_household, 'helper', :admin_membership)
+returning token as mismatch_token \gset
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"c0000000-0000-0000-0000-00000000c004","role":"authenticated"}';
+
+do $$
+declare
+  v_token uuid;
+begin
+  select token into v_token from public.invites where email = 'mismatch-probe@test.local';
+  perform public.accept_invite(v_token);
+  insert into results values ('accept_invite() refuses a caller whose own email does not match the invite (review finding #3)', false, 'call succeeded');
+exception when others then
+  insert into results values ('accept_invite() refuses a caller whose own email does not match the invite (review finding #3)', true, sqlerrm);
+end $$;
+
+reset role;
 
 insert into results (name, passed)
-select 'a signup with no matching invite gets NO membership (AC-7 fallback replaces the old first-user bootstrap)', count(*) = 0
-from public.account_members where user_id = 'c0000000-0000-0000-0000-00000000c001';
+select 'the mismatched-caller invite is left untouched (still pending)',
+       status = 'pending' and accepted_at is null
+from public.invites where token = :'mismatch_token'::uuid;
 
-insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data)
-values ('c0000000-0000-0000-0000-00000000c002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'garbage-token@test.local', '{"invite_token":"not-a-uuid"}'::jsonb);
+-- Explicit claims with NO "sub" (not merely `reset role`, which only
+-- resets the DB role — `request.jwt.claims` is a separate, transaction-
+-- scoped GUC that would otherwise still carry the previous block's stale
+-- claims and silently mis-attribute this call to c004's session).
+set local role authenticated;
+set local request.jwt.claims = '{"role":"authenticated"}';
 
-insert into results (name, passed)
-select 'a malformed invite_token does not crash handle_new_user(), and gets no membership',
-       exists (select 1 from public.members where user_id = 'c0000000-0000-0000-0000-00000000c002')
-   and not exists (select 1 from public.account_members where user_id = 'c0000000-0000-0000-0000-00000000c002');
+do $$
+declare
+  v_token uuid;
+begin
+  select token into v_token from public.invites where email = 'hook-probe@test.local';
+  perform public.accept_invite(v_token);
+  insert into results values ('accept_invite() refuses an unauthenticated caller', false, 'call succeeded');
+exception when others then
+  insert into results values ('accept_invite() refuses an unauthenticated caller', true, sqlerrm);
+end $$;
 
-insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data)
+reset role;
+
+insert into auth.users (id, instance_id, aud, role, email)
 values (
   'c0000000-0000-0000-0000-00000000c003',
   '00000000-0000-0000-0000-000000000000',
-  'authenticated', 'authenticated', 'expired-preview@test.local',
-  jsonb_build_object('invite_token', :'expired_token', 'age_affirmed', true)
+  'authenticated', 'authenticated', 'expired-preview@test.local'
 );
 
-insert into results (name, passed)
-select 'an expired invite does not bind a membership even if reached (defense in depth)', count(*) = 0
-from public.account_members where user_id = 'c0000000-0000-0000-0000-00000000c003';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"c0000000-0000-0000-0000-00000000c003","role":"authenticated"}';
+
+do $$
+declare
+  v_token uuid;
+begin
+  select token into v_token from public.invites where email = 'expired-preview@test.local';
+  perform public.accept_invite(v_token);
+  insert into results values ('accept_invite() refuses an expired invite even for the matching email (defense in depth)', false, 'call succeeded');
+exception when others then
+  insert into results values ('accept_invite() refuses an expired invite even for the matching email (defense in depth)', true, sqlerrm);
+end $$;
+
+reset role;
 
 insert into results (name, passed)
 select 'the expired invite is left untouched (still pending in storage, not silently accepted)',

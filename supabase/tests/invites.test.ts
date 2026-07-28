@@ -13,9 +13,12 @@ import { bailIfDbUnreachable } from "./dbSuiteHelpers";
  * (AC-2), that `create_invite()`'s authority/kind checks actually refuse
  * (AC-3), that `get_invite_preview()` is anon-callable and narrow (AC-4),
  * that `check_signup_invite()` allows/refuses per its Auth Hook contract
- * (AC-5), and that `handle_new_user()` binds from a matching invite and
- * creates NO membership otherwise (AC-6/AC-7) — only exists inside Postgres
- * (RLS + grants + triggers) and cannot be exercised through a mock. The SQL
+ * (AC-5), and that `accept_invite()` binds from a matching, AUTHENTICATED
+ * caller and creates NO membership otherwise (AC-6/AC-7, review finding #4:
+ * `handle_new_user()` no longer binds anything at signup, only
+ * `accept_invite()` does, gated on a real verified session) — only exists
+ * inside Postgres (RLS + grants + triggers) and cannot be exercised
+ * through a mock. The SQL
  * emits one JSON row per check; this file turns each into a named test so a
  * failure names the invariant that broke.
  *

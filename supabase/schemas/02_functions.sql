@@ -12,31 +12,33 @@ BEGIN
 END;
 $_$;
 
--- Provisions a new auth user: the `members` profile row, plus — since
--- current_context_id() now fails closed — the account_members row without which
--- the user would see nothing at all.
+-- Provisions a new auth user's `members` profile row. Membership itself
+-- (the account_members row) is bound separately by accept_invite() below —
+-- deliberately NOT here, and NOT at auth.users INSERT time at all.
 --
--- Membership binds from an invite (Story 2.7, AD-11: "new users join only by
--- a verified invite token"), never a bootstrap: looks up the `pending`,
--- unexpired `invites` row whose `token` matches
--- new.raw_user_meta_data->>'invite_token'. Found -> insert the
--- account_members row with that invite's account_id/role/invited_by and mark
--- the invite `accepted`. Not found (should not happen once
--- check_signup_invite()'s Auth Hook is live — this is defense-in-depth, not
--- the primary gate; see "Two gates, one authoritative" in story 2.7's Dev
--- Notes) -> create NO membership at all; the caller falls through to
--- current_context_id()'s existing fail-closed NULL, exactly as an uninvited
--- signup does today. `role` is never read from the request body for a mass
--- assignment — it is looked up server-side from the invites row the token
--- names, never from a client-supplied role field.
+-- Story 2.7 review finding #4: this function used to look up the invite by
+-- `new.raw_user_meta_data->>'invite_token'` and bind account_members right
+-- here, on INSERT. That fires the instant an invitee's OTP is REQUESTED
+-- (`authProvider.login({ requestOtp: true, ... })`), not once it is
+-- VERIFIED — GoTrue creates (and, under this project's
+-- `enable_confirmations = false` autoconfirm setting, even stamps
+-- `email_confirmed_at`/`last_sign_in_at` on) the auth.users row the moment
+-- the code is requested, before the invitee has typed anything back
+-- (verified empirically against the running local stack: both timestamps
+-- are already non-null immediately after the bare `/otp` call). So anyone
+-- who merely obtained the invite link (a forwarded email) could burn it —
+-- flipping it to `accepted` and provisioning an active membership — without
+-- ever proving mailbox control, locking the real invitee out with "this
+-- invite has already been used." There is no auth.users column that
+-- reliably distinguishes "requested" from "verified" under this config, so
+-- binding on `auth.uid()` (obtainable ONLY via a verified session) is the
+-- only mechanically sound gate — see accept_invite()'s own comment.
 CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
   member_count int;
-  v_invite public.invites;
-  v_invite_token uuid;
 begin
   select count(id) into member_count
   from public.members;
@@ -62,35 +64,71 @@ begin
     case when member_count > 0 then FALSE else TRUE end
   );
 
-  -- Defensive cast: a malformed invite_token must never abort the whole
-  -- auth.users insert (this trigger's exception would roll back the entire
-  -- signup transaction). check_signup_invite() already validated the token
-  -- shape before this user was allowed to be created; this guard only
-  -- matters for the "hook unavailable" fallback path.
-  begin
-    v_invite_token := nullif(new.raw_user_meta_data ->> 'invite_token', '')::uuid;
-  exception when others then
-    v_invite_token := null;
-  end;
+  return new;
+end;
+$$;
 
-  if v_invite_token is not null then
-    select i.* into v_invite
-    from public.invites i
-    where i.token = v_invite_token
-      and i.status = 'pending'
-      and i.expires_at > now();
-
-    if found then
-      insert into public.account_members (account_id, user_id, role, invited_by, status)
-      values (v_invite.account_id, new.id, v_invite.role, v_invite.invited_by, 'active');
-
-      update public.invites
-      set status = 'accepted', accepted_at = now()
-      where id = v_invite.id;
-    end if;
+-- Binds an invite to a real membership and marks it `accepted` — the other
+-- half of Story 2.7's invite-only signup, and the fix for review finding
+-- #4 (see handle_new_user()'s comment for the full "requested vs verified"
+-- rationale this replaces). Called by InviteAcceptance.tsx immediately
+-- after its own verifyOtp() succeeds, i.e. only once `auth.uid()` resolves
+-- to a real, code-verified session — that is the one thing a bare `/otp`
+-- request can never produce, which is exactly why it is the gate here
+-- instead of an auth.users trigger. `role` is never read from the request
+-- body for a mass assignment (AC-6) — it is looked up server-side from the
+-- invites row the token names, never from a client-supplied role field.
+-- Re-validates BOTH the token and the caller's own email against the
+-- invite (review finding #3's fix lives here now, not in handle_new_user():
+-- moving the bind off the auth.users trigger closes that finding at the
+-- root — no code path can create a membership from a bare token anymore,
+-- only this definer function, and only for the session's own email).
+-- Idempotent: a retry for an invite this SAME caller already completed
+-- (a page reload right after success) is a silent no-op, not an error.
+CREATE OR REPLACE FUNCTION "public"."accept_invite"("p_token" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_user_id uuid := auth.uid();
+  v_email text;
+  v_invite public.invites;
+begin
+  if v_user_id is null then
+    raise exception 'accept_invite requires an authenticated caller'
+      using errcode = 'insufficient_privilege';
   end if;
 
-  return new;
+  select email into v_email from auth.users where id = v_user_id;
+
+  select i.* into v_invite
+  from public.invites i
+  where i.token = p_token
+    and lower(i.email) = lower(coalesce(v_email, ''));
+
+  if not found then
+    raise exception 'This invite is invalid, expired, or has already been used.'
+      using errcode = 'check_violation';
+  end if;
+
+  if v_invite.status = 'accepted' and exists (
+    select 1 from public.account_members
+    where account_id = v_invite.account_id and user_id = v_user_id
+  ) then
+    return;
+  end if;
+
+  if v_invite.status <> 'pending' or v_invite.expires_at <= now() then
+    raise exception 'This invite is invalid, expired, or has already been used.'
+      using errcode = 'check_violation';
+  end if;
+
+  insert into public.account_members (account_id, user_id, role, invited_by, status)
+  values (v_invite.account_id, v_user_id, v_invite.role, v_invite.invited_by, 'active');
+
+  update public.invites
+  set status = 'accepted', accepted_at = now()
+  where id = v_invite.id;
 end;
 $$;
 

@@ -112,8 +112,6 @@ export const englishCrmMessages = {
   },
   crm: {
     auth: {
-      show_password: "Show password",
-      hide_password: "Hide password",
       footer_private: "Private to your family",
       back_to_home: "Back to home",
       login: {
