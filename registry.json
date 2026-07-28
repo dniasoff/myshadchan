@@ -868,11 +868,31 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/entity360/entityPaths.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/entity360/entityDescriptor.ts",
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/entity360/buildEntityRoutes.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/entity360/avatar.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/RecordUnavailable.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/RecordRoute.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/RecordPending.tsx",
           "type": "registry:component"
         },
         {
@@ -881,6 +901,10 @@
         },
         {
           "path": "src/components/atomic-crm/entity360/EntityAvatar.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/Entity360Tabs.tsx",
           "type": "registry:component"
         },
         {
