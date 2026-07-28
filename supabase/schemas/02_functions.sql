@@ -294,7 +294,7 @@ CREATE OR REPLACE FUNCTION "public"."my_contexts"() RETURNS TABLE("account_id" b
     a.kind,
     a.name,
     am.role,
-    am.account_id = public.current_context_id() as is_active
+    coalesce(am.account_id = public.current_context_id(), false) as is_active
   from public.account_members am
   join public.accounts a on a.id = am.account_id
   where am.user_id = auth.uid() and am.status = 'active';

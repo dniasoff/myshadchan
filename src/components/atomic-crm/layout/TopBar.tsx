@@ -61,6 +61,7 @@ const singleLabel = (single: Single) =>
  * selection (foundation-plan risk #3).
  */
 const SingleSwitcherPill = () => {
+  const translate = useTranslate();
   const { data: singleList } = useGetList<Single>("singles", {
     pagination: { page: 1, perPage: 100 },
     sort: { field: "first_name_en", order: "ASC" },
@@ -86,6 +87,10 @@ const SingleSwitcherPill = () => {
         <button
           type="button"
           data-tour="single-switcher"
+          aria-label={translate("crm.single_switcher.trigger_label", {
+            name: singleLabel(selected),
+            _: "Switch single: %{name}",
+          })}
           className="inline-flex h-9 items-center gap-2 rounded-full border
             border-border bg-secondary px-3 text-sm font-semibold
             text-foreground outline-none transition-colors duration-[160ms]

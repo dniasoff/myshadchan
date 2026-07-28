@@ -1,4 +1,4 @@
-import type { DataProvider, Identifier, UserIdentity } from "ra-core";
+import type { DataProvider, Identifier } from "ra-core";
 
 import type {
   Account,
@@ -8,11 +8,11 @@ import type {
   Persona,
   Single,
 } from "../../../types";
-
-const PAGE_ALL = { page: 1, perPage: 10_000 } as const;
-const SORT_BY_ID = { field: "id", order: "ASC" } as const;
-
-type GetIdentity = () => Promise<Pick<UserIdentity, "id"> | null | undefined>;
+import {
+  activeMembershipsFor,
+  SORT_BY_ID,
+  type GetIdentity,
+} from "./accountMemberships";
 
 /**
  * FakeRest mirrors of `public.my_personas()` / `public.add_persona()`
@@ -28,21 +28,6 @@ type GetIdentity = () => Promise<Pick<UserIdentity, "id"> | null | undefined>;
 // addPersona('parent') ever promotes in place.
 const isOwningMembershipRole = (role: AccountMember["role"]): boolean =>
   role === "parent_admin" || role === "self_manager";
-
-const activeMembershipsFor = async (
-  baseDataProvider: DataProvider,
-  userId: string,
-): Promise<AccountMember[]> => {
-  const { data } = await baseDataProvider.getList<AccountMember>(
-    "account_members",
-    {
-      filter: { user_id: userId, status: "active" },
-      pagination: PAGE_ALL,
-      sort: SORT_BY_ID,
-    },
-  );
-  return data;
-};
 
 // This predicate must match my_personas()'s single-detection exactly (same
 // comment as 02_functions.sql): a `singles` row already points at this

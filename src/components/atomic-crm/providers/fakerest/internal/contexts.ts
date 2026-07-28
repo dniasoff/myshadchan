@@ -1,11 +1,7 @@
-import type { DataProvider, Identifier, UserIdentity } from "ra-core";
+import type { DataProvider, Identifier } from "ra-core";
 
-import type { Account, AccountMember, MyContext } from "../../../types";
-
-const PAGE_ALL = { page: 1, perPage: 10_000 } as const;
-const SORT_BY_ID = { field: "id", order: "ASC" } as const;
-
-type GetIdentity = () => Promise<Pick<UserIdentity, "id"> | null | undefined>;
+import type { Account, MyContext } from "../../../types";
+import { activeMembershipsFor, type GetIdentity } from "./accountMemberships";
 
 /**
  * FakeRest mirrors of `public.my_contexts()` / `public.set_active_context()`
@@ -18,21 +14,6 @@ type GetIdentity = () => Promise<Pick<UserIdentity, "id"> | null | undefined>;
  * and validates it through the passed accessor/setter, it never owns the
  * state itself.
  */
-
-const activeMembershipsFor = async (
-  baseDataProvider: DataProvider,
-  userId: string,
-): Promise<AccountMember[]> => {
-  const { data } = await baseDataProvider.getList<AccountMember>(
-    "account_members",
-    {
-      filter: { user_id: userId, status: "active" },
-      pagination: PAGE_ALL,
-      sort: SORT_BY_ID,
-    },
-  );
-  return data;
-};
 
 /** FakeRest mirror of `public.my_contexts()` — derives, never stores. */
 export async function getMyContexts(
@@ -56,12 +37,23 @@ export async function getMyContexts(
   // id) is treated as active until switchActiveContext() is called.
   const activeAccountId = getActiveAccountId() ?? memberships[0].account_id;
 
+  // Memoized like personas.ts's loadAccount — a login with N memberships in
+  // the SAME account (rare, but two rows can share account_id) must not
+  // issue N redundant getOne("accounts") calls (2.4 review finding #7).
+  const accountCache = new Map<Identifier, Account>();
+  const loadAccount = async (accountId: Identifier): Promise<Account> => {
+    const cached = accountCache.get(accountId);
+    if (cached) return cached;
+    const { data } = await baseDataProvider.getOne<Account>("accounts", {
+      id: accountId,
+    });
+    accountCache.set(accountId, data);
+    return data;
+  };
+
   const contexts: MyContext[] = [];
   for (const membership of memberships) {
-    const { data: account } = await baseDataProvider.getOne<Account>(
-      "accounts",
-      { id: membership.account_id },
-    );
+    const account = await loadAccount(membership.account_id);
     contexts.push({
       account_id: membership.account_id,
       kind: account.kind,

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import {
@@ -30,13 +30,33 @@ import type { MyContext } from "../types";
  * both places, never a second implementation.
  */
 export const ContextSwitcher = () => {
-  const { data: contexts } = useMyContexts();
+  const { data: contexts, isError: contextsErrored } = useMyContexts();
   const dataProvider = useDataProvider<CrmDataProvider>();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const translate = useTranslate();
   const notify = useNotify();
   const [switching, setSwitching] = useState(false);
+  const notifiedLoadError = useRef(false);
+
+  useEffect(() => {
+    // Review finding #4: getMyContexts() is fail-loud (dataProvider.ts's own
+    // comment: "a swallowed error here would read as 'only one context' and
+    // silently hide the switcher"). Collapsing a rejected query into the
+    // same empty-fragment render as "fewer than 2 contexts" (AC-1) would
+    // defeat that on the very next line, so a load failure gets its own
+    // toast — once per failure, not on every re-render while it persists.
+    if (contextsErrored && !notifiedLoadError.current) {
+      notifiedLoadError.current = true;
+      notify("crm.context_switcher.load_error", {
+        type: "error",
+        messageArgs: { _: "Couldn't load your contexts." },
+      });
+    }
+    if (!contextsErrored) {
+      notifiedLoadError.current = false;
+    }
+  }, [contextsErrored, notify]);
 
   if (!contexts || contexts.length < 2) {
     return <></>;
@@ -59,6 +79,12 @@ export const ContextSwitcher = () => {
     });
 
   const handleSelect = async (accountId: Identifier) => {
+    // Review finding #9: re-selecting the already-active context is a
+    // destructive no-op otherwise — a full invalidateQueries() + navigate("/")
+    // that kicks the user off whatever page they're on for nothing.
+    if (String(accountId) === String(active.account_id)) {
+      return;
+    }
     setSwitching(true);
     try {
       // AD-19: set_active_context() (via switchActiveContext) is the only
@@ -73,15 +99,17 @@ export const ContextSwitcher = () => {
       // AD-24: records live at URLs; a record from the context just left
       // no longer resolves for this login, so leave nothing open behind.
       navigate("/");
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : translate("crm.context_switcher.switch_error", {
-              _: "Couldn't switch context. Try again.",
-            }),
-        { type: "error" },
-      );
+    } catch {
+      // Review finding #3: always the dedicated i18n key (AD-18/AC-8) —
+      // never the raw Error.message. Both providers throw a plain `Error`
+      // (Supabase's own generic wrapper, or FakeRest's developer-facing
+      // "no active membership of account N"), so branching on
+      // `instanceof Error` here never reached the translate() fallback and
+      // left `crm.context_switcher.switch_error` dead in both catalogues.
+      notify("crm.context_switcher.switch_error", {
+        type: "error",
+        messageArgs: { _: "Couldn't switch context. Try again." },
+      });
     } finally {
       setSwitching(false);
     }
@@ -93,6 +121,10 @@ export const ContextSwitcher = () => {
         <button
           type="button"
           disabled={switching}
+          aria-label={translate("crm.context_switcher.trigger_label", {
+            context: contextLabel(active),
+            _: "Switch context: %{context}",
+          })}
           className="inline-flex h-9 items-center gap-2 rounded-full border
             border-border bg-secondary px-3 text-sm font-semibold
             text-foreground outline-none transition-colors duration-[160ms]

@@ -271,7 +271,12 @@ export const frenchCrmMessages = {
       kind_household: "Foyer",
       kind_shadchanus: "Shadchanous",
       switch_error: "Impossible de changer de contexte. Réessayez.",
+      load_error: "Impossible de charger vos contextes.",
       section_title: "Contexte",
+      trigger_label: "Changer de contexte : %{context}",
+    },
+    single_switcher: {
+      trigger_label: "Changer de célibataire : %{name}",
     },
     settings: {
       dark_mode_logo: "Logo du mode sombre",

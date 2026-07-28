@@ -272,7 +272,16 @@ export const englishCrmMessages = {
       kind_household: "Household",
       kind_shadchanus: "Shadchanus",
       switch_error: "Couldn't switch context. Try again.",
+      load_error: "Couldn't load your contexts.",
       section_title: "Context",
+      trigger_label: "Switch context: %{context}",
+    },
+    // TopBar.tsx's pre-existing single-switcher pill (a different axis from
+    // context_switcher above — "which single's pipeline am I viewing").
+    // Named here (2.4 review finding #10) once ContextSwitcher started
+    // rendering an identical-looking pill directly beside it.
+    single_switcher: {
+      trigger_label: "Switch single: %{name}",
     },
     settings: {
       dark_mode_logo: "Dark Mode Logo",

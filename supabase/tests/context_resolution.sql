@@ -392,7 +392,19 @@ select 'the resolver current_account_id() no longer exists',
 -- above already prove visible to the caller. u1 is still authenticated with
 -- context B active (the switch at "AC-4/AC-11: switch to household B" above
 -- is the last write to member_state before this point).
+--
+-- Review finding #5 (should-fix): every fixture membership above is
+-- status = 'active', so deleting my_contexts()'s `and am.status = 'active'`
+-- clause would fail no check. u1 also holds a REVOKED membership of a
+-- fourth household (D) — inserted here, while still running with the
+-- elevated role, exactly like acct_a/b/c's own fixtures above — to pin that
+-- the filter is load-bearing, not just true by accident.
 -- ---------------------------------------------------------------------------
+insert into public.accounts (name) values ('Context Household D (revoked)') returning id as acct_d \gset
+insert into ids values ('acct_d', :acct_d);
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_d, 'c1c1c1c1-1111-1111-1111-111111111111', 'helper', 'revoked');
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"c1c1c1c1-1111-1111-1111-111111111111","role":"authenticated"}';
 
@@ -402,6 +414,10 @@ select 'my_contexts() reports exactly the caller''s two contexts, never a third 
    and (select count(*) from public.my_contexts() where account_id = :acct_a) = 1
    and (select count(*) from public.my_contexts() where account_id = :acct_b) = 1
    and (select count(*) from public.my_contexts() where account_id = :acct_c) = 0;
+
+insert into results (name, passed)
+select 'my_contexts() excludes a REVOKED membership (pins the status = ''active'' filter itself, not just its usual outcome)',
+       (select count(*) from public.my_contexts() where account_id = :acct_d) = 0;
 
 insert into results (name, passed)
 select 'my_contexts() flags the currently active context true and the other false',
@@ -418,6 +434,26 @@ set local request.jwt.claims = '{"sub":"c3c3c3c3-3333-3333-3333-333333333333","r
 insert into results (name, passed)
 select 'my_contexts() returns no rows for an unprovisioned user (a stranger''s context never appears, from their own side either)',
        (select count(*) from public.my_contexts()) = 0;
+
+reset role;
+
+-- Review finding #6 (note, 2.4 review): a fail-closed current_context_id()
+-- (member_state.active_account_id IS NULL) must never turn is_active into
+-- SQL NULL — types.ts declares MyContext.is_active as `boolean`, and NULL
+-- would violate that contract even though the UI happens to survive it via
+-- `?? contexts[0]`. u4 holds exactly one active membership (household C);
+-- force member_state back to NULL for u4 directly (elevated role — the
+-- same write authenticated is blocked from making, proven above) to pin
+-- that my_contexts() reports false, not NULL, in that state.
+update public.member_state set active_account_id = null
+where user_id = 'c4c4c4c4-4444-4444-4444-444444444444';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"c4c4c4c4-4444-4444-4444-444444444444","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'my_contexts() reports is_active = false, never NULL, when current_context_id() fails closed',
+       (select is_active from public.my_contexts() where account_id = :acct_c) is not distinct from false;
 
 reset role;
 

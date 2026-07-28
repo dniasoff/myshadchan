@@ -419,6 +419,97 @@ Claude Sonnet 5 (claude-code, bmad-dev-story workflow)
 - Not done / out of scope, as the story specifies: `05_policies.sql`, `07_storage.sql` and
   `root/routeManifest.ts` were not touched. No story claim failed to reproduce.
 
+### Review Response (adversarial review of commits `900695e` + `9c5c6ad`, verdict NEEDS-FIX)
+
+All 5 should-fix findings and 4 of 6 notes are FIXED; two notes are FLAGGED, not changed
+(reasoning below). `context_resolution.sql` grows from 95 to 97 checks (`test:unit:db`: 239 →
+241); the frontend suite gains a new `internal/contexts.test.ts` (10 tests) and 2 tests in
+`ContextSwitcher.test.tsx` (4 → 6). Full re-run after all fixes: `npm run typecheck`, `make
+lint` (eslint + prettier), `npm run test` (684 tests / 61 files, all green), `npm run
+test:unit:db` (241 checks, all green).
+
+- **Finding #1 (should-fix) — `internal/contexts.ts` shipped with zero tests. FIXED.**
+  Added `internal/contexts.test.ts` (10 tests), mirroring `personas.test.ts`'s own
+  in-memory-`DataProvider` shape: both `identity == null` guards on `getMyContexts` and
+  `switchActiveContext`, the "first membership by id is active until switched" bootstrap, the
+  `holdsMembership` throw (including a revoked-membership case), a shared-account-id case
+  pinning the new memoized `getOne` (see finding #7), and that a `revoked` membership is
+  reported by neither function.
+- **Finding #2 (should-fix) — the component test never exercised `getMyContexts`; all 4 tests
+  logged a swallowed TypeError. FIXED.** `ContextSwitcher.test.tsx`'s `buildDataProvider` now
+  takes the `contexts` array and returns `getMyContexts: vi.fn().mockResolvedValue(contexts)`
+  instead of a bare `vi.fn()`, so react-query's default background refetch-on-mount resolves
+  successfully instead of rejecting on `undefined`. All 6 tests (4 original + 2 new) now
+  round-trip through the real hook/provider seam with no console errors.
+- **Finding #3 (should-fix) — the `crm.context_switcher.switch_error` key was unreachable;
+  users saw a hardcoded English/dev-facing string. FIXED.** `handleSelect`'s catch block always
+  calls `notify("crm.context_switcher.switch_error", { type: "error", messageArgs: { _: "..." } })`
+  now — the `error instanceof Error ? error.message : translate(...)` branch (which never took
+  the `translate` side, since both providers throw plain `Error`s) is gone. A French user now
+  sees the translated copy on any failed switch, from either provider.
+- **Finding #4 (should-fix) — a failed `my_contexts()` RPC silently deleted the switcher. FIXED.**
+  `ContextSwitcher` reads `isError` from `useMyContexts()` and, via a `useEffect` guarded by a
+  ref (so it fires once per failure, not on every re-render while errored), calls
+  `notify("crm.context_switcher.load_error", ...)`. The switcher still renders nothing on error
+  (restoring full switch capability from a hard failure was judged out of scope for a
+  should-fix — the story never asked for a retry affordance), but the failure is no longer
+  silent, matching the "fail loud" intent `dataProvider.ts`'s own comment states. New test:
+  "notifies (and still renders nothing) when getMyContexts fails to load."
+- **Finding #5 (should-fix) — no negative test on the `status = 'active'` filter. FIXED.**
+  `context_resolution.sql` gained a fourth account (D) with a `revoked` membership for u1,
+  inserted alongside the existing A/B/C fixtures, plus the assertion `my_contexts() excludes a
+  REVOKED membership`. Confirmed it actually pins the filter: temporarily removing `and
+  am.status = 'active'` from `my_contexts()` fails this new check (verified locally, then
+  reverted).
+- **Finding #6 (note) — `is_active` was SQL `NULL`, not `false`, in the fail-closed case.
+  FIXED.** `02_functions.sql`: `am.account_id = public.current_context_id() as is_active` →
+  `coalesce(am.account_id = public.current_context_id(), false) as is_active`. Migration
+  `20260728015112_context_switcher_review_fixes.sql` generated via `db diff`, hand-verified to
+  carry only the `CREATE OR REPLACE FUNCTION` (grants persist across `CREATE OR REPLACE` and
+  were confirmed unchanged post-apply), applied locally; a follow-up `db diff` reports "No
+  schema changes found." New test forces `member_state.active_account_id` to `NULL` directly
+  (elevated role) for a login with exactly one membership and asserts `my_contexts()` reports
+  `is_active = false`, never `NULL`.
+- **Finding #7 (note) — DRY violation between `contexts.ts` and `personas.ts`. FIXED.**
+  Extracted `PAGE_ALL`/`SORT_BY_ID`/`GetIdentity`/`activeMembershipsFor` into a new
+  `internal/accountMemberships.ts`, imported by both files (personas.ts's `hasLinkedSingle`
+  also needed `SORT_BY_ID`, so that one is exported too). `contexts.ts`'s `getMyContexts` also
+  gained `personas.ts`-style `accountCache` memoization for its `getOne("accounts")` calls (was
+  one call per membership, no memo) — pinned by the new "reports one row per account even when
+  two memberships share the same account" test asserting exactly one `getOne` call.
+- **Finding #8 (note) — Task 3's mobile styling instruction (match `FamilySection`'s
+  `SectionLabel` + `ItemGroup`/`Item`) not followed. FLAGGED, not changed.** The story's own
+  AC-7 decision text commits to verbatim reuse — "the same component both places, never a
+  second implementation" — specifically to avoid inventing mobile-specific chrome for a mount
+  Story 4.4 deletes outright. Restyling `ContextSwitcher` into an `Item`-row shape for mobile
+  only would mean either forking it into two visual variants (reintroducing the "second
+  implementation" AC-7 explicitly rejects) or reworking `Item`/`ItemGroup` into a working
+  dropdown trigger — a materially larger change than this note's "should match the pattern"
+  wording implies, for an admittedly interim surface. The reviewer's own verdict — "AC-7 itself
+  is satisfied" — confirms this is a style deviation from task wording, not a defect; left as
+  disclosed interim debt for whoever picks up 4.4.
+- **Finding #9 (note) — re-selecting the active context was a destructive no-op. FIXED.**
+  `handleSelect` now returns immediately when `String(accountId) === String(active.account_id)`,
+  before `switchActiveContext`/`invalidateQueries`/`navigate` run. New test: "does not switch,
+  invalidate, or navigate when re-selecting the already-active context."
+- **Finding #10 (note) — two visually identical, unlabelled pills. FIXED.** Added
+  `aria-label`s naming each pill's axis: `ContextSwitcher`'s trigger gets
+  `crm.context_switcher.trigger_label` ("Switch context: %{context}") and
+  `SingleSwitcherPill`'s (pre-existing, `TopBar.tsx`) gets the new
+  `crm.single_switcher.trigger_label` ("Switch single: %{name}"), both added to en+fr. The
+  AC-2 test's exact-name assertion updated to the new full accessible name (still asserts the
+  active row's name+kind, satisfying the AC's own "contains" wording).
+- **Finding #11 (note) — FakeRest's `activeAccountId` is write-only; a demo-mode switch changes
+  no data. FLAGGED, not changed** — the reviewer's own text calls this "pre-existing... not a
+  regression by this story" (FakeRest has no account scoping at all today); fixing it is a
+  FakeRest-wide scoping project, not a `ContextSwitcher` fix.
+- **Finding #12 (note) — minor report inaccuracies.** Corrected here: the original "95 in
+  `context_resolution`" phrasing named the SQL check count but was read as the vitest file's
+  test count, which was 96 (95 per-check `it()`s + the file's own separate "runs a non-trivial
+  number of checks" threshold test) — now 97/98 respectively after findings #5 and #6 add two
+  more SQL checks. "No hardcoded strings" is now true only after finding #3's fix above; it was
+  not, at the time the original report made that claim.
+
 ### File List
 
 - `supabase/schemas/02_functions.sql` (edit — `my_contexts()`)
@@ -443,3 +534,34 @@ Claude Sonnet 5 (claude-code, bmad-dev-story workflow)
   `crm.context_switcher.*`)
 - `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (edit —
   `crm.context_switcher.*`)
+
+**Review follow-up (this commit) — see Review Response above for detail:**
+
+- `supabase/schemas/02_functions.sql` — `my_contexts()`'s `is_active` wrapped in
+  `coalesce(..., false)` (finding #6).
+- `supabase/migrations/20260728015112_context_switcher_review_fixes.sql` (new) — the
+  `coalesce` fix, applied and verified locally (no phantom diff).
+- `supabase/tests/context_resolution.sql` — added a revoked-membership fixture/assertion
+  (finding #5) and a fail-closed `is_active = false` assertion (finding #6); 95 → 97 checks.
+- `src/components/atomic-crm/providers/fakerest/internal/accountMemberships.ts` (new) —
+  `activeMembershipsFor`/`PAGE_ALL`/`SORT_BY_ID`/`GetIdentity` extracted out of `contexts.ts`
+  and `personas.ts` (finding #7).
+- `src/components/atomic-crm/providers/fakerest/internal/contexts.ts` — uses the shared
+  `accountMemberships.ts` helpers; `getMyContexts` gained `accountCache` memoization
+  (finding #7).
+- `src/components/atomic-crm/providers/fakerest/internal/contexts.test.ts` (new) — 10 tests
+  closing finding #1's coverage gap.
+- `src/components/atomic-crm/providers/fakerest/internal/personas.ts` — uses the shared
+  `accountMemberships.ts` helpers instead of its own copies (finding #7); no behaviour change.
+- `src/components/atomic-crm/layout/ContextSwitcher.tsx` — `handleSelect`'s catch always uses
+  the `crm.context_switcher.switch_error` key (finding #3); re-select-active-context no-op
+  guard (finding #9); `isError`-driven load-failure notify (finding #4); `aria-label` on the
+  trigger (finding #10).
+- `src/components/atomic-crm/layout/ContextSwitcher.test.tsx` — `getMyContexts` mocked as
+  `mockResolvedValue` throughout (finding #2); AC-2's exact-name assertion updated for the new
+  `aria-label` (finding #10); two new tests (findings #4, #9).
+- `src/components/atomic-crm/layout/TopBar.tsx` — `SingleSwitcherPill`'s trigger gained an
+  `aria-label` (finding #10).
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` /
+  `frenchCrmMessages.ts` — added `crm.context_switcher.load_error`,
+  `crm.context_switcher.trigger_label`, `crm.single_switcher.trigger_label` (findings #4, #10).
