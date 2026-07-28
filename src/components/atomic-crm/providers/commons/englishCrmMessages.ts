@@ -363,6 +363,32 @@ export const englishCrmMessages = {
       updated: "Your profile has been updated",
       update_error: "An error occurred. Please try again",
     },
+    // Story 3-10 (tab vocabulary). One entry per TabKey (entity360/tabKeys.ts)
+    // — values identical to TAB_LABELS's, so the two never drift silently
+    // behind i18nProvider's `allowMissing: true` (Epic 3 API contract §3
+    // rule 2). Adding a tab key adds one entry here in the same diff.
+    entity360: {
+      tab: {
+        overview: "Overview",
+        activity: "Activity",
+        notes: "Notes",
+        tasks: "Tasks",
+        files: "Files",
+        related: "Related",
+        resume: "Resume",
+        photo: "Photo",
+        medical: "Medical",
+        diligence: "Diligence",
+        "external-links": "External links",
+        shidduchim: "Shidduchim",
+        conversations: "Conversations",
+        discussions: "Discussions",
+        assistant: "Assistant",
+      },
+      overview: {
+        empty: "No details on file yet.",
+      },
+    },
     references: {
       list: {
         title: "Reference book",

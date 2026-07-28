@@ -351,6 +351,28 @@ export const frenchCrmMessages = {
       updated: "Votre profil a été mis à jour",
       update_error: "Une erreur s'est produite. Veuillez réessayer",
     },
+    entity360: {
+      tab: {
+        overview: "Aperçu",
+        activity: "Activité",
+        notes: "Notes",
+        tasks: "Tâches",
+        files: "Fichiers",
+        related: "Associés",
+        resume: "CV",
+        photo: "Photo",
+        medical: "Médical",
+        diligence: "Vérifications",
+        "external-links": "Liens externes",
+        shidduchim: "Shidduchim",
+        conversations: "Conversations",
+        discussions: "Discussions",
+        assistant: "Assistant",
+      },
+      overview: {
+        empty: "Aucune information enregistrée pour l'instant.",
+      },
+    },
     references: {
       list: {
         title: "Carnet de références",

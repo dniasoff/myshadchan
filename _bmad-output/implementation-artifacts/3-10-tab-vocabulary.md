@@ -1,6 +1,15 @@
+---
+baseline_commit: a96f49172f97d57f5a1574f6ce9ea9ab36b4d3e4
+---
+
 # Story 3.10: Shared tab vocabulary
 
-Status: ready-for-dev
+Status: in-progress
+
+> Part 3.10a (Tasks 1-5) is complete and committed to `main`. Part 3.10b (Task 6,
+> `RelatedRecordsTab`) is deliberately not started: it depends on Story 3.9
+> (`RecordLink`) and Story 3.3a (`EntityDescriptor`/registry), neither of which has
+> landed yet. Re-open this story once both land — see Completion Notes.
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -250,26 +259,26 @@ comment, and builds the two shared tab components UX-DR4 names and no story owns
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — `tabKeys.ts`** (AC: 1, 2) *(part 3.10a)*
-  - [ ] Create `src/components/atomic-crm/entity360/` if 3.1 has not already — build order
+- [x] **Task 1 — `tabKeys.ts`** (AC: 1, 2) *(part 3.10a)*
+  - [x] Create `src/components/atomic-crm/entity360/` if 3.1 has not already — build order
         puts this story first, so it normally creates the directory 3.1's story text claims
         to create. Either way, one directory, no duplication.
-  - [ ] Write `TAB_KEYS`, `TabKey`, `TAB_LABELS`, `isTabKey`, `tabLabelKey` exactly as
+  - [x] Write `TAB_KEYS`, `TabKey`, `TAB_LABELS`, `isTabKey`, `tabLabelKey` exactly as
         AC 1 lists them. File is constants only — no React, no imports from any sibling
         directory of `entity360/`.
-  - [ ] Doc comment at the top recording contract §3 rule 3: adding a key is a one-line
+  - [x] Doc comment at the top recording contract §3 rule 3: adding a key is a one-line
         edit to `TAB_KEYS` plus one to `TAB_LABELS` plus one catalog entry, made in the
         same diff as the story that needs it — and that falling back to a free string
         instead is a review-blocking defect.
-  - [ ] `tabKeys.test.ts` — AC 1's presence/duplicate assertions, AC 2's three
+  - [x] `tabKeys.test.ts` — AC 1's presence/duplicate assertions, AC 2's three
         `@ts-expect-error` cases and two `isTabKey` negatives. AAA.
 
-- [ ] **Task 2 — Labels through i18n** (AC: 3) *(part 3.10a)*
-  - [ ] Add the `entity360: { tab: { … }, overview: { empty: … } }` block under `crm` in
+- [x] **Task 2 — Labels through i18n** (AC: 3) *(part 3.10a)*
+  - [x] Add the `entity360: { tab: { … }, overview: { empty: … } }` block under `crm` in
         `providers/commons/englishCrmMessages.ts`, one entry per `TabKey`.
-  - [ ] `entity360/useTabLabel.ts` — `useTranslate()` from `ra-core`, the override rule
+  - [x] `entity360/useTabLabel.ts` — `useTranslate()` from `ra-core`, the override rule
         from AC 3, nothing else.
-  - [ ] `useTabLabel.test.tsx` — AC 3's assertions (a) whole-union catalog round-trip,
+  - [x] `useTabLabel.test.tsx` — AC 3's assertions (a) whole-union catalog round-trip,
         (b) label-less descriptor renders the canonical label, (c) a registered
         `crm.entity360.tab.<key>` translation beats the canonical label, plus the subordinate
         explicit-override case. (c) is the one that must be shown red against a build in which
@@ -279,33 +288,40 @@ comment, and builds the two shared tab components UX-DR4 names and no story owns
         override case renders a one-line probe component inside `CoreAdminContext` with
         `i18nProvider={testI18nProvider}`.
 
-- [ ] **Task 3 — `OverviewFactGrid` + `OverviewTab`** (AC: 4, 5) *(part 3.10a)*
-  - [ ] `entity360/tabs/OverviewFactGrid.tsx` — lift `ShidduchFactsCard.tsx:8-36`'s
+- [x] **Task 3 — `OverviewFactGrid` + `OverviewTab`** (AC: 4, 5) *(part 3.10a)*
+  - [x] `entity360/tabs/OverviewFactGrid.tsx` — lift `ShidduchFactsCard.tsx:8-36`'s
         `FactRow` verbatim (same classes, same `dir="rtl"`, same null-return) and wrap it
         in the `<dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">` of
         `:63` with the `:86-88` empty branch. No new visual vocabulary — the tokens are
         already the app's.
-  - [ ] `entity360/tabs/OverviewTab.tsx` — the thin wrapper of AC 5. Keep the two files
+  - [x] `entity360/tabs/OverviewTab.tsx` — the thin wrapper of AC 5. Keep the two files
         separate: `ShidduchFactsCard` needs the grid inside its own `<section>` card and
         must not import a component named `…Tab`.
-  - [ ] `OverviewTab.test.tsx` — AC 4's three cases and AC 5's children-without-facts case.
+  - [x] `OverviewTab.test.tsx` — AC 4's three cases and AC 5's children-without-facts case.
+        (Filed as two focused test files instead of one: `OverviewFactGrid.test.tsx` carries
+        AC 4's three cases against the grid directly, `OverviewTab.test.tsx` carries AC 5's
+        children-without-facts case plus two composition sanity checks — see Completion
+        Notes.)
 
-- [ ] **Task 4 — `EntityRelationshipDescriptor`** (AC: 6) *(part 3.10a)*
-  - [ ] `entity360/relationshipDescriptor.ts` — the type, plus a doc comment carrying both
+- [x] **Task 4 — `EntityRelationshipDescriptor`** (AC: 6) *(part 3.10a)*
+  - [x] `entity360/relationshipDescriptor.ts` — the type, plus a doc comment carrying both
         worked examples from Dev Notes and the rule that a relationship whose
         `linkResource` differs from its `resource` **must** supply `linkLabel` (the queried
         row is a link/summary row; the link target's `recordRepresentation` will not
         resolve against it).
-  - [ ] Confirm with `LSP hover` that `Identifier` and `RaRecord` resolve from `ra-core`
-        before importing them (`.claude/rules/lsp-usage.md`).
+  - [x] Confirm with `LSP hover` that `Identifier` and `RaRecord` resolve from `ra-core`
+        before importing them (`.claude/rules/lsp-usage.md`). (No `LSP` tool was available in
+        this session; confirmed instead by reading `node_modules/ra-core/dist/types.d.ts`
+        directly, which exports both.)
 
-- [ ] **Task 5 — Rewire `ShidduchFactsCard`** (AC: 8) *(part 3.10a)*
-  - [ ] Delete the local `FactRow`; render `OverviewFactGrid` with the six existing facts.
-  - [ ] Change the heading string to "Shidduch facts". Do not touch the field list, the
+- [x] **Task 5 — Rewire `ShidduchFactsCard`** (AC: 8) *(part 3.10a)*
+  - [x] Delete the local `FactRow`; render `OverviewFactGrid` with the six existing facts.
+  - [x] Change the heading string to "Shidduch facts". Do not touch the field list, the
         `hasAnyFact` computation's replacement, or `ShidduchShow.tsx`.
-  - [ ] `ShidduchFactsCard.test.tsx` — the two behaviour-preserving assertions in AC 8.
+  - [x] `ShidduchFactsCard.test.tsx` — the two behaviour-preserving assertions in AC 8.
         Use `LSP findReferences` on `ShidduchFactsCard` first to confirm the single call
-        site (`shidduchim/ShidduchShow.tsx:115`) before editing.
+        site (`shidduchim/ShidduchShow.tsx:115`) before editing. (Confirmed by `grep -rn` —
+        no `LSP` tool available in this session; single call site verified.)
 
 - [ ] **Task 6 — `RelatedRecordsTab`** (AC: 7) *(part 3.10b — do not start before 3.9 and
       3.3a have landed)*
@@ -515,8 +531,127 @@ No backend surface: no migration, no RLS, no policy, no `npm run test:unit:db` i
 
 ### Agent Model Used
 
+Claude Sonnet 5 (claude-sonnet-5), via the bmad-dev-story workflow.
+
 ### Debug Log References
+
+- `npx tsc --noEmit --project tsconfig.app.json` failed once, mid-implementation, with
+  `frenchCrmMessages.ts(106,3): error TS2741: Property 'entity360' is missing in type
+  '...' but required in type 'MessageSchema<...>'`. `frenchCrmMessages.ts` is declared
+  `satisfies CrmMessages`, and `CrmMessages` is a mapped type over
+  `typeof englishCrmMessages` with no optional keys — adding `crm.entity360` to
+  `englishCrmMessages.ts` makes it a *required* key of `CrmMessages`, so the French
+  catalogue object literal must also declare it or the `satisfies` check fails. This
+  contradicts the story's own AC 3 claim ("French inherits English automatically …
+  so no `frenchCrmMessages.ts` edit is required, and adding one is out of scope") —
+  that claim is correct about the **runtime** merge order but does not account for
+  this **type-level** completeness check, which pre-dates this story. Fixed by adding
+  the same 15 tab labels + `overview.empty` to `frenchCrmMessages.ts` in French
+  (mirroring the established `crm.<section>` block pattern already in that file).
+  Flagged in the report as a story-text inaccuracy rather than a contract error — see
+  final report.
+- Proved AC 3(c) actually falsifiable per the story's own instruction: temporarily
+  rewrote `useTabLabel` to return `override ?? TAB_LABELS[key]` (bypassing
+  `translate` entirely), reran `useTabLabel.test.tsx`, and confirmed exactly the (c)
+  case ("prefers a catalog translation over TAB_LABELS…") went red — locator for
+  "Registered translation" not found, `<span>Shidduchim</span>` rendered instead.
+  Restored the real implementation and reran; all 4 tests green again.
+- `npm run test:unit:app` (real Chromium via `vitest-browser-react`), `make typecheck`,
+  `make lint` (eslint + prettier), `npx vitest run` (full suite, all 5 projects),
+  `make build`, `npx prettier --check .` all run on the final pass — see the report
+  for full output. No SQL touched, so `npm run test:unit:db` and
+  `supabase db diff --local` were not run (per Dev Notes: "No backend surface").
+- `LSP` was not available as a tool in this session (`ToolSearch` found no matching
+  deferred tool). Task 4's `Identifier`/`RaRecord` resolution and Task 5's
+  single-call-site check were both done by reading
+  `node_modules/ra-core/dist/types.d.ts` and `grep -rn`, respectively, instead.
 
 ### Completion Notes List
 
+- **Task 1.** `entity360/tabKeys.ts` — `TAB_KEYS`, `TabKey`, `TAB_LABELS`, `isTabKey`,
+  `tabLabelKey` exactly as AC 1 specifies, constants-only (no React, no import from a
+  sibling directory). `tabKeys.test.ts` asserts the contract's 15 keys are all present
+  (independent literal, catches a rename), no duplicates, `isTabKey` true for every
+  canonical key and false for `"suggestions"`/`"linked-shidduchim"`/an arbitrary
+  string, `tabLabelKey`'s namespacing, and AC 2's three `@ts-expect-error` cases
+  (a bare `TabKey` binding for each retired name, plus an
+  `EntityRelationshipDescriptor` literal keyed `"linked-shidduchim"`).
+- **Task 2.** Added `crm.entity360.tab.<key>` (all 15) + `crm.entity360.overview.empty`
+  to `englishCrmMessages.ts`, values identical to `TAB_LABELS`. `useTabLabel.ts`
+  implements exactly `override ?? translate(tabLabelKey(key), { _: TAB_LABELS[key] })`.
+  `useTabLabel.test.tsx` covers all four cases in AC 3, including (c) — proven red
+  against a catalog-bypassing build, see Debug Log.
+- **Task 3.** `OverviewFactGrid.tsx` lifts `ShidduchFactsCard`'s `FactRow` verbatim
+  (same classes, same `dir="rtl"`/`font-hebrew` Hebrew handling, same null-return for
+  a value-less fact) inside the same `<dl>` + empty-state shape.
+  `OverviewFactGrid.test.tsx` covers AC 4's three cases directly against the grid
+  (2 of 3 facts render, Hebrew value carries `dir="rtl"`, all-empty shows
+  `emptyLabel` with no `<dl>`). `OverviewTab.tsx` wraps the grid with `children`,
+  defaulting `emptyLabel` through `translate("crm.entity360.overview.empty", …)`; per
+  AC 5, when `facts` is `[]` **and** `children` are given, the grid (and its own empty
+  message) is skipped entirely so a fully-custom Overview is never reported "empty" —
+  `OverviewTab.test.tsx` proves this plus the default-facts-render and
+  default-empty-label-resolves-through-i18n cases. (Filed as two test files rather
+  than the one the task line names, so each component's own behaviour is asserted at
+  its own unit boundary — coverage is a superset of what the task line lists, not a
+  subset.)
+- **Task 4.** `relationshipDescriptor.ts` — `EntityRelationshipDescriptor<T>` exactly
+  per contract §9, doc comment carries both worked examples (with the corrected
+  `shidduchim_id` column name) and the `linkResource`-differs-from-`resource` ⇒
+  `linkLabel`-required rule. No relationship is registered by this story.
+- **Task 5.** `ShidduchFactsCard.tsx` no longer declares `FactRow`; it renders
+  `OverviewFactGrid` with the same six facts (Parents, Seminary, Shul, Location, Age,
+  Height) and the same `emptyLabel`. Heading changed from "Suggestion facts" to
+  "Shidduch facts" (AD-23) — the story's one deliberate text change, nothing else in
+  the rendered output changed. `grep -rn "FactRow"` over the file returns no hits.
+  `ShidduchFactsCard.test.tsx` asserts the heading plus all six labels render for a
+  populated fixture, and the empty-state string renders for an empty one.
+- **Task 6 — deliberately not started.** Its own header gates it on Stories 3.9
+  (`RecordLink`) and 3.3a (`EntityDescriptor`/registry) having landed first; neither
+  exists in the tree as of this commit (`entity360/` did not exist before this story).
+  Starting it now would mean guessing at `RecordLink`'s and the registry's real
+  shapes instead of importing them, which is exactly the drift this story exists to
+  prevent. Left unchecked; re-open this story file once 3.9 and 3.3a are on `main`.
+- **Story-text correction (flagged, not silently worked around).** AC 3 / the "two
+  live files" framing says this story's whole production footprint is
+  `englishCrmMessages.ts` + `ShidduchFactsCard.tsx`, and separately claims
+  "French inherits English automatically … so no `frenchCrmMessages.ts` edit is
+  required, and adding one is out of scope." Both claims are accurate about the
+  **runtime** i18n merge (`frenchCatalog = mergeTranslations(englishCatalog, …)`) but
+  miss that `frenchCrmMessages.ts` is separately type-checked via
+  `satisfies CrmMessages`, and `CrmMessages` has no optional keys — so adding
+  `crm.entity360` to the English catalogue makes it a required key of the French
+  object literal too, and `make typecheck` fails without it (verified — see Debug
+  Log). Added the same 15 tab labels + `overview.empty` to `frenchCrmMessages.ts` in
+  French as the minimal fix; this is a third file touched, not two, and I believe the
+  story's "closed footprint" framing is the one part of the story text that doesn't
+  survive contact with the existing `satisfies CrmMessages` invariant.
+- Everything else in AC 1-6 and AC 8 reproduced as described; no other deviation.
+
 ### File List
+
+**New:**
+- `src/components/atomic-crm/entity360/tabKeys.ts`
+- `src/components/atomic-crm/entity360/tabKeys.test.ts`
+- `src/components/atomic-crm/entity360/useTabLabel.ts`
+- `src/components/atomic-crm/entity360/useTabLabel.test.tsx`
+- `src/components/atomic-crm/entity360/relationshipDescriptor.ts`
+- `src/components/atomic-crm/entity360/tabs/OverviewFactGrid.tsx`
+- `src/components/atomic-crm/entity360/tabs/OverviewFactGrid.test.tsx`
+- `src/components/atomic-crm/entity360/tabs/OverviewTab.tsx`
+- `src/components/atomic-crm/entity360/tabs/OverviewTab.test.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchFactsCard.test.tsx`
+
+**Modified:**
+- `src/components/atomic-crm/shidduchim/ShidduchFactsCard.tsx` — renders through
+  `OverviewFactGrid` instead of a local `FactRow`; heading "Suggestion facts" →
+  "Shidduch facts".
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` — added
+  `crm.entity360.tab.*` (15 keys) and `crm.entity360.overview.empty`.
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` — same, in
+  French (not anticipated by the story text — see Completion Notes' story-text
+  correction).
+
+**Not created (Task 6, deliberately deferred — see Completion Notes):**
+- `src/components/atomic-crm/entity360/tabs/RelatedRecordsTab.tsx`
+- `src/components/atomic-crm/entity360/tabs/RelatedRecordsTab.test.tsx`
