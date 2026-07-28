@@ -87,11 +87,35 @@ describe("getAuthProvider().login", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("swallows GoTrue's over_email_send_rate_limit rejection so a second Resend click cannot distinguish a known address from an unknown one", async () => {
+    // Arrange: verified live against the local stack — a *known* email
+    // rejects a second request within GoTrue's `max_frequency` window with
+    // exactly this code, while an unknown email keeps returning
+    // "otp_disabled". Surfacing the raw 429 would itself become the
+    // account-existence oracle AC-1 forbids.
+    signInWithOtp.mockResolvedValue({
+      data: {},
+      error: {
+        code: "over_email_send_rate_limit",
+        message:
+          "For security purposes, you can only request this after 0 seconds.",
+      },
+    });
+    const authProvider = getAuthProvider();
+
+    // Act / Assert: resolves like a fresh request would — no oracle, and the
+    // caller already holds a valid code from the first request.
+    await expect(
+      authProvider.login({ email: "ada@example.com", requestOtp: true }),
+    ).resolves.toBeUndefined();
+  });
+
   it("rethrows any other requestOtp failure", async () => {
-    // Arrange
+    // Arrange: a genuine, unrecognized failure must still surface — only
+    // the two known-benign GoTrue codes above are swallowed.
     const error = {
-      code: "over_email_send_rate_limit",
-      message: "Too many requests",
+      code: "unexpected_failure",
+      message: "Something went wrong",
     };
     signInWithOtp.mockResolvedValue({ data: {}, error });
     const authProvider = getAuthProvider();
@@ -149,5 +173,15 @@ describe("getAuthProvider().login", () => {
     ).rejects.toThrow("Unsupported login request.");
     expect(signInWithOtp).not.toHaveBeenCalled();
     expect(verifyOtp).not.toHaveBeenCalled();
+  });
+
+  it("does not expose setPassword or resetPassword (AC-8, NFR-14 — no dormant password-mutation surface)", () => {
+    // Arrange
+    const authProvider = getAuthProvider();
+
+    // Act / Assert: `ra-supabase-core`'s base provider declares both; they
+    // must not survive onto the app's passwordless auth seam.
+    expect(authProvider.setPassword).toBeUndefined();
+    expect(authProvider.resetPassword).toBeUndefined();
   });
 });

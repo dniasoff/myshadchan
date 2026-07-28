@@ -624,8 +624,16 @@ Claude Opus 5 (claude-opus-5)
 - `npm run test` (all 5 vitest projects) — 754 passed / 65 files. The `db`
   project (272 tests, local Supabase) is unchanged, as required (no schema
   touched).
+  **Re-run after the review-round-2 fixes below: 755 passed / 65 files**
+  (net +1: two new `authProvider.test.ts` cases, minus one retired
+  `i18nProvider.test.ts` case for the deleted password-reset override).
 - `make test-e2e-ci` — 2 passed (chromium, Mobile Chrome) against the fresh
   e2e Supabase stack (real Mailpit read on 54344).
+  **Re-run after the review-round-2 fixes** (`config.e2e.toml` lost its
+  `[auth.email.template.recovery]` block, so the e2e stack was rebuilt
+  fresh from it): **2 passed (chromium, Mobile Chrome)**, unchanged. Stack
+  torn down afterward (`make stop-supabase-e2e`); dev stack (54321-54324)
+  untouched and confirmed healthy.
 - Manual smoke on the local dev stack (`curl` against GoTrue directly,
   bypassing the browser): `POST /auth/v1/otp` with `create_user:false` for a
   known member → Mailpit (54324) message subject "Your MyShadchan sign-in
@@ -699,13 +707,103 @@ Claude Opus 5 (claude-opus-5)
   (project `krlqkxlczxlgienjunmd`, Auth → Providers → Google);
   (c) verify `https://krlqkxlczxlgienjunmd.supabase.co/auth/v1/authorize?provider=google`
   returns GoTrue's `400 {"msg":"Unsupported provider: provider is not
-  enabled"}` afterward.
+  enabled"}` afterward;
+  (d) `npx supabase functions delete update_password --project-ref
+  krlqkxlczxlgienjunmd` — removing `supabase/functions/update_password/`
+  from the repo does not undeploy it, and `supabase functions deploy` only
+  pushes what is present, so the already-deployed function otherwise stays
+  live and reachable (gated only by its own in-code `AuthMiddleware`,
+  itself calling `resetPasswordForEmail`) until explicitly deleted.
   `[auth] enable_signup` / `[auth.email] enable_signup` stay `true` in
   `config.toml` — closing self-signup server-side is Story 2.7's
   `before-user-created` Auth Hook, not this story's, per AC-1's own scope
   note.
 - No `supabase/schemas/*` changes; the `db` vitest project and
   `supabase/tests/` are untouched, as required.
+
+### Review Findings — Round 2 (addressed 2026-07-28)
+
+A NEEDS-FIX review found a real account-existence oracle plus three smaller
+dormant/live-surface issues. Fixed:
+
+- **Should-fix 1 — resend-triggered oracle.** `authProvider.ts`'s
+  `requestOtp` branch only swallowed GoTrue's `otp_disabled`; a *second*
+  request for a known email (the Resend button, or a retry) surfaces
+  `over_email_send_rate_limit` (429) instead, which an unknown email never
+  does — two clicks classified any address as registered or not. Now both
+  codes are swallowed via a shared `SILENT_OTP_ERROR_CODES` set (any other
+  error still throws). New test: "swallows GoTrue's
+  over_email_send_rate_limit rejection…"; the old test asserting the 429
+  was rethrown was rewritten to assert the opposite, and a new
+  `unexpected_failure` case takes over as the "genuine failure still
+  throws" regression guard. No `LoginPage.tsx` change needed — the swallow
+  lives entirely below the interface it calls.
+- **Should-fix 2 — dormant `setPassword`/`resetPassword`.** `getAuthProvider()`
+  spread `...baseAuthProvider` wholesale, so `ra-supabase-core`'s
+  `setPassword`/`resetPassword` (→ `auth.updateUser`/`resetPasswordForEmail`)
+  still resolved on the app's auth seam even though only `login` was
+  narrowed. Now destructured out explicitly
+  (`const { setPassword: _setPassword, resetPassword: _resetPassword, ...baseAuthProvider }`).
+  New test asserts both are `undefined` on the returned provider. Confirmed
+  no in-repo caller (`useSetPassword`/`useResetPassword` from
+  `ra-supabase-core`): 0 hits in `src/`.
+- **Should-fix 3 — recovery template/i18n residue.** Removed
+  `[auth.email.template.recovery]` from both `supabase/config.toml` and
+  `supabase/config.e2e.toml`, deleted `supabase/templates/recovery.html`,
+  and removed the dead `ra-supabase.auth.password_reset` override (and its
+  now-invalid test) from `providers/commons/i18nProvider.ts` — all three
+  existed only to serve `set-password-page.tsx`, which this story already
+  deleted.
+  **Residual gap, stated honestly rather than overclaimed:** this closes
+  the *branding/copy* remnants, not the GoTrue endpoint itself.
+  `supabase/config.toml` exposes no toggle that disables `/auth/v1/recover`
+  independently of `[auth.email]` as a whole (which OTP also depends on) —
+  removing the custom template only makes GoTrue fall back to its own
+  built-in recovery template; the endpoint keeps accepting requests and
+  a clicked recovery link still establishes a session. Fully closing it
+  needs either a Supabase Auth Hook (e.g. a "Send Email" hook filtering
+  `email_action_type = "recovery"`) or a deploy-time action analogous to
+  AC-4(b)'s Google toggle. That is new surface, not a review-findings fix;
+  flagging it as a follow-up rather than silently declaring the second
+  auth path closed.
+- **Should-fix 4 — first-run signup regression.** `SignupPage.tsx`'s
+  `onSuccess` called `login({ email, password, redirectTo: "/" })` after
+  `dataProvider.signUp()`, which now rejects with `authProvider.login()`'s
+  unconditional throw on non-OTP shapes (this story's own AC-8 change) —
+  the very first administrator on a fresh deployment saw "Failed to log
+  in." and was bounced to `/login`. Removed the redundant `login()` call;
+  `auth.signUp()` already persists a session client-side
+  (`enable_confirmations = false`), so `onSuccess` now just notifies and
+  navigates to `/`. This also orphaned the `email_not_confirmed` catch
+  branch (dead once `login()` is gone) and the `crm.auth.sign_in_failed`
+  i18n key it used exclusively — both removed from both locale catalogues
+  in the same change (no other reader in either namespace).
+
+Left open, by design (all "note" severity, not "should-fix", and outside
+this story's file list):
+- Finding 5 (unauthenticated `dataProvider.getConfiguration()` round-trip
+  on every "Send code" click, via `useAuthProvider()`'s wrapper) and
+  finding 6 (layering inversion — `admin/admin.tsx` importing
+  `atomic-crm/login/LoginPage`) are both structural/wasteful, not
+  incorrect, and the review itself notes finding 6 "the story sanctioned
+  it." Not touched, to avoid expanding scope beyond should-fixes.
+- Finding 7's password residue (`fakerest/authProvider.ts`'s unused
+  `login`/`setPassword`/`resetPassword` stubs and `password: "demo"` seed,
+  `supabase/functions/users/index.ts`'s `password` field on member
+  creation, `MemberCreate.tsx`'s stale "set their password" copy, and the
+  disabled-but-present `[auth.external.apple]` block) all belong to the
+  member-creation / invite flow this story does not touch (2.7/2.8
+  territory) or are pre-existing fork config unrelated to sign-**in**.
+  Flagged for a future pass, not fixed here.
+- Finding 8 (the deploy checklist missing `update_password`'s function
+  deletion) — fixed by adding item (d) to the AC-4(b)/checklist bullet
+  above (`npx supabase functions delete update_password`).
+
+Verification after the fix: `npm run typecheck`, `npm run lint`,
+`npm run prettier`, `npm run test` (all 5 vitest projects, `db` included
+via the live local dev stack), `node scripts/check-retired-names.mjs`,
+AC-8's widened grep (still 0 hits), and `make test-e2e-ci` were all re-run
+green — see "Debug Log References" above for exact counts.
 
 ### File List
 

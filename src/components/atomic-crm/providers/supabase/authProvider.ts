@@ -88,8 +88,35 @@ function clearCache() {
   storage?.removeItem(CURRENT_MEMBER_CACHE_KEY);
 }
 
+// GoTrue error codes that must never surface to the login UI: an unknown
+// email must be indistinguishable from a known one at every step of the
+// OTP request flow, including resends (see the `requestOtp` branch below).
+const SILENT_OTP_ERROR_CODES = new Set([
+  // `shouldCreateUser: false` against an email with no existing account
+  // ("Signups not allowed for otp" — verified against the local stack;
+  // despite the name this is unrelated to project-level signup settings).
+  "otp_disabled",
+  // GoTrue's per-address send-frequency guard. A *known* email hits this on
+  // a second request inside `max_frequency` while an unknown email keeps
+  // returning `otp_disabled` — surfacing the raw 429 to the UI (e.g. via
+  // the Resend button) would itself become the account-existence oracle
+  // AC-1 forbids. The caller already holds a valid code from the first
+  // request, so silently no-oping here is safe.
+  "over_email_send_rate_limit",
+]);
+
 export const getAuthProvider = (): AuthProvider => {
-  const baseAuthProvider = getBaseAuthProvider();
+  // Password mutation is out of scope for a passwordless app (AC-8,
+  // NFR-14): `ra-supabase-core`'s `supabaseAuthProvider` declares
+  // `setPassword` / `resetPassword` alongside `login`. Only `login` is
+  // narrowed below; destructure the other two out explicitly instead of
+  // spreading the base provider wholesale, so they never resolve on the
+  // app's auth seam.
+  const {
+    setPassword: _setPassword,
+    resetPassword: _resetPassword,
+    ...baseAuthProvider
+  } = getBaseAuthProvider();
   return {
     ...baseAuthProvider,
     login: async (params) => {
@@ -108,18 +135,8 @@ export const getAuthProvider = (): AuthProvider => {
             data: params.meta,
           },
         });
-        if (error) {
-          // `shouldCreateUser: false` against an email with no existing
-          // account rejects with GoTrue's "otp_disabled" code ("Signups not
-          // allowed for otp" — verified against the local stack; despite the
-          // name this is unrelated to project-level signup settings).
-          // Swallowing only that code is what keeps an unknown email
-          // indistinguishable from a known one client-side: both land on
-          // the same "check your email" step, and the unknown one simply
-          // never receives a code.
-          if (error.code !== "otp_disabled") {
-            throw error;
-          }
+        if (error && !SILENT_OTP_ERROR_CODES.has(error.code ?? "")) {
+          throw error;
         }
         return;
       }

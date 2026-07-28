@@ -119,7 +119,6 @@ export const frenchCrmMessages = {
       last_name: "Nom",
       confirmation_required:
         "Veuillez suivre le lien que nous venons de vous envoyer par email pour confirmer votre compte.",
-      sign_in_failed: "Échec de la connexion.",
       show_password: "Afficher le mot de passe",
       hide_password: "Masquer le mot de passe",
       footer_private: "Privé à votre famille",

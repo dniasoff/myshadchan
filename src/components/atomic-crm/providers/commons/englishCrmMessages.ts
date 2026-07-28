@@ -116,7 +116,6 @@ export const englishCrmMessages = {
       last_name: "Last name",
       confirmation_required:
         "Please follow the link we just sent you by email to confirm your account.",
-      sign_in_failed: "Failed to log in.",
       show_password: "Show password",
       hide_password: "Hide password",
       footer_private: "Private to your family",

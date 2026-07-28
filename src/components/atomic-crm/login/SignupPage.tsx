@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Lock } from "lucide-react";
-import { useDataProvider, useLogin, useNotify, useTranslate } from "ra-core";
+import { useDataProvider, useNotify, useTranslate } from "ra-core";
 import { useForm, type SubmitHandler } from "react-hook-form";
 import { Navigate, useNavigate } from "react-router";
 import { useState } from "react";
@@ -13,7 +13,6 @@ import type { CrmDataProvider } from "../providers/types";
 import type { SignUpData } from "../types";
 import { LoginSkeleton } from "./LoginSkeleton";
 import { AuthLayout } from "./AuthLayout";
-import { ConfirmationRequired } from "./ConfirmationRequired";
 import { PasswordToggleButton } from "./PasswordToggleButton";
 import { AUTH_FIELD_CLASSNAME } from "./authFieldClassName";
 import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
@@ -36,44 +35,28 @@ export const SignupPage = () => {
     mutationFn: async (data: SignUpData) => {
       return dataProvider.signUp(data);
     },
-    onSuccess: (data) => {
-      login({
-        email: data.email,
-        password: data.password,
-        redirectTo: "/",
-      })
-        .then(() => {
-          notify("crm.auth.signup.initial_user_created", {
-            messageArgs: {
-              _: "Initial user successfully created",
-            },
-          });
-          // FIXME: We should probably provide a hook for that in the ra-core package
-          queryClient.invalidateQueries({
-            queryKey: ["auth", "canAccess"],
-          });
-        })
-        .catch((err) => {
-          if (err.code === "email_not_confirmed") {
-            // An email confirmation is required to continue.
-            navigate(ConfirmationRequired.path);
-          } else {
-            notify("crm.auth.sign_in_failed", {
-              type: "error",
-              messageArgs: {
-                _: "Failed to log in.",
-              },
-            });
-            navigate("/login");
-          }
-        });
+    onSuccess: () => {
+      // `dataProvider.signUp()` already persisted a session client-side
+      // (`enable_confirmations = false`), so no second `login()` call is
+      // needed or possible here: `authProvider.login()` now throws on any
+      // non-OTP shape (AC-8), which a follow-up `{ email, password }` login
+      // would be.
+      notify("crm.auth.signup.initial_user_created", {
+        messageArgs: {
+          _: "Initial user successfully created",
+        },
+      });
+      // FIXME: We should probably provide a hook for that in the ra-core package
+      queryClient.invalidateQueries({
+        queryKey: ["auth", "canAccess"],
+      });
+      navigate("/");
     },
     onError: (error) => {
       notify(error.message);
     },
   });
 
-  const login = useLogin();
   const notify = useNotify();
 
   const {

@@ -7,27 +7,9 @@ import { raSupabaseFrenchMessages } from "ra-supabase-language-french";
 import { englishCrmMessages } from "./englishCrmMessages";
 import { frenchCrmMessages } from "./frenchCrmMessages";
 
-const raSupabaseEnglishMessagesOverride = {
-  "ra-supabase": {
-    auth: {
-      password_reset: "Check your emails for a Reset Password message.",
-    },
-  },
-};
-
-const raSupabaseFrenchMessagesOverride = {
-  "ra-supabase": {
-    auth: {
-      password_reset:
-        "Consultez vos emails pour trouver le message de reinitialisation du mot de passe.",
-    },
-  },
-};
-
 const englishCatalog = mergeTranslations(
   englishMessages,
   raSupabaseEnglishMessages,
-  raSupabaseEnglishMessagesOverride,
   englishCrmMessages,
 );
 
@@ -35,7 +17,6 @@ const frenchCatalog = mergeTranslations(
   englishCatalog,
   frenchMessages,
   raSupabaseFrenchMessages,
-  raSupabaseFrenchMessagesOverride,
   frenchCrmMessages,
 );
 
