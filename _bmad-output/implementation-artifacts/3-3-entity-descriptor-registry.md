@@ -1,6 +1,11 @@
+---
+baseline_commit: 46d4f194e634c7a1e4f24cd5c75d491a65671b08
+---
+
 # Story 3.3: Entity descriptor registry
 
-Status: ready-for-dev
+Status: in-progress — 3.3a (this slot) done; 3.3b (`EntityShow`) NOT built, scheduled at
+build-order step 5 after 3.2 lands routes. Do not check Task 4 / Task 5 boxes prematurely.
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -410,35 +415,46 @@ half is the epic owner's edit, and is what the residual above is about.
 
 ### 3.3a
 
-- [ ] **Task 1 — `entity360/entityDescriptor.ts`** (AC: 1, 4, 6)
-  - [ ] Write the doc comment required by AC 4 (list metadata, 4.1 consumes `label`, never
+- [x] **Task 1 — `entity360/entityDescriptor.ts`** (AC: 1, 4, 6)
+  - [x] Write the doc comment required by AC 4 (list metadata, 4.1 consumes `label`, never
         redefine the type) as the file's leading block.
-  - [ ] Declare `EntityDescriptor`, `EntityTabDescriptor`, `EntityRelationshipDescriptor`
+  - [x] Declare `EntityDescriptor`, `EntityTabDescriptor`, `EntityRelationshipDescriptor`
         exactly as AC 1 / AC 6 spell them. Import `MemberRole` from `../types` and `TabKey`
-        from `./tabKeys`. Declare neither locally.
-  - [ ] No `stats`, no `minVisibility`, no `(record) => ReactNode` region. If a reviewer finds
+        from `./tabKeys`. Declare neither locally. **Deviation** (see Completion Notes):
+        `EntityTabDescriptor` is shipped non-generic — the contract's own
+        `EntityTabDescriptor<T = RaRecord>` declares a `T` no field ever reads, which fails
+        `tsc --noEmit` under this repo's `noUnusedLocals: true` (TS6133). Dropped; `tabs?:
+        EntityTabDescriptor[]` in `EntityDescriptor` accordingly.
+  - [x] No `stats`, no `minVisibility`, no `(record) => ReactNode` region. If a reviewer finds
         one, AC 1's `@ts-expect-error` block is missing an entry.
-  - [ ] `pendingTabs?: TabKey[]` **is** on `EntityDescriptor` (AC 1). Do not drop it as
+  - [x] `pendingTabs?: TabKey[]` **is** on `EntityDescriptor` (AC 1). Do not drop it as
         "unused by this story" — 3.9's stubs and 3-11's conformance rule both require it.
 
-- [ ] **Task 2 — `entity360/registry.ts`** (AC: 3)
-  - [ ] Module-private `Map<string, EntityDescriptor>`; export only the three functions.
-  - [ ] `registerEntityDescriptor(d, opts)` — throw on duplicate `name` unless
+- [x] **Task 2 — `entity360/registry.ts`** (AC: 3)
+  - [x] Module-private `Map<string, EntityDescriptor>`; export only the three functions.
+  - [x] `registerEntityDescriptor(d, opts)` — throw on duplicate `name` unless
         `opts.replace === true`; replace wholesale when it is.
-  - [ ] `getEntityDescriptor` returns `| undefined`. `requireEntityDescriptor` throws the exact
+  - [x] `getEntityDescriptor` returns `| undefined`. `requireEntityDescriptor` throws the exact
         AC 3 message.
 
-- [ ] **Task 3 — Tests** (AC: 1, 2, 3, 4, 5, 6)
-  - [ ] `entityDescriptor.test.ts` — the `@ts-expect-error` block (AC 1), the two positive
+- [x] **Task 3 — Tests** (AC: 1, 2, 3, 4, 5, 6)
+  - [x] `entityDescriptor.test.ts` — the `@ts-expect-error` block (AC 1), the two positive
         compile fixtures, the three `EntityRelationshipDescriptor` worked examples (AC 6).
-  - [ ] `registry.test.ts` — round-trip, duplicate throws, `{replace:true}` replaces,
+        Also carries AC 2's hook-boundary proof (a `shadchan_stats`-shaped `statBand` fixture
+        calling `useGetOne`, asserting pending then resolved render) since `EntityShow.test.tsx`
+        does not exist in this slot.
+  - [x] `registry.test.ts` — round-trip, duplicate throws, `{replace:true}` replaces,
         `getEntityDescriptor` undefined, `requireEntityDescriptor` message. **Unique fixture
         `name` per test** (or a per-test `replace: true`) so no test depends on another's
-        registry state [Source: .claude/rules/testing.md#Test-isolation].
-  - [ ] `entity360.guards.test.ts` — AC 4's doc-block + no-self-registration checks and AC 5's
-        no-re-declaration glob. Show each red against a broken fixture first.
+        registry state [Source: .claude/rules/testing.md#Test-isolation]. Also asserts the
+        module's exported surface is exactly the three functions (the `Map` is not exported).
+  - [x] `entity360.guards.test.ts` — AC 4's doc-block + no-self-registration checks and AC 5's
+        no-re-declaration glob (extended per AC 6 to also catch a second
+        `EntityRelationshipDescriptor` declaration). Each predicate shown red against a
+        deliberately broken fixture, then green against the real `entity360/**` sources via
+        `import.meta.glob(..., { query: "?raw", ... })`.
 
-### 3.3b
+### 3.3b — NOT BUILT in this slot (scheduled at build-order step 5, after 3.2 lands routes)
 
 - [ ] **Task 4 — `entity360/EntityShow.tsx`** (AC: 7, 9, 10)
   - [ ] `export function EntityShow(): ReactElement` — `useResourceContext()` +
@@ -596,8 +612,83 @@ new, alongside `Entity360.tsx`, `EntityAvatar.tsx` (3.1), `Entity360Tabs.tsx`,
 
 ### Agent Model Used
 
+Claude Sonnet 5 (bmad-dev-story workflow, 3.3a slot only).
+
 ### Debug Log References
+
+- `npm run typecheck` — first pass failed: `entityDescriptor.ts(87,32): error TS6133: 'T' is
+  declared but its value is never read` on `EntityTabDescriptor<T = RaRecord>`. The contract's
+  own snippet (and this story's AC 1 code block) declares that generic but no field of
+  `EntityTabDescriptor` ever reads it (`render` is arity-zero; the record reaches tab content
+  via `useRecordContext()`, not via a typed prop). Fixed by dropping the unused generic
+  (`EntityTabDescriptor` is now non-generic) and changing `EntityDescriptor.tabs` from
+  `EntityTabDescriptor<T>[]` to `EntityTabDescriptor[]`. Second pass: clean.
+- `npx prettier --check .` flagged formatting in the three new files with the most logic
+  (`registry.ts`, `registry.test.ts`, `entity360.guards.test.ts`); `npx prettier --write` on
+  those three, re-verified clean. (Pre-existing formatting drift in unrelated docs/workflow
+  files was left untouched — out of scope for this story.)
+- All other gates (`npm run lint`, `npx vitest run`, `npm run build`) passed on the first run.
 
 ### Completion Notes List
 
+- Shipped exactly the 3.3a scope: `entity360/entityDescriptor.ts` (types),
+  `entity360/registry.ts` (three functions), and their tests. **No `EntityShow`, no descriptor
+  registration for any real entity** — Story status reflects 3.3b as not-yet-done.
+- `EntityDescriptor` matches the contract's shape field-for-field: three required fields
+  (`name`, `buildRecordPath`, `label`), all five region renderers typed
+  `ComponentType<{ record: T }>` (never `(record) => ReactNode`), the default
+  `avatar`/`title`/`meta` composition, `tabs`, `pendingTabs?: TabKey[]` (RULING 4), and
+  `relationships` importing/re-exporting `EntityRelationshipDescriptor` from
+  `./relationshipDescriptor` (never re-declared).
+- **One deviation from the contract's literal code block**, documented inline and here:
+  `EntityTabDescriptor`'s generic `<T = RaRecord>` is unused by every field in that type (`key`,
+  `label`, `render: () => ReactNode`, `visibleTo`) and fails `tsc --noEmit` under this repo's
+  `noUnusedLocals: true` (`TS6133`). Shipped `EntityTabDescriptor` as non-generic; `EntityDescriptor.tabs`
+  is `EntityTabDescriptor[]`. This changes no observable behaviour and no consumer-facing field —
+  only removes a type parameter nothing could ever have read. Flagged in the final report per the
+  task's "if you believe it is wrong, say so" instruction rather than silently diverging.
+- AC 1's `@ts-expect-error` block covers all six negative cases (a)–(f) plus the three positive
+  fixtures (required-only descriptor; label-less tab; 3.9's stub shape), all in
+  `entityDescriptor.test.ts`.
+- AC 2's hook-boundary proof lives in `entityDescriptor.test.ts` (not `EntityShow.test.tsx`,
+  which does not exist in this slot) — a `shadchan_stats`-shaped `statBand` fixture calling
+  `useGetOne`, rendered through `CoreAdminContext` with a deferred-promise `getOne` mock,
+  asserting the pending state renders first and the resolved values render after the promise
+  settles. Deliberately not a `singles` fixture per the AC's own warning.
+- AC 6's three worked examples (reference→shidduchim via `reference_links_summary`
+  /`shidduchim_id`; single→shidduchim via `single_id`; shadchan→shidduchim via `shadchan_id`,
+  matching `ShadchanSuggestions.tsx`) all typecheck in `entityDescriptor.test.ts`.
+- AC 3's registry: module-private `Map`, all three functions, exact duplicate/replace/undefined/
+  throw behaviours, plus a module-surface test (`Object.keys`) proving the `Map` itself is not
+  exported.
+- AC 4 / AC 5 / AC 6's guards live in `entity360.guards.test.ts` as pure predicates
+  (`hasEntityListDocComment`, `callsRegisterEntityDescriptor`, `declaresMemberRoleLiteral`,
+  `declaresLocalTabKeyType`, `declaresRelationshipDescriptorType`), each shown red against an
+  inline broken fixture, then green against the real `entity360/**/*.{ts,tsx}` sources via
+  `import.meta.glob`. While wiring this I found `entityDescriptor.ts`'s own first-draft doc
+  comment literally contained the string `export type EntityRelationshipDescriptor = …` inside
+  a prose example — which would have made the AC 6 guard self-flag its own host file — and
+  reworded it before the guard was written, so the guard's "green" case is genuine, not
+  accidental.
+- Registers nothing: neither `entityDescriptor.ts` nor `registry.ts` calls
+  `registerEntityDescriptor` (asserted by the guard). Story 3.9 is the first real consumer.
+- Gate results (all real, run on this commit): `make typecheck` clean; `npx vitest run` — 87
+  files / 952 tests passed (30 of them new, across `entityDescriptor.test.ts`,
+  `registry.test.ts`, `entity360.guards.test.ts`); `npm run lint` clean (`--max-warnings=0`);
+  `npm run build` succeeds; `npx prettier --check .` clean on every file this story touched.
+  No SQL touched, so `npm run test:unit:db` / `supabase db diff` were not run.
+
 ### File List
+
+- `src/components/atomic-crm/entity360/entityDescriptor.ts` (new)
+- `src/components/atomic-crm/entity360/entityDescriptor.test.ts` (new)
+- `src/components/atomic-crm/entity360/registry.ts` (new)
+- `src/components/atomic-crm/entity360/registry.test.ts` (new)
+- `src/components/atomic-crm/entity360/entity360.guards.test.ts` (new)
+
+## Change Log
+
+- 2026-07-28 — 3.3a implemented (descriptor types + registry + tests). 3.3b (`EntityShow`)
+  intentionally not started; Status left at `in-progress`, not `review`, until 3.3b lands at
+  build-order step 5. One documented deviation from the contract's literal `EntityTabDescriptor<T>`
+  snippet (unused generic removed — see Completion Notes).
