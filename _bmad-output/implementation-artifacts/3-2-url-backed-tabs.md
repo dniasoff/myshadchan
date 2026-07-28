@@ -1,6 +1,10 @@
+---
+baseline_commit: 3bc550e0357069de153691929358f35665fab503
+---
+
 # Story 3.2: URL-backed tabs
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -292,66 +296,66 @@ Three further framework facts this story owns, all verified on `main`:
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — `entityPaths.ts`** (AC: 3)
-  - [ ] Implement the five builders exactly as AC 3 types them, each opening with
+- [x] **Task 1 — `entityPaths.ts`** (AC: 3)
+  - [x] Implement the five builders exactly as AC 3 types them, each opening with
         `requireEntityDescriptor(name)`. `buildEditPath` returns the literal
         `` `/${name}/${id}/edit` ``; do not compose it from `buildRecordPath`.
-  - [ ] `entityPaths.test.ts`: one `it` per builder for the happy path, one shared `it` for the
+  - [x] `entityPaths.test.ts`: one `it` per builder for the happy path, one shared `it` for the
         unregistered-resource throw. Register/unregister the fixture descriptor in
         `beforeEach` so tests stay order-independent (`.claude/rules/testing.md#Test-isolation`).
 
-- [ ] **Task 2 — `buildEntityRoutes.tsx`** (AC: 1, 2, 8, 11)
-  - [ ] Build the nested `<Routes>` per AC 1 using `react-router`'s `Routes`/`Route` directly.
+- [x] **Task 2 — `buildEntityRoutes.tsx`** (AC: 1, 2, 8, 11)
+  - [x] Build the nested `<Routes>` per AC 1 using `react-router`'s `Routes`/`Route` directly.
         `buildEntityRoutes` is what a `<Resource>`'s `list` prop points at, so it sits one
         level below `ra-core`'s own routing and needs no `ResourceContextProvider` of its own —
         the enclosing `<Resource name="…">` already provides it
         [Source: node_modules/ra-core/dist/core/Resource.js:9].
-  - [ ] Wrap the two record routes in `ShowBase` with the `loading` and `error` elements from
+  - [x] Wrap the two record routes in `ShowBase` with the `loading` and `error` elements from
         AC 2, and in the scroll reset from AC 11.
-  - [ ] Add `RecordPending.tsx` and `RecordUnavailable.tsx` in `entity360/`. Strings via
+  - [x] Add `RecordPending.tsx` and `RecordUnavailable.tsx` in `entity360/`. Strings via
         `useTranslate()` with `_:` English fallbacks; `RecordUnavailable`'s link uses
         `buildListPath(useResourceContext())`.
-  - [ ] TSDoc on `buildEntityRoutes` records the AC 10 registration rule: a migrated entity
+  - [x] TSDoc on `buildEntityRoutes` records the AC 10 registration rule: a migrated entity
         registers `list` only **plus explicit `hasShow`/`hasEdit`**, and Story 3.12's
         `record-flags-missing` manifest rule is what enforces it. Do **not** export a
         `newSegmentAlias` helper — 3.12 owns `buildCreateRoutes`.
-  - [ ] `buildEntityRoutes.test.tsx`: AC 1's five path `it`s, AC 2's two, AC 11's three. Use
+  - [x] `buildEntityRoutes.test.tsx`: AC 1's five path `it`s, AC 2's two, AC 11's three. Use
         `CoreAdminContext` with a hand-rolled `dataProvider` (the
         `ContextSwitcher.test.tsx:55-86` shape) so `ShowBase`'s `useGetOne` resolves.
 
-- [ ] **Task 3 — `Entity360Tabs.tsx`** (AC: 4, 5, 6, 7)
-  - [ ] Build the component per AC 4 on shadcn's `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent`
+- [x] **Task 3 — `Entity360Tabs.tsx`** (AC: 4, 5, 6, 7)
+  - [x] Build the component per AC 4 on shadcn's `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent`
         (`@/components/ui/tabs`) — the app's existing tab primitive, used this way at
         `references/ReferenceShow.tsx:129-165`. Drive it **controlled**: `value` is the
         resolved active key; each `TabsTrigger` uses `asChild` around a `<Link>` so the trigger
         is an anchor. Do not add a second tabs library and do not hand-roll tab markup.
-  - [ ] Resolve the active key in one pure helper (`resolveActiveTab(tabs, tabParam)`) so AC 5
+  - [x] Resolve the active key in one pure helper (`resolveActiveTab(tabs, tabParam)`) so AC 5
         (`undefined` → first tab, no navigation), AC 6 (unknown → first tab, `replace`) and
         AC 7 (empty → nothing, no navigation) are three branches of one function and cannot
         drift apart. The `replace` navigation lives in an effect keyed on the location and the
         tab array — never a mount-only `[]` dependency list (AC 6 case b is the test that
         catches that).
-  - [ ] `Entity360Tabs.test.tsx`: AC 4's four assertions, AC 5's one, AC 6's three, AC 7's one.
+  - [x] `Entity360Tabs.test.tsx`: AC 4's four assertions, AC 5's one, AC 6's three, AC 7's one.
         Wrap fixtures in `ResourceContextProvider` + `RecordContextProvider` from `ra-core`
         inside a `TestMemoryRouter` with a `locationCallback`.
 
-- [ ] **Task 4 — the `new` route and `buildNewPath`, fixtures only** (AC: 8)
-  - [ ] `buildEntityRoutes` serves `new` → `<New/>` when supplied; `buildNewPath(name)` returns
+- [x] **Task 4 — the `new` route and `buildNewPath`, fixtures only** (AC: 8)
+  - [x] `buildEntityRoutes` serves `new` → `<New/>` when supplied; `buildNewPath(name)` returns
         `/${name}/new` through `requireEntityDescriptor`. Both proven against the in-file
         fixture entity.
-  - [ ] **Hand-off note in the story's Dev Agent Record:** the 14 live `/{entity}/create`
+  - [x] **Hand-off note in the story's Dev Agent Record:** the 14 live `/{entity}/create`
         literals, the `/create` → `/new` redirect, the three `index.ts` `hasCreate` swaps and
         `ShidduchimList.tsx:78`'s `matchPath` are **Story 3.12's Tasks 2 and 5**. Do not do
         them here; do not leave a half-rename behind.
 
-- [ ] **Task 5 — pin the `hasShow`/`hasEdit` mechanism** (AC: 10)
-  - [ ] The two `useGetPathForRecord()` `it`s from AC 10 under a
+- [x] **Task 5 — pin the `hasShow`/`hasEdit` mechanism** (AC: 10)
+  - [x] The two `useGetPathForRecord()` `it`s from AC 10 under a
         `ResourceDefinitionContextProvider`. **No file under `src/components/admin/` is edited
         by this story** — the button and manifest changes are 3.12 Tasks 3 and 7.
-  - [ ] TSDoc the registration rule on `buildEntityRoutes` (Task 2).
+  - [x] TSDoc the registration rule on `buildEntityRoutes` (Task 2).
 
-- [ ] **Task 6 — shell integration** (AC: none new — consumption only)
-  - [ ] Confirm with one integration test that `<Entity360 tabBar={<Entity360Tabs …/>} />`
+- [x] **Task 6 — shell integration** (AC: none new — consumption only)
+  - [x] Confirm with one integration test that `<Entity360 tabBar={<Entity360Tabs …/>} />`
         keeps 3.1's region order. `Entity360Tabs` renders both the strip and the active panel,
         so a 360 that uses it leaves `Entity360`'s `children` region undefined; an absent
         region renders nothing, so the AD-24 order is preserved (contract §1 rules 1-2). This
@@ -505,8 +509,139 @@ story, so `npm run test:unit:db` is unaffected.
 
 ### Agent Model Used
 
+Sonnet 5 (claude-sonnet-5).
+
 ### Debug Log References
+
+- `make lint`'s `react-refresh/only-export-components` rule flagged the local `RecordRoute`
+  function originally defined inline in `buildEntityRoutes.tsx`: the rule treats any top-level
+  PascalCase function declaration as "a local component," and since `buildEntityRoutes` itself
+  (camelCase, so not recognised as a component export by the rule) was the file's only other
+  export, the file had a local component with no qualifying component export alongside it.
+  Fixed by extracting `RecordRoute` into its own module (`entity360/RecordRoute.tsx`) — which
+  the lint message itself suggests, and which the coding-style rule's "grow the file count, not
+  the file" already favours.
+- `buildEntityRoutes.test.tsx`'s AC 11 scroll-count assertions were flaky on first run (2 calls
+  where 1 was expected, then 4 where 2 was expected). Root cause: `vitest-browser-react` runs
+  every `it` in the file against the same real browser `window`, so a `vi.spyOn(window,
+  "scrollTo")` in one `it` is still installed when the next `it`'s `vi.spyOn` call reuses it
+  (vitest returns the existing mock rather than re-wrapping the native function), and its
+  `mock.calls` array is not cleared automatically. Fixed with a file-level
+  `afterEach(() => vi.restoreAllMocks())`.
+- Verified empirically (not just by reading the contract) that switching between the `:id` and
+  `:id/:tab` sibling `<Route>` entries does NOT remount the shared record element, provided both
+  routes point at the exact same component reference (`RecordRoute`): react-router's `<Routes>`
+  only ever renders one matched leaf at a time, so from the parent's perspective the "position"
+  in the tree never changes, and React reconciles by type at that position — not by which
+  literal `<Route>` JSX produced the element. This is what makes AC 11's "no scroll on tab
+  switch" possible in the first place; two independently-defined components (even if visually
+  identical) would remount on every tab click. Documented in `RecordRoute.tsx`'s own doc comment
+  as a constraint future edits must preserve.
 
 ### Completion Notes List
 
+- **Task 1 (`entityPaths.ts`, AC 3):** five builders, each starting with
+  `requireEntityDescriptor(name)`. `buildEditPath` returns the literal `` `/${name}/${id}/edit` ``
+  (not composed from `buildRecordPath`) per the Dev Notes rationale; `buildTabPath` delegates to
+  `descriptor.buildRecordPath(id)`. `entityPaths.test.ts` covers the happy path for every builder
+  plus a shared "every builder throws for an unregistered resource" test, with a fresh
+  `{ replace: true }` fixture registration in `beforeEach`.
+- **Task 2 (`buildEntityRoutes.tsx`, AC 1/2/8/11):** nested `<Routes>` built from `react-router`'s
+  own `Routes`/`Route` (no `ResourceContextProvider` of its own — the enclosing `<Resource>`
+  supplies it). The two record routes (`:id`, `:id/:tab`) both render `RecordRoute` (extracted to
+  its own file — see Debug Log), which wraps `Show` in `ShowBase` with `loading={<RecordPending/>}`
+  and `error={<RecordUnavailable/>}`, and resets `window.scrollTo(0, 0)` in an effect keyed on the
+  `:id` param only. `RecordPending`/`RecordUnavailable` are new, translate through `useTranslate()`
+  with `_:` English fallbacks (new catalog keys added to both `englishCrmMessages.ts` and
+  `frenchCrmMessages.ts` — `crm.entity360.record_pending`, `record_unavailable`,
+  `record_unavailable_link`); `RecordUnavailable`'s link uses `buildListPath(useResourceContext())`
+  and throws if rendered outside a `ResourceContextProvider` (mirrors `admin/show.tsx`'s own
+  fail-fast pattern). `buildEntityRoutes.tsx`'s TSDoc records the AC 10 `hasShow`/`hasEdit`
+  registration rule. `buildEntityRoutes.test.tsx` covers AC 1's five seeded paths (one `it` each,
+  positive + negative marker assertions), AC 2's two (RecordUnavailable on screen; pathname
+  unchanged after a rejected `getOne`), and AC 11's three (scroll on mount, no scroll on tab
+  switch, scroll again on id change) — plus the AC 10 `useGetPathForRecord()` pinning tests
+  (resolves with `hasShow`+`hasEdit`; resolves to `false` with `hasList` alone), since no other
+  file's TSDoc documents that mechanism.
+- **Task 3 (`Entity360Tabs.tsx`, AC 4/5/6/7):** built on `@/components/ui/tabs`, controlled by
+  `value={activeKey}`. Verified (via `node_modules/@radix-ui/react-primitive`) that Radix's
+  `Primitive.button` — what `TabsTrigger` renders under the hood — natively supports `asChild`
+  even though the shadcn wrapper doesn't declare the prop explicitly, so `<TabsTrigger asChild>`
+  wrapping a `<Link>` produces a real anchor with Radix's tab semantics merged onto it (see the
+  "contract accuracy" note in this report — `ReferenceShow.tsx` does NOT actually demonstrate this
+  pattern, contrary to the story's citation). Active-tab resolution is one pure function,
+  `resolveActiveTab(tabs, tabParam)`, with three branches for AC 5 (undefined → first tab, no nav),
+  AC 6 (unknown → first tab, `replace`) and AC 7 (empty → nothing, no nav); "unknown" covers both
+  an unparseable segment and a valid `TabKey` absent from this entity's `tabs`. The `replace`
+  effect's dependency list includes the raw `tabParam` (not just the derived booleans), which is
+  what makes AC 6 case (b) — re-evaluation on a second, non-consecutive visit to the same invalid
+  tab — pass; a narrower dependency list passes case (a) alone and fails case (b).
+  `Entity360Tabs.test.tsx` covers AC 4 (href-equals-buildTabPath + zero calls to the inactive
+  tab's render spy, then push+back across two real tabs), AC 5 (bare id, no history entry added),
+  AC 6 (single mis-typed tab, then the re-evaluation + back-skips-the-replaced-entry scenario) and
+  AC 7 (empty tabs array is fully inert), plus one shell-integration test for Task 6.
+- **Task 4 (the `new` route + `buildNewPath`, AC 8):** proven only against the in-file fixtures in
+  `buildEntityRoutes.test.tsx` / `entityPaths.test.ts`. **Hand-off, per the story's own Task 4
+  note:** the 14 live `/{entity}/create` literals, the `/create` → `/new` redirect, the three
+  `index.ts` `hasCreate` swaps and `ShidduchimList.tsx:78`'s `matchPath` are Story 3.12's Tasks 2
+  and 5 — none of them were touched here.
+- **Task 5 (`hasShow`/`hasEdit` mechanism, AC 10):** the two `useGetPathForRecord()` tests live in
+  `buildEntityRoutes.test.tsx` (see Task 2 above) rather than a separate file, since the TSDoc
+  they pin lives on `buildEntityRoutes` itself and the story names no dedicated file for them.
+  Confirmed empirically that with no `authProvider` configured, `useCanAccess`'s
+  `emptyQueryObserverResult` resolves `canAccess: true` synchronously, so the `hasShow`+`hasEdit`
+  case resolves a path without any async wait needed beyond `expect.element`'s own polling.
+  **No file under `src/components/admin/` was edited.**
+- **Task 6 (shell integration):** one test mounts `<Entity360 tabBar={<Entity360Tabs .../>} />`
+  with no `children`/`rightRail` and asserts the identityHeader region precedes the tabBar
+  region's own content (trigger + active panel) and that no third (content/rail) child is
+  emitted — confirming `Entity360Tabs` owns its own panel without needing `Entity360`'s
+  `children` slot. No file from Story 3.1 was modified.
+- **Contract accuracy note (not a deviation, a citation correction):** Task 3's citation
+  "the app's existing tab primitive, used this way at `references/ReferenceShow.tsx:129-165`"
+  is inaccurate as a *precedent* for the `asChild`+`<Link>` pattern — that file uses plain
+  uncontrolled `<Tabs defaultValue="conversations">` with no links and no `asChild`. The citation
+  is correct only in the weaker sense that it names the same `@/components/ui/tabs` primitive.
+  The `asChild` behaviour itself was verified independently by reading
+  `@radix-ui/react-primitive`'s source (`Primitive.button` supports `asChild` unconditionally)
+  and is proven green by `Entity360Tabs.test.tsx`'s href assertions. No contract text needed to
+  change as a result — this is a documentation-accuracy note for future readers of the story, not
+  a defect in the API shapes.
+- No other contract deviations found. `EntityTabDescriptor`'s non-generic shape (already settled
+  by Story 3.3a's own report) was consumed as-is; this story does not restate or revisit it.
+- Gate output: `make typecheck` clean; `make lint` (eslint + prettier) clean; `npx vitest run`
+  1013 tests / 96 files, all green (includes the 142 pre-existing + new tests under
+  `entity360/`); `make build` succeeds (pre-existing >500kB chunk-size warning, unrelated to this
+  diff); `npx prettier --check .` (the broader, non-scoped invocation named in the DoD) reports
+  15 pre-existing formatting issues outside this diff (`.github/workflows/*`, `.lintstagedrc`,
+  `doc/**/*.mdx`) — confirmed via `git status` that none are touched by this story, same
+  pre-existing condition Story 3.9's own report already recorded. No SQL touched, so
+  `npm run test:unit:db` and the `supabase db diff` check are not applicable to this story.
+
 ### File List
+
+**New files:**
+- `src/components/atomic-crm/entity360/entityPaths.ts`
+- `src/components/atomic-crm/entity360/entityPaths.test.ts`
+- `src/components/atomic-crm/entity360/buildEntityRoutes.tsx`
+- `src/components/atomic-crm/entity360/buildEntityRoutes.test.tsx`
+- `src/components/atomic-crm/entity360/RecordRoute.tsx` (extracted from `buildEntityRoutes.tsx` —
+  see Debug Log References)
+- `src/components/atomic-crm/entity360/RecordPending.tsx`
+- `src/components/atomic-crm/entity360/RecordUnavailable.tsx`
+- `src/components/atomic-crm/entity360/Entity360Tabs.tsx`
+- `src/components/atomic-crm/entity360/Entity360Tabs.test.tsx`
+
+**Modified files:**
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (three new
+  `crm.entity360.*` keys for `RecordPending`/`RecordUnavailable`)
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (matching French entries)
+
+## Change Log
+
+- 2026-07-28 — Story implemented in full: all 11 ACs, all 6 tasks. `make typecheck`, `make lint`,
+  `npx vitest run` (1013 tests, all passing), `make build` and `npx prettier --check .` all
+  green (the last with 15 pre-existing, out-of-diff formatting issues noted, not fixed, to keep
+  the diff scoped). No SQL touched. `RecordRoute` extracted into its own file mid-implementation
+  to satisfy `react-refresh/only-export-components`, an ADR-free structural detail (a fast-refresh
+  lint constraint, not a design decision) recorded here and in the module's own doc comment.

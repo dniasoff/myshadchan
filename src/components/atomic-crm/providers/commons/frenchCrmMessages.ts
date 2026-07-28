@@ -372,6 +372,9 @@ export const frenchCrmMessages = {
       overview: {
         empty: "Aucune information enregistrée pour l'instant.",
       },
+      record_pending: "Chargement…",
+      record_unavailable: "Cet enregistrement n'est pas disponible.",
+      record_unavailable_link: "Retour à la liste",
     },
     references: {
       list: {

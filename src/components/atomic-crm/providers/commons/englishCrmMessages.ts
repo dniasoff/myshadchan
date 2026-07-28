@@ -388,6 +388,10 @@ export const englishCrmMessages = {
       overview: {
         empty: "No details on file yet.",
       },
+      // Story 3.2 — ShowBase's explicit `loading` / `error` elements (AC 2).
+      record_pending: "Loading…",
+      record_unavailable: "This record is unavailable.",
+      record_unavailable_link: "Back to the list",
     },
     references: {
       list: {
