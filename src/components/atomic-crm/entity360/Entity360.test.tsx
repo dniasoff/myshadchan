@@ -139,6 +139,50 @@ describe("Entity360", () => {
     expect(root.children.length).toBe(ALL_REGIONS_ROOT_COUNT - 1);
   });
 
+  it("treats a `null` region prop exactly like an absent prop — the `cond ? <X/> : null` idiom", async () => {
+    // Arrange — alertSlot explicitly null, not omitted.
+    const regions = allRegions();
+
+    // Act
+    const screen = await render(<Entity360 {...regions} alertSlot={null} />);
+    const root = screen.container.children[0] as HTMLElement;
+
+    // Assert — no wrapper is emitted: same child count as omitting the prop.
+    expect(root.textContent ?? "").not.toContain(MARKER.alertSlot);
+    expect(root.children.length).toBe(ALL_REGIONS_ROOT_COUNT - 1);
+  });
+
+  it("treats a `false` region prop exactly like an absent prop — the `cond && <X/>` idiom", async () => {
+    // Arrange — statBand explicitly false, not omitted.
+    const regions = allRegions();
+
+    // Act
+    const screen = await render(<Entity360 {...regions} statBand={false} />);
+    const root = screen.container.children[0] as HTMLElement;
+
+    // Assert
+    expect(root.textContent ?? "").not.toContain(MARKER.statBand);
+    expect(root.children.length).toBe(ALL_REGIONS_ROOT_COUNT - 1);
+  });
+
+  it("omits the content/rail wrapper entirely when children is `null` and rightRail is `false`", async () => {
+    // Arrange — both idioms at once, on the row that previously leaked a
+    // real spacer (two empty columns) instead of omitting the whole row.
+    const regions = allRegions();
+    const { children: _content, rightRail: _rail, ...rest } = regions;
+
+    // Act
+    const screen = await render(
+      <Entity360 {...rest} children={null} rightRail={false} />,
+    );
+    const root = screen.container.children[0] as HTMLElement;
+
+    // Assert — no sixth (wrapper) child, exactly as the fully-absent case.
+    expect(root.children.length).toBe(ALL_REGIONS_ROOT_COUNT - 1);
+    expect(root.textContent ?? "").not.toContain(MARKER.children);
+    expect(root.textContent ?? "").not.toContain(MARKER.rightRail);
+  });
+
   it("omits the content/rail wrapper entirely when both children and rightRail are absent", async () => {
     // Arrange
     const regions = allRegions();

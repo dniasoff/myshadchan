@@ -41,6 +41,18 @@ const Region = ({ children }: { children: ReactNode }) => (
   <div className="min-w-0 break-words">{children}</div>
 );
 
+/**
+ * A region prop counts as present unless it is `undefined`, `null`, or
+ * `false` (rule 2: "an absent region renders nothing — no wrapper, no
+ * spacer"). `null` and `false` are not edge cases here — they are the two
+ * idioms a caller reaches for reflexively: `cond ? <X/> : null` and
+ * `cond && <X/>`. Checking only `!== undefined` let both through as
+ * "present," emitting an empty wrapper (and, for the content/rail row, a
+ * real spacer) for content that is not there.
+ */
+const isRegionPresent = (node: ReactNode): boolean =>
+  node !== undefined && node !== null && node !== false;
+
 export function Entity360({
   breadcrumb,
   identityHeader,
@@ -50,21 +62,23 @@ export function Entity360({
   children,
   rightRail,
 }: Entity360Props): ReactElement {
-  const hasContentRow = children !== undefined || rightRail !== undefined;
+  const hasContentRow = isRegionPresent(children) || isRegionPresent(rightRail);
 
   return (
     <div className="flex flex-col gap-4">
-      {breadcrumb !== undefined ? <Region>{breadcrumb}</Region> : null}
-      {identityHeader !== undefined ? <Region>{identityHeader}</Region> : null}
-      {statBand !== undefined ? <Region>{statBand}</Region> : null}
-      {alertSlot !== undefined ? <Region>{alertSlot}</Region> : null}
-      {tabBar !== undefined ? <Region>{tabBar}</Region> : null}
+      {isRegionPresent(breadcrumb) ? <Region>{breadcrumb}</Region> : null}
+      {isRegionPresent(identityHeader) ? (
+        <Region>{identityHeader}</Region>
+      ) : null}
+      {isRegionPresent(statBand) ? <Region>{statBand}</Region> : null}
+      {isRegionPresent(alertSlot) ? <Region>{alertSlot}</Region> : null}
+      {isRegionPresent(tabBar) ? <Region>{tabBar}</Region> : null}
       {hasContentRow ? (
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-          {children !== undefined ? (
+          {isRegionPresent(children) ? (
             <div className="min-w-0 flex-1 break-words">{children}</div>
           ) : null}
-          {rightRail !== undefined ? (
+          {isRegionPresent(rightRail) ? (
             <div className="min-w-0 break-words lg:w-80 lg:shrink-0">
               {rightRail}
             </div>

@@ -20,7 +20,15 @@ const STYLE_OBJECT_RE = /style=\{\{([\s\S]*?)\}\}/g;
 const LAYOUT_STYLE_KEY_RE =
   /\b(width|height|min\w*|max\w*|margin\w*|padding\w*|position|top|right|bottom|left|display|flex\w*|grid\w*|gap\w*|inset\w*)\s*:/g;
 const ENTITY360_ALLOWED_IMPORTS = new Set(["react", "@/lib/utils"]);
-const IMPORT_SPECIFIER_RE = /from\s+["']([^"']+)["']/g;
+// Matches both `import { x } from "spec"` (via the `from` keyword) and a
+// bare side-effect import `import "spec"` (no `from` at all) — AC 7's
+// allowlist must catch either form landing in Entity360.tsx.
+const IMPORT_SPECIFIER_RE = /import\s+(?:[^"']*?from\s+)?["']([^"']+)["']/g;
+// AC 2: the source guard additionally asserts Entity360.tsx contains no
+// `{...` spread — the signature is closed (seven named props), and a spread
+// onto the root would type-check while leaking every region prop as a DOM
+// attribute with nothing else to catch it.
+const SPREAD_RE = /\{\s*\.\.\./;
 
 /**
  * Pure predicate, declared in-file per the repo's `findManifestViolations`
@@ -51,6 +59,10 @@ function findStyleViolations(fileName: string, source: string): string[] {
 
   if (isEntity360 && /\bstyle\s*=/.test(source)) {
     violations.push(`${fileName}: contains a style attribute`);
+  }
+
+  if (isEntity360 && SPREAD_RE.test(source)) {
+    violations.push(`${fileName}: contains a spread ({...})`);
   }
 
   if (isEntityAvatar) {
@@ -190,12 +202,46 @@ describe("findStyleViolations", () => {
     expect(violations.length).toBeGreaterThan(0);
   });
 
+  it("flags a bare side-effect Entity360.tsx import outside the allowlist (no `from`)", () => {
+    // Arrange — the `from`-only regex previously let this form through clean.
+    const fixture = `import "@/components/ui/card";`;
+
+    // Act
+    const violations = findStyleViolations("Entity360.tsx", fixture);
+
+    // Assert
+    expect(violations.length).toBeGreaterThan(0);
+  });
+
   it("does not flag Entity360.tsx's own allowlisted imports", () => {
     // Arrange
     const fixture = `import type { ReactNode } from "react";\nimport { cn } from "@/lib/utils";`;
 
     // Act
     const violations = findStyleViolations("Entity360.tsx", fixture);
+
+    // Assert
+    expect(violations).toEqual([]);
+  });
+
+  it("flags a spread ({...}) in Entity360.tsx (AC 2)", () => {
+    // Arrange — a spread would type-check while leaking region props as DOM
+    // attributes; AC 2 bans it explicitly, on top of the closed signature.
+    const fixture = `<div {...rest} className="flex flex-col gap-4" />`;
+
+    // Act
+    const violations = findStyleViolations("Entity360.tsx", fixture);
+
+    // Assert
+    expect(violations.length).toBeGreaterThan(0);
+  });
+
+  it("does not flag EntityAvatar.tsx for a spread (the ban is scoped to Entity360.tsx)", () => {
+    // Arrange
+    const fixture = `<div {...rest} />`;
+
+    // Act
+    const violations = findStyleViolations("EntityAvatar.tsx", fixture);
 
     // Assert
     expect(violations).toEqual([]);

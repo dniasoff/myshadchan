@@ -39,7 +39,10 @@ const formatDob = (dateString?: string | null): string | null => {
   return `${formatted} (age ${age})`;
 };
 
-const SingleProfileHeader = ({ single }: { single: Single }) => {
+/** Exported for direct render coverage of the AC 5 EntityAvatar rewire
+ * (`SingleProfileHeader.test.tsx`) — otherwise only reachable through the
+ * full `ShowBase` record context. */
+export const SingleProfileHeader = ({ single }: { single: Single }) => {
   const nameEn = [single.first_name_en, single.last_name_en]
     .filter(Boolean)
     .join(" ");

@@ -28,7 +28,10 @@ const activeTabClassName =
  * single, and the cross-shidduch history that makes the book worth keeping.
  */
 
-const ReferenceHeader = ({ reference }: { reference: Reference }) => {
+/** Exported for direct render coverage of the AC 5 EntityAvatar rewire
+ * (`ReferenceHeader.test.tsx`) — otherwise only reachable through the full
+ * `ShowBase` record context. */
+export const ReferenceHeader = ({ reference }: { reference: Reference }) => {
   const translate = useTranslate();
   const { links } = useReferenceLinks(reference.id);
   const progress = summarizeCallProgress(links);
