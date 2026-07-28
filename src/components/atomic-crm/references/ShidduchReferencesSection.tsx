@@ -92,7 +92,7 @@ export const ShidduchReferencesSection = ({
         </ul>
       )}
 
-      <Button asChild variant="outline" className="min-h-[44px]">
+      <Button asChild variant="outline">
         <Link
           to={`${buildNewPath("references")}?shidduchim_id=${shidduchimId}`}
         >
