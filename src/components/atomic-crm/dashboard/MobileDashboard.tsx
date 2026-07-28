@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 
 import { buildNewPath } from "../entity360/entityPaths";
 import MobileHeader from "../layout/MobileHeader";
-import { MobileContent } from "../layout/MobileContent";
 import { EmptyState } from "../misc/EmptyState";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 import { AttentionSection } from "./AttentionSection";
@@ -13,6 +12,12 @@ import { PipelineSnapshot } from "./PipelineSnapshot";
 import { RecentSuggestions } from "./RecentSuggestions";
 import { useDashboardData } from "./useDashboardData";
 
+/**
+ * `MobileLayout` supplies the `<MobileContent>` wrapper (ui-audit-plan.md
+ * S3) — this only renders the fixed header; wrapping in `<MobileContent>`
+ * again here would nest a second `<main id="main-content">` and double the
+ * page's top/bottom padding.
+ */
 const Wrapper = ({ children }: { children: ReactNode }) => {
   const { darkModeLogo, lightModeLogo, title } = useConfigurationContext();
   return (
@@ -32,7 +37,7 @@ const Wrapper = ({ children }: { children: ReactNode }) => {
           <h1 className="text-xl font-semibold">{title}</h1>
         </div>
       </MobileHeader>
-      <MobileContent>{children}</MobileContent>
+      {children}
     </>
   );
 };

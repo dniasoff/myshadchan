@@ -49,20 +49,12 @@ const BARE_VAR_PATTERN = /-\[--[a-zA-Z0-9_-]+\]/g;
 // moment its file unfreezes and the syntax is fixed there. Never add an
 // entry, or raise a count, to silence a newly introduced violation — fix
 // the source instead.
-export const KNOWN_FROZEN_VIOLATIONS = new Map([
-  [
-    "src/components/atomic-crm/layout/MobileNavigation.tsx::-[--glass-border]",
-    1,
-  ],
-  ["src/components/atomic-crm/layout/MobileNavigation.tsx::-[--glass-bg]", 1],
-  [
-    "src/components/atomic-crm/layout/MobileNavigation.tsx::-[--ease-spring]",
-    1,
-  ],
-  ["src/components/atomic-crm/dashboard/DashboardStat.tsx::-[--ease-out]", 1],
-  ["src/components/atomic-crm/references/ReferenceList.tsx::-[--ease-out]", 1],
-  ["src/components/atomic-crm/singles/SingleList.tsx::-[--ease-spring]", 1],
-]);
+//
+// Story 3.12 landed and all 6 deferred sites were converted to the v4
+// `-(--foo)` shorthand, so this allowlist is empty. Keep the `Map` (rather
+// than deleting the export) — the next unrelated freeze that needs a
+// temporary, bounded exemption reuses this exact mechanism.
+export const KNOWN_FROZEN_VIOLATIONS = new Map();
 
 function suggestFix(match) {
   // "-[--glass-bg]" -> "-[var(--glass-bg)]"

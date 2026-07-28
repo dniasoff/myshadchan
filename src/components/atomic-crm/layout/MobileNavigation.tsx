@@ -69,9 +69,9 @@ export const MobileNavigation = () => {
   return (
     <nav
       aria-label={translate("crm.navigation.label")}
-      className="fixed inset-x-0 bottom-0 z-50 flex h-16 items-stretch
-        justify-around border-t border-[--glass-border] bg-[--glass-bg]
-        pb-[env(safe-area-inset-bottom)] shadow-lg
+      className="fixed inset-x-0 bottom-0 z-50 flex min-h-(--mobile-nav-h)
+        items-stretch justify-around border-t border-(--glass-border)
+        bg-(--glass-bg) pb-[env(safe-area-inset-bottom)] shadow-lg
         backdrop-blur-[var(--glass-blur)]"
     >
       <NavigationButton
@@ -161,7 +161,7 @@ const CreateButton = () => {
               text-primary-foreground outline-none
               bg-[linear-gradient(135deg,var(--accent-grad-from),var(--accent-grad-to))]
               shadow-[0_8px_24px_-6px_var(--glow-accent-strong)]
-              transition-transform duration-[160ms] ease-[--ease-spring]
+              transition-transform duration-[160ms] ease-(--ease-spring)
               active:scale-[0.97]
               focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >

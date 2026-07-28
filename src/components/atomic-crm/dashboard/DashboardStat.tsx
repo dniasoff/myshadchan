@@ -28,7 +28,7 @@ export const DashboardStat = ({
     <Card
       className={cn(
         "gap-3 p-5 shadow-sm transition-[box-shadow,transform] duration-[160ms]",
-        "ease-[--ease-out] hover:shadow-md hover:-translate-y-0.5",
+        "ease-(--ease-out) hover:shadow-md hover:-translate-y-0.5",
         className,
       )}
     >

@@ -289,6 +289,18 @@
 
   /* Desktop shell layout (not theme-dependent — declared once under :root). */
   --sidebar-w: 16.5rem;
+
+  /* Fixed-bar dimensions (ui-audit-plan.md S4) — one source for every chrome
+     bar's height, previously written three disagreeing ways (`h-16` /
+     `"72px"` / `pb-20`). --mobile-nav-clearance folds in the safe-area inset
+     so consumers below the fixed bottom nav (MobileContent's own bottom
+     padding, the toast's mobileOffset) never hardcode it separately. */
+  --topbar-h: 3.5rem; /* 56px — desktop TopBar */
+  --mobile-header-h: 3.5rem; /* 56px — MobileHeader */
+  --mobile-nav-h: 4rem; /* 64px — MobileNavigation, excluding safe-area inset */
+  --mobile-nav-clearance: calc(
+    var(--mobile-nav-h) + env(safe-area-inset-bottom)
+  );
 }
 
 /* =============================================================================

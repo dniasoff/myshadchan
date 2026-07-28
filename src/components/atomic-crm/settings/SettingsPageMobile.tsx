@@ -4,7 +4,6 @@ import { Translate, useAuthProvider, useLogout, useTranslate } from "ra-core";
 import { Button } from "@/components/ui/button";
 
 import { ContextSwitcher } from "../layout/ContextSwitcher";
-import { MobileContent } from "../layout/MobileContent";
 import MobileHeader from "../layout/MobileHeader";
 import { useMyContexts } from "../root/useMyContexts";
 import { FamilySection } from "./FamilySection";
@@ -20,6 +19,10 @@ import { SectionLabel } from "./SectionLabel";
  * ticket lane 7). The MCP-server and inbound-email cards that shipped with
  * the Atomic CRM template were developer plumbing, not parent-facing, and
  * have been removed from this surface.
+ *
+ * `<MobileContent>` chrome comes from `MobileLayout` itself
+ * (ui-audit-plan.md S3) — wrapping again here would nest a second
+ * `<main id="main-content">` and double the page padding.
  */
 export const SettingsPageMobile = () => {
   const translate = useTranslate();
@@ -35,30 +38,28 @@ export const SettingsPageMobile = () => {
           {translate("crm.settings.title")}
         </h1>
       </MobileHeader>
-      <MobileContent>
-        <div className="flex min-h-[calc(100dvh-3.5rem-4.5rem)] flex-col">
-          <div className="space-y-6">
-            <ContextSwitcherSection />
-            <ProfileSection />
-            <FamilySection />
-            <PersonasSection />
-            <InvitesSection />
-            <PreferencesSection />
-            <PrivacySection />
-          </div>
-
-          <div className="mb-4 mt-auto space-y-3 pt-6">
-            <Button
-              variant="destructive"
-              className="h-auto w-full text-base"
-              onClick={() => logout()}
-            >
-              <LogOut className="me-3 size-5" />
-              <Translate i18nKey="ra.auth.logout">Log out</Translate>
-            </Button>
-          </div>
+      <div className="flex min-h-[calc(100dvh-3.5rem-4.5rem)] flex-col">
+        <div className="space-y-6">
+          <ContextSwitcherSection />
+          <ProfileSection />
+          <FamilySection />
+          <PersonasSection />
+          <InvitesSection />
+          <PreferencesSection />
+          <PrivacySection />
         </div>
-      </MobileContent>
+
+        <div className="mb-4 mt-auto space-y-3 pt-6">
+          <Button
+            variant="destructive"
+            className="h-auto w-full text-base"
+            onClick={() => logout()}
+          >
+            <LogOut className="me-3 size-5" />
+            <Translate i18nKey="ra.auth.logout">Log out</Translate>
+          </Button>
+        </div>
+      </div>
     </>
   );
 };

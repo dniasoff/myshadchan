@@ -72,7 +72,7 @@ const ReferenceRow = ({
     >
       <Card
         className="flex flex-row items-center gap-4 rounded-2xl p-4 shadow-sm
-          transition-[box-shadow,transform] duration-[160ms] ease-[--ease-out]
+          transition-[box-shadow,transform] duration-[160ms] ease-(--ease-out)
           hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]"
       >
         <div

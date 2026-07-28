@@ -23,7 +23,7 @@ import { ContextSwitcher } from "./ContextSwitcher";
  */
 export const TopBar = () => (
   <header
-    className="sticky top-[var(--banner-h,0px)] z-20 flex h-14 items-center
+    className="sticky top-[var(--banner-h,0px)] z-20 flex h-(--topbar-h) items-center
       justify-between gap-4 border-b border-[var(--glass-border)] bg-[var(--glass-bg)]
       px-4 shadow-sm backdrop-blur-[var(--glass-blur)] sm:px-6"
   >
