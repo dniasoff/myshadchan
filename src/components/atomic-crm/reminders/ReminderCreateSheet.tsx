@@ -210,10 +210,7 @@ export const ReminderCreateSheet = ({
               {translate("crm.reminders.create.linkedTo", { _: "Linked to" })}
             </Label>
             <Select value={linkType} onValueChange={handleTypeChange}>
-              <SelectTrigger
-                id="reminder-link-type"
-                className="min-h-[44px] w-full"
-              >
+              <SelectTrigger id="reminder-link-type" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -230,7 +227,7 @@ export const ReminderCreateSheet = ({
               onValueChange={(value) => setTargetId(Number(value))}
               disabled={optionsPending || entityOptions.length === 0}
             >
-              <SelectTrigger className="min-h-[44px] w-full">
+              <SelectTrigger className="w-full">
                 <SelectValue
                   placeholder={
                     optionsPending
@@ -278,7 +275,7 @@ export const ReminderCreateSheet = ({
         <SheetFooter className="border-t">
           <Button
             type="button"
-            className="min-h-[48px] w-full text-base"
+            className="min-h-[48px] md:min-h-[48px] w-full text-base"
             disabled={!canSubmit || isSaving}
             onClick={handleSave}
           >

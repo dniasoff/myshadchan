@@ -29,7 +29,7 @@ describe("runTailwindArbitraryVarCheck", () => {
     );
 
     // Act
-    const violations = runTailwindArbitraryVarCheck(tempRoot, new Set());
+    const violations = runTailwindArbitraryVarCheck(tempRoot, new Map());
 
     // Assert
     expect(violations).toHaveLength(1);
@@ -45,7 +45,7 @@ describe("runTailwindArbitraryVarCheck", () => {
     );
 
     // Act
-    const violations = runTailwindArbitraryVarCheck(tempRoot, new Set());
+    const violations = runTailwindArbitraryVarCheck(tempRoot, new Map());
 
     // Assert
     expect(violations).toHaveLength(2);
@@ -59,7 +59,7 @@ describe("runTailwindArbitraryVarCheck", () => {
     );
 
     // Act
-    const [violation] = runTailwindArbitraryVarCheck(tempRoot, new Set());
+    const [violation] = runTailwindArbitraryVarCheck(tempRoot, new Map());
 
     // Assert
     expect(violation).toContain("-(--ease-spring)");
@@ -74,7 +74,7 @@ describe("runTailwindArbitraryVarCheck", () => {
     );
 
     // Act & Assert
-    expect(runTailwindArbitraryVarCheck(tempRoot, new Set())).toEqual([]);
+    expect(runTailwindArbitraryVarCheck(tempRoot, new Map())).toEqual([]);
   });
 
   it("passes on an explicit var() wrapper", async () => {
@@ -85,7 +85,7 @@ describe("runTailwindArbitraryVarCheck", () => {
     );
 
     // Act & Assert
-    expect(runTailwindArbitraryVarCheck(tempRoot, new Set())).toEqual([]);
+    expect(runTailwindArbitraryVarCheck(tempRoot, new Map())).toEqual([]);
   });
 
   it("passes on a genuine v4 theme function call, not a bare variable", async () => {
@@ -97,7 +97,7 @@ describe("runTailwindArbitraryVarCheck", () => {
     );
 
     // Act & Assert
-    expect(runTailwindArbitraryVarCheck(tempRoot, new Set())).toEqual([]);
+    expect(runTailwindArbitraryVarCheck(tempRoot, new Map())).toEqual([]);
   });
 
   it("does not flag a fragment covered by the known-violations allowlist", async () => {
@@ -110,7 +110,7 @@ describe("runTailwindArbitraryVarCheck", () => {
     // Act
     const violations = runTailwindArbitraryVarCheck(
       tempRoot,
-      new Set(["src/Example.tsx::-[--glass-bg]"]),
+      new Map([["src/Example.tsx::-[--glass-bg]", 1]]),
     );
 
     // Assert
@@ -131,7 +131,7 @@ describe("runTailwindArbitraryVarCheck", () => {
     // Act
     const violations = runTailwindArbitraryVarCheck(
       tempRoot,
-      new Set(["src/Example.tsx::-[--glass-bg]"]),
+      new Map([["src/Example.tsx::-[--glass-bg]", 1]]),
     );
 
     // Assert
@@ -155,7 +155,56 @@ describe("runTailwindArbitraryVarCheck", () => {
     // Act
     const violations = runTailwindArbitraryVarCheck(
       tempRoot,
-      new Set(["src/Example.tsx::-[--glass-bg]"]),
+      new Map([["src/Example.tsx::-[--glass-bg]", 1]]),
+    );
+
+    // Assert
+    expect(violations).toEqual([]);
+  });
+
+  it("flags a known-violation fragment once it is duplicated past its allowed count", async () => {
+    // Arrange — a frozen file may still be edited by its own owning story;
+    // if that edit copy-pastes the already-allowlisted violation instead of
+    // introducing a distinct one, a count-unbounded allowlist would let all
+    // copies through silently. Two occurrences against an allowance of one
+    // must surface exactly the second as new.
+    await writeFixture(
+      "src/Example.tsx",
+      [
+        'export const A = () => <div className="bg-[--glass-bg]" />;',
+        'export const B = () => <div className="bg-[--glass-bg]" />;',
+        "",
+      ].join("\n"),
+    );
+
+    // Act
+    const violations = runTailwindArbitraryVarCheck(
+      tempRoot,
+      new Map([["src/Example.tsx::-[--glass-bg]", 1]]),
+    );
+
+    // Assert
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("src/Example.tsx:2");
+    expect(violations[0]).toContain("-[--glass-bg]");
+  });
+
+  it("allows exactly as many duplicates as the allowlisted count records", async () => {
+    // Arrange — the mirror of the previous case: an allowance of two must
+    // exempt both occurrences, not just the first.
+    await writeFixture(
+      "src/Example.tsx",
+      [
+        'export const A = () => <div className="bg-[--glass-bg]" />;',
+        'export const B = () => <div className="bg-[--glass-bg]" />;',
+        "",
+      ].join("\n"),
+    );
+
+    // Act
+    const violations = runTailwindArbitraryVarCheck(
+      tempRoot,
+      new Map([["src/Example.tsx::-[--glass-bg]", 2]]),
     );
 
     // Assert
@@ -164,12 +213,22 @@ describe("runTailwindArbitraryVarCheck", () => {
 
   it("ignores files outside the scanned extensions", async () => {
     // Arrange
-    await writeFixture(
-      "src/example.css",
-      ".foo { background: var(--glass-bg); }\ndiv { color: red; } /* bg-[--glass-bg] */\n",
-    );
+    await writeFixture("src/example.json", '{ "note": "bg-[--glass-bg]" }\n');
 
     // Act & Assert
-    expect(runTailwindArbitraryVarCheck(tempRoot, new Set())).toEqual([]);
+    expect(runTailwindArbitraryVarCheck(tempRoot, new Map())).toEqual([]);
+  });
+
+  it("scans .css files for the same bare-variable bug", async () => {
+    // Arrange — an `@apply bg-[--glass-bg]` in a stylesheet is just as
+    // broken as the JSX form and was previously invisible to this guard.
+    await writeFixture("src/example.css", ".foo { @apply bg-[--glass-bg]; }\n");
+
+    // Act
+    const violations = runTailwindArbitraryVarCheck(tempRoot, new Map());
+
+    // Assert
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("src/example.css:1");
   });
 });
