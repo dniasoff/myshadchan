@@ -252,11 +252,26 @@ export const generateShidduchimDomain = (db: Db) => {
       id: ACCOUNT_ID,
       name: "Klein Family",
       transparency_level: "shared",
+      kind: "household",
       created_at: "2026-01-01T00:00:00.000Z",
     },
   ];
 
-  const account_members: AccountMember[] = [];
+  // The default demo login ("Jane Doe", member id 0 — fakerest/authProvider.ts)
+  // holds the `parent` persona on the seeded Klein household. Without this,
+  // `getMyPersonas()` (2.3 AC-8/AC-9) reports zero personas for the default
+  // login and `OnboardingGate` would show the persona multi-select on every
+  // `make start-demo` boot instead of the seeded board.
+  const account_members: AccountMember[] = [
+    {
+      id: 1,
+      account_id: ACCOUNT_ID,
+      user_id: "0",
+      role: "parent_admin",
+      status: "active",
+      created_at: "2026-01-01T00:00:00.000Z",
+    },
+  ];
 
   const allSeeds = [...rivkySeeds, ...yaakovSeeds];
   const shidduchim: Shidduch[] = allSeeds.map((seed, i) => ({

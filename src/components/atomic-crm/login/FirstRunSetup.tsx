@@ -2,10 +2,10 @@ import { useState } from "react";
 import { Loader2, Users, Sparkles, Check } from "lucide-react";
 import {
   useCreate,
-  useGetList,
   useNotify,
   useTranslate,
   useUpdate,
+  type Identifier,
 } from "ra-core";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router";
@@ -20,13 +20,28 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { Account } from "../types";
 import { LedgerMark } from "./BrandLockup";
 import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
 
 type Step = "account" | "single" | "done";
 
 const STEPS: Step[] = ["account", "single", "done"];
+
+export interface FirstRunSetupProps {
+  /** The household `accounts.id` — created by `addPersona('parent')`
+   * (2.2 AC-6) just before this component renders (2.3 AC-5). There is no
+   * `useGetList` fallback: post-2.7 a brand-new user has no other account to
+   * find, so the id must come from the caller's own `my_personas()` read. */
+  accountId: Identifier;
+  /** Called when the done step's "Go to my dashboard" button is pressed —
+   * invalidates `OnboardingChoice`'s shared `useMyPersonas` cache. NOT
+   * called any earlier: `OnboardingGate` shares that query key and is
+   * mounted throughout, so invalidating it mid-wizard (the moment
+   * `addPersona('parent')` already made `my_personas()` non-empty) would
+   * flip it to the real app shell and unmount this component before the
+   * user finishes it. */
+  onFinished: () => void;
+}
 
 /**
  * First-run onboarding: name the family record, add the first single, land
@@ -38,27 +53,21 @@ const STEPS: Step[] = ["account", "single", "done"];
  * (first single) are both RLS-scoped, authenticated-writable tables already —
  * see supabase/schemas/05_policies.sql / 06_grants.sql.
  */
-export const FirstRunSetup = () => {
+export const FirstRunSetup = ({
+  accountId,
+  onFinished,
+}: FirstRunSetupProps) => {
   const translate = useTranslate();
   const notify = useNotify();
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("account");
   const [singleName, setSingleName] = useState<string>("");
 
-  const { data: accounts, isPending: isAccountLoading } = useGetList<Account>(
-    "accounts",
-    {
-      pagination: { page: 1, perPage: 1 },
-      sort: { field: "id", order: "ASC" },
-    },
-  );
-  const account = accounts?.[0];
-
   const [updateAccount, { isPending: isSavingAccount }] = useUpdate();
   const [createSingle, { isPending: isSavingSingle }] = useCreate();
 
   const accountForm = useForm<{ name: string }>({
-    values: account ? { name: account.name } : undefined,
+    defaultValues: { name: "" },
   });
   const singleForm = useForm<{
     first_name_en: string;
@@ -68,10 +77,13 @@ export const FirstRunSetup = () => {
   const stepIndex = STEPS.indexOf(step);
 
   const handleAccountSubmit = accountForm.handleSubmit((values) => {
-    if (!account) return;
     updateAccount(
       "accounts",
-      { id: account.id, data: { name: values.name }, previousData: account },
+      {
+        id: accountId,
+        data: { name: values.name },
+        previousData: { id: accountId },
+      },
       {
         onSuccess: () => setStep("single"),
         onError: () => {
@@ -164,38 +176,32 @@ export const FirstRunSetup = () => {
               </p>
             </div>
 
-            {isAccountLoading ? (
-              <div className="flex h-24 items-center justify-center">
-                <Loader2 className="size-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-              <form onSubmit={handleAccountSubmit} className="space-y-4">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="account-name">
-                    {translate("crm.auth.onboarding.account_label", {
-                      _: "Family record name",
-                    })}
-                  </Label>
-                  <Input
-                    id="account-name"
-                    placeholder="The Klein Family"
-                    {...accountForm.register("name", { required: true })}
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
-                  disabled={isSavingAccount || !account}
-                >
-                  {isSavingAccount ? (
-                    <Loader2 className="me-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  {translate("crm.auth.onboarding.continue", {
-                    _: "Continue",
+            <form onSubmit={handleAccountSubmit} className="space-y-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="account-name">
+                  {translate("crm.auth.onboarding.account_label", {
+                    _: "Family record name",
                   })}
-                </Button>
-              </form>
-            )}
+                </Label>
+                <Input
+                  id="account-name"
+                  placeholder="The Klein Family"
+                  {...accountForm.register("name", { required: true })}
+                />
+              </div>
+              <Button
+                type="submit"
+                className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
+                disabled={isSavingAccount}
+              >
+                {isSavingAccount ? (
+                  <Loader2 className="me-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {translate("crm.auth.onboarding.continue", {
+                  _: "Continue",
+                })}
+              </Button>
+            </form>
           </div>
         ) : null}
 
@@ -325,7 +331,10 @@ export const FirstRunSetup = () => {
                 "w-full cursor-pointer gap-2",
                 PRIMARY_CTA_CLASSNAME,
               )}
-              onClick={() => navigate("/")}
+              onClick={() => {
+                onFinished();
+                navigate("/");
+              }}
             >
               <Sparkles className="size-4" aria-hidden="true" />
               {translate("crm.auth.onboarding.go_to_dashboard", {

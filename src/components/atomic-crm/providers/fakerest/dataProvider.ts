@@ -14,12 +14,14 @@ import type {
   LogReferenceCallInput,
   MatchReferenceInput,
   MergeResolution,
+  Member,
+  MemberFormData,
+  MyPersona,
+  Persona,
   PipelineState,
   ReferenceLink,
   ReferenceMatchCandidate,
   ReferenceMergePreview,
-  Member,
-  MemberFormData,
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
@@ -45,6 +47,7 @@ import {
   logReferenceCall,
 } from "./internal/referenceLinks";
 import { matchReferenceOnEntry } from "./internal/referenceMatch";
+import { addPersona, getMyPersonas } from "./internal/personas";
 import {
   catchShidduch,
   computeShidduchCatchCount,
@@ -721,6 +724,13 @@ export const createDataProvider = ({
       return { cleared: true };
     },
     currentAccountDemo: async (): Promise<boolean> => fakeDemo,
+    // "What am I" (2.2 AC-8, 2.3 AC-9) -- FakeRest mirrors of
+    // my_personas()/add_persona() in ./internal/personas.ts. Derive from the
+    // in-memory account_members/singles tables, never a stub.
+    getMyPersonas: (): Promise<MyPersona[]> =>
+      getMyPersonas(baseDataProvider, getIdentity),
+    addPersona: (persona: Persona): Promise<void> =>
+      addPersona(baseDataProvider, getIdentity, persona),
     // Billing / AI entitlement (E4) -- FakeRest mirror of ai_entitlement().
     // Demo mode defaults to the FREE tier (unentitled) with a sample usage
     // number, so the Billing page renders realistically without a paid backend.

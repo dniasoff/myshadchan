@@ -5,9 +5,9 @@
  * DemoBanner, tour/*) never drift on the string literal.
  *
  * `OnboardingGate`'s decision to show the welcome screen is driven purely by
- * data (no singles yet, not in demo mode) — deliberately NOT by a
- * "seen/dismissed" flag; see `OnboardingGate.tsx` for why an earlier version
- * with such a flag broke the "start with my own family" path.
+ * data (no persona provisioned yet, not in demo mode) — deliberately NOT by
+ * a "seen/dismissed" flag; see `OnboardingGate.tsx` for why an earlier
+ * version with such a flag broke the "start with my own family" path.
  *
  * - `justSeeded`  — seed just succeeded → auto-start the tour once.
  * - `tourCompleted` — walkthrough finished/skipped → don't auto-repeat;

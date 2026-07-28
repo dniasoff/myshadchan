@@ -82,7 +82,7 @@ export type PipelineState =
   "new" | "look_into" | "not_sure" | "for_sure_not" | "yes" | "unsure" | "no";
 
 export type MemberRole =
-  "parent_admin" | "helper" | "self_manager" | "shadchan";
+  "parent_admin" | "helper" | "self_manager" | "shadchan" | "single";
 
 export type ShidduchOrigin = "channel" | "manual" | "shadchan";
 
@@ -92,6 +92,9 @@ export type Account = {
   name: string;
   transparency_level: string;
   data_region?: string | null;
+  /** Household vs. shadchanus (2.2 AC-1). Absent on records predating that
+   * story — treat a missing value as `"household"`, its DB default. */
+  kind?: "household" | "shadchanus";
   created_at: string;
   demo?: boolean;
 } & Pick<RaRecord, "id">;
@@ -104,6 +107,23 @@ export type AccountMember = {
   invited_by?: Identifier | null;
   created_at: string;
 } & Pick<RaRecord, "id">;
+
+/** A persona a login may hold (personas-and-contexts.md) — the one the
+ * onboarding multi-select ticks and `add_persona()` provisions. Not every
+ * `MemberRole` is a persona: `helper` never is. */
+export type Persona = "single" | "parent" | "shadchan";
+
+/** One row of `public.my_personas()`'s return shape (2.2 AC-8) — "what am I,
+ * and in which context." `role` is the underlying `account_members.role`
+ * that earned this persona (e.g. `single` is reported for both a `single`
+ * membership and an owning `parent_admin`/`self_manager` one that has a
+ * `singles` row pointing at it). */
+export type MyPersona = {
+  persona: Persona;
+  account_id: Identifier;
+  account_kind: "household" | "shadchanus";
+  role: MemberRole;
+};
 
 export type Single = {
   account_id: Identifier;

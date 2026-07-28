@@ -144,6 +144,22 @@ export const englishCrmMessages = {
         subtitle: "Set up the first account for your household.",
       },
       welcome_title: "Welcome to MyShadchan",
+      // 2.3 (AC-10): the onboarding persona multi-select. The other
+      // `crm.auth.onboarding.*` keys FirstRunSetup/OnboardingChoice read
+      // (account_title, single_title, done_body, etc.) predate this story
+      // and run on inline defaults only — out of this story's scope to
+      // back-fill (2-3-onboarding-persona-multi-select.md Dev Notes).
+      onboarding: {
+        persona_title: "Which applies to you?",
+        persona_subtitle:
+          "Pick everything that applies — you can add more later from Settings.",
+        persona_single: "I'm looking for a shidduch for myself",
+        persona_parent: "I'm looking for a shidduch for my children",
+        persona_shadchan: "I'm a matchmaker (shadchan)",
+        persona_validation: "Pick at least one to continue.",
+        persona_done_shadchan_body:
+          "Your shadchanus book is ready. Start by adding a reference.",
+      },
     },
     landing: {
       nav: {

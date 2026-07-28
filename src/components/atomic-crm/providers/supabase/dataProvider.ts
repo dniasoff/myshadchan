@@ -15,13 +15,15 @@ import type {
   LogReferenceCallInput,
   MatchReferenceInput,
   MergeResolution,
+  Member,
+  MemberFormData,
+  MyPersona,
+  Persona,
   PipelineState,
   RAFile,
   ReferenceLink,
   ReferenceMatchCandidate,
   ReferenceMergePreview,
-  Member,
-  MemberFormData,
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
@@ -457,6 +459,29 @@ const getDataProviderWithCustomMethods = () => {
         return false; // fail-soft: no banner rather than a broken app
       }
       return data === true;
+    },
+    // "What am I" (2.2 AC-8, 2.3 AC-9): the one read `OnboardingGate` and the
+    // onboarding screen both call. Fail-loud, unlike `currentAccountDemo`
+    // above — a swallowed error here would read as "no personas yet" and
+    // silently re-run onboarding for an existing user.
+    async getMyPersonas(): Promise<MyPersona[]> {
+      const { data, error } = await getSupabaseClient().rpc("my_personas");
+      if (error) {
+        console.error("my_personas.error", error);
+        throw new Error("Failed to load your account");
+      }
+      return (data ?? []) as MyPersona[];
+    },
+    // Provisions one persona (2.2 AC-6, 2.3 AC-3). Always fail-loud: a
+    // swallowed provisioning failure strands the caller with no context.
+    async addPersona(persona: Persona): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("add_persona", {
+        p_persona: persona,
+      });
+      if (error) {
+        console.error("add_persona.error", error);
+        throw new Error("Couldn't set that up. Try again.");
+      }
     },
 
     // ---------------------------------------------------------------------

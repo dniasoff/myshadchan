@@ -147,6 +147,17 @@ export const frenchCrmMessages = {
         subtitle: "Configurez le premier compte de votre foyer.",
       },
       welcome_title: "Bienvenue sur MyShadchan",
+      onboarding: {
+        persona_title: "Qu'est-ce qui vous concerne ?",
+        persona_subtitle:
+          "Cochez tout ce qui s'applique — vous pourrez en ajouter plus tard depuis les paramètres.",
+        persona_single: "Je cherche un shidduch pour moi-même",
+        persona_parent: "Je cherche un shidduch pour mes enfants",
+        persona_shadchan: "Je suis un(e) marieur(euse) (shadchan)",
+        persona_validation: "Cochez au moins une option pour continuer.",
+        persona_done_shadchan_body:
+          "Votre carnet de shadchanus est prêt. Commencez par ajouter une référence.",
+      },
     },
     landing: {
       nav: {
