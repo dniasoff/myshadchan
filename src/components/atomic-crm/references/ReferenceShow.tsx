@@ -3,7 +3,7 @@ import { Show } from "@/components/admin/show";
 import { EditButton } from "@/components/admin/edit-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { getAvatarIndex, getMonogram } from "../shidduchim/boardUtils";
+import { EntityAvatar } from "../entity360/EntityAvatar";
 import { TopToolbar } from "../layout/TopToolbar";
 import type { Reference } from "../types";
 import { ReferenceCallLog } from "./ReferenceCallLog";
@@ -33,8 +33,6 @@ const ReferenceHeader = ({ reference }: { reference: Reference }) => {
   const { links } = useReferenceLinks(reference.id);
   const progress = summarizeCallProgress(links);
   const name = reference.name_en || "?";
-  const monogram = getMonogram(reference.name_en);
-  const avatarIndex = getAvatarIndex(reference.name_en ?? String(reference.id));
   const meterPct =
     progress.total > 0
       ? Math.round((progress.contacted / progress.total) * 100)
@@ -44,16 +42,11 @@ const ReferenceHeader = ({ reference }: { reference: Reference }) => {
     <Card className="rounded-2xl shadow-sm">
       <CardContent className="flex flex-wrap items-start justify-between gap-4 pt-6">
         <div className="flex min-w-0 items-start gap-3.5">
-          <div
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-xl text-base font-bold"
-            style={{
-              backgroundColor: `var(--avatar-${avatarIndex})`,
-              color: "var(--avatar-ink)",
-            }}
-            aria-hidden="true"
-          >
-            {monogram}
-          </div>
+          <EntityAvatar
+            seed={reference.name_en ?? String(reference.id)}
+            monogramSource={reference.name_en}
+            className="h-12 w-12 rounded-xl text-base"
+          />
           <div className="min-w-0">
             <h2 className="font-display text-xl font-semibold leading-tight">
               {name}

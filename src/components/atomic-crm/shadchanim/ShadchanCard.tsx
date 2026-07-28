@@ -3,7 +3,7 @@ import { Link } from "react-router";
 
 import { Card } from "@/components/ui/card";
 
-import { getAvatarIndex, getMonogram } from "../shidduchim/boardUtils";
+import { getAvatarIndex, getMonogram } from "../entity360/avatar";
 import type { Shadchan } from "../types";
 import { ResponsivenessChip } from "./ResponsivenessChip";
 

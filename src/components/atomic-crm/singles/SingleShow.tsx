@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 import { PipelineSnapshot } from "../dashboard/PipelineSnapshot";
-import { getAvatarIndex, getMonogram } from "../shidduchim/boardUtils";
+import { EntityAvatar } from "../entity360/EntityAvatar";
 import { TopToolbar } from "../layout/TopToolbar";
 import type { Single } from "../types";
 
@@ -44,8 +44,6 @@ const SingleProfileHeader = ({ single }: { single: Single }) => {
     .filter(Boolean)
     .join(" ");
   const monogramSeed = nameEn || undefined;
-  const monogram = getMonogram(monogramSeed);
-  const avatarIndex = getAvatarIndex(monogramSeed ?? String(single.id));
   const dob = formatDob(single.dob);
   const isActive = single.status === "active";
   const statusLabel = STATUS_LABEL[single.status] ?? single.status;
@@ -53,16 +51,11 @@ const SingleProfileHeader = ({ single }: { single: Single }) => {
   return (
     <Card className="shadow-sm">
       <CardContent className="flex flex-wrap items-start gap-4">
-        <div
-          className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl text-xl font-bold"
-          style={{
-            backgroundColor: `var(--avatar-${avatarIndex})`,
-            color: "var(--avatar-ink)",
-          }}
-          aria-hidden="true"
-        >
-          {monogram}
-        </div>
+        <EntityAvatar
+          seed={monogramSeed ?? String(single.id)}
+          monogramSource={monogramSeed}
+          className="h-14 w-14 rounded-2xl text-xl"
+        />
         <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             Family roster

@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-import { getAvatarIndex, getMonogram } from "../shidduchim/boardUtils";
+import { getAvatarIndex, getMonogram } from "../entity360/avatar";
 import type { Single } from "../types";
 
 export interface SingleCardProps {

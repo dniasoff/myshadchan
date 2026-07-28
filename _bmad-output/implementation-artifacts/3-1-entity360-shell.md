@@ -1,6 +1,10 @@
+---
+baseline_commit: a1cf0253e9f27a6fb684d2be7723919343c60e82
+---
+
 # Story 3.1: `Entity360` shell
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -246,57 +250,67 @@ export function Entity360(props: Entity360Props): ReactElement;
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Move the avatar utilities** (AC: 6)
-  - [ ] Create `src/components/atomic-crm/entity360/avatar.ts`; move `getMonogram`
+- [x] **Task 1 — Move the avatar utilities** (AC: 6)
+  - [x] Create `src/components/atomic-crm/entity360/avatar.ts`; move `getMonogram`
         (`shidduchim/boardUtils.ts:35-42`) and `getAvatarIndex` (`:44-51`) verbatim,
         JSDoc included. `boardUtils.ts` keeps `ShidduchimByState`,
         `getShidduchimByState` and `formatRedtDate`.
-  - [ ] Run `LSP findReferences` on both symbols **before** editing to confirm the
+  - [x] Run `LSP findReferences` on both symbols **before** editing to confirm the
         importer set matches AC 6 [Source: .claude/rules/lsp-usage.md] — do not re-derive
-        it with `grep`.
-  - [ ] Repoint every importer at `"../entity360/avatar"`. Keep `formatRedtDate` on
+        it with `grep`. *(The `LSP` tool was not available/loaded in this session; the
+        9-file importer census was verified with a targeted `grep -rn` restricted to the
+        two symbol names, matching the census this story and §7 "Not problems" both
+        already pin. See report for this deviation.)*
+  - [x] Repoint every importer at `"../entity360/avatar"`. Keep `formatRedtDate` on
         `"./boardUtils"` in `shidduchim/ShidduchCard.tsx`.
-  - [ ] Create `entity360/avatar.test.ts` with the two moved `describe` blocks, assertions
+  - [x] Create `entity360/avatar.test.ts` with the two moved `describe` blocks, assertions
         unchanged; delete them from `shidduchim/boardUtils.test.ts`.
 
-- [ ] **Task 2 — Build `EntityAvatar` and rewire its four call sites** (AC: 4, 5)
-  - [ ] Create `entity360/EntityAvatar.tsx` per AC 5: base classes
+- [x] **Task 2 — Build `EntityAvatar` and rewire its four call sites** (AC: 4, 5)
+  - [x] Create `entity360/EntityAvatar.tsx` per AC 5: base classes
         `grid shrink-0 place-items-center font-bold`, `className` appended (fallback
         `"h-14 w-14 rounded-2xl text-lg"` when absent), inline
         `{ backgroundColor: \`var(--avatar-${getAvatarIndex(seed)})\`, color: "var(--avatar-ink)" }`,
         `getMonogram(monogramSource)` as the child, `aria-hidden="true"` always.
-  - [ ] Replace the chip `<div>` in `singles/SingleShow.tsx:56-65`,
+  - [x] Replace the chip `<div>` in `singles/SingleShow.tsx:56-65`,
         `shadchanim/ShadchanHeader.tsx:31-39`, `references/ReferenceShow.tsx:47-56` and
         `shidduchim/ShidduchShowHeader.tsx:43-52` with `<EntityAvatar>`, passing the
         `monogramSource` / `seed` pair each file already computes and the `className` from
         AC 5's table. Delete the now-unused local `monogram` / `avatarIndex` consts and
         their imports (`noUnusedLocals` is on — `tsconfig.app.json:21`).
-  - [ ] Do **not** touch the four card chips named in AC 5, beyond Task 1's import move.
+  - [x] Do **not** touch the four card chips named in AC 5, beyond Task 1's import move.
 
-- [ ] **Task 3 — Build the `Entity360` shell** (AC: 1, 2, 3, 7)
-  - [ ] Create `entity360/Entity360.tsx`: the seven props from AC 1, each rendered inside
+- [x] **Task 3 — Build the `Entity360` shell** (AC: 1, 2, 3, 7)
+  - [x] Create `entity360/Entity360.tsx`: the seven props from AC 1, each rendered inside
         its own fixed wrapper in the pinned order; no prop controls order or styling.
-  - [ ] Root is `flex flex-col gap-*`. `children` and `rightRail` share one wrapper that is
+  - [x] Root is `flex flex-col gap-*`. `children` and `rightRail` share one wrapper that is
         `flex flex-col gap-*` up to `lg` and `lg:flex-row lg:items-start` above it, with
         the content column `min-w-0 flex-1` and the rail `lg:w-80 lg:shrink-0`. DOM order
         stays content → rail. The wrapper is not emitted when both are absent (AC 1).
-  - [ ] JSDoc on `statBand` and `alertSlot` naming `DashboardStat` and `Alert` (AC 7).
+  - [x] JSDoc on `statBand` and `alertSlot` naming `DashboardStat` and `Alert` (AC 7).
         Imports limited to `react` and `@/lib/utils` (AC 7).
 
-- [ ] **Task 4 — Tests** (AC: 1, 2, 3, 4, 5, 7)
-  - [ ] `entity360/Entity360.test.tsx`, AAA-structured: region order with all seven
+- [x] **Task 4 — Tests** (AC: 1, 2, 3, 4, 5, 7)
+  - [x] `entity360/Entity360.test.tsx`, AAA-structured: region order with all seven
         populated and with the props written in scrambled JSX order; one `it` per
         "region absent emits nothing"; the `children`+`rightRail`-both-absent case; the two
-        `// @ts-expect-error` cases from AC 2.
-  - [ ] `entity360/Entity360.responsive.test.tsx` (or the same file): the three
+        `// @ts-expect-error` cases from AC 2. *(The second fixture was substituted —
+        `variant="x"` instead of the contract's literal `data-testid="x"` — because
+        TypeScript's JSX checker never flags hyphenated attribute names on any element;
+        see report.)*
+  - [x] `entity360/Entity360.responsive.test.tsx` (or the same file): the three
         `page.viewport()` assertions from AC 3, with an `afterEach` restoring the viewport.
-  - [ ] `entity360/EntityAvatar.test.tsx`: the four `className` variants render their
+        *(Required adding `@tailwindcss/vite` to the "app" vitest project and importing
+        `@/index.css` in this file — real computed layout is meaningless without the
+        real stylesheet; see report.)*
+  - [x] `entity360/EntityAvatar.test.tsx`: the four `className` variants render their
         classes and `aria-hidden`; the computed-`background-color` assertions from AC 4.
-  - [ ] `entity360/entity360Style.guard.test.ts`: `findStyleViolations` run over the two
+        *(Same `@/index.css` import needed for the `--avatar-{n}` assertions.)*
+  - [x] `entity360/entity360Style.guard.test.ts`: `findStyleViolations` run over the two
         real sources **and** over the four broken fixtures, per AC 4, plus AC 7's import
         allowlist and its `@/components/ui/card` fixture.
-  - [ ] `entity360/avatar.test.ts` — the two moved `describe` blocks.
-  - [ ] Validation before hand-off: `npm run typecheck`, `npm run test:unit:app`,
+  - [x] `entity360/avatar.test.ts` — the two moved `describe` blocks.
+  - [x] Validation before hand-off: `npm run typecheck`, `npm run test:unit:app`,
         `npm run lint`, `npm run build`. **No DB surface in this story** — no migration, no
         RLS, no `npm run test:unit:db`.
 
@@ -452,8 +466,91 @@ touch `node:fs`.
 
 ### Agent Model Used
 
+Claude Opus 5 (claude-sonnet-5 harness, bmad-dev-story workflow)
+
 ### Debug Log References
+
+- `make typecheck` — green.
+- `make lint` (eslint + repo prettier check) — green.
+- `npx vitest run` (all 5 projects) — 912/912 passed.
+- `make build` — green.
+- `npx prettier --check .` — 15 pre-existing unrelated warnings (docs/workflow files),
+  confirmed identical on `main` before this story; no file this story touched is flagged.
+- `node scripts/check-retired-names.mjs` — clean (required renaming several test
+  identifiers that coincidentally spelled "CHILD"/"Children" — see Completion Notes).
+- `node scripts/check-suppressions.mjs` — fails on `main` at baseline (3 pre-existing
+  `@ts-expect-error`-style comments in `entity360/tabKeys.test.ts` already exceed the
+  `src/components/atomic-crm` budget of 0); this story's two AC-2-mandated directives
+  bring it to 5. Not in this story's DoD list; not fixed (see report).
 
 ### Completion Notes List
 
+- AC1–AC7 implemented per contract §1. The AC3/AC4 inline-`backgroundColor` contradiction
+  was resolved per contract §1 rule 6 before writing code: `Entity360.tsx` carries no
+  `style=` at all; `EntityAvatar.tsx` alone may set `backgroundColor`/`color` inline to
+  `var(--avatar-*)` values, enforced by a red/green guard predicate
+  (`entity360Style.guard.test.ts`).
+- `getMonogram`/`getAvatarIndex` moved verbatim to `entity360/avatar.ts`; all 9 importers
+  beyond `boardUtils.ts` repointed (4 header rewires onto `EntityAvatar`, 4 card chips kept
+  inline but repointed, plus the moved test file) — census re-verified by grep and matches
+  the story/§7 "Not problems" census exactly.
+- `EntityAvatar` built and its four header call sites rewired in this story (not deferred),
+  per the contract's explicit reversal of the earlier no-consumer revision. The one
+  behavioural gap the earlier revision had (`ShadchanHeader`'s chip missing
+  `aria-hidden="true"`) is closed by construction — `EntityAvatar` always sets it.
+- `Entity360` composes 7 optional regions via a `Region` wrapper (`min-w-0 break-words`)
+  used for the 5 singleton regions, and a similarly-guarded content/rail row for
+  `children`/`rightRail`. The `min-w-0`/`break-words` pairing is load-bearing, not
+  decorative: without it, AC 3's 375px-with-long-unbroken-strings test genuinely
+  overflows (verified red before adding it).
+- **Infrastructure change required for AC 3/AC 4 to be real tests, not tautologies**:
+  the "app" vitest project only had the `react()` Vite plugin, no Tailwind processing and
+  no global stylesheet import anywhere in the test suite (confirmed: zero prior
+  `getComputedStyle`/`page.viewport(` usage in the repo). Without real CSS, every
+  Tailwind utility class is inert and CSS custom properties are undefined, so the
+  layout/colour assertions this story's own AC 3/AC 4 demand cannot mean anything — they
+  were observed to fail with the *wrong* real-world layout (no flexbox, transparent
+  backgrounds) before the fix. Added `@tailwindcss/vite` to the "app" project's plugins
+  (mirrors `vite.config.ts`) and `import "@/index.css"` in the two test files that need
+  real computed style. This only costs anything for files that import the stylesheet;
+  the other 56 pre-existing "app" test files are unaffected (confirmed: full suite still
+  912/912 green).
+- `scripts/check-retired-names.mjs` flagged several of my own test identifiers —
+  `firstElementChild`/`lastElementChild` (DOM APIs, not in the guard's `firstChild`/
+  `lastChild` exempt list — a narrow pre-existing gap I worked around rather than
+  patched, by using `.children[0]` / `.children[len-1]` instead) and a few
+  all-caps/underscored names of mine that happened to spell "CHILD" (`CHILDREN_MARKER`,
+  `FULL_ROOT_CHILD_COUNT`, a destructured `_children` binding) — renamed to
+  `CONTENT_MARKER`, `ALL_REGIONS_ROOT_COUNT`, `_content`. No production code was
+  affected; the guard is clean at the end.
+
 ### File List
+
+**Created:**
+- `src/components/atomic-crm/entity360/avatar.ts`
+- `src/components/atomic-crm/entity360/avatar.test.ts`
+- `src/components/atomic-crm/entity360/EntityAvatar.tsx`
+- `src/components/atomic-crm/entity360/EntityAvatar.test.tsx`
+- `src/components/atomic-crm/entity360/Entity360.tsx`
+- `src/components/atomic-crm/entity360/Entity360.test.tsx`
+- `src/components/atomic-crm/entity360/Entity360.responsive.test.tsx`
+- `src/components/atomic-crm/entity360/entity360Style.guard.test.ts`
+
+**Modified:**
+- `src/components/atomic-crm/shidduchim/boardUtils.ts` (removed `getMonogram`/`getAvatarIndex`)
+- `src/components/atomic-crm/shidduchim/boardUtils.test.ts` (removed their `describe` blocks)
+- `src/components/atomic-crm/singles/SingleShow.tsx` (rewired onto `EntityAvatar`)
+- `src/components/atomic-crm/singles/SingleCard.tsx` (import path only)
+- `src/components/atomic-crm/shadchanim/ShadchanHeader.tsx` (rewired onto `EntityAvatar`)
+- `src/components/atomic-crm/shadchanim/ShadchanCard.tsx` (import path only)
+- `src/components/atomic-crm/references/ReferenceShow.tsx` (rewired onto `EntityAvatar`)
+- `src/components/atomic-crm/references/ReferenceList.tsx` (import path only)
+- `src/components/atomic-crm/shidduchim/ShidduchShowHeader.tsx` (rewired onto `EntityAvatar`)
+- `src/components/atomic-crm/shidduchim/ShidduchCard.tsx` (import path only)
+- `vitest.config.ts` (added `@tailwindcss/vite` to the "app" project's plugins)
+- `registry.json` (regenerated via `make registry-gen`, picks up the 3 new source files)
+
+### Change Log
+
+- 2026-07-28: Story implemented — `Entity360` shell + `EntityAvatar` built, four header
+  chips rewired, avatar utilities relocated to `entity360/avatar.ts`. All gates green.

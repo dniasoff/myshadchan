@@ -31,25 +31,6 @@ export const getShidduchimByState = (
   return byState;
 };
 
-/** Two-letter monogram from an English name, e.g. "Ari Rosenberg" -> "AR". */
-export const getMonogram = (name?: string | null): string => {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-};
-
-/** Deterministic avatar palette index (0-9) from a seed string. */
-export const getAvatarIndex = (seed?: string | null): number => {
-  if (!seed) return 0;
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  return hash % 10;
-};
-
 /** Format a YYYY-MM-DD redt date as "9 Jul 2026" (timezone-safe). */
 export const formatRedtDate = (dateString?: string | null): string => {
   if (!dateString) return "";

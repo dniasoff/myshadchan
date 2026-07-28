@@ -2,7 +2,7 @@ import { Mail, MapPin, MessageCircle, Phone } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 
-import { getAvatarIndex, getMonogram } from "../shidduchim/boardUtils";
+import { EntityAvatar } from "../entity360/EntityAvatar";
 import type { Shadchan } from "../types";
 import { ResponsivenessChip } from "./ResponsivenessChip";
 import { parseContactInfo } from "./shadchanUtils";
@@ -18,8 +18,6 @@ export interface ShadchanHeaderProps {
  * simply omitted, never fabricated), and notes.
  */
 export const ShadchanHeader = ({ shadchan }: ShadchanHeaderProps) => {
-  const monogram = getMonogram(shadchan.name);
-  const avatarIndex = getAvatarIndex(shadchan.name ?? String(shadchan.id));
   const contactInfo = parseContactInfo(shadchan.contacts);
   const hasContactInfo =
     contactInfo.phone || contactInfo.email || contactInfo.whatsapp;
@@ -28,15 +26,11 @@ export const ShadchanHeader = ({ shadchan }: ShadchanHeaderProps) => {
     <Card className="p-6 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-4">
-          <div
-            className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl text-lg font-bold"
-            style={{
-              backgroundColor: `var(--avatar-${avatarIndex})`,
-              color: "var(--avatar-ink)",
-            }}
-          >
-            {monogram}
-          </div>
+          <EntityAvatar
+            seed={shadchan.name ?? String(shadchan.id)}
+            monogramSource={shadchan.name}
+            className="h-14 w-14 rounded-2xl text-lg"
+          />
           <div className="min-w-0">
             <h1 className="font-display text-2xl font-bold tracking-tight">
               {shadchan.name}

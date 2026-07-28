@@ -1,10 +1,11 @@
 import { format } from "date-fns";
 import { DialogTitle } from "@/components/ui/dialog";
 
+import { EntityAvatar } from "../entity360/EntityAvatar";
 import { StateChip } from "../misc/StateChip";
 import type { ShidduchSummary } from "../types";
 import { ClockIcon } from "./ShidduchCard";
-import { formatRedtDate, getAvatarIndex, getMonogram } from "./boardUtils";
+import { formatRedtDate } from "./boardUtils";
 
 /** Format an ISO timestamp (e.g. first_suggested_at) as "9 Jul 2026". */
 const formatSuggestedAt = (iso: string): string => {
@@ -28,8 +29,6 @@ export const ShidduchShowHeader = ({
   firstSuggestedByName?: string | null;
 }) => {
   const name = shidduch.name_en ?? shidduch.single_first_name_en ?? "Shidduch";
-  const monogram = getMonogram(shidduch.name_en);
-  const avatarIndex = getAvatarIndex(shidduch.name_en ?? String(shidduch.id));
   const meta = [shidduch.location_en, shidduch.seminary_en]
     .filter(Boolean)
     .join(" · ");
@@ -40,16 +39,11 @@ export const ShidduchShowHeader = ({
   return (
     <header className="flex flex-col gap-4">
       <div className="flex items-start gap-4">
-        <div
-          className="grid size-14 shrink-0 place-items-center rounded-2xl text-lg font-bold"
-          style={{
-            backgroundColor: `var(--avatar-${avatarIndex})`,
-            color: "var(--avatar-ink)",
-          }}
-          aria-hidden="true"
-        >
-          {monogram}
-        </div>
+        <EntityAvatar
+          seed={shidduch.name_en ?? String(shidduch.id)}
+          monogramSource={shidduch.name_en}
+          className="size-14 rounded-2xl text-lg"
+        />
         <div className="min-w-0 flex-1">
           <DialogTitle asChild>
             <h2 className="flex flex-wrap items-baseline gap-x-3 font-display text-2xl font-bold tracking-tight">

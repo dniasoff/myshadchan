@@ -9,7 +9,8 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 import type { ShidduchSummary } from "../types";
-import { formatRedtDate, getAvatarIndex, getMonogram } from "./boardUtils";
+import { getAvatarIndex, getMonogram } from "../entity360/avatar";
+import { formatRedtDate } from "./boardUtils";
 
 /** Shared with the 360 detail header's meta row — one small clock glyph. */
 export const ClockIcon = () => (

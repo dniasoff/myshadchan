@@ -2,6 +2,7 @@ import path from "node:path";
 import { defineConfig } from "vitest/config";
 import { playwright } from "@vitest/browser-playwright";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // Five test projects (https://vitest.dev/guide/projects.html):
 //   - "app":       React/DOM unit tests, run in a real browser (Playwright/Chromium).
@@ -23,7 +24,13 @@ export default defineConfig({
   test: {
     projects: [
       {
-        plugins: [react()],
+        // `tailwindcss()` mirrors vite.config.ts: it only transforms files
+        // that actually get imported, so it is a no-op cost for the many
+        // "app" tests that render without CSS — it only matters to a test
+        // that imports "@/index.css" for real computed layout/colour
+        // assertions (Entity360's 375px overflow guard, EntityAvatar's
+        // `--avatar-{n}` colour assertions).
+        plugins: [react(), tailwindcss()],
         optimizeDeps: {
           exclude: ["playwright", "playwright-core"],
         },

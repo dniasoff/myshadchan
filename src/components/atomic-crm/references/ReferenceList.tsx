@@ -7,7 +7,7 @@ import { SelectInput } from "@/components/admin/select-input";
 import { TextInput } from "@/components/admin/text-input";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { getAvatarIndex, getMonogram } from "../shidduchim/boardUtils";
+import { getAvatarIndex, getMonogram } from "../entity360/avatar";
 import { EmptyState } from "../misc/EmptyState";
 import { TopToolbar } from "../layout/TopToolbar";
 import type { ReferenceSummary } from "../types";
