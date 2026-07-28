@@ -149,8 +149,8 @@ export const ReminderCreateSheet = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="max-h-[92vh] overflow-y-auto border-t-[--glass-border]
-          bg-[--glass-bg] backdrop-blur-[var(--glass-blur)]"
+        className="max-h-[92vh] overflow-y-auto border-t-[var(--glass-border)]
+          bg-[var(--glass-bg)] backdrop-blur-[var(--glass-blur)]"
       >
         <SheetHeader>
           <SheetTitle>

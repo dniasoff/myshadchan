@@ -30,7 +30,7 @@ const InboxCard = ({
       type="button"
       onClick={() => onResolve(item)}
       className="ql-enter w-full rounded-2xl border border-border bg-card p-4 text-start shadow-sm
-        transition-[transform,box-shadow] duration-[160ms] ease-[--ease-spring]
+        transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)]
         hover:shadow-md active:scale-[0.99]
         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
         focus-visible:ring-offset-background outline-none"

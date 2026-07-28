@@ -41,7 +41,7 @@ export const ReminderCard = ({
     <li className="ql-enter" style={{ animationDelay: `${enterDelayMs}ms` }}>
       <div
         className={cn(
-          "flex items-start gap-3 rounded-2xl border p-4 shadow-sm transition-[box-shadow,transform] duration-[160ms] ease-[--ease-out] hover:shadow-md",
+          "flex items-start gap-3 rounded-2xl border p-4 shadow-sm transition-[box-shadow,transform] duration-[160ms] ease-[var(--ease-out)] hover:shadow-md",
           overdue
             ? "border-[color-mix(in_oklch,var(--attention)_35%,transparent)] bg-[color-mix(in_oklch,var(--attention)_10%,transparent)]"
             : "border-border bg-card",

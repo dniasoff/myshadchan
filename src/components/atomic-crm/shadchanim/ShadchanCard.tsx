@@ -32,14 +32,14 @@ export const ShadchanCard = ({
       resource="shadchanim"
       id={shadchan.id}
       className="ql-enter block rounded-2xl outline-none transition-transform
-        duration-[160ms] ease-[--ease-spring] active:scale-[0.97]
+        duration-[160ms] ease-[var(--ease-spring)] active:scale-[0.97]
         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
         focus-visible:ring-offset-background"
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
     >
       <Card
         className="gap-0 p-4 shadow-sm transition-[box-shadow,transform] duration-[160ms]
-          ease-[--ease-out] hover:-translate-y-0.5 hover:shadow-md"
+          ease-[var(--ease-out)] hover:-translate-y-0.5 hover:shadow-md"
       >
         <div className="flex items-start gap-3">
           <div

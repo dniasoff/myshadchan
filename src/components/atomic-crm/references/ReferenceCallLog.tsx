@@ -34,7 +34,7 @@ const LinkCard = ({ link }: { link: ReferenceLinkSummary }) => {
   return (
     <Card
       className="rounded-2xl shadow-sm transition-[box-shadow,transform]
-        duration-[160ms] ease-[--ease-out] hover:shadow-md"
+        duration-[160ms] ease-[var(--ease-out)] hover:shadow-md"
     >
       <CardContent className="flex flex-col gap-3 pt-6">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -100,7 +100,7 @@ const LinkCard = ({ link }: { link: ReferenceLinkSummary }) => {
             type="button"
             variant="outline"
             className="min-h-[44px] transition-transform duration-[160ms]
-              ease-[--ease-spring] active:scale-[0.97]"
+              ease-[var(--ease-spring)] active:scale-[0.97]"
             onClick={() => setIsCapturing(true)}
           >
             {translate("crm.references.callLog.capture", {

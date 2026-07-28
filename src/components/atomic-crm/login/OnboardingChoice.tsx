@@ -142,7 +142,7 @@ const OnboardingChoiceCard = ({ onChooseOwn }: { onChooseOwn: () => void }) => {
       <div className="ql-enter relative z-10 w-full max-w-lg">
         <div
           className="rounded-[20px] border p-7 shadow-lg sm:p-8
-            bg-[--glass-bg] border-[--glass-border] backdrop-blur-[var(--glass-blur)]"
+            bg-[var(--glass-bg)] border-[var(--glass-border)] backdrop-blur-[var(--glass-blur)]"
         >
           <BrandLockup className="mb-6 justify-center" />
           <div className="mb-7 space-y-2 text-center">
@@ -178,7 +178,7 @@ const ExploreDemoButton = ({
     disabled={seeding}
     className={cn(
       "w-full cursor-pointer rounded-2xl p-5 text-start outline-none",
-      "transition-[transform,box-shadow] duration-[160ms] ease-[--ease-spring]",
+      "transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)]",
       "disabled:cursor-not-allowed disabled:opacity-80",
       !seeding && "hover:-translate-y-0.5 active:scale-[0.99]",
       "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
@@ -326,7 +326,7 @@ const PersonaSelectCard = ({
       <div className="ql-enter relative z-10 w-full max-w-lg">
         <div
           className="rounded-[20px] border p-7 shadow-lg sm:p-8
-            bg-[--glass-bg] border-[--glass-border] backdrop-blur-[var(--glass-blur)]"
+            bg-[var(--glass-bg)] border-[var(--glass-border)] backdrop-blur-[var(--glass-blur)]"
         >
           <BrandLockup className="mb-6 justify-center" />
           <div className="mb-6 space-y-2 text-center">

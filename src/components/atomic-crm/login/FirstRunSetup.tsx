@@ -148,7 +148,7 @@ export const FirstRunSetup = ({
             <span
               key={s}
               className={cn(
-                "h-1.5 rounded-full transition-[width,background-color] duration-[240ms] ease-[--ease-out]",
+                "h-1.5 rounded-full transition-[width,background-color] duration-[240ms] ease-[var(--ease-out)]",
                 i === stepIndex ? "w-6" : "w-1.5",
               )}
               style={{

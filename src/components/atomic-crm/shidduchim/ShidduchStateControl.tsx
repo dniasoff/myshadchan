@@ -95,7 +95,7 @@ export const ShidduchStateControl = ({
               onClick={() => handleMove(def.value)}
               className={cn(
                 "inline-flex min-h-11 items-center rounded-full px-0.5 outline-none",
-                "transition-[transform,box-shadow] duration-[160ms] ease-[--ease-spring]",
+                "transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)]",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 clickable &&
                   "cursor-pointer hover:-translate-y-0.5 active:scale-[0.97]",

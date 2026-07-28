@@ -24,7 +24,7 @@ export const AuthLayout = ({ children, footer }: AuthLayoutProps) => (
     <div className="ql-enter relative z-10 w-full max-w-md">
       <div
         className="rounded-[20px] border p-7 shadow-lg sm:p-8
-          bg-[--glass-bg] border-[--glass-border] backdrop-blur-[var(--glass-blur)]"
+          bg-[var(--glass-bg)] border-[var(--glass-border)] backdrop-blur-[var(--glass-blur)]"
       >
         <BrandLockup className="mb-6 justify-center" />
         {children}

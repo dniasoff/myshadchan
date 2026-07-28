@@ -14,11 +14,20 @@
     sans-serif;
   --font-hebrew: "Heebo Variable", "Heebo", sans-serif;
 
-  /* Radius scale (derived from --radius) */
+  /* Radius scale (derived from --radius). Monotonic: sm < md < lg < xl <
+     2xl < 3xl. --radius-2xl/3xl were previously undefined, so rounded-2xl
+     (53 call sites — the app's dominant card/panel/avatar radius) fell
+     through to Tailwind's built-in 1rem (16px) and rendered SMALLER than
+     rounded-xl (18px). Defining them here keeps the scale ordered and
+     gives rounded-2xl a visibly rounder step, matching its role as the
+     app's primary panel radius; rounded-3xl is used once, on the
+     landing page's single showpiece card. */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 16px);
 
   /* Core surface + text colors */
   --color-background: var(--background);
@@ -428,11 +437,15 @@ input {
   cursor: text;
 }
 
-/* Prevent mobile zoom on input focus by ensuring 16px minimum font size */
+/* Prevent mobile zoom on input focus by ensuring 16px minimum font size.
+   (Previously this block also set `html { font-size: 17px }`, meant to
+   solve the same iOS-zoom problem one level up. It didn't just duplicate
+   the fix below — it broke the spacing/type/radius scale, multiplying
+   every rem-based token by 1.0625 under 768px, e.g. the sidebar rendered
+   wider at 768px than at 1440px. The rule below, which fixes the input's
+   own font-size directly with `!important`, already prevents the zoom on
+   its own and is unaffected by the root font-size.) */
 @media screen and (max-width: 768px) {
-  html {
-    font-size: 17px;
-  }
   input,
   textarea,
   select {

@@ -90,7 +90,7 @@ export const ReferenceHeader = ({ reference }: { reference: Reference }) => {
             aria-valuemax={100}
           >
             <div
-              className="h-full rounded-full bg-positive transition-[width] duration-[320ms] ease-[--ease-out]"
+              className="h-full rounded-full bg-positive transition-[width] duration-[320ms] ease-[var(--ease-out)]"
               style={{ width: `${meterPct}%` }}
             />
           </div>

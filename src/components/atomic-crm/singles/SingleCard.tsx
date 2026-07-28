@@ -66,7 +66,7 @@ export const SingleCard = ({ single, index, openCount }: SingleCardProps) => {
     >
       <Card
         className="gap-0 p-5 shadow-sm transition-all duration-[160ms]
-          ease-[--ease-out] hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98]"
+          ease-[var(--ease-out)] hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98]"
       >
         <div className="flex items-start gap-3.5">
           <div

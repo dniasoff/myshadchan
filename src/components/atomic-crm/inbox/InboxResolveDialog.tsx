@@ -105,7 +105,7 @@ export const InboxResolveDialog = ({
         className={
           "top-1/20 max-h-9/10 translate-y-0 overflow-y-auto lg:max-w-4xl " +
           "bg-popover border-border shadow-lg " +
-          "dark:bg-[--glass-bg] dark:backdrop-blur-[var(--glass-blur)] dark:border-[--glass-border]"
+          "dark:bg-[var(--glass-bg)] dark:backdrop-blur-[var(--glass-blur)] dark:border-[var(--glass-border)]"
         }
       >
         <DialogHeader>

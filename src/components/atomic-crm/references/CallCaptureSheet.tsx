@@ -78,8 +78,8 @@ export const CallCaptureSheet = ({
       <SheetContent
         side="bottom"
         className="max-h-[92vh] overflow-y-auto
-          bg-[--glass-bg] backdrop-blur-[var(--glass-blur)]
-          border-[--glass-border]"
+          bg-[var(--glass-bg)] backdrop-blur-[var(--glass-blur)]
+          border-[var(--glass-border)]"
       >
         <SheetHeader>
           <SheetTitle>{link.reference_name_en}</SheetTitle>
@@ -112,7 +112,7 @@ export const CallCaptureSheet = ({
                     onClick={() => setStatus(descriptor.id)}
                     className={cn(
                       "min-h-[56px] rounded-xl border px-4 py-3 text-base font-medium",
-                      "transition-[box-shadow,transform] duration-[160ms] ease-[--ease-spring]",
+                      "transition-[box-shadow,transform] duration-[160ms] ease-[var(--ease-spring)]",
                       "active:scale-[0.97]",
                       isSelected ? "" : "opacity-80 hover:opacity-100",
                     )}
@@ -156,7 +156,7 @@ export const CallCaptureSheet = ({
             className="min-h-[48px] w-full text-base text-primary-foreground
               bg-[linear-gradient(135deg,var(--accent-grad-from),var(--accent-grad-to))]
               shadow-sm shadow-[0_8px_24px_-6px_var(--glow-accent)]
-              transition-[transform,box-shadow] duration-[160ms] ease-[--ease-spring]
+              transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)]
               hover:shadow-[0_10px_30px_-6px_var(--glow-accent-strong)]
               active:scale-[0.97]"
             disabled={isSaving}

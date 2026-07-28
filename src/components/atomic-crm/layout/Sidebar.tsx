@@ -17,8 +17,8 @@ export const Sidebar = () => {
   return (
     <aside
       className="fixed bottom-0 top-[var(--banner-h,0px)] start-0 z-30 hidden
-        w-[var(--sidebar-w)] flex-col border-e border-[--glass-border]
-        bg-[--glass-bg] shadow-lg backdrop-blur-[var(--glass-blur)] md:flex"
+        w-[var(--sidebar-w)] flex-col border-e border-[var(--glass-border)]
+        bg-[var(--glass-bg)] shadow-lg backdrop-blur-[var(--glass-blur)] md:flex"
     >
       <Link
         to="/"
