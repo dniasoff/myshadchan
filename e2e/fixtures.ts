@@ -215,6 +215,19 @@ export async function fetchOtpCode(email: string): Promise<string> {
  * Drives the two-step passwordless login form (story 2.6): email step, then
  * the code step, reading the code from Mailpit rather than a clickable link
  * (AD-11 — email-OTP is the native path, not a magic link).
+ *
+ * Clicking "Sign in" only *starts* the login: `authProvider.login()` resolves
+ * asynchronously and ra-core's `useLogin()` then navigates to the
+ * authenticated shell. Returning immediately after the click used to race
+ * that redirect — a caller's own `page.goto("#/some-route")` right after
+ * `signIn()` could land first and then get stomped when the app's redirect
+ * to "#/" finally fired (see e2e/invite-sending.spec.ts's history: the
+ * "#invite-email" locator kept timing out because the URL had bounced back
+ * to "#/" underneath it). Waiting here for the "Pipeline" nav link — the
+ * same universal anchor pipeline.spec.ts already asserts on — closes that
+ * race for every caller, present and future: it's rendered by both the
+ * desktop Sidebar and the mobile bottom nav (PRIMARY_NAV), unlike e.g.
+ * "Settings", which is tucked behind a "More" dropdown on mobile.
  */
 async function signIn(page: Page, email: string) {
   await page.goto("http://localhost:5175/#/login");
@@ -225,6 +238,8 @@ async function signIn(page: Page, email: string) {
 
   await page.getByLabel("Code").fill(code);
   await page.getByRole("button", { name: "Sign in" }).click();
+
+  await expect(page.getByRole("link", { name: "Pipeline" })).toBeVisible();
 }
 
 export const test = base.extend<{

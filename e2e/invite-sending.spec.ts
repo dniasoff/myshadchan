@@ -43,16 +43,23 @@ test("a parent_admin sends an invite from Settings, sees the link, then revokes 
   await expect(linkField).toHaveValue(/\/#\/accept-invite\//);
 
   // AC-4: the new invite shows up in the list as pending, with a Revoke
-  // action next to it (AC-3).
+  // action next to it (AC-3). Scoped to the Invites section's own list
+  // (role="list" on InvitesSection's ItemGroup) rather than a bare
+  // page-wide `getByText("Pending")`: the Settings page's Profile section
+  // renders the literal placeholder "Pending" for a member's first/last
+  // name until they set one (see supabase/schemas/01_tables.sql's
+  // `default 'Pending'`) — an unscoped locator collides with that and
+  // throws a strict-mode violation.
   await expect(page.getByText(inviteEmail)).toBeVisible();
-  await expect(page.getByText("Pending", { exact: true })).toBeVisible();
-  const revokeButton = page.getByRole("button", { name: "Revoke" });
+  const inviteRow = page.getByRole("list").filter({ hasText: inviteEmail });
+  await expect(inviteRow.getByText("Pending", { exact: true })).toBeVisible();
+  const revokeButton = inviteRow.getByRole("button", { name: "Revoke" });
   await expect(revokeButton).toBeVisible();
 
   await revokeButton.click();
 
   // AC-3: revoking flips the status and the action disappears — a revoked
   // invite can never be revoked again.
-  await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
+  await expect(inviteRow.getByText("Revoked", { exact: true })).toBeVisible();
   await expect(revokeButton).not.toBeVisible();
 });
