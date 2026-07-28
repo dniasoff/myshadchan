@@ -3,15 +3,6 @@
 -- This file declares all PL/pgSQL functions in the public schema.
 --
 
-CREATE OR REPLACE FUNCTION "public"."get_user_id_by_email"("email" "text") RETURNS TABLE("id" "uuid")
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
-    AS $_$
-BEGIN
-  RETURN QUERY SELECT au.id FROM auth.users au WHERE au.email = $1;
-END;
-$_$;
-
 -- Provisions a new auth user's `members` profile row. Membership itself
 -- (the account_members row) is bound separately by accept_invite() below —
 -- deliberately NOT here, and NOT at auth.users INSERT time at all.
@@ -118,17 +109,31 @@ begin
     return;
   end if;
 
-  if v_invite.status <> 'pending' or v_invite.expires_at <= now() then
+  if v_invite.expires_at <= now() then
+    raise exception 'This invite is invalid, expired, or has already been used.'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Review finding #4 (2.8): claim the invite atomically BEFORE inserting
+  -- the membership, re-checking `status = 'pending'` in the UPDATE's WHERE
+  -- clause rather than relying on the plain SELECT read above (which a
+  -- concurrent revoke_invite() could invalidate between this function's
+  -- read and its write). See revoke_invite()'s matching comment for why the
+  -- WHERE-clause re-check — not an explicit lock — is what makes the two
+  -- functions mutually exclusive on the same row: whichever commits first
+  -- wins, the other's UPDATE affects zero rows and raises here instead of
+  -- creating a membership for an invite the admin just revoked.
+  update public.invites
+  set status = 'accepted', accepted_at = now()
+  where id = v_invite.id and status = 'pending';
+
+  if not found then
     raise exception 'This invite is invalid, expired, or has already been used.'
       using errcode = 'check_violation';
   end if;
 
   insert into public.account_members (account_id, user_id, role, invited_by, status)
   values (v_invite.account_id, v_user_id, v_invite.role, v_invite.invited_by, 'active');
-
-  update public.invites
-  set status = 'accepted', accepted_at = now()
-  where id = v_invite.id;
 end;
 $$;
 
@@ -1142,12 +1147,26 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
-  if v_invite.status <> 'pending' then
-    raise exception 'invite % is not pending (status %)', p_invite_id, v_invite.status
+  -- Review finding #4 (2.8): the status check and the write used to be two
+  -- separate statements (a plain SELECT already read above, then an
+  -- unconditional UPDATE), leaving a window under READ COMMITTED where a
+  -- concurrent accept_invite() could bind a membership from the SAME invite
+  -- between this function's read and its write — both could commit, leaving
+  -- an active member the admin believes they just cancelled. Re-checking
+  -- `status = 'pending'` IN the UPDATE's WHERE clause closes it: Postgres
+  -- re-evaluates that predicate against the latest committed row once any
+  -- lock a concurrent writer held is released (EvalPlanQual), so whichever
+  -- of revoke_invite()/accept_invite() commits first wins the row and the
+  -- other sees it already transitioned and raises here instead of
+  -- clobbering it.
+  update public.invites
+  set status = 'revoked'
+  where id = p_invite_id and status = 'pending';
+
+  if not found then
+    raise exception 'invite % is not pending', p_invite_id
       using errcode = 'check_violation';
   end if;
-
-  update public.invites set status = 'revoked' where id = p_invite_id;
 end;
 $$;
 

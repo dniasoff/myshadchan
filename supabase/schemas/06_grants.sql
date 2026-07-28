@@ -10,9 +10,6 @@ grant usage on schema public to authenticated;
 grant usage on schema public to service_role;
 
 -- Function grants
-revoke all on function public.get_user_id_by_email(text) from public;
-grant all on function public.get_user_id_by_email(text) to service_role;
-
 grant all on function public.handle_new_user() to anon;
 grant all on function public.handle_new_user() to authenticated;
 grant all on function public.handle_new_user() to service_role;

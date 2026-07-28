@@ -163,6 +163,30 @@ describe("InvitesSection", () => {
       .toBe(1);
   });
 
+  it("shows no Revoke button for a non-owning caller (helper), even on pending invites (review finding #1)", async () => {
+    // Arrange — a helper cannot revoke server-side (is_invite_capable_role()
+    // excludes it), so the button must not render at all rather than fail on
+    // click.
+    const invites = [
+      buildInvite({ id: 1, status: "pending", email: "pending@example.com" }),
+    ];
+
+    // Act
+    const { screen } = await renderSection(helperContext, {
+      getList: vi
+        .fn()
+        .mockResolvedValue({ data: invites, total: invites.length }),
+    });
+
+    // Assert
+    await expect
+      .element(screen.getByText("pending@example.com"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Revoke" }))
+      .not.toBeInTheDocument();
+  });
+
   it("clicking Revoke calls dataProvider.revokeInvite with that invite's id", async () => {
     // Arrange
     const revokeInvite = vi.fn().mockResolvedValue(undefined);

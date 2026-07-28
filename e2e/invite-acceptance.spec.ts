@@ -4,10 +4,11 @@ import { test, expect, fetchOtpCode } from "./fixtures";
 // preview renders, the affirmation gates the OTP request) and AC-6/AC-7 (a
 // matching signup actually lands the invitee inside the household they were
 // invited into, not a generic dashboard). Runs against the same e2e stack
-// as pipeline.spec.ts (email-OTP, story 2.6's passwordless flow) — there is
-// no in-app way to SEND an invite yet (that is story 2.8), so the invite
-// itself is seeded directly, exactly like the genesis-seed runbook this
-// story's Dev Notes describe.
+// as pipeline.spec.ts (email-OTP, story 2.6's passwordless flow). The invite
+// itself is seeded directly here (rather than sent through the in-app
+// InvitesSection form story 2.8 adds — see invite-sending.spec.ts for that
+// path), exactly like the genesis-seed runbook this story's Dev Notes
+// describe.
 test("an invitee previews, affirms 18+, and signs in through an invite", async ({
   page,
   createInvite,

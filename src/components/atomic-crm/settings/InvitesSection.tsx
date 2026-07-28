@@ -139,16 +139,17 @@ export const InvitesSection = () => {
       setRole(null);
       setIsCopied(false);
       await refetch();
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "crm.settings.invites_send_error",
-        {
-          type: "error",
-          messageArgs: { _: "Couldn't send that invite. Try again." },
-        },
-      );
+    } catch {
+      // Review finding #2: `error.message` (raw Postgres text, e.g. "role %
+      // may not send invites") must never be passed as the notify KEY — the
+      // i18n provider's `allowMissing: true` (i18nProvider.ts) makes a
+      // missing key silently fall back to the inline `_` string, which made
+      // the French `invites_send_error` catalogue entry unreachable dead
+      // copy. Always notify with the real, translated key.
+      notify("crm.settings.invites_send_error", {
+        type: "error",
+        messageArgs: { _: "Couldn't send that invite. Try again." },
+      });
     } finally {
       setIsSending(false);
     }
@@ -164,16 +165,12 @@ export const InvitesSection = () => {
     try {
       await dataProvider.revokeInvite(invite.id);
       await refetch();
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "crm.settings.invites_revoke_error",
-        {
-          type: "error",
-          messageArgs: { _: "Couldn't revoke that invite. Try again." },
-        },
-      );
+    } catch {
+      // Review finding #2 — see the matching comment in handleSend above.
+      notify("crm.settings.invites_revoke_error", {
+        type: "error",
+        messageArgs: { _: "Couldn't revoke that invite. Try again." },
+      });
     } finally {
       setRevokingId(null);
     }
@@ -313,7 +310,14 @@ export const InvitesSection = () => {
                           _: STATUS_LABELS[status].fallback,
                         })}
                       </Badge>
-                      {status === "pending" ? (
+                      {/* Review finding #1: gate on the caller's own
+                          invite-capable authority (roleOptions is [] for a
+                          non-invite-capable role, e.g. helper/single), not
+                          merely the invite's own status — otherwise a
+                          non-owning viewer sees a Revoke button that always
+                          fails server-side, the exact "error after
+                          submitting" UX AC-1 designs the send form against. */}
+                      {status === "pending" && roleOptions.length > 0 ? (
                         <Button
                           type="button"
                           variant="ghost"
