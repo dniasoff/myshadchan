@@ -17,6 +17,7 @@ import {
   ItemSeparator,
   ItemTitle,
 } from "@/components/ui/item";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import ImageEditorField from "../misc/ImageEditorField";
 import type { CrmDataProvider } from "../providers/types";
@@ -99,7 +100,15 @@ export const ProfileSection = () => {
     [data, dataProvider, refetchIdentity, refetchUser, notify],
   );
 
-  if (!identity || !data) return null;
+  // Bug: this used to `return null` while `useGetIdentity()` /
+  // `useGetOne("members", …)` were in flight, so the card popped in ~50-100ms
+  // after first paint and pushed every section below it down by its own
+  // height (measured 0.33-0.42 CLS on a cold mobile load — see
+  // fix-mobile-cls.mjs's diagnosis). `ProfileSectionSkeleton` reserves the
+  // same footprint up front (same `Item`/`ItemGroup` primitives, same
+  // translated field labels — only the fetched values are placeholders) so
+  // the real content lands in a slot that's already the right size.
+  if (!identity || !data) return <ProfileSectionSkeleton />;
 
   return (
     <div>
@@ -147,6 +156,69 @@ export const ProfileSection = () => {
     </div>
   );
 };
+
+/**
+ * Placeholder for `ProfileSection` while identity/member data is in flight.
+ * Mirrors the settled card's exact structure (`SectionLabel` + `ItemGroup`
+ * of four `Item size="sm"` rows) so the two never differ in height: the
+ * avatar circle is reserved at the same 50px `AVATAR_SIZE` ImageEditorField
+ * renders, and each field row keeps its real translated label — only the
+ * fetched value (name/email) is a placeholder — with the value skeleton's
+ * height matched to the real value's `text-base` line box so swapping it
+ * for real text does not change the row's height either.
+ */
+const ProfileSectionSkeleton = () => {
+  const translate = useTranslate();
+
+  return (
+    <div>
+      <SectionLabel>
+        {translate("crm.profile.title", { _: "Profile" })}
+      </SectionLabel>
+      <ItemGroup className="rounded-lg border overflow-hidden">
+        <Item size="sm">
+          <ItemContent>
+            <div className="flex flex-row items-center gap-2">
+              <Skeleton className="size-[50px] rounded-full" />
+              <Skeleton className="h-3 w-12" />
+            </div>
+          </ItemContent>
+        </Item>
+
+        <ItemSeparator />
+
+        <ProfileFieldRowSkeleton
+          label={translate("resources.members.fields.first_name")}
+        />
+
+        <ItemSeparator />
+
+        <ProfileFieldRowSkeleton
+          label={translate("resources.members.fields.last_name")}
+        />
+
+        <ItemSeparator />
+
+        <ProfileFieldRowSkeleton
+          label={translate("resources.members.fields.email")}
+        />
+      </ItemGroup>
+    </div>
+  );
+};
+
+const ProfileFieldRowSkeleton = ({ label }: { label: string }) => (
+  <Item size="sm">
+    <ItemContent>
+      <ItemTitle className="font-normal text-muted-foreground">
+        {label}
+      </ItemTitle>
+    </ItemContent>
+    <ItemActions>
+      <Skeleton className="h-6 w-20" />
+    </ItemActions>
+  </Item>
+);
 
 const InlineEditRow = ({
   label,
@@ -232,7 +304,13 @@ const InlineEditRow = ({
         </ItemTitle>
       </ItemContent>
       <ItemActions>
-        <span className="text-base">{value}</span>
+        {/* `truncate` (+ a hard `max-w`) keeps this row single-line even for
+            a long email — without it, a value wide enough to not fit beside
+            the label wraps the whole `ItemActions` flex item onto a second
+            line (`Item`'s own `flex-wrap`), making the row ~30px taller than
+            its skeleton counterpart and reintroducing exactly the kind of
+            late shift this component was just fixed to avoid. */}
+        <span className="max-w-40 truncate text-base">{value}</span>
       </ItemActions>
     </Item>
   );

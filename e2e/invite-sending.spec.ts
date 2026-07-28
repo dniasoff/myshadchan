@@ -27,12 +27,36 @@ test("a parent_admin sends an invite from Settings, sees the link, then revokes 
 
   await page.goto("http://localhost:5175/#/settings");
 
+  // Settings' Profile card (`ProfileSection`) renders a same-sized skeleton
+  // while its own identity/member fetch is in flight, then swaps in the
+  // real values in place — see ProfileSection.tsx's `ProfileSectionSkeleton`.
+  // That swap no longer changes the page's layout height, but this asserts
+  // it has actually happened (rather than merely assuming the fetch is fast
+  // enough) before touching anything below it on the page: a regression
+  // that reintroduced a height difference between the skeleton and the
+  // settled card would otherwise still race this test's later interaction
+  // with the below-the-fold role Select, the exact failure mode this test
+  // used to hit ~40% of the time on Mobile Chrome (see fix-mobile-cls.mjs's
+  // diagnosis). The caller's own email is unique to the Profile row (the
+  // invite recipient's email, filled below, is a different address), so it
+  // is only ever present once the real member record has loaded.
+  await expect(page.getByText(member.email!)).toBeVisible();
+
   const inviteEmail = `e2e-invitee-${Date.now()}@example.com`;
   await page.locator("#invite-email").fill(inviteEmail);
 
   // AC-1: role selector, scoped to the caller's own authority — pick
-  // "Helper" explicitly rather than relying on the default option.
-  await page.locator("#invite-role").click();
+  // "Helper" explicitly rather than relying on the default option. Scrolled
+  // into view explicitly rather than relying solely on Playwright's
+  // click-time auto-scroll: once the trigger opens, Radix's popper is
+  // fixed-position and the page's scroll gets locked (`react-remove-scroll`)
+  // for as long as it's open, so starting the click from a comfortably
+  // in-view trigger — not merely a technically-visible one at the edge of
+  // the viewport — leaves the opened option list the best chance of landing
+  // on-screen too.
+  const roleTrigger = page.locator("#invite-role");
+  await roleTrigger.scrollIntoViewIfNeeded();
+  await roleTrigger.click();
   await page.getByRole("option", { name: "Helper" }).click();
 
   await page.getByRole("button", { name: "Send invite" }).click();
