@@ -24,4 +24,4 @@ The **developer** is a single agent with no modes: it implements the ticket in `
 
 ## Rules & hooks
 
-Mechanics live in `.claude/rules/` (worktree-scope, agent-output-format, validation-commands, lsp-usage, security-triggers). Hooks in `.claude/settings.json` / `.claude/hooks/` are `.mjs` ES modules.
+Mechanics live in `.claude/rules/` (worktree-scope, agent-output-format, validation-commands, lsp-usage, security-triggers, parallel-ownership). Hooks in `.claude/settings.json` / `.claude/hooks/` are `.mjs` ES modules. Before dispatching any wave of parallel agents, the planner declares a per-agent path manifest per `.claude/rules/parallel-ownership.md` and checks it with `scripts/check-wave-ownership.mjs` — non-disjoint declarations mean the wave is serialized, not "coordinated carefully".
