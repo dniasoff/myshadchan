@@ -457,8 +457,20 @@ grant execute on function public.merge_references(bigint, bigint, jsonb) to serv
 revoke all on table public.accounts from anon, authenticated;
 grant select, insert, update, delete on table public.accounts to authenticated;
 
+-- UPDATE is withheld entirely from authenticated (Story 2.2 review finding
+-- #1, CLOSED): the UPDATE policy's own `using`/`with check`
+-- (05_policies.sql) scopes only `account_id`, never `role`, so granting
+-- table-level UPDATE let any authenticated member of an account rewrite
+-- their OWN row's `role` to `parent_admin` in one PostgREST request — a
+-- real self-promotion, not merely a theoretical gap. No legitimate write
+-- path needs it today: add_persona()'s self_manager -> parent_admin
+-- promotion runs as a SECURITY DEFINER function, which executes with the
+-- function owner's privileges and is unaffected by this grant either way.
+-- A future client-facing role-change flow (Story 2.5/2.7) must add its own
+-- SECURITY DEFINER function — the same shape add_persona() already
+-- establishes — never a raw grant of UPDATE back onto this table.
 revoke all on table public.account_members from anon, authenticated;
-grant select, insert, update, delete on table public.account_members to authenticated;
+grant select, insert, delete on table public.account_members to authenticated;
 
 revoke all on table public.singles from anon, authenticated;
 grant select, insert, update, delete on table public.singles to authenticated;

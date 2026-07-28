@@ -120,11 +120,22 @@ create policy "Account access scoped to member" on public.accounts
 -- ACTIVE context ONLY, on both `using` and `with check`. Do NOT add a
 -- `for select` policy alongside a `for all` one to "restore" this shape —
 -- permissive policies OR together, so the wide `for all` predicate would
--- still govern writes and the hole would survive. (A narrower, still-open
--- gap: an insert scoped to `current_context_id()` alone still lets a
--- `helper` self-promote to `parent_admin` inside their OWN tenant, since
--- `role` is unconstrained here — pre-existing, not this policy's to close;
--- flagged for Story 2.2/2.7.)
+-- still govern writes and the hole would survive. (Story 2.2 review finding
+-- #1, CLOSED: this policy's own `with check` never constrained `role`, so a
+-- caller UPDATE-ing their own row within their own active account could
+-- rewrite their `role` to `parent_admin` in one request. There is no
+-- equivalent INSERT-side hole — `account_members_account_user_active_uq`
+-- (`(account_id, user_id) where status = 'active'`, 01_tables.sql) rejects a
+-- second ACTIVE row for the same pair, so an INSERT-based self-promotion
+-- attempt fails on the unique index, not on this policy. Closed by
+-- withholding UPDATE entirely from `authenticated` at the grant layer
+-- (06_grants.sql) rather than narrowing this policy further — there is
+-- deliberately no `for update` policy on this table at all now. Every
+-- legitimate role change today (self_manager -> parent_admin) already goes
+-- through add_persona()'s SECURITY DEFINER UPDATE, which runs as the
+-- function owner and is unaffected by this grant. Any future client-facing
+-- role-change flow (Story 2.5/2.7) must add its own SECURITY DEFINER
+-- function, never a raw grant of UPDATE back onto this table.)
 create policy "Account members readable by owner or within active account" on public.account_members
     for select to authenticated
     using (
@@ -134,11 +145,6 @@ create policy "Account members readable by owner or within active account" on pu
 
 create policy "Account members insertable within active account" on public.account_members
     for insert to authenticated
-    with check (account_id = public.current_context_id());
-
-create policy "Account members updatable within active account" on public.account_members
-    for update to authenticated
-    using (account_id = public.current_context_id())
     with check (account_id = public.current_context_id());
 
 create policy "Account members deletable within active account" on public.account_members
@@ -225,9 +231,15 @@ alter table public.identity_signals enable row level security;
 -- The join is INNER, deliberately: a link whose parent shidduch is missing or
 -- belongs to another account denies rather than falling through.
 --
--- Today every authenticated member of an account is a parent/helper, so the
--- derived predicate resolves to the account check. When the single logs in and
--- the `single` role lands (Epic 6), this join is the ONE place that gains
+-- The `single` role itself now exists in `account_members_role_check`
+-- (Story 2.2, AC-2) — but nothing yet assigns it to a real membership (that
+-- lands with the invite flow, Story 2.7/2.8), and this policy does not yet
+-- gate on it: an account_id match alone still resolves to full parent-level
+-- visibility regardless of the caller's role. Currently theoretical (no code
+-- path creates a `single`-role membership today), but a real, documented
+-- window rather than a settled one — a `single`-role membership created
+-- before Epic 6 lands would read the full candid interactions timeline. When
+-- Epic 6 restricts single visibility, this join is the ONE place that gains
 -- `and public.is_single_visible_state(s.pipeline_state)`, and the `scope =
 -- 'account'` branch becomes an outright deny for the single role.
 create policy "Interactions scoped to account and parent visibility" on public.interactions

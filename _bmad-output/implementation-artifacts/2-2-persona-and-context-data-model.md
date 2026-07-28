@@ -817,6 +817,131 @@ Claude Opus 5 (claude-code, bmad-dev-story workflow)
   cross-household `members` read all have a dedicated negative assertion
   proving the wrong context/role sees or does nothing.
 
+### Review Response (adversarial review of commit `2a9ef04`, verdict NEEDS-FIX)
+
+All 5 should-fix findings addressed; all 5 notes resolved by documentation or
+correction (no note required a code change beyond finding #10's comment fix).
+Nothing rejected — every finding reproduced live against the local stack
+before being fixed.
+
+- **Finding #1 (should-fix, blocker-grade) — single-role self-promotion to
+  `parent_admin` via raw UPDATE. FIXED.** `06_grants.sql`: `authenticated`'s
+  grant on `public.account_members` narrowed from `select, insert, update,
+  delete` to `select, insert, delete` — UPDATE is withheld entirely, not
+  narrowed to specific columns, because no legitimate client write path
+  needs it (every role change today is `add_persona()`'s SECURITY DEFINER
+  `UPDATE`, which runs as the function owner and is unaffected by grants on
+  `authenticated`). `05_policies.sql`: the now-unreachable "Account members
+  updatable within active account" policy removed outright rather than left
+  as dead permissive text that could silently reopen the hole if the grant
+  were ever restored without re-reading this comment; the policy count in
+  `05_policies.sql` is 25 (was 26), confirmed against live `pg_policies`
+  (`public`: 25, `storage`: 3, unchanged). Also confirmed no equivalent
+  INSERT-side hole exists: `account_members_account_user_active_uq`
+  (`(account_id, user_id) where status = 'active'`, `01_tables.sql`) rejects
+  a second active row for the same pair, so an INSERT-based self-promotion
+  attempt fails on the unique index. Verified live: `update
+  public.account_members set role='parent_admin' where user_id=auth.uid()`
+  as a `single`-role caller now raises `permission denied for table
+  account_members`. Regression test added to `context_resolution.sql`
+  (raw-UPDATE rejection + "no UPDATE policy exists at all" structural
+  check).
+- **Finding #2 (should-fix) — `add_persona()` did not fail closed on a NULL
+  `auth.uid()`. FIXED.** `02_functions.sql`: `add_persona()` now raises
+  `add_persona requires an authenticated caller` at the top of the function
+  body when `auth.uid()` is NULL, before touching any table. Verified live:
+  `set role service_role; select public.add_persona('parent');` (no JWT)
+  now raises instead of silently creating an orphan
+  `accounts`/`account_members` row with `user_id = NULL`. Regression test
+  added (`service_role` with no `sub` claim; asserts both the raise and that
+  no `user_id IS NULL` row was ever created).
+- **Finding #3 (should-fix) — AC-3's 13-table negative test was vacuous for
+  9 of 13 tables. FIXED, with one additional correction the finding's own
+  fix didn't anticipate.** Tightened the assertion to `v_raised and v_detail
+  like '%is not a household-kind account%'` per the finding's suggested fix.
+  Running this against the live schema showed 12 of 13 tables already
+  produce that exact message (BEFORE ROW triggers fire before NOT
+  NULL/CHECK constraints are ever evaluated, so `enforce_household_scope()`
+  — sorting after `set_*` but there being no other trigger to compete with
+  on those 12 tables — was already the thing raising, contrary to the
+  finding's implication that a same-looking-vacuous test would need a
+  different fix for each masked table). **`tasks` was the one genuine
+  case**: `sync_task_target_trigger` (BEFORE INSERT, `'s' < 'v'`) raises `a
+  task needs a target` on the same minimal `(account_id)`-only insert this
+  test used, before `validate_tasks_household_scope` is ever reached — a
+  real masking bug in the test, not merely a theoretical mutation-testing
+  gap. Fixed by supplying a placeholder `target_id` (not null, no FK — the
+  column is polymorphic) for the `tasks` case only, so the insert clears
+  `sync_task_target_trigger` and reaches `validate_tasks_household_scope`.
+  All 13 tables now assert the correct message; suite green (233/233).
+- **Finding #4 (should-fix) — dead `'My Account'` fallback, ships
+  "Pending's Family". FIXED.** `02_functions.sql`, both `add_persona()`
+  branches that create a household:
+  `coalesce(v_first_name || '''s Family', 'My Account')` →
+  `coalesce(nullif(v_first_name, 'Pending') || '''s Family', 'My Account')`.
+  Verified live: a caller whose `members.first_name` is still the unset
+  `'Pending'` default now gets `'My Account'`, not `"Pending's Family"`. The
+  existing test asserting the old (wrong) name flipped to assert `'My
+  Account'`; a new positive test added (a caller with a real
+  `given_name` in `raw_user_meta_data`, MyShadchan's normal
+  `handle_new_user()` derivation path) proves the `nullif()` guard only ever
+  swallows the literal placeholder, never a genuine name — the household is
+  named `"Devora's Family"` for that caller.
+- **Finding #5 (should-fix) — no negative test for the 5 new functions'
+  permission posture. FIXED.** Added the same `bool_and(not
+  has_function_privilege('anon', p.oid, 'execute'))` shape Story 2.1 already
+  used, scoped to `add_persona`, `my_personas`, `enforce_household_scope`,
+  `enforce_membership_role_matches_context`, `is_owning_membership_role` —
+  the exact regression class this story's own Debug Log recorded `db diff`
+  silently causing once (dropping all 5 functions' REVOKE/GRANT lines from
+  the generated migration).
+- **Finding #6 (note) — AC-11's own grep count doesn't hold.** Confirmed:
+  `grep -rn "insert into public.accounts" supabase/schemas/` returns **4**
+  (`02_functions.sql`: `handle_new_user()` once, `add_persona()`'s three
+  branches once each), not "exactly twice." AC-11's "twice" refers to the
+  two *functions* that create an account (`handle_new_user`, `add_persona`),
+  not to `grep` hit count — `add_persona()` legitimately has 3 separate
+  `insert into public.accounts` statements (one per persona branch) as a
+  single function. No code change owed; recorded here so the AC's own
+  decided-by text is not repeated uncritically in a future story.
+- **Finding #7 (note) — check-count inaccuracy in the report/commit
+  message.** The prior commit message claimed "47 new checks (82 total)."
+  82 total was accurate (verified independently by this review response);
+  the delta claim was not — re-running `HEAD~1`'s `context_resolution.sql`
+  emits 42 runtime checks, so the actual Story 2.2 delta was 40, not 47.
+  This review response's own delta is stated precisely above (82 → 89, +7)
+  rather than repeating an unverified figure. No source fix possible for
+  the prior commit message (history is not rewritten); recorded here for
+  the next reader.
+- **Finding #8 (note) — provisioned rows are unnamed; hand-off to 2.3.**
+  Confirmed unchanged by this review response (out of this story's scope
+  per Task 3's own text, which only mandated the *household* name default):
+  `add_persona('shadchan')` inserts `(kind)` only, so the shadchanus context
+  renders as `'My Account'` in 2.4's switcher; `add_persona('single')`'s own
+  `singles` row has `first_name_en = NULL`. Flagged for 2.3/2.4's UI to
+  handle (e.g. a client-side "Unnamed shadchanus"/prompt-to-name fallback),
+  not fixed here.
+- **Finding #9 (note) — AC-9's narrower reading. No action; correctly
+  disclosed already** in the original Completion Notes (a user active in
+  their shadchanus context cannot read household co-members' `members` rows
+  — fail-closed, consistent with `account_members`'s own shape).
+- **Finding #10 (note) — `05_policies.sql`'s `interactions` comment carried
+  a false premise. FIXED (comment only).** The comment claimed "today every
+  authenticated member of an account is a parent/helper" and "when the
+  `single` role lands (Epic 6)" — but AC-2 of *this* commit already added
+  `single` to `account_members_role_check`. Corrected to state: the role
+  exists as of Story 2.2, nothing yet assigns it to a real membership
+  (Story 2.7/2.8's invite flow), the visibility restriction itself is still
+  Epic 6's job, and the window is real-but-currently-theoretical (no code
+  path creates a `single`-role membership today) rather than settled.
+
+Toolchain re-run after all fixes, all green: `npm run typecheck`, `npm run
+lint`, `npm run prettier`, `npm run test` (624 tests, 55 files — was 617),
+`npm run test:unit:db` (233 tests, 5 files — was 226),
+`node scripts/check-retired-names.mjs`, `node scripts/check-suppressions.mjs`.
+`npx supabase db diff --local` after applying the fix migration: "No schema
+changes found."
+
 ### File List
 
 - `supabase/schemas/01_tables.sql` — added `accounts.kind` (default
@@ -853,3 +978,38 @@ Claude Opus 5 (claude-code, bmad-dev-story workflow)
   describe both stories' coverage.
 - `supabase/tests/context_resolution.test.ts` — header comment updated;
   minimum-checks threshold raised from 35 to 75.
+
+**Review response (findings #1–#5, #10 above):**
+
+- `supabase/schemas/02_functions.sql` — `add_persona()`: added the NULL
+  `auth.uid()` fail-closed guard (finding #2); fixed the dead `'My Account'`
+  fallback in both household-creation branches with `nullif(v_first_name,
+  'Pending')` (finding #4).
+- `supabase/schemas/05_policies.sql` — removed the "Account members
+  updatable within active account" policy entirely (finding #1); rewrote
+  the `account_members` command-scoping doc comment to record the closed
+  gap; corrected the stale "Epic 6" premise in the `interactions` policy
+  comment (finding #10).
+- `supabase/schemas/06_grants.sql` — narrowed `authenticated`'s grant on
+  `public.account_members` from `select, insert, update, delete` to
+  `select, insert, delete` (finding #1).
+- `supabase/migrations/20260728000529_story_2_2_review_fixes.sql` (new) —
+  generated via `db diff` (clean this time — no GRANT/REVOKE or
+  comment-metadata gap, since `add_persona()` is a plain `CREATE OR
+  REPLACE` and the policy drop is a normal object removal), applied
+  locally; hand-verified, then a follow-up `db diff` reported "No schema
+  changes found".
+- `supabase/tests/context_resolution.sql` — added: the NULL-caller
+  `add_persona()` rejection test (finding #2), the anon-cannot-execute
+  check for all 5 Story 2.2 functions (finding #5), the raw-UPDATE
+  self-promotion rejection test plus a "no UPDATE policy exists" structural
+  check (finding #1), a positive household-naming test for a caller with a
+  real name (finding #4). Flipped the existing household-naming test's
+  expected value from `"Pending's Family"` to `'My Account'` (finding #4).
+  Tightened the AC-3 13-table negative test to assert the exact
+  `enforce_household_scope()` error message, and special-cased `tasks`'
+  insert to supply a placeholder `target_id` so it clears
+  `sync_task_target_trigger` and actually reaches the trigger under test
+  (finding #3).
+- `supabase/tests/context_resolution.test.ts` — minimum-checks threshold
+  raised from 75 to 85 (actual count is now 89, up from 82).

@@ -87,7 +87,7 @@ describe("context-aware authorisation (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   it("runs a non-trivial number of checks", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(75);
+    expect(checks.length).toBeGreaterThanOrEqual(85);
   });
 
   for (const check of checks) {

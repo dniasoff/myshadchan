@@ -392,14 +392,53 @@ select 'the resolver current_account_id() no longer exists',
 
 reset role;
 
-insert into auth.users (id, instance_id, aud, role, email)
-values ('d1d1d1d1-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-owner@test.local'),
-       ('d2d2d2d2-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-helper@test.local'),
-       ('d3d3d3d3-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-invited-single@test.local'),
-       ('d4d4d4d4-4444-4444-4444-444444444444', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-single-shadchan@test.local'),
-       ('d5d5d5d5-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-outsider@test.local'),
-       ('e1e1e1e1-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-parent-then-single@test.local'),
-       ('e2e2e2e2-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-single-then-parent@test.local');
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data)
+values ('d1d1d1d1-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-owner@test.local', null),
+       ('d2d2d2d2-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-helper@test.local', null),
+       ('d3d3d3d3-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-invited-single@test.local', null),
+       ('d4d4d4d4-4444-4444-4444-444444444444', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-single-shadchan@test.local', null),
+       ('d5d5d5d5-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-outsider@test.local', null),
+       ('e1e1e1e1-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-parent-then-single@test.local', null),
+       ('e2e2e2e2-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-single-then-parent@test.local', null),
+       ('f1f1f1f1-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'persona-named@test.local', '{"given_name":"Devora"}'::jsonb);
+
+-- ---------------------------------------------------------------------------
+-- Review finding #2 (should-fix, post-review hardening): add_persona() fails
+-- closed when called with no authenticated caller (auth.uid() is NULL)
+-- rather than silently provisioning an orphan account/membership.
+-- service_role holds EXECUTE (06_grants.sql) for legitimate server-side
+-- callers, so a caller-less invocation must be rejected by the function
+-- body itself, not by the grant.
+-- ---------------------------------------------------------------------------
+set local role service_role;
+set local request.jwt.claims = '{"role":"service_role"}';
+
+do $$
+begin
+  perform public.add_persona('parent');
+  insert into results values ('add_persona rejects a call with no authenticated caller (auth.uid() is NULL)', false, 'no exception raised');
+exception when others then
+  insert into results values ('add_persona rejects a call with no authenticated caller (auth.uid() is NULL)', true, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'the NULL-caller add_persona attempt never created an orphan (user_id IS NULL) account_members row',
+       not exists (select 1 from public.account_members where user_id is null);
+
+-- ---------------------------------------------------------------------------
+-- Review finding #5 (should-fix): anon cannot execute any of Story 2.2's 5
+-- new functions — the exact class of regression the story's own Debug Log
+-- already recorded db diff silently dropping once (all 5 REVOKE/GRANT
+-- statements were missing from the first generated migration).
+-- ---------------------------------------------------------------------------
+insert into results (name, passed)
+select 'anon cannot execute any of the 5 new Story 2.2 functions (add_persona, my_personas, enforce_household_scope, enforce_membership_role_matches_context, is_owning_membership_role)',
+       bool_and(not has_function_privilege('anon', p.oid, 'execute'))
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in ('add_persona', 'my_personas', 'enforce_household_scope', 'enforce_membership_role_matches_context', 'is_owning_membership_role');
 
 -- ---------------------------------------------------------------------------
 -- AC-3: enforce_household_scope() rejects a shadchanus-kind account_id on
@@ -429,15 +468,34 @@ begin
     v_raised := false;
     v_detail := null;
     begin
-      execute format('insert into public.%I (account_id) values (%L)', v_table, v_shad_id);
+      if v_table = 'tasks' then
+        -- tasks also carries sync_task_target_trigger (BEFORE INSERT, sorts
+        -- BEFORE validate_tasks_household_scope alphabetically: 's' < 'v')
+        -- which raises its own "needs a target" error on a NULL target_id
+        -- before the household-scope trigger is ever reached — exactly the
+        -- masking review finding #3 identified. target_id carries no FK (it
+        -- is polymorphic across shidduchim/references/shadchanim), so any
+        -- non-null placeholder satisfies it without needing a real row.
+        execute format('insert into public.%I (account_id, target_id) values (%L, 1)', v_table, v_shad_id);
+      else
+        execute format('insert into public.%I (account_id) values (%L)', v_table, v_shad_id);
+      end if;
     exception when others then
       v_raised := true;
       v_detail := sqlerrm;
     end;
+    -- Review finding #3: asserting v_raised alone is vacuous for tables that
+    -- also have a mandatory non-defaulted column besides account_id (9 of
+    -- the 13) — a NOT NULL/CHECK violation on THAT column raises just as
+    -- happily as enforce_household_scope() would, so the assertion passed
+    -- even with the trigger removed entirely (verified by hand). Matching
+    -- the exact message enforce_household_scope() raises
+    -- (02_functions.sql) ties the assertion to the trigger actually firing,
+    -- not to some other constraint incidentally rejecting the same row.
     insert into results (name, passed, detail)
     values (
       format('AC-3: enforce_household_scope rejects a shadchanus-kind account_id on %s', v_table),
-      v_raised,
+      v_raised and v_detail like '%is not a household-kind account%',
       v_detail
     );
   end loop;
@@ -606,12 +664,28 @@ select 'AC-6: a helper-only caller ticking parent gets a NEW household, never a 
    and (select role from public.account_members where user_id = 'd2d2d2d2-2222-2222-2222-222222222222' and account_id = (select value from ids where name = 'acct_owner')) = 'helper';
 
 insert into results (name, passed)
-select 'add_persona defaults the new household''s name from the caller''s first_name',
+select 'Review finding #4: add_persona falls back to ''My Account'' (not literal "Pending''s Family") when the caller''s first_name is still the unset ''Pending'' placeholder',
        (
          select a.name from public.accounts a
          join public.account_members am on am.account_id = a.id
          where am.user_id = 'd2d2d2d2-2222-2222-2222-222222222222' and am.role = 'parent_admin' and am.status = 'active'
-       ) = 'Pending''s Family';
+       ) = 'My Account';
+
+-- Positive case for the same fix: a caller with a real first_name (set here
+-- via raw_user_meta_data ->> 'given_name', handle_new_user()'s normal path)
+-- still gets a named household, proving the nullif() guard only ever
+-- swallows the literal placeholder, never a genuine name.
+set local request.jwt.claims = '{"sub":"f1f1f1f1-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select public.add_persona('parent');
+
+insert into results (name, passed)
+select 'Review finding #4: add_persona still derives the household name from a real first_name',
+       (
+         select a.name from public.accounts a
+         join public.account_members am on am.account_id = a.id
+         where am.user_id = 'f1f1f1f1-1111-1111-1111-111111111111' and am.role = 'parent_admin' and am.status = 'active'
+       ) = 'Devora''s Family';
 
 -- An invited single-role member ticking `single` is a no-op, never a second
 -- household.
@@ -623,6 +697,37 @@ insert into results (name, passed)
 select 'AC-6: an invited single-role member ticking single is a no-op, never a second household',
        (select count(distinct account_id) from public.account_members where user_id = 'd3d3d3d3-3333-3333-3333-333333333333' and status = 'active') = 1
    and (select count(*) from public.singles s join public.account_members am on am.id = s.member_id where am.user_id = 'd3d3d3d3-3333-3333-3333-333333333333') = 1;
+
+-- ---------------------------------------------------------------------------
+-- Review finding #1 (should-fix, CLOSED): a single-role member cannot
+-- self-promote to parent_admin via a raw PostgREST UPDATE. d3 is still
+-- single-role/active from the fixture above. UPDATE is withheld entirely
+-- from authenticated at the grant layer (06_grants.sql) — the failure is a
+-- permission-denied at the grant, not the (removed) UPDATE policy.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  update public.account_members set role = 'parent_admin'
+  where user_id = 'd3d3d3d3-3333-3333-3333-333333333333';
+  insert into results values ('a single-role member cannot self-promote to parent_admin via a raw UPDATE', false, 'update succeeded');
+exception when others then
+  insert into results values ('a single-role member cannot self-promote to parent_admin via a raw UPDATE', true, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'the self-promotion attempt never persisted',
+       (select role from public.account_members where user_id = 'd3d3d3d3-3333-3333-3333-333333333333' and status = 'active') = 'single';
+
+insert into results (name, passed)
+select 'account_members carries no UPDATE policy at all (the fix removed it rather than narrowing it)',
+       not exists (
+         select 1 from pg_policies
+         where schemaname = 'public' and tablename = 'account_members' and cmd = 'UPDATE'
+       );
+
+set local role authenticated;
 
 -- ---------------------------------------------------------------------------
 -- AC-6: single with no existing membership creates a self_manager household,

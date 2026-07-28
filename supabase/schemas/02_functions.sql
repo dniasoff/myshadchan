@@ -387,6 +387,18 @@ declare
   v_account_id bigint;
   v_membership_id bigint;
 begin
+  -- Review finding #2: fail closed on an unauthenticated caller. Without
+  -- this, service_role (which holds EXECUTE for legitimate server-side
+  -- callers, e.g. a future edge function) calling add_persona() with no
+  -- user JWT would silently insert an accounts/account_members row with
+  -- user_id NULL — an orphan tenant nothing can ever reach, not a
+  -- cross-tenant leak, but a violation of the fail-closed convention
+  -- current_context_id()/set_active_context() already establish.
+  if v_user_id is null then
+    raise exception 'add_persona requires an authenticated caller'
+      using errcode = 'insufficient_privilege';
+  end if;
+
   if p_persona not in ('single', 'parent', 'shadchan') then
     raise exception 'unknown persona: %', p_persona
       using errcode = 'invalid_parameter_value';
@@ -425,8 +437,16 @@ begin
     -- e.g. a helper in someone else's household): a fresh household. A
     -- non-owning membership is never promoted — that would hand the caller
     -- admin of a household that is not theirs.
+    --
+    -- Review finding #4: nullif(v_first_name, 'Pending') closes a dead
+    -- fallback. public.members.first_name is NOT NULL DEFAULT 'Pending' and
+    -- handle_new_user() always creates the row (01_tables.sql, 02_functions.sql),
+    -- so plain `coalesce(v_first_name || '''s Family', 'My Account')` could
+    -- never reach its own 'My Account' arm — a signup with no first/given
+    -- name in their OAuth metadata got a household literally named
+    -- "Pending's Family" instead of the intended placeholder.
     insert into public.accounts (name, kind)
-    values (coalesce(v_first_name || '''s Family', 'My Account'), 'household')
+    values (coalesce(nullif(v_first_name, 'Pending') || '''s Family', 'My Account'), 'household')
     returning id into v_account_id;
 
     insert into public.account_members (account_id, user_id, role, status)
@@ -463,7 +483,7 @@ begin
 
     if v_membership_id is null then
       insert into public.accounts (name, kind)
-      values (coalesce(v_first_name || '''s Family', 'My Account'), 'household')
+      values (coalesce(nullif(v_first_name, 'Pending') || '''s Family', 'My Account'), 'household')
       returning id into v_account_id;
 
       insert into public.account_members (account_id, user_id, role, status)
