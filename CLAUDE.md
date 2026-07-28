@@ -1,27 +1,84 @@
 @AGENTS.md
 
-# Agent Workflow
+# Working in this repo
 
-Code-change requests are handled by the **agent harness** by default: a team of subagents (planner, developer, quality-reviewer, merger, documentator) that implements the change through a deterministic, foreground pipeline in git worktrees.
+`AGENTS.md` (imported above) covers the project itself: stack, directory layout,
+build/test/lint commands, database workflow. This file covers the conventions an
+agent working here is expected to follow, and where they are written down.
 
-**When the main (top-level) session receives a code-change request, dispatch the `orchestrator` agent and relay its result — never route or implement it yourself.** Pass the `<session_dir>` value from your own context in the dispatch prompt (the orchestrator needs it to namespace worktrees and branches). **This directive is for the top-level session only: if you are a subagent (already inside the harness), ignore it — do your own job and never dispatch an orchestrator. A runtime hook (`block-nested-orchestrator`) enforces this.** The `orchestrator` owns all routing (classification SIMPLE vs COMPLEX, plus the SETUP / MEMORY / ROLLBACK-CONFLICT / RECOVERY operational intents, the dispatch templates, the wave + promotion mechanics, and the deploy-time migration round); it drives developer/reviewer/merger to a terminal point before returning. Each agent's last line is an output contract the others parse (`.claude/rules/agent-output-format.md`).
+## Standing rules
 
-**PD-ASK round-trip (migration confirmation).** The orchestrator ends its turn with a pending question — typically *"apply the database migration now?"* — and the task completes. Relay that question to the user (plain text or `AskUserQuestion`). **Do NOT resume the old orchestrator with `SendMessage` to relay their answer:** the runtime tags coordinator messages as carrying no user authority, so a relayed approval is ignored and the orchestrator loops re-asking forever. Instead, on the user's reply:
-- **Approved** → dispatch a **fresh** `orchestrator` (a new `Agent` call) whose prompt begins with `<intent>apply-migration</intent>`, states the approval, and passes the same `<session_dir>`. It resumes the migration round from disk and applies it.
-- **Wants changes** → dispatch a fresh `orchestrator` with their new request as usual.
+Everything in `.claude/rules/` applies to every change. Read the one that matches
+what you are touching:
 
-While that fresh dispatch runs, **do not start a parallel plan B** (don't generate the migration yourself, don't `TaskStop` it) — wait for it to finish, then relay its result.
+| Rule | Covers |
+| --- | --- |
+| `coding-style.md` | immutability, KISS/DRY/YAGNI, file size ceilings, error handling, naming |
+| `typescript.md` | types over interfaces, no `any`, React props, Zod validation, `console.log` |
+| `testing.md` | 80% coverage floor, AAA structure, test isolation, Playwright shape |
+| `web-patterns.md` | state management, URL as state, composition, data fetching, API responses |
+| `web-security.md` | HTTP headers, XSS, CSP, third-party scripts, forms |
+| `security-triggers.md` | which diffs require a security review |
+| `lsp-usage.md` | use the `LSP` tool, not `grep`, for TS/JS symbol questions |
+| `english-only.md` | everything committed is in English, whatever the chat language |
+| `parallel-ownership.md` | declared path ownership for parallel agent waves |
 
-## Opting out
+## Parallel agent waves
 
-`#no-harness` (or "implement directly" / "without the agent team" / "skip harness") makes the main thread implement the change itself, no agents. "no-harness for this session" keeps it off for the whole session.
+Before dispatching a wave of parallel agents, declare a per-agent path manifest
+and check it, per `.claude/rules/parallel-ownership.md`:
 
-## Agents
+```bash
+node scripts/check-wave-ownership.mjs pre-dispatch manifest.json
+```
 
-orchestrator (routes the harness, dispatched by the main thread), planner, developer, quality-reviewer, merger, documentator. Models/roles: see each `.claude/agents/*.md`. **planner** and **quality-reviewer** run on opus; everything else is sonnet or haiku. (The web-chat variant is this same `orchestrator` agent with a non-technical persona layered on at launch via `--append-system-prompt` — used by CRM Builder.)
+Overlapping declarations mean the wave is serialized, not "coordinated
+carefully". A green result is necessary but **not** sufficient: it proves no two
+agents will fight over a file, and proves nothing about whether their work is
+mutually compatible. Every wave is therefore followed by the
+cross-reconciliation pass the rule requires — one agent reading all of the
+wave's output together, looking for two mechanisms solving one problem,
+contradictory assumptions about a shared contract, tests that make each other
+unfalsifiable, and work every agent assumed someone else was doing. That pass is
+required, not advisory, and it cannot be replaced by a script.
 
-The **developer** is a single agent with no modes: it implements the ticket in `TICKET_FILE` (COMPLEX wave, peer-reviewed, writes ADRs for structural decisions, never writes SQL during tickets), or — for a SIMPLE dispatch — the change described inline via `CHANGE_REQUEST` (no ticket, no planner, on the shared `<base>/simple` worktree; it refuses with `FAILED: out of scope — needs COMPLEX flow` if the change needs a breakdown). Two session-level operations are handed to it as **skills** loaded on dispatch, run on the same `<base>/simple` worktree: `writing-migrations` (deploy-time SQL generation) and `resolving-rollback-conflicts` (replay merge-commit reverts). It applies the **Ponytail** minimization ladder (full mode) on every change via an inline prompt directive — the only mechanism that reaches `Agent`-dispatched subagents. Ponytail is also installed natively in-repo as on-demand skills (`.claude/skills/ponytail*`) and `/ponytail*` commands for interactive use in the main session; these do not affect the dev agents.
+## Repo checks
 
-## Rules & hooks
+`scripts/check-*.mjs` are standalone Node checks with colocated `*.test.mjs`
+suites (run by `npm run test:unit:scripts`). Four run in CI via
+`.github/workflows/check.yml`: `check-retired-names`, `check-route-convention`,
+`check-suppressions`, `check-tailwind-arbitrary-var`. `check-wave-ownership` is
+deliberately not in CI — it needs a dispatch-time manifest that no longer exists
+by the time a wave has merged.
 
-Mechanics live in `.claude/rules/` (worktree-scope, agent-output-format, validation-commands, lsp-usage, security-triggers, parallel-ownership). Hooks in `.claude/settings.json` / `.claude/hooks/` are `.mjs` ES modules. Before dispatching any wave of parallel agents, the planner declares a per-agent path manifest per `.claude/rules/parallel-ownership.md` and checks it with `scripts/check-wave-ownership.mjs` — non-disjoint declarations mean the wave is serialized, not "coordinated carefully".
+Gates before considering work done: `make typecheck`, `make lint`, `make test`.
+
+## Tooling configuration
+
+`.claude/settings.json` configures the TypeScript language server that backs the
+`LSP` tool, and nothing else. This repo defines **no** Claude Code hooks,
+subagents, or slash commands. Skills live in `.claude/skills/`.
+
+The one real commit-time hook is `.husky/pre-commit`, which runs
+`make registry-gen` — so any change under `src/components/atomic-crm/`,
+`src/components/supabase/`, `src/hooks/`, or `src/lib/` also rewrites
+`registry.json`.
+
+## Note: the agent harness is not installed here
+
+Earlier revisions of this file described an agent harness — an `orchestrator`
+dispatching planner / developer / quality-reviewer / merger / documentator
+through git worktrees, a `block-nested-orchestrator` hook, a PD-ASK migration
+round-trip, and Ponytail skills and commands.
+
+**None of it exists in this repository.** There is no `.claude/agents/`, no
+`.claude/hooks/`, no `.claude/commands/`, and no ponytail skill, at project or
+user level; the rule files that section cited (`worktree-scope.md`,
+`agent-output-format.md`, `validation-commands.md`) have never existed in this
+repo's history. Two orphaned support scripts survive —
+`scripts/harness-monitor.mjs` and `scripts/harness-revert.mjs` — and they
+reference the same absent infrastructure.
+
+The description has been removed rather than left standing as instructions
+pointing at nothing. If the harness is reinstated, restore its description
+alongside the files it describes.

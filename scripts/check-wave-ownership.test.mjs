@@ -3,10 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  SHARED_ARTIFACTS,
   loadManifest,
   patternsOverlap,
+  runOrderingCheck,
   runPostWaveCheck,
   runPreDispatchCheck,
+  runSharedArtifactCheck,
 } from "./check-wave-ownership.mjs";
 
 let tempRoot;
@@ -225,6 +228,217 @@ describe("runPostWaveCheck", () => {
   });
 });
 
+describe("runSharedArtifactCheck", () => {
+  it("warns when two agents feed a generated artifact that nobody declared", () => {
+    // Arrange — the replayed false-clean: pairwise disjoint by paths, but
+    // registry.json indexes both directories and the pre-commit hook
+    // regenerates it, so both agents' commits rewrite it.
+    const manifest = {
+      agentA: ["src/components/atomic-crm/singles/**"],
+      agentB: ["src/components/atomic-crm/shadchanim/**"],
+    };
+
+    // Act
+    const warnings = runSharedArtifactCheck(manifest);
+
+    // Assert
+    expect(runPreDispatchCheck(manifest)).toEqual([]);
+    expect(warnings.some((w) => w.includes("registry.json"))).toBe(true);
+    const registryWarning = warnings.find((w) => w.includes("registry.json"));
+    expect(registryWarning).toContain("agentA");
+    expect(registryWarning).toContain("agentB");
+  });
+
+  it("stays silent once exactly one agent declares the contended artifact", () => {
+    // Arrange — the prescribed resolution: give the artifact one owner.
+    const manifest = {
+      agentA: ["src/components/atomic-crm/singles/**", "registry.json"],
+      agentB: ["src/components/atomic-crm/shadchanim/**"],
+    };
+
+    // Act
+    const warnings = runSharedArtifactCheck(manifest);
+
+    // Assert
+    expect(warnings.filter((w) => w.includes("registry.json"))).toEqual([]);
+  });
+
+  it("does not warn when only one agent feeds the artifact", () => {
+    // Arrange
+    const manifest = {
+      agentA: ["src/components/atomic-crm/singles/**"],
+      agentB: ["doc/**"],
+    };
+
+    // Act
+    const warnings = runSharedArtifactCheck(manifest);
+
+    // Assert
+    expect(warnings).toEqual([]);
+  });
+
+  it("warns when two agents edit the declarative schema that generates migrations", () => {
+    // Arrange — migration filenames are timestamped at generation time, so
+    // neither agent can declare the file it is about to create.
+    const manifest = {
+      agentA: ["supabase/schemas/01_tables.sql"],
+      agentB: ["supabase/schemas/03_views.sql"],
+    };
+
+    // Act
+    const warnings = runSharedArtifactCheck(manifest);
+
+    // Assert
+    expect(warnings.some((w) => w.includes("supabase/migrations/**"))).toBe(
+      true,
+    );
+  });
+
+  it("treats a declared migrations glob as ownership of the timestamped file it will create", () => {
+    // Arrange
+    const manifest = {
+      agentA: ["supabase/schemas/01_tables.sql", "supabase/migrations/**"],
+      agentB: ["supabase/schemas/03_views.sql"],
+    };
+
+    // Act
+    const warnings = runSharedArtifactCheck(manifest);
+
+    // Assert
+    expect(warnings.filter((w) => w.includes("supabase/migrations"))).toEqual(
+      [],
+    );
+    expect(
+      patternsOverlap(
+        "supabase/migrations/**",
+        "supabase/migrations/20260727122733_rename_sales_to_members.sql",
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when two agents both add user-facing copy but nobody owns the i18n catalogues", () => {
+    // Arrange
+    const manifest = {
+      agentA: ["src/components/atomic-crm/singles/**"],
+      agentB: ["src/components/admin/list-guesser.tsx"],
+    };
+
+    // Act
+    const warnings = runSharedArtifactCheck(manifest);
+
+    // Assert
+    expect(warnings.some((w) => w.includes("englishCrmMessages.ts"))).toBe(
+      true,
+    );
+    expect(warnings.some((w) => w.includes("frenchCrmMessages.ts"))).toBe(true);
+  });
+
+  it("does not raise the i18n warning for agents editing non-component modules", () => {
+    // Arrange — the catalogues are fed by user-facing surfaces (.tsx), so a
+    // wave of plain .ts modules must not draw a warning it cannot act on.
+    const manifest = {
+      agentA: ["src/components/atomic-crm/root/routeManifest.ts"],
+      agentB: ["src/components/atomic-crm/providers/commons/canAccess.ts"],
+    };
+
+    // Act
+    const warnings = runSharedArtifactCheck(manifest);
+
+    // Assert
+    expect(warnings.filter((w) => w.includes("CrmMessages"))).toEqual([]);
+  });
+
+  it("accepts an injected artifact table so the check is not pinned to this repo's files", () => {
+    // Arrange
+    const artifacts = [
+      {
+        artifact: "build/output.json",
+        regeneratedBy: "make build",
+        feeders: ["src/a/**", "src/b/**"],
+      },
+    ];
+    const manifest = { agentA: ["src/a/**"], agentB: ["src/b/**"] };
+
+    // Act
+    const warnings = runSharedArtifactCheck(manifest, artifacts);
+
+    // Assert
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("build/output.json");
+    expect(warnings[0]).toContain("make build");
+  });
+
+  it("names every tabled artifact with a non-empty feeder set", () => {
+    // Arrange / Act / Assert — a table entry with no feeders can never fire.
+    for (const entry of SHARED_ARTIFACTS) {
+      expect(entry.artifact.length).toBeGreaterThan(0);
+      expect(entry.feeders.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("runOrderingCheck", () => {
+  it("reports an agent that declares it must run after another", () => {
+    // Arrange — Epic 1's O1 blocker: path-disjoint, but 1.5 had to land first.
+    const manifest = {
+      "story-1.5": ["src/components/atomic-crm/root/routeManifest.ts"],
+      "story-1.2": {
+        paths: ["src/components/atomic-crm/sales/**"],
+        after: ["story-1.5"],
+      },
+    };
+
+    // Act
+    const violations = runOrderingCheck(manifest);
+
+    // Assert
+    expect(runPreDispatchCheck(manifest)).toEqual([]);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("story-1.2");
+    expect(violations[0]).toContain("story-1.5");
+  });
+
+  it("returns nothing when no agent declares an ordering constraint", () => {
+    // Arrange
+    const manifest = {
+      agentA: ["src/foo/**"],
+      agentB: { paths: ["src/bar/**"], after: [] },
+    };
+
+    // Act / Assert
+    expect(runOrderingCheck(manifest)).toEqual([]);
+  });
+});
+
+describe("object-form manifest entries", () => {
+  it("finds path overlaps across the array form and the object form alike", () => {
+    // Arrange
+    const manifest = {
+      agentA: ["src/lib/types.ts"],
+      agentB: { paths: ["src/lib/types.ts"] },
+    };
+
+    // Act
+    const violations = runPreDispatchCheck(manifest);
+
+    // Assert
+    expect(violations).toHaveLength(1);
+  });
+
+  it("reconciles touched paths against object-form declarations", () => {
+    // Arrange
+    const manifest = {
+      agentA: { paths: ["src/foo/**"], after: [] },
+    };
+
+    // Act
+    const result = runPostWaveCheck(manifest, ["src/foo/Bar.tsx"]);
+
+    // Assert
+    expect(result).toEqual({ unowned: [], unclaimed: [] });
+  });
+});
+
 describe("loadManifest", () => {
   it("parses a well-formed manifest file from disk", async () => {
     // Arrange
@@ -247,6 +461,50 @@ describe("loadManifest", () => {
 
     // Act / Assert
     expect(() => loadManifest(manifestPath)).toThrow(/agentA/);
+  });
+
+  it("parses an object-form entry carrying an ordering constraint", async () => {
+    // Arrange
+    const manifestPath = await writeManifestFixture("ordered-manifest.json", {
+      agentA: ["src/foo/**"],
+      agentB: { paths: ["src/bar/**"], after: ["agentA"] },
+    });
+
+    // Act
+    const manifest = loadManifest(manifestPath);
+
+    // Assert
+    expect(runOrderingCheck(manifest)).toHaveLength(1);
+  });
+
+  it("throws when an object-form entry has no paths array", async () => {
+    // Arrange
+    const manifestPath = await writeManifestFixture("no-paths.json", {
+      agentA: { after: [] },
+    });
+
+    // Act / Assert
+    expect(() => loadManifest(manifestPath)).toThrow(/agentA/);
+  });
+
+  it("throws when after names an agent that is not in the manifest", async () => {
+    // Arrange
+    const manifestPath = await writeManifestFixture("unknown-after.json", {
+      agentA: { paths: ["src/foo/**"], after: ["ghost"] },
+    });
+
+    // Act / Assert
+    expect(() => loadManifest(manifestPath)).toThrow(/ghost/);
+  });
+
+  it("throws when an agent lists itself in after", async () => {
+    // Arrange
+    const manifestPath = await writeManifestFixture("self-after.json", {
+      agentA: { paths: ["src/foo/**"], after: ["agentA"] },
+    });
+
+    // Act / Assert
+    expect(() => loadManifest(manifestPath)).toThrow(/itself/);
   });
 
   it("throws a descriptive error when the manifest is not an object", async () => {

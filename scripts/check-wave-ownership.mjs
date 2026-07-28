@@ -18,6 +18,19 @@
 //   touched path no agent declared ("unowned"), or a declared path that was
 //   never touched ("unclaimed").
 //
+// pre-dispatch additionally runs two narrower checks that close gaps a plain
+// pairwise comparison leaves open (see the rule's "Known limitations"):
+// declared order-dependence (an `after` entry means the wave is not parallel
+// at all) and shared-artifact contention (two agents editing paths that feed
+// the same generated file — e.g. `registry.json` — which neither declares).
+//
+// What none of this covers is worth stating where the code is: it detects
+// PATH collision only. Path-disjointness does not imply
+// mechanism-compatibility — Epic 3's stories 3-2 and 3-12 built incompatible
+// routing mechanisms in genuinely different files and this script prints OK
+// on that wave. That class is caught by the cross-reconciliation pass the
+// rule requires, which is a reasoning pass and deliberately not a script.
+//
 // Both modes share one primitive, `patternsOverlap`: do two path globs (or
 // a glob and a literal path — a literal is just a glob with no wildcards)
 // have a common match? Getting this permissive in the wrong direction
@@ -151,6 +164,34 @@ export function patternsOverlap(patternA, patternB) {
   return segmentArraysOverlap(splitPattern(patternA), splitPattern(patternB));
 }
 
+/**
+ * A manifest entry is either a bare array of path globs, or an object
+ * `{ paths: [...], after: [...] }` where `after` names the agents that must
+ * land first. Both forms normalize to the object shape so every check below
+ * reads one thing.
+ */
+function normalizeEntry(entry) {
+  return Array.isArray(entry)
+    ? { paths: entry, after: [] }
+    : { paths: entry?.paths, after: entry?.after ?? [] };
+}
+
+/** `[agent, { paths, after }]` pairs, whatever form the manifest was written in. */
+function normalizedEntries(manifest) {
+  return Object.entries(manifest).map(([agent, entry]) => [
+    agent,
+    normalizeEntry(entry),
+  ]);
+}
+
+function isNonEmptyStringArray(value) {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => typeof item === "string" && item.length > 0)
+  );
+}
+
 function assertValidManifest(manifest) {
   if (
     manifest === null ||
@@ -161,15 +202,29 @@ function assertValidManifest(manifest) {
       "Manifest must be a JSON object mapping agent label to an array of path globs.",
     );
   }
-  for (const [agent, patterns] of Object.entries(manifest)) {
-    const isValid =
-      Array.isArray(patterns) &&
-      patterns.length > 0 &&
-      patterns.every((p) => typeof p === "string" && p.length > 0);
-    if (!isValid) {
+
+  const agents = Object.keys(manifest);
+
+  for (const [agent, entry] of normalizedEntries(manifest)) {
+    if (!isNonEmptyStringArray(entry.paths)) {
       throw new Error(
-        `Manifest entry "${agent}" must be a non-empty array of non-empty path-glob strings.`,
+        `Manifest entry "${agent}" must be a non-empty array of non-empty path-glob strings, or an object with such an array as "paths".`,
       );
+    }
+    if (!Array.isArray(entry.after)) {
+      throw new Error(
+        `Manifest entry "${agent}" has an "after" field that is not an array of agent labels.`,
+      );
+    }
+    for (const predecessor of entry.after) {
+      if (predecessor === agent) {
+        throw new Error(`Manifest entry "${agent}" lists itself in "after".`);
+      }
+      if (!agents.includes(predecessor)) {
+        throw new Error(
+          `Manifest entry "${agent}" lists unknown agent "${predecessor}" in "after".`,
+        );
+      }
     }
   }
 }
@@ -182,20 +237,125 @@ export function loadManifest(manifestPath) {
 }
 
 /**
+ * Files this repo rewrites as a *side effect* of editing something else. A
+ * manifest can be perfectly pairwise disjoint and still have two agents
+ * clobbering one of these — `{A: singles/**, B: shadchanim/**}` is disjoint,
+ * yet `registry.json` indexes both directories and `.husky/pre-commit` runs
+ * `make registry-gen`, so both agents' commits rewrite it. In Epic 1
+ * `registry.json` was the most-contended file in the wave (5 of 6 stories)
+ * and no story declared it.
+ *
+ * `feeders` are the paths whose modification drags the artifact along. The
+ * i18n catalogues are hand-maintained rather than generated, but behave the
+ * same way: every wave that adds user-facing copy converges on them.
+ */
+export const SHARED_ARTIFACTS = [
+  {
+    artifact: "registry.json",
+    regeneratedBy: "make registry-gen, run by .husky/pre-commit",
+    feeders: [
+      "src/components/atomic-crm/**",
+      "src/components/supabase/**",
+      "src/hooks/**",
+      "src/lib/**",
+      "CHANGELOG.md",
+    ],
+  },
+  {
+    artifact: "package-lock.json",
+    regeneratedBy: "npm install",
+    feeders: ["package.json"],
+  },
+  {
+    artifact: "supabase/migrations/**",
+    regeneratedBy: "npx supabase db diff --local",
+    feeders: ["supabase/schemas/**"],
+  },
+  {
+    artifact:
+      "src/components/atomic-crm/providers/commons/englishCrmMessages.ts",
+    regeneratedBy: "hand-maintained catalogue every user-facing label lands in",
+    feeders: [
+      "src/components/atomic-crm/**/*.tsx",
+      "src/components/admin/**/*.tsx",
+    ],
+  },
+  {
+    artifact:
+      "src/components/atomic-crm/providers/commons/frenchCrmMessages.ts",
+    regeneratedBy: "hand-maintained catalogue every user-facing label lands in",
+    feeders: [
+      "src/components/atomic-crm/**/*.tsx",
+      "src/components/admin/**/*.tsx",
+    ],
+  },
+];
+
+/** Agent labels whose declared paths can match at least one of `targets`. */
+function agentsMatching(manifest, targets) {
+  return normalizedEntries(manifest)
+    .filter(([, entry]) =>
+      entry.paths.some((declared) =>
+        targets.some((target) => patternsOverlap(declared, target)),
+      ),
+    )
+    .map(([agent]) => agent);
+}
+
+/**
+ * pre-dispatch (warning tier): shared artifacts that two or more agents will
+ * rewrite as a side effect but nobody declared. Silenced by giving the
+ * artifact to exactly one agent — two agents declaring it is an ordinary
+ * overlap, caught by `runPreDispatchCheck` instead.
+ */
+export function runSharedArtifactCheck(manifest, artifacts = SHARED_ARTIFACTS) {
+  const warnings = [];
+
+  for (const { artifact, regeneratedBy, feeders } of artifacts) {
+    if (agentsMatching(manifest, [artifact]).length > 0) continue;
+
+    const feeding = agentsMatching(manifest, feeders);
+    if (feeding.length < 2) continue;
+
+    warnings.push(
+      `${feeding.join(", ")} declare paths that feed ${artifact} (${regeneratedBy}), which no agent declares — give it exactly one owner`,
+    );
+  }
+
+  return warnings;
+}
+
+/**
+ * pre-dispatch (failing tier): declared order-dependence. Disjoint is not the
+ * same as independent — Epic 1 had an ordering blocker between two stories
+ * whose paths never touched — so an `after` entry disqualifies the wave from
+ * running in parallel at all, however clean its paths are.
+ */
+export function runOrderingCheck(manifest) {
+  return normalizedEntries(manifest)
+    .filter(([, entry]) => entry.after.length > 0)
+    .map(
+      ([agent, entry]) =>
+        `${agent} declares it must run after ${entry.after.join(", ")} — an order-dependent wave is not a parallel wave`,
+    );
+}
+
+/**
  * pre-dispatch: every pairwise overlap between two different agents'
  * declared globs, as human-readable messages (empty when the manifest is
- * pairwise disjoint — safe to dispatch as a parallel wave).
+ * pairwise disjoint — necessary, but not sufficient, to dispatch as a
+ * parallel wave; see the rule's "What a green check does and does not mean").
  */
 export function runPreDispatchCheck(manifest) {
-  const agents = Object.keys(manifest);
+  const entries = normalizedEntries(manifest);
   const violations = [];
 
-  for (let i = 0; i < agents.length; i++) {
-    for (let j = i + 1; j < agents.length; j++) {
-      const agentA = agents[i];
-      const agentB = agents[j];
-      for (const patternA of manifest[agentA]) {
-        for (const patternB of manifest[agentB]) {
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = i + 1; j < entries.length; j++) {
+      const [agentA, entryA] = entries[i];
+      const [agentB, entryB] = entries[j];
+      for (const patternA of entryA.paths) {
+        for (const patternB of entryB.paths) {
           if (patternsOverlap(patternA, patternB)) {
             violations.push(
               `${agentA} (${patternA}) overlaps ${agentB} (${patternB})`,
@@ -218,21 +378,21 @@ export function runPreDispatchCheck(manifest) {
  * tightening).
  */
 export function runPostWaveCheck(manifest, touchedPaths) {
-  const entries = Object.entries(manifest);
+  const entries = normalizedEntries(manifest);
   const unowned = [];
   const unclaimed = [];
 
   for (const touched of touchedPaths) {
-    const hasOwner = entries.some(([, patterns]) =>
-      patterns.some((pattern) => patternsOverlap(pattern, touched)),
+    const hasOwner = entries.some(([, entry]) =>
+      entry.paths.some((pattern) => patternsOverlap(pattern, touched)),
     );
     if (!hasOwner) {
       unowned.push(`${touched} was touched but is not declared by any agent`);
     }
   }
 
-  for (const [agent, patterns] of entries) {
-    for (const pattern of patterns) {
+  for (const [agent, entry] of entries) {
+    for (const pattern of entry.paths) {
       const wasTouched = touchedPaths.some((touched) =>
         patternsOverlap(pattern, touched),
       );
@@ -288,16 +448,26 @@ function main() {
     const manifest = loadManifest(manifestPath);
 
     if (mode === "pre-dispatch") {
-      const violations = runPreDispatchCheck(manifest);
+      const violations = [
+        ...runPreDispatchCheck(manifest),
+        ...runOrderingCheck(manifest),
+      ];
+      const warnings = runSharedArtifactCheck(manifest);
+
+      for (const warning of warnings) console.error(`  ! WARNING: ${warning}`);
+
       if (violations.length > 0) {
-        console.error(
-          "Wave-ownership guard failed — overlapping declarations:\n",
-        );
+        console.error("Wave-ownership guard failed:\n");
         for (const violation of violations) console.error(`  - ${violation}`);
         process.exitCode = 1;
         return;
       }
-      console.log("Wave-ownership guard OK — manifest is pairwise disjoint.");
+
+      console.log(
+        warnings.length > 0
+          ? `Wave-ownership guard: manifest is pairwise disjoint, but ${warnings.length} shared artifact(s) have no owner (see WARNING above). Path-disjointness does not imply mechanism-compatibility — the cross-reconciliation pass is still required.`
+          : "Wave-ownership guard OK — manifest is pairwise disjoint. Path-disjointness does not imply mechanism-compatibility — the cross-reconciliation pass is still required.",
+      );
       return;
     }
 
