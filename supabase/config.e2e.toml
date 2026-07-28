@@ -98,6 +98,10 @@ enable_confirmations = false
 subject = "You've been invited to Atomic CRM"
 content_path = "./supabase/templates/invite.html"
 
+[auth.email.template.magic_link]
+subject = "Your MyShadchan sign-in code"
+content_path = "./supabase/templates/magic_link.html"
+
 [auth.email.template.recovery]
 subject = "Reset your Atomic CRM Password"
 content_path = "./supabase/templates/recovery.html"
@@ -157,8 +161,6 @@ s3_access_key = "env(S3_ACCESS_KEY)"
 s3_secret_key = "env(S3_SECRET_KEY)"
 
 [functions.postmark]
-verify_jwt = false
-[functions.update_password]
 verify_jwt = false
 [functions.users]
 verify_jwt = false

@@ -93,50 +93,57 @@ export const getAuthProvider = (): AuthProvider => {
   return {
     ...baseAuthProvider,
     login: async (params) => {
-      // Standard social OAuth (e.g. "Sign in with Google") — the provider must
-      // be enabled in the Supabase dashboard (Auth -> Providers). supabase-js
-      // detects the session from the redirect URL on return (detectSessionInUrl).
-      if (params.oauthProvider) {
-        const { error } = await getSupabaseClient().auth.signInWithOAuth({
-          provider: params.oauthProvider,
-          options: { redirectTo: window.location.origin },
+      // Step one of the passwordless flow (AD-11 — no password, no second
+      // authentication path): send a 6-digit email code. `shouldCreateUser`
+      // defaults hard to `false` — only 2.7's invite-acceptance flow ever
+      // passes `allowSignup: true` — so the login form itself can never be
+      // used as open self-signup. `meta` forwards to `options.data`
+      // (`raw_user_meta_data`), the same mechanism 2.7's invite token /
+      // age-affirmation payload rides on.
+      if (params.requestOtp) {
+        const { error } = await getSupabaseClient().auth.signInWithOtp({
+          email: params.email,
+          options: {
+            shouldCreateUser: params.allowSignup === true,
+            data: params.meta,
+          },
+        });
+        if (error) {
+          // `shouldCreateUser: false` against an email with no existing
+          // account rejects with GoTrue's "otp_disabled" code ("Signups not
+          // allowed for otp" — verified against the local stack; despite the
+          // name this is unrelated to project-level signup settings).
+          // Swallowing only that code is what keeps an unknown email
+          // indistinguishable from a known one client-side: both land on
+          // the same "check your email" step, and the unknown one simply
+          // never receives a code.
+          if (error.code !== "otp_disabled") {
+            throw error;
+          }
+        }
+        return;
+      }
+      // Step two: verify the code the user typed back in.
+      if (params.verifyOtp) {
+        const { error } = await getSupabaseClient().auth.verifyOtp({
+          email: params.email,
+          token: params.token,
+          type: "email",
         });
         if (error) {
           throw error;
         }
         return;
       }
-      // Enterprise SAML SSO by email domain (distinct from social OAuth above).
-      if (params.ssoDomain) {
-        const { error } = await getSupabaseClient().auth.signInWithSSO({
-          domain: params.ssoDomain,
-        });
-        if (error) {
-          throw error;
-        }
-        return;
-      }
-      return baseAuthProvider.login(params);
+      // No other login shape is supported — in particular, ra-supabase-core's
+      // own password login (`baseAuthProvider.login`) must be unreachable.
+      throw new Error("Unsupported login request.");
     },
     logout: async (params) => {
       clearCache();
       return baseAuthProvider.logout(params);
     },
     checkAuth: async (params) => {
-      // Users are on the set-password page, nothing to do
-      if (
-        window.location.pathname === "/set-password" ||
-        window.location.hash.includes("#/set-password")
-      ) {
-        return;
-      }
-      // Users are on the forgot-password page, nothing to do
-      if (
-        window.location.pathname === "/forgot-password" ||
-        window.location.hash.includes("#/forgot-password")
-      ) {
-        return;
-      }
       // Users are on the sign-up page, nothing to do
       if (
         window.location.pathname === "/sign-up" ||

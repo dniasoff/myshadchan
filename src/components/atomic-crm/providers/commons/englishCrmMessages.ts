@@ -111,21 +111,12 @@ export const englishCrmMessages = {
     },
   },
   crm: {
-    action: {
-      reset_password: "Reset Password",
-    },
     auth: {
       first_name: "First name",
       last_name: "Last name",
-      confirm_password: "Confirm password",
       confirmation_required:
         "Please follow the link we just sent you by email to confirm your account.",
-      recovery_email_sent:
-        "If you're a registered user, you should receive a password recovery email shortly.",
       sign_in_failed: "Failed to log in.",
-      sign_in_google_workspace: "Sign in with Google Workplace",
-      google_oauth_not_configured:
-        "Google sign-in is not configured. Ask an administrator to enable and configure the Google provider in Supabase.",
       show_password: "Show password",
       hide_password: "Hide password",
       footer_private: "Private to your family",
@@ -133,6 +124,13 @@ export const englishCrmMessages = {
       login: {
         title: "Welcome back",
         subtitle: "Sign in to your records.",
+        send_code: "Send code",
+        code_sent_to: "We sent a 6-digit code to %{email}.",
+        code_label: "Code",
+        resend_code: "Resend code",
+        code_resent: "Code sent again",
+        use_different_email: "Use a different email",
+        invalid_code: "That code is incorrect or has expired.",
       },
       signup: {
         create_account: "Create account",
@@ -340,12 +338,6 @@ export const englishCrmMessages = {
       label: "CRM navigation",
     },
     profile: {
-      password: {
-        change: "Change password",
-      },
-      password_reset_sent:
-        "A reset password email has been sent to your email address",
-      record_not_found: "Record not found",
       title: "Profile",
       updated: "Your profile has been updated",
       update_error: "An error occurred. Please try again",

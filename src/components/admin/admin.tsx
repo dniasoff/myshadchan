@@ -8,7 +8,7 @@ import {
 } from "ra-core";
 import { i18nProvider as defaultI18nProvider } from "@/lib/i18nProvider";
 import { Layout } from "@/components/admin/layout";
-import { LoginPage } from "@/components/admin/login-page";
+import { LoginPage } from "@/components/atomic-crm/login/LoginPage";
 import { NotFound } from "@/components/admin/not-found";
 import { Ready } from "@/components/admin/ready";
 import { ThemeProvider } from "@/components/admin/theme-provider";

@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/item";
 
 import { BillingPage } from "../billing/BillingPage";
-import { ChangePasswordButton } from "./ChangePasswordButton";
 import { FamilySection } from "./FamilySection";
 import { PersonasSection } from "./PersonasSection";
 import { PreferencesSection } from "./PreferencesSection";
@@ -87,7 +86,6 @@ export const SettingsPage = () => {
           </div>
 
           <div className="space-y-3 border-t border-border pt-6">
-            <ChangePasswordButton />
             <Button
               variant="destructive"
               className="h-auto w-full text-base"

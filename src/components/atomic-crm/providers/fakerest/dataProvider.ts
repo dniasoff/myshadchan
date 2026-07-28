@@ -563,32 +563,6 @@ export const createDataProvider = ({
       }
       return true;
     },
-    updatePassword: async (id: Identifier): Promise<true> => {
-      const currentUser = await getIdentity();
-      if (!currentUser) {
-        throw new Error("User not found");
-      }
-      const { data: previousData } = await dataProvider.getOne<Member>(
-        "members",
-        {
-          id: currentUser.id,
-        },
-      );
-
-      if (!previousData) {
-        throw new Error("User not found");
-      }
-
-      await dataProvider.update("members", {
-        id,
-        data: {
-          password: "demo_newPassword",
-        },
-        previousData,
-      });
-
-      return true;
-    },
     // The SOLE INSERT path into shidduchim (AD-4 invariant 1) — the reusable
     // primitive a future fileInboxItem() wraps. The board's create form calls
     // this directly; raw dataProvider.create("shidduchim") is never used by the UI.

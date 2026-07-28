@@ -1,5 +1,10 @@
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
+
+// The e2e stack's own Mailpit instance (config.e2e.toml's [inbucket] block) —
+// not the dev stack's Mailpit on 54324. Sign-in is passwordless (email-OTP,
+// story 2.6): `signIn()` reads the 6-digit code straight out of here.
+const MAILPIT_URL = "http://127.0.0.1:54344";
 
 const adminSupabase = createClient(
   process.env.VITE_SUPABASE_URL ?? "http://127.0.0.1:54341",
@@ -34,17 +39,16 @@ async function createMember({
   first_name,
   last_name,
   email,
-  password,
 }: {
   first_name: string;
   last_name: string;
   email: string;
-  password: string;
 }) {
   const { data: userData, error: userError } =
     await adminSupabase.auth.admin.createUser({
       email,
-      password,
+      // Confirmed up front: sign-in is passwordless (email-OTP, shouldCreateUser:
+      // false) and only reaches an already-confirmed user.
       email_confirm: true,
     });
 
@@ -103,10 +107,80 @@ async function createSingle({
   return data;
 }
 
+interface MailpitSearchResponse {
+  messages?: Array<{ ID: string }>;
+}
+
+interface MailpitMessage {
+  Text?: string;
+  HTML?: string;
+}
+
+/**
+ * Reads the 6-digit email-OTP code most recently sent to `email` off the
+ * e2e stack's Mailpit (54344 — see MAILPIT_URL above), polling deterministically
+ * (`expect.poll`, never `waitForTimeout` per .claude/rules/testing.md) until the
+ * message lands.
+ */
+async function fetchOtpCode(email: string): Promise<string> {
+  let code: string | undefined;
+
+  await expect
+    .poll(
+      async () => {
+        const searchResponse = await fetch(
+          `${MAILPIT_URL}/api/v1/search?query=${encodeURIComponent(`to:${email}`)}`,
+        );
+        const { messages } =
+          (await searchResponse.json()) as MailpitSearchResponse;
+        const latestId = messages?.[0]?.ID;
+        if (!latestId) {
+          return null;
+        }
+
+        const messageResponse = await fetch(
+          `${MAILPIT_URL}/api/v1/message/${latestId}`,
+        );
+        const message = (await messageResponse.json()) as MailpitMessage;
+        const body = message.Text ?? message.HTML ?? "";
+        code = body.match(/\b(\d{6})\b/)?.[1];
+        return code ?? null;
+      },
+      {
+        message: `waiting for the OTP email sent to ${email}`,
+        timeout: 15000,
+      },
+    )
+    .not.toBeNull();
+
+  if (!code) {
+    throw new Error(`No 6-digit code found in the OTP email sent to ${email}`);
+  }
+
+  return code;
+}
+
+/**
+ * Drives the two-step passwordless login form (story 2.6): email step, then
+ * the code step, reading the code from Mailpit rather than a clickable link
+ * (AD-11 — email-OTP is the native path, not a magic link).
+ */
+async function signIn(page: Page, email: string) {
+  await page.goto("http://localhost:5175/#/login");
+  await page.getByLabel("Email").fill(email);
+  await page.getByRole("button", { name: "Send code" }).click();
+
+  const code = await fetchOtpCode(email);
+
+  await page.getByLabel("Code").fill(code);
+  await page.getByRole("button", { name: "Sign in" }).click();
+}
+
 export const test = base.extend<{
   resetDb: void;
   createMember: typeof createMember;
   createSingle: typeof createSingle;
+  signIn: typeof signIn;
 }>({
   // The first argument to a Playwright fixture function must use object destructuring ({}) — _ is not allowed.
   // Playwright uses this to statically analyze which fixtures are requested.
@@ -125,6 +199,9 @@ export const test = base.extend<{
   },
   createSingle: async ({}, cb) => {
     await cb(createSingle);
+  },
+  signIn: async ({}, cb) => {
+    await cb(signIn);
   },
   /* eslint-enable no-empty-pattern */
 });

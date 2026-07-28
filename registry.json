@@ -284,10 +284,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/settings/ChangePasswordButton.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/root/useMyPersonas.ts",
           "type": "registry:component"
         },
@@ -640,10 +636,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/login/googleOAuth.ts",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/login/authFieldClassName.ts",
           "type": "registry:component"
         },
@@ -656,19 +648,11 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/login/SSOAuthButton.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/login/PersonaChecklist.tsx",
           "type": "registry:component"
         },
         {
           "path": "src/components/atomic-crm/login/PasswordToggleButton.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/login/PasswordInput.tsx",
           "type": "registry:component"
         },
         {
@@ -685,10 +669,6 @@
         },
         {
           "path": "src/components/atomic-crm/login/InviteAcceptance.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/login/GoogleSignInButton.tsx",
           "type": "registry:component"
         },
         {
@@ -912,19 +892,11 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/supabase/set-password-page.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/supabase/oauth-consent-page.tsx",
           "type": "registry:component"
         },
         {
           "path": "src/components/supabase/layout.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/supabase/forgot-password-page.tsx",
           "type": "registry:component"
         },
         {

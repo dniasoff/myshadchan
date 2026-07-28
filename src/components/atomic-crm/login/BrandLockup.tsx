@@ -22,9 +22,9 @@ export interface BrandLockupProps {
 
 /**
  * The mark + wordmark lockup shared by every auth screen (login, signup,
- * forgot/set-password, confirmation, onboarding) and the landing page's own
- * `LandingBrand`. Single stable home for `LedgerMark` now that the retired
- * `AuthHero` split-panel no longer owns it.
+ * confirmation, onboarding) and the landing page's own `LandingBrand`.
+ * Single stable home for `LedgerMark` now that the retired `AuthHero`
+ * split-panel no longer owns it.
  */
 export const BrandLockup = ({ className }: BrandLockupProps) => (
   <div className={cn("flex items-center gap-2", className)}>

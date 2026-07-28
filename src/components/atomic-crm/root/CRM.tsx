@@ -109,9 +109,6 @@ export const CRM = ({
   authProvider = defaultAuthProviderBuilder(),
   i18nProvider = defaulti18nProvider,
   store = defaultStore,
-  googleWorkplaceDomain = import.meta.env.VITE_GOOGLE_WORKPLACE_DOMAIN,
-  disableEmailPasswordAuthentication = import.meta.env
-    .VITE_DISABLE_EMAIL_PASSWORD_AUTHENTICATION === "true",
   disableTelemetry,
   ...rest
 }: CRMProps) => {
@@ -138,8 +135,6 @@ export const CRM = ({
         title,
         darkModeLogo,
         lightModeLogo,
-        googleWorkplaceDomain,
-        disableEmailPasswordAuthentication,
       } satisfies ConfigurationContextValue);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

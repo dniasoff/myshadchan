@@ -10,8 +10,8 @@ export interface AuthLayoutProps {
 }
 
 /**
- * Shared shell for every auth screen (login, signup, forgot/set-password,
- * confirmation): an atmospheric ground (`AuthBackdrop`) behind a single
+ * Shared shell for every auth screen (login, signup, confirmation,
+ * onboarding): an atmospheric ground (`AuthBackdrop`) behind a single
  * centered glass card. Retires the old `AuthHero` split-screen — see
  * design-artifacts/auth-redesign.md.
  */

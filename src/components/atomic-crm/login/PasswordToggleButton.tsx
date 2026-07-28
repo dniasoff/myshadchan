@@ -13,7 +13,8 @@ export interface PasswordToggleButtonProps {
  * Presentational eye / eye-off icon button for revealing a password field.
  * `type="button"` so it never submits the surrounding form. 44px hit area,
  * positioned by the caller (inline-end of the field, mirrors under RTL).
- * Shared by `PasswordInput` (ra-core auth forms) and `SignupPage` (RHF).
+ * Used by `SignupPage` (RHF) — the only surviving password field; sign-in
+ * itself is passwordless (email-OTP).
  */
 export const PasswordToggleButton = ({
   isRevealed,

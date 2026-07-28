@@ -7,7 +7,6 @@ import { ContextSwitcher } from "../layout/ContextSwitcher";
 import { MobileContent } from "../layout/MobileContent";
 import MobileHeader from "../layout/MobileHeader";
 import { useMyContexts } from "../root/useMyContexts";
-import { ChangePasswordButton } from "./ChangePasswordButton";
 import { FamilySection } from "./FamilySection";
 import { PersonasSection } from "./PersonasSection";
 import { PreferencesSection } from "./PreferencesSection";
@@ -47,7 +46,6 @@ export const SettingsPageMobile = () => {
           </div>
 
           <div className="mb-4 mt-auto space-y-3 pt-6">
-            <ChangePasswordButton />
             <Button
               variant="destructive"
               className="h-auto w-full text-base"

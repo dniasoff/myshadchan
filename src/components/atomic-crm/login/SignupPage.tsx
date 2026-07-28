@@ -10,14 +10,10 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 import type { CrmDataProvider } from "../providers/types";
-import { useConfigurationContext } from "../root/ConfigurationContext";
 import type { SignUpData } from "../types";
 import { LoginSkeleton } from "./LoginSkeleton";
 import { AuthLayout } from "./AuthLayout";
 import { ConfirmationRequired } from "./ConfirmationRequired";
-import { SSOAuthButton } from "./SSOAuthButton";
-import { GoogleSignInButton } from "./GoogleSignInButton";
-import { isGoogleOAuthEnabled } from "./googleOAuth";
 import { PasswordToggleButton } from "./PasswordToggleButton";
 import { AUTH_FIELD_CLASSNAME } from "./authFieldClassName";
 import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
@@ -25,7 +21,6 @@ import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
 export const SignupPage = () => {
   const queryClient = useQueryClient();
   const dataProvider = useDataProvider<CrmDataProvider>();
-  const { googleWorkplaceDomain } = useConfigurationContext();
   const navigate = useNavigate();
   const translate = useTranslate();
   const [isPasswordRevealed, setIsPasswordRevealed] = useState(false);
@@ -102,8 +97,6 @@ export const SignupPage = () => {
     mutate(data);
   };
 
-  const googleEnabled = isGoogleOAuthEnabled();
-
   return (
     <AuthLayout
       footer={
@@ -128,31 +121,6 @@ export const SignupPage = () => {
             })}
           </p>
         </div>
-
-        {googleEnabled || googleWorkplaceDomain ? (
-          <div className="space-y-3">
-            {googleEnabled ? (
-              <GoogleSignInButton className="h-11 w-full rounded-lg" />
-            ) : null}
-            {googleWorkplaceDomain ? (
-              <SSOAuthButton
-                className="h-11 w-full rounded-lg"
-                domain={googleWorkplaceDomain}
-              >
-                {translate("crm.auth.sign_in_google_workspace", {
-                  _: "Sign in with Google Workplace",
-                })}
-              </SSOAuthButton>
-            ) : null}
-            <div className="flex items-center gap-3 py-1">
-              <span className="h-px flex-1 bg-border" aria-hidden="true" />
-              <span className="text-xs uppercase tracking-wider text-muted-foreground">
-                or
-              </span>
-              <span className="h-px flex-1 bg-border" aria-hidden="true" />
-            </div>
-          </div>
-        ) : null}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">

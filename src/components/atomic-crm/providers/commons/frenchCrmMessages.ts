@@ -114,21 +114,12 @@ export const frenchCrmMessages = {
     },
   },
   crm: {
-    action: {
-      reset_password: "Réinitialiser le mot de passe",
-    },
     auth: {
       first_name: "Prénom",
       last_name: "Nom",
-      confirm_password: "Confirmer le mot de passe",
       confirmation_required:
         "Veuillez suivre le lien que nous venons de vous envoyer par email pour confirmer votre compte.",
-      recovery_email_sent:
-        "Si vous êtes un utilisateur enregistré, vous devriez recevoir prochainement un e-mail de récupération de mot de passe.",
       sign_in_failed: "Échec de la connexion.",
-      sign_in_google_workspace: "Connectez-vous avec Google Workplace",
-      google_oauth_not_configured:
-        "La connexion avec Google n'est pas configurée. Demandez à un administrateur d'activer et de configurer le fournisseur Google dans Supabase.",
       show_password: "Afficher le mot de passe",
       hide_password: "Masquer le mot de passe",
       footer_private: "Privé à votre famille",
@@ -136,6 +127,13 @@ export const frenchCrmMessages = {
       login: {
         title: "Bon retour",
         subtitle: "Connectez-vous à vos dossiers.",
+        send_code: "Envoyer le code",
+        code_sent_to: "Nous avons envoyé un code à 6 chiffres à %{email}.",
+        code_label: "Code",
+        resend_code: "Renvoyer le code",
+        code_resent: "Code envoyé à nouveau",
+        use_different_email: "Utiliser une autre adresse e-mail",
+        invalid_code: "Ce code est incorrect ou a expiré.",
       },
       signup: {
         create_account: "Créer un compte",
@@ -330,12 +328,6 @@ export const frenchCrmMessages = {
       label: "Navigation CRM",
     },
     profile: {
-      password: {
-        change: "Changer le mot de passe",
-      },
-      password_reset_sent:
-        "Un e-mail de réinitialisation du mot de passe a été envoyé à votre adresse e-mail",
-      record_not_found: "Enregistrement introuvable",
       title: "Profil",
       updated: "Votre profil a été mis à jour",
       update_error: "Une erreur s'est produite. Veuillez réessayer",

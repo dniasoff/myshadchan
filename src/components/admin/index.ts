@@ -42,7 +42,6 @@ export * from "./list-pagination";
 export * from "./list";
 export * from "./loading";
 export * from "./locales-menu-button";
-export * from "./login-page";
 export * from "./notification";
 export * from "./number-field";
 export * from "./number-input";

@@ -1,9 +1,7 @@
 import type { ComponentType } from "react";
 import type { ResourceProps } from "ra-core";
 
-import { ForgotPasswordPage } from "@/components/supabase/forgot-password-page";
 import { OAuthConsentPage } from "@/components/supabase/oauth-consent-page";
-import { SetPasswordPage } from "@/components/supabase/set-password-page";
 
 import { BillingPage } from "../billing/BillingPage";
 import inbox from "../inbox";
@@ -56,18 +54,6 @@ export const CUSTOM_ROUTES: CustomRouteEntry[] = [
   {
     path: ConfirmationRequired.path,
     Component: ConfirmationRequired,
-    surface: "both",
-    chrome: "bare",
-  },
-  {
-    path: SetPasswordPage.path,
-    Component: SetPasswordPage,
-    surface: "both",
-    chrome: "bare",
-  },
-  {
-    path: ForgotPasswordPage.path,
-    Component: ForgotPasswordPage,
     surface: "both",
     chrome: "bare",
   },
