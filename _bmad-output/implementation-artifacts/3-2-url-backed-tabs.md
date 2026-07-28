@@ -42,7 +42,12 @@ fixtures. It does **not** migrate any entity onto `Entity360`: `RESOURCES` in
 `buildEntityRoutes` by this story. That is each entity's Epic 5 story (5.1 `shidduchim`, 5.8
 `singles`, 5.9 `shadchanim`, 5.10 `references`).
 
-**This story touches no live application file.** Contract §10 and §12 step 4 originally gave
+**This story migrates no entity and touches no `RESOURCES`/`routeManifest.ts` wiring.** (Corrected
+during review: the two i18n catalogs — `providers/commons/englishCrmMessages.ts` and
+`frenchCrmMessages.ts` — ARE live application files this story edits, adding the three
+`crm.entity360.*` keys `RecordPending`/`RecordUnavailable` translate through; "no live
+application file" overstated the boundary. The boundary that actually holds is the one below:
+no entity is re-pointed at `buildEntityRoutes`.) Contract §10 and §12 step 4 originally gave
 3.2 the `/{entity}/create` → `/{entity}/new` rename, the `CreateButton`/`EditButton`/row-link
 overrides and the explicit `hasShow`/`hasEdit` rule. **The project owner has split all four out
 into Story 3.12** (`_bmad-output/implementation-artifacts/3-12-route-convention-new.md`), which
@@ -573,9 +578,17 @@ Sonnet 5 (claude-sonnet-5).
   `resolveActiveTab(tabs, tabParam)`, with three branches for AC 5 (undefined → first tab, no nav),
   AC 6 (unknown → first tab, `replace`) and AC 7 (empty → nothing, no nav); "unknown" covers both
   an unparseable segment and a valid `TabKey` absent from this entity's `tabs`. The `replace`
-  effect's dependency list includes the raw `tabParam` (not just the derived booleans), which is
-  what makes AC 6 case (b) — re-evaluation on a second, non-consecutive visit to the same invalid
-  tab — pass; a narrower dependency list passes case (a) alone and fails case (b).
+  effect's dependency list is `[shouldReplace, resource, recordId, activeKey, tabParam,
+  navigate]`. **Correction (this review-fix pass):** the story originally claimed here that
+  including the raw `tabParam` "is what makes AC 6 case (b) … pass" and that "a narrower
+  dependency list passes case (a) alone and fails case (b)." Verified false: removing `tabParam`
+  alone (keeping the other four) leaves all 7 `Entity360Tabs` tests green — `tabParam` is not
+  even read inside the effect body, only `shouldReplace`/`activeKey` are, and those two are
+  already recomputed every render from `resolveActiveTab(tabs, tabParam)`, so a `tabParam` change
+  re-fires the effect through them regardless of whether `tabParam` itself is also listed. What
+  genuinely does go red for AC 6 case (b) is a **mount-only `[]`** dependency list — that part of
+  the original claim holds and is what the test actually guards against. `tabParam` stays in the
+  list as harmless, honest documentation of intent, not as the load-bearing dependency.
   `Entity360Tabs.test.tsx` covers AC 4 (href-equals-buildTabPath + zero calls to the inactive
   tab's render spy, then push+back across two real tabs), AC 5 (bare id, no history entry added),
   AC 6 (single mis-typed tab, then the re-evaluation + back-skips-the-replaced-entry scenario) and
@@ -631,11 +644,24 @@ Sonnet 5 (claude-sonnet-5).
 - `src/components/atomic-crm/entity360/RecordUnavailable.tsx`
 - `src/components/atomic-crm/entity360/Entity360Tabs.tsx`
 - `src/components/atomic-crm/entity360/Entity360Tabs.test.tsx`
+- `src/components/atomic-crm/entity360/resetScrollToTop.ts` (review-fix pass — see Change Log;
+  the deferred scroll-reset F1 required)
+- `src/components/atomic-crm/entity360/scrollReset.tsx` (review-fix pass — `ScrollToTopOnMount`,
+  split from `resetScrollToTop.ts` to satisfy `react-refresh/only-export-components`, same
+  constraint the original pass hit for `RecordRoute`)
 
 **Modified files:**
 - `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (three new
   `crm.entity360.*` keys for `RecordPending`/`RecordUnavailable`)
 - `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (matching French entries)
+- `src/components/atomic-crm/entity360/RecordRoute.tsx` (review-fix pass — routes its scroll
+  reset through `resetScrollToTop`)
+- `src/components/atomic-crm/entity360/buildEntityRoutes.tsx` (review-fix pass — wraps `New`/
+  `Edit` in `ScrollToTopOnMount`)
+- `src/components/atomic-crm/entity360/buildEntityRoutes.test.tsx` (review-fix pass — F1/F2/F3/F5
+  regression tests, see Change Log)
+- `src/components/atomic-crm/entity360/Entity360Tabs.tsx` (review-fix pass — doc-comment
+  correction only, no behaviour change; see F4 in Change Log)
 
 ## Change Log
 
@@ -645,3 +671,52 @@ Sonnet 5 (claude-sonnet-5).
   the diff scoped). No SQL touched. `RecordRoute` extracted into its own file mid-implementation
   to satisfy `react-refresh/only-export-components`, an ADR-free structural detail (a fast-refresh
   lint constraint, not a design decision) recorded here and in the module's own doc comment.
+- 2026-07-28 — Review-fix pass, addressing the adversarial review's five findings (F1–F5),
+  gate re-run clean after each:
+  - **F1 (blocking):** AC 11 / contract §5 rule 9 did not survive composition with the real
+    `<Resource>` — `<RestoreScrollPosition>` wraps the WHOLE `list` element (every route this
+    story declares, not only the two Show routes), and its own restore is a passive mount effect
+    on an ANCESTOR, so a plain `window.scrollTo(0, 0)` in `RecordRoute` lost the race (proved:
+    call sequence `[[0, 0], [0, 500]]` against a real `<RestoreScrollPosition>` + seeded store).
+    A `useLayoutEffect` version was tried and empirically does NOT win either — same sequence —
+    because the ancestor's restore effect closes over its own `position` state at ITS render,
+    before any descendant's layout effect can mutate the shared store. `queueMicrotask`-deferring
+    the reset does win (sequence becomes `[[0, 500], [0, 0]]`): it defers the call until after the
+    whole synchronous passive-effect flush (which includes the ancestor's restore) has already
+    run. New modules `entity360/resetScrollToTop.ts` (the deferred reset) and
+    `entity360/scrollReset.tsx` (`ScrollToTopOnMount`, split into its own file for the same
+    `react-refresh/only-export-components` reason `RecordRoute` was originally extracted); wired
+    into `RecordRoute` (`:id`/`:id/:tab`) and, newly, `New`/`:id/edit` too — rule 9 says "the
+    non-index routes," not only the two Show routes. Four new regression tests in
+    `buildEntityRoutes.test.tsx`, each against a real `<RestoreScrollPosition>` + seeded store;
+    proved red against the pre-fix (non-deferred) implementation before landing.
+  - **F2 (blocking):** the "does not scroll again when only the `:tab` segment changes" test
+    could not fail — the marker it awaited was already on screen from the prior render, so the
+    assertion resolved before the navigation committed. Added `await expect.poll(() =>
+    getPathname()).toBe(...)` before the call-count assertion; proved this turns the test red
+    against a `[id, tab]` dependency-list break (scrolling on every tab switch), which the
+    unguarded version let through silently.
+  - **F3:** added a `RecordPending` regression test (deferred `getOne`, asserts `role="status"`
+    and the translated text while pending, then the resolved record); proved red against a
+    gutted `RecordPending` body.
+  - **F4:** corrected the Completion Notes claim that keeping `tabParam` in the `replace` effect's
+    dependency list is what makes AC 6 case (b) pass. Verified false — removing `tabParam` alone
+    (keeping the four derived deps) leaves all 7 `Entity360Tabs` tests green. What genuinely goes
+    red is a mount-only `[]` dependency list, which is the part of the original claim that holds.
+    Also corrected the same overstatement duplicated in `Entity360Tabs.tsx`'s own doc comment.
+  - **F5:** reworded the "touches no live application file" scope-boundary claim — the two i18n
+    catalogs are live application files this story edits — and added a test for the New/Edit-
+    absent branch (`/{entity}/new` without a `New` component falls through to `:id` with
+    `id="new"` and resolves to `RecordUnavailable`).
+  - Contract amendments (both requested by the review, not functional changes): §4's
+    `buildEditPath` comment now states the literal it actually returns (with the pre-migration
+    rationale inline); §6's `Entity360Tabs` return type is now `ReactElement | null`, matching
+    AC 7's "empty `tabs` renders nothing" requirement.
+  - Gate re-run: `make typecheck` clean; `make lint` clean (eslint + prettier); `npx vitest run` —
+    1019 tests / 96 files, all green (1013 baseline + 6 new: four F1 regression tests, one F3, one
+    F5); `make build` succeeds (same pre-existing >500kB chunk-size warning); `npx prettier --check
+    .` — same 15 pre-existing, out-of-diff issues as the original pass (`.github/workflows/*`,
+    `.lintstagedrc`, `doc/**/*.mdx`), still untouched by this diff. No SQL touched, so
+    `npm run test:unit:db` and `supabase db diff --local` are not applicable. `make registry-gen`
+    picked up the two new files (`resetScrollToTop.ts`, `scrollReset.tsx`) and regenerated
+    `registry.json` accordingly — expected, not a phantom diff.

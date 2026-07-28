@@ -93,10 +93,13 @@ export function Entity360Tabs({
   const { activeKey, shouldReplace } = resolveActiveTab(tabs, tabParam);
   const recordId = record?.id;
 
-  // AC 6 — re-evaluated on every location change (tabParam is part of the
-  // dependency list, not just the derived booleans), never a mount-only
-  // effect: a back-navigation after a context switch (3.4) can land back on
-  // a tab the viewer no longer has.
+  // AC 6 — re-evaluated on every location change, never a mount-only effect:
+  // a back-navigation after a context switch (3.4) can land back on a tab
+  // the viewer no longer has. `shouldReplace`/`activeKey` are recomputed
+  // every render from `resolveActiveTab(tabs, tabParam)`, so they alone
+  // already retrigger this effect on a `tabParam` change — `tabParam` is
+  // listed too as a direct, honest dependency of the effect body, not
+  // because omitting it changes behaviour.
   useEffect(() => {
     if (
       !shouldReplace ||

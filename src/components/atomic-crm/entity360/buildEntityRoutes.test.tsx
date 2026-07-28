@@ -6,7 +6,9 @@ import {
   ResourceContextProvider,
   ResourceDefinitionContextProvider,
   RecordContextProvider,
+  RestoreScrollPosition,
   TestMemoryRouter,
+  memoryStore,
   useGetPathForRecord,
   useRecordContext,
 } from "ra-core";
@@ -117,6 +119,54 @@ const renderEntityRoutes = async (
   return { screen, dataProvider, getPathname: () => pathname };
 };
 
+const STALE_LIST_SCROLL_POSITION = 500;
+
+/**
+ * Contract §5 rule 9 / AC 11 — reproduces exactly how `<Resource>` wires
+ * `buildEntityRoutes`'s return value in production
+ * (`ra-core/dist/core/Resource.js:14`): a single `<RestoreScrollPosition
+ * storeKey={`${name}.list.scrollPosition`}>` wrapping the WHOLE route tree
+ * (index included), backed by a real store seeded with a stale offset —
+ * standing in for "the user previously scrolled the list, then a deep link
+ * lands directly on a non-index route." Callers still spy on
+ * `window.scrollTo`, exactly like `renderEntityRoutes` above — but here the
+ * REAL `<RestoreScrollPosition>` is in the tree too, so what gets asserted
+ * against is its own restore effect, not a test fixture's.
+ */
+const renderEntityRoutesUnderRestoreScrollPosition = async (
+  initialEntries: string[],
+) => {
+  const dataProvider = buildEchoDataProvider();
+  const store = memoryStore({
+    [`${FIXTURE_RESOURCE}.list.scrollPosition`]: STALE_LIST_SCROLL_POSITION,
+  });
+
+  const screen = await render(
+    <TestMemoryRouter initialEntries={initialEntries}>
+      <CoreAdminContext
+        dataProvider={dataProvider}
+        i18nProvider={testI18nProvider}
+        store={store}
+      >
+        <ResourceContextProvider value={FIXTURE_RESOURCE}>
+          <RestoreScrollPosition
+            storeKey={`${FIXTURE_RESOURCE}.list.scrollPosition`}
+          >
+            {buildEntityRoutes({
+              List: FixtureList,
+              New: FixtureNew,
+              Edit: FixtureEdit,
+              Show: FixtureShow,
+            })}
+          </RestoreScrollPosition>
+        </ResourceContextProvider>
+      </CoreAdminContext>
+    </TestMemoryRouter>,
+  );
+
+  return { screen };
+};
+
 const expectOnlyMarkerVisible = async (
   screen: Awaited<ReturnType<typeof renderEntityRoutes>>["screen"],
   marker: string,
@@ -206,7 +256,7 @@ describe("buildEntityRoutes — scroll reset (AC 11)", () => {
       .mockImplementation(() => {});
     let navigate: ((to: string) => void) | undefined;
 
-    const { screen } = await renderEntityRoutes(["/1"], {
+    const { screen, getPathname } = await renderEntityRoutes(["/1"], {
       navigateCallback: (nav) => {
         navigate = nav;
       },
@@ -218,6 +268,16 @@ describe("buildEntityRoutes — scroll reset (AC 11)", () => {
 
     navigate?.("/1/overview");
 
+    // Guard against a false-green race: `${FIXTURE_SHOW_MARKER} 1` is
+    // already on screen from the initial `/1` render, so a bare
+    // `expect.element(...).toBeInTheDocument()` here resolves on its first
+    // poll — before the navigation to `/1/overview` has actually committed
+    // — and the call-count assertion below would then run too early to
+    // catch a regression. Waiting for the pathname itself to change first
+    // makes this a real assertion: breaking `RecordRoute`'s dependency list
+    // to `[id, tab]` (scrolling on every tab switch) reliably turns this
+    // red once the wait is in place.
+    await expect.poll(() => getPathname()).toBe("/1/overview");
     await expect
       .element(screen.getByText(`${FIXTURE_SHOW_MARKER} 1`))
       .toBeInTheDocument();
@@ -245,6 +305,130 @@ describe("buildEntityRoutes — scroll reset (AC 11)", () => {
       .element(screen.getByText(`${FIXTURE_SHOW_MARKER} 2`))
       .toBeInTheDocument();
     expect(scrollToSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("buildEntityRoutes — the inherited list scroll offset is suppressed (contract §5 rule 9)", () => {
+  const expectFinalScrollIsZero = async (
+    scrollToSpy: ReturnType<typeof vi.spyOn>,
+  ) => {
+    // `RestoreScrollPosition`'s own restore is itself a passive effect that
+    // fires on the SAME mount — a plain, non-deferred reset loses this race
+    // (the sequence would be `[[0, 0], [0, 500]]`; see `resetScrollToTop.ts`'s
+    // doc comment). The LAST call — not merely "some call" — has to be
+    // `(0, 0)`, so `expect.poll` waits out the deferred `queueMicrotask`.
+    await expect.poll(() => scrollToSpy.mock.calls.at(-1)).toEqual([0, 0]);
+  };
+
+  it("`:id` does not open scrolled to the list's stale offset", async () => {
+    const scrollToSpy = vi
+      .spyOn(window, "scrollTo")
+      .mockImplementation(() => {});
+
+    const { screen } = await renderEntityRoutesUnderRestoreScrollPosition([
+      "/1",
+    ]);
+    await expect
+      .element(screen.getByText(`${FIXTURE_SHOW_MARKER} 1`))
+      .toBeInTheDocument();
+
+    await expectFinalScrollIsZero(scrollToSpy);
+  });
+
+  it("`:id/:tab` does not open scrolled to the list's stale offset", async () => {
+    const scrollToSpy = vi
+      .spyOn(window, "scrollTo")
+      .mockImplementation(() => {});
+
+    const { screen } = await renderEntityRoutesUnderRestoreScrollPosition([
+      "/1/overview",
+    ]);
+    await expect
+      .element(screen.getByText(`${FIXTURE_SHOW_MARKER} 1`))
+      .toBeInTheDocument();
+
+    await expectFinalScrollIsZero(scrollToSpy);
+  });
+
+  it("`new` does not open scrolled to the list's stale offset", async () => {
+    const scrollToSpy = vi
+      .spyOn(window, "scrollTo")
+      .mockImplementation(() => {});
+
+    const { screen } = await renderEntityRoutesUnderRestoreScrollPosition([
+      "/new",
+    ]);
+    await expect
+      .element(screen.getByText(FIXTURE_NEW_MARKER))
+      .toBeInTheDocument();
+
+    await expectFinalScrollIsZero(scrollToSpy);
+  });
+
+  it("`:id/edit` does not open scrolled to the list's stale offset", async () => {
+    const scrollToSpy = vi
+      .spyOn(window, "scrollTo")
+      .mockImplementation(() => {});
+
+    const { screen } = await renderEntityRoutesUnderRestoreScrollPosition([
+      "/1/edit",
+    ]);
+    await expect
+      .element(screen.getByText(FIXTURE_EDIT_MARKER))
+      .toBeInTheDocument();
+
+    await expectFinalScrollIsZero(scrollToSpy);
+  });
+});
+
+describe("buildEntityRoutes — RecordPending (AC 2)", () => {
+  it("renders the pending state while the record fetch is in flight, then the record once it resolves", async () => {
+    let resolveGetOne: ((value: { data: { id: string } }) => void) | undefined;
+    const pending = new Promise<{ data: { id: string } }>((resolve) => {
+      resolveGetOne = resolve;
+    });
+
+    const { screen } = await renderEntityRoutes(["/1"], {
+      dataProviderOverrides: {
+        getOne: vi.fn().mockImplementation(() => pending),
+      },
+    });
+
+    await expect.element(screen.getByRole("status")).toBeInTheDocument();
+    await expect.element(screen.getByText("Loading…")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText(FIXTURE_SHOW_MARKER))
+      .not.toBeInTheDocument();
+
+    resolveGetOne?.({ data: { id: "1" } });
+
+    await expect
+      .element(screen.getByText(`${FIXTURE_SHOW_MARKER} 1`))
+      .toBeInTheDocument();
+    await expect.element(screen.getByRole("status")).not.toBeInTheDocument();
+  });
+});
+
+describe("buildEntityRoutes — New/Edit-absent branches", () => {
+  it('`/new` falls through to `:id` (id `"new"`) and shows RecordUnavailable when New is not supplied', async () => {
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/new"]}>
+        <CoreAdminContext
+          dataProvider={buildEchoDataProvider({
+            getOne: vi.fn().mockRejectedValue(new Error("not found")),
+          })}
+          i18nProvider={testI18nProvider}
+        >
+          <ResourceContextProvider value={FIXTURE_RESOURCE}>
+            {buildEntityRoutes({ List: FixtureList, Show: FixtureShow })}
+          </ResourceContextProvider>
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await expect
+      .element(screen.getByText("This record is unavailable."))
+      .toBeInTheDocument();
   });
 });
 

@@ -341,12 +341,20 @@ export function EntityShow(): ReactElement;   // no props
 export function buildListPath(name: string): string;                        // `/${name}`
 export function buildNewPath(name: string): string;                         // `/${name}/new`
 export function buildRecordPath(name: string, id: Identifier): string;      // descriptor.buildRecordPath(id)
-export function buildEditPath(name: string, id: Identifier): string;        // `${record}/edit`
+export function buildEditPath(name: string, id: Identifier): string;        // `/${name}/${id}/edit` (literal — see §5 note below, NOT composed from `buildRecordPath`)
 export function buildTabPath(name: string, id: Identifier, tab: TabKey): string; // `${record}/${tab}`
 ```
 All five go through `requireEntityDescriptor`, so Epic 5's one-line `buildRecordPath` flip
 propagates to edit links, tab links and deep links at once. Nothing in the app builds a
 `/{entity}/{id}…` string by template literal.
+
+**Amendment (Story 3.2 review):** `buildEditPath` is a **literal** `` `/${name}/${id}/edit` ``,
+not composed from `buildRecordPath(name, id)`. Before an entity migrates onto `Entity360`, its
+descriptor's `buildRecordPath` still returns `/{name}/{id}/show` (§2) — composing from it would
+produce `/singles/1/show/edit`, which `<Resource>`'s pre-migration `:id/show/*` route ranks onto
+the show surface, not edit. The literal resolves correctly in both worlds (pre- and
+post-migration), and the two forms converge once Epic 5 flips `buildRecordPath`. Story 3.12,
+which adopts this builder app-wide, binds to the literal.
 
 ---
 
@@ -442,7 +450,10 @@ export function Entity360Tabs(props: {
   // renders `useTabLabel(key, label)` (§3 rule 2). `EntityShow` forwards `tab.label` verbatim,
   // including `undefined` — it must not fill it in from TAB_LABELS (§2 rule 8).
   tabs: { key: TabKey; label?: string; render: () => ReactNode }[];
-}): ReactElement;
+}): ReactElement | null;
+// Amendment (Story 3.2 review): `| null`, not a bare `ReactElement` — AC 7 requires an empty
+// `tabs` array (or a record/resource not yet in context) to render nothing at all. A widening,
+// harmless to every caller that only ever places the return value in JSX.
 
 // entity360/visibility.ts
 export function hasVisibility(

@@ -2,6 +2,7 @@ import type { ComponentType, ReactElement } from "react";
 import { Route, Routes } from "react-router";
 
 import { RecordRoute } from "./RecordRoute";
+import { ScrollToTopOnMount } from "./scrollReset";
 
 export interface BuildEntityRoutesConfig {
   List: ComponentType;
@@ -32,6 +33,13 @@ export interface BuildEntityRoutesConfig {
  * `RecordContext`, the pending state, and the handled error state under
  * this tree — and resets scroll per AC 11.
  *
+ * `New` and `Edit` are wrapped in `ScrollToTopOnMount` (`./scrollReset.tsx`)
+ * for the same reason (contract §5 rule 9 covers every non-index route, not
+ * only the two Show routes): `<Resource>` wraps this ENTIRE function's
+ * return value — index included — in one `<RestoreScrollPosition>`, so
+ * every sub-route inherits the list's saved scroll offset unless it
+ * explicitly suppresses it.
+ *
  * REGISTRATION RULE (contract §5 rule 4, enforced by Story 3.12's
  * `record-flags-missing` manifest violation — nothing under
  * `src/components/admin/` is edited by THIS story): a migrated entity
@@ -57,8 +65,26 @@ export function buildEntityRoutes(
   return (
     <Routes>
       <Route index element={<List />} />
-      {New ? <Route path="new" element={<New />} /> : null}
-      {Edit ? <Route path=":id/edit" element={<Edit />} /> : null}
+      {New ? (
+        <Route
+          path="new"
+          element={
+            <ScrollToTopOnMount>
+              <New />
+            </ScrollToTopOnMount>
+          }
+        />
+      ) : null}
+      {Edit ? (
+        <Route
+          path=":id/edit"
+          element={
+            <ScrollToTopOnMount>
+              <Edit />
+            </ScrollToTopOnMount>
+          }
+        />
+      ) : null}
       <Route path=":id" element={<RecordRoute Show={Show} />} />
       <Route path=":id/:tab" element={<RecordRoute Show={Show} />} />
     </Routes>
