@@ -288,6 +288,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/root/useMyContexts.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/root/useConfigurationLoader.ts",
           "type": "registry:component"
         },
@@ -524,6 +528,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/contexts.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/fakerest/dataGenerator/utils.ts",
           "type": "registry:component"
         },
@@ -733,6 +741,10 @@
         },
         {
           "path": "src/components/atomic-crm/layout/DemoBanner.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/layout/ContextSwitcher.tsx",
           "type": "registry:component"
         },
         {
