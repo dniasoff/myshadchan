@@ -844,6 +844,14 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/entity360/registry.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/entityDescriptor.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/entity360/avatar.ts",
           "type": "registry:component"
         },
