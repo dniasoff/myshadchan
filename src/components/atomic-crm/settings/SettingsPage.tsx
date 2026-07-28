@@ -14,6 +14,7 @@ import {
 
 import { BillingPage } from "../billing/BillingPage";
 import { FamilySection } from "./FamilySection";
+import { InvitesSection } from "./InvitesSection";
 import { PersonasSection } from "./PersonasSection";
 import { PreferencesSection } from "./PreferencesSection";
 import { PrivacySection } from "./PrivacySection";
@@ -56,6 +57,7 @@ export const SettingsPage = () => {
           <ProfileSection />
           <FamilySection />
           <PersonasSection />
+          <InvitesSection />
           <PreferencesSection />
         </div>
 

@@ -10,6 +10,8 @@ import type {
   AddSchoolInput,
   AiEntitlementInfo,
   CreateShidduchInput,
+  Invite,
+  InvitableRole,
   InvitePreview,
   LinkReferenceInput,
   LogReferenceCallInput,
@@ -51,6 +53,7 @@ import { matchReferenceOnEntry } from "./internal/referenceMatch";
 import { addPersona, getMyPersonas } from "./internal/personas";
 import { removePersona } from "./internal/removePersona";
 import { getMyContexts, switchActiveContext } from "./internal/contexts";
+import { createInvite, revokeInvite } from "./internal/invites";
 import {
   catchShidduch,
   computeShidduchCatchCount,
@@ -497,19 +500,9 @@ export const createDataProvider = ({
       }
       return baseDataProvider.delete(resource, params);
     },
-    memberCreate: async ({ ...data }: MemberFormData): Promise<Member> => {
-      const response = await dataProvider.create("members", {
-        data: {
-          ...data,
-          password: "new_password",
-        },
-      });
-
-      return response.data;
-    },
     memberUpdate: async (
       id: Identifier,
-      data: Partial<Omit<MemberFormData, "password">>,
+      data: Partial<MemberFormData>,
     ): Promise<Member> => {
       const { data: previousData } = await dataProvider.getOne<Member>(
         "members",
@@ -720,21 +713,40 @@ export const createDataProvider = ({
       return (data?.config as ConfigurationContextValue) ?? {};
     },
     // Invite-only signup (Story 2.7) -- FakeRest mirror of get_invite_preview().
-    // There is no `invites` collection in the demo world yet (2.8 adds the
-    // inviter-side UI this seeds; 2.7's own tests seed invite rows directly in
-    // SQL, never through the demo). Every token honestly resolves to "not
+    // Story 2.8 adds an `invites` collection for the INVITER side
+    // (InvitesSection.tsx's list/create/revoke) but deliberately does not
+    // wire the invitee-side acceptance flow up to it: that flow also needs
+    // OTP request/verify against `auth.users`, which 2.6/2.7 deliberately
+    // never emulated in FakeRest. Every token honestly resolves to "not
     // found" rather than a stub success, which is what InviteAcceptance's
     // "this invite link isn't valid" branch is for.
     getInvitePreview: async (_token: string): Promise<InvitePreview | null> =>
       null,
     // Story 2.7 review finding #4 -- FakeRest mirror of accept_invite().
     // Unreachable in the demo world for the same reason as getInvitePreview
-    // above (no `invites` collection): getInvitePreview() always resolves
-    // "not found", so InviteAcceptance never renders the OTP step that would
-    // call this. Kept as a real, honest no-op rather than a throw, matching
-    // the "satisfies the interface without pretending to be real" shape
+    // above: getInvitePreview() always resolves "not found", so
+    // InviteAcceptance never renders the OTP step that would call this.
+    // Kept as a real, honest no-op rather than a throw, matching the
+    // "satisfies the interface without pretending to be real" shape
     // getInvitePreview already uses.
     acceptInvite: async (_token: string): Promise<void> => undefined,
+    // ---------------------------------------------------------------------
+    // Invites as the one membership mechanism (Story 2.8 AC-5) -- FakeRest
+    // mirrors of create_invite()/revoke_invite() in ./internal/invites.ts.
+    // Both scope to the caller's CURRENT active context, exactly like
+    // getMyContexts/switchActiveContext above -- shares the same
+    // closure-local activeAccountId.
+    // ---------------------------------------------------------------------
+    createInvite: (email: string, role: InvitableRole): Promise<Invite> =>
+      createInvite(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId,
+        email,
+        role,
+      ),
+    revokeInvite: (id: Identifier): Promise<void> =>
+      revokeInvite(baseDataProvider, getIdentity, () => activeAccountId, id),
   };
 
   const dataProvider = withLifecycleCallbacks(

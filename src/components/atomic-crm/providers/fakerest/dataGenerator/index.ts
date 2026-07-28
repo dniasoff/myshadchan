@@ -15,6 +15,10 @@ export default (): Db => {
   // Set before generateShidduchimDomain(db): references.ts reads db.tasks.length
   // and spreads db.tasks, so an undefined db.tasks would crash the demo provider.
   db.tasks = [];
+  // Invites as the one membership mechanism (Story 2.8) — no invite is sent
+  // by default; InvitesSection.tsx's createInvite()/revokeInvite() are the
+  // only writers.
+  db.invites = [];
   // Shidduchim pipeline domain (accounts, singles, shadchanim, shidduchim, ...)
   generateShidduchimDomain(db);
   // References domain (references, reference_links, interactions, reference

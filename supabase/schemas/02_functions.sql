@@ -910,24 +910,38 @@ CREATE OR REPLACE FUNCTION "public"."role_authority"("p_role" "text") RETURNS in
   end;
 $$;
 
+-- The shared "may this role send invites at all" predicate (AC-3) — the
+-- caller-side half of authority, distinct from role_authority()'s
+-- ceiling-on-the-invitee-role half. IMMUTABLE, like role_authority() above.
+-- Factored out (Story 2.8) so the literal `parent_admin`/`self_manager`/
+-- `shadchan` list is written once, shared by create_invite() below and
+-- revoke_invite() (Story 2.8, further down this section), rather than
+-- repeated per function. Deliberately BROADER than 2.2's owning-role helper
+-- `is_owning_membership_role()` (parent_admin/self_manager only): a
+-- shadchan can invite into their shadchanus but never owns a `singles` row
+-- — do not merge the two predicates.
+CREATE OR REPLACE FUNCTION "public"."is_invite_capable_role"("p_role" "text") RETURNS boolean
+    LANGUAGE "sql" IMMUTABLE
+    SET "search_path" TO ''
+    AS $$
+  select p_role in ('parent_admin', 'self_manager', 'shadchan');
+$$;
+
 -- The one function that creates an invitee-facing invite (AC-3). SECURITY
 -- DEFINER: AC-2 withholds every DML grant on `invites` from `authenticated`,
 -- so an invoker-rights insert would be refused at the grant before any of
 -- these checks ever ran — this function's own checks are therefore the ONLY
 -- write gate, not merely a convenience layer in front of RLS. Refuses
 -- unless: the caller holds an active membership of the current context;
--- that membership's role is an OWNING one (`parent_admin`, `self_manager` or
--- `shadchan` — deliberately BROADER than 2.2's owning-role helper
--- `is_owning_membership_role()`, since a shadchan can invite into their
--- shadchanus but never owns a `singles` row — do not merge the two
--- predicates); `role_authority(p_role)` does not exceed the caller's own;
--- and `p_role` matches the active context's `kind` (household ->
--- parent_admin/helper/single, shadchanus -> shadchan). The kind check
--- exists so an invite that could never be accepted (2.2's
--- enforce_membership_role_matches_context() trigger would reject it) is
--- refused at creation, not discovered broken by the invitee. Sets
--- `invited_by` from the caller's own `account_members.id`, never from a
--- parameter — a client cannot forge who an invite came from.
+-- that membership's role is invite-capable (is_invite_capable_role() above);
+-- `role_authority(p_role)` does not exceed the caller's own; and `p_role`
+-- matches the active context's `kind` (household -> parent_admin/helper/
+-- single, shadchanus -> shadchan). The kind check exists so an invite that
+-- could never be accepted (2.2's enforce_membership_role_matches_context()
+-- trigger would reject it) is refused at creation, not discovered broken by
+-- the invitee. Sets `invited_by` from the caller's own
+-- `account_members.id`, never from a parameter — a client cannot forge who
+-- an invite came from.
 CREATE OR REPLACE FUNCTION "public"."create_invite"("p_email" "text", "p_role" "text") RETURNS "public"."invites"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -952,7 +966,7 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
-  if v_caller_role not in ('parent_admin', 'self_manager', 'shadchan') then
+  if not public.is_invite_capable_role(v_caller_role) then
     raise exception 'role % may not send invites', v_caller_role
       using errcode = 'insufficient_privilege';
   end if;
@@ -1078,6 +1092,62 @@ begin
   end if;
 
   return '{}'::jsonb;
+end;
+$$;
+
+-- The one function that revokes a not-yet-accepted invite (Story 2.8,
+-- AC-3). SECURITY DEFINER for the same reason as create_invite() above:
+-- AC-2 withholds every DML grant on `invites` from `authenticated`, so an
+-- invoker-rights update would be refused at the grant before any of these
+-- checks ever ran. Deliberately scoped to current_context_id(), exactly
+-- like create_invite() and exactly like the "Invites readable within active
+-- account" SELECT policy (05_policies.sql): an invite belonging to an
+-- account the caller is NOT currently active in is simply not found by the
+-- lookup below — the same shape of invisibility RLS would produce, not a
+-- distinct "you don't have permission" branch (a caller who also holds a
+-- separate, invite-capable membership elsewhere still cannot revoke an
+-- invite there without first switching context to it). Refuses unless: the
+-- invite exists in the caller's current context; the caller holds an
+-- active, invite-capable membership there (is_invite_capable_role(),
+-- shared with create_invite()); and the invite is still `pending` — an
+-- already-`accepted` invite is a real member now, removing them is Story
+-- 2.5's persona-removal path, a different action for a different state.
+CREATE OR REPLACE FUNCTION "public"."revoke_invite"("p_invite_id" bigint) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+  v_caller_role text;
+  v_invite public.invites;
+begin
+  v_account_id := public.current_context_id();
+
+  select i.* into v_invite
+  from public.invites i
+  where i.id = p_invite_id and i.account_id = v_account_id;
+
+  if not found then
+    raise exception 'invite % not found in current context', p_invite_id;
+  end if;
+
+  select am.role into v_caller_role
+  from public.account_members am
+  where am.account_id = v_account_id
+    and am.user_id = auth.uid()
+    and am.status = 'active';
+
+  if v_caller_role is null or not public.is_invite_capable_role(v_caller_role) then
+    raise exception 'role % may not revoke invites', v_caller_role
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if v_invite.status <> 'pending' then
+    raise exception 'invite % is not pending (status %)', p_invite_id, v_invite.status
+      using errcode = 'check_violation';
+  end if;
+
+  update public.invites set status = 'revoked' where id = p_invite_id;
 end;
 $$;
 

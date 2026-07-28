@@ -338,6 +338,13 @@ revoke all on function public.role_authority(text) from public, anon;
 grant execute on function public.role_authority(text) to authenticated;
 grant execute on function public.role_authority(text) to service_role;
 
+-- Story 2.8 (Task 1): is_invite_capable_role() is a small IMMUTABLE helper
+-- shared by create_invite() and revoke_invite() — a pure function of its
+-- argument, safe to grant broadly, same reasoning as role_authority() above.
+revoke all on function public.is_invite_capable_role(text) from public, anon;
+grant execute on function public.is_invite_capable_role(text) to authenticated;
+grant execute on function public.is_invite_capable_role(text) to service_role;
+
 -- Story 2.7 (AC-3): create_invite() is SECURITY DEFINER and the sole
 -- authenticated write path onto a table with no client DML grant — every
 -- check in AC-3 is performed inside the function itself, since RLS no
@@ -369,6 +376,15 @@ grant execute on function public.check_signup_invite(jsonb) to supabase_auth_adm
 revoke all on function public.accept_invite(uuid) from public, anon;
 grant execute on function public.accept_invite(uuid) to authenticated;
 grant execute on function public.accept_invite(uuid) to service_role;
+
+-- Story 2.8 (AC-3): revoke_invite() is SECURITY DEFINER and the sole
+-- authenticated write path that transitions an invite to 'revoked' — same
+-- reasoning as create_invite() above: AC-2 withholds every DML grant on
+-- `invites` from `authenticated`, so an invoker-rights update would be
+-- refused at the grant before any of the function's own checks ever ran.
+revoke all on function public.revoke_invite(bigint) from public, anon;
+grant execute on function public.revoke_invite(bigint) to authenticated;
+grant execute on function public.revoke_invite(bigint) to service_role;
 
 revoke all on function public.enforce_shidduch_initial_state() from public, anon;
 grant execute on function public.enforce_shidduch_initial_state() to authenticated;

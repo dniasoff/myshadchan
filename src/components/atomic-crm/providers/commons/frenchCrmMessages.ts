@@ -64,21 +64,11 @@ export const frenchCrmMessages = {
         administrator: "Admin",
         disabled: "Désactivé",
       },
-      create: {
-        error:
-          "Une erreur s'est produite lors de la création de l'utilisateur.",
-        success:
-          "Utilisateur créé. Ils recevront prochainement un email pour définir leur mot de passe.",
-        title: "Créer un nouvel utilisateur",
-      },
       edit: {
         error: "Une erreur s'est produite. Veuillez réessayer.",
         record_not_found: "Enregistrement introuvable",
         success: "Utilisateur mis à jour avec succès",
         title: "Modifier %{name}",
-      },
-      action: {
-        new: "Nouvel utilisateur",
       },
     },
     tasks: {
@@ -302,6 +292,26 @@ export const frenchCrmMessages = {
       persona_remove_error_parent_guard:
         "Un autre administrateur doit gérer les autres célibataires de votre foyer avant que vous puissiez retirer ceci.",
       persona_remove_error_generic: "Impossible de retirer cela. Réessayez.",
+      invites_title: "Invitations",
+      invites_email_label: "E-mail",
+      invites_role_label: "Rôle",
+      invites_role_parent_admin: "Parent / admin",
+      invites_role_helper: "Assistant",
+      invites_role_single: "Célibataire",
+      invites_role_shadchan: "Chadchan",
+      invites_send_button: "Envoyer l'invitation",
+      invites_send_error: "Impossible d'envoyer cette invitation. Réessayez.",
+      invites_copy: "Copier",
+      invites_copied: "Copié",
+      invites_empty: "Aucune invitation envoyée pour l'instant",
+      invites_expires_in: "%{role} · expire %{when}",
+      invites_status_pending: "En attente",
+      invites_status_accepted: "Acceptée",
+      invites_status_revoked: "Révoquée",
+      invites_status_expired: "Expirée",
+      invites_revoke: "Révoquer",
+      invites_revoke_error:
+        "Impossible de révoquer cette invitation. Réessayez.",
       reset_defaults: "Réinitialiser aux valeurs par défaut",
       save_error: "Échec de l'enregistrement de la configuration",
       saved: "Configuration enregistrée avec succès",

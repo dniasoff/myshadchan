@@ -15,10 +15,27 @@ export type InvitePreview = {
   expires_at: string;
 };
 
+/**
+ * One row of `public.invites` (Story 2.7's table, Story 2.8's inviter-side
+ * UI — `InvitesSection.tsx`). `role` is `InvitableRole`, not the broader
+ * `MemberRole`: the table's own `invites_role_check` constraint
+ * (01_tables.sql) permits every `MemberRole` except `self_manager`.
+ */
+export type Invite = {
+  token: string;
+  email: string;
+  account_id: Identifier;
+  role: InvitableRole;
+  invited_by?: Identifier | null;
+  status: "pending" | "accepted" | "revoked" | "expired";
+  expires_at: string;
+  accepted_at?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
 export type MemberFormData = {
   avatar?: string;
   email: string;
-  password?: string;
   first_name: string;
   last_name: string;
   administrator: boolean;
@@ -91,6 +108,13 @@ export type PipelineState =
 
 export type MemberRole =
   "parent_admin" | "helper" | "self_manager" | "shadchan" | "single";
+
+/** The `MemberRole` values `invites.role`'s check constraint permits
+ * (01_tables.sql, Story 2.7) — every `MemberRole` except `self_manager`,
+ * which is a role a person ARRIVES at (`add_persona('single')` finding no
+ * existing household), never one a second person is invited into
+ * (`create_invite()`'s own comment, 02_functions.sql). */
+export type InvitableRole = Exclude<MemberRole, "self_manager">;
 
 export type ShidduchOrigin = "channel" | "manual" | "shadchan";
 

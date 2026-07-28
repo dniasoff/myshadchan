@@ -94,10 +94,6 @@ double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
 enable_confirmations = false
 
-[auth.email.template.invite]
-subject = "You've been invited to Atomic CRM"
-content_path = "./supabase/templates/invite.html"
-
 [auth.email.template.magic_link]
 subject = "Your MyShadchan sign-in code"
 content_path = "./supabase/templates/magic_link.html"

@@ -4,6 +4,7 @@ import type {
   DateRecord,
   InboxItem,
   Interaction,
+  Invite,
   Member,
   PipelineTransition,
   Redt,
@@ -37,4 +38,8 @@ export interface Db {
   pipeline_transitions: PipelineTransition[];
   interactions: Interaction[];
   inbox_items: InboxItem[];
+  // Invites as the one membership mechanism (Story 2.8) — the inviter-side
+  // UI's own collection; seeded empty, written only through
+  // createInvite()/revokeInvite() (never a raw dataProvider.create/update).
+  invites: Invite[];
 }

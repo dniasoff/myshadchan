@@ -1,5 +1,4 @@
 import { useRecordContext, useTranslate } from "ra-core";
-import { CreateButton } from "@/components/admin/create-button";
 import { DataTable } from "@/components/admin/data-table";
 import { ExportButton } from "@/components/admin/export-button";
 import { List } from "@/components/admin/list";
@@ -11,7 +10,6 @@ import { TopToolbar } from "../layout/TopToolbar";
 const MemberListActions = () => (
   <TopToolbar>
     <ExportButton />
-    <CreateButton label="resources.members.action.new" />
   </TopToolbar>
 );
 

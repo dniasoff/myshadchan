@@ -276,6 +276,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/settings/InvitesSection.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/settings/FamilySection.tsx",
           "type": "registry:component"
         },
@@ -532,6 +536,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/invites.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/fakerest/internal/contexts.ts",
           "type": "registry:component"
         },
@@ -565,6 +573,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/commons/roleAuthority.ts",
           "type": "registry:component"
         },
         {
@@ -625,10 +637,6 @@
         },
         {
           "path": "src/components/atomic-crm/members/MemberEdit.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/members/MemberCreate.tsx",
           "type": "registry:component"
         },
         {

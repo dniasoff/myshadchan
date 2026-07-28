@@ -1,5 +1,6 @@
 --
--- Invite-only signup with 18+ affirmation (Epic 2, Story 2.7) — database test suite.
+-- Invite-only signup with 18+ affirmation (Epic 2, Story 2.7), extended by
+-- Story 2.8 (invites as the one membership mechanism) — database test suite.
 --
 -- Covers: the RLS/grant posture on `invites` (AC-2's escalation case — a
 -- direct `authenticated` write must be refused even when it hand-crafts a
@@ -7,9 +8,13 @@
 -- invite-binding rewrite (AC-6/AC-7 — binds on a matching signup, creates
 -- NO membership on an unmatched or malformed one), `create_invite()`'s
 -- authority/kind checks (AC-3), `get_invite_preview()`'s five-field,
--- effective-status shape (AC-4), and `check_signup_invite()`'s Auth Hook
+-- effective-status shape (AC-4), `check_signup_invite()`'s Auth Hook
 -- contract (AC-5 — verified against the real event shape empirically
--- confirmed by running the stack, see story 2.7's Dev Notes).
+-- confirmed by running the stack, see story 2.7's Dev Notes), and (Story
+-- 2.8 AC-3) `revoke_invite()`'s guard cases: a non-owning caller can never
+-- revoke, an already-accepted invite can never be revoked, a pending
+-- invite in a different context (not the caller's active one) is invisible
+-- to it entirely, and the happy path actually flips status to 'revoked'.
 --
 -- Every check appends one row to `results`; the script emits them as JSON at
 -- the end and rolls back, so it leaves nothing behind. The runner
@@ -213,6 +218,135 @@ insert into results (name, passed)
 select 'create_invite sets invited_by from the caller''s own membership, never a parameter',
        invited_by = :admin_membership and account_id = :acct_household and role = 'helper' and status = 'pending'
 from public.invites where id = :created_invite_id;
+
+reset role;
+
+insert into ids values ('created_invite_id', :created_invite_id);
+
+-- ---------------------------------------------------------------------------
+-- Story 2.8 AC-3: revoke_invite() — a non-owning caller can never revoke;
+-- an already-accepted invite can never be revoked (that member is already
+-- in — removing them is Story 2.5's persona-removal path, a different
+-- action for a different state); a pending invite in a DIFFERENT context
+-- (not the caller's active one) is invisible to revoke_invite() entirely,
+-- the same current_context_id() predicate the "Invites readable within
+-- active account" SELECT policy uses, not a distinct "you don't have
+-- permission" branch (05_policies.sql, revoke_invite()'s own comment); and
+-- the happy path actually flips status to 'revoked'.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-00000000a002","role":"authenticated"}';
+
+do $$
+declare v_invite_id bigint;
+begin
+  select value into v_invite_id from ids where name = 'created_invite_id';
+  perform public.revoke_invite(v_invite_id);
+  insert into results values ('revoke_invite refuses a non-owning caller (helper)', false, 'call succeeded');
+exception when others then
+  insert into results values ('revoke_invite refuses a non-owning caller (helper)', true, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'a non-owning caller''s refused revoke_invite() call leaves the invite pending',
+       status = 'pending'
+from public.invites where id = :created_invite_id;
+
+-- An already-accepted invite: a real member now, not "revocable".
+insert into public.invites (email, account_id, role, invited_by, status, accepted_at)
+values ('already-accepted@test.local', :acct_household, 'helper', :admin_membership, 'accepted', now())
+returning id as accepted_invite_id \gset
+insert into ids values ('accepted_invite_id', :accepted_invite_id);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-00000000a001","role":"authenticated"}';
+
+do $$
+declare v_invite_id bigint;
+begin
+  select value into v_invite_id from ids where name = 'accepted_invite_id';
+  perform public.revoke_invite(v_invite_id);
+  insert into results values ('revoke_invite refuses an already-accepted invite', false, 'call succeeded');
+exception when others then
+  insert into results values ('revoke_invite refuses an already-accepted invite', true, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'the accepted invite is left untouched by the refused revoke', status = 'accepted'
+from public.invites where id = :accepted_invite_id;
+
+-- Cross-context invisibility: a caller with a real, invite-capable active
+-- membership in TWO accounts can only ever revoke_invite() in whichever one
+-- is their CURRENT active context — never the other, even though they hold
+-- genuine authority there too.
+insert into auth.users (id, instance_id, aud, role, email)
+values ('a0000000-0000-0000-0000-00000000a005', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'invites-crosscontext@test.local');
+
+insert into public.accounts (name, kind) values ('Cross-Context Household', 'household') returning id as acct_crosscontext \gset
+
+-- Inserted FIRST for this user, so activate_first_context_trigger (Story
+-- 2.1) makes it their active context — the second membership below is a
+-- deliberate member_state no-op while the first stays live.
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_crosscontext, 'a0000000-0000-0000-0000-00000000a005', 'parent_admin', 'active');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_shadchanus, 'a0000000-0000-0000-0000-00000000a005', 'shadchan', 'active');
+
+insert into public.invites (email, account_id, role, invited_by)
+values ('cross-context-target@test.local', :acct_shadchanus, 'shadchan', :shadchan_membership)
+returning id as crosscontext_invite_id \gset
+insert into ids values ('crosscontext_invite_id', :crosscontext_invite_id);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-00000000a005","role":"authenticated"}';
+
+do $$
+declare v_invite_id bigint;
+begin
+  select value into v_invite_id from ids where name = 'crosscontext_invite_id';
+  perform public.revoke_invite(v_invite_id);
+  insert into results values ('revoke_invite is blind to a pending invite in a different, non-active context — even with real authority there', false, 'call succeeded');
+exception when others then
+  insert into results values ('revoke_invite is blind to a pending invite in a different, non-active context — even with real authority there', true, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'the cross-context invite is left untouched (still pending)', status = 'pending'
+from public.invites where id = :crosscontext_invite_id;
+
+-- The happy path: an owning caller revoking a real pending invite in their
+-- OWN current context actually flips status to 'revoked'.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-00000000a001","role":"authenticated"}';
+
+select public.revoke_invite(:created_invite_id);
+
+reset role;
+
+insert into results (name, passed)
+select 'revoke_invite() sets status to revoked for an owning caller''s own pending invite',
+       status = 'revoked'
+from public.invites where id = :created_invite_id;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-00000000a001","role":"authenticated"}';
+
+do $$
+declare v_invite_id bigint;
+begin
+  select value into v_invite_id from ids where name = 'created_invite_id';
+  perform public.revoke_invite(v_invite_id);
+  insert into results values ('revoke_invite refuses to re-revoke an already-revoked invite', false, 'call succeeded');
+exception when others then
+  insert into results values ('revoke_invite refuses to re-revoke an already-revoked invite', true, sqlerrm);
+end $$;
 
 reset role;
 

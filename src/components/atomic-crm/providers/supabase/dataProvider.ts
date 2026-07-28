@@ -11,6 +11,8 @@ import type {
   AddSchoolInput,
   AiEntitlementInfo,
   CreateShidduchInput,
+  Invite,
+  InvitableRole,
   InvitePreview,
   LinkReferenceInput,
   LogReferenceCallInput,
@@ -116,32 +118,7 @@ const getDataProviderWithCustomMethods = () => {
       return baseDataProvider.getOne(resource, params);
     },
 
-    async memberCreate(body: MemberFormData) {
-      const { data, error } = await getSupabaseClient().functions.invoke<{
-        data: Member;
-      }>("users", {
-        method: "POST",
-        body,
-      });
-
-      if (!data || error) {
-        console.error("memberCreate.error", error);
-        const errorDetails = await (async () => {
-          try {
-            return (await error?.context?.json()) ?? {};
-          } catch {
-            return {};
-          }
-        })();
-        throw new Error(errorDetails?.message || "Failed to create the user");
-      }
-
-      return data.data;
-    },
-    async memberUpdate(
-      id: Identifier,
-      data: Partial<Omit<MemberFormData, "password">>,
-    ) {
+    async memberUpdate(id: Identifier, data: Partial<MemberFormData>) {
       const { email, first_name, last_name, administrator, avatar, disabled } =
         data;
 
@@ -547,6 +524,36 @@ const getDataProviderWithCustomMethods = () => {
       if (error) {
         console.error("accept_invite.error", error);
         throw new Error(error.message);
+      }
+    },
+    // ---------------------------------------------------------------------
+    // Invites as the one membership mechanism (Story 2.8 AC-5). Thin RPC
+    // wrappers over create_invite()/revoke_invite() (02_functions.sql), the
+    // exact `getSupabaseClient().rpc(...)` shape addRedt/catchShidduch use
+    // above. The SELECT-only RLS/grant posture on the invites table (2.7
+    // AC-2) means these two RPCs are the only way `authenticated` ever
+    // writes it — this file never calls dataProvider.create against it
+    // directly (AC-8).
+    // ---------------------------------------------------------------------
+    async createInvite(email: string, role: InvitableRole): Promise<Invite> {
+      const { data, error } = await getSupabaseClient().rpc("create_invite", {
+        p_email: email,
+        p_role: role,
+      });
+      if (error) {
+        console.error("create_invite.error", error);
+        throw new Error(error.message || "Failed to send that invite");
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return row as Invite;
+    },
+    async revokeInvite(id: Identifier): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("revoke_invite", {
+        p_invite_id: id,
+      });
+      if (error) {
+        console.error("revoke_invite.error", error);
+        throw new Error(error.message || "Failed to revoke that invite");
       }
     },
   } satisfies DataProvider;

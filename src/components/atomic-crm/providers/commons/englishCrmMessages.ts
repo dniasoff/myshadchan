@@ -62,20 +62,11 @@ export const englishCrmMessages = {
         administrator: "Admin",
         disabled: "Disabled",
       },
-      create: {
-        error: "An error occurred while creating the user.",
-        success:
-          "User created. They will soon receive an email to set their password.",
-        title: "Create a new user",
-      },
       edit: {
         error: "An error occurred. Please try again.",
         record_not_found: "Record not found",
         success: "User updated successfully",
         title: "Edit %{name}",
-      },
-      action: {
-        new: "New user",
       },
     },
     tasks: {
@@ -310,6 +301,30 @@ export const englishCrmMessages = {
       persona_remove_error_parent_guard:
         "Another admin needs to manage your household's other singles before you can remove this.",
       persona_remove_error_generic: "Couldn't remove that. Try again.",
+      // Story 2.8: the "one screen sends every kind of household invite"
+      // section. invites_role_* label the four MemberRole values invites.role
+      // permits (self_manager excluded by design — see InvitesSection.tsx's
+      // own header comment); invites_status_* label the four invites.status
+      // values, including the client-computed 'expired' fold (AC-4).
+      invites_title: "Invites",
+      invites_email_label: "Email",
+      invites_role_label: "Role",
+      invites_role_parent_admin: "Parent / admin",
+      invites_role_helper: "Helper",
+      invites_role_single: "Single",
+      invites_role_shadchan: "Shadchan",
+      invites_send_button: "Send invite",
+      invites_send_error: "Couldn't send that invite. Try again.",
+      invites_copy: "Copy",
+      invites_copied: "Copied",
+      invites_empty: "No invites sent yet",
+      invites_expires_in: "%{role} · expires %{when}",
+      invites_status_pending: "Pending",
+      invites_status_accepted: "Accepted",
+      invites_status_revoked: "Revoked",
+      invites_status_expired: "Expired",
+      invites_revoke: "Revoke",
+      invites_revoke_error: "Couldn't revoke that invite. Try again.",
       reset_defaults: "Reset to Defaults",
       save_error: "Failed to save configuration",
       saved: "Configuration saved successfully",
