@@ -47,14 +47,17 @@ change that keeps every other contract term intact. Nothing else in the contract
 vocabulary and presentational primitives, not entity wiring. It does **not** register a
 descriptor, does not declare any entity's tab set, and does not migrate a show page onto
 `Entity360`. Declaring the per-entity tab sets is Epic 5's job (5.1, 5.8, 5.9, 5.10) and
-asserting them against the canonical matrix is story 3-15's. Two live files are
+asserting them against the canonical matrix is story 3-15's. Three live files are
 nevertheless edited, deliberately, and they are the whole of this story's production
 footprint: the i18n catalog (`providers/commons/englishCrmMessages.ts`), because a label
-map that no catalog resolves makes the i18n requirement unfalsifiable; and
-`shidduchim/ShidduchFactsCard.tsx`, because it already contains the exact fact-grid this
-story generalises and shipping a second copy beside it would be the drift this story
-exists to stop. (The contract's step-3 note that 3.9 is "the only Epic 3 story touching
-live files" is therefore inexact by two files. Flagged, not worked around.)
+map that no catalog resolves makes the i18n requirement unfalsifiable;
+`providers/commons/frenchCrmMessages.ts`, because it is separately type-checked via
+`satisfies CrmMessages` with no optional keys, so adding `crm.entity360` to the English
+catalogue forces the French object literal to declare it too (see AC 3's corrected note
+below); and `shidduchim/ShidduchFactsCard.tsx`, because it already contains the exact
+fact-grid this story generalises and shipping a second copy beside it would be the drift
+this story exists to stop. (The contract's step-3 note that 3.9 is "the only Epic 3 story
+touching live files" is therefore inexact by three files. Flagged, not worked around.)
 
 ## What "shared tab vocabulary" means, concretely
 
@@ -157,9 +160,20 @@ comment, and builds the two shared tab components UX-DR4 names and no story owns
    **Namespace note:** the key is `crm.entity360.tab.<key>`. The catalog nests everything
    under a single `crm` root (`englishCrmMessages.ts:104`), so a bare `entity360.*` key can
    never resolve and would make this AC vacuous. (Earlier revisions of the contract wrote the
-   bare form; §3 rule 2 now carries `crm.entity360.tab.<key>` and the two agree.) French inherits English automatically —
-   `frenchCatalog = mergeTranslations(englishCatalog, …)` (`i18nProvider.ts:16-21`) — so no
-   `frenchCrmMessages.ts` edit is required, and adding one is out of scope.
+   bare form; §3 rule 2 now carries `crm.entity360.tab.<key>` and the two agree.)
+
+   **Correction — a `frenchCrmMessages.ts` edit *is* required.** At **runtime**, French
+   inherits English automatically (`frenchCatalog = mergeTranslations(englishCatalog, …)`,
+   `i18nProvider.ts:16-21`), so a missing French key would still resolve through the merge.
+   But `frenchCrmMessages.ts` is separately declared `satisfies CrmMessages`, and
+   `CrmMessages` (`MessageSchema<typeof englishCrmMessages>`) has no optional keys — so the
+   moment `crm.entity360` is added to `englishCrmMessages.ts`, `make typecheck` fails on
+   `frenchCrmMessages.ts` unless the same block is added there too. This story therefore adds
+   the 15 tab labels + `overview.empty` to `frenchCrmMessages.ts` in French as well; it is not
+   out of scope, and the original wording above ("no `frenchCrmMessages.ts` edit is required,
+   and adding one is out of scope") was wrong about this type-level completeness check. See
+   Dev Agent Record → Debug Log References for the verified `tsc` failure this correction
+   fixes.
 
 4. **`OverviewFactGrid` renders a bilingual fact list, omits empty facts, and has an empty
    state.** `entity360/tabs/OverviewFactGrid.tsx` exports
@@ -627,6 +641,65 @@ Claude Sonnet 5 (claude-sonnet-5), via the bmad-dev-story workflow.
   story's "closed footprint" framing is the one part of the story text that doesn't
   survive contact with the existing `satisfies CrmMessages` invariant.
 - Everything else in AC 1-6 and AC 8 reproduced as described; no other deviation.
+
+### Review Response (adversarial review of commit `7f202c4`, verdict NEEDS-FIX)
+
+One blocking finding, one story-text finding, two informational findings. The blocking
+and story-text findings are FIXED; both informational findings are FLAGGED, not changed
+(reasoning below), matching the reviewer's own framing of them as non-defects. Full
+re-run after the fix: `make typecheck`, `make lint` (eslint `--max-warnings=0` + prettier),
+`npx vitest run` (all 5 projects), `make build`, `npx prettier --check .`, `make
+registry-gen` — see the final report for the actual output. No SQL touched, so `npm run
+test:unit:db` / `supabase db diff --local` were not re-run.
+
+- **Finding 1 (blocking) — `OverviewTab`'s emptiness predicate disagreed with
+  `OverviewFactGrid`'s. FIXED.** `facts.length > 0` (array non-empty) is not the same test
+  as "some fact carries a value," and the mismatch was reachable two ways: (1) a non-empty
+  `facts` array whose every entry is value-less, with no `children`, rendered completely
+  blank — no `<dl>`, no `emptyLabel`, no UX-DR11 empty state at all; (2) the same
+  value-less `facts` array **with** `children` present rendered the generic "No details on
+  file yet." copy *above* the real custom content, exactly what AC 5's parenthetical
+  ("an entity whose Overview is entirely custom sections is not 'empty'") forbids. Fixed
+  by computing `hasFactValue = facts.some((f) => f.en || f.he || f.plain)` in `OverviewTab`
+  itself and gating the grid on `hasFactValue || !children` instead of `facts.length > 0`:
+  the grid (with its own empty-state branch) always renders when there is nothing to fall
+  back on, and is suppressed only when children are present and no fact has a value. Two
+  new regression tests in `OverviewTab.test.tsx` pin both previously-blank/previously-wrong
+  outputs; the doc comment above the component was reworded to describe the corrected rule.
+- **Finding 4 (story-text error) — AC 3's `frenchCrmMessages.ts` claim is false. FIXED (text
+  only, not code).** The code already carried the correct fix (the French block was added
+  during the original implementation — see the story-text correction note above and the
+  File List's `frenchCrmMessages.ts` entry). What was still wrong was AC 3's own prose,
+  which downstream stories may read as the shape of the contract rather than as
+  implementation trivia. AC 3's namespace note and the "Scope boundary" paragraph are now
+  corrected in place: "no `frenchCrmMessages.ts` edit is required, and adding one is out of
+  scope" is replaced with the real rule (`satisfies CrmMessages` has no optional keys, so
+  the English addition forces a matching French one), and "Two live files" becomes "Three
+  live files" with `frenchCrmMessages.ts` listed alongside the other two.
+- **Finding 2 (informational) — `RelatedRecordsTab` deferral. No change — agree it is not a
+  defect.** The reviewer's own read is that contract §12's step-0 row sanctions the split
+  ("its `RelatedRecordsTab` half needs 3.9 + 3.3a and lands between steps 3 and 5"), and the
+  story already tracks this explicitly (Status: in-progress, Task 6 unchecked, the "Part
+  3.10b" callout at the top, Completion Notes' "Task 6 — deliberately not started"). Nothing
+  to fix; the tracking the reviewer asked for ("Epic 3 tracking must not treat 3-10 as
+  closed") already exists in this file's own Status line and header note.
+- **Finding 3 (informational) — the §2 `EntityDescriptor` rewrite / §10 ownership decisions
+  named in contract §12's step-0 row. FLAGGED, not implemented — disagree that this is
+  3-10's gap to close.** Contract §2 itself is headed "`EntityDescriptor` (Story 3.3a)", and
+  §10's ownership table lists `TabKey`/`TAB_LABELS`/`useTabLabel`/`relationshipDescriptor.ts`/
+  the shared `overview`/`related` components under 3-10's row — it does **not** list the
+  `EntityDescriptor` rewrite there. Only §12's build-order "why here" prose column (not an
+  ownership assignment) bundles the two together, and doing the rewrite here would
+  contradict this story's own explicit Scope boundary ("does not register a descriptor,
+  does not declare any entity's tab set, and does not migrate a show page onto
+  `Entity360`") for a component (`EntityDescriptor`) that has zero code dependents until
+  3.3a exists. Writing it now means guessing at a shape 3.3a hasn't landed to confirm against
+  — the same objection this story already raises for deferring `RelatedRecordsTab` (Finding
+  2). Treating this as 3-10's responsibility is, in my reading, the contract's own
+  internal inconsistency between §2/§10 (assigns to 3.3a) and §12 (bundles into step 0's
+  prose) rather than a gap in this story's implementation; recorded here rather than acted
+  on silently, per this task's instruction to flag disagreement with evidence. The
+  ownership question remains open for whoever picks up 3.3a or amends the contract.
 
 ### File List
 

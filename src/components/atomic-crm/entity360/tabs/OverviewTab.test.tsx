@@ -62,4 +62,33 @@ describe("OverviewTab", () => {
       .element(screen.getByText("No details on file yet."))
       .not.toBeInTheDocument();
   });
+
+  it("shows the empty label when every fact is value-less and no children are given (regression)", async () => {
+    // Arrange — a facts array that is non-empty but carries no value, no children
+    const facts: OverviewFact[] = [{ label: "Parents" }];
+
+    // Act
+    const screen = await renderTab(facts);
+
+    // Assert — the tab must never render blank with no UX-DR11 empty state
+    await expect
+      .element(screen.getByText("No details on file yet."))
+      .toBeInTheDocument();
+  });
+
+  it("suppresses the empty label above children when every fact is value-less but children are given (regression)", async () => {
+    // Arrange — a value-less facts array alongside real custom content
+    const facts: OverviewFact[] = [{ label: "Parents" }];
+
+    // Act
+    const screen = await renderTab(facts, <div>Custom section</div>);
+
+    // Assert — the generic empty copy must not shadow real content
+    await expect
+      .element(screen.getByText("Custom section"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("No details on file yet."))
+      .not.toBeInTheDocument();
+  });
 });
