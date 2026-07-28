@@ -37,8 +37,8 @@ import { LegacyCreatePathRedirect } from "./LegacyCreatePathRedirect";
  * is the component boundary that needs `useLocation()`.
  *
  * `shidduchim/index.ts` calls this with no `New`: its create surface is a
- * modal matched inside `ShidduchimList`, not a routed component, so only the
- * compatibility redirect applies.
+ * page matched inside `ShidduchimList` itself (Story 3.13), not a routed
+ * `New` component here, so only the compatibility redirect applies.
  */
 export function buildCreateRoutes(
   name: string,

@@ -545,6 +545,56 @@ No contract deviation: the Epic 3 API contract (§4, §5, §10) was conformed to
 `buildListPath` used for the redirect, no path built by template literal, no file under
 `entity360/` touched.
 
+### Review Fixes (adversarial review pass, commit `49137c3`/`82c06c1` reviewed)
+
+**Fixed:**
+
+- **Must-fix — AC 1's negative assertion was unfalsifiable.**
+  `shidduchim/ShidduchimList.test.tsx` mounted a bare `<ShidduchimList />` with no
+  `ResourceContextProvider`, so `<List>` threw (`useListController requires a non-empty
+  resource prop or context`) and the throw was swallowed by React Router's default
+  `ErrorBoundary` — the board heading could never mount in that harness regardless of the code
+  under test, so `.not.toBeInTheDocument()` passed for a reason unrelated to AC 1. Rewrote the
+  test to mount the real `shidduchim` resource definition (`<Resource name="shidduchim"
+  {...shidduchim} />`, its lazy `list` under a `<Suspense>`) inside a `shidduchim/*` route,
+  mirroring `entity360/routeConvention.routes.test.tsx`'s established pattern, and added a
+  second `it` mounting the same harness at `/shidduchim` asserting the board heading **does**
+  render there — proof the negative assertion in the first test is actually discriminating.
+  The auth provider mock needed `checkAuth`/`checkError`/`logout` added (the bare-component
+  harness never exercised `ra-core`'s route-level auth check; the real `<Resource>` tree does).
+- **Should-fix — four stale "the create surface is a modal" claims left after AC 1 shipped
+  a page.** Two were already named in this story's own deviation list
+  (`shidduchim/index.ts`'s doc comment, `routeConvention.routes.test.tsx:141-142`'s comment)
+  and left untouched as out-of-scope; the review found two more the deviation list missed:
+  `entity360/routeConvention.tsx`'s `buildCreateRoutes` doc comment (framework source every
+  future entity's `index.ts` author reads, not test prose), and
+  `routeConvention.routes.test.tsx`'s `it` title plus its `:172-176` comment ("decide whether
+  `ShidduchCreate`'s dialog is open"). Fixed all four for consistency — leaving two corrected
+  and two stale would be worse than either extreme, and all four assert the literal opposite
+  of what this story shipped, in files 3.11's conformance validator and every Epic 5 story
+  will read.
+
+**Not fixed (agree with the review's own classification as informational):**
+
+- **Informational — "5.1's edit is one line" (Dev Notes) is optimistic**, because
+  `singleId` is not part of contract §5's propless `New` slot and 5.1 will need to carry the
+  preselected single through the query string or context. No code changes result from this
+  story either way — it is a forward-looking note for 5.1's author, not a defect in what 3.13
+  shipped. Left as recorded.
+- **Informational — two CI guards (`check-suppressions.mjs`, `check-retired-names.mjs`) are
+  red on `main`.** Re-verified: both guards fail with the exact same output the review
+  recorded, and every offending file (`entity360/RecordLink.test.tsx` and the 13
+  `@ts-expect-error` comments) is byte-identical to the pre-3.13 baseline `d8dc26a`. Pre-existing
+  on an earlier Epic 3 story, not this one's regression, and outside this story's declared DoD
+  gate list. No action taken.
+
+**Toolchain re-verified after fixes:** `npm run typecheck` clean, `npm run lint`
+(`--max-warnings=0`) clean, `npx vitest run` → **109 files / 1078 tests passed** (+1 test over
+the reviewed 1077 — the new discriminating `it`), `npm run build` clean (pre-existing >500 kB
+chunk warning only), `npx prettier --check .` → the same 15 pre-existing warnings, none in a
+file this story or its fix touched, `make registry-gen` → `registry.json` unchanged. No SQL
+touched, so `npm run test:unit:db` / `supabase db diff --local` were not run.
+
 ### File List
 
 Changed:
@@ -563,6 +613,16 @@ Added:
 - `src/components/atomic-crm/shidduchim/ShidduchCreate.test.tsx`
 - `src/components/atomic-crm/shidduchim/ShidduchimList.test.tsx`
 
+Changed (review fix pass):
+- `src/components/atomic-crm/shidduchim/ShidduchimList.test.tsx` — rewritten to mount the real
+  `shidduchim` resource; added the discriminating `/shidduchim` counter-test (finding #1)
+- `src/components/atomic-crm/entity360/routeConvention.tsx` — stale "modal" doc comment
+  corrected (finding #2)
+- `src/components/atomic-crm/shidduchim/index.ts` — stale "modal" doc comment corrected
+  (finding #2)
+- `src/components/atomic-crm/entity360/routeConvention.routes.test.tsx` — stale "modal"
+  comment and `it` title corrected (finding #2)
+
 ### Change Log
 
 - Story 3.13 implemented: `ShidduchCreate` converted from a routed `<Dialog>` to the page at
@@ -571,3 +631,7 @@ Added:
   `saveLabel?`; `tasks/TaskEdit.tsx` documented as a named, reopening-triggered UX-DR3
   exemption; `misc/recordSurfaceDialogs.guard.test.ts` added to pin the remaining
   dialog-wrapped record surfaces, proven red twice before green.
+- Review fix: `ShidduchimList.test.tsx` rewritten to mount the real `shidduchim` resource
+  (fixing an unfalsifiable negative assertion) plus a discriminating counter-test; four stale
+  "create surface is a modal" doc comments corrected across `entity360/routeConvention.tsx`,
+  `shidduchim/index.ts`, and `entity360/routeConvention.routes.test.tsx`.

@@ -138,11 +138,12 @@ describe("route-convention adoption — references (AC 1)", () => {
 describe("route-convention adoption — shidduchim (AC 1)", () => {
   // The real `shidduchim` resource definition — `shidduchim/index.ts`'s own
   // `children: buildCreateRoutes("shidduchim")` (no `New`: the create
-  // surface is a modal matched INSIDE `ShidduchimList`,
-  // `shidduchim/ShidduchimList.tsx:79`), not a hand-rolled descriptor +
-  // `buildCreateRoutes` call standing in for it. Only `list` is swapped for
-  // a fixture, to avoid booting `ShidduchimList`'s identity + singles fetch,
-  // which is orthogonal to what this story changes.
+  // surface is a page matched INSIDE `ShidduchimList` itself, Story 3.13 —
+  // `shidduchim/ShidduchimList.tsx`'s `matchPath(buildNewPath("shidduchim"), …)`),
+  // not a hand-rolled descriptor + `buildCreateRoutes` call standing in for
+  // it. Only `list` is swapped for a fixture, to avoid booting
+  // `ShidduchimList`'s identity + singles fetch, which is orthogonal to what
+  // this story changes.
   const FixtureList = () => <span>FIXTURE_LIST</span>;
   const shidduchimWithFixtureList = { ...shidduchim, list: FixtureList };
 
@@ -160,7 +161,7 @@ describe("route-convention adoption — shidduchim (AC 1)", () => {
     expect(getSearch()).toBe("?state=contacted");
   });
 
-  it("matches ShidduchimList's own matchPath(buildNewPath('shidduchim'), …) at /shidduchim/new — the modal opens", async () => {
+  it("matches ShidduchimList's own matchPath(buildNewPath('shidduchim'), …) at /shidduchim/new — the create page renders", async () => {
     // Arrange / Act
     const { getPathname } = await renderResourceAt(
       "shidduchim",
@@ -169,11 +170,12 @@ describe("route-convention adoption — shidduchim (AC 1)", () => {
     );
     await expect.poll(() => getPathname()).toBe("/shidduchim/new");
 
-    // Assert — the exact expression `ShidduchimList.tsx:79` evaluates to
-    // decide whether `ShidduchCreate`'s dialog is open. This is the
-    // production entry point Task 5 site 13's manual walkthrough would have
-    // exercised; asserting it here means a future divergence between the
-    // route table and `buildNewPath` fails CI instead of a human miss.
+    // Assert — the exact expression `ShidduchimList.tsx`'s `matchNew`
+    // evaluates to decide whether to render `ShidduchCreate`'s page in place
+    // of the board (Story 3.13). This is the production entry point Task 5
+    // site 13's manual walkthrough would have exercised; asserting it here
+    // means a future divergence between the route table and `buildNewPath`
+    // fails CI instead of a human miss.
     expect(
       matchPath(buildNewPath("shidduchim"), getPathname() ?? ""),
     ).not.toBeNull();
