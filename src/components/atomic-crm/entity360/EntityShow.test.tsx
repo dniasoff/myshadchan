@@ -13,18 +13,23 @@ import type { DataProvider, RaRecord } from "ra-core";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import { buildEntityRoutes } from "./buildEntityRoutes";
 import type { EntityDescriptor } from "./entityDescriptor";
-import entityShowSource from "./EntityShow.tsx?raw";
 import { EntityShow } from "./EntityShow";
 import { registerEntityDescriptor } from "./registry";
 import type { EntityRelationshipDescriptor } from "./relationshipDescriptor";
 
 /**
  * Story 3.3b — AC 7 (region composition + `actions` inside identityHeader),
- * AC 8 (two-fixture proof + lazy `render`), AC 9 (minimal-descriptor
- * degrade + the `?raw` boundary guard) and AC 10 (relationships become
- * tabs). `buildEntityRoutes` is reused as the harness so `EntityShow`
- * mounts exactly as it will in production — inside the real `ShowBase`
- * wiring, not a hand-rolled substitute.
+ * AC 8 (two-fixture proof + lazy `render`) and AC 9's minimal-descriptor
+ * degrade case, plus AC 10 (relationships become tabs). `buildEntityRoutes`
+ * is reused as the harness so `EntityShow` mounts exactly as it will in
+ * production — inside the real `ShowBase` wiring, not a hand-rolled
+ * substitute.
+ *
+ * Sibling files cover the region-composition edge cases these two fixtures
+ * don't reach (`EntityShow.regions.test.tsx`), AC 9's `?raw` boundary guard
+ * (`EntityShow.boundary.test.tsx`) and the tab-label i18n round-trip through
+ * the real render body (`EntityShow.i18nLabel.test.tsx`) — split out rather
+ * than grown into this file per `.claude/rules/coding-style.md#File-organization`.
  */
 
 const FIXTURE_RESOURCE = "entity-show-fixture";
@@ -265,56 +270,6 @@ describe("EntityShow — context guards", () => {
 
     // Assert — no throw, and nothing rendered.
     expect(screen.container.textContent).toBe("");
-  });
-});
-
-describe("EntityShow boundary (?raw) — AC 9", () => {
-  const ESCAPING_IMPORT_RE = /from\s+["']\.\.\//;
-  const ENTITY_NAMES = [
-    "shidduchim",
-    "singles",
-    "inbox_items",
-    "shadchanim",
-    "references",
-    "tasks",
-    "members",
-    "connections",
-  ];
-
-  function importsEscapeEntity360(source: string): boolean {
-    return ESCAPING_IMPORT_RE.test(source);
-  }
-
-  function containsEntityNameLiteral(source: string): boolean {
-    return ENTITY_NAMES.some((name) =>
-      new RegExp(`["'\`]${name}["'\`]`).test(source),
-    );
-  }
-
-  it("importsEscapeEntity360 is true for a fixture importing from a sibling directory of entity360/", () => {
-    // Arrange — a plausible but forbidden import; note it names no
-    // four-way alternation, matching ANY sibling directory (contract §4,
-    // "not a four-name alternation, because connections/ arrives in 8.5").
-    const fixture = `import { Whatever } from "../some-other-entity/Whatever";`;
-
-    // Act / Assert
-    expect(importsEscapeEntity360(fixture)).toBe(true);
-  });
-
-  it("importsEscapeEntity360 is false for the real EntityShow.tsx source", () => {
-    expect(importsEscapeEntity360(entityShowSource)).toBe(false);
-  });
-
-  it("containsEntityNameLiteral is true for a fixture hardcoding a resource name", () => {
-    // Arrange
-    const fixture = `if (resource === "shidduchim") { /* ... */ }`;
-
-    // Act / Assert
-    expect(containsEntityNameLiteral(fixture)).toBe(true);
-  });
-
-  it("containsEntityNameLiteral is false for the real EntityShow.tsx source", () => {
-    expect(containsEntityNameLiteral(entityShowSource)).toBe(false);
   });
 });
 

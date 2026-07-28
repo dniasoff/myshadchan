@@ -827,10 +827,13 @@ Claude Sonnet 5 (bmad-dev-story workflow). 3.3a slot, then a separate session fo
 
 **3.3b:**
 - `src/components/atomic-crm/entity360/EntityShow.tsx` (new)
-- `src/components/atomic-crm/entity360/EntityShow.test.tsx` (new)
+- `src/components/atomic-crm/entity360/EntityShow.test.tsx` (new; trimmed in the review-fix
+  pass — see Change Log)
 - `src/components/atomic-crm/entity360/DefaultIdentityHeader.tsx` (new)
-- `src/components/atomic-crm/entity360/DefaultIdentityHeader.test.tsx` (new)
-- `src/components/atomic-crm/entity360/mergeEntityTabs.tsx` (new)
+- `src/components/atomic-crm/entity360/DefaultIdentityHeader.test.tsx` (new; seed test
+  hardened in the review-fix pass)
+- `src/components/atomic-crm/entity360/mergeEntityTabs.tsx` (new; escalation comment
+  extended in the review-fix pass)
 - `src/components/atomic-crm/entity360/mergeEntityTabs.test.ts` (new)
 - `src/components/atomic-crm/entity360/tabs/RelatedRecordsTab.tsx` (new — cross-story
   unblock of Story 3-10 Task 6; see Completion Notes and `3-10-tab-vocabulary.md`)
@@ -840,6 +843,14 @@ Claude Sonnet 5 (bmad-dev-story workflow). 3.3a slot, then a separate session fo
 - `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (modified — same, in
   French, required by `CrmMessages`'s `satisfies` constraint having no optional keys)
 - `registry.json` (regenerated — `make registry-gen`)
+
+**3.3b review-fix pass (new files):**
+- `src/components/atomic-crm/entity360/EntityShow.boundary.test.tsx` (new — the `?raw`
+  boundary guard, moved out of `EntityShow.test.tsx` and hardened)
+- `src/components/atomic-crm/entity360/EntityShow.regions.test.tsx` (new — `identityHeader`
+  override, `alertSlot`, and default-composition `avatar`/`meta` threading coverage)
+- `src/components/atomic-crm/entity360/EntityShow.i18nLabel.test.tsx` (new — the tab-label
+  i18n round-trip proof through `EntityShow`'s own render body)
 
 ## Change Log
 
@@ -858,3 +869,51 @@ Claude Sonnet 5 (bmad-dev-story workflow). 3.3a slot, then a separate session fo
   followed by uncovered `relationships` in their declared order, because the contract's
   literal phrasing needs a canonical per-entity table (Story 3-15) that does not exist at
   this build-order step. Status moved to `review`.
+- 2026-07-28 — Review-fix pass (Epic 3 step 5 adversarial review, commit `502cb4b`).
+  Implementation code (`EntityShow.tsx`) was unchanged — every finding was a coverage gap
+  or a guard that could not fail, proven by re-applying the review's own mutations,
+  confirming red, then confirming green again after restoring:
+  - **Finding 1 (blocking):** the `?raw` boundary guard's `ESCAPING_IMPORT_RE` only matched
+    relative (`../`) imports, missing the repo's dominant `@/components/atomic-crm/...`
+    alias idiom entirely (proven: adding `import { SingleAvatar } from
+    "@/components/atomic-crm/singles/SingleAvatar";` to `EntityShow.tsx` stayed green).
+    Added `ATOMIC_CRM_ALIAS_ESCAPING_IMPORT_RE`, moved the whole guard into its own file
+    (`EntityShow.boundary.test.tsx`) with alias-idiom red/green fixtures on both sides
+    (escaping and non-escaping).
+  - **Finding 2 (blocking):** contract §2 rule 8's "never substitute `TAB_LABELS[key]`"
+    ruling had no test that could fail if `EntityShow` computed
+    `tab.label ?? TAB_LABELS[tab.key]` and forwarded that as an override (proven: inserting
+    exactly that mutation left the full suite green). Added
+    `EntityShow.i18nLabel.test.tsx`: renders the real `EntityShow` with a translation
+    registered for `crm.entity360.tab.overview` that differs from `TAB_LABELS.overview`,
+    against a label-less tab, and asserts the *registered* string renders — this goes red
+    under the forbidden substitution because every tab would then carry a defined override,
+    short-circuiting `useTabLabel` before the catalog is consulted.
+  - **Finding 3 (should-fix):** three of AC 7's seven regions had no fixture at all —
+    `identityHeader` (a descriptor's own component was silently ignorable), `alertSlot`, and
+    the default composition's `avatar`/`meta` threading — each removable from
+    `EntityShow.tsx` with the whole entity360 suite green. Added
+    `EntityShow.regions.test.tsx` covering all three (the `avatar` case asserts the chip's
+    *computed background colour*, not just presence, following `EntityAvatar.test.tsx`'s
+    own probe-element pattern).
+  - **Finding 4 (should-fix):** `DefaultIdentityHeader.test.tsx`'s seed test asserted only
+    the monogram (which comes from `title`, not `seed`) — replacing the seed computation
+    with `const seed = null` still passed. Added the same computed-colour probe assertion
+    used for finding 3's avatar case.
+  - **Finding 5 (contract gap, not code):** agreed the `mergeEntityTabs` "declared order"
+    interpretation is reasonable given 3-15 doesn't exist yet, but the review asked for the
+    consequence stated plainly rather than as "an interpretation call." Extended the
+    function's doc comment with the concrete, entity-by-entity consequence (Single, Shadchan
+    and Reference all render `shidduchim` last, diverging from UX-DR5) and the practical
+    workaround (declare `shidduchim` as an explicit `tabs` entry to control its position).
+    No behavioural change — flagged again here for the contract owner.
+  - Not touched, per the review's own "not problems" / "clean" findings: the
+    `ReactElement | null` widening, `MergedEntityTab` dropping `visibleTo` (a contract gap
+    on `EntityRelationshipDescriptor`, not this slot's), and all fifteen preflight-brief
+    landmines already refuted in §7.
+  - Gates (all real, run on this commit): `make typecheck` clean; `npx vitest run` — 116
+    files / 1115 tests passed; `make lint` clean (`--max-warnings=0` + prettier);
+    `make build` succeeds; `npx prettier --check "**/*.{mjs,js,json,ts,tsx,css,md,html}"`
+    clean; `make registry-gen` produced no diff. No SQL touched, so `npm run test:unit:db` /
+    `supabase db diff --local` were not run. Every new/changed guard shown red against the
+    review's exact mutation, then green again after restoring, before this commit.

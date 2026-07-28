@@ -35,6 +35,28 @@ export interface MergedEntityTab {
  * in the order `relationships` declares them. Flagged in this story's
  * final report as an interpretation the contract underspecifies, for 3-15
  * to reconcile once `CANONICAL_TAB_SETS` exists.
+ *
+ * **Concrete, not merely theoretical: this concatenation is the wrong
+ * on-screen order for three of Epic 3's four real entities as soon as they
+ * use `relationships` the way this story wires it.** The contract's own
+ * canonical rows (§3 rule 5) put `shidduchim` *mid-list* for Single
+ * (`overview, resume, photo, files, shidduchim, notes, tasks, activity`),
+ * Shadchan (`overview, shidduchim, notes, tasks, activity`) and Reference
+ * (`overview, conversations, shidduchim, notes, tasks, activity, assistant`)
+ * — but this function always appends every relationship-derived tab after
+ * every explicit `tabs` entry, so `shidduchim` renders **last** for all
+ * three, diverging from UX-DR5. Story 3-15's validator only checks
+ * `keys(tabs) ∪ pendingTabs` as sets (§3 rule 5d) and cannot see interleaved
+ * order, so it will not catch this. The practical consequence for Epic 5:
+ * an entity that wants `shidduchim` mid-list must declare it as an explicit
+ * `tabs` entry rendering `<RelatedRecordsTab relationship={...}/>` itself,
+ * at the correct position — bypassing `relationships` entirely rather than
+ * relying on this merge's ordering. `relationships` remains correct for an
+ * entity happy to have its relationship-derived tabs trail (or for one
+ * whose canonical row already ends with them). Contract owner's call on
+ * whether §9 should be amended to require callers to pre-position, or
+ * whether this function should gain a per-entity ordering input once
+ * `CANONICAL_TAB_SETS` exists.
  */
 export function mergeEntityTabs(
   tabs: EntityTabDescriptor[] = [],
