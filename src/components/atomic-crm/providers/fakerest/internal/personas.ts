@@ -29,9 +29,6 @@ type GetIdentity = () => Promise<Pick<UserIdentity, "id"> | null | undefined>;
 const isOwningMembershipRole = (role: AccountMember["role"]): boolean =>
   role === "parent_admin" || role === "self_manager";
 
-const accountKindOf = (account: Account): "household" | "shadchanus" =>
-  account.kind ?? "household";
-
 const activeMembershipsFor = async (
   baseDataProvider: DataProvider,
   userId: string,
@@ -62,8 +59,17 @@ const hasLinkedSingle = async (
   return data.length > 0;
 };
 
+// Mirrors 02_functions.sql's nullif(v_first_name, 'Pending') guard (2.2
+// review finding #4): `members.first_name` is `NOT NULL DEFAULT 'Pending'`
+// (01_tables.sql / handle_new_user()), so a signup with no first/given name
+// in their OAuth metadata must fall through to "My Account", not the dead
+// "Pending's Family".
+const PENDING_FIRST_NAME = "Pending";
+
 const householdNameFor = (firstName: string | undefined): string =>
-  firstName ? `${firstName}'s Family` : "My Account";
+  firstName && firstName !== PENDING_FIRST_NAME
+    ? `${firstName}'s Family`
+    : "My Account";
 
 /** FakeRest mirror of `public.my_personas()` — derives, never stores. */
 export async function getMyPersonas(
@@ -99,7 +105,7 @@ export async function getMyPersonas(
       personas.push({
         persona: "parent",
         account_id: membership.account_id,
-        account_kind: accountKindOf(account),
+        account_kind: account.kind,
         role: membership.role,
       });
     }
@@ -109,7 +115,7 @@ export async function getMyPersonas(
       personas.push({
         persona: "shadchan",
         account_id: membership.account_id,
-        account_kind: accountKindOf(account),
+        account_kind: account.kind,
         role: membership.role,
       });
     }
@@ -123,7 +129,7 @@ export async function getMyPersonas(
         personas.push({
           persona: "single",
           account_id: membership.account_id,
-          account_kind: accountKindOf(account),
+          account_kind: account.kind,
           role: membership.role,
         });
       }
@@ -237,16 +243,15 @@ export async function addPersona(
       return; // no-op: already an active shadchan
     }
 
-    const { data: caller } = await baseDataProvider.getOne<Member>("members", {
-      id: identity.id,
-    });
+    // The SQL (02_functions.sql) inserts `(kind)` only — never `name` — so
+    // the real row's name is the column default 'My Account'
+    // (01_tables.sql), not a derived "<first name>'s Shadchanus" (2.2 review
+    // finding #4: that name was invented here, not copied from the SQL).
     const { data: account } = await baseDataProvider.create<Account>(
       "accounts",
       {
         data: {
-          name: caller?.first_name
-            ? `${caller.first_name}'s Shadchanus`
-            : "My Shadchanus",
+          name: "My Account",
           transparency_level: "shared",
           kind: "shadchanus",
           created_at: new Date().toISOString(),

@@ -92,9 +92,10 @@ export type Account = {
   name: string;
   transparency_level: string;
   data_region?: string | null;
-  /** Household vs. shadchanus (2.2 AC-1). Absent on records predating that
-   * story — treat a missing value as `"household"`, its DB default. */
-  kind?: "household" | "shadchanus";
+  /** Household vs. shadchanus (2.2 AC-1). `not null default 'household'` in
+   * `01_tables.sql`, backfilled by 2.2's migration — every row in the tree
+   * has one. */
+  kind: "household" | "shadchanus";
   created_at: string;
   demo?: boolean;
 } & Pick<RaRecord, "id">;

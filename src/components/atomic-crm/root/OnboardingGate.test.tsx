@@ -1,4 +1,5 @@
 import { render } from "vitest-browser-react";
+import { QueryClient } from "@tanstack/react-query";
 import { CoreAdminContext, type DataProvider } from "ra-core";
 
 import { OnboardingGate } from "./OnboardingGate";
@@ -23,7 +24,16 @@ const buildDataProvider = (overrides: {
 
 const renderGate = (dataProvider: DataProvider) =>
   render(
-    <CoreAdminContext dataProvider={dataProvider} i18nProvider={i18nProvider}>
+    <CoreAdminContext
+      dataProvider={dataProvider}
+      i18nProvider={i18nProvider}
+      // retry: false — without it, a rejecting getMyPersonas() (below) would
+      // retry three times with backoff before settling into isError, making
+      // that test slow instead of deterministic.
+      queryClient={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
       <OnboardingGate>
         <div>The signed-in app</div>
       </OnboardingGate>
@@ -101,5 +111,26 @@ describe("OnboardingGate", () => {
 
     // Assert
     await expect.element(screen.getByText("The signed-in app")).toBeVisible();
+  });
+
+  it("shows the app, not onboarding, when getMyPersonas() rejects", async () => {
+    // Arrange: getMyPersonas fail-loud (dataProvider.ts) means `data` is
+    // `undefined` here — the gate must fail TOWARD the shell, never collapse
+    // a read error into "zero personas" and re-run onboarding on an
+    // existing user (review finding #1).
+    const dataProvider = buildDataProvider({
+      getMyPersonas: () =>
+        Promise.reject(new Error("Failed to load your account")),
+      currentAccountDemo: () => Promise.resolve(false),
+    });
+
+    // Act
+    const screen = await renderGate(dataProvider);
+
+    // Assert
+    await expect.element(screen.getByText("The signed-in app")).toBeVisible();
+    await expect
+      .element(screen.getByText("Welcome to MyShadchan"))
+      .not.toBeInTheDocument();
   });
 });

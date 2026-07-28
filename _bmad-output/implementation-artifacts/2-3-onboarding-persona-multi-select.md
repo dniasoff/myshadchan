@@ -638,6 +638,124 @@ Claude Sonnet 5 (claude-code, bmad-dev-story workflow)
   green (part of the full `make test` run). AC-13 verified: `git diff
   --name-only -- supabase/` is empty.
 
+### Review Response (adversarial review of commits `3d253a0` + `ba4d6aa`, verdict NEEDS-FIX)
+
+Both blockers/should-fixes below are FIXED except finding #5, which is
+flagged rather than changed (reasoning below). Every note either fixed
+cheaply or left with a recorded reason. New/expanded tests bring the suite
+from 638 to 660 (59 files, was 58).
+
+- **Finding #1 (blocker) — a failed `my_personas()` read collapsed into
+  "zero personas," re-running onboarding for an existing user. FIXED.**
+  `root/OnboardingGate.tsx`: added `isError: personasErrored` from
+  `useMyPersonas()` to the pending guard (`if (personasPending ||
+  demoPending || personasErrored) return <>{children}</>;`) and dropped the
+  `personas?.length ?? 0` coalescing in favour of `personas.length === 0`
+  (TS narrows `personas` to defined once both `isPending`/`isError` are
+  excluded — confirmed by `npm run typecheck`). The gate now fails TOWARD
+  the app shell on any `getMyPersonas()` rejection, never toward
+  onboarding. Regression test added
+  (`OnboardingGate.test.tsx`: "shows the app, not onboarding, when
+  getMyPersonas() rejects") — required passing a `queryClient={new
+  QueryClient({ defaultOptions: { queries: { retry: false } } })}` into
+  `CoreAdminContext` so the rejecting query doesn't retry 3x with backoff
+  first.
+- **Finding #2 (should-fix) — AC-6's shadchan done copy promised an
+  action ("Start by adding a reference") the database rejects for a
+  connectionless shadchanus account. FIXED.** Dropped the actionable
+  second sentence in all three places it's defined: the inline default in
+  `login/OnboardingChoice.tsx`, and the `persona_done_shadchan_body` key in
+  both `englishCrmMessages.ts` and `frenchCrmMessages.ts`. The copy now
+  reads exactly what AC-6 asked for — "Your shadchanus book is ready." — no
+  more, no less. `OnboardingChoice.test.tsx`'s AC-6 assertion updated to
+  match. Left an inline comment at the call site naming why a call-to-action
+  must not be reintroduced here without one that's actually reachable
+  (connections don't exist yet — out of this story's and this epic's
+  current scope).
+- **Finding #3 (should-fix) — 267 lines of `fakerest/internal/personas.ts`
+  provisioning logic with zero tests. FIXED.** Added
+  `internal/personas.test.ts` (19 tests) covering exactly the untested
+  rules the finding named: the `self_manager` -> `parent_admin` in-place
+  promotion (no second household created), "never promote a non-owning
+  (helper) membership" (a separate household is created instead, the
+  helper's own membership untouched), "never attach `single` to a helper's
+  household" (same shape), all three idempotency no-ops
+  (`parent`/`single`/`shadchan` already held), plus `getMyPersonas()`'s own
+  persona-derivation predicates (parent-only, parent+single via one
+  `singles` row, invited `single`-role, `shadchan`, and confirming `helper`
+  is never reported — it isn't a persona). Built on a small in-memory
+  `DataProvider` stub (`getList`/`getOne`/`create`/`update`) rather than
+  pulling in `ra-data-fakerest`, matching the existing
+  `shidduchCatch.test.ts` precedent in the same directory.
+- **Finding #4 (should-fix) — the fakerest mirror's own doc comment claims
+  fidelity to the SQL it does not have. FIXED, both divergences.**
+  (a) The shadchanus account's invented `"<first name>'s Shadchanus"` /
+  `"My Shadchanus"` name replaced with the literal `"My Account"` the real
+  `add_persona()` produces (`02_functions.sql` inserts `(kind)` only, so the
+  row takes `accounts.name`'s column default). The now-unused
+  `getOne<Member>("members", …)` caller-lookup in that branch removed along
+  with it — no caller lookup is needed once the name is a constant.
+  (b) `householdNameFor()` gained the same `nullif(v_first_name, 'Pending')`
+  guard `02_functions.sql:448` uses, via a named `PENDING_FIRST_NAME`
+  constant, so the fakerest mirror no longer reproduces "Pending's Family"
+  — the exact dead-fallback bug 2.2's own review finding #4 fixed
+  server-side. Both fixes are pinned by new tests in `personas.test.ts`.
+- **Finding #5 (should-fix, product) — single-only onboarding creates a
+  fully blank record and says "Your record is ready." FLAGGED, not
+  changed.** Confirmed live-verifiable claim: `add_persona('single')`
+  writes only `(account_id, member_id)`, so `first_name_en` etc. are all
+  NULL. Not changed here because (1) this story's own AC-4 explicitly pins
+  this exact copy as correct ("The unnamed variant is already the right
+  copy for a single-only signup … Do not add a third copy variant for
+  this") and the defect is that the *record*, not the *copy*, is
+  incomplete; (2) the story's own Dependencies section states the
+  single-owner rule this finding itself invokes — "if a case here looks
+  like it needs a new SQL write path, that is a sign 2.2's function is
+  missing a branch, not a reason to add one here (NFR-14)." Collecting the
+  caller's own name is a provisioning change, not a copy change, and
+  belongs to 2.2/2.5 per that rule. Flagging for the epic owner /
+  2.5, per the finding's own stated alternative.
+- **Finding #6 (note) — `.find(p => p.persona === "parent")` over an
+  unordered `my_personas()`.** No code change (the finding itself says
+  this is unreachable once finding #1 is fixed: `OnboardingGate` only ever
+  renders this screen for a login `my_personas()` reported as empty, so the
+  `addPersona('parent')` call immediately above is the only one that could
+  have created a `parent` row). Added an inline comment at the call site
+  recording why, so a future reader doesn't need to re-derive it.
+- **Finding #7 (note) — `MY_PERSONAS_QUERY_KEY` not user-scoped, persisted
+  to `localStorage` on mobile.** No action — explicitly precedent-consistent
+  with the pre-existing `["accountDemo"]` key and every other list query
+  (the finding's own words), not new debt introduced by this story.
+- **Finding #8 (note) — `FirstRunSetup`'s family-name field no longer
+  pre-fills.** No action — this is Task 6's own intended shape (AC-5
+  removes the `useGetList<Account>` fetch this pre-fill depended on;
+  re-adding it to restore the pre-fill would reintroduce the fetch-on-load
+  branch AC-5 explicitly removes). Already disclosed as a UX delta.
+- **Finding #9 (note) — `Account.kind?` optional with a `?? "household"`
+  default that has no live producer. FIXED.** `types.ts`: `Account.kind`
+  is now required (`"household" | "shadchanus"`, no `?`), matching
+  `accounts.kind`'s real `not null default 'household'`
+  (`01_tables.sql:130`). `internal/personas.ts`'s `accountKindOf()` helper
+  — now a pure identity function once its `?? "household"` fallback was
+  removed — deleted outright; its three call sites read `account.kind`
+  directly. `npm run typecheck` confirms no other `Account` object literal
+  in the tree needed updating (the dataGenerator's `Klein Family` seed
+  already sets `kind: "household"`).
+- **Finding #10 (note) — missing negative tests on the new failure paths.**
+  Two of the three named gaps closed: `OnboardingChoice.test.tsx` gained
+  "surfaces a notify error and re-enables Continue when addPersona rejects,
+  allowing retry" (rejects once, then a second click on the now-re-enabled
+  Continue succeeds) and "surfaces a notify error when the parent branch's
+  post-provisioning getMyPersonas() read fails" (addPersona('parent')
+  succeeds, the follow-up my_personas() read rejects, the error still
+  surfaces and FirstRunSetup never renders). The third gap — finding #1's
+  gate behaviour — is finding #1's own regression test above.
+
+Toolchain re-run after all fixes, all green: `npm run typecheck`, `npm run
+lint`, `npm run prettier`, `npm run test` (660 tests, 59 files — was 638,
+58), `node scripts/check-retired-names.mjs`. `make registry-gen` produces
+no diff.
+
 ### File List
 
 - `src/components/atomic-crm/types.ts` — added `Persona`, `MyPersona`
@@ -683,3 +801,27 @@ Claude Sonnet 5 (claude-code, bmad-dev-story workflow)
   new `crm.auth.onboarding` key group (AC-10).
 - `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` —
   same, in French (AC-10).
+
+**Review follow-up (this commit) — see Review Response above for detail:**
+
+- `src/components/atomic-crm/types.ts` — `Account.kind` made required
+  (finding #9).
+- `src/components/atomic-crm/root/OnboardingGate.tsx` — fails toward the
+  shell on `getMyPersonas()` error (finding #1).
+- `src/components/atomic-crm/root/OnboardingGate.test.tsx` — added the
+  finding-#1 regression test; `renderGate` now passes a `retry: false`
+  `QueryClient`.
+- `src/components/atomic-crm/login/OnboardingChoice.tsx` — dropped the
+  false shadchan call-to-action (finding #2); comment on the
+  unordered-`.find()` call site (finding #6).
+- `src/components/atomic-crm/login/OnboardingChoice.test.tsx` — updated
+  the AC-6 copy assertion; added the two finding-#10 negative tests.
+- `src/components/atomic-crm/providers/fakerest/internal/personas.ts` —
+  removed `accountKindOf()`'s dead `?? "household"` fallback (finding #9);
+  fixed the invented shadchanus account name and added the missing
+  `nullif(…, 'Pending')` guard (finding #4).
+- `src/components/atomic-crm/providers/fakerest/internal/personas.test.ts`
+  (new) — 19 tests closing finding #3's coverage gap.
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` /
+  `frenchCrmMessages.ts` — `persona_done_shadchan_body` copy shortened
+  (finding #2).

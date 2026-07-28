@@ -157,8 +157,7 @@ export const englishCrmMessages = {
         persona_parent: "I'm looking for a shidduch for my children",
         persona_shadchan: "I'm a matchmaker (shadchan)",
         persona_validation: "Pick at least one to continue.",
-        persona_done_shadchan_body:
-          "Your shadchanus book is ready. Start by adding a reference.",
+        persona_done_shadchan_body: "Your shadchanus book is ready.",
       },
     },
     landing: {

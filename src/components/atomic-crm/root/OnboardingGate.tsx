@@ -27,16 +27,29 @@ import { useMyPersonas } from "./useMyPersonas";
  * extra flag needed. Any pending read renders the shell as usual — it has
  * its own skeletons — to avoid a flash of the welcome screen on every
  * reload.
+ *
+ * Fails TOWARD the shell, never toward onboarding: `getMyPersonas()` is
+ * fail-loud (dataProvider.ts's `getMyPersonas` throws rather than swallowing
+ * an RPC error), so a rejected query is a distinct react-query state
+ * (`isError`), never `data === undefined` collapsed into "zero personas" by
+ * `?? 0`. Showing onboarding to an existing user on a transient read failure
+ * (or a `my_personas` that 404s because a migration hasn't shipped yet) is
+ * far worse than showing the app shell, which will itself surface the same
+ * error through its own data fetching.
  */
 export const OnboardingGate = ({ children }: { children: ReactNode }) => {
-  const { data: personas, isPending: personasPending } = useMyPersonas();
+  const {
+    data: personas,
+    isPending: personasPending,
+    isError: personasErrored,
+  } = useMyPersonas();
   const { data: isDemo, isPending: demoPending } = useAccountDemo();
 
-  if (personasPending || demoPending) {
+  if (personasPending || demoPending || personasErrored) {
     return <>{children}</>;
   }
 
-  const showOnboarding = (personas?.length ?? 0) === 0 && isDemo !== true;
+  const showOnboarding = personas.length === 0 && isDemo !== true;
 
   if (showOnboarding) {
     return <OnboardingChoice />;

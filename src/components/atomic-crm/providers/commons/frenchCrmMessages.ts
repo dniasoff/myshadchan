@@ -155,8 +155,7 @@ export const frenchCrmMessages = {
         persona_parent: "Je cherche un shidduch pour mes enfants",
         persona_shadchan: "Je suis un(e) marieur(euse) (shadchan)",
         persona_validation: "Cochez au moins une option pour continuer.",
-        persona_done_shadchan_body:
-          "Votre carnet de shadchanus est prêt. Commencez par ajouter une référence.",
+        persona_done_shadchan_body: "Votre carnet de shadchanus est prêt.",
       },
     },
     landing: {

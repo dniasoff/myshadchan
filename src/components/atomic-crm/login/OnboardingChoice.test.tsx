@@ -158,11 +158,7 @@ describe("OnboardingChoice — persona multi-select", () => {
     // Assert
     expect(calls).toEqual(["addPersona:shadchan"]);
     await expect
-      .element(
-        screen.getByText(
-          "Your shadchanus book is ready. Start by adding a reference.",
-        ),
-      )
+      .element(screen.getByText("Your shadchanus book is ready."))
       .toBeVisible();
     await expect
       .element(screen.getByText("Name your family's record"))
@@ -184,5 +180,91 @@ describe("OnboardingChoice — persona multi-select", () => {
     await vi.waitFor(() => {
       expect(calls).toEqual(["addPersona:parent", "seedDemo"]);
     });
+  });
+
+  it("surfaces a notify error and re-enables Continue when addPersona rejects, allowing retry (review finding #10)", async () => {
+    // Arrange: addPersona rejects once, then succeeds — pins that the error
+    // path does not leave the button permanently disabled.
+    const calls: string[] = [];
+    let shouldFail = true;
+    const base = fakeDataProvider({
+      members: [{ id: 0, first_name: "Jane", last_name: "Doe" }],
+      accounts: [{ id: 42, name: "My Account" }],
+      account_members: [],
+      singles: [],
+    });
+    const dataProvider = {
+      ...base,
+      addPersona: async (persona: Persona) => {
+        if (shouldFail) {
+          shouldFail = false;
+          throw new Error("Couldn't set that up. Try again.");
+        }
+        calls.push(`addPersona:${persona}`);
+      },
+      getMyPersonas: async () => [],
+      seedDemo: async () => ({ seeded: true }),
+      currentAccountDemo: async () => false,
+    } as unknown as DataProvider;
+    const screen = await renderOnboarding(dataProvider);
+    await goToPersonaSelect(screen);
+    await screen
+      .getByRole("checkbox", { name: PERSONA_LABELS.shadchan })
+      .click();
+
+    // Act: first submit fails.
+    await screen.getByRole("button", { name: "Continue" }).click();
+
+    // Assert: the notify error is shown, nothing was recorded.
+    await expect
+      .element(screen.getByText("Couldn't set that up. Try again."))
+      .toBeVisible();
+    expect(calls).toEqual([]);
+
+    // Act: Continue is re-enabled — retrying the same submission succeeds.
+    await screen.getByRole("button", { name: "Continue" }).click();
+
+    // Assert
+    await vi.waitFor(() => {
+      expect(calls).toEqual(["addPersona:shadchan"]);
+    });
+  });
+
+  it("surfaces a notify error when the parent branch's post-provisioning getMyPersonas() read fails (review finding #10)", async () => {
+    // Arrange: addPersona('parent') itself succeeds, but the follow-up
+    // my_personas() read used to locate the new household's account_id
+    // rejects — must not crash silently or strand the user.
+    const calls: string[] = [];
+    const base = fakeDataProvider({
+      members: [{ id: 0, first_name: "Jane", last_name: "Doe" }],
+      accounts: [{ id: 42, name: "My Account" }],
+      account_members: [],
+      singles: [],
+    });
+    const dataProvider = {
+      ...base,
+      addPersona: async (persona: Persona) => {
+        calls.push(`addPersona:${persona}`);
+      },
+      getMyPersonas: async () => {
+        throw new Error("Failed to load your account");
+      },
+      seedDemo: async () => ({ seeded: true }),
+      currentAccountDemo: async () => false,
+    } as unknown as DataProvider;
+    const screen = await renderOnboarding(dataProvider);
+    await goToPersonaSelect(screen);
+    await screen.getByRole("checkbox", { name: PERSONA_LABELS.parent }).click();
+
+    // Act
+    await screen.getByRole("button", { name: "Continue" }).click();
+
+    // Assert
+    await expect
+      .element(screen.getByText("Failed to load your account"))
+      .toBeVisible();
+    await expect
+      .element(screen.getByText("Name your family's record"))
+      .not.toBeInTheDocument();
   });
 });

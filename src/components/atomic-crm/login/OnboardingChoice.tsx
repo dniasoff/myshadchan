@@ -291,6 +291,12 @@ const PersonaSelectCard = ({
       if (selected.includes("parent")) {
         // add_persona() returns void (2.2 AC-6) — the household id has to
         // come from a fresh my_personas() read, not the call itself.
+        // `.find()` over an unordered my_personas() (no ORDER BY,
+        // 02_functions.sql) would be ambiguous for a caller with two
+        // `parent_admin` memberships — not possible here: `OnboardingGate`
+        // only ever renders this screen for a login `my_personas()` reported
+        // as EMPTY (review finding #1), so this `addPersona('parent')` call
+        // is the only one that can have created a `parent` row.
         const personas = await dataProvider.getMyPersonas();
         const parentPersona = personas.find((p) => p.persona === "parent");
         if (!parentPersona) {
@@ -409,7 +415,14 @@ const PersonaOnboardingDone = ({
           <p className="text-sm leading-relaxed text-muted-foreground">
             {includesShadchan
               ? translate("crm.auth.onboarding.persona_done_shadchan_body", {
-                  _: "Your shadchanus book is ready. Start by adding a reference.",
+                  // AC-6 asks only that the screen acknowledge the
+                  // shadchanus context — no actionable next step. A fresh
+                  // shadchanus account holds no connection yet, so every
+                  // household-scoped table (references included) rejects
+                  // writes while it is active (review finding #2); do not
+                  // reintroduce a call to action here without one that is
+                  // actually possible from this screen.
+                  _: "Your shadchanus book is ready.",
                 })
               : translate("crm.auth.onboarding.done_body", {
                   _: "Your record is ready. Start by logging a suggestion.",
