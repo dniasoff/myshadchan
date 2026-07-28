@@ -17,6 +17,8 @@ import { ShidduchShow } from "./ShidduchShow";
 const singleLabel = (single: Single) => single.first_name_en ?? `#${single.id}`;
 
 const ShidduchimList = () => {
+  const location = useLocation();
+  const matchNew = matchPath(buildNewPath("shidduchim"), location.pathname);
   const { identity } = useGetIdentity();
   const { data: singles, isPending: singlesPending } = useGetList<Single>(
     "singles",
@@ -39,6 +41,15 @@ const ShidduchimList = () => {
   if (!singles || singles.length === 0) return <ShidduchimNoSingles />;
 
   const selectedSingleId = singleId ?? singles[0].id;
+
+  // The create page is returned above `<List>`, not inside `ShidduchimLayout`
+  // (Story 3.13 Dev Notes): a page needs neither the board's own `shidduchim`
+  // query nor its `isPending` gate, and mounting `<List>` underneath it would
+  // keep the board alive beneath the page — the modal shape with the scrim
+  // removed, not a page.
+  if (matchNew) {
+    return <ShidduchCreate singleId={selectedSingleId} />;
+  }
 
   return (
     <List
@@ -76,7 +87,6 @@ const ShidduchimLayout = ({
   onSelectSingle: (id: Identifier) => void;
 }) => {
   const location = useLocation();
-  const matchCreate = matchPath(buildNewPath("shidduchim"), location.pathname);
   const matchShow = matchPath("/shidduchim/:id/show", location.pathname);
   const { isPending } = useListContext();
 
@@ -90,7 +100,6 @@ const ShidduchimLayout = ({
         onSelect={onSelectSingle}
       />
       <ShidduchimListContent />
-      <ShidduchCreate open={!!matchCreate} singleId={singleId} />
       <ShidduchShow open={!!matchShow} id={matchShow?.params.id} />
     </div>
   );

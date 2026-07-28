@@ -1,6 +1,10 @@
+---
+baseline_commit: d8dc26a5e6c52de7944be507a07baaa88d7af3bc
+---
+
 # Story 3.13: Records at URLs, not modals
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -197,52 +201,53 @@ a build failure.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Gate: confirm 3.2, 3.12 and 3.9 have landed** (prerequisite to AC 1, 2)
-  - [ ] `grep -rn "shidduchim/create" src/` returns **zero** hits (**3.12's** rename, AC 5). If
+- [x] **Task 1 — Gate: confirm 3.2, 3.12 and 3.9 have landed** (prerequisite to AC 1, 2)
+  - [x] `grep -rn "shidduchim/create" src/` returns **zero** hits (**3.12's** rename, AC 5). If
         it does not, stop and report — do not do 3.12's rename inside this story; five of the
         six call sites are in files (`dashboard/Dashboard.tsx`, `dashboard/MobileDashboard.tsx`,
         `layout/MobileNavigation.tsx`, `shidduchim/ShidduchColumn.tsx`) that 3.12 is editing.
-  - [ ] `src/components/atomic-crm/entity360/entityPaths.ts` exports `buildListPath`, and
+        **One non-zero hit found and judged benign, not a stop condition** — see Debug Log.
+  - [x] `src/components/atomic-crm/entity360/entityPaths.ts` exports `buildListPath`, and
         `getEntityDescriptor("shidduchim")` resolves (3.9's stub). If either is missing,
         stop and report.
-  - [ ] Run the AC 5 guard as it will be written and capture the red output caused by
+  - [x] Run the AC 5 guard as it will be written and capture the red output caused by
         `ShidduchCreate.tsx` (this is the first of the two required red proofs).
 
-- [ ] **Task 2 — Share the page frame and the CTA recipe** (AC: 3)
-  - [ ] `git mv src/components/atomic-crm/singles/SingleFormFrame.tsx
+- [x] **Task 2 — Share the page frame and the CTA recipe** (AC: 3)
+  - [x] `git mv src/components/atomic-crm/singles/SingleFormFrame.tsx
         src/components/atomic-crm/misc/FormPageFrame.tsx`; rename the component and its props
         interface to `FormPageFrame` / `FormPageFrameProps`; replace the hardcoded
         `"Family roster"` eyebrow with a required `eyebrow: string` prop.
-  - [ ] Update `singles/SingleCreate.tsx` and `singles/SingleEdit.tsx` to import from
+  - [x] Update `singles/SingleCreate.tsx` and `singles/SingleEdit.tsx` to import from
         `../misc/FormPageFrame` and pass `eyebrow="Family roster"` — no other change; these
         two screens must render identically to today.
-  - [ ] Add `saveLabel?: string` to `layout/FormToolbar.tsx` and forward it to `SaveButton`'s
+  - [x] Add `saveLabel?: string` to `layout/FormToolbar.tsx` and forward it to `SaveButton`'s
         `label`. Leave the toolbar's classes untouched.
-  - [ ] `grep -rn "SingleFormFrame" src/` returns nothing.
+  - [x] `grep -rn "SingleFormFrame" src/` returns nothing.
 
-- [ ] **Task 3 — Convert `ShidduchCreate` to a page** (AC: 1, 2)
-  - [ ] Delete the `Dialog`/`DialogContent`/`DialogHeader`/`DialogTitle`/`DialogDescription`
+- [x] **Task 3 — Convert `ShidduchCreate` to a page** (AC: 1, 2)
+  - [x] Delete the `Dialog`/`DialogContent`/`DialogHeader`/`DialogTitle`/`DialogDescription`
         import and JSX, the `open` prop, `handleClose`, and the local `PRIMARY_CTA_CLASS`.
-  - [ ] Wrap the form in `<FormPageFrame eyebrow="Pipeline" heading="Add a suggestion"
+  - [x] Wrap the form in `<FormPageFrame eyebrow="Pipeline" heading="Add a suggestion"
         description="A calm start — fill in what you know now, add the rest later.">` (the
         dialog's `DialogTitle`/`DialogDescription` copy, moved verbatim — see Dev Notes
         "Copy is deliberately unchanged").
-  - [ ] Keep `<Form onSubmit={onSubmit} mode="onBlur" defaultValues={…}>` and
+  - [x] Keep `<Form onSubmit={onSubmit} mode="onBlur" defaultValues={…}>` and
         `<ShidduchInputs />` exactly as they are; replace the inline
         `FormToolbar`/`CancelButton`/`SaveButton` block (`:128-136`) with
         `<FormToolbar saveLabel="Add a suggestion" />` from `../layout/FormToolbar`.
-  - [ ] Swap `redirect("/shidduchim")` for `redirect(buildListPath("shidduchim"))`.
-  - [ ] In `ShidduchimList.tsx`: rename `matchCreate` to `matchNew`, move the match up into
+  - [x] Swap `redirect("/shidduchim")` for `redirect(buildListPath("shidduchim"))`.
+  - [x] In `ShidduchimList.tsx`: rename `matchCreate` to `matchNew`, move the match up into
         `ShidduchimList` itself (it needs `location`, so `useLocation()` moves with it),
         early-return `<ShidduchCreate singleId={selectedSingleId} />` **before** the `<List>`
         return, and delete the `<ShidduchCreate open={…} …/>` line from `ShidduchimLayout`
         (`:92`). Leave the `matchShow`/`<ShidduchShow>` wiring alone — 5.1 owns it.
-  - [ ] Confirm by hand at 375px and at desktop width, light and dark, that the page's form
+  - [x] Confirm by hand at 375px and at desktop width, light and dark, that the page's form
         card does not overflow (UX-DR11,
         `amendment-a2.md:186-187`) — `ShidduchInputs` already branches on `useIsMobile()`.
 
-- [ ] **Task 4 — Tests for the page** (AC: 1, 2)
-  - [ ] New `shidduchim/ShidduchCreate.test.tsx`, browser-mode `app` project:
+- [x] **Task 4 — Tests for the page** (AC: 1, 2)
+  - [x] New `shidduchim/ShidduchCreate.test.tsx`, browser-mode `app` project:
         `render()` from `vitest-browser-react` inside `ra-core`'s `TestMemoryRouter` +
         `CoreAdminContext` with a stubbed `CrmDataProvider`, following
         `layout/ContextSwitcher.test.tsx:1-10,60-72` (including its `locationCallback` for
@@ -250,30 +255,30 @@ a build failure.
         `role="dialog"` element; `?state=look_into` preselects that starting column;
         `?state=zzz` falls back to `new`; submit calls `createShidduch` once with
         `origin: "manual"` and never calls `create`, and ends at `/shidduchim`.
-  - [ ] New `shidduchim/ShidduchimList.test.tsx` (or extend an existing one if 3.2 added it):
+  - [x] New `shidduchim/ShidduchimList.test.tsx` (or extend an existing one if 3.2 added it):
         mounted at `/shidduchim/new` with a stub provider supplying one `singles` row, assert
         the create heading is present and the board's `/^Pipeline/` heading is
         `.not.toBeInTheDocument()`.
-  - [ ] Do **not** use React Testing Library, `screen.queryByText` or `MemoryRouter` — none is
+  - [x] Do **not** use React Testing Library, `screen.queryByText` or `MemoryRouter` — none is
         a dependency of this repo.
 
-- [ ] **Task 5 — Record the `tasks` exemption** (AC: 4)
-  - [ ] Add the doc comment to `tasks/TaskEdit.tsx` per AC 4. English only
+- [x] **Task 5 — Record the `tasks` exemption** (AC: 4)
+  - [x] Add the doc comment to `tasks/TaskEdit.tsx` per AC 4. English only
         (`.claude/rules/english-only.md`).
-  - [ ] Change nothing else under `tasks/`; verify with
+  - [x] Change nothing else under `tasks/`; verify with
         `git diff --stat src/components/atomic-crm/tasks/`.
 
-- [ ] **Task 6 — The guard** (AC: 5)
-  - [ ] Write `misc/recordSurfaceDialogs.guard.test.ts` per AC 5, copying the filter shape of
+- [x] **Task 6 — The guard** (AC: 5)
+  - [x] Write `misc/recordSurfaceDialogs.guard.test.ts` per AC 5, copying the filter shape of
         `references/entitlementGate.guard.test.ts:44-52` and its sanity-check `it` (`:79-86`).
-  - [ ] Produce the second red proof: add a throwaway
+  - [x] Produce the second red proof: add a throwaway
         `singles/__dialogGuardFixture.tsx` importing `@/components/ui/dialog`, run the guard,
         record the failure, delete the file, re-run green.
-  - [ ] Paste both red outputs into the Debug Log References section.
+  - [x] Paste both red outputs into the Debug Log References section.
 
-- [ ] **Task 7 — Verify** (AC: 6)
-  - [ ] `npm run typecheck && npm run lint && npx vitest run --project app`.
-  - [ ] `grep -n "create\|new" e2e/pipeline.spec.ts` — confirm the spec does not touch the
+- [x] **Task 7 — Verify** (AC: 6)
+  - [x] `npm run typecheck && npm run lint && npx vitest run --project app`.
+  - [x] `grep -n "create\|new" e2e/pipeline.spec.ts` — confirm the spec does not touch the
         create surface before asserting no e2e change is needed.
 
 ## Dev Notes
@@ -413,8 +418,156 @@ Every file stays well under the 200–400 line typical ceiling
 
 ### Agent Model Used
 
+Claude Sonnet 5 (`claude-sonnet-5`), via the `bmad-dev-story` skill.
+
 ### Debug Log References
+
+**Task 1, bullet 1 — `grep -rn "shidduchim/create" src/` was not literally zero.** One hit:
+
+```
+src/components/atomic-crm/entity360/routeConvention.routes.test.tsx:149:  it("redirects /shidduchim/create?state=contacted to /shidduchim/new?state=contacted, query intact", async () => {
+```
+
+Judged not a stop condition: this is 3.12's own test *for* the `/create` → `/new`
+compatibility redirect (the test's whole point is to mount `/shidduchim/create` and assert it
+redirects to `/shidduchim/new`), not a live call site still pointing at `/create`. All five
+sibling call sites (`dashboard/Dashboard.tsx`, `dashboard/MobileDashboard.tsx`,
+`layout/MobileNavigation.tsx`, `shidduchim/ShidduchColumn.tsx`) were independently confirmed to
+already call `buildNewPath("shidduchim")`, and `ShidduchimList.tsx:79` (pre-change) already read
+`matchPath(buildNewPath("shidduchim"), …)`, not a hand-written `/create` literal. Proceeded.
+
+**Red proof #1 (AC 5) — guard run against unmodified `ShidduchCreate.tsx`** (before Task 3):
+
+```
+FAIL  |app (chromium)| src/components/atomic-crm/misc/recordSurfaceDialogs.guard.test.ts > dialog-wrapped record surfaces stay pinned (UX-DR3) > keeps the dialog-wrapped file set a subset of the recorded exemptions
+AssertionError: Unexpected dialog-wrapped record surface(s): ../shidduchim/ShidduchCreate.tsx. ...
+- Expected
++ Received
+
+- []
++ [
++   "../shidduchim/ShidduchCreate.tsx",
++ ]
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+```
+
+The sanity-check `it` (scan finds `TaskEdit.tsx`) passed even in this red run, confirming the
+scan mechanics work and only the subset assertion is red.
+
+**Red proof #2 (AC 5) — guard run with a throwaway `singles/__dialogGuardFixture.tsx`**
+(after Task 3/5 landed, guard already green for the real tree):
+
+```
+FAIL  |app (chromium)| src/components/atomic-crm/misc/recordSurfaceDialogs.guard.test.ts > dialog-wrapped record surfaces stay pinned (UX-DR3) > keeps the dialog-wrapped file set a subset of the recorded exemptions
+AssertionError: Unexpected dialog-wrapped record surface(s): ../singles/__dialogGuardFixture.tsx. ...
+- Expected
++ Received
+
+- []
++ [
++   "../singles/__dialogGuardFixture.tsx",
++ ]
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+```
+
+Fixture deleted immediately after; re-run confirmed green (`2 passed`).
+
+**Locator semantics correction during Task 4.** `vitest-browser-react`'s `screen.getByText`
+resolves through Playwright-style locators (default substring, "strict mode" — errors on
+multiple matches), not `@testing-library/dom`'s exact-leaf-text matching. The first draft of
+`ShidduchCreate.test.tsx` used `screen.getByText("Add a suggestion")` /
+`screen.getByText("Look-into")` / `screen.getByText("New")` and failed with "strict mode
+violation" (matched the `<h1>` heading *and* the submit button; matched the visible Select
+trigger *and* Radix's hidden native `<option>` fallback, and — for "New" — the helper-text
+prose too). Fixed by scoping: `getByRole("heading", { name: … })` for the heading, and
+`screen.getByLabelText("Starting column").getByText(…)` for the Select's displayed value —
+the exact chain Playwright's own error message suggested. No other test file in this story set
+needed this fix; both new files were run to green before being counted done.
 
 ### Completion Notes List
 
+- `shidduchim/ShidduchCreate.tsx` converted to a page (AC 1): no `Dialog` import, no `open`
+  prop, `handleClose` removed. `ShidduchimList.tsx` early-returns
+  `<ShidduchCreate singleId={…}/>` above `<List>` when `matchPath(buildNewPath("shidduchim"), …)`
+  matches; `ShidduchimLayout` no longer mounts `ShidduchCreate` at all.
+- Create behaviour preserved exactly (AC 2): `?state=` handling, `redt_date` default, and the
+  `dataProvider.createShidduch(input)` call with `origin: "manual"` are byte-identical to the
+  prior dialog version. Only the redirect target changed:
+  `redirect(buildListPath("shidduchim"))` in place of the literal `"/shidduchim"`.
+- `misc/FormPageFrame.tsx` (moved from `singles/SingleFormFrame.tsx`) takes a required
+  `eyebrow: string` prop; `SingleCreate`/`SingleEdit` pass `eyebrow="Family roster"` (byte-
+  identical render to before), `ShidduchCreate` passes `eyebrow="Pipeline"`.
+  `layout/FormToolbar.tsx` gained an optional `saveLabel?: string`, forwarded to `SaveButton`'s
+  `label` (undefined preserves `SaveButton`'s own default, so `SingleCreate`/`SingleEdit` are
+  unaffected). `ShidduchCreate`'s local `PRIMARY_CTA_CLASS` constant is deleted; grep confirms
+  zero hits for both `SingleFormFrame` and `PRIMARY_CTA_CLASS\b` in `shidduchim/` (AC 3).
+- `tasks/TaskEdit.tsx` gained a doc comment recording the UX-DR3 exemption, its four grounds,
+  the `TaskEditSheet` relationship, and the exact reopening trigger (AC 4). Comment-only change
+  — `git diff --stat src/components/atomic-crm/tasks/` shows one file, 26 insertions, 0
+  deletions.
+- `misc/recordSurfaceDialogs.guard.test.ts` added (AC 5): scans `shidduchim/`, `singles/`,
+  `shadchanim/`, `references/`, `tasks/` for `@/components/ui/dialog` imports and asserts the
+  basename set is a subset of `{ShidduchShow.tsx, ShidduchShowHeader.tsx,
+  ReferenceMergeButton.tsx, TaskEdit.tsx}`, plus a sanity-check `it` proving the scan finds
+  `TaskEdit.tsx`. Both required red proofs captured (see Debug Log) before the final green run.
+- No file under `entity360/` was created or edited, matching the story's stated scope.
+- Two pre-existing, out-of-scope comment inaccuracies were found but deliberately left alone
+  (see "Deviations / issues found" below), since the story's Project Structure Notes name
+  exactly six changed files, one move, and three additions — not these two.
+- All Definition-of-Done gates run and green: `npm run typecheck`, `npm run lint`,
+  `npx vitest run` (full — 109 files / 1077 tests, all projects), `npm run build`,
+  `npx prettier --check .` (15 pre-existing warnings, all in files this story never touched:
+  `.github/workflows/*`, `.lintstagedrc`, `doc/**/*.mdx`). No SQL touched, so `test:unit:db` and
+  `supabase db diff` were not run (story adds no database object, per its own scope statement).
+
+**Deviations / issues found (not fixed, per instructions to report rather than deviate
+silently):**
+
+1. `shidduchim/index.ts`'s comment ("No `New` here: the create surface is a modal matched
+   inside `ShidduchimList`…") is now stale — after this story it is a page. Left untouched:
+   the story's Project Structure Notes name exactly six changed files and this is not one of
+   them, and the comment's factual claim about *where* the create surface is mounted
+   (`ShidduchimList.tsx`) is still correct even though "modal" no longer is.
+2. `entity360/routeConvention.routes.test.tsx`'s comment on its `shidduchimWithFixtureList`
+   fixture (`:141-142`, "the create surface is a modal matched INSIDE `ShidduchimList`") has
+   the same staleness. Also left untouched — the story's Dev Notes explicitly say no file
+   under `entity360/` is edited by this story, and the test itself still passes unmodified
+   (it substitutes a fixture `list` component, so it never renders the real
+   `ShidduchimList`/`ShidduchCreate` pair this story changed).
+3. The Task 1 gate's literal `grep -rn "shidduchim/create" src/` wording assumes zero hits;
+   one hit exists (a 3.12 redirect-test description string). Judged benign — see Debug Log.
+   Flagging in case a future reader takes the story's "zero hits" claim as a strict CI
+   assertion rather than a one-time manual gate check.
+
+No contract deviation: the Epic 3 API contract (§4, §5, §10) was conformed to exactly —
+`buildListPath` used for the redirect, no path built by template literal, no file under
+`entity360/` touched.
+
 ### File List
+
+Changed:
+- `src/components/atomic-crm/shidduchim/ShidduchCreate.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchimList.tsx`
+- `src/components/atomic-crm/singles/SingleCreate.tsx`
+- `src/components/atomic-crm/singles/SingleEdit.tsx`
+- `src/components/atomic-crm/layout/FormToolbar.tsx`
+- `src/components/atomic-crm/tasks/TaskEdit.tsx`
+
+Moved:
+- `src/components/atomic-crm/singles/SingleFormFrame.tsx` → `src/components/atomic-crm/misc/FormPageFrame.tsx`
+
+Added:
+- `src/components/atomic-crm/misc/recordSurfaceDialogs.guard.test.ts`
+- `src/components/atomic-crm/shidduchim/ShidduchCreate.test.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchimList.test.tsx`
+
+### Change Log
+
+- Story 3.13 implemented: `ShidduchCreate` converted from a routed `<Dialog>` to the page at
+  `/shidduchim/new`; `SingleFormFrame` generalized to `misc/FormPageFrame` (required `eyebrow`
+  prop) and shared by `SingleCreate`/`SingleEdit`/`ShidduchCreate`; `FormToolbar` gained
+  `saveLabel?`; `tasks/TaskEdit.tsx` documented as a named, reopening-triggered UX-DR3
+  exemption; `misc/recordSurfaceDialogs.guard.test.ts` added to pin the remaining
+  dialog-wrapped record surfaces, proven red twice before green.

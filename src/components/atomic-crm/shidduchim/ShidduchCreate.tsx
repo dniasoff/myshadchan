@@ -7,46 +7,24 @@ import {
   useRefresh,
 } from "ra-core";
 import { useSearchParams } from "react-router";
-import { CancelButton } from "@/components/admin/cancel-button";
-import { SaveButton } from "@/components/admin/form";
-import { FormToolbar } from "@/components/admin/simple-form";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 
+import { buildListPath } from "../entity360/entityPaths";
+import { FormToolbar } from "../layout/FormToolbar";
+import { FormPageFrame } from "../misc/FormPageFrame";
 import type { CrmDataProvider } from "../providers/types";
 import type { CreateShidduchInput, PipelineState } from "../types";
 import { INITIAL_PIPELINE_STATES } from "./pipelineStates";
 import { ShidduchInputs } from "./ShidduchInputs";
 
-/** Primary CTA (design-language §5.3) — indigo→violet gradient, accent-glow,
- * spring press. The dialog's one primary action. */
-const PRIMARY_CTA_CLASS =
-  "inline-flex items-center gap-2 rounded-xl px-4 h-11 font-semibold " +
-  "text-primary-foreground bg-[linear-gradient(135deg,var(--accent-grad-from),var(--accent-grad-to))] " +
-  "shadow-sm shadow-[0_8px_24px_-6px_var(--glow-accent)] " +
-  "transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)] " +
-  "hover:shadow-[0_10px_30px_-6px_var(--glow-accent-strong)] active:scale-[0.97] " +
-  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 " +
-  "focus-visible:ring-offset-background outline-none";
-
 /**
- * Manual "Add a suggestion" flow. Submits straight to createShidduch (AD-4
- * invariant 1) — the sole INSERT path — never a raw dataProvider.create. The
- * starting column comes from a `?state=` query param (set by the per-column
- * "Add here"), defaulting to New.
+ * The page at `/shidduchim/new` (UX-DR3 — records live at URLs, not in
+ * modals; Story 3.13). Submits straight to createShidduch (AD-4 invariant
+ * 1) — the sole INSERT path — never a raw dataProvider.create. The starting
+ * column comes from a `?state=` query param (set by the per-column "Add
+ * here"), defaulting to New. A page has no open state; closing it is
+ * `CancelButton`'s `navigate(-1)`, reached via `FormToolbar` below.
  */
-export const ShidduchCreate = ({
-  open,
-  singleId,
-}: {
-  open: boolean;
-  singleId?: Identifier;
-}) => {
+export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
   const redirect = useRedirect();
   const refresh = useRefresh();
   const notify = useNotify();
@@ -58,8 +36,6 @@ export const ShidduchCreate = ({
     stateParam && INITIAL_PIPELINE_STATES.includes(stateParam)
       ? stateParam
       : "new";
-
-  const handleClose = () => redirect("/shidduchim");
 
   const onSubmit = async (values: Record<string, unknown>) => {
     try {
@@ -81,7 +57,7 @@ export const ShidduchCreate = ({
       await dataProvider.createShidduch(input);
       notify("Shidduch added", { type: "info" });
       refresh();
-      redirect("/shidduchim");
+      redirect(buildListPath("shidduchim"));
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Failed to add shidduch",
@@ -93,49 +69,23 @@ export const ShidduchCreate = ({
   };
 
   return (
-    <Dialog open={open} onOpenChange={() => handleClose()}>
-      {/* Overlay surface — glass is allowed here (design-language §1.2); the
-          form panels inside stay solid (dense reading surfaces, §6.3).
-          Light mode uses a solid popover surface instead of glass: the
-          light --glass-bg (0.99 L @ 0.72 alpha) over the modal scrim reads
-          muddy/grey and drags the eyebrow + helper text contrast down —
-          dark mode keeps the glass, which is the showpiece. */}
-      <DialogContent
-        className={
-          "top-1/20 max-h-9/10 translate-y-0 overflow-y-auto lg:max-w-4xl " +
-          "bg-popover border-border shadow-lg " +
-          "dark:bg-[var(--glass-bg)] dark:backdrop-blur-[var(--glass-blur)] dark:border-[var(--glass-border)]"
-        }
+    <FormPageFrame
+      eyebrow="Pipeline"
+      heading="Add a suggestion"
+      description="A calm start — fill in what you know now, add the rest later."
+    >
+      <Form
+        onSubmit={onSubmit}
+        mode="onBlur"
+        defaultValues={{
+          single_id: singleId,
+          initial_state: initialState,
+          redt_date: new Date().toISOString().split("T")[0],
+        }}
       >
-        <DialogHeader>
-          <DialogTitle className="font-display text-2xl font-semibold tracking-tight">
-            Add a suggestion
-          </DialogTitle>
-          <DialogDescription>
-            A calm start — fill in what you know now, add the rest later.
-          </DialogDescription>
-        </DialogHeader>
-        <Form
-          onSubmit={onSubmit}
-          mode="onBlur"
-          defaultValues={{
-            single_id: singleId,
-            initial_state: initialState,
-            redt_date: new Date().toISOString().split("T")[0],
-          }}
-        >
-          <ShidduchInputs />
-          <FormToolbar>
-            <div className="flex flex-row justify-end gap-2">
-              <CancelButton className="h-11" />
-              <SaveButton
-                label="Add a suggestion"
-                className={PRIMARY_CTA_CLASS}
-              />
-            </div>
-          </FormToolbar>
-        </Form>
-      </DialogContent>
-    </Dialog>
+        <ShidduchInputs />
+        <FormToolbar saveLabel="Add a suggestion" />
+      </Form>
+    </FormPageFrame>
   );
 };

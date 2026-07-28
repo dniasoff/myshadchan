@@ -3,7 +3,7 @@ import { ShowButton } from "@/components/admin/show-button";
 import { SimpleForm } from "@/components/admin/simple-form";
 
 import { redirectToRecord } from "../entity360/routeConvention";
-import { SingleFormFrame } from "./SingleFormFrame";
+import { FormPageFrame } from "../misc/FormPageFrame";
 import { SingleInputs } from "./SingleInputs";
 import { FormToolbar } from "../layout/FormToolbar";
 import { TopToolbar } from "../layout/TopToolbar";
@@ -27,13 +27,14 @@ export const SingleEdit = () => (
     title={false}
     actions={<SingleEditActions />}
   >
-    <SingleFormFrame
+    <FormPageFrame
+      eyebrow="Family roster"
       heading="Edit single"
       description="Update this single's details."
     >
       <SimpleForm toolbar={<FormToolbar />}>
         <SingleInputs />
       </SimpleForm>
-    </SingleFormFrame>
+    </FormPageFrame>
   </Edit>
 );
