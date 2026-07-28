@@ -96,7 +96,7 @@ export type EntityDescriptor<T extends RaRecord = RaRecord> = {
   title?: (record: T) => string;
   meta?: (record: T) => (string | null | undefined)[];
 
-  tabs?: EntityTabDescriptor<T>[];
+  tabs?: EntityTabDescriptor[];
 
   /** Tabs this entity WILL have and does not have YET — the canonical keys not in `tabs`.
    *  Declared, never inferred: the conformance validator asserts
@@ -112,7 +112,7 @@ export type EntityDescriptor<T extends RaRecord = RaRecord> = {
   relationships?: EntityRelationshipDescriptor<T>[];   // §9
 };
 
-export type EntityTabDescriptor<T = RaRecord> = {
+export type EntityTabDescriptor = {
   key: TabKey;                    // closed union — §3
   /** OPTIONAL — and omitting it is the NORMAL case, not the exception. Absent, the label
    *  resolves through the i18n catalog with TAB_LABELS[key] as the untranslated fallback
@@ -123,6 +123,17 @@ export type EntityTabDescriptor<T = RaRecord> = {
   visibleTo?: MemberRole[];       // absent = visible to every role
 };
 ```
+
+**Amendment (Epic 3 part 1 verification gate).** `EntityTabDescriptor` is **non-generic** —
+the snippet above previously read `EntityTabDescriptor<T = RaRecord>` and `EntityDescriptor.tabs`
+as `EntityTabDescriptor<T>[]`. No field of `EntityTabDescriptor` reads `T` (`render` is
+arity-zero per rule 4 below; a tab reaches the record via `useRecordContext()`, not a typed
+prop), and this repo compiles with `noUnusedLocals: true`, which turns an unused type parameter
+into `TS6133 "'T' is declared but its value is never read"`. Story 3.3a shipped the type
+non-generic for exactly this reason (`entityDescriptor.ts`'s own doc comment records the same
+finding) — the contract, not the implementation, was wrong. `EntityDescriptor.tabs` is
+`EntityTabDescriptor[]`, not `EntityTabDescriptor<T>[]`, above. `EntityRelationshipDescriptor<T>`
+(§9) is unaffected — its `getFilter: (record: T) => …` field genuinely reads `T`.
 
 Rules:
 1. `ComponentType<{record}>` for every region. A `(record) => ReactNode` **structurally cannot
@@ -316,8 +327,13 @@ Rules:
 
 ```ts
 // src/components/atomic-crm/entity360/EntityShow.tsx
-export function EntityShow(): ReactElement;   // no props
+export function EntityShow(): ReactElement | null;   // no props
 ```
+**Amendment (Epic 3 part 1 verification gate).** The return type is `ReactElement | null`, not a
+bare `ReactElement`: `EntityShow` returns `null` when `record` is `undefined` (the rare window
+before `ShowBase` — §5 rule 1 — supplies one). The implementation shipped this from the start
+(`entity-descriptor-registry.md`'s own Completion Notes record the widening); the contract's
+snippet was the stale one.
 - Reads `useResourceContext()` and `useRecordContext()`. **No `{resource, record}` props, and no
   "or" between the two mechanisms** — the repo pattern (`singles/SingleShow.tsx`,
   `shadchanim/ShadchanShow.tsx`) is context, and an "or" contract is untestable.
@@ -325,8 +341,19 @@ export function EntityShow(): ReactElement;   // no props
 - Renders `Entity360` with exactly: `breadcrumb` (reserved, currently undefined),
   `identityHeader` = `<IdentityHeader record/>` else the `avatar`/`title`/`meta` default
   composition, immediately followed by `<Actions record/>`; `statBand` = `<StatBand record/>`;
-  `alertSlot` = `<AlertSlot record/>`; `tabBar`+`children` = `<Entity360Tabs/>` (§6);
-  `rightRail` = `<RightRail record/>`. **Nothing else. No entity name appears in this file.**
+  `alertSlot` = `<AlertSlot record/>`; `tabBar` = `<Entity360TabStrip tabs={…}/>`, `children` =
+  `<Entity360TabPanel tabs={…}/>` (§6); `rightRail` = `<RightRail record/>`. **Nothing else. No
+  entity name appears in this file.**
+  **Amendment (Epic 3 part 1 verification gate).** `tabBar` and `children` are **two separate
+  components**, `Entity360TabStrip` and `Entity360TabPanel` — not one `<Entity360Tabs/>` call
+  supplying both, as an earlier revision of this contract read. `Entity360`'s `children` region
+  shares the content/rail row with `rightRail` (§1 rule 5); `tabBar` renders full width, above
+  that row. One component instance can only occupy one position in `Entity360`'s render tree, so
+  a single `<Entity360Tabs/>` handed to `tabBar` alone put the whole tab UI — strip and panel —
+  inside `tabBar`, leaving `children` permanently `undefined`: `rightRail` then had nothing to
+  sit beside and rendered alone, below the tab UI, instead of beside its content. This is the
+  defect the gate found. `Entity360Tabs` (§6) still exists, unchanged, for a caller that wants
+  both pieces together in one region; `EntityShow` is not that caller.
 - Missing optional fields degrade: a descriptor with only `name`, `buildRecordPath` and `label`
   renders without stat band, tab bar or rail, and does not throw.
 - Boundary test (`?raw`) is scoped to `EntityShow.tsx` **alone** and asserts **no import from any
@@ -454,6 +481,21 @@ export function Entity360Tabs(props: {
 // Amendment (Story 3.2 review): `| null`, not a bare `ReactElement` — AC 7 requires an empty
 // `tabs` array (or a record/resource not yet in context) to render nothing at all. A widening,
 // harmless to every caller that only ever places the return value in JSX.
+
+// Amendment (Epic 3 part 1 verification gate). `Entity360Tabs` renders the strip AND the panel
+// TOGETHER, in one element — unchanged, and still correct for a caller that wants both in a
+// single region. It is not, and was never usable as, a way to fill two DIFFERENT `Entity360`
+// regions at once: `EntityShow` needs the strip in `tabBar` and the panel in `children` (§1 rule
+// 5, §4), which takes two components, not one. Both are exported from the same module:
+export function Entity360TabStrip(props: {
+  tabs: { key: TabKey; label?: string; render: () => ReactNode }[];
+}): ReactElement | null;   // the tabBar region's content: the strip of links, alone.
+export function Entity360TabPanel(props: {
+  tabs: { key: TabKey; label?: string; render: () => ReactNode }[];
+}): ReactElement | null;   // the children region's content: the active tab's rendered subtree, alone.
+// `Entity360Tabs` is a two-line composition of the pair above
+// (`<>{<Entity360TabStrip .../>}{<Entity360TabPanel .../>}</>`), kept for any caller that still
+// wants one element. `EntityShow` calls the strip and the panel directly instead.
 
 // entity360/visibility.ts
 export function hasVisibility(

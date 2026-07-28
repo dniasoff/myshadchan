@@ -143,7 +143,7 @@ half is the epic owner's edit, and is what the residual above is about.
      title?: (record: T) => string;
      meta?: (record: T) => (string | null | undefined)[];
 
-     tabs?: EntityTabDescriptor<T>[];
+     tabs?: EntityTabDescriptor[];
      /** Canonical tabs this entity WILL have and does not have YET. Declared, never
       *  inferred: 3-11's validator asserts `keys(tabs) ∪ pendingTabs` equals the entity's
       *  canonical tab set, as SETS (contract §3 rule 5), so a partial `tabs` is legal and a
@@ -154,7 +154,7 @@ half is the epic owner's edit, and is what the residual above is about.
      relationships?: EntityRelationshipDescriptor<T>[];
    };
 
-   export type EntityTabDescriptor<T = RaRecord> = {
+   export type EntityTabDescriptor = {
      key: TabKey;
      /** OPTIONAL — and omitting it is the NORMAL case, not the exception. Absent, the label
       *  resolves through the i18n catalog with TAB_LABELS[key] as the untranslated fallback
@@ -329,8 +329,8 @@ half is the epic owner's edit, and is what the residual above is about.
 
 7. **`EntityShow` takes no props and reads both resource and record from context.**
    `src/components/atomic-crm/entity360/EntityShow.tsx` exports
-   `export function EntityShow(): ReactElement;` — **no `{ resource, record }` props, and no
-   "or" between the two mechanisms**. It reads `useResourceContext()` and `useRecordContext()`
+   `export function EntityShow(): ReactElement | null;` — **no `{ resource, record }` props, and
+   no "or" between the two mechanisms**. It reads `useResourceContext()` and `useRecordContext()`
    (the repo pattern; `admin/show.tsx` gets the record from `ShowBase`, imported from `ra-core`
    at [Source: src/components/admin/show.tsx:6-17]), looks the descriptor up with
    `requireEntityDescriptor`, and renders `Entity360` with **exactly**:
@@ -341,8 +341,17 @@ half is the epic owner's edit, and is what the residual above is about.
    | `identityHeader` | `<IdentityHeader record/>` if declared, else the `avatar`/`title`/`meta` default composition — **immediately followed, inside the same region, by `<Actions record/>`** |
    | `statBand` | `<StatBand record/>` |
    | `alertSlot` | `<AlertSlot record/>` |
-   | `tabBar` + `children` | `<Entity360Tabs tabs={…}/>` (3.2) |
+   | `tabBar` | `<Entity360TabStrip tabs={…}/>` |
+   | `children` | `<Entity360TabPanel tabs={…}/>` |
    | `rightRail` | `<RightRail record/>` |
+
+   **Post-hoc correction (Epic 3 part 1 verification gate, after this story shipped):** `tabBar`
+   and `children` were originally both filled from one `<Entity360Tabs tabs={…}/>` call, which
+   left `children` `undefined` (one component instance cannot occupy two regions) and broke
+   contract §1 rule 5 — the right rail rendered below the tab UI instead of beside its content.
+   Fixed by splitting `Entity360Tabs` into `Entity360TabStrip` (`tabBar`) and `Entity360TabPanel`
+   (`children`); see the contract's own amendment at §4/§6 and this repo's commit history for the
+   fix.
 
    `actions` is **never a region of its own** on `Entity360` — the shell's prop list stays at
    exactly seven [Source: Contract §1:33-67, §2:117-119]. This is where 5.1's

@@ -127,9 +127,23 @@ describe("EntityShow — a 360 renders entirely from the declaration (AC 8)", ()
     resolveStats({ data: { id: 1, nb: 4 } });
     await expect.element(screen.getByText("Stat value: 4")).toBeInTheDocument();
 
-    // Root region count: identityHeader + statBand + tabBar, no rail/alert.
+    // Root region count: identityHeader + statBand + tabBar (the strip
+    // alone) + the content row (the active tab's panel; Fixture A declares
+    // no rightRail). Four top-level regions, not three: before the
+    // composition fix, the whole tab UI (strip + panel) lived inside
+    // `tabBar` and `children` was never supplied, so no content row existed
+    // here at all — a bare count could not tell the two compositions
+    // apart. The sibling checks below can (contract §1 rule 5): they fail
+    // if the panel is ever nested back inside `tabBar`.
     const root = screen.container.children[0] as HTMLElement;
-    expect(root.children.length).toBe(3);
+    expect(root.children.length).toBe(4);
+    const tabBarRegion = root.children[2] as HTMLElement;
+    const contentRow = root.children[3] as HTMLElement;
+    const panel = screen.container.querySelector(
+      '[role="tabpanel"]',
+    ) as HTMLElement;
+    expect(tabBarRegion.contains(panel)).toBe(false);
+    expect(contentRow.contains(panel)).toBe(true);
   });
 
   it("Fixture B: a different title, three tabs, no statBand, a rightRail, and actions inside identityHeader", async () => {
@@ -176,8 +190,24 @@ describe("EntityShow — a 360 renders entirely from the declaration (AC 8)", ()
     const identityRegion = root.children[0] as HTMLElement;
     expect(identityRegion.textContent).toContain("Fixture B Title");
     expect(identityRegion.textContent).toContain("ACTIONS_B");
-    // identityHeader + tabBar + content/rail row — no statBand, no alertSlot.
+    // identityHeader + tabBar (the strip alone) + content/rail row — no
+    // statBand, no alertSlot. The count alone cannot distinguish "the rail
+    // sits beside the panel" from "the rail sits alone in the row while the
+    // panel is buried inside tabBar" — defect 1's exact failure mode, and
+    // it left this same count at 3 too. The sibling checks below are the
+    // falsifiable proof (contract §1 rule 5): the panel must NOT be inside
+    // tabBar, and both the panel and the rail must be inside the content
+    // row together.
     expect(root.children.length).toBe(3);
+    const tabBarRegion = root.children[1] as HTMLElement;
+    const contentRow = root.children[2] as HTMLElement;
+    const panel = screen.container.querySelector(
+      '[role="tabpanel"]',
+    ) as HTMLElement;
+    const rail = screen.getByText("RIGHT_RAIL_B").element() as HTMLElement;
+    expect(tabBarRegion.contains(panel)).toBe(false);
+    expect(contentRow.contains(panel)).toBe(true);
+    expect(contentRow.contains(rail)).toBe(true);
   });
 });
 

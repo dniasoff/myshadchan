@@ -1,9 +1,10 @@
 import { useEffect } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { useRecordContext, useResourceContext } from "ra-core";
+import type { Identifier } from "ra-core";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { buildTabPath } from "./entityPaths";
 import { isTabKey, type TabKey } from "./tabKeys";
@@ -65,26 +66,28 @@ function TabLabel({
   return <>{useTabLabel(tabKey, override)}</>;
 }
 
+interface ResolvedTabs {
+  resource: string | undefined;
+  recordId: Identifier | undefined;
+  activeKey: TabKey | undefined;
+}
+
 /**
- * AD-24's URL-driven tab strip + active panel (Epic 3 API contract §6).
- * Reads resource and record from context — never from props (contract §4/§6
- * rule 4) — and the active key from the URL's `:tab` param. Renders BOTH
- * the tab strip and the active tab's panel; a 360 using this component
- * leaves `Entity360`'s `children` region undefined, which renders nothing
- * (contract §1 rule 2), preserving the AD-24 region order.
- *
- * Built on shadcn's `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent`
- * (`@/components/ui/tabs`), driven controlled: `value` is the resolved
- * active key, and each `TabsTrigger` wraps a `<Link>` via Radix's
- * `asChild` (`@radix-ui/react-primitive`'s `Primitive.button` merges its
- * props onto the single child when `asChild` is set), so the rendered
- * trigger is a real anchor — middle-click, "open in new tab" and "copy
- * link address" all work, and a tab click is an ordinary history `push`
- * (the browser's own anchor navigation, intercepted by `<Link>`).
+ * Shared resolution + URL-sync core behind `Entity360TabStrip`,
+ * `Entity360TabPanel` and `Entity360Tabs`. `Entity360`'s `tabBar` and
+ * `children` regions land in different branches of the shell's own render
+ * tree — `children` shares the content/rail row with `rightRail` (Epic 3
+ * API contract §1 rule 5), `tabBar` does not — so one component instance
+ * cannot supply both regions at once; the strip and the panel below are two
+ * components built on this one hook instead. Only one of them may run the
+ * unknown-tab redirect (`ownsRedirect`): `EntityShow` always mounts the
+ * strip and the panel together, and running the effect from both would call
+ * `navigate` twice for the same transition.
  */
-export function Entity360Tabs({
-  tabs,
-}: Entity360TabsProps): ReactElement | null {
+function useResolvedTabs(
+  tabs: { key: TabKey }[],
+  { ownsRedirect }: { ownsRedirect: boolean },
+): ResolvedTabs {
   const resource = useResourceContext();
   const record = useRecordContext();
   const { tab: tabParam } = useParams<{ tab?: string }>();
@@ -102,6 +105,7 @@ export function Entity360Tabs({
   // because omitting it changes behaviour.
   useEffect(() => {
     if (
+      !ownsRedirect ||
       !shouldReplace ||
       !resource ||
       recordId == null ||
@@ -110,15 +114,40 @@ export function Entity360Tabs({
       return;
     }
     navigate(buildTabPath(resource, recordId, activeKey), { replace: true });
-  }, [shouldReplace, resource, recordId, activeKey, tabParam, navigate]);
+  }, [
+    ownsRedirect,
+    shouldReplace,
+    resource,
+    recordId,
+    activeKey,
+    tabParam,
+    navigate,
+  ]);
+
+  return { resource, recordId, activeKey };
+}
+
+/**
+ * `Entity360`'s `tabBar` region alone: the strip of links, never the active
+ * tab's rendered subtree. Split from `Entity360TabPanel` so `EntityShow` can
+ * place the strip in `tabBar` and the panel in `children` — two separate
+ * regions (contract §1 rule 5) — see `EntityShow.tsx`'s own doc comment for
+ * why the two cannot come from a single `<Entity360Tabs/>` instance. Owns
+ * the unknown-tab redirect effect (`ownsRedirect: true` — see
+ * `useResolvedTabs`).
+ */
+export function Entity360TabStrip({
+  tabs,
+}: Entity360TabsProps): ReactElement | null {
+  const { resource, recordId, activeKey } = useResolvedTabs(tabs, {
+    ownsRedirect: true,
+  });
 
   // AC 7 — an empty `tabs` array (or a record/resource not yet available)
-  // renders nothing: no strip, no panel, no error.
+  // renders nothing: no strip, no navigation.
   if (!resource || recordId == null || activeKey === undefined) {
     return null;
   }
-
-  const activeTab = tabs.find((tab) => tab.key === activeKey);
 
   return (
     <Tabs value={activeKey}>
@@ -131,13 +160,64 @@ export function Entity360Tabs({
           </TabsTrigger>
         ))}
       </TabsList>
-      {/* AC 4 — only the active tab's `render()` is invoked; the others'
-          subtrees never exist. */}
-      {activeTab ? (
-        <TabsContent value={activeTab.key} className="pt-4">
-          {activeTab.render()}
-        </TabsContent>
-      ) : null}
     </Tabs>
+  );
+}
+
+/**
+ * `Entity360`'s `children` region alone: the active tab's rendered subtree,
+ * never the strip (see `Entity360TabStrip`). Deliberately NOT wrapped in
+ * shadcn's `Tabs`/`TabsContent` — that primitive links a panel to its
+ * trigger through a shared Radix context/`baseId`, and the strip and the
+ * panel are now, structurally, two separate subtrees of `Entity360`
+ * (contract §1 rule 5's whole point: the right rail sits beside the panel,
+ * not beside the strip, so the two cannot share one DOM position, let alone
+ * one Radix root). A plain `role="tabpanel"` reproduces the accessible
+ * semantics that still apply without pretending the two halves share a
+ * root; the one thing lost is the `aria-controls`/`aria-labelledby`
+ * cross-reference between trigger and panel, which nothing in this
+ * codebase reads. Never runs the redirect effect (`ownsRedirect: false` —
+ * `Entity360TabStrip` owns it).
+ */
+export function Entity360TabPanel({
+  tabs,
+}: Entity360TabsProps): ReactElement | null {
+  const { activeKey } = useResolvedTabs(tabs, { ownsRedirect: false });
+
+  if (activeKey === undefined) {
+    return null;
+  }
+  const activeTab = tabs.find((tab) => tab.key === activeKey);
+  if (!activeTab) {
+    return null;
+  }
+
+  // AC 4 — only the active tab's `render()` is invoked; the others'
+  // subtrees never exist.
+  return (
+    <div role="tabpanel" className="flex-1 pt-4 outline-none">
+      {activeTab.render()}
+    </div>
+  );
+}
+
+/**
+ * AD-24's URL-driven tab strip + active panel, together, in one element
+ * (Epic 3 API contract §6) — a thin composition of `Entity360TabStrip` and
+ * `Entity360TabPanel` for a caller that wants both in a single region (as
+ * this file's own test fixtures do). **`EntityShow` does not use this
+ * component**: it needs the strip and the panel in `Entity360`'s two
+ * separate regions (`tabBar` and `children`), which is exactly what one
+ * merged element cannot express — see `Entity360TabStrip` / `Entity360TabPanel`
+ * above, and `EntityShow.tsx`'s own doc comment.
+ */
+export function Entity360Tabs({
+  tabs,
+}: Entity360TabsProps): ReactElement | null {
+  return (
+    <>
+      <Entity360TabStrip tabs={tabs} />
+      <Entity360TabPanel tabs={tabs} />
+    </>
   );
 }

@@ -32,11 +32,16 @@ const LOCAL_TAB_KEY_TYPE_RE = /\btype\s+TabKey\s*=/;
 // module (relationshipDescriptor.ts, excluded by path).
 const RELATIONSHIP_DESCRIPTOR_TYPE_RE =
   /export\s+type\s+EntityRelationshipDescriptor\s*=/;
-
-/** AC 4: the doc comment at the top of entityDescriptor.ts must name both `EntityList` and the "never redefine" rule. */
-function hasEntityListDocComment(source: string): boolean {
-  return source.includes("EntityList") && source.includes("never redefine");
-}
+// A local re-declaration of EntityDescriptor, e.g. `type EntityDescriptor =
+// {...}` (with or without a generic parameter list), outside its one owning
+// module (entityDescriptor.ts itself, excluded by path). Replaces a former
+// guard that only read the doc comment's prose ("names EntityList", "says
+// never redefine") — green regardless of whether any file actually
+// redeclared the type, since prose isn't behaviour. This regex is the same
+// pattern as `LOCAL_TAB_KEY_TYPE_RE` / `RELATIONSHIP_DESCRIPTOR_TYPE_RE`
+// above and actually catches the redefinition the doc comment only asked
+// readers to avoid.
+const ENTITY_DESCRIPTOR_TYPE_RE = /\btype\s+EntityDescriptor\s*[<=]/;
 
 /** AC 4: entityDescriptor.ts / registry.ts must register no descriptor themselves. */
 function callsRegisterEntityDescriptor(source: string): boolean {
@@ -58,21 +63,10 @@ function declaresRelationshipDescriptorType(source: string): boolean {
   return RELATIONSHIP_DESCRIPTOR_TYPE_RE.test(source);
 }
 
-describe("hasEntityListDocComment — shown red then green", () => {
-  it("is false for a doc comment naming neither EntityList nor the never-redefine rule", () => {
-    // Arrange
-    const fixture = `/** Some other module. */\nexport type X = { a: string };`;
-
-    // Act / Assert
-    expect(hasEntityListDocComment(fixture)).toBe(false);
-  });
-
-  it("is true for the real entityDescriptor.ts source", () => {
-    expect(hasEntityListDocComment(sources["./entityDescriptor.ts"])).toBe(
-      true,
-    );
-  });
-});
+/** AC 4: no file under entity360/ (other than entityDescriptor.ts) may re-declare EntityDescriptor. */
+function declaresEntityDescriptorType(source: string): boolean {
+  return ENTITY_DESCRIPTOR_TYPE_RE.test(source);
+}
 
 describe("callsRegisterEntityDescriptor — shown red then green", () => {
   it("is true for a fixture that self-registers at module scope", () => {
@@ -139,6 +133,33 @@ describe("declaresRelationshipDescriptorType — shown red then green", () => {
       if (isTestOrGuardFile(path) || path === "./relationshipDescriptor.ts")
         continue;
       expect(declaresRelationshipDescriptorType(source), path).toBe(false);
+    }
+  });
+});
+
+describe("declaresEntityDescriptorType — shown red then green", () => {
+  it("is true for a fixture re-declaring EntityDescriptor", () => {
+    // Arrange
+    const fixture = `export type EntityDescriptor = { name: string };`;
+
+    // Act / Assert
+    expect(declaresEntityDescriptorType(fixture)).toBe(true);
+  });
+
+  it("is true for a fixture re-declaring EntityDescriptor with a generic parameter list", () => {
+    // Arrange — the real definition is generic (`<T extends RaRecord =
+    // RaRecord>`); the regex must catch a redeclaration in that shape too,
+    // not only the bare `= {` form.
+    const fixture = `export type EntityDescriptor<T> = { name: string };`;
+
+    // Act / Assert
+    expect(declaresEntityDescriptorType(fixture)).toBe(true);
+  });
+
+  it("is false across every real (non-test) source file under entity360/, other than entityDescriptor.ts's own definition", () => {
+    for (const [path, source] of Object.entries(sources)) {
+      if (isTestOrGuardFile(path) || path === "./entityDescriptor.ts") continue;
+      expect(declaresEntityDescriptorType(source), path).toBe(false);
     }
   });
 });
