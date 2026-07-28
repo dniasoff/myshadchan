@@ -13,9 +13,24 @@ create or replace trigger on_auth_user_created
     after insert on auth.users
     for each row execute function public.handle_new_user();
 
+-- Epic 2 verification finding F2: this trigger used to fire (and
+-- handle_update_user() run) on EVERY auth.users UPDATE, including the
+-- last_sign_in_at bump every email-OTP sign-in performs. Since a plain OTP
+-- login carries no name fields in raw_user_meta_data, that unconditional
+-- fire fell through handle_update_user()'s coalesce chain to 'Pending',
+-- wiping a member's real name on every single login, including one they had
+-- just set in Settings. The WHEN guard scopes the trigger to updates that
+-- can actually change what handle_update_user() writes (name-bearing
+-- metadata, or the email column it also syncs), so a metadata-inert login
+-- no longer touches public.members at all.
 create or replace trigger on_auth_user_updated
     after update on auth.users
-    for each row execute function public.handle_update_user();
+    for each row
+    when (
+        old.raw_user_meta_data is distinct from new.raw_user_meta_data
+        or old.email is distinct from new.email
+    )
+    execute function public.handle_update_user();
 
 -- Auto-activates a user's first live context (AC-5, AD-19). Fires only when
 -- the inserted membership is itself active; activate_first_context() does

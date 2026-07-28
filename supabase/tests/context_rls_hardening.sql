@@ -87,6 +87,74 @@ select 'storage: tenant A can read the object it just uploaded under its own pre
        count(*) = 1
 from storage.objects where id = :'obj_a';
 
+-- ---------------------------------------------------------------------------
+-- Epic 2 verification finding F3(a) — the anon vector. The bucket being
+-- PRIVATE (public = false, asserted above) only closes the unauthenticated
+-- CDN-URL download path. A caller hitting the Storage/PostgREST API with the
+-- anon apikey (no user JWT at all) goes through Postgres role `anon`, which
+-- is a completely separate path RLS still has to close on its own — this is
+-- the exact shape of the leak this file's own header cites as its
+-- motivation ("a public bucket readable by an anonymous caller"). Both
+-- angles: the catalog check (no policy on either table names `anon` or
+-- `public`, so a future migration can't silently reintroduce the vector) and
+-- a live SELECT as anon, with a real row already in the bucket to fail
+-- against.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed)
+select 'storage: no RLS policy on objects/buckets grants access to anon (or PUBLIC)',
+       not exists (
+         select 1 from pg_policies
+         where schemaname = 'storage' and tablename in ('objects', 'buckets')
+           and ('anon' = any(roles) or 'public' = any(roles))
+       );
+
+reset role;
+set local role anon;
+
+insert into results (name, passed)
+select 'storage: anon cannot SELECT any attachments object, even one that exists (0 rows)',
+       count(*) = 0
+from storage.objects where bucket_id = 'attachments';
+
+insert into results (name, passed)
+select 'storage: anon cannot read the attachments bucket''s row in storage.buckets (0 rows)',
+       count(*) = 0
+from storage.buckets where id = 'attachments';
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Epic 2 verification finding F3(b) — no UPDATE coverage. There is
+-- deliberately no UPDATE policy at all on storage.objects (07_storage.sql
+-- defines only readable/writable/deletable), so nobody — not even the
+-- object's own owner — can rename or otherwise mutate a row through the API
+-- today. That is a real, load-bearing invariant (an UPDATE policy scoped
+-- only by bucket, without also re-deriving the prefix check, is exactly the
+-- shape that would let a tenant move an object's key across the account
+-- boundary), so it gets a tripwire: both the catalog fact and a live attempt
+-- by the object's own owner, which must still be denied. This check is
+-- expected to start failing the day storage gains an UPDATE policy — that's
+-- the point: it forces whoever adds one to also write the equivalent of the
+-- readable/writable/deletable prefix check and to update this suite
+-- deliberately, rather than the gap staying silent.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed)
+select 'storage: no UPDATE-applicable policy exists on storage.objects',
+       not exists (
+         select 1 from pg_policies
+         where schemaname = 'storage' and tablename = 'objects' and cmd in ('UPDATE', 'ALL')
+       );
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-1111-1111-1111-111111111111","role":"authenticated"}';
+
+update storage.objects set name = :acct_a || '/renamed.pdf' where id = :'obj_a';
+
+insert into results (name, passed)
+select 'storage: even the owning tenant cannot UPDATE (rename) its own attachments object',
+       count(*) = 0
+from storage.objects where id = :'obj_a' and name = :acct_a || '/renamed.pdf';
+
 reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"bbbbbbbb-2222-2222-2222-222222222222","role":"authenticated"}';
@@ -204,6 +272,46 @@ select 'inbox_items: tenant B''s inbox never includes tenant A''s account', coun
 from public.inbox_items where account_id = :acct_a;
 
 -- ---------------------------------------------------------------------------
+-- Epic 2 verification finding F3(c) — the write half of `for all` was
+-- untested: only SELECT denial was asserted, never that the `with check`
+-- clause itself rejects an explicit foreign account_id on INSERT.
+-- inbox_items also carries validate_inbox_items_household_scope (04_triggers.sql),
+-- a second, independent layer that already blocks this in practice (it
+-- relies on the caller's own RLS-limited view of `accounts`, which cannot
+-- see a household it holds no membership in — proved empirically before
+-- this check was written). Disabling that trigger for this one statement
+-- isolates the `with check` clause's own contribution specifically, the same
+-- way the storage DELETE section above transiently swaps the readable policy
+-- to isolate the deletable policy alone. Re-enabled immediately after,
+-- inside this suite's own rolled-back transaction.
+-- ---------------------------------------------------------------------------
+reset role;
+alter table public.inbox_items disable trigger validate_inbox_items_household_scope;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"bbbbbbbb-2222-2222-2222-222222222222","role":"authenticated"}';
+
+do $$
+begin
+  begin
+    insert into public.inbox_items (source, raw_text, account_id)
+      values ('upload', 'evil cross-account insert', (select value::bigint from ids where name = 'acct_a'));
+    insert into results values (
+      'inbox_items: with check alone rejects an explicit foreign account_id on INSERT',
+      false, 'insert unexpectedly succeeded'
+    );
+  exception when others then
+    insert into results values (
+      'inbox_items: with check alone rejects an explicit foreign account_id on INSERT',
+      true, sqlerrm
+    );
+  end;
+end $$;
+
+reset role;
+alter table public.inbox_items enable trigger validate_inbox_items_household_scope;
+
+-- ---------------------------------------------------------------------------
 -- ai_usage — cross-account denial (blocker #3), the same shape
 -- billing_entitlement.sql already uses for `subscription`.
 -- ---------------------------------------------------------------------------
@@ -245,7 +353,35 @@ insert into results (name, passed)
 select 'shadchanim: tenant B''s matchmaker list never includes tenant A''s account', count(*) = 0
 from public.shadchanim where account_id = :acct_a;
 
+-- Epic 2 verification finding F3(c), same shape as inbox_items above:
+-- isolate the `with check` clause itself by disabling
+-- validate_shadchanim_household_scope's independent (account-visibility)
+-- backstop for one statement.
 reset role;
+alter table public.shadchanim disable trigger validate_shadchanim_household_scope;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"bbbbbbbb-2222-2222-2222-222222222222","role":"authenticated"}';
+
+do $$
+begin
+  begin
+    insert into public.shadchanim (name, account_id)
+      values ('Evil Cross-Account Shadchan', (select value::bigint from ids where name = 'acct_a'));
+    insert into results values (
+      'shadchanim: with check alone rejects an explicit foreign account_id on INSERT',
+      false, 'insert unexpectedly succeeded'
+    );
+  exception when others then
+    insert into results values (
+      'shadchanim: with check alone rejects an explicit foreign account_id on INSERT',
+      true, sqlerrm
+    );
+  end;
+end $$;
+
+reset role;
+alter table public.shadchanim enable trigger validate_shadchanim_household_scope;
 
 -- ---------------------------------------------------------------------------
 -- Emit the report as a single JSON array line, then undo everything.

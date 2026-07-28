@@ -46,10 +46,18 @@ test("a parent_admin sends an invite from Settings, sees the link, then revokes 
   // action next to it (AC-3). Scoped to the Invites section's own list
   // (role="list" on InvitesSection's ItemGroup) rather than a bare
   // page-wide `getByText("Pending")`: the Settings page's Profile section
-  // renders the literal placeholder "Pending" for a member's first/last
-  // name until they set one (see supabase/schemas/01_tables.sql's
-  // `default 'Pending'`) — an unscoped locator collides with that and
-  // throws a strict-mode violation.
+  // can also render the literal placeholder "Pending" for a member's
+  // first/last name (see supabase/schemas/01_tables.sql's `default
+  // 'Pending'`) — an unscoped locator risks colliding with that and
+  // throwing a strict-mode violation. In this test specifically, that
+  // collision was not the benign "hasn't set a name yet" case: the member
+  // is created with an explicit name (Rivka Shadchan) above, and it was
+  // getting reset to "Pending" by a real bug — handle_update_user()
+  // firing on every sign-in with no WHEN guard, wiping the name on every
+  // login (see the guard added to on_auth_user_updated in
+  // supabase/schemas/04_triggers.sql, Epic 2 verification finding F2).
+  // The scoped locator is kept regardless as the correct, collision-proof
+  // way to assert on the invite row's own status.
   await expect(page.getByText(inviteEmail)).toBeVisible();
   const inviteRow = page.getByRole("list").filter({ hasText: inviteEmail });
   await expect(inviteRow.getByText("Pending", { exact: true })).toBeVisible();
