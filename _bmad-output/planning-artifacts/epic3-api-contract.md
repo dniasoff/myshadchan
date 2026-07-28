@@ -97,6 +97,18 @@ export type EntityDescriptor<T extends RaRecord = RaRecord> = {
   meta?: (record: T) => (string | null | undefined)[];
 
   tabs?: EntityTabDescriptor<T>[];
+
+  /** Tabs this entity WILL have and does not have YET — the canonical keys not in `tabs`.
+   *  Declared, never inferred: the conformance validator asserts
+   *  `keys(tabs) ∪ pendingTabs === CANONICAL_TAB_SET[name]` as SETS (§3 rule 5), so a
+   *  forgotten tab is still caught while a deliberately partial set is legal. Must itself be
+   *  in canonical order and drawn from `TabKey` — it is a declaration, not a comment.
+   *  A stub descriptor is `tabs: []` + `pendingTabs: <the entity's full canonical set>`;
+   *  there is no separate stub-exemption list. The story that builds a tab moves its key
+   *  from `pendingTabs` into `tabs` in the same diff. Descriptor metadata only — nothing
+   *  renders it, and it is NOT an `Entity360` region (§1 stays at seven). */
+  pendingTabs?: TabKey[];
+
   relationships?: EntityRelationshipDescriptor<T>[];   // §9
 };
 
@@ -230,8 +242,34 @@ Rules:
    - **Shadchan** — `overview, shidduchim, notes, tasks, activity`
    - **Reference** — `overview, conversations, shidduchim, notes, tasks, activity, assistant`
    - **Connection** (Epic 8) — `overview, discussions`
-   A conformance test (§12, story 3-15) asserts each registered descriptor's tab set against
-   this table.
+
+   **Conformance rule — consistency is enforced, completeness is declared.** The validator
+   (§12, story 3-15) transcribes this table as `CANONICAL_TAB_SETS` and asserts, for **every**
+   registered descriptor:
+
+   a. every key in `tabs` **and** in `pendingTabs` is a member of `TAB_KEYS`;
+   b. no key appears twice — within `tabs`, within `pendingTabs`, or once in each;
+   c. the keys of `tabs` are a **subsequence** of this table's row for that entity (canonical
+      *relative* order), and `pendingTabs` likewise;
+   d. `keys(tabs) ∪ pendingTabs` **equals** this table's row, compared as **sets**, in both
+      directions.
+
+   (a)–(c) are the whole of AD-24's actual invariant — entities do not **diverge** — and have
+   no escape hatch of any kind. (d) is completeness, and it is satisfied by a **declaration**
+   (`pendingTabs`, §2), not by requiring every tab on day one: an entity may ship a partial
+   `tabs` array, and 5-1 deliberately does (`overview, diligence, notes, tasks, activity`,
+   with `resume`/`photo`/`medical`/`files`/`external-links` pending and placeholder tabs
+   explicitly forbidden). A story that simply forgets a tab is still caught by (d), because
+   the forgotten key appears in neither array. A descriptor whose `name` has **no** row here is
+   itself a violation — the table is widened by the story that needs the key (rule 3), in the
+   same diff, and 7-1 / 8-5 must add their row or key **and** the descriptor entry together or
+   (d) fails.
+
+   Because `pendingTabs` is re-asserted against this table on every run, it cannot outlive its
+   reason: there is **no stub-exemption list and no staleness machinery** for tabs. A story
+   that builds a tab moves its key from `pendingTabs` into `tabs` — one line, and omitting it
+   fails (d). Epic 5's closing story flips 3-15's pending-tab ledger from informational to
+   failing, so the epic cannot be declared done with tabs still pending.
 
 ---
 
@@ -267,7 +305,10 @@ Rules:
    no lazy import, no registration inside a component, no `useEffect`.
 5. 3.9's four stubs are written as **files Epic 5 will replace**
    (`singles/entityDescriptor.ts`, `shadchanim/…`, `references/…`, `shidduchim/…`), not as four
-   literals in one shared file that four Epic 5 stories concurrently hand-edit.
+   literals in one shared file that four Epic 5 stories concurrently hand-edit. Each stub
+   declares `pendingTabs: <its full canonical set from §3 rule 5>` alongside its empty `tabs`;
+   that is what makes a stub legal under §3 rule 5(d) and it replaces any notion of a
+   stub-exemption list.
 6. Registry order is irrelevant and must stay irrelevant: no descriptor may read another at
    module scope.
 
@@ -697,7 +738,7 @@ the count of rows is no longer the count of stories.
 | 9 | **3.6** — Notes | Hard dependency on 3.5's `current_member_id()`, `set_interaction_actor_member_id`, `interactionLabels.ts` and the widened enum. Needs 3-14. Must call `public.is_owning_membership_role(am.role)` (`02_functions.sql:439-444`), never `am.role = 'parent_admin'`, and must resolve note authorship by **`user_id` via a join**, never by `account_members.id` (archive+re-add issues a new id — `01_tables.sql:710`'s partial unique index — permanently stripping an author of their own notes). |
 | 10 | **3.8** — Tasks | Needs 3.9 (the `Record` maps) and 3-14 (the trigger). Independent of 3.5/3.6 otherwise. |
 | 11 | **3.7** — Files | Heaviest new surface (bucket + table + policies + grants + FakeRest mirror); depends on 3.5's four-value vocabulary and `current_member_id()`. Last, so its premise rewrite has the most information. The `attachments` policies at `supabase/schemas/07_storage.sql:25-44` are the **correct template to copy** with the bucket id swapped — the story currently says the opposite. |
-| 12 | **3-15** (= `3-11-ad24-conformance-validator.md`) — AD-24 conformance validator | Needs every primitive to exist before it can assert on them, **plus steps 4a and 4b**: 3.12 supplies the `create-route-on-resource` / `record-flags-missing` violation codes and `RECORD_FLAG_EXEMPTIONS`, and 3.13 supplies the two UX-DR3 rulings its `MODAL_RECORD_SURFACES` table consumes. Modelled on `root/routeManifest.ts:175+`'s `findManifestViolations` + fixture-in-test-file. Asserts: every `RESOURCES` entry has a descriptor or an explicit exemption; every registered descriptor's tab set matches §3 rule 5; no detail/`Show` component outside `entity360/` is route-reachable; no `<Dialog>` wraps a primary record surface; every `buildRecordPath` matches `/{entity}/{id}`; `PENDING_DB_WIDENINGS` is empty. **Must land inside Epic 3, before Epic 5's first migration, or it never lands.** |
+| 12 | **3-15** (= `3-11-ad24-conformance-validator.md`) — AD-24 conformance validator | Needs every primitive to exist before it can assert on them, **plus steps 4a and 4b**: 3.12 supplies the `create-route-on-resource` / `record-flags-missing` violation codes and `RECORD_FLAG_EXEMPTIONS`, and 3.13 supplies the two UX-DR3 rulings its `MODAL_RECORD_SURFACES` table consumes. Modelled on `root/routeManifest.ts:175+`'s `findManifestViolations` + fixture-in-test-file. Asserts: every `RESOURCES` entry has a descriptor or an explicit exemption; every registered descriptor's tab set satisfies §3 rule 5's conformance rule — keys in the union, in canonical relative order, no duplicates, and `tabs ∪ pendingTabs` equal to the canonical set (a partial `tabs` is legal, an undeclared gap is not); no detail/`Show` component outside `entity360/` is route-reachable; no `<Dialog>` wraps a primary record surface; every `buildRecordPath` matches `/{entity}/{id}`; `PENDING_DB_WIDENINGS` is empty. **Must land inside Epic 3, before Epic 5's first migration, or it never lands.** |
 
 **Acyclicity, re-verified over all 14 stories after 4a/4b were inserted.** Read the table as the
 total order `0 → 1 → 2 → 3 → 4 → 4a → 4b → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12`. Every declared

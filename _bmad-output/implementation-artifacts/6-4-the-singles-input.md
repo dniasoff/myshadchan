@@ -67,8 +67,11 @@ frontend at all.
    `current_member_role()` RPC (Story 6.2; already granted to
    `authenticated`). The provisional mapping is deleted, not kept as a
    fallback (NFR-14). This is what makes this story's form gate, and every
-   tab `minVisibility` declaration that names `single` or `self_manager`
-   (e.g. Story 5.5's Medical tab), actually work for real roles.
+   tab `visibleTo` allow-list that names `single` or `self_manager`
+   (e.g. Story 5.5's Medical tab, `visibleTo: ["parent_admin",
+   "self_manager"]`), actually work for real roles. `visibleTo?: MemberRole[]`
+   is the one visibility field on `EntityTabDescriptor` (contract §2 rule 7);
+   it is an allow-list, not a threshold, and there is no `minVisibility`.
 
 6. **Negative tests, required by `.claude/rules/security-triggers.md`:** a
    single cannot insert a `kind` other than `single_input`; a single cannot
@@ -270,8 +273,14 @@ pattern).
 - [Source: ARCHITECTURE-SPINE.md#AD-3] — dignity floor: "the child always
   sees their live prospects and can give input" — this story is the write
   half (6.2/6.3 are the read half).
-- [Source: ARCHITECTURE-SPINE.md#AD-24] — tabs declare a minimum visibility;
-  Task 4 is what makes that resolvable for `single`/`self_manager` viewers.
+- [Source: ARCHITECTURE-SPINE.md#AD-24] — "tabs declare a minimum visibility"
+  (the spine's wording); Task 4 is what makes that resolvable for
+  `single`/`self_manager` viewers. The **implemented** mechanism is
+  `EntityTabDescriptor.visibleTo?: MemberRole[]`, an explicit allow-list rather
+  than an ordered threshold.
+- [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#2] — rule 7:
+  `visibleTo?: MemberRole[]`, absent = visible to every role; `minVisibility`
+  does not exist.
 - [Source: _bmad-output/specs/spec-myshadchan/SPEC.md#CAP-9] — "their input
   reaches the parent against the suggestion."
 - [Source: _bmad-output/implementation-artifacts/5-7-shidduch-right-rail.md]

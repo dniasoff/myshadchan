@@ -69,11 +69,33 @@ its first line. Registration is then complete before first render without any la
 `src/components/atomic-crm/root/routeManifest.ts:7-17` imports every resource index module at
 module scope, and `RESOURCES` (`:92-100`) is mapped over at boot.
 
-Each stub carries **exactly the three required fields** of contract §2 — `name`,
-`buildRecordPath`, `label` — reflecting today's real, working routes. No `tabs`, no
-`statBand`, no `identityHeader`, no `relationships`. Epic 5 replaces each whole descriptor via
-`registerEntityDescriptor(d, { replace: true })` (contract §4 rule 2) and flips
-`buildRecordPath` from `/{r}/{id}/show` to the AD-24 bare `/{r}/{id}` in the same story.
+Each stub carries the **three required fields** of contract §2 — `name`, `buildRecordPath`,
+`label` — reflecting today's real, working routes, **plus `tabs: []` and a full
+`pendingTabs`** (below). No `statBand`, no `identityHeader`, no `relationships`. Epic 5
+replaces each whole descriptor via `registerEntityDescriptor(d, { replace: true })`
+(contract §4 rule 2) and flips `buildRecordPath` from `/{r}/{id}/show` to the AD-24 bare
+`/{r}/{id}` in the same story.
+
+**Each stub declares `pendingTabs: <its full canonical tab set>` — required, not optional**
+[Source: _bmad-output/planning-artifacts/epic3-api-contract.md#4-Registry — rule 5;
+#3-TabKey — rule 5]. Under 3-11's conformance rule a descriptor's
+`keys(tabs) ∪ pendingTabs` must equal that entity's canonical row, compared as sets, and
+`pendingTabs` must itself be in canonical order and drawn from `TabKey`
+(`entity360/tabKeys.ts`, build-order step 0, so the union already exists here). A stub is
+simply the extreme case — everything pending, nothing built — and there is **no
+stub-exemption list**: a stub shipped without `pendingTabs` makes 3-11 AC 6(d) report
+`tab-set-incomplete` for all four entities, and the fix would belong in this story. The four
+rows, verbatim from contract §3 rule 5:
+
+| Stub | `pendingTabs` (canonical order) |
+|---|---|
+| `shidduchim` | `overview, resume, photo, medical, files, diligence, external-links, notes, tasks, activity` |
+| `singles` | `overview, resume, photo, files, shidduchim, notes, tasks, activity` |
+| `shadchanim` | `overview, shidduchim, notes, tasks, activity` |
+| `references` | `overview, conversations, shidduchim, notes, tasks, activity, assistant` |
+
+Do **not** add `discussions` to the `shidduchim` row or invent a `connections` row — 7-1 and
+8-5 add their own key and row together, in their own diff (contract §3 rules 3 and 5).
 
 ```ts
 // shidduchim/entityDescriptor.ts  (shape; label strings per AD-23)
@@ -81,13 +103,18 @@ export const shidduchimDescriptor: EntityDescriptor = {
   name: "shidduchim",
   label: "Shidduchim",
   buildRecordPath: (id) => `/shidduchim/${id}/show`,
+  tabs: [],
+  pendingTabs: [
+    "overview", "resume", "photo", "medical", "files",
+    "diligence", "external-links", "notes", "tasks", "activity",
+  ],
 };
 registerEntityDescriptor(shidduchimDescriptor);
 ```
 
 …and likewise `singles` → `/singles/${id}/show` (label "Singles"), `shadchanim` →
 `/shadchanim/${id}/show` (label "Shadchanim"), `references` → `/references/${id}/show`
-(label "References").
+(label "References"), each with the `pendingTabs` row from the table above.
 
 **`shidduchim`'s pinned path is honest, not aspirational, and it pins a UX-DR3 violation.**
 `src/components/atomic-crm/shidduchim/index.ts:5-7` exports `{ list: ShidduchimList }` only;
@@ -162,7 +189,10 @@ imports the four `<entity>/entityDescriptor` modules and asserts, for each of
 
 - `getEntityDescriptor(name)` is defined;
 - `.name === name` and `.label` is a non-empty string;
-- `.buildRecordPath(1)` equals the pinned string `/{name}/1/show`.
+- `.buildRecordPath(1)` equals the pinned string `/{name}/1/show`;
+- `.tabs` is `[]` and `.pendingTabs` **deep-equals** that entity's canonical row from the
+  table above, in that exact order — the assertion that stops 3-11 AC 6(d) from going red on
+  all four entities the day the validator lands.
 
 The pins are literal strings, not derived. `root/routeManifest.ts`'s `ResourceEntry`
 (`:39-43`) holds `definition: Omit<ResourceProps, "name">` — components, not path templates —
@@ -456,6 +486,9 @@ under `strict`.
   - [ ] Create `shidduchim/entityDescriptor.ts`, `singles/entityDescriptor.ts`,
         `shadchanim/entityDescriptor.ts`, `references/entityDescriptor.ts` — each exports the
         descriptor **and** registers it at module scope.
+  - [ ] Give each stub `tabs: []` and the `pendingTabs` row pinned in AC 2's table, importing
+        `TabKey` from `entity360/tabKeys.ts`. Transcribe the rows from contract §3 rule 5 —
+        do not re-derive them from UX-DR5, and do not add `discussions` or `connections`.
   - [ ] Add `import "./entityDescriptor";` as the first line of each `<entity>/index.ts`.
   - [ ] Put the UX-DR3 comment in `shidduchim/entityDescriptor.ts` (routed Dialog,
         `hasShow: false`, un-pinned by 5.1).

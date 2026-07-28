@@ -136,6 +136,13 @@ half is the epic owner's edit, and is what the residual above is about.
      meta?: (record: T) => (string | null | undefined)[];
 
      tabs?: EntityTabDescriptor<T>[];
+     /** Canonical tabs this entity WILL have and does not have YET. Declared, never
+      *  inferred: 3-11's validator asserts `keys(tabs) ∪ pendingTabs` equals the entity's
+      *  canonical tab set, as SETS (contract §3 rule 5), so a partial `tabs` is legal and a
+      *  forgotten tab is still caught. Must itself be canonically ordered and drawn from
+      *  `TabKey`. A stub descriptor is `tabs: []` + a full `pendingTabs`. Descriptor
+      *  metadata only — nothing renders it, and it is NOT an `Entity360` region. */
+     pendingTabs?: TabKey[];
      relationships?: EntityRelationshipDescriptor<T>[];
    };
 
@@ -158,6 +165,12 @@ half is the epic owner's edit, and is what the residual above is about.
    region is `(record) => ReactNode`. Note the asymmetry, which is deliberate and is the owner's
    ruling: `EntityDescriptor.label` is required, `EntityTabDescriptor.label` is optional.
 
+   One property is **present by decision**: `pendingTabs?: TabKey[]`. It is contract (§2), it
+   is what makes a partial or empty `tabs` array legal under 3-11's conformance rule
+   (contract §3 rule 5), and **3.9's four stub descriptors — the first consumers of this type,
+   one story later — each declare it**. Omitting it from this type is not a simplification: it
+   makes `pendingTabs: [...]` an excess-property error on 3.9's literals and blocks step 3.
+
    **How this fails:** `entityDescriptor.test.ts` carries `@ts-expect-error` assertions that
    `npm run typecheck` evaluates (`tsconfig.app.json` `include: ["src", …]`, `strict: true`) —
    an unused `@ts-expect-error` is itself a compile error, so each assertion fails loudly if
@@ -168,10 +181,13 @@ half is the epic owner's edit, and is what the residual above is about.
    (d) a tab with `key: "not-a-tab"`;
    (e) a tab with `minVisibility: […]`;
    (f) `render: (record) => …` (arity — `render` takes no argument).
-   Plus two positives that must compile clean: `{ name, buildRecordPath, label }` alone; and a
+   Plus three positives that must compile clean: `{ name, buildRecordPath, label }` alone; a
    tab literal `{ key: "overview", render: () => null }` carrying **no** `label` — the normal
-   case under the owner's ruling. A `@ts-expect-error` on that second positive is itself the
-   defect: it would mean `EntityTabDescriptor.label` has been re-required.
+   case under the owner's ruling; and `{ name, buildRecordPath, label, tabs: [],
+   pendingTabs: ["overview", "notes"] }` — 3.9's stub shape. A `@ts-expect-error` on the second
+   positive is itself the defect: it would mean `EntityTabDescriptor.label` has been
+   re-required. One on the third means `pendingTabs` was dropped from the type, which breaks
+   3.9 and 3-11 AC 6.
 
 2. **Regions are a component boundary, not a data shape — and the proof is a hook.** Because
    every region is `ComponentType<{ record }>`, a descriptor module may load its own data.
@@ -402,6 +418,8 @@ half is the epic owner's edit, and is what the residual above is about.
         from `./tabKeys`. Declare neither locally.
   - [ ] No `stats`, no `minVisibility`, no `(record) => ReactNode` region. If a reviewer finds
         one, AC 1's `@ts-expect-error` block is missing an entry.
+  - [ ] `pendingTabs?: TabKey[]` **is** on `EntityDescriptor` (AC 1). Do not drop it as
+        "unused by this story" — 3.9's stubs and 3-11's conformance rule both require it.
 
 - [ ] **Task 2 — `entity360/registry.ts`** (AC: 3)
   - [ ] Module-private `Map<string, EntityDescriptor>`; export only the three functions.

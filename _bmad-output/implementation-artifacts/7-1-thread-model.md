@@ -270,13 +270,29 @@ report — do not invent a local substitute for `current_context_id()`,
         gated) and a `ThreadList` (threads for a given subject). Wire them in as a new
         `discussions` tab on the **shidduch entity descriptor** (Epic 3 Story 3.3's
         registry; the shidduch descriptor is registered by Epic 5 Story 5.1 and its
-        tab set extended by 5.3–5.6 — this story appends `discussions` after
-        `external-links`). Declare no `minVisibility` on the tab (3.4's mechanism):
+        tab set extended by 5.3–5.6 — this story **appends** `discussions` at the
+        **end** of the shidduch row, after `activity`, exactly as the binding contract
+        writes it: *"`overview, resume, photo, medical, files, diligence,
+        external-links, notes, tasks, activity` (+ `discussions` appended by 7-1)"*
+        [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#3-TabKey — rule 5].
+        An earlier revision of this task said "after `external-links`"; that placement
+        is now a hard failure — 3-11 AC 6(c) reports `tab-order-drift` for any tab
+        sequence that is not a subsequence of the canonical row. **The same diff must
+        also add `discussions` to `CANONICAL_TAB_SETS.shidduchim` in
+        `entity360/ad24Conformance.ts`** — key and row are widened together, or 3-11
+        AC 6(d) reports `tab-set-incomplete` [Source: same, rules 3 and 5]).
+        **Omit `visibleTo` entirely** on the tab (3.4's mechanism;
+        contract §2 rule 7 — the field is `visibleTo?: MemberRole[]`, an allow-list,
+        and an absent `visibleTo` means visible to every role. There is no
+        `minVisibility`). Do not write `visibleTo: []`, which denies every role:
         which *rows* a viewer sees is `thread_is_readable()`'s job at the database,
         and an empty tab for a role is correct, not a leak. Do **not** build a bespoke
         tab shell — Entity360/URL-backed tabs (3.1/3.2) already handle
-        `/shidduchim/{id}/discussions`. The tab id `discussions` is a placement call
-        this story makes (no epics.md AC pins it); flagged in the final report.
+        `/shidduchim/{id}/discussions`. The tab key `discussions` is **no longer this
+        story's call**: contract §3's drift-closing ruling pins it as the one key for
+        every Epic 7 `threads/ThreadPanel.tsx` surface, it is a member of the closed
+        `TabKey` union, and its label resolves through `useTabLabel` — declare **no**
+        `label` override.
   - [ ] All UI strings through the `i18nProvider` (AD-18) — add a `threads:` block to
         `englishCrmMessages.ts` (and the French mirror, English keys) following the
         `shidduchim:`/`children:` block shape (`englishCrmMessages.ts:1-30`).

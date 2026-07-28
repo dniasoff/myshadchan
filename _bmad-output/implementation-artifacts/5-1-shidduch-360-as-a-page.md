@@ -40,6 +40,16 @@ stop and report rather than improvising a shell.
    shown in UX-DR5's shidduch tab matrix (amendment A2): `overview, resume, photo, medical,
    files, diligence, external-links, notes, tasks, activity`. This story must not create empty
    placeholder tabs for content that does not exist yet.
+
+   **The five deferred keys are declared, not merely absent:** the descriptor carries
+   `pendingTabs: ["resume", "photo", "medical", "files", "external-links"]` (canonical order,
+   `TabKey` values) alongside its five `tabs`. That declaration is what makes a deliberately
+   partial set legal — 3-11's conformance rule asserts `keys(tabs) ∪ pendingTabs` **equals**
+   the canonical shidduch row as sets, so a partial `tabs` passes and a genuinely forgotten
+   tab still fails [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#2-EntityDescriptor;
+   #3-TabKey — rule 5]. This exact descriptor is 3-11's pinned positive fixture. **Each of
+   5.3–5.6 moves its key out of `pendingTabs` and into `tabs` in the same diff that builds the
+   tab** — one line; doing only one half fails the rule.
 3. **Given** the existing 360 content, **when** it is relocated, **then**:
    - `ShidduchShowHeader.tsx` + `ShidduchFactsCard.tsx` + `RedtHistorySection.tsx` +
      `ShidduchSchoolsSection.tsx` + `ShidduchCatchSection.tsx` render under the `overview` tab,

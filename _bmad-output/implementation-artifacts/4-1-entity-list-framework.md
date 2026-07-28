@@ -234,7 +234,7 @@ view name it happens to redirect to internally.**
 - **No descriptor consumption beyond `label`.** The `EntityDescriptor` registry exists
   (Story 3.3), and Story 3.9 registered the minimal routing descriptor for all four live
   entities. This story extends those registrations with `label` and resolves list headings
-  through it — the descriptor half of AD-24's list contract. `icon`/`meta`/`stats` have no
+  through it — the descriptor half of AD-24's list contract. `icon`/`meta`/`statBand` have no
   home in list chrome yet and are **not** consumed here; Epic 5 fills the full 360
   descriptors. Never redefine the `EntityDescriptor` type — 3.3's doc comment atop
   `entityDescriptor.ts` forbids exactly that.

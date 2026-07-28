@@ -83,9 +83,14 @@ this table at all.
         grows past a single file — start with one, per the coding-style file-count guidance):
         list + add-a-note form against `medical_notes`, filtered by `shidduchim_id`.
   - [ ] Declare the tab on the shidduch descriptor with
-        `minVisibility: ["parent_admin", "self_manager"]` — the exact field Story 3.4 adds to
+        `visibleTo: ["parent_admin", "self_manager"]` — the exact field Story 3.4 adds to
         `EntityTabDescriptor` in `entity360/entityDescriptor.ts`, gated by its `hasVisibility()`
-        helper and `useViewerRole()`.
+        helper and `useViewerRole()`. **`visibleTo` is an explicit allow-list, not an ordered
+        threshold** (contract §2 rule 7 — there is no `minVisibility`): the three `MemberRole`
+        values this array omits (`helper`, `shadchan`, `single` — `types.ts:109-110` has
+        exactly five) are each denied, which is exactly the
+        "Who may read a medical note" ruling above. Omitting `shadchan` is deliberate and
+        matches the RLS: there is no membership path for a shadchan into a household row.
 - [ ] **Task 4 — Tests** (AC: 3, 4)
   - [ ] The negative RLS test from AC-3 — new file `supabase/tests/medical_notes.sql`, following
         the seed-two-roles-and-assert shape already used in `supabase/tests/references_entity.sql`
@@ -154,7 +159,9 @@ per AGENTS.md), then
   helper cannot read it."
 - [Source: ARCHITECTURE-SPINE.md#AD-2] — role vocabulary, `self_manager` inclusion rationale.
 - [Source: _bmad-output/implementation-artifacts/3-4-permission-aware-rendering.md] —
-  `minVisibility`, `hasVisibility()`, `useViewerRole()` and the hook's stated limitation.
+  `visibleTo`, `hasVisibility()`, `useViewerRole()` and the hook's stated limitation.
+- [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#2] — rule 7: the tab
+  visibility field is `visibleTo?: MemberRole[]`, an allow-list; `minVisibility` does not exist.
 - [Source: ARCHITECTURE-SPINE.md#AD-20] — why no explicit shadchan check is needed.
 - [Source: .claude/rules/security-triggers.md]
 

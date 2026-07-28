@@ -276,11 +276,13 @@ existing suite.)
 - **The single's dating history and redt history** — denied by Story 6.2's
   wholesale list; unchanged here.
 - **Which tabs a single's client renders at all** — Epic 3 Story 3.4's
-  permission-aware rendering plus each descriptor's `minVisibility`
-  declarations. This story guarantees the *data* is never sent regardless of
+  permission-aware rendering plus each descriptor's `visibleTo` declarations
+  (an explicit `MemberRole[]` allow-list; absent means visible to every role —
+  contract §2 rule 7. There is no `minVisibility` and no ordered role
+  hierarchy). This story guarantees the *data* is never sent regardless of
   what the client renders (AD-1's actual requirement). The frontend half —
-  making the viewer's real role resolvable so `minVisibility` works for
-  `single` at all — is Story 6.4's `useViewerRole()` rewiring task, not
+  making the viewer's real role resolvable so a `visibleTo` array that lists
+  `single` works at all — is Story 6.4's `useViewerRole()` rewiring task, not
   this story's.
 
 ### Testing standard
@@ -311,9 +313,14 @@ category as 6.2. Changed files:
   table (`reference_links`, `interactions`, `resumes`, notes) via
   join-to-parent RLS; this story is where the candid-content half of that
   rule (as opposed to Story 6.2's state-based half) is decided.
-- [Source: ARCHITECTURE-SPINE.md#AD-24] — tabs declare a minimum visibility;
-  the data never reaches the client. This story delivers the "data never
-  reaches the client" half.
+- [Source: ARCHITECTURE-SPINE.md#AD-24] — "tabs declare a minimum visibility"
+  (the spine's wording); the data never reaches the client. This story delivers
+  the "data never reaches the client" half. The **implemented** mechanism is
+  `EntityTabDescriptor.visibleTo?: MemberRole[]`, an explicit allow-list rather
+  than an ordered threshold — see the contract citation below.
+- [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#2] — rule 7:
+  `visibleTo?: MemberRole[]`, absent = visible to every role; `minVisibility`
+  does not exist.
 - [Source: _bmad-output/specs/spec-myshadchan/SPEC.md#CAP-9] — "gut
   set-asides, candid reference words, private notes and medical notes are
   unreachable at the database, not merely hidden."

@@ -32,8 +32,14 @@ This story wires all three into a real descriptor-based CRM and **replaces both 
    ended); the stat band shows at minimum the count of redts sent through this connection —
    **derived from the connection-scoped threads Story 8.3 mirrors, never from the household's
    `redts` or `inbox_items`** (structurally unreachable to the shadchan, AD-20/Story 8.4).
-3. **Conversations are a tab, not a destination.** The Connection 360's tab bar includes a
-   Conversations tab listing the connection's threads, reusing Epic 7's `threads/ThreadPanel.tsx`
+3. **Threads are a tab, not a destination.** The Connection 360's tab set is
+   `overview, discussions` — the canonical Connection tab set and order (contract §3 rule 5).
+   The tab **key** is `discussions`, label "Discussions", taken from the closed `TabKey` union
+   in `entity360/tabKeys.ts`; `conversations` is a **different, non-interchangeable** key
+   reserved for the reference **call log** (5.10), and using it here does not express what this
+   tab is (contract §3, drift-closing ruling table: one key `discussions` for every Epic 7
+   `threads/ThreadPanel.tsx` surface). The `discussions` tab lists the connection's threads,
+   reusing Epic 7's `threads/ThreadPanel.tsx`
    (7.1, extended by 7.3) — no second chat UI; this is the only place a shadchan reaches a
    thread from, consistent with UX-DR8's "reached from its parent, not primary navigation."
 4. **"Send a redt" is reachable without leaving the page.** The Connection 360 (right rail or an
@@ -83,8 +89,15 @@ This story wires all three into a real descriptor-based CRM and **replaces both 
         open: a household-active session cannot reach `/connections`.
   - [ ] `RecordLink` (Epic 3 Story 3.9) target for a connection → `/connections/{id}`.
 
-- [ ] **Task 3 — Conversations tab** (AC: 3)
-  - [ ] Add the Conversations tab to the `connections` descriptor's tab list, rendering
+- [ ] **Task 3 — `discussions` tab** (AC: 3)
+  - [ ] Add the `connections` row — `overview, discussions` — to `CANONICAL_TAB_SETS` in
+        `entity360/ad24Conformance.ts` **in this same diff**. Registering a `connections`
+        descriptor against a table that has no row for it is itself a `tab-set-incomplete`
+        violation [Source: _bmad-output/implementation-artifacts/3-11-ad24-conformance-validator.md
+        — AC 6, "a descriptor whose `name` has no row … is not silently skipped"]. Both tabs
+        ship here, so the descriptor needs no `pendingTabs`.
+  - [ ] Add the `discussions` tab (key `discussions`, no `label` override — the label resolves
+        through `useTabLabel` to "Discussions") to the `connections` descriptor's tab list, rendering
         `threads/ThreadPanel.tsx` scoped to `threads.connection_id = this connection's id`. If
         Epic 7 exposes threads as a `*_summary` view (AD-10 convention for list resources),
         query that; do not write a bespoke thread query.
@@ -141,9 +154,12 @@ returns, that is a Story 8.4 defect to report, not a filter to add in `Connectio
 ### Architecture citations
 
 - **AD-24**: the full shell contract this story must produce zero exceptions to — fixed region
-  order, descriptor-only, `EntityList`/`RecordLink` reuse, tabs declaring minimum visibility
-  (not applicable here beyond "shadchanus context only", already handled by the route guard, not
-  a per-tab visibility rule).
+  order, descriptor-only, `EntityList`/`RecordLink` reuse, tabs declaring who may see them.
+  The mechanism is `EntityTabDescriptor.visibleTo?: MemberRole[]` — an explicit allow-list,
+  absent meaning visible to every role (contract §2 rule 7; the spine's "minimum visibility"
+  phrasing predates that ruling and there is no `minVisibility` field). Not applicable here
+  beyond "shadchanus context only", already handled by the route guard, not
+  a per-tab visibility rule: **both `connections` tabs omit `visibleTo`.**
 - **UX-DR8/UX-DR10**: threads are a tab, not a nav destination — same reasoning Story 8.1 applied
   to the nav set, now applied to the record level.
 - **AD-20**: "Suggestions redted through a connection still belong to the household" — reinforces
