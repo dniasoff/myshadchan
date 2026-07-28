@@ -137,6 +137,10 @@ registry-gen`, so both agents' commits rewrite it. In Epic 1
 `registry.json` was the single most-contended file in the wave: 5 of 6
 stories touched it, none declared it.
 
+The hook now regenerates `registry.json` only when the tree is quiet — see
+"Committing on a busy tree" below — but the ownership requirement is unchanged,
+because that owner is who has to regenerate it when the hook declines to.
+
 `pre-dispatch` therefore also checks a table of **known shared
 artifacts** (`SHARED_ARTIFACTS` in the checker). Each entry is a path
 that gets rewritten as a side effect of editing some set of *feeder*
@@ -223,6 +227,78 @@ contract changed, a story didn't, and the two went silently inconsistent
 because each side's agent believed the other file was someone else's
 job.
 
+## Committing on a busy tree
+
+Path partitioning was never the whole problem. An agent once staged exactly its
+own four files and still committed a concurrently running workflow's two
+unstaged files, caught only by a post-commit stat. `git add <my files>` is not
+isolation, because the commit path itself reached outside the staged set.
+
+Three mechanisms did that. All three were reproduced in a throwaway clone with a
+second writer present — a scenario that stages A's files, leaves B's edits
+unstaged and B's new files untracked, commits as A, and compares md5s — and all
+three are now closed in `.husky/pre-commit`.
+
+1. **`git update-index --again` re-staged the working tree.** It was the hook's
+   last line. It runs `update-index` on every path whose index entry differs
+   from HEAD, refreshing each one *from the working tree* — and it ran after
+   lint-staged had restored the unstaged changes it had carefully hidden. So the
+   unstaged half of every partially staged path was committed, deterministically,
+   with no race required; and any edit a concurrent writer made to a path in the
+   index went in with it. Removed. Nothing may replace it: lint-staged already
+   stages task modifications for the staged paths and only those. `git add -u`
+   and `git add .` are the same bug wearing a different name.
+
+2. **`make registry-gen` enumerated other agents' work-in-progress.**
+   `scripts/generate-registry.mjs` globs `src/components/atomic-crm`,
+   `src/components/supabase`, `src/hooks` and `src/lib` in the *working tree* and
+   writes the resulting path list to `registry.json`. Running it inside a
+   concurrent commit is not safe and cannot be made safe: its input is every
+   other agent's uncommitted, unstaged and untracked files, so the artifact it
+   produces describes a tree that has never existed in history. With mechanism 1
+   present, that mixture was then committed. In the reproduction, agent B's
+   untracked component appeared in agent A's committed `registry.json` while
+   never being staged by anyone.
+
+   The hook now runs it only when both hold: this commit stages a path under a
+   feeder directory (so the artifact could have changed at all), and
+   `git ls-files --others --exclude-standard` / `--deleted` over the feeder
+   directories is empty (so no file outside this commit can enter the glob).
+   Otherwise it skips and says so, naming the files that made it skip. It never
+   fails the commit for this — a hook that blocks commits is a hook agents route
+   around with `--no-verify`, which would disable the real guards too.
+
+   The consequence: **on a busy tree `registry.json` goes stale, by design.**
+   Regenerating it is the job of whoever holds the tree alone — the wave's single
+   committer, on a quiet tree, after the wave — or of CI on `main`, which is the
+   only place it can be derived from a tree that actually exists: check out the
+   committed tree, run `make registry-gen`, and fail (or auto-commit) if the
+   result differs. That is where it should move; the hook keeps it only for the
+   single-writer case.
+
+3. **A failing task reverted the whole tree.** On any task error, lint-staged
+   restores its backup with `git reset --hard HEAD` + `git stash apply`. That is
+   tree-wide: it discards every other writer's edits made since the backup stash,
+   not just the committing agent's. Measured — a second writer's edit landing
+   mid-run was silently reverted on every iteration. The hook now passes
+   `--no-stash`, which drops both the backup and the revert, and keeps the hook
+   out of the shared `refs/stash` (where `stash drop`-by-index is itself racy
+   between concurrent committers). `--no-stash` does *not* imply
+   `--no-hide-partially-staged`, so partially staged files stay isolated. The
+   trade-off is real and accepted: if lint-staged fails to re-apply its unstaged
+   patch there is no automatic recovery, but that damage is confined to the
+   committing agent's own files, whereas the revert was not.
+
+What the fixed hook is measured to do, with a second writer present: B's files
+byte-identical before and after; the commit containing only A's paths; A's own
+unstaged edit not committed; `registry.json` — committed and worktree copies
+both — free of B's work; nothing of B's left staged; and A's staged content
+still formatted, so the hook is not a no-op.
+
+**Do not "fix" this by telling agents to use `--no-verify`.** It disables the
+guards along with the hazard, and an instruction is not a mechanism — the whole
+reason this section exists is that instructions were not enough.
+
 ## Known limitations — do not read silence as safety
 
 Replaying real waves through the checker turned up manifests that pass
@@ -248,6 +324,20 @@ cross-reconciliation pass.
   migrations are order-dependent by nature.
 - **Missing work.** Nothing that inventories intended *writes* can spot
   an edit nobody made. Item 4 of the cross-reconciliation pass.
+- **The index is shared, and no hook can narrow a commit.** `git commit -m`
+  commits the index, and the index is one process-global file for the whole
+  clone. If another agent runs `git add` while you commit, its paths are in
+  your commit before the hook ever runs, and a pre-commit hook cannot remove
+  them — unstaging them would break the other agent instead. Measured: A stages
+  `labA1.ts`, B stages `labB1.ts`, A runs `git commit -m` and gets both.
+  The mechanism that does close it is **committing with an explicit pathspec** —
+  `git commit -m "…" -- <paths>` — which builds a temporary index from HEAD plus
+  those paths. Measured on the same setup: the commit contains only A's path,
+  B's staged entry survives in the real index, lint-staged's formatting still
+  applies under the temporary index, and no leftover diff is left behind. Note
+  the semantics differ: a pathspec commit takes the *working tree* content of
+  those paths, not what you staged. This is also why "parallel agents do not
+  commit" is a rule above and not a nicety.
 - **It is advisory, not enforcing.** Nothing at write time stops an
   agent from editing outside its declaration; `pre-dispatch` is a
   precondition and `post-wave` is detective. "Out-of-scope work is
