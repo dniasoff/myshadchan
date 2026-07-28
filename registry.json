@@ -284,6 +284,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/root/useMyPersonas.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/root/useConfigurationLoader.ts",
           "type": "registry:component"
         },
@@ -512,6 +516,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/personas.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/fakerest/internal/listParser.ts",
           "type": "registry:component"
         },
@@ -625,6 +633,10 @@
         },
         {
           "path": "src/components/atomic-crm/login/SSOAuthButton.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/login/PersonaChecklist.tsx",
           "type": "registry:component"
         },
         {
