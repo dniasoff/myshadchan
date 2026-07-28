@@ -30,15 +30,22 @@ const BARE_VAR_PATTERN = /-\[--[a-zA-Z0-9_-]+\]/g;
 // Pre-existing violations inside files frozen by the Epic 3 concurrency
 // freeze at the time this guard was added (ui-audit-plan.md S1's 6 deferred
 // sites, minus one already covered by a v4 theme function and not a
-// violation). This list must only shrink: remove an entry the moment its
-// file unfreezes and the syntax is fixed there. Never add an entry to
-// silence a newly introduced violation — fix the source instead.
+// violation). Keyed by file + matched fragment rather than line number:
+// these files are mid-rewrite by an unrelated, actively-committing story
+// (line numbers already drifted once between this guard being written and
+// its first CI run), and a line-keyed entry would silently stop exempting
+// the known violation on the next unrelated edit, breaking the build for
+// everyone rather than for the file that earned the debt. This list must
+// only shrink: remove an entry the moment its file unfreezes and the syntax
+// is fixed there. Never add an entry to silence a newly introduced
+// violation — fix the source instead.
 export const KNOWN_FROZEN_VIOLATIONS = new Set([
-  "src/components/atomic-crm/layout/MobileNavigation.tsx:72",
-  "src/components/atomic-crm/layout/MobileNavigation.tsx:163",
-  "src/components/atomic-crm/dashboard/DashboardStat.tsx:31",
-  "src/components/atomic-crm/references/ReferenceList.tsx:74",
-  "src/components/atomic-crm/singles/SingleList.tsx:51",
+  "src/components/atomic-crm/layout/MobileNavigation.tsx::-[--glass-border]",
+  "src/components/atomic-crm/layout/MobileNavigation.tsx::-[--glass-bg]",
+  "src/components/atomic-crm/layout/MobileNavigation.tsx::-[--ease-spring]",
+  "src/components/atomic-crm/dashboard/DashboardStat.tsx::-[--ease-out]",
+  "src/components/atomic-crm/references/ReferenceList.tsx::-[--ease-out]",
+  "src/components/atomic-crm/singles/SingleList.tsx::-[--ease-spring]",
 ]);
 
 function suggestFix(match) {
@@ -70,9 +77,9 @@ export function runTailwindArbitraryVarCheck(
       const lineNumber = index + 1;
       const matches = line.match(BARE_VAR_PATTERN);
       if (!matches) return;
-      if (knownViolations.has(`${relPath}:${lineNumber}`)) return;
 
       for (const match of matches) {
+        if (knownViolations.has(`${relPath}::${match}`)) continue;
         violations.push(
           `${relPath}:${lineNumber}: "${match}" is Tailwind v3 syntax — v4 ` +
             `does not compile a bare custom property inside brackets and ` +

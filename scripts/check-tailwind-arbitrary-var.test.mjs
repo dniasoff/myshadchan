@@ -100,7 +100,7 @@ describe("runTailwindArbitraryVarCheck", () => {
     expect(runTailwindArbitraryVarCheck(tempRoot, new Set())).toEqual([]);
   });
 
-  it("does not flag a line covered by the known-violations allowlist", async () => {
+  it("does not flag a fragment covered by the known-violations allowlist", async () => {
     // Arrange
     await writeFixture(
       "src/Example.tsx",
@@ -110,14 +110,14 @@ describe("runTailwindArbitraryVarCheck", () => {
     // Act
     const violations = runTailwindArbitraryVarCheck(
       tempRoot,
-      new Set(["src/Example.tsx:1"]),
+      new Set(["src/Example.tsx::-[--glass-bg]"]),
     );
 
     // Assert
     expect(violations).toEqual([]);
   });
 
-  it("still flags a different line in a file that has an allowlisted line", async () => {
+  it("still flags a different fragment in a file that has an allowlisted one", async () => {
     // Arrange
     await writeFixture(
       "src/Example.tsx",
@@ -131,12 +131,35 @@ describe("runTailwindArbitraryVarCheck", () => {
     // Act
     const violations = runTailwindArbitraryVarCheck(
       tempRoot,
-      new Set(["src/Example.tsx:1"]),
+      new Set(["src/Example.tsx::-[--glass-bg]"]),
     );
 
     // Assert
     expect(violations).toHaveLength(1);
-    expect(violations[0]).toContain("src/Example.tsx:2");
+    expect(violations[0]).toContain("-[--other-var]");
+  });
+
+  it("keeps flagging the allowlisted fragment once it moves to a new line", async () => {
+    // Arrange — simulates an unrelated edit shifting line numbers in a file
+    // under active rewrite elsewhere: a line-keyed allowlist would silently
+    // stop matching here and this would wrongly report as new.
+    await writeFixture(
+      "src/Example.tsx",
+      [
+        "// an unrelated line inserted above by someone else's edit",
+        'export const Example = () => <div className="bg-[--glass-bg]" />;',
+        "",
+      ].join("\n"),
+    );
+
+    // Act
+    const violations = runTailwindArbitraryVarCheck(
+      tempRoot,
+      new Set(["src/Example.tsx::-[--glass-bg]"]),
+    );
+
+    // Assert
+    expect(violations).toEqual([]);
   });
 
   it("ignores files outside the scanned extensions", async () => {
