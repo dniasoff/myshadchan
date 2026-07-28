@@ -10,6 +10,7 @@ import type {
   AddSchoolInput,
   AiEntitlementInfo,
   CreateShidduchInput,
+  InvitePreview,
   LinkReferenceInput,
   LogReferenceCallInput,
   MatchReferenceInput,
@@ -26,7 +27,6 @@ import type {
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
-  SignUpData,
 } from "../../types";
 import {
   INITIAL_PIPELINE_STATES,
@@ -497,29 +497,6 @@ export const createDataProvider = ({
       }
       return baseDataProvider.delete(resource, params);
     },
-    signUp: async ({
-      email,
-      password,
-      first_name,
-      last_name,
-    }: SignUpData): Promise<{
-      id: string;
-      email: string;
-      password: string;
-    }> => {
-      const user = await baseDataProvider.create("members", {
-        data: {
-          email,
-          first_name,
-          last_name,
-        },
-      });
-
-      return {
-        ...user.data,
-        password,
-      };
-    },
     memberCreate: async ({ ...data }: MemberFormData): Promise<Member> => {
       const response = await dataProvider.create("members", {
         data: {
@@ -551,17 +528,6 @@ export const createDataProvider = ({
         previousData,
       });
       return { ...member, user_id: member.id.toString() };
-    },
-    isInitialized: async (): Promise<boolean> => {
-      const members = await dataProvider.getList<Member>("members", {
-        filter: {},
-        pagination: { page: 1, perPage: 1 },
-        sort: { field: "id", order: "ASC" },
-      });
-      if (members.data.length === 0) {
-        return false;
-      }
-      return true;
     },
     // The SOLE INSERT path into shidduchim (AD-4 invariant 1) — the reusable
     // primitive a future fileInboxItem() wraps. The board's create form calls
@@ -753,19 +719,14 @@ export const createDataProvider = ({
       });
       return (data?.config as ConfigurationContextValue) ?? {};
     },
-    updateConfiguration: async (
-      config: ConfigurationContextValue,
-    ): Promise<ConfigurationContextValue> => {
-      const { data: prev } = await baseDataProvider.getOne("configuration", {
-        id: 1,
-      });
-      await baseDataProvider.update("configuration", {
-        id: 1,
-        data: { config },
-        previousData: prev,
-      });
-      return config;
-    },
+    // Invite-only signup (Story 2.7) -- FakeRest mirror of get_invite_preview().
+    // There is no `invites` collection in the demo world yet (2.8 adds the
+    // inviter-side UI this seeds; 2.7's own tests seed invite rows directly in
+    // SQL, never through the demo). Every token honestly resolves to "not
+    // found" rather than a stub success, which is what InviteAcceptance's
+    // "this invite link isn't valid" branch is for.
+    getInvitePreview: async (_token: string): Promise<InvitePreview | null> =>
+      null,
   };
 
   const dataProvider = withLifecycleCallbacks(

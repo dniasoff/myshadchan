@@ -106,6 +106,14 @@ content_path = "./supabase/templates/invite.html"
 subject = "Your MyShadchan sign-in code"
 content_path = "./supabase/templates/magic_link.html"
 
+# Story 2.7 (AC-5): the authoritative gate for invite-only signup — refuses
+# user creation with a clear 403 unless a matching, pending, unexpired invite
+# and an 18+ affirmation are present. See public.check_signup_invite()
+# (02_functions.sql) for the event shape and reject/allow contract.
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/check_signup_invite"
+
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.
 enable_signup = true

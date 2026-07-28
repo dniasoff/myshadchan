@@ -16,10 +16,12 @@ export interface AgeAffirmationProps {
 
 /**
  * First-run gate: a calm, single-question affirmation that the account
- * holder is an adult, before any family data is entered. There is no
- * `date_of_birth`/age column on `accounts` or `account_members` yet — this
- * is a UI shell only. Wiring it to persist an affirmation record (or block
- * signup server-side) is a backend gap for whoever routes onboarding.
+ * holder is an adult, before any family data is entered. Wired by Story 2.7's
+ * InviteAcceptance (compact mode) as the gate before OTP signup: the checked
+ * box travels to the server as `age_affirmed: true` in the OTP signup's
+ * `meta`, and `check_signup_invite()`'s Auth Hook (02_functions.sql) is the
+ * actual server-side enforcement — this component only collects the
+ * affirmation, it does not persist or enforce one itself.
  */
 export const AgeAffirmation = ({
   onContinue,
@@ -29,7 +31,7 @@ export const AgeAffirmation = ({
   const [affirmed, setAffirmed] = useState(false);
 
   // Compact mode is embedded inside a wizard that already owns the
-  // full-screen container (see FirstRunSetup) — only wrap ourselves in the
+  // full-screen container (see InviteAcceptance) — only wrap ourselves in the
   // washed page shell when rendered standalone (e.g. as its own route).
   const content = (
     <div className="ql-enter mx-auto w-full max-w-sm space-y-6 text-center">

@@ -112,10 +112,6 @@ export const englishCrmMessages = {
   },
   crm: {
     auth: {
-      first_name: "First name",
-      last_name: "Last name",
-      confirmation_required:
-        "Please follow the link we just sent you by email to confirm your account.",
       show_password: "Show password",
       hide_password: "Hide password",
       footer_private: "Private to your family",
@@ -131,16 +127,29 @@ export const englishCrmMessages = {
         use_different_email: "Use a different email",
         invalid_code: "That code is incorrect or has expired.",
       },
-      signup: {
-        create_account: "Create account",
-        create_first_user:
-          "Create the first user account to complete the setup.",
-        creating: "Creating...",
-        initial_user_created: "Initial user successfully created",
-        title: "Create your family's record",
-        subtitle: "Set up the first account for your household.",
+      // Story 2.7: the invite-only signup flow (/accept-invite/:token).
+      // There is no separate email/password form — the invitee only
+      // affirms 18+ (crm.auth.age_affirmation.* below) and completes 2.6's
+      // OTP verify.
+      invite_title: "You've been invited",
+      invite_body: "Join %{accountName} on MyShadchan as a %{role}.",
+      invite_sending_code: "Sending your code…",
+      invite_expired_title: "This invite has expired",
+      invite_expired_body: "Ask the person who invited you for a new one.",
+      invite_accepted_title: "This invite has already been used",
+      invite_accepted_body:
+        "Sign in instead, or ask the person who invited you for a new invite.",
+      invite_revoked_title: "This invite has been revoked",
+      invite_revoked_body: "Ask the person who invited you for a new one.",
+      invite_not_found_title: "This invite link isn't valid",
+      invite_not_found_body:
+        "Ask the person who invited you to send a new one.",
+      age_affirmation: {
+        title: "Before you begin",
+        body: "MyShadchan holds private, sensitive family records. It's built for parents and guardians managing the shidduchim process on behalf of their household.",
+        checkbox: "I confirm I am 18 years of age or older.",
+        continue: "Continue",
       },
-      welcome_title: "Welcome to MyShadchan",
       // 2.3 (AC-10): the onboarding persona multi-select. The other
       // `crm.auth.onboarding.*` keys FirstRunSetup/OnboardingChoice read
       // (account_title, single_title, done_body, etc.) predate this story

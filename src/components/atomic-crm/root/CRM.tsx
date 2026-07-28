@@ -35,7 +35,7 @@ import {
   defaultTitle,
 } from "./defaultConfiguration";
 import { i18nProvider as defaulti18nProvider } from "../providers/commons/i18nProvider";
-import { StartPage } from "../login/StartPage.tsx";
+import { LoginPage } from "../login/LoginPage.tsx";
 import { useIsMobile } from "@/hooks/use-mobile.ts";
 import type { CustomRouteEntry, ResourceEntry } from "./routeManifest";
 import { routesFor, resourcesFor } from "./routeManifest";
@@ -196,7 +196,7 @@ export const CRM = ({
       authProvider={wrappedAuthProvider}
       i18nProvider={i18nProvider}
       store={store}
-      loginPage={StartPage}
+      loginPage={LoginPage}
       requireAuth
       disableTelemetry
       {...rest}

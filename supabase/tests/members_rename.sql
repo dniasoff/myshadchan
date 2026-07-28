@@ -4,10 +4,11 @@
 -- Proves the rename actually happened at the catalog level (not just "grep
 -- found nothing"): the old relation/function names are gone, the new ones
 -- exist, set_member_id_default() still populates tasks.member_id from the
--- caller, handle_new_user() still inserts a public.members row and
--- bootstraps the first user's account_members row, and — the mandatory
--- negative test for an RLS/grant-touching change — anon still cannot read
--- public.members.
+-- caller, handle_new_user() still inserts a public.members row (Story 2.7
+-- rewrote its membership branch to bind from an invite instead of
+-- bootstrapping the first user — see supabase/tests/invites.sql for that
+-- suite), and — the mandatory negative test for an RLS/grant-touching
+-- change — anon still cannot read public.members.
 --
 -- Every check appends one row to `results`; the script emits them as JSON at
 -- the end and rolls back, so it leaves nothing behind. The runner
@@ -79,8 +80,9 @@ end $$;
 reset role;
 
 -- ---------------------------------------------------------------------------
--- Arrange. A fresh auth user with no pre-existing membership, so
--- handle_new_user()'s "first user" account_members bootstrap branch is
+-- Arrange. A fresh auth user with no pre-existing membership and no invite
+-- token, so handle_new_user()'s AC-7 fallback (no matching invite -> no
+-- membership at all, replacing the fork's deleted "first user" bootstrap) is
 -- exercised deterministically rather than being an artifact of whatever the
 -- dev database already holds. Cleared first, as the other db suites do.
 -- ---------------------------------------------------------------------------
@@ -95,8 +97,12 @@ values (
 );
 
 -- ---------------------------------------------------------------------------
--- handle_new_user(): inserts a public.members row for the new auth user, and
--- bootstraps that user's account_members row since it is the first one.
+-- handle_new_user(): inserts a public.members row for the new auth user.
+-- Story 2.7 (AC-7) deleted the fork's "first user bootstraps the tenant"
+-- branch this suite used to assert here — a signup with no invite_token now
+-- gets NO account_members row at all, proven below instead of the old
+-- bootstrap (see supabase/tests/invites.sql for the full invite-binding
+-- suite, including the matching-invite success case).
 -- ---------------------------------------------------------------------------
 insert into results (name, passed)
 select 'handle_new_user() inserts a public.members row for the new auth user',
@@ -107,17 +113,26 @@ select 'handle_new_user() inserts a public.members row for the new auth user',
        );
 
 insert into results (name, passed)
-select 'handle_new_user() bootstraps the first user''s account_members row',
-       exists (
+select 'handle_new_user() gets NO membership for a signup with no invite (AC-7 replaces the old first-user bootstrap)',
+       not exists (
          select 1 from public.account_members
          where user_id = 'e5e5e5e5-5555-5555-5555-555555555512'
-           and role = 'parent_admin' and status = 'active'
        );
 
 -- ---------------------------------------------------------------------------
 -- set_member_id_default(): a task inserted by this user gets member_id
 -- populated from auth.uid() — never left null, never client-settable.
+-- Story 2.7 removed the first-user bootstrap, so this user needs an explicit
+-- household membership before it can insert anything account-scoped
+-- (tasks.account_id fails closed on a NULL current_context_id()) — that
+-- membership is arranged directly here, not through handle_new_user(), since
+-- provisioning-via-invite is a separate concern already covered end to end
+-- by supabase/tests/invites.sql.
 -- ---------------------------------------------------------------------------
+insert into public.accounts (name) values ('Rename Test Account') returning id as rename_acct \gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:rename_acct, 'e5e5e5e5-5555-5555-5555-555555555512', 'parent_admin', 'active');
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e5e5e5e5-5555-5555-5555-555555555512","role":"authenticated"}';
 

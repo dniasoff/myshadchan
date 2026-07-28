@@ -115,10 +115,6 @@ export const frenchCrmMessages = {
   },
   crm: {
     auth: {
-      first_name: "Prénom",
-      last_name: "Nom",
-      confirmation_required:
-        "Veuillez suivre le lien que nous venons de vous envoyer par email pour confirmer votre compte.",
       show_password: "Afficher le mot de passe",
       hide_password: "Masquer le mot de passe",
       footer_private: "Privé à votre famille",
@@ -134,16 +130,32 @@ export const frenchCrmMessages = {
         use_different_email: "Utiliser une autre adresse e-mail",
         invalid_code: "Ce code est incorrect ou a expiré.",
       },
-      signup: {
-        create_account: "Créer un compte",
-        create_first_user:
-          "Créez le premier compte utilisateur pour terminer la configuration.",
-        creating: "Création...",
-        initial_user_created: "Utilisateur initial créé avec succès",
-        title: "Créez le dossier de votre famille",
-        subtitle: "Configurez le premier compte de votre foyer.",
+      // Story 2.7 : le flux d'invitation seule (/accept-invite/:token). Pas
+      // de formulaire email/mot de passe séparé — l'invité·e confirme
+      // seulement 18+ (crm.auth.age_affirmation.* ci-dessous) puis termine
+      // la vérification OTP de 2.6.
+      invite_title: "Vous avez été invité(e)",
+      invite_body:
+        "Rejoignez %{accountName} sur MyShadchan en tant que %{role}.",
+      invite_sending_code: "Envoi de votre code…",
+      invite_expired_title: "Cette invitation a expiré",
+      invite_expired_body:
+        "Demandez à la personne qui vous a invité(e) une nouvelle invitation.",
+      invite_accepted_title: "Cette invitation a déjà été utilisée",
+      invite_accepted_body:
+        "Connectez-vous plutôt, ou demandez une nouvelle invitation à la personne qui vous a invité(e).",
+      invite_revoked_title: "Cette invitation a été révoquée",
+      invite_revoked_body:
+        "Demandez à la personne qui vous a invité(e) une nouvelle invitation.",
+      invite_not_found_title: "Ce lien d'invitation n'est pas valide",
+      invite_not_found_body:
+        "Demandez à la personne qui vous a invité(e) de vous en envoyer un nouveau.",
+      age_affirmation: {
+        title: "Avant de commencer",
+        body: "MyShadchan conserve des dossiers familiaux privés et sensibles. Il est conçu pour les parents et tuteurs qui gèrent le processus de shidduch au nom de leur foyer.",
+        checkbox: "Je confirme avoir 18 ans ou plus.",
+        continue: "Continuer",
       },
-      welcome_title: "Bienvenue sur MyShadchan",
       onboarding: {
         persona_title: "Qu'est-ce qui vous concerne ?",
         persona_subtitle:

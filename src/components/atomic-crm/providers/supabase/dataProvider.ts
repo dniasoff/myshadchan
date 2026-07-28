@@ -11,6 +11,7 @@ import type {
   AddSchoolInput,
   AiEntitlementInfo,
   CreateShidduchInput,
+  InvitePreview,
   LinkReferenceInput,
   LogReferenceCallInput,
   MatchReferenceInput,
@@ -28,12 +29,10 @@ import type {
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
-  SignUpData,
 } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
-import { getIsInitialized } from "./authProvider";
 import { getSupabaseClient } from "./supabase";
 
 const getBaseDataProvider = () =>
@@ -117,32 +116,6 @@ const getDataProviderWithCustomMethods = () => {
       return baseDataProvider.getOne(resource, params);
     },
 
-    async signUp({ email, password, first_name, last_name }: SignUpData) {
-      const response = await getSupabaseClient().auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            first_name,
-            last_name,
-          },
-        },
-      });
-
-      if (!response.data?.user || response.error) {
-        console.error("signUp.error", response.error);
-        throw new Error(response?.error?.message || "Failed to create account");
-      }
-
-      // Update the is initialized cache
-      (getIsInitialized as any)._is_initialized_cache = true;
-
-      return {
-        id: response.data.user.id,
-        email,
-        password,
-      };
-    },
     async memberCreate(body: MemberFormData) {
       const { data, error } = await getSupabaseClient().functions.invoke<{
         data: Member;
@@ -194,9 +167,6 @@ const getDataProviderWithCustomMethods = () => {
       }
 
       return updatedData.data;
-    },
-    async isInitialized() {
-      return getIsInitialized();
     },
     // The SOLE INSERT path into shidduchim (AD-4 invariant 1) — the reusable
     // primitive a future fileInboxItem() (Epic-6) wraps. Backed by the
@@ -536,15 +506,27 @@ const getDataProviderWithCustomMethods = () => {
       });
       return (data?.config as ConfigurationContextValue) ?? {};
     },
-    async updateConfiguration(
-      config: ConfigurationContextValue,
-    ): Promise<ConfigurationContextValue> {
-      const { data } = await baseDataProvider.update("configuration", {
-        id: 1,
-        data: { config },
-        previousData: { id: 1 },
-      });
-      return data.config as ConfigurationContextValue;
+
+    // ---------------------------------------------------------------------
+    // Invite-only signup (Story 2.7). get_invite_preview() is deliberately
+    // anon-callable (02_functions.sql) — this is the ONE dataProvider method
+    // an unauthenticated invitee ever calls, backing /accept-invite/:token
+    // before any session exists. Returns null when the token matches no
+    // invite at all, distinct from a found-but-unusable one (status carries
+    // that — 'expired'/'accepted'/'revoked' — see get_invite_preview's own
+    // comment for the computed-status rule).
+    // ---------------------------------------------------------------------
+    async getInvitePreview(token: string): Promise<InvitePreview | null> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "get_invite_preview",
+        { p_token: token },
+      );
+      if (error) {
+        console.error("get_invite_preview.error", error);
+        throw new Error("Failed to look up this invite");
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return (row ?? null) as InvitePreview | null;
     },
   } satisfies DataProvider;
 };
@@ -553,27 +535,7 @@ export type CrmDataProvider = ReturnType<
   typeof getDataProviderWithCustomMethods
 >;
 
-const processConfigLogo = async (logo: any): Promise<string> => {
-  if (typeof logo === "string") return logo;
-  if (logo?.rawFile instanceof File) {
-    await uploadToBucket(logo);
-    return logo.src;
-  }
-  return logo?.src ?? "";
-};
-
 const lifeCycleCallbacks: ResourceCallbacks[] = [
-  {
-    resource: "configuration",
-    beforeUpdate: async (params) => {
-      const config = params.data.config;
-      if (config) {
-        config.lightModeLogo = await processConfigLogo(config.lightModeLogo);
-        config.darkModeLogo = await processConfigLogo(config.darkModeLogo);
-      }
-      return params;
-    },
-  },
   {
     resource: "members",
     beforeSave: async (data: Member, _, __) => {

@@ -1,153 +1,315 @@
 import { useState } from "react";
-import { Loader2, UserPlus } from "lucide-react";
-import { useTranslate } from "ra-core";
+import { Loader2, Lock, UserPlus } from "lucide-react";
+import {
+  Form,
+  required,
+  useAuthProvider,
+  useDataProvider,
+  useLogin,
+  useNotify,
+  useTranslate,
+} from "ra-core";
+import type { SubmitHandler, FieldValues } from "react-hook-form";
+import { useParams } from "react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { TextInput } from "@/components/admin/text-input";
 import { cn } from "@/lib/utils";
-import { LedgerMark } from "./BrandLockup";
+
+import type { CrmDataProvider } from "../providers/types";
+import type { InvitePreview } from "../types";
+import { AgeAffirmation } from "./AgeAffirmation";
+import { AuthLayout } from "./AuthLayout";
+import { LoginSkeleton } from "./LoginSkeleton";
+import { AUTH_FIELD_CLASSNAME } from "./authFieldClassName";
 import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
 
-export interface InviteAcceptanceProps {
-  /** The invited email address (read-only — comes from the invite). */
-  email: string;
-  /** Display name of the account the invite belongs to, e.g. "The Klein family". */
-  accountName?: string;
-  /** Called with the chosen password once the form validates. */
-  onAccept: (password: string) => void | Promise<void>;
-  isSubmitting?: boolean;
-}
+type InviteStep = "affirm" | "code";
 
 /**
- * UI shell for accepting a household invite (e.g. a `helper` or
- * `self_manager` member added via `account_members.invited_by`). There is no
- * invite-token table/edge-function yet — no way to look up `email` /
- * `accountName` from a URL token, and `onAccept` has nothing to call. This
- * renders the intended flow; wiring a real invite-token endpoint is a
- * backend gap, not fabricated here.
+ * The invitee's ONLY path into the product (Story 2.7, AD-11/FR119). Reached
+ * at /accept-invite/:token, unauthenticated. Looks up the invite via the
+ * anon-callable get_invite_preview() (never the inviting account's own
+ * data), gates on the 18+ affirmation (AgeAffirmation, compact — its box
+ * IS the trigger that requests the code, there is no separate "send code"
+ * step), then completes Story 2.6's email-OTP signup with
+ * `allowSignup: true` and the invite token / affirmation riding in `meta` —
+ * the only caller in the product that ever passes `allowSignup: true`
+ * (2.6's LoginPage hard-defaults `shouldCreateUser` to false). `email` is
+ * read-only, taken from the invite, never typed by the invitee — there is
+ * no email input anywhere in this component, unlike LoginPage's two-step
+ * form.
+ *
+ * An invite that is not `pending` (expired, already accepted, revoked, or
+ * simply not found) renders a clear, specific message instead of the
+ * affirmation/OTP flow — get_invite_preview() returns no inviter name, so
+ * the copy never promises one.
  */
-export const InviteAcceptance = ({
-  email,
-  accountName,
-  onAccept,
-  isSubmitting = false,
-}: InviteAcceptanceProps) => {
+export const InviteAcceptance = () => {
+  const { token } = useParams<{ token: string }>();
+  const dataProvider = useDataProvider<CrmDataProvider>();
+  const authProvider = useAuthProvider();
+  const login = useLogin();
+  const notify = useNotify();
   const translate = useTranslate();
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [step, setStep] = useState<InviteStep>("affirm");
+  const [isRequesting, setIsRequesting] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
 
-  const passwordsMatch = password.length >= 8 && password === confirmPassword;
+  const {
+    data: invite,
+    isPending,
+    isError,
+  } = useQuery({
+    queryKey: ["invite-preview", token],
+    queryFn: (): Promise<InvitePreview | null> =>
+      dataProvider.getInvitePreview(token ?? ""),
+    enabled: !!token,
+  });
 
-  const handleSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!passwordsMatch || isSubmitting) return;
-    void onAccept(password);
+  const requestCode = () => {
+    if (!authProvider || !invite || !token) {
+      return Promise.reject(new Error("Authentication is not configured."));
+    }
+    return authProvider.login({
+      email: invite.email,
+      requestOtp: true,
+      allowSignup: true,
+      meta: { invite_token: token, age_affirmed: true },
+    });
   };
 
+  const handleAffirm = () => {
+    setIsRequesting(true);
+    requestCode()
+      .then(() => setStep("code"))
+      .catch((error: unknown) => {
+        notify(
+          error instanceof Error ? error.message : "ra.auth.sign_in_error",
+          {
+            type: "error",
+          },
+        );
+      })
+      .finally(() => setIsRequesting(false));
+  };
+
+  const handleResend = () => {
+    requestCode()
+      .then(() => {
+        notify("crm.auth.login.code_resent", {
+          messageArgs: { _: "Code sent again" },
+        });
+      })
+      .catch((error: unknown) => {
+        notify(
+          error instanceof Error ? error.message : "ra.auth.sign_in_error",
+          {
+            type: "error",
+          },
+        );
+      });
+  };
+
+  const handleVerifyCode: SubmitHandler<FieldValues> = (values) => {
+    if (!invite) return;
+    setIsVerifying(true);
+    login({ email: invite.email, token: values.token, verifyOtp: true }).catch(
+      (error: unknown) => {
+        notify(
+          error instanceof Error
+            ? error.message
+            : "crm.auth.login.invalid_code",
+          { type: "error" },
+        );
+        setIsVerifying(false);
+      },
+    );
+  };
+
+  if (!token || isPending) {
+    return <LoginSkeleton />;
+  }
+
+  if (isError || !invite || invite.status !== "pending") {
+    return (
+      <AuthLayout>
+        <InviteUnavailableMessage status={invite?.status} />
+      </AuthLayout>
+    );
+  }
+
   return (
-    <div
-      className="flex min-h-screen flex-col items-center justify-center bg-background p-6"
-      style={{ backgroundImage: "var(--wash)" }}
+    <AuthLayout
+      footer={
+        <span className="inline-flex items-center gap-1.5">
+          <Lock className="size-3.5" aria-hidden="true" />
+          {translate("crm.auth.footer_private", {
+            _: "Private to your family",
+          })}
+        </span>
+      }
     >
-      <div className="ql-enter mx-auto w-full max-w-sm space-y-6">
-        <div className="flex items-center justify-center gap-2">
-          <div
-            className="grid h-9 w-9 place-items-center rounded-lg text-primary-foreground"
-            style={{ background: "var(--primary)" }}
-          >
-            <LedgerMark className="h-5 w-5" />
-          </div>
-          <span className="font-display text-lg font-bold tracking-tight">
-            My<span style={{ color: "var(--primary)" }}>Shadchan</span>
-          </span>
+      {step === "affirm" ? (
+        <div className="space-y-6">
+          <InvitePreviewSummary invite={invite} />
+          <AgeAffirmation onContinue={handleAffirm} compact />
+          {isRequesting ? (
+            <p className="flex items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              {translate("crm.auth.invite_sending_code", {
+                _: "Sending your code…",
+              })}
+            </p>
+          ) : null}
         </div>
-
-        <div className="space-y-2 text-center">
-          <div
-            className="mx-auto grid h-14 w-14 place-items-center rounded-full shadow-[0_0_32px_-8px_var(--glow-accent)]"
-            style={{
-              background: "color-mix(in oklch, var(--violet) 16%, transparent)",
-            }}
-          >
-            <UserPlus
-              className="size-6"
-              style={{ color: "var(--violet)" }}
-              aria-hidden="true"
-            />
+      ) : (
+        <div className="space-y-6">
+          <div className="text-center">
+            <h2 className="font-display text-2xl font-bold tracking-tight">
+              {translate("crm.auth.login.title", { _: "Welcome back" })}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {translate("crm.auth.login.code_sent_to", {
+                email: invite.email,
+                _: "We sent a 6-digit code to %{email}.",
+              })}
+            </p>
           </div>
-          <h1 className="font-display text-2xl font-bold tracking-tight">
-            {translate("crm.auth.invite.title", { _: "You've been invited" })}
-          </h1>
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            {accountName
-              ? translate("crm.auth.invite.body_named", {
-                  _: `Set a password to join ${accountName} on MyShadchan.`,
-                  accountName,
-                })
-              : translate("crm.auth.invite.body", {
-                  _: "Set a password to join this family's records on MyShadchan.",
+
+          <Form className="space-y-4" onSubmit={handleVerifyCode}>
+            <TextInput
+              label="crm.auth.login.code_label"
+              source="token"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              inputClassName={AUTH_FIELD_CLASSNAME}
+              validate={required()}
+            />
+            <Button
+              type="submit"
+              className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
+              disabled={isVerifying}
+            >
+              {isVerifying ? (
+                <Loader2
+                  className="me-2 size-4 animate-spin"
+                  aria-hidden="true"
+                />
+              ) : null}
+              {translate("ra.auth.sign_in")}
+            </Button>
+            <div className="flex items-center justify-center text-sm">
+              <button
+                type="button"
+                onClick={handleResend}
+                className="text-muted-foreground hover:text-foreground hover:underline"
+              >
+                {translate("crm.auth.login.resend_code", {
+                  _: "Resend code",
                 })}
-          </p>
+              </button>
+            </div>
+          </Form>
         </div>
+      )}
+    </AuthLayout>
+  );
+};
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="invite-email">{translate("ra.auth.email")}</Label>
-            <Input
-              id="invite-email"
-              type="email"
-              value={email}
-              disabled
-              readOnly
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="invite-password">
-              {translate("crm.auth.invite.password", {
-                _: "Choose a password",
-              })}
-            </Label>
-            <Input
-              id="invite-password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              minLength={8}
-              required
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="invite-password-confirm">
-              {translate("crm.auth.invite.password_confirm", {
-                _: "Confirm password",
-              })}
-            </Label>
-            <Input
-              id="invite-password-confirm"
-              type="password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              minLength={8}
-              required
-            />
-          </div>
+InviteAcceptance.path = "/accept-invite/:token";
 
-          <Button
-            type="submit"
-            className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
-            disabled={!passwordsMatch || isSubmitting}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="me-2 h-4 w-4 animate-spin" />
-                {translate("crm.auth.invite.accepting", { _: "Joining..." })}
-              </>
-            ) : (
-              translate("crm.auth.invite.accept", { _: "Accept invite" })
-            )}
-          </Button>
-        </form>
+const InvitePreviewSummary = ({ invite }: { invite: InvitePreview }) => {
+  const translate = useTranslate();
+
+  return (
+    <div className="space-y-2 text-center">
+      <div
+        className="mx-auto grid h-14 w-14 place-items-center rounded-full shadow-[0_0_32px_-8px_var(--glow-accent)]"
+        style={{
+          background: "color-mix(in oklch, var(--violet) 16%, transparent)",
+        }}
+      >
+        <UserPlus
+          className="size-6"
+          style={{ color: "var(--violet)" }}
+          aria-hidden="true"
+        />
       </div>
+      <h1 className="font-display text-2xl font-bold tracking-tight">
+        {translate("crm.auth.invite_title", { _: "You've been invited" })}
+      </h1>
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        {translate("crm.auth.invite_body", {
+          _: "Join %{accountName} on MyShadchan as a %{role}.",
+          accountName: invite.account_name,
+          role: invite.role,
+        })}
+      </p>
+      <p className="text-xs text-muted-foreground/80">{invite.email}</p>
+    </div>
+  );
+};
+
+/**
+ * Renders when the invite is anything other than currently-pending: not
+ * found (no row for this token), expired, already accepted, or revoked.
+ * get_invite_preview() returns no inviter name, so none of these promise one.
+ */
+const InviteUnavailableMessage = ({
+  status,
+}: {
+  status?: InvitePreview["status"];
+}) => {
+  const translate = useTranslate();
+  const { title, body } = (() => {
+    switch (status) {
+      case "expired":
+        return {
+          title: translate("crm.auth.invite_expired_title", {
+            _: "This invite has expired",
+          }),
+          body: translate("crm.auth.invite_expired_body", {
+            _: "Ask the person who invited you for a new one.",
+          }),
+        };
+      case "accepted":
+        return {
+          title: translate("crm.auth.invite_accepted_title", {
+            _: "This invite has already been used",
+          }),
+          body: translate("crm.auth.invite_accepted_body", {
+            _: "Sign in instead, or ask the person who invited you for a new invite.",
+          }),
+        };
+      case "revoked":
+        return {
+          title: translate("crm.auth.invite_revoked_title", {
+            _: "This invite has been revoked",
+          }),
+          body: translate("crm.auth.invite_revoked_body", {
+            _: "Ask the person who invited you for a new one.",
+          }),
+        };
+      default:
+        return {
+          title: translate("crm.auth.invite_not_found_title", {
+            _: "This invite link isn't valid",
+          }),
+          body: translate("crm.auth.invite_not_found_body", {
+            _: "Ask the person who invited you to send a new one.",
+          }),
+        };
+    }
+  })();
+
+  return (
+    <div className="space-y-2 text-center">
+      <h1 className="font-display text-2xl font-bold tracking-tight">
+        {title}
+      </h1>
+      <p className="text-sm leading-relaxed text-muted-foreground">{body}</p>
     </div>
   );
 };

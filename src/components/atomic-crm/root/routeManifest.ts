@@ -6,8 +6,7 @@ import { OAuthConsentPage } from "@/components/supabase/oauth-consent-page";
 import { BillingPage } from "../billing/BillingPage";
 import inbox from "../inbox";
 import { ShareTarget } from "../inbox/ShareTarget";
-import { ConfirmationRequired } from "../login/ConfirmationRequired";
-import { SignupPage } from "../login/SignupPage";
+import { InviteAcceptance } from "../login/InviteAcceptance";
 import references from "../references";
 import { RemindersPage } from "../reminders/RemindersPage";
 import members from "../members";
@@ -46,14 +45,8 @@ export interface ResourceEntry {
 export const CUSTOM_ROUTES: CustomRouteEntry[] = [
   // Bare (outside the app shell) — identical on both surfaces.
   {
-    path: SignupPage.path,
-    Component: SignupPage,
-    surface: "both",
-    chrome: "bare",
-  },
-  {
-    path: ConfirmationRequired.path,
-    Component: ConfirmationRequired,
+    path: InviteAcceptance.path,
+    Component: InviteAcceptance,
     surface: "both",
     chrome: "bare",
   },

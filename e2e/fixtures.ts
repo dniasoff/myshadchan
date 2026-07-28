@@ -14,12 +14,14 @@ const adminSupabase = createClient(
 
 // Tables in FK-safe deletion order (children before parents). Deleting
 // "accounts" cascades away every domain row scoped to it (account_members,
-// singles, shidduchim, shadchanim, references, …) — see
+// singles, shidduchim, shadchanim, references, invites, …) — see
 // supabase/schemas/01_tables.sql's `on delete cascade` foreign keys — which
 // is what makes resetDb() safe to call between Playwright projects: without
-// it, `account_members` rows survive a `members` wipe (no cascade on that
-// FK) and the next signed-up user is no longer treated as the account's
-// first member by handle_new_user(), so it never gets a membership.
+// it, stale rows from a previous run would leak into the next. Story 2.7
+// deleted handle_new_user()'s first-user bootstrap (membership now binds
+// from an invite instead), so createSingle() below provisions its own
+// account + membership directly rather than relying on any signup side
+// effect.
 const TABLES = ["tasks", "accounts", "configuration", "members"];
 
 async function resetDb() {
@@ -77,26 +79,42 @@ async function createSingle({
   member: { user_id: string };
   first_name_en: string;
 }) {
-  // The service-role client bypasses set_account_id_default (its backing
-  // current_account_id() reads the caller's own membership, and service_role
-  // has none), so the account_id has to be looked up and passed explicitly —
-  // read off the account membership the signed-up member's handle_new_user()
-  // trigger created.
-  const { data: membership, error: membershipError } = await adminSupabase
-    .from("account_members")
-    .select("account_id")
-    .eq("user_id", member.user_id)
+  // Story 2.7 deleted handle_new_user()'s first-user bootstrap — a member
+  // created via admin.createUser() (createMember above) gets NO
+  // account_members row at all (the before_user_created Auth Hook does not
+  // gate service-role user creation, and membership now binds from an
+  // invite, not a signup side effect). The service-role client bypasses
+  // RLS, so this provisions the household + membership directly, mirroring
+  // the platform-ops genesis-seed runbook story 2.7's Dev Notes describe —
+  // two inserts, not a lookup of something a trigger used to create.
+  const { data: account, error: accountError } = await adminSupabase
+    .from("accounts")
+    .insert({ name: "E2E Household" })
+    .select()
     .single();
 
-  if (membershipError || !membership) {
+  if (accountError || !account) {
+    throw new Error(`Failed to create account: ${accountError?.message}`);
+  }
+
+  const { error: membershipError } = await adminSupabase
+    .from("account_members")
+    .insert({
+      account_id: account.id,
+      user_id: member.user_id,
+      role: "parent_admin",
+      status: "active",
+    });
+
+  if (membershipError) {
     throw new Error(
-      `Failed to find an account membership for member ${member.user_id}: ${membershipError?.message}`,
+      `Failed to create account membership for member ${member.user_id}: ${membershipError.message}`,
     );
   }
 
   const { data, error } = await adminSupabase
     .from("singles")
-    .insert({ account_id: membership.account_id, first_name_en })
+    .insert({ account_id: account.id, first_name_en })
     .select()
     .single();
 
@@ -105,6 +123,39 @@ async function createSingle({
   }
 
   return data;
+}
+
+/**
+ * Seeds a pending invite directly (Story 2.7) — the same shape as the
+ * platform-ops genesis seed the story's Dev Notes describe (two inserts:
+ * one account, one invite row), not a call to create_invite() itself, since
+ * that requires an already-authenticated inviting session this fixture has
+ * no reason to set up. `invited_by` stays null, exactly like the genesis
+ * case: RLS on `invites` requires service_role for that shape (AC-2), which
+ * this admin client is.
+ */
+async function createInvite({ email, role }: { email: string; role: string }) {
+  const { data: account, error: accountError } = await adminSupabase
+    .from("accounts")
+    .insert({ name: "E2E Invite Household" })
+    .select()
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(`Failed to create account: ${accountError?.message}`);
+  }
+
+  const { data: invite, error: inviteError } = await adminSupabase
+    .from("invites")
+    .insert({ email, account_id: account.id, role })
+    .select()
+    .single();
+
+  if (inviteError || !invite) {
+    throw new Error(`Failed to create invite: ${inviteError?.message}`);
+  }
+
+  return { token: invite.token as string, accountName: account.name as string };
 }
 
 interface MailpitSearchResponse {
@@ -122,7 +173,7 @@ interface MailpitMessage {
  * (`expect.poll`, never `waitForTimeout` per .claude/rules/testing.md) until the
  * message lands.
  */
-async function fetchOtpCode(email: string): Promise<string> {
+export async function fetchOtpCode(email: string): Promise<string> {
   let code: string | undefined;
 
   await expect
@@ -180,6 +231,7 @@ export const test = base.extend<{
   resetDb: void;
   createMember: typeof createMember;
   createSingle: typeof createSingle;
+  createInvite: typeof createInvite;
   signIn: typeof signIn;
 }>({
   // The first argument to a Playwright fixture function must use object destructuring ({}) — _ is not allowed.
@@ -199,6 +251,9 @@ export const test = base.extend<{
   },
   createSingle: async ({}, cb) => {
     await cb(createSingle);
+  },
+  createInvite: async ({}, cb) => {
+    await cb(createInvite);
   },
   signIn: async ({}, cb) => {
     await cb(signIn);

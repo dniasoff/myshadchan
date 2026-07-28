@@ -1,4 +1,4 @@
-import { CanAccess, useTranslate } from "ra-core";
+import { useTranslate } from "ra-core";
 import { Link, useMatch } from "react-router";
 
 import { cn } from "@/lib/utils";
@@ -36,22 +36,11 @@ export const Sidebar = () => {
         className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-4"
       >
         {PRIMARY_NAV.map((item) => (
-          <SidebarNavItem key={item.to} item={item} />
+          <SidebarLink key={item.to} item={item} />
         ))}
       </nav>
     </aside>
   );
-};
-
-const SidebarNavItem = ({ item }: { item: NavItem }) => {
-  if (item.to === "/settings") {
-    return (
-      <CanAccess resource="configuration" action="edit">
-        <SidebarLink item={item} />
-      </CanAccess>
-    );
-  }
-  return <SidebarLink item={item} />;
 };
 
 const SidebarLink = ({ item }: { item: NavItem }) => {

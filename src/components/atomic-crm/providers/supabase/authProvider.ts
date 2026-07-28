@@ -21,9 +21,8 @@ const getBaseAuthProvider = () =>
     },
   });
 
-// To speed up checks, we cache the initialization state
-// and the current member in the local storage. They are cleared on logout.
-const IS_INITIALIZED_CACHE_KEY = "RaStore.auth.is_initialized";
+// To speed up checks, we cache the current member in the local storage. It
+// is cleared on logout.
 const CURRENT_MEMBER_CACHE_KEY = "RaStore.auth.current_member";
 
 function getLocalStorage(): Storage | null {
@@ -31,25 +30,6 @@ function getLocalStorage(): Storage | null {
     return window.localStorage;
   }
   return null;
-}
-
-export async function getIsInitialized() {
-  const storage = getLocalStorage();
-  const cachedValue = storage?.getItem(IS_INITIALIZED_CACHE_KEY);
-  if (cachedValue != null) {
-    return cachedValue === "true";
-  }
-
-  const { data } = await getSupabaseClient()
-    .from("init_state")
-    .select("is_initialized");
-  const isInitialized = data?.at(0)?.is_initialized > 0;
-
-  if (isInitialized) {
-    storage?.setItem(IS_INITIALIZED_CACHE_KEY, "true");
-  }
-
-  return isInitialized;
 }
 
 const getMember = async () => {
@@ -84,7 +64,6 @@ const getMember = async () => {
 
 function clearCache() {
   const storage = getLocalStorage();
-  storage?.removeItem(IS_INITIALIZED_CACHE_KEY);
   storage?.removeItem(CURRENT_MEMBER_CACHE_KEY);
 }
 
@@ -161,30 +140,9 @@ export const getAuthProvider = (): AuthProvider => {
       return baseAuthProvider.logout(params);
     },
     checkAuth: async (params) => {
-      // Users are on the sign-up page, nothing to do
-      if (
-        window.location.pathname === "/sign-up" ||
-        window.location.hash.includes("#/sign-up")
-      ) {
-        return;
-      }
-
-      const isInitialized = await getIsInitialized();
-
-      if (!isInitialized) {
-        await getSupabaseClient().auth.signOut();
-        throw {
-          redirectTo: "/sign-up",
-          message: false,
-        };
-      }
-
       return baseAuthProvider.checkAuth(params);
     },
     canAccess: async (params) => {
-      const isInitialized = await getIsInitialized();
-      if (!isInitialized) return false;
-
       // Get the current user
       const member = await getMember();
       if (member == null) return false;

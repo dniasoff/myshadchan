@@ -1,10 +1,18 @@
 import type { Identifier, RaRecord } from "ra-core";
 
-export type SignUpData = {
+/**
+ * The five fields `get_invite_preview()` (02_functions.sql) returns to an
+ * UNAUTHENTICATED invitee previewing their invite at /accept-invite/:token
+ * (Story 2.7, AC-4) — never the inviting account's own data, `invited_by`,
+ * `id` or the token itself. `status` is the server-computed EFFECTIVE
+ * status: a `pending` row past its `expires_at` reports as `expired`.
+ */
+export type InvitePreview = {
   email: string;
-  password: string;
-  first_name: string;
-  last_name: string;
+  account_name: string;
+  role: string;
+  status: "pending" | "accepted" | "revoked" | "expired";
+  expires_at: string;
 };
 
 export type MemberFormData = {

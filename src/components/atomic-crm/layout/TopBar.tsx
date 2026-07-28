@@ -41,9 +41,7 @@ export const TopBar = () => (
         <CanAccess resource="members" action="list">
           <UsersMenuItem />
         </CanAccess>
-        <CanAccess resource="configuration" action="edit">
-          <SettingsMenuItem />
-        </CanAccess>
+        <SettingsMenuItem />
       </UserMenu>
     </div>
   </header>

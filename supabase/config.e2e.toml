@@ -102,6 +102,12 @@ content_path = "./supabase/templates/invite.html"
 subject = "Your MyShadchan sign-in code"
 content_path = "./supabase/templates/magic_link.html"
 
+# Story 2.7 (AC-5): see supabase/config.toml's own comment — kept in sync so
+# e2e behaves identically to dev.
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/check_signup_invite"
+
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.
 enable_signup = true

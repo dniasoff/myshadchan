@@ -35,10 +35,13 @@ create policy "Tasks scoped to account" on public.tasks
     using (account_id = public.current_context_id())
     with check (account_id = public.current_context_id());
 
--- Configuration (admin-only for writes)
+-- Configuration (Story 2.7, AC-9: the admin-role-check helper this file used
+-- to call for writes is retired — writes are service-role-only now, not
+-- merely admin-only. There is deliberately no insert/update policy left for
+-- `authenticated` at all: `service_role` bypasses RLS, so a config write is
+-- a platform-ops runbook action exactly
+-- like this story's genesis invite seed.)
 create policy "Enable read for authenticated" on public.configuration for select to authenticated using (true);
-create policy "Enable insert for admins" on public.configuration for insert to authenticated with check (public.is_admin());
-create policy "Enable update for admins" on public.configuration for update to authenticated using (public.is_admin()) with check (public.is_admin());
 
 --
 -- =====================================================================
@@ -54,6 +57,7 @@ create policy "Enable update for admins" on public.configuration for update to a
 alter table public.accounts enable row level security;
 alter table public.account_members enable row level security;
 alter table public.member_state enable row level security;
+alter table public.invites enable row level security;
 alter table public.singles enable row level security;
 alter table public.shadchanim enable row level security;
 alter table public."references" enable row level security;
@@ -160,6 +164,20 @@ create policy "Member state readable by owner" on public.member_state
     for select to authenticated
     using (user_id = auth.uid());
 
+-- Story 2.7 (AC-2): a context's own active members see its own invites.
+-- Deliberately SELECT-only — there is no insert/update/delete policy for
+-- `authenticated` at all. Every write goes through create_invite() (AC-3),
+-- revoke_invite() (Story 2.8), handle_new_user()'s binding step (a definer
+-- trigger), or the service_role genesis seed — withholding DML at the GRANT
+-- level (06_grants.sql), not merely by omitting a policy, is what keeps
+-- create_invite()'s authority/kind checks from being merely advisory: a
+-- permissive `with check (account_id = current_context_id())` insert policy
+-- would let any active member, including a `helper`, PostgREST-insert a
+-- `role = 'parent_admin'` invite directly.
+create policy "Invites readable within active account" on public.invites
+    for select to authenticated
+    using (account_id = public.current_context_id());
+
 create policy "Singles scoped to account" on public.singles
     for all to authenticated
     using (account_id = public.current_context_id())
@@ -232,14 +250,13 @@ alter table public.identity_signals enable row level security;
 -- belongs to another account denies rather than falling through.
 --
 -- The `single` role itself now exists in `account_members_role_check`
--- (Story 2.2, AC-2) — but nothing yet assigns it to a real membership (that
--- lands with the invite flow, Story 2.7/2.8), and this policy does not yet
--- gate on it: an account_id match alone still resolves to full parent-level
--- visibility regardless of the caller's role. Currently theoretical (no code
--- path creates a `single`-role membership today), but a real, documented
--- window rather than a settled one — a `single`-role membership created
--- before Epic 6 lands would read the full candid interactions timeline. When
--- Epic 6 restricts single visibility, this join is the ONE place that gains
+-- (Story 2.2, AC-2) and Story 2.7's invite flow (create_invite() +
+-- handle_new_user()) can bind a real `single`-role membership — but this
+-- policy does not yet gate on it: an account_id match alone still resolves
+-- to full parent-level visibility regardless of the caller's role. A real,
+-- documented window rather than a settled one — a `single`-role membership
+-- reads the full candid interactions timeline until Epic 6 restricts single
+-- visibility. When it does, this join is the ONE place that gains
 -- `and public.is_single_visible_state(s.pipeline_state)`, and the `scope =
 -- 'account'` branch becomes an outright deny for the single role.
 create policy "Interactions scoped to account and parent visibility" on public.interactions

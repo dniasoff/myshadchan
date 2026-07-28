@@ -21,10 +21,6 @@ grant all on function public.handle_update_user() to anon;
 grant all on function public.handle_update_user() to authenticated;
 grant all on function public.handle_update_user() to service_role;
 
-grant all on function public.is_admin() to anon;
-grant all on function public.is_admin() to authenticated;
-grant all on function public.is_admin() to service_role;
-
 grant all on function public.set_member_id_default() to anon;
 grant all on function public.set_member_id_default() to authenticated;
 grant all on function public.set_member_id_default() to service_role;
@@ -33,23 +29,21 @@ grant all on function public.set_member_id_default() to service_role;
 --
 -- The API roles reach base tables only as `authenticated` / `service_role`;
 -- `anon` is never granted DML on them (it keeps only the REFERENCES / TRIGGER /
--- TRUNCATE privileges Postgres attaches at table creation). Views that must be
--- readable before sign-in (init_state and friends) are granted separately below.
+-- TRUNCATE privileges Postgres attaches at table creation).
 grant all on table public.members to authenticated;
 grant all on table public.members to service_role;
 
 grant all on table public.tasks to authenticated;
 grant all on table public.tasks to service_role;
 
--- App configuration is read by every signed-in user and written by admins only
--- (enforced by RLS); nothing deletes it, so DELETE is deliberately not granted.
+-- App configuration is read by every signed-in user. Story 2.7 (AC-9)
+-- retired the admin-role-check helper and the two policies that called it —
+-- this table-level insert/update grant is a no-op for `authenticated` now
+-- (there is no insert/update POLICY left, so RLS refuses regardless), left
+-- as-is rather than pared back, since `service_role` bypasses RLS and needs
+-- it; nothing deletes it, so DELETE is deliberately not granted.
 grant select, insert, update on table public.configuration to authenticated;
 grant select, insert, update on table public.configuration to service_role;
-
--- View grants
-grant all on table public.init_state to anon;
-grant all on table public.init_state to authenticated;
-grant all on table public.init_state to service_role;
 
 -- Sequence grants
 grant all on sequence public.members_id_seq to anon;
@@ -113,6 +107,24 @@ grant all on table public.account_members to service_role;
 revoke all on table public.member_state from anon, authenticated;
 grant select on table public.member_state to authenticated;
 grant all on table public.member_state to service_role;
+
+-- invites (Story 2.7, AC-2): SELECT-only for authenticated. DML is withheld
+-- at the grant level, not merely by the absence of a policy — see
+-- 05_policies.sql for why that distinction is the whole point. `from anon,
+-- authenticated` (both, not just anon): the schema's default privileges
+-- (top of this file) auto-grant ALL on every new table to `authenticated`
+-- at creation time, so revoking from anon alone would leave TRUNCATE and
+-- every other privilege standing for `authenticated` — mirrors
+-- member_state's own grant block above. The sequence gets no
+-- `authenticated` grant either, since `authenticated` never inserts
+-- directly (contrast this file's other sequence grants, which hand `anon`
+-- `all` — do NOT copy that pattern here).
+revoke all on table public.invites from anon, authenticated;
+grant select on table public.invites to authenticated;
+grant all on table public.invites to service_role;
+
+revoke all on sequence public.invites_id_seq from anon, authenticated;
+grant all on sequence public.invites_id_seq to service_role;
 
 revoke all on table public.singles from anon;
 grant all on table public.singles to authenticated;
@@ -319,6 +331,36 @@ grant execute on function public.guard_persona_removal(bigint, bigint) to servic
 revoke all on function public.remove_persona(text) from public, anon;
 grant execute on function public.remove_persona(text) to authenticated;
 grant execute on function public.remove_persona(text) to service_role;
+
+-- Story 2.7 (AC-3): role_authority() is a small IMMUTABLE helper — a pure
+-- function of its argument — safe to grant broadly.
+revoke all on function public.role_authority(text) from public, anon;
+grant execute on function public.role_authority(text) to authenticated;
+grant execute on function public.role_authority(text) to service_role;
+
+-- Story 2.7 (AC-3): create_invite() is SECURITY DEFINER and the sole
+-- authenticated write path onto a table with no client DML grant — every
+-- check in AC-3 is performed inside the function itself, since RLS no
+-- longer backstops it.
+revoke all on function public.create_invite(text, text) from public, anon;
+grant execute on function public.create_invite(text, text) to authenticated;
+grant execute on function public.create_invite(text, text) to service_role;
+
+-- Story 2.7 (AC-4): get_invite_preview() is deliberately anon-callable — the
+-- one new anon surface this story adds, so an unauthenticated invitee can
+-- preview their invite before signing up. Narrow by construction (AC-4's
+-- five-field list) — see the function's own comment for why this is a
+-- scoped exception to AD-1's anon posture, not a precedent.
+revoke all on function public.get_invite_preview(uuid) from public;
+grant execute on function public.get_invite_preview(uuid) to anon;
+grant execute on function public.get_invite_preview(uuid) to authenticated;
+grant execute on function public.get_invite_preview(uuid) to service_role;
+
+-- Story 2.7 (AC-5): check_signup_invite() backs the before_user_created Auth
+-- Hook — GoTrue invokes it as `supabase_auth_admin`, never `anon` or
+-- `authenticated` directly.
+revoke all on function public.check_signup_invite(jsonb) from public, anon, authenticated;
+grant execute on function public.check_signup_invite(jsonb) to supabase_auth_admin;
 
 revoke all on function public.enforce_shidduch_initial_state() from public, anon;
 grant execute on function public.enforce_shidduch_initial_state() to authenticated;

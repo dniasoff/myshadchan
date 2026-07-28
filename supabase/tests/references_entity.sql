@@ -27,17 +27,18 @@ grant all on ids to public;
 -- ---------------------------------------------------------------------------
 -- Arrange: two tenants that must never see each other.
 -- ---------------------------------------------------------------------------
--- Three users. handle_new_user() bootstraps a membership for the FIRST one and
--- deliberately gives the rest nothing, so the inserts below double as the
--- provisioning test before the suite re-points memberships at its own tenants.
+-- Three users, none carrying an invite token. Story 2.7 (AC-7) deleted
+-- handle_new_user()'s first-user bootstrap branch (the fork's "first user
+-- becomes parent_admin" fallback) in favor of invite-only binding, so every
+-- signup below — including this first one — gets NO membership at all; the
+-- suite re-points memberships at its own tenants explicitly further down.
 insert into auth.users (id, instance_id, aud, role, email)
 values ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'tenant-a@test.local');
 
 insert into results (name, passed)
-select 'the first user to sign up bootstraps a parent_admin membership', count(*) = 1
+select 'a signup with no invite gets NO membership (AC-7 replaces the old first-user bootstrap)', count(*) = 0
 from public.account_members am
-where am.user_id = '11111111-1111-1111-1111-111111111111'
-  and am.role = 'parent_admin' and am.status = 'active';
+where am.user_id = '11111111-1111-1111-1111-111111111111';
 
 insert into auth.users (id, instance_id, aud, role, email)
 values ('22222222-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'tenant-b@test.local'),

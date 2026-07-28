@@ -3,12 +3,6 @@
 -- This file declares all views in the public schema.
 --
 
-create or replace view public.init_state with (security_invoker = off) as
-select count(sub.id) as is_initialized
-from (
-    select members.id from public.members limit 1
-) sub;
-
 -- Dedupe "catch" count per shidduch (E3): how many OTHER suggestions in the same
 -- account look like the same person ("you've come across this person before").
 -- Feeds the board card's calm "Suggested before" chip via

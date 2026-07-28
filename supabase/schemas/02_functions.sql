@@ -16,19 +16,27 @@ $_$;
 -- current_context_id() now fails closed — the account_members row without which
 -- the user would see nothing at all.
 --
--- Membership model here is deliberately minimal and invite-free (AD-11's full
--- invite binding is Epic-1): the FIRST user bootstraps the tenant and becomes
--- its parent_admin. Every subsequent user gets NO membership, so they resolve to
--- a null account and see nothing until the invite flow grants them one. That is
--- the correct fail-closed default — a stranger signing up must not land inside
--- somebody else's family's diligence notes.
+-- Membership binds from an invite (Story 2.7, AD-11: "new users join only by
+-- a verified invite token"), never a bootstrap: looks up the `pending`,
+-- unexpired `invites` row whose `token` matches
+-- new.raw_user_meta_data->>'invite_token'. Found -> insert the
+-- account_members row with that invite's account_id/role/invited_by and mark
+-- the invite `accepted`. Not found (should not happen once
+-- check_signup_invite()'s Auth Hook is live — this is defense-in-depth, not
+-- the primary gate; see "Two gates, one authoritative" in story 2.7's Dev
+-- Notes) -> create NO membership at all; the caller falls through to
+-- current_context_id()'s existing fail-closed NULL, exactly as an uninvited
+-- signup does today. `role` is never read from the request body for a mass
+-- assignment — it is looked up server-side from the invites row the token
+-- names, never from a client-supplied role field.
 CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
   member_count int;
-  v_account_id bigint;
+  v_invite public.invites;
+  v_invite_token uuid;
 begin
   select count(id) into member_count
   from public.members;
@@ -54,19 +62,32 @@ begin
     case when member_count > 0 then FALSE else TRUE end
   );
 
-  if not exists (select 1 from public.account_members) then
-    select a.id into v_account_id
-    from public.accounts a
-    order by a.id
-    limit 1;
+  -- Defensive cast: a malformed invite_token must never abort the whole
+  -- auth.users insert (this trigger's exception would roll back the entire
+  -- signup transaction). check_signup_invite() already validated the token
+  -- shape before this user was allowed to be created; this guard only
+  -- matters for the "hook unavailable" fallback path.
+  begin
+    v_invite_token := nullif(new.raw_user_meta_data ->> 'invite_token', '')::uuid;
+  exception when others then
+    v_invite_token := null;
+  end;
 
-    if v_account_id is null then
-      insert into public.accounts (name) values ('My Account')
-      returning id into v_account_id;
+  if v_invite_token is not null then
+    select i.* into v_invite
+    from public.invites i
+    where i.token = v_invite_token
+      and i.status = 'pending'
+      and i.expires_at > now();
+
+    if found then
+      insert into public.account_members (account_id, user_id, role, invited_by, status)
+      values (v_invite.account_id, new.id, v_invite.role, v_invite.invited_by, 'active');
+
+      update public.invites
+      set status = 'accepted', accepted_at = now()
+      where id = v_invite.id;
     end if;
-
-    insert into public.account_members (account_id, user_id, role, status)
-    values (v_account_id, new.id, 'parent_admin', 'active');
   end if;
 
   return new;
@@ -98,17 +119,6 @@ begin
   where user_id = new.id;
 
   return new;
-end;
-$$;
-
-CREATE OR REPLACE FUNCTION "public"."is_admin"() RETURNS boolean
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO ''
-    AS $$
-begin
-  return exists (
-    select 1 from public.members where user_id = auth.uid() and administrator = true
-  );
 end;
 $$;
 
@@ -835,6 +845,201 @@ begin
       perform public.activate_context_for(v_user_id, v_new_active_account_id);
     end if;
   end if;
+end;
+$$;
+
+-- =====================================================================
+-- MyShadchan — Invite-only signup with 18+ affirmation (Story 2.7, AD-11)
+-- =====================================================================
+
+-- The concrete shape of "role <= inviter authority" from the epic text
+-- (AC-3). IMMUTABLE — a pure function of its argument — used by
+-- create_invite() to refuse granting a role above the caller's own.
+-- `self_manager` (2) sits between `parent_admin` (3) and the three
+-- authority-1 roles: a self-managing single may invite a `helper` or
+-- another `single` into their own household, but never a `parent_admin`.
+CREATE OR REPLACE FUNCTION "public"."role_authority"("p_role" "text") RETURNS integer
+    LANGUAGE "sql" IMMUTABLE
+    SET "search_path" TO ''
+    AS $$
+  select case p_role
+    when 'parent_admin' then 3
+    when 'self_manager' then 2
+    when 'helper' then 1
+    when 'single' then 1
+    when 'shadchan' then 1
+    else 0
+  end;
+$$;
+
+-- The one function that creates an invitee-facing invite (AC-3). SECURITY
+-- DEFINER: AC-2 withholds every DML grant on `invites` from `authenticated`,
+-- so an invoker-rights insert would be refused at the grant before any of
+-- these checks ever ran — this function's own checks are therefore the ONLY
+-- write gate, not merely a convenience layer in front of RLS. Refuses
+-- unless: the caller holds an active membership of the current context;
+-- that membership's role is an OWNING one (`parent_admin`, `self_manager` or
+-- `shadchan` — deliberately BROADER than 2.2's owning-role helper
+-- `is_owning_membership_role()`, since a shadchan can invite into their
+-- shadchanus but never owns a `singles` row — do not merge the two
+-- predicates); `role_authority(p_role)` does not exceed the caller's own;
+-- and `p_role` matches the active context's `kind` (household ->
+-- parent_admin/helper/single, shadchanus -> shadchan). The kind check
+-- exists so an invite that could never be accepted (2.2's
+-- enforce_membership_role_matches_context() trigger would reject it) is
+-- refused at creation, not discovered broken by the invitee. Sets
+-- `invited_by` from the caller's own `account_members.id`, never from a
+-- parameter — a client cannot forge who an invite came from.
+CREATE OR REPLACE FUNCTION "public"."create_invite"("p_email" "text", "p_role" "text") RETURNS "public"."invites"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+  v_membership_id bigint;
+  v_caller_role text;
+  v_account_kind text;
+  v_invite public.invites;
+begin
+  v_account_id := public.current_context_id();
+
+  select am.id, am.role into v_membership_id, v_caller_role
+  from public.account_members am
+  where am.account_id = v_account_id
+    and am.user_id = auth.uid()
+    and am.status = 'active';
+
+  if v_membership_id is null then
+    raise exception 'no active membership of the current context'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if v_caller_role not in ('parent_admin', 'self_manager', 'shadchan') then
+    raise exception 'role % may not send invites', v_caller_role
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if public.role_authority(p_role) > public.role_authority(v_caller_role) then
+    raise exception 'cannot invite role % above your own authority', p_role
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  select kind into v_account_kind from public.accounts where id = v_account_id;
+
+  if v_account_kind = 'household' and p_role not in ('parent_admin', 'helper', 'single') then
+    raise exception 'role % is not invitable into a household-kind account', p_role
+      using errcode = 'check_violation';
+  end if;
+
+  if v_account_kind = 'shadchanus' and p_role <> 'shadchan' then
+    raise exception 'role % is not invitable into a shadchanus-kind account', p_role
+      using errcode = 'check_violation';
+  end if;
+
+  insert into public.invites (email, account_id, role, invited_by)
+  values (p_email, v_account_id, p_role, v_membership_id)
+  returning * into v_invite;
+
+  return v_invite;
+end;
+$$;
+
+-- Backs /accept-invite/:token (AC-4): an UNAUTHENTICATED invitee looks up
+-- their invite by token before signing up. Returns ONLY the five fields an
+-- invitee needs to render "You've been invited to join The Klein Family as
+-- a helper" — never the inviting account's own data, `invited_by`, `id` or
+-- the token itself. Deliberately anon-callable (06_grants.sql) — the one new
+-- anon surface this story adds, and a deliberate, scoped exception to AD-1's
+-- "the only anon-readable relation is the published-listing snapshot": this
+-- is a function returning five non-domain fields for a caller who already
+-- holds the token, not a relation. `status` is the caller-EFFECTIVE status:
+-- a `pending` row whose `expires_at` has passed reports as `expired` even
+-- though nothing in this schema ever writes that literal value on a timer.
+CREATE OR REPLACE FUNCTION "public"."get_invite_preview"("p_token" "uuid") RETURNS TABLE("email" "text", "account_name" "text", "role" "text", "status" "text", "expires_at" timestamp with time zone)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select
+    i.email,
+    a.name as account_name,
+    i.role,
+    case
+      when i.status = 'pending' and i.expires_at < now() then 'expired'
+      else i.status
+    end as status,
+    i.expires_at
+  from public.invites i
+  join public.accounts a on a.id = i.account_id
+  where i.token = p_token;
+$$;
+
+-- Backs the "before user created" Auth Hook (AC-5,
+-- [auth.hook.before_user_created] in supabase/config.toml). THE authoritative
+-- gate for AD-11's "new users join only by a verified invite token" and the
+-- 18+ affirmation — handle_new_user() only performs the BINDING once this
+-- hook has already allowed creation (see "Two gates, one authoritative",
+-- story 2.7's Dev Notes).
+--
+-- Verified empirically against the running local stack (this repo pins no
+-- Supabase CLI version, see story 2.7's Dev Notes "Running the Supabase CLI
+-- here"): GoTrue calls this ONLY for the self-serve signup paths (`/otp`,
+-- `/signup`) — never for a service-role `auth.admin.createUser()` — as
+-- `supabase_auth_admin`, passing `event` shaped like
+-- `{"user": {"email": ..., "user_metadata": {...}}, "metadata": {...}}`.
+-- Note the metadata lives under `user_metadata` (GoTrue's external name for
+-- `raw_user_meta_data`), NOT `raw_user_meta_data` itself — a different key
+-- path than handle_new_user()'s own trigger, which reads the real column.
+-- To ALLOW, return `{}`; to REFUSE, return
+-- `{"error": {"http_code": ..., "message": ...}}`, which GoTrue surfaces to
+-- the client as that exact HTTP status and message — verified to produce a
+-- real 403 with the given message, not GoTrue's generic hook-failure text.
+-- Both metadata reads are cast defensively: a hand-crafted, malformed
+-- `invite_token`/`age_affirmed` value must refuse cleanly, never crash the
+-- hook (a hook error surfaces as an opaque 500, not a clear 403).
+CREATE OR REPLACE FUNCTION "public"."check_signup_invite"("event" "jsonb") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_email text;
+  v_age_affirmed boolean;
+  v_token uuid;
+begin
+  v_email := event -> 'user' ->> 'email';
+
+  begin
+    v_age_affirmed := (event -> 'user' -> 'user_metadata' ->> 'age_affirmed')::boolean;
+  exception when others then
+    v_age_affirmed := null;
+  end;
+
+  if v_age_affirmed is distinct from true then
+    return jsonb_build_object('error', jsonb_build_object(
+      'http_code', 403,
+      'message', 'You must confirm you are 18 years of age or older to sign up.'
+    ));
+  end if;
+
+  begin
+    v_token := nullif(event -> 'user' -> 'user_metadata' ->> 'invite_token', '')::uuid;
+  exception when others then
+    v_token := null;
+  end;
+
+  if v_token is null or v_email is null or not exists (
+    select 1 from public.invites i
+    where i.token = v_token
+      and lower(i.email) = lower(v_email)
+      and i.status = 'pending'
+      and i.expires_at > now()
+  ) then
+    return jsonb_build_object('error', jsonb_build_object(
+      'http_code', 403,
+      'message', 'This invite is invalid, expired, or has already been used.'
+    ));
+  end if;
+
+  return '{}'::jsonb;
 end;
 $$;
 
