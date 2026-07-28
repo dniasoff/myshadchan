@@ -4,6 +4,7 @@ import { Link } from "react-router";
 
 import { List } from "@/components/admin/list";
 
+import { buildNewPath } from "../entity360/entityPaths";
 import { TopToolbar } from "../layout/TopToolbar";
 import { EmptyState } from "../misc/EmptyState";
 import type { Shadchan, ShidduchSummary } from "../types";
@@ -20,7 +21,7 @@ import { countSuggestionsByShadchan } from "./shadchanUtils";
 
 const AddShadchanButton = () => (
   <Link
-    to="/shadchanim/create"
+    to={buildNewPath("shadchanim")}
     className="inline-flex h-11 items-center gap-2 rounded-xl px-4
       font-semibold text-primary-foreground
       bg-[linear-gradient(135deg,var(--accent-grad-from),var(--accent-grad-to))]
@@ -84,7 +85,7 @@ const ShadchanDirectory = () => {
           title="Add your first shadchan"
           description="Every redt comes from somewhere — keep a book of the matchmakers your family works with."
           actionLabel="Add a shadchan"
-          actionTo="/shadchanim/create"
+          actionTo={buildNewPath("shadchanim")}
           className="py-14"
         />
       ) : (

@@ -1,6 +1,7 @@
 import { BookUser, Users } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { buildNewPath } from "../entity360/entityPaths";
 import MobileHeader from "../layout/MobileHeader";
 import { MobileContent } from "../layout/MobileContent";
 import { EmptyState } from "../misc/EmptyState";
@@ -57,7 +58,7 @@ export const MobileDashboard = () => {
           title="Add your first single"
           description="A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions."
           actionLabel="Add a single"
-          actionTo="/singles/create"
+          actionTo={buildNewPath("singles")}
         />
       </Wrapper>
     );
@@ -79,7 +80,7 @@ export const MobileDashboard = () => {
             title="Capture your first suggestion"
             description="Every redt starts here — add the first suggestion for this single to see the pipeline come to life."
             actionLabel="Add a suggestion"
-            actionTo="/shidduchim/create"
+            actionTo={buildNewPath("shidduchim")}
           />
         ) : (
           <>

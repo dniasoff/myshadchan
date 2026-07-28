@@ -6,6 +6,7 @@ import { Create } from "@/components/admin/create";
 import { SimpleForm } from "@/components/admin/simple-form";
 import type { CrmDataProvider } from "../providers/types";
 import type { ReferenceMatchCandidate } from "../types";
+import { redirectToRecord } from "../entity360/routeConvention";
 import { FormToolbar } from "../layout/FormToolbar";
 import { ReferenceInputs } from "./ReferenceInputs";
 import { ReferenceMatchPanel } from "./ReferenceMatchPanel";
@@ -94,7 +95,7 @@ export const ReferenceCreate = () => {
     : undefined;
 
   return (
-    <Create redirect="show">
+    <Create redirect={redirectToRecord}>
       <SimpleForm toolbar={<FormToolbar />}>
         <ReferenceInputs />
         <MatchOnEntry shidduchimId={shidduchimId} />

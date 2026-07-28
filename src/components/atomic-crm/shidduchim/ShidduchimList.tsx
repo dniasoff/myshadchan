@@ -7,6 +7,7 @@ import { CreateButton } from "@/components/admin/create-button";
 import { List } from "@/components/admin/list";
 import { cn } from "@/lib/utils";
 
+import { buildNewPath } from "../entity360/entityPaths";
 import { TopToolbar } from "../layout/TopToolbar";
 import type { Single } from "../types";
 import { ShidduchCreate } from "./ShidduchCreate";
@@ -75,7 +76,7 @@ const ShidduchimLayout = ({
   onSelectSingle: (id: Identifier) => void;
 }) => {
   const location = useLocation();
-  const matchCreate = matchPath("/shidduchim/create", location.pathname);
+  const matchCreate = matchPath(buildNewPath("shidduchim"), location.pathname);
   const matchShow = matchPath("/shidduchim/:id/show", location.pathname);
   const { isPending } = useListContext();
 
@@ -150,7 +151,7 @@ const ShidduchimNoSingles = () => (
       for). Add a single first, then start tracking suggestions.
     </p>
     <Link
-      to="/singles/create"
+      to={buildNewPath("singles")}
       className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:brightness-105"
     >
       Add a single

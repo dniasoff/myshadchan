@@ -12,6 +12,9 @@ import {
 } from "ra-core";
 import { Link } from "react-router";
 
+import { buildEditPath } from "@/components/atomic-crm/entity360/entityPaths";
+import { hasAd24RecordShape } from "@/components/atomic-crm/entity360/routeConvention";
+
 export type EditButtonProps = {
   record?: RaRecord;
   resource?: string;
@@ -51,11 +54,21 @@ export const EditButton = (props: EditButtonProps) => {
     typeof recordRepresentationValue === "string"
       ? recordRepresentationValue
       : recordRepresentationValue?.toString();
-  const link = createPath({
-    resource,
-    type: "edit",
-    id: record?.id,
-  });
+  // AD-24 (contract §5 rule 3, AC 3): once a descriptor's own
+  // `buildRecordPath` already returns the AD-24 shape (`/{resource}/{id}`,
+  // Epic 5's one-line flip), the live edit route moves to
+  // `/{resource}/{id}/edit` and this button must follow it. Until that flip,
+  // `buildEditPath` would collide with the pre-migration `:id/show/*` route
+  // (`/singles/1/show/edit`), so `useCreatePath`'s `/{resource}/{id}`
+  // fallback — today's real edit route — is kept.
+  const link =
+    resource && record?.id != null && hasAd24RecordShape(resource, record.id)
+      ? buildEditPath(resource, record.id)
+      : createPath({
+          resource,
+          type: "edit",
+          id: record?.id,
+        });
   const label = useResourceTranslation({
     resourceI18nKey: resource ? `resources.${resource}.action.edit` : undefined,
     baseI18nKey: "ra.action.edit",

@@ -1,5 +1,6 @@
 import { BookUser, Users } from "lucide-react";
 
+import { buildNewPath } from "../entity360/entityPaths";
 import { EmptyState } from "../misc/EmptyState";
 import { AttentionSection } from "./AttentionSection";
 import { DashboardHeader } from "./DashboardHeader";
@@ -33,7 +34,7 @@ export const Dashboard = () => {
         title="Add your first single"
         description="A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions."
         actionLabel="Add a single"
-        actionTo="/singles/create"
+        actionTo={buildNewPath("singles")}
       />
     );
   }
@@ -53,7 +54,7 @@ export const Dashboard = () => {
           title="Capture your first suggestion"
           description="Every redt starts here — add the first suggestion for this single to see the pipeline come to life."
           actionLabel="Add a suggestion"
-          actionTo="/shidduchim/create"
+          actionTo={buildNewPath("shidduchim")}
         />
       ) : (
         <div className="flex flex-col gap-6">

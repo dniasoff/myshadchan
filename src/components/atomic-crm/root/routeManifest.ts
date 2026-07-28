@@ -122,14 +122,35 @@ export function resourcesFor(surface: "desktop" | "mobile"): ResourceEntry[] {
   );
 }
 
-// --- Validator (AC #6) ---------------------------------------------------
+/**
+ * Resource name -> the written reason it needs no `hasShow`/`hasEdit` flags
+ * despite registering `list` only (Story 3.12 AC 7). `ra-core` computes
+ * `hasEdit: !!edit || !!hasEdit`, `hasShow: !!show || !!hasShow`
+ * (`ra-core/dist/core/Resource.js:28-34`); without either flag,
+ * `useGetPathForRecordCallback` never resolves a link and every
+ * `<DataTable>` row goes unclickable (`admin/data-table.tsx:233`). Exactly
+ * these three entries, and no others — a fourth list-only resource needs its
+ * own written reason here, not a silent addition.
+ */
+export const RECORD_FLAG_EXEMPTIONS: Record<string, string> = {
+  shidduchim:
+    "Kanban board; rows never render through <DataTable>, so useGetPathForRecordCallback is never called. Story 5.1 migrates it onto buildEntityRoutes and adds hasShow/hasEdit.",
+  inbox_items:
+    "Triage surface only (InboxList.tsx): each card resolves via a dialog or is dismissed, never through <DataTable>, and there is no inbox_items/{id} record route to link a row to.",
+  tasks:
+    "Read/complete-only list (TasksListPage.tsx): tasks are toggled inline, never through <DataTable>, and there is no tasks/{id} record route — task creation lives in reminders/.",
+};
+
+// --- Validator (AC #6, extended by Story 3.12 AC #7) ----------------------
 
 export type ViolationCode =
   | "non-component-route"
   | "empty-resource"
   | "duplicate-path"
   | "unreachable-nav-target"
-  | "tasks-not-listable";
+  | "tasks-not-listable"
+  | "create-route-on-resource"
+  | "record-flags-missing";
 
 export interface ManifestViolation {
   code: ViolationCode;
@@ -166,16 +187,19 @@ function isEmptyResourceDefinition(
 const SURFACES: Array<"desktop" | "mobile"> = ["desktop", "mobile"];
 
 /**
- * Pure validator: given a custom-route manifest, a resource manifest and the
- * primary-nav targets, returns every way a registered route could render
- * nothing. Takes its inputs as parameters (never reads `CUSTOM_ROUTES` /
- * `RESOURCES` / `PRIMARY_NAV` from module scope) so tests can drive it with
- * invalid fixtures without mutating the real manifest.
+ * Pure validator: given a custom-route manifest, a resource manifest, the
+ * primary-nav targets and the record-flag exemption map, returns every way a
+ * registered route could render nothing, or could register a route the AD-24
+ * convention no longer allows. Takes its inputs as parameters (never reads
+ * `CUSTOM_ROUTES` / `RESOURCES` / `PRIMARY_NAV` / `RECORD_FLAG_EXEMPTIONS`
+ * from module scope) so tests can drive it with invalid fixtures without
+ * mutating the real manifest.
  */
 export function findManifestViolations(
   customRoutes: CustomRouteEntry[],
   resources: ResourceEntry[],
   navTargets: string[],
+  recordFlagExemptions: Record<string, string>,
 ): ManifestViolation[] {
   const violations: ManifestViolation[] = [];
 
@@ -203,6 +227,30 @@ export function findManifestViolations(
           code: "empty-resource",
           surface,
           detail: `resource "${resource.name}" declares no list, create, edit or show`,
+        });
+      }
+
+      // AD-24 (Story 3.12 AC 7): creation lives at `new`, owned by the
+      // entity's own route fragment (`entity360/routeConvention.tsx`'s
+      // `buildCreateRoutes`), never `<Resource>`'s own `create` prop.
+      if (resource.definition.create) {
+        violations.push({
+          code: "create-route-on-resource",
+          surface,
+          detail: `resource "${resource.name}" declares a create route on <Resource> — creation lives at "new" (buildCreateRoutes), not "create"`,
+        });
+      }
+
+      // AD-24 (Story 3.12 AC 7): a list-only registration with neither a
+      // show/edit component nor an explicit hasShow/hasEdit flag leaves
+      // every <DataTable> row unclickable, unless it is a written exemption.
+      const { list, show, edit, hasShow, hasEdit } = resource.definition;
+      const hasRecordFlags = !!show || !!edit || !!hasShow || !!hasEdit;
+      if (list && !hasRecordFlags && !(resource.name in recordFlagExemptions)) {
+        violations.push({
+          code: "record-flags-missing",
+          surface,
+          detail: `resource "${resource.name}" registers list only, with no hasShow/hasEdit and no RECORD_FLAG_EXEMPTIONS entry — every <DataTable> row would be unclickable`,
         });
       }
     }

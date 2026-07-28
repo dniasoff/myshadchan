@@ -860,6 +860,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/entity360/routeConvention.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/entity360/resetScrollToTop.ts",
           "type": "registry:component"
         },
@@ -905,6 +909,10 @@
         },
         {
           "path": "src/components/atomic-crm/entity360/RecordLink.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/LegacyCreatePathRedirect.tsx",
           "type": "registry:component"
         },
         {

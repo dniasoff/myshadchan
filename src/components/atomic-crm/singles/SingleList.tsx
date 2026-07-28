@@ -6,6 +6,7 @@ import { Link } from "react-router";
 import { List } from "@/components/admin/list";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { buildNewPath } from "../entity360/entityPaths";
 import { EmptyState } from "../misc/EmptyState";
 import type { Single, SingleSummary } from "../types";
 import { SingleCard } from "./SingleCard";
@@ -43,7 +44,7 @@ const SingleListHeader = () => (
       </p>
     </div>
     <Link
-      to="/singles/create"
+      to={buildNewPath("singles")}
       className="inline-flex h-11 items-center gap-2 rounded-xl px-4
         font-semibold text-primary-foreground
         bg-[linear-gradient(135deg,var(--accent-grad-from),var(--accent-grad-to))]
@@ -88,7 +89,7 @@ const SingleListContent = () => {
           title="Add your first single"
           description="A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions."
           actionLabel="Add a single"
-          actionTo="/singles/create"
+          actionTo={buildNewPath("singles")}
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

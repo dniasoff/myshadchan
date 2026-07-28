@@ -1,0 +1,32 @@
+{
+  "scanPaths": ["src"],
+  "extensions": [".ts", ".tsx"],
+  "excludeDirs": ["src/components/ui"],
+  "patterns": [
+    {
+      "id": "create-path-literal",
+      "description": "A hardcoded /{resource}/create path string. AD-24's create route is /{resource}/new (Story 3.12); every live link goes through entityPaths.ts's buildNewPath, never a template literal.",
+      "regex": "[\"'`]/[a-z_][a-z0-9_]*/create(?![a-z0-9_])",
+      "flags": "",
+      "allowlistedFiles": []
+    },
+    {
+      "id": "create-path-hook-type",
+      "description": "ra-core's useCreatePath({ type: 'create' | 'edit' | 'show' }) hardcodes the pre-AD-24 path shapes (useCreatePath.js:46-62). Only the three admin-kit buttons that this story overrides may keep one fallback call each, for resources with no registered entity descriptor.",
+      "regex": "type:\\s*[\"'](?:create|edit|show)[\"']",
+      "flags": "",
+      "allowlistedFiles": [
+        "src/components/admin/create-button.tsx",
+        "src/components/admin/edit-button.tsx",
+        "src/components/admin/show-button.tsx"
+      ]
+    },
+    {
+      "id": "redirect-to-show",
+      "description": "redirect=\"show\" resolves through useCreatePath's hardcoded /{resource}/{id}/show (useRedirect.js:55). Story 3.12 replaces every use with redirect={redirectToRecord}, which follows the descriptor's own buildRecordPath instead.",
+      "regex": "redirect=\\s*[\"']show[\"']",
+      "flags": "",
+      "allowlistedFiles": []
+    }
+  ]
+}

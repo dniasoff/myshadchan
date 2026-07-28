@@ -146,6 +146,9 @@ jobs:
             - name: 🏷️ Retired-name guard
               run: node scripts/check-retired-names.mjs
 
+            - name: 🧭 Route-convention guard
+              run: node scripts/check-route-convention.mjs
+
             - name: 🎨 Tailwind v3-syntax guard
               run: node scripts/check-tailwind-arbitrary-var.mjs
 

@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
+import { buildNewPath } from "../entity360/entityPaths";
 import { PRIMARY_NAV } from "./navItems";
 
 const findNavItem = (to: string) => {
@@ -169,7 +170,7 @@ const CreateButton = () => {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="center" className="mb-2">
           <DropdownMenuItem asChild>
-            <Link to="/shidduchim/create">Add a suggestion</Link>
+            <Link to={buildNewPath("shidduchim")}>Add a suggestion</Link>
           </DropdownMenuItem>
           <DropdownMenuItem disabled>Log a call (coming soon)</DropdownMenuItem>
           <DropdownMenuItem disabled>

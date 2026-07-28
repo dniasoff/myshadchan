@@ -4,9 +4,16 @@ import { PRIMARY_NAV } from "../layout/navItems";
 import type { CustomRouteEntry, ResourceEntry } from "./routeManifest";
 import {
   CUSTOM_ROUTES,
+  RECORD_FLAG_EXEMPTIONS,
   RESOURCES,
   findManifestViolations,
 } from "./routeManifest";
+
+/** Every hand-rolled fixture below is testing a code other than
+ * `record-flags-missing` / `create-route-on-resource`, so an empty
+ * exemption map keeps those two dedicated describe blocks the only place
+ * that exercises the exemption argument. */
+const NO_EXEMPTIONS: Record<string, string> = {};
 
 const Dummy: ComponentType = () => null;
 // A real React element (not a component) — this is the "non-component-route"
@@ -24,6 +31,7 @@ describe("findManifestViolations", () => {
       CUSTOM_ROUTES,
       RESOURCES,
       navTargets,
+      RECORD_FLAG_EXEMPTIONS,
     );
 
     // Assert
@@ -40,7 +48,12 @@ describe("findManifestViolations", () => {
     ];
 
     // Act
-    const violations = findManifestViolations(customRoutes, resources, []);
+    const violations = findManifestViolations(
+      customRoutes,
+      resources,
+      [],
+      NO_EXEMPTIONS,
+    );
 
     // Assert
     expect(
@@ -59,7 +72,12 @@ describe("findManifestViolations", () => {
     ];
 
     // Act
-    const violations = findManifestViolations(customRoutes, resources, []);
+    const violations = findManifestViolations(
+      customRoutes,
+      resources,
+      [],
+      NO_EXEMPTIONS,
+    );
 
     // Assert
     expect(
@@ -79,7 +97,12 @@ describe("findManifestViolations", () => {
     ];
 
     // Act
-    const violations = findManifestViolations(customRoutes, resources, []);
+    const violations = findManifestViolations(
+      customRoutes,
+      resources,
+      [],
+      NO_EXEMPTIONS,
+    );
 
     // Assert
     expect(
@@ -109,6 +132,7 @@ describe("findManifestViolations", () => {
       customRoutes,
       resources,
       navTargets,
+      NO_EXEMPTIONS,
     );
 
     // Assert
@@ -128,7 +152,12 @@ describe("findManifestViolations", () => {
     ];
 
     // Act
-    const violations = findManifestViolations(customRoutes, resources, []);
+    const violations = findManifestViolations(
+      customRoutes,
+      resources,
+      [],
+      NO_EXEMPTIONS,
+    );
 
     // Assert
     expect(
@@ -136,5 +165,94 @@ describe("findManifestViolations", () => {
         (v) => v.code === "tasks-not-listable" && v.surface === "mobile",
       ),
     ).toHaveLength(1);
+  });
+});
+
+describe("findManifestViolations — create-route-on-resource (Story 3.12 AC 7)", () => {
+  it("reports create-route-on-resource for an entry whose definition.create is set", () => {
+    // Arrange
+    const resources: ResourceEntry[] = [
+      { name: "widgets", surface: "both", definition: { create: Dummy } },
+    ];
+
+    // Act
+    const violations = findManifestViolations([], resources, [], NO_EXEMPTIONS);
+
+    // Assert
+    expect(
+      violations.filter(
+        (v) => v.code === "create-route-on-resource" && v.surface === "desktop",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("does not fire for an entry with no create key", () => {
+    // Arrange
+    const resources: ResourceEntry[] = [
+      { name: "widgets", surface: "both", definition: { list: Dummy } },
+    ];
+
+    // Act
+    const violations = findManifestViolations([], resources, [], NO_EXEMPTIONS);
+
+    // Assert
+    expect(
+      violations.filter((v) => v.code === "create-route-on-resource"),
+    ).toHaveLength(0);
+  });
+});
+
+describe("findManifestViolations — record-flags-missing (Story 3.12 AC 7)", () => {
+  it("reports record-flags-missing for a list-only entry with an empty exemption map", () => {
+    // Arrange
+    const resources: ResourceEntry[] = [
+      { name: "widgets", surface: "both", definition: { list: Dummy } },
+    ];
+
+    // Act
+    const violations = findManifestViolations([], resources, [], NO_EXEMPTIONS);
+
+    // Assert
+    expect(
+      violations.filter(
+        (v) => v.code === "record-flags-missing" && v.surface === "desktop",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("does not fire once the entry declares hasShow: true", () => {
+    // Arrange
+    const resources: ResourceEntry[] = [
+      {
+        name: "widgets",
+        surface: "both",
+        definition: { list: Dummy, hasShow: true },
+      },
+    ];
+
+    // Act
+    const violations = findManifestViolations([], resources, [], NO_EXEMPTIONS);
+
+    // Assert
+    expect(
+      violations.filter((v) => v.code === "record-flags-missing"),
+    ).toHaveLength(0);
+  });
+
+  it("does not fire for a name carrying a written RECORD_FLAG_EXEMPTIONS entry", () => {
+    // Arrange
+    const resources: ResourceEntry[] = [
+      { name: "widgets", surface: "both", definition: { list: Dummy } },
+    ];
+
+    // Act
+    const violations = findManifestViolations([], resources, [], {
+      widgets: "test fixture — deliberately list-only, no <DataTable> row.",
+    });
+
+    // Assert
+    expect(
+      violations.filter((v) => v.code === "record-flags-missing"),
+    ).toHaveLength(0);
   });
 });

@@ -2,6 +2,7 @@ import { Edit } from "@/components/admin/edit";
 import { ShowButton } from "@/components/admin/show-button";
 import { SimpleForm } from "@/components/admin/simple-form";
 
+import { redirectToRecord } from "../entity360/routeConvention";
 import { SingleFormFrame } from "./SingleFormFrame";
 import { SingleInputs } from "./SingleInputs";
 import { FormToolbar } from "../layout/FormToolbar";
@@ -21,7 +22,11 @@ const SingleEditActions = () => (
 );
 
 export const SingleEdit = () => (
-  <Edit redirect="show" title={false} actions={<SingleEditActions />}>
+  <Edit
+    redirect={redirectToRecord}
+    title={false}
+    actions={<SingleEditActions />}
+  >
     <SingleFormFrame
       heading="Edit single"
       description="Update this single's details."

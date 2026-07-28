@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import { cn } from "@/lib/utils";
 
+import { buildNewPath } from "../entity360/entityPaths";
 import type { ShidduchSummary } from "../types";
 import {
   INITIAL_PIPELINE_STATES,
@@ -101,7 +102,7 @@ export const ShidduchColumn = ({
 
       {canAdd ? (
         <Link
-          to={`/shidduchim/create?state=${state.value}`}
+          to={`${buildNewPath("shidduchim")}?state=${state.value}`}
           className="flex items-center gap-1.5 rounded-xl border border-dashed px-2.5 py-2 text-[12.5px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         >
           <PlusIcon /> Add here

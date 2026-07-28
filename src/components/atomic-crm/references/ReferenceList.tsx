@@ -7,6 +7,7 @@ import { TextInput } from "@/components/admin/text-input";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { getAvatarIndex, getMonogram } from "../entity360/avatar";
+import { buildNewPath } from "../entity360/entityPaths";
 import { RecordLink } from "../entity360/RecordLink";
 import { EmptyState } from "../misc/EmptyState";
 import { TopToolbar } from "../layout/TopToolbar";
@@ -181,7 +182,7 @@ const ReferenceListLayout = () => {
           actionLabel={translate("crm.references.list.emptyAction", {
             _: "Add a reference",
           })}
-          actionTo="/references/create"
+          actionTo={buildNewPath("references")}
         />
       </div>
     );

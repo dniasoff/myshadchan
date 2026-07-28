@@ -9,6 +9,9 @@ import {
 } from "ra-core";
 import { Link } from "react-router";
 
+import { buildNewPath } from "@/components/atomic-crm/entity360/entityPaths";
+import { getEntityDescriptor } from "@/components/atomic-crm/entity360/registry";
+
 export type CreateButtonProps = {
   label?: string;
   resource?: string;
@@ -40,10 +43,17 @@ export const CreateButton = (props: CreateButtonProps) => {
   const resource = useResourceContext(props);
   const createPath = useCreatePath();
   const getResourceLabel = useGetResourceLabel();
-  const link = createPath({
-    resource,
-    type: "create",
-  });
+  // AD-24 (contract §5 rule 3): a resource with a registered entity
+  // descriptor creates at `/{resource}/new`, never `useCreatePath`'s
+  // hardcoded `/{resource}/create` (`ra-core/dist/routing/useCreatePath.js:46-47`).
+  // A resource with no descriptor (e.g. `tasks`) falls back unchanged.
+  const link =
+    resource && getEntityDescriptor(resource)
+      ? buildNewPath(resource)
+      : createPath({
+          resource,
+          type: "create",
+        });
   const label = useResourceTranslation({
     resourceI18nKey: resource
       ? `resources.${resource}.action.create`

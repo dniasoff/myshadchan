@@ -12,6 +12,9 @@ import {
   useResourceTranslation,
 } from "ra-core";
 
+import { buildRecordPath } from "@/components/atomic-crm/entity360/entityPaths";
+import { getEntityDescriptor } from "@/components/atomic-crm/entity360/registry";
+
 export type ShowButtonProps = {
   label?: string;
   icon?: React.ReactNode;
@@ -51,11 +54,18 @@ export const ShowButton = (props: ShowButtonProps) => {
     typeof recordRepresentationValue === "string"
       ? recordRepresentationValue
       : recordRepresentationValue?.toString();
-  const link = createPath({
-    resource,
-    type: "show",
-    id: record?.id,
-  });
+  // AD-24 (contract §5 rule 3, AC 3): no predicate needed — a stub
+  // descriptor's `buildRecordPath` already returns today's live
+  // `/{resource}/{id}/show`, so this is correct both before and after
+  // Epic 5's `buildRecordPath` flip.
+  const link =
+    resource && record?.id != null && getEntityDescriptor(resource)
+      ? buildRecordPath(resource, record.id)
+      : createPath({
+          resource,
+          type: "show",
+          id: record?.id,
+        });
   const label = useResourceTranslation({
     resourceI18nKey: resource ? `resources.${resource}.action.show` : undefined,
     baseI18nKey: "ra.action.show",
