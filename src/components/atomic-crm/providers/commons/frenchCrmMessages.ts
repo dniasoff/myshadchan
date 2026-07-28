@@ -264,6 +264,15 @@ export const frenchCrmMessages = {
       title: "Télécharger et redimensionner l'image",
       update_image: "Mettre à jour l'image",
     },
+    // Story 2.4 : basculer entre les contextes (foyer / shadchanous) actifs —
+    // un axe distinct de resources.singles ci-dessus.
+    context_switcher: {
+      label: "%{name} · %{kind}",
+      kind_household: "Foyer",
+      kind_shadchanus: "Shadchanous",
+      switch_error: "Impossible de changer de contexte. Réessayez.",
+      section_title: "Contexte",
+    },
     settings: {
       dark_mode_logo: "Logo du mode sombre",
       light_mode_logo: "Logo du mode clair",

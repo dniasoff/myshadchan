@@ -17,6 +17,7 @@ import type {
   MergeResolution,
   Member,
   MemberFormData,
+  MyContext,
   MyPersona,
   Persona,
   PipelineState,
@@ -459,6 +460,30 @@ const getDataProviderWithCustomMethods = () => {
         return false; // fail-soft: no banner rather than a broken app
       }
       return data === true;
+    },
+    // Context switcher (2.4 AC-5/AC-6): every context the caller belongs to,
+    // one row per account. Fail-loud, like getMyPersonas — a swallowed error
+    // here would read as "only one context" and silently hide the switcher.
+    async getMyContexts(): Promise<MyContext[]> {
+      const { data, error } = await getSupabaseClient().rpc("my_contexts");
+      if (error) {
+        console.error("my_contexts.error", error);
+        throw new Error("Failed to load your contexts");
+      }
+      return (data ?? []) as MyContext[];
+    },
+    // The one validated way to switch which context is active (AD-19):
+    // set_active_context() raises if the caller has no live active
+    // membership of accountId, so a failed switch surfaces as an error
+    // rather than silently leaving the old context active.
+    async switchActiveContext(accountId: Identifier): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("set_active_context", {
+        p_account_id: accountId,
+      });
+      if (error) {
+        console.error("set_active_context.error", error);
+        throw new Error("Couldn't switch context. Try again.");
+      }
     },
     // "What am I" (2.2 AC-8, 2.3 AC-9): the one read `OnboardingGate` and the
     // onboarding screen both call. Fail-loud, unlike `currentAccountDemo`

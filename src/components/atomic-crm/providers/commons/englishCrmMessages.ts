@@ -265,6 +265,15 @@ export const englishCrmMessages = {
       title: "Upload and resize image",
       update_image: "Update Image",
     },
+    // Story 2.4: switching which context (household vs. shadchanus) is
+    // active — a different axis from resources.singles above.
+    context_switcher: {
+      label: "%{name} · %{kind}",
+      kind_household: "Household",
+      kind_shadchanus: "Shadchanus",
+      switch_error: "Couldn't switch context. Try again.",
+      section_title: "Context",
+    },
     settings: {
       dark_mode_logo: "Dark Mode Logo",
       light_mode_logo: "Light Mode Logo",

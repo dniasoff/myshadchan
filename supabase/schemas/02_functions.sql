@@ -274,6 +274,32 @@ CREATE OR REPLACE FUNCTION "public"."current_account_demo"() RETURNS boolean
   );
 $$;
 
+-- Serves the context switcher (Story 2.4, AD-19): one row per context
+-- (account) the caller holds an ACTIVE membership in, never one row per
+-- persona — a household held for both the parent and single personas is
+-- still one context to switch to, not two. Contrast my_personas(), which is
+-- deliberately persona-shaped further below.
+--
+-- SECURITY INVOKER (no SECURITY DEFINER clause): safe, and correct, only
+-- because Story 2.1 AC-7 widened the `accounts` and `account_members` SELECT
+-- policies to expose every context a caller belongs to, not merely the one
+-- that is currently active — a plain invoker-rights read here relies on that
+-- widened shape rather than re-deciding visibility itself.
+CREATE OR REPLACE FUNCTION "public"."my_contexts"() RETURNS TABLE("account_id" bigint, "kind" "text", "name" "text", "role" "text", "is_active" boolean)
+    LANGUAGE "sql" STABLE
+    SET "search_path" TO ''
+    AS $$
+  select
+    am.account_id,
+    a.kind,
+    a.name,
+    am.role,
+    am.account_id = public.current_context_id() as is_active
+  from public.account_members am
+  join public.accounts a on a.id = am.account_id
+  where am.user_id = auth.uid() and am.status = 'active';
+$$;
+
 -- Auto-populate account_id from the caller's account on insert (AD-1), so the
 -- normal dataProvider.create() path for singles/shadchanim/references/etc.
 -- never has to trust a client-sent account_id. Mirrors set_member_id_default.

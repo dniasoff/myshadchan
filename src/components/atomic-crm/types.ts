@@ -126,6 +126,18 @@ export type MyPersona = {
   role: MemberRole;
 };
 
+/** One row of `public.my_contexts()`'s return shape (2.4 AC-5) — "which
+ * context can I switch to, and is it the one I'm in now." One row per
+ * account regardless of how many personas the caller holds within it —
+ * contrast `MyPersona`, which is deliberately persona-shaped instead. */
+export type MyContext = {
+  account_id: Identifier;
+  kind: "household" | "shadchanus";
+  name: string;
+  role: MemberRole;
+  is_active: boolean;
+};
+
 export type Single = {
   account_id: Identifier;
   first_name_en?: string | null;

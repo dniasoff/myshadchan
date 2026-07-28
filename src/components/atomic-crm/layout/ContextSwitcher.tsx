@@ -1,0 +1,122 @@
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { ChevronDown } from "lucide-react";
+import {
+  type Identifier,
+  useDataProvider,
+  useNotify,
+  useTranslate,
+} from "ra-core";
+import { useNavigate } from "react-router";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+import type { CrmDataProvider } from "../providers/types";
+import { useMyContexts } from "../root/useMyContexts";
+import type { MyContext } from "../types";
+
+/**
+ * Switches which context (household vs. shadchanus) is active (Story 2.4,
+ * AD-19) — a different axis entirely from `SingleSwitcherPill`'s "which
+ * single's pipeline am I viewing." Renders an empty fragment for a login
+ * with fewer than 2 contexts (AC-1): no pill, no disabled control, no
+ * visual trace. Mounted twice — `layout/TopBar.tsx` for desktop,
+ * `settings/SettingsPageMobile.tsx` for mobile (AC-7) — the same component
+ * both places, never a second implementation.
+ */
+export const ContextSwitcher = () => {
+  const { data: contexts } = useMyContexts();
+  const dataProvider = useDataProvider<CrmDataProvider>();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const translate = useTranslate();
+  const notify = useNotify();
+  const [switching, setSwitching] = useState(false);
+
+  if (!contexts || contexts.length < 2) {
+    return <></>;
+  }
+
+  const active = contexts.find((context) => context.is_active) ?? contexts[0];
+
+  const kindLabel = (kind: MyContext["kind"]) =>
+    kind === "household"
+      ? translate("crm.context_switcher.kind_household", { _: "Household" })
+      : translate("crm.context_switcher.kind_shadchanus", {
+          _: "Shadchanus",
+        });
+
+  const contextLabel = (context: MyContext) =>
+    translate("crm.context_switcher.label", {
+      name: context.name,
+      kind: kindLabel(context.kind),
+      _: "%{name} · %{kind}",
+    });
+
+  const handleSelect = async (accountId: Identifier) => {
+    setSwitching(true);
+    try {
+      // AD-19: set_active_context() (via switchActiveContext) is the only
+      // validated way to switch — it raises if the caller has no live
+      // active membership of accountId, so a failed switch surfaces here
+      // rather than silently leaving the old context active.
+      await dataProvider.switchActiveContext(accountId);
+      // AC-3: a context switch invalidates EVERYTHING, not a scoped
+      // queryKey — every screen's data belongs to the account that just
+      // changed underneath it.
+      await queryClient.invalidateQueries();
+      // AD-24: records live at URLs; a record from the context just left
+      // no longer resolves for this login, so leave nothing open behind.
+      navigate("/");
+    } catch (error) {
+      notify(
+        error instanceof Error
+          ? error.message
+          : translate("crm.context_switcher.switch_error", {
+              _: "Couldn't switch context. Try again.",
+            }),
+        { type: "error" },
+      );
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          disabled={switching}
+          className="inline-flex h-9 items-center gap-2 rounded-full border
+            border-border bg-secondary px-3 text-sm font-semibold
+            text-foreground outline-none transition-colors duration-[160ms]
+            hover:bg-secondary/80 disabled:cursor-not-allowed
+            disabled:opacity-70
+            focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          <span>{contextLabel(active)}</span>
+          <ChevronDown
+            className="size-4 text-muted-foreground"
+            aria-hidden="true"
+          />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {contexts.map((context) => (
+          <DropdownMenuItem
+            key={context.account_id}
+            onSelect={() => handleSelect(context.account_id)}
+          >
+            {contextLabel(context)}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};

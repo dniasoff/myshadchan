@@ -16,6 +16,7 @@ import type {
   MergeResolution,
   Member,
   MemberFormData,
+  MyContext,
   MyPersona,
   Persona,
   PipelineState,
@@ -48,6 +49,7 @@ import {
 } from "./internal/referenceLinks";
 import { matchReferenceOnEntry } from "./internal/referenceMatch";
 import { addPersona, getMyPersonas } from "./internal/personas";
+import { getMyContexts, switchActiveContext } from "./internal/contexts";
 import {
   catchShidduch,
   computeShidduchCatchCount,
@@ -126,6 +128,12 @@ export const createDataProvider = ({
   // Demo / onboarding (Stage B): mirrors accounts.demo for the FakeRest
   // session. Starts false; flipped by seedDemo/clearDemo below.
   let fakeDemo = false;
+  // Context switcher (2.4 AC-6): mirrors member_state.active_account_id for
+  // the FakeRest session. Story 2.1 added no fakerest member_state
+  // emulation ("it changes no src/ file"), so this story is the first
+  // consumer and adds the minimal fake state itself — no fake table, just
+  // this closure-local variable, written only by switchActiveContext below.
+  let activeAccountId: Identifier | null = null;
   const getIdentity = async () =>
     authProvider?.getIdentity?.() ?? defaultAuthProvider.getIdentity?.();
 
@@ -731,6 +739,15 @@ export const createDataProvider = ({
       getMyPersonas(baseDataProvider, getIdentity),
     addPersona: (persona: Persona): Promise<void> =>
       addPersona(baseDataProvider, getIdentity, persona),
+    // Context switcher (2.4 AC-6) -- FakeRest mirrors of
+    // my_contexts()/set_active_context() in ./internal/contexts.ts. Derive
+    // from the in-memory account_members/accounts tables, never a stub.
+    getMyContexts: (): Promise<MyContext[]> =>
+      getMyContexts(baseDataProvider, getIdentity, () => activeAccountId),
+    switchActiveContext: (accountId: Identifier): Promise<void> =>
+      switchActiveContext(baseDataProvider, getIdentity, accountId, (id) => {
+        activeAccountId = id;
+      }),
     // Billing / AI entitlement (E4) -- FakeRest mirror of ai_entitlement().
     // Demo mode defaults to the FREE tier (unentitled) with a sample usage
     // number, so the Billing page renders realistically without a paid backend.

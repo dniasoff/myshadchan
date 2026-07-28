@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import type { Single } from "../types";
+import { ContextSwitcher } from "./ContextSwitcher";
 
 /**
  * The slim desktop top app-bar (foundation-plan §1): single-switcher pill +
@@ -26,7 +27,13 @@ export const TopBar = () => (
       justify-between gap-4 border-b border-[--glass-border] bg-[--glass-bg]
       px-4 shadow-sm backdrop-blur-[var(--glass-blur)] sm:px-6"
   >
-    <SingleSwitcherPill />
+    <div className="flex items-center gap-2">
+      <SingleSwitcherPill />
+      {/* Story 2.4: which context (household vs. shadchanus) is active —
+          an independent axis from SingleSwitcherPill above. Renders
+          nothing (AC-1) for a login with fewer than 2 contexts. */}
+      <ContextSwitcher />
+    </div>
     <div className="flex items-center gap-1">
       <ThemeModeToggle />
       <RefreshButton />

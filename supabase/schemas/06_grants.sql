@@ -242,6 +242,13 @@ revoke all on function public.current_account_demo() from public, anon;
 grant execute on function public.current_account_demo() to authenticated;
 grant execute on function public.current_account_demo() to service_role;
 
+-- my_contexts() (Story 2.4) is SECURITY INVOKER, but Postgres still grants
+-- EXECUTE to PUBLIC by default on every new function, so the revoke below is
+-- the deny, not a formality.
+revoke all on function public.my_contexts() from public, anon;
+grant execute on function public.my_contexts() to authenticated;
+grant execute on function public.my_contexts() to service_role;
+
 revoke all on function public.is_single_visible_state(public.pipeline_state) from public, anon;
 grant execute on function public.is_single_visible_state(public.pipeline_state) to authenticated;
 grant execute on function public.is_single_visible_state(public.pipeline_state) to service_role;

@@ -384,6 +384,54 @@ select 'the resolver current_account_id() no longer exists',
        to_regproc('public.current_account_id') is null;
 
 -- =====================================================================
+-- Story 2.4 — my_contexts() (AC-5).
+-- =====================================================================
+-- Reuses this suite's own u1/u4 fixtures (above) rather than building new
+-- ones: my_contexts() reads exactly the same account_members/accounts rows
+-- current_context_id() and the AC-7 accounts/account_members RLS shapes
+-- above already prove visible to the caller. u1 is still authenticated with
+-- context B active (the switch at "AC-4/AC-11: switch to household B" above
+-- is the last write to member_state before this point).
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"c1c1c1c1-1111-1111-1111-111111111111","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'my_contexts() reports exactly the caller''s two contexts, never a third the caller holds no membership in',
+       (select count(*) from public.my_contexts()) = 2
+   and (select count(*) from public.my_contexts() where account_id = :acct_a) = 1
+   and (select count(*) from public.my_contexts() where account_id = :acct_b) = 1
+   and (select count(*) from public.my_contexts() where account_id = :acct_c) = 0;
+
+insert into results (name, passed)
+select 'my_contexts() flags the currently active context true and the other false',
+       (select is_active from public.my_contexts() where account_id = :acct_b) = true
+   and (select is_active from public.my_contexts() where account_id = :acct_a) = false;
+
+insert into results (name, passed)
+select 'my_contexts() reports each context''s kind and the caller''s own role there',
+       (select kind from public.my_contexts() where account_id = :acct_a) = 'household'
+   and (select role from public.my_contexts() where account_id = :acct_a) = 'parent_admin';
+
+set local request.jwt.claims = '{"sub":"c3c3c3c3-3333-3333-3333-333333333333","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'my_contexts() returns no rows for an unprovisioned user (a stranger''s context never appears, from their own side either)',
+       (select count(*) from public.my_contexts()) = 0;
+
+reset role;
+
+insert into results (name, passed)
+select 'my_contexts() is SECURITY INVOKER, not SECURITY DEFINER (relies on AC-7''s widened accounts/account_members SELECT policies, not its own bypass)',
+       not p.prosecdef
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.proname = 'my_contexts';
+
+insert into results (name, passed)
+select 'anon cannot execute my_contexts()',
+       not has_function_privilege('anon', 'public.my_contexts()', 'execute');
+
+-- =====================================================================
 -- Story 2.2 — Persona and context data model.
 -- =====================================================================
 -- Fresh users/accounts, independent of the Story 2.1 fixtures above (which
