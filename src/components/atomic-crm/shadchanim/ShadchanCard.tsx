@@ -1,9 +1,9 @@
 import { MapPin, Send } from "lucide-react";
-import { Link } from "react-router";
 
 import { Card } from "@/components/ui/card";
 
 import { getAvatarIndex, getMonogram } from "../entity360/avatar";
+import { RecordLink } from "../entity360/RecordLink";
 import type { Shadchan } from "../types";
 import { ResponsivenessChip } from "./ResponsivenessChip";
 
@@ -28,8 +28,9 @@ export const ShadchanCard = ({
   const avatarIndex = getAvatarIndex(shadchan.name ?? String(shadchan.id));
 
   return (
-    <Link
-      to={`/shadchanim/${shadchan.id}/show`}
+    <RecordLink
+      resource="shadchanim"
+      id={shadchan.id}
       className="ql-enter block rounded-2xl outline-none transition-transform
         duration-[160ms] ease-[--ease-spring] active:scale-[0.97]
         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
@@ -72,6 +73,6 @@ export const ShadchanCard = ({
           </span>
         </div>
       </Card>
-    </Link>
+    </RecordLink>
   );
 };

@@ -1,12 +1,13 @@
 import { format } from "date-fns";
 import { ClockIcon } from "lucide-react";
-import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
+import { RecordLink } from "../entity360/RecordLink";
 import { isOverdue } from "../tasks/tasksPredicate";
+import { RESOURCE_FOR_TARGET } from "./reminderEntity";
 import type { ReminderItem } from "./useReminders";
 
 export interface ReminderCardProps {
@@ -55,14 +56,15 @@ export const ReminderCard = ({
 
         <div className="min-w-0 flex-1">
           {linkedEntity ? (
-            <Link
-              to={linkedEntity.to}
+            <RecordLink
+              resource={RESOURCE_FOR_TARGET[linkedEntity.type]}
+              id={linkedEntity.id}
               className="inline-flex min-w-0 max-w-full items-baseline gap-2 rounded-md text-xs font-semibold
                 text-primary outline-none transition-colors duration-[160ms] hover:underline
                 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               <span className="min-w-0 truncate">{linkedEntity.label}</span>
-            </Link>
+            </RecordLink>
           ) : null}
 
           <p className="mt-0.5 text-sm leading-snug">{task.text}</p>

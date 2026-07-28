@@ -92,6 +92,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/singles/entityDescriptor.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/singles/SingleShow.tsx",
           "type": "registry:component"
         },
@@ -129,6 +133,10 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/entityDescriptor.ts",
           "type": "registry:component"
         },
         {
@@ -201,6 +209,10 @@
         },
         {
           "path": "src/components/atomic-crm/shadchanim/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shadchanim/entityDescriptor.ts",
           "type": "registry:component"
         },
         {
@@ -373,6 +385,10 @@
         },
         {
           "path": "src/components/atomic-crm/references/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/references/entityDescriptor.ts",
           "type": "registry:component"
         },
         {
@@ -848,11 +864,19 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/entity360/pendingDbWidenings.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/entity360/entityDescriptor.ts",
           "type": "registry:component"
         },
         {
           "path": "src/components/atomic-crm/entity360/avatar.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/RecordLink.tsx",
           "type": "registry:component"
         },
         {

@@ -1,9 +1,8 @@
-import { Link } from "react-router";
-
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 import { getAvatarIndex, getMonogram } from "../entity360/avatar";
+import { RecordLink } from "../entity360/RecordLink";
 import type { Single } from "../types";
 
 export interface SingleCardProps {
@@ -57,8 +56,9 @@ export const SingleCard = ({ single, index, openCount }: SingleCardProps) => {
   const showOpenCount = typeof openCount === "number" && openCount > 0;
 
   return (
-    <Link
-      to={`/singles/${single.id}/show`}
+    <RecordLink
+      resource="singles"
+      id={single.id}
       className="ql-enter block cursor-pointer rounded-xl outline-none
         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
         focus-visible:ring-offset-background"
@@ -125,6 +125,6 @@ export const SingleCard = ({ single, index, openCount }: SingleCardProps) => {
           ) : null}
         </div>
       </Card>
-    </Link>
+    </RecordLink>
   );
 };

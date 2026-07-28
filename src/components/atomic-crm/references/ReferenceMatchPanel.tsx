@@ -1,8 +1,8 @@
 import type { Identifier } from "ra-core";
 import { useTranslate } from "ra-core";
-import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { RecordLink } from "../entity360/RecordLink";
 import type { ReferenceMatchCandidate } from "../types";
 
 /**
@@ -73,12 +73,13 @@ export const ReferenceMatchPanel = ({
           >
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <div>
-                <Link
-                  to={`/references/${candidate.reference_id}/show`}
+                <RecordLink
+                  resource="references"
+                  id={candidate.reference_id}
                   className="text-base font-medium hover:underline"
                 >
                   {displayName(candidate)}
-                </Link>
+                </RecordLink>
                 <p className="text-sm text-muted-foreground">
                   {[candidate.relationship, candidate.phone, candidate.school]
                     .filter(Boolean)

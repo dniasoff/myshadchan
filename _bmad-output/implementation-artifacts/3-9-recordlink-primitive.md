@@ -1,6 +1,10 @@
+---
+baseline_commit: e5ca5e2f340b83d4e5b38936963e6f6fe2a39b5c
+---
+
 # Story 3.9: `RecordLink` primitive
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -468,70 +472,70 @@ under `strict`.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — `types.ts` vocabulary + `PENDING_DB_WIDENINGS`** (AC: 6)
-  - [ ] Add `ENTITY_TARGET_TYPES` / `EntityTargetType`; widen `TaskTargetType` at
+- [x] **Task 1 — `types.ts` vocabulary + `PENDING_DB_WIDENINGS`** (AC: 6)
+  - [x] Add `ENTITY_TARGET_TYPES` / `EntityTargetType`; widen `TaskTargetType` at
         `types.ts:71` to alias it. Do not add a second union.
-  - [ ] Add `entity360/pendingDbWidenings.ts` and the `?raw` guard test.
-  - [ ] Show the guard red (remove one entry), capture the output in Debug Log References,
+  - [x] Add `entity360/pendingDbWidenings.ts` and the `?raw` guard test.
+  - [x] Show the guard red (remove one entry), capture the output in Debug Log References,
         restore it, show it green.
 
-- [ ] **Task 2 — `RecordLink.tsx`** (AC: 1)
-  - [ ] Implement per AC 1: `getEntityDescriptor` (the guarded accessor, **not**
+- [x] **Task 2 — `RecordLink.tsx`** (AC: 1)
+  - [x] Implement per AC 1: `getEntityDescriptor` (the guarded accessor, **not**
         `requireEntityDescriptor`), inert `<span>` + single `console.error` on miss.
-  - [ ] `RecordLink.test.tsx`: href per resource; unregistered resource does not throw and
+  - [x] `RecordLink.test.tsx`: href per resource; unregistered resource does not throw and
         leaves siblings mounted; `console.error` called once; `// @ts-expect-error` line
         proving `onClick` is not a prop.
 
-- [ ] **Task 3 — the four descriptor modules** (AC: 2)
-  - [ ] Create `shidduchim/entityDescriptor.ts`, `singles/entityDescriptor.ts`,
+- [x] **Task 3 — the four descriptor modules** (AC: 2)
+  - [x] Create `shidduchim/entityDescriptor.ts`, `singles/entityDescriptor.ts`,
         `shadchanim/entityDescriptor.ts`, `references/entityDescriptor.ts` — each exports the
         descriptor **and** registers it at module scope.
-  - [ ] Give each stub `tabs: []` and the `pendingTabs` row pinned in AC 2's table, importing
+  - [x] Give each stub `tabs: []` and the `pendingTabs` row pinned in AC 2's table, importing
         `TabKey` from `entity360/tabKeys.ts`. Transcribe the rows from contract §3 rule 5 —
         do not re-derive them from UX-DR5, and do not add `discussions` or `connections`.
-  - [ ] Add `import "./entityDescriptor";` as the first line of each `<entity>/index.ts`.
-  - [ ] Put the UX-DR3 comment in `shidduchim/entityDescriptor.ts` (routed Dialog,
+  - [x] Add `import "./entityDescriptor";` as the first line of each `<entity>/index.ts`.
+  - [x] Put the UX-DR3 comment in `shidduchim/entityDescriptor.ts` (routed Dialog,
         `hasShow: false`, un-pinned by 5.1).
-  - [ ] Pinning test per AC 2, with the "re-check `routeManifest.ts` / `<entity>/index.ts`"
+  - [x] Pinning test per AC 2, with the "re-check `routeManifest.ts` / `<entity>/index.ts`"
         comment.
 
-- [ ] **Task 4 — the sweep, sites 1–10 and 13** (AC: 3)
-  - [ ] Relocate each site by its import statement and `to={` pattern. Use `LSP`
+- [x] **Task 4 — the sweep, sites 1–10 and 13** (AC: 3)
+  - [x] Relocate each site by its import statement and `to={` pattern. Use `LSP`
         (`workspaceSymbol` / `findReferences`) for TypeScript symbols; `grep` only for the
         AC 3 string patterns.
-  - [ ] Replace each `<Link to={…}>` with `<RecordLink resource="…" id={…}>`, moving
+  - [x] Replace each `<Link to={…}>` with `<RecordLink resource="…" id={…}>`, moving
         `className` and (sites 8, 7) `style` across unchanged.
-  - [ ] Site 7 (`references/ReferenceList.tsx:67-68`) is migrated even though `createPath` is
+  - [x] Site 7 (`references/ReferenceList.tsx:67-68`) is migrated even though `createPath` is
         framework-correct today: `useCreatePath` hardcodes the `/show` suffix
         ([Source: node_modules/ra-core/dist/routing/useCreatePath.js:56-62]), so it will not
         follow `references`' route shape when Epic 5 flips it, while `RecordLink` will.
-  - [ ] Site 13 (`shidduchim/ShidduchCatchSection.tsx:34-45`) stays a `redirect(...)`; only
+  - [x] Site 13 (`shidduchim/ShidduchCatchSection.tsx:34-45`) stays a `redirect(...)`; only
         its path expression changes to
         `requireEntityDescriptor("shidduchim").buildRecordPath(...)`. Keep the
         `{ _scrollToTop: false }` argument.
-  - [ ] Run AC 3 commands (a)–(e); (a)–(d) return nothing, (e) returns exactly the four
+  - [x] Run AC 3 commands (a)–(e); (a)–(d) return nothing, (e) returns exactly the four
         descriptor files.
 
-- [ ] **Task 5 — `ShidduchCard.tsx`** (AC: 4)
-  - [ ] Restructure per AC 4: dnd spreads + `innerRef` stay on the `<div>`; the guard becomes
+- [x] **Task 5 — `ShidduchCard.tsx`** (AC: 4)
+  - [x] Restructure per AC 4: dnd spreads + `innerRef` stay on the `<div>`; the guard becomes
         `onClickCapture`; `RecordLink` wraps the `<Card>`; `useRedirect` import and call are
         deleted.
-  - [ ] Three tests: `href` present; ordinary click navigates; click while
+  - [x] Three tests: `href` present; ordinary click navigates; click while
         `snapshot.isDragging` does not.
 
-- [ ] **Task 6 — `reminders/`** (AC: 5)
-  - [ ] `reminderEntity.ts`: delete `targetEntityPath`; `"Suggestion"` → `"Shidduch"` (×2);
+- [x] **Task 6 — `reminders/`** (AC: 5)
+  - [x] `reminderEntity.ts`: delete `targetEntityPath`; `"Suggestion"` → `"Shidduch"` (×2);
         add `single` to `RESOURCE_FOR_TARGET` / `TARGET_TYPE_LABEL` / `targetEntityLabel`; add
         `TARGET_TYPE_LABEL_PLURAL`; leave `LINKABLE_TARGET_TYPES` at three with the 3.8
         comment.
-  - [ ] `ReminderCreateSheet.tsx:243`: use the plural map.
-  - [ ] `useReminders.ts`: drop `to` from `LinkedEntityRef`; add `"single"` to
+  - [x] `ReminderCreateSheet.tsx:243`: use the plural map.
+  - [x] `useReminders.ts`: drop `to` from `LinkedEntityRef`; add `"single"` to
         `ALL_TARGET_TYPES`; add the fourth `useGetMany` and the fourth tuple row.
-  - [ ] `ReminderCard.tsx:57-66`: render `RecordLink`, class string unchanged.
-  - [ ] New `reminderEntity.test.ts` and `ReminderCard.test.tsx` per AC 5.
+  - [x] `ReminderCard.tsx:57-66`: render `RecordLink`, class string unchanged.
+  - [x] New `reminderEntity.test.ts` and `ReminderCard.test.tsx` per AC 5.
 
-- [ ] **Task 7 — validation**
-  - [ ] `npm run typecheck` · `npx vitest run` · `npm run lint` · `npm run build`.
+- [x] **Task 7 — validation**
+  - [x] `npm run typecheck` · `npx vitest run` · `npm run lint` · `npm run build`.
         (Equivalently `make typecheck` / `make test` / `make lint` / `make build`.) No DB
         change in this story, so `npm run test:unit:db` is unchanged but must
         still pass.
@@ -680,10 +684,143 @@ and leaves the names alone. Recorded here so the next reader does not think it w
 
 ### Agent Model Used
 
+Claude Sonnet 5 (claude-sonnet-5), via the bmad-dev-story workflow.
+
 ### Debug Log References
 
-<!-- Record here the RED run of AC 6's PENDING_DB_WIDENINGS guard (contract §13 rule 2). -->
+RED run of AC 6's `PENDING_DB_WIDENINGS` guard (contract §13 rule 2), captured by temporarily
+removing `"tasks_target_type_check"` from the real `entity360/pendingDbWidenings.ts` array (not
+a test-local copy) and running:
+
+```
+npx vitest run --config vitest.config.ts --project app src/components/atomic-crm/entity360/pendingDbWidenings.test.ts
+```
+
+```
+ FAIL  |app (chromium)| src/components/atomic-crm/entity360/pendingDbWidenings.test.ts > PENDING_DB_WIDENINGS guard > reports no offenders today — every named constraint is honestly tracked as pending
+AssertionError: expected [ 'tasks_target_type_check' ] to deeply equal []
+- Expected
++ Received
+- []
++ [
++   "tasks_target_type_check",
++ ]
+ ❯ src/components/atomic-crm/entity360/pendingDbWidenings.test.ts:152:59
+
+ FAIL  |app (chromium)| src/components/atomic-crm/entity360/pendingDbWidenings.test.ts > PENDING_DB_WIDENINGS guard > fails, naming the constraint, when interactions_target_type_check is removed from the pending list before its migration lands
+AssertionError: expected [ 'tasks_target_type_check', …(1) ] to deeply equal [ 'interactions_target_type_check' ]
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 7 passed (9)
+```
+
+Restored the entry; re-ran the same command — 9/9 passed (green). The permanent red-run
+regression tests live in the test file itself (`PENDING_DB_WIDENINGS guard` describe block,
+using a local filtered copy of the pending list so the suite doesn't require mutating the real
+source on every run).
 
 ### Completion Notes List
 
+- Implemented `RecordLink` (AC 1), the four stub descriptors (AC 2), the 13-site sweep (AC 3),
+  the `ShidduchCard` accessibility fix (AC 4), the `reminders/` AD-23 + `single`-widening changes
+  (AC 5), and the `types.ts` target-type vocabulary + `PENDING_DB_WIDENINGS` ledger (AC 6).
+- **Contract deviation flagged, not silently made:** contract §8 rule 2 / this story's AC 6 say
+  the guard "asserts... its value set is a subset of ENTITY_TARGET_TYPES". A literal subset
+  check can never fail for either `tasks_target_type_check` or `interactions_target_type_check`
+  as they stand today (their current value sets are already valid, legal subsets — just not at
+  full parity), so it cannot produce the required red run ("remove `tasks_target_type_check`
+  from `PENDING_DB_WIDENINGS` and confirm the guard fails, naming that constraint"). Implemented
+  as a set-**equality** ("at parity with `ENTITY_TARGET_TYPES`") check for constraints not listed
+  as pending instead, which is what makes the specified red run actually red, and matches
+  contract §8 rule 1's "three DB check constraints must end up with the same four values."
+  Flagged in the final report as something to fix in the contract text, not deviated from
+  silently.
+- **Second contract gap flagged:** `supabase/schemas/01_tables.sql` has a fourth
+  `*_target_type_check` constraint not mentioned anywhere in the contract or story —
+  `identity_signals_target_type_check`, values `('reference', 'shidduch', 'date_record')` — AD-5's
+  dedupe/identity-match vocabulary, unrelated to AD-13's polymorphic tasks/interactions
+  vocabulary this story's `ENTITY_TARGET_TYPES` governs. `date_record` is not an
+  `EntityTargetType`. A blanket "every `*_target_type_check` constraint" scan would misclassify
+  it as a violation on day one. The guard is scoped by an explicit, named allowlist (the three
+  constraints contract §8 rule 1 actually names) rather than a name-pattern scan, with the
+  reasoning documented in the guard test file's own header comment.
+- `EntityTabDescriptor` (landed by 3.3a, pre-existing) is intentionally non-generic — no `<T>` —
+  per its own doc comment; the four stub descriptors' `tabs: []` typechecks against it without
+  needing a generic parameter.
+- `RepeatRecognitionPanel.tsx`'s `others` filter was rewritten as a type-guard predicate
+  (`link is ReferenceLinkSummary & { shidduchim_id: Identifier }`) so `RecordLink`'s `id: Identifier`
+  prop typechecks without a non-null assertion — same runtime filter, better narrowing.
+  `ReferenceCallLog.tsx`'s existing `link.shidduchim_id ? … : …` ternary already narrows correctly
+  and needed no such change.
+- `ReferenceMatchPanel.test.tsx` (pre-existing, not previously touched by Epic 3) needed a
+  side-effect import of `./entityDescriptor` added so its existing `getByRole("link", …)`
+  assertions keep resolving now that the panel renders through `RecordLink` (which degrades to a
+  `<span>` for an unregistered resource) — the only pre-existing test file among the swept sites.
+- Two prose mentions each of the retired `targetEntityPath` identifier and the quoted string
+  `"Suggestion"` were left in doc comments after the first pass; reworded them out entirely so
+  AC 3 command (d) and the AC 5 `"Suggestion"` grep both return zero hits including comments, not
+  only live code.
+- `make lint`'s `npm run prettier` step scopes to `**/*.{mjs,js,json,ts,tsx,css,md,html}` and is
+  fully green. A broader `npx prettier --check .` (matching more extensions, e.g. `.yml`/`.mdx`)
+  reports 15 pre-existing formatting issues in files this story never touches
+  (`.github/workflows/*`, `.lintstagedrc`, `doc/**/*.mdx`) — verified via `git status` that none
+  of them are part of this diff. Not fixed, to keep the diff scoped to this story.
+- Local Supabase (dev stack, port 54321) was already running, so `npm run test:unit:db` (351
+  tests, 8 files) ran for real rather than self-skipping, and
+  `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local` was run and confirmed
+  "No schema changes found" — expected, since this story touches no SQL.
+
 ### File List
+
+**New files:**
+- `src/components/atomic-crm/entity360/RecordLink.tsx`
+- `src/components/atomic-crm/entity360/RecordLink.test.tsx`
+- `src/components/atomic-crm/entity360/pendingDbWidenings.ts`
+- `src/components/atomic-crm/entity360/pendingDbWidenings.test.ts`
+- `src/components/atomic-crm/entity360/registry.stubs.test.ts`
+- `src/components/atomic-crm/shidduchim/entityDescriptor.ts`
+- `src/components/atomic-crm/shidduchim/ShidduchCard.test.tsx`
+- `src/components/atomic-crm/singles/entityDescriptor.ts`
+- `src/components/atomic-crm/shadchanim/entityDescriptor.ts`
+- `src/components/atomic-crm/references/entityDescriptor.ts`
+- `src/components/atomic-crm/reminders/reminderEntity.test.ts`
+- `src/components/atomic-crm/reminders/ReminderCard.test.tsx`
+
+**Modified files:**
+- `src/components/atomic-crm/types.ts` (AC 6 — `ENTITY_TARGET_TYPES`/`EntityTargetType`, widened `TaskTargetType`)
+- `src/components/atomic-crm/shidduchim/index.ts` (descriptor import)
+- `src/components/atomic-crm/singles/index.ts` (descriptor import)
+- `src/components/atomic-crm/shadchanim/index.ts` (descriptor import)
+- `src/components/atomic-crm/references/index.ts` (descriptor import)
+- `src/components/atomic-crm/dashboard/RecentSuggestions.tsx` (sweep site 1)
+- `src/components/atomic-crm/dashboard/AttentionSection.tsx` (sweep site 2)
+- `src/components/atomic-crm/references/ShidduchReferencesSection.tsx` (sweep site 3)
+- `src/components/atomic-crm/references/ReferenceCallLog.tsx` (sweep site 4)
+- `src/components/atomic-crm/references/ReferenceMatchPanel.tsx` (sweep site 5)
+- `src/components/atomic-crm/references/RepeatRecognitionPanel.tsx` (sweep site 6)
+- `src/components/atomic-crm/references/ReferenceList.tsx` (sweep site 7)
+- `src/components/atomic-crm/singles/SingleCard.tsx` (sweep site 8)
+- `src/components/atomic-crm/shadchanim/ShadchanCard.tsx` (sweep site 9)
+- `src/components/atomic-crm/shadchanim/ShadchanSuggestions.tsx` (sweep site 10)
+- `src/components/atomic-crm/shidduchim/ShidduchCard.tsx` (AC 4 — sweep site 11, accessibility fix)
+- `src/components/atomic-crm/shidduchim/ShidduchCatchSection.tsx` (sweep site 13)
+- `src/components/atomic-crm/reminders/reminderEntity.ts` (AC 5)
+- `src/components/atomic-crm/reminders/useReminders.ts` (AC 5)
+- `src/components/atomic-crm/reminders/ReminderCard.tsx` (AC 5, sweep site 12)
+- `src/components/atomic-crm/reminders/ReminderCreateSheet.tsx` (AC 5)
+- `src/components/atomic-crm/references/ReferenceMatchPanel.test.tsx` (pre-existing test, updated for RecordLink)
+- `registry.json` (regenerated via `make registry-gen`)
+
+## Change Log
+
+- 2026-07-28 — Story implemented in full: all 6 ACs, all 7 tasks. `make typecheck`, `make lint`
+  (eslint + prettier), `npx vitest run` (988 tests, all 5 projects including `db`), `make build`
+  and `npx prettier --check .` (scoped diff only — 15 pre-existing unrelated files flagged) all
+  green. Two contract deviations flagged rather than silently made: (1) AC 6's guard implements
+  "at parity with `ENTITY_TARGET_TYPES`" rather than a literal "subset of" check, because subset
+  alone can never fail and cannot produce the red run the AC itself requires; (2) the guard is
+  scoped to the three named constraints (contract §8 rule 1) rather than every
+  `*_target_type_check` constraint in the schema, because a real fourth one —
+  `identity_signals_target_type_check` (AD-5's dedupe store, values including `date_record`) — is
+  a different, unrelated vocabulary and would be a false positive under a blanket scan. Both are
+  detailed in Completion Notes above.

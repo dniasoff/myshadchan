@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useTranslate } from "ra-core";
-import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { RecordLink } from "../entity360/RecordLink";
 import { EmptyState } from "../misc/EmptyState";
 import type { ReferenceLinkSummary } from "../types";
 import { CallStatusChip } from "./CallStatusChip";
@@ -40,12 +40,13 @@ const LinkCard = ({ link }: { link: ReferenceLinkSummary }) => {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             {link.shidduchim_id ? (
-              <Link
-                to={`/shidduchim/${link.shidduchim_id}/show`}
+              <RecordLink
+                resource="shidduchim"
+                id={link.shidduchim_id}
                 className="text-base font-medium hover:underline"
               >
                 {shidduchName}
-              </Link>
+              </RecordLink>
             ) : (
               <span className="text-base font-medium">{shidduchName}</span>
             )}

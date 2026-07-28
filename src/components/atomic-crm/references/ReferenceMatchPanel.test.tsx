@@ -2,6 +2,11 @@ import { render } from "vitest-browser-react";
 import type { Identifier } from "ra-core";
 import { TestMemoryRouter } from "ra-core";
 import type { ReferenceMatchCandidate } from "../types";
+// Side-effect import — registers the "references" entity descriptor so the
+// candidate names below render as real RecordLinks rather than degrading to
+// plain text (RecordLink.tsx AC 1b), mirroring what `references/index.ts`
+// (not imported by this leaf test) does at boot.
+import "./entityDescriptor";
 import { ReferenceMatchPanel } from "./ReferenceMatchPanel";
 
 /**

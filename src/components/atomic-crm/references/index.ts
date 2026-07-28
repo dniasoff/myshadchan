@@ -1,3 +1,5 @@
+import "./entityDescriptor";
+
 import type { Reference } from "../types";
 import { ReferenceCreate } from "./ReferenceCreate";
 import { ReferenceEdit } from "./ReferenceEdit";

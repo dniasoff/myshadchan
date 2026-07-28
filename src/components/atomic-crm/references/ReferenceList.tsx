@@ -1,5 +1,4 @@
-import { useCreatePath, useListContext, useTranslate } from "ra-core";
-import { Link } from "react-router";
+import { useListContext, useTranslate } from "ra-core";
 import { CreateButton } from "@/components/admin/create-button";
 import { List } from "@/components/admin/list";
 import { SearchInput } from "@/components/admin/search-input";
@@ -8,6 +7,7 @@ import { TextInput } from "@/components/admin/text-input";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { getAvatarIndex, getMonogram } from "../entity360/avatar";
+import { RecordLink } from "../entity360/RecordLink";
 import { EmptyState } from "../misc/EmptyState";
 import { TopToolbar } from "../layout/TopToolbar";
 import type { ReferenceSummary } from "../types";
@@ -53,7 +53,6 @@ const ReferenceRow = ({
   index: number;
 }) => {
   const translate = useTranslate();
-  const createPath = useCreatePath();
   const name = record.name_en || "?";
   const monogram = getMonogram(record.name_en);
   const avatarIndex = getAvatarIndex(record.name_en ?? String(record.id));
@@ -64,8 +63,9 @@ const ReferenceRow = ({
   const openTasks = Number(record.open_task_count ?? 0);
 
   return (
-    <Link
-      to={createPath({ resource: "references", id: record.id, type: "show" })}
+    <RecordLink
+      resource="references"
+      id={record.id}
       className="ql-enter block no-underline"
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
     >
@@ -119,7 +119,7 @@ const ReferenceRow = ({
           ) : null}
         </div>
       </Card>
-    </Link>
+    </RecordLink>
   );
 };
 

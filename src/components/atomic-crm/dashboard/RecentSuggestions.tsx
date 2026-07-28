@@ -1,9 +1,9 @@
 import type { Identifier } from "ra-core";
 import { useGetList } from "ra-core";
-import { Link } from "react-router";
 
 import { Card } from "@/components/ui/card";
 
+import { RecordLink } from "../entity360/RecordLink";
 import { StateChip } from "../misc/StateChip";
 import { formatRedtDate } from "../shidduchim/boardUtils";
 import type { ShidduchSummary } from "../types";
@@ -48,8 +48,9 @@ export const RecentSuggestions = ({ singleId }: RecentSuggestionsProps) => {
               className="ql-enter"
               style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
             >
-              <Link
-                to={`/shidduchim/${item.id}/show`}
+              <RecordLink
+                resource="shidduchim"
+                id={item.id}
                 className="flex items-center justify-between gap-3 rounded-xl
                   border border-transparent p-3 outline-none
                   transition-colors duration-[160ms]
@@ -70,7 +71,7 @@ export const RecentSuggestions = ({ singleId }: RecentSuggestionsProps) => {
                   </div>
                 </div>
                 <StateChip state={item.pipeline_state} />
-              </Link>
+              </RecordLink>
             </li>
           ))}
         </ul>

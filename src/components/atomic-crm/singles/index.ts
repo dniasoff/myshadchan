@@ -1,3 +1,5 @@
+import "./entityDescriptor";
+
 import type { Single } from "../types";
 import { SingleCreate } from "./SingleCreate";
 import { SingleEdit } from "./SingleEdit";

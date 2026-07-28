@@ -65,10 +65,33 @@ export type Member = {
 } & Pick<RaRecord, "id">;
 
 /**
- * Tasks/reminders. Polymorphic (AD-13) so a reminder can hang off a shadchan, a
- * shidduch or a reference without a parallel table per entity (FR44-46).
+ * The one target-type vocabulary for every polymorphic entity link in the app
+ * (AD-13, entity360 contract §8) — tasks, interactions and (Story 3.7)
+ * `entity_files` all point at one of these four. `single` runs ahead of the
+ * database on purpose: `tasks_target_type_check` and
+ * `interactions_target_type_check` (`supabase/schemas/01_tables.sql`) do not
+ * accept it yet — see `entity360/pendingDbWidenings.ts` for the tracked gap.
+ * Widening this union is safe today because nothing writes a
+ * single-targeted task or interaction until Story 3.8 / 3.5 land (3.9 keeps
+ * `single` out of `reminders/reminderEntity.ts`'s `LINKABLE_TARGET_TYPES`,
+ * the only picker that writes one).
  */
-export type TaskTargetType = "shadchan" | "shidduch" | "reference";
+export const ENTITY_TARGET_TYPES = [
+  "shidduch",
+  "single",
+  "shadchan",
+  "reference",
+] as const;
+
+export type EntityTargetType = (typeof ENTITY_TARGET_TYPES)[number];
+
+/**
+ * Tasks/reminders. Polymorphic (AD-13) so a reminder can hang off a shadchan,
+ * a shidduch, a single or a reference without a parallel table per entity
+ * (FR44-46). Widened in place to alias `EntityTargetType` — never
+ * re-declared as a second, independent union alongside it.
+ */
+export type TaskTargetType = EntityTargetType;
 
 /** Delivery is in-app + email (primary) + push. There is deliberately no SMS. */
 export type TaskDeliveryChannel = "in_app" | "email" | "push";

@@ -34,6 +34,7 @@ import {
   LINKABLE_TARGET_TYPES,
   RESOURCE_FOR_TARGET,
   TARGET_TYPE_LABEL,
+  TARGET_TYPE_LABEL_PLURAL,
   targetEntityLabel,
 } from "./reminderEntity";
 
@@ -240,7 +241,7 @@ export const ReminderCreateSheet = ({
                         })
                       : entityOptions.length === 0
                         ? translate("crm.reminders.create.noOptions", {
-                            _: `No ${TARGET_TYPE_LABEL[linkType].toLowerCase()}s yet`,
+                            _: `No ${TARGET_TYPE_LABEL_PLURAL[linkType]} yet`,
                           })
                         : translate("crm.reminders.create.pick", {
                             _: `Pick a ${TARGET_TYPE_LABEL[linkType].toLowerCase()}`,

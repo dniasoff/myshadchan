@@ -1,9 +1,9 @@
 import { useGetList } from "ra-core";
 import { BellRing } from "lucide-react";
-import { Link } from "react-router";
 
 import { Card } from "@/components/ui/card";
 
+import { RecordLink } from "../entity360/RecordLink";
 import type { ShidduchSummary } from "../types";
 
 /**
@@ -60,8 +60,9 @@ export const AttentionSection = () => {
         <ul className="flex flex-col divide-y divide-[color-mix(in_oklch,var(--attention)_20%,var(--border))]">
           {shown.map((s) => (
             <li key={String(s.id)} className="py-2">
-              <Link
-                to={`/shidduchim/${s.id}/show`}
+              <RecordLink
+                resource="shidduchim"
+                id={s.id}
                 className="flex flex-wrap items-baseline justify-between gap-2 hover:underline"
               >
                 <span className="min-w-0 truncate text-sm font-medium">
@@ -72,7 +73,7 @@ export const AttentionSection = () => {
                     ? `for ${s.single_first_name_en}`
                     : "Suggested before"}
                 </span>
-              </Link>
+              </RecordLink>
             </li>
           ))}
           {overflow > 0 ? (

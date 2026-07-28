@@ -1,7 +1,7 @@
 import type { Identifier } from "ra-core";
 import { useTranslate } from "ra-core";
-import { Link } from "react-router";
 import { Card, CardContent } from "@/components/ui/card";
+import { RecordLink } from "../entity360/RecordLink";
 import type { ReferenceLinkSummary } from "../types";
 import { CallStatusChip } from "./CallStatusChip";
 import { summarizeCallProgress } from "./callStatus";
@@ -34,7 +34,7 @@ export const RepeatRecognitionPanel = ({
   const translate = useTranslate();
 
   const others = links.filter(
-    (link) =>
+    (link): link is ReferenceLinkSummary & { shidduchim_id: Identifier } =>
       link.shidduchim_id != null && link.shidduchim_id !== excludeShidduchimId,
   );
 
@@ -80,12 +80,13 @@ export const RepeatRecognitionPanel = ({
               className="flex flex-wrap items-center justify-between gap-2 py-2"
             >
               <div className="min-w-0">
-                <Link
-                  to={`/shidduchim/${link.shidduchim_id}/show`}
+                <RecordLink
+                  resource="shidduchim"
+                  id={link.shidduchim_id}
                   className="font-medium hover:underline"
                 >
                   {link.shidduch_name_en}
-                </Link>
+                </RecordLink>
                 <p className="truncate text-sm text-muted-foreground">
                   {[link.effective_relationship, link.single_first_name_en]
                     .filter(Boolean)

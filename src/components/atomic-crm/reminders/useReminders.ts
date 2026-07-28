@@ -12,17 +12,17 @@ import { useMemo } from "react";
 
 import { isOverdue } from "../tasks/tasksPredicate";
 import type { Task, TaskTargetType } from "../types";
-import {
-  RESOURCE_FOR_TARGET,
-  targetEntityLabel,
-  targetEntityPath,
-} from "./reminderEntity";
+import { RESOURCE_FOR_TARGET, targetEntityLabel } from "./reminderEntity";
 
+/**
+ * No `to: string` field — `ReminderCard` resolves the path by rendering
+ * `RecordLink` with `RESOURCE_FOR_TARGET[type]`/`id` (contract §7), so this
+ * type carries only what `RecordLink` cannot derive itself.
+ */
 export interface LinkedEntityRef {
   type: TaskTargetType;
   id: Identifier;
   label: string;
-  to: string;
 }
 
 export interface ReminderItem {
@@ -43,6 +43,7 @@ const ALL_TARGET_TYPES: TaskTargetType[] = [
   "shidduch",
   "reference",
   "shadchan",
+  "single",
 ];
 
 /** ids of open tasks grouped by target_type, deduplicated. */
@@ -63,8 +64,11 @@ const groupIdsByTargetType = (
 
 /**
  * One `useGetMany` per target type — the set of types is fixed
- * (`ALL_TARGET_TYPES`), so these three hooks always run in the same order.
- * Only fires a request when that type actually has ids to look up.
+ * (`ALL_TARGET_TYPES`), so these four hooks always run in the same order.
+ * Only fires a request when that type actually has ids to look up. A fourth
+ * target type needs a fourth hook call here, not just a fourth map entry —
+ * `useGetMany` cannot be called in a loop over `ALL_TARGET_TYPES` without
+ * breaking the rules of hooks (a variable number of hook calls).
  */
 const useLinkedEntityRecords = (
   idsByType: Map<TaskTargetType, Identifier[]>,
@@ -72,6 +76,7 @@ const useLinkedEntityRecords = (
   const shidduchIds = idsByType.get("shidduch") ?? [];
   const referenceIds = idsByType.get("reference") ?? [];
   const shadchanIds = idsByType.get("shadchan") ?? [];
+  const singleIds = idsByType.get("single") ?? [];
 
   const shidduchim = useGetMany(
     RESOURCE_FOR_TARGET.shidduch,
@@ -88,12 +93,18 @@ const useLinkedEntityRecords = (
     { ids: shadchanIds },
     { enabled: shadchanIds.length > 0 },
   );
+  const singles = useGetMany(
+    RESOURCE_FOR_TARGET.single,
+    { ids: singleIds },
+    { enabled: singleIds.length > 0 },
+  );
 
   return useMemo(() => {
     const byType: [TaskTargetType, Identifier[], typeof shidduchim][] = [
       ["shidduch", shidduchIds, shidduchim],
       ["reference", referenceIds, references],
       ["shadchan", shadchanIds, shadchanim],
+      ["single", singleIds, singles],
     ];
     const lookup = new Map<string, Record<string, unknown>>();
     let isPending = false;
@@ -104,8 +115,8 @@ const useLinkedEntityRecords = (
       });
     });
     return { lookup, isPending };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the three query results are the only inputs; idsByType is derived from them.
-  }, [shidduchim, references, shadchanim]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the four query results are the only inputs; idsByType is derived from them.
+  }, [shidduchim, references, shadchanim, singles]);
 };
 
 /**
@@ -145,7 +156,6 @@ export const useReminders = (): UseRemindersResult => {
             type: task.target_type,
             id: task.target_id,
             label,
-            to: targetEntityPath(task.target_type, task.target_id),
           },
         };
       }),

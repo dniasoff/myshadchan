@@ -1,3 +1,5 @@
+import "./entityDescriptor";
+
 import React from "react";
 
 const ShidduchimList = React.lazy(() => import("./ShidduchimList"));

@@ -2,6 +2,7 @@ import type { Identifier } from "ra-core";
 import { useGetList, useTranslate } from "ra-core";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
+import { RecordLink } from "../entity360/RecordLink";
 import type { ReferenceLinkSummary } from "../types";
 import { CallStatusChip } from "./CallStatusChip";
 import { summarizeCallProgress } from "./callStatus";
@@ -66,12 +67,13 @@ export const ShidduchReferencesSection = ({
               className="flex flex-wrap items-center justify-between gap-2 py-2"
             >
               <div className="min-w-0">
-                <Link
-                  to={`/references/${link.reference_id}/show`}
+                <RecordLink
+                  resource="references"
+                  id={link.reference_id}
                   className="font-medium hover:underline"
                 >
                   {link.reference_name_en}
-                </Link>
+                </RecordLink>
                 <p className="truncate text-xs text-muted-foreground">
                   {[link.effective_relationship, link.reference_phone]
                     .filter(Boolean)

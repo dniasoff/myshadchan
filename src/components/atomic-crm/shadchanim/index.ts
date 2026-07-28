@@ -1,3 +1,5 @@
+import "./entityDescriptor";
+
 import type { Shadchan } from "../types";
 import { ShadchanCreate } from "./ShadchanCreate";
 import { ShadchanEdit } from "./ShadchanEdit";

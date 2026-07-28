@@ -3,13 +3,13 @@ import {
   type DraggableProvided,
   type DraggableStateSnapshot,
 } from "@hello-pangea/dnd";
-import { useRedirect } from "ra-core";
 
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 import type { ShidduchSummary } from "../types";
 import { getAvatarIndex, getMonogram } from "../entity360/avatar";
+import { RecordLink } from "../entity360/RecordLink";
 import { formatRedtDate } from "./boardUtils";
 
 /** Shared with the 360 detail header's meta row — one small clock glyph. */
@@ -77,7 +77,6 @@ export const ShidduchCardContent = ({
   shidduch: ShidduchSummary;
   tourAnchor?: boolean;
 }) => {
-  const redirect = useRedirect();
   const name = shidduch.name_en ?? shidduch.single_first_name_en ?? "Unnamed";
   const monogram = getMonogram(shidduch.name_en);
   const avatarIndex = getAvatarIndex(shidduch.name_en ?? String(shidduch.id));
@@ -87,18 +86,6 @@ export const ShidduchCardContent = ({
   const nbRedts = shidduch.nb_redts ?? 0;
   const catchCount = shidduch.catch_count ?? 0;
 
-  const handleClick = () => {
-    // Ignore the click that ends a drag.
-    if (snapshot?.isDragging) return;
-    redirect(
-      `/shidduchim/${shidduch.id}/show`,
-      undefined,
-      undefined,
-      undefined,
-      { _scrollToTop: false },
-    );
-  };
-
   return (
     <div
       className="cursor-pointer"
@@ -106,78 +93,89 @@ export const ShidduchCardContent = ({
       {...provided?.draggableProps}
       {...provided?.dragHandleProps}
       ref={provided?.innerRef}
-      onClick={handleClick}
+      onClickCapture={(event) => {
+        // The capture phase runs before react-router's <Link> bubble
+        // handler, and preventDefault() sets defaultPrevented on the SAME
+        // synthetic event <Link> then checks — so this suppresses
+        // navigation for the click that ends a drag, without an onClick on
+        // this wrapper racing the anchor's own navigation.
+        if (snapshot?.isDragging) event.preventDefault();
+      }}
     >
-      <Card
-        className={cn(
-          "gap-0 p-3.5 transition-all duration-150",
-          snapshot?.isDragging
-            ? "rotate-1 opacity-90 shadow-lg"
-            : "shadow-sm hover:-translate-y-px hover:shadow-md",
-        )}
-      >
-        <div className="flex items-start gap-3">
-          <div
-            className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[11px] text-[13px] font-bold"
-            style={{
-              backgroundColor: `var(--avatar-${avatarIndex})`,
-              color: "var(--avatar-ink)",
-            }}
-          >
-            {monogram}
+      <RecordLink resource="shidduchim" id={shidduch.id} className="block">
+        <Card
+          className={cn(
+            "gap-0 p-3.5 transition-all duration-150",
+            snapshot?.isDragging
+              ? "rotate-1 opacity-90 shadow-lg"
+              : "shadow-sm hover:-translate-y-px hover:shadow-md",
+          )}
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[11px] text-[13px] font-bold"
+              style={{
+                backgroundColor: `var(--avatar-${avatarIndex})`,
+                color: "var(--avatar-ink)",
+              }}
+            >
+              {monogram}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold leading-tight">{name}</div>
+              {meta ? (
+                <div className="mt-1.5 text-xs text-muted-foreground">
+                  {meta}
+                </div>
+              ) : null}
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold leading-tight">{name}</div>
-            {meta ? (
-              <div className="mt-1.5 text-xs text-muted-foreground">{meta}</div>
+
+          {/*
+            Dedupe "catch" chip (E3): a calm "Suggested before" indicator when this
+            person looks like one already suggested for another single in the family.
+            catch_count rides along on the shidduchim_summary read (no per-card
+            query), and the honey --attention token marks recognition, never alarm.
+            The full evidence + confirm/dismiss lives on the 360 view (ShidduchCatchSection).
+          */}
+          {catchCount > 0 ? (
+            <div className="mt-2.5">
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium
+                  text-attention-foreground
+                  bg-[color-mix(in_oklch,var(--attention)_18%,transparent)]"
+              >
+                <SparkleIcon />
+                Suggested before
+              </span>
+            </div>
+          ) : null}
+
+          <div className="mt-3 flex items-center gap-1.5 border-t pt-2.5 text-[11.5px] text-muted-foreground">
+            {shidduch.shadchan_name ? (
+              <>
+                <span>via {shidduch.shadchan_name}</span>
+                <span className="h-[3px] w-[3px] rounded-full bg-muted-foreground/50" />
+              </>
+            ) : null}
+            <span className="inline-flex items-center gap-1 tabular-nums">
+              <ClockIcon />
+              Redt {formatRedtDate(shidduch.redt_date)}
+            </span>
+            {nbRedts > 1 ? (
+              <>
+                <span className="h-[3px] w-[3px] rounded-full bg-muted-foreground/50" />
+                <span
+                  className="tabular-nums font-medium"
+                  title={`Redt ${nbRedts} times`}
+                >
+                  redt ×{nbRedts}
+                </span>
+              </>
             ) : null}
           </div>
-        </div>
-
-        {/*
-          Dedupe "catch" chip (E3): a calm "Suggested before" indicator when this
-          person looks like one already suggested for another single in the family.
-          catch_count rides along on the shidduchim_summary read (no per-card
-          query), and the honey --attention token marks recognition, never alarm.
-          The full evidence + confirm/dismiss lives on the 360 view (ShidduchCatchSection).
-        */}
-        {catchCount > 0 ? (
-          <div className="mt-2.5">
-            <span
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium
-                text-attention-foreground
-                bg-[color-mix(in_oklch,var(--attention)_18%,transparent)]"
-            >
-              <SparkleIcon />
-              Suggested before
-            </span>
-          </div>
-        ) : null}
-
-        <div className="mt-3 flex items-center gap-1.5 border-t pt-2.5 text-[11.5px] text-muted-foreground">
-          {shidduch.shadchan_name ? (
-            <>
-              <span>via {shidduch.shadchan_name}</span>
-              <span className="h-[3px] w-[3px] rounded-full bg-muted-foreground/50" />
-            </>
-          ) : null}
-          <span className="inline-flex items-center gap-1 tabular-nums">
-            <ClockIcon />
-            Redt {formatRedtDate(shidduch.redt_date)}
-          </span>
-          {nbRedts > 1 ? (
-            <>
-              <span className="h-[3px] w-[3px] rounded-full bg-muted-foreground/50" />
-              <span
-                className="tabular-nums font-medium"
-                title={`Redt ${nbRedts} times`}
-              >
-                redt ×{nbRedts}
-              </span>
-            </>
-          ) : null}
-        </div>
-      </Card>
+        </Card>
+      </RecordLink>
     </div>
   );
 };
