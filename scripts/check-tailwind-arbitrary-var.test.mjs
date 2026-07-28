@@ -1,0 +1,152 @@
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runTailwindArbitraryVarCheck } from "./check-tailwind-arbitrary-var.mjs";
+
+let tempRoot;
+
+beforeEach(async () => {
+  tempRoot = await mkdtemp(path.join(os.tmpdir(), "check-tw-arbitrary-var-"));
+});
+
+afterEach(async () => {
+  await rm(tempRoot, { recursive: true, force: true });
+});
+
+async function writeFixture(relPath, content) {
+  const full = path.join(tempRoot, relPath);
+  await mkdir(path.dirname(full), { recursive: true });
+  await writeFile(full, content, "utf8");
+}
+
+describe("runTailwindArbitraryVarCheck", () => {
+  it("fails on a bracket utility referencing a bare CSS variable", async () => {
+    // Arrange
+    await writeFixture(
+      "src/Example.tsx",
+      'export const Example = () => <div className="bg-[--glass-bg]" />;\n',
+    );
+
+    // Act
+    const violations = runTailwindArbitraryVarCheck(tempRoot, new Set());
+
+    // Assert
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("src/Example.tsx:1");
+    expect(violations[0]).toContain("-[--glass-bg]");
+  });
+
+  it("reports every bare-variable match on a line with more than one", async () => {
+    // Arrange
+    await writeFixture(
+      "src/Example.tsx",
+      'export const Example = () => <div className="border-[--glass-border] bg-[--glass-bg]" />;\n',
+    );
+
+    // Act
+    const violations = runTailwindArbitraryVarCheck(tempRoot, new Set());
+
+    // Assert
+    expect(violations).toHaveLength(2);
+  });
+
+  it("explains the v4 fix in the failure message", async () => {
+    // Arrange
+    await writeFixture(
+      "src/Example.tsx",
+      'export const Example = () => <div className="ease-[--ease-spring]" />;\n',
+    );
+
+    // Act
+    const [violation] = runTailwindArbitraryVarCheck(tempRoot, new Set());
+
+    // Assert
+    expect(violation).toContain("-(--ease-spring)");
+    expect(violation).toContain("-[var(--ease-spring)]");
+  });
+
+  it("passes on the v4 parenthesis shorthand", async () => {
+    // Arrange
+    await writeFixture(
+      "src/Example.tsx",
+      'export const Example = () => <div className="bg-(--glass-bg)" />;\n',
+    );
+
+    // Act & Assert
+    expect(runTailwindArbitraryVarCheck(tempRoot, new Set())).toEqual([]);
+  });
+
+  it("passes on an explicit var() wrapper", async () => {
+    // Arrange
+    await writeFixture(
+      "src/Example.tsx",
+      'export const Example = () => <div className="bg-[var(--glass-bg)]" />;\n',
+    );
+
+    // Act & Assert
+    expect(runTailwindArbitraryVarCheck(tempRoot, new Set())).toEqual([]);
+  });
+
+  it("passes on a genuine v4 theme function call, not a bare variable", async () => {
+    // Arrange — the real ui/toggle-group.tsx shape: `--spacing(...)` is a
+    // CSS function invocation, not a bare custom-property reference.
+    await writeFixture(
+      "src/Example.tsx",
+      'export const Example = () => <div className="gap-[--spacing(var(--gap))]" />;\n',
+    );
+
+    // Act & Assert
+    expect(runTailwindArbitraryVarCheck(tempRoot, new Set())).toEqual([]);
+  });
+
+  it("does not flag a line covered by the known-violations allowlist", async () => {
+    // Arrange
+    await writeFixture(
+      "src/Example.tsx",
+      'export const Example = () => <div className="bg-[--glass-bg]" />;\n',
+    );
+
+    // Act
+    const violations = runTailwindArbitraryVarCheck(
+      tempRoot,
+      new Set(["src/Example.tsx:1"]),
+    );
+
+    // Assert
+    expect(violations).toEqual([]);
+  });
+
+  it("still flags a different line in a file that has an allowlisted line", async () => {
+    // Arrange
+    await writeFixture(
+      "src/Example.tsx",
+      [
+        'export const A = () => <div className="bg-[--glass-bg]" />;',
+        'export const B = () => <div className="bg-[--other-var]" />;',
+        "",
+      ].join("\n"),
+    );
+
+    // Act
+    const violations = runTailwindArbitraryVarCheck(
+      tempRoot,
+      new Set(["src/Example.tsx:1"]),
+    );
+
+    // Assert
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("src/Example.tsx:2");
+  });
+
+  it("ignores files outside the scanned extensions", async () => {
+    // Arrange
+    await writeFixture(
+      "src/example.css",
+      ".foo { background: var(--glass-bg); }\ndiv { color: red; } /* bg-[--glass-bg] */\n",
+    );
+
+    // Act & Assert
+    expect(runTailwindArbitraryVarCheck(tempRoot, new Set())).toEqual([]);
+  });
+});

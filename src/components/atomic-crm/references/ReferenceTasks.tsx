@@ -101,20 +101,18 @@ export const ReferenceTasks = ({
           placeholder={translate("crm.references.tasks.placeholder", {
             _: "Remind me to...",
           })}
-          className="min-h-[44px]"
         />
         <Input
           type="date"
           value={dueDate}
           onChange={(event) => setDueDate(event.target.value)}
-          className="min-h-[44px] sm:w-44"
+          className="sm:w-44"
           aria-label={translate("crm.references.tasks.dueDate", {
             _: "Due date",
           })}
         />
         <Button
           type="button"
-          className="min-h-[44px]"
           disabled={isCreating || text.trim() === ""}
           onClick={handleAdd}
         >

@@ -144,7 +144,6 @@ const AddNote = ({
         </select>
         <Button
           type="button"
-          className="min-h-[44px]"
           disabled={isPending || body.trim() === ""}
           onClick={handleAdd}
         >

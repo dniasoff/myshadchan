@@ -78,7 +78,6 @@ const AddNote = ({ shidduchimId }: { shidduchimId: Identifier }) => {
         <Button
           type="button"
           variant="secondary"
-          className="min-h-[44px]"
           disabled={isPending || body.trim() === ""}
           onClick={handleAdd}
         >

@@ -123,12 +123,7 @@ export const ReferenceMergeButton = () => {
 
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        className="min-h-[44px]"
-        onClick={() => setIsOpen(true)}
-      >
+      <Button type="button" variant="outline" onClick={() => setIsOpen(true)}>
         {translate("crm.references.merge.action", { _: "Merge duplicates" })}
       </Button>
 
@@ -167,7 +162,7 @@ export const ReferenceMergeButton = () => {
                     key={String(candidate.id)}
                     type="button"
                     variant="outline"
-                    className="min-h-[44px] justify-start"
+                    className="justify-start"
                     onClick={() => openWith(candidate.id)}
                   >
                     <span className="truncate">

@@ -123,7 +123,7 @@ jobs:
               run: make stop-supabase-e2e
 
     guards:
-        name: 🛡️ Suppression & retired-name guards
+        name: 🛡️ Suppression, retired-name & Tailwind-syntax guards
         runs-on: ubuntu-latest
         timeout-minutes: 10
         if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
@@ -145,6 +145,9 @@ jobs:
 
             - name: 🏷️ Retired-name guard
               run: node scripts/check-retired-names.mjs
+
+            - name: 🎨 Tailwind v3-syntax guard
+              run: node scripts/check-tailwind-arbitrary-var.mjs
 
     e2e-test:
         timeout-minutes: 10

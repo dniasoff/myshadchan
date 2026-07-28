@@ -190,7 +190,6 @@ export const ReminderCreateSheet = ({
                 type="date"
                 value={date}
                 onChange={(event) => setDate(event.target.value)}
-                className="min-h-[44px]"
               />
             </div>
             <div className="flex flex-col gap-2">
@@ -202,7 +201,6 @@ export const ReminderCreateSheet = ({
                 type="time"
                 value={time}
                 onChange={(event) => setTime(event.target.value)}
-                className="min-h-[44px]"
               />
             </div>
           </div>

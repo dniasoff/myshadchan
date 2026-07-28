@@ -99,7 +99,7 @@ const LinkCard = ({ link }: { link: ReferenceLinkSummary }) => {
           <Button
             type="button"
             variant="outline"
-            className="min-h-[44px] transition-transform duration-[160ms]
+            className="transition-transform duration-[160ms]
               ease-[var(--ease-spring)] active:scale-[0.97]"
             onClick={() => setIsCapturing(true)}
           >

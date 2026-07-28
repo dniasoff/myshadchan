@@ -2,6 +2,7 @@ import type { Identifier } from "ra-core";
 import { useGetList, useTranslate } from "ra-core";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
+import { buildNewPath } from "../entity360/entityPaths";
 import { RecordLink } from "../entity360/RecordLink";
 import type { ReferenceLinkSummary } from "../types";
 import { CallStatusChip } from "./CallStatusChip";
@@ -92,7 +93,9 @@ export const ShidduchReferencesSection = ({
       )}
 
       <Button asChild variant="outline" className="min-h-[44px]">
-        <Link to={`/references/create?shidduchim_id=${shidduchimId}`}>
+        <Link
+          to={`${buildNewPath("references")}?shidduchim_id=${shidduchimId}`}
+        >
           {translate("crm.references.shidduch.add", {
             _: "Add a reference",
           })}
