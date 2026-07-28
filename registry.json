@@ -640,19 +640,7 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/login/StartPage.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/login/SignupPage.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/login/PersonaChecklist.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/login/PasswordToggleButton.tsx",
           "type": "registry:component"
         },
         {
@@ -673,10 +661,6 @@
         },
         {
           "path": "src/components/atomic-crm/login/FirstRunSetup.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/login/ConfirmationRequired.tsx",
           "type": "registry:component"
         },
         {
