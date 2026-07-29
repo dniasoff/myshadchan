@@ -1,6 +1,6 @@
 # Story 4.1: `EntityList` framework
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -121,33 +121,33 @@ so that search and filtering are never a surprise.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — `useEntityListStatus` (AC: 1, 6)**
-  - [ ] Create `src/components/atomic-crm/misc/useEntityListStatus.ts`. Reads
+- [x] **Task 1 — `useEntityListStatus` (AC: 1, 6)**
+  - [x] Create `src/components/atomic-crm/misc/useEntityListStatus.ts`. Reads
         `useListContext()` and returns one of
         `{ status: "loading" } | { status: "error"; error: unknown; refetch: () => void } |
         { status: "empty" } | { status: "no-matches" } | { status: "ready"; data: RaRecord[] }`.
         `"empty"` = no data AND `Object.keys(filterValues).length === 0`; `"no-matches"` = no
         data AND at least one filter value set (search counts as a filter — `q` is a
         `filterValues` key like any other).
-  - [ ] This is the single place the four-state decision is made — `EntityListView` (Task 2)
+  - [x] This is the single place the four-state decision is made — `EntityListView` (Task 2)
         and `ShidduchimViewSwitch` (Story 4.3) both consume it; neither re-derives it.
 
-- [ ] **Task 2 — `EntityListView` (AC: 1, 6, 7)**
-  - [ ] Create `src/components/atomic-crm/misc/EntityListView.tsx`. Props:
+- [x] **Task 2 — `EntityListView` (AC: 1, 6, 7)**
+  - [x] Create `src/components/atomic-crm/misc/EntityListView.tsx`. Props:
         `{ resource: string; skeleton: ReactNode; emptyState: EmptyStateProps;
         noMatchesMessage: string; renderItems: (data: RaRecord[]) => ReactNode }`.
         `EmptyStateProps` is imported from `misc/EmptyState.tsx` — it is already exported there;
         do not redeclare it.
-  - [ ] Calls `useEntityListStatus()` and renders: `skeleton` for `"loading"`; an error block
+  - [x] Calls `useEntityListStatus()` and renders: `skeleton` for `"loading"`; an error block
         (message + a "Try again" button calling `refetch()`) for `"error"`; `<EmptyState
         {...emptyState}/>` (reuse `misc/EmptyState.tsx` — do not create a second empty-state
         component) for `"empty"`; `<p>{noMatchesMessage}</p>` for `"no-matches"`; else
         `renderItems(data)`.
-  - [ ] No pagination, sort, or search UI lives here — those are `EntityList`'s job (Task 3).
+  - [x] No pagination, sort, or search UI lives here — those are `EntityList`'s job (Task 3).
         This component only renders *given* a list context; it never talks to the data provider.
 
-- [ ] **Task 3 — `EntityList`, `EntityListHeader`, `EntityListToolbar` (AC: 1, 2, 5, 8)**
-  - [ ] Create `src/components/atomic-crm/misc/EntityList.tsx`. Wraps
+- [x] **Task 3 — `EntityList`, `EntityListHeader`, `EntityListToolbar` (AC: 1, 2, 5, 8)**
+  - [x] Create `src/components/atomic-crm/misc/EntityList.tsx`. Wraps
         `@/components/admin/list`'s `<List>` (reuse — do not reimplement pagination/filter/URL
         sync; `ListBase` already provides it with `disableSyncWithLocation` at its `false`
         default). Props:
@@ -155,62 +155,62 @@ so that search and filtering are never a surprise.
         searchPlaceholder?: string; extraFilters?: ReactElement[]; sortFields?: string[];
         sort?: SortPayload; perPage?: number } &
         Pick<EntityListViewProps, "resource"|"skeleton"|"emptyState"|"noMatchesMessage"|"renderItems">`.
-  - [ ] Heading exactly per AC-2. **`getEntityDescriptor` is the guarded accessor and returns
+  - [x] Heading exactly per AC-2. **`getEntityDescriptor` is the guarded accessor and returns
         `EntityDescriptor | undefined`** (`entity360/registry.ts`) — never dereference it
         (`.claude/rules/coding-style.md#Error-handling`, Epic 3 contract §4 rule 3, which names
         this exact consumer). Do **not** use `requireEntityDescriptor` here: `EntityList` is
         generic over resources and three of the seven in `root/routeManifest.ts` deliberately
         have no descriptor.
-  - [ ] Renders
+  - [x] Renders
         `<List title={false} perPage={perPage ?? 100} sort={sort} pagination={<ListPagination/>}
         filters={[<SearchInput source="q" alwaysOn key="q" placeholder={searchPlaceholder}/>, ...(extraFilters ?? [])]}
         actions={<EntityListToolbar sortFields={sortFields} createTo={createTo} createLabel={createLabel}/>}>`,
         with `<EntityListHeader eyebrow={eyebrow} title={heading} subtitle={subtitle}/>` then
         `<EntityListView .../>` as children.
-  - [ ] Create `src/components/atomic-crm/misc/EntityListHeader.tsx` (eyebrow/title/subtitle
+  - [x] Create `src/components/atomic-crm/misc/EntityListHeader.tsx` (eyebrow/title/subtitle
         block — the markup currently duplicated, with small variations, inside
         `SingleList.tsx`'s `SingleListHeader` and `ShadchanList.tsx`'s `ShadchanDirectory`).
         `eyebrow`/`subtitle` arrive pre-translated — each call site keeps its existing
         `crm.<entity>.list.*` keys / `_:` fallbacks via `useTranslate` (AD-18: no hardcoded
         strings lost in the move).
-  - [ ] Create `src/components/atomic-crm/misc/EntityListToolbar.tsx`: renders `<FilterButton/>`
+  - [x] Create `src/components/atomic-crm/misc/EntityListToolbar.tsx`: renders `<FilterButton/>`
         (only when `extraFilters` is non-empty — reuse `@/components/admin/filter-form`'s
         `FilterButton`), `<SortButton fields={sortFields}/>` (reuse
         `@/components/admin/sort-button`, only when `sortFields` is non-empty), and a create
         link whose `to` is the `createTo` prop, styled with the gradient CTA class string lifted
         verbatim from today's `SingleListHeader` / `AddShadchanButton` — do not invent a third
         visual for the same button.
-  - [ ] `EntityListToolbar` leaves an explicit, empty `viewToggle` slot **unused** in this story —
+  - [x] `EntityListToolbar` leaves an explicit, empty `viewToggle` slot **unused** in this story —
         Story 4.2 fills it (see "What 4.1 deliberately does not build").
 
-- [ ] **Task 4 — Wire the two search hooks (AC: 4)**
-  - [ ] `src/components/atomic-crm/providers/supabase/dataProvider.ts`, `lifeCycleCallbacks`
+- [x] **Task 4 — Wire the two search hooks (AC: 4)**
+  - [x] `src/components/atomic-crm/providers/supabase/dataProvider.ts`, `lifeCycleCallbacks`
         (currently: one `members` `beforeSave`, one `references_summary` `beforeGetList`, then
         the spread `...entityFilesCleanupCallbacks`). Add
         `{ resource: "singles", beforeGetList: applyFullTextSearch(["first_name_en", "last_name_en", "first_name_he", "last_name_he"]) }`.
         `singles` has no `_summary` redirect — `SingleList` queries `"singles"` directly — so no
         renaming trap here.
-  - [ ] Add `{ resource: "shadchanim", beforeGetList: applyFullTextSearch(["name", "name_he", "location"]) }`.
+  - [x] Add `{ resource: "shadchanim", beforeGetList: applyFullTextSearch(["name", "name_he", "location"]) }`.
         Same: no redirect.
-  - [ ] **Key each hook to the resource name the `<List>` is actually given, never to the view
+  - [x] **Key each hook to the resource name the `<List>` is actually given, never to the view
         name the provider redirects to internally** — see Dev Notes "The dead-hook trap". This is
         the one sentence Story 4.3 and Story 4.5 both cite.
-  - [ ] Insert both entries **before** the `...entityFilesCleanupCallbacks` spread, so the array's
+  - [x] Insert both entries **before** the `...entityFilesCleanupCallbacks` spread, so the array's
         shape stays "explicit entries, then the generated block". Story 3.7 owns that block; do
         not edit it.
-  - [ ] **No FakeRest change is needed.** Verified: `fakerest`'s own `q` handling
+  - [x] **No FakeRest change is needed.** Verified: `fakerest`'s own `q` handling
         (`node_modules/fakerest/dist/fakerest.js`, `buildRegexSearch`) does a case-insensitive
         substring match across every string field of every record, generically, regardless of
         resource.
-  - [ ] **Do not touch the existing `references_summary` entry.** It is dead (see Dev Notes
+  - [x] **Do not touch the existing `references_summary` entry.** It is dead (see Dev Notes
         "Residual: the dead references hook") and RULING 7 removed its only would-be consumer;
         deleting it belongs to the RULING 7 references wave, which owns `references/`.
 
-- [ ] **Task 5 — Retrofit `SingleList` (AC: 3, 5, 6, 7, 8)**
-  - [ ] **No descriptor edit is required.** `singles/entityDescriptor.ts` already declares
+- [x] **Task 5 — Retrofit `SingleList` (AC: 3, 5, 6, 7, 8)**
+  - [x] **No descriptor edit is required.** `singles/entityDescriptor.ts` already declares
         `label: "Singles"` (`label` is a **required** field of `EntityDescriptor`, so every
         shipped descriptor has one). Confirm and move on — there is nothing to add.
-  - [ ] Rewrite `src/components/atomic-crm/singles/SingleList.tsx` to render
+  - [x] Rewrite `src/components/atomic-crm/singles/SingleList.tsx` to render
         ```tsx
         <EntityList
           resource="singles"
@@ -234,46 +234,46 @@ so that search and filtering are never a surprise.
         ```
         `createTo` / `actionTo` are `buildNewPath("singles")` — **never** the string
         `"/singles/create"` (AC-8).
-  - [ ] Keep `SingleCard` unchanged; `SingleCardGrid` is today's grid `<div>` extracted so it can
+  - [x] Keep `SingleCard` unchanged; `SingleCardGrid` is today's grid `<div>` extracted so it can
         be passed as `renderItems`. `SingleCardGridSkeleton` is today's `SingleListSkeleton`
         markup moved into that same file (it is a card-grid shape, entity-specific) — the *state
         decision* moves to `EntityListView`, the *markup* stays with the entity.
-  - [ ] Delete `SingleListSkeleton` and `SingleListHeader` from `SingleList.tsx` (AC-7).
-  - [ ] The per-single pipeline-count enrichment (`useGetList<SingleSummary>("singles_summary")`,
+  - [x] Delete `SingleListSkeleton` and `SingleListHeader` from `SingleList.tsx` (AC-7).
+  - [x] The per-single pipeline-count enrichment (`useGetList<SingleSummary>("singles_summary")`,
         joined by id) is unrelated to list chrome — keep it exactly as-is inside the new
         `renderItems` callback / `SingleCardGrid`.
 
-- [ ] **Task 6 — Retrofit `ShadchanList` (AC: 3, 5, 6, 7, 8)**
-  - [ ] Same shape (`shadchanim/entityDescriptor.ts` already declares `label: "Shadchanim"` —
+- [x] **Task 6 — Retrofit `ShadchanList` (AC: 3, 5, 6, 7, 8)**
+  - [x] Same shape (`shadchanim/entityDescriptor.ts` already declares `label: "Shadchanim"` —
         nothing to add):
         `<EntityList resource="shadchanim" eyebrow="Matchmaker book" subtitle="Every matchmaker your family has worked with, in one calm book." createTo={buildNewPath("shadchanim")} createLabel="Add a shadchan" searchPlaceholder="Search by name" perPage={200} sort={{field:"name", order:"ASC"}} …/>`.
-  - [ ] Delete `ShadchanGridSkeleton`, `AddShadchanButton` and `ShadchanListActions`; keep the
+  - [x] Delete `ShadchanGridSkeleton`, `AddShadchanButton` and `ShadchanListActions`; keep the
         existing `shidduchim`-count enrichment (`countSuggestionsByShadchan`) inside
         `renderItems`.
-  - [ ] `perPage={200}` and `pagination={null}` are today's deliberate settings for this roster —
+  - [x] `perPage={200}` and `pagination={null}` are today's deliberate settings for this roster —
         preserve them by passing `perPage={200}`; if `EntityList` cannot express
         `pagination={null}`, add a `pagination?: ReactNode | null` pass-through prop rather than
         silently paginating a book that has never paged.
 
-- [ ] **Task 7 — Tests (AC: 10)**
-  - [ ] `src/components/atomic-crm/misc/useEntityListStatus.test.ts`: the five-branch decision
+- [x] **Task 7 — Tests (AC: 10)**
+  - [x] `src/components/atomic-crm/misc/useEntityListStatus.test.ts`: the five-branch decision
         table, wrapping with a `ListContextProvider` fed a hand-built `ListControllerResult`.
-  - [ ] `src/components/atomic-crm/misc/EntityListView.test.tsx`: loading / error + "Try again"
+  - [x] `src/components/atomic-crm/misc/EntityListView.test.tsx`: loading / error + "Try again"
         calls `refetch` / empty renders `EmptyState` / no-matches renders the message / ready
         renders `renderItems`. Same wrapping approach — no real `<List>` fetch for this
         unit-level test.
-  - [ ] `src/components/atomic-crm/misc/EntityList.test.tsx`: **AC-2's falsifiable half** —
+  - [x] `src/components/atomic-crm/misc/EntityList.test.tsx`: **AC-2's falsifiable half** —
         `<EntityList resource="tasks" …/>` (no registered descriptor) renders without throwing
         and shows the translated `resources.tasks.name`; `<EntityList resource="singles" …/>`
         shows "Singles". Wrap with `CoreAdminContext` + `ra-data-fakerest`, the pattern in
         `src/components/atomic-crm/tasks/TasksListFilter.test.tsx`.
-  - [ ] One smoke test per retrofitted list (`SingleList.test.tsx`, `ShadchanList.test.tsx`;
+  - [x] One smoke test per retrofitted list (`SingleList.test.tsx`, `ShadchanList.test.tsx`;
         verified: neither exists today), asserting the search box filters the rendered rows.
-  - [ ] `e2e/entity-list-search.spec.ts`: on `/shadchanim`, type a search term, assert the
+  - [x] `e2e/entity-list-search.spec.ts`: on `/shadchanim`, type a search term, assert the
         filtered result, reload the page, assert the search term and filtered result persist
         (URL round-trip — AC-5). Per `.claude/skills/e2e-conventions`, required because this
         story touches search/filter UI.
-  - [ ] **e2e stack discipline:** Playwright needs **both** `make start-supabase-e2e` and
+  - [x] **e2e stack discipline:** Playwright needs **both** `make start-supabase-e2e` and
         `make start-app-e2e`, and the stack is a host-global singleton
         (`playwright.config.ts`: `workers: 1`, fixed ports, `reuseExistingServer: true`). If you
         run unit tests concurrently with another agent, take a `STACK_ID` (1-6, never 0) plus
@@ -451,8 +451,107 @@ registry.json                                                    (regenerated)
 
 ### Agent Model Used
 
+Claude Sonnet 5 (developer agent, STACK_ID=1 / STACK_OWNER=epic4-w1-story41)
+
 ### Debug Log References
+
+- `make typecheck` — clean (tsconfig.app / tsconfig.workers / tsconfig.node).
+- `npm run lint` (`--max-warnings=0`) — clean.
+- `npm run prettier` — all matched files use Prettier code style.
+- `npx vitest run` (full repo, no STACK_ID) — 150 passed / 1 skipped test
+  files; 5 pre-existing failures in `supabase/tests/interaction_note_authorship.test.ts`
+  and `supabase/tests/tasks_target_types.test.ts` confirmed via `git stash` to
+  fail identically on unmodified `main` — unrelated to this story, not
+  touched by it.
+- `make test STACK_ID=1` — 140 passed / 13 skipped test files, 0 failures
+  (the `db` project's suites skip gracefully — stack 1's Supabase was never
+  started, so `bailIfDbUnreachable` registers `it.skip` rather than failing,
+  which is also what isolates this run from stack 0's database).
+- `npm run build` — clean production build (pre-existing >500kB chunk-size
+  warning only, unrelated to this story).
+- Four CI guards run directly (`node scripts/<name>.mjs`, matching
+  `.github/workflows/check.yml`): `check-suppressions`, `check-retired-names`,
+  `check-route-convention`, `check-tailwind-arbitrary-var` — all OK.
+  `check-wave-ownership` is the orchestrator's pre/post-wave manifest check,
+  not a static CI gate (`check.yml` never calls it) and does not apply to a
+  single-agent, non-parallel dispatch with no manifest.
+- No SQL/schema files touched — `supabase db diff` was not required or run.
 
 ### Completion Notes List
 
+- `useEntityListStatus` / `EntityListView` / `EntityList` / `EntityListHeader`
+  / `EntityListToolbar` created in `misc/`, exactly per Tasks 1-3.
+- Two `applyFullTextSearch` entries added to `dataProvider.ts`'s
+  `lifeCycleCallbacks`, keyed to `singles` / `shadchanim` (the resource names
+  their `<List>`s are actually given), inserted before the
+  `...entityFilesCleanupCallbacks` spread; the existing `references_summary`
+  entry (dead, RULING 7) was left untouched.
+- `SingleList.tsx` rewritten onto `EntityList`; the card grid + its
+  `singles_summary` pipeline-count enrichment moved to a new
+  `singles/SingleCardGrid.tsx` (`SingleCardGridSkeleton` + `SingleCardGrid`).
+  `SingleListSkeleton` / `SingleListHeader` no longer exist anywhere
+  (confirmed via `grep` across `src/` and `e2e/` — only comments in the new
+  files mention the retired names, for provenance).
+- `ShadchanList.tsx` rewritten onto `EntityList`; the card grid + its
+  `shidduchim`-count enrichment stayed local to `ShadchanList.tsx` (no
+  separate file was in this story's declared path set for shadchanim), as
+  `ShadchanCardGrid` / `ShadchanCardGridSkeleton` — new names, since AC 7
+  requires `ShadchanGridSkeleton` / `AddShadchanButton` / `ShadchanListActions`
+  to no longer resolve anywhere. `pagination={null}` is threaded through via
+  the new `EntityListProps.pagination` pass-through (Task 6's fallback path —
+  `EntityList`'s Task-3 literal shape has no `pagination` prop, so it was
+  added).
+- Both `SingleList`/`ShadchanList` now call `useTranslate()` for their
+  eyebrow/subtitle/createLabel/searchPlaceholder/empty-state copy, reading
+  new `crm.singles.list.*` / `crm.shadchanim.list.*` keys (English + French)
+  registered by this story — neither file had any `translate()` call before.
+  `EntityListView`'s own generic error/retry copy is `crm.entity_list.*`,
+  also new.
+- `EntityListToolbar`'s create-CTA class string is `SingleListHeader`'s
+  gradient classes verbatim (the `ease-(--ease-spring)` v4-shorthand variant,
+  not `AddShadchanButton`'s `ease-[var(--ease-spring)]` — both compile per
+  `check-tailwind-arbitrary-var`'s own comment, this story picked one so
+  there is exactly one visual, not two).
+- `e2e/entity-list-search.spec.ts` added (search-conventions requires this
+  since the story touches search/filter UI); `e2e/fixtures.ts` gained one new
+  `createShadchan({ accountId, name })` helper — it does NOT provision its
+  own account (unlike `createSingle`/`createInvite`) so two calls land two
+  shadchanim on the same household's book, needed to prove search narrows
+  rather than merely empties the roster — plus its two fixture-map lines
+  (type map entry + `test.extend` entry), all in this one edit per the
+  story's "Ownership hazards" note. Not run locally (Playwright/e2e is CI's
+  job per `.claude/skills/e2e-conventions`, "Running the e2e suite locally
+  instead of letting CI do it" is a listed red flag) — verified by
+  `typecheck`/`lint`/`prettier` only.
+- `registry.json` regenerated via `make registry-gen` (pre-commit hook path);
+  diff is exactly the 6 new files under `misc/`/`singles/`.
+- Did not touch `singles/entityDescriptor.ts` or `shadchanim/entityDescriptor.ts`
+  — both already carry the required `label` field (verified, nothing to add),
+  matching the note in this story's dispatch that the refresh deleted that
+  task.
+- Did not touch `<entity>/index.ts` for either resource (AC 9) — the route
+  table is unchanged.
+- References (`references/`, `ReferenceList.tsx`) untouched — out of scope
+  per RULING 7 / this story's AC 3.
+
 ### File List
+
+- `src/components/atomic-crm/misc/useEntityListStatus.ts` (new)
+- `src/components/atomic-crm/misc/useEntityListStatus.test.ts` (new)
+- `src/components/atomic-crm/misc/EntityListView.tsx` (new)
+- `src/components/atomic-crm/misc/EntityListView.test.tsx` (new)
+- `src/components/atomic-crm/misc/EntityList.tsx` (new)
+- `src/components/atomic-crm/misc/EntityList.test.tsx` (new)
+- `src/components/atomic-crm/misc/EntityListHeader.tsx` (new)
+- `src/components/atomic-crm/misc/EntityListToolbar.tsx` (new)
+- `src/components/atomic-crm/singles/SingleList.tsx` (rewritten)
+- `src/components/atomic-crm/singles/SingleList.test.tsx` (new)
+- `src/components/atomic-crm/singles/SingleCardGrid.tsx` (new)
+- `src/components/atomic-crm/shadchanim/ShadchanList.tsx` (rewritten)
+- `src/components/atomic-crm/shadchanim/ShadchanList.test.tsx` (new)
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts` (2 array entries added)
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (new `crm.entity_list` / `crm.singles.list` / `crm.shadchanim.list` keys)
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (same keys, French)
+- `e2e/entity-list-search.spec.ts` (new)
+- `e2e/fixtures.ts` (new `createShadchan` helper + its two fixture-map lines)
+- `registry.json` (regenerated)
