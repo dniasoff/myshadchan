@@ -116,25 +116,30 @@ export const ShidduchTimeline = ({
         </p>
       ) : (
         <ul className="flex flex-col gap-3 border-s border-border ps-4">
-          {interactions.map((interaction) => (
-            <li key={String(interaction.id)}>
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="text-sm font-medium">
-                  {translate(INTERACTION_KIND_LABELS[interaction.kind].key, {
-                    _: INTERACTION_KIND_LABELS[interaction.kind].fallback,
-                  })}
-                </span>
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {formatTimelineDate(interaction.created_at)}
-                </span>
-              </div>
-              {interaction.body ? (
-                <p className="whitespace-pre-line text-sm">
-                  {interaction.body}
-                </p>
-              ) : null}
-            </li>
-          ))}
+          {interactions.map((interaction) => {
+            const label =
+              INTERACTION_KIND_LABELS[interaction.kind] ??
+              INTERACTION_KIND_LABELS.note;
+            return (
+              <li key={String(interaction.id)}>
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="text-sm font-medium">
+                    {translate(label.key, {
+                      _: label.fallback,
+                    })}
+                  </span>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {formatTimelineDate(interaction.created_at)}
+                  </span>
+                </div>
+                {interaction.body ? (
+                  <p className="whitespace-pre-line text-sm">
+                    {interaction.body}
+                  </p>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

@@ -43,8 +43,20 @@
 --     own "sanity" row is collateral-red too (the insert never reaches the
 --     policy at all, blocked by the type/scope-link checks first) — expected,
 --     and exactly why the swap technique, not the full revert, is this
---     check's real falsifiability proof, live in every run of this file.
+--     check's real falsifiability proof, live in every run of this file. The
+--     real policy's USING / WITH CHECK expressions are captured verbatim
+--     from `pg_policy` BEFORE the swap and used, unmodified, to restore the
+--     policy afterward — this file never re-types the shipped policy text.
+--     The row the old policy wrongly lets through is kept (not deleted)
+--     across the restore so the real `using` clause can be asserted against
+--     it directly: that row's account_id equals the active context (A), so
+--     only the target-aware `exists` clause — not the top-level account_id
+--     floor AC 10(b) already exercises — can be what hides it.
 --   * (d) — fails: "function public.current_member_id() does not exist".
+--     The archived-lower-id-wins bug-fix check added alongside it is
+--     unaffected by reverting this story's migration (account_members is
+--     untouched by it); proven separately, live, by dropping
+--     `and am.status = 'active'` from current_member_id()'s body.
 --   * (e) — the shadchan/tasks arm fails (task row survives — no purge
 --     trigger); the interactions arms pass vacuously (the fixture insert
 --     itself is already blocked by interactions_target_type_check, the
@@ -246,11 +258,42 @@ select public.set_active_context(:acct_a);
 
 -- ---------------------------------------------------------------------------
 -- AC 10(c): while active in A, an insert whose target_id is B's shadchan (or
--- single) is rejected by the refined `with check`. See the header comment
--- for why this needs an in-suite policy swap rather than a full reversion.
+-- single) is rejected by the refined `with check` — and the same shape,
+-- once inserted under the old policy, is hidden by the refined `using`. See
+-- the header comment for why this needs an in-suite policy swap rather than
+-- a full reversion, and for why the real policy is captured from `pg_policy`
+-- rather than re-typed.
 -- ---------------------------------------------------------------------------
 reset role;
 
+-- Capture the shipped policy's USING and WITH CHECK expressions verbatim,
+-- BEFORE any swap, so restoring it below can never drift from whatever
+-- 05_policies.sql actually installed — no hand-retyped copy of the real
+-- policy appears anywhere in this file. A mutation to the real policy is
+-- therefore captured (and later restored) as the SAME mutated text, which is
+-- exactly what lets the `using` assertion below catch such a mutation
+-- instead of silently passing against a stand-in that always matches the
+-- story's intent rather than the shipped schema.
+do $$
+declare
+  v_using text;
+  v_check text;
+begin
+  select pg_get_expr(polqual, polrelid), pg_get_expr(polwithcheck, polrelid)
+  into v_using, v_check
+  from pg_policy
+  where polrelid = 'public.interactions'::regclass
+    and polname = 'Interactions scoped to account and parent visibility';
+
+  insert into ids values ('real_policy_using', v_using);
+  insert into ids values ('real_policy_check', v_check);
+end $$;
+
+-- Swap in the deliberately pre-Story-3.5 shape (no target-integrity `exists`
+-- clause for shadchan/single) so the sanity insert below can construct a
+-- cross-context row the OLD policy would have wrongly allowed. This text is
+-- never claimed to mirror the shipped policy — it is the known-bad baseline
+-- Story 3.5 replaced — so it carries no drift risk of its own.
 drop policy "Interactions scoped to account and parent visibility" on public.interactions;
 create policy "Interactions scoped to account and parent visibility" on public.interactions
     for all to authenticated
@@ -313,139 +356,71 @@ set local request.jwt.claims = '{"sub":"a3050001-0000-0000-0000-000000000001","r
 do $$
 declare
   v_shadchan_b bigint;
+  v_id bigint;
 begin
   select value::bigint into v_shadchan_b from ids where name = 'shadchan_b';
   insert into public.interactions (target_type, target_id, scope)
-    values ('shadchan', v_shadchan_b, 'account');
+    values ('shadchan', v_shadchan_b, 'account')
+    returning id into v_id;
+  insert into ids values ('interaction_leaked_shadchan_b', v_id::text);
   insert into results values (
-    'AC 10(c) sanity — the pre-Story-3.5 policy (bare scope=''account'' disjunct, no target-integrity exists clause) WRONGLY allows a cross-context shadchan insert (the red half; the real policy denies it below)',
+    'AC 10(c) sanity — the pre-Story-3.5 policy (bare scope=''account'' disjunct, no target-integrity exists clause) WRONGLY allows a cross-context shadchan insert (kept, not deleted — the real policy''s using clause is asserted against this exact row below)',
     true, 'insert unexpectedly succeeded under the old, unrefined policy'
   );
 exception when others then
   insert into results values (
-    'AC 10(c) sanity — the pre-Story-3.5 policy (bare scope=''account'' disjunct, no target-integrity exists clause) WRONGLY allows a cross-context shadchan insert (the red half; the real policy denies it below)',
+    'AC 10(c) sanity — the pre-Story-3.5 policy (bare scope=''account'' disjunct, no target-integrity exists clause) WRONGLY allows a cross-context shadchan insert (kept, not deleted — the real policy''s using clause is asserted against this exact row below)',
     false, sqlerrm
   );
 end $$;
 
--- Restore the real, target-aware policy (Story 3.5, AC 3) before any further
--- interactions RLS is exercised. `reset role` first — `authenticated` holds
--- no DELETE grant on interactions at all (06_grants.sql, audit trail), so
--- the cleanup below must run as postgres, same as the DDL that follows it.
+-- Restore the real policy from the pg_policy capture above — verbatim, never
+-- re-typed. `reset role` first — `authenticated` cannot alter policies.
 reset role;
 
--- Clean up the row the sanity check above just proved shouldn't exist — it
--- landed with account_id = A (set_account_id_default() fills the caller's
--- own active context, which was still A throughout), so AC 10(e)'s later
--- purge-by-account_id assertion for shadchan_b (account_id = B) would
--- otherwise leave this leaked row undisturbed and uncounted, masking
--- nothing but still worth not leaving behind.
-delete from public.interactions
-where target_type = 'shadchan'
-  and target_id = (select value::bigint from ids where name = 'shadchan_b')
-  and account_id = :acct_a;
-
 drop policy "Interactions scoped to account and parent visibility" on public.interactions;
-create policy "Interactions scoped to account and parent visibility" on public.interactions
-    for all to authenticated
-    using (
-        account_id = public.current_context_id()
-        and (
-            (
-                scope = 'account'
-                and (
-                    target_type = 'reference'
-                    or (
-                        target_type = 'shadchan'
-                        and exists (
-                            select 1
-                            from public.shadchanim sh
-                            where sh.id = interactions.target_id
-                              and sh.account_id = public.current_context_id()
-                        )
-                    )
-                    or (
-                        target_type = 'single'
-                        and exists (
-                            select 1
-                            from public.singles si
-                            where si.id = interactions.target_id
-                              and si.account_id = public.current_context_id()
-                        )
-                    )
-                )
-            )
-            or (
-                target_type = 'reference'
-                and exists (
-                    select 1
-                    from public.reference_links rl
-                        join public.shidduchim s on s.id = rl.shidduchim_id
-                    where rl.id = interactions.reference_link_id
-                      and rl.account_id = public.current_context_id()
-                      and s.account_id = public.current_context_id()
-                )
-            )
-            or (
-                target_type = 'shidduch'
-                and exists (
-                    select 1
-                    from public.shidduchim s
-                    where s.id = interactions.target_id
-                      and s.account_id = public.current_context_id()
-                )
-            )
-        )
-    )
-    with check (
-        account_id = public.current_context_id()
-        and (
-            (
-                scope = 'account'
-                and (
-                    target_type = 'reference'
-                    or (
-                        target_type = 'shadchan'
-                        and exists (
-                            select 1
-                            from public.shadchanim sh
-                            where sh.id = interactions.target_id
-                              and sh.account_id = public.current_context_id()
-                        )
-                    )
-                    or (
-                        target_type = 'single'
-                        and exists (
-                            select 1
-                            from public.singles si
-                            where si.id = interactions.target_id
-                              and si.account_id = public.current_context_id()
-                        )
-                    )
-                )
-            )
-            or (
-                target_type = 'reference'
-                and exists (
-                    select 1
-                    from public.reference_links rl
-                        join public.shidduchim s on s.id = rl.shidduchim_id
-                    where rl.id = interactions.reference_link_id
-                      and rl.account_id = public.current_context_id()
-                      and s.account_id = public.current_context_id()
-                )
-            )
-            or (
-                target_type = 'shidduch'
-                and exists (
-                    select 1
-                    from public.shidduchim s
-                    where s.id = interactions.target_id
-                      and s.account_id = public.current_context_id()
-                )
-            )
-        )
-    );
+
+do $$
+declare
+  v_using text;
+  v_check text;
+begin
+  select value into v_using from ids where name = 'real_policy_using';
+  select value into v_check from ids where name = 'real_policy_check';
+
+  execute format(
+    'create policy %I on public.interactions for all to authenticated using (%s) with check (%s)',
+    'Interactions scoped to account and parent visibility', v_using, v_check
+  );
+end $$;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3050001-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- AC 3, `using`: the real policy hides the row the old policy wrongly let
+-- through above. That row's account_id = A (it was written while active in
+-- A), so the top-level `account_id = current_context_id()` conjunct alone
+-- would NOT exclude it while active in A — only the target-aware `exists`
+-- clause (target_id names B's shadchan) can. This is the assertion AC 10(b)
+-- cannot make: every row AC 10(b) reads carries the account_id of whichever
+-- context it was created in, so the top-level conjunct alone already
+-- explains that check's "zero of B's row visible" results.
+insert into results (name, passed)
+select 'AC 10(c): the real policy''s using clause hides a same-account row whose target_id names another context''s shadchan',
+       count(*) = 0
+from public.interactions
+where id = (select value::bigint from ids where name = 'interaction_leaked_shadchan_b');
+
+-- Clean up the leaked row now that the using assertion above has run against
+-- it. `reset role` first — `authenticated` holds no DELETE grant on
+-- interactions at all (06_grants.sql, audit trail). Deleting it (rather than
+-- leaving it) keeps AC 10(e)'s later purge-by-account_id assertion for
+-- shadchan_b (account_id = B) from having to account for an unrelated
+-- account_id = A row.
+reset role;
+
+delete from public.interactions
+where id = (select value::bigint from ids where name = 'interaction_leaked_shadchan_b');
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"a3050001-0000-0000-0000-000000000001","role":"authenticated"}';
@@ -520,6 +495,65 @@ exception when others then
   -- Reverted-schema red run: current_member_id() does not exist yet.
   insert into results values (
     'AC 10(d): a spoofed actor_member_id is overwritten with the caller''s real current_member_id()',
+    false, sqlerrm
+  );
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- AC 4 (bug-fix half): current_member_id() must resolve the caller's ACTIVE
+-- membership, never an archived one with a lower id. Archive U's original
+-- account_members row for A — the lowest id account_members holds for this
+-- fixture — and insert a fresh active row for the same (account_id,
+-- user_id) pair, which lands with a strictly higher id: the partial unique
+-- index `account_members_account_user_active_uq` (01_tables.sql) only
+-- forbids two ACTIVE rows for the same pair, so archiving the old one first
+-- clears the way for the new one. member_state (the active-context pointer)
+-- is untouched by any of this, and activate_first_context_trigger does not
+-- re-fire it either: by the time the new row is visible to that AFTER INSERT
+-- trigger, it already satisfies the trigger's own "does an active row for
+-- the pointer exist" check, so `current_context_id()` keeps resolving to A
+-- throughout. Falsifiable: dropping `and am.status = 'active'` from
+-- current_member_id() makes `order by am.id limit 1` pick the archived,
+-- lower-id row instead of the fresh active one.
+-- ---------------------------------------------------------------------------
+reset role;
+
+update public.account_members
+set status = 'archived'
+where account_id = (select value::bigint from ids where name = 'acct_a')
+  and user_id = 'a3050001-0000-0000-0000-000000000001';
+
+insert into public.account_members (account_id, user_id, role, status)
+values (
+  (select value::bigint from ids where name = 'acct_a'),
+  'a3050001-0000-0000-0000-000000000001',
+  'parent_admin',
+  'active'
+)
+returning id as new_member_a \gset
+
+insert into ids values ('new_member_a', :'new_member_a');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3050001-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare
+  v_new_member_a bigint;
+  v_resolved bigint;
+begin
+  select value::bigint into v_new_member_a from ids where name = 'new_member_a';
+  v_resolved := public.current_member_id();
+
+  insert into results values (
+    'AC 4 (bug fix): current_member_id() resolves the caller''s active membership, not an archived row with a lower id',
+    v_resolved = v_new_member_a,
+    format('resolved=%s expected_active=%s', v_resolved, v_new_member_a)
+  );
+exception when others then
+  -- Reverted-schema red run: current_member_id() does not exist yet.
+  insert into results values (
+    'AC 4 (bug fix): current_member_id() resolves the caller''s active membership, not an archived row with a lower id',
     false, sqlerrm
   );
 end $$;

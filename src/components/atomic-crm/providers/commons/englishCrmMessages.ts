@@ -398,6 +398,10 @@ export const englishCrmMessages = {
       // Story 3.5 — interactionLabels.ts's INTERACTION_KIND_LABELS. One
       // entry per InteractionKind, replacing the two duplicated maps that
       // used to live in ShidduchTimeline.tsx and ReferenceTimeline.tsx.
+      // `empty` / `error` / `viewRecord` are ActivityTab.tsx's own UX-DR11
+      // states and AC 9 mention link text — catalogued here so French users
+      // get a real translation rather than always falling through to the
+      // `_:` English fallback.
       activity: {
         kind: {
           note: "Note",
@@ -407,6 +411,9 @@ export const englishCrmMessages = {
           link_created: "Linked to a shidduch",
           link_removed: "Unlinked from a shidduch",
         },
+        empty: "Nothing logged yet.",
+        error: "Could not load the activity feed.",
+        viewRecord: "View record",
       },
       // Story 3.2 — ShowBase's explicit `loading` / `error` elements (AC 2).
       record_pending: "Loading…",

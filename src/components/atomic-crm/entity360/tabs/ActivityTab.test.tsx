@@ -236,6 +236,60 @@ describe("ActivityTab — newest-first ordering and pagination (AC 8)", () => {
   });
 });
 
+describe("ActivityTab — disableSyncWithLocation (AC 8)", () => {
+  it("keeps the tab's own paging out of the URL — UX-DR2, the 360's route owns the URL, not this tab", async () => {
+    // Arrange — 25 rows so a real page transition is available to provoke a
+    // URL sync if one existed; TestMemoryRouter's locationCallback reports
+    // every location react-router settles on, mount included.
+    const allRows = Array.from({ length: 25 }, (_, i) =>
+      buildInteraction({
+        body: `row ${i}`,
+        created_at: new Date(2026, 0, 25 - i).toISOString(),
+      }),
+    );
+    const getList = vi
+      .fn()
+      .mockImplementation((_resource: string, params: any) => {
+        const { page, perPage } = params.pagination;
+        const start = (page - 1) * perPage;
+        return Promise.resolve({
+          data: allRows.slice(start, start + perPage),
+          total: allRows.length,
+        });
+      });
+    const dataProvider = { getList } as unknown as DataProvider;
+    let latestSearch: string | undefined;
+
+    // Act
+    const screen = await render(
+      <TestMemoryRouter
+        initialEntries={["/shidduchim/1"]}
+        locationCallback={(location) => {
+          latestSearch = location.search;
+        }}
+      >
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <ActivityTab targetType="shidduch" targetId={1} />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+    await expect.element(screen.getByText("row 0")).toBeInTheDocument();
+    const searchAfterMount = latestSearch;
+
+    await screen.getByRole("link", { name: "Next" }).click();
+    await expect.element(screen.getByText("row 20")).toBeInTheDocument();
+
+    // Assert — with `disableSyncWithLocation` dropped, `ListBase` would push
+    // `page`/`perPage` into this exact URL on mount and again on this exact
+    // transition; the route's search string must never move at all.
+    expect(searchAfterMount).toBe("");
+    expect(latestSearch).toBe(searchAfterMount);
+  });
+});
+
 describe("ActivityTab — the RecordLink mention branch (AC 9)", () => {
   it("renders a RecordLink for {linkedResource, linkedId}, preferred over {shidduchim_id} when both are present", async () => {
     // Arrange
