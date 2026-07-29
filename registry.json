@@ -216,6 +216,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shadchanim/ShadchanStatsRow.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shadchanim/ShadchanShow.tsx",
           "type": "registry:component"
         },
@@ -981,6 +985,10 @@
         },
         {
           "path": "src/components/atomic-crm/dashboard/bucketByState.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/dashboard/StatStrip.tsx",
           "type": "registry:component"
         },
         {

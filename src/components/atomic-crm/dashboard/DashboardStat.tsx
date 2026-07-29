@@ -27,7 +27,7 @@ export const DashboardStat = ({
   const card = (
     <Card
       className={cn(
-        "gap-3 p-5 shadow-sm transition-[box-shadow,transform] duration-[160ms]",
+        "gap-3 p-4 shadow-sm transition-[box-shadow,transform] duration-[160ms]",
         "ease-(--ease-out) hover:shadow-md hover:-translate-y-0.5",
         className,
       )}
@@ -47,7 +47,7 @@ export const DashboardStat = ({
         <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
           {label}
         </span>
-        <span className="font-display text-4xl font-bold tabular-nums tracking-[-0.02em]">
+        <span className="font-display text-2xl font-bold tabular-nums tracking-[-0.02em]">
           {value}
         </span>
       </span>

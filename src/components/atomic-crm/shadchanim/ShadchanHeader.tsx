@@ -1,5 +1,6 @@
-import { Mail, MapPin, MessageCircle, Phone } from "lucide-react";
+import { Mail, MessageCircle, Phone } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 import { EntityAvatar } from "../entity360/EntityAvatar";
@@ -12,82 +13,102 @@ export interface ShadchanHeaderProps {
 }
 
 /**
- * The shadchan detail's hero card (screen 20): monogram + name, location, a
- * tasteful responsiveness chip, contact info (when present — `contacts` is a
- * free-form jsonb column with no seeded shape yet, so missing fields are
- * simply omitted, never fabricated), and notes.
+ * Formats an ISO timestamp as "Jan 2026" for the header's joined meta line.
+ * `created_at` is typed as a required string, but a freshly-created record
+ * (seen live against FakeRest's `create`, which does not stamp one) can
+ * still arrive missing or unparsable — never trust external data even when
+ * the type says it's safe. Returns `null` rather than throwing, so a bad
+ * timestamp degrades the meta line instead of crashing the whole page.
+ */
+const formatBookSince = (
+  createdAt: string | null | undefined,
+): string | null => {
+  if (!createdAt) return null;
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en-GB", {
+    month: "short",
+    year: "numeric",
+  }).format(date);
+};
+
+/**
+ * The shadchan detail's hero card (screen 20, mobile-redesign-plan.md §4
+ * S-C): monogram + name, a joined location/tenure meta line (never empty —
+ * "In your book since {month year}" is the non-null fallback, since most
+ * shadchanim have no location yet), a tasteful responsiveness chip, contact
+ * quick actions (when present — `contacts` is a free-form jsonb column with
+ * no seeded shape yet, so missing fields are simply omitted, never
+ * fabricated), and notes.
  */
 export const ShadchanHeader = ({ shadchan }: ShadchanHeaderProps) => {
   const contactInfo = parseContactInfo(shadchan.contacts);
   const hasContactInfo =
     contactInfo.phone || contactInfo.email || contactInfo.whatsapp;
+  const bookSince = formatBookSince(shadchan.created_at);
+  const metaLine = [
+    shadchan.location,
+    bookSince ? `In your book since ${bookSince}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <Card className="p-6 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-4">
-          <EntityAvatar
-            seed={shadchan.name ?? String(shadchan.id)}
-            monogramSource={shadchan.name}
-            className="h-14 w-14 rounded-2xl text-lg"
-          />
-          <div className="min-w-0">
-            <h1 className="font-display text-2xl font-bold tracking-tight">
-              {shadchan.name}
-            </h1>
-            {shadchan.location ? (
-              <p className="mt-1.5 flex items-center gap-1.5 text-sm text-muted-foreground">
-                <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
-                {shadchan.location}
-              </p>
-            ) : null}
-          </div>
+    <Card className="gap-3 p-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <EntityAvatar
+          seed={shadchan.name ?? String(shadchan.id)}
+          monogramSource={shadchan.name}
+          className="size-10 rounded-xl text-sm"
+        />
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate font-display text-lg font-bold tracking-tight sm:text-xl">
+            {shadchan.name}
+          </h1>
+          {metaLine ? (
+            <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground sm:line-clamp-1">
+              {metaLine}
+            </p>
+          ) : null}
         </div>
         <ResponsivenessChip
           value={shadchan.responsiveness}
-          className="h-7 px-2.5 text-[13px]"
+          className="h-7 shrink-0 px-2.5 text-[13px]"
         />
       </div>
 
       {hasContactInfo ? (
-        <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-border pt-4 text-sm">
+        <div className="flex flex-wrap gap-2 border-t border-border pt-3">
           {contactInfo.phone ? (
-            <a
-              href={`tel:${contactInfo.phone}`}
-              className="inline-flex items-center gap-1.5 tabular-nums text-foreground outline-none
-                transition-colors duration-[160ms] hover:text-primary
-                focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
-                focus-visible:ring-offset-background rounded-md"
-            >
-              <Phone className="size-3.5 shrink-0" aria-hidden="true" />
-              {contactInfo.phone}
-            </a>
+            <Button variant="outline" asChild>
+              <a href={`tel:${contactInfo.phone}`}>
+                <Phone className="size-3.5 shrink-0" aria-hidden="true" />
+                Call {contactInfo.phone}
+              </a>
+            </Button>
           ) : null}
           {contactInfo.whatsapp ? (
-            <a
-              href={`https://wa.me/${contactInfo.whatsapp.replace(/\D/g, "")}`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 tabular-nums text-foreground outline-none
-                transition-colors duration-[160ms] hover:text-primary
-                focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
-                focus-visible:ring-offset-background rounded-md"
-            >
-              <MessageCircle className="size-3.5 shrink-0" aria-hidden="true" />
-              {contactInfo.whatsapp}
-            </a>
+            <Button variant="outline" asChild>
+              <a
+                href={`https://wa.me/${contactInfo.whatsapp.replace(/\D/g, "")}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <MessageCircle
+                  className="size-3.5 shrink-0"
+                  aria-hidden="true"
+                />
+                WhatsApp
+              </a>
+            </Button>
           ) : null}
           {contactInfo.email ? (
-            <a
-              href={`mailto:${contactInfo.email}`}
-              className="inline-flex items-center gap-1.5 text-foreground outline-none
-                transition-colors duration-[160ms] hover:text-primary
-                focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
-                focus-visible:ring-offset-background rounded-md"
-            >
-              <Mail className="size-3.5 shrink-0" aria-hidden="true" />
-              {contactInfo.email}
-            </a>
+            <Button variant="outline" asChild>
+              <a href={`mailto:${contactInfo.email}`}>
+                <Mail className="size-3.5 shrink-0" aria-hidden="true" />
+                Email
+              </a>
+            </Button>
           ) : null}
         </div>
       ) : null}
