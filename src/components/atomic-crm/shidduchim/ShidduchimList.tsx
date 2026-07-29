@@ -12,6 +12,7 @@ import { TopToolbar } from "../layout/TopToolbar";
 import { EmptyState } from "../misc/EmptyState";
 import type { Single } from "../types";
 import { ShidduchCreate } from "./ShidduchCreate";
+import { PipelineListSkeleton } from "./ShidduchimPipelineList";
 import { ShidduchShow } from "./ShidduchShow";
 import { ShidduchimViewSwitch } from "./ShidduchimViewSwitch";
 
@@ -54,7 +55,13 @@ const ShidduchimList = () => {
     },
   );
 
-  if (!identity || singlesPending) return null;
+  // Review fix F4 (AC-5): this used to be a bare `return null` — one of the
+  // audit's seven "null loading" states. `<List>` (and therefore
+  // `ShidduchimViewSwitch`'s own shared loading gate) has not mounted yet
+  // here — identity/singles are a precondition for it — so the fix is the
+  // same loading SHAPE the gate renders once it does mount (AC-13), not a
+  // second, differently-shaped spinner.
+  if (!identity || singlesPending) return <PipelineListSkeleton />;
   if (!singles || singles.length === 0) return <ShidduchimNoSingles />;
 
   // The create page is returned above `<List>`, not inside the body below

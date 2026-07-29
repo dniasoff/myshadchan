@@ -158,6 +158,70 @@ describe("ShidduchMoveSheet — two-tap Move surface (AC-8)", () => {
     expect(harness.transitionShidduch).not.toHaveBeenCalled();
   });
 
+  it("calls transitionShidduch exactly once, with the typed reason as the 4th argument, once the terminal move is confirmed (AC-9)", async () => {
+    // Arrange
+    const harness = renderSheet("look_into");
+    const screen = await harness.render();
+    await stateButton(screen, "Yes").click();
+
+    // Act — Task 9's own named failure mode: "confirming calls it exactly
+    // once with the reason as the 4th argument". Nothing short of driving
+    // the confirm sheet's own Textarea + Confirm button proves the typed
+    // reason actually reaches transitionShidduch through
+    // useShidduchTransition's move() — a mutation dropping the 4th argument
+    // anywhere on that path stayed green until this test existed.
+    await screen.getByLabelText("Why? (optional)").fill("Great match on paper");
+    await screen.getByRole("button", { name: /^Confirm/ }).click();
+
+    // Assert
+    await expect
+      .poll(() => harness.transitionShidduch.mock.calls.length)
+      .toBe(1);
+    expect(harness.transitionShidduch).toHaveBeenCalledExactlyOnceWith(
+      7,
+      "look_into",
+      "yes",
+      "Great match on paper",
+    );
+    expect(harness.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("passes undefined (never an empty string) when the terminal move is confirmed with no reason typed", async () => {
+    // Arrange
+    const harness = renderSheet("look_into");
+    const screen = await harness.render();
+    await stateButton(screen, "Yes").click();
+
+    // Act — Cancel calls transitionShidduch zero times (Task 9); confirming
+    // with a blank "Why?" field must still call it, with `undefined`.
+    await screen.getByRole("button", { name: /^Confirm/ }).click();
+
+    // Assert
+    await expect
+      .poll(() => harness.transitionShidduch.mock.calls.length)
+      .toBe(1);
+    expect(harness.transitionShidduch).toHaveBeenCalledExactlyOnceWith(
+      7,
+      "look_into",
+      "yes",
+      undefined,
+    );
+  });
+
+  it("calls transitionShidduch zero times when the terminal confirm is cancelled", async () => {
+    // Arrange
+    const harness = renderSheet("look_into");
+    const screen = await harness.render();
+    await stateButton(screen, "Yes").click();
+
+    // Act
+    await screen.getByRole("button", { name: "Cancel" }).click();
+
+    // Assert — Cancel neither writes nor closes the Move sheet itself.
+    expect(harness.transitionShidduch).not.toHaveBeenCalled();
+    expect(harness.onOpenChange).not.toHaveBeenCalled();
+  });
+
   it("fires the existing warning notify() for an illegal tap, without opening the sheet's close callback", async () => {
     // Arrange
     const harness = renderSheet("new");

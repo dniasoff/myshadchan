@@ -15,6 +15,7 @@ import "./entityDescriptor";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type { ShidduchSummary } from "../types";
+import { PIPELINE_STATES } from "./pipelineStates";
 import { ShidduchimViewSwitch } from "./ShidduchimViewSwitch";
 
 const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
@@ -196,5 +197,27 @@ describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5,
 
     // Assert
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the shared loading skeleton — never the toggle or a position — while the list is pending (review fix F4)", async () => {
+    // Arrange / Act — `isPending: true` regardless of the stored view; the
+    // "board" seed proves the loading gate wins over the position choice,
+    // not merely that the pipeline list happens to show a skeleton too.
+    const screen = await renderSwitch(
+      { isPending: true, data: undefined },
+      memoryStore({ "shidduchim.pageView": "board" }),
+    );
+
+    // Assert
+    const sections = screen.container.querySelectorAll(
+      '[data-slot="pipeline-section"]',
+    );
+    expect(sections.length).toBe(PIPELINE_STATES.length);
+    await expect
+      .element(screen.getByRole("button", { name: "Board view" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("region", { name: "New", exact: true }))
+      .not.toBeInTheDocument();
   });
 });

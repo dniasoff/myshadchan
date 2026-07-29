@@ -11,6 +11,22 @@ import { PIPELINE_GROUPS, PIPELINE_STATES } from "./pipelineStates";
 const pipelineSectionId = (state: PipelineState): string =>
   `pipeline-section-${state}`;
 
+/**
+ * Review fix F1: this used to be `<a href="#pipeline-section-…">`. The app
+ * runs on ra-core's default HashRouter, so `location.hash` IS the route —
+ * setting it to a bare fragment replaced `#/shidduchim` with
+ * `#pipeline-section-new`, unmounting the whole pipeline instead of
+ * scrolling. A `<button>` that scrolls the target section into view is a
+ * table of contents that cannot ever be mistaken for a route change (no
+ * `href`, so no HashRouter interaction — including no stray middle-click/
+ * open-in-new-tab onto a broken hash).
+ */
+const scrollToSection = (state: PipelineState): void => {
+  document
+    .getElementById(pipelineSectionId(state))
+    ?.scrollIntoView({ block: "start" });
+};
+
 export interface PipelineJumpBarProps {
   counts: Partial<Record<PipelineState, number>>;
 }
@@ -35,9 +51,10 @@ export const PipelineJumpBar = ({ counts }: PipelineJumpBarProps) => (
           )}
         >
           {states.map((state) => (
-            <a
+            <button
               key={state.value}
-              href={`#${pipelineSectionId(state.value)}`}
+              type="button"
+              onClick={() => scrollToSection(state.value)}
               className="flex min-h-11 flex-col items-center justify-center gap-0.5
                 rounded-xl border px-1 py-1.5 text-center transition-colors
                 hover:bg-secondary focus-visible:outline-none focus-visible:ring-2
@@ -50,7 +67,7 @@ export const PipelineJumpBar = ({ counts }: PipelineJumpBarProps) => (
               <span className="text-[11px] tabular-nums text-muted-foreground">
                 {counts[state.value] ?? 0}
               </span>
-            </a>
+            </button>
           ))}
         </div>
       );

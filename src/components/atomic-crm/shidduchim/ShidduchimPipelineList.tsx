@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useListContext } from "ra-core";
 
 import { buildNewPath } from "../entity360/entityPaths";
+import type { EmptyStateProps } from "../misc/EmptyState";
 import { EmptyState } from "../misc/EmptyState";
 import { EntityListView } from "../misc/EntityListView";
 import type { PipelineState, ShidduchSummary } from "../types";
@@ -15,6 +16,22 @@ import { ShidduchRowSkeleton } from "./ShidduchRow";
 export interface ShidduchimPipelineListProps {
   view: "list" | "cards";
 }
+
+/**
+ * Review fix F7: `EntityListView`'s `emptyState` prop is required but
+ * provably unreachable here — see `ShidduchimPipelineList`'s own doc comment
+ * ("AC-7's 'pipeline is empty' EmptyState is decided HERE") — yet it used to
+ * be a second, hand-written copy of the exact literal the early return below
+ * renders. Two copies of the same literal drift; one shared constant, read
+ * from both call sites, cannot.
+ */
+const PIPELINE_EMPTY_STATE: EmptyStateProps = {
+  title: "No redts yet",
+  description:
+    "Every suggestion for this single will show up here, grouped by stage.",
+  actionLabel: "Add a redt",
+  actionTo: `${buildNewPath("shidduchim")}?state=new`,
+};
 
 /** AC-13: assembled from the same section/row primitives the loaded content
  * renders, so loading height equals loaded height by construction. */
@@ -78,14 +95,7 @@ export const ShidduchimPipelineList = ({
   };
 
   if (isPipelineEmpty) {
-    return (
-      <EmptyState
-        title="No redts yet"
-        description="Every suggestion for this single will show up here, grouped by stage."
-        actionLabel="Add a redt"
-        actionTo={`${buildNewPath("shidduchim")}?state=new`}
-      />
-    );
+    return <EmptyState {...PIPELINE_EMPTY_STATE} />;
   }
 
   const byState = getShidduchimByState(shidduchim);
@@ -119,13 +129,7 @@ export const ShidduchimPipelineList = ({
         resource="shidduchim"
         viewMode={view}
         skeleton={<PipelineListSkeleton />}
-        emptyState={{
-          title: "No redts yet",
-          description:
-            "Every suggestion for this single will show up here, grouped by stage.",
-          actionLabel: "Add a redt",
-          actionTo: `${buildNewPath("shidduchim")}?state=new`,
-        }}
+        emptyState={PIPELINE_EMPTY_STATE}
         noMatchesMessage="No shidduchim match this search."
         renderList={() => renderSections("list")}
         renderCards={() => renderSections("cards")}

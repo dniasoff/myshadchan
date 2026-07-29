@@ -7,6 +7,7 @@ import { Route, Routes } from "react-router";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
+import { PIPELINE_STATES } from "./pipelineStates";
 
 // The real, post-change `shidduchim` resource definition — the same object
 // `<CRM>` spreads onto `<Resource>` (`root/routeManifest.ts`'s `RESOURCES`,
@@ -96,6 +97,80 @@ describe("ShidduchimList — the create page sits above <List> (AC 1)", () => {
     const screen = await renderShidduchimResourceAt(["/shidduchim"]);
 
     // Assert
+    await expect
+      .element(screen.getByRole("heading", { name: /redts$/ }))
+      .toBeInTheDocument();
+  });
+});
+
+/**
+ * Review fix F4 (AC-5): `if (!identity || singlesPending) return null;` used
+ * to be a bare `return null` — one of the audit's own "seven null loading
+ * states". `<List>` (and `ShidduchimViewSwitch`'s shared loading gate) has
+ * not mounted yet at this point, so the fix renders the same skeleton SHAPE
+ * that gate uses once it does mount, rather than a second, differently-
+ * shaped spinner. This deferred-promise probe is what makes the pending
+ * window itself observable — the two tests above only ever assert the
+ * settled state.
+ */
+describe("ShidduchimList — the pre-<List> pending state (AC-5, review fix F4)", () => {
+  it("renders the pipeline skeleton, not a blank screen, while singles are still in flight", async () => {
+    // Arrange
+    let resolveSingles:
+      ((value: { data: unknown[]; total: number }) => void) | undefined;
+    const pendingSingles = new Promise<{ data: unknown[]; total: number }>(
+      (resolve) => {
+        resolveSingles = resolve;
+      },
+    );
+    const dataProvider = {
+      getList: vi.fn((resource: string) =>
+        resource === "singles"
+          ? pendingSingles
+          : Promise.resolve({ data: [], total: 0 }),
+      ),
+      getMany: vi.fn().mockResolvedValue({ data: [] }),
+      create: vi.fn(),
+      createShidduch: vi.fn(),
+    } as unknown as CrmDataProvider;
+
+    // Act
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/shidduchim"]}>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          authProvider={buildAuthProvider()}
+          i18nProvider={testI18nProvider}
+        >
+          <Suspense fallback={null}>
+            <Routes>
+              <Route
+                path="shidduchim/*"
+                element={<Resource name="shidduchim" {...shidduchim} />}
+              />
+            </Routes>
+          </Suspense>
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    // Assert — never a blank screen: the same 7-section skeleton shape
+    // `ShidduchimViewSwitch`'s own loading gate renders (AC-13).
+    const sections = screen.container.querySelectorAll(
+      '[data-slot="pipeline-section"]',
+    );
+    expect(sections.length).toBe(PIPELINE_STATES.length);
+    await expect
+      .element(screen.getByRole("heading", { name: /redts$/ }))
+      .not.toBeInTheDocument();
+
+    // Act — resolve the in-flight singles fetch.
+    resolveSingles?.({
+      data: [{ id: 1, first_name_en: "Chaya", status: "active" }],
+      total: 1,
+    });
+
+    // Assert — the skeleton hands off to the real pipeline heading.
     await expect
       .element(screen.getByRole("heading", { name: /redts$/ }))
       .toBeInTheDocument();

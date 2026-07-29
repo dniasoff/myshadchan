@@ -107,10 +107,20 @@ describe("ShidduchimPipelineList — state-grouped pipeline (AC-7)", () => {
     // Act
     const screen = await renderPipelineList({ data });
 
-    // Assert — all 7 states are present as regions, in order.
+    // Assert — all 7 states are present as regions.
     for (const state of PIPELINE_STATES) {
       await expect.element(regionFor(screen, state.label)).toBeInTheDocument();
     }
+    // Review fix F6: the title alone asserted "in canonical order" while the
+    // body only checked presence — a mutation reversing the render order
+    // stayed green. Reading the DOM in document order and comparing against
+    // PIPELINE_STATES is what actually pins the order the title names.
+    const sections = Array.from(
+      screen.container.querySelectorAll('[data-slot="pipeline-section"]'),
+    );
+    expect(
+      sections.map((section) => section.getAttribute("aria-label")),
+    ).toEqual(PIPELINE_STATES.map((state) => state.label));
     await expect.element(regionFor(screen, "New")).toHaveTextContent("2");
     await expect.element(regionFor(screen, "Look-into")).toHaveTextContent("1");
     await expect.element(regionFor(screen, "Yes")).toHaveTextContent("0");

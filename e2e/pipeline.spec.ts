@@ -130,6 +130,19 @@ test("member signs in and sees the pipeline list (Mobile Chrome), with no horizo
   );
   await expect(page.getByRole("region", { name: /New/ })).toBeVisible();
 
+  // Review fix F1: the jump bar used to be `<a href="#pipeline-section-…">`,
+  // which HashRouter reads as a route change — clicking a cell replaced
+  // `#/shidduchim` with `#pipeline-section-…` and unmounted the pipeline.
+  // Assert the URL survives a click on a non-visible-yet cell. The label and
+  // its count are two adjacent `<span>`s — the browser's own accessible-name
+  // computation inserts a space between them ("Unsure 0"), so `\s*\d`, not a
+  // bare `\b`, is what actually anchors the label end without also matching
+  // "Not-sure"'s row by prefix.
+  const urlBeforeJump = page.url();
+  await page.getByRole("button", { name: /^Unsure\s*\d/ }).click();
+  expect(page.url()).toBe(urlBeforeJump);
+  await expect(page.getByRole("region", { name: /New/ })).toBeVisible();
+
   // AC-11: at this phone viewport (Mobile Chrome's Pixel 5 emulation —
   // 393px, not the AC text's illustrative 390px iPhone width; the property
   // is "no horizontal scroll on a phone", not that exact number), neither
