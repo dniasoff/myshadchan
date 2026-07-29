@@ -15,218 +15,331 @@ so that I can find a person without knowing their type.
 **5th (last) of 5.** Depends on:
 
 - **Story 4.1** — reuses its `applyFullTextSearch` per-resource search hooks (`singles`,
-  `shadchanim`, `references`) rather than writing new search logic; adds the fourth
-  (`shidduchim`, wired by Story 4.3) to the same fan-out.
+  `shadchanim`) rather than writing new search logic, and its dead-hook naming rule.
 - **Story 4.3** — the `shidduchim` search hook this story's fan-out depends on.
-- **Epic 3 Story 3.9 (`RecordLink`)** — every result renders as a `RecordLink`, per AD-24
-  ("no ad-hoc record links remain"). `RecordLink`'s exact props are 3.9's contract, not
-  restated here; if 3.9 has not landed by the time this story is picked up, that is a blocking
-  dependency — hand-rolling a `<Link>` instead would violate 3.9's own acceptance criterion and
-  must not be done as a workaround.
+- **Story 4.4** — the `MoreButton` dropdown this story inserts a "Search" item into, and the
+  `TopBar` it adds a search button to. 4.4 must land first (it rewrites both).
+- **Epic 3 Story 3.9 (`RecordLink`)** — shipped. Every result renders as a `RecordLink`, per AD-24
+  and contract §7 rule 5, which names "search result" as one of the six mention sites.
+- **RULING 7** (`entity360/ad24Conformance.ts`'s `NO_BROWSE_SURFACE_ENTITIES`) — references have
+  **no global-search results**. This is the one story in Epic 4 whose scope the ruling *shrinks*
+  rather than merely constrains.
 
 ## Acceptance Criteria
 
-1. **One search reaches everywhere.** Desktop: a search icon button in `layout/TopBar.tsx`
-   plus a `(Cmd|Ctrl)+K` shortcut, available on every screen. Mobile: a "Search" item at the
-   top of the bottom bar's "More" menu (`layout/MobileNavigation.tsx`) — the bottom bar is
-   the only chrome present on *every* mobile screen (`MobileHeader` is a per-page wrapper
-   that the list pages do not render — verified against its consumers). Every trigger opens
-   the same search overlay.
+1. **One search reaches everywhere.** Desktop: a search icon button in `layout/TopBar.tsx` plus a
+   `(Cmd|Ctrl)+K` shortcut, available on every screen. Mobile: a "Search" item at the top of the
+   bottom bar's "More" menu (`layout/MobileNavigation.tsx`) — the bottom bar is the only chrome
+   present on *every* mobile screen (`MobileHeader` is a per-page wrapper the list pages do not
+   render). Every trigger opens the same overlay instance.
+   *Failing looks like:* `Cmd+K` fires twice (two `GlobalSearch` instances mounted), or the mobile
+   overlay cannot be opened from a list screen.
 
-2. **Results span every entity that exists as of this epic**: `singles`, `shidduchim`,
-   `shadchanim`, `references`, grouped by type, each rendered as a `RecordLink` routing to that
-   record's own page. (Epic 8 adds shadchanus-context entities later — flagged in Dev Notes as
-   that epic's own follow-up, not built here.)
+2. **Results span exactly three entities**: `singles`, `shidduchim`, `shadchanim` — grouped by
+   type, each row rendered as a `RecordLink` routing to that record's own page.
+   *Failing looks like:* `grep -n "references" misc/useGlobalSearch.ts misc/GlobalSearch.tsx`
+   returns a hit. **`references` is excluded by RULING 7** (see Dev Notes "Why references is not
+   searchable"). Epic 8 adds shadchanus-context entities later — flagged in Dev Notes as that
+   epic's follow-up, not built here.
 
-3. **Results never cross a context or account boundary.** Searching while a household context
-   is active returns only that household's rows, even if another account (or, once Epic 8
-   lands, a shadchanus context) has a same-named record. A negative test proves this — see
-   AC-5.
+3. **Every result row exposes the descriptor-built href.** Each rendered result's anchor `href`
+   equals `buildRecordPath(resource, id)` (`entity360/entityPaths.ts`), which delegates to the
+   entity's own `descriptor.buildRecordPath`. No hand-written `/x/${id}` template literal, and no
+   `useCreatePath({ type: "show" })`.
+   *Failing looks like:* a unit test asserting the href finds `undefined`, or finds a path that
+   does not change when a descriptor's `buildRecordPath` changes. This is what makes Epic 5's
+   one-line route flips propagate here for free.
 
-4. **A short query does nothing expensive.** Fewer than 2 characters triggers no data-provider
+4. **Results never cross a context or account boundary.** Searching while a household context is
+   active returns only that household's rows, even if another account has a same-named record.
+   *Failing looks like:* the negative SQL test in Task 5 returns account B's row when
+   authenticated as account A.
+
+5. **A short query does nothing expensive.** Fewer than 2 characters triggers no data-provider
    call; typing is debounced (300ms) before the fan-out fires.
+   *Failing looks like:* a provider spy records a `getList` for a 1-character query, or records
+   more than one fan-out for a burst of keystrokes inside 300ms.
 
-5. **Verification.** `make typecheck && npm run lint && make test` pass; prettier clean on
-   changed files; a Vitest suite covers the fan-out/merge logic and the debounce/minimum-length
-   guard; **a negative test** (Dev Notes "The negative test this story owns") proves
-   cross-account isolation of the search surface itself, run via `npm run test:unit:db`
-   against the local Supabase stack per `.claude/rules/security-triggers.md` (this story
-   touches a query surface spanning every domain table, which is exactly what that rule
-   flags); an e2e spec (`e2e/global-search.spec.ts`) covers AC-1/AC-2/AC-4.
+6. **Verification.** `make typecheck && npm run lint && make test` pass; prettier clean on changed
+   files; a Vitest suite covers the fan-out/merge logic, the href contract (AC-3) and the
+   debounce/minimum-length guard; **a negative test** (Dev Notes "The negative test this story
+   owns") proves cross-account isolation of the search surface itself, run via
+   `npm run test:unit:db` against the local Supabase stack per
+   `.claude/rules/security-triggers.md`; an e2e spec (`e2e/global-search.spec.ts`) covers
+   AC-1/AC-2/AC-5.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — `useGlobalSearch` (AC: 2, 3, 4)**
-  - [ ] Create `src/components/atomic-crm/misc/useGlobalSearch.ts`: given the (debounced)
-        query, `Promise.all` of four
+- [ ] **Task 1 — `useGlobalSearch` (AC: 2, 3, 4, 5)**
+  - [ ] Create `src/components/atomic-crm/misc/useGlobalSearch.ts`: given the (debounced) query, a
+        `Promise.all` of **three**
         `dataProvider.getList(resource, { filter: { q: query }, pagination: { page: 1, perPage: 5 }, sort })`
-        calls — `"singles"` (sort `first_name_en ASC`), `"shidduchim"` (`name_en`),
-        `"shadchanim"` (`name`), `"references"` (`name_en`) — via `useDataProvider<CrmDataProvider>()`,
-        reusing the exact search hooks Stories 4.1/4.3 already wired.
+        calls — `"singles"` (sort `first_name_en ASC`), `"shidduchim"` (`name_en`), `"shadchanim"`
+        (`name`) — via `useDataProvider<CrmDataProvider>()`, reusing the exact search hooks
+        Stories 4.1/4.3 already wired.
   - [ ] **Why a hook over `useDataProvider()` rather than a dataProvider custom method —
         load-bearing, do not "improve" it back:** the `q` → `@or` search hooks are applied by
         `withLifecycleCallbacks`, which wraps the object `getDataProviderWithCustomMethods()`
-        returns. A custom method calling `this.getList(...)` runs *inside* that wrapper, so
-        the hooks would never fire and the raw `q` would 400 against PostgREST — the same
-        class of dead-hook trap 4.1's Dev Notes document. `useDataProvider()` hands out the
-        fully wrapped provider, so this fan-out takes exactly the getList path every list
-        screen uses.
-  - [ ] Guard: `query.trim().length < 2` resolves `[]` without calling `getList` (AC-4).
-  - [ ] **No new SQL, no new Postgres function, no service-role client.** The safety property:
-        the fan-out inherits whatever RLS already protects those four resources (AD-1)
-        because it runs under the caller's own authenticated session, and there is no
-        client-suppliable `account_id`/context parameter for a bug to mis-scope (AD-19:
-        `current_context_id()` is server-held, never a client value).
+        returns. A custom method calling `this.getList(...)` runs *inside* that wrapper, so the
+        hooks would never fire and the raw `q` would 400 against PostgREST — the same dead-hook
+        trap 4.1's Dev Notes document. `useDataProvider()` hands out the fully wrapped provider,
+        so this fan-out takes exactly the `getList` path every list screen uses.
+  - [ ] Guard: `query.trim().length < 2` resolves an empty result **with all three group keys
+        present as empty arrays** — not omitted keys — and calls `getList` zero times (AC-5).
   - [ ] Map each resource's rows to
-        `{ resource: "singles"|"shidduchim"|"shadchanim"|"references"; id: Identifier;
-        label_en: string; label_he?: string|null; subtitle?: string|null }` using each
-        resource's known name fields: `singles` → `first_name_en`/`last_name_en` (+ `_he`);
-        `shidduchim` (via its existing `shidduchim_summary` redirect) → `name_en`/`name_he`,
-        subtitle = `shadchan_name`; `shadchanim` → `name`/`name_he`, subtitle = `location`;
-        `references` (via its existing `references_summary` redirect) → `name_en`/`name_he`,
-        subtitle = `relationship`. Add the `GlobalSearchResult` type to `types.ts`.
-  - [ ] Nothing to mirror in FakeRest (AD-10): no provider file changes at all — both
-        providers already serve `q` through `getList` (Supabase via 4.1/4.3's hooks, FakeRest
-        generically, per 4.1 Dev Notes).
+        `{ resource: "singles"|"shidduchim"|"shadchanim"; id: Identifier; label_en: string;
+        label_he?: string|null; subtitle?: string|null }`:
+        `singles` → `first_name_en`/`last_name_en` (+ `_he`);
+        `shidduchim` (served by its existing `shidduchim_summary` redirect) → `name_en`/`name_he`,
+        subtitle = `shadchan_name`;
+        `shadchanim` → `name`/`name_he`, subtitle = `location`.
+        Add the `GlobalSearchResult` type to `types.ts`. Its `resource` field is a **closed union
+        of the three**, so adding a fourth is a typecheck event, not a silent widening.
+  - [ ] **Do not resolve paths in this hook.** Paths come from `buildRecordPath` at render time
+        via `RecordLink`, which reads the descriptor. A path baked into the result object would
+        freeze Epic 5's route flips out.
+  - [ ] Nothing to mirror in FakeRest (AD-10): no provider file changes at all — both providers
+        already serve `q` through `getList` (Supabase via 4.1/4.3's hooks, FakeRest generically).
 
-- [ ] **Task 2 — Debounce (AC: 4)**
+- [ ] **Task 2 — Debounce (AC: 5)**
   - [ ] In the UI component (Task 3), hold the raw input in local state and derive a debounced
         query via a 300ms `setTimeout` in a `useEffect` (cleanup clears the pending timeout on
-        each keystroke) — no new dependency; `lodash` is already installed and used elsewhere
-        in this codebase (`filter-form.tsx`, `ShidduchimListContent.tsx`) if a ready-made
-        debounce is preferred over the inline `setTimeout`.
+        each keystroke) — no new dependency; `lodash` is already installed and used in this
+        codebase (`filter-form.tsx`, `ShidduchimListContent.tsx`) if a ready-made debounce is
+        preferred over the inline `setTimeout`.
 
-- [ ] **Task 3 — `GlobalSearch` UI (AC: 1, 2)**
+- [ ] **Task 3 — `GlobalSearch` UI (AC: 1, 2, 3)**
   - [ ] Create `src/components/atomic-crm/misc/GlobalSearch.tsx`: a `CommandDialog` (reuse
-        `@/components/ui/command.tsx` — installed over the existing `cmdk` dependency; its
-        `CommandDialog` export has no consumer today (the autocomplete inputs use only its
-        lower-level pieces — verified); do not add a new command-palette library). Also
-        export a small `GlobalSearchProvider` + `useGlobalSearchDialog()` context exposing
-        `open()`, so any chrome trigger can open the shell's single dialog instance. The
-        dialog itself owns the `(Cmd|Ctrl)+K` `keydown` listener on `document`, cleaned up
-        on unmount.
-  - [ ] On query change (debounced), calls `useGlobalSearch` (Task 1) — no React Query
-        wiring needed; this is a one-shot, cancel-on-close fetch, not cached list state.
+        `@/components/ui/command.tsx`, installed over the existing `cmdk` dependency; its
+        `CommandDialog` export has no consumer today — do not add a new command-palette library).
+        Also export a small `GlobalSearchProvider` + `useGlobalSearchDialog()` context exposing
+        `open()`, so any chrome trigger can open the shell's single dialog instance. The dialog
+        owns the `(Cmd|Ctrl)+K` `keydown` listener on `document`, cleaned up on unmount.
+  - [ ] On query change (debounced), calls `useGlobalSearch` (Task 1) — no React Query wiring
+        needed; this is a one-shot, cancel-on-close fetch, not cached list state.
   - [ ] Renders one `CommandGroup` per resource with a translated heading
-        (`resources.<resource>.name`), each result row as a `RecordLink` (Epic 3 Story 3.9)
-        wrapped so selecting it (click or Enter) closes the dialog and navigates.
+        (`resources.<resource>.name`). **Each result row is
+        `<CommandItem asChild …><RecordLink resource={…} id={…}>…</RecordLink></CommandItem>`** —
+        `cmdk`'s `Item` accepts `asChild` (verified: `node_modules/cmdk/dist/index.d.ts`,
+        cmdk 1.1.1), and our `CommandItem` wrapper types its props as
+        `React.ComponentProps<typeof CommandPrimitive.Item>`, so `asChild` passes through and
+        typechecks. This is what satisfies AC-3: the anchor is the row.
+        **`RecordLink` has exactly five props** (`resource`, `id`, `children`, `className`,
+        `style`) — **no `onClick`, no `ref`, no spread** (contract §7 rule 0). Closing the dialog
+        on selection therefore goes on `CommandItem`'s own `onSelect`, or on an ancestor's
+        capture-phase click handler — never as a prop on `RecordLink`.
+        *If `asChild` turns out not to compose with `cmdk`'s keyboard `onSelect`,* the fallback is
+        `CommandItem onSelect={() => { close(); navigate(buildRecordPath(resource, id)); }}` with
+        the `RecordLink` still rendered as the visible row — and the Task 5 test must then also
+        assert exactly **one** navigation per activation (mouse and keyboard).
   - [ ] Empty/loading/no-results states inside the dialog: a subtle `Loader` while awaiting the
-        fan-out, "No results" when the debounced query is non-empty and all four groups came
-        back empty, and a hint ("Search singles, shidduchim, shadchanim, references...") when
-        the query is empty.
+        fan-out, "No results" when the debounced query is non-empty and all three groups came back
+        empty, and a hint ("Search singles, shidduchim, shadchanim…") when the query is empty.
+        Note the hint string is a **user-facing list of what is searchable** — it must not name
+        references (AC-2).
 
 - [ ] **Task 4 — Mount it (AC: 1)**
   - [ ] One `GlobalSearch` instance per shell: `layout/Layout.tsx` (desktop) and
-        `layout/MobileLayout.tsx` (mobile) each render `GlobalSearchProvider` +
-        `<GlobalSearch/>` once. The shells are mutually exclusive (`root/CRM.tsx` picks by
-        `useIsMobile`), so the `Cmd+K` listener cannot double-fire.
+        `layout/MobileLayout.tsx` (mobile) each render `GlobalSearchProvider` + `<GlobalSearch/>`
+        once. The shells are mutually exclusive (`root/CRM.tsx` picks by `useIsMobile`), so the
+        `Cmd+K` listener cannot double-fire.
   - [ ] `layout/TopBar.tsx`: a search icon button alongside `ThemeModeToggle`/`RefreshButton`
-        calling `useGlobalSearchDialog().open()`.
-  - [ ] `layout/MobileNavigation.tsx`: a "Search" `DropdownMenuItem` at the top of
-        `MoreButton`'s dropdown calling the same `open()` — mobile has no keyboard shortcut,
-        so this is the only trigger there.
+        calling `useGlobalSearchDialog().open()`. **Do not disturb the `ContextSwitcher` pill or
+        `SingleSwitcherPill`** — Story 4.4 AC-6 asserts on the pill's presence in this file.
+  - [ ] `layout/MobileNavigation.tsx`: a "Search" `DropdownMenuItem` at the **top** of
+        `MoreButton`'s dropdown calling the same `open()` — mobile has no keyboard shortcut, so
+        this is the only trigger there. 4.4 restructured this dropdown (Inbox, Tasks, Reminders,
+        Settings, separator, context items, separator, theme items); insert above Inbox and leave
+        the rest alone.
 
-- [ ] **Task 5 — Tests (AC: 5)**
-  - [ ] `src/components/atomic-crm/misc/useGlobalSearch.test.ts` (wrap with
-        `CoreAdminContext` + `ra-data-fakerest`, the pattern in
-        `tasks/TasksListFilter.test.tsx`): query length < 2 resolves `[]` without calling
-        `getList` (spy on the provider); a query matching rows across all four resources
-        returns four populated groups; a query matching only one resource returns the other
-        three as empty arrays, not omitted keys.
+- [ ] **Task 5 — Tests (AC: 6)**
+  - [ ] `src/components/atomic-crm/misc/useGlobalSearch.test.ts` (wrap with `CoreAdminContext` +
+        `ra-data-fakerest`, the pattern in `tasks/TasksListFilter.test.tsx`): a query of length < 2
+        resolves three empty groups and calls `getList` zero times (spy on the provider); a query
+        matching rows across all three resources returns three populated groups; a query matching
+        only one resource returns the other two as **empty arrays, not omitted keys**.
   - [ ] `src/components/atomic-crm/misc/GlobalSearch.test.tsx`: debounce timing (fake timers —
-        assert no fetch fires before 300ms, exactly one after); Escape closes
-        the dialog; selecting a result calls navigation.
-  - [ ] **The negative test this story owns** (see Dev Notes) in
-        `supabase/tests/global_search.sql` (new file, alongside the existing per-table
-        cross-tenant checks in `supabase/tests/references_entity.sql`/`shidduch_catch.sql`):
-        seed two accounts, each with a `singles` row, a `shidduchim` row, a `shadchanim` row and
-        a `references` row sharing one distinctive search term (e.g. `"Zzyx"`); assert that,
-        authenticated as account A, each of the four underlying `getList`-equivalent queries
-        the fan-out issues (`singles`, `shidduchim_summary`, `shadchanim`, `references_summary`
-        filtered by that term) returns **only** account A's row. Run under
-        `npm run test:unit:db` (needs `make start`).
+        no fetch before 300ms, exactly one after); Escape closes the dialog; **AC-3** — a rendered
+        result row's `href` equals `buildRecordPath(resource, id)` for each of the three
+        resources; selecting a result navigates exactly once and closes the dialog.
+  - [ ] **The negative test this story owns** (see Dev Notes) in `supabase/tests/global_search.sql`
+        + `supabase/tests/global_search.test.ts` — the repo's convention is a `.sql` file emitting
+        one JSON row per check and a sibling `.test.ts` that shells out to `psql` and turns each
+        into a named test (`supabase/tests/dbSuiteHelpers.ts`; see `references_entity.test.ts` for
+        the exact shape, including its `bailIfDbUnreachable` skip). Seed two accounts, each with a
+        `singles` row, a `shidduchim` row and a `shadchanim` row sharing one distinctive term (e.g.
+        `"Zzyx"`); assert that, authenticated as account A, each of the three underlying
+        `getList`-equivalent queries the fan-out issues (`singles`, `shidduchim_summary`,
+        `shadchanim`, filtered by that term) returns **only** account A's row. Run under
+        `npm run test:unit:db` (needs `make start`; prefix every `npx supabase` call with
+        `DBUS_SESSION_BUS_ADDRESS=/dev/null`).
   - [ ] `e2e/global-search.spec.ts`: open via the desktop icon and via `Cmd/Ctrl+K`, and on a
-        mobile viewport via the "More" menu's Search item; type a known
-        single's name; assert a grouped result appears and clicking it navigates to that
-        single's page; type one character, assert no network call fires (or assert no loading
-        state appears, per whatever is externally observable).
+        mobile viewport via the "More" menu's Search item; type a known single's name; assert a
+        grouped result appears and clicking it navigates to that single's page; type one
+        character and assert no loading state appears.
 
 ## Dev Notes
 
+### Why references is not searchable
+
+`entity360/ad24Conformance.ts`'s `NO_BROWSE_SURFACE_ENTITIES` records the owner's standing
+RULING 7 and names search explicitly: a reference *"has no nav entry, no list, no dashboard tile,
+no tour step **and no global-search results**"*. `epics.md` states the same for Story 5.10:
+references are reached from a shidduch's diligence — *"never from navigation, a list or search"*.
+
+The reasoning, so nobody re-litigates it as an oversight: a 2-character query returning a paged
+roster of references the user did not name **is** enumeration with a search box in front of it.
+Reference discovery is already served, in the right context, by match-on-entry
+(`references/useReferenceMatch.ts` + `ReferenceMatchPanel`) inside the shidduch-scoped create
+flow, and the recovery path for a reference with no shidduch is the unattached-references panel at
+`/references` (owned by the RULING 7 references wave).
+
+Concretely this story drops references from: the fan-out, the result mapping, the
+`GlobalSearchResult` union, the empty-state hint string, and the `supabase/tests/global_search.sql`
+seed. Four resources became three. `amendment-a2.md`'s UX-DR8 still says "reachable ... from
+search"; it predates the ruling and is the weaker text. Where they disagree, the shipped table
+wins.
+
 ### The negative test this story owns
 
-This story adds no new RLS policy — the fan-out runs over `getList` against tables/views
-that already carry `FORCE ROW LEVEL SECURITY` (AD-1) and already have their own isolation
-tests from the epics that introduced them (`singles`/`shadchanim`/`references` from Epic 1
-onward; `shidduchim` from the product's foundation; the `q`-search hooks specifically from
-Stories 4.1/4.3). What this story *does* add is a new aggregate code path that could, through a
-mundane implementation mistake, undermine that isolation without touching a single RLS
-policy — for example, accidentally hitting a resource name that bypasses the intended search
-hook, or (worse) using a service-role client for the fan-out instead of the caller's own
-authenticated session. `.claude/rules/security-triggers.md`'s instruction to dispatch a
-security review "when in doubt" on anything touching database queries applies squarely here,
-even though no `.sql` file in `supabase/schemas/` changes. The negative test in Task 5 exists
-to prove the fan-out itself is safe, not to re-prove RLS that other stories already cover.
+This story adds no new RLS policy — the fan-out runs over `getList` against tables/views that
+already carry `FORCE ROW LEVEL SECURITY` (AD-1) and already have their own isolation tests. What
+it *does* add is a new aggregate code path that could, through a mundane implementation mistake,
+undermine that isolation without touching a single RLS policy — for example, hitting a resource
+name that bypasses the intended search hook, or (worse) using a service-role client for the
+fan-out instead of the caller's own authenticated session.
+`.claude/rules/security-triggers.md`'s instruction to dispatch a security review "when in doubt"
+on anything touching database queries applies squarely here, even though no file in
+`supabase/schemas/` changes. The negative test exists to prove the fan-out itself is safe, not to
+re-prove RLS other stories already cover.
 
 ### Why no new Postgres function
 
-A tempting alternative is one `search_records(query text)` SQL function unioning all four
-sources server-side, for a single round trip instead of four. This story deliberately does not
-do that: a `SECURITY DEFINER` function bypasses RLS by design and would need to hand-reconstruct
-the account/context scoping AD-1 already gives every table for free; a `SECURITY INVOKER`
-function gains little over four ordinary `getList` calls the app already knows how to make
-safely. Reusing the dataProvider seam (AD-10) is simpler, safer, and consistent with how every
-other cross-cutting read in this codebase (e.g. `ShadchanList`'s suggestion counts) is already
-built — fetch via the existing provider, compose client-side.
-
-### Scope: four resources, for now
-
-`singles`, `shidduchim`, `shadchanim`, `references` are every searchable entity that exists by
-the end of this epic. Epic 8 ("Shadchan Context") adds shadchanus-context entities
-(connections, shadchan-originated redts) that a shadchan will eventually want to find via this
-same search — that epic must extend `useGlobalSearch`'s resource list and result mapping when
-it lands; it is flagged here as a forward dependency, not built now, since those resources and
-their RLS do not exist yet.
+A tempting alternative is one `search_records(query text)` SQL function unioning all sources
+server-side, for a single round trip instead of three. Deliberately not done: a `SECURITY DEFINER`
+function bypasses RLS by design and would need to hand-reconstruct the account/context scoping
+AD-1 already gives every table for free; a `SECURITY INVOKER` function gains little over three
+ordinary `getList` calls the app already knows how to make safely. Reusing the dataProvider seam
+(AD-10) is simpler, safer, and consistent with how every other cross-cutting read in this codebase
+is built.
 
 ### Why a command dialog, not a `/search` route
 
 AD-24 says records live at URLs, not modals — but that governs *record* pages, not a transient
-utility overlay with no persistent state of its own. "Search from anywhere" (the epic's own
-framing) is best served by an always-available overlay rather than a navigation to a dedicated
-page and back; this mirrors the standard command-palette pattern the app already ships a
-primitive for (`CommandDialog` in `@/components/ui/command.tsx`, over `cmdk`).
+utility overlay with no persistent state of its own. "Search from anywhere" is best served by an
+always-available overlay rather than a navigation to a dedicated page and back; this mirrors the
+standard command-palette pattern the app already ships a primitive for (`CommandDialog` over
+`cmdk`). Note that Story 3-13's `recordSurfaceDialogs.guard.test.ts` polices *record surfaces* in
+dialogs, not utility overlays — this component is not in its scope, and adding it would be wrong.
+
+### The route table is untouched
+
+This story adds no routes and registers nothing. It **consumes** the route table: every result's
+href comes from `buildRecordPath` → `requireEntityDescriptor` → the entity's own descriptor
+(AC-3). No `<entity>/index.ts`, no `buildEntityRoutes`, no `hasShow`/`hasEdit`, no
+`root/routeManifest.ts` edit. Three of the seven registered resources deliberately have no
+descriptor (`ad24Conformance.ts`'s `DESCRIPTORLESS_RESOURCES`: `tasks`, `inbox_items`, `members`)
+and none of the three is searched here — but note that `RecordLink` degrades to an inert `<span>`
+plus one `console.error` for an unregistered resource rather than throwing, so a future widening
+fails visibly and safely rather than blanking the dialog.
+
+### Scope: three resources, for now
+
+`singles`, `shidduchim`, `shadchanim` are every searchable **browsable** entity that exists by the
+end of this epic. Epic 8 ("Shadchan Context") adds shadchanus-context entities (connections,
+shadchan-originated redts) that a shadchan will eventually want to find via this same search — that
+epic must extend `useGlobalSearch`'s resource list, the `GlobalSearchResult` union and the result
+mapping when it lands. Flagged here as a forward dependency, not built now, since those resources
+and their RLS do not exist yet.
 
 ### Architecture
 
 - **AD-1 / AD-19**: no client-suppliable scope parameter exists anywhere in the fan-out —
-  this is the property that makes AC-3 hold structurally, not by convention.
-- **AD-24 (via Epic 3 Story 3.9)**: every result is a `RecordLink`; no ad-hoc `<Link>` in this
-  component.
+  `current_context_id()` is server-held, never a client value. This is the property that makes
+  AC-4 hold structurally, not by convention.
+- **AD-24 (via Story 3.9)**: every result is a `RecordLink`; no ad-hoc `<Link>` in this component.
+  Contract §7 rule 5 names "search result" as one of the six mention sites and rule 0 closes the
+  prop list at five.
 - **AD-10**: all reads go through the dataProvider's existing `getList` path — no new seam,
   nothing to mirror in FakeRest.
 
+### Ownership hazards (declare before dispatch)
+
+| Shared artefact | Also edited by | Handling |
+|---|---|---|
+| `layout/MobileNavigation.tsx` (`MoreButton`) | 4.4 (rewrites the dropdown) | Sequential, 4.4 first; insert above Inbox and change nothing else. |
+| `layout/TopBar.tsx` | 4.4 (AC-6 asserts the `ContextSwitcher` pill renders here) | Add beside the toggles; do not move the pill. |
+| `types.ts` | 4-5, plus most of Epic 3 part 2 and six Epic 5 stories | One appended type. Serialise within the epic; append, never reorganise. |
+| `supabase/tests/` + the local stack | every DB-touching story | `npm run test:unit:db` reaches the **shared** local database. Hold the stack lease; do not run concurrently with another agent's `supabase db diff` or `migration up`. |
+| e2e stack | every story with a spec | Host-global singleton. One `STACK_ID` (1-6, never 0) plus `STACK_OWNER`; stop it afterwards. |
+
 ### Testing standard
 
-`.claude/rules/testing.md` AAA + ≥80% coverage. `.claude/rules/security-triggers.md` — database
-queries touched, so this story requires the negative test above regardless of the "no new RLS"
-fact. `.claude/skills/e2e-conventions` — search/interaction UI, e2e spec required.
+`vitest-browser-react` in real Chromium with `TestMemoryRouter`; **React Testing Library is not a
+dependency** — do not import it. `.claude/rules/testing.md` AAA + ≥80% coverage.
+`.claude/rules/security-triggers.md` — database queries touched, so the negative test above is
+required regardless of the "no new RLS" fact, and a security review is dispatched on this diff.
+`.claude/skills/e2e-conventions` — search/interaction UI, e2e spec required; deterministic waits
+only, never `waitForTimeout`.
 
 ### Project Structure Notes
 
 `GlobalSearch.tsx` and `useGlobalSearch.ts` live in `src/components/atomic-crm/misc/`
-(cross-entity, like `EntityList`). Neither provider file changes. The new SQL test
-file follows the existing `supabase/tests/*.sql` convention.
+(cross-entity, like `EntityList`). Neither provider file changes. The new DB test follows the
+existing `supabase/tests/<name>.sql` + `<name>.test.ts` pair convention.
+
+### Files this story will touch
+
+```
+src/components/atomic-crm/misc/useGlobalSearch.ts          (new)
+src/components/atomic-crm/misc/useGlobalSearch.test.ts     (new)
+src/components/atomic-crm/misc/GlobalSearch.tsx            (new)
+src/components/atomic-crm/misc/GlobalSearch.test.tsx       (new)
+src/components/atomic-crm/types.ts                         (GlobalSearchResult, appended)
+src/components/atomic-crm/layout/Layout.tsx                (provider + one instance)
+src/components/atomic-crm/layout/MobileLayout.tsx          (provider + one instance)
+src/components/atomic-crm/layout/TopBar.tsx                (search button)
+src/components/atomic-crm/layout/MobileNavigation.tsx      (Search item, top of More)
+supabase/tests/global_search.sql                           (new)
+supabase/tests/global_search.test.ts                       (new)
+e2e/global-search.spec.ts                                  (new)
+registry.json                                              (regenerated)
+```
 
 ### References
 
-- [Source: _bmad-output/planning-artifacts/epics.md#Epic-4] — Story 4.5 AC text.
-- [Source: ARCHITECTURE-SPINE.md#AD-1], [Source: ARCHITECTURE-SPINE.md#AD-19],
-  [Source: ARCHITECTURE-SPINE.md#AD-10], [Source: ARCHITECTURE-SPINE.md#AD-24]
-- [Source: .claude/rules/security-triggers.md]
+- [Source: _bmad-output/planning-artifacts/epics.md#Epic-4] — Story 4.5 AC text ("results span
+  entities and render as `RecordLink`s"; "results never cross a context or account boundary").
+- [Source: _bmad-output/planning-artifacts/epics.md] — the RULING 7 block, and Epic 5 Story 5.10's
+  AC: references are reached from a shidduch's diligence, *"never from navigation, a list or
+  search"*.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-1]
+  — every domain row scoped by exactly one axis, `FORCE ROW LEVEL SECURITY`, `security_invoker`
+  views.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-19]
+  — the active context is a server-side row, not a client claim.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-10]
+  — the dataProvider is the single CRUD seam.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-24]
+  — every record mention through one `RecordLink`.
+- [Source: _bmad-output/planning-artifacts/epic3-api-contract.md] §7 "`RecordLink`" rules 0, 2
+  and 5 — five closed props; unregistered resource degrades to an inert `<span>`; "search result"
+  is a mention site.
+- [Source: _bmad-output/planning-artifacts/epic3-api-contract.md] §4 "Path builders" — all five
+  go through `requireEntityDescriptor`, which is why AC-3 makes Epic 5's flips free.
 - [Source: _bmad-output/implementation-artifacts/4-1-entity-list-framework.md] — the
-  `applyFullTextSearch` hooks this story fans out over.
-- [Source: _bmad-output/implementation-artifacts/4-3-shidduchim-list-view.md] — the
-  `shidduchim` search hook.
+  `applyFullTextSearch` hooks this story fans out over, and the dead-hook trap.
+- [Source: _bmad-output/implementation-artifacts/4-3-shidduchim-list-view.md] — the `shidduchim`
+  search hook.
+- [Source: _bmad-output/implementation-artifacts/4-4-navigation-set-and-context-switcher.md] —
+  the `MoreButton` dropdown and `TopBar` this story extends.
+- [Source: src/components/atomic-crm/entity360/ad24Conformance.ts] —
+  `NO_BROWSE_SURFACE_ENTITIES` ("no global-search results"), `DESCRIPTORLESS_RESOURCES`.
+- [Source: supabase/tests/references_entity.test.ts] + [Source: supabase/tests/dbSuiteHelpers.ts]
+  — the `.sql` + `.test.ts` pair convention Task 5 follows.
+- [Source: node_modules/cmdk/dist/index.d.ts] — `Item` accepts `asChild` (cmdk 1.1.1).
+- [Source: .claude/rules/security-triggers.md], [Source: .claude/rules/testing.md],
+  [Source: .claude/skills/e2e-conventions/SKILL.md], [Source: .claude/rules/parallel-ownership.md]
 
 ## Dev Agent Record
 
