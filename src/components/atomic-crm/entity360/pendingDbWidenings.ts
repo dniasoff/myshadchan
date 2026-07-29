@@ -11,10 +11,10 @@
  * is empty — Epic 3 cannot close with tabs, or target types, still pending.
  */
 export const PENDING_DB_WIDENINGS = [
-  // tasks_target_type_check: ('shadchan', 'shidduch', 'reference') — Story 3.8 adds 'single'.
-  "tasks_target_type_check",
   // interactions_target_type_check reached parity in Story 3.5 — removed here
   // in the same diff as its migration (widen_interactions_targets.sql).
+  // tasks_target_type_check reached parity in Story 3.8 — removed here in the
+  // same diff as its migration (widen_tasks_target_type.sql).
   // entity_files_target_type_check — the table does not exist yet; Story 3.7 creates it at parity.
   "entity_files_target_type_check",
 ] as const;

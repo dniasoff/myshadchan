@@ -25,11 +25,11 @@ import { PENDING_DB_WIDENINGS } from "./pendingDbWidenings";
  *
  * "At parity" (not "is a subset of") is the assertion actually made: a
  * check constraint whose value set is a *strict* subset of
- * `ENTITY_TARGET_TYPES` (e.g. today's `tasks_target_type_check`, missing
- * `single`) is exactly the case `PENDING_DB_WIDENINGS` exists to track, so a
- * mere subset check can never fail and could not produce the red run this
- * file records below. Parity — every `ENTITY_TARGET_TYPES` value present in
- * the constraint — is what makes "remove an entry from
+ * `ENTITY_TARGET_TYPES` (e.g. `entity_files_target_type_check`, whose table
+ * does not exist yet) is exactly the case `PENDING_DB_WIDENINGS` exists to
+ * track, so a mere subset check can never fail and could not produce the red
+ * run this file records below. Parity — every `ENTITY_TARGET_TYPES` value
+ * present in the constraint — is what makes "remove an entry from
  * `PENDING_DB_WIDENINGS` before its migration lands" a real, catchable bug,
  * matching §8 rule 1's "three DB check constraints must end up with the
  * same four values."
@@ -80,14 +80,20 @@ export function isAtParityWithEntityTargetTypes(values: string[]): boolean {
   );
 }
 
-/** Every named constraint not (yet) excused by `PENDING_DB_WIDENINGS`. */
+/**
+ * Every named constraint not (yet) excused by `PENDING_DB_WIDENINGS`. `sql`
+ * defaults to the real schema source; tests override it to simulate a
+ * constraint that has landed without reaching parity, without touching the
+ * real `PENDING_DB_WIDENINGS` constant.
+ */
 function findOffendingConstraints(
   pendingWidenings: readonly string[],
+  sql: string = TABLES_SQL,
 ): string[] {
   const offenders: string[] = [];
   for (const name of TARGET_TYPE_CONSTRAINT_NAMES) {
     if (pendingWidenings.includes(name)) continue;
-    const values = extractTargetTypeCheckValues(TABLES_SQL, name);
+    const values = extractTargetTypeCheckValues(sql, name);
     if (!values) continue; // Not created yet — nothing to assert.
     if (!isAtParityWithEntityTargetTypes(values)) offenders.push(name);
   }
@@ -105,11 +111,11 @@ describe("extractTargetTypeCheckValues — shown red then green", () => {
     ).toBeUndefined();
   });
 
-  it("parses the real tasks_target_type_check values from 01_tables.sql", () => {
+  it("parses the real tasks_target_type_check values from 01_tables.sql (Story 3.8 widened it to all four ENTITY_TARGET_TYPES)", () => {
     // Act / Assert
     expect(
       extractTargetTypeCheckValues(TABLES_SQL, "tasks_target_type_check"),
-    ).toEqual(["shadchan", "shidduch", "reference"]);
+    ).toEqual(["shadchan", "shidduch", "reference", "single"]);
   });
 
   it("parses the real interactions_target_type_check values from 01_tables.sql (Story 3.5 widened it to all four ENTITY_TARGET_TYPES)", () => {
@@ -124,7 +130,7 @@ describe("extractTargetTypeCheckValues — shown red then green", () => {
 });
 
 describe("isAtParityWithEntityTargetTypes — shown red then green", () => {
-  it("is false for a strict subset (today's tasks_target_type_check)", () => {
+  it("is false for a strict subset (the shape tasks_target_type_check had pre-Story-3.8)", () => {
     // Act / Assert
     expect(isAtParityWithEntityTargetTypes(["shadchan", "shidduch"])).toBe(
       false,
@@ -161,20 +167,56 @@ describe("PENDING_DB_WIDENINGS guard", () => {
    * The red run contract §13 rule 2 requires: this is the "before" half,
    * proving the guard CAN fail. Removing an entry from a local copy of the
    * pending list (never the real constant) simulates forgetting to keep the
-   * ledger honest. See Dev Agent Record -> Debug Log References for the
-   * actual `npx vitest run` output captured from this exact assertion.
+   * ledger honest. entity_files_target_type_check is the only remaining
+   * entry whose migration has not landed — tasks_target_type_check (Story
+   * 3.8) and interactions_target_type_check (Story 3.5) are both gone from
+   * the real list now, so their equivalent proof lives below as a
+   * revert-the-migration fixture instead (the table for entity_files does
+   * not exist yet, so it cannot supply that same fixture shape — see
+   * `extractTargetTypeCheckValues`'s "not created yet" branch).
    */
-  it("fails, naming the constraint, when tasks_target_type_check is removed from the pending list before its migration lands", () => {
-    // Arrange
+  it("fails, naming the constraint, when entity_files_target_type_check is removed from the pending list before its migration lands", () => {
+    // Arrange — simulate entity_files_target_type_check landing without
+    // reaching parity (extractTargetTypeCheckValues on the real source still
+    // returns undefined for it today, so this proves the mechanism on a
+    // constraint the guard can actually see).
     const prematurelyNotPending = PENDING_DB_WIDENINGS.filter(
-      (name) => name !== "tasks_target_type_check",
+      (name) => name !== "entity_files_target_type_check",
     );
+    const sourceWithNarrowEntityFiles = `${TABLES_SQL}\nconstraint entity_files_target_type_check check (\n        target_type in ('reference', 'shidduch')\n    )`;
 
     // Act
-    const offenders = findOffendingConstraints(prematurelyNotPending);
+    const offenders = findOffendingConstraints(
+      prematurelyNotPending,
+      sourceWithNarrowEntityFiles,
+    );
 
     // Assert
-    expect(offenders).toEqual(["tasks_target_type_check"]);
+    expect(offenders).toEqual(["entity_files_target_type_check"]);
+  });
+
+  /**
+   * tasks_target_type_check reached parity in Story 3.8 and is no longer in
+   * PENDING_DB_WIDENINGS at all, so "remove it from the pending list" (the
+   * shape the entity_files_target_type_check test above uses) is a no-op
+   * here — it is already absent. AC 2c's own falsifiable claim is instead:
+   * reverting the migration itself (the constraint's value list back to its
+   * pre-Story-3.8 three values) turns the guard red.
+   */
+  it("tasks_target_type_check would fail parity again if its migration were reverted to the pre-Story-3.8 three-value constraint", () => {
+    // Arrange — the exact pre-Story-3.8 constraint text (AC 1's falsifiable claim).
+    const revertedFixture =
+      "constraint tasks_target_type_check check (\n        target_type in ('shadchan', 'shidduch', 'reference')\n    )";
+
+    // Act
+    const values = extractTargetTypeCheckValues(
+      revertedFixture,
+      "tasks_target_type_check",
+    );
+
+    // Assert
+    expect(values).toEqual(["shadchan", "shidduch", "reference"]);
+    expect(isAtParityWithEntityTargetTypes(values!)).toBe(false);
   });
 
   /**

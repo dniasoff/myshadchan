@@ -433,6 +433,20 @@ export const englishCrmMessages = {
         editError: "Failed to update the note",
         deleteError: "Failed to delete the note",
       },
+      // Story 3.8 — TasksTab.tsx and TasksRailSummary.tsx's own UX-DR11
+      // states, TasksTab's add/toggle controls (Ruling 2 — TasksTab is the
+      // only component in the codebase that mutates tasks from a 360), and
+      // TasksRailSummary's link into the tab.
+      tasks: {
+        empty: "No tasks yet.",
+        error: "Could not load the tasks.",
+        placeholder: "Add a task…",
+        dueDate: "Due date",
+        add: "Add task",
+        addError: "Failed to add the task",
+        toggleError: "Failed to update the task",
+        viewAll: "See all tasks",
+      },
       // Story 3.2 — ShowBase's explicit `loading` / `error` elements (AC 2).
       record_pending: "Loading…",
       record_unavailable: "This record is unavailable.",

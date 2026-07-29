@@ -406,6 +406,17 @@ export const frenchCrmMessages = {
         editError: "Échec de la modification de la note",
         deleteError: "Échec de la suppression de la note",
       },
+      // Story 3.8 — TasksTab.tsx and TasksRailSummary.tsx.
+      tasks: {
+        empty: "Aucune tâche pour l'instant.",
+        error: "Impossible de charger les tâches.",
+        placeholder: "Ajouter une tâche…",
+        dueDate: "Date d'échéance",
+        add: "Ajouter une tâche",
+        addError: "Échec de l'ajout de la tâche",
+        toggleError: "Échec de la mise à jour de la tâche",
+        viewAll: "Voir toutes les tâches",
+      },
       record_pending: "Chargement…",
       record_unavailable: "Cet enregistrement n'est pas disponible.",
       record_unavailable_link: "Retour à la liste",

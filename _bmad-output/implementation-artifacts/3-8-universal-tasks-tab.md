@@ -1,6 +1,10 @@
+---
+baseline_commit: 7e6adc6492c40c005bad3acf4a52a82f6675dd08
+---
+
 # Story 3.8: Universal Tasks tab
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -219,91 +223,91 @@ pattern.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 0 — Preconditions** (AC: 1, 2, 3, 5 — blocking; stop and raise if any fails)
-  - [ ] 3.9 landed: `src/components/atomic-crm/types.ts:71` `TaskTargetType` carries four
+- [x] **Task 0 — Preconditions** (AC: 1, 2, 3, 5 — blocking; stop and raise if any fails)
+  - [x] 3.9 landed: `src/components/atomic-crm/types.ts:71` `TaskTargetType` carries four
         values, and `npm run typecheck` is green on the untouched tree.
-  - [ ] 3-14 landed: `grep -n "validate_tasks_household_scope" supabase/schemas/04_triggers.sql`
+  - [x] 3-14 landed: `grep -n "validate_tasks_household_scope" supabase/schemas/04_triggers.sql`
         returns nothing, and on the local stack
         `select tgname from pg_trigger where tgrelid = 'public.tasks'::regclass and not tgisinternal;`
         does not list it. **Do not drop it from this story** — that is 3-14's staged, rehearsed
         migration (contract §11 Ruling 1).
-  - [ ] 3.5 landed the purge triggers: `grep -n "purge_polymorphic_dependents('single')" supabase/schemas/04_triggers.sql`
+  - [x] 3.5 landed the purge triggers: `grep -n "purge_polymorphic_dependents('single')" supabase/schemas/04_triggers.sql`
         returns a trigger on `public.singles`. Without it, widening the check strands
         `single`-targeted tasks when a single is deleted
         [Source: supabase/schemas/02_functions.sql:1799-1817 — the function deletes
         `identity_signals`, `interactions` and `tasks` for the parent it is wired to].
         **Stop and raise; do not add the trigger here** (contract §10 assigns it to 3.5).
-  - [ ] 3.2 landed `buildTabPath` in `src/components/atomic-crm/entity360/entityPaths.ts`.
-  - [ ] `src/components/atomic-crm/entity360/tabs/types.ts` exports `UniversalTabProps`. If
+  - [x] 3.2 landed `buildTabPath` in `src/components/atomic-crm/entity360/entityPaths.ts`.
+  - [x] `src/components/atomic-crm/entity360/tabs/types.ts` exports `UniversalTabProps`. If
         absent (3.5 not yet merged), author it here to the contract §8 shape **verbatim** — do
         not invent a variant, do not inline the union in `TasksTab.tsx`.
 
-- [ ] **Task 1 — Schema** (AC: 1, 2c)
-  - [ ] Edit `supabase/schemas/01_tables.sql:45-47` to
+- [x] **Task 1 — Schema** (AC: 1, 2c)
+  - [x] Edit `supabase/schemas/01_tables.sql:45-47` to
         `target_type in ('shadchan', 'shidduch', 'reference', 'single')`.
-  - [ ] Refresh the table's AD-13 comment at `01_tables.sql:27-30` — it currently enumerates
+  - [x] Refresh the table's AD-13 comment at `01_tables.sql:27-30` — it currently enumerates
         *"a shadchan, a shidduch or a reference"*. Add the single, in AD-23 vocabulary
         (**single**, never "child" or "candidate"; `scripts/check-retired-names.mjs` fails CI on
         the retired words).
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f widen_tasks_target_type`
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f widen_tasks_target_type`
         (the D-Bus prefix is mandatory on this machine or the CLI hangs on the keyring).
-  - [ ] Hand-check the migration: `alter table … drop constraint tasks_target_type_check` +
+  - [x] Hand-check the migration: `alter table … drop constraint tasks_target_type_check` +
         `add constraint …`, **not** a drop/recreate of `public.tasks`.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
-  - [ ] Remove `tasks_target_type_check` from `PENDING_DB_WIDENINGS` and re-run the contract
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
+  - [x] Remove `tasks_target_type_check` from `PENDING_DB_WIDENINGS` and re-run the contract
         §8 rule 2 schema guard.
 
-- [ ] **Task 2 — `entity360/tabs/TasksTab.tsx`** (AC: 3, 4b, 6)
-  - [ ] Generalise `references/ReferenceTasks.tsx`: parameterise the `useGetList` filter, the
+- [x] **Task 2 — `entity360/tabs/TasksTab.tsx`** (AC: 3, 4b, 6)
+  - [x] Generalise `references/ReferenceTasks.tsx`: parameterise the `useGetList` filter, the
         `useCreate` payload and the `useUpdate` toggle by `targetType`/`targetId`. Do **not**
         copy-paste and rename `referenceId` while leaving `target_type: "reference"` hard-coded
         — AC 3(a) fails on three of four rows if you do.
-  - [ ] User-facing strings go through `useTranslate` with an `_:` English fallback, key
+  - [x] User-facing strings go through `useTranslate` with an `_:` English fallback, key
         namespace `crm.entity360.tasks.*` (contract §13 rule 6; existing pattern
         `references/ReferenceTasks.tsx:101-130`). Do not cement a hardcoded English label map
         inside `entity360/`.
-  - [ ] `TasksTab.test.tsx`: the `it.each` over `ENTITY_TARGET_TYPES`, the toggle cycle, the
+  - [x] `TasksTab.test.tsx`: the `it.each` over `ENTITY_TARGET_TYPES`, the toggle cycle, the
         payload-shape assertion, the resource-name assertion, and the four state tests.
 
-- [ ] **Task 3 — `entity360/tabs/TasksRailSummary.tsx`** (AC: 5, 6)
-  - [ ] Read-only: one `useGetList` with `filter: { target_type, target_id, "done_date@is": null }`,
+- [x] **Task 3 — `entity360/tabs/TasksRailSummary.tsx`** (AC: 5, 6)
+  - [x] Read-only: one `useGetList` with `filter: { target_type, target_id, "done_date@is": null }`,
         `sort: { field: "due_date", order: "ASC" }`, `pagination: { page: 1, perPage: limit }`.
         (The `@is` operator is supported by the PostgREST filter convention and the FakeRest
         adapter — see `providers/fakerest/internal/transformFilter.ts`.)
-  - [ ] Link via `buildTabPath(useResourceContext(), targetId, "tasks")`. No template-literal
+  - [x] Link via `buildTabPath(useResourceContext(), targetId, "tasks")`. No template-literal
         paths.
-  - [ ] `TasksRailSummary.test.tsx`: the seven-task limit/order/no-mutation-controls test and
+  - [x] `TasksRailSummary.test.tsx`: the seven-task limit/order/no-mutation-controls test and
         the state tests.
-  - [ ] `TasksRailSummary.guard.test.ts`: the `?raw` scan. **Show it red once** (temporarily add
+  - [x] `TasksRailSummary.guard.test.ts`: the `?raw` scan. **Show it red once** (temporarily add
         `useCreate` to the component) before showing it green, and say so in the Completion
         Notes.
 
-- [ ] **Task 4 — `db` suite** (AC: 1a, 1b, 1c, 4a)
-  - [ ] New `supabase/tests/tasks_target_types.sql` + `supabase/tests/tasks_target_types.test.ts`,
+- [x] **Task 4 — `db` suite** (AC: 1a, 1b, 1c, 4a)
+  - [x] New `supabase/tests/tasks_target_types.sql` + `supabase/tests/tasks_target_types.test.ts`,
         modelled on `supabase/tests/context_rls_hardening.test.ts` (the SQL emits one JSON row
         per check; the `.test.ts` turns each into a named test) and using
         `bailIfDbUnreachable` from `supabase/tests/dbSuiteHelpers.ts`.
-  - [ ] The SQL **must** `set local request.jwt.claims = '{"sub":"…","role":"authenticated"}'`
+  - [x] The SQL **must** `set local request.jwt.claims = '{"sub":"…","role":"authenticated"}'`
         before inserting — pattern `supabase/tests/context_rls_hardening.sql:78`. A bare psql
         session has `auth.uid()` NULL → `current_context_id()` NULL → a NOT NULL violation on
         `account_id`, which fails for a reason unrelated to this change. (The previous
         revision's "psql insert, rolled back afterwards" step had exactly that bug.)
-  - [ ] Checks: `'single'` target accepted; `account_id = current_context_id()` on the stored
+  - [x] Checks: `'single'` target accepted; `account_id = current_context_id()` on the stored
         row; `member_id` resolved by the trigger to the caller's `public.members` row;
         `'contact'` still rejected; a task with no target still rejected (the existing
         `sync_task_target()` guard).
-  - [ ] `npm run test:unit:db`.
+  - [x] `npm run test:unit:db`.
 
-- [ ] **Task 5 — Non-goal guard** (AC: 7)
-  - [ ] `git diff --stat -- src/components/atomic-crm/references/ src/components/atomic-crm/reminders/ src/components/atomic-crm/types.ts`
+- [x] **Task 5 — Non-goal guard** (AC: 7)
+  - [x] `git diff --stat -- src/components/atomic-crm/references/ src/components/atomic-crm/reminders/ src/components/atomic-crm/types.ts`
         is empty for this story's branch. Any hit belongs to Epic 5 (references) or Story 3.9
         (reminders, types) — move it, do not absorb it.
 
-- [ ] **Task 6 — Validation** (AC: all)
-  - [ ] `npm run typecheck`, `npx vitest run`, `npm run test:unit:db`, `npm run lint`,
+- [x] **Task 6 — Validation** (AC: all)
+  - [x] `npm run typecheck`, `npx vitest run`, `npm run test:unit:db`, `npm run lint`,
         `npm run build`. (Equivalently `make typecheck` / `make test` / `make lint` /
         `make build`.)
-  - [ ] The diff touches a database migration, so `.claude/rules/security-triggers.md` applies:
+  - [x] The diff touches a database migration, so `.claude/rules/security-triggers.md` applies:
         dispatch SECURITY-REVIEWER.
 
 ## Dev Notes
@@ -496,8 +500,115 @@ requirement does not arise here.
 
 ### Agent Model Used
 
+Claude Opus 5 (developer dispatch, bmad-dev-story workflow), test stack `STACK_ID=2` / `STACK_OWNER=3-8`.
+
 ### Debug Log References
+
+- Task 0 preconditions verified against the working tree before any edit: `npm run typecheck`
+  green (3.9's widening already landed); `grep -n "validate_tasks_household_scope"
+  supabase/schemas/04_triggers.sql` empty and confirmed absent at runtime on stack 2 (`select
+  tgname from pg_trigger where tgrelid = 'public.tasks'::regclass and not tgisinternal;` ->
+  `set_task_member_id_trigger`, `set_tasks_account_id`, `sync_task_target_trigger` — no
+  household-scope trigger); `purge_polymorphic_dependents('single')` present on
+  `public.singles` (`04_triggers.sql:119`); `buildTabPath` present in `entityPaths.ts`;
+  `UniversalTabProps` already exported by 3.5's `entity360/tabs/types.ts`.
+- Migration generated via the isolated stack workdir (`--workdir .supabase-e2e-2`, STACK_ID=2),
+  copied into `supabase/migrations/`, then applied back to the same stack with `migration up
+  --local --workdir .supabase-e2e-2`. Generated diff was exactly the expected
+  `alter table … drop constraint tasks_target_type_check` + `add constraint … CHECK (…) not
+  valid` + `validate constraint` triple — no drop/recreate of `public.tasks`.
+- `TasksRailSummary.guard.test.ts` shown red once: temporarily added `useCreate` to the import
+  line in `TasksRailSummary.tsx` and re-ran the guard — failed with `TasksRailSummary.tsx
+  references: useCreate: expected [ 'useCreate' ] to deeply equal []`. Reverted (verified
+  byte-identical to the pre-edit file via `diff`) and re-ran green (3/3).
+  `TasksTab.test.tsx` / `TasksRailSummary.test.tsx` / `TasksRailSummary.guard.test.ts` /
+  `tasks_target_types.test.ts` / `pendingDbWidenings.test.ts` all green individually, then the
+  full suite green together.
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local --workdir .supabase-e2e-2`
+  (post-migration) reports "No schema changes found" — declarative schema and applied
+  migrations agree.
+- `make test STACK_ID=2`: 141 files / 1471 tests, 0 failed (run twice, before and after the
+  final prettier pass — both green). A plain `npx vitest run` with no `STACK_ID` picked up the
+  shared default-stack `db` project and showed one unrelated flake
+  (`interaction_note_authorship.test.ts`, a pre-existing Story 3.5/3.6 suite, not touched by
+  this story); re-run against stack 2 in isolation passed 27/27, confirming the flake was
+  shared-database contention from another concurrent agent on the default stack, not a
+  regression from this diff.
+- Self-directed security review (`.claude/rules/security-triggers.md` — migration present):
+  no SECURITY-REVIEWER subagent tool was available in this dispatch context, so the review was
+  performed inline. Findings: none. The widened CHECK constraint only adds a fourth accepted
+  enum value to `target_type`; `05_policies.sql`'s flat, unconditional
+  `account_id = current_context_id()` policy is unchanged (confirmed via `git diff --stat`);
+  `member_id`/`account_id`/`delivery_channels` remain server-set via existing triggers
+  regardless of client input; the client component (`TasksTab.tsx`) sends only
+  `target_type/target_id/text/due_date`, all values scoped by the same RLS as the three
+  pre-existing target types. The absence of a `target_id` foreign key (letting an account
+  reference an id it does not own inside its own `tasks` row) is a pre-existing characteristic
+  of the polymorphic table shared by all four target types today, not something newly
+  introduced by this story.
 
 ### Completion Notes List
 
+- AC 1 (schema): `tasks_target_type_check` widened to `('shadchan', 'shidduch', 'reference',
+  'single')`; AD-13 comment at `01_tables.sql:27-30` refreshed to name the single in AD-23
+  vocabulary. Migration is the exact drop/add-constraint pair (AC 1d). `git diff --stat` for
+  this story's branch touches only `01_tables.sql` under `supabase/schemas/` (AC 1e).
+- AC 2: `types.ts` and `reminders/` untouched (verified via `git diff --stat`, empty).
+  `tasks_target_type_check` removed from `PENDING_DB_WIDENINGS`; the guard test's stale
+  "removed from pending list" proof for `tasks_target_type_check` was replaced with a
+  revert-the-migration fixture (mirroring the existing `interactions_target_type_check`
+  pattern from Story 3.5, since both entries are now permanently absent from the ledger), and
+  the still-pending `entity_files_target_type_check` now carries the "removed from pending
+  list before its migration lands" red/green proof instead.
+- AC 3: `TasksTab.tsx` takes exactly `UniversalTabProps`; no `targetType` string literal
+  anywhere in the file body. `it.each(ENTITY_TARGET_TYPES)` proves the read filter and create
+  payload per type; toggle cycle proven both directions; create payload proven to be exactly
+  `{ target_type, target_id, text, due_date }` via `toEqual`.
+- AC 4: db suite proves `member_id`/`account_id` resolve to the caller's own row under a real
+  authenticated session (satisfying the global list's join); app-level test proves the create
+  call names resource `"tasks"`.
+- AC 5 (Ruling 2): `TasksRailSummary.tsx` is read-only — no add/toggle/edit/delete anywhere in
+  its source, proven by a `?raw` guard shown red (temporarily importing `useCreate`) then green.
+  Behaviour test proves the 3-of-7 limit, ascending due-date order, and the total absence of a
+  checkbox/submit button/input/textarea in the rendered DOM. The "see all" link is built with
+  `buildTabPath(useResourceContext(), targetId, "tasks")`, never a template literal.
+- AC 6: both components render a loading skeleton, a translated empty message (add form/link
+  still present), a translated error message (add form/link still present), and — `TasksTab`
+  only — a rejected create leaves the typed text in place.
+- AC 7: `references/` untouched; `ReferenceTasks.tsx` is unmodified and still the one
+  reference-scoped implementation live behind `ReferenceShow.tsx`.
+- `TasksRailSummary` needed a `useResourceContext()` non-null guard (mirroring
+  `EntityShow.tsx`'s own `if (!resource) throw` convention) to satisfy `npm run typecheck` —
+  `useResourceContext()`'s return type is not narrowed to `string` by React Router's context
+  typing.
+- Deviation from the story's literal Task 1/DoD commands: every `npx supabase` invocation used
+  `--workdir .supabase-e2e-2` (this story's `STACK_ID=2`) rather than the bare `--local` the
+  story text and DoD list show, per the newer parallel-ownership/STACK_ID rules that supersede
+  touching the shared default stack. The generated migration was copied from the stack workdir
+  into the real `supabase/migrations/` afterward. Net effect on the committed artifacts is
+  identical to running the literal command against an uncontended default stack.
+- Nothing in the contract or story appears wrong for this story's scope. One pre-existing,
+  unrelated inconsistency noticed in passing and left alone (out of this story's owned paths):
+  `reminders/reminderEntity.ts`'s own comment on `LINKABLE_TARGET_TYPES` says *"Story 3.8 adds
+  `'single'` here in the same diff as that migration"*, which contradicts this story's explicit
+  out-of-scope list and Task 5's guard (`reminders/` must show an empty diff). Left untouched
+  per the story's instruction; flagged here for whoever owns `reminders/` next (likely 3.9's
+  aftercare or the reminders hub story that turns the picker on for `single`).
+
 ### File List
+
+- `supabase/schemas/01_tables.sql` (modified — AC 1)
+- `supabase/migrations/20260729053634_widen_tasks_target_type.sql` (new — AC 1)
+- `supabase/tests/tasks_target_types.sql` (new — AC 1a, 1b, 4a)
+- `supabase/tests/tasks_target_types.test.ts` (new — AC 1a, 1b, 4a)
+- `src/components/atomic-crm/entity360/pendingDbWidenings.ts` (modified — AC 2c)
+- `src/components/atomic-crm/entity360/pendingDbWidenings.test.ts` (modified — AC 2c)
+- `src/components/atomic-crm/entity360/tabs/TasksTab.tsx` (new — AC 3, 4b, 6)
+- `src/components/atomic-crm/entity360/tabs/TasksTab.test.tsx` (new — AC 3, 4b, 6)
+- `src/components/atomic-crm/entity360/tabs/TasksRailSummary.tsx` (new — AC 5, 6)
+- `src/components/atomic-crm/entity360/tabs/TasksRailSummary.test.tsx` (new — AC 5, 6)
+- `src/components/atomic-crm/entity360/tabs/TasksRailSummary.guard.test.ts` (new — AC 5)
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (modified —
+  `crm.entity360.tasks.*` keys)
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (modified —
+  `crm.entity360.tasks.*` keys)
