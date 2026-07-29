@@ -37,7 +37,7 @@ test("an invitee previews, affirms 18+, and signs in through an invite", async (
   // AC-6/AC-7: the invite actually bound a real membership — the invitee
   // lands inside the app (not bounced back to a login/invite screen) and
   // can reach a resource scoped to the household they were invited into.
-  await expect(page.getByRole("link", { name: "Pipeline" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Shidduchim" })).toBeVisible();
 });
 
 test("an invite with no matching row shows a clear, specific message", async ({

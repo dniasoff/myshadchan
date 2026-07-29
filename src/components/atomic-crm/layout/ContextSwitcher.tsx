@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import {
@@ -20,23 +20,105 @@ import type { CrmDataProvider } from "../providers/types";
 import { useMyContexts } from "../root/useMyContexts";
 import type { MyContext } from "../types";
 
+type Translate = ReturnType<typeof useTranslate>;
+
+const kindLabel = (kind: MyContext["kind"], translate: Translate) =>
+  kind === "household"
+    ? translate("crm.context_switcher.kind_household", { _: "Household" })
+    : translate("crm.context_switcher.kind_shadchanus", {
+        _: "Shadchanus",
+      });
+
+const contextLabel = (context: MyContext, translate: Translate) =>
+  translate("crm.context_switcher.label", {
+    name: context.name,
+    kind: kindLabel(context.kind, translate),
+    _: "%{name} · %{kind}",
+  });
+
 /**
- * Switches which context (household vs. shadchanus) is active (Story 2.4,
- * AD-19) — a different axis entirely from `SingleSwitcherPill`'s "which
- * single's pipeline am I viewing." Renders an empty fragment for a login
- * with fewer than 2 contexts (AC-1): no pill, no disabled control, no
- * visual trace. Mounted twice — `layout/TopBar.tsx` for desktop,
- * `settings/SettingsPageMobile.tsx` for mobile (AC-7) — the same component
- * both places, never a second implementation.
+ * The per-context `<DropdownMenuItem>` rows shared by both render surfaces
+ * (Story 4.4): the desktop pill's own `DropdownMenuContent` below, and the
+ * mobile bottom nav's "More" menu (`layout/MobileNavigation.tsx`). One data
+ * source (`useMyContexts()`'s query cache), one switch path
+ * (`switchActiveContext` + invalidate-everything + navigate-home), two
+ * render surfaces — never a second implementation of the switch itself.
+ * Renders nothing for a login with fewer than 2 contexts (AC-1 semantics,
+ * preserved): no rows, no visual trace.
  */
-export const ContextSwitcher = () => {
-  const { data: contexts, isError: contextsErrored } = useMyContexts();
+export const ContextMenuItems = () => {
+  const { data: contexts } = useMyContexts();
   const dataProvider = useDataProvider<CrmDataProvider>();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const translate = useTranslate();
   const notify = useNotify();
-  const [switching, setSwitching] = useState(false);
+
+  if (!contexts || contexts.length < 2) {
+    return null;
+  }
+
+  const active = contexts.find((context) => context.is_active) ?? contexts[0];
+
+  const handleSelect = async (accountId: Identifier) => {
+    // Review finding #9: re-selecting the already-active context is a
+    // destructive no-op otherwise — a full invalidateQueries() + navigate("/")
+    // that kicks the user off whatever page they're on for nothing.
+    if (String(accountId) === String(active.account_id)) {
+      return;
+    }
+    try {
+      // AD-19: set_active_context() (via switchActiveContext) is the only
+      // validated way to switch — it raises if the caller has no live
+      // active membership of accountId, so a failed switch surfaces here
+      // rather than silently leaving the old context active.
+      await dataProvider.switchActiveContext(accountId);
+      // AC-3: a context switch invalidates EVERYTHING, not a scoped
+      // queryKey — every screen's data belongs to the account that just
+      // changed underneath it.
+      await queryClient.invalidateQueries();
+      // AD-24: records live at URLs; a record from the context just left
+      // no longer resolves for this login, so leave nothing open behind.
+      navigate("/");
+    } catch {
+      // Review finding #3: always the dedicated i18n key (AD-18/AC-8) —
+      // never the raw Error.message.
+      notify("crm.context_switcher.switch_error", {
+        type: "error",
+        messageArgs: { _: "Couldn't switch context. Try again." },
+      });
+    }
+  };
+
+  return (
+    <>
+      {contexts.map((context) => (
+        <DropdownMenuItem
+          key={context.account_id}
+          onSelect={() => handleSelect(context.account_id)}
+        >
+          {contextLabel(context, translate)}
+        </DropdownMenuItem>
+      ))}
+    </>
+  );
+};
+
+/**
+ * Desktop pill: switches which context (household vs. shadchanus) is active
+ * (Story 2.4, AD-19) — a different axis entirely from `SingleSwitcherPill`'s
+ * "which single's pipeline am I viewing." Renders an empty fragment for a
+ * login with fewer than 2 contexts (AC-1): no pill, no disabled control, no
+ * visual trace. Mounted in `layout/TopBar.tsx` only — mobile reaches the
+ * same context list through `ContextMenuItems` above, inlined into
+ * `layout/MobileNavigation.tsx`'s "More" menu (Story 4.4 NFR-14; replaces an
+ * interim `settings/SettingsPageMobile.tsx` mount 2.4 used before mobile had
+ * a persistent chrome slot for this).
+ */
+export const ContextSwitcher = () => {
+  const { data: contexts, isError: contextsErrored } = useMyContexts();
+  const translate = useTranslate();
+  const notify = useNotify();
   const notifiedLoadError = useRef(false);
 
   useEffect(() => {
@@ -64,75 +146,22 @@ export const ContextSwitcher = () => {
 
   const active = contexts.find((context) => context.is_active) ?? contexts[0];
 
-  const kindLabel = (kind: MyContext["kind"]) =>
-    kind === "household"
-      ? translate("crm.context_switcher.kind_household", { _: "Household" })
-      : translate("crm.context_switcher.kind_shadchanus", {
-          _: "Shadchanus",
-        });
-
-  const contextLabel = (context: MyContext) =>
-    translate("crm.context_switcher.label", {
-      name: context.name,
-      kind: kindLabel(context.kind),
-      _: "%{name} · %{kind}",
-    });
-
-  const handleSelect = async (accountId: Identifier) => {
-    // Review finding #9: re-selecting the already-active context is a
-    // destructive no-op otherwise — a full invalidateQueries() + navigate("/")
-    // that kicks the user off whatever page they're on for nothing.
-    if (String(accountId) === String(active.account_id)) {
-      return;
-    }
-    setSwitching(true);
-    try {
-      // AD-19: set_active_context() (via switchActiveContext) is the only
-      // validated way to switch — it raises if the caller has no live
-      // active membership of accountId, so a failed switch surfaces here
-      // rather than silently leaving the old context active.
-      await dataProvider.switchActiveContext(accountId);
-      // AC-3: a context switch invalidates EVERYTHING, not a scoped
-      // queryKey — every screen's data belongs to the account that just
-      // changed underneath it.
-      await queryClient.invalidateQueries();
-      // AD-24: records live at URLs; a record from the context just left
-      // no longer resolves for this login, so leave nothing open behind.
-      navigate("/");
-    } catch {
-      // Review finding #3: always the dedicated i18n key (AD-18/AC-8) —
-      // never the raw Error.message. Both providers throw a plain `Error`
-      // (Supabase's own generic wrapper, or FakeRest's developer-facing
-      // "no active membership of account N"), so branching on
-      // `instanceof Error` here never reached the translate() fallback and
-      // left `crm.context_switcher.switch_error` dead in both catalogues.
-      notify("crm.context_switcher.switch_error", {
-        type: "error",
-        messageArgs: { _: "Couldn't switch context. Try again." },
-      });
-    } finally {
-      setSwitching(false);
-    }
-  };
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          disabled={switching}
           aria-label={translate("crm.context_switcher.trigger_label", {
-            context: contextLabel(active),
+            context: contextLabel(active, translate),
             _: "Switch context: %{context}",
           })}
           className="inline-flex h-9 items-center gap-2 rounded-full border
             border-border bg-secondary px-3 text-sm font-semibold
             text-foreground outline-none transition-colors duration-[160ms]
-            hover:bg-secondary/80 disabled:cursor-not-allowed
-            disabled:opacity-70
+            hover:bg-secondary/80
             focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
-          <span>{contextLabel(active)}</span>
+          <span>{contextLabel(active, translate)}</span>
           <ChevronDown
             className="size-4 text-muted-foreground"
             aria-hidden="true"
@@ -140,14 +169,7 @@ export const ContextSwitcher = () => {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        {contexts.map((context) => (
-          <DropdownMenuItem
-            key={context.account_id}
-            onSelect={() => handleSelect(context.account_id)}
-          >
-            {contextLabel(context)}
-          </DropdownMenuItem>
-        ))}
+        <ContextMenuItems />
       </DropdownMenuContent>
     </DropdownMenu>
   );

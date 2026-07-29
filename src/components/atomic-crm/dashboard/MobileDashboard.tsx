@@ -1,4 +1,4 @@
-import { BookUser, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { buildNewPath } from "../entity360/entityPaths";
@@ -51,7 +51,6 @@ export const MobileDashboard = () => {
     setSingleId,
     hasSuggestions,
     totalShadchanim,
-    totalReferences,
   } = useDashboardData();
 
   if (isPending) return null;
@@ -91,20 +90,12 @@ export const MobileDashboard = () => {
           <>
             <PipelineSnapshot singleId={selectedSingleId} />
             <RecentSuggestions singleId={selectedSingleId} />
-            <div className="grid grid-cols-2 gap-4">
-              <DashboardStat
-                label="Shadchanim"
-                value={totalShadchanim}
-                icon={Users}
-                to="/shadchanim"
-              />
-              <DashboardStat
-                label="References"
-                value={totalReferences}
-                icon={BookUser}
-                to="/references"
-              />
-            </div>
+            <DashboardStat
+              label="Shadchanim"
+              value={totalShadchanim}
+              icon={Users}
+              to="/shadchanim"
+            />
             <AttentionSection />
           </>
         )}

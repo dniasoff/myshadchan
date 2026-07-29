@@ -173,6 +173,52 @@ async function createShadchan({
 }
 
 /**
+ * Story 4.4: gives an already-created member a SECOND context (a
+ * shadchanus-kind account, alongside the household `createSingle`
+ * provisions) — `ContextSwitcher`/`ContextMenuItems` render nothing below 2
+ * contexts (2.4 AC-1), so the navigation e2e spec needs a real second
+ * membership to see the switcher at all. `enforce_membership_role_matches_
+ * context()` (04_triggers.sql) restricts the `shadchan` role to a
+ * shadchanus-kind account, so both inserts must agree on `kind`/`role`.
+ */
+async function createSecondContext({
+  member,
+  name,
+}: {
+  member: { user_id: string };
+  name: string;
+}) {
+  const { data: account, error: accountError } = await adminSupabase
+    .from("accounts")
+    .insert({ name, kind: "shadchanus" })
+    .select()
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(
+      `Failed to create second-context account: ${accountError?.message}`,
+    );
+  }
+
+  const { error: membershipError } = await adminSupabase
+    .from("account_members")
+    .insert({
+      account_id: account.id,
+      user_id: member.user_id,
+      role: "shadchan",
+      status: "active",
+    });
+
+  if (membershipError) {
+    throw new Error(
+      `Failed to create second-context membership for member ${member.user_id}: ${membershipError.message}`,
+    );
+  }
+
+  return account;
+}
+
+/**
  * Seeds a pending invite directly (Story 2.7) — the same shape as the
  * platform-ops genesis seed the story's Dev Notes describe (two inserts:
  * one account, one invite row), not a call to create_invite() itself, since
@@ -270,11 +316,12 @@ export async function fetchOtpCode(email: string): Promise<string> {
  * `signIn()` could land first and then get stomped when the app's redirect
  * to "#/" finally fired (see e2e/invite-sending.spec.ts's history: the
  * "#invite-email" locator kept timing out because the URL had bounced back
- * to "#/" underneath it). Waiting here for the "Pipeline" nav link — the
- * same universal anchor pipeline.spec.ts already asserts on — closes that
- * race for every caller, present and future: it's rendered by both the
- * desktop Sidebar and the mobile bottom nav (PRIMARY_NAV), unlike e.g.
- * "Settings", which is tucked behind a "More" dropdown on mobile.
+ * to "#/" underneath it). Waiting here for the "Shidduchim" nav link — the
+ * same universal anchor pipeline.spec.ts already asserts on (relabelled from
+ * "Pipeline" by Story 4.4) — closes that race for every caller, present and
+ * future: it's rendered by both the desktop Sidebar and the mobile bottom
+ * nav (PRIMARY_NAV), unlike e.g. "Settings", which is tucked behind a
+ * "More" dropdown on mobile.
  */
 async function signIn(page: Page, email: string) {
   await page.goto(`${APP_URL}/#/login`);
@@ -286,7 +333,7 @@ async function signIn(page: Page, email: string) {
   await page.getByLabel("Code").fill(code);
   await page.getByRole("button", { name: "Sign in" }).click();
 
-  await expect(page.getByRole("link", { name: "Pipeline" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Shidduchim" })).toBeVisible();
 }
 
 export const test = base.extend<{
@@ -294,6 +341,7 @@ export const test = base.extend<{
   createMember: typeof createMember;
   createSingle: typeof createSingle;
   createShadchan: typeof createShadchan;
+  createSecondContext: typeof createSecondContext;
   createInvite: typeof createInvite;
   signIn: typeof signIn;
 }>({
@@ -317,6 +365,9 @@ export const test = base.extend<{
   },
   createShadchan: async ({}, cb) => {
     await cb(createShadchan);
+  },
+  createSecondContext: async ({}, cb) => {
+    await cb(createSecondContext);
   },
   createInvite: async ({}, cb) => {
     await cb(createInvite);

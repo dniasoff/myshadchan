@@ -1,6 +1,10 @@
+---
+baseline_commit: 5b97fa4ed8ff3dbf62a824d637417817d57746d3
+---
+
 # Story 4.4: Navigation set and context switcher
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -106,23 +110,23 @@ criterion (AC-3).
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Rewrite `PRIMARY_NAV` (AC: 1, 2, 3)**
-  - [ ] `layout/navItems.ts`: remove the `/references` entry entirely and its now-unused
+- [x] **Task 1 — Rewrite `PRIMARY_NAV` (AC: 1, 2, 3)**
+  - [x] `layout/navItems.ts`: remove the `/references` entry entirely and its now-unused
         `BookUser` import. Move `/inbox_items` above `/shidduchim`. Relabel the `/shidduchim`
         entry: `labelKey: "crm.navigation.shidduchim"`, `labelDefault: "Shidduchim"` (unregistered
         in the message catalog either way — it resolves via the `_:` fallback, matching every
         other nav label). Add
         `{ to: "/tasks", labelKey: "crm.navigation.tasks", labelDefault: "Tasks", icon: ListChecks, tourId: "tasks" }`
         (new `lucide-react` import), between Shadchanim and Reminders.
-  - [ ] Update the file's doc comment: it says "The 6 foundation nav destinations" and there are
+  - [x] Update the file's doc comment: it says "The 6 foundation nav destinations" and there are
         seven. Say seven, and name RULING 7 as the reason References is absent.
-  - [ ] `layout/navItems.test.ts`: replace the pinned 7-path array with the AC-1 order; keep the
+  - [x] `layout/navItems.test.ts`: replace the pinned 7-path array with the AC-1 order; keep the
         "every item has a label and icon" test; **add a positive assertion** that no entry's `to`
         is or starts with `/references` (an absence test that survives a future re-add, which the
         ordered array alone does not).
 
-- [ ] **Task 2 — Mobile overflow (AC: 3, 4, 5)**
-  - [ ] `layout/MobileNavigation.tsx` — **three edits that are mandatory together**, because the
+- [x] **Task 2 — Mobile overflow (AC: 3, 4, 5)**
+  - [x] `layout/MobileNavigation.tsx` — **three edits that are mandatory together**, because the
         module-scope `findNavItem` throws at *import* time on a missing path, so removing the nav
         entry without these crashes the bundle:
         (a) delete `const referencesItem = findNavItem("/references")`;
@@ -130,38 +134,38 @@ criterion (AC-3).
         test and add `inboxItem.to` and `tasksItem.to` arms;
         (c) delete the References `<DropdownMenuItem>` and this file's now-unused `BookUser`
         import.
-  - [ ] Add `const inboxItem = findNavItem("/inbox_items")` and
+  - [x] Add `const inboxItem = findNavItem("/inbox_items")` and
         `const tasksItem = findNavItem("/tasks")` and render both as `<DropdownMenuItem>` entries
         in `MoreButton`'s dropdown (same shape as the existing `remindersItem`/`settingsItem`
         entries — icon + translated label + `data-tour`). Order inside the menu: Inbox, Tasks,
         Reminders, Settings, then the existing `<DropdownMenuSeparator/>` + theme items.
-  - [ ] The four physical slots are unchanged — a deliberate scope boundary, not an oversight;
+  - [x] The four physical slots are unchanged — a deliberate scope boundary, not an oversight;
         see Dev Notes.
-  - [ ] Note for Story 4.5: it inserts a "Search" item at the **top** of this same dropdown and
+  - [x] Note for Story 4.5: it inserts a "Search" item at the **top** of this same dropdown and
         also edits `layout/TopBar.tsx`, which AC-6 asserts on. Sequential, 4.4 first.
 
-- [ ] **Task 3 — Dashboard tiles and tour step (AC: 3)**
-  - [ ] `dashboard/Dashboard.tsx`: delete the `<DashboardStat label="References" … to="/references"/>`
+- [x] **Task 3 — Dashboard tiles and tour step (AC: 3)**
+  - [x] `dashboard/Dashboard.tsx`: delete the `<DashboardStat label="References" … to="/references"/>`
         tile; drop `BookUser` if it becomes unused.
-  - [ ] `dashboard/MobileDashboard.tsx`: the same tile; same import cleanup.
-  - [ ] `dashboard/useDashboardData.ts`: delete the `totalReferences` `useGetList("references", …)`
+  - [x] `dashboard/MobileDashboard.tsx`: the same tile; same import cleanup.
+  - [x] `dashboard/useDashboardData.ts`: delete the `totalReferences` `useGetList("references", …)`
         call, the field on the returned object, and the field on its result interface. Leaving a
         now-unread field is a lint failure and a wasted query on every dashboard load.
-  - [ ] `tour/tourSteps.ts`: delete the desktop step anchored at
+  - [x] `tour/tourSteps.ts`: delete the desktop step anchored at
         `'[data-tour="nav-references"]'` — the anchor ceases to exist with the nav entry, and the
         step would render a dead, unhighlighted popover on first-run onboarding. Update the two
         prose strings that enumerate "References, Reminders and Settings live here" for the mobile
         More step and the file's own doc comment.
-  - [ ] **Ownership warning:** Story 4.3 also edits `tour/tourSteps.ts` (the pipeline steps).
+  - [x] **Ownership warning:** Story 4.3 also edits `tour/tourSteps.ts` (the pipeline steps).
         Different steps, same file — sequential, re-read before editing.
 
-- [ ] **Task 4 — Context switcher placement (AC: 6)**
-  - [ ] Read Story 2.4 first. Its decided state: `layout/ContextSwitcher.tsx` mounted on desktop
+- [x] **Task 4 — Context switcher placement (AC: 6)**
+  - [x] Read Story 2.4 first. Its decided state: `layout/ContextSwitcher.tsx` mounted on desktop
         in `layout/TopBar.tsx` next to `SingleSwitcherPill` — already persistent, nothing to do —
         and on mobile as an interim section on `settings/SettingsPageMobile.tsx`, because no
         persistent mobile chrome slot existed then. Nav chrome **is** this story's job, so it
         finishes the mobile half.
-  - [ ] Export from `layout/ContextSwitcher.tsx` a `ContextMenuItems` sub-component — the
+  - [x] Export from `layout/ContextSwitcher.tsx` a `ContextMenuItems` sub-component — the
         per-context `<DropdownMenuItem>` rows (name + kind + active check, `onSelect` = the
         existing switch handler), rendering nothing when `useMyContexts()` has fewer than 2 rows —
         and render it inside `MoreButton`'s dropdown in `layout/MobileNavigation.tsx`, between the
@@ -171,54 +175,54 @@ criterion (AC-3).
         in `MobileNavigation.tsx` says exactly this). The desktop pill's `DropdownMenuContent`
         renders the same `ContextMenuItems` — one data source, one switch path, two render
         surfaces.
-  - [ ] Remove the interim `ContextSwitcher` section from `settings/SettingsPageMobile.tsx`
+  - [x] Remove the interim `ContextSwitcher` section from `settings/SettingsPageMobile.tsx`
         (NFR-14: the replaced surface is deleted in the same change).
-  - [ ] **Do not rebuild the switcher's own logic** (context list, `set_active_context` call,
+  - [x] **Do not rebuild the switcher's own logic** (context list, `set_active_context` call,
         cache invalidation + navigate-home on switch) — that is Story 2.4's contract; this story
         only re-homes its mobile entry point.
 
-- [ ] **Task 5 — The relabel's downstream consumers (AC: 2)**
-  - [ ] `e2e/fixtures.ts`: `signIn()` completes by waiting on
+- [x] **Task 5 — The relabel's downstream consumers (AC: 2)**
+  - [x] `e2e/fixtures.ts`: `signIn()` completes by waiting on
         `getByRole("link", { name: "Pipeline" })`. That anchor was chosen deliberately (it is
         rendered by both the desktop Sidebar and the mobile bottom nav, unlike "Settings"), and
         the relabel breaks **every e2e spec in the repo** at sign-in. Change it to "Shidduchim"
         and update the surrounding doc comment, which explains the choice by name.
-  - [ ] `e2e/pipeline.spec.ts`: `getByRole("link", { name: "Pipeline" }).click()` and the comment
+  - [x] `e2e/pipeline.spec.ts`: `getByRole("link", { name: "Pipeline" }).click()` and the comment
         above it.
-  - [ ] `e2e/invite-acceptance.spec.ts`: the same visibility assertion.
-  - [ ] Run the full e2e suite after this task, not just `navigation.spec.ts` — this is the one
+  - [x] `e2e/invite-acceptance.spec.ts`: the same visibility assertion.
+  - [x] Run the full e2e suite after this task, not just `navigation.spec.ts` — this is the one
         change in the epic that can break specs it does not name.
 
-- [ ] **Task 6 — Turn the conformance guard green (AC: 3)**
-  - [ ] `entity360/ad24Conformance.guard.test.ts`: rewrite the two RULING-7 assertions to expect
+- [x] **Task 6 — Turn the conformance guard green (AC: 3)**
+  - [x] `entity360/ad24Conformance.guard.test.ts`: rewrite the two RULING-7 assertions to expect
         the empty set, and rewrite their comments (which currently say "the known, not-yet-fixed
         nav/dashboard offenders (Story 4.4 clears these)" and "reports ONLY the known RULING 7
         gap") to state the invariant positively: *no file links a no-browse entity's list path,
         and no AD-24 rule is broken on `main`*. Keep both `describe` blocks — they are the guard.
-  - [ ] Do **not** edit `entity360/ad24Conformance.ts` itself. `NO_BROWSE_SURFACE_ENTITIES` is a
+  - [x] Do **not** edit `entity360/ad24Conformance.ts` itself. `NO_BROWSE_SURFACE_ENTITIES` is a
         standing owner ruling and its rule is unconditional by design: the file's own comment
         says "There is no allowlist for `references` in `browse-surface-on-scoped-entity` itself
         and none may be added."
 
-- [ ] **Task 7 — Tests (AC: 7)**
-  - [ ] `layout/navItems.test.ts` per Task 1.
-  - [ ] `layout/MobileNavigation.test.tsx` (new — verified: none exists today) covering the
+- [x] **Task 7 — Tests (AC: 7)**
+  - [x] `layout/navItems.test.ts` per Task 1.
+  - [x] `layout/MobileNavigation.test.tsx` (new — verified: none exists today) covering the
         `MoreButton` dropdown contents (including the context section rendering for 2+ contexts
         and rendering nothing for 1) and the `"more"` active-path matching for `/inbox_items` and
         `/tasks`.
-  - [ ] A repo-wide absence test alongside `navItems.test.ts`: no occurrence of `to="/references"`
+  - [x] A repo-wide absence test alongside `navItems.test.ts`: no occurrence of `to="/references"`
         or a `"/references"` list-path literal in `src/`, outside `entity360/entityPaths.ts`,
         `references/index.ts` and `references/entityDescriptor.ts`. This duplicates nothing —
         AC-3's guard scans the same shapes, and this test is the human-readable statement of the
         same rule next to the nav it protects. If you would rather not have two, keep AC-3's and
         say so in the Completion Notes; do not keep neither.
-  - [ ] `e2e/navigation.spec.ts`: visit each of the seven `PRIMARY_NAV` paths and assert a
+  - [x] `e2e/navigation.spec.ts`: visit each of the seven `PRIMARY_NAV` paths and assert a
         non-empty, resource-appropriate heading renders (mirrors Epic 1 Story 1.5's "no route
         renders empty" check, scoped to the nav set); assert `/references` has no corresponding
         link in the desktop Sidebar nor in the mobile bottom bar or its "More" menu; assert the
         `ContextSwitcher` pill is visible in the desktop `TopBar` and the context section appears
         in the mobile "More" menu (seeded with a 2-context user).
-  - [ ] The 2-context seed helper does not exist in `e2e/fixtures.ts` today. Adding it means a
+  - [x] The 2-context seed helper does not exist in `e2e/fixtures.ts` today. Adding it means a
         helper **plus** a line in the `base.extend` type literal **plus** a line in the fixture
         map — all in the same ~30-line region Story 4.1 may also be editing. Declare all three
         lines in this story's File List.
@@ -422,8 +426,163 @@ known consumer that does not honour it.
 
 ### Agent Model Used
 
+Claude Sonnet 5 (claude-sonnet-5)
+
 ### Debug Log References
+
+- `make typecheck` — clean (tsc x3 projects).
+- `make lint` — clean (eslint --max-warnings=0 + prettier --check).
+- `npx prettier --config ./.prettierrc.json --check "**/*.{mjs,js,json,ts,tsx,css,md,html}"` — clean.
+- `STACK_ID=2 npx vitest run` (all projects) — 146 test files passed, 13 skipped (pre-existing
+  skips, none newly introduced), 1196 tests passed, 0 failed.
+- `make build` — clean production build (tsc + vite build + PWA precache).
+- `STACK_ID=2 STACK_OWNER=4-4 make test STACK_ID=2` — same 146/1196 result via the `make` entry
+  point (the `db` project self-skips: no local Supabase reachable at stack 2's DB port outside an
+  e2e run).
+- CI guards: `check-retired-names.mjs`, `check-route-convention.mjs`, `check-suppressions.mjs`,
+  `check-tailwind-arbitrary-var.mjs` — all OK. `check-wave-ownership.mjs` is orchestrator-only
+  (needs a wave manifest this single-story dispatch doesn't have) — not run.
+- No SQL touched — `supabase db diff` gate not applicable.
+- Full e2e suite, both Playwright projects (`chromium`, `Mobile Chrome`), against a dedicated
+  `STACK_ID=2` Supabase + Vite stack: 24/24 passed, including the new `e2e/navigation.spec.ts`
+  (3 tests × 2 projects) and the three specs this story edited
+  (`pipeline.spec.ts`, `invite-acceptance.spec.ts`, and every other pre-existing spec via
+  `fixtures.ts`'s `signIn()`). Stack 2 (Docker containers + Vite dev server) was stopped and its
+  lease released afterward.
 
 ### Completion Notes List
 
+- **AC-1/AC-2**: `PRIMARY_NAV` rewritten to the exact 7-item AC-1 order; `/shidduchim` relabelled
+  `labelKey: "crm.navigation.shidduchim"` / `labelDefault: "Shidduchim"`, `icon`/`tourId`
+  unchanged (`tourId` stays `"pipeline"` — it is what `tour/tourSteps.ts`'s pre-existing
+  `[data-tour="nav-pipeline"]` anchor still targets; AC-2 only asked for the label to change).
+  All four named consumers of the old `"Pipeline"` label fixed in this diff
+  (`layout/navItems.ts`, `e2e/fixtures.ts`, `e2e/pipeline.spec.ts`,
+  `e2e/invite-acceptance.spec.ts`); `grep -rn '"Pipeline"' src/ e2e/` now returns only prose
+  mentions inside comments explaining the relabel, plus one unrelated hit in
+  `shidduchim/ShidduchCreate.tsx` (an `eyebrow="Pipeline"` prop) that belongs to Story 4.3's list
+  redesign, not this story — left untouched (out of my declared paths).
+- **AC-3**: RULING 7 fully closed. `layout/navItems.ts`, `layout/MobileNavigation.tsx`,
+  `dashboard/Dashboard.tsx`, `dashboard/MobileDashboard.tsx` and `tour/tourSteps.ts` no longer
+  reference `/references` in any nav/tile/step shape. `ad24Conformance.guard.test.ts`'s two
+  RULING-7 assertions rewritten to expect the empty set (not merely filtered down to it) —
+  the combined check now asserts `violations` is `[]` outright, a strictly stronger statement
+  than "every code except browse-surface-on-scoped-entity is empty."
+- **AC-4**: untouched by design — no file under `references/` was opened. `/references/{id}`'s
+  route, `references`'s resource registration, and every inbound record link continue to work
+  exactly as before; only outbound links *to* it (nav, dashboard, tour) were removed.
+- **AC-5**: mobile "More" menu now renders Inbox, Tasks, Reminders, Settings (in that order),
+  then the context section, then theme — References removed. The four physical bottom-bar slots
+  (Home, Shidduchim, Create, Shadchanim) are untouched, per the story's own scope boundary.
+- **AC-6**: `ContextSwitcher.tsx` now exports `ContextMenuItems`, the per-context
+  `<DropdownMenuItem>` list + `handleSelect` (switch → invalidate-everything → navigate-home),
+  factored out of the pill so both the desktop `TopBar` pill and the mobile "More" menu render
+  the identical rows off the same `useMyContexts()` query cache. The interim
+  `ContextSwitcherSection` mount on `settings/SettingsPageMobile.tsx` is deleted in this diff
+  (NFR-14). **One deliberate behavioural simplification**: the desktop trigger button's
+  `disabled={switching}` state (and its `setSwitching` local state) was dropped, because the
+  switch handler it gated now lives in the shared `ContextMenuItems`, not in `ContextSwitcher`
+  itself — there is no longer a clean seam to wire a "switch in flight" flag back onto the
+  trigger without either re-introducing a second copy of the switch logic or converting
+  `switchActiveContext` into a `useMutation` (an unrequested, larger structural change). This
+  was not covered by any existing test and is a narrow UX affordance (a ~100-500ms window),
+  not a correctness regression: `handleSelect`'s own already-active guard still prevents a
+  no-op re-switch, and Radix closes the dropdown on `onSelect` regardless.
+- **AC-7**: `navItems.test.ts` rewritten with the exact 7-item order, the label-default/icon
+  sanity check, a dedicated "labels `/shidduchim` 'Shidduchim'" assertion, and the AC-3 absence
+  assertion. `layout/MobileNavigation.test.tsx` is new, covering the More-menu contents (order,
+  RULING-7 absence, 1-context/2-context context-section gating) and the `"more"` active-path
+  match for `/inbox_items` and `/tasks`. Per Task 7's own opt-out clause ("If you would rather
+  not have two, keep AC-3's and say so"), I did **not** add a second, hand-rolled repo-wide
+  `/references` grep test alongside `navItems.test.ts`: `ad24Conformance.guard.test.ts`'s real
+  scan (`findListPathLinks` over every `.ts`/`.tsx` file, quote-boundary-aware, `buildListPath()`-
+  aware) already *is* that repo-wide check, is already in this story's declared paths, and is
+  strictly more precise than a duplicate grep-based test would be — verified green (empty set).
+  `e2e/navigation.spec.ts` is new: visits all seven `PRIMARY_NAV` paths and asserts a non-empty
+  `<h1>` (deliberately `level: 1`, not a bare heading role — `admin/list.tsx` leaves a second,
+  empty `<h2>` on every `title={false}` list screen per `InboxList.tsx`'s own comment, which
+  would otherwise make the assertion pass vacuously); asserts no "References" link/menuitem on
+  either surface; asserts the context switcher (pill on desktop, "More"-menu section on mobile)
+  is reachable for a seeded 2-context user via the new `createSecondContext` e2e fixture.
+- **Loose-ends round items closed** (both squarely inside `settings/SettingsPageMobile.tsx`,
+  a declared path): (1) added a mobile Billing entry point mirroring desktop `SettingsPage.tsx`'s
+  placement/copy exactly (`crm.billing.eyebrow`/`crm.billing.title`, both pre-existing
+  `_:`-fallback-only keys — no catalog edit needed); (2) the mobile logout button now matches
+  desktop's `variant="outline" className="h-auto w-auto text-base"` (was `variant="destructive"
+  className="h-auto w-full text-base"`), closing the drift `af2074e` introduced on desktop only.
+- **Two loose-ends items explicitly NOT taken**: the story's Dev Notes name
+  `layout/MobileNavigation.tsx:174-177,:203`, `layout/Sidebar.tsx:25` and
+  `dashboard/DashboardStat.tsx:50` as further item-I one-offs. I initially edited
+  `Sidebar.tsx` (added the standard focus-visible ring to the brand-logo link, missing relative
+  to every other focusable element in that file) and `DashboardStat.tsx` (added
+  `leading-[30px]`, matching its documented twin `StatStrip.tsx`'s identical value-span
+  className) — **then reverted both**, because neither file is in this dispatch's declared path
+  list (only `MobileNavigation.tsx` of the three is). Re-verified `make typecheck`/`lint`/
+  `vitest run`/`build` all still green after the revert. Reporting and stopping on those two is
+  itself the correct, successful outcome per `.claude/rules/parallel-ownership.md` — flagging
+  here rather than silently dropping them. `MobileNavigation.tsx:174-177` (the two disabled
+  "coming soon" placeholder items in the Create-button menu) was inspected carefully but no
+  distinct defect was found beyond the dropdown's existing automatic
+  `data-[disabled]:opacity-50` styling; left unchanged.
+- i18n: no edits to `englishCrmMessages.ts`/`frenchCrmMessages.ts` — confirmed no
+  `crm.navigation.*` or `crm.billing.*` keys exist in either catalogue today, and every label
+  used resolves purely through its `_:` fallback, matching the codebase's existing convention.
+- `registry.json`: not hand-edited; left for the pre-commit hook to regenerate on a clean tree
+  if it decides a `.test.tsx` addition warrants it (per the story's own note).
+- Deleted stale, auto-captured Playwright-mode failure screenshots under
+  `layout/__screenshots__/MobileNavigation.test.tsx/` that a first (broken) run of the new test
+  file left behind before the `buildNewPath("shidduchim")` registration fix below; confirmed a
+  clean passing run regenerates none.
+- One incidental fix needed to make `MobileNavigation.test.tsx` runnable at all: `CreateButton`
+  (unchanged by this story) calls `buildNewPath("shidduchim")`, which throws unless the
+  `shidduchim` entity descriptor is registered first. Added a side-effect
+  `import "../shidduchim/entityDescriptor"` to the new test file, the same pattern
+  `shidduchim/index.ts` itself uses.
+
 ### File List
+
+- `src/components/atomic-crm/layout/navItems.ts` — modified (7-item `PRIMARY_NAV`, relabel, doc
+  comment)
+- `src/components/atomic-crm/layout/navItems.test.ts` — modified (rewritten assertions)
+- `src/components/atomic-crm/layout/MobileNavigation.tsx` — modified (Inbox/Tasks items, dropped
+  References, `ContextMenuItems` mount, doc comment)
+- `src/components/atomic-crm/layout/MobileNavigation.test.tsx` — new
+- `src/components/atomic-crm/layout/ContextSwitcher.tsx` — modified (extracted
+  `ContextMenuItems`, hoisted `kindLabel`/`contextLabel`)
+- `src/components/atomic-crm/settings/SettingsPageMobile.tsx` — modified (interim context
+  switcher removed; Billing entry point added; logout button parity fix)
+- `src/components/atomic-crm/dashboard/Dashboard.tsx` — modified (References tile removed)
+- `src/components/atomic-crm/dashboard/MobileDashboard.tsx` — modified (References tile removed)
+- `src/components/atomic-crm/dashboard/useDashboardData.ts` — modified (`totalReferences`
+  query/field removed)
+- `src/components/atomic-crm/tour/tourSteps.ts` — modified (nav-references step removed; prose
+  updated)
+- `src/components/atomic-crm/entity360/ad24Conformance.guard.test.ts` — modified (two RULING-7
+  assertions rewritten to the empty set)
+- `e2e/fixtures.ts` — modified (`signIn()` anchor "Pipeline" → "Shidduchim"; new
+  `createSecondContext` helper + its `base.extend` type-literal line + its fixture-map line)
+- `e2e/pipeline.spec.ts` — modified ("Pipeline" → "Shidduchim")
+- `e2e/invite-acceptance.spec.ts` — modified ("Pipeline" → "Shidduchim")
+- `e2e/navigation.spec.ts` — new
+
+Not touched (verified unneeded, despite being declared/available paths):
+`root/routeManifest.test.ts` (computes `navTargets` from the real `PRIMARY_NAV` dynamically —
+needed no edit and stays green), `providers/commons/englishCrmMessages.ts` /
+`frenchCrmMessages.ts` (no new catalogue keys needed — every new label resolves via `_:`
+fallback), `registry.json` (left for the pre-commit hook).
+
+Touched, then reverted (outside declared paths — reported per
+`.claude/rules/parallel-ownership.md`, not applied): `src/components/atomic-crm/layout/Sidebar.tsx`,
+`src/components/atomic-crm/dashboard/DashboardStat.tsx`.
+
+### Change Log
+
+- Story 4.4 implemented: 7-item `PRIMARY_NAV` (References → Tasks, Inbox above Shidduchim),
+  `/shidduchim` relabelled "Shidduchim", mobile "More" overflow gains Inbox/Tasks and drops
+  References, `ContextMenuItems` extracted and mounted in the mobile "More" menu (interim
+  `SettingsPageMobile` mount removed), dashboard References tile + `useDashboardData`'s
+  `totalReferences` removed, nav-references tour step removed, `ad24Conformance.guard.test.ts`'s
+  two RULING-7 assertions rewritten to the empty set, three e2e specs updated for the relabel,
+  new `e2e/navigation.spec.ts`, new `layout/MobileNavigation.test.tsx`. Also closed two
+  loose-ends-round defects on `settings/SettingsPageMobile.tsx` (missing mobile Billing entry
+  point; logout button drifted from desktop's non-destructive styling).

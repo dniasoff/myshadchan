@@ -7,28 +7,18 @@ export interface TourStepsOptions {
   prefersReducedMotion: boolean;
   /**
    * `MobileLayout` renders no `TopBar` (no single-switcher pill), and
-   * References/Reminders/Settings live inside the closed "More" dropdown of
+   * Inbox/Tasks/Reminders/Settings live inside the closed "More" dropdown of
    * `MobileNavigation` rather than as standalone nav items — so those
    * anchors don't exist in the DOM until opened. On mobile we drop the
-   * single-switcher step and collapse the three individual nav steps into
-   * one step anchored to the "More" button instead of leaving dead,
+   * single-switcher step and collapse the individual nav steps into one
+   * step anchored to the "More" button instead of leaving dead,
    * unhighlighted popovers.
    */
   isMobile: boolean;
 }
 
-/** Desktop only: References and Reminders each get their own sidebar step. */
+/** Desktop only: Reminders gets its own sidebar step. */
 const desktopNavSteps: DriveStep[] = [
-  {
-    element: '[data-tour="nav-references"]',
-    popover: {
-      title: "References",
-      description:
-        "The people you call to check into a suggestion — with every call logged in one place.",
-      side: "right",
-      align: "start",
-    },
-  },
   {
     element: '[data-tour="nav-reminders"]',
     popover: {
@@ -42,16 +32,16 @@ const desktopNavSteps: DriveStep[] = [
 ];
 
 /**
- * Mobile only: References, Reminders and Settings are collapsed into the
+ * Mobile only: Inbox, Tasks, Reminders and Settings are collapsed into the
  * bottom nav's "More" button (`MobileNavigation`) rather than shown
- * individually, so one step introduces all three at once.
+ * individually, so one step introduces all four at once.
  */
 const mobileMoreStep: DriveStep = {
   element: '[data-tour="nav-more"]',
   popover: {
     title: "More",
     description:
-      "References, Reminders and Settings live here — tap More to reach them.",
+      "Inbox, Tasks, Reminders and Settings live here — tap More to reach them.",
     side: "top",
     align: "end",
   },
@@ -75,7 +65,7 @@ const desktopSingleSwitcherStep: DriveStep = {
  * dashboard; step 9 crosses over to `/shidduchim` (the only navigation in
  * the tour, driven by step 8's `onNextClick`); steps 9-12 live on the board;
  * step 13 returns attention to the always-present demo banner. On mobile,
- * the References/Reminders/Settings/single-switcher steps are adapted — see
+ * the Inbox/Tasks/Reminders/Settings/single-switcher steps are adapted — see
  * `TourStepsOptions.isMobile`.
  */
 export const buildTourSteps = ({

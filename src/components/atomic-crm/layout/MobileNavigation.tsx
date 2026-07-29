@@ -1,8 +1,9 @@
 import {
   BellRing,
-  BookUser,
   Check,
   Home,
+  Inbox,
+  ListChecks,
   Moon,
   MoreHorizontal,
   Plus,
@@ -25,6 +26,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { buildNewPath } from "../entity360/entityPaths";
+import { ContextMenuItems } from "./ContextSwitcher";
 import { PRIMARY_NAV } from "./navItems";
 
 const findNavItem = (to: string) => {
@@ -35,15 +37,19 @@ const findNavItem = (to: string) => {
 
 const pipelineItem = findNavItem("/shidduchim");
 const shadchanimItem = findNavItem("/shadchanim");
-const referencesItem = findNavItem("/references");
+const inboxItem = findNavItem("/inbox_items");
+const tasksItem = findNavItem("/tasks");
 const remindersItem = findNavItem("/reminders");
 const settingsItem = findNavItem("/settings");
 
 /**
- * Mobile bottom nav (foundation-plan §3): 5-slot glass bar — Home, Pipeline,
- * a raised center capture button, Shadchanim, and a "More" menu holding
- * References / Reminders / Settings / theme. Paths & labels are pulled from
- * `PRIMARY_NAV` (single source of truth shared with the desktop Sidebar).
+ * Mobile bottom nav (foundation-plan §3): 5-slot glass bar — Home,
+ * Shidduchim, a raised center capture button, Shadchanim, and a "More" menu
+ * holding Inbox / Tasks / Reminders / Settings, then the context switcher
+ * (Story 4.4 NFR-14 — re-homed from an interim `SettingsPageMobile` mount),
+ * then theme. Paths & labels are pulled from `PRIMARY_NAV` (single source of
+ * truth shared with the desktop Sidebar). RULING 7: references has no entry
+ * here — no nav slot, no "More" item.
  */
 export const MobileNavigation = () => {
   const location = useLocation();
@@ -57,7 +63,8 @@ export const MobileNavigation = () => {
   } else if (matchPath(`${shadchanimItem.to}/*`, location.pathname)) {
     currentPath = shadchanimItem.to;
   } else if (
-    matchPath(`${referencesItem.to}/*`, location.pathname) ||
+    matchPath(inboxItem.to, location.pathname) ||
+    matchPath(tasksItem.to, location.pathname) ||
     matchPath(remindersItem.to, location.pathname) ||
     matchPath(settingsItem.to, location.pathname)
   ) {
@@ -203,15 +210,22 @@ const MoreButton = ({ isActive }: { isActive: boolean }) => {
       <DropdownMenuContent align="end" className="mb-2">
         <DropdownMenuItem asChild>
           <Link
-            to={referencesItem.to}
-            data-tour={`nav-${referencesItem.tourId}`}
+            to={inboxItem.to}
+            data-tour={`nav-${inboxItem.tourId}`}
             className="flex items-center gap-2"
           >
-            <BookUser className="size-4" aria-hidden="true" />
-            {translate(referencesItem.labelKey, {
-              smart_count: 2,
-              _: referencesItem.labelDefault,
-            })}
+            <Inbox className="size-4" aria-hidden="true" />
+            {translate(inboxItem.labelKey, { _: inboxItem.labelDefault })}
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link
+            to={tasksItem.to}
+            data-tour={`nav-${tasksItem.tourId}`}
+            className="flex items-center gap-2"
+          >
+            <ListChecks className="size-4" aria-hidden="true" />
+            {translate(tasksItem.labelKey, { _: tasksItem.labelDefault })}
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
@@ -239,6 +253,8 @@ const MoreButton = ({ isActive }: { isActive: boolean }) => {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        <ContextMenuItems />
+        <DropdownMenuSeparator />
         <ThemeMenuItems />
       </DropdownMenuContent>
     </DropdownMenu>
@@ -250,6 +266,8 @@ const MoreButton = ({ isActive }: { isActive: boolean }) => {
  * trigger button — that trigger is `hidden` below the `sm` breakpoint (it
  * assumes a desktop top-bar host) and nesting its own DropdownMenu inside
  * this one would be fragile. Reuses the same `useTheme()` hook instead.
+ * `ContextMenuItems` above follows the same inline-items precedent, for the
+ * same reason (Story 4.4).
  */
 const ThemeMenuItems = () => {
   const { theme, setTheme } = useTheme();

@@ -353,25 +353,18 @@ const listPathLinkFiles = Object.fromEntries(
 const listPathLinks = findListPathLinks(listPathLinkFiles, noBrowseNames);
 
 describe("AD-24 conformance guard — no-browse list-path links (AC 10b)", () => {
-  it("finds exactly the known, not-yet-fixed nav/dashboard offenders (Story 4.4 clears these)", () => {
-    // Assert — RULING 7 is applied by Story 4.4 (Navigation set), out of
-    // this story's scope boundary (see AC 10's "Ordering" note). Until
-    // then, these four files are the honest, current, falsifiable state.
-    expect(new Set(listPathLinks)).toEqual(
-      new Set([
-        "dashboard/Dashboard.tsx",
-        "dashboard/MobileDashboard.tsx",
-        "layout/MobileNavigation.tsx",
-        "layout/navItems.ts",
-      ]),
-    );
+  it("finds no file linking to a no-browse entity's list path — RULING 7 is fully applied on main", () => {
+    // Assert — Story 4.4 (Navigation set) removed every PRIMARY_NAV entry,
+    // dashboard tile and mobile "More" item naming a no-browse entity's list
+    // path. No file in the tree links to one any more.
+    expect(new Set(listPathLinks)).toEqual(new Set());
   });
 });
 
 // --- The combined real check -------------------------------------------------
 
 describe("findAd24Violations — real manifest, registry and scans (Task 4/6)", () => {
-  it("reports ONLY the known RULING 7 gap (Story 4.4) — no other AD-24 rule is broken on main", () => {
+  it("reports no AD-24 violations on main — RULING 7 is fully closed (Story 4.4)", () => {
     // Arrange
     const descriptors = new Map(
       RESOURCES.map((r): [string, EntityDescriptor | undefined] => [
@@ -393,25 +386,10 @@ describe("findAd24Violations — real manifest, registry and scans (Task 4/6)", 
       listPathLinks,
     });
 
-    // Assert — every code OTHER than the RULING 7 gap must be absent...
-    const other = violations.filter(
-      (v) => v.code !== "browse-surface-on-scoped-entity",
-    );
-    expect(other).toEqual([]);
-
-    // ...and the gap itself is EXACTLY today's known five sites: one
-    // PRIMARY_NAV entry (AC 10a) plus four files still linking to it
-    // (AC 10b). This assertion is EXPECTED to start failing, in the good
-    // direction, the moment Story 4.4 lands — at which point it (and this
-    // whole describe block's premise) should be deleted in the same diff.
-    expect(new Set(violations.map((v) => v.subject))).toEqual(
-      new Set([
-        "references",
-        "dashboard/Dashboard.tsx",
-        "dashboard/MobileDashboard.tsx",
-        "layout/MobileNavigation.tsx",
-        "layout/navItems.ts",
-      ]),
-    );
+    // Assert — every AD-24 rule, including RULING 7
+    // (browse-surface-on-scoped-entity), is clean on main now that Story 4.4
+    // removed the `/references` PRIMARY_NAV entry, the mobile "More" item
+    // and both dashboard tiles naming a no-browse entity's list path.
+    expect(violations).toEqual([]);
   });
 });

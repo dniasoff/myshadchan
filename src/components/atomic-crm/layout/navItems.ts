@@ -1,9 +1,9 @@
 import {
   BellRing,
-  BookUser,
   Inbox,
   KanbanSquare,
   LayoutDashboard,
+  ListChecks,
   Settings,
   Users,
   type LucideIcon,
@@ -24,9 +24,14 @@ export interface NavItem {
 }
 
 /**
- * The 6 foundation nav destinations, in display order. Deliberately excludes
- * every generic CRM resource — this is a shidduchim app, not a general CRM
- * (foundation-plan §2).
+ * The 7 foundation nav destinations, in display order (Story 4.4). Deliberately
+ * excludes every generic CRM resource — this is a shidduchim app, not a general
+ * CRM (foundation-plan §2). `references` is also deliberately absent: RULING 7
+ * (`entity360/ad24Conformance.ts`'s `NO_BROWSE_SURFACE_ENTITIES`) — a reference
+ * exists only within a shidduch's context, so it gets no nav entry, no list, no
+ * dashboard tile and no tour step. It keeps its own full 360 at
+ * `/references/{id}`, reachable from inside a shidduch's record, just never
+ * from primary nav.
  */
 export const PRIMARY_NAV: NavItem[] = [
   {
@@ -37,18 +42,18 @@ export const PRIMARY_NAV: NavItem[] = [
     tourId: "dashboard",
   },
   {
-    to: "/shidduchim",
-    labelKey: "crm.navigation.pipeline",
-    labelDefault: "Pipeline",
-    icon: KanbanSquare,
-    tourId: "pipeline",
-  },
-  {
     to: "/inbox_items",
     labelKey: "crm.navigation.inbox",
     labelDefault: "Inbox",
     icon: Inbox,
     tourId: "inbox",
+  },
+  {
+    to: "/shidduchim",
+    labelKey: "crm.navigation.shidduchim",
+    labelDefault: "Shidduchim",
+    icon: KanbanSquare,
+    tourId: "pipeline",
   },
   {
     to: "/shadchanim",
@@ -58,11 +63,11 @@ export const PRIMARY_NAV: NavItem[] = [
     tourId: "shadchanim",
   },
   {
-    to: "/references",
-    labelKey: "resources.references.name",
-    labelDefault: "References",
-    icon: BookUser,
-    tourId: "references",
+    to: "/tasks",
+    labelKey: "crm.navigation.tasks",
+    labelDefault: "Tasks",
+    icon: ListChecks,
+    tourId: "tasks",
   },
   {
     to: "/reminders",

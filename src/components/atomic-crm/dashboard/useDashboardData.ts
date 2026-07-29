@@ -12,7 +12,6 @@ export interface DashboardData {
   setSingleId: (id: Identifier) => void;
   hasSuggestions: boolean;
   totalShadchanim: number;
-  totalReferences: number;
 }
 
 /**
@@ -55,9 +54,6 @@ export const useDashboardData = (): DashboardData => {
   const { total: totalShadchanim } = useGetList("shadchanim", {
     pagination: { page: 1, perPage: 1 },
   });
-  const { total: totalReferences } = useGetList("references", {
-    pagination: { page: 1, perPage: 1 },
-  });
 
   return {
     isPending:
@@ -69,6 +65,5 @@ export const useDashboardData = (): DashboardData => {
     setSingleId,
     hasSuggestions: (totalForSingle ?? 0) > 0,
     totalShadchanim: totalShadchanim ?? 0,
-    totalReferences: totalReferences ?? 0,
   };
 };

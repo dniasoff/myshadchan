@@ -1,4 +1,4 @@
-import { BookUser, Users } from "lucide-react";
+import { Users } from "lucide-react";
 
 import { buildNewPath } from "../entity360/entityPaths";
 import { EmptyState } from "../misc/EmptyState";
@@ -23,7 +23,6 @@ export const Dashboard = () => {
     setSingleId,
     hasSuggestions,
     totalShadchanim,
-    totalReferences,
   } = useDashboardData();
 
   if (isPending) return null;
@@ -64,20 +63,12 @@ export const Dashboard = () => {
               <RecentSuggestions singleId={selectedSingleId} />
             </div>
             <div className="flex flex-col gap-6 lg:col-span-4">
-              <div className="grid grid-cols-2 gap-4">
-                <DashboardStat
-                  label="Shadchanim"
-                  value={totalShadchanim}
-                  icon={Users}
-                  to="/shadchanim"
-                />
-                <DashboardStat
-                  label="References"
-                  value={totalReferences}
-                  icon={BookUser}
-                  to="/references"
-                />
-              </div>
+              <DashboardStat
+                label="Shadchanim"
+                value={totalShadchanim}
+                icon={Users}
+                to="/shadchanim"
+              />
               <AttentionSection />
             </div>
           </div>
