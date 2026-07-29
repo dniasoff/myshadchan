@@ -383,7 +383,7 @@ describe("runOrderingCheck", () => {
     const manifest = {
       "story-1.5": ["src/components/atomic-crm/root/routeManifest.ts"],
       "story-1.2": {
-        paths: ["src/components/atomic-crm/sales/**"],
+        paths: ["src/components/atomic-crm/members/**"],
         after: ["story-1.5"],
       },
     };

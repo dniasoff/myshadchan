@@ -88,6 +88,14 @@ in the same change; notes now live only in the Notes tab.
    membership in the account cannot read that account's shadchan-targeted `interactions`/`tasks`
    rows (the existing account-scope branch already proves this shape for `reference`/`shidduch`
    targets — extend the same test, do not write a new test style).
+6. **Given** the widened `shadchan_stats` (RULING 8 / Task 2b), **when** a login active in a
+   different account reads the view, **then** it returns no row for this account's shadchanim,
+   and `select reloptions from pg_class where relname = 'shadchan_stats';` still shows
+   `security_invoker=on`. Both halves are asserted: a view recreated **without**
+   `security_invoker` runs as its owner, bypasses `shidduchim`' RLS and would publish every
+   account's `last_redt_date` and `nb_open_singles` to every caller — and it would do so
+   silently, because the tab still looks correct to its own tenant. Same one-login-two-accounts
+   shape as AC-5 [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#13 — rule 3].
 
 ## Tasks / Subtasks
 
@@ -107,17 +115,36 @@ in the same change; notes now live only in the Notes tab.
   - [ ] Seed data needs no value migration — verified 2026-07-26: `seed_demo/dataset.ts`'s
         `DemoShadchan` has no `notes` field and `dataGenerator/shidduchim.ts`'s `shadchanimSeed`
         sets none. Just confirm both still compile once `Shadchan.notes` is removed.
+- [ ] **Task 2b — Widen `shadchan_stats` for the Overview tab** (AC: 3, 6 — RULING 8, option B)
+  - [ ] `supabase/schemas/03_views.sql`: add two columns to `public.shadchan_stats` —
+        `max(s.redt_date) as last_redt_date` and
+        `count(distinct s.single_id) filter (where s.pipeline_state in ('new', 'look_into',
+        'not_sure')) as nb_open_singles`. Reuse `singles_summary`'s existing "open" predicate
+        **verbatim** (`03_views.sql:166-190`); do not invent a second definition of open.
+  - [ ] Keep `with (security_invoker = on)` on the recreated view and keep the existing three
+        columns and their names untouched (`nb_suggestions`, `nb_progressed`, `nb_reached_yes` —
+        `ShadchanStatsRow` and Task 3's stat band read them).
+  - [ ] This is this story's **second** migration, separate from Task 2's:
+        `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f shadchan_stats_overview`.
+  - [ ] `types.ts`: add `last_redt_date: string | null` and `nb_open_singles: number` to
+        `ShadchanStats`. FakeRest: extend the emulated `shadchan_stats` view so the demo provider
+        returns both fields.
 - [ ] **Task 3 — Shell wiring** (AC: 3)
   - [ ] Re-register the `shadchanim` descriptor over 3.9's stub with
         `registerEntityDescriptor(descriptor, { replace: true })` — the whole descriptor, not a
         partial merge: identity header = `ShadchanHeader`, stat band = `ShadchanStatsRow`, tabs
         `overview, shidduchim, notes, tasks, activity` (keys from `entity360/tabKeys.ts`).
         [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#4 — rule 2]
-  - [ ] `overview` tab: **blocked on an open decision — do not build it from this line.** The
-        original instruction ("whatever `Shadchan` fields remain outside the header") resolves to
-        `name_he` alone after the mobile-redesign wave S, i.e. to an empty tab. See Dev Notes
-        "Open decision — the Overview tab has no content left (wave S handoff)" and take the
-        option the owner picks.
+  - [ ] `overview` tab: build it from the **widened** `shadchan_stats` (RULING 8 — option B; see
+        Dev Notes "RULING 8 — the Overview tab gets real content"). Render through
+        `entity360/tabs/OverviewTab`: **Last redt** (`last_redt_date`) and **Working on now**
+        (`nb_open_singles` — distinct singles this shadchan has in a non-terminal shidduch), plus
+        `name_he` when it is set. Do **not** re-render Location / Responsiveness / "In your book
+        since": the post-wave-S header already shows all three, and duplicating them is the
+        double-render Task 3 warns against elsewhere. Both new fields come from Task 2b's
+        migration — if the widened view is not in the schema yet, that migration is the blocker,
+        not an open question. `name_he` alone is *not* an acceptable Overview: the original
+        instruction ("whatever `Shadchan` fields remain outside the header") is superseded.
   - [ ] `shidduchim` tab: `ShadchanSuggestions.tsx`, structurally unchanged (already
         `RecordLink`-based post-3.9), mounted as an explicit `tabs` entry with
         `key: "shidduchim"`. An explicit `tabs` entry legitimately overrides the generic
@@ -139,7 +166,9 @@ in the same change; notes now live only in the Notes tab.
   - [ ] Update the shadchanim `buildRecordPath` registration to `/shadchanim/{id}` and 3.9's
         route-pinning test with it.
   - [ ] `grep -rn "/show" src/components/atomic-crm/shadchanim/` returns nothing afterward.
-- [ ] **Task 5 — Tests** (AC: 5)
+- [ ] **Task 5 — Tests** (AC: 5, 6)
+  - [ ] AC-6: assert `shadchan_stats` still carries `security_invoker=on` and that a login active
+        in another account reads no row from it — same one-login-two-accounts shape as AC-5.
   - [ ] Extend the existing cross-account `interactions` test to cover `target_type = 'shadchan'`.
         Cross-tenant negatives are **one login with memberships in two accounts, active in one**
         — never two disjoint users
@@ -152,9 +181,10 @@ in the same change; notes now live only in the Notes tab.
 
 Neither this story nor 5.8 edits `tasks_target_type_check`, `interactions_target_type_check`
 or `interactions_scope_link_check` — Stories 3.5/3.8 already delivered every value both need
-(`'shadchan'`, `'single'`, the scope branches, the RLS branches). The only migration in this
-story is the `shadchanim.notes` backfill-and-drop (Task 2). If a generated diff contains a
-`*_target_type_check` line, the schema files were edited from a stale assumption — revert it.
+(`'shadchan'`, `'single'`, the scope branches, the RLS branches). This story owns exactly two
+migrations: the `shadchanim.notes` backfill-and-drop (Task 2) and the `shadchan_stats` widening
+RULING 8 added (Task 2b). Nothing else. If a generated diff contains a `*_target_type_check`
+line, the schema files were edited from a stale assumption — revert it.
 
 ### What wave S already changed under this story's feet
 
@@ -172,12 +202,21 @@ pointers are now stale — verified against the tree 2026-07-29:
   missing `created_at`, quick actions, no-contact-info). **None asserts the notes block**, so
   Task 2 removes the block without touching that file.
 
-### Open decision — the Overview tab has no content left (wave S handoff)
+### RULING 8 — the Overview tab gets real content (decided 2026-07-29)
 
-**Do not start Task 3's `overview` bullet until the owner has answered this.** Wave S rewrote
-`ShadchanHeader.tsx` as a density-first hero card and in doing so pulled into the header every
-`Shadchan` field the Overview tab was going to show. Verified 2026-07-29 against the shipped
-files:
+**Decided: option B.** The owner was asked what a shadchan's Overview tab should show now that
+the mobile-redesign wave S has moved every existing `Shadchan` field into the header, and ruled:
+**give the tab real content — the last redt, and how many singles this shadchan is currently
+working on.** Options A (defer the tab to `pendingTabs`) and C (drop `overview` from the shadchan
+canonical tab set) are closed; the earlier "Recommendation: A now, B when the aggregate earns its
+migration" is superseded — the aggregate has earned it. Do not re-litigate inside the story.
+
+AC-3's tab list is unchanged by the ruling (`overview, shidduchim, notes, tasks, activity`, with
+`overview` first and therefore the default landing tab), and `registry.stubs.test.ts`'s pinned
+shadchanim row keeps `overview` in `tabs`. What the ruling changes is the story's **cost**: see
+"What option B costs" below.
+
+**Why the question was asked** (verified 2026-07-29 against the shipped files):
 
 - `Shadchan` is exactly `account_id, name, name_he?, location?, contacts?, notes?,
   responsiveness?, created_at, id` (`src/components/atomic-crm/types.ts:220-229`).
@@ -205,31 +244,45 @@ They are *derivable* — `ShadchanSuggestions` already reads this shadchan's shi
 numbers is the argument for widening the aggregate, not against it. Either way it is new work,
 not a field read.
 
-**The options. This story must not pick one silently:**
+**What option B costs — read this as the story's scope, not as a caveat.**
 
-- **A — defer the tab.** Register `tabs` without `overview` and keep `"overview"` in
-  `pendingTabs`; the union rule (`keys(tabs) ∪ pendingTabs === canonical set`, contract §3
-  rule 5) still holds and nothing ships empty. Cost: AC-3's tab list and the pinned shadchanim
-  row in `entity360/registry.stubs.test.ts` both move `overview` from tabs to pending, and the
-  default landing tab becomes `shidduchim`. Reversible the day the tab has content.
-- **B — give it real content.** Widen `shadchan_stats` with a last-redt date and a
-  redt-for-how-many-singles count, then render those (plus `name_he` when set) through
-  `OverviewTab`. Cost: a view change, i.e. a second migration in a story that today owns exactly
-  one, plus the RLS surface that comes with it. Benefit: the tab answers what a parent actually
-  opens a shadchan to ask.
-- **C — fold it away.** Drop `overview` from the shadchan canonical tab set outright. This is a
-  **contract amendment** (§3 rule 5's per-entity sets, `registry.stubs.test.ts`, AC-3), not a
-  story-local choice — it needs the same ruling process that set the tab sets in the first place.
+1. **A second migration. Say it out loud: 5-9 now owns two, not one.** Before the ruling this
+   story's only schema change was Task 2's `shadchanim.notes` backfill-and-drop. RULING 8 adds
+   Task 2b: `shadchan_stats` gains `last_redt_date` (`max(s.redt_date)`) and `nb_open_singles`
+   (`count(distinct s.single_id) filter (where s.pipeline_state in ('new', 'look_into',
+   'not_sure'))`). Two schema edits ⇒ two `db diff` runs ⇒ two migration files; the Ownership
+   note above and the Migration workflow section are written for both. `nb_open_singles` counts
+   **distinct singles**, not shidduchim — that is what "how many singles they're working on"
+   means, and it is why this is not just another `count(s.id) filter (...)` tile.
+2. **"Open" is already defined — do not define it twice.** `singles_summary` (`03_views.sql:166-190`)
+   fixes open as the three active triage states `new/look_into/not_sure`, terminal being
+   `for_sure_not/yes/unsure/no`. Task 2b reuses that predicate verbatim. A second, subtly
+   different notion of "currently working on" in the same schema is exactly the duplicate-concept
+   failure NFR-14 forbids.
+3. **The RLS surface a view change carries.** `shadchan_stats` is `security_invoker = on`
+   (`03_views.sql:202`) — that one setting is the whole reason it is account-safe: base-table RLS
+   on `shadchanim`/`shidduchim` applies to the **caller**, so the view can only aggregate rows the
+   caller may already read. `create or replace view` does not preserve that setting for you if the
+   replacing statement omits it, and a view that runs as its owner leaks silently: the tab still
+   looks right to its own tenant while publishing every account's last-redt dates. So Task 2b
+   keeps `with (security_invoker = on)` explicitly, and **AC-6 asserts both** the setting and a
+   cross-account read returning nothing. Widening a view widens what a mis-created view would
+   leak — the two new columns are per-account activity data, not counts of nothing.
+4. **Typed and demo surfaces follow the view.** `ShadchanStats` (`types.ts:238-243`) gains both
+   fields, and the FakeRest-emulated `shadchan_stats` view must return them too, or the demo
+   provider renders an Overview that the real backend fills and the demo leaves blank.
 
-**Recommendation: A now, B when the aggregate earns its migration.** A is the only option that
-is reversible, ships nothing empty, needs no schema change, and keeps this story to the single
-migration it already owns. B is a real feature and deserves to be scoped as one rather than
-smuggled in under "whatever fields remain".
+**What B does not change.** The stat band stays the existing three tiles — `ShadchanStatsRow` is
+not where the new fields render; the Overview tab is. And the header keeps Location /
+Responsiveness / "In your book since": Overview shows Last redt, Working on now, and `name_he`
+when set, nothing wave S already renders.
 
 ### Reuse checklist (do not re-derive any of these)
 
 - `ShadchanHeader.tsx` — identity header + contact quick actions, unchanged.
-- `shadchan_stats` view + `ShadchanStatsRow` — stat band, unchanged.
+- `shadchan_stats` view + `ShadchanStatsRow` — stat band, unchanged. The view itself is
+  **widened** by Task 2b (RULING 8) for the Overview tab, but its three existing columns and the
+  component that renders them are not touched.
 - `ShadchanSuggestions.tsx` — the shidduchim list, one link-primitive swap plus AD-23 label text.
 
 ### Migration workflow
@@ -240,6 +293,12 @@ hand-check: `db diff` never emits the `insert into interactions select … from 
 backfill (Task 2) — add it by hand, positioned **before** the `drop column notes` statement, or
 the data is gone before it is copied. Then
 `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. Never `db reset`/`db push`.
+
+Task 2b's view widening is a **separate** diff, run after the notes migration is applied:
+`DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f shadchan_stats_overview`.
+Hand-check it re-emits `with (security_invoker = on)` (AC-6) and that it touches nothing but
+`shadchan_stats`; a `create or replace view` diff that drops the option, or that drags in an
+unrelated view, means the schema file was edited from a stale dump.
 
 ### Project Structure Notes
 

@@ -38,8 +38,20 @@ export const ESLINT_DISABLE_BUDGETS = {
   ".claude/skills": 2,
 };
 
+// Epic 3's entity360/ budget of 15 is deliberate and audited (2026-07-29):
+// all 13 real directives are expect-error NEGATIVE TYPE TESTS asserting a
+// wrong shape does not compile (EntityDescriptor missing `label`, a retired
+// TabKey, a className/variant prop on Entity360, onClick on RecordLink, ...),
+// plus 2 lines that merely NAME the directive in prose (a describe title and
+// a docblock), counted because this ratchet matches by line content. Not one
+// is an ignore- or nocheck-style suppression papering over a real error. An
+// expect-error is self-policing in a way those are not: an UNUSED directive
+// is itself a tsc error, so each of the 13 fails `make typecheck` the moment
+// the type it pins stops rejecting the bad shape — they cannot rot silently.
+// Set to the exact surviving count so a 16th requires a deliberate decision.
 export const TS_SUPPRESSION_BUDGETS = {
   "src/components/admin": 5,
+  "src/components/atomic-crm": 15,
   "src/lib": 1,
 };
 

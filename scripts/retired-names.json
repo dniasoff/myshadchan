@@ -41,7 +41,14 @@
       "description": "Every spelling of the retired sales/Sale family (renamed to members) — deliberately a bare, case-insensitive substring, not word-bounded: a word-boundary form misses sales_id, salesId, SalesCreate, useGetSalesName, CURRENT_SALE_CACHE_KEY.",
       "regex": "sale",
       "flags": "i",
-      "exempt": ["wholesale"],
+      "exempt": [
+        "wholesale",
+        "supabase/migrations/20260727122733_rename_sales_to_members.sql"
+      ],
+      "exemptReasons": {
+        "wholesale": "English word that merely contains the retired stem; never an identifier.",
+        "supabase/migrations/20260727122733_rename_sales_to_members.sql": "The rename migration's own immutable filename, quoted verbatim by scripts/check-wave-ownership.test.mjs to prove a migrations glob overlaps a timestamped file; supabase/migrations is deliberately outside scanPaths because applied history cannot be renamed."
+      },
       "exampleFragments": ["sale", "s_id"]
     },
     {
@@ -54,8 +61,19 @@
         "first-child",
         "last-child",
         "only-child",
-        "nth-child"
+        "nth-child",
+        "no key beyond resource/id/children/className/style",
+        "\"resource\" | \"id\" | \"children\" | \"className\" | \"style\""
       ],
+      "exemptReasons": {
+        "node:child_process": "Node's own module specifier.",
+        "first-child": "CSS pseudo-class.",
+        "last-child": "CSS pseudo-class.",
+        "only-child": "CSS pseudo-class.",
+        "nth-child": "CSS pseudo-class.",
+        "no key beyond resource/id/children/className/style": "RecordLink.test.tsx's closed-prop-list test title; `children` here is React's own prop, one of RecordLinkProps' five legitimate keys.",
+        "\"resource\" | \"id\" | \"children\" | \"className\" | \"style\"": "RecordLink.test.tsx's ExpectedKeys union, which must spell React's `children` prop literally to assert RecordLinkProps has exactly those five keys."
+      },
       "exampleFragments": ["child", "_", "id"]
     },
     {

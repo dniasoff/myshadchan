@@ -943,14 +943,14 @@ describe("findAd24Violations — AC 10 RULING 7 fixtures", () => {
   it("(d) reports stale-exemption for a table key naming a resource absent from RESOURCES", () => {
     // Arrange
     const input = baseInput({
-      noBrowseSurfaceEntities: { contacts: "test fixture" },
+      noBrowseSurfaceEntities: { widgets: "test fixture" },
     });
 
     // Act / Assert
     expect(findAd24Violations(input)).toEqual([
       {
         code: "stale-exemption",
-        subject: "contacts",
+        subject: "widgets",
         detail: expect.any(String),
       },
     ]);
