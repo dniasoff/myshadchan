@@ -341,6 +341,26 @@ registry.json                                              (regenerated)
 - [Source: .claude/rules/security-triggers.md], [Source: .claude/rules/testing.md],
   [Source: .claude/skills/e2e-conventions/SKILL.md], [Source: .claude/rules/parallel-ownership.md]
 
+### Inherited from the loose-ends round (commit `af2074e`)
+
+The Epic 1–3 loose-ends round ran in parallel with Epic 4 on `main`. Two findings fell inside this
+story's declared paths, so it reported and stopped rather than taking them
+(`.claude/rules/parallel-ownership.md`, "Out-of-scope work is reported, not taken").
+
+1. **`layout/MobileHeader.tsx:3` does not honour `--banner-h`, and that is now visible from the
+   first frame.** `layout/DemoBanner.tsx` measures its own height and publishes it as `--banner-h`
+   on `document.documentElement`; `Sidebar` and `TopBar` consume it so nothing overlaps.
+   `MobileHeader` never did, so on a demo account it renders *under* the banner. `af2074e` changed
+   `DemoBanner` to seed its first paint from the last resolved `current_account_demo()` value
+   (fixing a measured 0.122 CLS on a cold 390px load), which means the banner is now present from
+   frame 0 instead of arriving a paint late — so this overlap went from intermittent to constant.
+   It is **more noticeable, not newly broken**, and the round recorded it as a known gap rather
+   than silently assuming someone else had it. Add `--banner-h` to `MobileHeader`'s offset when
+   you touch it.
+
+2. **`layout/TopBar.tsx`** — one-off UI fixes deferred from the round's item I. Note `TopBar` is
+   already a correct `--banner-h` consumer; keep it one.
+
 ## Dev Agent Record
 
 ### Agent Model Used

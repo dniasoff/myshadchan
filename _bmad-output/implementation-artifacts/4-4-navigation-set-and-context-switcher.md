@@ -379,6 +379,45 @@ e2e/navigation.spec.ts                                            (new)
 - [Source: .claude/rules/testing.md], [Source: .claude/skills/e2e-conventions/SKILL.md],
   [Source: .claude/rules/parallel-ownership.md]
 
+### Inherited from the loose-ends round (commit `af2074e`)
+
+The Epic 1–3 loose-ends round ran in parallel with Epic 4 on `main`. Five findings fell inside
+this story's declared paths, so the round reported and stopped rather than taking them
+(`.claude/rules/parallel-ownership.md`, "Out-of-scope work is reported, not taken"). They are
+this story's to close — none of them is optional cleanup; each is a defect that is live today.
+
+1. **`settings/SettingsPageMobile.tsx` — no Billing entry point at all** (audit item H). The
+   billing / AI-entitlement page is reachable on desktop and unreachable on mobile: neither
+   `SettingsPageMobile` nor `MobileNavigation` links to it. A user on a phone cannot find the
+   only paid surface in the product. Both files are yours; the round could reach neither.
+
+2. **`settings/SettingsPageMobile.tsx:53-55` — logout now disagrees with desktop.** *This is a
+   divergence the round itself created, and it is in nobody else's diff.* `af2074e` changed the
+   desktop `SettingsPage.tsx` logout from `variant="destructive" className="h-auto w-full"` to
+   `variant="outline" className="h-auto w-auto"`, on the argument that logging out is reversible
+   and routine and was out-shouting every real action on the page, with `destructive` reserved
+   for the delete path. `SettingsPageMobile.tsx` still carries the *exact* old markup, so the two
+   Settings surfaces now contradict each other about whether logging out is destructive. Apply
+   the same change here. (`ProfileSection` and `PreferencesSection` are shared components and
+   already inherited their half of the round's fixes automatically — only the logout button is
+   duplicated markup.)
+
+3. **`layout/MobileNavigation.tsx:174-177, :203`** — one-off UI fixes deferred from the round's
+   item I.
+
+4. **`layout/Sidebar.tsx:25`** — one-off UI fix deferred from the round's item I.
+
+5. **`dashboard/DashboardStat.tsx:50`** — one-off UI fix deferred from the round's item I.
+
+**Also relevant to this story, and not a deferral:** `layout/DemoBanner.tsx` changed in `af2074e`
+to seed its first paint from the last resolved `current_account_demo()` value, so the banner is
+now present from frame 0 instead of appearing a paint late. It still publishes its measured
+height as `--banner-h` on `document.documentElement`, and `Sidebar`/`TopBar` still consume it —
+that contract is unchanged and must survive whatever this story does to `Sidebar`. What did
+change is that anything which *fails* to honour `--banner-h` now overlaps the banner from the
+first frame rather than intermittently; see story 4.5 for `MobileHeader.tsx`, which is the one
+known consumer that does not honour it.
+
 ## Dev Agent Record
 
 ### Agent Model Used

@@ -523,6 +523,29 @@ registry.json                                                          (regenera
 - [Source: .claude/rules/testing.md], [Source: .claude/skills/e2e-conventions/SKILL.md],
   [Source: .claude/rules/parallel-ownership.md], [Source: .claude/rules/lsp-usage.md]
 
+### Inherited from the loose-ends round (commit `af2074e`)
+
+The Epic 1–3 loose-ends round ran in parallel with Epic 4 on `main`. Three UI defects from its
+item I fell inside this story's declared paths, so it reported and stopped rather than taking them
+(`.claude/rules/parallel-ownership.md`, "Out-of-scope work is reported, not taken"):
+
+- `shidduchim/ShidduchColumn.tsx:46, :48, :67, :73, :74`
+- `shidduchim/ShidduchCard.tsx:154`
+- `shidduchim/ShidduchimList.tsx:145-159`
+
+If this story's redesign deletes or replaces any of these, the defects go with them — confirm that
+rather than assuming it, and record which of the three the redesign made moot.
+
+**One fix already landed for you, deliberately ahead of this story.** `af2074e` corrected
+`components/ui/sheet.tsx`: `side="bottom"` had no width cap, so a bottom sheet spanned the entire
+viewport on desktop (measured 1440px wide, giving the reminder sheet a 1408px submit button). It
+now carries `mx-auto sm:max-w-lg sm:rounded-t-2xl`, matching the `left`/`right` sides' own
+`sm:max-w-sm` cap; below the `sm` breakpoint it is still edge-to-edge, which is correct for a
+phone (re-measured at 390px: unchanged). This was sequenced *before* this story on purpose —
+`ShidduchMoveSheet.tsx` does not exist yet and this story is last in Epic 4's chain, so building
+it now means it inherits the corrected primitive instead of the bug. Do not re-add a width class
+to the bottom sheet at the call site.
+
 ## Dev Agent Record
 
 ### Agent Model Used

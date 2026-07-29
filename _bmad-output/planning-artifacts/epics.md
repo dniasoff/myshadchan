@@ -1390,3 +1390,192 @@ Epic 3 Story 3.14**, which stages the migration and rehearses it against a seede
 database before it reaches production (the schema comment at `04_triggers.sql:138-145` warns
 this is "a migration-time total insert outage, not a refactor" if the drop/re-add or the check
 widening happens in the wrong order). 3.14 is a blocking dependency of 3.5, 3.6 and 3.8.
+
+---
+
+## Unowned work surfaced by the Epic 1–3 loose-ends round (2026-07-29, commit `af2074e`)
+
+The loose-ends round ran three agents in parallel on `main` alongside the live Epic 4 build, and
+closed items A, B, C, D, F, G and 11 of I. Everything below is what it could **not** close.
+
+Items whose owner is an Epic 4 story are recorded in that story's Dev Notes, not here (4-2:
+`ShadchanCard`; 4-3: `ShidduchColumn` / `ShidduchCard` / `ShidduchimList`; 4-4: mobile Billing
+entry, mobile logout divergence, `MobileNavigation`, `Sidebar`, `DashboardStat`; 4-5:
+`MobileHeader` and `--banner-h`, `TopBar`). **Story 4-1's file is deliberately not edited** — the
+`fix-4-1` agent held stack 1 and was writing to it at the time — so 4-1's two deferrals are in
+S23 below instead.
+
+Nothing below is scheduled.
+
+### S15 — SECURITY-ADJACENT: the MCP assistant still enumerates and creates references (item J-B3)
+`supabase/functions/mcp/index.ts` is the deployed AI assistant's tool surface. Its `query` tool
+description (~`:304`) advertises `references_summary` as a thing to search, and its `mutate` tool
+description (~`:348`) lists "Creating new shadchanim, **references**, or tasks" — so the assistant
+both browses references as a top-level entity and creates them unattached to any shidduch. That is
+the second half of RULING 7, which stories 4-4 and 4-5 close for the *human* UI (no nav entry, no
+list, no dashboard tile, no tour step, no global-search results) while the assistant keeps doing
+exactly what the ruling forbids.
+
+The round scheduled this into bucket 6 and the bucket declined it, correctly: it is item **J**, and
+its own plan marks it "pending owner sign-off on §2 case 7". So it is now in nobody's diff and has
+no owner. The recommended change is a **description / prompt edit only** — no behaviour code — and
+it is directionally aligned with what 4-4 and 4-5 are shipping. **It needs an owner.** Note the
+`references/` directory is off-limits to Epic 4 by its own stories, so this cannot be folded into
+one of them without redrawing their scope.
+
+### S16 — Ruling 7 wave B: contract files + story files, one agent, after Epic 4 closes (J-B1 + B2)
+B1 (contract files) and B2 (the story files describing the same mechanism) must land **together and
+as one agent**. B2's list includes the `4-1`, `4-2`, `4-4` and `4-5` story files, which Epic 4's dev
+agents demonstrably write to (commit `2fb6187` did). Splitting B1 from B2 is forbidden outright by
+`.claude/rules/parallel-ownership.md` → "A shared decision has exactly one owner"; that split is the
+verbatim failure this project has hit three times ("a ruling landed on a contract file but not on
+the story files describing the same mechanism, because different agents owned each"). B1 therefore
+cannot be salvaged alone either. **Schedule after Epic 4 closes, as a single agent.**
+
+### S17 — Ruling 7 wave C: schema + framework (J-C)
+Deferred; its own plan already says WAIT. Two reasons it cannot run beside the current work: it
+claims `supabase/migrations/**`, which any deploy-time migration round also claims, and its
+`entity360/**` half sits in the same directory and uses the same descriptor mechanism as 4-4's
+`entity360/ad24Conformance.guard.test.ts`. Target Epic 5 or a later round.
+
+### S18 — `registry.json` is stale AND `make registry-build` is broken right now
+`af2074e` deleted `src/components/supabase/layout.tsx` (the retired split-screen auth shell; its
+only importer, `oauth-consent-page.tsx`, was re-hosted on `AuthLayout`). `registry.json:1095` still
+lists that path, and it is missing the new `misc/formatDueMoment.ts`.
+
+This is **not merely stale**: `npm run registry:build` now fails outright with
+`ENOENT: no such file or directory, open '.../src/components/supabase/layout.tsx'`, which breaks
+`make registry-build` and `make registry-deploy`. CI is unaffected — neither `check.yml` nor
+`deploy.yml` runs `registry:build`, and there is no freshness check — so this will not turn the
+pipeline red; it fails only for whoever runs those targets by hand.
+
+Regenerating was deliberately **not** done. `registry.json` is a tabled shared artifact owned by
+Epic 4, and it is produced by globbing the working tree: regenerating it now was measured to pull
+Epic 4's untracked work-in-progress (`shadchanim/ShadchanCardGrid.tsx`) into the artifact — exactly
+the capture that `.husky/pre-commit` was hardened to prevent, and the hook correctly declined to run
+`make registry-gen` during this commit for that reason. **Owner: Epic 4's committer**, who must run
+`make registry-gen` on a quiet tree; that single run fixes all three discrepancies at once.
+
+### S19 — The deploy gate is landed but inert, and two credentials need rotating
+`af2074e` added a Vercel Deploy Hook step to `deploy.yml`, fired only after `db push` and
+`functions deploy` succeed. It is guarded on `env.VERCEL_DEPLOY_HOOK_URL` and therefore **does
+nothing** until the project owner completes two manual steps, **in this order**:
+
+1. Vercel → Settings → Git → Deploy Hooks: create a hook on `main`, add the URL as the repo secret
+   `VERCEL_DEPLOY_HOOK_URL`. *Adding the secret is the sign-off.*
+2. Vercel → Settings → Git: disable the **production** git deployment for `main`. Previews are
+   unaffected.
+
+Doing 2 before 1 stops production deploying at all. Until both are done, every deploy writes a
+`:warning:` to the job summary saying the pipelines are still unordered.
+
+**Rotate two credentials.** The pre-existing `📡 Enable the invite-signup Auth Hook` step used
+`curl -sSf` without `-o`, and a successful PATCH to `/config/auth` returns the whole auth config —
+242 keys including an unmasked 64-character `smtp_pass` and `external_google_secret`. Neither is a
+declared workflow secret, so GitHub did not mask them, and both have been printed into the Actions
+run log on every deploy since that step landed. `af2074e` adds `-o /dev/null`, but the values are
+already in retained logs: **rotate the SMTP password and the Google OAuth client secret.**
+
+Two consequences of the new mailer step, both deliberate and both needing a decision later:
+`rate_limit_email_sent` is now declarative (20), so an emergency dashboard bump is reverted by the
+next deploy — change the number in the workflow instead; and `mailer_otp_length` / `mailer_otp_exp`
+are pinned in the workflow because `config.toml` cannot model them, which makes them a second source
+of truth. Move them into `config.toml` and read them with `yq` in a round that is allowed to edit
+`config.toml` (this one was not — `stack-env.mjs` derives every parallel stack's config from it).
+
+### S20 — `deploy-workers` races `db push` in exactly the way item A was raised to fix
+Found by the cross-reconciliation pass, in nobody's diff. Item A was framed as "the frontend and the
+database deploy on two independent pipelines", and the fix closes the Vercel half. But `deploy.yml`
+has a **third** pipeline: the `deploy-workers` job (7 Cloudflare Workers — `ingest`, `parse`,
+`match`, `ai`, `share`, `cron`, `billing`) declares **no `needs:`**, so it runs concurrently with
+`deploy-supabase`. New worker code can be live against the old schema, and a failed `db push` still
+ships all seven workers — the same failure item A exists to prevent, from a pipeline that is
+entirely inside this repo.
+
+Unlike the Vercel half this is a one-line fix (`needs: deploy-supabase`), but it is the same class of
+shared decision item A was gated on: it serializes deploys and makes a Supabase failure block the
+workers. The round did not take it unilaterally for that reason. **Decide it with S19.** The honest
+limit recorded for item A applies here too and is the thing that actually makes deploys safe:
+ordering only removes "new code against old schema"; the reverse window (new schema, old code) is
+closed only by expand/contract migrations, which are required for rollback anyway.
+
+### S21 — Three date formatters, and one docstring that is now false
+`af2074e` extracted `misc/formatDueMoment.ts` (`"d MMM, h:mm a"`) so `tasks/Task.tsx` and
+`reminders/ReminderCard.tsx` stop rendering the same `due_date` two different ways. That fixed the
+reported defect but did **not** converge the tree, which now has three date shapes:
+
+| helper | shape | used for |
+|---|---|---|
+| `misc/formatDueMoment.ts` | `24 Jul, 2:00 PM` | task / reminder `due_date` (near-term, no year, 12-hour) |
+| `entity360/tabs/interactionLabels.ts#formatTimelineDate` | `24 Jul 2026, 14:00` | `interaction.created_at` (historical, year, 24-hour) |
+| `shidduchim/boardUtils.ts#formatRedtDate` | `24 Jul 2026` | redt date (date only) |
+
+The first two are both "timestamp with date and time" and disagree on year and clock. Neither
+agent could see this: the one that created `formatDueMoment` checked `formatRedtDate`, found a
+different shape, and concluded there was no duplicate — it never looked in `entity360/`.
+
+Two follow-ups. (a) `formatTimelineDate`'s own docstring claims it is *"the only definition in the
+repo, so no behaviour change"* and cites the single-owner rule (AC 7,
+`ARCHITECTURE-SPINE.md:190`) — that statement is now false and must be corrected;
+`interactionLabels.ts` is in no story's claim, so the round reported rather than edited it.
+(b) Decide whether three shapes is intentional presentation or drift. `formatDueMoment`'s docstring
+was updated in `af2074e` to state its scope precisely and point here, so at least the ambiguity is
+no longer silent. Note all three render English month names regardless of locale, which is
+pre-existing practice but worth revisiting alongside `frenchCrmMessages.ts`.
+
+### S22 — Pluralization strings in `englishCrmMessages.ts:57, :401`
+Two i18n defects from the round's item I. Deferred to **Epic 4's committer**: the i18n catalogues
+are a tabled shared artifact (`.claude/rules/parallel-ownership.md`), Epic 4 owns them for the
+duration of the epic, and it is actively writing to `englishCrmMessages.ts` (proved by commit
+`ad0c7d1`, which added 40 lines to it without declaring the file). Every bucket in the round was
+therefore forbidden from adding or editing any i18n key.
+
+### S23 — Story 4-1 / RULING 7 wave A deferrals (recorded here because 4-1 was in flight)
+Two item-I defects belong to work already described in story 4-1 and in the RULING 7 references
+wave. They are recorded here rather than in `4-1-entity-list-framework.md` because the `fix-4-1`
+agent held stack 1 and was writing to that file when this round committed:
+
+- `root/routeManifest.ts` — the R7 members-at-390px issue.
+- `login/LoginSkeleton.tsx` — dropped from the round because it is imported by
+  `login/InviteAcceptance.tsx`, and `e2e/invite-acceptance.spec.ts` is declared by story 4-4.
+  Reshaping the invite-acceptance loading state while 4-4 rewrites that spec is the `10dacf4` race
+  in a new costume.
+
+**Fold both into 4-1's Dev Notes once its agent releases the file.**
+
+### S24 — RULING 7 wave A R1/R2 are still open, and 4-4 opens a gap by landing first
+Not a deferral from this round — a gap the round found while scoping it, which nothing currently
+owns. Wave A's R1/R2 are unbuilt: `references/ReferenceList.tsx` exists, `ReferencesIndex.tsx` does
+not, and `layout/navItems.ts:61` still has `/references`. Story 4-4 removes the nav entry, the
+dashboard tile, the tour step and the search results. When 4-4 lands before R1/R2, the result is:
+no nav entry to `/references`, but `ReferenceList`'s `<CreateButton/>` still minting orphan
+references at a URL nobody links to. Sequence R1/R2 close behind 4-4, or accept the gap knowingly.
+
+### S25 — Accepted, not fixed: NULL `actor_member_id` will never be backfilled (item E)
+Recorded as a **decision**, so nobody re-opens it as a bug. `af2074e` adds a 47-line comment above
+`can_moderate_note` in `supabase/schemas/02_functions.sql` (comment only — `supabase db diff`
+reports no schema change). The six live `kind = 'note'` rows with `actor_member_id IS NULL` stay as
+they are, because: there is nothing to backfill *from* (`interactions` has exactly one
+authorship-shaped column); NULL is **ongoing**, not a closed legacy set — the FK is
+`ON DELETE SET NULL`, and a `SECURITY DEFINER` writer with no active context stamps
+`current_member_id() = NULL` — so a backfill would have to be re-run forever; and the column is a
+moderation **grant**, not a label, so inventing an author hands edit/delete rights over content to
+someone who may not have written it, irreversibly. Verified on a live database in a rolled-back
+transaction: with a NULL author, an owning-role member can moderate the row and a non-owning member
+cannot. That fail-closed outcome is the policy working, not the defect the audit read it as.
+
+Two small follow-ups nobody owns: `supabase/tests/interaction_note_authorship.sql` is the right
+permanent home for that probe and would make the accepted behaviour CI-enforced; and
+`providers/fakerest/dataProvider.ts:286-291` documents the same gap while pointing at "Story 3.6's
+Review Fix Notes (S5)" — it should point at the new `can_moderate_note` comment as the canonical
+record.
+
+### S26 — `scripts/retired-names.json` carries four dead exemptions
+`first-child`, `last-child`, `only-child` and `nth-child` are exempt terms for the
+`1.3-children-contextual` pattern, but that pattern requires `child_`, `_child`, `child-` or
+`public.children` — none of which those four can produce. Measured: 0 hits in the tree, 0
+self-matches. They are dead config. Harmless now that `af2074e` scopes exemptions to their own span
+rather than the whole line (previously any exempt term blanked its entire line, which was the actual
+defect — 71 lines in the tree were blind spots), but they should be removed so the config stops
+implying a coverage it does not have. Editing `retired-names.json` was outside every bucket's
+declared paths.

@@ -254,6 +254,24 @@ registry.json                                                    (regenerated)
 - [Source: .claude/rules/testing.md], [Source: .claude/skills/e2e-conventions/SKILL.md],
   [Source: .claude/rules/parallel-ownership.md], [Source: .claude/rules/coding-style.md]
 
+### Inherited from the loose-ends round (commit `af2074e`)
+
+The Epic 1–3 loose-ends round ran in parallel with Epic 4 on `main`. One finding fell inside this
+story's reach, so the round reported and stopped rather than taking it
+(`.claude/rules/parallel-ownership.md`, "Out-of-scope work is reported, not taken").
+
+**`shadchanim/ShadchanCard.tsx:34, :46, :69`** — three UI defects from the round's item I. The
+round's own note is that `:69` is the one it most wanted to take and the one it was most confident
+should wait: **`:69`'s `whitespace-nowrap` is the product's only real horizontal overflow**, measured
+at `scrollWidth 799` in a 768px viewport, i.e. the page scrolls sideways on a tablet. It was
+deferred here because two Epic 4 stories name this file (this one at `:66`, `:121`, `:124`, and
+4-1 at `:124`) even though neither declares it in its manifest entry — an undeclared reach, which
+is precisely the indirect-overlap class the pre-dispatch checker cannot see.
+
+Fix all three while you have the file open. If this story's card work replaces
+`ShadchanCard.tsx` outright, the overflow must not be reintroduced in its successor — carry a test
+for it, because nothing in the tree currently asserts the page does not scroll horizontally.
+
 ## Dev Agent Record
 
 ### Agent Model Used
