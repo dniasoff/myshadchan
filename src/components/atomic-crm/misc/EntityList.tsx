@@ -11,10 +11,18 @@ import { EntityListHeader } from "./EntityListHeader";
 import { EntityListToolbar } from "./EntityListToolbar";
 import { EntityListView } from "./EntityListView";
 import type { EntityListViewProps } from "./EntityListView";
+import { EntityListViewToggle } from "./EntityListViewToggle";
+import { useEntityListViewMode } from "./useEntityListViewMode";
+import type { EntityListViewMode } from "./useEntityListViewMode";
 
 export interface EntityListProps extends Pick<
   EntityListViewProps,
-  "resource" | "skeleton" | "emptyState" | "noMatchesMessage" | "renderItems"
+  | "resource"
+  | "skeleton"
+  | "emptyState"
+  | "noMatchesMessage"
+  | "renderList"
+  | "renderCards"
 > {
   eyebrow?: string;
   subtitle?: string;
@@ -33,14 +41,23 @@ export interface EntityListProps extends Pick<
    * prop is `undefined`, not when it is `null`.
    */
   pagination?: ReactNode | null;
+  /**
+   * The mode `useEntityListViewMode` (Story 4.2, AC 3) falls back to before
+   * any choice has ever been persisted for this resource. Both retrofitted
+   * lists keep `"cards"` — their current, only, deliberately-designed
+   * first-visit look (Dev Notes, "Why the default is Cards on both lists").
+   */
+  defaultViewMode: EntityListViewMode;
 }
 
 /**
  * AD-24's one component for roster-style entity list chrome (AC 1): search
- * box, filter toggle, sort control, pagination, and the four-state
+ * box, filter toggle, sort control, pagination, the persisted List/Cards
+ * toggle (Story 4.2, AC 2/3), and the four-state
  * loading/empty/error/no-matches rendering (delegated to `EntityListView`).
- * An entity contributes its own per-item renderer (`renderItems`) and its
- * own skeleton/empty-state copy — never a second chrome implementation.
+ * An entity contributes its own per-item renderers (`renderList`/
+ * `renderCards`) and its own skeleton/empty-state copy — never a second
+ * chrome implementation.
  */
 export const EntityList = ({
   resource,
@@ -57,7 +74,9 @@ export const EntityList = ({
   skeleton,
   emptyState,
   noMatchesMessage,
-  renderItems,
+  renderList,
+  renderCards,
+  defaultViewMode,
 }: EntityListProps) => {
   const translate = useTranslate();
   // Guarded accessor (Epic 3 API contract §4 rule 3): EntityList is generic
@@ -71,6 +90,10 @@ export const EntityList = ({
     smart_count: 2,
     _: descriptor?.label ?? resource,
   });
+  const [viewMode, setViewMode] = useEntityListViewMode(
+    resource,
+    defaultViewMode,
+  );
 
   return (
     <>
@@ -108,6 +131,9 @@ export const EntityList = ({
             createTo={createTo}
             createLabel={createLabel}
             extraFilters={extraFilters}
+            viewToggle={
+              <EntityListViewToggle mode={viewMode} onChange={setViewMode} />
+            }
           />
         }
       >
@@ -116,7 +142,9 @@ export const EntityList = ({
           skeleton={skeleton}
           emptyState={emptyState}
           noMatchesMessage={noMatchesMessage}
-          renderItems={renderItems}
+          renderList={renderList}
+          renderCards={renderCards}
+          viewMode={viewMode}
         />
       </List>
     </>

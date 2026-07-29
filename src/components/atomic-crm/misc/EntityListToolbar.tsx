@@ -38,9 +38,10 @@ export interface EntityListToolbarProps {
    */
   extraFilters?: ReactElement[];
   /**
-   * Explicit, empty in this story — Story 4.2 fills it with the List/Cards
-   * view-mode toggle. Do not add a toggle here (see 4.1 Dev Notes, "What
-   * 4.1 deliberately does not build").
+   * Story 4.2, AC 2: `EntityList` fills this with a single
+   * `EntityListViewToggle` instance — one control, one place, immediately
+   * left of the create link — never a second, per-entity toggle
+   * implementation (4.1 Dev Notes, "What 4.1 deliberately does not build").
    */
   viewToggle?: ReactNode;
 }

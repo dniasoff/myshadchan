@@ -43,7 +43,10 @@ const buildListContextValue = (
     ...overrides,
   }) as unknown as ListControllerResult;
 
-const renderView = (overrides: Partial<ListControllerResult>) =>
+const renderView = (
+  overrides: Partial<ListControllerResult>,
+  viewMode: "list" | "cards" = "cards",
+) =>
   render(
     <TestMemoryRouter>
       <CoreAdminContext i18nProvider={testI18nProvider}>
@@ -56,10 +59,18 @@ const renderView = (overrides: Partial<ListControllerResult>) =>
               description: "Add the first one.",
             }}
             noMatchesMessage="No fixtures match this search."
-            renderItems={(data: RaRecord[]) => (
+            viewMode={viewMode}
+            renderCards={(data: RaRecord[]) => (
               <ul>
                 {data.map((row) => (
-                  <li key={String(row.id)}>{String(row.name)}</li>
+                  <li key={String(row.id)}>Cards: {String(row.name)}</li>
+                ))}
+              </ul>
+            )}
+            renderList={(data: RaRecord[]) => (
+              <ul>
+                {data.map((row) => (
+                  <li key={String(row.id)}>List: {String(row.name)}</li>
                 ))}
               </ul>
             )}
@@ -136,18 +147,45 @@ describe("EntityListView — exactly one of four states renders (AC 6)", () => {
       .toBeInTheDocument();
   });
 
-  it("renders renderItems(data) when records are present", async () => {
+  it("renders renderCards(data) when records are present and viewMode is 'cards'", async () => {
     // Arrange / Act
-    const screen = await renderView({
-      isPending: false,
-      error: null,
-      data: [FIXTURE_ROW],
-      filterValues: {},
-    });
+    const screen = await renderView(
+      {
+        isPending: false,
+        error: null,
+        data: [FIXTURE_ROW],
+        filterValues: {},
+      },
+      "cards",
+    );
 
     // Assert
     await expect
-      .element(screen.getByText("Fixture single"))
+      .element(screen.getByText("Cards: Fixture single"))
       .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("List: Fixture single"))
+      .not.toBeInTheDocument();
+  });
+
+  it("renders renderList(data) when records are present and viewMode is 'list'", async () => {
+    // Arrange / Act
+    const screen = await renderView(
+      {
+        isPending: false,
+        error: null,
+        data: [FIXTURE_ROW],
+        filterValues: {},
+      },
+      "list",
+    );
+
+    // Assert
+    await expect
+      .element(screen.getByText("List: Fixture single"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Cards: Fixture single"))
+      .not.toBeInTheDocument();
   });
 });

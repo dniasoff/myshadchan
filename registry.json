@@ -100,6 +100,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/singles/SingleRow.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/singles/SingleList.tsx",
           "type": "registry:component"
         },
@@ -225,6 +229,10 @@
         },
         {
           "path": "src/components/atomic-crm/shadchanim/ShadchanShow.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shadchanim/ShadchanRow.tsx",
           "type": "registry:component"
         },
         {
@@ -636,6 +644,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/misc/useEntityListViewMode.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/misc/useEntityListStatus.ts",
           "type": "registry:component"
         },
@@ -657,6 +669,10 @@
         },
         {
           "path": "src/components/atomic-crm/misc/FormPageFrame.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/misc/EntityListViewToggle.tsx",
           "type": "registry:component"
         },
         {

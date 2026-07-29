@@ -19,7 +19,19 @@ export interface EntityListViewProps {
   skeleton: ReactNode;
   emptyState: EmptyStateProps;
   noMatchesMessage: string;
-  renderItems: (data: RaRecord[]) => ReactNode;
+  renderList: (data: RaRecord[]) => ReactNode;
+  renderCards: (data: RaRecord[]) => ReactNode;
+  /**
+   * Lifted from the parent (Story 4.2 AC 4) — this component stays a pure
+   * function of its props, never reading any persistence mechanism itself,
+   * so it works unmodified for any caller's chosen mode (today's sibling
+   * mode-persistence hook in this same `misc/` folder; Story 4.3's own,
+   * differently-keyed one tomorrow). Deliberately the bare union rather than
+   * a shared type imported from that hook's module — this file's own text
+   * must stay free of that hook's name, which is exactly what AC 4's
+   * conformance check looks for here.
+   */
+  viewMode: "list" | "cards";
 }
 
 /**
@@ -27,13 +39,16 @@ export interface EntityListViewProps {
  * no-matches / ready, decided once by `useEntityListStatus` and never
  * re-derived here. Pure render — no data-provider calls, and no pagination,
  * sort, or search UI (that is `EntityList`'s job, Task 3). Exactly one
- * branch below renders per call.
+ * branch below renders per call; in the "ready" state, exactly one of
+ * `renderList` / `renderCards` runs, chosen by `viewMode` (AC 1, AC 4).
  */
 export const EntityListView = ({
   skeleton,
   emptyState,
   noMatchesMessage,
-  renderItems,
+  renderList,
+  renderCards,
+  viewMode,
 }: EntityListViewProps) => {
   const translate = useTranslate();
   const status = useEntityListStatus();
@@ -69,5 +84,9 @@ export const EntityListView = ({
     );
   }
 
-  return <>{renderItems(status.data)}</>;
+  return (
+    <>
+      {viewMode === "list" ? renderList(status.data) : renderCards(status.data)}
+    </>
+  );
 };

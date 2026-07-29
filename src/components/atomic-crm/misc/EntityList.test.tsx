@@ -38,7 +38,9 @@ const renderEntityList = (resource: string) =>
           skeleton={<div>Loading…</div>}
           emptyState={{ title: "Nothing yet", description: "Add one." }}
           noMatchesMessage="No matches."
-          renderItems={() => <div>Items</div>}
+          defaultViewMode="cards"
+          renderCards={() => <div>Items</div>}
+          renderList={() => <div>Items</div>}
         />
       </CoreAdminContext>
     </TestMemoryRouter>,
@@ -81,5 +83,67 @@ describe("EntityList — the heading resolves through the guarded registry acces
     await expect
       .element(screen.getByText("Fixture Entities"))
       .toBeInTheDocument();
+  });
+});
+
+const TOGGLE_FIXTURE_RESOURCE = "entity-list-toggle-fixture";
+
+const renderEntityListWithData = () =>
+  render(
+    <TestMemoryRouter>
+      <CoreAdminContext
+        dataProvider={fakeDataProvider({
+          [TOGGLE_FIXTURE_RESOURCE]: [{ id: 1, name: "Fixture row" }],
+        })}
+        i18nProvider={testI18nProvider}
+      >
+        <EntityList
+          resource={TOGGLE_FIXTURE_RESOURCE}
+          skeleton={<div>Loading…</div>}
+          emptyState={{ title: "Nothing yet", description: "Add one." }}
+          noMatchesMessage="No matches."
+          defaultViewMode="cards"
+          renderCards={(data) => (
+            <ul>
+              {data.map((row) => (
+                <li key={String(row.id)}>Cards: {String(row.name)}</li>
+              ))}
+            </ul>
+          )}
+          renderList={(data) => (
+            <ul>
+              {data.map((row) => (
+                <li key={String(row.id)}>List: {String(row.name)}</li>
+              ))}
+            </ul>
+          )}
+        />
+      </CoreAdminContext>
+    </TestMemoryRouter>,
+  );
+
+describe("EntityList — the view-mode toggle wires renderList/renderCards (AC 1, 2, 3, 4)", () => {
+  it("renders EntityListViewToggle in the toolbar, defaults to renderCards, and switches to renderList on click", async () => {
+    // Arrange / Act
+    const screen = await renderEntityListWithData();
+
+    // Assert — cards by default (defaultViewMode)
+    await expect
+      .element(screen.getByText("Cards: Fixture row"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Cards view" }))
+      .toHaveAttribute("aria-pressed", "true");
+
+    // Act — switch to List
+    await screen.getByRole("button", { name: "List view" }).click();
+
+    // Assert — renderList takes over; renderCards output disappears
+    await expect
+      .element(screen.getByText("List: Fixture row"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Cards: Fixture row"))
+      .not.toBeInTheDocument();
   });
 });

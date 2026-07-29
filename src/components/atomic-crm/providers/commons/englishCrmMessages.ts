@@ -260,6 +260,9 @@ export const englishCrmMessages = {
     entity_list: {
       error: "Something went wrong loading this list.",
       retry: "Try again",
+      // Story 4.2 — EntityListViewToggle's two accessible names (AC 2).
+      view_list: "List view",
+      view_cards: "Cards view",
     },
     image_editor: {
       change: "Change",
@@ -516,6 +519,14 @@ export const englishCrmMessages = {
         emptyDescription:
           "Every redt comes from somewhere — keep a book of the matchmakers your family works with.",
         noMatches: "No shadchanim match this search.",
+      },
+      // Story 4.2, AC 5 — `ShadchanRow`'s count label. AD-23 vocabulary
+      // ("shidduchim"), never "suggestion(s)"; `ShadchanCard.tsx`'s existing
+      // "suggestion"/"suggestions" text is Story 5.9's remediation, not
+      // this one's.
+      row: {
+        shidduchimCount:
+          "%{smart_count} shidduch |||| %{smart_count} shidduchim",
       },
     },
     references: {

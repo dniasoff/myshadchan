@@ -256,6 +256,8 @@ export const frenchCrmMessages = {
     entity_list: {
       error: "Une erreur s'est produite lors du chargement de cette liste.",
       retry: "Réessayer",
+      view_list: "Vue liste",
+      view_cards: "Vue cartes",
     },
     image_editor: {
       change: "Changer",
@@ -470,6 +472,10 @@ export const frenchCrmMessages = {
         emptyDescription:
           "Chaque proposition vient de quelque part — tenez un carnet des marieurs avec qui votre famille travaille.",
         noMatches: "Aucun shadchan ne correspond à cette recherche.",
+      },
+      row: {
+        shidduchimCount:
+          "%{smart_count} shidduch |||| %{smart_count} shidduchim",
       },
     },
     references: {
