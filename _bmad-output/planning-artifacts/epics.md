@@ -152,6 +152,36 @@ Enforcement is mechanical, in Story 3.11 AC 10 (`NO_BROWSE_SURFACE_ENTITIES` in
 `unreachable-nav-target` rule keys off `!!definition.list` and `references` keeps a truthy
 `list` as its route mount, so it would wave a re-added nav entry straight through.
 
+**RULING 8 — the shadchan Overview tab shows last redt + active singles.**
+
+`shadchan_stats` (`03_views.sql:202-211`) ships only three tiles — `nb_suggestions`,
+`nb_progressed`, `nb_reached_yes` — none of which is the header fact a matchmaker actually wants
+first: when did I last redt, and how many singles do I currently have live. `Shadchan` itself
+carries no redt column and no derivable "active singles" count, so without a view change the
+Overview tab (the default landing tab) would render an empty state for every shadchan record.
+
+1. **Two new columns, derived with zero new joins.** `last_redt_date` = `max(s.redt_date)` and
+   `nb_open_singles` = `count(distinct s.single_id) filter (where s.pipeline_state in ('new',
+   'look_into', 'not_sure'))`, both from the existing `shidduchim` join `shadchan_stats` already
+   performs. The "open" predicate is a verbatim reuse of `singles_summary`'s filter
+   (`03_views.sql:185-187`).
+2. **Attribution is `shidduchim`-sourced, not `redts`-sourced, by design.** `max(s.redt_date)` over
+   `shidduchim` is "last time this shadchan is the **current** redter of something" — consistent
+   with every other tile on the view, which is already scoped by current attribution
+   (`03_views.sql:194-201`). A `redts`-sourced "last time this shadchan redt anything, ever" would
+   disagree with `nb_suggestions` and the suggestions list directly beneath it, and `redts` has no
+   `shadchan_id` index. The semantic caveat (a superseded redt is not counted) is recorded in the
+   view comment, not treated as a defect.
+3. **New columns are appended, never inserted mid-list**, so `CREATE OR REPLACE VIEW` stays an
+   append and the migration never becomes a `drop view`/`create view` pair — which would silently
+   drop the view's grants.
+4. **`security_invoker = on` must be hand-added to the migration.** `supabase db diff` does not
+   preserve or re-emit reloptions on `CREATE OR REPLACE VIEW`; the generated migration needs a
+   trailing `alter view "public"."shadchan_stats" set (security_invoker = on);` or the view runs as
+   owner and RLS never applies to it.
+
+Owned by Story 5.9 (Shadchan 360), Task 2b.
+
 ### FR Coverage Map
 
 | Epic | Requirements covered |
@@ -1543,13 +1573,35 @@ agent held stack 1 and was writing to that file when this round committed:
 
 **Fold both into 4-1's Dev Notes once its agent releases the file.**
 
-### S24 — RULING 7 wave A R1/R2 are still open, and 4-4 opens a gap by landing first
-Not a deferral from this round — a gap the round found while scoping it, which nothing currently
-owns. Wave A's R1/R2 are unbuilt: `references/ReferenceList.tsx` exists, `ReferencesIndex.tsx` does
-not, and `layout/navItems.ts:61` still has `/references`. Story 4-4 removes the nav entry, the
-dashboard tile, the tour step and the search results. When 4-4 lands before R1/R2, the result is:
-no nav entry to `/references`, but `ReferenceList`'s `<CreateButton/>` still minting orphan
-references at a URL nobody links to. Sequence R1/R2 close behind 4-4, or accept the gap knowingly.
+### S24 — RULING 7: R1 closed, R2 open and reassigned to Story 5.10 (updated 2026-07-29, Epic 5 pre-flight)
+Superseded the original entry, which was stale on two counts: `layout/navItems.ts:61` no longer
+has `/references` (4-4 removed it), and the residue was never "`ReferenceList`'s `<CreateButton/>`
+minting orphan references" — commit `cbc311a` closed that (**R1**: `ReferenceCreate.tsx` refuses
+without a resolvable `?shidduchim_id=`). R3 (nav/tour/dashboard, 4-4) and R6 are also done.
+
+**R2 is open and the gap is live:** `references/index.ts` still mounts `list: ReferenceList`, a
+fully-featured browse surface — search box, three filters, sort, pagination, every reference in
+the account — at `/references`, with a `CreateButton` that now dead-ends into the R1 refusal panel
+instead of minting orphans. `ReferencesIndex.tsx` does not exist. The AD-24 guard reads green over
+this: clause (c) skips `references` outright as a no-browse entity, and clause (b) only matches the
+literal `buildListPath("references")`, missing the two live call sites that actually route there
+(`RecordUnavailable.tsx:37`, `routeConvention.tsx:88`). Do not read that green as coverage.
+
+**Ownership: R2 is assigned to Story 5.10** (Reference 360 and per-shidduch diligence), not a new
+story. 5.10 cannot satisfy its own route-mount AC without deciding what `/references` renders, so
+the decision is already inside its blast radius. Folded in as part of the same diff: write
+`ReferencesIndex.tsx` (filtered to `linked_shidduchim_count@eq: 0`, no search/filter/sort/
+pagination, self-emptying, explainer + link to `/shidduchim` when empty) and delete
+`ReferenceList.tsx`; migrate `references/index.ts` onto `buildEntityRoutes` + explicit
+`hasShow`/`hasEdit`; add `ReferenceAttachToShidduch.tsx` as the one way an orphan surfaced by the
+panel gets resolved; and widen the AD-24 guard in the same diff so clause (c) asserts a no-browse
+entity's list *is* the declared index panel and clause (b) also catches variable-argument
+`buildListPath(resource)` call sites. `NO_BROWSE_SURFACE_ENTITIES.references` itself is not removed
+— it is a standing owner ruling (RULING 7) with no retiring story.
+
+R4 (`reminders/reminderEntity.ts` + `ReminderCreateSheet.tsx`'s 100-row reference roster) and R5
+(`englishCrmMessages.ts:50-51` filter labels) are deliberately **not** folded into 5.10 — they
+belong to S16's wave.
 
 ### S25 — Accepted, not fixed: NULL `actor_member_id` will never be backfilled (item E)
 Recorded as a **decision**, so nobody re-opens it as a bug. `af2074e` adds a 47-line comment above

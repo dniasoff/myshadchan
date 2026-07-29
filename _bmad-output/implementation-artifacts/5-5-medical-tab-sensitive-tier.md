@@ -12,18 +12,23 @@ so that disclosure is deliberate.
 
 ## Position in Epic 5
 
-Depends on **5.1** (the `medical` tab slot) and **Epic 2** (the `single` role value on
-`account_members` — see "Dependency" below). Nothing today implements this: there is no medical
-table or column anywhere in the schema (verified:
-`grep -n "medical" supabase/schemas/*.sql` returns zero hits besides an unrelated coverage-topic
-label string in `references/crossReferenceSummary.ts`, which is diligence-question content, not
-a data table).
+Depends on **5.1** (which registers the shidduch descriptor and leaves `medical` in `pendingTabs`
+for this story to claim). Nothing today implements this: there is no medical table or column
+anywhere in the schema — verified, `grep -n "medical" supabase/schemas/*.sql` returns zero hits.
+The one hit in `src/` is an unrelated coverage-topic cue list
+(`references/crossReferenceSummary.ts:65`, `cues: ["health", "medical", …]`), which is
+diligence-question content, not a data table.
+
+**The `single` role this story gates on already exists** — `01_tables.sql:153-155` reads
+`role in ('parent_admin', 'single', 'helper', 'self_manager', 'shadchan')`. Epics 1–3 are built
+and deployed; there is no Epic 2 dependency left to wait on.
 
 ## Who may read a medical note — decided, not left open
 
 The epic's own AC is explicit: *"the tab and its data are absent, enforced by RLS not UI, and a
 negative test proves a single and a helper cannot read it."* AD-2's role vocabulary is
-`parent_admin | single | helper | self_manager | shadchan`. This story reads that as:
+`parent_admin | single | helper | self_manager | shadchan` (`types.ts:132-133` is the one TS
+union; `01_tables.sql:153-155` is the DB check). This story reads that as:
 **readable only by `parent_admin` and `self_manager`** — the two roles that actually run a
 household's shidduch process — and denied to `single` and `helper`. `self_manager` is included
 deliberately: a self-managing single (family shape #1 — a widow, divorcee, or independent adult
@@ -38,91 +43,213 @@ this table at all.
 1. **Given** a shidduch, **when** a `parent_admin` or `self_manager` opens its 360, **then** the
    Medical tab is present in the tab bar and shows the account's medical notes for that
    suggestion.
-2. **Given** the same shidduch, **when** a `single` or `helper` role member opens it, **then**
-   the Medical tab is **absent from the DOM entirely** (Story 3.4's permission-aware tab
-   omission) — not rendered-and-hidden, not disabled, absent.
+   **Fails when:** the tab is missing for either role, or renders another shidduch's notes
+   because the query is not filtered by `shidduchim_id`.
+2. **Given** the same shidduch, **when** a `single` or `helper` role member opens it, **then** the
+   Medical tab is **absent from the DOM entirely** — not rendered-and-hidden, not disabled,
+   absent. This is Story 3.4's shipped behaviour, not new work:
+   `EntityShow.tsx:139-142` filters the merged tab array through
+   `hasVisibility(tab.visibleTo, role)` **before** it reaches `Entity360TabStrip` /
+   `Entity360TabPanel`, so a denied tab's `render` is never invoked and its label never enters
+   the DOM (`entity360/visibility.ts:19-30`).
+   **Fails when:** a DOM query for the Medical label finds a node with `aria-hidden`,
+   `display:none` or a `disabled` attribute rather than finding nothing.
+   **Two behaviours to assert, not assume:** (a) while `useViewerRole().isPending` is true,
+   `EntityShow.tsx:128-135` replaces the entire tab bar with `RolePending` — there is no window
+   in which the tab flashes before the role resolves; (b) an `undefined` role (resolved, no
+   active membership) **fails closed** — `hasVisibility` returns `false` for any restricted tab
+   (`visibility.ts:26-28`).
 3. **Given** `public.medical_notes`, **when** its RLS is applied, **then** select/insert/update/
    delete each require `account_id = current_context_id()` **and** the caller's
    `account_members.role` for that account is `parent_admin` or `self_manager`. **Negative
    test:** seed one account with four members, one per role (`parent_admin`, `single`, `helper`,
    `self_manager`), and one medical note; assert the `single` and `helper` members' clients each
    see zero rows from `select * from medical_notes`, and the `parent_admin`/`self_manager`
-   members see the row.
+   members see the row. Add a fifth case: a member of a *second* account sees zero rows.
+   **Fails when:** any of those five reads returns the wrong count. **This, not AC-2, is the
+   authoritative boundary** — the UI filter is a courtesy; RLS is the enforcement.
 4. **Given** the universal Activity and Notes tabs (Epic 3, backed by `interactions`), **when**
    they render, **then** a medical note never appears there — `medical_notes` is its own table,
-   never funnelled through `interactions.kind`. `grep -n "'medical'" supabase/schemas/01_tables.sql`
-   inside the `interactions_kind_check` constraint returns nothing.
+   never funnelled through `interactions.kind`.
+   **Fails when:** `'medical'` appears in `interactions_kind_check`
+   (`01_tables.sql:469-471`, today `note | call_logged | status_change | merge | link_created |
+   link_removed`), or any `medical_notes` write goes through `interactions`.
+5. **Given** the shidduch descriptor, **when** this story lands, **then** `"medical"` is declared
+   in `shidduchim/entityDescriptor.ts`'s `tabs` **and deleted from its `pendingTabs`** in the
+   same diff, and `entity360/registry.stubs.test.ts`'s pinned `shidduchim` row has been updated
+   to match.
+   **Fails, loudly — and an earlier draft of this story did exactly this:** declaring `medical`
+   into `tabs` while leaving it in `pendingTabs` raises `tab-key-duplicated`
+   (`entity360/ad24Conformance.ts:520-527`) and fails
+   `npx vitest run src/components/atomic-crm/entity360`. `keys(tabs) ∪ pendingTabs` must equal
+   the canonical row **as sets**, and a key in both is one defect, not a belt-and-braces
+   declaration. The guard test's hand-off note (b)
+   (`entity360/ad24Conformance.guard.test.ts:37-38`) states the rule.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Confirm the Epic 2 dependency** (prerequisite)
-  - [ ] `grep -n "account_members_role_check" supabase/schemas/01_tables.sql` and confirm
-        `'single'` is a valid value. If not, Epic 2 Story 2.2 has not landed — stop and report.
-- [ ] **Task 2 — Schema** (AC: 1, 3)
+- [ ] **Task 1 — Schema** (AC: 1, 3)
   - [ ] `supabase/schemas/01_tables.sql`: `create table public.medical_notes (id bigint
         generated by default as identity primary key, account_id bigint not null,
         shidduchim_id bigint not null, author_member_id bigint, body text not null,
-        created_at timestamptz not null default now())`, FK `shidduchim_id` →
-        `shidduchim(account_id, id)` composite (mirroring `reference_links`'s pattern), plus the
-        standard `set_account_id_default()` trigger.
+        created_at timestamptz not null default now())`, plus composite FK
+        `(account_id, shidduchim_id)` → `shidduchim(account_id, id) on delete cascade`
+        (the `reference_links` pattern, `01_tables.sql:715-717`), an `account_id` FK to
+        `accounts(id) on delete cascade`, and an index on `account_id` (`:797` is the shape).
+        **Table definition only — no triggers in this file.**
+  - [ ] `supabase/schemas/04_triggers.sql`: attach `set_account_id_default()` to `medical_notes`.
+        **Triggers live in `04_triggers.sql`, never in `01_tables.sql`** — `:160-172` is the
+        block of existing `set_<table>_account_id` triggers; copy one, do not write a bespoke
+        function.
+  - [ ] **`04_triggers.sql`, household scope — decide explicitly, do not skip.**
+        `enforce_household_scope()` is attached to exactly 11 tables today
+        (`04_triggers.sql:186-244`), and `supabase/tests/household_scope_lift.sql:56-64` asserts
+        that count as a catalog fact, with the literal `= 11` at `:58`.
+        **Recommendation: attach it** — `validate_medical_notes_household_scope`, before insert
+        or update of `account_id`, named so it sorts after every `set_…` trigger ('v' > 's';
+        `04_triggers.sql:186-201` explains why the name matters) — because a medical note is
+        household data that can have no shadchanus meaning; this story's whole point is that a
+        shadchan has no path to it. **Then increment `household_scope_lift.sql:57-58` by one in
+        the same diff, both the literal and the assertion's own name string. Read the current
+        value first — do not write `12`.** It is `11` on an untouched tree, but Story 5.4 lands
+        a household-scoped table before this one in the serial wave order, so by the time this
+        story runs the literal is most likely already `12`. If you instead
+        decide to exclude it, record that deliberately as a `comment on table`, exactly as
+        `entity_files` does at `01_tables.sql:628-632` — an unexplained absence is the failure
+        mode this bullet exists to prevent.
+        **This literal is contested with Stories 5.4 and 5.6, which each also add a household
+        table. Only one of the three can be in flight at a time; whoever lands second reads the
+        current value rather than assuming 11.**
   - [ ] `supabase/schemas/05_policies.sql`: `alter table public.medical_notes enable row level
-        security`; one `for all` policy:
+        security` (**not** `force` — no table in this repo uses `force`, and a single forced
+        table would diverge from the other 22; `05_policies.sql:560-561`). One `for all` policy:
         `using (account_id = public.current_context_id() and exists (select 1 from
         public.account_members am where am.id = public.current_member_id() and
         am.role in ('parent_admin', 'self_manager'))) with check (same)`.
-        **`current_context_id()` (AD-19) and `current_member_id()` (Story 3.5) — never
-        `current_account_id()`, which Epic 2 Story 2.1 deletes outright** (its AC requires a
-        repo-wide zero-hit grep for the old name; a policy written against it fails to apply).
-  - [ ] `supabase/schemas/06_grants.sql`: `revoke all … from anon`, `grant all … to
-        authenticated` (RLS is the real gate; the grant only makes the table reachable at all —
-        follow the exact pattern used for every other domain table in this file).
-  - [ ] Generate + hand-check migration (a genuinely new table — the generated form is correct
-        as-is; just confirm the RLS/grants made it into the same migration).
-- [ ] **Task 3 — Frontend** (AC: 1, 2)
+        **`current_context_id()` (AD-19) and `current_member_id()` (`02_functions.sql:242-259`)
+        — never `current_account_id()`, which no longer exists.** Two properties to preserve
+        deliberately: (a) `current_member_id()` is `SECURITY DEFINER` and already scopes to
+        `(auth.uid(), current_context_id(), status = 'active')`, so the `exists` subquery must
+        match on `am.id` and must NOT re-derive membership from `auth.uid()` unscoped;
+        (b) when the caller holds no active membership `current_member_id()` returns null,
+        `am.id = null` matches nothing, and the policy **fails closed** — keep it that way.
+        `account_members`' own select policy (`05_policies.sql:145-150`) already permits reading
+        rows of the active account, so the subquery resolves without a definer helper.
+        **One `for all` policy, not a `for all` plus a narrower `for select`:** permissive
+        policies OR together per command, so a second policy can only ever widen access — the
+        hazard `account_members`' own comment states in writing at `05_policies.sql:126-129`.
+  - [ ] `supabase/schemas/06_grants.sql`: `revoke all on table public.medical_notes from anon,
+        authenticated;` `grant select, insert, update, delete … to authenticated;`
+        `grant all … to service_role;` plus the sequence grants — follow the `entity_files` block
+        at `:737-755` verbatim. RLS is the real gate; the grant only makes the table reachable at
+        all. A table added without a grant block is reachable by nobody, and every test then
+        fails with a permission error rather than the RLS result it was written to check.
+  - [ ] Generate + hand-check the migration (a genuinely new table — the generated form is
+        correct as-is; confirm the RLS policy **and** the grants landed in the same migration
+        file, since `db diff` is known to drop `REVOKE` statements — AGENTS.md).
+- [ ] **Task 2 — Frontend and the tab mount** (AC: 1, 2, 5)
   - [ ] `src/components/atomic-crm/shidduchim/MedicalTab.tsx` (or a small `medical/` folder if it
         grows past a single file — start with one, per the coding-style file-count guidance):
         list + add-a-note form against `medical_notes`, filtered by `shidduchim_id`.
-  - [ ] Declare the tab on the shidduch descriptor with
-        `visibleTo: ["parent_admin", "self_manager"]` — the exact field Story 3.4 adds to
-        `EntityTabDescriptor` in `entity360/entityDescriptor.ts`, gated by its `hasVisibility()`
-        helper and `useViewerRole()`. **`visibleTo` is an explicit allow-list, not an ordered
-        threshold** (contract §2 rule 7 — there is no `minVisibility`): the three `MemberRole`
-        values this array omits (`helper`, `shadchan`, `single` — `types.ts:109-110` has
-        exactly five) are each denied, which is exactly the
-        "Who may read a medical note" ruling above. Omitting `shadchan` is deliberate and
-        matches the RLS: there is no membership path for a shadchan into a household row.
-- [ ] **Task 4 — Tests** (AC: 3, 4)
-  - [ ] The negative RLS test from AC-3 — new file `supabase/tests/medical_notes.sql`, following
-        the seed-two-roles-and-assert shape already used in `supabase/tests/references_entity.sql`
-        for cross-account checks.
-  - [ ] A frontend test proving the Medical tab is absent (not just visually hidden) from the
-        rendered tab bar for a `single`/`helper`-role test session, per Story 3.4's own testing
-        contract.
-  - [ ] `npm run test:unit:db` (needs `make start`) plus `make typecheck && npm run lint && make test`.
+  - [ ] **`render` is arity-zero** (`entity360/entityDescriptor.ts:106-112`). `MedicalTab` reaches
+        the shidduch through `useRecordContext()` — `EntityShow` mounts inside `ShowBase`, so a
+        `RecordContext` always exists. Do not thread the record in as a prop, and do not add a
+        descriptor field to carry it.
+  - [ ] **Declare the tab AND shrink `pendingTabs`, in the same diff.** In
+        `shidduchim/entityDescriptor.ts`: add
+        `{ key: "medical", visibleTo: ["parent_admin", "self_manager"], render: () => <MedicalTab /> }`
+        to `tabs` **in canonical position** (`medical` follows `photo` —
+        `ad24Conformance.ts:216-229`) and **delete `"medical"` from `pendingTabs`**.
+        `visibleTo?: MemberRole[]` is the shipped field (`entity360/entityDescriptor.ts:113-114`),
+        gated by `hasVisibility()` (`entity360/visibility.ts`) and `useViewerRole()`
+        (`entity360/useViewerRole.ts`). **`visibleTo` is an explicit allow-list, not an ordered
+        threshold** (contract §2 — there is no `minVisibility`, and
+        `entity360/entityDescriptor.test.ts:82` pins that): the three `MemberRole` values this
+        array omits (`helper`, `shadchan`, `single` — `types.ts:132-133` has exactly five) are
+        each denied, which is exactly the "Who may read a medical note" ruling above. Omitting
+        `shadchan` is deliberate and matches the RLS: there is no membership path for a shadchan
+        into a household row.
+  - [ ] Do **not** add a `label`: "Medical" is already the i18n default
+        (`entity360/tabKeys.ts:51`, `providers/commons/englishCrmMessages.ts:391`), and an
+        override would need a "why THIS entity deviates" comment
+        (`entity360/entityDescriptor.ts:97-105`) for a deviation that does not exist.
+  - [ ] Update `entity360/registry.stubs.test.ts`'s pinned `shidduchim` `pendingTabs` row
+        (`:36-50`) — it loses `"medical"`.
+- [ ] **Task 3 — Types, providers, i18n**
+  - [ ] `types.ts`: add a `MedicalNote` type (`id`, `account_id`, `shidduchim_id`,
+        `author_member_id`, `body`, `created_at`).
+  - [ ] `providers/fakerest/dataProvider.ts` + generator: a `medical_notes` collection, so demo
+        mode and the component tests have rows (AD-10 keeps the two providers in lockstep).
+  - [ ] **Both i18n catalogues** — `englishCrmMessages.ts` **and** `frenchCrmMessages.ts` — for
+        this story's content strings (empty state, add-note form labels and placeholder,
+        submit/error copy). `i18nProvider` runs `allowMissing: true`, so an English-only key
+        falls back silently and no test catches it. **No `crm.entity360.tab.*` key is needed** —
+        all 15 tab labels already ship (`englishCrmMessages.ts:381-397`).
+  - [ ] `account_has_domain_data()` (`02_functions.sql:842-860`) and its hand-maintained FakeRest
+        mirror `providers/fakerest/internal/accountDomainData.ts:19-32` — **check, then most
+        likely leave alone.** `medical_notes` FKs to `shidduchim`, which both already check, so a
+        medical note cannot exist without a `shidduchim` row and the predicate is already true.
+        Record that reasoning in a one-line comment beside the new table rather than adding a
+        redundant `exists` clause. If you do add one, **both** the SQL function and
+        `DOMAIN_RESOURCES` move together — the file's own comment says the mirror is maintained
+        by hand and nothing tests the pair.
+- [ ] **Task 4 — Tests** (AC: 2, 3, 4, 5)
+  - [ ] The AC-3 negative test as a new pair, `supabase/tests/medical_notes.sql` +
+        `supabase/tests/medical_notes.test.ts`. **Every `.sql` suite in that directory has a
+        paired `.test.ts` runner — 13 pairs at HEAD, no exceptions**; a `.sql` file with no
+        runner never executes. Copy `entity_files.test.ts` for the runner shape
+        (`dbSuiteHelpers.ts`'s `DB_URL` / `bailIfDbUnreachable`, one named test per emitted
+        result row); copy `household_scope_lift.sql:71-84` for seeding one login with several
+        memberships of differing roles, and `references_entity.sql` for the cross-account arm.
+  - [ ] A frontend test proving the Medical tab is **absent** (not visually hidden) from the
+        rendered tab bar for a `single`/`helper` viewer, and present for `parent_admin` and
+        `self_manager`. **Stack:** `vitest-browser-react`'s `render` in Chromium with
+        `CoreAdminContext` + `TestMemoryRouter` from `ra-core` and the FakeRest provider — copy
+        `entity360/tabs/FilesTab.test.tsx:1-16`, and see
+        `entity360/EntityShow.permissions.test.tsx` (which already uses a `medical` tab with
+        `visibleTo: ["parent_admin"]` as its fixture) for how to drive the viewer's role.
+        **React Testing Library is not a dependency of this repo**; do not import
+        `@testing-library/react`.
+  - [ ] `npm run test:unit:db` (needs `make start`) plus `make typecheck && npm run lint &&
+        make test`. Re-run `supabase/tests/household_scope_lift.sql` — Task 1's trigger decision
+        is asserted there and nowhere else.
 
 ## Dev Notes
 
 ### This is the story `.claude/rules/security-triggers.md` names outright
 
-"Database queries or migrations" and "Supabase RLS policies" are both explicit triggers — dispatch
-SECURITY-REVIEWER on this diff without asking whether it's warranted.
+"Database queries or migrations" and "Supabase RLS policies" are both explicit triggers —
+dispatch SECURITY-REVIEWER on this diff without asking whether it's warranted.
 
-### Known UI-layer limitation, not this story's to fix
+### `useViewerRole()` returns every role — there is no UI-layer workaround to design
 
-Story 3.4's `useViewerRole()` is a stated stand-in that maps the legacy admin flag to
-`parent_admin | helper` — it cannot yet return `self_manager`, so until it is rewired to
-`account_members.role` (Epic 6 builds `current_member_role()`; the hook rewiring is flagged in
-the cross-check as an unowned gap), a real self-manager may not *see* the tab even though the
-database grants them the rows. The RLS test in AC-3 is the authoritative boundary; do not
-"fix" the hook inside this story's diff.
+An earlier draft of this story carried a "Known UI-layer limitation" paragraph claiming that
+Story 3.4's `useViewerRole()` maps the legacy per-login admin flag to `parent_admin | helper` and
+"cannot yet return `self_manager`", and that a real self-manager might therefore not see the tab.
+**That is false and the paragraph is deleted.** `entity360/useViewerRole.ts:31-34` is:
+
+```ts
+export function useViewerRole(): ViewerRole {
+  const { data, isPending } = useMyContexts();
+  return { role: pickActiveRole(data), isPending };
+}
+```
+
+— it returns whatever `MemberRole` the viewer holds in the *active* context, all five values
+included, and its own doc comment (`:10-29`) says the legacy flag is deliberately never read.
+`entity360/roleSource.guard.test.ts` proves that flag appears nowhere under `entity360/`.
+**`visibleTo: ["parent_admin", "self_manager"]` works today.** Do not design around a limitation
+that does not exist, and do not "fix" the hook inside this diff.
 
 ### Self-contained, does not wait for Epic 6
 
-Same reasoning as Story 5.4: Epic 6 generalises row/field-level scoping for a `single` role
-across the app, but lands after Epic 5. This table's RLS does not depend on that general
-machinery — it is a narrow, purpose-built policy that only needs the `single` role *value* to
-exist (Epic 2), not Epic 6's broader scoping engine. It works correctly in isolation regardless
-of what Epic 6 later adds elsewhere.
+Epic 6 generalises row/field-level scoping for a `single` across the app, but lands after Epic 5.
+This table's RLS does not depend on that machinery — it is a narrow, purpose-built policy needing
+only the `single` role *value*, which exists (`01_tables.sql:153-155`). It works correctly in
+isolation regardless of what Epic 6 later adds elsewhere. `05_policies.sql:270-281` records the
+contrasting case in writing: `interactions` still resolves a `single`-role membership to full
+parent-level visibility until Epic 6 narrows that one join. `medical_notes` closes its own window
+from day one; Story 5.4 uses the same self-contained pattern.
 
 ### Why not `interactions.kind = 'medical'`
 
@@ -136,19 +263,32 @@ policy is the safer, more auditable choice for the epic's own stated sensitivity
 matches the AD-1 "Single-owner rule" cross-cutting convention: this table has exactly one
 visibility rule, and it is not shared with anything else.
 
+### Files this story touches that are easy to miss
+
+`supabase/schemas/04_triggers.sql` (both the `set_…` trigger and the household-scope decision —
+**not** `01_tables.sql`) · `supabase/schemas/06_grants.sql` (table **and** sequence) ·
+`supabase/tests/household_scope_lift.sql:56-64` (the `= 11` literal) ·
+`supabase/tests/medical_notes.test.ts` (a `.sql` suite with no runner never executes) ·
+`entity360/registry.stubs.test.ts` (pinned `pendingTabs` row) ·
+`registry.json` (`scripts/generate-registry.mjs` globs every non-test source file under
+`src/components/atomic-crm/**`; `.husky/pre-commit` regenerates) ·
+both i18n catalogues · `types.ts` · the FakeRest provider and generator.
+
 ### Migration workflow
 
 Edit `supabase/schemas/*`, then
 `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f medical_notes`, hand-check
 (a new table — the generated form is correct as-is, but confirm the RLS policy and grants from
-Task 2 landed in the same migration file, since `db diff` sometimes drops `REVOKE` statements —
+Task 1 landed in the same migration file, since `db diff` sometimes drops `REVOKE` statements —
 per AGENTS.md), then
 `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. Never `db reset`/`db push`.
+The `DBUS_SESSION_BUS_ADDRESS=/dev/null` prefix is required — without it every `npx supabase`
+call hangs on the keyring.
 
 ### Project Structure Notes
 
-- New table, own file section in `01_tables.sql`/`05_policies.sql`/`06_grants.sql` — not folded
-  into the `interactions` block.
+- New table, own file section in `01_tables.sql` / `04_triggers.sql` / `05_policies.sql` /
+  `06_grants.sql` — not folded into the `interactions` block.
 - Frontend: keep it inside `shidduchim/` (medical notes are shidduch-scoped only per this epic;
   no single-level or shadchan-level medical concept is requested anywhere in Epic 5).
 
@@ -157,12 +297,32 @@ per AGENTS.md), then
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-5-Entity-360s, Story 5.5] — "the tab
   and its data are absent, enforced by RLS not UI... a negative test proves a single and a
   helper cannot read it."
-- [Source: ARCHITECTURE-SPINE.md#AD-2] — role vocabulary, `self_manager` inclusion rationale.
-- [Source: _bmad-output/implementation-artifacts/3-4-permission-aware-rendering.md] —
-  `visibleTo`, `hasVisibility()`, `useViewerRole()` and the hook's stated limitation.
-- [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#2] — rule 7: the tab
-  visibility field is `visibleTo?: MemberRole[]`, an allow-list; `minVisibility` does not exist.
-- [Source: ARCHITECTURE-SPINE.md#AD-20] — why no explicit shadchan check is needed.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-2 — :62-65] —
+  role vocabulary, `self_manager` inclusion rationale.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-20 — :153-156] —
+  a shadchan cannot address a household row at all; why no explicit shadchan check is needed.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-1 — :57-60] —
+  isolation is enforced in Postgres; one scoping axis; RLS on `current_context_id()`.
+- [Source: supabase/schemas/01_tables.sql:153-155] — `account_members_role_check` already permits
+  `'single'`; no Epic 2 dependency remains.
+- [Source: supabase/schemas/01_tables.sql:469-471] — `interactions_kind_check`, which AC-4 asserts
+  never gains `'medical'`.
+- [Source: supabase/schemas/02_functions.sql:242-259] — `current_member_id()`, the caller-
+  resolution function this policy reuses.
+- [Source: supabase/tests/household_scope_lift.sql:56-64] — the `enforce_household_scope` trigger
+  count this story must reconcile.
+- [Source: src/components/atomic-crm/entity360/entityDescriptor.ts:94-115] —
+  `EntityTabDescriptor`: `key`, optional `label`, arity-zero `render`, `visibleTo`.
+- [Source: src/components/atomic-crm/entity360/visibility.ts:19-30] — `hasVisibility`'s truth
+  table, including fail-closed on an undefined role.
+- [Source: src/components/atomic-crm/entity360/EntityShow.tsx:128-142] — where the filter runs and
+  why a denied tab never reaches the DOM.
+- [Source: src/components/atomic-crm/entity360/useViewerRole.ts:31-34] — returns any `MemberRole`;
+  the deleted "limitation" note was wrong about this.
+- [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#2] — the tab visibility field is
+  `visibleTo?: MemberRole[]`, an allow-list; `minVisibility` does not exist.
+- [Source: src/components/atomic-crm/entity360/ad24Conformance.guard.test.ts:32-48] — hand-off
+  note (b): a story that builds a tab moves its key out of `pendingTabs` in the same diff.
 - [Source: .claude/rules/security-triggers.md]
 
 ## Dev Agent Record

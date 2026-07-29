@@ -12,126 +12,249 @@ so that I always have the newest and can see what changed.
 
 ## Position in Epic 5
 
-Depends on **5.1** (the `resume` tab slot). Nothing in the current codebase implements this
-today: `public.resumes` is shaped but not built (its own schema comment: *"resume detail is
-Epic-3; the table is shaped now"* — the detail work has since been re-planned into this epic),
-there is no `resumes` React resource, no upload UI, and `db.resumes = []` in FakeRest. This is
-genuinely greenfield — verified by `grep -rln "resumes" src/components/atomic-crm` returning
-only type definitions, billing usage-meter strings, and empty FakeRest scaffolding, none of it
-a UI.
+Depends on **5.1** (which registers the shidduch descriptor and leaves `resume` in
+`pendingTabs` for this story to claim — `5-1:44-52` states that hand-off explicitly).
 
-## A pre-existing security gap this story must close before adding sensitive uploads
+Nothing in the current codebase implements this today: `public.resumes` is shaped but not built
+(`supabase/schemas/01_tables.sql:309-319`, whose own comment reads *"1:1 with a shidduch (resume
+detail is Epic-3; the table is shaped now)"* — the detail work has since been re-planned into
+this epic), there is no `resumes` React resource, no upload UI, and the FakeRest generator seeds
+`db.resumes = [] as Resume[]` (`providers/fakerest/dataGenerator/shidduchim.ts:404`). This is
+genuinely greenfield — verified by `grep -rln "resumes" src/components/atomic-crm`, whose 14 hits
+are type definitions, the billing usage-meter strings, landing copy, i18n catalogue entries and
+empty FakeRest scaffolding. None of it is a UI.
 
-The `attachments` bucket is **public**, and its three `storage.objects` policies
-(`supabase/schemas/07_storage.sql`) gate on nothing but `bucket_id = 'attachments'` — **any
-authenticated user, in any account, can read, write or delete any file in that bucket**, and
-`uploadToBucket()` (`providers/supabase/dataProvider.ts:809`) hands out `getPublicUrl()` links
-and writes to a flat, unprefixed path (`${Math.random()}${ext}`), so there is no account
-partition to even retrofit a path-based policy onto.
+`Resume.files` is `unknown` today (`types.ts:424-432`); this story gives it a shape.
 
-This story is the first to put account-private, sensitive content (a resume) into storage. Per
-`.claude/rules/security-triggers.md` ("File system operations" and "Supabase RLS policies" are
-both explicit triggers), this is not optional cleanup — it blocks this story's own AC-4. The
-fix is scoped narrowly so it cannot regress the two existing legitimate `attachments` users
-(the config/branding logo and the member avatar, both `uploadToBucket()` callers that survive
-Epic 1's `sales`→`members` rename): **a new, private storage bucket**, `documents`, used only by
-Resume (this story) and Photo (5.4). `attachments` and its existing policies are untouched —
-zero blast radius on the logo/avatar paths.
+## Why a new `documents` bucket — the argument, re-ratified
 
-**Why not Epic 3's `entity-files` bucket.** Story 3.7 already ships a private, account-folder-
-scoped bucket (`entity-files`) for the generic Files tab — do not confuse the two, and do not
-put resumes there. Postgres storage policies are *permissive* (they OR together): 3.7's
-account-wide select policy would grant every account member read on anything added to that
-bucket, and Story 5.4's photos need **stricter-than-account** read rules that can only be
-written against a keyspace no broader policy already covers. `documents` therefore carries
-policies scoped to its second-level prefix (`resumes/` here; 5.4 adds its own `photos/`
-policies), leaving unknown prefixes deny-by-default.
+**This section replaces an earlier premise that was false.** An earlier draft of this story
+opened by asserting that the `attachments` bucket is public and unscoped and that this story had
+to close that hole. **It does not, because the hole is already closed.** At HEAD,
+`supabase/schemas/07_storage.sql:19` runs
+`update storage.buckets set public = false where id = 'attachments'` and `:25-44` carry three
+account-scoped policies keyed on `(storage.foldername(name))[1] = public.current_context_id()::text`;
+`providers/supabase/dataProvider.ts:800-819` writes `${accountId}/${crypto.randomUUID()}${fileExt}`
+and returns `createSignedUrl(…, ATTACHMENT_URL_TTL_SECONDS)` under the comment *"Signed, expiring
+URL — never a public one (AD-9, PRV-5, PRV-8)"*. **Do not "harden" `attachments`. Do not touch it
+or its three policies at all.**
+
+The `documents` bucket is still the right call, but on **Story 5.4's** grounds, not on a security
+gap. State the real argument, because it is the only thing that keeps a later reader from
+"simplifying" this story onto an existing bucket and silently breaking 5.4:
+
+1. **Postgres storage policies are permissive — they OR together.** A policy can only ever *add*
+   access to `storage.objects`. Once a bucket carries an account-wide select policy, no later
+   policy can take reads away from a member of that account.
+2. **Both existing private buckets carry exactly such a policy.** `attachments`
+   (`07_storage.sql:25-30`) and `entity-files` (`07_storage.sql:72-77`) each grant select to any
+   authenticated caller whose active context matches the object's first path segment — *every*
+   member of the account, regardless of role.
+3. **Story 5.4 needs stricter-than-account reads.** Its AC-4 requires that a `single`-role member
+   of the same account cannot reach a `private_parent` photo *at the storage layer*, not merely
+   through table RLS. That is unachievable in a bucket whose account-wide select policy already
+   grants them the object, and narrowing `entity-files`' policy would change the shipped Files
+   tab's behaviour for every existing file — out of scope for both stories.
+4. **Therefore a third bucket, `documents`, whose every policy is written from scratch**, with
+   unknown prefixes deny-by-default. This story defines only the `resumes/` prefix; 5.4 defines
+   `photos/` on top of a keyspace no broader policy already covers.
+
+**Rejected alternative, recorded so it is not re-proposed:** put resumes in `entity-files` and
+only photos in `documents`. That splits the bucket's creation into 5.4 (which already depends on
+this story for it), loses the single `{account}/{kind}/…` prefix grammar shared by the two, and
+would additionally require every resume version to become a first-class `entity_files` row with
+that table's four-segment key grammar and purge trigger (`01_tables.sql:584-626`,
+`07_storage.sql:46-67`) — a different lifetime owner from this story's append-only
+`resumes.files` log. Net: no simplification, one more seam.
+
+**Why `documents` gets no UPDATE policy — a load-bearing constraint, not symmetry.**
+`supabase/tests/context_rls_hardening.sql:141-146` asserts, **table-wide on `storage.objects`**,
+that no policy with `cmd in ('UPDATE','ALL')` exists, and `:130-139` calls it *"a real,
+load-bearing invariant … an UPDATE policy scoped only by bucket, without also re-deriving the
+prefix check, is exactly the shape that would let a tenant move an object's key across the
+account boundary."* `07_storage.sql:61-67` records the same reasoning for `entity-files`.
+**A fourth (UPDATE) policy on `documents` turns that suite red.** Three policies —
+select/insert/delete — is the shipped pattern and the correct one here: a resume is versioned by
+*inserting* a new object, never by mutating an existing one. 5.4's photo policies stop at the
+same three.
 
 ## Acceptance Criteria
 
-1. **Given** a suggestion with a resume, **when** I open Resume, **then** I can view, download
+1. **Given** a shidduch with a resume, **when** I open Resume, **then** I can view, download
    and upload a new version; previous versions remain listed with their upload dates, newest
    shown first by default.
+   **Fails when:** the list renders in insertion order, or an older version disappears from the
+   list after a new upload.
 2. **Given** an existing version, **when** a new one is uploaded, **then** no existing version's
    file path, filename or upload date is ever mutated or removed — appends only, enforced
    server-side (not by a client-side read-modify-write of the JSON array, which would race under
    concurrent uploads).
-3. **Given** a suggestion with no resume yet, **when** I open Resume, **then** I see an empty
+   **Fails when:** the DB test in Task 4 issues two `add_resume_file` calls inside overlapping
+   transactions and `jsonb_array_length(files)` is 1 rather than 2, or any client code path
+   `PATCH`es `resumes.files` wholesale.
+3. **Given** a shidduch with no resume yet, **when** I open Resume, **then** I see an empty
    state with only an upload action — no fabricated content.
+   **Fails when:** the tab renders a placeholder row, a skeleton that never resolves, or an
+   error because no `resumes` row exists.
 4. **Given** the new `documents` storage bucket, **when** a file is uploaded, **then** it is
-   stored under `{account_id}/resumes/{shidduchim_id}/{uuid}-{filename}`, and storage RLS
-   permits select/insert/update/delete only to members of that `account_id` **and only under
-   the `resumes/` second-level prefix** — other prefixes stay deny-by-default for Story 5.4 to
-   define. **Negative test:** a second seeded account cannot read, list or delete a path under
-   the first account's prefix.
+   stored under `{account_id}/resumes/{shidduchim_id}/{uuid}-{filename}`, and storage RLS grants
+   **select, insert and delete — and only those three — to members of that `account_id`, and
+   only under the `resumes/` second-level prefix**. Other prefixes stay deny-by-default for
+   Story 5.4 to define. **No UPDATE policy is added** (see the section above).
+   **Fails when:** (a) a second seeded account can `select`, `list` or `delete` a path under the
+   first account's prefix; (b) an object written under a non-`resumes/` prefix of `documents` is
+   readable by anyone; (c) `supabase/tests/context_rls_hardening.sql:141-146` reports
+   `storage: no UPDATE-applicable policy exists on storage.objects` as failed — which it will
+   the moment a fourth policy is added.
 5. **Given** a download, **when** it is requested, **then** the client receives a short-lived
-   signed URL (existing `createSignedUrl` pattern) — never a public or permanently valid URL.
+   signed URL minted per click and never persisted — never a public URL, and never one written
+   back onto a record.
+   **Fails when:** `getPublicUrl` appears anywhere in this story's diff, or a signed URL is
+   stored in `resumes.files`.
+6. **Given** the shidduch descriptor, **when** this story lands, **then** `"resume"` has moved
+   **out of `shidduchim/entityDescriptor.ts`'s `pendingTabs` and into its `tabs`** in the same
+   diff, and `entity360/registry.stubs.test.ts`'s pinned `shidduchim` row has been updated to
+   match.
+   **Fails, loudly:** leaving the key in *both* arrays raises `tab-key-duplicated`
+   (`entity360/ad24Conformance.ts:520-527`) and fails
+   `npx vitest run src/components/atomic-crm/entity360`.
+   **Fails, silently — the more likely mistake:** building `ResumeVersionList`/`ResumeUpload` and
+   never editing the descriptor at all. `keys(tabs) ∪ pendingTabs` still equals the canonical row,
+   so the validator says nothing (`ad24Conformance.ts:571-590`) — and the tab simply never renders,
+   failing AC-1 with a green build. The guard test's own hand-off note (b)
+   (`entity360/ad24Conformance.guard.test.ts:37-38`) states the rule: *"A story that builds a tab
+   moves that key from `pendingTabs` into `tabs` in the same diff it lands."*
 
 ## Tasks / Subtasks
 
 - [ ] **Task 1 — Storage bucket and RLS** (AC: 4)
   - [ ] `supabase/schemas/07_storage.sql`: create the `documents` bucket
-        (`insert into storage.buckets (id, name, public) values ('documents', 'documents', false)`)
-        and 4 policies (select/insert/update/delete) scoped by
-        `(storage.foldername(name))[1] = public.current_context_id()::text and
-        (storage.foldername(name))[2] = 'resumes'` — the standard Supabase per-folder RLS idiom,
-        narrowed to this story's prefix. **`current_context_id()`, never `current_account_id()`:**
-        Epic 2 Story 2.1 deletes the latter outright (its AC requires
-        `to_regproc('public.current_account_id')` to be NULL), so a policy naming it fails to
-        apply. Do **not** touch the existing `attachments` bucket or its 3 policies.
-  - [ ] Generate + hand-check the migration exactly as for any policy change (`db diff` on
-        storage objects is often incomplete — verify the 4 policies exist in the generated file
-        before applying).
-  - [ ] Add the negative test from AC-4 to `supabase/tests/` (new file, e.g.
-        `supabase/tests/documents_storage.sql`): seed two accounts, upload a path under each,
-        assert account A's client cannot `select`/`delete` account B's path.
+        (`insert into storage.buckets (id, name, public) values ('documents', 'documents', false)
+        on conflict (id) do nothing;` — match the `entity-files` idiom at `:68-70`) and **exactly
+        3 policies (select / insert / delete — never update)** scoped by
+        `bucket_id = 'documents' and (storage.foldername(name))[1] = public.current_context_id()::text
+        and (storage.foldername(name))[2] = 'resumes'`. **Both halves of the predicate are
+        required:** without the `bucket_id` guard the folder predicate applies to every other
+        bucket's objects too (`07_storage.sql:56-59`).
+        **`current_context_id()`, never `current_account_id()`:** the latter no longer exists
+        (Epic 2 Story 2.1 deleted it), so a policy naming it fails to apply.
+        **Do not touch the existing `attachments` or `entity-files` buckets or their policies.**
+  - [ ] Carry a comment block above the new bucket in the shape of `07_storage.sql:46-67`,
+        recording (a) why this is a third bucket rather than reuse — the permissive-OR argument
+        above — and (b) that the absence of an UPDATE policy is deliberate and asserted by
+        `supabase/tests/context_rls_hardening.sql:141-146`.
+  - [ ] **Correct two now-stale prose claims in the same diff.** `07_storage.sql:6-7` says *"The
+        `attachments` bucket holds resumes and photos"* and
+        `supabase/tests/context_rls_hardening.sql:8-11` repeats it. After this story and 5.4 that
+        is false — resumes and photos live in `documents`. Reword both; do not change any policy
+        while doing it.
+  - [ ] Generate + hand-check the migration exactly as for any policy change (`db diff` over
+        storage objects is often incomplete — verify all 3 policies and the bucket insert exist
+        in the generated file before applying).
+  - [ ] Add the AC-4 negative test as a **new pair**, `supabase/tests/documents_storage.sql` +
+        `supabase/tests/documents_storage.test.ts`. Every `.sql` suite in that directory has a
+        paired `.test.ts` runner — 13 pairs at HEAD, no exceptions; copy `entity_files.test.ts`'s shape
+        (it shells `psql` via `dbSuiteHelpers.ts`'s `DB_URL`/`bailIfDbUnreachable` and turns each
+        emitted result row into a named test). Seed two accounts, write a path under each, assert
+        account A's client can neither `select` nor `delete` account B's path, and that a path
+        under a non-`resumes/` prefix is unreadable by its own writer.
 - [ ] **Task 2 — Server-side append (no client read-modify-write)** (AC: 2)
   - [ ] New SQL function `public.add_resume_file(p_shidduchim_id bigint, p_path text,
         p_filename text, p_mime_type text, p_size bigint)` in `supabase/schemas/02_functions.sql`:
-        validates the shidduch belongs to `current_context_id()` (post-Epic-2 name — the
-        existing RPCs it sits beside will already have been token-swapped by Story 2.1), upserts
-        the `resumes` row
-        (creating it on first upload), and does
+        validates the shidduch belongs to `current_context_id()`, upserts the `resumes` row
+        (creating it on first upload — note `resumes_shidduchim_id_key unique (shidduchim_id)`
+        at `01_tables.sql:703-704` makes that a clean `on conflict`), and does
         `files = coalesce(files, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('path', p_path, 'filename', p_filename, 'uploaded_at', now(), 'uploaded_by', public.current_member_id(), 'mime_type', p_mime_type, 'size', p_size))` —
         atomically, so two concurrent uploads cannot silently overwrite each other's entry.
-        `current_member_id()` is Story 3.5's caller-resolution function — reuse it, do not
-        re-derive the member lookup inline.
-  - [ ] Grant `execute` to `authenticated`, follow the existing RPC comment/doc-block convention
-        (see `add_redt`/`add_school`/`log_reference_call` immediately above/below it in
-        `02_functions.sql` for the house style).
-- [ ] **Task 3 — Frontend** (AC: 1, 3, 5)
+        `current_member_id()` (`02_functions.sql:242`) is the shipped caller-resolution function
+        — reuse it, do not re-derive the member lookup inline.
+  - [ ] **`supabase/schemas/06_grants.sql`, not `02_functions.sql`** — every function's
+        `revoke all … from public, anon` + `grant execute … to authenticated, service_role`
+        triple lives in the grants file (see `06_grants.sql:226-241` for the shape). A function
+        added without its grant block is reachable by nobody. Follow the doc-comment convention
+        of `add_redt` / `add_school` / `log_reference_call` (`02_functions.sql:2288`) for the
+        function itself.
+- [ ] **Task 3 — Frontend and the tab mount** (AC: 1, 3, 5, 6)
   - [ ] New folder `src/components/atomic-crm/resumes/` (a resume is its own domain, shared by
         the shidduch and — Story 5.8 — the single; do not nest it inside `shidduchim/`).
+  - [ ] `ResumeTab.tsx`: the descriptor's `resume` tab entry point — reads the shidduch via
+        `useRecordContext()` and composes `ResumeVersionList` + `ResumeUpload` (plus AC-3's empty
+        state). It is what the descriptor's `render` returns; without it the `render: () =>
+        <ResumeTab />` below names a component nothing creates.
   - [ ] `ResumeVersionList.tsx`: renders `resumes.files` newest-first (sort client-side by
         `uploaded_at desc` — the array is append-only, not stored sorted); each entry links a
-        signed download URL fetched on demand (do not pre-sign every entry on list load).
-  - [ ] `ResumeUpload.tsx`: file picker → upload to `documents` bucket at the AC-4 path → call
+        signed download URL fetched **on demand, per click** (do not pre-sign every entry on list
+        load — `providers/supabase/entityFiles.ts:23-27` is the shipped precedent, and its TTL
+        constant `ENTITY_FILE_URL_TTL_SECONDS = 60` is the right order of magnitude for a
+        per-click URL).
+  - [ ] `ResumeUpload.tsx`: file picker → upload to `documents` at the AC-4 path → call
         `add_resume_file`. Add the matching `CrmDataProvider` custom method
         `uploadResumeFile({ shidduchimId, file }): Promise<Resume>` in
-        `providers/supabase/dataProvider.ts`, mirroring the existing `addRedt`/`addSchool`
-        method shape (thin wrapper over the RPC).
+        `providers/supabase/dataProvider.ts` (which is where `CrmDataProvider` is declared;
+        `providers/types.ts:1` only re-exports it), mirroring `addRedt` /`addSchool`
+        (`dataProvider.ts:191-223`) — a thin wrapper over the RPC.
   - [ ] Mirror in `providers/fakerest/dataProvider.ts` (AD-10: every custom method is kept in
-        sync in both providers).
-  - [ ] Wire the `resume` tab (from 5.1's descriptor) to render `ResumeVersionList` +
-        `ResumeUpload`.
-- [ ] **Task 4 — Types and tests**
+        sync in both providers; see `:808-880` for the existing three).
+  - [ ] **Move the tab key.** In `shidduchim/entityDescriptor.ts`: add
+        `{ key: "resume", render: () => <ResumeTab /> }` to `tabs` **in canonical position**
+        (`resume` follows `overview` — `ad24Conformance.ts:216-229`) and **delete `"resume"` from
+        `pendingTabs`**. Do **not** add a `label`: "Resume" is already the i18n default
+        (`entity360/tabKeys.ts:49`, `providers/commons/englishCrmMessages.ts:389`), and an
+        override would require a "why THIS entity deviates" comment
+        (`entity360/entityDescriptor.ts:97-105`) for a deviation that does not exist.
+  - [ ] **`render` is arity-zero** (`entityDescriptor.ts:106-112`). The tab component reaches the
+        shidduch through `useRecordContext()` — `EntityShow` mounts inside `ShowBase`, so a
+        `RecordContext` always exists. Do not thread the record in as a prop, and do not add a
+        prop to the descriptor to carry it.
+  - [ ] Update `entity360/registry.stubs.test.ts`'s pinned `shidduchim` row (`:36-50`) — the
+        `pendingTabs` literal loses `"resume"`. Note the file's blanket
+        `expect(descriptor?.tabs).toEqual([])` at `:94` also goes red for `shidduchim` once 5.1
+        lands; if 5.1 has not already reshaped that assertion, reshape it here rather than
+        deleting it.
+- [ ] **Task 4 — Types, i18n and tests**
   - [ ] `types.ts`: add a `ResumeFileVersion` type (`path`, `filename`, `uploaded_at`,
-        `uploaded_by`, `mime_type`, `size`) and change `Resume.files` from `unknown` to
+        `uploaded_by`, `mime_type`, `size`) and change `Resume.files` (`:427`) from `unknown` to
         `ResumeFileVersion[] | null`.
-  - [ ] Component tests for `ResumeVersionList`/`ResumeUpload` (empty/loading/error states per
-        `.claude/rules/testing.md`); a DB test for `add_resume_file`'s append behaviour
-        (`supabase/tests/`).
+  - [ ] **Both i18n catalogues** — `providers/commons/englishCrmMessages.ts` **and**
+        `frenchCrmMessages.ts` — for this story's content strings (empty state, upload button,
+        version-row labels, error notifications). `i18nProvider` runs `allowMissing: true`, so a
+        key added only to English falls back silently and is never caught by a test. **No
+        `crm.entity360.tab.*` key is needed** — all 15 tab labels already ship
+        (`englishCrmMessages.ts:381-397`).
+  - [ ] Component tests for `ResumeVersionList` / `ResumeUpload` covering empty, loading and
+        error states (`.claude/rules/testing.md`). **Stack:** `vitest-browser-react`'s `render`
+        in Chromium, with `CoreAdminContext` + `TestMemoryRouter` from `ra-core` and the FakeRest
+        provider — copy `entity360/tabs/FilesTab.test.tsx:1-16`. **React Testing Library is not a
+        dependency of this repo**; do not import `@testing-library/react`.
+  - [ ] A DB test for `add_resume_file`'s append behaviour, in the
+        `supabase/tests/documents_storage.{sql,test.ts}` pair from Task 1 (or its own pair — but
+        a `.sql` file without a `.test.ts` runner never executes).
+  - [ ] `make typecheck && npm run lint && make test`, plus `npm run test:unit:db` (needs
+        `make start`) — the last is the only thing that runs Task 1's negative test and
+        `context_rls_hardening`.
 
 ## Dev Notes
 
+### Files this story touches that are easy to miss
+
+`supabase/schemas/06_grants.sql` (Task 2 — function grants do not live in `02_functions.sql`);
+`supabase/tests/documents_storage.test.ts` (a `.sql` suite with no paired runner is never
+executed); `supabase/schemas/07_storage.sql:6-7` and `supabase/tests/context_rls_hardening.sql:8-11`
+(prose that becomes false); `entity360/registry.stubs.test.ts` (pinned `pendingTabs` row);
+`registry.json` (`scripts/generate-registry.mjs` globs every non-test source file under
+`src/components/atomic-crm/**`, so the new `resumes/` folder mutates it; `.husky/pre-commit`
+regenerates); both i18n catalogues; `types.ts`.
+
 ### Reuse — extend, do not fork
 
-`uploadToBucket()` (`providers/supabase/dataProvider.ts:809`) is the existing generic upload
-helper (used today by the config logo and the member avatar). Its unscoped, flat-path design is
-exactly what AC-4 forbids for a resume, so this story does **not** call it as-is — write a
-resume-specific upload path that targets the `documents` bucket with the account-scoped prefix.
-Do not modify `uploadToBucket()` itself or its callers; that would touch the logo/avatar flow
-this story has no reason to change.
+`uploadToBucket()` (`providers/supabase/dataProvider.ts:765-831`) is the existing generic upload
+helper, used by the config logo and the member avatar. It is **correct and secure** — account-
+prefixed CSPRNG key, private bucket, signed URL — but it is hard-wired to `ATTACHMENTS_BUCKET`
+and to a two-segment key, so it cannot express this story's `{account}/resumes/{shidduch}/…`
+grammar. Write a resume-specific upload path against `documents`, modelled on
+`providers/supabase/entityFiles.ts` (the closest precedent: a second bucket, its own key grammar,
+its own per-click TTL). **Do not modify `uploadToBucket()` or its callers** — that would touch the
+logo/avatar flow this story has no reason to change.
 
 ### Why a server-side append function, not a client PATCH
 
@@ -140,40 +263,65 @@ concurrent upload under a classic read-modify-write race (two tabs, two uploads,
 wins — silently deleting the other version, the exact thing AC-2 forbids). `add_resume_file`
 does the append inside one statement, server-side, closing that race — the same reasoning
 `log_reference_call` already applies to `reference_links.conversation_log`
-(`supabase/schemas/02_functions.sql:1493`, "append-only and lives in a jsonb column"). Follow
-that function's shape (RPC name, `search_path ''`, account-ownership check, `raise exception` on
-a bad target) rather than inventing a new convention.
+(`supabase/schemas/02_functions.sql:2288`, whose comment at `:2322` reads *"The log is append-only
+and lives in a jsonb column"*). Follow that function's shape (RPC name, `search_path ''`,
+account-ownership check, `raise exception` on a bad target) rather than inventing a new
+convention.
 
 ### AD-9 scope boundary — stated so it is not silently expanded later
 
 AD-9 specifies R2 + a Worker-proxied stream (no raw/pre-signed URL ever reaches a recipient,
 `share_access_log` on every request) as the target architecture for user media. No epic in the
 current 1–11 list stands up the Cloudflare Workers layer. This story stays on Supabase Storage
-signed URLs (60-second expiry, matching the existing `createSignedUrl` call in
-`uploadToBucket`) as the pragmatic interim for **internal, authenticated viewing within the
-household's own session** — a materially different threat model from handing a link to an
-external recipient. Full AD-9 compliance (proxied streaming, revocation, access logging) is
-Epic 9's concern when a resume is shared *outside* the account (Story 9.5, revocable share
-links) — this story does not attempt it and must not be read as having satisfied AD-9.
+signed URLs as the pragmatic interim for **internal, authenticated viewing within the household's
+own session** — a materially different threat model from handing a link to an external recipient.
+Use a short, per-click TTL in the shape of `ENTITY_FILE_URL_TTL_SECONDS = 60`
+(`providers/supabase/entityFiles.ts:18`), **not** `ATTACHMENT_URL_TTL_SECONDS`
+(`dataProvider.ts:745`, which is `60 * 60` — one hour — because that one is written onto a record
+and re-read later; this one is consumed immediately). Full AD-9 compliance (proxied streaming,
+revocation, access logging) is Epic 9's concern when a resume is shared *outside* the account
+(Story 9.5, revocable share links) — this story does not attempt it and must not be read as
+having satisfied AD-9.
 
 ### Project Structure Notes
 
 - New directory `src/components/atomic-crm/resumes/`, following the existing one-folder-per-domain
   convention.
 - `resumes` is not registered as a `<Resource>` in the route manifest — it has no list/show route
-  of its own (matching how `children_summary`/`reference_links` are read via `useGetList` without
-  a `<Resource>` entry). Data access is via the dataProvider directly.
+  of its own (matching how `reference_links` is read via `useGetList` without a `<Resource>`
+  entry). Data access is via the dataProvider directly, and the tab is mounted through the
+  shidduch descriptor, not through a route.
+- **No household-scope trigger question arises here.** This story adds no table:
+  `public.resumes` already exists and already carries both `set_resumes_account_id` and
+  `validate_resumes_household_scope` (`04_triggers.sql:218-220`), so
+  `supabase/tests/household_scope_lift.sql:56-64`'s `= 11` literal (`:58`) is untouched. (Stories 5.4,
+  5.5 and 5.6 each *do* add a table and must each bump it — that is their problem, not this
+  story's, and only one of them can be in flight at a time.)
 
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-5-Entity-360s, Story 5.3]
-- [Source: ARCHITECTURE-SPINE.md#AD-9] — media storage target architecture and this story's
-  documented scope boundary against it.
-- [Source: ARCHITECTURE-SPINE.md#AD-10] — dataProvider custom-method seam; keep FakeRest in sync.
-- [Source: .claude/rules/security-triggers.md] — file-system-operation and RLS-policy triggers
-  this story satisfies.
-- [Source: supabase/schemas/02_functions.sql#log_reference_call] — append-only jsonb pattern this
-  story's `add_resume_file` follows.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-9 — :98-101] —
+  media storage target architecture and this story's documented scope boundary against it.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-10 — :103-106] —
+  the dataProvider is the single CRUD seam; keep FakeRest in sync.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-1 — :57-60] —
+  isolation is enforced in Postgres; RLS on `current_context_id()`.
+- [Source: supabase/schemas/07_storage.sql:19-44] — `attachments` is already private and
+  account-scoped. This story does not change it.
+- [Source: supabase/schemas/07_storage.sql:46-91] — the `entity-files` bucket: the template for a
+  second private bucket, and the "deliberately no UPDATE policy" precedent (`:61-67`).
+- [Source: supabase/tests/context_rls_hardening.sql:130-146] — the table-wide no-UPDATE-policy
+  invariant on `storage.objects` that caps this story at three policies.
+- [Source: supabase/schemas/02_functions.sql:2288-2330 (`log_reference_call`)] — the append-only
+  jsonb pattern `add_resume_file` follows.
+- [Source: supabase/schemas/06_grants.sql:226-241] — where a new function's grants go.
+- [Source: src/components/atomic-crm/entity360/entityDescriptor.ts:94-115] — `EntityTabDescriptor`:
+  `label` optional, `render` arity-zero.
+- [Source: src/components/atomic-crm/entity360/ad24Conformance.guard.test.ts:32-48] — hand-off
+  note (b): a story that builds a tab moves its key in the same diff.
+- [Source: .claude/rules/security-triggers.md] — file-system-operation and RLS-policy triggers;
+  dispatch SECURITY-REVIEWER on this diff.
 
 ## Dev Agent Record
 
