@@ -6,7 +6,9 @@ import { FormToolbar } from "../layout/FormToolbar";
 import { ReferenceInputs } from "./ReferenceInputs";
 
 export const ReferenceEdit = () => (
-  <Edit redirect={redirectToRecord}>
+  // `disableBreadcrumb`: see ReferenceShow — the breadcrumb's "References"
+  // crumb links to the list, a browse entry RULING 7 forbids.
+  <Edit redirect={redirectToRecord} disableBreadcrumb>
     <SimpleForm toolbar={<FormToolbar />}>
       <ReferenceInputs />
     </SimpleForm>

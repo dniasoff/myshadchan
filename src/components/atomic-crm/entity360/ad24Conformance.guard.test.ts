@@ -3,7 +3,9 @@ import { RESOURCES } from "../root/routeManifest";
 import { ENTITY_TARGET_TYPES } from "../types";
 import {
   findAd24Violations,
+  findBrowseSurfaceEnumeration,
   findListPathLinks,
+  isBrowseSurfaceModule,
   MODAL_RECORD_SURFACES,
   NO_BROWSE_SURFACE_ENTITIES,
 } from "./ad24Conformance";
@@ -361,6 +363,44 @@ describe("AD-24 conformance guard — no-browse list-path links (AC 10b)", () =>
   });
 });
 
+// --- Enumeration on a browse surface (real scan) ---------------------------
+
+/** Dashboard + global-search modules only — `isBrowseSurfaceModule` carries
+ * the reasoning for why the rule is scoped rather than repo-wide. */
+const browseSurfaceFiles = Object.fromEntries(
+  Object.entries(scannedFiles).filter(([path]) => isBrowseSurfaceModule(path)),
+);
+
+const browseSurfaceEnumerations = findBrowseSurfaceEnumeration(
+  browseSurfaceFiles,
+  noBrowseNames,
+);
+
+describe("AD-24 conformance guard — no-browse enumeration on a browse surface", () => {
+  it("scans a non-empty set of browse-surface modules", () => {
+    // Assert — a rule that silently scans nothing is the failure mode this
+    // whole exercise exists to prevent. Pin that the glob actually resolves
+    // the dashboard and the global-search hook.
+    expect(Object.keys(browseSurfaceFiles)).toEqual(
+      expect.arrayContaining([
+        "dashboard/useDashboardData.ts",
+        "dashboard/Dashboard.tsx",
+        "dashboard/MobileDashboard.tsx",
+        "misc/useGlobalSearch.ts",
+      ]),
+    );
+  });
+
+  it("finds no dashboard tile or search fan-out enumerating a no-browse entity", () => {
+    // Assert — Story 4.4 removed `totalReferences` from `useDashboardData`
+    // and both tiles; Story 4.5 kept references out of the search fan-out.
+    // Unlike the list-path scan, this assertion would have caught the
+    // reference COUNT that shipped to production without any `/references`
+    // link beside it.
+    expect(new Set(browseSurfaceEnumerations)).toEqual(new Set());
+  });
+});
+
 // --- The combined real check -------------------------------------------------
 
 describe("findAd24Violations — real manifest, registry and scans (Task 4/6)", () => {
@@ -384,6 +424,7 @@ describe("findAd24Violations — real manifest, registry and scans (Task 4/6)", 
       handBuiltRecordPaths,
       navTargets,
       listPathLinks,
+      browseSurfaceEnumerations,
     });
 
     // Assert — every AD-24 rule, including RULING 7

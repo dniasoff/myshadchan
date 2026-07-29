@@ -174,7 +174,12 @@ const ReferenceShowActions = () => (
 );
 
 export const ReferenceShow = () => (
-  <Show title={false} actions={<ReferenceShowActions />}>
+  // `disableBreadcrumb`: the default breadcrumb renders "Home / References /
+  // <name>", where "References" is a LINK to the reference list — a one-click
+  // browse entry reached from inside the sanctioned in-shidduch path, which is
+  // exactly what RULING 7 forbids. Suppressed on all three reference record
+  // surfaces (show/edit/create).
+  <Show title={false} disableBreadcrumb actions={<ReferenceShowActions />}>
     <ReferenceShowLayout />
   </Show>
 );

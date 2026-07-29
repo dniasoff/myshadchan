@@ -21,8 +21,10 @@ import type { TabKey } from "./tabKeys";
 import {
   CANONICAL_TAB_SETS,
   findAd24Violations,
+  findBrowseSurfaceEnumeration,
   findListPathLinks,
   findPendingTabs,
+  isBrowseSurfaceModule,
   MODAL_RECORD_SURFACES,
   NO_BROWSE_SURFACE_ENTITIES,
   type Ad24Exemptions,
@@ -115,6 +117,7 @@ const baseInput = (
   handBuiltRecordPaths: [],
   navTargets: [],
   listPathLinks: [],
+  browseSurfaceEnumerations: [],
   exemptions: EMPTY_EXEMPTIONS,
   noBrowseSurfaceEntities: NO_BROWSE_NONE,
   ...overrides,
@@ -852,7 +855,153 @@ describe("findListPathLinks — AC 10b synthetic corpus", () => {
   });
 });
 
+/**
+ * The enumeration rule (clause b2).
+ *
+ * The corpus below is not synthetic where it matters: `DASHBOARD_AS_SHIPPED`
+ * is the verbatim reference-count from `dashboard/useDashboardData.ts` as it
+ * stands on `origin/main` today — the surface the project owner reported as
+ * "why is there references in dashboard". It carries no `/references` literal,
+ * so `findListPathLinks` returns [] for it; that is precisely why the guard
+ * was green over it.
+ */
+const DASHBOARD_AS_SHIPPED_ON_ORIGIN_MAIN = `
+  const { total: totalShadchanim } = useGetList("shadchanim", {
+    pagination: { page: 1, perPage: 1 },
+  });
+  const { total: totalReferences } = useGetList("references", {
+    pagination: { page: 1, perPage: 1 },
+  });
+`;
+
+describe("findBrowseSurfaceEnumeration — the blind spot findListPathLinks left open", () => {
+  it("reports the reference count shipped on origin/main's dashboard", () => {
+    // Arrange
+    const files = {
+      "dashboard/useDashboardData.ts": DASHBOARD_AS_SHIPPED_ON_ORIGIN_MAIN,
+    };
+
+    // Act / Assert
+    expect(findBrowseSurfaceEnumeration(files, ["references"])).toEqual([
+      "dashboard/useDashboardData.ts",
+    ]);
+  });
+
+  it("PROOF the older rule cannot see it — findListPathLinks passes the same file", () => {
+    // Arrange — identical corpus, the path-based matcher.
+    const files = {
+      "dashboard/useDashboardData.ts": DASHBOARD_AS_SHIPPED_ON_ORIGIN_MAIN,
+    };
+
+    // Act / Assert — green over a live violation. This is the whole defect.
+    expect(findListPathLinks(files, ["references"])).toEqual([]);
+  });
+
+  it("reports a global-search fan-out that adds references back", () => {
+    // Arrange — the shape Story 4.5 deliberately left out.
+    const files = {
+      "misc/useGlobalSearch.ts": `
+        Promise.all([
+          dataProvider.getList("singles", params),
+          dataProvider.getList("references", params),
+        ])`,
+    };
+
+    // Act / Assert
+    expect(findBrowseSurfaceEnumeration(files, ["references"])).toEqual([
+      "misc/useGlobalSearch.ts",
+    ]);
+  });
+
+  it("reports the summary view name too, since the provider maps the resource onto it", () => {
+    // Arrange
+    const files = {
+      "dashboard/Tile.tsx": 'useGetList("references_summary", {})',
+    };
+
+    // Act / Assert
+    expect(findBrowseSurfaceEnumeration(files, ["references"])).toEqual([
+      "dashboard/Tile.tsx",
+    ]);
+  });
+
+  it("sees through an explicit generic argument", () => {
+    // Arrange
+    const files = {
+      "dashboard/Tile.tsx": 'useGetList<Reference>("references", {})',
+    };
+
+    // Act / Assert
+    expect(findBrowseSurfaceEnumeration(files, ["references"])).toEqual([
+      "dashboard/Tile.tsx",
+    ]);
+  });
+
+  it("does NOT report fetching a reference by id — addressability is protected by RULING 7 clause 2", () => {
+    // Arrange
+    const files = {
+      "dashboard/Tile.tsx":
+        'useGetOne("references", { id }); useGetMany("references", { ids })',
+    };
+
+    // Act / Assert
+    expect(findBrowseSurfaceEnumeration(files, ["references"])).toEqual([]);
+  });
+
+  it("does NOT report a browse surface enumerating an entity that IS browsable", () => {
+    // Arrange
+    const files = { "dashboard/Tile.tsx": 'useGetList("shadchanim", {})' };
+
+    // Act / Assert
+    expect(findBrowseSurfaceEnumeration(files, ["references"])).toEqual([]);
+  });
+});
+
+describe("isBrowseSurfaceModule — which modules the enumeration rule covers", () => {
+  it("covers every dashboard module and the global-search modules", () => {
+    // Act / Assert
+    expect(isBrowseSurfaceModule("dashboard/useDashboardData.ts")).toBe(true);
+    expect(isBrowseSurfaceModule("dashboard/MobileDashboard.tsx")).toBe(true);
+    expect(isBrowseSurfaceModule("misc/useGlobalSearch.ts")).toBe(true);
+    expect(isBrowseSurfaceModule("misc/GlobalSearch.tsx")).toBe(true);
+  });
+
+  it("leaves the surfaces RULING 7 deliberately keeps outside the rule", () => {
+    // Assert — GDPR export, the records-held tally, the merge candidate
+    // picker and the §1a unattached panel all enumerate references legitimately.
+    expect(isBrowseSurfaceModule("settings/exportFamilyData.ts")).toBe(false);
+    expect(isBrowseSurfaceModule("settings/PrivacySection.tsx")).toBe(false);
+    expect(isBrowseSurfaceModule("references/ReferenceMergeButton.tsx")).toBe(
+      false,
+    );
+    expect(isBrowseSurfaceModule("references/ReferencesIndex.tsx")).toBe(false);
+  });
+});
+
 describe("findAd24Violations — AC 10 RULING 7 fixtures", () => {
+  it("(b2) reports browse-surface-enumeration for a dashboard module counting a no-browse entity", () => {
+    // Arrange — the owner's reported surface, driven through the validator
+    // against the REAL NO_BROWSE_SURFACE_ENTITIES table.
+    const input = baseInput({
+      resources: [resourceEntry("references")],
+      exemptions: REFERENCES_EXEMPT_FROM_AC2,
+      browseSurfaceEnumerations: ["dashboard/useDashboardData.ts"],
+      noBrowseSurfaceEntities: NO_BROWSE_SURFACE_ENTITIES,
+    });
+
+    // Act
+    const violations = findAd24Violations(input);
+
+    // Assert
+    expect(violations).toEqual([
+      {
+        code: "browse-surface-enumeration",
+        subject: "dashboard/useDashboardData.ts",
+        detail: expect.stringContaining("references"),
+      },
+    ]);
+  });
+
   it("(a) reports exactly one browse-surface-on-scoped-entity for the real NO_BROWSE_SURFACE_ENTITIES table", () => {
     // Arrange — the required fixture: a re-added /references nav entry,
     // checked against the REAL NO_BROWSE_SURFACE_ENTITIES table.

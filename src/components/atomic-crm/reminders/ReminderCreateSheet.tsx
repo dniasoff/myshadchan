@@ -29,14 +29,21 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 
-import type { Task, TaskDeliveryChannel, TaskTargetType } from "../types";
+import type {
+  ShidduchSummary,
+  Task,
+  TaskDeliveryChannel,
+  TaskTargetType,
+} from "../types";
 import {
   LINKABLE_TARGET_TYPES,
-  RESOURCE_FOR_TARGET,
   TARGET_TYPE_LABEL,
   TARGET_TYPE_LABEL_PLURAL,
-  targetEntityLabel,
 } from "./reminderEntity";
+import {
+  requiresShidduchScope,
+  useReminderTargetOptions,
+} from "./useReminderTargetOptions";
 
 export interface ReminderCreateSheetProps {
   open: boolean;
@@ -45,22 +52,28 @@ export interface ReminderCreateSheetProps {
 
 const BASE_DELIVERY_CHANNELS: TaskDeliveryChannel[] = ["in_app", "email"];
 
-/** Options for the linked-entity select, fetched from whichever resource is picked. */
-const useEntityOptions = (linkType: TaskTargetType) => {
-  const { data, isPending } = useGetList(RESOURCE_FOR_TARGET[linkType], {
-    pagination: { page: 1, perPage: 100 },
-    sort: { field: "created_at", order: "DESC" },
-  });
+/** The shidduchim offered as the scope for a reference-linked reminder
+ * (RULING 7 — see `useReminderTargetOptions`). Shidduchim are browsable, so a
+ * plain roster is legitimate here. */
+const useShidduchOptions = (enabled: boolean) => {
+  const { data, isPending } = useGetList<ShidduchSummary>(
+    "shidduchim",
+    {
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "created_at", order: "DESC" },
+    },
+    { enabled },
+  );
 
   return useMemo(
     () => ({
       isPending,
       options: (data ?? []).map((record) => ({
         id: record.id as Identifier,
-        ...targetEntityLabel(linkType, record as Record<string, unknown>),
+        label: record.name_en || "Shidduch",
       })),
     }),
-    [data, isPending, linkType],
+    [data, isPending],
   );
 };
 
@@ -87,13 +100,30 @@ export const ReminderCreateSheet = ({
     LINKABLE_TARGET_TYPES[0],
   );
   const [targetId, setTargetId] = useState<Identifier | undefined>(undefined);
+  const [shidduchId, setShidduchId] = useState<Identifier | undefined>(
+    undefined,
+  );
   const [withPush, setWithPush] = useState(false);
 
-  const { options: entityOptions, isPending: optionsPending } =
-    useEntityOptions(linkType);
+  const needsShidduch = requiresShidduchScope(linkType);
+  const { options: shidduchOptions, isPending: shidduchPending } =
+    useShidduchOptions(needsShidduch);
+  const {
+    options: entityOptions,
+    isPending: optionsPending,
+    awaitingShidduch,
+  } = useReminderTargetOptions(linkType, shidduchId);
 
   const handleTypeChange = (value: string) => {
     setLinkType(value as TaskTargetType);
+    setTargetId(undefined);
+    setShidduchId(undefined);
+  };
+
+  const handleShidduchChange = (value: string) => {
+    setShidduchId(Number(value));
+    // The previously-picked reference may not be attached to the new
+    // shidduch — never carry it across a scope change.
     setTargetId(undefined);
   };
 
@@ -105,6 +135,7 @@ export const ReminderCreateSheet = ({
     setDate("");
     setTime("");
     setTargetId(undefined);
+    setShidduchId(undefined);
     setWithPush(false);
   };
 
@@ -222,25 +253,60 @@ export const ReminderCreateSheet = ({
               </SelectContent>
             </Select>
 
+            {/* RULING 7: a reference is only reachable through a shidduch, so
+                the reference picker is gated behind one. */}
+            {needsShidduch && (
+              <Select
+                value={shidduchId != null ? String(shidduchId) : ""}
+                onValueChange={handleShidduchChange}
+                disabled={shidduchPending || shidduchOptions.length === 0}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue
+                    placeholder={translate(
+                      "crm.reminders.create.pickShidduch",
+                      { _: "Pick a shidduch first" },
+                    )}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {shidduchOptions.map((option) => (
+                    <SelectItem
+                      key={String(option.id)}
+                      value={String(option.id)}
+                    >
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
             <Select
               value={targetId != null ? String(targetId) : ""}
               onValueChange={(value) => setTargetId(Number(value))}
-              disabled={optionsPending || entityOptions.length === 0}
+              disabled={
+                awaitingShidduch || optionsPending || entityOptions.length === 0
+              }
             >
               <SelectTrigger className="w-full">
                 <SelectValue
                   placeholder={
-                    optionsPending
-                      ? translate("crm.reminders.create.loading", {
-                          _: "Loading…",
+                    awaitingShidduch
+                      ? translate("crm.reminders.create.shidduchFirst", {
+                          _: "Pick a shidduch first",
                         })
-                      : entityOptions.length === 0
-                        ? translate("crm.reminders.create.noOptions", {
-                            _: `No ${TARGET_TYPE_LABEL_PLURAL[linkType]} yet`,
+                      : optionsPending
+                        ? translate("crm.reminders.create.loading", {
+                            _: "Loading…",
                           })
-                        : translate("crm.reminders.create.pick", {
-                            _: `Pick a ${TARGET_TYPE_LABEL[linkType].toLowerCase()}`,
-                          })
+                        : entityOptions.length === 0
+                          ? translate("crm.reminders.create.noOptions", {
+                              _: `No ${TARGET_TYPE_LABEL_PLURAL[linkType]} yet`,
+                            })
+                          : translate("crm.reminders.create.pick", {
+                              _: `Pick a ${TARGET_TYPE_LABEL[linkType].toLowerCase()}`,
+                            })
                   }
                 />
               </SelectTrigger>

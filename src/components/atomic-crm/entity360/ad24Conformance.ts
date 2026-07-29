@@ -60,6 +60,7 @@ export type Ad24ViolationCode =
   | "stale-exemption"
   | "permanent-exemption-for-360-entity"
   | "browse-surface-on-scoped-entity"
+  | "browse-surface-enumeration"
   | "unlisted-entity-missing-index";
 
 export interface Ad24Violation {
@@ -647,10 +648,74 @@ export function findListPathLinks(
   return offenders;
 }
 
+/**
+ * The modules that ARE a browse surface by construction, identified by their
+ * `atomic-crm`-relative path.
+ *
+ * Why a fixed list and not "every file": enumerating references is legitimate
+ * in several places the ruling deliberately keeps — `settings/exportFamilyData.ts`
+ * (GDPR portability), `settings/PrivacySection.tsx` (the records-held tally),
+ * `references/ReferenceMergeButton.tsx` (the merge candidate picker, filtered to
+ * the current record) and `references/ReferencesIndex.tsx` (RULING 7 §1a's
+ * unattached panel, filtered to `linked_shidduchim_count@eq: 0`). A repo-wide
+ * "no list query" rule would be red for all four and would be suppressed within
+ * a week. These two surfaces are different in kind: a dashboard tile and a
+ * global-search fan-out exist ONLY to put a set of records in front of a user
+ * who did not name one, which is the precise thing RULING 7 forbids. On them,
+ * a list query for a no-browse entity is never legitimate.
+ */
+const BROWSE_SURFACE_MODULE_PATTERNS: RegExp[] = [
+  /^dashboard\//,
+  /^misc\/[A-Za-z]*[Gg]lobalSearch[A-Za-z]*\.tsx?$/,
+];
+
+export function isBrowseSurfaceModule(path: string): boolean {
+  return BROWSE_SURFACE_MODULE_PATTERNS.some((pattern) => pattern.test(path));
+}
+
+/**
+ * The pure matcher behind the enumeration rule. Reports every browse-surface
+ * module that issues a LIST query for a no-browse entity.
+ *
+ * This is the rule that closes the blind spot `findListPathLinks` left open.
+ * The dashboard tile removed by Story 4.4 was two separate things: a
+ * `to="/references"` link (which clause (b) catches) and, in
+ * `dashboard/useDashboardData.ts`, a bare
+ * `useGetList("references", { pagination: { page: 1, perPage: 1 } })` count
+ * carrying NO path literal at all. Clause (b) is a path matcher and could not
+ * see the count; a tile could therefore be reinstated with its number intact
+ * and the guard would stay green. Enumeration, not linking, is what the ruling
+ * is about — so this rule matches the query.
+ *
+ * `references_summary` is matched alongside `references` because
+ * `providers/supabase/dataProvider.ts` maps the resource onto the view, and a
+ * caller may name either. `useGetOne`/`useGetMany` are deliberately NOT matched:
+ * fetching a record by id is addressability, which RULING 7 clause 2 protects.
+ */
+export function findBrowseSurfaceEnumeration(
+  files: Record<string, string>,
+  names: string[],
+): string[] {
+  const offenders: string[] = [];
+  for (const [path, content] of Object.entries(files)) {
+    const matches = names.some((name) =>
+      // `useGetList<Foo>("references"` / `getList("references_summary"` /
+      // `dataProvider.getList("references"` — an optional generic argument
+      // may sit between the callee and its parentheses.
+      new RegExp(
+        `\\b(?:useGetList|getList)\\s*(?:<[^<>()]*>)?\\s*\\(\\s*["'\`]${name}(?:_summary)?["'\`]`,
+      ).test(content),
+    );
+    if (matches) offenders.push(path);
+  }
+  return offenders;
+}
+
 function findNoBrowseSurfaceViolations(
   resources: ResourceEntry[],
   navTargets: string[],
   listPathLinks: string[],
+  browseSurfaceEnumerations: string[],
   noBrowseSurfaceEntities: Record<string, string>,
 ): Ad24Violation[] {
   const violations: Ad24Violation[] = [];
@@ -683,6 +748,18 @@ function findNoBrowseSurfaceViolations(
       code: "browse-surface-on-scoped-entity",
       subject: file,
       detail: `"${file}" links to the list path of a no-browse entity (${noBrowseNames.join(", ")}) — RULING 7 forbids a browse surface for it`,
+    });
+  }
+
+  // (b2) no dashboard tile and no global-search fan-out may enumerate a
+  // no-browse entity. Distinct from (b): (b) matches a PATH, this matches a
+  // QUERY, and the surface the owner reported ("why is there references in
+  // dashboard") was a count with no path at all.
+  for (const file of browseSurfaceEnumerations) {
+    violations.push({
+      code: "browse-surface-enumeration",
+      subject: file,
+      detail: `"${file}" is a browse surface (dashboard or global search) and issues a list query for a no-browse entity (${noBrowseNames.join(", ")}) — RULING 7 forbids enumerating it there, with or without a link`,
     });
   }
 
@@ -730,6 +807,10 @@ export function findAd24Violations(input: {
   handBuiltRecordPaths: string[];
   navTargets: string[];
   listPathLinks: string[];
+  /** Browse-surface modules issuing a list query for a no-browse entity
+   * (`findBrowseSurfaceEnumeration`). Optional so the many single-rule
+   * fixtures stay isolated; the real guard always passes it. */
+  browseSurfaceEnumerations?: string[];
   exemptions?: Ad24Exemptions;
   noBrowseSurfaceEntities?: Record<string, string>;
 }): Ad24Violation[] {
@@ -761,6 +842,7 @@ export function findAd24Violations(input: {
       input.resources,
       input.navTargets,
       input.listPathLinks,
+      input.browseSurfaceEnumerations ?? [],
       noBrowseSurfaceEntities,
     ),
   ];

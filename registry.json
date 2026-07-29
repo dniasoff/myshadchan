@@ -400,6 +400,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/reminders/useReminderTargetOptions.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/reminders/reminderEntity.ts",
           "type": "registry:component"
         },

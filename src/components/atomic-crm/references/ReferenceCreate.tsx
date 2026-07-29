@@ -169,6 +169,9 @@ export const ReferenceCreate = () => {
   return (
     <Create
       redirect={redirectToRecord}
+      // See ReferenceShow — the breadcrumb's "References" crumb links to the
+      // list, a browse entry RULING 7 forbids.
+      disableBreadcrumb
       mutationOptions={{
         onSuccess: async (data: RaRecord) => {
           try {

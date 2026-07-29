@@ -46,13 +46,43 @@ spot is part of this story (AC-8).
 **In scope here (from RULING 7):** R2 (the unattached-references panel + deleting
 `ReferenceList.tsx`) and R8 (`browsable?: false` on the descriptor + its two consumers), because
 both live in files this story already opens (`references/**`, `entity360/**`).
-**Explicitly NOT in scope, and each still needs an owner:** R4 (`reminders/reminderEntity.ts:24`
-still lists `"reference"` in `LINKABLE_TARGET_TYPES` and `ReminderCreateSheet.tsx:49-53` still
-does an unscoped `useGetList(…, { perPage: 100 })` — a live 100-row reference roster with no
-shidduch in scope), R5 (the `crm.references.list.*` and reference filter-label i18n keys), and
-R7's schema hardening (the `create_reference_for_shidduch` RPC, the `before delete` guard on
-`shidduchim`, the `reference_links` scope constraint). All three belong to the S16 wave. Naming
-them here so they are not lost, **not** so they get pulled in.
+**Explicitly NOT in scope, and each still needs an owner:** ~~R4~~ (**done** — see the
+refs-sweep note below), R5 (the `crm.references.list.*` and reference filter-label i18n keys),
+and R7's schema hardening (the `create_reference_for_shidduch` RPC, the `before delete` guard on
+`shidduchim`, the `reference_links` scope constraint). Both remaining items belong to the S16
+wave. Naming them here so they are not lost, **not** so they get pulled in.
+
+### Landed ahead of this story by the RULING 7 refs-sweep — read before starting AC-8
+
+A standalone sweep (branch `main`, owner `refs-sweep`) closed the surfaces that had no owner and
+could not wait for this story. **Three things changed under your feet:**
+
+1. **R4 is done — do not redo it.** `reminders/ReminderCreateSheet.tsx` no longer offers an
+   unscoped reference roster. New module `reminders/useReminderTargetOptions.ts` gates the
+   reference picker behind a shidduch picker and queries `reference_links_summary` filtered by
+   `shidduchim_id`; `reminders/useReminderTargetOptions.test.tsx` pins it. The feature was
+   **rescoped, not deleted** — `"reference"` stays in `LINKABLE_TARGET_TYPES`, because a reminder
+   to call a reference back is a real workflow.
+2. **AC-8 is now HALF done, and the half that remains is still yours.** A *third* rule was added
+   to `ad24Conformance.ts` — clause **(b2)**, `browse-surface-enumeration`, backed by
+   `findBrowseSurfaceEnumeration` + `isBrowseSurfaceModule` — which fails when a dashboard module
+   or a global-search module issues a **list query** for a no-browse entity. It exists because
+   clause (b) matches a *path* and therefore could never see the bare
+   `useGetList("references", { perPage: 1 })` count that shipped to production in
+   `dashboard/useDashboardData.ts` with no `/references` link beside it. **Still unwritten and
+   still this story's AC-8:** (i) replacing clause (c)'s
+   `if (resource.name in noBrowseSurfaceEntities) continue;` with the positive assertion that a
+   no-browse entity's `list` is its declared index panel — this one *cannot* be written until
+   `ReferencesIndex` exists, which is why it stayed here; and (ii) widening clause (b)'s matcher
+   to variable-argument `buildListPath(<identifier>)` for `RecordUnavailable.tsx:37` /
+   `routeConvention.tsx:88`. Do not re-add (b2); extend around it.
+3. **The breadcrumb browse-entry is closed, and AC-4 must not reopen it.** `ReferenceShow`,
+   `ReferenceEdit` and `ReferenceCreate` now pass `disableBreadcrumb`. Without it,
+   `admin/show.tsx`/`edit.tsx`/`create.tsx` render `Home / **References** / <name>` with
+   "References" linking to the list — a one-click browse entry from *inside* the sanctioned
+   in-shidduch path. When AC-4 moves the record surface onto `Entity360` the prop disappears with
+   it (the 360 shell renders no breadcrumb), but **`ReferenceEdit` survives this story
+   (`references/index.ts` keeps `Edit: ReferenceEdit`) and must keep `disableBreadcrumb`.**
 
 ## Most of the diligence half already exists
 
