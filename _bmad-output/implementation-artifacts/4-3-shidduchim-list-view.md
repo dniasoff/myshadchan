@@ -200,6 +200,38 @@ renderings; do not split it into a Board/List toggle plus a separate List/Cards 
 two adjacent toggles answering overlapping questions is exactly the divergence AD-24 exists
 to prevent.
 
+### The mobile pipeline's `useIsMobile()` branch is yours to delete
+
+The mobile-redesign round produced a deferred wave **P** (mobile pipeline) whose plan is
+`mobile-redesign-plan.md` §2/§5. It deliberately builds **no** view toggle, because AC-1 above
+mandates a three-position control keyed to `useStore("shidduchim.pageView")` and explicitly not
+a URL param — `?view=list|board` was reached for by the redesign proposals and rejected on the
+record (plan §7, "Rejected from the three proposals"), precisely so this page does not repeat
+the 3-2/3-12 failure where two stories owned the same mechanism in incompatible ways
+(`.claude/rules/parallel-ownership.md`).
+
+What wave P ships instead is a **width branch**: P6 puts one `useIsMobile()` call in
+`ShidduchimListContent.tsx` — desktop renders today's Kanban (lazily importing the
+`@hello-pangea/dnd` tree), mobile renders a new stacked `ShidduchimPipelineList` (sections per
+pipeline state + a `ShidduchMoveSheet`, no drag). That branch is a **stopgap standing in for
+this story's control**, and this story is where it dies: once the segmented control exists,
+Board is a user choice at every width, so the branch is dead code and Task 3 deletes it —
+`ShidduchimViewSwitch` mounts `ShidduchimListContent` (board) or the list sub-view purely from
+the store key, never from viewport width.
+
+Two consequences for whoever picks this up, both verified against the tree 2026-07-29:
+
+- **Wave P has not landed yet.** `shidduchim/` contains no `ShidduchimPipelineList.tsx`,
+  `ShidduchMoveSheet.tsx` or `PipelineSection.tsx`, and `ShidduchimListContent.tsx` has no
+  `useIsMobile()` call. If that is still true when this story starts, there is nothing to
+  delete — the note costs you one grep. If wave P has landed, the branch is there and removing
+  it is part of Task 3, not a follow-up.
+- **`ShidduchRow.tsx` may already exist.** Wave P's manifest claims
+  `src/components/atomic-crm/shidduchim/ShidduchRow.tsx` as a new file (its stacked-pipeline
+  row) and so does Task 4 above. Whichever lands second reuses the existing file rather than
+  creating a second row component — one row anatomy for this resource, per the same AD-24
+  argument the rest of this story runs on.
+
 ### Architecture
 
 - **UX-DR7 / AD-24**: "Lists render through one `EntityList`" — satisfied here via the shared

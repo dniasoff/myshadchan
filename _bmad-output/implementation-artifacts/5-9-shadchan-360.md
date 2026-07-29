@@ -113,9 +113,11 @@ in the same change; notes now live only in the Notes tab.
         partial merge: identity header = `ShadchanHeader`, stat band = `ShadchanStatsRow`, tabs
         `overview, shidduchim, notes, tasks, activity` (keys from `entity360/tabKeys.ts`).
         [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#4 — rule 2]
-  - [ ] `overview` tab: whatever `Shadchan` fields remain outside the header (location, if not
-        already in the header — check `ShadchanHeader.tsx` before adding a duplicate render of
-        the same field).
+  - [ ] `overview` tab: **blocked on an open decision — do not build it from this line.** The
+        original instruction ("whatever `Shadchan` fields remain outside the header") resolves to
+        `name_he` alone after the mobile-redesign wave S, i.e. to an empty tab. See Dev Notes
+        "Open decision — the Overview tab has no content left (wave S handoff)" and take the
+        option the owner picks.
   - [ ] `shidduchim` tab: `ShadchanSuggestions.tsx`, structurally unchanged (already
         `RecordLink`-based post-3.9), mounted as an explicit `tabs` entry with
         `key: "shidduchim"`. An explicit `tabs` entry legitimately overrides the generic
@@ -153,6 +155,76 @@ or `interactions_scope_link_check` — Stories 3.5/3.8 already delivered every v
 (`'shadchan'`, `'single'`, the scope branches, the RLS branches). The only migration in this
 story is the `shadchanim.notes` backfill-and-drop (Task 2). If a generated diff contains a
 `*_target_type_check` line, the schema files were edited from a stale assumption — revert it.
+
+### What wave S already changed under this story's feet
+
+The mobile-redesign wave S landed on `shadchanim/` after this story was written (commits
+`9538463`, `ce3e4c7`). It changed nothing this story's ACs assert, but three of the story's
+pointers are now stale — verified against the tree 2026-07-29:
+
+- `ShadchanStatsRow` is **already extracted** to `shadchanim/ShadchanStatsRow.tsx`. Task 3's
+  "extract the inline `ShadchanStatsRow` to its own file" and the same aside in "Most of this
+  already exists" are done; only the `<Show>` wrapper deletion remains.
+- The header's notes block is now `ShadchanHeader.tsx:125-134`, not `~101-110` (Task 2, AC-2).
+  It is still exactly one `{shadchan.notes ? … : null}` block and still the only render of the
+  column.
+- `ShadchanHeader.test.tsx` exists (5 cases: avatar classes, the sparse meta-line fallback, a
+  missing `created_at`, quick actions, no-contact-info). **None asserts the notes block**, so
+  Task 2 removes the block without touching that file.
+
+### Open decision — the Overview tab has no content left (wave S handoff)
+
+**Do not start Task 3's `overview` bullet until the owner has answered this.** Wave S rewrote
+`ShadchanHeader.tsx` as a density-first hero card and in doing so pulled into the header every
+`Shadchan` field the Overview tab was going to show. Verified 2026-07-29 against the shipped
+files:
+
+- `Shadchan` is exactly `account_id, name, name_he?, location?, contacts?, notes?,
+  responsiveness?, created_at, id` (`src/components/atomic-crm/types.ts:220-229`).
+- Post-wave-S `ShadchanHeader.tsx` renders `name`, `location` **and** `created_at` (joined into
+  one meta line, "…· In your book since {Mon YYYY}"), `responsiveness` (`ResponsivenessChip`),
+  `contacts` (the quick actions) and `notes`.
+- `notes` is deleted by this story's own Task 2; `account_id` and `id` are never rendered.
+
+What remains outside the header is therefore **`name_he`, alone** — optional, with no input on
+the create/edit form (`ShadchanInputs.tsx` collects name, location, responsiveness, notes only)
+and `null` in every seed (`dataGenerator/shidduchim.ts`'s four `shadchanimSeed` rows;
+`seed_demo/dataset.ts`'s `DemoShadchan` has no such field at all). Built as literally specified,
+Overview renders `OverviewTab`'s empty state ("No details on file yet.") for every record in the
+product — on the tab a shadchan's URL lands on by default (`Entity360Tabs.tsx:53`: the first
+`tabs` entry).
+
+**What wave S proposed, and why it is not free.** Its plan (§6) suggested `entity360/tabs/
+OverviewTab` + `OverviewFactGrid` with Location · Responsiveness · In your book since · **Last
+redt · Redt for**. The first three are the duplicate render Task 3 already warns against. The
+last two are not data that exists to read: `shadchanim` has no redt column
+(`supabase/schemas/01_tables.sql:226-236`) and `shadchan_stats` carries only `nb_suggestions`,
+`nb_progressed`, `nb_reached_yes` (`03_views.sql:202-211`; `ShadchanStats`, `types.ts:238-243`).
+They are *derivable* — `ShadchanSuggestions` already reads this shadchan's shidduchim sorted
+`redt_date DESC` — but re-running that unbounded 200-row query behind a second tab to show two
+numbers is the argument for widening the aggregate, not against it. Either way it is new work,
+not a field read.
+
+**The options. This story must not pick one silently:**
+
+- **A — defer the tab.** Register `tabs` without `overview` and keep `"overview"` in
+  `pendingTabs`; the union rule (`keys(tabs) ∪ pendingTabs === canonical set`, contract §3
+  rule 5) still holds and nothing ships empty. Cost: AC-3's tab list and the pinned shadchanim
+  row in `entity360/registry.stubs.test.ts` both move `overview` from tabs to pending, and the
+  default landing tab becomes `shidduchim`. Reversible the day the tab has content.
+- **B — give it real content.** Widen `shadchan_stats` with a last-redt date and a
+  redt-for-how-many-singles count, then render those (plus `name_he` when set) through
+  `OverviewTab`. Cost: a view change, i.e. a second migration in a story that today owns exactly
+  one, plus the RLS surface that comes with it. Benefit: the tab answers what a parent actually
+  opens a shadchan to ask.
+- **C — fold it away.** Drop `overview` from the shadchan canonical tab set outright. This is a
+  **contract amendment** (§3 rule 5's per-entity sets, `registry.stubs.test.ts`, AC-3), not a
+  story-local choice — it needs the same ruling process that set the tab sets in the first place.
+
+**Recommendation: A now, B when the aggregate earns its migration.** A is the only option that
+is reversible, ships nothing empty, needs no schema change, and keeps this story to the single
+migration it already owns. B is a real feature and deserves to be scoped as one rather than
+smuggled in under "whatever fields remain".
 
 ### Reuse checklist (do not re-derive any of these)
 
