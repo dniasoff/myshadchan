@@ -23,7 +23,6 @@ jobs:
             RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
             UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
             UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
-            VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
 
         steps:
             - name: 📥 Checkout repo
@@ -215,54 +214,6 @@ jobs:
                       echo "🧹 Deleted orphaned edge function \`$slug\` — no longer declared in \`supabase/functions/\`." >> "$GITHUB_STEP_SUMMARY"
                   done
 
-            # The frontend and the database deploy on two INDEPENDENT pipelines off
-            # the same push: Vercel builds from its own git integration while this
-            # job runs `db push`. On the Epic 3 deploy Vercel finished at 11:59:56
-            # with `db push` still running — a live window of new UI against the
-            # old schema, and, worse, a failed migration still ships the new UI.
-            #
-            # The gate is one POST to a Vercel Deploy Hook, fired only once
-            # migrations and functions have landed. It is INERT until the project
-            # owner completes two manual steps, in this order:
-            #
-            #   1. Vercel → Project → Settings → Git → Deploy Hooks: create a hook
-            #      on branch `main` and add its URL as the repo secret
-            #      VERCEL_DEPLOY_HOOK_URL. Adding the secret IS the sign-off — this
-            #      step is skipped while it is absent, so landing it changes
-            #      nothing on its own.
-            #   2. Vercel → Project → Settings → Git: disable the PRODUCTION git
-            #      deployment for `main` (Ignored Build Step, or
-            #      `git.deploymentEnabled`) so it stops racing this job. Preview
-            #      deployments for branches and PRs are unaffected.
-            #
-            # Order matters: doing 2 before 1 stops production deploying at all.
-            #
-            # Rejected: building the frontend inside this job (`vercel deploy
-            # --prebuilt --prod`) costs three more secrets, reconfigures PR
-            # previews and loses Vercel's remote build cache; a `vercel.json`
-            # `ignoreCommand` that polls the schema would put database credentials
-            # inside the Vercel build.
-            #
-            # HONEST LIMIT, and the reason this is not the whole fix: ordering
-            # removes only "new UI against old schema". For the entire duration of
-            # the frontend build the NEW schema is live under the OLD frontend, and
-            # no ordering closes that half. Only backward-compatible
-            # (expand/contract) migrations do — every migration must keep the
-            # previous release working for one cycle. That property is required for
-            # rollback anyway; the hook just buys the cheap half.
-            - if: ${{ env.IS_SUPABASE_CONFIGURED && env.VERCEL_DEPLOY_HOOK_URL }}
-              name: 🚀 Trigger the Vercel production build (schema is live)
-              run: |
-                  curl -sS --fail-with-body -X POST "$VERCEL_DEPLOY_HOOK_URL" \
-                      -o /tmp/vercel-hook.json \
-                      || { echo "::error::Vercel deploy hook failed — production was NOT rebuilt"; head -c 2000 /tmp/vercel-hook.json >&2; exit 1; }
-                  echo "🚀 Vercel production build triggered after migrations landed." >> "$GITHUB_STEP_SUMMARY"
-
-            - if: ${{ env.IS_SUPABASE_CONFIGURED && !env.VERCEL_DEPLOY_HOOK_URL }}
-              name: Frontend/schema deploy ordering not enabled
-              run: |
-                  echo ':warning: **Frontend and schema deployed unordered.** Vercel is still building from its own git trigger, in parallel with this job: a failed migration can still ship new UI, and new UI can serve against the old schema. Two-step activation is documented above the `🚀 Trigger the Vercel production build` step in `.github/workflows/deploy.yml`.' >> $GITHUB_STEP_SUMMARY
-
             - if: ${{ !env.IS_SUPABASE_CONFIGURED }}
               name: Supabase deployment skipped
               run: |
@@ -272,6 +223,13 @@ jobs:
         name: 🚀 Deploy (Cloudflare Workers · ${{ matrix.worker }})
         runs-on: ubuntu-latest
         timeout-minutes: 10
+
+        # The workers are a THIRD pipeline off the same push, and until this
+        # `needs:` they ran concurrently with `db push` exactly as Vercel did: a
+        # failed migration still shipped all seven workers, `billing` and `ai`
+        # included. Gating them on deploy-supabase means backend code never goes
+        # live against a schema that failed to apply.
+        needs: deploy-supabase
 
         strategy:
             matrix:
@@ -328,3 +286,76 @@ jobs:
               name: Cloudflare deployment skipped
               run: |
                   echo ':warning: Cloudflare Workers deployment skipped (${{ matrix.worker }}) — missing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secret' >> $GITHUB_STEP_SUMMARY
+
+    # The frontend used to deploy on a pipeline entirely OUTSIDE this workflow:
+    # Vercel built from its own git integration on the same push that ran
+    # `db push`. Two independent pipelines, one trigger, no ordering. On the Epic
+    # 3 deploy Vercel finished at 11:59:56 with `db push` still running — new UI
+    # live against the old schema — and a *failed* migration still shipped the
+    # new frontend.
+    #
+    # The fix has two halves, and BOTH must be in place or production breaks:
+    #
+    #   1. `git.deploymentEnabled: { "main": false }` in `vercel.json` stops
+    #      Vercel auto-building on push to `main`.
+    #   2. This job POSTs a Vercel Deploy Hook once every backend pipeline has
+    #      succeeded, which is now the ONLY way production is ever rebuilt.
+    #
+    # Verified empirically on a throwaway branch before landing (probe branch
+    # `ci/vercel-deploy-gate-probe`, since deleted), because guessing wrong here
+    # means production silently stops deploying forever:
+    #   - a push to a branch with `deploymentEnabled: false` for that branch
+    #     created NO deployment; and
+    #   - a Deploy Hook aimed at that same branch DID build it anyway.
+    # Deploy Hooks bypass `git.deploymentEnabled`. (The documented setting that
+    # *does* disable hooks is the deprecated `github.enabled: false` — not this
+    # one. Do not add that key.)
+    # A push to a DIFFERENT branch while `main: false` was set still produced a
+    # preview, so PR previews are unaffected — matching is per-branch-name, and a
+    # PR deploys its head branch, never `main`.
+    #
+    # `needs:` both backend jobs, so the frontend is strictly last: a failed
+    # migration OR a failed worker deploy leaves production on the last good
+    # build. That is the entire point — the hook not firing IS the safe outcome.
+    #
+    # GUARD: if VERCEL_DEPLOY_HOOK_URL is ever absent (secret rotated away,
+    # restored-from-backup repo) this job does NOT fail the run — it warns
+    # loudly. Failing every deploy over a missing optional secret would be worse
+    # than the race being fixed. But note the consequence while it is missing:
+    # `vercel.json` still blocks the git build, so production simply does not
+    # deploy. The warning says exactly that.
+    #
+    # Rejected: building the frontend inside CI (`vercel deploy --prebuilt
+    # --prod`) costs three more secrets, reconfigures PR previews and loses
+    # Vercel's remote build cache; a `vercel.json` `ignoreCommand` that polls the
+    # schema would put database credentials inside the Vercel build.
+    #
+    # HONEST LIMIT, and the reason this is not the whole fix: ordering removes
+    # only "new UI against old schema". For the entire duration of the frontend
+    # build the NEW schema is live under the OLD frontend, and no ordering closes
+    # that half. Only backward-compatible (expand/contract) migrations do — every
+    # migration must keep the previous release working for one cycle. That
+    # property is required for rollback anyway; the hook just buys the cheap half.
+    trigger-frontend:
+        name: 🚀 Deploy (Vercel frontend)
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        needs: [deploy-supabase, deploy-workers]
+
+        env:
+            VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+
+        steps:
+            - if: ${{ env.VERCEL_DEPLOY_HOOK_URL }}
+              name: 🚀 Trigger the Vercel production build (backends are live)
+              run: |
+                  curl -sS --fail-with-body -X POST "$VERCEL_DEPLOY_HOOK_URL" \
+                      -o /tmp/vercel-hook.json \
+                      || { echo "::error::Vercel deploy hook failed — production was NOT rebuilt and is still on the previous build"; head -c 2000 /tmp/vercel-hook.json >&2; exit 1; }
+                  echo "🚀 Vercel production build triggered — migrations, edge functions and workers all landed first." >> "$GITHUB_STEP_SUMMARY"
+
+            - if: ${{ !env.VERCEL_DEPLOY_HOOK_URL }}
+              name: ⚠️ Frontend deploy trigger is not configured
+              run: |
+                  echo '::warning::VERCEL_DEPLOY_HOOK_URL secret is missing — the frontend was NOT deployed.'
+                  echo ':rotating_light: **The frontend was NOT deployed.** `vercel.json` sets `git.deploymentEnabled.main = false`, so Vercel no longer builds on push; this job is what replaces it, and it needs the `VERCEL_DEPLOY_HOOK_URL` repo secret. Recreate the hook (Vercel → Project → Settings → Git → Deploy Hooks, branch `main`) and store its URL as that secret. Production is still serving the last successful build.' >> $GITHUB_STEP_SUMMARY

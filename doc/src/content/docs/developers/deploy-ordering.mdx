@@ -1,0 +1,113 @@
+---
+title: Deploy Ordering (schema before frontend)
+description: Why production is deployed by a Vercel Deploy Hook instead of Vercel's git integration, and how to operate it.
+---
+
+Production deploys off a single push to `main`, but through **three** pipelines.
+This page documents the ordering between them, because getting it wrong ships a
+frontend against a schema that does not exist yet.
+
+## The problem this solves
+
+Vercel used to build from its own git integration on push to `main`, at the same
+time as the `deploy-supabase` job ran `supabase db push`. Two independent
+pipelines, one trigger, no ordering. On the Epic 3 deploy the Vercel build
+finished at 11:59:56 while `db push` was still running — new UI live against the
+old schema. Worse: when a migration **failed**, production still shipped the new
+frontend.
+
+The Cloudflare Workers job had the same defect from a pipeline inside this repo —
+it declared no `needs:`, so a failed migration still deployed all seven workers,
+`billing` and `ai` included.
+
+## How it works now
+
+```
+push to main
+   │
+   ├─ Vercel git integration ──► DOES NOTHING
+   │     (vercel.json: git.deploymentEnabled.main = false)
+   │
+   └─ .github/workflows/deploy.yml
+         deploy-supabase          (db push → auth config → functions deploy)
+              │ needs
+         deploy-workers           (7-way matrix: ingest parse match ai share cron billing)
+              │ needs
+         trigger-frontend         (POST the Vercel Deploy Hook)
+                                       └──► Vercel builds production
+```
+
+The frontend is strictly last. **If any backend job fails, the hook never fires
+and production stays on the last good build.** That is the whole design — the
+hook *not* firing is the safe outcome, not an error to route around.
+
+## The two halves — both are required
+
+1. **`vercel.json`** sets `git.deploymentEnabled: { "main": false }`, which stops
+   Vercel auto-building on push to `main`.
+2. **`VERCEL_DEPLOY_HOOK_URL`** (GitHub Actions repo secret) is the Deploy Hook
+   that `trigger-frontend` POSTs. With half 1 in place, this is the *only* way
+   production is ever rebuilt.
+
+Remove half 2 without reverting half 1 and production simply stops deploying.
+The workflow does not fail in that case — it emits a loud red warning in the job
+summary saying the frontend was not deployed — because failing every deploy over
+a missing optional secret would be worse than the race being fixed.
+
+## Verified behaviour (not assumed)
+
+These were measured on a throwaway branch before the change landed, because
+guessing wrong means production silently stops deploying:
+
+| Question | Answer |
+| --- | --- |
+| Does `deploymentEnabled: false` stop a push-triggered build? | **Yes** — the push created no deployment at all. |
+| Does a Deploy Hook still build a branch that has `deploymentEnabled: false`? | **Yes** — hooks bypass the setting entirely. |
+| Do PR previews still work with `main: false`? | **Yes** — matching is per-branch-name, and a PR deploys its *head* branch, never `main`. |
+| Does a hook on `main` produce a production deployment? | **Yes** — `target=production`, verified against a commit already live. |
+
+The documented setting that **does** disable Deploy Hooks is the deprecated
+`github.enabled: false`. Do not add that key to `vercel.json`; it would silently
+break the only remaining path to production.
+
+## PR previews
+
+Unaffected. `git.deploymentEnabled` matches on branch name, and only `main` is
+disabled. A pull request builds a preview of its head branch (`feature/x`), which
+never matches the `main` key. Merging that PR pushes `main`, which is what the
+ordered pipeline above then handles.
+
+## Operations
+
+**Rotating the hook.** Create a new hook (Vercel → Project → Settings → Git →
+Deploy Hooks, branch `main`), update the `VERCEL_DEPLOY_HOOK_URL` repo secret,
+then delete the old hook. The URL is a bearer credential — anyone holding it can
+deploy the project.
+
+```sh
+gh secret set VERCEL_DEPLOY_HOOK_URL --repo dniasoff/myshadchan
+```
+
+Store the URL with **no trailing newline** (`printf '%s'`, not `echo`), or the
+value ends up with `\n` inside it.
+
+**Deploying the frontend without a code change** (e.g. after a manual database
+fix): re-run the `trigger-frontend` job from the GitHub Actions run, or redeploy
+from the Vercel dashboard. Dashboard redeploys and rollbacks are unaffected by
+`deploymentEnabled` — that setting only gates *git-push* triggers.
+
+**Emergency: deploy the frontend right now, bypassing CI.** POST the hook
+directly. This skips every backend gate, so only do it when you know the schema
+is already correct.
+
+## The half this does NOT fix
+
+Ordering removes "new UI against old schema". It does **not** remove the mirror
+image: for the entire duration of the frontend build, the **new** schema is live
+under the **old** frontend. No ordering closes that window — only
+backward-compatible (expand/contract) migrations do.
+
+Every migration must keep the previous release working for one cycle: add columns
+before writing them, keep old columns readable until the release after next, never
+rename or drop in the same deploy that ships the code depending on the change.
+That property is required for rollback anyway.
