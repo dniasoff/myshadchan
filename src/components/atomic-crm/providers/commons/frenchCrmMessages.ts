@@ -258,6 +258,7 @@ export const frenchCrmMessages = {
       retry: "Réessayer",
       view_list: "Vue liste",
       view_cards: "Vue cartes",
+      view_mode: "Mode d'affichage",
     },
     image_editor: {
       change: "Changer",

@@ -72,7 +72,7 @@ export const SingleRow = ({ single, index, openCount }: SingleRowProps) => {
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate font-display text-sm font-semibold leading-tight">
-            {nameEn || displayName}
+            {displayName}
           </div>
           {meta ? (
             <p className="truncate text-xs text-muted-foreground">{meta}</p>

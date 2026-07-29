@@ -263,6 +263,9 @@ export const englishCrmMessages = {
       // Story 4.2 — EntityListViewToggle's two accessible names (AC 2).
       view_list: "List view",
       view_cards: "Cards view",
+      // Adversarial-review fix — groups the two buttons above as one
+      // segmented control for assistive tech (`role="group"`'s label).
+      view_mode: "View mode",
     },
     image_editor: {
       change: "Change",

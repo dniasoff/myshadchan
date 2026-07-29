@@ -80,4 +80,17 @@ describe("EntityListViewToggle — controlled two-button control (AC 2)", () => 
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith("cards");
   });
+
+  // Adversarial-review fix (minor): the two buttons each had their own
+  // accessible name already, but nothing told assistive tech they form one
+  // segmented control rather than two unrelated buttons.
+  it("exposes the two buttons as one labelled group", async () => {
+    // Arrange / Act
+    const { screen } = await renderToggle("cards");
+
+    // Assert
+    await expect
+      .element(screen.getByRole("group", { name: "View mode" }))
+      .toBeInTheDocument();
+  });
 });

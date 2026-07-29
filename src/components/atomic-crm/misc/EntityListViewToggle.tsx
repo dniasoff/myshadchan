@@ -28,9 +28,19 @@ export const EntityListViewToggle = ({
   const cardsLabel = translate("crm.entity_list.view_cards", {
     _: "Cards view",
   });
+  // Review fix (adversarial review, minor): each button already carries its
+  // own accessible name, but nothing told assistive tech the two buttons
+  // form one control (a segmented toggle, not two independent buttons).
+  const groupLabel = translate("crm.entity_list.view_mode", {
+    _: "View mode",
+  });
 
   return (
-    <div className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border p-0.5">
+    <div
+      role="group"
+      aria-label={groupLabel}
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border p-0.5"
+    >
       <Button
         type="button"
         size="icon"

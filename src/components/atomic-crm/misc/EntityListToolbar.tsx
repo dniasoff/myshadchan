@@ -60,7 +60,21 @@ export const EntityListToolbar = ({
   extraFilters,
   viewToggle,
 }: EntityListToolbarProps) => (
-  <TopToolbar>
+  // Review fix (F1): `TopToolbar`'s own default row is `whitespace-nowrap`
+  // with no `flex-wrap` — fine for every other caller (one or two buttons),
+  // but this toolbar can now carry FilterButton + SortButton +
+  // EntityListViewToggle (two buttons) + the create link at once, and their
+  // combined min-content width exceeds the available row width in the
+  // 768-809px tablet band (measured: 809/810px document scrollWidth against
+  // a 768px viewport, both on /shadchanim and /singles). A flex row with no
+  // wrap cannot shrink a single control below its own content size, so the
+  // row forced the whole page to scroll horizontally instead of overflowing
+  // onto a second line. `flex-wrap` (this call site only, via `className` —
+  // `TopToolbar`'s own default stays `nowrap` for its other callers) lets
+  // the controls that do not fit drop to a second line, right-aligned, with
+  // no page-level horizontal scroll at any width (carried by
+  // `e2e/entity-list-view-toggle.spec.ts`'s "no horizontal scroll" checks).
+  <TopToolbar className="flex-wrap justify-end gap-y-2">
     {extraFilters && extraFilters.length > 0 ? <FilterButton /> : null}
     {sortFields && sortFields.length > 0 ? (
       <SortButton fields={sortFields} />
