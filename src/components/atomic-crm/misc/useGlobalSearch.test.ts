@@ -5,8 +5,12 @@ import { CoreAdminContext } from "ra-core";
 import fakeDataProvider from "ra-data-fakerest";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
-import type { UseGlobalSearchResult } from "./useGlobalSearch";
-import { useGlobalSearch } from "./useGlobalSearch";
+import type { CrmDataProvider } from "../providers/types";
+import type {
+  GlobalSearchDialogControls,
+  UseGlobalSearchResult,
+} from "./useGlobalSearch";
+import { useGlobalSearch, useGlobalSearchDialog } from "./useGlobalSearch";
 
 /**
  * Task 1/AC 2-5. No JSX — `.test.ts`, not `.test.tsx` — mirrors
@@ -69,6 +73,39 @@ async function renderHookProbe(query: string) {
   };
 
   return { getListSpy, getCaptured };
+}
+
+/** Review F5's own tests need a dataProvider that can reject on purpose —
+ * `ra-data-fakerest` cannot do that, so these use a hand-rolled stub
+ * (mirroring `GlobalSearch.test.tsx`'s own `as unknown as CrmDataProvider`
+ * convention). */
+async function renderHookProbeWithProvider(
+  query: string,
+  dataProvider: CrmDataProvider,
+) {
+  let captured: UseGlobalSearchResult | undefined;
+
+  function Probe() {
+    captured = useGlobalSearch(query);
+    return null;
+  }
+
+  await render(
+    createElement(
+      CoreAdminContext,
+      { dataProvider, i18nProvider: testI18nProvider },
+      createElement(Probe),
+    ),
+  );
+
+  const getCaptured = (): UseGlobalSearchResult => {
+    if (!captured) {
+      throw new Error("useGlobalSearch never rendered a result");
+    }
+    return captured;
+  };
+
+  return { getCaptured };
 }
 
 describe("useGlobalSearch — the minimum-length guard (AC 5)", () => {
@@ -189,5 +226,134 @@ describe("useGlobalSearch — the fan-out (AC 2, AC 3)", () => {
       shadchanim: [],
     });
     expect(getListSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("resolves hasError: false for a fully successful fan-out", async () => {
+    // Arrange / Act
+    const { getCaptured } = await renderHookProbe("Weiss");
+    await expect.poll(() => getCaptured().isPending).toBe(false);
+
+    // Assert
+    expect(getCaptured().hasError).toBe(false);
+  });
+});
+
+describe("useGlobalSearch — one resource failing (Review F5)", () => {
+  it("still resolves the other two groups, and sets hasError, when one resource's getList rejects", async () => {
+    // Arrange — `Promise.all` (the pre-fix behaviour) would blank ALL THREE
+    // groups on a single rejection; `Promise.allSettled` must not.
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const dataProvider = {
+      getList: vi.fn(async (resource: string) => {
+        if (resource === "singles") {
+          throw new Error("useGlobalSearch.test.ts: simulated singles failure");
+        }
+        if (resource === "shidduchim") {
+          return { data: FIXTURE_DATA.shidduchim, total: 1 };
+        }
+        if (resource === "shadchanim") {
+          return { data: FIXTURE_DATA.shadchanim, total: 1 };
+        }
+        throw new Error(`unexpected resource "${resource}"`);
+      }),
+    } as unknown as CrmDataProvider;
+
+    // Act
+    const { getCaptured } = await renderHookProbeWithProvider(
+      "Weiss",
+      dataProvider,
+    );
+    await expect.poll(() => getCaptured().isPending).toBe(false);
+
+    // Assert — the failing resource is an empty array (present, not
+    // omitted, same AC-5 convention as the "only one resource matches"
+    // case above), never blanking its healthy siblings.
+    expect(getCaptured().groups.singles).toEqual([]);
+    expect(getCaptured().groups.shidduchim).toHaveLength(1);
+    expect(getCaptured().groups.shadchanim).toHaveLength(1);
+    expect(getCaptured().hasError).toBe(true);
+
+    // Assert — the failure is surfaced (.claude/rules/coding-style.md:
+    // "never silently swallow errors"), not just absorbed into an empty
+    // array indistinguishable from "no matches".
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("singles"),
+      expect.any(Error),
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("resolves three empty groups and hasError: true when every resource's getList rejects", async () => {
+    // Arrange
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const dataProvider = {
+      getList: vi.fn(async () => {
+        throw new Error("useGlobalSearch.test.ts: simulated total failure");
+      }),
+    } as unknown as CrmDataProvider;
+
+    // Act
+    const { getCaptured } = await renderHookProbeWithProvider(
+      "Weiss",
+      dataProvider,
+    );
+    await expect.poll(() => getCaptured().isPending).toBe(false);
+
+    // Assert
+    expect(getCaptured().groups).toEqual({
+      singles: [],
+      shidduchim: [],
+      shadchanim: [],
+    });
+    expect(getCaptured().hasError).toBe(true);
+    // `ra-core`'s own `useDataProvider()` Proxy also logs every rejected
+    // call via a bare `console.error(error)` in non-production builds
+    // (`node_modules/ra-core/src/dataProvider/useDataProvider.ts`) — real,
+    // expected framework behaviour, not something Story 4.5 controls, and
+    // gone in production (`NODE_ENV === "production"` gates it there). This
+    // filters those out to isolate OUR OWN per-resource logging.
+    const ourErrorLogs = consoleErrorSpy.mock.calls.filter(
+      ([message]) =>
+        typeof message === "string" &&
+        message.includes("Global search fan-out failed"),
+    );
+    expect(ourErrorLogs).toHaveLength(3);
+
+    consoleErrorSpy.mockRestore();
+  });
+});
+
+describe("useGlobalSearchDialog — the no-op fallback (Review F8)", () => {
+  it("degrades to a no-op, logging via console.error, when used outside a GlobalSearchProvider", async () => {
+    // Arrange
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    let captured: GlobalSearchDialogControls | undefined;
+
+    function Probe() {
+      captured = useGlobalSearchDialog();
+      return null;
+    }
+
+    // Act
+    await render(createElement(Probe));
+
+    // Assert — degrades rather than throwing (mirrors `RecordLink`'s own
+    // "degrade, log, never throw" contract for a cross-cutting chrome
+    // primitive — see `MISSING_PROVIDER_FALLBACK`'s own doc comment).
+    expect(captured?.isOpen).toBe(false);
+    expect(() => captured?.open()).not.toThrow();
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("GlobalSearchProvider"),
+    );
+    expect(() => captured?.close()).not.toThrow();
+
+    consoleErrorSpy.mockRestore();
   });
 });

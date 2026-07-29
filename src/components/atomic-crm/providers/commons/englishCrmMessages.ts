@@ -384,6 +384,10 @@ export const englishCrmMessages = {
       hint: "Search singles, shidduchim, shadchanim…",
       loading: "Searching…",
       no_results: "No results",
+      // Review F5: one resource's getList rejecting must surface, not
+      // silently render as an empty, indistinguishable "No results".
+      error: "Something went wrong while searching. Please try again.",
+      partial_error: "Some results may be missing — part of the search failed.",
     },
     profile: {
       title: "Profile",

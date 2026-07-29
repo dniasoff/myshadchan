@@ -115,6 +115,42 @@ test("mobile: opens via the bottom bar's More menu Search item", async ({
   await expect(page.getByRole("dialog")).toBeVisible();
 });
 
+test("mobile: Search is the first item in the More menu, above Inbox (Review F6)", async ({
+  page,
+  createMember,
+  createSingle,
+  signIn,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "Mobile Chrome",
+    "mobile-only surface — the bottom bar's More menu",
+  );
+
+  // Task 4 requires "Search" inserted at the top of the dropdown, above
+  // Inbox — a claim `MobileNavigation.test.tsx` cannot assert (it filters
+  // its DOM query down to the pre-existing Story-4.4 items, so a fifth
+  // item's position is invisible there) and no other unit test covers
+  // (that file is outside this story's declared paths). This is the one
+  // place in the repo's test suite that pins the DOM order, not just that
+  // both items exist somewhere in the menu.
+  const member = await createMember({
+    first_name: "Ada",
+    last_name: "Shadchan",
+    email: `e2e-global-search-more-order-${Date.now()}@example.com`,
+  });
+  // A single is required for the shell to render its normal chrome — an
+  // account with none lands on the onboarding welcome screen instead of the
+  // bottom nav bar (same reason every other test in this file seeds one).
+  await createSingle({ member, first_name_en: "Chaya" });
+
+  await signIn(page, member.email!);
+  await page.getByRole("button", { name: "More" }).click();
+
+  const menuItems = page.getByRole("menuitem");
+  await expect(menuItems.first()).toHaveText(/Search/);
+  await expect(menuItems.nth(1)).toHaveText(/Inbox/);
+});
+
 test("a 1-character query never shows a loading state (AC-5)", async ({
   page,
   createMember,

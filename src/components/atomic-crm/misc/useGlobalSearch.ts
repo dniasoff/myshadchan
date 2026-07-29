@@ -10,8 +10,13 @@ import type {
   Single,
 } from "../types";
 
-/** AC-5: fewer than this many characters triggers no data-provider call. */
-const MIN_QUERY_LENGTH = 2;
+/**
+ * AC-5: fewer than this many characters triggers no data-provider call.
+ * Exported so `GlobalSearch.tsx` can derive its "still waiting on the
+ * debounce" loading state from the same threshold (review F2) instead of
+ * duplicating the magic number.
+ */
+export const MIN_QUERY_LENGTH = 2;
 /** Each group is a preview, not a full roster — five rows per resource. */
 const PER_GROUP_LIMIT = 5;
 
@@ -83,6 +88,14 @@ const EMPTY_GROUPS: GlobalSearchGroups = {
 export interface UseGlobalSearchResult {
   groups: GlobalSearchGroups;
   isPending: boolean;
+  /**
+   * Review F5: at least one of the three `getList` calls rejected. Groups
+   * still carry whatever resources DID succeed (never blanked by a sibling's
+   * failure — see the `Promise.allSettled` fan-out below), so the UI can
+   * show partial results plus a friendly notice instead of a bare, and
+   * misleading, "No results".
+   */
+  hasError: boolean;
 }
 
 const joinName = (parts: Array<string | null | undefined>): string =>
@@ -137,11 +150,19 @@ function mapShadchan(record: Shadchan): GlobalSearchResult {
  *
  * RULING 7: `references` is deliberately absent — three resources, not four
  * (see the story's Dev Notes, "Why references is not searchable").
+ *
+ * Review F5: the three calls run through `Promise.allSettled`, not
+ * `Promise.all` — one resource 400ing (e.g. a future migration dropping a
+ * column `applyFullTextSearch` reads) must not blank the other two, healthy
+ * groups. `.claude/rules/coding-style.md` ("never silently swallow errors")
+ * is why a rejection is still logged and surfaced via `hasError`, not just
+ * absorbed into an empty array indistinguishable from "no matches".
  */
 export function useGlobalSearch(query: string): UseGlobalSearchResult {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const [groups, setGroups] = useState<GlobalSearchGroups>(EMPTY_GROUPS);
   const [isPending, setIsPending] = useState(false);
+  const [hasError, setHasError] = useState(false);
   // No React Query cache backs this one-shot fetch (Dev Notes), so a
   // superseded request has to police its own staleness: without this guard,
   // a slow response for an earlier query could land after a faster response
@@ -157,12 +178,14 @@ export function useGlobalSearch(query: string): UseGlobalSearchResult {
       // and getList is called zero times.
       setGroups(EMPTY_GROUPS);
       setIsPending(false);
+      setHasError(false);
       return;
     }
 
     setIsPending(true);
+    setHasError(false);
 
-    Promise.all([
+    Promise.allSettled([
       dataProvider.getList<Single>("singles", {
         filter: { q: trimmed },
         pagination: { page: 1, perPage: PER_GROUP_LIMIT },
@@ -178,23 +201,44 @@ export function useGlobalSearch(query: string): UseGlobalSearchResult {
         pagination: { page: 1, perPage: PER_GROUP_LIMIT },
         sort: { field: "name", order: "ASC" },
       }),
-    ])
-      .then(([singlesResult, shidduchimResult, shadchanimResult]) => {
-        if (latestRequestId.current !== requestId) return;
-        setGroups({
-          singles: singlesResult.data.map(mapSingle),
-          shidduchim: shidduchimResult.data.map(mapShidduch),
-          shadchanim: shadchanimResult.data.map(mapShadchan),
-        });
-        setIsPending(false);
-      })
-      .catch((error: unknown) => {
-        if (latestRequestId.current !== requestId) return;
-        console.error("Global search fan-out failed", error);
-        setGroups(EMPTY_GROUPS);
-        setIsPending(false);
+    ]).then(([singlesResult, shidduchimResult, shadchanimResult]) => {
+      if (latestRequestId.current !== requestId) return;
+
+      for (const [resource, result] of [
+        ["singles", singlesResult],
+        ["shidduchim", shidduchimResult],
+        ["shadchanim", shadchanimResult],
+      ] as const) {
+        if (result.status === "rejected") {
+          console.error(
+            `Global search fan-out failed for resource "${resource}"`,
+            result.reason,
+          );
+        }
+      }
+
+      setGroups({
+        singles:
+          singlesResult.status === "fulfilled"
+            ? singlesResult.value.data.map(mapSingle)
+            : [],
+        shidduchim:
+          shidduchimResult.status === "fulfilled"
+            ? shidduchimResult.value.data.map(mapShidduch)
+            : [],
+        shadchanim:
+          shadchanimResult.status === "fulfilled"
+            ? shadchanimResult.value.data.map(mapShadchan)
+            : [],
       });
+      setIsPending(false);
+      setHasError(
+        singlesResult.status === "rejected" ||
+          shidduchimResult.status === "rejected" ||
+          shadchanimResult.status === "rejected",
+      );
+    });
   }, [dataProvider, query]);
 
-  return { groups, isPending };
+  return { groups, isPending, hasError };
 }

@@ -17,6 +17,7 @@ import { RecordLink } from "../entity360/RecordLink";
 import type { GlobalSearchResource, GlobalSearchResult } from "../types";
 import {
   GlobalSearchContext,
+  MIN_QUERY_LENGTH,
   useGlobalSearch,
   useGlobalSearchDialog,
 } from "./useGlobalSearch";
@@ -84,7 +85,7 @@ export function GlobalSearch(): ReactNode {
 
   const [rawQuery, setRawQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const { groups, isPending } = useGlobalSearch(debouncedQuery);
+  const { groups, isPending, hasError } = useGlobalSearch(debouncedQuery);
 
   // AC-1: the (Cmd|Ctrl)+K shortcut, available on every screen. This
   // component is mounted exactly once per shell (Task 4), so the listener
@@ -135,6 +136,17 @@ export function GlobalSearch(): ReactNode {
   const hasAnyResult = RESOURCE_ORDER.some(
     (resource) => groups[resource].length > 0,
   );
+  // Review F2: `isPending` only flips true once the DEBOUNCED value reaches
+  // `useGlobalSearch` — for the ~300ms between a keystroke and that debounce
+  // settling, `isPending` is still whatever it was for the PREVIOUS query
+  // (often false), which rendered "No results" under a query that was never
+  // actually searched. A query below the minimum length never fans out at
+  // all (AC-5), so it must not show this loading state either — matching
+  // the length check against the same `MIN_QUERY_LENGTH` `useGlobalSearch`
+  // itself guards on.
+  const isAwaitingDebounce =
+    trimmedQuery.length >= MIN_QUERY_LENGTH && rawQuery !== debouncedQuery;
+  const isSearching = isAwaitingDebounce || isPending;
 
   return (
     <CommandDialog
@@ -159,20 +171,46 @@ export function GlobalSearch(): ReactNode {
               _: "Search singles, shidduchim, shadchanim…",
             })}
           </div>
-        ) : isPending ? (
+        ) : isSearching ? (
           <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
             <Spinner size="small" />
             {translate("crm.global_search.loading", { _: "Searching…" })}
           </div>
         ) : !hasAnyResult ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            {translate("crm.global_search.no_results", { _: "No results" })}
+          <div
+            role={hasError ? "alert" : undefined}
+            className="py-6 text-center text-sm text-muted-foreground"
+          >
+            {translate(
+              hasError
+                ? "crm.global_search.error"
+                : "crm.global_search.no_results",
+              {
+                _: hasError
+                  ? "Something went wrong while searching. Please try again."
+                  : "No results",
+              },
+            )}
           </div>
         ) : (
           // Blocks RecordLink's own click-driven navigation (see the
           // component doc comment above) so onSelect below is the ONLY
           // navigation path, for both mouse and keyboard activation.
           <div onClickCapture={(event) => event.preventDefault()}>
+            {/* Review F5: partial results (one resource's getList rejected,
+                the other two succeeded) still render below — this banner
+                just says so, rather than presenting a partial list as if it
+                were the complete picture. */}
+            {hasError ? (
+              <div
+                role="alert"
+                className="px-2 pt-2 text-center text-xs text-destructive"
+              >
+                {translate("crm.global_search.partial_error", {
+                  _: "Some results may be missing — part of the search failed.",
+                })}
+              </div>
+            ) : null}
             {RESOURCE_ORDER.map((resource) => {
               const results = groups[resource];
               if (results.length === 0) return null;
@@ -205,7 +243,22 @@ export function GlobalSearch(): ReactNode {
                         id={result.id}
                         className="flex min-w-0 flex-1 flex-col"
                       >
-                        <span className="truncate">{result.label_en}</span>
+                        <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                          <span className="truncate">{result.label_en}</span>
+                          {/* Review F4: label_he is mapped (Task 1) and
+                              tested but was never rendered — fetched and
+                              discarded in a bilingual app. Mirrors the
+                              existing dir=rtl + font-hebrew convention
+                              (ShidduchShowHeader.tsx, OverviewFactGrid.tsx). */}
+                          {result.label_he ? (
+                            <span
+                              className="truncate font-hebrew text-xs text-muted-foreground"
+                              dir="rtl"
+                            >
+                              {result.label_he}
+                            </span>
+                          ) : null}
+                        </span>
                         {result.subtitle ? (
                           <span className="truncate text-xs text-muted-foreground">
                             {result.subtitle}

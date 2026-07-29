@@ -362,6 +362,10 @@ export const frenchCrmMessages = {
       hint: "Rechercher célibataires, shidduchim, chadchanim…",
       loading: "Recherche en cours…",
       no_results: "Aucun résultat",
+      error:
+        "Une erreur est survenue pendant la recherche. Veuillez réessayer.",
+      partial_error:
+        "Certains résultats sont peut-être manquants — une partie de la recherche a échoué.",
     },
     profile: {
       title: "Profil",
