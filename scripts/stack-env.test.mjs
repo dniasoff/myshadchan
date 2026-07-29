@@ -35,6 +35,10 @@ describe("the default path is unchanged when STACK_ID is unset", () => {
     expect(stack.workdir).toBe(".supabase-e2e");
     expect(stack.logTag).toBe("supabase-e2e");
     expect(stack.outputDir).toBe("test-results");
+    // Vite's own default cacheDir, so `npm run dev` / an unset-STACK_ID e2e run
+    // keep writing exactly where they always did.
+    expect(stack.cacheDir).toBe("node_modules/.vite");
+    expect(stack.leasePath).toBe(".supabase-e2e/.stack-lease.json");
     expect(stack.ports).toEqual({
       shadow: 54340,
       api: 54341,
@@ -158,6 +162,31 @@ describe("stacks are mutually exclusive", () => {
     expect(new Set(ids).size).toBe(allStacks.length);
     expect(new Set(workdirs).size).toBe(allStacks.length);
     expect(new Set(outputDirs).size).toBe(allStacks.length);
+  });
+
+  it("gives each stack its own vite dependency cache", () => {
+    // Arrange / Act — a shared node_modules/.vite is not a slowdown, it is a
+    // hard failure: one server's re-optimisation deletes the chunk files
+    // another server's loaded pages are still requesting.
+    const cacheDirs = allStacks.map((s) => s.cacheDir);
+
+    // Assert
+    expect(new Set(cacheDirs).size).toBe(allStacks.length);
+  });
+
+  it("keeps each stack's lease inside its own workdir, outside the wiped part", () => {
+    // Arrange / Act / Assert — `make start-supabase-e2e` deletes
+    // `<workdir>/supabase`, so a lease stored under it would erase itself
+    // exactly when it is meant to be blocking the caller.
+    for (const stack of allStacks) {
+      expect(stack.leasePath.startsWith(`${stack.workdir}/`)).toBe(true);
+      expect(stack.leasePath.startsWith(`${stack.workdir}/supabase`)).toBe(
+        false,
+      );
+    }
+    expect(new Set(allStacks.map((s) => s.leasePath)).size).toBe(
+      allStacks.length,
+    );
   });
 
   it("renders a config per stack whose ports are all that stack's own", () => {

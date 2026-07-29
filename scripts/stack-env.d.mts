@@ -33,6 +33,10 @@ export interface Stack {
   workdir: string;
   logTag: string;
   outputDir: string;
+  /** Vite's `cacheDir`. "node_modules/.vite" on stack 0 (Vite's own default). */
+  cacheDir: string;
+  /** Where scripts/stack-lease.mjs records the holder of this stack. */
+  leasePath: string;
   ports: StackPorts;
   supabaseUrl: string;
   dbUrl: string;

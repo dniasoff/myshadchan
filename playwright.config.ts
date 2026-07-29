@@ -108,7 +108,27 @@ export default defineConfig({
       env: { STACK_ID: String(stack.index) },
     },
     {
-      command: `npx vite --port ${stack.ports.app} --force --mode e2e`,
+      /**
+       * No `--force`. It used to be here, and with one shared
+       * `node_modules/.vite` it was the single thing that broke parallel e2e:
+       * `--force` deletes and re-optimises the dependency cache on *every*
+       * server start, so each agent launching Playwright invalidated the chunks
+       * every already-running agent's browser was mid-flight for. Measured on
+       * the default path: 3 concurrent stacks, one whole stack failed in each
+       * of 3 reps (`The file does not exist at
+       * "node_modules/.vite/deps/chunk-*.js"`, ~38 s vs ~19 s healthy); 5
+       * concurrent lost all 8 tests of one stack, with the victim moving
+       * between runs. Warm the cache once and start the same servers without
+       * `--force`: 72/72 tests, 3/3 reps green.
+       *
+       * `cacheDir` (below, per stack) is what makes that safe rather than
+       * lucky, but `--force` is still wrong on its own terms: Vite already
+       * re-optimises automatically when the lockfile, the dependency set or the
+       * resolved config changes, so a forced wipe buys nothing that is not
+       * automatic and costs a full re-optimisation per run. Run
+       * `npx vite --force` by hand if a cache is ever genuinely corrupt.
+       */
+      command: `npx vite --port ${stack.ports.app} --mode e2e`,
       url: stack.appUrl,
       reuseExistingServer: true,
       timeout: 30_000,

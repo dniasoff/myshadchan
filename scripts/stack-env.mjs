@@ -18,6 +18,7 @@
  *                docker project id `atomic-crm-e2e[-N]`
  *                supabase workdir `.supabase-e2e[-N]`
  *                vite dev server 5175 + N
+ *                vite dep cache `node_modules/.vite[-N]`
  *
  * Stack 0 is exactly today's allocation, digit for digit, so an unset
  * `STACK_ID` changes nothing anywhere. `scripts/stack-env.test.mjs` asserts
@@ -53,6 +54,23 @@ const APP_PORT_BASE = 5175;
 
 /** Vitest's own browser-mode default (`browser.api.port`). */
 const VITEST_BROWSER_PORT_BASE = 63315;
+
+/**
+ * Vite's own default `cacheDir`. Stack 0 keeps it verbatim; every other stack
+ * gets `-N` appended.
+ *
+ * This is a host-global that isolating the ports alone does *not* cover, and it
+ * was the last thing making concurrent runs fail. Vite writes its optimised
+ * dependency chunks here and rewrites `_metadata.json` with a fresh hash on
+ * every re-optimisation; the browser then requests
+ * `node_modules/.vite/deps/chunk-<hash>.js`. When several servers share one
+ * directory, each re-optimisation deletes the chunks the *other* servers'
+ * already-loaded pages are still asking for, and those pages 404. Measured with
+ * five concurrent stacks on one shared cache: one stack lost all 8 of its tests
+ * to `The file does not exist at "node_modules/.vite/deps/chunk-*.js"`, and the
+ * victim moved between runs. With one cache per stack the same five run clean.
+ */
+const CACHE_DIR_BASE = "node_modules/.vite";
 
 /**
  * The *dev* stack's database (supabase/config.toml), which is what
@@ -113,18 +131,27 @@ export function resolveStack(raw) {
   const port = (name) => base + PORT_OFFSETS[name];
   const suffix = index === 0 ? "" : `-${index}`;
   const appPort = APP_PORT_BASE + index;
+  const workdir = `.supabase-e2e${suffix}`;
 
   return {
     index,
     isExplicit,
     suffix,
     projectId: `atomic-crm-e2e${suffix}`,
-    workdir: `.supabase-e2e${suffix}`,
+    workdir,
     logTag: `supabase-e2e${suffix}`,
     // Playwright writes traces/screenshots here; two concurrent runs sharing
     // one directory overwrite each other's artifacts. "test-results" for
     // stack 0 is Playwright's own default.
     outputDir: `test-results${suffix}`,
+    // Vite's optimised-dependency cache. See CACHE_DIR_BASE above: sharing it
+    // is not a slowdown, it is a hard failure for every server but the last one
+    // to re-optimise.
+    cacheDir: `${CACHE_DIR_BASE}${suffix}`,
+    // Where `scripts/stack-lease.mjs` records who holds this stack. Inside the
+    // supabase workdir (already per-stack and gitignored) but *beside*
+    // `<workdir>/supabase`, which `make start-supabase-e2e` wipes on every run.
+    leasePath: `${workdir}/.stack-lease.json`,
     ports: {
       shadow: port("shadow"),
       api: port("api"),
@@ -177,6 +204,8 @@ export function shellVars(stack) {
     STACK_PROJECT_ID: stack.projectId,
     STACK_WORKDIR: stack.workdir,
     STACK_LOG_TAG: stack.logTag,
+    STACK_CACHE_DIR: stack.cacheDir,
+    STACK_LEASE_PATH: stack.leasePath,
     STACK_API_PORT: String(stack.ports.api),
     STACK_DB_PORT: String(stack.ports.db),
     STACK_STUDIO_PORT: String(stack.ports.studio),

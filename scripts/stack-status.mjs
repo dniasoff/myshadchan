@@ -1,41 +1,20 @@
 /**
- * `make stacks` — which test stacks are up, and which STACK_IDs are free.
+ * `make stacks` — which test stacks are up, who holds them, and which
+ * STACK_IDs are free.
  *
- * A STACK_ID is an exclusive lease on a port block and a database. Nothing
- * enforces that lease at runtime, so an agent about to run tests needs a way
- * to see which ids are already taken before it picks one; picking a busy id is
- * the same collision this whole mechanism removes, just re-created by hand.
+ * A STACK_ID is an exclusive lease on a port block and a database.
+ * `scripts/stack-lease.mjs` now refuses to start a stack somebody else holds,
+ * and this is where you read the holder it will name — before picking an id,
+ * and when a refusal tells you one is taken.
  */
 
-import { execFileSync } from "node:child_process";
-import net from "node:net";
-
 import { MAX_STACK_INDEX, resolveStack } from "./stack-env.mjs";
+import { isPortOpen, runningContainers } from "./stack-probe.mjs";
+import { readLease } from "./stack-lease.mjs";
 
-function runningContainers() {
-  try {
-    return execFileSync("docker", ["ps", "--format", "{{.Names}}"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).split("\n");
-  } catch {
-    // No docker, or the daemon is down: report ports only rather than failing.
-    return [];
-  }
-}
-
-function isPortOpen(port) {
-  return new Promise((resolve) => {
-    const socket = net.connect({ host: "127.0.0.1", port });
-    const settle = (open) => {
-      socket.destroy();
-      resolve(open);
-    };
-    socket.setTimeout(300);
-    socket.on("connect", () => settle(true));
-    socket.on("timeout", () => settle(false));
-    socket.on("error", () => settle(false));
-  });
+/** Owner strings can be arbitrarily long; keep the table readable. */
+function shortOwner(owner) {
+  return owner.length > 22 ? `${owner.slice(0, 21)}…` : owner;
 }
 
 async function main() {
@@ -46,19 +25,32 @@ async function main() {
       const stack = resolveStack(index);
       const db = containers.includes(`supabase_db_${stack.projectId}`);
       const app = await isPortOpen(stack.ports.app);
-      return { stack, db, app };
+      return { stack, db, app, lease: readLease(stack) };
     }),
   );
 
   console.log(
-    ["STACK_ID", "SUPABASE", "APP", "API", "DB", "STUDIO", "MAILPIT", "WORKDIR"]
-      .map((h, i) => h.padEnd([9, 10, 6, 7, 7, 8, 9, 0][i]))
+    [
+      "STACK_ID",
+      "SUPABASE",
+      "APP",
+      "API",
+      "DB",
+      "STUDIO",
+      "MAILPIT",
+      "HOLDER",
+      "WORKDIR",
+    ]
+      .map((h, i) => h.padEnd([9, 10, 6, 7, 7, 8, 9, 24, 0][i]))
       .join(""),
   );
 
-  for (const { stack, db, app } of rows) {
+  for (const { stack, db, app, lease } of rows) {
     // Stack 0 is what an unset STACK_ID resolves to.
     const id = stack.index === 0 ? "0 *" : String(stack.index);
+    // A lease with nothing running is stale — the next acquire overwrites it,
+    // so say so rather than showing a holder who has already gone.
+    const holder = !lease ? "-" : db || app ? shortOwner(lease.owner) : "stale";
     console.log(
       [
         id.padEnd(9),
@@ -68,6 +60,7 @@ async function main() {
         String(stack.ports.db).padEnd(7),
         String(stack.ports.studio).padEnd(8),
         String(stack.ports.inbucket).padEnd(9),
+        holder.padEnd(24),
         db || app ? stack.workdir : "",
       ].join(""),
     );
@@ -80,6 +73,9 @@ async function main() {
       : "\nfree: none — every stack is in use (make stop-stacks)",
   );
   console.log("* stack 0 is what an unset STACK_ID resolves to.");
+  console.log(
+    "HOLDER comes from the lease file; set STACK_OWNER to name yourself in it.",
+  );
 }
 
 main();

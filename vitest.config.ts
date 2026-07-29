@@ -7,12 +7,13 @@ import tailwindcss from "@tailwindcss/vite";
 import { resolveStack } from "./scripts/stack-env.mjs";
 
 // Per-agent stack allocation (scripts/stack-env.mjs). Only the "app" project
-// needs it here — it boots a real browser against a Vite server whose port is
-// otherwise a fixed host-global (Vitest's default 63315), which two concurrent
-// runs on this checkout would contend for. The "db" project's connection is
-// resolved inside supabase/tests/dbSuiteHelpers.ts instead, so that
+// needs it here — it boots a real browser against a Vite server whose port and
+// dependency cache are otherwise fixed host-globals (Vitest's default port
+// 63315, Vite's default `node_modules/.vite`), which two concurrent runs on
+// this checkout would contend for. The "db" project's connection is resolved
+// inside supabase/tests/dbSuiteHelpers.ts instead, so that
 // `npm run test:unit:db` is stack-scoped however it is invoked. Stack 0 (no
-// STACK_ID) reproduces Vitest's own default port exactly.
+// STACK_ID) reproduces Vitest's own defaults exactly.
 const stack = resolveStack(process.env.STACK_ID);
 
 // Five test projects (https://vitest.dev/guide/projects.html):
@@ -42,6 +43,12 @@ export default defineConfig({
         // assertions (Entity360's 375px overflow guard, EntityAvatar's
         // `--avatar-{n}` colour assertions).
         plugins: [react(), tailwindcss()],
+        // Same reason as vite.config.ts: this project boots a real Vite server
+        // whose optimised deps would otherwise land in the one shared
+        // `node_modules/.vite`, where a concurrent server's re-optimisation
+        // deletes the chunks this one's browser is still requesting. Stack 0 is
+        // Vite's own default path.
+        cacheDir: stack.cacheDir,
         optimizeDeps: {
           exclude: ["playwright", "playwright-core"],
         },
@@ -143,6 +150,22 @@ export default defineConfig({
           // These shell out to psql against the local stack.
           testTimeout: 120000,
           hookTimeout: 120000,
+          /**
+           * One db file at a time — the isolation boundary here is the *stack*,
+           * and STACK_ID gives each agent one database, not one per test file.
+           * Two of these suites running concurrently create and drop the same
+           * fixture rows, roles and RLS state inside a single database, so they
+           * fail each other non-deterministically no matter how the stacks are
+           * partitioned. Vitest's `resolveConfig` reads this per project and
+           * pins that project's `maxWorkers` to 1, so it holds by configuration
+           * — `npm run test`, `npm run test:unit:db` and a bare `vitest` all get
+           * it, without anyone remembering `--no-file-parallelism`.
+           *
+           * It does not slow the other projects down: "app", "functions",
+           * "workers" and "scripts" keep their own parallelism.
+           */
+          fileParallelism: false,
+          maxWorkers: 1,
         },
       },
       {

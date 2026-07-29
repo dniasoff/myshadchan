@@ -229,6 +229,38 @@ job.
 
 ## Committing on a busy tree
 
+**Commit with `make commit`, never with `git commit -m`.**
+
+    make commit MSG="Add the thing" PATHS="src/foo.ts src/foo.test.ts"
+    node scripts/safe-commit.mjs -m "Add the thing" src/foo.ts src/foo.test.ts
+
+`git commit -m "…"` commits *the index*, and the index is one process-global
+file for the whole clone. If another agent runs `git add` at any point before
+your commit builds its tree, their paths are in your commit, and no pre-commit
+hook can take them back out — unstaging them would break the other agent
+instead. This is not a race you can be careful around; it is measured and
+deterministic, and it exits 0.
+
+`scripts/safe-commit.mjs` runs `git commit -m "…" -- <paths>`, which builds a
+*temporary* index from HEAD plus the named paths and commits that, leaving the
+real index untouched. It also refuses the flags that re-open the hole
+(`--no-verify`, `-a`, `--amend`, `--only`, `--include`), stages a named file
+that git does not know about yet, and verifies afterwards that the commit
+contained only what you named and that nobody else's staged entry was consumed.
+
+`scripts/safe-commit.test.mjs` proves both halves against a real throwaway
+repository — including the control: plain `git commit -m` with A's and B's files
+both staged produces a commit containing `["a.txt", "b.txt"]`. If that control
+ever stops failing, the mechanism is unnecessary; while it passes, it is not.
+
+One semantic to know: a pathspec commit takes the **working-tree** content of
+the named paths, not what you staged. Committing a partially staged file is
+therefore not possible this way — which is the right trade, because "commit
+exactly the index" is the thing that cannot be made safe here.
+
+The rest of this section is why the *hook* is now safe; it is orthogonal, and
+neither substitutes for the other.
+
 Path partitioning was never the whole problem. An agent once staged exactly its
 own four files and still committed a concurrently running workflow's two
 unstaged files, caught only by a post-commit stat. `git add <my files>` is not
@@ -313,7 +345,8 @@ parallel wave for Epics 4 and 5 had to be serialised.
 
 `STACK_ID` fixes it. It is an integer `0..9` naming an **exclusive lease** on a
 whole runtime: its own Supabase Docker set, its own port block, its own
-database, its own Vite server, its own Playwright output directory.
+database, its own Vite server, its own Vite dependency cache, its own Playwright
+output directory.
 
     make start-supabase-e2e STACK_ID=2   # this agent's own Supabase stack
     make test STACK_ID=2                 # unit tests; db suites hit stack 2
@@ -323,11 +356,16 @@ database, its own Vite server, its own Playwright output directory.
     make stacks                          # who holds which id, which are free
     make stop-stacks                     # tear every stack down
 
+Set `STACK_OWNER` alongside it — see "The lease is claimed, not just declared"
+below.
+
 The allocation is a pure function of `STACK_ID`, computed in exactly one place
-(`scripts/stack-env.mjs`) and consumed by the makefile, `playwright.config.ts`,
-`vitest.config.ts`, `e2e/fixtures.ts` and `supabase/tests/dbSuiteHelpers.ts`.
-Stack N gets Supabase ports `54340+10N .. 54349+10N`, Docker project
-`atomic-crm-e2e-N`, workdir `.supabase-e2e-N`, and Vite on `5175+N`.
+(`scripts/stack-env.mjs`) and consumed by the makefile, `vite.config.ts`,
+`playwright.config.ts`, `vitest.config.ts`, `e2e/fixtures.ts` and
+`supabase/tests/dbSuiteHelpers.ts`. Stack N gets Supabase ports
+`54340+10N .. 54349+10N`, Docker project `atomic-crm-e2e-N`, workdir
+`.supabase-e2e-N`, Vite on `5175+N`, and dependency cache
+`node_modules/.vite-N`.
 
 Three properties are worth knowing, because they are what make it safe rather
 than merely convenient:
@@ -354,14 +392,96 @@ starts the stack before invoking Playwright, so disabling it would break the
 normal entry point — but every URL it can reuse is now stack-scoped, so the
 only server it can attach to is the caller's own.
 
+### The Vite dependency cache, and why `--force` is gone
+
+Ports, databases and Docker projects were stack-scoped before this cache was,
+and the cache is what actually broke parallel e2e. Vite optimises dependencies
+into `cacheDir` (default: one `node_modules/.vite` for the entire checkout) and
+serves them as content-hashed `deps/chunk-<hash>.js`. Every re-optimisation
+writes a new set and deletes the old one — including the chunks another server's
+already-loaded pages are still fetching. Those pages then 404 mid-test.
+
+Both launch paths made that happen on *every* server start, because both passed
+`--force`, which exists precisely to wipe and rebuild the cache. Measured:
+
+- 5 concurrent stacks, shared cache, `--force`: one stack lost all 8 of its
+  tests to `The file does not exist at "node_modules/.vite/deps/chunk-*.js"`,
+  and the victim moved between runs.
+- 3 concurrent on the default path: a stack failed in **every one of 3 reps**
+  (~38 s for the victim vs ~19 s healthy).
+- Warm the cache once, start 3 servers **without** `--force`: 72/72 tests,
+  3/3 reps green.
+
+Two changes, and they do different jobs. `cacheDir` is now per stack
+(`node_modules/.vite-N`, from `scripts/stack-env.mjs`, wired into
+`vite.config.ts` and `vitest.config.ts`) — that is the isolation. Dropping
+`--force` from `playwright.config.ts` and `make start-app-e2e` is separate and
+still correct on its own terms: Vite already re-optimises by itself when the
+lockfile, the dependency set or the resolved config changes, so a forced wipe
+buys nothing that is not automatic, costs a full re-optimisation per run, and
+re-arms the destructive behaviour the moment anything shares a cache directory
+again. Run `npx vite --force` by hand if a cache is ever genuinely corrupt.
+
+Stack 0 resolves to `node_modules/.vite`, Vite's own default, so the default
+path is unchanged. `scripts/stack-wiring.test.mjs` asserts that neither launch
+path has regained `--force` and that both configs set `cacheDir` from the stack.
+
+Residual, unfixed: `npm run dev` still runs `vite --force` and, with `STACK_ID`
+unset, that is stack 0's cache — so restarting the dev server invalidates a
+concurrent unset-`STACK_ID` e2e run. Claim an id and the problem does not exist.
+
+### The db suites run one file at a time
+
+`STACK_ID` gives an agent one database, not one per test file. Two files from
+`supabase/tests/**` running concurrently create and drop the same fixture rows,
+roles and RLS state inside that single database and fail each other
+non-deterministically. The `db` project therefore sets `fileParallelism: false`
+and `maxWorkers: 1` in `vitest.config.ts`, so it holds however the suite is
+invoked — `npm run test`, `npm run test:unit:db`, a bare `vitest` — rather than
+depending on someone remembering `--no-file-parallelism`. The other four
+projects keep their parallelism. Measured with two 1.5 s probe suites: with the
+setting, 3.19 s wall and both green; with it removed, 1.64 s wall and the probe
+detecting overlap fails.
+
+### The lease is claimed, not just declared
+
+`make start-supabase-e2e STACK_ID=N` used to run `supabase stop --no-backup` and
+rebuild `<workdir>/supabase` unconditionally. Aimed at an id another agent was
+mid-suite on, that destroyed their database and exited 0 — the victim saw flaky
+assertions, not an error.
+
+The recipe now acquires a lease first (`scripts/stack-lease.mjs`, a JSON file in
+the stack's own gitignored workdir) and aborts before touching anything if it
+cannot. The lease is paired with a liveness probe, because neither works alone —
+a lease goes stale the moment a run is killed, and liveness alone cannot tell
+"my stack, restarting for a fresh database" (the entire purpose of the target,
+and what `playwright.config.ts`'s webServer runs) from "somebody else's stack":
+
+| stack running | lease | outcome |
+|---|---|---|
+| no | any | granted; a stale lease is overwritten |
+| yes | yours | granted — the normal fresh-database re-run |
+| yes | someone else's | **refused**, naming the holder |
+| yes | none | **refused**, holder unknown |
+
+`STACK_TAKEOVER=1` overrides, explicitly and in the shell history. `make stacks`
+gained a HOLDER column so the refusal's name can be looked up.
+
+Identity comes from `STACK_OWNER`, falling back to the Claude session id and
+then user@host. That fallback keeps single-writer use (a human, CI) working
+unchanged, but it is coarse: **several agents inside one Claude session share a
+session id**, so a wave that assigns `STACK_ID` must assign `STACK_OWNER` in the
+same breath. Without it the lease still catches cross-session and unknown
+holders; it cannot separate two agents that look identical to it.
+
 **Cost and ceiling.** Each stack is a full Docker set: 10 containers, ~1.1 GB
 resident, ~45 s to boot with migrations and seed. On this machine (24 cores,
 123 GB RAM) memory is nowhere near the constraint; CPU during `supabase start`
-and concurrent Chromium instances is. Four to six concurrent stacks is
-comfortable alongside the long-running dev stack; the port allocation caps it
-at ten. Stacks are not reaped automatically — `make stop-stacks` between waves,
-and check `make stacks` before claiming an id, since nothing enforces the lease
-at runtime.
+and concurrent Chromium instances is. Five stacks plus the dev stack measured
+44.9 GB of 123 and load 6.28 on 24 cores — resources are not the binding
+constraint here. The port allocation caps it at ten. Stacks are not reaped
+automatically: `make stop-stacks` between waves, and `make stacks` to see who
+holds what.
 
 **Not stack-scoped**, and therefore still serial:
 
@@ -371,7 +491,10 @@ at runtime.
 - The dev stack on `54320-54329` (`make start`) is a single shared instance;
   `STACK_ID` covers the e2e stacks only. With `STACK_ID` unset the database
   suites still target it, exactly as before.
-- Anything writing `node_modules/.vite` or `.vitest-attachments/`.
+- `.vitest-attachments/`.
+- `node_modules/.vite` **is** stack-scoped now (see above) — but `npm run dev`
+  still forces stack 0's copy, so do not leave an unset-`STACK_ID` e2e run
+  alongside a dev-server restart.
 
 ## Known limitations — do not read silence as safety
 
@@ -398,25 +521,19 @@ cross-reconciliation pass.
   migrations are order-dependent by nature.
 - **Missing work.** Nothing that inventories intended *writes* can spot
   an edit nobody made. Item 4 of the cross-reconciliation pass.
-- **The index is shared, and no hook can narrow a commit.** `git commit -m`
-  commits the index, and the index is one process-global file for the whole
-  clone. If another agent runs `git add` while you commit, its paths are in
-  your commit before the hook ever runs, and a pre-commit hook cannot remove
-  them — unstaging them would break the other agent instead. Measured: A stages
-  `labA1.ts`, B stages `labB1.ts`, A runs `git commit -m` and gets both.
-  The mechanism that does close it is **committing with an explicit pathspec** —
-  `git commit -m "…" -- <paths>` — which builds a temporary index from HEAD plus
-  those paths. Measured on the same setup: the commit contains only A's path,
-  B's staged entry survives in the real index, lint-staged's formatting still
-  applies under the temporary index, and no leftover diff is left behind. Note
-  the semantics differ: a pathspec commit takes the *working tree* content of
-  those paths, not what you staged. This is also why "parallel agents do not
-  commit" is a rule above and not a nicety.
-- **A stack lease is advisory too.** `STACK_ID` guarantees that two
-  *different* ids never share a port, a container, a database or an output
-  directory. It does not stop two agents from choosing the *same* id — nothing
-  claims the lease at runtime. `make stacks` shows which ids are taken; the
-  wave's manifest should assign them, exactly as it assigns paths.
+- **The index is shared, and no hook can narrow a commit.** Closed by
+  `make commit` / `scripts/safe-commit.mjs` — see "Committing on a busy tree".
+  What remains is that nothing *forces* an agent to use it: a bare
+  `git commit -m` still absorbs whatever else is staged, exactly as measured.
+  This is why "parallel agents do not commit" is a rule above and not a nicety.
+- **A stack lease is only as fine-grained as the identity behind it.**
+  `make start-supabase-e2e` now refuses an id somebody else holds instead of
+  destroying their database (see "The lease is claimed, not just declared"). The
+  gap left is identity: with `STACK_OWNER` unset, agents in one Claude session
+  resolve to the same owner and can still take each other's stacks. The wave's
+  manifest must assign `STACK_OWNER` next to `STACK_ID`, exactly as it assigns
+  paths; `make stacks` shows both so the assignment can be checked rather than
+  assumed.
 - **It is advisory, not enforcing.** Nothing at write time stops an
   agent from editing outside its declaration; `pre-dispatch` is a
   precondition and `post-wave` is detective. "Out-of-scope work is

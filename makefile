@@ -52,7 +52,11 @@ help:
 	@printf '    make stacks                          # which ids are in use / free\n'
 	@printf '    make stop-supabase-e2e STACK_ID=2    # release one\n'
 	@printf '    make stop-stacks                     # release all of them\n\n'
-	@printf '  Stack N: supabase ports 54340+10N.., vite 5175+N, docker atomic-crm-e2e-N.\n'
+	@printf '  Set STACK_OWNER too: start-supabase-e2e refuses an id somebody else holds\n'
+	@printf '  rather than destroying their database, and STACK_OWNER is how it tells you\n'
+	@printf '  apart (agents in one session otherwise look identical to it).\n\n'
+	@printf '  Stack N: supabase ports 54340+10N.., vite 5175+N, docker atomic-crm-e2e-N,\n'
+	@printf '  vite dep cache node_modules/.vite-N.\n'
 	@printf '  Each stack is ~10 containers / ~1.1GB; 4-6 concurrent is comfortable here.\n'
 	@printf '  See .claude/rules/parallel-ownership.md, "Running tests in parallel".\n'
 
@@ -84,10 +88,15 @@ supabase-reset-database: ## reset (and clear!) the database
 start-app: ## start the app locally
 	npm run dev
 
+# No `--force`: it wipes and re-optimises Vite's dependency cache on every
+# start. That cache is now per-stack (STACK_CACHE_DIR, wired in vite.config.ts),
+# but forcing it is still a full re-optimisation per run for no benefit — Vite
+# re-optimises by itself when the lockfile, dependency set or config changes.
+# See playwright.config.ts's webServer block for the measurements.
 start-app-e2e: ## start the app pointing to the e2e supabase instance (honours STACK_ID)
 	@$(STACK_ENV); \
 	if [ -n "$(STACK_ID)" ]; then export VITE_SUPABASE_URL; fi; \
-	npx vite --port $$STACK_APP_PORT --force --mode e2e &
+	npx vite --port $$STACK_APP_PORT --mode e2e &
 
 stop-app-e2e:
 	@$(STACK_ENV); kill $$(lsof -t -i:$$STACK_APP_PORT)
@@ -108,8 +117,13 @@ stop-supabase: ## stop local supabase
 
 stop: stop-supabase ## stop the stack locally
 
+# The lease check is the first thing in the recipe, before the `supabase stop
+# --no-backup` below can destroy an incumbent's database. It exits non-zero
+# naming the holder; `|| exit 1` is required because everything here is one
+# `;`-joined shell. See scripts/stack-lease.mjs.
 start-supabase-e2e: ## start a separate supabase instance for e2e, fresh DB every run (STACK_ID=<0-9> for an isolated one)
 	@$(STACK_ENV); \
+	node scripts/stack-lease.mjs acquire || exit 1; \
 	npx supabase stop --workdir $$STACK_WORKDIR --no-backup 2>/dev/null || true; \
 	rm -rf $$STACK_WORKDIR/supabase; \
 	mkdir -p $$STACK_WORKDIR/supabase; \
@@ -122,8 +136,9 @@ start-supabase-e2e: ## start a separate supabase instance for e2e, fresh DB ever
 	cp supabase/signing_keys.json $$STACK_WORKDIR/supabase/signing_keys.json; \
 	$(call run-silent-tty,npx supabase start --workdir $$STACK_WORKDIR,$(STACK_TAG))
 
-stop-supabase-e2e: ## stop the e2e supabase instance (honours STACK_ID)
-	@$(STACK_ENV); npx supabase stop --workdir $$STACK_WORKDIR --no-backup
+stop-supabase-e2e: ## stop the e2e supabase instance and release its lease (honours STACK_ID)
+	@$(STACK_ENV); npx supabase stop --workdir $$STACK_WORKDIR --no-backup; \
+	node scripts/stack-lease.mjs release
 
 stop-stacks: ## stop and remove every parameterised e2e stack (all STACK_IDs)
 	@for workdir in .supabase-e2e .supabase-e2e-[0-9]; do \
@@ -135,6 +150,7 @@ stop-stacks: ## stop and remove every parameterised e2e stack (all STACK_IDs)
 	  port=$$(STACK_ID=$$id node scripts/stack-env.mjs --shell | sed -n "s/^STACK_APP_PORT='\(.*\)'$$/\1/p"); \
 	  pids=$$(lsof -t -i:$$port 2>/dev/null || true); \
 	  [ -n "$$pids" ] && echo "killing app on :$$port" && kill $$pids || true; \
+	  STACK_ID=$$id node scripts/stack-lease.mjs release; \
 	done; \
 	echo "all stacks stopped"
 
@@ -188,6 +204,14 @@ test-e2e-ci: start-e2e-ci ## run the e2e suite headless against the built app (h
 	@$(STACK_ENV); \
 	npx wait-on http-get://localhost:$$STACK_API_PORT/auth/v1/health http-get://localhost:$$STACK_APP_PORT
 	npx playwright test
+
+# The safe form of `git commit` on a tree with other writers. `git commit -m`
+# commits the process-global index, so it silently absorbs whatever another
+# agent staged; a pathspec commit builds a temporary index from HEAD plus the
+# named paths and cannot. See scripts/safe-commit.mjs and
+# .claude/rules/parallel-ownership.md, "Committing on a busy tree".
+commit: ## commit only the paths you name: make commit MSG="…" PATHS="a b"
+	@node scripts/safe-commit.mjs -m "$(MSG)" $(PATHS)
 
 lint:
 	npm run lint
