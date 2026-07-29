@@ -1,6 +1,10 @@
+---
+baseline_commit: 9569006
+---
+
 # Story 4.2: List / Cards toggle
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -74,71 +78,71 @@ for its own three-position Board · List · Cards control.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — `useEntityListViewMode` (AC: 3)**
-  - [ ] Create `src/components/atomic-crm/misc/useEntityListViewMode.ts`:
+- [x] **Task 1 — `useEntityListViewMode` (AC: 3)**
+  - [x] Create `src/components/atomic-crm/misc/useEntityListViewMode.ts`:
         `useEntityListViewMode(resource: string, defaultMode: "list" | "cards")` — a thin wrapper
         over ra-core's `useStore<"list"|"cards">(`${resource}.entityListViewMode`, defaultMode)`.
         `useStore`'s two-argument overload returns `[T, setter]` (no `undefined` in the union)
         when a default is supplied — verified in `node_modules/ra-core/dist/store/useStore.d.ts`.
-  - [ ] Returns `[mode, setMode]`, same shape as `useState`.
+  - [x] Returns `[mode, setMode]`, same shape as `useState`.
 
-- [ ] **Task 2 — `EntityListViewToggle` (AC: 2)**
-  - [ ] Create `src/components/atomic-crm/misc/EntityListViewToggle.tsx`: two `size="icon"`
+- [x] **Task 2 — `EntityListViewToggle` (AC: 2)**
+  - [x] Create `src/components/atomic-crm/misc/EntityListViewToggle.tsx`: two `size="icon"`
         buttons (`LayoutList` for List, `LayoutGrid` for Cards, both from `lucide-react`),
         `variant="secondary"` on the active one, `variant="ghost"` on the other, `aria-pressed`
         set correctly on both, and an accessible name on each (`aria-label` "List view" /
         "Cards view") so the e2e spec can target them by role+name rather than by icon.
-  - [ ] Props: `{ mode: "list"|"cards"; onChange: (mode: "list"|"cards") => void }` — a
+  - [x] Props: `{ mode: "list"|"cards"; onChange: (mode: "list"|"cards") => void }` — a
         **controlled** component; it does not call `useEntityListViewMode` itself, so it unit-tests
         without a store.
 
-- [ ] **Task 3 — Extend `EntityList` / `EntityListView` / `EntityListToolbar` (AC: 1, 2, 4)**
-  - [ ] `EntityListView.tsx`: replace the single `renderItems` prop with
+- [x] **Task 3 — Extend `EntityList` / `EntityListView` / `EntityListToolbar` (AC: 1, 2, 4)**
+  - [x] `EntityListView.tsx`: replace the single `renderItems` prop with
         `renderList: (data: RaRecord[]) => ReactNode`, `renderCards: (data: RaRecord[]) => ReactNode`
         and `viewMode: "list"|"cards"`. `viewMode` is lifted from the parent (AC-4).
-  - [ ] The `skeleton` prop stays a single `ReactNode` — do **not** fork it per mode. Skeletons
+  - [x] The `skeleton` prop stays a single `ReactNode` — do **not** fork it per mode. Skeletons
         stand in for height, and 4.1's card-grid skeleton is close enough in both modes;
         splitting it doubles the surface for zero measured gain (YAGNI,
         `.claude/rules/coding-style.md`).
-  - [ ] `EntityList.tsx`: new prop `defaultViewMode: "list"|"cards"`; call
+  - [x] `EntityList.tsx`: new prop `defaultViewMode: "list"|"cards"`; call
         `useEntityListViewMode(resource, defaultViewMode)`; pass
         `viewMode`/`renderList`/`renderCards` down to `EntityListView`; render
         `<EntityListViewToggle mode={mode} onChange={setMode}/>` into `EntityListToolbar`'s
         `viewToggle?: ReactNode` slot (4.1 left it empty for exactly this).
-  - [ ] Update 4.1's `EntityListView.test.tsx` / `EntityList.test.tsx` for the renamed props —
+  - [x] Update 4.1's `EntityListView.test.tsx` / `EntityList.test.tsx` for the renamed props —
         a trivial rename, not a rewrite. If it is not trivial, `viewMode` has leaked into the
         component (AC-4).
 
-- [ ] **Task 4 — Build the missing renderer per list (AC: 1, 5)**
-  - [ ] `SingleList.tsx`: `defaultViewMode="cards"` (unchanged default look); add
+- [x] **Task 4 — Build the missing renderer per list (AC: 1, 5)**
+  - [x] `SingleList.tsx`: `defaultViewMode="cards"` (unchanged default look); add
         `src/components/atomic-crm/singles/SingleRow.tsx`, a compact row — monogram avatar via
         `getMonogram` / `getAvatarIndex` from **`../entity360/avatar`** (that is where they live;
         `references/ReferenceList.tsx` already imports them from there — do **not** import from
         `shidduchim/boardUtils.ts`), name, and the pipeline-count chip `SingleCard` already
         computes. `renderCards` = today's grid over `SingleCard`; `renderList` = a
         `flex flex-col gap-2` stack over `SingleRow`.
-  - [ ] `ShadchanList.tsx`: `defaultViewMode="cards"`; add
+  - [x] `ShadchanList.tsx`: `defaultViewMode="cards"`; add
         `src/components/atomic-crm/shadchanim/ShadchanRow.tsx` mirroring `ShadchanCard`'s data
         (name, location, **shidduch count** — AC-5) in row form.
-  - [ ] **Both new row components wrap the record mention in `RecordLink`**
+  - [x] **Both new row components wrap the record mention in `RecordLink`**
         (`entity360/RecordLink.tsx`), exactly as `SingleCard.tsx` and `ShadchanCard.tsx` already
         do. `RecordLink` has **exactly five props** (`resource`, `id`, `children`, `className`,
         `style`) — no `onClick`, no `ref`, no spread. Anything interactive beyond the navigation
         goes on the row's own wrapper element, **outside** the anchor.
-  - [ ] Neither row component re-implements the data fetch: both receive their record (and the
+  - [x] Neither row component re-implements the data fetch: both receive their record (and the
         enrichment value the list already computed) as props.
 
-- [ ] **Task 5 — Tests (AC: 6)**
-  - [ ] `src/components/atomic-crm/misc/useEntityListViewMode.test.ts`: setting mode for resource
+- [x] **Task 5 — Tests (AC: 6)**
+  - [x] `src/components/atomic-crm/misc/useEntityListViewMode.test.ts`: setting mode for resource
         `"a"` does not affect resource `"b"`'s stored mode; the value round-trips through a fresh
         hook instance (simulating reload) by re-mounting against the same store.
-  - [ ] `src/components/atomic-crm/misc/EntityListViewToggle.test.tsx`: clicking each button calls
+  - [x] `src/components/atomic-crm/misc/EntityListViewToggle.test.tsx`: clicking each button calls
         `onChange` with the right mode; `aria-pressed` reflects `mode`; both buttons have
         accessible names.
-  - [ ] `src/components/atomic-crm/shadchanim/ShadchanRow.test.tsx`: renders a `RecordLink` whose
+  - [x] `src/components/atomic-crm/shadchanim/ShadchanRow.test.tsx`: renders a `RecordLink` whose
         `href` equals `buildRecordPath("shadchanim", id)`, and its count label reads "shidduch" /
         "shidduchim" (AC-5).
-  - [ ] `e2e/entity-list-view-toggle.spec.ts`: the AC-3 cross-navigation + reload sequence across
+  - [x] `e2e/entity-list-view-toggle.spec.ts`: the AC-3 cross-navigation + reload sequence across
         `/shadchanim` and `/singles`, targeting the toggle by role + accessible name.
 
 ## Dev Notes
@@ -276,8 +280,104 @@ for it, because nothing in the tree currently asserts the page does not scroll h
 
 ### Agent Model Used
 
+Claude Opus 5 (claude-sonnet-5 for this dispatch — STACK_ID=3 / STACK_OWNER=4-2)
+
 ### Debug Log References
+
+- `npm run typecheck` — clean (tsconfig.app.json / tsconfig.workers.json / tsconfig.node.json).
+- `npm run lint` — clean (`--max-warnings=0`).
+- `npx prettier --config ./.prettierrc.json --check "**/*.{mjs,js,json,ts,tsx,css,md,html}"` — clean.
+- `STACK_ID=3 npx vitest run` (all projects) — 152 passed | 13 skipped (1268 tests passed, 0 failed).
+- `make test STACK_ID=3` — same result (db project self-skips: no local Supabase running for this dispatch).
+- `make build` — succeeds (`tsc && vite build`).
+- CI guards run directly: `check-retired-names.mjs`, `check-suppressions.mjs`,
+  `check-route-convention.mjs`, `check-tailwind-arbitrary-var.mjs` — all OK. `check-wave-ownership.mjs`
+  requires a wave manifest this single-story dispatch does not have (it is the
+  orchestrator's pre-dispatch/post-wave tool); not run for that reason — path
+  ownership was instead respected manually per the dispatch's declared-paths list.
+- AC falsification checks re-verified directly: `grep -n "useStore\|useEntityListViewMode"
+  misc/EntityListView.tsx` → no match (AC-4); `grep -rln "LayoutList\|LayoutGrid" src/` →
+  only `EntityListViewToggle.tsx` (AC-2).
 
 ### Completion Notes List
 
+- Task 1: `useEntityListViewMode(resource, defaultMode)` — thin wrapper over ra-core's
+  `useStore<"list"|"cards">(`${resource}.entityListViewMode`, defaultMode)`, returning
+  `[mode, setMode]`. Unit-tested (`useEntityListViewMode.test.ts`) with an explicit
+  `memoryStore()` shared across separate `render()` calls, proving both per-resource
+  isolation and reload-safe round-tripping (a fresh mount against the same store).
+- Task 2: `EntityListViewToggle` — controlled two-button segmented control
+  (`LayoutList`/`LayoutGrid`, `secondary`/`ghost` variants, `aria-pressed`, translated
+  `aria-label`s under new `crm.entity_list.view_list`/`view_cards` catalog keys). Does not
+  call the persistence hook itself; unit-tested standalone against a translate-only context.
+- Task 3: `EntityListView` now takes `renderList`/`renderCards`/`viewMode` (bare
+  `"list"|"cards"` union, not imported from the hook's module, to keep AC-4's falsification
+  grep clean) instead of `renderItems`. `EntityList` gained `defaultViewMode`, calls the new
+  hook, and renders `<EntityListViewToggle>` into `EntityListToolbar`'s pre-existing
+  `viewToggle` slot (no change needed to `EntityListToolbar`'s render logic — its slot
+  already existed from 4.1; only its stale doc comment was updated). 4.1's two test files
+  updated for the renamed props (trivial rename) plus one new integration test proving the
+  toggle actually switches which render function fires.
+- Task 4: `SingleRow.tsx` / `ShadchanRow.tsx` added — both wrapped in `RecordLink` (five
+  closed props only), monogram avatar via `entity360/avatar.ts`. `SingleList.tsx` /
+  `ShadchanList.tsx` each gained a small local `*RowList` component that mirrors their
+  existing `*CardGrid`'s own self-contained enrichment fetch (`singles_summary` /
+  `shidduchim`) rather than sharing state through props — the row components themselves
+  never fetch. `ShadchanRow`'s count is rendered via a new i18n key
+  (`crm.shadchanim.row.shidduchimCount`, real singular/plural via `smart_count` +
+  `||||`), never the "suggestion(s)" wording `ShadchanCard.tsx` still carries (that is
+  Story 5.9's remediation, explicitly not this story's per the story's own AC-5 note).
+  `ShadchanRow` also avoids reintroducing `ShadchanCard.tsx`'s known horizontal-overflow
+  defect (`min-w-0 truncate` on the name/location column, `shrink-0` on the count chip,
+  no `whitespace-nowrap` anywhere) — noted in its own doc comment as the reason.
+- Task 5: all four named tests written, plus `SingleRow.test.tsx` (not named by the story's
+  own Task 5, but required by `.claude/rules/testing.md`'s 80%-new-code floor per the
+  dispatch instructions, since `SingleRow.tsx` is just as new as `ShadchanRow.tsx`).
+- **Out of declared scope, reported and not touched**: `shadchanim/ShadchanCard.tsx` (its
+  `:34`/`:46`/`:69` defects, including the real horizontal-overflow bug at `:69` the story's
+  Dev Notes ask this story to fix "while you have the file open") — this file is **not** in
+  this dispatch's declared path list, so per `.claude/rules/parallel-ownership.md` it is
+  reported rather than edited. `references/**`, `singles/index.ts`, `shadchanim/index.ts` —
+  confirmed untouched, exactly as the dispatch instructed.
+- All verification gates green: `make typecheck`, `npm run lint`, `npx vitest run` (whole
+  repo, 152 files / 1268 tests), `make build`, `npx prettier --check .`, `make test
+  STACK_ID=3`, and the four runnable CI guards. No SQL touched, so no migration diff was
+  generated. The e2e spec (`e2e/entity-list-view-toggle.spec.ts`) was written per Task 5 but
+  not executed against a live stack in this dispatch (no `make start-supabase-e2e` /
+  `make start-app-e2e` stack was started for it).
+
 ### File List
+
+- `src/components/atomic-crm/misc/useEntityListViewMode.ts` (new)
+- `src/components/atomic-crm/misc/useEntityListViewMode.test.ts` (new)
+- `src/components/atomic-crm/misc/EntityListViewToggle.tsx` (new)
+- `src/components/atomic-crm/misc/EntityListViewToggle.test.tsx` (new)
+- `src/components/atomic-crm/misc/EntityListView.tsx` (render contract: `renderItems` →
+  `renderList`/`renderCards`/`viewMode`)
+- `src/components/atomic-crm/misc/EntityListView.test.tsx` (updated for the renamed props +
+  new viewMode-branch coverage)
+- `src/components/atomic-crm/misc/EntityList.tsx` (`defaultViewMode` prop, wires the
+  persistence hook and the toggle)
+- `src/components/atomic-crm/misc/EntityList.test.tsx` (updated for the renamed props + new
+  toggle-wiring integration test)
+- `src/components/atomic-crm/misc/EntityListToolbar.tsx` (doc-comment only — the
+  `viewToggle` slot itself was unchanged, already built in 4.1)
+- `src/components/atomic-crm/singles/SingleRow.tsx` (new)
+- `src/components/atomic-crm/singles/SingleRow.test.tsx` (new)
+- `src/components/atomic-crm/singles/SingleList.tsx` (`renderList`/`renderCards`,
+  `defaultViewMode="cards"`)
+- `src/components/atomic-crm/shadchanim/ShadchanRow.tsx` (new)
+- `src/components/atomic-crm/shadchanim/ShadchanRow.test.tsx` (new)
+- `src/components/atomic-crm/shadchanim/ShadchanList.tsx` (`renderList`/`renderCards`,
+  `defaultViewMode="cards"`)
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (new
+  `crm.entity_list.view_list`/`view_cards`, `crm.shadchanim.row.shidduchimCount`)
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (same two additions,
+  French)
+- `e2e/entity-list-view-toggle.spec.ts` (new)
+- `registry.json` (regenerated by the pre-commit hook)
+
+### Change Log
+
+- 2026-07-29: Story implemented (all 5 tasks, all ACs) and committed at `939c317` via
+  `make commit`. Status moved `ready-for-dev` → `review`.
