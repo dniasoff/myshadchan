@@ -16,10 +16,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const SCRIPT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "safe-commit.mjs",
-);
+const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SCRIPT = path.resolve(SCRIPTS_DIR, "safe-commit.mjs");
+const MAKEFILE = path.resolve(SCRIPTS_DIR, "..", "makefile");
 
 let repo;
 
@@ -27,12 +26,38 @@ function git(args, cwd = repo) {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
 }
 
-function safeCommit(args) {
+function safeCommit(args, env) {
   return execFileSync(process.execPath, [SCRIPT, ...args], {
     cwd: repo,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    ...(env ? { env: { ...process.env, ...env } } : {}),
   });
+}
+
+/**
+ * Runs the repo's *real* `commit` target — the makefile is copied in, not
+ * re-derived here, because the layer that broke was the target and a
+ * re-derived copy could not have failed the way the real one did.
+ */
+function makeCommit({ MSG, PATHS }) {
+  fs.mkdirSync(path.join(repo, "scripts"), { recursive: true });
+  fs.copyFileSync(SCRIPT, path.join(repo, "scripts", "safe-commit.mjs"));
+  fs.copyFileSync(MAKEFILE, path.join(repo, "makefile"));
+
+  const args = ["commit"];
+  if (MSG !== undefined) args.push(`MSG=${MSG}`);
+  if (PATHS !== undefined) args.push(`PATHS=${PATHS}`);
+
+  return execFileSync("make", args, {
+    cwd: repo,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function commitMessage() {
+  return git(["log", "-1", "--pretty=%B"]).replace(/\n+$/, "");
 }
 
 function write(file, content) {
@@ -187,5 +212,122 @@ describe("safe-commit", () => {
     expect(() => safeCommit(["-m", "x", "seed.txt"])).toThrow(
       /nothing to commit/,
     );
+  });
+
+  it("takes the message from the environment with --message-env", () => {
+    // Arrange
+    write("a.txt", "a\n");
+
+    // Act
+    safeCommit(["--message-env", "MSG", "a.txt"], { MSG: "from the env" });
+
+    // Assert
+    expect(commitMessage()).toBe("from the env");
+  });
+
+  it("refuses --message-env when the named variable is unset or blank", () => {
+    // Arrange
+    write("a.txt", "a\n");
+
+    // Act / Assert — never fall back to an empty message.
+    expect(() =>
+      safeCommit(["--message-env", "MSG", "a.txt"], { MSG: "  \n " }),
+    ).toThrow(/no message: environment variable MSG is unset or empty/);
+  });
+
+  it("refuses a message given twice", () => {
+    // Arrange
+    write("a.txt", "a\n");
+
+    // Act / Assert
+    expect(() =>
+      safeCommit(["-m", "one", "--message-env", "MSG", "a.txt"], {
+        MSG: "two",
+      }),
+    ).toThrow(/conflicts with/);
+  });
+});
+
+/**
+ * The layer that actually broke. The script was always fine with a multi-line
+ * message — argv carries bytes — while `make commit MSG="…"` pasted that text
+ * into a shell recipe, where a newline ended the command (`sh: Unterminated
+ * quoted string`), make ate every `$`, a leading `-` became an ignore-errors
+ * prefix and sh executed backticks out of the message. Agents then routed
+ * around the mandatory wrapper, which is how you end up back at `git commit -m`.
+ */
+describe("make commit (the wrapper agents are required to use)", () => {
+  // Everything this repo's commit messages actually contain: blank lines, a
+  // bullet list, backticks, an apostrophe, parentheses, `#`, `$VAR`, `$(…)`.
+  const HOSTILE_MESSAGE = [
+    "fix(commit): don't let make eat the message (#42)",
+    "",
+    "`make commit` choked on multi-line MSG — it's the wrapper the",
+    "concurrency protocol depends on, so agents routed around it.",
+    "",
+    "- $HOME and $(pwd) stay literal",
+    "- 100% of the message survives",
+  ].join("\n");
+
+  it("commits a realistic multi-line message byte for byte", () => {
+    // Arrange
+    write("a.txt", "a\n");
+
+    // Act
+    makeCommit({ MSG: HOSTILE_MESSAGE, PATHS: "a.txt" });
+
+    // Assert
+    expect(commitMessage()).toBe(HOSTILE_MESSAGE);
+    expect(committedFiles()).toEqual(["a.txt"]);
+  });
+
+  it("never evaluates the message as shell", () => {
+    // Arrange
+    write("a.txt", "a\n");
+    const message = "chore: `touch backtick.pwned` and $(touch subshell.pwned)";
+
+    // Act
+    makeCommit({ MSG: message, PATHS: "a.txt" });
+
+    // Assert
+    expect(commitMessage()).toBe(message);
+    expect(fs.existsSync(path.join(repo, "backtick.pwned"))).toBe(false);
+    expect(fs.existsSync(path.join(repo, "subshell.pwned"))).toBe(false);
+  });
+
+  it("still commits only the named paths and leaves a foreign staged entry intact", () => {
+    // Arrange — the property the wrapper exists for, asserted through the
+    // target rather than the script, since the target is what agents run.
+    write("a.txt", "a\n");
+    write("a2.txt", "a2\n");
+    write("b.txt", "b\n");
+    git(["add", "b.txt"]);
+
+    // Act
+    makeCommit({ MSG: HOSTILE_MESSAGE, PATHS: "a.txt a2.txt" });
+
+    // Assert
+    expect(committedFiles().sort()).toEqual(["a.txt", "a2.txt"]);
+    expect(stagedFiles()).toEqual(["b.txt"]);
+    expect(fs.readFileSync(path.join(repo, "b.txt"), "utf8")).toBe("b\n");
+  });
+
+  it("fails loudly instead of committing an empty message when MSG is missing", () => {
+    // Arrange
+    write("a.txt", "a\n");
+
+    // Act / Assert
+    expect(() => makeCommit({ PATHS: "a.txt" })).toThrow(/no message/);
+    expect(commitMessage()).toBe("seed"); // HEAD is still the seed commit
+  });
+
+  it("fails loudly when PATHS is missing rather than committing the index", () => {
+    // Arrange
+    write("a.txt", "a\n");
+    git(["add", "a.txt"]);
+
+    // Act / Assert
+    expect(() => makeCommit({ MSG: "no paths named" })).toThrow(/no paths/);
+    expect(stagedFiles()).toEqual(["a.txt"]);
   });
 });

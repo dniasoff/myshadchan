@@ -22,7 +22,16 @@
  * for and that nobody else's staged work was consumed.
  *
  *   node scripts/safe-commit.mjs -m "message" <path>...
+ *   node scripts/safe-commit.mjs --message-env MSG <path>...
  *   make commit MSG="message" PATHS="path ..."
+ *
+ * `--message-env NAME` reads the message from an environment variable instead
+ * of argv. That is how `make commit` passes it: a commit message here is
+ * routinely multi-line and contains backticks, `$`, `#`, quotes and parentheses,
+ * and interpolating that into a make recipe cannot be made safe — make expands
+ * `$`, strips a leading `-`/`@` per line, and a newline splits the recipe into
+ * separate `sh` commands. The environment is the one channel between make and
+ * this process that neither make nor sh parses.
  *
  * One semantic difference to know: a pathspec commit takes the **working-tree**
  * content of the named paths, not what you staged. Staging a subset of a file's
@@ -60,9 +69,36 @@ function lines(text) {
   return text.split("\n").filter(Boolean);
 }
 
-export function parseArgs(argv) {
+export function parseArgs(argv, env = process.env) {
   const paths = [];
   let message;
+  let messageSource;
+
+  const setMessage = (value, source) => {
+    if (messageSource) {
+      throw new Error(
+        `${source} conflicts with ${messageSource}: give the message once.`,
+      );
+    }
+    message = value;
+    messageSource = source;
+  };
+
+  const fromEnv = (name) => {
+    if (!name) {
+      throw new Error(
+        "--message-env needs the name of an environment variable",
+      );
+    }
+    const value = env[name];
+    if (value === undefined || value.trim() === "") {
+      throw new Error(
+        `no message: environment variable ${name} is unset or empty ` +
+          `(with make, that is \`make commit MSG="…" PATHS="…"\`).`,
+      );
+    }
+    return value;
+  };
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -76,12 +112,21 @@ export function parseArgs(argv) {
     }
 
     if (arg === "-m" || arg === "--message") {
-      message = argv[i + 1];
+      setMessage(argv[i + 1], arg);
       i += 1;
       continue;
     }
     if (arg.startsWith("--message=")) {
-      message = arg.slice("--message=".length);
+      setMessage(arg.slice("--message=".length), "--message");
+      continue;
+    }
+    if (arg === "--message-env") {
+      setMessage(fromEnv(argv[i + 1]), arg);
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--message-env=")) {
+      setMessage(fromEnv(arg.slice("--message-env=".length)), "--message-env");
       continue;
     }
     if (arg === "--") continue;
@@ -91,7 +136,11 @@ export function parseArgs(argv) {
     paths.push(arg);
   }
 
-  if (!message) throw new Error('no message (usage: -m "message" <path>...)');
+  if (!message || message.trim() === "") {
+    throw new Error(
+      'no message (usage: -m "message" <path>... or --message-env NAME <path>...)',
+    );
+  }
   if (paths.length === 0) {
     throw new Error(
       "no paths. Name the files this commit owns:\n" +

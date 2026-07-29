@@ -20,6 +20,22 @@
 STACK_ID ?=
 export STACK_ID
 
+# STACK_ID reaches recipes by textual interpolation (STACK_TAG below, the log
+# file names, `[ -n "$(STACK_ID)" ]`), so it is validated here rather than only
+# in scripts/stack-env.mjs — by the time a script could reject it, sh has
+# already parsed the line it was pasted into. `$(value …)` first, because a
+# command-line or environment value is recursively expanded: without it a
+# `$(shell …)` inside STACK_ID would run while this guard was reading it.
+override STACK_ID := $(value STACK_ID)
+ifneq (,$(strip $(STACK_ID)))
+ifneq (1,$(words $(STACK_ID)))
+$(error STACK_ID must be a single digit 0-9, got '$(STACK_ID)')
+endif
+ifeq (,$(filter $(STACK_ID),0 1 2 3 4 5 6 7 8 9))
+$(error STACK_ID must be a single digit 0-9, got '$(STACK_ID)')
+endif
+endif
+
 # Per-stack log-file tag, so two agents' silent-run logs do not clobber each
 # other in /tmp. Pure make (no node) because it is expanded on every recipe.
 STACK_TAG := $(if $(STACK_ID),supabase-e2e-$(STACK_ID),supabase-e2e)
@@ -210,8 +226,34 @@ test-e2e-ci: start-e2e-ci ## run the e2e suite headless against the built app (h
 # agent staged; a pathspec commit builds a temporary index from HEAD plus the
 # named paths and cannot. See scripts/safe-commit.mjs and
 # .claude/rules/parallel-ownership.md, "Committing on a busy tree".
+#
+# MSG never touches a shell. `-m "$(MSG)"` in the recipe below cannot be made
+# safe for arbitrary text, and commit messages here are routinely multi-line:
+#
+#   * a newline ends the recipe line, so sh gets `-m "first line` on its own
+#     — `Syntax error: Unterminated quoted string`, which is the reported bug;
+#   * make expands `$` before sh ever sees it ($HOME -> the empty make variable
+#     $H followed by OME) and strips a leading `-`/`@`/`+` from each line, so a
+#     `- bullet` line silently becomes an ignore-errors prefix;
+#   * inside those double quotes sh still runs `backticks` and $(command
+#     substitutions) out of the message text.
+#
+# No amount of quoting fixes all four, so the message is not interpolated at
+# all: `$(value MSG)` takes the raw command-line text before make expands it,
+# and `export` hands it to the script through the environment — the only
+# channel between make and node that neither make nor sh parses.
+#
+# PATHS stays interpolated on purpose — sh's word splitting is what turns it
+# into several arguments — but `$(value …)` keeps make from eating a `$` in a
+# file name. Paths with spaces or shell metacharacters are not supported; call
+# `node scripts/safe-commit.mjs --message-env MSG -- <path>...` directly for
+# those.
+override MSG := $(value MSG)
+override PATHS := $(value PATHS)
+export MSG
+
 commit: ## commit only the paths you name: make commit MSG="…" PATHS="a b"
-	@node scripts/safe-commit.mjs -m "$(MSG)" $(PATHS)
+	@node scripts/safe-commit.mjs --message-env MSG -- $(PATHS)
 
 lint:
 	npm run lint
@@ -260,8 +302,13 @@ storybook: ## start storybook
 watch: ## live monitor of the most recent agent session (agents, hooks, diagnosis)
 	node scripts/harness-monitor.mjs --watch
 
+# `$(value …)` + single quotes for the same reason as STACK_ID above: SESSION is
+# user-supplied text pasted into a shell line. Quoted, a stray space or `;` is a
+# bad session id rather than a second command.
+override SESSION := $(value SESSION)
+
 monitor: ## one-shot summary of the most recent agent session (pass SESSION=<id> to pick one)
-	@node scripts/harness-monitor.mjs $(if $(SESSION),--session $(SESSION),)
+	@node scripts/harness-monitor.mjs $(if $(SESSION),--session '$(SESSION)',)
 
 sessions: ## list known agent sessions, newest first
 	@node scripts/harness-monitor.mjs --list

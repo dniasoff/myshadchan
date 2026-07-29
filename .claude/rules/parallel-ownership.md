@@ -234,6 +234,13 @@ job.
     make commit MSG="Add the thing" PATHS="src/foo.ts src/foo.test.ts"
     node scripts/safe-commit.mjs -m "Add the thing" src/foo.ts src/foo.test.ts
 
+The interface takes any message: multi-line, blank lines, backticks, `$`, `#`,
+quotes, `- bullets`. MSG never reaches a shell — the recipe passes it through
+the environment (`--message-env MSG`), because interpolating text into a make
+recipe cannot be made safe for all of that. Do not work around `make commit`;
+if it ever refuses your input, that is a bug in the wrapper worth fixing, not a
+reason to reach for `git commit -m`.
+
 `git commit -m "…"` commits *the index*, and the index is one process-global
 file for the whole clone. If another agent runs `git add` at any point before
 your commit builds its tree, their paths are in your commit, and no pre-commit
