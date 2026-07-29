@@ -101,15 +101,11 @@ export async function deleteEntityFile(
   blobUrls.delete(params.storagePath);
 }
 
-/** FakeRest mirror of `removeEntityFileObjects` — the beforeDelete cleanup
- * callback's storage half (AC 7b). */
-export function removeEntityFileObjects(
-  blobUrls: EntityFileBlobUrls,
-  storagePaths: string[],
-): void {
-  for (const storagePath of storagePaths) {
-    const url = blobUrls.get(storagePath);
-    if (url) URL.revokeObjectURL(url);
-    blobUrls.delete(storagePath);
-  }
-}
+// Review fix (F7): a `removeEntityFileObjects` mirror of the beforeDelete
+// cleanup callback's storage half (AC 7b) used to live here, but nothing
+// ever imported it — the FakeRest provider does not register a
+// parent-delete cascade for `entity_files` at all (Completion Notes: "no
+// cascade-cleanup mirror added to the FakeRest provider for parent-record
+// deletes", the same shape `tasks`/`interactions` already have in demo
+// mode). It was dead, untested and unreachable, so it is deleted rather
+// than kept as an export nothing calls.

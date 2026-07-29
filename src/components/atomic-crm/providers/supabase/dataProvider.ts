@@ -33,14 +33,12 @@ import type {
   ShidduchCatch,
   ShidduchSchool,
 } from "../../types";
-import { ENTITY_TARGET_TYPES } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
-import { RESOURCE_FOR_TARGET } from "../../reminders/reminderEntity";
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import {
+  buildEntityFilesCleanupCallbacks,
   deleteEntityFile as deleteEntityFileImpl,
-  removeEntityFileObjects,
   signEntityFileUrl as signEntityFileUrlImpl,
   uploadEntityFile as uploadEntityFileImpl,
 } from "./entityFiles";
@@ -596,27 +594,19 @@ export type CrmDataProvider = ReturnType<
 >;
 
 // Story 3.7 (AC 7b): byte cleanup for the four `entity_files` parent
-// resources, generated from `ENTITY_TARGET_TYPES` via `RESOURCE_FOR_TARGET`
-// rather than four hand-written entries. `purge_polymorphic_dependents()`
-// (02_functions.sql) removes the `entity_files` CATALOG rows once the parent
-// delete's trigger fires; it cannot reach the Storage API, so this runs
-// BEFORE that — the rows are still present here — and removes the objects
-// via `removeEntityFileObjects`. A parent deleted by any path that skips the
+// resources. Built in ./entityFiles.ts (review fix, F5) so the
+// ENTITY_TARGET_TYPES -> RESOURCE_FOR_TARGET mapping and the callback body
+// are unit-testable independent of this whole custom-methods overlay —
+// `entityFiles.test.ts` exercises this exact array, not a re-implementation.
+// `purge_polymorphic_dependents()` (02_functions.sql) removes the
+// `entity_files` CATALOG rows once the parent delete's trigger fires; it
+// cannot reach the Storage API, so this runs BEFORE that — the rows are
+// still present here — and removes the objects via
+// `removeEntityFileObjects`. A parent deleted by any path that skips the
 // SPA's dataProvider (service_role, psql, a future edge function) leaves the
 // bytes orphaned; that residual limitation is named, not hidden (AC 7c).
 const entityFilesCleanupCallbacks: ResourceCallbacks[] =
-  ENTITY_TARGET_TYPES.map((targetType) => ({
-    resource: RESOURCE_FOR_TARGET[targetType],
-    beforeDelete: async (params, dataProvider) => {
-      const { data } = await dataProvider.getList<EntityFile>("entity_files", {
-        filter: { target_type: targetType, target_id: params.id },
-        pagination: { page: 1, perPage: 10_000 },
-        sort: { field: "id", order: "ASC" },
-      });
-      await removeEntityFileObjects(data.map((file) => file.storage_path));
-      return params;
-    },
-  }));
+  buildEntityFilesCleanupCallbacks();
 
 const lifeCycleCallbacks: ResourceCallbacks[] = [
   {

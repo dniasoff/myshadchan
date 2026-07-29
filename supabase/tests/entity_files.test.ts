@@ -72,8 +72,8 @@ const { checks, error } = runSuite();
 describe("entity_files (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
-  it("runs all seven AC 8 check groups", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(18);
+  it("runs all seven AC 8 check groups, plus the review-fix (h)/(i) purge and attribution checks", () => {
+    expect(checks.length).toBeGreaterThanOrEqual(28);
   });
 
   for (const check of checks) {

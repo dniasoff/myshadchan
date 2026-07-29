@@ -425,22 +425,23 @@ end;
 $$;
 
 -- Server-sets uploaded_by_member_id on an entity_files insert (Story 3.7, AC
--- 2f) — but ONLY when the client did not already supply one, unlike
--- set_interaction_actor_member_id() above, which unconditionally overwrites.
--- There is no client path that legitimately sets this column to someone
--- else's membership id (uploadEntityFile() never sends it), so the if-null
--- shape is a defensive default here, not a trust boundary the way
--- interactions' unconditional overwrite is. NOT SECURITY DEFINER: the
--- definer privilege it needs lives inside current_member_id() itself,
--- exactly like set_interaction_actor_member_id() above.
+-- 2f). Unconditionally overwrites, exactly like
+-- set_interaction_actor_member_id() above — the review fix for Story 3.7's
+-- F6: the table-level INSERT grant covers every column, so a client-supplied
+-- uploaded_by_member_id was NOT merely a no-op default (the original
+-- if-null comment's premise) but an accepted value, proven live by
+-- inserting a row from account A's context with another account's
+-- account_members.id and watching it land, attributed to a foreign member
+-- entity_files_summary then resolved to a real name across the tenant
+-- boundary. NOT SECURITY DEFINER: the definer privilege it needs lives
+-- inside current_member_id() itself, exactly like
+-- set_interaction_actor_member_id() above.
 CREATE OR REPLACE FUNCTION "public"."set_entity_files_uploaded_by"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     SET "search_path" TO ''
     AS $$
 begin
-  if new.uploaded_by_member_id is null then
-    new.uploaded_by_member_id := public.current_member_id();
-  end if;
+  new.uploaded_by_member_id := public.current_member_id();
   return new;
 end;
 $$;

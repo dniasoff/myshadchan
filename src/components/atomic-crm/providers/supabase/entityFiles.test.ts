@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DataProvider } from "ra-core";
 
-import type { EntityFile } from "../../types";
+import { RESOURCE_FOR_TARGET } from "../../reminders/reminderEntity";
+import { ENTITY_TARGET_TYPES, type EntityFile } from "../../types";
 
 /**
  * Mocks the Supabase client entirely (the `authProvider.test.ts` idiom) so
@@ -27,6 +28,7 @@ vi.mock("./supabase", () => ({
 }));
 
 import {
+  buildEntityFilesCleanupCallbacks,
   deleteEntityFile,
   ENTITY_FILE_URL_TTL_SECONDS,
   removeEntityFileObjects,
@@ -336,5 +338,97 @@ describe("removeEntityFileObjects (AC 7b)", () => {
     await expect(
       removeEntityFileObjects(["a/b/c.pdf"]),
     ).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * AC 7(b)'s second falsifiable (review fix, F5): before this, nothing
+ * proved `RESOURCE_FOR_TARGET` maps all four `ENTITY_TARGET_TYPES` onto a
+ * `beforeDelete` callback, nor that the callback actually reaches
+ * `removeEntityFileObjects` with every path the deleted target owned.
+ * `dataProvider.ts` splices this exact array into `lifeCycleCallbacks`
+ * unmodified, so exercising it here exercises the real production wiring,
+ * not a parallel re-implementation.
+ */
+describe("buildEntityFilesCleanupCallbacks (AC 7b)", () => {
+  beforeEach(() => {
+    remove.mockReset();
+    remove.mockResolvedValue({ error: null });
+  });
+
+  it("returns exactly one callback per ENTITY_TARGET_TYPES member, mapped onto its RESOURCE_FOR_TARGET resource", () => {
+    // Act
+    const callbacks = buildEntityFilesCleanupCallbacks();
+
+    // Assert
+    expect(callbacks).toHaveLength(ENTITY_TARGET_TYPES.length);
+    expect(callbacks.map((callback) => callback.resource)).toEqual(
+      ENTITY_TARGET_TYPES.map((targetType) => RESOURCE_FOR_TARGET[targetType]),
+    );
+  });
+
+  it("reads only the deleted target's entity_files rows and removes every storage path it owned", async () => {
+    // Arrange
+    const callbacks = buildEntityFilesCleanupCallbacks();
+    const singlesCallback = callbacks.find(
+      (callback) => callback.resource === "singles",
+    );
+    if (!singlesCallback?.beforeDelete) {
+      throw new Error("expected a beforeDelete callback for singles");
+    }
+    const getList = vi.fn().mockResolvedValue({
+      data: [
+        { storage_path: "1/single/42/a.pdf" },
+        { storage_path: "1/single/42/b.pdf" },
+      ] as EntityFile[],
+      total: 2,
+    });
+    const stubDataProvider = { getList } as unknown as DataProvider;
+
+    // Act
+    const result = await (
+      singlesCallback.beforeDelete as (
+        params: { id: number },
+        dataProvider: DataProvider,
+      ) => Promise<{ id: number }>
+    )({ id: 42 }, stubDataProvider);
+
+    // Assert
+    expect(getList).toHaveBeenCalledExactlyOnceWith(
+      "entity_files",
+      expect.objectContaining({
+        filter: { target_type: "single", target_id: 42 },
+      }),
+    );
+    expect(remove).toHaveBeenCalledExactlyOnceWith([
+      "1/single/42/a.pdf",
+      "1/single/42/b.pdf",
+    ]);
+    // beforeDelete must pass the delete params straight through unchanged.
+    expect(result).toEqual({ id: 42 });
+  });
+
+  it("does not call the storage API when the target owned no files", async () => {
+    // Arrange
+    const callbacks = buildEntityFilesCleanupCallbacks();
+    const shadchanCallback = callbacks.find(
+      (callback) => callback.resource === "shadchanim",
+    );
+    if (!shadchanCallback?.beforeDelete) {
+      throw new Error("expected a beforeDelete callback for shadchanim");
+    }
+    const getList = vi.fn().mockResolvedValue({ data: [], total: 0 });
+    const stubDataProvider = { getList } as unknown as DataProvider;
+
+    // Act
+    await (
+      shadchanCallback.beforeDelete as (
+        params: { id: number },
+        dataProvider: DataProvider,
+      ) => Promise<{ id: number }>
+    )({ id: 7 }, stubDataProvider);
+
+    // Assert
+    expect(remove).not.toHaveBeenCalled();
   });
 });

@@ -322,7 +322,15 @@ describe("FilesTab — visibility control only for shidduch/single targets (AC 6
       // Act
       const { screen } = await renderFilesTab({ targetType }, { getList });
 
-      // Assert
+      // Assert — the row must actually be on screen first (review fix,
+      // F3): without this, the negative assertion below would resolve
+      // while the tab is still in its loading skeleton, before the
+      // mocked getList's promise settles, and would pass regardless of
+      // whether the gate under test works at all. `await
+      // expect.element(...).not.toBeInTheDocument()` is satisfied on
+      // first check, so a query that never waits for the row to mount
+      // can never observe the gate it claims to guard.
+      await expect.element(screen.getByText(row.file_name)).toBeInTheDocument();
       await expect
         .element(screen.getByRole("combobox", { name: /visibility/i }))
         .not.toBeInTheDocument();

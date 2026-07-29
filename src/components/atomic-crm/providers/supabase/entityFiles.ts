@@ -1,9 +1,11 @@
-import type { DataProvider, Identifier } from "ra-core";
+import type { DataProvider, Identifier, ResourceCallbacks } from "ra-core";
 
-import type {
-  EntityFile,
-  EntityFileVisibility,
-  EntityTargetType,
+import { RESOURCE_FOR_TARGET } from "../../reminders/reminderEntity";
+import {
+  ENTITY_TARGET_TYPES,
+  type EntityFile,
+  type EntityFileVisibility,
+  type EntityTargetType,
 } from "../../types";
 import { getSupabaseClient } from "./supabase";
 
@@ -181,4 +183,33 @@ export async function removeEntityFileObjects(
   if (error) {
     console.error("removeEntityFileObjects.error", error);
   }
+}
+
+/**
+ * AC 7(b), built here (not inline in `dataProvider.ts`) so it is unit
+ * testable independent of the whole custom-methods overlay (review fix,
+ * F5): one `beforeDelete` `ResourceCallbacks` entry per
+ * `ENTITY_TARGET_TYPES` member, mapped onto its owning resource via
+ * `RESOURCE_FOR_TARGET`. `dataProvider.ts` splices the returned array
+ * straight into `lifeCycleCallbacks` — this is the exact code that runs in
+ * production, not a re-implementation the test exercises in parallel.
+ *
+ * `dataProvider` here is the WRAPPED provider `withLifecycleCallbacks`
+ * passes to every callback at call time (so `getList("entity_files", ...)`
+ * itself still goes through the custom-methods overlay) — never the
+ * `baseDataProvider` closed over elsewhere in this module.
+ */
+export function buildEntityFilesCleanupCallbacks(): ResourceCallbacks[] {
+  return ENTITY_TARGET_TYPES.map((targetType) => ({
+    resource: RESOURCE_FOR_TARGET[targetType],
+    beforeDelete: async (params, dataProvider) => {
+      const { data } = await dataProvider.getList<EntityFile>("entity_files", {
+        filter: { target_type: targetType, target_id: params.id },
+        pagination: { page: 1, perPage: 10_000 },
+        sort: { field: "id", order: "ASC" },
+      });
+      await removeEntityFileObjects(data.map((file) => file.storage_path));
+      return params;
+    },
+  }));
 }

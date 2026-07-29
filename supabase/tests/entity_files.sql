@@ -4,7 +4,16 @@
 -- All seven check groups from AC 8, each demonstrated red by hand (by
 -- loosening the thing it names) before this file was committed, per this
 -- suite's own standard (context_rls_hardening.sql:21-25). Which ones were
--- demonstrated is recorded in the story's Completion Notes.
+-- demonstrated is recorded in the story's Completion Notes. Two more groups
+-- were added in the post-review fix pass: (h) AC 7(a)'s purge assertion
+-- (contract §8 rule 3 / preflight landmine 11 — untested until then) and
+-- (i) the uploaded_by_member_id attribution guard (F6 — the trigger no
+-- longer has an if-null escape a client-supplied value could pass through).
+-- Both were demonstrated red by hand too (see each group's own comment).
+-- (a) and (b) also each gained one check the original pass missed: (a) a
+-- cross-bucket leak guard for the `bucket_id` half of the storage SELECT
+-- policy, (b) two reads through `entity_files_summary` itself (AC 3's own
+-- falsifiable), not only the base table.
 --
 -- One login `u1` holds a `parent_admin` membership of household account A
 -- and a `parent_admin` membership of household account B (active in A), plus
@@ -159,6 +168,44 @@ from storage.objects where id = (select value::uuid from ids where name = 'obj_a
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"ef111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
+-- Cross-bucket leak guard (review fix, F2). AC 1's own falsifiable says
+-- dropping the `bucket_id` half of any one predicate turns this suite red
+-- ("without bucket_id the folder predicate would apply to every other
+-- bucket's objects") — but no check above actually needs that half: every
+-- object exercised so far lives in the SAME bucket the policy under test
+-- names, so the foldername-prefix half alone already produces the right
+-- answer. A storage.objects permissive policy is evaluated across the
+-- WHOLE table, not scoped to "only this bucket's rows" the way a domain
+-- table's RLS predicate is — so a bucketless "Entity files readable within
+-- account" would ALSO grant access to a same-prefixed object sitting in a
+-- completely unrelated bucket that carries no policy of its own. Proven: a
+-- decoy bucket with zero entity-files-scoped policies, one object in it
+-- inserted as postgres (bypassing storage RLS, the way a service-role
+-- write from an unrelated feature would) under A's own account prefix,
+-- read back as u1 (authenticated, active in A). Loosening the bucket_id
+-- predicate on "Entity files readable within account" down to just the
+-- foldername check turns this from 0 rows to 1.
+reset role;
+
+insert into storage.buckets (id, name, public)
+values ('ef-decoy-bucket', 'ef-decoy-bucket', false)
+on conflict (id) do nothing;
+
+insert into storage.objects (bucket_id, name, owner)
+select 'ef-decoy-bucket', value || '/decoy.pdf', 'ef111111-1111-1111-1111-111111111111'
+from ids where name = 'acct_a'
+returning id as obj_decoy \gset
+
+insert into ids values ('obj_decoy', :'obj_decoy');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"ef111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+insert into results (name, passed)
+select '(a) storage: the entity-files SELECT policy''s bucket_id half does not leak a same-prefixed object in an unrelated bucket',
+       count(*) = 0
+from storage.objects where id = (select value::uuid from ids where name = 'obj_decoy');
+
 -- ---------------------------------------------------------------------------
 -- (b) Table, active in A.
 -- ---------------------------------------------------------------------------
@@ -170,6 +217,24 @@ insert into results (name, passed)
 select '(b) table: u1 reads zero entity_files rows filtered on B''s account_id while active in A',
        (select count(*) from public.entity_files where account_id = (select value::bigint from ids where name = 'acct_b')) = 0;
 
+-- AC 3's own falsifiable, not exercised anywhere until this review fix
+-- (F2): "a member of account A queries entity_files_summary and gets zero
+-- of account B's rows ... removing security_invoker = on makes the view
+-- definer-owned and that check goes red." Every existing (b) check reads
+-- the BASE TABLE; entity_files_summary is what FilesTab.tsx actually
+-- queries (contract AC 3, AC 6a), and a security_invoker regression on the
+-- view leaks through it while the base-table checks above stay green
+-- (proven live on the local stack before this fix: `alter view
+-- entity_files_summary set (security_invoker = off)` made this check go
+-- from 0 to 1 row while every base-table (b) check kept passing).
+insert into results (name, passed)
+select '(b) view: u1 reads exactly one entity_files_summary row while active in A',
+       (select count(*) from public.entity_files_summary) = 1;
+
+insert into results (name, passed)
+select '(b) view: u1 reads zero entity_files_summary rows filtered on B''s account_id while active in A',
+       (select count(*) from public.entity_files_summary where account_id = (select value::bigint from ids where name = 'acct_b')) = 0;
+
 select public.set_active_context((select value::bigint from ids where name = 'acct_b'));
 
 insert into results (name, passed)
@@ -177,6 +242,12 @@ select '(b) table: the SAME login reads exactly B''s row and zero of A''s after 
        (select count(*) from public.entity_files) = 1
    and (select count(*) from public.entity_files where id = (select value::bigint from ids where name = 'file_b')) = 1
    and (select count(*) from public.entity_files where id = (select value::bigint from ids where name = 'file_a')) = 0;
+
+insert into results (name, passed)
+select '(b) view: the SAME login reads exactly B''s entity_files_summary row and zero of A''s after set_active_context(B)',
+       (select count(*) from public.entity_files_summary) = 1
+   and (select count(*) from public.entity_files_summary where id = (select value::bigint from ids where name = 'file_b')) = 1
+   and (select count(*) from public.entity_files_summary where id = (select value::bigint from ids where name = 'file_a')) = 0;
 
 select public.set_active_context((select value::bigint from ids where name = 'acct_a'));
 
@@ -297,6 +368,96 @@ begin
       sqlerrm like '%entity_files_storage_path_scope_check%', sqlerrm
     );
   end;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- (h) AC 7(a) / contract §8 rule 3 / preflight landmine 11: deleting a
+-- parent leaves zero entity_files rows for it. Untested until this review
+-- fix (F4) — the story's own falsifiable calls for exactly this ("db
+-- project — insert a shidduch, an entity_files row for it, delete the
+-- shidduch, assert zero entity_files rows remain; repeat for a single and
+-- a shadchan"). Real parent rows in household account A (still active
+-- here), not the polymorphic placeholder ids the (a)-(f) groups use above,
+-- because a real DELETE is what has to fire purge_polymorphic_dependents().
+-- ---------------------------------------------------------------------------
+insert into public.singles (first_name_en) values ('EF Purge Single')
+returning id as purge_single \gset
+
+insert into public.entity_files (target_type, target_id, storage_path, file_name, mime_type, size_bytes)
+select 'single', :purge_single, value || '/single/' || :purge_single || '/p.pdf', 'p.pdf', 'application/pdf', 10
+from ids where name = 'acct_a';
+
+delete from public.singles where id = :purge_single;
+
+insert into results (name, passed)
+select '(h) AC 7(a): deleting a single purges its entity_files rows',
+       (select count(*) from public.entity_files where target_type = 'single' and target_id = :purge_single) = 0;
+
+insert into public.shadchanim (name) values ('EF Purge Shadchan')
+returning id as purge_shadchan \gset
+
+insert into public.entity_files (target_type, target_id, storage_path, file_name, mime_type, size_bytes)
+select 'shadchan', :purge_shadchan, value || '/shadchan/' || :purge_shadchan || '/p.pdf', 'p.pdf', 'application/pdf', 10
+from ids where name = 'acct_a';
+
+delete from public.shadchanim where id = :purge_shadchan;
+
+insert into results (name, passed)
+select '(h) AC 7(a): deleting a shadchan purges its entity_files rows',
+       (select count(*) from public.entity_files where target_type = 'shadchan' and target_id = :purge_shadchan) = 0;
+
+insert into public.singles (first_name_en) values ('EF Purge Shidduch Single')
+returning id as purge_shidduch_single \gset
+
+insert into public.shidduchim (single_id, name_en) values (:purge_shidduch_single, 'EF Purge Shidduch')
+returning id as purge_shidduch \gset
+
+insert into public.entity_files (target_type, target_id, storage_path, file_name, mime_type, size_bytes)
+select 'shidduch', :purge_shidduch, value || '/shidduch/' || :purge_shidduch || '/p.pdf', 'p.pdf', 'application/pdf', 10
+from ids where name = 'acct_a';
+
+delete from public.shidduchim where id = :purge_shidduch;
+
+insert into results (name, passed)
+select '(h) AC 7(a): deleting a shidduch purges its entity_files rows',
+       (select count(*) from public.entity_files where target_type = 'shidduch' and target_id = :purge_shidduch) = 0;
+
+-- ---------------------------------------------------------------------------
+-- (i) AC 2(f) / review fix F6: uploaded_by_member_id is now ALWAYS
+-- server-assigned to the caller's own active-context membership, never a
+-- client-supplied value (set_entity_files_uploaded_by() no longer has an
+-- if-null escape). Proven live before this fix: a row inserted from A's
+-- context with a client-supplied uploaded_by_member_id equal to u1's OWN
+-- membership id in household B — a real row, just the wrong account's — was
+-- accepted verbatim, and entity_files_summary then resolved it to a real
+-- name across the tenant boundary. u1's B-membership id is a genuine,
+-- pre-existing account_members row (not a fabricated id), which is what
+-- makes this the realistic shape of the spoof, not a FK-violation strawman.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_a_member_id bigint;
+  v_b_member_id bigint;
+  v_row_uploaded_by bigint;
+begin
+  select id into v_a_member_id from public.account_members
+  where account_id = (select value::bigint from ids where name = 'acct_a')
+    and user_id = 'ef111111-1111-1111-1111-111111111111';
+
+  select id into v_b_member_id from public.account_members
+  where account_id = (select value::bigint from ids where name = 'acct_b')
+    and user_id = 'ef111111-1111-1111-1111-111111111111';
+
+  insert into public.entity_files (target_type, target_id, storage_path, file_name, mime_type, size_bytes, uploaded_by_member_id)
+  select 'shidduch', 1, value || '/shidduch/1/forged.pdf', 'forged.pdf', 'application/pdf', 10, v_b_member_id
+  from ids where name = 'acct_a'
+  returning uploaded_by_member_id into v_row_uploaded_by;
+
+  insert into results values (
+    '(i) uploaded_by_member_id: a client-supplied value is ignored — the server always assigns the caller''s own active-context membership',
+    v_row_uploaded_by = v_a_member_id,
+    format('expected %s (u1''s A membership), got %s (client tried B''s %s)', v_a_member_id, v_row_uploaded_by, v_b_member_id)
+  );
 end $$;
 
 -- ---------------------------------------------------------------------------

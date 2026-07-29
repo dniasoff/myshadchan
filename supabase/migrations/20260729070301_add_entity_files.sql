@@ -75,6 +75,21 @@ create or replace view "public"."entity_files_summary" as  SELECT ef.id,
      LEFT JOIN public.account_members am ON ((am.id = ef.uploaded_by_member_id)))
      LEFT JOIN public.members m ON ((m.user_id = am.user_id)));
 
+-- F1 fix (Story 3.7 review): migra's CREATE VIEW diff drops the
+-- `with (security_invoker = on)` option entirely — verified empirically on
+-- the live stack (`pg_class.reloptions` was NULL for entity_files_summary
+-- after applying this migration as originally generated, vs.
+-- `{security_invoker=on}` for every sibling summary view). Without it the
+-- view runs as its (superuser) owner, and RLS on entity_files is bypassed
+-- for every reader — proven live: a member of account A read one row of
+-- account B's files through this exact view while the base table correctly
+-- returned zero. `03_views.sql`'s `create or replace view ... with
+-- (security_invoker = on)` already declares the option; ALTER VIEW is what
+-- actually applies it against the already-created object above, exactly as
+-- `20260729042335_..._note_authorship.sql`'s own "MANUAL ADJUSTMENTS" item 1
+-- describes for `interactions_summary` (the sibling gap this migration
+-- copied item 2 of but not item 1).
+alter view "public"."entity_files_summary" set (security_invoker = on);
 
 CREATE OR REPLACE FUNCTION public.set_entity_files_uploaded_by()
  RETURNS trigger
@@ -82,9 +97,7 @@ CREATE OR REPLACE FUNCTION public.set_entity_files_uploaded_by()
  SET search_path TO ''
 AS $function$
 begin
-  if new.uploaded_by_member_id is null then
-    new.uploaded_by_member_id := public.current_member_id();
-  end if;
+  new.uploaded_by_member_id := public.current_member_id();
   return new;
 end;
 $function$
