@@ -31,6 +31,7 @@ yarn-error.log*
 supabase/.branches
 supabase/.temp
 .supabase-e2e/
+.supabase-e2e-*/
 
 dist/
 /lib/
@@ -46,6 +47,7 @@ public/r/
 # Playwright
 node_modules/
 /test-results/
+/test-results-*/
 /playwright-report/
 /blob-report/
 /playwright/.cache/

@@ -1,4 +1,4 @@
-import { test, expect, fetchOtpCode } from "./fixtures";
+import { test, expect, fetchOtpCode, APP_URL } from "./fixtures";
 
 // Story 2.7: the invitee's ONLY path into the product. Covers AC-4 (the
 // preview renders, the affirmation gates the OTP request) and AC-6/AC-7 (a
@@ -19,7 +19,7 @@ test("an invitee previews, affirms 18+, and signs in through an invite", async (
     role: "helper",
   });
 
-  await page.goto(`http://localhost:5175/#/accept-invite/${token}`);
+  await page.goto(`${APP_URL}/#/accept-invite/${token}`);
 
   // AC-4: the preview names the household and role, never the inviter.
   await expect(page.getByText("You've been invited")).toBeVisible();
@@ -44,7 +44,7 @@ test("an invite with no matching row shows a clear, specific message", async ({
   page,
 }) => {
   await page.goto(
-    "http://localhost:5175/#/accept-invite/00000000-0000-0000-0000-000000000000",
+    `${APP_URL}/#/accept-invite/00000000-0000-0000-0000-000000000000`,
   );
 
   await expect(page.getByText("This invite link isn't valid")).toBeVisible();

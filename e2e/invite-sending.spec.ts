@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, APP_URL } from "./fixtures";
 
 // Story 2.8: the inviter-side UI review finding #3 flagged as missing
 // coverage — a send form, a copyable link and a revoke action, none of
@@ -25,7 +25,7 @@ test("a parent_admin sends an invite from Settings, sees the link, then revokes 
 
   await signIn(page, member.email!);
 
-  await page.goto("http://localhost:5175/#/settings");
+  await page.goto(`${APP_URL}/#/settings`);
 
   // Settings' Profile card (`ProfileSection`) renders a same-sized skeleton
   // while its own identity/member fetch is in flight, then swaps in the

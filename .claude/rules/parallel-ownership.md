@@ -299,6 +299,80 @@ still formatted, so the hook is not a no-op.
 guards along with the hazard, and an instruction is not a mechanism — the whole
 reason this section exists is that instructions were not enough.
 
+## Running tests in parallel
+
+Path partitioning is not the only precondition for a parallel wave, and it was
+never the binding one. Two agents with perfectly disjoint file ownership still
+destroyed each other's test runs, because the test stacks were host-global
+singletons: one fixed Supabase port block, one Docker project id, one Vite
+port, one `reuseExistingServer: true`, and a `resetDb()` fixture marked
+`auto: true` — so it truncated the shared database before **every** e2e test,
+including while another agent was mid-assertion. `make test` reached the same
+shared local database. This, not file collision, is why every proposed
+parallel wave for Epics 4 and 5 had to be serialised.
+
+`STACK_ID` fixes it. It is an integer `0..9` naming an **exclusive lease** on a
+whole runtime: its own Supabase Docker set, its own port block, its own
+database, its own Vite server, its own Playwright output directory.
+
+    make start-supabase-e2e STACK_ID=2   # this agent's own Supabase stack
+    make test STACK_ID=2                 # unit tests; db suites hit stack 2
+    STACK_ID=2 npx playwright test       # e2e against stack 2's app + db
+    make stop-supabase-e2e STACK_ID=2    # release the lease
+
+    make stacks                          # who holds which id, which are free
+    make stop-stacks                     # tear every stack down
+
+The allocation is a pure function of `STACK_ID`, computed in exactly one place
+(`scripts/stack-env.mjs`) and consumed by the makefile, `playwright.config.ts`,
+`vitest.config.ts`, `e2e/fixtures.ts` and `supabase/tests/dbSuiteHelpers.ts`.
+Stack N gets Supabase ports `54340+10N .. 54349+10N`, Docker project
+`atomic-crm-e2e-N`, workdir `.supabase-e2e-N`, and Vite on `5175+N`.
+
+Three properties are worth knowing, because they are what make it safe rather
+than merely convenient:
+
+1. **Stack 0 is the historical allocation, digit for digit.** An unset
+   `STACK_ID` resolves to it, so no existing script, workflow or CI job changes
+   behaviour. `scripts/stack-env.test.mjs` asserts the generated stack-0
+   `config.toml` is byte-identical to the committed `supabase/config.e2e.toml`,
+   so the default path cannot drift as the config is edited.
+
+2. **`STACK_ID` outranks inherited environment variables.** A stale
+   `VITE_SUPABASE_URL` (`.env.e2e` pins one) or `SUPABASE_DB_URL` cannot
+   re-point an agent's writes at another agent's database. This matters most
+   for `resetDb()`, which truncates whatever URL it resolves — an env var
+   winning there would silently recreate the original failure.
+
+3. **A non-integer `STACK_ID` is refused, not hashed into a slot.** Hashing an
+   agent's name to a stack number is convenient and wrong: a collision hands
+   two agents the same database, which is this exact failure again, except
+   silent instead of loud.
+
+`reuseExistingServer: true` stays on in `playwright.config.ts` — `make test-e2e`
+starts the stack before invoking Playwright, so disabling it would break the
+normal entry point — but every URL it can reuse is now stack-scoped, so the
+only server it can attach to is the caller's own.
+
+**Cost and ceiling.** Each stack is a full Docker set: 10 containers, ~1.1 GB
+resident, ~45 s to boot with migrations and seed. On this machine (24 cores,
+123 GB RAM) memory is nowhere near the constraint; CPU during `supabase start`
+and concurrent Chromium instances is. Four to six concurrent stacks is
+comfortable alongside the long-running dev stack; the port allocation caps it
+at ten. Stacks are not reaped automatically — `make stop-stacks` between waves,
+and check `make stacks` before claiming an id, since nothing enforces the lease
+at runtime.
+
+**Not stack-scoped**, and therefore still serial:
+
+- `dist/` — `make build-e2e` / `start-app-e2e-ci` (the CI path) write one
+  shared build directory. Parallel local runs must use `start-app-e2e`, the
+  Vite dev server, which is stack-scoped.
+- The dev stack on `54320-54329` (`make start`) is a single shared instance;
+  `STACK_ID` covers the e2e stacks only. With `STACK_ID` unset the database
+  suites still target it, exactly as before.
+- Anything writing `node_modules/.vite` or `.vitest-attachments/`.
+
 ## Known limitations — do not read silence as safety
 
 Replaying real waves through the checker turned up manifests that pass
@@ -338,6 +412,11 @@ cross-reconciliation pass.
   the semantics differ: a pathspec commit takes the *working tree* content of
   those paths, not what you staged. This is also why "parallel agents do not
   commit" is a rule above and not a nicety.
+- **A stack lease is advisory too.** `STACK_ID` guarantees that two
+  *different* ids never share a port, a container, a database or an output
+  directory. It does not stop two agents from choosing the *same* id — nothing
+  claims the lease at runtime. `make stacks` shows which ids are taken; the
+  wave's manifest should assign them, exactly as it assigns paths.
 - **It is advisory, not enforcing.** Nothing at write time stops an
   agent from editing outside its declaration; `pre-dispatch` is a
   precondition and `post-wave` is detective. "Out-of-scope work is

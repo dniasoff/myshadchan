@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { bailIfDbUnreachable } from "./dbSuiteHelpers";
+import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 /**
  * Runs Story 2.1's context-aware-authorisation, Story 2.2's persona/context
@@ -31,10 +31,6 @@ const SQL_FILE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "context_resolution.sql",
 );
-
-const DB_URL =
-  process.env.SUPABASE_DB_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 type Check = { name: string; passed: boolean; detail: string | null };
 

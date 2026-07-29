@@ -1,5 +1,33 @@
 .PHONY: build help
 
+# ---------------------------------------------------------------------------
+# Parallel test stacks
+#
+# STACK_ID=<0..9> gives an agent its own Supabase instance (own Docker project
+# id, own port block, own workdir), its own Vite port, and its own database for
+# `make test`. It exists so several agents can run tests concurrently against
+# this one shared checkout on `main` — disjoint file ownership does not help
+# when the test stacks are host-global singletons (see
+# .claude/rules/parallel-ownership.md, "Running tests in parallel").
+#
+# STACK_ID unset === stack 0 === exactly the ports, project id and workdir this
+# makefile hard-coded before, so every existing workflow and CI job is
+# unaffected. scripts/stack-env.mjs owns the allocation; nothing here computes
+# a port itself.
+#
+# Exported so it reaches node, vitest, playwright and recursive make.
+# ---------------------------------------------------------------------------
+STACK_ID ?=
+export STACK_ID
+
+# Per-stack log-file tag, so two agents' silent-run logs do not clobber each
+# other in /tmp. Pure make (no node) because it is expanded on every recipe.
+STACK_TAG := $(if $(STACK_ID),supabase-e2e-$(STACK_ID),supabase-e2e)
+
+# `eval` this at the top of a recipe to get STACK_WORKDIR, STACK_PROJECT_ID,
+# STACK_APP_PORT, SUPABASE_DB_URL, VITE_SUPABASE_URL … in the shell.
+STACK_ENV = eval "$$(node scripts/stack-env.mjs --shell)"
+
 # Run silently, show output on failure
 run-silent = $1 >/tmp/atomic-crm-$2.log 2>&1 || (cat /tmp/atomic-crm-$2.log && false)
 
@@ -12,6 +40,21 @@ endif
 
 help:
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+	@printf '\n\033[1mParallel test stacks (STACK_ID)\033[0m\n'
+	@printf '  STACK_ID=<0-9> gives an agent its own Supabase instance (own docker project,\n'
+	@printf '  own ports, own database), its own Vite port and its own Playwright output dir,\n'
+	@printf '  so several agents can run tests concurrently against this one checkout.\n'
+	@printf '  Unset === stack 0 === the ports and project id this repo has always used, so\n'
+	@printf '  nothing changes for existing workflows or CI.\n\n'
+	@printf '    make start-supabase-e2e STACK_ID=2   # this agent'"'"'s own stack\n'
+	@printf '    make test STACK_ID=2                 # db suites hit stack 2, not the dev db\n'
+	@printf '    STACK_ID=2 npx playwright test       # e2e against stack 2'"'"'s app + database\n'
+	@printf '    make stacks                          # which ids are in use / free\n'
+	@printf '    make stop-supabase-e2e STACK_ID=2    # release one\n'
+	@printf '    make stop-stacks                     # release all of them\n\n'
+	@printf '  Stack N: supabase ports 54340+10N.., vite 5175+N, docker atomic-crm-e2e-N.\n'
+	@printf '  Each stack is ~10 containers / ~1.1GB; 4-6 concurrent is comfortable here.\n'
+	@printf '  See .claude/rules/parallel-ownership.md, "Running tests in parallel".\n'
 
 install: package.json ## install dependencies
 	npm install
@@ -41,14 +84,19 @@ supabase-reset-database: ## reset (and clear!) the database
 start-app: ## start the app locally
 	npm run dev
 
-start-app-e2e: ## start the app pointing to the e2e supabase instance
-	npx vite --port 5175 --force --mode e2e &
+start-app-e2e: ## start the app pointing to the e2e supabase instance (honours STACK_ID)
+	@$(STACK_ENV); \
+	if [ -n "$(STACK_ID)" ]; then export VITE_SUPABASE_URL; fi; \
+	npx vite --port $$STACK_APP_PORT --force --mode e2e &
 
 stop-app-e2e:
-	kill $$(lsof -t -i:5175)
+	@$(STACK_ENV); kill $$(lsof -t -i:$$STACK_APP_PORT)
 
+# CI only: serves the shared `dist/` build, which is NOT stack-scoped. Two
+# concurrent agents would race the same build output — use start-app-e2e (the
+# Vite dev server) for parallel local runs.
 start-app-e2e-ci: build-e2e ## start the app pointing to the e2e supabase instance in CI mode (no open, no watch)
-	npx serve -l 5175 -L -s dist &
+	@$(STACK_ENV); npx serve -l $$STACK_APP_PORT -L -s dist &
 
 start: start-supabase start-app ## start the stack locally
 
@@ -60,21 +108,38 @@ stop-supabase: ## stop local supabase
 
 stop: stop-supabase ## stop the stack locally
 
-start-supabase-e2e: ## start a separate supabase instance for e2e (fresh DB every run)
-	@npx supabase stop --workdir .supabase-e2e --no-backup 2>/dev/null || true
-	rm -rf .supabase-e2e/supabase
-	mkdir -p .supabase-e2e/supabase
-	cp supabase/config.e2e.toml .supabase-e2e/supabase/config.toml
-	cp -r supabase/migrations .supabase-e2e/supabase/migrations
-	cp -r supabase/schemas .supabase-e2e/supabase/schemas
-	cp -r supabase/functions .supabase-e2e/supabase/functions
-	cp -r supabase/templates .supabase-e2e/supabase/templates
-	cp supabase/seed.sql .supabase-e2e/supabase/seed.sql
-	cp supabase/signing_keys.json .supabase-e2e/supabase/signing_keys.json
-	@$(call run-silent-tty,npx supabase start --workdir .supabase-e2e,supabase-e2e)
+start-supabase-e2e: ## start a separate supabase instance for e2e, fresh DB every run (STACK_ID=<0-9> for an isolated one)
+	@$(STACK_ENV); \
+	npx supabase stop --workdir $$STACK_WORKDIR --no-backup 2>/dev/null || true; \
+	rm -rf $$STACK_WORKDIR/supabase; \
+	mkdir -p $$STACK_WORKDIR/supabase; \
+	node scripts/stack-config.mjs $$STACK_WORKDIR/supabase/config.toml; \
+	cp -r supabase/migrations $$STACK_WORKDIR/supabase/migrations; \
+	cp -r supabase/schemas $$STACK_WORKDIR/supabase/schemas; \
+	cp -r supabase/functions $$STACK_WORKDIR/supabase/functions; \
+	cp -r supabase/templates $$STACK_WORKDIR/supabase/templates; \
+	cp supabase/seed.sql $$STACK_WORKDIR/supabase/seed.sql; \
+	cp supabase/signing_keys.json $$STACK_WORKDIR/supabase/signing_keys.json; \
+	$(call run-silent-tty,npx supabase start --workdir $$STACK_WORKDIR,$(STACK_TAG))
 
-stop-supabase-e2e: ## stop the e2e supabase instance
-	npx supabase stop --workdir .supabase-e2e --no-backup
+stop-supabase-e2e: ## stop the e2e supabase instance (honours STACK_ID)
+	@$(STACK_ENV); npx supabase stop --workdir $$STACK_WORKDIR --no-backup
+
+stop-stacks: ## stop and remove every parameterised e2e stack (all STACK_IDs)
+	@for workdir in .supabase-e2e .supabase-e2e-[0-9]; do \
+	  [ -d "$$workdir" ] || continue; \
+	  echo "stopping $$workdir"; \
+	  npx supabase stop --workdir "$$workdir" --no-backup 2>/dev/null || true; \
+	done; \
+	for id in "" 0 1 2 3 4 5 6 7 8 9; do \
+	  port=$$(STACK_ID=$$id node scripts/stack-env.mjs --shell | sed -n "s/^STACK_APP_PORT='\(.*\)'$$/\1/p"); \
+	  pids=$$(lsof -t -i:$$port 2>/dev/null || true); \
+	  [ -n "$$pids" ] && echo "killing app on :$$port" && kill $$pids || true; \
+	done; \
+	echo "all stacks stopped"
+
+stacks: ## list the e2e stacks currently running (docker + app port)
+	@node scripts/stack-status.mjs
 
 start-e2e: start-supabase-e2e start-app-e2e ## start the stack in e2e mode (fresh supabase instance + app pointing to it)
 
@@ -105,14 +170,23 @@ supabase-deploy:
 	npx supabase db push
 	npx supabase functions deploy
 
-test:
-	npm run test
+# STACK_ID points the "db" project's psql at that stack's database instead of
+# the shared dev stack on 54322. With STACK_ID unset nothing is exported and
+# the suites keep their historical default — see
+# supabase/tests/dbSuiteHelpers.ts.
+test: ## run the unit test suites (STACK_ID=<n> targets that stack's database)
+	@if [ -n "$(STACK_ID)" ]; then \
+	  $(STACK_ENV); export SUPABASE_DB_URL; npm run test; \
+	else \
+	  npm run test; \
+	fi
 
-test-e2e: start-e2e
+test-e2e: start-e2e ## run the e2e suite with the Playwright UI (honours STACK_ID)
 	npx playwright test --ui
 
-test-e2e-ci: start-e2e-ci
-	npx wait-on http-get://localhost:54341/auth/v1/health http-get://localhost:5175
+test-e2e-ci: start-e2e-ci ## run the e2e suite headless against the built app (honours STACK_ID)
+	@$(STACK_ENV); \
+	npx wait-on http-get://localhost:$$STACK_API_PORT/auth/v1/health http-get://localhost:$$STACK_APP_PORT
 	npx playwright test
 
 lint:

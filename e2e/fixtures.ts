@@ -1,13 +1,32 @@
 import { test as base, expect, type Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 
+import { resolveStack, supabaseUrlFromEnv } from "../scripts/stack-env.mjs";
+
+/**
+ * Everything below is scoped to one test stack, selected by `STACK_ID`.
+ *
+ * This matters more here than anywhere else in the repo: `resetDb()` is an
+ * `auto: true` fixture, so it truncates before *every* e2e test. When the URL
+ * was a fixed `127.0.0.1:54341`, two agents running Playwright against the
+ * same checkout truncated each other's database mid-assertion — no amount of
+ * file-ownership discipline prevents that. `supabaseUrlFromEnv` makes STACK_ID
+ * authoritative over an inherited `VITE_SUPABASE_URL` precisely so a stale env
+ * var cannot aim this truncation at another agent's stack; with STACK_ID unset
+ * it falls back to `VITE_SUPABASE_URL ?? 54341`, exactly as before.
+ */
+const stack = resolveStack(process.env.STACK_ID);
+
+/** The app origin under test — the stack's own Vite dev server. */
+export const APP_URL = stack.appUrl;
+
 // The e2e stack's own Mailpit instance (config.e2e.toml's [inbucket] block) —
 // not the dev stack's Mailpit on 54324. Sign-in is passwordless (email-OTP,
 // story 2.6): `signIn()` reads the 6-digit code straight out of here.
-const MAILPIT_URL = "http://127.0.0.1:54344";
+const MAILPIT_URL = stack.mailpitUrl;
 
 const adminSupabase = createClient(
-  process.env.VITE_SUPABASE_URL ?? "http://127.0.0.1:54341",
+  supabaseUrlFromEnv(process.env),
   process.env.SERVICE_ROLE_KEY!,
   { auth: { autoRefreshToken: false, persistSession: false } },
 );
@@ -230,7 +249,7 @@ export async function fetchOtpCode(email: string): Promise<string> {
  * "Settings", which is tucked behind a "More" dropdown on mobile.
  */
 async function signIn(page: Page, email: string) {
-  await page.goto("http://localhost:5175/#/login");
+  await page.goto(`${APP_URL}/#/login`);
   await page.getByLabel("Email").fill(email);
   await page.getByRole("button", { name: "Send code" }).click();
 

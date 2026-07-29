@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { bailIfDbUnreachable } from "./dbSuiteHelpers";
+import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 /**
  * Runs the cross-context RLS hardening suite (Epic 2 verification blockers #2
@@ -24,10 +24,6 @@ const SQL_FILE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "context_rls_hardening.sql",
 );
-
-const DB_URL =
-  process.env.SUPABASE_DB_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 type Check = { name: string; passed: boolean; detail: string | null };
 

@@ -4,6 +4,17 @@ import { playwright } from "@vitest/browser-playwright";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+import { resolveStack } from "./scripts/stack-env.mjs";
+
+// Per-agent stack allocation (scripts/stack-env.mjs). Only the "app" project
+// needs it here — it boots a real browser against a Vite server whose port is
+// otherwise a fixed host-global (Vitest's default 63315), which two concurrent
+// runs on this checkout would contend for. The "db" project's connection is
+// resolved inside supabase/tests/dbSuiteHelpers.ts instead, so that
+// `npm run test:unit:db` is stack-scoped however it is invoked. Stack 0 (no
+// STACK_ID) reproduces Vitest's own default port exactly.
+const stack = resolveStack(process.env.STACK_ID);
+
 // Five test projects (https://vitest.dev/guide/projects.html):
 //   - "app":       React/DOM unit tests, run in a real browser (Playwright/Chromium).
 //   - "functions": Supabase Edge Function tests. Written for Deno with JSR imports;
@@ -47,6 +58,7 @@ export default defineConfig({
             headless: true,
             provider: playwright(),
             enabled: true,
+            api: { port: stack.ports.vitestBrowser },
             instances: [
               {
                 browser: "chromium",
@@ -72,6 +84,7 @@ export default defineConfig({
             "doc/**",
             "supabase/**",
             ".supabase-e2e/**",
+            ".supabase-e2e-*/**",
             "e2e/**/*.spec.{ts,tsx}",
             "workers/**",
             // Node-only tests for the repo's own tooling; run under the
@@ -104,7 +117,11 @@ export default defineConfig({
           globals: true,
           environment: "node",
           include: ["supabase/functions/**/*.test.ts"],
-          exclude: ["**/node_modules/**", ".supabase-e2e/**"],
+          exclude: [
+            "**/node_modules/**",
+            ".supabase-e2e/**",
+            ".supabase-e2e-*/**",
+          ],
         },
       },
       {

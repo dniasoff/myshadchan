@@ -1,5 +1,23 @@
 import { it } from "vitest";
 
+import { dbUrlFromEnv } from "../../scripts/stack-env.mjs";
+
+/**
+ * The database every suite in this directory shells `psql` out to.
+ *
+ * It used to be a literal repeated in all eight suites
+ * (`process.env.SUPABASE_DB_URL ?? "postgresql://…:54322/postgres"`), which
+ * made the whole directory a host-global singleton: two agents running
+ * `npm run test:unit:db` on the same checkout drove the same database, and
+ * these suites `delete from public.account_members` inside their transactions.
+ *
+ * `dbUrlFromEnv` keeps that exact behaviour when `STACK_ID` is unset, and
+ * points at the agent's own stack when it is set — where STACK_ID outranks an
+ * inherited `SUPABASE_DB_URL`, so a leaked env var cannot re-point one agent's
+ * psql at another agent's database. See scripts/stack-env.mjs.
+ */
+export const DB_URL: string = dbUrlFromEnv();
+
 /**
  * Shared escape hatch for the database test suites (billing_entitlement,
  * references_entity, shidduch_catch, members_rename): each shells out to
