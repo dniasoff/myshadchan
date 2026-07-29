@@ -8,17 +8,25 @@ import { test, expect, APP_URL } from "./fixtures";
  *
  * Review finding F5: a bare non-empty check passes even if two routes'
  * components were swapped (each still renders *a* non-empty heading, just
- * the wrong one). Each path is paired with a substring that only that
- * route's real heading contains — "Chaya's shidduchim" for `/` (the
- * dashboard greeting, once a single exists), "Pipeline" for `/shidduchim`
- * (its own page heading, independent of the nav label), and each list
- * page's plural resource name elsewhere — so this spec fails loudly on a
- * swap, not just on a blank screen.
+ * the wrong one). Each path is paired with a matcher that only that route's
+ * real heading satisfies — "Chaya's shidduchim" for `/` (the dashboard
+ * greeting, once a single exists), `/redts$/` for `/shidduchim`, and each
+ * list page's plural resource name elsewhere — so this spec fails loudly on
+ * a swap, not just on a blank screen.
+ *
+ * A matcher is the route's *stable domain noun*, never the full page copy.
+ * `/shidduchim` is why: its heading used to be the literal "Pipeline", and
+ * Story 4.3 Task 7 made it the dynamic "{n} redts", which turned that pin
+ * red on both projects. The count is 4.3's copy to change; the trailing
+ * noun is what makes the heading recognisably this route's and no other's,
+ * so the regex anchors on the noun and stays silent about the number — the
+ * same matcher, for the same reason, as `ShidduchimList.test.tsx`'s
+ * `getByRole("heading", { name: /redts$/ })`. Keep the two in step.
  */
-const PRIMARY_NAV_HEADINGS: Record<string, string> = {
+const PRIMARY_NAV_HEADINGS: Record<string, string | RegExp> = {
   "/": "shidduchim",
   "/inbox_items": "Inbox",
-  "/shidduchim": "Pipeline",
+  "/shidduchim": /redts$/,
   "/shadchanim": "Shadchanim",
   "/tasks": "Tasks",
   "/reminders": "Reminders",
@@ -45,8 +53,8 @@ test("every primary nav destination renders its own heading", async ({
   for (const [path, expectedText] of Object.entries(PRIMARY_NAV_HEADINGS)) {
     await page.goto(`${APP_URL}/#${path}`);
 
-    // `level: 1` + a substring `name` filter (Playwright's default for a
-    // string `name`), not "the first `<h1>` on the page": some routes carry
+    // `level: 1` + a `name` filter (substring for a string, `.test()` for a
+    // RegExp), not "the first `<h1>` on the page": some routes carry
     // more than one — the mobile dashboard's app-title bar (`MobileDashboard`
     // Wrapper) sits above the page's own "Chaya's shidduchim" heading, and
     // `admin/list.tsx` leaves a second, EMPTY `<h2>` on every `title={false}`

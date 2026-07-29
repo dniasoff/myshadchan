@@ -6,8 +6,6 @@ import { NumberInput } from "@/components/admin/number-input";
 import { ReferenceInput } from "@/components/admin/reference-input";
 import { SelectInput } from "@/components/admin/select-input";
 import { TextInput } from "@/components/admin/text-input";
-import { cn } from "@/lib/utils";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 import { INITIAL_PIPELINE_STATES, PIPELINE_STATES } from "./pipelineStates";
 
@@ -59,8 +57,6 @@ const FormSection = ({
 );
 
 export const ShidduchInputs = () => {
-  const isMobile = useIsMobile();
-
   return (
     <div className="flex flex-col gap-4">
       <FormSection eyebrow="Who">
@@ -98,9 +94,13 @@ export const ShidduchInputs = () => {
       </FormSection>
 
       <FormSection eyebrow="Redt by">
-        <div
-          className={cn("grid gap-4", isMobile ? "grid-cols-1" : "grid-cols-3")}
-        >
+        {/* 4.3 AC-2: no second `useIsMobile()` under `shidduchim/` — the one
+            call lives in `ShidduchimViewSwitch` and only picks a default.
+            This was a JS rendering fork; `md:` is the same 768px breakpoint
+            `useIsMobile()` itself uses, so the columns are unchanged, minus
+            the mount-then-reflow flash (the hook returns `false` until its
+            effect runs, so a phone painted three columns for one frame). */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <ReferenceInput source="shadchan_id" reference="shadchanim">
             <AutocompleteInput
               label="Shadchan"

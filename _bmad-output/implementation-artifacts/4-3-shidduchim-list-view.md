@@ -658,6 +658,33 @@ all 32 pre-existing + 2 new e2e tests (both chromium and Mobile Chrome projects)
 spec, including `entity-list-search`, `entity-list-view-toggle`, `invite-acceptance`,
 `invite-sending`, `demo-banner-cls`, and the rest of `navigation.spec.ts` itself, is unaffected.
 
+**Which of the three inherited loose-ends defects the redesign made moot** (the Dev Notes block
+above asked for this and the story shipped without it; filled in afterwards by the
+`nav-spec-fix` round, verified against the files as they stand on `main` rather than assumed):
+
+- `shidduchim/ShidduchimList.tsx:145-159` — **moot, closed by this story.** The audit asked for
+  the hand-rolled `<h2>No children yet</h2>` block to be deleted in favour of `<EmptyState>`.
+  `ShidduchimNoSingles` now *is* an `<EmptyState>` call (title "No singles yet", `actionTo`
+  `buildNewPath("singles")`), so both the stale "children" vocabulary and the bespoke markup went
+  with the rewrite. Nothing left to do.
+- `shidduchim/ShidduchColumn.tsx:46, :67, :74` — **NOT moot, still open.** Only the line numbers
+  moved (46→59, 67→82, 74→89): `:59` is still `flex w-[250px] shrink-0`, and `:82`/`:89` still
+  carry the `-mt-1.5` / `-mt-1` that cancel the parent `gap-3`. `git log -S 'w-[250px]'` puts both
+  at `39dbcb4`, untouched by this story. What the redesign changed is the *symptom's* blast
+  radius, not the defect: the List position and `PipelineJumpBar` now give every pipeline state a
+  reachable route at any width, so the off-screen Decision half is no longer the only way to those
+  columns. The Board itself is still 7×250px + gaps inside a 1128px main, scrolling on
+  `ShidduchimListContent.tsx:179`'s `overflow-x-auto` with no visible affordance.
+- `shidduchim/ShidduchCard.tsx:154` — **NOT moot, still open.** The meta row survived at the same
+  line and is still `flex items-center gap-1.5`; the audit's `flex-wrap gap-x-1.5 gap-y-1` +
+  per-item `whitespace-nowrap` was never applied, so the mid-word wrap and the varying card
+  heights within a column stand. The Board is where `ShidduchCard` renders, and the Board is the
+  one position this story did not redesign.
+
+Net: one of three closed by the rewrite, two still open and now owned by whoever next takes the
+**Board** position (they are Board-only defects — neither reaches the List or Cards positions this
+story added).
+
 `__screenshots__/**` (declared in this story's owned paths): confirmed `.gitignore`d
 (`__screenshots__` at line 13) and not tracked by git before this story either — these are
 `vitest-browser-react`'s own auto-captured on-failure diagnostic images, not Playwright visual
