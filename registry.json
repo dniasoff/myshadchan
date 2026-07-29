@@ -116,6 +116,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/singles/SingleCardGrid.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/singles/SingleCard.tsx",
           "type": "registry:component"
         },
@@ -628,6 +632,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/misc/useEntityListStatus.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/misc/StateChip.tsx",
           "type": "registry:component"
         },
@@ -641,6 +649,22 @@
         },
         {
           "path": "src/components/atomic-crm/misc/FormPageFrame.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/misc/EntityListView.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/misc/EntityListToolbar.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/misc/EntityListHeader.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/misc/EntityList.tsx",
           "type": "registry:component"
         },
         {

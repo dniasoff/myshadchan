@@ -145,6 +145,34 @@ async function createSingle({
 }
 
 /**
+ * Story 4.1: seeds a shadchan row directly against an already-provisioned
+ * account (`single.account_id`, itself created by `createSingle` above) —
+ * unlike `createSingle`/`createInvite`, this does NOT provision its own
+ * account, so two calls with the same `accountId` land two shadchanim on
+ * the SAME household's book (what `entity-list-search.spec.ts` needs to
+ * prove search narrows the roster rather than merely emptying it).
+ */
+async function createShadchan({
+  accountId,
+  name,
+}: {
+  accountId: number;
+  name: string;
+}) {
+  const { data, error } = await adminSupabase
+    .from("shadchanim")
+    .insert({ account_id: accountId, name })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to create shadchan: ${error.message}`);
+  }
+
+  return data;
+}
+
+/**
  * Seeds a pending invite directly (Story 2.7) — the same shape as the
  * platform-ops genesis seed the story's Dev Notes describe (two inserts:
  * one account, one invite row), not a call to create_invite() itself, since
@@ -265,6 +293,7 @@ export const test = base.extend<{
   resetDb: void;
   createMember: typeof createMember;
   createSingle: typeof createSingle;
+  createShadchan: typeof createShadchan;
   createInvite: typeof createInvite;
   signIn: typeof signIn;
 }>({
@@ -285,6 +314,9 @@ export const test = base.extend<{
   },
   createSingle: async ({}, cb) => {
     await cb(createSingle);
+  },
+  createShadchan: async ({}, cb) => {
+    await cb(createShadchan);
   },
   createInvite: async ({}, cb) => {
     await cb(createInvite);

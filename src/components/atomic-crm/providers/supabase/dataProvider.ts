@@ -635,6 +635,31 @@ const lifeCycleCallbacks: ResourceCallbacks[] = [
       ])(params);
     },
   },
+  {
+    // Story 4.1 (AC 4): the singles roster's search. Keyed to "singles" —
+    // the resource name SingleList's <List> is actually given. `singles` has
+    // no `_summary` redirect (see getDataProviderWithCustomMethods's getList
+    // override above), so this hook can never fall into the dead-hook trap
+    // (Dev Notes, "The dead-hook trap") the way a redirect-backed resource
+    // could.
+    resource: "singles",
+    beforeGetList: async (params) => {
+      return applyFullTextSearch([
+        "first_name_en",
+        "last_name_en",
+        "first_name_he",
+        "last_name_he",
+      ])(params);
+    },
+  },
+  {
+    // Story 4.1 (AC 4): the shadchan book's search. Same as `singles` above —
+    // "shadchanim" has no redirect either.
+    resource: "shadchanim",
+    beforeGetList: async (params) => {
+      return applyFullTextSearch(["name", "name_he", "location"])(params);
+    },
+  },
   ...entityFilesCleanupCallbacks,
 ];
 

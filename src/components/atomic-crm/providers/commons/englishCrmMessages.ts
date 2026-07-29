@@ -253,6 +253,14 @@ export const englishCrmMessages = {
       misc: "Misc",
       copied: "Copied!",
     },
+    // Story 4.1 — EntityListView's generic error block, shared by every
+    // roster-style list `EntityList` renders (AC 6). Entity-specific list
+    // copy (eyebrow/subtitle/empty state/no-matches) lives under each
+    // entity's own `crm.<entity>.list.*` namespace below, not here.
+    entity_list: {
+      error: "Something went wrong loading this list.",
+      retry: "Try again",
+    },
     image_editor: {
       change: "Change",
       drop_hint: "Drop a file to upload, or click to select it.",
@@ -477,6 +485,38 @@ export const englishCrmMessages = {
       // Story 3.4 AC 6(a) — replaces the tab bar and tab content while the
       // viewer's role in the active context is still resolving.
       role_pending: "Loading your access…",
+    },
+    // Story 4.1 — the singles roster's own copy, read via `useTranslate` at
+    // the `SingleList` call site and handed pre-translated into
+    // `EntityListHeader` / `EntityList`'s `emptyState` (AD-18: no hardcoded
+    // strings lost when the bespoke header/skeleton moved onto `EntityList`).
+    singles: {
+      list: {
+        eyebrow: "Family roster",
+        subtitle:
+          "Every single you are redting for, each with their own pipeline.",
+        createLabel: "Add a single",
+        searchPlaceholder: "Search by name",
+        emptyTitle: "Add your first single",
+        emptyDescription:
+          "A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions.",
+        noMatches: "No singles match this search.",
+      },
+    },
+    // Story 4.1 — the shadchan book's own copy, same shape as `singles`
+    // above.
+    shadchanim: {
+      list: {
+        eyebrow: "Matchmaker book",
+        subtitle:
+          "Every matchmaker your family has worked with, in one calm book.",
+        createLabel: "Add a shadchan",
+        searchPlaceholder: "Search by name",
+        emptyTitle: "Add your first shadchan",
+        emptyDescription:
+          "Every redt comes from somewhere — keep a book of the matchmakers your family works with.",
+        noMatches: "No shadchanim match this search.",
+      },
     },
     references: {
       list: {

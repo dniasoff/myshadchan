@@ -253,6 +253,10 @@ export const frenchCrmMessages = {
       misc: "Divers",
       copied: "Copié !",
     },
+    entity_list: {
+      error: "Une erreur s'est produite lors du chargement de cette liste.",
+      retry: "Réessayer",
+    },
     image_editor: {
       change: "Changer",
       drop_hint:
@@ -441,6 +445,32 @@ export const frenchCrmMessages = {
       record_unavailable: "Cet enregistrement n'est pas disponible.",
       record_unavailable_link: "Retour à la liste",
       role_pending: "Chargement de vos accès…",
+    },
+    singles: {
+      list: {
+        eyebrow: "Registre familial",
+        subtitle:
+          "Chaque célibataire pour qui vous faites des propositions, avec son propre parcours.",
+        createLabel: "Ajouter un célibataire",
+        searchPlaceholder: "Rechercher par nom",
+        emptyTitle: "Ajoutez votre premier célibataire",
+        emptyDescription:
+          "Un parcours de shidduchim appartient à un célibataire — la personne pour qui vous faites des propositions. Ajoutez un célibataire pour commencer à suivre les propositions.",
+        noMatches: "Aucun célibataire ne correspond à cette recherche.",
+      },
+    },
+    shadchanim: {
+      list: {
+        eyebrow: "Carnet des marieurs",
+        subtitle:
+          "Chaque marieur(euse) avec qui votre famille a travaillé, réuni dans un même carnet.",
+        createLabel: "Ajouter un shadchan",
+        searchPlaceholder: "Rechercher par nom",
+        emptyTitle: "Ajoutez votre premier shadchan",
+        emptyDescription:
+          "Chaque proposition vient de quelque part — tenez un carnet des marieurs avec qui votre famille travaille.",
+        noMatches: "Aucun shadchan ne correspond à cette recherche.",
+      },
     },
     references: {
       list: {
