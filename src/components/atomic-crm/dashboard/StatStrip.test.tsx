@@ -62,16 +62,18 @@ describe("StatStrip", () => {
       .toHaveAttribute("href", "/shidduchim");
   });
 
-  it("renders exactly one hidden gradient hairline, unaffected by item count", async () => {
-    // Arrange / Act
+  it("renders exactly one hidden gradient hairline, regardless of item count", async () => {
+    // Arrange / Act — 2 items, deliberately not ITEMS's length of 3, so the
+    // count actually varies from the other tests in this file.
     const screen = await render(
       <TestMemoryRouter>
-        <StatStrip items={ITEMS} />
+        <StatStrip items={ITEMS.slice(0, 2)} />
       </TestMemoryRouter>,
     );
 
-    // Assert
-    const hairline = screen.container.querySelector('[aria-hidden="true"]');
-    expect(hairline).not.toBeNull();
+    // Assert — querySelectorAll (not querySelector, which only ever proves
+    // "at least one") is what "exactly one" requires.
+    const hairlines = screen.container.querySelectorAll('[aria-hidden="true"]');
+    expect(hairlines).toHaveLength(1);
   });
 });

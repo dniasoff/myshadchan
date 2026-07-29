@@ -16,7 +16,7 @@ export interface StatStripProps {
 }
 
 const SEGMENT_CLASS_NAME =
-  "flex min-w-0 flex-col px-4 py-3 outline-none transition-colors duration-[160ms]";
+  "flex min-w-0 flex-col px-2 py-3 outline-none transition-colors duration-[160ms] sm:px-4";
 
 const StatStripSegment = ({ label, value, to }: StatStripItem) => {
   const valueEl = (

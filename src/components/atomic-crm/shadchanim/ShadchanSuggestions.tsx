@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Identifier } from "ra-core";
 import { useGetList } from "ra-core";
 
@@ -14,26 +15,39 @@ export interface ShadchanSuggestionsProps {
 
 const PREVIEW_LIMIT = 5;
 
+// `md:` (768px), not `sm:` (640px) — matches the app's one real mobile-shell
+// breakpoint (`useIsMobile`'s `MOBILE_BREAKPOINT`, and the `min-h-11 md:min-h-9`
+// floor on `ui/button.tsx` / `ui/tabs.tsx`). At `sm:` this row dropped its
+// 44px touch target a whole 128px early, in the 640-767px band where the app
+// still renders its mobile shell and bottom nav (wave S review, F4).
 const ROW_CLASS_NAME =
   "flex min-h-11 items-center gap-3 rounded-lg px-2 py-1 outline-none transition-colors " +
   "hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 " +
-  "sm:grid sm:min-h-9 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)_10rem_auto] sm:gap-4";
+  "focus-visible:ring-offset-background " +
+  "md:grid md:min-h-9 md:grid-cols-[minmax(0,1fr)_minmax(0,14rem)_10rem_auto] md:gap-4";
+
+const TOGGLE_CLASS_NAME =
+  "mt-2 flex min-h-11 w-full items-center rounded-lg px-2 text-left text-xs font-semibold " +
+  "text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground " +
+  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 " +
+  "focus-visible:ring-offset-background md:min-h-9";
 
 /**
  * "Shidduchim from this shadchan" (screen 20, mobile-redesign-plan.md §4
  * S-D) — every shidduch this matchmaker has redt, across every single,
  * newest first. Real productivity stats live in `ShadchanStatsRow` above;
  * this list is the informative, non-judgmental payload beneath it — no
- * numbers are fabricated. Capped to a 5-row preview so a prolific shadchan
- * (rich data) does not push the card past the page — there is no
- * shadchan-filtered shidduchim list route yet to link a "view all" row to
- * (that list is single-scoped today, `shidduchim/ShidduchimList.tsx`, out
- * of this wave's declared files), so the remainder renders as a plain count
- * rather than a link to nowhere useful.
+ * numbers are fabricated. Collapses to a 5-row preview with an in-place
+ * "Show all N" toggle rather than a static "+N more" label (wave S review,
+ * F2) — every shidduch stays reachable from this screen without a route:
+ * there is still no shadchan-filtered shidduchim list to link a "view all"
+ * row to (that list is single-scoped today, `shidduchim/ShidduchimList.tsx`,
+ * out of this wave's declared files).
  */
 export const ShadchanSuggestions = ({
   shadchanId,
 }: ShadchanSuggestionsProps) => {
+  const [showAll, setShowAll] = useState(false);
   const { data, isPending } = useGetList<ShidduchSummary>("shidduchim", {
     filter: { shadchan_id: shadchanId },
     pagination: { page: 1, perPage: 200 },
@@ -41,11 +55,11 @@ export const ShadchanSuggestions = ({
   });
 
   const items = data ?? [];
-  const preview = items.slice(0, PREVIEW_LIMIT);
-  const hiddenCount = items.length - preview.length;
+  const hasMore = items.length > PREVIEW_LIMIT;
+  const visible = showAll ? items : items.slice(0, PREVIEW_LIMIT);
 
   return (
-    <Card className="p-4 shadow-sm">
+    <Card className="gap-0 p-4 shadow-sm">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
           Shidduchim from this shadchan
@@ -70,10 +84,10 @@ export const ShadchanSuggestions = ({
       ) : (
         <>
           <ul className="mt-2 flex flex-col">
-            {preview.map((item, index) => (
+            {visible.map((item, index) => (
               <li
                 key={item.id}
-                className="ql-enter odd:bg-muted/45"
+                className="ql-enter odd:bg-muted/50"
                 style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
               >
                 <RecordLink
@@ -85,7 +99,7 @@ export const ShadchanSuggestions = ({
                     <div className="truncate text-sm font-semibold leading-tight">
                       {item.name_en ?? "Unnamed"}
                     </div>
-                    <div className="mt-0.5 truncate text-xs text-muted-foreground sm:hidden">
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground md:hidden">
                       {item.single_first_name_en
                         ? `for ${item.single_first_name_en}`
                         : null}
@@ -97,12 +111,12 @@ export const ShadchanSuggestions = ({
                         : null}
                     </div>
                   </div>
-                  <div className="hidden truncate text-sm text-muted-foreground sm:block">
+                  <div className="hidden truncate text-sm text-muted-foreground md:block">
                     {item.single_first_name_en
                       ? `for ${item.single_first_name_en}`
                       : null}
                   </div>
-                  <div className="hidden text-right text-sm tabular-nums text-muted-foreground sm:block">
+                  <div className="hidden text-right text-sm tabular-nums text-muted-foreground md:block">
                     {item.redt_date
                       ? `Redt ${formatRedtDate(item.redt_date)}`
                       : null}
@@ -112,10 +126,14 @@ export const ShadchanSuggestions = ({
               </li>
             ))}
           </ul>
-          {hiddenCount > 0 ? (
-            <p className="mt-2 px-2 text-xs text-muted-foreground">
-              +{hiddenCount} more
-            </p>
+          {hasMore ? (
+            <button
+              type="button"
+              onClick={() => setShowAll((prev) => !prev)}
+              className={TOGGLE_CLASS_NAME}
+            >
+              {showAll ? "Show less" : `Show all ${items.length}`}
+            </button>
           ) : null}
         </>
       )}

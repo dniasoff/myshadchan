@@ -40,6 +40,13 @@ const formatBookSince = (
  * quick actions (when present — `contacts` is a free-form jsonb column with
  * no seeded shape yet, so missing fields are simply omitted, never
  * fabricated), and notes.
+ *
+ * The name/meta group and the chip share a `flex-wrap` row (wave S review,
+ * F3): most records fit on one line at any width, but the chip drops to its
+ * own row rather than squeezing the meta line into a clipped 3rd line when
+ * it can't — the same mechanism the pre-density-pass header used, restored
+ * here because the joined meta line is longer than the old location-only
+ * line and needs it more, not less.
  */
 export const ShadchanHeader = ({ shadchan }: ShadchanHeaderProps) => {
   const contactInfo = parseContactInfo(shadchan.contacts);
@@ -55,25 +62,27 @@ export const ShadchanHeader = ({ shadchan }: ShadchanHeaderProps) => {
 
   return (
     <Card className="gap-3 p-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <EntityAvatar
-          seed={shadchan.name ?? String(shadchan.id)}
-          monogramSource={shadchan.name}
-          className="size-10 rounded-xl text-sm"
-        />
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate font-display text-lg font-bold tracking-tight sm:text-xl">
-            {shadchan.name}
-          </h1>
-          {metaLine ? (
-            <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground sm:line-clamp-1">
-              {metaLine}
-            </p>
-          ) : null}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <EntityAvatar
+            seed={shadchan.name ?? String(shadchan.id)}
+            monogramSource={shadchan.name}
+            className="size-10 shrink-0 rounded-xl text-sm"
+          />
+          <div className="min-w-0">
+            <h1 className="truncate font-display text-lg font-bold tracking-tight sm:text-xl">
+              {shadchan.name}
+            </h1>
+            {metaLine ? (
+              <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground sm:line-clamp-1">
+                {metaLine}
+              </p>
+            ) : null}
+          </div>
         </div>
         <ResponsivenessChip
           value={shadchan.responsiveness}
-          className="h-7 shrink-0 px-2.5 text-[13px]"
+          className="shrink-0"
         />
       </div>
 
