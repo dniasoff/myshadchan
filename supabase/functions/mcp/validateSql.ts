@@ -1,4 +1,5 @@
 import { parse, type Statement } from "npm:pgsql-ast-parser@^12";
+import { findReferenceScopeViolation } from "./referenceScope.ts";
 
 const ALLOWED_READ_TYPES = new Set(["select", "with"]);
 const ALLOWED_WRITE_TYPES = new Set(["insert", "update", "delete", "with"]);
@@ -43,7 +44,7 @@ export function validateReadOnly(sql: string): string | null {
       return `Statement type "${type}" is not allowed in read-only queries. Use the mutate tool for data modifications.`;
     }
   }
-  return null;
+  return findReferenceScopeViolation(stmts);
 }
 
 export function validateWrite(sql: string): string | null {
@@ -69,5 +70,5 @@ export function validateWrite(sql: string): string | null {
       return `Statement type "${type}" is not allowed. Only INSERT, UPDATE, and DELETE statements are supported.`;
     }
   }
-  return null;
+  return findReferenceScopeViolation(stmts);
 }

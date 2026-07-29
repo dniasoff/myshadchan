@@ -5,6 +5,11 @@ import { createRemoteJWKSet, jwtVerify, decodeJwt } from "npm:jose@5";
 import { Pool } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 import { z } from "npm:zod@^3.25";
 import { validateReadOnly, validateWrite } from "./validateSql.ts";
+import {
+  GET_SCHEMA_DESCRIPTION,
+  MUTATE_DESCRIPTION,
+  QUERY_DESCRIPTION,
+} from "./toolDescriptions.ts";
 import { TASK_LIST_HTML, TASK_LIST_UI_URI } from "./taskListUi.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
@@ -274,8 +279,7 @@ function createMcpServer(authInfo: AuthInfo): McpServer {
     "get_schema",
     {
       title: "Get Database Schema",
-      description:
-        "Retrieve the database schema for the user's MyShadchan instance including all tables, views, columns, types, and foreign key relationships. Views (like shidduchim_summary, references_summary) are read-only and provide pre-joined/aggregated data. Use them for search and list queries.",
+      description: GET_SCHEMA_DESCRIPTION,
       annotations: { readOnlyHint: true },
     },
     async () => {
@@ -288,30 +292,7 @@ function createMcpServer(authInfo: AuthInfo): McpServer {
     "query",
     {
       title: "Query CRM Data",
-      description: `Read data from the user's CRM instance using SQL SELECT queries.
-
-IMPORTANT: Before using this tool, you MUST call the get_schema tool first to understand what tables and columns are available in the database.
-
-Use this tool when the user asks about their CRM data such as:
-- Shidduchim (suggested matches), references, and shadchanim
-- The pipeline and where each suggestion stands
-- Reference calls and diligence notes
-- Tasks and follow-ups
-- Custom fields and metadata
-
-Row Level Security (RLS) is enforced - queries automatically return only data the authenticated user has permission to access.
-
-Use the *_summary views (shidduchim_summary, references_summary) for queries that need aggregated data or search capabilities.
-
-To filter by the current user: on tasks, add a WHERE member_id = auth.uid() clause. On other tables with a member_id column (e.g. singles), member_id references account_members, not the authenticated user — do not filter it against auth.uid().
-
-This tool only supports SELECT queries. For INSERT, UPDATE, or DELETE operations, use the mutate tool.
-
-Examples:
-- "SELECT id, name_en, name_he FROM shidduchim_summary WHERE pipeline_state = 'look_into'"
-- "SELECT name_en, pipeline_state, redt_date FROM shidduchim WHERE created_at > NOW() - INTERVAL '30 days' ORDER BY redt_date DESC"
-- "SELECT COUNT(*) as total_tasks, type FROM tasks WHERE done_date IS NULL GROUP BY type"
-- "SELECT s.name_en, sh.name as shadchan_name FROM shidduchim s JOIN shadchanim sh ON s.shadchan_id = sh.id WHERE s.pipeline_state = 'yes'"`,
+      description: QUERY_DESCRIPTION,
       inputSchema: z.object({
         sql: z.string().describe("The SQL SELECT query to execute"),
       }),
@@ -345,25 +326,7 @@ Examples:
     "mutate",
     {
       title: "Mutate CRM Data",
-      description: `Create, update, or delete data in the user's CRM instance using SQL.
-
-IMPORTANT: Before using this tool, you MUST call the get_schema tool first to understand what tables and columns are available in the database.
-
-Use this tool for data modifications such as:
-- Creating new shadchanim, references, or tasks
-- Updating existing records
-- Deleting records
-
-Row Level Security (RLS) is enforced - mutations only affect data the authenticated user has permission to modify.
-
-IMPORTANT: On tasks, never specify member_id in INSERT or UPDATE statements — it is automatically set to the authenticated user by a database trigger. On other tables (e.g. singles.member_id), member_id references account_members and may be set normally.
-
-For read-only queries, use the query tool instead.
-
-Examples:
-- "INSERT INTO shadchanim (name, location) VALUES ('Mrs. Feldman', 'Lakewood')"
-- "UPDATE shadchanim SET location = 'Passaic' WHERE id = 123"
-- "DELETE FROM tasks WHERE id = 456"`,
+      description: MUTATE_DESCRIPTION,
       inputSchema: z.object({
         sql: z
           .string()
