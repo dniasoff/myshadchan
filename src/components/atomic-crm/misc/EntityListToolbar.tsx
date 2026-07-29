@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
+import { Plus } from "lucide-react";
 import { Link } from "react-router";
 
 import { FilterButton } from "@/components/admin/filter-form";
@@ -24,6 +25,19 @@ export interface EntityListToolbarProps {
   createTo?: string;
   createLabel?: string;
   /**
+   * Task 3, verbatim: render `<FilterButton/>` "only when `extraFilters` is
+   * non-empty". Review fix (F8): `FilterButton` does NOT self-hide for this
+   * case — its own guard only suppresses when there are zero togglable
+   * filters AND zero saved queries AND no active filter value at all, so
+   * the moment the always-on search box gets a value (`filterValues.q` is
+   * set), `hasFilterValues` flips true and the button un-hides mid-typing,
+   * opening onto a dropdown with nothing in it but "Save current
+   * query…"/"Remove all filters". Neither retrofitted list passes
+   * `extraFilters` today, so this prop being unset renders no button at
+   * all — the literal Task 3 instruction, not `FilterButton`'s own guard.
+   */
+  extraFilters?: ReactElement[];
+  /**
    * Explicit, empty in this story — Story 4.2 fills it with the List/Cards
    * view-mode toggle. Do not add a toggle here (see 4.1 Dev Notes, "What
    * 4.1 deliberately does not build").
@@ -33,25 +47,27 @@ export interface EntityListToolbarProps {
 
 /**
  * The `<List actions>` slot every retrofitted list shares (AC 1): a
- * filter-toggle button (self-hiding via `FilterButton`'s own guard when
- * there is nothing beyond the always-on search box to toggle), an optional
- * sort button, the reserved view-toggle slot, and the single gradient
- * create CTA — one visual, not one per entity (AC 7).
+ * filter-toggle button (rendered only when there is an `extraFilters` entry
+ * beyond the always-on search box to toggle — Task 3, F8), an optional sort
+ * button, the reserved view-toggle slot, and the single gradient create
+ * CTA — one visual, not one per entity (AC 7).
  */
 export const EntityListToolbar = ({
   sortFields,
   createTo,
   createLabel,
+  extraFilters,
   viewToggle,
 }: EntityListToolbarProps) => (
   <TopToolbar>
-    <FilterButton />
+    {extraFilters && extraFilters.length > 0 ? <FilterButton /> : null}
     {sortFields && sortFields.length > 0 ? (
       <SortButton fields={sortFields} />
     ) : null}
     {viewToggle}
     {createTo ? (
       <Link to={createTo} className={CREATE_CTA_CLASSNAME}>
+        <Plus className="size-4" aria-hidden="true" />
         {createLabel}
       </Link>
     ) : null}

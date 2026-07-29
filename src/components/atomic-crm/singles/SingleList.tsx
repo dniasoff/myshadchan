@@ -30,7 +30,18 @@ export const SingleList = () => {
         _: "Search by name",
       })}
       perPage={100}
+      // Review fix (F7): the pre-story `SingleList` explicitly disabled
+      // pagination (`pagination={null}`) for this roster, which has never
+      // paged — the retrofit silently dropped that, and `EntityList`
+      // substitutes its own `<ListPagination/>` for any `pagination` value
+      // left `undefined`. Preserve the original, deliberate behaviour.
+      pagination={null}
       sort={{ field: "first_name_en", order: "ASC" }}
+      // Review fix (F4): AC-10 requires sort to be provable through the
+      // URL; with no `sortFields` on either retrofitted list,
+      // `EntityListToolbar`'s `SortButton` never rendered and the sort
+      // half of AC-5/AC-10 had no reachable UI anywhere in the app.
+      sortFields={["first_name_en", "last_name_en"]}
       skeleton={<SingleCardGridSkeleton />}
       emptyState={{
         title: translate("crm.singles.list.emptyTitle", {

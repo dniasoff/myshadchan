@@ -47,4 +47,44 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
       .element(screen.getByText("Moshe Adler"))
       .not.toBeInTheDocument();
   });
+
+  // Review fix (F8): see SingleList.test.tsx's identical case — ShadchanList
+  // also passes no `extraFilters`, so `<FilterButton/>` must never appear,
+  // including once the search box has a value.
+  it("never shows an 'Add filter' control — ShadchanList has no extraFilters (AC 1, F8)", async () => {
+    // Arrange
+    const screen = await renderShadchanList();
+    await screen.getByPlaceholder("Search by name").fill("Rivka");
+    await expect.element(screen.getByText("Rivka Stern")).toBeInTheDocument();
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "Add filter" }))
+      .not.toBeInTheDocument();
+  });
+
+  // Review fix (F3): see SingleList.test.tsx's identical case.
+  it("renders the page heading ahead of the search box and the create CTA (F3)", async () => {
+    // Arrange
+    const screen = await renderShadchanList();
+
+    // Act
+    const heading = screen
+      .getByRole("heading", { name: "Shadchanim" })
+      .element();
+    const searchInput = screen.getByPlaceholder("Search by name").element();
+    const createLink = screen
+      .getByRole("link", { name: "Add a shadchan" })
+      .element();
+
+    // Assert
+    expect(
+      heading.compareDocumentPosition(searchInput) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      heading.compareDocumentPosition(createLink) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });

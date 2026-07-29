@@ -73,37 +73,52 @@ export const EntityList = ({
   });
 
   return (
-    <List
-      resource={resource}
-      title={false}
-      perPage={perPage ?? 100}
-      sort={sort}
-      pagination={pagination === undefined ? <ListPagination /> : pagination}
-      filters={[
-        <SearchInput
-          source="q"
-          alwaysOn
-          key="q"
-          placeholder={searchPlaceholder}
-        />,
-        ...(extraFilters ?? []),
-      ]}
-      actions={
-        <EntityListToolbar
-          sortFields={sortFields}
-          createTo={createTo}
-          createLabel={createLabel}
-        />
-      }
-    >
+    <>
+      {/* Review fix (F3): rendered ahead of `<List>` rather than as its
+       * child. `@/components/admin/list`'s `ListView` has a fixed internal
+       * order — breadcrumb, then a title/actions row, then `<FilterForm/>`
+       * (the always-on search box), THEN `children` — so a heading passed
+       * as a child renders below the search box and the create CTA. A real
+       * render confirmed the DOM order: empty title row → create link →
+       * search input → this heading → cards, i.e. the page heading no
+       * longer led the page. Reusing `<List>`'s own slots is still the
+       * point (AD-10/AD-24 — no bespoke chrome), so the fix is ordering,
+       * not reimplementation: the heading is the one piece of chrome that
+       * has to visually lead, so it moves outside the composition whose
+       * internal order this component does not control. */}
       <EntityListHeader eyebrow={eyebrow} title={heading} subtitle={subtitle} />
-      <EntityListView
+      <List
         resource={resource}
-        skeleton={skeleton}
-        emptyState={emptyState}
-        noMatchesMessage={noMatchesMessage}
-        renderItems={renderItems}
-      />
-    </List>
+        title={false}
+        perPage={perPage ?? 100}
+        sort={sort}
+        pagination={pagination === undefined ? <ListPagination /> : pagination}
+        filters={[
+          <SearchInput
+            source="q"
+            alwaysOn
+            key="q"
+            placeholder={searchPlaceholder}
+          />,
+          ...(extraFilters ?? []),
+        ]}
+        actions={
+          <EntityListToolbar
+            sortFields={sortFields}
+            createTo={createTo}
+            createLabel={createLabel}
+            extraFilters={extraFilters}
+          />
+        }
+      >
+        <EntityListView
+          resource={resource}
+          skeleton={skeleton}
+          emptyState={emptyState}
+          noMatchesMessage={noMatchesMessage}
+          renderItems={renderItems}
+        />
+      </List>
+    </>
   );
 };

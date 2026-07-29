@@ -608,7 +608,14 @@ export type CrmDataProvider = ReturnType<
 const entityFilesCleanupCallbacks: ResourceCallbacks[] =
   buildEntityFilesCleanupCallbacks();
 
-const lifeCycleCallbacks: ResourceCallbacks[] = [
+// Exported for `dataProvider.test.ts` (review fix, F2): the array's own
+// wiring — which resource string each hook is keyed to, and which real
+// columns each searches — had no test anywhere in the repo, so a re-keyed
+// hook (the dead-hook trap) or a typo'd column name stayed green through
+// typecheck/lint/every CI guard. Exporting the array itself, rather than
+// re-deriving an equivalent one in the test, is what actually exercises
+// what ships.
+export const lifeCycleCallbacks: ResourceCallbacks[] = [
   {
     resource: "members",
     beforeSave: async (data: Member, _, __) => {
@@ -678,35 +685,59 @@ export const getDataProvider = () => {
   ) as CrmDataProvider;
 };
 
-const applyFullTextSearch = (columns: string[]) => (params: GetListParams) => {
-  if (!params.filter?.q) {
-    return params;
-  }
-  const { q, ...filter } = params.filter;
-  return {
-    ...params,
-    filter: {
-      ...filter,
-      "@or": columns.reduce((acc, column) => {
-        if (column === "email")
-          return {
-            ...acc,
-            [`email_fts@ilike`]: q,
-          };
-        if (column === "phone")
-          return {
-            ...acc,
-            [`phone_fts@ilike`]: q,
-          };
-        else
-          return {
-            ...acc,
-            [`${column}@ilike`]: q,
-          };
-      }, {}),
-    },
+// Exported for `dataProvider.test.ts` (review fix, F1/F2): the sanitization
+// below is the actual fix under test, and re-implementing an equivalent
+// function inside the test would prove nothing about what ships.
+export const applyFullTextSearch =
+  (columns: string[]) => (params: GetListParams) => {
+    if (!params.filter?.q) {
+      return params;
+    }
+    const { q, ...filter } = params.filter;
+    // Review fix (F1): PostgREST's logical-operator syntax — the `or=(...)`
+    // query param this hook builds, via `@raphiniert/ra-data-postgrest`'s
+    // `parseFilters` — is a comma-separated list of conditions, and neither
+    // that library nor this hook escapes a comma embedded inside a search
+    // term. Typing e.g. "Cohen, Chaim" therefore lands an unescaped `,`
+    // inside the list, PostgREST fails to parse the resulting logic tree
+    // (`PGRST100`), and the request 400s before RLS even runs — this is
+    // AC-4's own named failure mode ("PostgREST answers 400"), and it is
+    // unconditional: every caller of this hook (SingleList's/ShadchanList's
+    // search box, plus every ReferenceInput/AutocompleteInput type-ahead on
+    // these two resources) hits it the moment a comma is typed. The search
+    // box asks for a loose per-word substring match — each word is already
+    // OR'd across every column below, so a phrase's word order and
+    // punctuation were never significant to begin with — so replacing a
+    // comma with a space changes nothing about what can be found, only
+    // whether the request survives to ask.
+    const sanitizedQ = q.replace(/,/g, " ").trim();
+    if (!sanitizedQ) {
+      return { ...params, filter };
+    }
+    return {
+      ...params,
+      filter: {
+        ...filter,
+        "@or": columns.reduce((acc, column) => {
+          if (column === "email")
+            return {
+              ...acc,
+              [`email_fts@ilike`]: sanitizedQ,
+            };
+          if (column === "phone")
+            return {
+              ...acc,
+              [`phone_fts@ilike`]: sanitizedQ,
+            };
+          else
+            return {
+              ...acc,
+              [`${column}@ilike`]: sanitizedQ,
+            };
+        }, {}),
+      },
+    };
   };
-};
 
 /** How long a generated attachment URL stays valid. The durable reference is the
  * object `path`; readers re-sign. AD-9's Worker proxy-stream is the eventual answer

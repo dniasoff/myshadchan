@@ -248,6 +248,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shadchanim/ShadchanCardGrid.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shadchanim/ShadchanCard.tsx",
           "type": "registry:component"
         },
@@ -633,6 +637,10 @@
         },
         {
           "path": "src/components/atomic-crm/misc/useEntityListStatus.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/misc/formatDueMoment.ts",
           "type": "registry:component"
         },
         {
@@ -1089,10 +1097,6 @@
         },
         {
           "path": "src/components/supabase/oauth-consent-page.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/supabase/layout.tsx",
           "type": "registry:component"
         },
         {

@@ -51,4 +51,52 @@ describe("SingleList — retrofitted onto EntityList, search filters the roster 
       .element(screen.getByText("Chaim Cohen"))
       .not.toBeInTheDocument();
   });
+
+  // Review fix (F8): `EntityListToolbar` only renders `<FilterButton/>` when
+  // `extraFilters` is non-empty (Task 3's literal instruction) — SingleList
+  // passes none, so no "Add filter" control should ever appear, including
+  // once the always-on search box has a value (`FilterButton`'s own guard
+  // un-hides on any active filter value, `q` included, which is exactly
+  // what used to pop an "Add filter" dropdown open mid-typing).
+  it("never shows an 'Add filter' control — SingleList has no extraFilters (AC 1, F8)", async () => {
+    // Arrange
+    const screen = await renderSingleList();
+    await screen.getByPlaceholder("Search by name").fill("Devorah");
+    await expect.element(screen.getByText("Devorah Levi")).toBeInTheDocument();
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "Add filter" }))
+      .not.toBeInTheDocument();
+  });
+
+  // Review fix (F3): `@/components/admin/list`'s `ListView` renders its
+  // title/actions row and `<FilterForm/>` (the always-on search box) BEFORE
+  // its `children` — a real render showed the page heading landing below
+  // the search box and the create CTA. `EntityList` now renders
+  // `EntityListHeader` ahead of `<List>` instead of inside it; assert the
+  // DOM order directly rather than mere presence, since presence-only
+  // assertions are exactly what let this regression through green.
+  it("renders the page heading ahead of the search box and the create CTA (F3)", async () => {
+    // Arrange
+    const screen = await renderSingleList();
+
+    // Act
+    const heading = screen.getByRole("heading", { name: "Singles" }).element();
+    const searchInput = screen.getByPlaceholder("Search by name").element();
+    const createLink = screen
+      .getByRole("link", { name: "Add a single" })
+      .element();
+
+    // Assert — DOCUMENT_POSITION_FOLLOWING means the compared node comes
+    // AFTER the node compareDocumentPosition was called on.
+    expect(
+      heading.compareDocumentPosition(searchInput) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      heading.compareDocumentPosition(createLink) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });
