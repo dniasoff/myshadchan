@@ -229,9 +229,20 @@ group by sh.id;
 -- yields author_name = null through the LEFT JOIN, never an error and never
 -- a leaked name.
 --
--- can_moderate: calls the exact SAME function the UPDATE policy calls
--- (can_moderate_note(), 02_functions.sql), so this view and that policy can
--- never disagree about who may edit or soft-delete a given note.
+-- can_moderate: mirrors the UPDATE policy's FULL predicate, not just its
+-- can_moderate_note() half -- `kind <> 'note' or can_moderate_note(...)`,
+-- the same escape 05_policies.sql ANDs into the UPDATE policy. Calling
+-- can_moderate_note() unconditionally (the pre-review-fix shape) reported
+-- `can_moderate = false` for a non-note row (call_logged, status_change,
+-- merge, link_created, link_removed) authored or actively owned by someone
+-- else, even though the UPDATE policy's `kind <> 'note'` escape lets ANY
+-- account member update it -- harmless while only NotesTab reads this view
+-- (it filters to kind = 'note'), but a live lie the day AC 8's own written
+-- trigger for revisiting moves ActivityTab onto this view. A row this view
+-- returns at all has already passed the (byte-identical) SELECT visibility
+-- predicate, so for kind <> 'note' the UPDATE policy's own visibility
+-- conjunct is guaranteed to hold too -- can_moderate can therefore be `true`
+-- outright on that branch, with no additional visibility check needed here.
 create or replace view public.interactions_summary with (security_invoker = on) as
 select
     i.id,
@@ -247,7 +258,7 @@ select
     i.metadata,
     i.deleted_at,
     nullif(btrim(coalesce(m.first_name, '') || ' ' || coalesce(m.last_name, '')), '') as author_name,
-    public.can_moderate_note(i.actor_member_id) as can_moderate
+    (i.kind <> 'note' or public.can_moderate_note(i.actor_member_id)) as can_moderate
 from public.interactions i
     left join public.account_members am on am.id = i.actor_member_id
     left join public.members m on m.user_id = am.user_id;

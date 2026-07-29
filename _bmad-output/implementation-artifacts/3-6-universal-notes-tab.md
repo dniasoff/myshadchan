@@ -637,6 +637,94 @@ via the `bmad-dev-story` skill.
   `actor_member_id` in its `create`/`update` payloads (asserted in `NotesTab.test.tsx`).
 - Nothing in the contract was found wrong beyond the AC 4(h) shape noted above.
 
+### Review Fix Notes (post-review round 1, commit `0a4972f` → this commit)
+
+Quality review returned NEEDS-FIX (3 blocking, 6 should-fix). Disposition below; every
+blocking finding fixed, every should-fix fixed except S4 (ratified, not code) and S5
+(documented, not code — no functional defect).
+
+- **B1 (blocking) — fixed.** This story's policy rename silently broke 3.5's
+  `interactions_targets.sql` suite (it dropped/recreated a policy by the pre-3.6 name that no
+  longer exists, aborting under `ON_ERROR_STOP` and reporting as a `bailIfDbUnreachable` skip
+  rather than a failure). That file is **outside this story's owned-paths list**
+  (`interactions_targets.sql` belongs to 3.5) — fixed anyway, as a direct, necessary consequence
+  of this story's own policy split, rather than left broken because of a path-ownership
+  technicality; flagged here for the record rather than silently expanded in scope. The fix
+  narrows the swap-and-restore technique that file uses to isolate AC 3's contribution so it
+  targets the renamed INSERT policy (`"Interactions insertable within account and parent
+  visibility"`) specifically, instead of a single combined `for all` policy that no longer
+  exists; the SELECT policy the same technique used to also swap is left untouched throughout,
+  since Story 3.6 preserved it byte-identical and it was never the thing under test. Verified:
+  `interactions_targets.sql` runs 27/27 again (was 0/27, silently reported as "1 skipped").
+- **B2 (blocking) — fixed.** Added the `pg_policies` catalog check AC 2 mandates
+  (`interaction_note_authorship.sql`, position-independent, alongside AC 5(i)): asserts
+  `array_agg(cmd order by cmd)` for `public.interactions` equals exactly
+  `{INSERT,SELECT,UPDATE}`. Falsifiable against the exact hazards AC 2 names (a `for all`
+  remnant, a fourth policy, a stray `for delete` policy) — none of which the previous suite could
+  catch.
+- **B3 (blocking) — fixed.** Added the two denial checks AC 1 mandates: `set target_id = 999` on
+  an owned note, and `delete` on an owned note, both while RLS itself is satisfied (still the
+  author, still their active context) so the denial is column/table-privilege, not policy. Both
+  assert `sqlstate = '42501'` rather than message text — live Postgres raises `permission denied
+  for table interactions` for the `target_id` case, not AC 1's literal "permission denied for
+  column" (a table-level ACL check short-circuits before a column-specific message forms); this
+  divergence is now documented inline rather than silently mismatched against the AC's literal
+  wording.
+- **S1 (should-fix) — agreed, fixed.** Verified the review's claim by hand: replacing the UPDATE
+  policy's entire `using` visibility predicate with `true` still leaves all checks green, because
+  Postgres applies the SELECT policy to the row-read half of an `UPDATE … WHERE` — a row hidden
+  from SELECT never reaches the UPDATE policy's own `using` at all. Check (f)'s comment claiming
+  it "proves the preserved account-scope `using` clause" was therefore false; by construction it
+  can never be provable, since 05_policies.sql keeps that conjunct byte-identical between SELECT
+  and UPDATE. Corrected the header falsifiability record and the inline comment at (f) to state
+  what it actually is (a SELECT-side regression guard, exercised via an OWNING-role login) and to
+  point at (b) as the check that actually isolates the author-or-owning-role clause living in
+  `using` rather than `with check` alone.
+- **S2 (should-fix) — agreed, fixed.** Check (b)'s `DO` block now has an `exception when others`
+  handler (mirroring (h)'s existing pattern), so the "author clause in `with check` only" mutation
+  reports (b) as RED with the raised error as detail, instead of aborting the whole script under
+  `ON_ERROR_STOP` and degrading the suite to a skip.
+- **S3 (should-fix) — agreed, fixed.** `interactions_summary.can_moderate` now computes
+  `kind <> 'note' or can_moderate_note(actor_member_id)` — the UPDATE policy's full predicate —
+  instead of calling `can_moderate_note()` unconditionally. A row the view returns has already
+  passed the (byte-identical) SELECT visibility predicate, so for `kind <> 'note'` the UPDATE
+  policy already lets any account member update it; `can_moderate` now says so. Added a check
+  proving it (helper1 reads `can_moderate = true` on parent_admin's `call_logged` row, the exact
+  shape check (g) already proved the UPDATE policy allows). Mirrored the identical fix in the
+  FakeRest `enrichInteractions()` (AD-10) — it had the same unconditional-`can_moderate_note()`
+  shape. Harmless in practice today (`NotesTab` only ever reads `kind = 'note'` rows through this
+  view/enricher), but AC 8's own written trigger for revisiting names `ActivityTab` moving onto
+  this view as the first consumer that would have observed the wrong answer.
+- **S4 (should-fix) — agreed the deviation is real; ratified here rather than left open.** AC
+  4(h)'s substitution of `target_type = 'reference'` for the literally-tabled `'shadchan'` is
+  accepted as correct, not merely "likely" — it mirrors 3-14's own suite
+  (`household_scope_lift.sql` AC 4(b)) verbatim for the identical proof shape, and no other
+  `target_type` closes the gap either (`single` has the same household-only-table problem). The
+  substitution changes what (h) proves only cosmetically: it still proves a `kind = 'note'`
+  insert+read succeeds while genuinely active in a shadchanus context, which is 4(h)'s real
+  intent. No AC or story text is rewritten by this fix (a settled AC is not this pass's to
+  rewrite unilaterally) — this note is the formal acknowledgment the review asked for.
+- **S5 (should-fix) — agreed the gap is real; documented, not coded.** No behavior change: the
+  existing `can_moderate_note(NULL)` semantics (false on the author branch, owning-role-only
+  otherwise) are the correct, safe default for a note with no recorded author, not a bug. What
+  was missing was visibility — the acknowledgment lived only in a FakeRest code comment. Now
+  stated here directly: any real `interactions` row with `kind = 'note'` and `actor_member_id
+  is null` written before 3.5's `set_interaction_actor_member_id` trigger landed becomes
+  moderatable only by an owning-role member of the account it belongs to, and — in a
+  **shadchanus** context specifically, where no membership role is "owning"
+  (`is_owning_membership_role()` only recognizes `parent_admin`/`self_manager`, both
+  household-only roles) — such a note becomes unmoderatable by anyone until 3-14/Epic-6 give
+  shadchanim their own owning-role shape. No backfill was run and none is planned in this story:
+  the data needed to attribute those notes to a real author was never captured, so there is
+  nothing truthful to backfill. Reads are unaffected. Flagged here as a deploy-notes-worthy fact
+  for whoever owns the shadchanim role model next, not a defect in this story's own scope.
+- **S6 (should-fix) — agreed, fixed.** `6-3-field-level-scoping-for-a-single.md` still named the
+  pre-split `"Interactions scoped to account and parent visibility"` policy as its base; updated
+  to name the three post-3.6 policies, mirroring the cross-reference this story's own Dev Notes
+  already gave 6-4.
+- Full gate re-run after all of the above: see the top-level fix commit's own verification
+  output (`npm run typecheck`, `npm run lint`, `make test STACK_ID=2`, `npm run test:unit:db`).
+
 ### File List
 
 **Modified:**
@@ -666,8 +754,17 @@ via the `bmad-dev-story` skill.
 - `src/components/atomic-crm/providers/fakerest/dataGenerator/references.ts` (no `kind = 'note'`
   rows exist there — see Completion Notes)
 
+**Modified in the review-fix pass (outside this story's owned-paths list — see Review Fix Notes,
+B1 and S6):**
+- `supabase/tests/interactions_targets.sql` (3.5's suite — B1: repointed its transient
+  policy-swap technique from the pre-3.6 combined `for all` policy name, which this story's own
+  split removed, to the renamed INSERT policy)
+- `_bmad-output/implementation-artifacts/6-3-field-level-scoping-for-a-single.md` (S6 — doc-only
+  cross-reference update to the post-split policy names)
+
 ## Change Log
 
 | Date | Change |
 |---|---|
 | 2026-07-29 | Story implemented end-to-end: `can_moderate_note()` (AC 3), the `for all` interactions policy split into three per-command policies with the author-or-owning-role clause on UPDATE only (AC 2/3), the widened `(body, metadata, deleted_at)` column grant (AC 1), `interactions_summary` with `security_invoker = on` (AC 5, including a live-caught `db diff` gap that dropped the option), the FakeRest AD-10 mirror (author_name/can_moderate enrichment + actor_member_id create-path stamping, AC 5/6), the `interaction_note_authorship` db suite (AC 4's eight checks + AC 5's four view checks, with check (h) adapted to a satisfiable target_type and the deviation documented and reported), `NotesTab.tsx` + `NotesTab.test.tsx` (AC 6/7/9), and the i18n catalog entries under `crm.entity360.notes.*` (English + French). `ActivityTab.tsx`/`.test.tsx` and `01_tables.sql` verified already satisfied by 3.5 and left untouched. Status → review. |
+| 2026-07-29 | Review fix pass (post-NEEDS-FIX): fixed B1 (3.6's policy rename had silently zeroed out 3.5's `interactions_targets.sql` suite — repointed its policy swap at the renamed INSERT policy), B2 (added AC 2's missing `pg_policies` shape check), B3 (added AC 1's missing column/table permission-denial checks); fixed S1 (corrected a false claim in check (f)'s comment, re-pointed at check (b) as the real isolator), S2 (check (b) now degrades to RED, not a suite-aborting SKIP, under the with-check-only mutation), S3 (`interactions_summary.can_moderate` and its FakeRest mirror now honor the `kind <> 'note'` escape); ratified S4 (AC 4(h)'s target_type substitution, documented rather than re-litigated) and documented S5 (pre-3.5 authorless notes' moderation shape, a real but out-of-scope gap) without a code change. Status remains review pending re-review. |

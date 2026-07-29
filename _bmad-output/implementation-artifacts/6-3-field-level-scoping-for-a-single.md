@@ -113,12 +113,16 @@ an exception *to*.
 
 - [ ] **Task 2 — Deny `interactions` to `single` by default** (AC: 2)
   - [ ] `select policyname, cmd from pg_policies where tablename = 'interactions';`
-        — enumerate what actually exists post-3.5/3.6 (expected: the widened
-        `"Interactions scoped to account and parent visibility"` base policy;
-        possibly a separate note-author `UPDATE` policy if 3.6 chose that
-        composition). Add `and public.current_member_role() <> 'single'`
-        wrapping the **whole** `using`/`with check` expression of **every**
-        policy found — not one branch of one policy.
+        — enumerate what actually exists post-3.5/3.6. Settled, not speculative: 3.6 replaced
+        the single `"Interactions scoped to account and parent visibility"` `for all` policy with
+        three per-command policies, each carrying the same account/parent-visibility predicate —
+        `"Interactions readable within account and parent visibility"` (SELECT),
+        `"Interactions insertable within account and parent visibility"` (INSERT), and
+        `"Interactions updatable by author or owning role"` (UPDATE, which additionally ANDs in
+        `kind <> 'note' or public.can_moderate_note(actor_member_id)`). Add
+        `and public.current_member_role() <> 'single'` wrapping the **whole** `using`/`with check`
+        expression of **every one of these three** policies — not one branch of one policy, and
+        not just the two that predate 3.6.
   - [ ] Do **not** add a `single`-scoped policy in this story. Story 6.4 adds
         exactly one, narrowly. Leaving the gap open here is what keeps this
         story's own negative test (AC-8) honest: "a single sees zero

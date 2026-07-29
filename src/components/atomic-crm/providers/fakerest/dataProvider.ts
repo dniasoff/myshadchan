@@ -247,15 +247,24 @@ export const createDataProvider = ({
 
   // Emulate the interactions_summary view (Story 3.6, AD-10 FakeRest
   // mirror): resolve each row's author_name and can_moderate the same way
-  // the Postgres view and can_moderate_note() do, so a note's author byline
-  // and edit/delete controls render correctly in demo mode too.
+  // the Postgres view and the UPDATE policy's full predicate do, so a note's
+  // author byline and edit/delete controls render correctly in demo mode
+  // too. can_moderate mirrors `kind <> 'note' or can_moderate_note(...)`,
+  // never can_moderate_note() alone (review fix, 3-6) — see the `canModerate`
+  // computation below.
   //
-  // can_moderate for a null actor_member_id follows the SQL exactly: false
-  // on the author branch (there is no membership row to match), true only
-  // if the demo caller holds an owning role in their active context. Every
-  // legacy, authorless demo row (dataGenerator/references.ts) is therefore
-  // moderatable by owners only, never by its nominal "author" — there is
-  // none to compare against.
+  // On the note-kind branch, can_moderate for a null actor_member_id follows
+  // the SQL exactly: false on the author branch (there is no membership row
+  // to match), true only if the demo caller holds an owning role in their
+  // active context. Every legacy, authorless demo row
+  // (dataGenerator/references.ts) is therefore moderatable by owners only,
+  // never by its nominal "author" — there is none to compare against. This
+  // is a demo-only mirror of a real production gap acknowledged in Story
+  // 3.6's "Review Fix Notes" (S5): the same NULL-author shape exists for
+  // real notes written before 3.5's actor_member_id-stamping trigger
+  // landed, and — unlike this demo generator's non-note rows — a real such
+  // note IS kind = 'note', so it is frozen to owning-role members only
+  // until someone with an owning role touches it.
   const enrichInteractions = async (rows: any[]): Promise<any[]> => {
     if (rows.length === 0) return [];
     const [{ data: accountMembers }, { data: members }, caller] =
@@ -314,10 +323,21 @@ export const createDataProvider = ({
         caller != null &&
         authorMembership.user_id === caller.userId;
 
+      // Mirrors the UPDATE policy's FULL predicate (05_policies.sql), not
+      // just can_moderate_note(): `kind <> 'note' or can_moderate_note(...)`.
+      // A row this enricher ever sees has already passed the same
+      // account-scope visibility every other RLS-emulating enricher here
+      // relies on, so for a non-note kind (call_logged, status_change,
+      // merge, link_created, link_removed) the real policy lets ANY account
+      // member update it — can_moderate must be `true` outright on that
+      // branch, not gated behind isAuthor/callerOwnsCurrentContext.
+      const canModerate =
+        row.kind !== "note" || isAuthor || callerOwnsCurrentContext;
+
       return {
         ...row,
         author_name: authorName || null,
-        can_moderate: isAuthor || callerOwnsCurrentContext,
+        can_moderate: canModerate,
       };
     });
   };

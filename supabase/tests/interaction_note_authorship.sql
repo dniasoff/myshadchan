@@ -35,10 +35,26 @@
 --     with different ids.
 --   (f) — the one-login/two-contexts shape the contract requires (§13 rule
 --     3); two disjoint users would pass without ever exercising
---     `current_context_id()`. Also proves the preserved account-scope
---     `using` clause still gates the note branch, not just the new author
---     check — a login holding an OWNING role in household A2 still cannot
---     touch A2's own note while active in shadchanus B.
+--     `current_context_id()`. CORRECTED CLAIM (post-review — the previous
+--     revision of this comment asserted (f) also isolates the UPDATE
+--     policy's own account-scope `using` conjunct; that is false and was
+--     disproved live): Postgres applies the SELECT policy to the row-read
+--     half of an `UPDATE … WHERE`, so a row hidden from SELECT never reaches
+--     the UPDATE policy's own `using` at all — replacing the UPDATE policy's
+--     entire `using` visibility predicate with a bare `true` leaves all
+--     checks in this file green, (f) included, because SELECT alone already
+--     hides U's A2 note while active in B. (f) is therefore a same-conclusion
+--     regression guard against 3.5's SELECT policy (which (f)'s fixture also
+--     happens to exercise via an OWNING-role login, a shape 3.5's own suite
+--     does not build), not an isolated proof that UPDATE's account-scope
+--     conjunct does independent work — by construction it cannot: 05_policies.sql
+--     preserves that conjunct byte-identical to SELECT's, so there is no
+--     fixture where SELECT would allow a row and UPDATE's identical conjunct
+--     would deny it. The check that DOES isolate the author-or-owning-role
+--     clause living in `using` (as opposed to `with check` only) is (b): its
+--     note is visible to helper1 via SELECT (same household), so a `using`
+--     omission is the only way (b) can still see the row as an UPDATE
+--     candidate at all.
 --   (h) — see the dedicated comment at that section: implemented against
 --     `target_type = 'reference'`, not `'shadchan'` as AC 4's table literally
 --     reads, because `shadchanim` remains one of the 11 household-only
@@ -76,6 +92,28 @@ select 'AC 5(i): interactions_summary is created with security_invoker = on',
            and 'security_invoker=on' = any (reloptions)
        ),
        (select array_to_string(reloptions, ',') from pg_class where relname = 'interactions_summary');
+
+-- ---------------------------------------------------------------------------
+-- AC 2: the catalog fact this AC actually mandates — also position-
+-- independent. `pg_policies.cmd` is `INSERT`/`SELECT`/`UPDATE`/`DELETE`/`ALL`
+-- per policy row; asserting the exact 3-element set (order-independent via
+-- `array_agg(... order by cmd)`, so array equality is stable) fails if a
+-- `for all` remnant survives, if a fourth policy is added, if a `for delete`
+-- policy appears, or if the split is renamed away from this shape — the
+-- exact enumeration Story 6.4's cross-reference depends on.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed, detail)
+select 'AC 2: interactions carries exactly {INSERT,SELECT,UPDATE} policies — no ALL, no DELETE',
+       (
+         select array_agg(cmd order by cmd)
+         from pg_policies
+         where schemaname = 'public' and tablename = 'interactions'
+       ) = array['INSERT', 'SELECT', 'UPDATE'],
+       (
+         select string_agg(policyname || ':' || cmd, ', ' order by cmd)
+         from pg_policies
+         where schemaname = 'public' and tablename = 'interactions'
+       );
 
 -- ---------------------------------------------------------------------------
 -- Arrange: household A — helper1 (author of most notes), parent_admin1
@@ -149,6 +187,51 @@ begin
   );
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- AC 1: the column grant is (body, metadata, deleted_at) ONLY — still as
+-- helper1, still authoring note_a, so RLS itself is satisfied and any denial
+-- below is a column/table-privilege denial, not a policy denial. Note that
+-- live Postgres raises `permission denied for table interactions` for the
+-- `target_id` attempt (a table-level ACL check short-circuits before a
+-- column-specific message is produced), not AC 1's literal "permission
+-- denied for column" — both checks assert on `sqlstate = 42501` rather than
+-- message text for exactly this reason; the divergence is intentional and
+-- documented, not a bug in this suite.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_note_a bigint;
+begin
+  select value::bigint into v_note_a from ids where name = 'note_a';
+  update public.interactions set target_id = 999 where id = v_note_a;
+  insert into results values (
+    'AC 1: setting target_id (outside the (body, metadata, deleted_at) grant) raises permission denied',
+    false, 'update unexpectedly succeeded'
+  );
+exception when others then
+  insert into results values (
+    'AC 1: setting target_id (outside the (body, metadata, deleted_at) grant) raises permission denied',
+    sqlstate = '42501', sqlerrm
+  );
+end $$;
+
+do $$
+declare
+  v_note_a bigint;
+begin
+  select value::bigint into v_note_a from ids where name = 'note_a';
+  delete from public.interactions where id = v_note_a;
+  insert into results values (
+    'AC 1: deleting an interaction raises permission denied (authenticated holds no DELETE grant)',
+    false, 'delete unexpectedly succeeded'
+  );
+exception when others then
+  insert into results values (
+    'AC 1: deleting an interaction raises permission denied (authenticated holds no DELETE grant)',
+    sqlstate = '42501', sqlerrm
+  );
+end $$;
+
 reset role;
 
 set local role authenticated;
@@ -174,7 +257,15 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000001","role":"authenticated"}';
 
 -- ---------------------------------------------------------------------------
--- (b) helper1 updates a note authored by parent_admin1 -> 0 rows.
+-- (b) helper1 updates a note authored by parent_admin1 -> 0 rows. The
+-- `exception when others` handler matters as much as the happy path here:
+-- the specific wrong implementation this check exists to catch (the author
+-- clause bolted onto `with check` only, never `using`) makes Postgres RAISE
+-- a row-security-violation error instead of silently filtering the row out
+-- — a raised exception here, with no handler, would abort the whole script
+-- under `ON_ERROR_STOP` and degrade the entire suite to a SKIP rather than
+-- surfacing this check as RED. `false` on that path — a raised error is
+-- itself a fail for a check whose expectation is "0 rows", not "an error".
 -- ---------------------------------------------------------------------------
 do $$
 declare
@@ -186,6 +277,10 @@ begin
   get diagnostics v_rows = row_count;
   insert into results values (
     '(b) helper updates a note authored by the parent_admin -> 0 rows', v_rows = 0, format('rows=%s', v_rows)
+  );
+exception when others then
+  insert into results values (
+    '(b) helper updates a note authored by the parent_admin -> 0 rows', false, sqlerrm
   );
 end $$;
 
@@ -207,6 +302,21 @@ begin
     v_rows = 1, format('rows=%s', v_rows)
   );
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- AC 5 / view correctness: interactions_summary.can_moderate mirrors the
+-- `kind <> 'note'` escape, not just can_moderate_note() -- fails if the view
+-- calls can_moderate_note() unconditionally, which would report `false` here
+-- (helper1 is neither call_g's author nor an owning role in A) even though
+-- (g) just proved the UPDATE policy lets helper1 update this exact row.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed)
+select 'AC 5: interactions_summary.can_moderate is true for a non-note row the caller may still update per the ''kind <> note'' escape',
+       coalesce(
+         (select can_moderate from public.interactions_summary
+          where id = (select value::bigint from ids where name = 'call_g')),
+         false
+       );
 
 -- note_c: a fresh note helper1 authors specifically for parent_admin1 to
 -- soft-delete in check (c) — kept separate from note_a so (a)'s body edit
@@ -461,10 +571,15 @@ select 'Arrange: U''s active context is shadchanus B after switching', public.cu
 -- ---------------------------------------------------------------------------
 -- (f) one login holding memberships in household A2 and shadchanus B,
 -- active in B, updates a note in A2 -> 0 rows. U holds an OWNING role
--- (parent_admin) in A2 itself, so this also proves the preserved
--- account-scope `using` clause — not the new author clause alone — is what
--- blocks it: nothing here would stop U if only can_moderate_note() gated
--- the update.
+-- (parent_admin) in A2 itself — `can_moderate_note()` alone would happily
+-- say yes here, since U's OWNING role holds regardless of active context.
+-- What actually blocks this update is 3.5's account-scope predicate, but via
+-- the SELECT policy denying the row a read in the first place, not via the
+-- UPDATE policy's own (byte-identical) `using` conjunct in isolation — see
+-- the header comment's corrected falsifiability note on why those two are
+-- not distinguishable by any fixture. Kept as a regression guard on the
+-- SELECT-side account-scope predicate, exercised here via an OWNING-role
+-- login rather than 3.5's own plain fixture.
 -- ---------------------------------------------------------------------------
 do $$
 declare

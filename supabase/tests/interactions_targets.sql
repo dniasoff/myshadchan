@@ -44,14 +44,32 @@
 --     policy at all, blocked by the type/scope-link checks first) — expected,
 --     and exactly why the swap technique, not the full revert, is this
 --     check's real falsifiability proof, live in every run of this file. The
---     real policy's USING / WITH CHECK expressions are captured verbatim
---     from `pg_policy` BEFORE the swap and used, unmodified, to restore the
---     policy afterward — this file never re-types the shipped policy text.
---     The row the old policy wrongly lets through is kept (not deleted)
---     across the restore so the real `using` clause can be asserted against
---     it directly: that row's account_id equals the active context (A), so
---     only the target-aware `exists` clause — not the top-level account_id
---     floor AC 10(b) already exercises — can be what hides it.
+--     real policies' USING / WITH CHECK expressions are captured verbatim
+--     from `pg_policy` BEFORE the swap and used, unmodified, to restore them
+--     afterward — this file never re-types the shipped policy text. The row
+--     the old policy wrongly lets through is kept (not deleted) across the
+--     restore so the real SELECT policy's `using` clause can be asserted
+--     against it directly: that row's account_id equals the active context
+--     (A), so only the target-aware `exists` clause — not the top-level
+--     account_id floor AC 10(b) already exercises — can be what hides it.
+--
+--     Story 3.6 (05_policies.sql) later split the single `for all`
+--     "Interactions scoped to account and parent visibility" policy this
+--     suite originally swapped into three per-command policies — SELECT,
+--     INSERT, UPDATE — with byte-identical predicates. The swap below now
+--     targets the SELECT policy ("Interactions readable within account and
+--     parent visibility") and the INSERT policy ("Interactions insertable
+--     within account and parent visibility") together, both to the same bad
+--     shape, and restores both afterward — narrower than before (the UPDATE
+--     policy is never touched, since nothing here exercises it) but not
+--     narrower than that: the sanity insert uses `returning id`, and
+--     Postgres requires a `RETURNING` row to also satisfy the table's SELECT
+--     policy, raising the SAME `row-level security policy` error the
+--     `with check` itself would if that policy alone were left at its real,
+--     narrow shape — swapping only the INSERT policy was tried and breaks
+--     here for exactly that reason. Swapping both together is the accurate
+--     per-command translation of what one combined `for all` policy did
+--     before the split.
 --   * (d) — fails: "function public.current_member_id() does not exist".
 --     The archived-lower-id-wins bug-fix check added alongside it is
 --     unaffected by reverting this story's migration (account_members is
@@ -261,42 +279,57 @@ select public.set_active_context(:acct_a);
 -- single) is rejected by the refined `with check` — and the same shape,
 -- once inserted under the old policy, is hidden by the refined `using`. See
 -- the header comment for why this needs an in-suite policy swap rather than
--- a full reversion, and for why the real policy is captured from `pg_policy`
--- rather than re-typed.
+-- a full reversion, and for why the real policies are captured from
+-- `pg_policy` rather than re-typed. The swap covers the SELECT and INSERT
+-- policies together — see the header comment's Story 3.6 note for why the
+-- SELECT half is required even though only the INSERT `with check` is
+-- nominally under test here.
 -- ---------------------------------------------------------------------------
 reset role;
 
--- Capture the shipped policy's USING and WITH CHECK expressions verbatim,
--- BEFORE any swap, so restoring it below can never drift from whatever
--- 05_policies.sql actually installed — no hand-retyped copy of the real
--- policy appears anywhere in this file. A mutation to the real policy is
--- therefore captured (and later restored) as the SAME mutated text, which is
--- exactly what lets the `using` assertion below catch such a mutation
--- instead of silently passing against a stand-in that always matches the
--- story's intent rather than the shipped schema.
+-- Capture the shipped SELECT policy's USING and the INSERT policy's WITH
+-- CHECK expressions verbatim, BEFORE any swap, so restoring them below can
+-- never drift from whatever 05_policies.sql actually installed — no
+-- hand-retyped copy of the real policy appears anywhere in this file. A
+-- mutation to a real policy is therefore captured (and later restored) as
+-- the SAME mutated text, which is exactly what lets the assertions below
+-- catch such a mutation instead of silently passing against a stand-in that
+-- always matches the story's intent rather than the shipped schema.
 do $$
 declare
-  v_using text;
-  v_check text;
+  v_select_using text;
+  v_insert_check text;
 begin
-  select pg_get_expr(polqual, polrelid), pg_get_expr(polwithcheck, polrelid)
-  into v_using, v_check
+  select pg_get_expr(polqual, polrelid)
+  into v_select_using
   from pg_policy
   where polrelid = 'public.interactions'::regclass
-    and polname = 'Interactions scoped to account and parent visibility';
+    and polname = 'Interactions readable within account and parent visibility';
 
-  insert into ids values ('real_policy_using', v_using);
-  insert into ids values ('real_policy_check', v_check);
+  select pg_get_expr(polwithcheck, polrelid)
+  into v_insert_check
+  from pg_policy
+  where polrelid = 'public.interactions'::regclass
+    and polname = 'Interactions insertable within account and parent visibility';
+
+  insert into ids values ('real_select_using', v_select_using);
+  insert into ids values ('real_insert_check', v_insert_check);
 end $$;
 
 -- Swap in the deliberately pre-Story-3.5 shape (no target-integrity `exists`
 -- clause for shadchan/single) so the sanity insert below can construct a
 -- cross-context row the OLD policy would have wrongly allowed. This text is
 -- never claimed to mirror the shipped policy — it is the known-bad baseline
--- Story 3.5 replaced — so it carries no drift risk of its own.
-drop policy "Interactions scoped to account and parent visibility" on public.interactions;
-create policy "Interactions scoped to account and parent visibility" on public.interactions
-    for all to authenticated
+-- Story 3.5 replaced — so it carries no drift risk of its own. Both the
+-- SELECT and INSERT policies are swapped together: the sanity insert below
+-- uses `returning id`, and Postgres additionally requires a RETURNING row to
+-- satisfy the table's SELECT policy, so leaving the real (narrow) SELECT
+-- policy in place while only the INSERT policy is relaxed makes the sanity
+-- insert raise the very same `row-level security policy` error it is meant
+-- to prove would NOT happen under the old, unrefined policy.
+drop policy "Interactions readable within account and parent visibility" on public.interactions;
+create policy "Interactions readable within account and parent visibility" on public.interactions
+    for select to authenticated
     using (
         account_id = public.current_context_id()
         and (
@@ -322,7 +355,11 @@ create policy "Interactions scoped to account and parent visibility" on public.i
                 )
             )
         )
-    )
+    );
+
+drop policy "Interactions insertable within account and parent visibility" on public.interactions;
+create policy "Interactions insertable within account and parent visibility" on public.interactions
+    for insert to authenticated
     with check (
         account_id = public.current_context_id()
         and (
@@ -364,49 +401,58 @@ begin
     returning id into v_id;
   insert into ids values ('interaction_leaked_shadchan_b', v_id::text);
   insert into results values (
-    'AC 10(c) sanity — the pre-Story-3.5 policy (bare scope=''account'' disjunct, no target-integrity exists clause) WRONGLY allows a cross-context shadchan insert (kept, not deleted — the real policy''s using clause is asserted against this exact row below)',
+    'AC 10(c) sanity — the pre-Story-3.5 policy (bare scope=''account'' disjunct, no target-integrity exists clause) WRONGLY allows a cross-context shadchan insert (kept, not deleted — the real SELECT policy''s using clause is asserted against this exact row below)',
     true, 'insert unexpectedly succeeded under the old, unrefined policy'
   );
 exception when others then
   insert into results values (
-    'AC 10(c) sanity — the pre-Story-3.5 policy (bare scope=''account'' disjunct, no target-integrity exists clause) WRONGLY allows a cross-context shadchan insert (kept, not deleted — the real policy''s using clause is asserted against this exact row below)',
+    'AC 10(c) sanity — the pre-Story-3.5 policy (bare scope=''account'' disjunct, no target-integrity exists clause) WRONGLY allows a cross-context shadchan insert (kept, not deleted — the real SELECT policy''s using clause is asserted against this exact row below)',
     false, sqlerrm
   );
 end $$;
 
--- Restore the real policy from the pg_policy capture above — verbatim, never
--- re-typed. `reset role` first — `authenticated` cannot alter policies.
+-- Restore the real SELECT and INSERT policies from the pg_policy capture
+-- above — verbatim, never re-typed. `reset role` first — `authenticated`
+-- cannot alter policies.
 reset role;
 
-drop policy "Interactions scoped to account and parent visibility" on public.interactions;
+drop policy "Interactions readable within account and parent visibility" on public.interactions;
+drop policy "Interactions insertable within account and parent visibility" on public.interactions;
 
 do $$
 declare
-  v_using text;
-  v_check text;
+  v_select_using text;
+  v_insert_check text;
 begin
-  select value into v_using from ids where name = 'real_policy_using';
-  select value into v_check from ids where name = 'real_policy_check';
+  select value into v_select_using from ids where name = 'real_select_using';
+  select value into v_insert_check from ids where name = 'real_insert_check';
 
   execute format(
-    'create policy %I on public.interactions for all to authenticated using (%s) with check (%s)',
-    'Interactions scoped to account and parent visibility', v_using, v_check
+    'create policy %I on public.interactions for select to authenticated using (%s)',
+    'Interactions readable within account and parent visibility', v_select_using
+  );
+
+  execute format(
+    'create policy %I on public.interactions for insert to authenticated with check (%s)',
+    'Interactions insertable within account and parent visibility', v_insert_check
   );
 end $$;
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"a3050001-0000-0000-0000-000000000001","role":"authenticated"}';
 
--- AC 3, `using`: the real policy hides the row the old policy wrongly let
--- through above. That row's account_id = A (it was written while active in
--- A), so the top-level `account_id = current_context_id()` conjunct alone
--- would NOT exclude it while active in A — only the target-aware `exists`
--- clause (target_id names B's shadchan) can. This is the assertion AC 10(b)
--- cannot make: every row AC 10(b) reads carries the account_id of whichever
--- context it was created in, so the top-level conjunct alone already
--- explains that check's "zero of B's row visible" results.
+-- AC 3, `using`: the real, just-restored SELECT policy — "Interactions
+-- readable within account and parent visibility" since Story 3.6's split —
+-- hides the row the old policy wrongly let through above. That row's
+-- account_id = A (it was written while active in A), so the top-level
+-- `account_id = current_context_id()` conjunct alone would NOT
+-- exclude it while active in A — only the target-aware `exists` clause
+-- (target_id names B's shadchan) can. This is the assertion AC 10(b) cannot
+-- make: every row AC 10(b) reads carries the account_id of whichever context
+-- it was created in, so the top-level conjunct alone already explains that
+-- check's "zero of B's row visible" results.
 insert into results (name, passed)
-select 'AC 10(c): the real policy''s using clause hides a same-account row whose target_id names another context''s shadchan',
+select 'AC 10(c): the real SELECT policy''s using clause hides a same-account row whose target_id names another context''s shadchan',
        count(*) = 0
 from public.interactions
 where id = (select value::bigint from ids where name = 'interaction_leaked_shadchan_b');
