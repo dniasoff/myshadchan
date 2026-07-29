@@ -76,6 +76,16 @@ Entries are one of two kinds, and the kind is a required field:
   `permanent-exemption-for-360-entity`. That is the mechanically-enforced trigger behind
   every "deferred" decision in this story — not a sentence in a Dev Note.
 
+**`NO_BROWSE_SURFACE_ENTITIES` (AC 10) is a fifth table but is *not* an exemption**, and must
+not be routed through any of the machinery above. It carries no `kind`, it is not bundled into
+`Ad24Exemptions`, and it is not passed to Task 2's shared symmetric-exemption helper. The reason
+is mechanical, not stylistic: a `permanent` entry is auto-invalidated the moment its resource
+acquires a descriptor, and `references` — the table's only entry — **is** an AD-24 entity with a
+registered descriptor, so writing it as `kind: "permanent"` would fire
+`permanent-exemption-for-360-entity` on the day it is written. No-browse is a statement about
+**reachability**, never about whether the entity gets a 360. Its own staleness direction (a key
+that is not a `RESOURCES` name) is asserted separately in AC 10(d).
+
 **AC 6 has no exemption table, and no exemption of any kind.** It is the one rule whose two
 halves separate cleanly: a **consistency** half that is unconditional from day one, and a
 **completeness** half the descriptor *declares* through `pendingTabs`. A declaration is not an
@@ -100,7 +110,9 @@ table or route AC 6 through the exemption machinery above; see AC 6.
      | "tab-order-drift"
      | "tab-set-incomplete"
      | "stale-exemption"
-     | "permanent-exemption-for-360-entity";
+     | "permanent-exemption-for-360-entity"
+     | "browse-surface-on-scoped-entity"
+     | "unlisted-entity-missing-index";
 
    export interface Ad24Violation { code: Ad24ViolationCode; subject: string; detail: string }
 
@@ -109,8 +121,12 @@ table or route AC 6 through the exemption machinery above; see AC 6.
      descriptors: Map<string, EntityDescriptor>;
      modalRecordSurfaces: string[];   // repo-relative paths, from the AC 4 scan
      handBuiltRecordPaths: string[];  // repo-relative paths, from the AC 5 scan
+     navTargets: string[];            // every PRIMARY_NAV item's `to` (AC 10)
+     listPathLinks: string[];         // repo-relative paths, from the AC 10(b) scan
      /** Defaults to the module's tables; a test may substitute fixture tables. */
      exemptions?: Ad24Exemptions;
+     /** Defaults to `NO_BROWSE_SURFACE_ENTITIES`; a test may substitute a fixture table (AC 10). */
+     noBrowseSurfaceEntities?: Record<string, string>;
    }): Ad24Violation[];
    ```
    It reads **no world state** from module scope — not `RESOURCES`, not the live registry,
@@ -320,7 +336,7 @@ table or route AC 6 through the exemption machinery above; see AC 6.
    [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#8-Universal-tab-props — rules 1-2]. `'connection'`
    is Epic 8's value to add and must **not** be present. This AC lives wholly in the guard
    test and produces no `Ad24ViolationCode`: it is a schema-vs-type parity assertion with
-   nothing to exempt, so routing it through `findAd24Violations` would add a twelfth code
+   nothing to exempt, so routing it through `findAd24Violations` would add a fourteenth code
    that can never be exercised by a manifest fixture. Locate `PENDING_DB_WIDENINGS` with
    `LSP workspaceSymbol` before importing it — the Activity, Files and Tasks stories each
    shrink it and one of them owns its home [Source: .claude/rules/lsp-usage.md].
@@ -363,9 +379,112 @@ table or route AC 6 through the exemption machinery above; see AC 6.
    The story that performs the flip is **out of scope for Epic 3**; naming the requirement is
    not. Task 6's header comment records it in the source file as well.
 
+10. **An entity that has no browse surface provably has none — asserted *positively* (RULING 7).**
+    RULING 7 (project owner, standing): *"references only exist as part of an individual shidduch
+    and cannot be browsed separately, although the same reference can appear for multiple
+    shidduchim … it would be useful to see this. but no browsing to references outside a
+    shidduch's context."* A reference keeps everything AD-24 gives it — its full 360, its flat
+    record path `/references/{id}` (AC 5a's `PENDING_ROUTE_SHAPES` entry is unchanged), its
+    seven-tab canonical row (AC 6, unchanged), and cross-shidduch visibility **from inside** the
+    record via its `shidduchim` tab. What it does not keep is a **browse surface**: no
+    `PRIMARY_NAV` entry, no mobile "More" item, no dashboard tile, no tour step, no `EntityList`,
+    and no link to `/references` from anywhere in `src/`. References also leave global search
+    (owner ruling): a global search that returns reference records is a browse surface under
+    another name.
+
+    **The mechanical guard everyone assumes covers this does not, and it is verified against the
+    tree.** `unreachable-nav-target` computes reachability as
+    `resourcesForSurface.filter((r) => !!r.definition.list)` and then tests
+    `listableResourceNames.has(target.replace(/^\//, ""))`
+    [Source: src/components/atomic-crm/root/routeManifest.ts:276-292]. `list` is the **route
+    mount point**, not a browse surface — `references/index.ts:19` keeps a truthy `list` under
+    RULING 7 (it becomes a non-list index component; post-5.10 `buildEntityRoutes` types `List`
+    as required) [Source: src/components/atomic-crm/references/index.ts:19]. So
+    `listableResourceNames` still contains `references`, and re-adding
+    `{ to: "/references", … }` to `PRIMARY_NAV` produces **no** violation on either surface.
+    `record-flags-missing` cannot cover it either: it is guarded `if (list && !hasRecordFlags …)`
+    and `references` declares `show` and `edit`
+    [Source: src/components/atomic-crm/root/routeManifest.ts:247-255;
+    src/components/atomic-crm/references/index.ts:20-21]. `empty-resource` cannot either — it
+    fires only when `list`, `create`, `edit` **and** `show` are all absent
+    [Source: src/components/atomic-crm/root/routeManifest.ts:176-185]. RULING 7 therefore needs
+    its own positive assertion, and this AC is it. Do **not** "fix" `unreachable-nav-target`
+    instead: `routeManifest.ts` owns the manifest's own shape and its rule (a nav target must
+    resolve to a rendered screen) is correct and still wanted — `/references` *does* resolve to a
+    screen; it is simply not allowed to be advertised.
+
+    `ad24Conformance.ts` exports a **fifth** table, which is a policy declaration and not an
+    exemption (see "The exemption model", above):
+    ```ts
+    /** Entity name -> the written reason it has no browse surface (RULING 7). */
+    export const NO_BROWSE_SURFACE_ENTITIES: Record<string, string> = {
+      references:
+        "RULING 7: a reference exists only within a shidduch's context. It keeps a full 360 at /references/{id} and shows every shidduch it serves from inside its own record; it has no nav entry, no list, no dashboard tile, no tour step and no global-search results. This is a product decision, not a security boundary — RLS stays deliberately account-wide (FR51) and must not be narrowed to enforce it.",
+    };
+    ```
+    `findAd24Violations` gains two parameters — `navTargets: string[]` (every `PRIMARY_NAV`
+    item's `to`, passed by the caller exactly as `findManifestViolations` takes them
+    [Source: src/components/atomic-crm/root/routeManifest.ts:198-203]) and `listPathLinks:
+    string[]` (repo-relative paths, from the (b) scan below) — and two codes:
+
+    | # | Assertion | Code | Fixture that turns it red |
+    |---|---|---|---|
+    | a | for every `name` in `NO_BROWSE_SURFACE_ENTITIES`, **no** entry in `navTargets` equals `` `/${name}` `` or starts with `` `/${name}/` `` | `browse-surface-on-scoped-entity` | **the required fixture:** `navTargets: ["/", "/shidduchim", "/references"]` with the real table → **exactly one** violation, `{ code: "browse-surface-on-scoped-entity", subject: "references" }`, and no other code. The same `navTargets` is asserted a *second* time against `findManifestViolations` to pin that it reports **zero** violations — the pair is what documents, in executable form, why this rule had to be written rather than inherited |
+    | b | **no** file in `listPathLinks` links to a no-browse entity's list path | `browse-surface-on-scoped-entity` | `listPathLinks: ["dashboard/Dashboard.tsx"]` → one violation whose `subject` is that file path and whose `detail` names the offending entity |
+    | c | every `ResourceEntry` **not** in the table declares a `list` | `unlisted-entity-missing-index` | a `resources` fixture whose `shadchanim` entry is `{ show, edit }` with no `list` → `unlisted-entity-missing-index` for `shadchanim`. This is the other direction: no entity may quietly adopt the no-browse shape without a written reason in the table, and dropping `list` is not a legal way to express it — it deletes the entity's whole route fragment |
+    | d | every key in the table names a resource present in `resources` | `stale-exemption` | table fixture `{ contacts: "…" }` against the real `RESOURCES` → `stale-exemption` naming `contacts`. (The table has no `kind`, so it has no `permanent-exemption-for-360-entity` direction — see "The exemption model") |
+
+    **(b), the list-path scan.** `ad24Conformance.guard.test.ts` reuses the AC 4 glob and collects
+    every file whose text links a no-browse entity's **list** path. The alternation is built at
+    test time from `Object.keys(NO_BROWSE_SURFACE_ENTITIES)` and is **never hard-coded** — the
+    same rule AC 4 follows
+    [Source: _bmad-output/planning-artifacts/epic3-preflight-brief.md#6-Landmines — item 15]. Two
+    shapes count, and the distinction between them is load-bearing:
+    - a **list-path literal**: `` `/${name}` `` immediately followed by a closing `"`, `'`,
+      `` ` `` or a `?`, i.e. the path ends at that segment. `/references/${id}`,
+      `/references/1/show` and `/references/new` are **record and creation** paths and must
+      **not** match — RULING 7 explicitly retains them. A regex that swallows them makes the scan
+      permanently red, and the predictable "fix" is to weaken or delete it, which restores
+      exactly the vacuity AC 8 exists to prevent.
+    - a `buildListPath("<name>")` call site
+      [Source: src/components/atomic-crm/entity360/entityPaths.ts:18-21].
+
+    Excluded, and only these: `entity360/entityPaths.ts` (the builder itself),
+    `*/entityDescriptor.ts`, `<name>/index.ts` (the route mount), and any `.test.` / `.guard.`
+    file — the same self-exclusion shape as AC 5(b)'s allowlist.
+
+    **The matcher is exported and unit-tested against a synthetic corpus**, not merely run over
+    the repo:
+    ```ts
+    export function findListPathLinks(
+      files: Record<string, string>,  // repo-relative path -> file text
+      names: string[],
+    ): string[];
+    ```
+    with three fixture `it`s: `{ "dashboard/Dashboard.tsx": 'to="/references"' }` **is** reported;
+    `{ "x.tsx": 'buildListPath("references")' }` **is** reported; ``{ "x.tsx": "`/references/${id}`" }``
+    is **not**. A scan whose only assertion is "the repo happens to be clean today" cannot be
+    proven red, and an unfalsifiable guard is the defect this whole story exists to avoid
+    [Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:79-86]. Its
+    glob-resolved sanity `it` is AC 8's, unchanged.
+
+    **Ordering — read before starting.** This rule is written **unconditionally**. There is no
+    allowlist for `references`, no `kind: "pending"` entry, and none may be added. It goes green
+    only once RULING 7 has been applied to the tree, and on `main` at the time of writing it has
+    not been: `layout/navItems.ts:59-65` still registers `{ to: "/references" }` in
+    `PRIMARY_NAV`, and the mobile "More" item (`layout/MobileNavigation.tsx`), the two dashboard
+    tiles (`dashboard/Dashboard.tsx`, `dashboard/MobileDashboard.tsx`) and the first desktop tour
+    step (`tour/tourSteps.ts`) are all still present. **Every one of those files is outside this
+    story's scope boundary** — the one live-code edit this story makes is Task 5. So if
+    `PRIMARY_NAV` still contains `/references` when this story starts, **stop and raise**: do not
+    delete the nav entry here, do not exempt `references`, and do not soften the rule to a
+    warning or an informational `console.info`. This is the same treatment AC 4 gives
+    `shidduchim/ShidduchCreate.tsx` and Story 3.13, and for the same reason — a guard written
+    around the state of the tree on the day it was written is a guard written around a bug.
+
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — `ad24Conformance.ts`: the exemption tables** (AC: 2, 3, 4, 5)
+- [ ] **Task 1 — `ad24Conformance.ts`: the exemption tables** (AC: 2, 3, 4, 5, 10)
   - [ ] Define `Ad24Exemption = { kind: "pending"; retiredBy: string } | { kind: "permanent"; reason: string }`,
         the **four** tables — `DESCRIPTORLESS_RESOURCES`, `RECORD_SURFACE_EXEMPTIONS`,
         `MODAL_RECORD_SURFACES`, `PENDING_ROUTE_SHAPES` — and the
@@ -375,7 +494,25 @@ table or route AC 6 through the exemption machinery above; see AC 6.
         `tabs: []` + a full `pendingTabs`.
   - [ ] Populate each from the values pinned in AC 2-5. Re-verify every path with `ls`
         and every `definition` slot by reading the entity's `index.ts` before writing the
-        entry — a wrong entry here is a permanently-green guard.
+        entry — a wrong entry here is a permanently-green guard. In particular the `create`
+        slot: Story 3.12 replaced `create:` with `hasCreate: true` +
+        `children: buildCreateRoutes(...)` on `singles`, `shadchanim` and `references`, so an
+        entry transcribed literally from AC 3's prose would ship three `stale-exemption`s on
+        day one. Read the file, do not copy the AC.
+  - [ ] Define the **fifth** table, `NO_BROWSE_SURFACE_ENTITIES` (AC 10), *outside*
+        `Ad24Exemptions`: `Record<string, string>`, no `kind`, one entry (`references`) with
+        its written reason. It is the `noBrowseSurfaceEntities` parameter's default (AC 1),
+        not part of `exemptions`.
+  - [ ] **Cross-check all five tables against each other before shipping** — six tables
+        counting 3.12's `RECORD_FLAG_EXEMPTIONS` in `routeManifest.ts` — and reconcile any
+        disagreement in writing. The pairs that can actually contradict:
+        a resource in `DESCRIPTORLESS_RESOURCES` cannot appear in `PENDING_ROUTE_SHAPES` or
+        `NO_BROWSE_SURFACE_ENTITIES` (no descriptor means no record path and nothing to
+        un-browse); a resource in `NO_BROWSE_SURFACE_ENTITIES` **must** still be in
+        `resources` with a truthy `list` (AC 10c) and **must not** be in
+        `RECORD_FLAG_EXEMPTIONS` (it keeps `show`/`edit`); a `RECORD_SURFACE_EXEMPTIONS` entry
+        and a `MODAL_RECORD_SURFACES` entry naming the same file are describing the same
+        offender twice and one of them is wrong.
   - [ ] Keep the file under the 400-line typical ceiling
         [Source: .claude/rules/coding-style.md#File-organization]; it is data plus one
         pure function.
@@ -396,7 +533,7 @@ table or route AC 6 through the exemption machinery above; see AC 6.
   - [ ] Implement `findPendingTabs` (AC 9) beside it; it reads the same `pendingTabs` field
         and no exemption table.
 
-- [ ] **Task 2 — `findAd24Violations`** (AC: 1, 2, 3, 5a, 6)
+- [ ] **Task 2 — `findAd24Violations`** (AC: 1, 2, 3, 5a, 6, 10)
   - [ ] Implement per AC 1's signature. Parameters only — never read `RESOURCES` or the
         registry from module scope; mirror the doc comment at
         `root/routeManifest.ts:168-174`.
@@ -408,8 +545,12 @@ table or route AC 6 through the exemption machinery above; see AC 6.
   - [ ] Emit `permanent-exemption-for-360-entity` whenever a `permanent` entry names a
         resource present in `descriptors` (the mechanical trigger behind every deferral in
         this story).
+  - [ ] Implement AC 10's four assertions (a)-(d) over `navTargets`, `listPathLinks`,
+        `resources` and `noBrowseSurfaceEntities`. They do **not** call the shared
+        symmetric-exemption helper and the table gets no `kind` — see AC 10 for why a
+        `permanent` entry here would self-invalidate on day one.
 
-- [ ] **Task 3 — `ad24Conformance.test.ts` (pure, `app` project)** (AC: 1, 6, 9)
+- [ ] **Task 3 — `ad24Conformance.test.ts` (pure, `app` project)** (AC: 1, 6, 9, 10)
   - [ ] One `it` per `Ad24ViolationCode`, AAA-structured, each with a fixture that breaks
         exactly one rule; assert the reported codes, not just the count.
   - [ ] Include the two staleness directions for each of the four exemption-backed rules:
@@ -424,17 +565,28 @@ table or route AC 6 through the exemption machinery above; see AC 6.
         completeness-by-default rule this ruling removed.
   - [ ] Add the `findPendingTabs` fixture `it` and the informational real-registry `it`
         (AC 9); the latter asserts an array, never an emptiness.
+  - [ ] Write AC 10's four fixtures exactly as pinned in its table, plus the paired
+        `findManifestViolations` assertion: the **same** `navTargets` containing
+        `/references` reports one `browse-surface-on-scoped-entity` here and **zero**
+        violations from `findManifestViolations`
+        [Source: src/components/atomic-crm/root/routeManifest.ts:276-292]. Add the three
+        `findListPathLinks` corpus `it`s (AC 10b), including the negative one proving a
+        record path `` `/references/${id}` `` is not matched.
   - [ ] One `it` driving the real `RESOURCES` and the real registry, asserting `[]`.
         Import the four `<entity>/entityDescriptor.ts` modules (or `root/routeManifest.ts`,
         which imports every resource index at module scope
         [Source: src/components/atomic-crm/root/routeManifest.ts:6-18]) so registration has
         happened before the assertion runs.
 
-- [ ] **Task 4 — `ad24Conformance.guard.test.ts` (source + SQL scans)** (AC: 4, 5b, 7, 8)
+- [ ] **Task 4 — `ad24Conformance.guard.test.ts` (source + SQL scans)** (AC: 4, 5b, 7, 8, 10b)
   - [ ] `import.meta.glob("../**/*.{ts,tsx}", { query: "?raw", import: "default", eager: true })`,
         excluding `.test.` and `.guard.` paths — the existing guard excludes its own kind
         for exactly this reason
         [Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:44-52].
+  - [ ] Reuse the same glob for AC 10(b): pass its file map to `findListPathLinks` with
+        `Object.keys(NO_BROWSE_SURFACE_ENTITIES)` and hand the result to
+        `findAd24Violations` as `listPathLinks`; pass `PRIMARY_NAV.map((i) => i.to)` as
+        `navTargets`. Three alternations now, all derived at test time, none literal.
   - [ ] Build both alternations from `RESOURCES.map((r) => r.name)`. Note the resource
         *directory* is not always the resource name (`inbox_items` lives in `inbox/`); map
         it explicitly rather than assuming, and cover the mapping with a fixture `it`.
@@ -468,8 +620,12 @@ table or route AC 6 through the exemption machinery above; see AC 6.
         which migrates an entity must delete that entity's exemption entries **in the same
         diff**, and that the symmetric assertion will fail the build if it does not; (b) that
         a story which builds a tab moves that key from `pendingTabs` into `tabs` in the same
-        diff, and that AC 6(d) fails the build if it does not; and (c) that Epic 5's closing
-        story flips AC 9's informational ledger `it` to a failing assertion (AC 9).
+        diff, and that AC 6(d) fails the build if it does not; (c) that Epic 5's closing
+        story flips AC 9's informational ledger `it` to a failing assertion (AC 9); and
+        (d) that `NO_BROWSE_SURFACE_ENTITIES` is a **standing owner ruling** (RULING 7), not
+        debt — it has no retiring story, and removing an entry from it re-opens a browse
+        surface the owner closed. Quote the ruling in the comment so the next reader does not
+        have to find it.
 
 ## Dev Notes
 
@@ -482,7 +638,10 @@ without mutating the real manifest."* The registry adds a second reason: it is a
 module-private `Map` populated by module-scope side effects
 [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#4-Registry — rules 1 and 4], so a
 validator that read it directly could only ever be tested against the real thing, and
-would have no way to prove any of its eleven codes fires.
+would have no way to prove any of its thirteen codes fires. `navTargets` (AC 10) is a parameter
+for the same reason and by the same precedent — `findManifestViolations` already takes it rather
+than importing `PRIMARY_NAV`
+[Source: src/components/atomic-crm/root/routeManifest.ts:198-203].
 
 ### Why four rules ship with a non-empty exemption table — and why the tab rule does not
 
@@ -663,7 +822,17 @@ not query a database. Validation set: `npm run typecheck`, `npx vitest run`,
   deliberately partial five-tab shidduch set, and its explicit ban on placeholder tabs: the
   reality AC 6's consistency-vs-completeness split exists to accommodate without weakening
 - [Source: src/components/atomic-crm/root/routeManifest.ts:39-43,92-100,168-179] —
-  `ResourceEntry`, `RESOURCES`, and `findManifestViolations`' pure-validator contract
+  `ResourceEntry`, `RESOURCES`, and `findManifestViolations`' pure-validator contract;
+  `:176-185,247-255,276-292` — `empty-resource`, `record-flags-missing` and
+  `unreachable-nav-target`, the three rules AC 10 verifies **cannot** catch a re-added
+  `/references` nav entry, which is why RULING 7 needs a positive assertion
+- [Source: src/components/atomic-crm/layout/navItems.ts:31,59-65] — `PRIMARY_NAV` and the
+  `/references` entry AC 10 forbids (still present on `main` at the time of writing)
+- [Source: src/components/atomic-crm/references/index.ts:19-21] — `references` keeps a truthy
+  `list` (the route mount) plus `show`/`edit` under RULING 7; this is the fact that defeats
+  both `unreachable-nav-target` and `record-flags-missing`
+- [Source: src/components/atomic-crm/entity360/entityPaths.ts:18-21] — `buildListPath`, the
+  second shape AC 10(b)'s scan looks for
 - [Source: src/components/atomic-crm/root/routeManifest.test.ts:11-15,33-139] — the
   fixture-in-test-file pattern and the `Dummy`/`anElement` fixture idiom
 - [Source: src/components/atomic-crm/references/entitlementGate.guard.test.ts:16-20,44-52,79-86]

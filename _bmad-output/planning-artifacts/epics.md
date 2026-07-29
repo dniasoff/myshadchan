@@ -113,10 +113,44 @@ where A2 changes them.
 - UX-DR5: Entity tab matrix (single / shidduch / shadchan / reference).
 - UX-DR6: `RecordLink` primitive for every record mention.
 - UX-DR7: One `EntityList` framework with URL-held state.
-- UX-DR8: References reached from a shidduch, not primary navigation.
+- UX-DR8: References have no browse surface — reached only from a shidduch (RULING 7).
 - UX-DR9: Reuse awareness is mandatory wherever a reference is used.
-- UX-DR10: Navigation set; `References` is not a primary destination.
+- UX-DR10: Navigation set; `References` is not a destination at all (RULING 7).
 - UX-DR11: Every screen renders empty/loading/error, light+dark, at 375px.
+
+### Standing owner rulings
+
+Rulings are decisions of the project owner. They outrank a story, an epic and a contract
+paragraph, they have no retiring story, and they are amended only by the owner.
+
+**RULING 7 — a reference exists only within a shidduch's context.**
+
+> *"references only exist as part of an individual shidduch and cannot be browsed separately
+> although the same reference can appear for multiple shidduchim … it would be useful to see
+> this. but no browsing to references outside a shidduch's context."*
+
+1. **No browse surface.** No `References` entry in the primary navigation, no mobile overflow
+   item, no dashboard tile, no tour step, no `EntityList` for `references`, and no query that
+   returns an unfiltered or free-text-filtered page of reference records to a user who has not
+   named a shidduch. References also leave global search: a global search that returns reference
+   records is a browse surface under another name.
+2. **`/references/{id}` stays.** The flat AD-24 record path is retained. A deep link to a record
+   the viewer already has access to is addressability, not browsing.
+3. **A reference stays a full entity.** Its 360, timeline, notes, tasks, call log, diligence,
+   merge and match-on-entry are unchanged. Only reachability changes.
+4. **Cross-shidduch visibility is required, from inside the reference.** The `shidduchim` tab
+   renders every shidduch the reference serves. This is a feature, not a leak (UX-DR9).
+5. **Entry is always from a shidduch.** Creating a reference without a resolvable shidduch is
+   refused, not silently allowed.
+6. **This is a product decision, not a security boundary.** It is not enforced with RLS and must
+   never be: within an account the reference book is deliberately account-wide (FR51), and
+   narrowing the policy to enforce this ruling would break clause 4, merge and match-on-entry
+   for no privacy gain.
+
+Enforcement is mechanical, in Story 3.11 AC 10 (`NO_BROWSE_SURFACE_ENTITIES` in
+`entity360/ad24Conformance.ts`) — a **positive** assertion, because the existing
+`unreachable-nav-target` rule keys off `!!definition.list` and `references` keeps a truthy
+`list` as its route mount, so it would wave a re-added nav entry straight through.
 
 ### FR Coverage Map
 
@@ -675,7 +709,8 @@ So that destinations do not move.
 **Given** I am signed in
 **When** I view the navigation
 **Then** it shows Dashboard, Inbox, Pipeline, Shidduchim, Shadchanim, Tasks, Reminders, Settings, plus the context switcher
-**And** References is not a primary destination
+**And** References is not a destination at all — no nav entry, no overflow item, no dashboard
+tile and no tour step (RULING 7)
 **And** mobile exposes the same destinations, with overflow where needed.
 
 ### Story 4.5: Global search
@@ -830,7 +865,9 @@ So that a reference is never orphaned from its context.
 **When** I open its Diligence tab
 **Then** I see people to speak to with progress ("N of M spoken to")
 **And** each person states whether this is a first conversation or one of several
-**And** a reference person still has their own 360, reached from diligence or search, not from primary navigation.
+**And** a reference person still has their own 360 at `/references/{id}`, reached from a
+shidduch's diligence — never from navigation, a list or search (RULING 7)
+**And** from inside that 360 I can see every shidduch the same reference serves.
 
 ### Story 5.11: Call logging and tailored questions
 
