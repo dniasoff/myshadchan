@@ -8,7 +8,10 @@
 export const PRIMARY_CTA_CLASSNAME =
   "text-primary-foreground " +
   "bg-[linear-gradient(135deg,var(--accent-grad-from),var(--accent-grad-to))] " +
-  "shadow-sm shadow-[0_8px_24px_-6px_var(--glow-accent)] " +
+  // One shadow, not two: `shadow-sm` and the accent-glow set the same
+  // property, so which one survived was decided by Tailwind's class sort
+  // order rather than by intent. The glow is the signature; it wins.
+  "shadow-[0_8px_24px_-6px_var(--glow-accent)] " +
   "transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)] " +
   "hover:shadow-[0_10px_30px_-6px_var(--glow-accent-strong)] " +
   "active:scale-[0.97] " +

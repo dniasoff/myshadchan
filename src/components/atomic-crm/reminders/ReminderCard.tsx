@@ -1,4 +1,3 @@
-import { format } from "date-fns";
 import { ClockIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -6,6 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
 import { RecordLink } from "../entity360/RecordLink";
+import { formatDueMoment } from "../misc/formatDueMoment";
 import { isOverdue } from "../tasks/tasksPredicate";
 import { RESOURCE_FOR_TARGET } from "./reminderEntity";
 import type { ReminderItem } from "./useReminders";
@@ -17,10 +17,6 @@ export interface ReminderCardProps {
   /** Staggered entrance delay in ms (design-language §4.3). */
   enterDelayMs?: number;
 }
-
-/** "9 Jul 2026, 4:30 PM" — tabular, matches formatRedtDate's day precision plus time. */
-const formatDueMoment = (dateString: string): string =>
-  format(new Date(dateString), "d MMM, h:mm a");
 
 /**
  * One reminder row. Overdue reads as the honey "catch" surface (design-

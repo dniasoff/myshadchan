@@ -63,8 +63,13 @@ function SheetContent({
             "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-3/4 border-r sm:max-w-sm",
           side === "top" &&
             "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b",
+          // `sm:max-w-lg mx-auto` matches the `left`/`right` sides' own
+          // `sm:max-w-sm` cap: without it a bottom sheet spans the whole
+          // viewport on desktop, which is how the reminder sheet ended up
+          // with a 1408px-wide submit button on a 1440px screen. Below `sm`
+          // it is still edge-to-edge, which is correct for a phone.
           side === "bottom" &&
-            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto border-t",
+            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 mx-auto h-auto border-t sm:max-w-lg sm:rounded-t-2xl",
           className
         )}
         {...props}

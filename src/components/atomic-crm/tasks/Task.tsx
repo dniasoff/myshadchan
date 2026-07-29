@@ -7,7 +7,6 @@ import {
   useUpdate,
 } from "ra-core";
 import { useEffect, useState } from "react";
-import { DateField } from "@/components/admin/date-field";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -17,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+import { formatDueMoment } from "../misc/formatDueMoment";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 import type { Task as TData } from "../types";
 import { TaskEdit } from "./TaskEdit";
@@ -112,10 +112,13 @@ export const Task = ({ task }: { task: TData }) => {
               )}
               {task.text}
             </div>
+            {/* Shared with `ReminderCard` — the same `due_date` used to read
+                `7/24/2026, 2:00:00 PM` here and `24 Jul, 2:00 PM` in the
+                reminders hub. */}
             <div className="text-sm text-muted-foreground">
               {translate("resources.tasks.fields.due_short")}
               &nbsp;
-              <DateField source="due_date" record={task} showDate showTime />
+              {task.due_date ? formatDueMoment(task.due_date) : null}
             </div>
           </div>
         </div>
@@ -125,7 +128,10 @@ export const Task = ({ task }: { task: TData }) => {
             <Button
               variant="ghost"
               size="icon"
-              className="h-5 pr-0! size-8 cursor-pointer"
+              // Was `h-5 pr-0! size-8` — three declarations setting height
+              // twice, resolved by class order into a 20px-tall tap target.
+              // One declaration, at the 44px floor.
+              className="size-11 shrink-0 cursor-pointer"
               aria-label={translate("resources.tasks.actions.title")}
             >
               <MoreVertical className="size-5 md:size-4" />

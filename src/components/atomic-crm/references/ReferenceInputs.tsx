@@ -35,7 +35,7 @@ export const ReferenceInputs = () => {
             _: "Relationship",
           })}
           helperText={translate("crm.references.form.relationshipHelper", {
-            _: "How they know the single - teacher, neighbour, family friend...",
+            _: "How they know the single — teacher, neighbour, family friend…",
           })}
         />
       </section>

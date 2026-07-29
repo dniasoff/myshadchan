@@ -28,14 +28,21 @@ export const DeleteDataDialog = () => {
   const subject = translate("crm.profile.privacy.delete_request_subject", {
     _: "Request to delete my family's data",
   });
-  const mailto = `mailto:support@myshadchan.app?subject=${encodeURIComponent(
+  // myshadchan.space is the live domain; myshadchan.app was never registered,
+  // so every deletion request sent from here bounced.
+  const mailto = `mailto:support@myshadchan.space?subject=${encodeURIComponent(
     subject,
   )}${identity?.email ? `&body=${encodeURIComponent(`Account: ${identity.email}`)}` : ""}`;
 
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" className="w-full sm:w-auto">
+        {/* Ghost trigger, destructive confirm: the weight belongs on the
+            step that commits, not on the one that opens an explanation. */}
+        <Button
+          variant="ghost"
+          className="w-full text-destructive hover:text-destructive sm:w-auto"
+        >
           <Trash2 />
           {translate("crm.profile.privacy.delete_data", {
             _: "Delete my data",
@@ -59,7 +66,7 @@ export const DeleteDataDialog = () => {
           <DialogClose asChild>
             <Button variant="ghost">{translate("ra.action.cancel")}</Button>
           </DialogClose>
-          <Button asChild>
+          <Button asChild variant="destructive">
             <a href={mailto}>
               {translate("crm.profile.privacy.delete_request_send", {
                 _: "Request deletion by email",

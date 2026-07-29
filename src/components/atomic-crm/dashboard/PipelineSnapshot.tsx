@@ -84,12 +84,14 @@ export const PipelineSnapshot = ({ singleId }: PipelineSnapshotProps) => {
                 style={{ backgroundColor: `var(${bucket.token})` }}
                 aria-hidden="true"
               />
+              {/* Count sits against its label (direct labelling), not
+                  pushed to the far edge by `ms-auto` — at 271px per column
+                  that read as "New ····· 3" with a corridor of nothing
+                  between the two halves of one fact. */}
               <span className="truncate text-muted-foreground">
                 {bucket.label}
               </span>
-              <span className="ms-auto font-semibold tabular-nums">
-                {bucket.count}
-              </span>
+              <span className="font-semibold tabular-nums">{bucket.count}</span>
             </li>
           ))}
         </ul>

@@ -557,6 +557,53 @@ $$;
 -- account_members and must not recurse into that table's own SELECT
 -- policy. Returns a boolean and no row data, so the definer rights leak
 -- nothing.
+--
+-- A NULL p_actor_member_id IS A PERMANENTLY LEGAL STATE, AND IS DELIBERATELY
+-- NEVER BACKFILLED. The Epic 3 loose-ends audit counted 6 live
+-- `kind = 'note'` rows in production carrying actor_member_id IS NULL. The
+-- author branch below cannot match them — `am.id = NULL` selects nothing —
+-- so they fall through to the owning-role branch: moderable by an owner of
+-- the active context and by nobody else. That is the intended answer, not a
+-- defect. The decision to leave them alone was taken explicitly and does not
+-- depend on the count; the reasons, in increasing order of how hard they are
+-- to undo:
+--
+--   1. There is nothing to backfill FROM. interactions carries exactly one
+--      authorship-shaped column (01_tables.sql) — no created_by, no user_id
+--      — and its metadata holds only call/merge context. The one member id
+--      that appears anywhere nearby, the 'member_id' key inside
+--      reference_links.conversation_log, is the SAME current_member_id()
+--      value written by the same statement of log_reference_call(), so it is
+--      NULL in exactly the cases that would need it.
+--   2. NULL is reachable by three routes that are indistinguishable after
+--      the fact:
+--        (a) the row predates set_interaction_actor_member_id()
+--            (04_triggers.sql), which is BEFORE INSERT and so could not see
+--            rows that already existed when it landed;
+--        (b) interactions_actor_member_id_fkey is ON DELETE SET NULL
+--            (01_tables.sql), so deleting a membership row nulls this column
+--            on every note that member ever wrote;
+--        (c) a SECURITY DEFINER writer (log_reference_call(),
+--            merge_references()) invoked with no active context stamps
+--            current_member_id(), which is NULL by design (see its own
+--            comment above). Such rows are 'call_logged' or 'merge', never
+--            'note', so both callers' `kind <> 'note' or
+--            can_moderate_note(...)` guard means they never reach this
+--            function — but (c) is why the column is nullable at all, and
+--            why a NOT NULL constraint must not be "tidied" onto it.
+--      (b) and (c) are ongoing, not historical. A backfill would therefore
+--      never converge — it would have to be re-run forever, which is the
+--      opposite of 20260729095558_backfill_member_state.sql, whose whole
+--      justification is that it is idempotent and self-healing.
+--   3. This column is not a label, it is a grant. The author branch turns
+--      actor_member_id straight into edit/soft-delete rights, so guessing an
+--      author hands moderation of someone's content to a member who may not
+--      have written it. Unlike the member_state backfill, that cannot be
+--      repaired by re-running anything: an invented value is
+--      indistinguishable from a real one the moment it is written.
+--
+-- If a non-owning member ever needs to moderate one of these rows, the
+-- answer is an owning-role member doing it — not inventing an author.
 CREATE OR REPLACE FUNCTION "public"."can_moderate_note"("p_actor_member_id" bigint) RETURNS boolean
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO ''

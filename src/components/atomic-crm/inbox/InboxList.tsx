@@ -141,6 +141,13 @@ export const InboxList = () => (
     pagination={false}
     actions={false}
     empty={false}
+    // `InboxContent` renders the page's own `<h1>Inbox</h1>`; without this,
+    // `<List>` renders a second "Inbox" heading above it, so the word was
+    // announced twice on every visit. (`title={false}` still leaves the
+    // empty `<h2>` `admin/list.tsx` emits — that renderer bug is shared with
+    // 4 other screens and is fixed centrally, not here. See ui-audit-plan
+    // §7.11: do not "fix" this by dropping the prop.)
+    title={false}
   >
     <InboxContent />
   </List>

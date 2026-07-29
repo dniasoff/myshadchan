@@ -30,8 +30,39 @@ function isAllowlisted(relPath, config) {
   );
 }
 
-function lineIsExempt(line, exempt) {
-  return Boolean(exempt) && exempt.some((term) => line.includes(term));
+/**
+ * Blanks every exempt term out of `line`, so a pattern can be re-tested
+ * against only the text its exemptions do NOT account for.
+ *
+ * This replaced a whole-line test (`exempt.some((t) => line.includes(t))`),
+ * which exempted the ENTIRE line the moment any exempt term appeared
+ * anywhere on it. A genuine fossil that merely shared a line with an exempt
+ * term was therefore masked — `<Slot asChild /> // <fossil>` passed. The
+ * exemptions are per-term, not per-line; this makes the code say so.
+ *
+ * Three properties this function has to hold, each load-bearing:
+ *
+ *  - **Blank to a space, never to the empty string.** Deleting a term
+ *    splices the characters either side of it together, which can
+ *    manufacture a match that was never in the source — most obviously for
+ *    the exemptions that are ordinary English words merely *containing* a
+ *    retired stem: drop such a word from between two innocent fragments and
+ *    they fuse into the stem itself. A false positive is the one failure a
+ *    guard must not have — it turns CI red on innocent code and teaches
+ *    people to weaken the guard. A space cannot join anything.
+ *  - **Longest term first.** When one exempt term contains another
+ *    (`Children.forEach` vs `React.Children`), the most specific one must
+ *    be consumed first so no partial residue is left for the pattern.
+ *  - **Case-SENSITIVE**, exactly as `includes()` was — even for the
+ *    case-insensitive patterns. Matching case-insensitively here would
+ *    exempt *more* than the previous rule did, and this change is only ever
+ *    allowed to exempt less.
+ */
+function stripExemptTerms(line, exempt) {
+  if (!exempt || exempt.length === 0) return line;
+  return [...exempt]
+    .sort((a, b) => b.length - a.length)
+    .reduce((text, term) => (term ? text.split(term).join(" ") : text), line);
 }
 
 /**
@@ -55,8 +86,14 @@ export function runRetiredNameCheck(scanRoot, config = loadConfig()) {
     const lines = readFileSync(file, "utf8").split("\n");
     lines.forEach((line, index) => {
       for (const pattern of patterns) {
+        // Cheap gate first: the overwhelming majority of lines match
+        // nothing, and those never pay for the exempt-term strip.
         if (!pattern.compiled.test(line)) continue;
-        if (lineIsExempt(line, pattern.exempt)) continue;
+        // Then re-test only what the exemptions do not cover. An exemption
+        // excuses its own term, not everything that happens to share a line
+        // with it.
+        if (!pattern.compiled.test(stripExemptTerms(line, pattern.exempt)))
+          continue;
         violations.push(`${relPath}:${index + 1}: matches "${pattern.id}"`);
       }
     });

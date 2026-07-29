@@ -123,7 +123,10 @@ const ReferenceShowLayout = () => {
       <ReferenceHeader reference={record} />
 
       <Tabs defaultValue="conversations">
-        <TabsList className="w-full justify-start overflow-x-auto">
+        {/* Intrinsic width, not `w-full`: the triggers carry `flex-1`, so a
+            full-width list stretched 4 tabs to ~280px each and read as a nav
+            bar. `justify-start` was dead against that `flex-1` anyway. */}
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="conversations" className={activeTabClassName}>
             {translate("crm.references.tabs.conversations", {
               _: "Conversations",

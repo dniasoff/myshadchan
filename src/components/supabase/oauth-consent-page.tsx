@@ -1,16 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthProvider, useTranslate } from "ra-core";
-import { Layout } from "@/components/supabase/layout";
+import { AuthLayout } from "@/components/atomic-crm/login/AuthLayout";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 
 /**
  * Authorization UI for OAuth Consent Page
@@ -19,6 +11,12 @@ import {
  * to approve or deny the authorization request.
  *
  * Anonymous users will be redirected to the login page first.
+ *
+ * Hosted in `AuthLayout` — the same glass card, backdrop and brand lockup as
+ * login/signup/invite. It used to render in `components/supabase/layout.tsx`,
+ * the retired split-screen auth shell (its own logo, a hardcoded
+ * `bg-zinc-900`): an entire second design system kept alive by this one
+ * route. That file is deleted; this was its only importer.
  *
  * Inspired from https://supabase.com/docs/guides/auth/oauth-server/getting-started?queryGroups=oauth-setup&oauth-setup=dashboard#example-authorization-ui
  */
@@ -109,32 +107,32 @@ export function OAuthConsentPage() {
 
   if (loading) {
     return (
-      <Layout>
+      <AuthLayout>
         <div className="flex flex-col space-y-2 text-center">
           <p className="text-muted-foreground">
             {translate("ra.message.loading", { _: "Loading..." })}
           </p>
         </div>
-      </Layout>
+      </AuthLayout>
     );
   }
 
   if (error) {
     return (
-      <Layout>
+      <AuthLayout>
         <div className="flex flex-col space-y-2 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">
             {translate("ra.message.error", { _: "Error" })}
           </h1>
           <p className="text-destructive">{error}</p>
         </div>
-      </Layout>
+      </AuthLayout>
     );
   }
 
   if (!authDetails) {
     return (
-      <Layout>
+      <AuthLayout>
         <div className="flex flex-col space-y-2 text-center">
           <p className="text-muted-foreground">
             {translate("ra-supabase.oauth.no_request", {
@@ -142,13 +140,13 @@ export function OAuthConsentPage() {
             })}
           </p>
         </div>
-      </Layout>
+      </AuthLayout>
     );
   }
 
   if (approved) {
     return (
-      <Layout>
+      <AuthLayout>
         <div className="flex flex-col space-y-2 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">
             {translate("ra-supabase.oauth.approved", {
@@ -161,12 +159,12 @@ export function OAuthConsentPage() {
             })}
           </p>
         </div>
-      </Layout>
+      </AuthLayout>
     );
   }
 
   return (
-    <Layout>
+    <AuthLayout>
       <div className="flex flex-col space-y-2 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">
           {translate("ra-supabase.oauth.authorize", {
@@ -180,48 +178,51 @@ export function OAuthConsentPage() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{authDetails.client.name}</CardTitle>
-          <CardDescription>{authDetails.redirect_uri}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {authDetails.scope && authDetails.scope.length > 0 && (
-            <div>
-              <p className="text-sm font-medium text-muted-foreground mb-2">
-                {translate("ra-supabase.oauth.permissions", {
-                  _: "Requested permissions",
-                })}
-              </p>
-              <ul className="list-disc list-inside space-y-1">
-                {authDetails.scope.split(" ").map((scopeItem) => (
-                  <li key={scopeItem} className="text-sm">
-                    {scopeItem}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </CardContent>
-        <CardFooter className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={handleDeny}
-            disabled={submitting}
-            className="flex-1"
-          >
-            {translate("ra.action.cancel", { _: "Deny" })}
-          </Button>
-          <Button
-            onClick={handleApprove}
-            disabled={submitting}
-            className="flex-1"
-          >
-            {translate("ra.action.confirm", { _: "Approve" })}
-          </Button>
-        </CardFooter>
-      </Card>
-    </Layout>
+      {/* Plain sections rather than a `<Card>`: `AuthLayout` is already a
+          card, and nesting one inside it produced a border-in-a-border every
+          other auth screen avoids. */}
+      <div className="mt-6 rounded-xl border border-border/70 p-4">
+        <p className="font-medium">{authDetails.client.name}</p>
+        <p className="mt-1 break-all text-sm text-muted-foreground">
+          {authDetails.redirect_uri}
+        </p>
+
+        {authDetails.scope && authDetails.scope.length > 0 && (
+          <div className="mt-4">
+            <p className="mb-2 text-sm font-medium text-muted-foreground">
+              {translate("ra-supabase.oauth.permissions", {
+                _: "Requested permissions",
+              })}
+            </p>
+            <ul className="list-inside list-disc space-y-1">
+              {authDetails.scope.split(" ").map((scopeItem) => (
+                <li key={scopeItem} className="text-sm">
+                  {scopeItem}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 flex gap-2">
+        <Button
+          variant="outline"
+          onClick={handleDeny}
+          disabled={submitting}
+          className="flex-1"
+        >
+          {translate("ra.action.cancel", { _: "Deny" })}
+        </Button>
+        <Button
+          onClick={handleApprove}
+          disabled={submitting}
+          className="flex-1"
+        >
+          {translate("ra.action.confirm", { _: "Approve" })}
+        </Button>
+      </div>
+    </AuthLayout>
   );
 }
 

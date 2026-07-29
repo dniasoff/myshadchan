@@ -273,19 +273,21 @@ const InlineEditRow = ({
   if (isEditing) {
     return (
       <Item size="sm">
-        <ItemContent>
+        <ItemContent className="flex-none">
           <ItemTitle className="font-normal text-muted-foreground">
             {label}
           </ItemTitle>
         </ItemContent>
-        <ItemActions>
+        {/* Same geometry as the settled row below, so tapping a row never
+            changes its width or height — only what it contains. */}
+        <ItemActions className="min-w-0 flex-1 justify-end">
           <input
             ref={inputRef}
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
             onBlur={handleSave}
             onKeyDown={handleKeyDown}
-            className="bg-transparent text-end !text-base outline-none w-48"
+            className="w-full min-w-0 bg-transparent text-end !text-base outline-none"
           />
         </ItemActions>
       </Item>
@@ -298,19 +300,32 @@ const InlineEditRow = ({
       className="cursor-pointer"
       onClick={() => setIsEditing(true)}
     >
-      <ItemContent>
+      <ItemContent className="flex-none">
         <ItemTitle className="font-normal text-muted-foreground">
           {label}
         </ItemTitle>
       </ItemContent>
-      <ItemActions>
-        {/* `truncate` (+ a hard `max-w`) keeps this row single-line even for
-            a long email — without it, a value wide enough to not fit beside
-            the label wraps the whole `ItemActions` flex item onto a second
-            line (`Item`'s own `flex-wrap`), making the row ~30px taller than
-            its skeleton counterpart and reintroducing exactly the kind of
-            late shift this component was just fixed to avoid. */}
-        <span className="max-w-40 truncate text-base">{value}</span>
+      {/* `truncate` keeps this row single-line even for a long email —
+          without it, a value wide enough to not fit beside the label wraps
+          the whole `ItemActions` flex item onto a second line (`Item`'s own
+          `flex-wrap`), making the row ~30px taller than its skeleton
+          counterpart and reintroducing exactly the kind of late shift this
+          component was fixed to avoid. That is why the truncation stays.
+
+          What changed: the cap used to be a hard `max-w-40` (160px), which
+          at 390px cut the user's own email down to `routes-178528194…` while
+          ~90px of the row sat empty. `flex-1 min-w-0` is the same guarantee
+          — a flex item that may shrink below its content width can never
+          force a wrap — but it spends the whole remaining line on the value
+          instead of a fixed 160px. `flex-none` on the label stops
+          `ItemContent`'s own `flex-1` from claiming that space first.
+          `title` restores the full value on hover for pointer users; the
+          value is unabridged in the DOM either way, so assistive tech and
+          `getByText` both still see all of it. */}
+      <ItemActions className="min-w-0 flex-1 justify-end">
+        <span className="min-w-0 truncate text-base" title={value}>
+          {value}
+        </span>
       </ItemActions>
     </Item>
   );

@@ -23,6 +23,7 @@ jobs:
             RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
             UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
             UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+            VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
 
         steps:
             - name: 📥 Checkout repo
@@ -61,16 +62,92 @@ jobs:
             # those localhost values on every deploy. This PATCHes only the two
             # hook fields, leaving everything else the dashboard already has
             # untouched.
+            #
+            # `-o /dev/null`: a successful PATCH to /config/auth returns the whole
+            # auth config — 242 keys including an unmasked `smtp_pass` and
+            # `external_google_secret`. GitHub only masks values it knows are
+            # secrets, and those are not among this workflow's secrets, so without
+            # `-o` they are printed verbatim into the run log on every deploy.
+            # Nothing is lost on failure: `-f` already discards the error body, and
+            # the job still goes red on the non-zero exit.
             - if: ${{ env.IS_SUPABASE_CONFIGURED }}
               name: 📡 Enable the invite-signup Auth Hook (before_user_created)
               run: |
                   curl -sSf -X PATCH "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_ID/config/auth" \
                     -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
                     -H "Content-Type: application/json" \
+                    -o /dev/null \
                     -d '{
                       "hook_before_user_created_enabled": true,
                       "hook_before_user_created_uri": "pg-functions://postgres/public/check_signup_invite"
                     }'
+
+            # `[auth.email.template.*]` in supabase/config.toml is a LOCAL-ONLY
+            # block — `supabase db push` ships migrations, not auth config, so
+            # nothing ever transmitted it. Production served GoTrue's stock
+            # magic-link template, which renders `{{ .ConfirmationURL }}` and no
+            # `{{ .Token }}`, while Epic 2's login UI asks the user to type a
+            # 6-digit code: the product's only authentication path was dead until
+            # it was PATCHed by hand. Same scoped-PATCH rationale as the hook step
+            # above — never `supabase config push`, which would overwrite the
+            # hosted site_url / redirect allow-list with this file's localhost dev
+            # values.
+            #
+            # Subject and body are read back out of config.toml and
+            # supabase/templates/ so the repo stays the single source of truth and
+            # this step cannot drift from what a reviewer reads. Only `magic_link`
+            # is sent, because it is the only template the repo declares — adding
+            # invite / recovery / email-change keys here would mean inventing
+            # bodies in CI that nobody reviewed, the same drift in reverse.
+            #
+            # The three numeric mailer settings have no home in config.toml (the
+            # CLI does not model OTP length, OTP expiry or the email rate limit),
+            # so they are pinned here and mirror what production runs today. The
+            # consequence is deliberate: an emergency manual bump to
+            # `rate_limit_email_sent` is reverted by the next deploy — change the
+            # number here instead. `mailer_otp_length: 6` is what the login copy
+            # and e2e/fixtures.ts (`/\b(\d{6})\b/`) both assume; production ran 8
+            # for the whole of Epic 2.
+            #
+            # This step FAILS the job on any non-2xx. Template writes used to 400
+            # ("not available for free tier projects using the default email
+            # provider"); now that custom SMTP is configured on the project, a 400
+            # means SMTP was REMOVED — an alarm to stop on, not a warning to pass.
+            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+              name: 📡 Push auth mailer config (config.toml + templates → hosted)
+              run: |
+                  set -euo pipefail
+
+                  section='/^\[auth\.email\.template\.magic_link\]/ { inside = 1; next } /^\[/ { inside = 0 }'
+                  read_key() {
+                      awk "$section"' inside && $0 ~ "^"key"[[:space:]]*=" { sub(/^[^=]*=[[:space:]]*/, ""); gsub(/^"|"$/, ""); print; exit }' \
+                          key="$1" supabase/config.toml
+                  }
+
+                  subject=$(read_key subject)
+                  content_path=$(read_key content_path)
+
+                  test -n "$subject" || { echo "::error::no magic_link subject in supabase/config.toml"; exit 1; }
+                  test -f "$content_path" || { echo "::error::magic_link template not found: '$content_path'"; exit 1; }
+
+                  jq -n --arg subject "$subject" --rawfile body "$content_path" \
+                      '{
+                          mailer_subjects_magic_link: $subject,
+                          mailer_templates_magic_link_content: $body,
+                          mailer_otp_length: 6,
+                          mailer_otp_exp: 600,
+                          rate_limit_email_sent: 20
+                      }' > /tmp/mailer-payload.json
+
+                  curl -sS --fail-with-body -X PATCH \
+                      "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_ID/config/auth" \
+                      -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      --data-binary @/tmp/mailer-payload.json \
+                      -o /tmp/mailer-response.json \
+                      || { echo "::error::auth mailer PATCH rejected — if this is a 400, custom SMTP was removed from the project"; head -c 2000 /tmp/mailer-response.json >&2; exit 1; }
+
+                  echo "✅ Auth mailer config pushed (magic_link template + OTP length/expiry + email rate limit)." >> "$GITHUB_STEP_SUMMARY"
 
             - if: ${{ env.IS_SUPABASE_CONFIGURED && env.RESEND_API_KEY }}
               name: 📡 Push supabase function secrets
@@ -82,6 +159,109 @@ jobs:
             - if: ${{ env.IS_SUPABASE_CONFIGURED }}
               name: 📡 Deploy supabase functions
               run: npx supabase functions deploy
+
+            # `supabase functions deploy` only ever pushes. Delete a function's
+            # directory from the repo and it keeps serving in production forever,
+            # with nothing anywhere to notice. `update_password` — a live
+            # supabaseAdmin-backed password-reset endpoint in a product that has no
+            # passwords — plus the Epic 1 fossils `merge_contacts` and
+            # `delete_note_attachments` all survived exactly this way, and all
+            # three were reachable by anyone (`verify_jwt: false` at the gateway).
+            # They were removed by hand; this step is what stops the next one.
+            #
+            # Deleting automatically is safe *because of where this sits*: it runs
+            # only after `functions deploy` SUCCEEDED, so every locally-declared
+            # function is already live, and therefore `live − local` can never
+            # contain one of ours. The single way that reasoning breaks is an empty
+            # local set (a bad checkout, a moved directory) — which would make
+            # every live function look orphaned — so that case aborts instead.
+            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+              name: 🧹 Remove edge functions deleted from the repo
+              run: |
+                  set -euo pipefail
+
+                  api="https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_ID/functions"
+
+                  # Deliberately the CLI's own rule — every directory under
+                  # supabase/functions/ that is not `_`-prefixed (`_shared` is a
+                  # library, not a function) — and NOT something narrower like
+                  # "has an index.ts". Narrower is the unsafe direction here: a
+                  # function this predicate fails to recognise looks orphaned and
+                  # gets deleted. Erring wide only ever leaves something alive.
+                  local_fns=$(find supabase/functions -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+                      | grep -v '^_' | sort)
+
+                  if [ -z "$local_fns" ]; then
+                      echo "::error::no edge functions found under supabase/functions/ — refusing to reconcile"
+                      exit 1
+                  fi
+
+                  curl -sS --fail-with-body -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "$api" \
+                      -o /tmp/live-functions.json \
+                      || { echo "::error::could not list deployed edge functions"; head -c 2000 /tmp/live-functions.json >&2; exit 1; }
+
+                  orphans=$(comm -23 <(jq -r '.[].slug' /tmp/live-functions.json | sort) <(echo "$local_fns"))
+
+                  if [ -z "$orphans" ]; then
+                      echo "✅ Edge functions in sync — nothing deployed that the repo no longer declares." >> "$GITHUB_STEP_SUMMARY"
+                      exit 0
+                  fi
+
+                  for slug in $orphans; do
+                      curl -sS --fail-with-body -X DELETE \
+                          -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "$api/$slug" \
+                          -o /tmp/delete-function.json \
+                          || { echo "::error::could not delete orphaned edge function '$slug'"; head -c 2000 /tmp/delete-function.json >&2; exit 1; }
+                      echo "🧹 Deleted orphaned edge function \`$slug\` — no longer declared in \`supabase/functions/\`." >> "$GITHUB_STEP_SUMMARY"
+                  done
+
+            # The frontend and the database deploy on two INDEPENDENT pipelines off
+            # the same push: Vercel builds from its own git integration while this
+            # job runs `db push`. On the Epic 3 deploy Vercel finished at 11:59:56
+            # with `db push` still running — a live window of new UI against the
+            # old schema, and, worse, a failed migration still ships the new UI.
+            #
+            # The gate is one POST to a Vercel Deploy Hook, fired only once
+            # migrations and functions have landed. It is INERT until the project
+            # owner completes two manual steps, in this order:
+            #
+            #   1. Vercel → Project → Settings → Git → Deploy Hooks: create a hook
+            #      on branch `main` and add its URL as the repo secret
+            #      VERCEL_DEPLOY_HOOK_URL. Adding the secret IS the sign-off — this
+            #      step is skipped while it is absent, so landing it changes
+            #      nothing on its own.
+            #   2. Vercel → Project → Settings → Git: disable the PRODUCTION git
+            #      deployment for `main` (Ignored Build Step, or
+            #      `git.deploymentEnabled`) so it stops racing this job. Preview
+            #      deployments for branches and PRs are unaffected.
+            #
+            # Order matters: doing 2 before 1 stops production deploying at all.
+            #
+            # Rejected: building the frontend inside this job (`vercel deploy
+            # --prebuilt --prod`) costs three more secrets, reconfigures PR
+            # previews and loses Vercel's remote build cache; a `vercel.json`
+            # `ignoreCommand` that polls the schema would put database credentials
+            # inside the Vercel build.
+            #
+            # HONEST LIMIT, and the reason this is not the whole fix: ordering
+            # removes only "new UI against old schema". For the entire duration of
+            # the frontend build the NEW schema is live under the OLD frontend, and
+            # no ordering closes that half. Only backward-compatible
+            # (expand/contract) migrations do — every migration must keep the
+            # previous release working for one cycle. That property is required for
+            # rollback anyway; the hook just buys the cheap half.
+            - if: ${{ env.IS_SUPABASE_CONFIGURED && env.VERCEL_DEPLOY_HOOK_URL }}
+              name: 🚀 Trigger the Vercel production build (schema is live)
+              run: |
+                  curl -sS --fail-with-body -X POST "$VERCEL_DEPLOY_HOOK_URL" \
+                      -o /tmp/vercel-hook.json \
+                      || { echo "::error::Vercel deploy hook failed — production was NOT rebuilt"; head -c 2000 /tmp/vercel-hook.json >&2; exit 1; }
+                  echo "🚀 Vercel production build triggered after migrations landed." >> "$GITHUB_STEP_SUMMARY"
+
+            - if: ${{ env.IS_SUPABASE_CONFIGURED && !env.VERCEL_DEPLOY_HOOK_URL }}
+              name: Frontend/schema deploy ordering not enabled
+              run: |
+                  echo ':warning: **Frontend and schema deployed unordered.** Vercel is still building from its own git trigger, in parallel with this job: a failed migration can still ship new UI, and new UI can serve against the old schema. Two-step activation is documented above the `🚀 Trigger the Vercel production build` step in `.github/workflows/deploy.yml`.' >> $GITHUB_STEP_SUMMARY
 
             - if: ${{ !env.IS_SUPABASE_CONFIGURED }}
               name: Supabase deployment skipped

@@ -26,6 +26,15 @@ const CLEAR_BUTTON_CLASSNAME = cn(
 );
 
 /**
+ * Last resolved `current_account_demo()` value, kept in the CRM store
+ * (localStorage, `"CRM"` namespace — see `crmStore.ts`). Deliberately local
+ * to this file rather than in `onboardingKeys.ts`: nothing else reads it,
+ * and `useAccountDemo` stays the single source of truth for the *live*
+ * value — this is only a hint about the previous answer.
+ */
+const LAST_KNOWN_DEMO_KEY = "demo.lastKnown";
+
+/**
  * Full-width, sticky, amber notice shown whenever `current_account_demo()`
  * is true — warm, not alarming (demo-onboarding-plan.md §B5). Renders as
  * the FIRST element of the shell (see Layout/MobileLayout) so it reserves
@@ -33,14 +42,46 @@ const CLEAR_BUTTON_CLASSNAME = cn(
  * `document.documentElement` as `--banner-h`; Sidebar/TopBar consume that
  * var so nothing overlaps, and nothing shifts at all when there's no
  * banner (the var defaults to `0px`).
+ *
+ * Reserving its height in normal flow is only half the job, and the missing
+ * half was measured: rendering `null` until the `["accountDemo"]` query
+ * resolved meant the shell painted with no banner, then grew one — pushing
+ * `<main id="main-content">` from y=0 to y=103 one paint later, i.e. 0.122
+ * CLS on a cold 390px load (see `e2e/demo-banner-cls.spec.ts`, which
+ * measures exactly this with a `PerformanceObserver('layout-shift')`).
+ *
+ * So the first paint is driven by the *previous* answer, persisted in the
+ * CRM store, and only corrected if the live read disagrees. An account's
+ * demo flag changes at most twice in its life (seed, then clear), so the
+ * hint is right on essentially every load. Two honest residuals, both a
+ * single paint and both strictly better than shifting on every load:
+ * the very first load on a device (nothing persisted yet), and the first
+ * load after switching to an account whose flag differs — `logout()` clears
+ * only the configuration key, not the whole store.
  */
 export const DemoBanner = () => {
-  const { data: isDemo } = useAccountDemo();
+  const { data: isDemo, isPending } = useAccountDemo();
+  const [lastKnownDemo, setLastKnownDemo] = useStore<boolean>(
+    LAST_KNOWN_DEMO_KEY,
+    false,
+  );
   const ref = useRef<HTMLDivElement>(null);
+
+  // While the read is in flight the previous answer stands in for it; once
+  // it lands, the live value always wins.
+  const showBanner = isPending ? lastKnownDemo : isDemo === true;
+
+  useEffect(() => {
+    // `isDemo === undefined` covers the errored read (dataProvider fails
+    // soft, but a rejected query would still land here) — never overwrite a
+    // good hint with a non-answer.
+    if (isPending || isDemo === undefined || isDemo === lastKnownDemo) return;
+    setLastKnownDemo(isDemo);
+  }, [isPending, isDemo, lastKnownDemo, setLastKnownDemo]);
 
   useEffect(() => {
     const node = ref.current;
-    if (!isDemo || !node) {
+    if (!showBanner || !node) {
       document.documentElement.style.setProperty("--banner-h", "0px");
       return;
     }
@@ -56,9 +97,9 @@ export const DemoBanner = () => {
       observer.disconnect();
       document.documentElement.style.setProperty("--banner-h", "0px");
     };
-  }, [isDemo]);
+  }, [showBanner]);
 
-  if (!isDemo) return null;
+  if (!showBanner) return null;
 
   return (
     <div

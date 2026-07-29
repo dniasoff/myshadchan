@@ -37,10 +37,13 @@ export const SettingsPage = () => {
 
   return (
     <div className="mx-auto mt-10 w-full max-w-4xl px-6 pb-16">
+      {/* No page eyebrow: it read "PREFERENCES" above a page titled
+          "Settings", while the actual Preferences section label sat ~900px
+          further down the same page — an eyebrow that named a sibling
+          section rather than this page. The `crm.settings.preferences` key
+          is untouched; `PreferencesSection` still uses it where it means
+          something. */}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-          {translate("crm.settings.preferences", { _: "Preferences" })}
-        </p>
         <h1 className="font-display text-[2rem] font-bold tracking-tight">
           {translate("crm.settings.title")}
         </h1>
@@ -87,10 +90,14 @@ export const SettingsPage = () => {
             </ItemGroup>
           </div>
 
+          {/* Logging out is reversible and routine, not destructive — as the
+              loudest element on the page it out-shouted every real action.
+              `outline` + intrinsic width puts it back in proportion; the
+              destructive identity is reserved for the delete path. */}
           <div className="space-y-3 border-t border-border pt-6">
             <Button
-              variant="destructive"
-              className="h-auto w-full text-base"
+              variant="outline"
+              className="h-auto w-auto text-base"
               onClick={() => logout()}
             >
               <LogOut className="me-3 size-5" />

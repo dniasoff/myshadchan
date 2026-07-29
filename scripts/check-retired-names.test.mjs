@@ -23,6 +23,52 @@ function exampleFor(id) {
   return patternById(id).exampleFragments.join("");
 }
 
+/**
+ * A pattern's exempt terms that match the pattern themselves — the ones the
+ * exemption actually exists for. Read from retired-names.json at runtime for
+ * the same reason exampleFor() is: this file lives under scripts/, which the
+ * real guard scans, so it may never spell a retired term out.
+ *
+ * (The inert remainder — the four CSS pseudo-class entries under
+ * 1.3-children-contextual — cannot mask anything under either rule, so
+ * asserting on them would prove nothing.)
+ */
+function selfMatchingExemptsFor(id) {
+  const pattern = patternById(id);
+  const compiled = new RegExp(pattern.regex, pattern.flags ?? "");
+  const terms = (pattern.exempt ?? []).filter((term) => compiled.test(term));
+  if (terms.length === 0)
+    throw new Error(`No self-matching exempt term for ${id}`);
+  return terms;
+}
+
+/**
+ * Builds the one line on which a naive exemption strip would fabricate a
+ * violation: `head + exemptTerm + tail`, where head and tail are the two
+ * halves of the very substring the pattern matches inside that exempt term.
+ * Deleting the term joins them back into a match nobody wrote; blanking it
+ * to a separator leaves `head + " " + tail`, which matches nothing.
+ *
+ * Derived from the live config rather than hand-written so it stays literal
+ * free (this file is scanned by the guard it tests) and so a newly added
+ * exemption is covered the moment it lands.
+ */
+function spliceHazardFor(id) {
+  const pattern = patternById(id);
+  const compiled = new RegExp(pattern.regex, pattern.flags ?? "");
+  const [exemptTerm] = selfMatchingExemptsFor(id);
+  const [matched] = compiled.exec(exemptTerm);
+  if (matched.length < 2)
+    throw new Error(`Cannot split a ${matched.length}-char match for ${id}`);
+  const split = Math.ceil(matched.length / 2);
+  return `${matched.slice(0, split)}${exemptTerm}${matched.slice(split)}`;
+}
+
+/** The pattern ids whose exemptions are load-bearing, for table-driven cases. */
+const EXEMPT_BEARING_PATTERN_IDS = config.patterns
+  .filter((p) => p.exempt?.length)
+  .map((p) => p.id);
+
 let tempRoot;
 
 beforeEach(async () => {
@@ -82,6 +128,82 @@ describe("runRetiredNameCheck", () => {
     );
 
     expect(runRetiredNameCheck(tempRoot, config)).toEqual([]);
+  });
+
+  // An exemption excuses its own term and nothing else. Before this, the
+  // exemption test was a whole-line `includes()`, so any line carrying an
+  // exempt term became a blind spot for the entire pattern — an unlimited
+  // number of real fossils could hide behind one `asChild`. Nothing in the
+  // tree exploited that (measured: re-scanning main under the strict rule
+  // reported zero extra lines), but the recent additions to the exempt lists
+  // made a latent hole load-bearing.
+  describe("per-term exemptions cannot mask a co-located fossil", () => {
+    it.each(EXEMPT_BEARING_PATTERN_IDS)(
+      "reports a fossil sharing a line with an exempt term (%s)",
+      async (patternId) => {
+        const [exemptTerm] = selfMatchingExemptsFor(patternId);
+        const fossil = exampleFor(patternId);
+
+        await writeFixture(
+          "src/example.ts",
+          `// ${exemptTerm} — and, on the very same line: ${fossil}\n`,
+        );
+
+        const violations = runRetiredNameCheck(tempRoot, config);
+
+        expect(violations).toEqual([
+          `src/example.ts:1: matches "${patternId}"`,
+        ]);
+      },
+    );
+
+    it.each(EXEMPT_BEARING_PATTERN_IDS)(
+      "still exempts every legitimate exempt term on a line of its own (%s)",
+      async (patternId) => {
+        const terms = selfMatchingExemptsFor(patternId);
+
+        await writeFixture("src/example.ts", `${terms.join("\n")}\n`);
+
+        expect(runRetiredNameCheck(tempRoot, config)).toEqual([]);
+      },
+    );
+
+    it("still exempts a line where two exempt terms overlap", async () => {
+      // Real React: the two exempt terms share the word between them, so
+      // whichever is blanked first destroys the other. Neither order may
+      // leave a residue the pattern still matches (the implementation blanks
+      // longest-first so the most specific term always wins).
+      const terms = selfMatchingExemptsFor("1.3-children-camelcase");
+      const namespaced = terms.find((t) => t.startsWith("React."));
+      const method = terms.find(
+        (t) => t.startsWith("React.") === false && t.endsWith(".map"),
+      );
+      const overlap = namespaced.split(".")[1];
+
+      await writeFixture(
+        "src/example.tsx",
+        `${namespaced}${method.slice(overlap.length)}(items, render);\n`,
+      );
+
+      expect(runRetiredNameCheck(tempRoot, config)).toEqual([]);
+    });
+
+    // Guards the implementation rather than the old behaviour. Blanking an
+    // exempt term to the empty string splices its neighbours together, and
+    // spliceHazardFor() builds precisely the line where that splice would
+    // fabricate a match nobody wrote. A guard that invents violations gets
+    // switched off, so this is as important as the masking cases above.
+    it.each(EXEMPT_BEARING_PATTERN_IDS)(
+      "blanks an exempt term to a separator, never splicing a new match (%s)",
+      async (patternId) => {
+        await writeFixture(
+          "src/example.ts",
+          `const x = "${spliceHazardFor(patternId)}";\n`,
+        );
+
+        expect(runRetiredNameCheck(tempRoot, config)).toEqual([]);
+      },
+    );
   });
 
   it("exempts the guard's own data file by exact path, not by directory", async () => {
