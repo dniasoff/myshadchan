@@ -11,6 +11,7 @@ import type {
   AddSchoolInput,
   AiEntitlementInfo,
   CreateShidduchInput,
+  EntityFile,
   Invite,
   InvitableRole,
   InvitePreview,
@@ -32,9 +33,22 @@ import type {
   ShidduchCatch,
   ShidduchSchool,
 } from "../../types";
+import { ENTITY_TARGET_TYPES } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
+import { RESOURCE_FOR_TARGET } from "../../reminders/reminderEntity";
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
+import {
+  deleteEntityFile as deleteEntityFileImpl,
+  removeEntityFileObjects,
+  signEntityFileUrl as signEntityFileUrlImpl,
+  uploadEntityFile as uploadEntityFileImpl,
+} from "./entityFiles";
+import type {
+  DeleteEntityFileParams,
+  SignEntityFileUrlParams,
+  UploadEntityFileParams,
+} from "./entityFiles";
 import { getSupabaseClient } from "./supabase";
 
 const getBaseDataProvider = () =>
@@ -556,12 +570,53 @@ const getDataProviderWithCustomMethods = () => {
         throw new Error(error.message || "Failed to revoke that invite");
       }
     },
+
+    // ---------------------------------------------------------------------
+    // Files tab (Story 3.7, contract §8 rule 5 / AC 4). Implementations live
+    // in ./entityFiles.ts (this file is already ~730 lines —
+    // .claude/rules/coding-style.md file-size guidance) and are mirrored in
+    // providers/fakerest/internal/entityFiles.ts.
+    // ---------------------------------------------------------------------
+    async uploadEntityFile(
+      params: UploadEntityFileParams,
+    ): Promise<EntityFile> {
+      return uploadEntityFileImpl(baseDataProvider, params);
+    },
+    async signEntityFileUrl(params: SignEntityFileUrlParams): Promise<string> {
+      return signEntityFileUrlImpl(params);
+    },
+    async deleteEntityFile(params: DeleteEntityFileParams): Promise<void> {
+      return deleteEntityFileImpl(baseDataProvider, params);
+    },
   } satisfies DataProvider;
 };
 
 export type CrmDataProvider = ReturnType<
   typeof getDataProviderWithCustomMethods
 >;
+
+// Story 3.7 (AC 7b): byte cleanup for the four `entity_files` parent
+// resources, generated from `ENTITY_TARGET_TYPES` via `RESOURCE_FOR_TARGET`
+// rather than four hand-written entries. `purge_polymorphic_dependents()`
+// (02_functions.sql) removes the `entity_files` CATALOG rows once the parent
+// delete's trigger fires; it cannot reach the Storage API, so this runs
+// BEFORE that — the rows are still present here — and removes the objects
+// via `removeEntityFileObjects`. A parent deleted by any path that skips the
+// SPA's dataProvider (service_role, psql, a future edge function) leaves the
+// bytes orphaned; that residual limitation is named, not hidden (AC 7c).
+const entityFilesCleanupCallbacks: ResourceCallbacks[] =
+  ENTITY_TARGET_TYPES.map((targetType) => ({
+    resource: RESOURCE_FOR_TARGET[targetType],
+    beforeDelete: async (params, dataProvider) => {
+      const { data } = await dataProvider.getList<EntityFile>("entity_files", {
+        filter: { target_type: targetType, target_id: params.id },
+        pagination: { page: 1, perPage: 10_000 },
+        sort: { field: "id", order: "ASC" },
+      });
+      await removeEntityFileObjects(data.map((file) => file.storage_path));
+      return params;
+    },
+  }));
 
 const lifeCycleCallbacks: ResourceCallbacks[] = [
   {
@@ -590,6 +645,7 @@ const lifeCycleCallbacks: ResourceCallbacks[] = [
       ])(params);
     },
   },
+  ...entityFilesCleanupCallbacks,
 ];
 
 export const getDataProvider = () => {

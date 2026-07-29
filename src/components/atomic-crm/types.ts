@@ -143,6 +143,15 @@ export type ShidduchOrigin = "channel" | "manual" | "shadchan";
 
 export type ShidduchVisibility = "shared" | "private_parent" | "private_single";
 
+/**
+ * `entity_files.visibility` (Story 3.7) — the SAME AD-3 vocabulary
+ * `ShidduchVisibility` carries, not a second one: `epics.md`'s per-file
+ * visibility AC uses the domain's existing three values. Widened in place to
+ * alias it — never re-declared as an independent union alongside it,
+ * mirroring how `TaskTargetType` aliases `EntityTargetType` below.
+ */
+export type EntityFileVisibility = ShidduchVisibility;
+
 export type Account = {
   name: string;
   transparency_level: string;
@@ -511,6 +520,38 @@ export type Interaction = {
    *  owns the write path, its moderation policy and its UI). */
   deleted_at?: string | null;
 } & Pick<RaRecord, "id">;
+
+/**
+ * A row of `public.entity_files` (Story 3.7): the Files tab's storage
+ * catalog. One row per uploaded object in the private `entity-files` bucket,
+ * addressed by `storage_path` — never by a URL. AC 5 forbids storing one:
+ * `signEntityFileUrl()` mints a signed URL per click and never persists it.
+ * Polymorphic (AD-13) like `Task`/`Interaction`, and — unlike them —
+ * `target_type` was at full `ENTITY_TARGET_TYPES` parity from creation
+ * (`entity360/pendingDbWidenings.ts` never tracked it as pending).
+ */
+export type EntityFile = {
+  account_id: Identifier;
+  target_type: EntityTargetType;
+  target_id: Identifier;
+  storage_path: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  visibility: EntityFileVisibility;
+  uploaded_by_member_id?: Identifier | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
+ * entity_files_summary — the Files tab's read path (AD-10): FilesTab LISTS
+ * through this view and WRITES through `entity_files` directly. Adds the
+ * uploader's server-resolved display name, the same shape
+ * `interactions_summary`'s `author_name` uses.
+ */
+export type EntityFileSummary = EntityFile & {
+  uploaded_by_name?: string | null;
+};
 
 /**
  * One deciding fact behind a match candidate. The matcher never returns a bare

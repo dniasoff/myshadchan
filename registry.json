@@ -476,6 +476,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/supabase/entityFiles.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/supabase/dataProvider.ts",
           "type": "registry:component"
         },
@@ -553,6 +557,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/internal/invites.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/entityFiles.ts",
           "type": "registry:component"
         },
         {
@@ -985,6 +993,10 @@
         },
         {
           "path": "src/components/atomic-crm/entity360/tabs/NotesTab.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/tabs/FilesTab.tsx",
           "type": "registry:component"
         },
         {

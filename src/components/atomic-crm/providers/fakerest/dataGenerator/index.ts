@@ -19,6 +19,9 @@ export default (): Db => {
   // by default; InvitesSection.tsx's createInvite()/revokeInvite() are the
   // only writers.
   db.invites = [];
+  // Files tab (Story 3.7) — no file is uploaded by default; FilesTab's own
+  // upload/delete calls are the only writers.
+  db.entity_files = [];
   // Shidduchim pipeline domain (accounts, singles, shadchanim, shidduchim, ...)
   generateShidduchimDomain(db);
   // References domain (references, reference_links, interactions, reference

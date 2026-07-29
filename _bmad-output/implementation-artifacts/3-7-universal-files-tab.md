@@ -1,6 +1,10 @@
+---
+baseline_commit: 5a5ad53d9fd05b9f0e14b3f796bdbcbe87eafc87
+---
+
 # Story 3.7: Universal Files tab
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -504,76 +508,103 @@ this suite.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Storage: bucket + three policies** (AC 1)
-  - [ ] Append the `entity-files` bucket and its **three** policies to
+- [x] **Task 1 — Storage: bucket + three policies** (AC 1)
+  - [x] Append the `entity-files` bucket and its **three** policies to
         `supabase/schemas/07_storage.sql`, copying `:25-44` with the bucket id swapped.
         Do not add an UPDATE policy (AC 1).
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f add_entity_files_bucket`.
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f add_entity_files_bucket`.
         `db diff` produces DDL, and a bucket is a **row** in `storage.buckets`, so verify
         empirically whether the insert appears; if it does not, add
         `insert into storage.buckets (id, name, public) values ('entity-files','entity-files',false) on conflict do nothing;`
         to the generated migration by hand. Check the file, do not assume either way.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
-  - [ ] Re-run `npm run test:unit:db` and confirm `context_rls_hardening`'s
+        Verified: the bucket insert did NOT appear in the diff (migra diffs schema, not
+        data); added it by hand at the top of the migration.
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
+  - [x] Re-run `npm run test:unit:db` and confirm `context_rls_hardening`'s
         "no UPDATE-applicable policy exists on storage.objects" check is still green.
+        Confirmed green, and additionally demonstrated red-then-green by hand: adding a
+        fourth (UPDATE) `entity-files` storage policy turns that exact check red; removing
+        it restores green (full suite: 449/449).
 
-- [ ] **Task 2 — Schema: table, view, triggers, policy, grants** (AC 2, AC 3)
-  - [ ] `01_tables.sql`: the table, its four constraints, the two FKs, the two indexes.
-  - [ ] `03_views.sql`: `entity_files_summary` with `security_invoker = on`.
-  - [ ] `04_triggers.sql`: `set_entity_files_account_id` and `set_entity_files_uploaded_by`.
+- [x] **Task 2 — Schema: table, view, triggers, policy, grants** (AC 2, AC 3)
+  - [x] `01_tables.sql`: the table, its four constraints, the two FKs, the two indexes.
+  - [x] `03_views.sql`: `entity_files_summary` with `security_invoker = on`.
+  - [x] `04_triggers.sql`: `set_entity_files_account_id` and `set_entity_files_uploaded_by`.
         Add **no** `validate_entity_files_household_scope`.
-  - [ ] `02_functions.sql`: the `set_entity_files_uploaded_by()` trigger function, in exact
+  - [x] `02_functions.sql`: the `set_entity_files_uploaded_by()` trigger function, in exact
         `pg_dump` form — `CREATE OR REPLACE FUNCTION "public"."name"() RETURNS "trigger" LANGUAGE "plpgsql" SET "search_path" TO '' AS $$…$$;`
         — modelled byte-for-byte on `supabase/schemas/02_functions.sql:201-203`'s header shape.
-        A lowercase/unquoted header produces a phantom `db diff` (AGENTS.md).
-  - [ ] `05_policies.sql`: `enable row level security` + the `for all` policy.
-  - [ ] `06_grants.sql`: table grants, the `grant update (visibility)` line, the sequence
-        revoke/grants, and the view grants.
-  - [ ] Extend 3.5's `?raw` DB-vocabulary guard to scan `entity_files_target_type_check`. Do
-        **not** add it to `PENDING_DB_WIDENINGS` — it ships at parity.
-  - [ ] `db diff -f add_entity_files_table`, hand-check, `migration up --local`.
+        A lowercase/unquoted header produces a phantom `db diff` (AGENTS.md). Confirmed
+        `db diff` is clean ("No schema changes found") after applying.
+  - [x] `05_policies.sql`: `enable row level security` + the `for all` policy.
+  - [x] `06_grants.sql`: table grants, the `grant update (visibility)` line, the sequence
+        revoke/grants, and the view grants. **Hand-fix required and applied:** `migra`'s
+        diff omitted `entity_files_summary`'s grants entirely and omitted the `revoke all`
+        half of `entity_files`'s own grants — verified empirically (`information_schema`
+        query) that applying the raw generated migration left `authenticated` without
+        SELECT on the view and with extra TRUNCATE/REFERENCES/TRIGGER on the table (both
+        from this database's pre-existing `alter default privileges ... to authenticated`
+        firing at `create table`/`create view` time, which `migra`'s snapshot diff does not
+        anticipate). Added the exact `06_grants.sql` statements to the migration by hand and
+        re-verified the resulting grants match the schema exactly after a full `db reset`.
+  - [x] Extend 3.5's `?raw` DB-vocabulary guard to scan `entity_files_target_type_check`. Do
+        **not** add it to `PENDING_DB_WIDENINGS` — it ships at parity. `PENDING_DB_WIDENINGS`
+        is now `[]`; the guard's own "before" test was rewritten (see Completion Notes) so it
+        keeps proving a real red run rather than depending on the table not existing yet.
+  - [x] `db diff -f add_entity_files_table`, hand-check, `migration up --local`. (Generated as
+        one combined migration together with Tasks 1 and 3 — `db diff` produces one diff per
+        invocation regardless of which of this story's schema edits are already staged, so a
+        single `add_entity_files` migration captures the bucket, table, view, triggers,
+        policies, grants and the purge-function edit together.)
 
-- [ ] **Task 3 — Purge** (AC 7)
-  - [ ] Add the `entity_files` delete to `purge_polymorphic_dependents()`
+- [x] **Task 3 — Purge** (AC 7)
+  - [x] Add the `entity_files` delete to `purge_polymorphic_dependents()`
         (`02_functions.sql:1799-1817`), preserving the exact `pg_dump` header.
-  - [ ] `db diff`, hand-check, `migration up --local`.
+  - [x] `db diff`, hand-check, `migration up --local`. (Part of the one combined migration —
+        see Task 2's last subtask.)
 
-- [ ] **Task 4 — dataProvider: three methods + FakeRest mirror + byte cleanup** (AC 4, AC 7(b))
-  - [ ] `providers/supabase/entityFiles.ts` — `uploadEntityFile`, `signEntityFileUrl`,
+- [x] **Task 4 — dataProvider: three methods + FakeRest mirror + byte cleanup** (AC 4, AC 7(b))
+  - [x] `providers/supabase/entityFiles.ts` — `uploadEntityFile`, `signEntityFileUrl`,
         `deleteEntityFile`, `removeEntityFileObjects`.
-  - [ ] Wire them into the custom-methods overlay
+  - [x] Wire them into the custom-methods overlay
         (`providers/supabase/dataProvider.ts:84-559`) and add the four `beforeDelete`
         `ResourceCallbacks` entries to `lifeCycleCallbacks` (`:566-593`).
-  - [ ] `providers/fakerest/internal/entityFiles.ts` — the AD-10 mirror: an in-memory blob map
+  - [x] `providers/fakerest/internal/entityFiles.ts` — the AD-10 mirror: an in-memory blob map
         with `URL.createObjectURL` previews, wired at
         `providers/fakerest/dataProvider.ts:693-749`.
-  - [ ] Add `entity_files: EntityFile[]` to the `Db` interface
+  - [x] Add `entity_files: EntityFile[]` to the `Db` interface
         (`providers/fakerest/dataGenerator/types.ts:22-44`) and seed it empty in
-        `dataGenerator/index.ts`. **The demo build must not crash on this tab.**
-  - [ ] Add `EntityFile` and `EntityFileVisibility` to `src/components/atomic-crm/types.ts`
+        `dataGenerator/index.ts`. **The demo build must not crash on this tab.** Verified via
+        a real-FakeRest-provider round-trip test in `FilesTab.test.tsx` (upload → list →
+        persisted row), not merely "does not crash".
+  - [x] Add `EntityFile` and `EntityFileVisibility` to `src/components/atomic-crm/types.ts`
         (this story owns them; contract §10 assigns `EntityTargetType` to 3.9 and
-        `Interaction` to 3.5, and neither covers these).
+        `Interaction` to 3.5, and neither covers these). Also added `EntityFileSummary`
+        (the `entity_files_summary` row shape, `EntityFile` + `uploaded_by_name`).
 
-- [ ] **Task 5 — `FilesTab.tsx`** (AC 5, AC 6)
-  - [ ] Build per AC 6, calling only `useDataProvider()` / `useGetList` — no
+- [x] **Task 5 — `FilesTab.tsx`** (AC 5, AC 6)
+  - [x] Build per AC 6, calling only `useDataProvider()` / `useGetList` — no
         `getSupabaseClient()` import anywhere under `entity360/`.
-  - [ ] `FilesTab.test.tsx` (`app` project): list with rows, empty, loading, error;
+  - [x] `FilesTab.test.tsx` (`app` project): list with rows, empty, loading, error;
         upload happy path; upload with a failing row-create (object removed); replace;
         delete; per-click signing (AC 5(a)); visibility control present for `shidduch`,
-        absent for `reference`.
-  - [ ] The AC 5(b) schema-shape guard, **proven red once** against a scratch block carrying a
-        `url text` column.
-  - [ ] **Regression tripwire, explicitly not coverage:** an `import.meta.glob`-based scan
+        absent for `reference`. Also covers `single` (present) and `shadchan` (absent), the
+        replace call-order assertion (delete before upload), and one real-FakeRest round trip.
+  - [x] The AC 5(b) schema-shape guard, **proven red once** against a scratch block carrying a
+        `url text` column. Also proven red for a column merely ending in `_url`.
+  - [x] **Regression tripwire, explicitly not coverage:** an `import.meta.glob`-based scan
         asserting `getPublicUrl` appears in no `src/` file. It passes vacuously today (0 hits
         repo-wide) and exists only so a future reintroduction is caught. Do not count it toward
         this story's coverage and do not present it as an acceptance criterion.
 
-- [ ] **Task 6 — The negative suite** (AC 8)
-  - [ ] `supabase/tests/entity_files.sql` + `entity_files.test.ts`, all seven check groups,
+- [x] **Task 6 — The negative suite** (AC 8)
+  - [x] `supabase/tests/entity_files.sql` + `entity_files.test.ts`, all seven check groups,
         modelled on `context_rls_hardening.sql` (storage + JWT claims) and
         `context_resolution.sql` (`set_active_context`).
-  - [ ] Demonstrate each check red by loosening the thing it names, then restore. Record which
-        ones were demonstrated in the Completion Notes.
+  - [x] Demonstrate each check red by loosening the thing it names, then restore. Record which
+        ones were demonstrated in the Completion Notes. **All seven groups demonstrated red
+        then green by hand** on the local stack (see Completion Notes for the exact toggle
+        used per group).
 
 ## Dev Notes
 
@@ -693,8 +724,228 @@ sequence against a freshly reset local database (`npx supabase db reset --local`
 
 ### Agent Model Used
 
+Claude Opus 5 (bmad-dev-story workflow, single-agent execution — dispatched directly, not
+through the multi-agent harness).
+
 ### Debug Log References
+
+- `STACK_ID=2 STACK_OWNER=3-7 make start-supabase-e2e STACK_ID=2` — isolated Supabase stack
+  (db port 54362), used for all schema/migration/db-test work in this story.
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --workdir .supabase-e2e-2 --local -f add_entity_files`
+  — generated `supabase/migrations/20260729070301_add_entity_files.sql`.
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db reset --workdir .supabase-e2e-2 --local`
+  — full replay of all migrations from scratch, used to validate the hand-fixed migration
+  end-to-end (not just against the already-migrated stack).
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --workdir .supabase-e2e-2 --local`
+  (no `-f`) after the reset — reported "No schema changes found".
+- `STACK_ID=2 STACK_OWNER=3-7 npm run test:unit:db` — 449/449 passed (13 files, 1 new:
+  `entity_files.test.ts`, 21 checks including its own sanity check).
+- `STACK_ID=2 STACK_OWNER=3-7 npx vitest --project app run` — 853/853 passed (111 files).
+- `npm run typecheck`, `npm run lint`, `npx prettier --check .` — all clean on every file this
+  story touched (remaining prettier warnings are pre-existing, unrelated files: CI workflow
+  YAML, doc `.mdx`, `.lintstagedrc`).
+- `npm run build` — succeeded (pre-existing chunk-size warning, unrelated to this story).
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null STACK_ID=2 STACK_OWNER=3-7 make stop-supabase-e2e STACK_ID=2`
+  — stack released at the end of the session.
 
 ### Completion Notes List
 
+**AC 1 — storage bucket + 3 policies.** Shipped exactly as specified. `db diff` genuinely
+omitted the bucket-row insert (migra diffs schema, not `storage.buckets` data), confirmed
+empirically and added by hand to the migration, matching the story's own prediction.
+
+**AC 1 tripwire, demonstrated by hand:** adding a fourth (UPDATE) `entity-files` storage
+policy turns `context_rls_hardening.sql`'s table-wide "no UPDATE-applicable policy exists on
+storage.objects" check red (1 failed / 21); removing it restores green. This is the one
+cross-story tripwire the story calls out by name, and it fires exactly as predicted.
+
+**AC 2/3 — table, view, triggers, grants: a real migra gap, not merely the anticipated bucket
+gap.** Hand-checking the generated migration against `information_schema.role_table_grants`
+surfaced two additional, unanticipated omissions beyond the story's own bucket-insert
+warning:
+1. `entity_files`'s table grant lacked its `revoke all on table ... from anon, authenticated`
+   half. This database's `alter default privileges ... grant all on tables to authenticated`
+   (an earlier migration) fires the moment `CREATE TABLE entity_files` runs *on the real
+   target database* — something migra's snapshot-based diff does not simulate — so
+   `authenticated` ended up with TRUNCATE/REFERENCES/TRIGGER in addition to the intended
+   SELECT/INSERT/DELETE. TRUNCATE bypassing RLS is exactly the class of gap this codebase's
+   own grants file repeatedly calls out as dangerous.
+2. `entity_files_summary`'s grants (select for authenticated, all for service_role) were
+   **entirely absent** from the generated migration — migra emitted zero ACL statements for
+   the new view. Applying the migration as generated left `authenticated` unable to `SELECT`
+   the view its own `FilesTab` reads through.
+
+Both were caught by hand-checking the *actual resulting privilege state* after applying the
+migration (not just eyeballing the generated SQL), fixed by copying the exact `06_grants.sql`
+statements into the migration, and reverified via a full `supabase db reset` (all migrations
+replayed from scratch) followed by `db diff` reporting "No schema changes found" and a direct
+`information_schema` query confirming `entity_files`/`entity_files_summary` grants match the
+schema exactly. `entity_files_id_seq`'s sequence grants matched the schema on the first try —
+its `authenticated=rwU` (extra UPDATE beyond the intended `usage, select`) is not a defect: it
+is byte-identical to the already-shipped `inbox_items_id_seq`'s real grants (verified by
+direct comparison), i.e. the accepted, pre-existing shape the story's own AC copies.
+
+**`PENDING_DB_WIDENINGS` guard, restructured, not just narrowed.** The pre-existing
+`pendingDbWidenings.test.ts` had a "before" test whose own docstring said it depended on
+`entity_files` not existing yet ("the table for entity_files does not exist yet, so it cannot
+supply that same fixture shape"). Once this story creates the table for real, that test would
+have started silently proving nothing (its synthetic fixture text, built by prepending the
+now-real `TABLES_SQL`, would match the REAL constraint text first via regex, never reaching
+the appended fake narrow one). Rewrote it into the same "revert-the-migration fixture" shape
+the `tasks_target_type_check` / `interactions_target_type_check` tests already use, and added
+a new, fully synthetic-source test that exercises the actual `findOffendingConstraints`
+top-level function (not just its two helpers) independent of the real schema's current
+content — so the guard keeps a genuine, demonstrable red run rather than depending on
+transient repo state.
+
+**AC 5(a)/6 — a real accessibility-role collision, found and fixed during testing, not
+theorized.** `<input type="file">` is exposed with ARIA role "button" by the browser/Playwright
+accessibility tree, identical to the visible trigger `<Button>` sitting next to it — so
+`getByRole("button", { name: "Upload a file" })` matched two elements (`FilesTab.test.tsx`
+failed with a genuine Playwright "strict mode violation" on first run, not a flake). Fixed by
+marking the raw file inputs `aria-hidden="true"` + `tabIndex={-1}` (the visible `Button` is
+the real, sole accessible affordance; the input is triggered programmatically and should never
+have had its own identity in the accessibility tree) — `getByLabelText` still finds the input
+for `.upload()` since aria-label matching there does not depend on the accessibility-tree
+role/name computation the same way `getByRole` does. Both are real production-code
+improvements, not test-only workarounds.
+
+**Task 6 (AC 8) — all seven check groups demonstrated red then green by hand**, per the
+story's own requirement, on the local (stack 2) database:
+- (a) storage — loosened the "Entity files writable within account" INSERT policy's `with
+  check` to `true`: the "INSERT under B's prefix raises" check went red (insert unexpectedly
+  succeeded); restored.
+- (b) table — loosened "Entity files scoped to account" to `using (true) with check (true)`:
+  all three (b) checks went red; restored.
+- (c)/(d) — attached a simulated `validate_entity_files_household_scope` trigger (calling the
+  real `enforce_household_scope()`): both the shadchanus-positive insert (c) and the
+  no-such-trigger catalog check (d) went red together, exactly as AC 8(c)/(d)'s "pin it from
+  both directions" language intends; dropped the trigger to restore.
+- (e) — dropped `entity_files_visibility_target_check`: the private_parent-on-reference
+  rejection check went red (insert unexpectedly succeeded); restored.
+- (f) — dropped `entity_files_storage_path_scope_check`: the mismatched-prefix rejection check
+  went red; restored.
+- (g) — granted `select` to `anon` on both `entity_files` and `entity_files_summary`: all four
+  (g) checks went red (SELECT unexpectedly succeeded / a privilege now exists); restored.
+
+Full suite reconfirmed green (449/449) after every restore.
+
+**Deviation from contract §8 rule 3, as the contract itself anticipates (AC 7):** the
+contract's own text says the second half — "and to delete the storage objects" — is not
+implementable inside `purge_polymorphic_dependents()`, for the reasons AC 7(b) states
+(`storage.protect_delete()`'s statement-level guard, and row deletion not reclaiming bytes
+even with it lifted). Implemented exactly as the contract prescribes: SQL purges the four
+parent types' `entity_files` rows; byte cleanup is four `beforeDelete` `ResourceCallbacks`
+entries in `providers/supabase/dataProvider.ts`, generated from `ENTITY_TARGET_TYPES` via
+`RESOURCE_FOR_TARGET` rather than four hand-written entries. The residual orphan-bytes
+limitation (a parent deleted outside the SPA's dataProvider) is stated in code comments on
+`purge_polymorphic_dependents()` and in AC 7(c)'s own text, not hidden.
+
+**Not implemented / explicitly out of scope, stated rather than silently skipped:**
+- No dedicated test file for `providers/fakerest/internal/entityFiles.ts` — the dispatch's own
+  path-ownership list does not include one (unlike `providers/supabase/entityFiles.test.ts`,
+  which is listed), and several other FakeRest `internal/` modules in this repo also ship
+  without a dedicated test file. Coverage comes instead from `FilesTab.test.tsx`'s one
+  real-FakeRest-provider round-trip test (upload → list → persisted row with the correct
+  `target_type`/`target_id`), which does exercise the module end-to-end.
+- No cascade-cleanup mirror added to the FakeRest provider for parent-record deletes (i.e.,
+  FakeRest does not emulate `purge_polymorphic_dependents()`'s row cleanup for entity_files on
+  a demo-mode `singles`/`shadchanim`/`references`/`shidduchim` delete). This is consistent with
+  the FakeRest provider's existing behaviour for `tasks`/`interactions` (neither is cleaned up
+  on a FakeRest parent delete today either) — adding it only for `entity_files` would be new,
+  undirected scope, not a regression this story introduces.
+- A single combined migration (`add_entity_files.sql`) captures Tasks 1–3 together rather than
+  three separate `db diff` invocations. `db diff` diffs the declarative schema files against
+  whatever migrations have already landed — since all three tasks' schema edits were written
+  before the first `db diff` ran, one invocation captured all of them together. Functionally
+  equivalent; noted as a deviation from the task list's literal three-invocation phrasing.
+
+**Something in the contract believed to be wrong, or at least incomplete:** contract §13 rule
+2's "prove it red first" guidance, and the story's own AC 5(b)/Task 5 instructions, are
+followed faithfully — but the migra-diff gaps found in AC 2/3 above are a *process* risk the
+contract and story don't call out at all (only the bucket-row gap is anticipated). Worth
+recording for future stories touching `06_grants.sql`+a brand-new table/view in the same
+migration: **always hand-verify the actual post-migration `information_schema` grant state**,
+not just that the generated SQL "looks plausible" — a generated migration can be syntactically
+fine and still leave the database in a materially different privilege state than the
+declarative schema describes, silently, because of this database's own default-privilege
+customization interacting with fresh `CREATE TABLE`/`CREATE VIEW` statements in a way the diff
+tool's snapshot comparison does not model.
+
 ### File List
+
+**Schema (declarative source of truth):**
+- `supabase/schemas/01_tables.sql` — `entity_files` table (4 constraints), 2 FKs, 2 indexes.
+- `supabase/schemas/02_functions.sql` — `set_entity_files_uploaded_by()`; extended
+  `purge_polymorphic_dependents()` with the fourth (`entity_files`) delete.
+- `supabase/schemas/03_views.sql` — `entity_files_summary` (`security_invoker = on`).
+- `supabase/schemas/04_triggers.sql` — `set_entity_files_account_id`,
+  `set_entity_files_uploaded_by`.
+- `supabase/schemas/05_policies.sql` — `entity_files` RLS + the `for all` account-scoped policy.
+- `supabase/schemas/06_grants.sql` — `entity_files` / `entity_files_summary` /
+  `entity_files_id_seq` grants, including the column-level `grant update (visibility)`.
+- `supabase/schemas/07_storage.sql` — the `entity-files` bucket insert + its three storage
+  policies (select/insert/delete, no update).
+
+**Migration:**
+- `supabase/migrations/20260729070301_add_entity_files.sql` (new) — generated via `db diff`,
+  then hand-fixed for the bucket-row insert and the grant gaps recorded above.
+
+**Database tests:**
+- `supabase/tests/entity_files.sql` (new) — AC 8, all seven check groups.
+- `supabase/tests/entity_files.test.ts` (new) — the `db`-project runner.
+
+**TypeScript types:**
+- `src/components/atomic-crm/types.ts` — `EntityFileVisibility` (aliases `ShidduchVisibility`),
+  `EntityFile`, `EntityFileSummary`.
+- `src/components/atomic-crm/entity360/pendingDbWidenings.ts` — `PENDING_DB_WIDENINGS` now `[]`.
+- `src/components/atomic-crm/entity360/pendingDbWidenings.test.ts` — restructured the
+  `entity_files_target_type_check` "before" test into the revert-fixture shape; added a
+  synthetic-source `findOffendingConstraints` red-proof; added the "parses the real
+  entity_files_target_type_check values" green test.
+
+**Supabase dataProvider:**
+- `src/components/atomic-crm/providers/supabase/entityFiles.ts` (new) — `uploadEntityFile`,
+  `signEntityFileUrl`, `deleteEntityFile`, `removeEntityFileObjects`,
+  `ENTITY_FILE_URL_TTL_SECONDS`.
+- `src/components/atomic-crm/providers/supabase/entityFiles.test.ts` (new).
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts` — wired the three custom
+  methods; added the four `beforeDelete` `ResourceCallbacks` entries to `lifeCycleCallbacks`,
+  generated from `ENTITY_TARGET_TYPES` via `RESOURCE_FOR_TARGET`.
+
+**FakeRest dataProvider (AD-10 mirror):**
+- `src/components/atomic-crm/providers/fakerest/internal/entityFiles.ts` (new) — the
+  in-memory blob-URL mirror of the three Supabase methods, plus `removeEntityFileObjects`.
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts` — wired the three custom
+  methods (resolving account id + uploader membership), `entity_files_summary` list/getOne
+  enrichment (`uploaded_by_name`).
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/types.ts` — `entity_files:
+  EntityFile[]` on `Db`.
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts` — seeds it `[]`.
+
+**UI:**
+- `src/components/atomic-crm/entity360/tabs/FilesTab.tsx` (new) — the universal Files tab.
+- `src/components/atomic-crm/entity360/tabs/FilesTab.test.tsx` (new).
+- `src/components/atomic-crm/entity360/tabs/FilesTab.guard.test.ts` (new) — the AC 5(b)
+  schema-shape guard + the `getPublicUrl` regression tripwire.
+
+**i18n:**
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` — `entity360.files.*`.
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` — `entity360.files.*`
+  (French).
+
+**Not touched:** `registry.json` (regenerates automatically via the `make commit` pre-commit
+hook when the tree is quiet at commit time; not hand-edited).
+
+## Change Log
+
+- 2026-07-29 — Story 3.7 implemented end-to-end: `entity-files` storage bucket + 3 policies,
+  `entity_files` table/view/triggers/policy/grants at full four-value target-type parity,
+  `purge_polymorphic_dependents()` extended, the three-method dataProvider seam (Supabase +
+  FakeRest mirror), `FilesTab.tsx`, and the full AC 8 negative suite (all 7 groups
+  demonstrated red then green by hand). All gates green: `make typecheck`, `make lint`,
+  `npx prettier --check .`, `npx vitest run` (app: 853/853, db: 449/449), `make build`,
+  `db diff` clean. Two migra-diff gaps found and hand-fixed beyond the story's own
+  anticipated bucket-row gap (see Completion Notes): `entity_files_summary`'s missing view
+  grants, and `entity_files`'s missing `revoke all` (leaving TRUNCATE reachable to
+  `authenticated`). Status → review.

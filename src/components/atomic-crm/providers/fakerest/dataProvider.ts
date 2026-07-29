@@ -11,6 +11,7 @@ import type {
   AddSchoolInput,
   AiEntitlementInfo,
   CreateShidduchInput,
+  EntityFile,
   EntityTargetType,
   Invite,
   InvitableRole,
@@ -33,6 +34,15 @@ import type {
   ShidduchSchool,
 } from "../../types";
 import { ENTITY_TARGET_TYPES } from "../../types";
+import {
+  deleteEntityFile as deleteEntityFileImpl,
+  signEntityFileUrl as signEntityFileUrlImpl,
+  uploadEntityFile as uploadEntityFileImpl,
+} from "./internal/entityFiles";
+import type {
+  EntityFileBlobUrls,
+  UploadEntityFileParams,
+} from "./internal/entityFiles";
 import {
   INITIAL_PIPELINE_STATES,
   isValidTransition,
@@ -152,6 +162,11 @@ export const createDataProvider = ({
   const getIdentity = async () =>
     authProvider?.getIdentity?.() ?? defaultAuthProvider.getIdentity?.();
 
+  // Files tab (Story 3.7): the AD-10 mirror's in-memory "bytes" — see
+  // ./internal/entityFiles.ts. One map per createDataProvider() session, so
+  // a fresh demo/test session never sees a previous one's blob URLs.
+  const entityFileBlobUrls: EntityFileBlobUrls = new Map();
+
   // Emulate the shidduchim_summary view (AD-10 FakeRest mirror): enrich each
   // shidduch with its shadchan name ("via {shadchan}"), single names, and
   // reference count, joining the in-memory tables.
@@ -237,6 +252,15 @@ export const createDataProvider = ({
       activeAccountId,
     );
     return { userId, membership };
+  };
+
+  // Files tab (Story 3.7): the FakeRest mirror of `current_context_id()` —
+  // "the caller's currently active account", falling back to 1 only when no
+  // identity/membership resolves at all (mirrors createShidduchImpl's own
+  // `single?.account_id ?? 1` fallback below).
+  const resolveCurrentAccountId = async (): Promise<Identifier> => {
+    const caller = await resolveCallerMembership();
+    return caller?.membership?.account_id ?? activeAccountId ?? 1;
   };
 
   // Mirrors `public.is_owning_membership_role()` (02_functions.sql). Kept as
@@ -338,6 +362,46 @@ export const createDataProvider = ({
         ...row,
         author_name: authorName || null,
         can_moderate: canModerate,
+      };
+    });
+  };
+
+  // Emulate the entity_files_summary view (Story 3.7, AD-10 FakeRest
+  // mirror): resolve each row's uploaded_by_name the same user_id-keyed way
+  // enrichInteractions resolves author_name above.
+  const enrichEntityFiles = async (rows: any[]): Promise<any[]> => {
+    if (rows.length === 0) return [];
+    const [{ data: accountMembers }, { data: members }] = await Promise.all([
+      baseDataProvider.getList<AccountMember>("account_members", {
+        filter: {},
+        pagination: { page: 1, perPage: 10_000 },
+        sort: { field: "id", order: "ASC" },
+      }),
+      baseDataProvider.getList<Member>("members", {
+        filter: {},
+        pagination: { page: 1, perPage: 10_000 },
+        sort: { field: "id", order: "ASC" },
+      }),
+    ]);
+    const membershipById = new Map(accountMembers.map((am) => [am.id, am]));
+    const memberByUserId = new Map(members.map((m) => [m.user_id, m]));
+
+    return rows.map((row: any) => {
+      const uploaderMembership =
+        row.uploaded_by_member_id != null
+          ? membershipById.get(row.uploaded_by_member_id)
+          : undefined;
+      const uploaderProfile =
+        uploaderMembership?.user_id != null
+          ? memberByUserId.get(uploaderMembership.user_id)
+          : undefined;
+      const uploadedByName = uploaderProfile
+        ? `${uploaderProfile.first_name} ${uploaderProfile.last_name}`.trim()
+        : "";
+
+      return {
+        ...row,
+        uploaded_by_name: uploadedByName || null,
       };
     });
   };
@@ -570,6 +634,15 @@ export const createDataProvider = ({
         );
         return { data: await enrichInteractions(data), total };
       }
+      // Emulate entity_files_summary (Story 3.7 AD-10 FakeRest mirror) the
+      // same way interactions_summary is emulated above.
+      if (resource === "entity_files" || resource === "entity_files_summary") {
+        const { data, total } = await baseDataProvider.getList(
+          "entity_files",
+          params,
+        );
+        return { data: await enrichEntityFiles(data), total };
+      }
       return baseDataProvider.getList(resource, params);
     },
     async getOne(resource: string, params: any) {
@@ -602,6 +675,11 @@ export const createDataProvider = ({
       if (resource === "interactions" || resource === "interactions_summary") {
         const { data } = await baseDataProvider.getOne("interactions", params);
         const [enriched] = await enrichInteractions([data]);
+        return { data: enriched };
+      }
+      if (resource === "entity_files" || resource === "entity_files_summary") {
+        const { data } = await baseDataProvider.getOne("entity_files", params);
+        const [enriched] = await enrichEntityFiles([data]);
         return { data: enriched };
       }
       return baseDataProvider.getOne(resource, params);
@@ -906,6 +984,35 @@ export const createDataProvider = ({
       ),
     revokeInvite: (id: Identifier): Promise<void> =>
       revokeInvite(baseDataProvider, getIdentity, () => activeAccountId, id),
+    // ---------------------------------------------------------------------
+    // Files tab (Story 3.7) -- FakeRest mirrors of
+    // providers/supabase/entityFiles.ts, backed by ./internal/entityFiles.ts.
+    // ---------------------------------------------------------------------
+    uploadEntityFile: async (
+      params: UploadEntityFileParams,
+    ): Promise<EntityFile> => {
+      const [accountId, caller] = await Promise.all([
+        resolveCurrentAccountId(),
+        resolveCallerMembership(),
+      ]);
+      return uploadEntityFileImpl(
+        baseDataProvider,
+        entityFileBlobUrls,
+        accountId,
+        caller?.membership?.id ?? null,
+        params,
+      );
+    },
+    signEntityFileUrl: (params: {
+      storagePath: string;
+      fileName: string;
+    }): Promise<string> =>
+      signEntityFileUrlImpl(entityFileBlobUrls, params.storagePath),
+    deleteEntityFile: (params: {
+      id: Identifier;
+      storagePath: string;
+    }): Promise<void> =>
+      deleteEntityFileImpl(baseDataProvider, entityFileBlobUrls, params),
   };
 
   const dataProvider = withLifecycleCallbacks(

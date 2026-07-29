@@ -424,6 +424,27 @@ begin
 end;
 $$;
 
+-- Server-sets uploaded_by_member_id on an entity_files insert (Story 3.7, AC
+-- 2f) — but ONLY when the client did not already supply one, unlike
+-- set_interaction_actor_member_id() above, which unconditionally overwrites.
+-- There is no client path that legitimately sets this column to someone
+-- else's membership id (uploadEntityFile() never sends it), so the if-null
+-- shape is a defensive default here, not a trust boundary the way
+-- interactions' unconditional overwrite is. NOT SECURITY DEFINER: the
+-- definer privilege it needs lives inside current_member_id() itself,
+-- exactly like set_interaction_actor_member_id() above.
+CREATE OR REPLACE FUNCTION "public"."set_entity_files_uploaded_by"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  if new.uploaded_by_member_id is null then
+    new.uploaded_by_member_id := public.current_member_id();
+  end if;
+  return new;
+end;
+$$;
+
 -- =====================================================================
 -- MyShadchan — Persona and context data model (Story 2.2, AD-2)
 -- =====================================================================
@@ -1906,13 +1927,26 @@ begin
 end;
 $$;
 
--- interactions/tasks/identity_signals are polymorphic, so no FK cascades them.
--- This trigger IS the cascade: deleting the target removes everything pointing
--- at it, leaving no orphaned candid content and no stale match signal. The
--- target_type is passed as a trigger argument so one function serves every
--- polymorphic parent. SECURITY DEFINER because identity_signals is not
--- client-writable (see 05_policies.sql) — it still filters on the row's own
--- account_id, so it can never reach across a tenant boundary.
+-- interactions/tasks/identity_signals/entity_files are polymorphic, so no FK
+-- cascades them. This trigger IS the cascade: deleting the target removes
+-- everything pointing at it, leaving no orphaned candid content, no stale
+-- match signal and no dangling file catalog row. The target_type is passed
+-- as a trigger argument so one function serves every polymorphic parent.
+-- SECURITY DEFINER because identity_signals is not client-writable (see
+-- 05_policies.sql) — it still filters on the row's own account_id, so it can
+-- never reach across a tenant boundary.
+--
+-- Story 3.7 (AC 7a): the entity_files delete removes the CATALOG rows only.
+-- It does NOT remove the storage objects those rows pointed at — SQL cannot:
+-- storage.objects carries its own BEFORE DELETE statement-level trigger that
+-- raises unless the Storage API is used, and even with that guard lifted,
+-- deleting the row does not reclaim the bytes. Byte cleanup is a
+-- `beforeDelete` ResourceCallbacks entry at the dataProvider seam instead
+-- (providers/supabase/dataProvider.ts), which reads these rows BEFORE this
+-- trigger fires and removes the objects via the Storage API. A parent
+-- deleted by any path that skips the SPA's dataProvider (service_role, psql,
+-- a future edge function) leaves the rows correctly purged here but the
+-- bytes orphaned — a stated, not hidden, limitation (AC 7c).
 CREATE OR REPLACE FUNCTION "public"."purge_polymorphic_dependents"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -1927,6 +1961,9 @@ begin
   where account_id = old.account_id and target_type = v_target_type and target_id = old.id;
 
   delete from public.tasks
+  where account_id = old.account_id and target_type = v_target_type and target_id = old.id;
+
+  delete from public.entity_files
   where account_id = old.account_id and target_type = v_target_type and target_id = old.id;
 
   return old;

@@ -447,6 +447,29 @@ export const englishCrmMessages = {
         toggleError: "Failed to update the task",
         viewAll: "See all tasks",
       },
+      // Story 3.7 — FilesTab.tsx's own UX-DR11 states, its upload/replace/
+      // delete controls, and the per-row visibility control (rendered only
+      // for shidduch/single targets, matching
+      // entity_files_visibility_target_check).
+      files: {
+        empty: "No files yet.",
+        error: "Could not load the files.",
+        upload: "Upload a file",
+        uploadError: "Failed to upload the file",
+        download: "Download",
+        downloadError: "Failed to get a download link",
+        replace: "Replace",
+        replaceError: "Failed to replace the file",
+        delete: "Delete",
+        deleteError: "Failed to delete the file",
+        visibility: "Visibility",
+        visibilityError: "Failed to update visibility",
+        visibilityOption: {
+          shared: "Shared",
+          private_parent: "Parents only",
+          private_single: "Single only",
+        },
+      },
       // Story 3.2 — ShowBase's explicit `loading` / `error` elements (AC 2).
       record_pending: "Loading…",
       record_unavailable: "This record is unavailable.",

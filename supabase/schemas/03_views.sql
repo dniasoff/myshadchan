@@ -262,3 +262,35 @@ select
 from public.interactions i
     left join public.account_members am on am.id = i.actor_member_id
     left join public.members m on m.user_id = am.user_id;
+
+-- Story 3.7 (AC 3): the Files tab's read surface. FilesTab LISTS through this
+-- view and WRITES through public.entity_files directly (AD-10). security_invoker
+-- keeps entity_files' own RLS (05_policies.sql) applying to the caller through
+-- this view — account scoping comes entirely from the base table, the view
+-- declares none of its own.
+--
+-- Every column of public.entity_files is listed EXPLICITLY, never `ef.*`
+-- (migration-hygiene rule, AGENTS.md: `ef.*` makes `supabase db diff`
+-- unstable the moment the base table gains a column).
+--
+-- uploaded_by_name: the same user_id-keyed join interactions_summary uses
+-- above for author_name, so a persona archive/re-add round-trip does not
+-- strand an uploader's name (account_members.id is not one of the identity
+-- keys that survive it).
+create or replace view public.entity_files_summary with (security_invoker = on) as
+select
+    ef.id,
+    ef.account_id,
+    ef.created_at,
+    ef.target_type,
+    ef.target_id,
+    ef.storage_path,
+    ef.file_name,
+    ef.mime_type,
+    ef.size_bytes,
+    ef.visibility,
+    ef.uploaded_by_member_id,
+    nullif(btrim(coalesce(m.first_name, '') || ' ' || coalesce(m.last_name, '')), '') as uploaded_by_name
+from public.entity_files ef
+    left join public.account_members am on am.id = ef.uploaded_by_member_id
+    left join public.members m on m.user_id = am.user_id;

@@ -163,6 +163,22 @@ create or replace trigger set_inbox_items_account_id
     before insert on public.inbox_items
     for each row execute function public.set_account_id_default();
 
+-- Story 3.7 (AC 2f): entity_files is polymorphic (AD-13) but deliberately NOT
+-- attached to enforce_household_scope() below — see that function's own
+-- comment and AC 8(c)/(d) — so a shadchan can attach a file in their own
+-- shadchanus context from day one (Epic 8.5).
+create or replace trigger set_entity_files_account_id
+    before insert on public.entity_files
+    for each row execute function public.set_account_id_default();
+
+-- Story 3.7 (AC 2f): server-sets uploaded_by_member_id ONLY when the client
+-- did not already supply one — see set_entity_files_uploaded_by()'s own
+-- comment (02_functions.sql) for why this is an if-null default rather than
+-- set_interaction_actor_member_id()'s unconditional overwrite.
+create or replace trigger set_entity_files_uploaded_by
+    before insert on public.entity_files
+    for each row execute function public.set_entity_files_uploaded_by();
+
 -- =====================================================================
 -- MyShadchan — Persona and context data model (Story 2.2)
 -- =====================================================================

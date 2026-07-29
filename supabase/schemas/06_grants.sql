@@ -733,3 +733,31 @@ revoke all on sequence public.inbox_items_id_seq from anon;
 grant usage, select on sequence public.inbox_items_id_seq to authenticated;
 grant all on sequence public.inbox_items_id_seq to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Files tab (Story 3.7). entity_files is the storage catalog table:
+-- authenticated gets full CRUD except UPDATE at the table level — only
+-- `visibility` is mutable after the fact (the column-level grant below).
+-- Every other column is a fact about a stored object; changing one would
+-- desynchronise the row from the bucket. The `revoke all` strips TRUNCATE
+-- (bypasses RLS). anon is denied everywhere, like the rest of the domain.
+revoke all on table public.entity_files from anon, authenticated;
+grant select, insert, delete on table public.entity_files to authenticated;
+grant all on table public.entity_files to service_role;
+
+-- Same column-level shape interactions uses above (body, metadata,
+-- deleted_at): only visibility is writable after the fact (AC 2e).
+grant update (visibility) on table public.entity_files to authenticated;
+
+-- The sequence revoke is not optional — every domain table in this file
+-- pairs its table grant with one.
+revoke all on sequence public.entity_files_id_seq from anon;
+grant usage, select on sequence public.entity_files_id_seq to authenticated;
+grant all on sequence public.entity_files_id_seq to service_role;
+
+-- Read path only (AD-10), same posture as interactions_summary above: an
+-- aggregating join is not auto-updatable, so only SELECT is meaningful for
+-- authenticated.
+revoke all on table public.entity_files_summary from anon, authenticated;
+grant select on table public.entity_files_summary to authenticated;
+grant all on table public.entity_files_summary to service_role;
+

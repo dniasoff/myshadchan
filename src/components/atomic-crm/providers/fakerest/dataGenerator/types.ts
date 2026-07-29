@@ -2,6 +2,7 @@ import type {
   Account,
   AccountMember,
   DateRecord,
+  EntityFile,
   InboxItem,
   Interaction,
   Invite,
@@ -37,6 +38,10 @@ export interface Db {
   shidduch_schools: ShidduchSchool[];
   pipeline_transitions: PipelineTransition[];
   interactions: Interaction[];
+  // Files tab (Story 3.7) — seeded empty; the demo build must not crash on
+  // this tab. Written only through uploadEntityFile()/deleteEntityFile()
+  // (never a raw dataProvider.create/update), same as invites below.
+  entity_files: EntityFile[];
   inbox_items: InboxItem[];
   // Invites as the one membership mechanism (Story 2.8) — the inviter-side
   // UI's own collection; seeded empty, written only through

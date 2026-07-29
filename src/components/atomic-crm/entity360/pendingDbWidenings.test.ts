@@ -23,16 +23,15 @@ import { PENDING_DB_WIDENINGS } from "./pendingDbWidenings";
  * name", it is about the one AD-13 polymorphic vocabulary `ENTITY_TARGET_TYPES`
  * governs.
  *
- * "At parity" (not "is a subset of") is the assertion actually made: a
- * check constraint whose value set is a *strict* subset of
- * `ENTITY_TARGET_TYPES` (e.g. `entity_files_target_type_check`, whose table
- * does not exist yet) is exactly the case `PENDING_DB_WIDENINGS` exists to
- * track, so a mere subset check can never fail and could not produce the red
- * run this file records below. Parity — every `ENTITY_TARGET_TYPES` value
- * present in the constraint — is what makes "remove an entry from
- * `PENDING_DB_WIDENINGS` before its migration lands" a real, catchable bug,
- * matching §8 rule 1's "three DB check constraints must end up with the
- * same four values."
+ * "At parity" (not "is a subset of") is the assertion actually made: a check
+ * constraint whose value set is a *strict* subset of `ENTITY_TARGET_TYPES`
+ * is exactly the case `PENDING_DB_WIDENINGS` exists to track, so a mere
+ * subset check can never fail and could not produce the red run this file
+ * records below. Parity — every `ENTITY_TARGET_TYPES` value present in the
+ * constraint — is what makes "remove an entry from `PENDING_DB_WIDENINGS`
+ * before its migration lands" a real, catchable bug, matching §8 rule 1's
+ * "three DB check constraints must end up with the same four values." As of
+ * Story 3.7 all three constraints are at parity and the ledger is empty.
  */
 
 const sqlSources = import.meta.glob(
@@ -52,8 +51,9 @@ const TARGET_TYPE_CONSTRAINT_NAMES = [
 /**
  * Parses the quoted value list out of `constraint <name> check (target_type
  * in (...))` in a raw SQL source string. Returns `undefined` when the named
- * constraint is absent from the source (e.g. `entity_files` — the table
- * does not exist yet).
+ * constraint is absent from the source (e.g. a table that does not exist
+ * yet — none of the three do as of Story 3.7, but `findOffendingConstraints`
+ * below still needs to handle a future fourth constraint the same way).
  */
 export function extractTargetTypeCheckValues(
   sql: string,
@@ -127,6 +127,16 @@ describe("extractTargetTypeCheckValues — shown red then green", () => {
       ),
     ).toEqual(["reference", "shidduch", "shadchan", "single"]);
   });
+
+  it("parses the real entity_files_target_type_check values from 01_tables.sql (Story 3.7 created the table at full parity)", () => {
+    // Act / Assert
+    expect(
+      extractTargetTypeCheckValues(
+        TABLES_SQL,
+        "entity_files_target_type_check",
+      ),
+    ).toEqual(["reference", "shidduch", "shadchan", "single"]);
+  });
 });
 
 describe("isAtParityWithEntityTargetTypes — shown red then green", () => {
@@ -158,41 +168,68 @@ describe("isAtParityWithEntityTargetTypes — shown red then green", () => {
 });
 
 describe("PENDING_DB_WIDENINGS guard", () => {
-  it("reports no offenders today — every named constraint is honestly tracked as pending", () => {
+  it("reports no offenders today — the ledger is empty and every constraint is honestly at parity", () => {
     // Act / Assert
     expect(findOffendingConstraints(PENDING_DB_WIDENINGS)).toEqual([]);
   });
 
   /**
    * The red run contract §13 rule 2 requires: this is the "before" half,
-   * proving the guard CAN fail. Removing an entry from a local copy of the
-   * pending list (never the real constant) simulates forgetting to keep the
-   * ledger honest. entity_files_target_type_check is the only remaining
-   * entry whose migration has not landed — tasks_target_type_check (Story
-   * 3.8) and interactions_target_type_check (Story 3.5) are both gone from
-   * the real list now, so their equivalent proof lives below as a
-   * revert-the-migration fixture instead (the table for entity_files does
-   * not exist yet, so it cannot supply that same fixture shape — see
-   * `extractTargetTypeCheckValues`'s "not created yet" branch).
+   * proving `findOffendingConstraints` — the function the test above relies
+   * on to report `[]` — can actually detect a real offender. Entirely
+   * synthetic source text (not `${TABLES_SQL}` plus an appendage), so this
+   * proof is independent of which constraints the real schema or the real
+   * `PENDING_DB_WIDENINGS` currently list — unlike the pre-Story-3.7 version
+   * of this test, which depended on `entity_files` not existing yet in the
+   * real schema and stopped being able to prove anything the moment Story
+   * 3.7 created the table.
    */
-  it("fails, naming the constraint, when entity_files_target_type_check is removed from the pending list before its migration lands", () => {
-    // Arrange — simulate entity_files_target_type_check landing without
-    // reaching parity (extractTargetTypeCheckValues on the real source still
-    // returns undefined for it today, so this proves the mechanism on a
-    // constraint the guard can actually see).
-    const prematurelyNotPending = PENDING_DB_WIDENINGS.filter(
-      (name) => name !== "entity_files_target_type_check",
-    );
-    const sourceWithNarrowEntityFiles = `${TABLES_SQL}\nconstraint entity_files_target_type_check check (\n        target_type in ('reference', 'shidduch')\n    )`;
+  it("reports a constraint that ships narrower than ENTITY_TARGET_TYPES and is not listed as pending", () => {
+    // Arrange — a synthetic schema fragment standing in for a constraint
+    // that shipped without reaching parity.
+    const syntheticSql = `
+      constraint tasks_target_type_check check (
+          target_type in ('shadchan', 'shidduch', 'reference', 'single')
+      )
+      constraint interactions_target_type_check check (
+          target_type in ('reference', 'shidduch', 'shadchan', 'single')
+      )
+      constraint entity_files_target_type_check check (
+          target_type in ('reference', 'shidduch')
+      )
+    `;
 
     // Act
-    const offenders = findOffendingConstraints(
-      prematurelyNotPending,
-      sourceWithNarrowEntityFiles,
-    );
+    const offenders = findOffendingConstraints([], syntheticSql);
 
     // Assert
     expect(offenders).toEqual(["entity_files_target_type_check"]);
+  });
+
+  /**
+   * entity_files_target_type_check ships at full parity FROM CREATION (Story
+   * 3.7, AC 2a) — it was never actually behind, so unlike
+   * tasks_target_type_check / interactions_target_type_check there is no
+   * real pre-3.7 narrower constraint in schema history to revert to. Proven
+   * the same way as the two tests below: directly against the lower-level
+   * functions, with a fixture standing in for the two-value constraint the
+   * previous story revision proposed before the contract corrected course
+   * to ship at parity.
+   */
+  it("entity_files_target_type_check would fail parity if it had shipped narrower than ENTITY_TARGET_TYPES", () => {
+    // Arrange
+    const narrowedFixture =
+      "constraint entity_files_target_type_check check (\n        target_type in ('reference', 'shidduch')\n    )";
+
+    // Act
+    const values = extractTargetTypeCheckValues(
+      narrowedFixture,
+      "entity_files_target_type_check",
+    );
+
+    // Assert
+    expect(values).toEqual(["reference", "shidduch"]);
+    expect(isAtParityWithEntityTargetTypes(values!)).toBe(false);
   });
 
   /**

@@ -552,3 +552,16 @@ create policy "Inbox items scoped to account" on public.inbox_items
     for all to authenticated
     using (account_id = public.current_context_id())
     with check (account_id = public.current_context_id());
+
+-- Files tab (Story 3.7, AC 2d): copies "Tasks scoped to account" verbatim.
+-- entity_files is account-scoped like the rest of the domain and, like tasks
+-- (Story 3.14), is NOT household-only: a shadchanus context must be able to
+-- attach files to its own shadchan/shidduch rows from day one (Epic 8.5).
+-- Not FORCE ROW LEVEL SECURITY — no table in this repo has it (01_tables.sql
+-- notes the gap; a single forced table would diverge from the other 22).
+alter table public.entity_files enable row level security;
+
+create policy "Entity files scoped to account" on public.entity_files
+    for all to authenticated
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
