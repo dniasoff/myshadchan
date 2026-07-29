@@ -745,6 +745,42 @@ describe("findAd24Violations — AC 6 tab-set shape notes", () => {
   });
 });
 
+describe("findAd24Violations — AC 6 dedupe (F6, Story 3-11 review)", () => {
+  it("reports tab-key-unknown once, not twice, when the same unknown key appears in both tabs and pendingTabs", () => {
+    // Arrange — "summary" is invented and declared in BOTH arrays; AC 6's
+    // own discipline ("each key is reported at most once") applies to (a)
+    // exactly as it does to (b)-(d).
+    const input = baseInput({
+      descriptors: descriptorMap(
+        descriptorFixture({
+          name: "shadchanim",
+          tabs: [
+            tab("overview"),
+            tab("shidduchim"),
+            tab("notes"),
+            tab("tasks"),
+            tab("activity"),
+            { key: "summary" as TabKey, render: () => null },
+          ],
+          pendingTabs: ["summary" as TabKey],
+        }),
+      ),
+    });
+
+    // Act
+    const violations = findAd24Violations(input);
+
+    // Assert — exactly ONE tab-key-unknown, not one per array.
+    expect(violations.filter((v) => v.code === "tab-key-unknown")).toEqual([
+      {
+        code: "tab-key-unknown",
+        subject: "shadchanim",
+        detail: expect.any(String),
+      },
+    ]);
+  });
+});
+
 describe("findPendingTabs — AC 9", () => {
   it("returns only the descriptors with a non-empty pendingTabs", () => {
     // Arrange

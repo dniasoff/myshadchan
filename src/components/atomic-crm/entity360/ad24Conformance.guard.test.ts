@@ -251,6 +251,33 @@ const TARGET_TYPE_CONSTRAINTS = [
   "entity_files_target_type_check",
 ] as const;
 
+/**
+ * Every named constraint not (yet) excused by `PENDING_DB_WIDENINGS`. A
+ * constraint this scan expects to find but cannot locate — renamed, or
+ * dropped without updating `TARGET_TYPE_CONSTRAINTS` or the pending ledger
+ * — is itself an offender, not silently skipped (F1, Story 3-11 review): AC
+ * 7 requires "all three constraints ... list a value set equal to
+ * ENTITY_TARGET_TYPES", with no stated exception for "or the scan couldn't
+ * find it". `sql` defaults to the real schema source; a test overrides it to
+ * prove a rename is actually caught, without touching the real schema.
+ */
+function findTargetTypeOffenders(
+  pendingWidenings: readonly string[],
+  sql: string,
+): string[] {
+  const offenders: string[] = [];
+  for (const name of TARGET_TYPE_CONSTRAINTS) {
+    if (pendingWidenings.includes(name)) continue;
+    const values = extractTargetTypeValues(sql, name);
+    if (!values) {
+      offenders.push(name);
+      continue;
+    }
+    if (!isAtParity(values)) offenders.push(name);
+  }
+  return offenders;
+}
+
 describe("AD-24 conformance guard — target-type parity (AC 7)", () => {
   it("PENDING_DB_WIDENINGS is empty — Epic 3 cannot close with target types still pending", () => {
     // Assert
@@ -260,18 +287,36 @@ describe("AD-24 conformance guard — target-type parity (AC 7)", () => {
   it("every named target-type check constraint is at full parity with ENTITY_TARGET_TYPES", () => {
     // Arrange
     const tablesSql = Object.values(sqlSources)[0];
-    const offenders: string[] = [];
 
     // Act
-    for (const name of TARGET_TYPE_CONSTRAINTS) {
-      if ((PENDING_DB_WIDENINGS as readonly string[]).includes(name)) continue;
-      const values = extractTargetTypeValues(tablesSql, name);
-      if (!values) continue; // Not created yet — nothing to assert.
-      if (!isAtParity(values)) offenders.push(name);
-    }
+    const offenders = findTargetTypeOffenders(PENDING_DB_WIDENINGS, tablesSql);
 
     // Assert
     expect(offenders).toEqual([]);
+  });
+
+  it("reports a renamed constraint as an offender rather than silently skipping it (F1, Story 3-11 review)", () => {
+    // Arrange — tasks_target_type_check renamed to tasks_tt_check; the
+    // other two constraints untouched and at parity. Proves
+    // findTargetTypeOffenders cannot pass vacuously against a constraint it
+    // fails to locate, the way a bare `continue` did before this fix.
+    const renamedSql = `
+      constraint tasks_tt_check check (
+          target_type in ('shadchan', 'shidduch', 'reference', 'single')
+      )
+      constraint interactions_target_type_check check (
+          target_type in ('reference', 'shidduch', 'shadchan', 'single')
+      )
+      constraint entity_files_target_type_check check (
+          target_type in ('reference', 'shidduch', 'shadchan', 'single')
+      )
+    `;
+
+    // Act
+    const offenders = findTargetTypeOffenders([], renamedSql);
+
+    // Assert
+    expect(offenders).toEqual(["tasks_target_type_check"]);
   });
 
   it("'connection' (Epic 8's future value) is not yet present in ENTITY_TARGET_TYPES", () => {

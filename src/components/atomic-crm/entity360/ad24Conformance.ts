@@ -130,6 +130,15 @@ export const RECORD_SURFACE_EXEMPTIONS: Record<string, Ad24Exemption> = {
       "Members are not an AD-24 entity; MemberEdit is a settings-adjacent form, not a 360 record surface.",
   },
 };
+// NOTE (F7, Story 3-11 review): `checkExemptionTable`'s `isPermanentTrigger`
+// is wired for `DESCRIPTORLESS_RESOURCES` (AC 2) only, not for this table.
+// `members:edit`'s permanent entry is still backstopped: `members` is ALSO
+// in `DESCRIPTORLESS_RESOURCES` (permanent), so the day `members` acquires
+// a registered `EntityDescriptor`, AC 2 fires `permanent-exemption-for-360-
+// entity` for `"members"` and fails the build, forcing this entry to be
+// re-decided too — just via the resource-name table, not this slot-keyed
+// one. The coupling is real but implicit; recorded here so it is not
+// mistaken for a gap.
 
 /**
  * AC 4 (UX-DR3). Keyed by repo-relative path under `src/components/atomic-crm/`.
@@ -144,6 +153,11 @@ export const MODAL_RECORD_SURFACES: Record<string, Ad24Exemption> = {
       "A task is not an AD-24 entity (no descriptor, no UX-DR5 tab row, no 360); it is a dependent row edited inline, the same category as a confirm dialog. Auto-invalidated (AC 2) the moment `tasks` acquires a descriptor.",
   },
 };
+// NOTE (F7, Story 3-11 review): same backstop as RECORD_SURFACE_EXEMPTIONS'
+// `members:edit` above — `checkExemptionTable`'s `isPermanentTrigger` is not
+// wired for this table either, but `tasks` is ALSO permanent in
+// `DESCRIPTORLESS_RESOURCES`, so AC 2 independently fails the build the
+// moment `tasks` gets a descriptor.
 
 /**
  * AC 5a. Keyed by resource name. All four AD-24 entities are `pending`
@@ -250,6 +264,17 @@ export const CANONICAL_TAB_SETS: Partial<Record<string, readonly TabKey[]>> = {
  * `stale-exemption` — the mechanically-enforced re-decision point behind
  * every deferral in this story.
  */
+/** Renders an exemption's own metadata into a violation's `detail`, so the
+ * reader of a `stale-exemption` / `permanent-exemption-for-360-entity`
+ * message can see which story owns the entry (or why it is permanent)
+ * without cross-referencing the table by hand — the single most useful
+ * field in it was previously write-only (F8, Story 3-11 review). */
+function formatExemption(exemption: Ad24Exemption): string {
+  return exemption.kind === "pending"
+    ? `pending, retiredBy: "${exemption.retiredBy}"`
+    : `permanent, reason: "${exemption.reason}"`;
+}
+
 function checkExemptionTable(params: {
   offenders: string[];
   exemptions: Record<string, Ad24Exemption>;
@@ -312,10 +337,10 @@ function findMissingDescriptorViolations(
     offenderCode: "missing-descriptor",
     offenderDetail: (name) =>
       `resource "${name}" has no registered EntityDescriptor and no DESCRIPTORLESS_RESOURCES entry`,
-    staleDetail: (name) =>
+    staleDetail: (name, exemption) =>
       resourceNames.has(name)
-        ? `DESCRIPTORLESS_RESOURCES names "${name}", which now has a registered EntityDescriptor`
-        : `DESCRIPTORLESS_RESOURCES names "${name}", which is not a registered resource`,
+        ? `DESCRIPTORLESS_RESOURCES names "${name}" (${formatExemption(exemption)}), which now has a registered EntityDescriptor`
+        : `DESCRIPTORLESS_RESOURCES names "${name}" (${formatExemption(exemption)}), which is not a registered resource`,
     isPermanentTrigger: (name) => descriptors.has(name),
     permanentTriggerDetail: (name) =>
       `DESCRIPTORLESS_RESOURCES marks "${name}" permanent, but it now has a registered EntityDescriptor — the deferral must be re-decided, not inherited`,
@@ -349,11 +374,11 @@ function findBespokeRecordSurfaceViolations(
       const [name, slot] = key.split(":");
       return `resource "${name}" declares a bespoke "${slot}" surface outside buildEntityRoutes, with no RECORD_SURFACE_EXEMPTIONS entry`;
     },
-    staleDetail: (key) => {
+    staleDetail: (key, exemption) => {
       const [name, slot] = key.split(":");
       return declaredKeys.has(key)
-        ? `RECORD_SURFACE_EXEMPTIONS names "${key}", but resource "${name}" no longer declares a "${slot}" surface`
-        : `RECORD_SURFACE_EXEMPTIONS names "${key}", which is not a registered resource/slot pair`;
+        ? `RECORD_SURFACE_EXEMPTIONS names "${key}" (${formatExemption(exemption)}), but resource "${name}" no longer declares a "${slot}" surface`
+        : `RECORD_SURFACE_EXEMPTIONS names "${key}" (${formatExemption(exemption)}), which is not a registered resource/slot pair`;
     },
   });
 }
@@ -370,8 +395,8 @@ function findModalRecordSurfaceViolations(
     offenderCode: "modal-record-surface",
     offenderDetail: (path) =>
       `"${path}" wraps a primary record surface in a <Dialog> (UX-DR3) with no MODAL_RECORD_SURFACES entry`,
-    staleDetail: (path) =>
-      `MODAL_RECORD_SURFACES names "${path}", which no longer imports <Dialog> as a record surface`,
+    staleDetail: (path, exemption) =>
+      `MODAL_RECORD_SURFACES names "${path}" (${formatExemption(exemption)}), which no longer imports <Dialog> as a record surface`,
   });
 }
 
@@ -393,10 +418,10 @@ function findNonAd24RecordPathViolations(
     offenderCode: "non-ad24-record-path",
     offenderDetail: (name) =>
       `descriptor "${name}".buildRecordPath(1) is "${descriptors.get(name)!.buildRecordPath(1)}", not "/${name}/1", and has no PENDING_ROUTE_SHAPES entry`,
-    staleDetail: (name) =>
+    staleDetail: (name, exemption) =>
       descriptors.has(name)
-        ? `PENDING_ROUTE_SHAPES names "${name}", whose buildRecordPath is already AD-24-shaped`
-        : `PENDING_ROUTE_SHAPES names "${name}", which has no registered descriptor`,
+        ? `PENDING_ROUTE_SHAPES names "${name}" (${formatExemption(exemption)}), whose buildRecordPath is already AD-24-shaped`
+        : `PENDING_ROUTE_SHAPES names "${name}" (${formatExemption(exemption)}), which has no registered descriptor`,
   });
 }
 
@@ -464,15 +489,24 @@ function findTabSetViolations(
     ];
 
     // (a) every key must be a member of TAB_KEYS. Rejected keys are
-    // excluded from (b), (c) and (d).
-    for (const entry of entries) {
-      if (!isTabKey(entry.key)) {
-        violations.push({
-          code: "tab-key-unknown",
-          subject: name,
-          detail: `"${entry.key}" is not a member of TAB_KEYS`,
-        });
-      }
+    // excluded from (b), (c) and (d). Deduped to a unique key set before
+    // reporting (F6, Story 3-11 review): the same unknown key appearing in
+    // both `tabs` and `pendingTabs` is one defect, not two — "each key is
+    // reported at most once" (AC 6) applies to (a) exactly as it does to
+    // (b)-(d).
+    const unknownKeys = [
+      ...new Set(
+        entries
+          .filter((entry) => !isTabKey(entry.key))
+          .map((entry) => entry.key),
+      ),
+    ];
+    for (const key of unknownKeys) {
+      violations.push({
+        code: "tab-key-unknown",
+        subject: name,
+        detail: `"${key}" is not a member of TAB_KEYS`,
+      });
     }
     const known = entries.filter((entry) => isTabKey(entry.key));
 
@@ -638,6 +672,12 @@ function findNoBrowseSurfaceViolations(
   }
 
   // (b) no file may link to a no-browse entity's list path.
+  // NOTE (F9, Story 3-11 review): `detail` names every no-browse entity,
+  // not specifically the one `file` matched — `listPathLinks` is a pinned
+  // `string[]` (AC 1's signature), carrying no (file, entity) pairing, so
+  // there is nothing more specific to name without widening that contract.
+  // Harmless today (exactly one entry, `references`); revisit the moment a
+  // second `NO_BROWSE_SURFACE_ENTITIES` row is added.
   for (const file of listPathLinks) {
     violations.push({
       code: "browse-surface-on-scoped-entity",

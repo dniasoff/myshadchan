@@ -1,3 +1,4 @@
+import { expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 
@@ -10,6 +11,8 @@ import type { CrmDataProvider } from "../providers/types";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { ShidduchCatch } from "../types";
 import { ShidduchCatchSection } from "./ShidduchCatchSection";
+import { buildRecordPath } from "../entity360/entityPaths";
+import type * as EntityPaths from "../entity360/entityPaths";
 
 /**
  * Pins Task 5's live-code edit: confirming a catch suggestion must redirect
@@ -17,7 +20,20 @@ import { ShidduchCatchSection } from "./ShidduchCatchSection";
  * hand-built `/shidduchim/${id}/show` literal — while leaving
  * `{ _scrollToTop: false }` untouched. AD-24 (contract §4): nothing but
  * `entityPaths.ts` builds a record path.
+ *
+ * F2 fix (Story 3-11 review): the resulting pathname alone does NOT
+ * distinguish this from the pre-fix bypass,
+ * `requireEntityDescriptor("shidduchim").buildRecordPath(id)` — both
+ * resolve to the identical string against today's stub descriptor, so a
+ * pathname-only assertion passed against either implementation and proved
+ * nothing about which one is wired. `../entity360/entityPaths` is mocked
+ * below so the test can assert its OWN exported `buildRecordPath` is the
+ * function actually called.
  */
+vi.mock("../entity360/entityPaths", async (importOriginal) => {
+  const actual = await importOriginal<typeof EntityPaths>();
+  return { ...actual, buildRecordPath: vi.fn(actual.buildRecordPath) };
+});
 
 const CATCH: ShidduchCatch = {
   has_catch: true,
@@ -56,7 +72,7 @@ const renderSection = async () => {
 };
 
 describe("ShidduchCatchSection — confirm redirect (Task 5)", () => {
-  it("redirects to the prior suggestion's buildRecordPath target when confirmed", async () => {
+  it("redirects via entity360/entityPaths.ts's buildRecordPath, never a hand-built bypass", async () => {
     // Arrange
     const { screen, getPathname } = await renderSection();
 
@@ -67,5 +83,14 @@ describe("ShidduchCatchSection — confirm redirect (Task 5)", () => {
     // (`/shidduchim/{id}/show`, per the stub descriptor); Epic 5's one-line
     // `buildRecordPath` flip changes this automatically.
     expect(getPathname()).toBe("/shidduchim/42/show");
+    // Assert — independently of the string it happens to produce today,
+    // that it got there by calling entity360/entityPaths.ts's OWN
+    // `buildRecordPath` (F2 fix, Story 3-11 review): the pre-fix bypass
+    // resolves to the identical pathname and would otherwise pass this test
+    // unnoticed.
+    expect(vi.mocked(buildRecordPath)).toHaveBeenCalledExactlyOnceWith(
+      "shidduchim",
+      42,
+    );
   });
 });
