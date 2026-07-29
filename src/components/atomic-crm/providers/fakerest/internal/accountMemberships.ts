@@ -1,4 +1,4 @@
-import type { DataProvider, UserIdentity } from "ra-core";
+import type { DataProvider, Identifier, UserIdentity } from "ra-core";
 
 import type { AccountMember } from "../../../types";
 
@@ -34,4 +34,30 @@ export const activeMembershipsFor = async (
     },
   );
   return data;
+};
+
+/**
+ * Story 3.6 — the FakeRest counterpart to `public.current_member_id()`
+ * (Story 3.5) and `can_moderate_note()`'s owning-role branch: "the caller's
+ * own ACTIVE membership row in one specific account." `accountId` is the
+ * caller's current active context (`dataProvider.ts`'s closure-local
+ * `activeAccountId`, possibly `null`); falls back to the login's first
+ * membership when unset, mirroring `activate_first_context_trigger` the
+ * same way `./contexts.ts`'s `getMyContexts` and `./invites.ts`'s
+ * `resolveActiveAccountId` already do. Returns `null` exactly when
+ * `current_member_id()` would return `NULL` — no active membership at all,
+ * or none in the resolved account.
+ */
+export const resolveContextMembership = async (
+  baseDataProvider: DataProvider,
+  userId: string,
+  accountId: Identifier | null,
+): Promise<AccountMember | null> => {
+  const memberships = await activeMembershipsFor(baseDataProvider, userId);
+  const resolvedAccountId = accountId ?? memberships[0]?.account_id ?? null;
+  return (
+    memberships.find(
+      (m) => String(m.account_id) === String(resolvedAccountId),
+    ) ?? null
+  );
 };

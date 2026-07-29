@@ -976,6 +976,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/entity360/tabs/NotesTab.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/entity360/tabs/ActivityTab.tsx",
           "type": "registry:component"
         },

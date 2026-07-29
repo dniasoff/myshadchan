@@ -504,6 +504,59 @@ CREATE OR REPLACE FUNCTION "public"."is_owning_membership_role"("p_role" "text")
   select p_role in ('parent_admin', 'self_manager');
 $$;
 
+-- Story 3.6 (AC 3): "may this caller edit or soft-delete this note" — the
+-- ONE predicate both the interactions UPDATE policy (05_policies.sql) and
+-- interactions_summary's can_moderate column (03_views.sql) call, so the
+-- two can never answer differently for the same row (the same reasoning
+-- that produced is_owning_membership_role() itself, just above).
+--
+-- Two review-blocking traps this function exists to avoid:
+--   1. The owning-role branch calls is_owning_membership_role(am.role) —
+--      NEVER a literal `am.role = 'parent_admin'`. A self-managing
+--      household's only owning membership is `self_manager`; hardcoding
+--      `parent_admin` would lock such a household out of moderating its
+--      own notes (Story 3.6 Dev Notes, AC 4(d)).
+--   2. The author branch joins account_members on `id = p_actor_member_id`
+--      and compares `am.user_id = auth.uid()` — NEVER
+--      `p_actor_member_id = current_member_id()`. Membership rows are not
+--      stable across a persona archive/re-add round-trip
+--      (account_members_account_user_active_uq, 01_tables.sql, is a
+--      PARTIAL unique index on `where status = 'active'`), so the archived
+--      and the freshly re-added row coexist with different ids.
+--      current_member_id() only ever resolves the ACTIVE one, so comparing
+--      ids would permanently strip an author of their own older notes the
+--      moment their membership round-trips (Story 3.6 Dev Notes, AC 4(e)).
+--      Comparing on `user_id` survives that round-trip: the FK is
+--      `on delete set null` (01_tables.sql), never `on delete cascade`, and
+--      a persona round-trip only ever flips `status`, never `user_id`.
+--
+-- SECURITY DEFINER for the same reason as current_context_id() /
+-- current_member_id(): it is called from inside an RLS policy on
+-- account_members and must not recurse into that table's own SELECT
+-- policy. Returns a boolean and no row data, so the definer rights leak
+-- nothing.
+CREATE OR REPLACE FUNCTION "public"."can_moderate_note"("p_actor_member_id" bigint) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select exists (
+      -- the caller wrote it: compare the AUTHOR's membership row on user_id,
+      -- never on account_members.id (see Dev Notes "Why authorship joins on user_id")
+      select 1
+      from public.account_members am
+      where am.id = p_actor_member_id
+        and am.user_id = auth.uid()
+    ) or exists (
+      -- or the caller holds an owning role in the context they are active in
+      select 1
+      from public.account_members am
+      where am.user_id = auth.uid()
+        and am.account_id = public.current_context_id()
+        and am.status = 'active'
+        and public.is_owning_membership_role(am.role)
+    );
+$$;
+
 -- Provisions a persona (AC-6) — the one function every onboarding/lifecycle
 -- screen calls (2.3, 2.5) rather than reimplementing its own
 -- household-creation rule. SECURITY DEFINER, deliberately, not SECURITY

@@ -209,3 +209,45 @@ select
 from public.shadchanim sh
     left join public.shidduchim s on s.shadchan_id = sh.id
 group by sh.id;
+
+-- Story 3.6 (AC 5): resolves a note's author identity server-side, in one
+-- query, so NotesTab never re-derives "may I edit this" in TypeScript.
+-- security_invoker keeps interactions' own RLS (05_policies.sql) applying
+-- to the caller through this view -- a caller reads exactly the rows their
+-- SELECT policy already lets them read, nothing wider.
+--
+-- Every column of public.interactions is listed EXPLICITLY, never `i.*`:
+-- `i.*` makes `supabase db diff` unstable the moment the base table gains a
+-- column, per this project's own migration-hygiene rule.
+--
+-- author_name: LEFT JOIN account_members -> members, both on identity keys
+-- that survive a persona archive/re-add round-trip (account_members.id is
+-- NOT one of them -- see can_moderate_note()'s own comment,
+-- 02_functions.sql, "Why authorship joins on user_id"). Under
+-- security_invoker, members' own SELECT policy (:18-29 above) still applies:
+-- an author who no longer holds an ACTIVE membership of this row's account
+-- yields author_name = null through the LEFT JOIN, never an error and never
+-- a leaked name.
+--
+-- can_moderate: calls the exact SAME function the UPDATE policy calls
+-- (can_moderate_note(), 02_functions.sql), so this view and that policy can
+-- never disagree about who may edit or soft-delete a given note.
+create or replace view public.interactions_summary with (security_invoker = on) as
+select
+    i.id,
+    i.account_id,
+    i.created_at,
+    i.target_type,
+    i.target_id,
+    i.scope,
+    i.reference_link_id,
+    i.actor_member_id,
+    i.kind,
+    i.body,
+    i.metadata,
+    i.deleted_at,
+    nullif(btrim(coalesce(m.first_name, '') || ' ' || coalesce(m.last_name, '')), '') as author_name,
+    public.can_moderate_note(i.actor_member_id) as can_moderate
+from public.interactions i
+    left join public.account_members am on am.id = i.actor_member_id
+    left join public.members m on m.user_id = am.user_id;

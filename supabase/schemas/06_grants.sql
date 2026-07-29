@@ -305,6 +305,14 @@ revoke all on function public.is_owning_membership_role(text) from public, anon;
 grant execute on function public.is_owning_membership_role(text) to authenticated;
 grant execute on function public.is_owning_membership_role(text) to service_role;
 
+-- Story 3.6 (AC 3): can_moderate_note() is SECURITY DEFINER and called from
+-- both the interactions UPDATE policy and interactions_summary.can_moderate
+-- (05_policies.sql, 03_views.sql) — same posture as is_owning_membership_role
+-- just above; anon must never execute it.
+revoke all on function public.can_moderate_note(bigint) from public, anon;
+grant execute on function public.can_moderate_note(bigint) to authenticated;
+grant execute on function public.can_moderate_note(bigint) to service_role;
+
 -- Story 2.2 (AC-6): add_persona() is SECURITY DEFINER — every query inside
 -- is filtered to user_id = auth.uid() alone, never a parameter, so
 -- bypassing RLS never becomes bypassing the tenant boundary; anon must
@@ -459,6 +467,12 @@ grant all on table public.references_summary to service_role;
 revoke all on table public.reference_links_summary from anon, authenticated;
 grant select on table public.reference_links_summary to authenticated;
 grant all on table public.reference_links_summary to service_role;
+
+-- Story 3.6 (AC 5): author identity resolved server-side. Read path only,
+-- same posture as references_summary/reference_links_summary above.
+revoke all on table public.interactions_summary from anon, authenticated;
+grant select on table public.interactions_summary to authenticated;
+grant all on table public.interactions_summary to service_role;
 
 -- Aggregate read paths (E5/E6). Both group several rows per key, so they are
 -- not auto-updatable and only SELECT is meaningful for authenticated.
@@ -624,9 +638,16 @@ grant select on table public.pipeline_transitions to authenticated;
 -- The structural columns of `interactions` are not client-writable. A client
 -- that could rewrite scope/reference_link_id/target_* could move a candid note
 -- onto a different parent and change whose visibility it inherits. Editing what
--- a note SAYS stays allowed; moving where it HANGS does not.
+-- a note SAYS stays allowed; moving where it HANGS does not. Story 3.6 (AC 1)
+-- widens the writable set to include `deleted_at`: a soft delete IS an update
+-- to what the note says about itself ("this note is withdrawn"), not a move of
+-- where it hangs, so it joins `body`/`metadata` here rather than the withheld
+-- structural set. The column grant cannot distinguish setting `deleted_at`
+-- from clearing it, so an author can technically un-delete their own note —
+-- accepted (Story 3.6 AC 1): the same author could equally re-post the same
+-- text, and no UI offers undelete.
 revoke update on table public.interactions from authenticated;
-grant update (body, metadata) on table public.interactions to authenticated;
+grant update (body, metadata, deleted_at) on table public.interactions to authenticated;
 
 revoke all on function public.rehome_reference_link_interactions(bigint, bigint) from public, anon;
 grant execute on function public.rehome_reference_link_interactions(bigint, bigint) to authenticated;

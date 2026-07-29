@@ -272,8 +272,30 @@ alter table public.identity_signals enable row level security;
 -- `target_type` (including `shidduch`, which the table constraint already
 -- forbids in this scope) is denied rather than falling through, so a future
 -- constraint loosening fails closed rather than silently granting visibility.
-create policy "Interactions scoped to account and parent visibility" on public.interactions
-    for all to authenticated
+-- Story 3.6 (AC 2/AC 3) splits the single `for all` policy above into three
+-- per-command policies — SELECT, INSERT, UPDATE — so the UPDATE command
+-- alone can carry the narrower "author or owning role" clause
+-- (can_moderate_note(), 02_functions.sql) that AC 3 adds. Postgres ORs
+-- *permissive* policies together per command — the SAME hazard
+-- account_members' own comment states in writing just above (:124-127:
+-- "Do NOT add a `for select` policy alongside a `for all` one to 'restore'
+-- this shape — permissive policies OR together") and whose per-command
+-- split (:152-158) is the in-repo precedent this mirrors exactly. Adding a
+-- second, narrower UPDATE policy ALONGSIDE a surviving `for all` would only
+-- WIDEN update access, never narrow it — so the `for all` policy is
+-- replaced outright, not supplemented.
+--
+-- The SELECT and INSERT policies below carry the IDENTICAL `using`/
+-- `with check` predicate the `for all` policy enforced — byte for byte, no
+-- author clause. This story narrows UPDATE rights only; it must never
+-- change who can read or insert an interaction.
+--
+-- No `for delete` policy exists on this table, on purpose: `authenticated`
+-- holds no DELETE grant on `interactions` at all (06_grants.sql, the
+-- append-only audit-trail rule) — a DELETE policy here would be dead text
+-- implying a capability nobody has.
+create policy "Interactions readable within account and parent visibility" on public.interactions
+    for select to authenticated
     using (
         account_id = public.current_context_id()
         and (
@@ -322,6 +344,125 @@ create policy "Interactions scoped to account and parent visibility" on public.i
                 )
             )
         )
+    );
+
+create policy "Interactions insertable within account and parent visibility" on public.interactions
+    for insert to authenticated
+    with check (
+        account_id = public.current_context_id()
+        and (
+            (
+                scope = 'account'
+                and (
+                    target_type = 'reference'
+                    or (
+                        target_type = 'shadchan'
+                        and exists (
+                            select 1
+                            from public.shadchanim sh
+                            where sh.id = interactions.target_id
+                              and sh.account_id = public.current_context_id()
+                        )
+                    )
+                    or (
+                        target_type = 'single'
+                        and exists (
+                            select 1
+                            from public.singles si
+                            where si.id = interactions.target_id
+                              and si.account_id = public.current_context_id()
+                        )
+                    )
+                )
+            )
+            or (
+                target_type = 'reference'
+                and exists (
+                    select 1
+                    from public.reference_links rl
+                        join public.shidduchim s on s.id = rl.shidduchim_id
+                    where rl.id = interactions.reference_link_id
+                      and rl.account_id = public.current_context_id()
+                      and s.account_id = public.current_context_id()
+                )
+            )
+            or (
+                target_type = 'shidduch'
+                and exists (
+                    select 1
+                    from public.shidduchim s
+                    where s.id = interactions.target_id
+                      and s.account_id = public.current_context_id()
+                )
+            )
+        )
+    );
+
+-- The UPDATE policy alone gains AC 3's author-or-owning-role clause,
+-- `and (kind <> 'note' or public.can_moderate_note(actor_member_id))`,
+-- ANDed onto the same visibility predicate above, in BOTH `using` and
+-- `with check`:
+--   `using`      — AC 4's own observable is a ZERO ROWS AFFECTED update,
+--                   not a raised error. A with-check-only clause would
+--                   raise instead of silently filtering the row out of the
+--                   caller's UPDATE.
+--   `with check` — so the update cannot re-point a row into a shape the
+--                   caller was never allowed to target in the first place.
+-- The `kind <> 'note'` escape means every OTHER interaction kind
+-- (call_logged, status_change, merge, link_created, link_removed —
+-- 01_tables.sql) keeps today's plain account-scoped update behaviour
+-- unchanged; only notes gain the author-or-owning-role restriction.
+create policy "Interactions updatable by author or owning role" on public.interactions
+    for update to authenticated
+    using (
+        account_id = public.current_context_id()
+        and (
+            (
+                scope = 'account'
+                and (
+                    target_type = 'reference'
+                    or (
+                        target_type = 'shadchan'
+                        and exists (
+                            select 1
+                            from public.shadchanim sh
+                            where sh.id = interactions.target_id
+                              and sh.account_id = public.current_context_id()
+                        )
+                    )
+                    or (
+                        target_type = 'single'
+                        and exists (
+                            select 1
+                            from public.singles si
+                            where si.id = interactions.target_id
+                              and si.account_id = public.current_context_id()
+                        )
+                    )
+                )
+            )
+            or (
+                target_type = 'reference'
+                and exists (
+                    select 1
+                    from public.reference_links rl
+                        join public.shidduchim s on s.id = rl.shidduchim_id
+                    where rl.id = interactions.reference_link_id
+                      and rl.account_id = public.current_context_id()
+                      and s.account_id = public.current_context_id()
+                )
+            )
+            or (
+                target_type = 'shidduch'
+                and exists (
+                    select 1
+                    from public.shidduchim s
+                    where s.id = interactions.target_id
+                      and s.account_id = public.current_context_id()
+                )
+            )
+        )
+        and (kind <> 'note' or public.can_moderate_note(actor_member_id))
     )
     with check (
         account_id = public.current_context_id()
@@ -371,6 +512,7 @@ create policy "Interactions scoped to account and parent visibility" on public.i
                 )
             )
         )
+        and (kind <> 'note' or public.can_moderate_note(actor_member_id))
     );
 
 -- identity_signals is READ-ONLY to clients. It is written exclusively by the

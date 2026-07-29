@@ -1,0 +1,559 @@
+--
+-- Note authorship and moderation (Story 3.6) — database test suite.
+--
+-- Story 3.6 splits the single `for all` interactions policy into three
+-- per-command policies (05_policies.sql) and adds `can_moderate_note()`
+-- (02_functions.sql), ANDed into the UPDATE policy's `using`/`with check`
+-- as `kind <> 'note' or public.can_moderate_note(actor_member_id)`. This
+-- suite is AC 4's eight-check negative matrix plus AC 5's four
+-- `interactions_summary` view checks, in one file, because both the policy
+-- and the view call the SAME function and must never disagree.
+--
+-- "Zero rows affected" (checks a/b/f) is asserted through
+-- `GET DIAGNOSTICS ... ROW_COUNT` inside a DO block, never through
+-- PostgREST: a 0-row UPDATE there returns 404/PGRST116, indistinguishable
+-- from a policy error (contract §13 rule 4).
+--
+-- Falsifiability record (contract §13 rule 2 — every check must be provably
+-- red before it is shown green):
+--   (a)/(c)/(g) — fail if the UPDATE policy's account-scope conjunct or the
+--     `kind <> 'note'` escape is dropped (every update would then either
+--     0-row or raise).
+--   (b) — fails (wrongly passes with rows=1) if `can_moderate_note()` omits
+--     the author check, or if a second permissive UPDATE policy were added
+--     instead of replacing the `for all` policy (the OR-widening hazard
+--     05_policies.sql documents in writing next to `account_members`).
+--   (d) — fails if the owning-role branch hardcodes `am.role = 'parent_admin'`
+--     instead of calling `is_owning_membership_role(am.role)`: a
+--     self-managing household's only owning membership is `self_manager`.
+--   (e) — fails if authorship were resolved as
+--     `actor_member_id = current_member_id()` instead of joining
+--     `account_members` on `id = p_actor_member_id` and comparing
+--     `user_id = auth.uid()`: `account_members_account_user_active_uq`
+--     (01_tables.sql) is partial (`where status = 'active'`), so the
+--     archived and the freshly re-added row for the same person coexist
+--     with different ids.
+--   (f) — the one-login/two-contexts shape the contract requires (§13 rule
+--     3); two disjoint users would pass without ever exercising
+--     `current_context_id()`. Also proves the preserved account-scope
+--     `using` clause still gates the note branch, not just the new author
+--     check — a login holding an OWNING role in household A2 still cannot
+--     touch A2's own note while active in shadchanus B.
+--   (h) — see the dedicated comment at that section: implemented against
+--     `target_type = 'reference'`, not `'shadchan'` as AC 4's table literally
+--     reads, because `shadchanim` remains one of the 11 household-only
+--     tables 3-14 left untouched — a `target_type = 'shadchan'` row's
+--     account-scope branch requires a `shadchanim` row whose `account_id`
+--     equals the active (shadchanus) context, which can never exist. See
+--     the comment there for the full reasoning; flagged back to the story
+--     owner as a likely contract defect rather than silently "fixed".
+--
+-- psql does not interpolate :variables inside dollar-quoted DO blocks, so
+-- every id a DO block needs is threaded through the `ids` temp table
+-- instead (context_resolution.sql / household_scope_lift.sql precedent).
+--
+-- Run via: npm run test:unit:db  (needs the local stack up).
+--
+
+\set ON_ERROR_STOP on
+begin;
+
+create temp table results (name text, passed boolean, detail text) on commit drop;
+create temp table ids (name text primary key, value text) on commit drop;
+grant all on results to public;
+grant all on ids to public;
+
+-- ---------------------------------------------------------------------------
+-- AC 5(i): the catalog fact — position-independent, checked before any
+-- fixture exists.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed, detail)
+select 'AC 5(i): interactions_summary is created with security_invoker = on',
+       exists (
+         select 1 from pg_class
+         where relname = 'interactions_summary'
+           and relnamespace = 'public'::regnamespace
+           and 'security_invoker=on' = any (reloptions)
+       ),
+       (select array_to_string(reloptions, ',') from pg_class where relname = 'interactions_summary');
+
+-- ---------------------------------------------------------------------------
+-- Arrange: household A — helper1 (author of most notes), parent_admin1
+-- (the owning-role moderator), helper2 (archived out entirely, AC 5(iv)).
+-- ---------------------------------------------------------------------------
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data)
+values (
+  'a3060001-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000',
+  'authenticated', 'authenticated', 'ina-helper1@test.local',
+  '{"first_name":"Chaya","last_name":"Katz"}'::jsonb
+);
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data)
+values (
+  'a3060001-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000000',
+  'authenticated', 'authenticated', 'ina-parentadmin1@test.local',
+  '{"first_name":"Miriam","last_name":"Stern"}'::jsonb
+);
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data)
+values (
+  'a3060001-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000000',
+  'authenticated', 'authenticated', 'ina-helper2@test.local',
+  '{"first_name":"Devora","last_name":"Fisch"}'::jsonb
+);
+
+delete from public.account_members;
+
+insert into public.accounts (name, kind) values ('INA Household A', 'household') returning id as acct_a \gset
+insert into ids values ('acct_a', :'acct_a');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_a, 'a3060001-0000-0000-0000-000000000001', 'helper', 'active')
+returning id as helper1_membership_v1 \gset
+insert into ids values ('helper1_membership_v1', :'helper1_membership_v1');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_a, 'a3060001-0000-0000-0000-000000000002', 'parent_admin', 'active');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_a, 'a3060001-0000-0000-0000-000000000007', 'helper', 'active');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'Arrange: helper1''s active context is household A', public.current_context_id() = :acct_a;
+
+-- helper1 authors two notes up front: note_a (check a), note_e (checks e / 5(ii)).
+insert into public.interactions (target_type, target_id, scope, kind, body)
+values ('reference', 1, 'account', 'note', 'helper1''s original note (a)')
+returning id as note_a \gset
+insert into ids values ('note_a', :'note_a');
+
+insert into public.interactions (target_type, target_id, scope, kind, body)
+values ('reference', 2, 'account', 'note', 'helper1''s note, pre-archive (e)')
+returning id as note_e \gset
+insert into ids values ('note_e', :'note_e');
+
+-- ---------------------------------------------------------------------------
+-- (a) helper1 updates the note they authored -> 1 row.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_note_a bigint;
+  v_rows int;
+begin
+  select value::bigint into v_note_a from ids where name = 'note_a';
+  update public.interactions set body = 'helper1''s edited note (a)' where id = v_note_a;
+  get diagnostics v_rows = row_count;
+  insert into results values (
+    '(a) helper updates the note they authored -> 1 row', v_rows = 1, format('rows=%s', v_rows)
+  );
+end $$;
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000002","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'Arrange: parent_admin1''s active context is household A', public.current_context_id() = :acct_a;
+
+-- parent_admin1 authors note_b (checks b / 5(iii)) and call_g (check g).
+insert into public.interactions (target_type, target_id, scope, kind, body)
+values ('reference', 3, 'account', 'note', 'parent_admin1''s note (b)')
+returning id as note_b \gset
+insert into ids values ('note_b', :'note_b');
+
+insert into public.interactions (target_type, target_id, scope, kind, body)
+values ('reference', 4, 'account', 'call_logged', 'parent_admin1 logged a call (g)')
+returning id as call_g \gset
+insert into ids values ('call_g', :'call_g');
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- ---------------------------------------------------------------------------
+-- (b) helper1 updates a note authored by parent_admin1 -> 0 rows.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_note_b bigint;
+  v_rows int;
+begin
+  select value::bigint into v_note_b from ids where name = 'note_b';
+  update public.interactions set body = 'helper1 tried to edit (b)' where id = v_note_b;
+  get diagnostics v_rows = row_count;
+  insert into results values (
+    '(b) helper updates a note authored by the parent_admin -> 0 rows', v_rows = 0, format('rows=%s', v_rows)
+  );
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- (g) helper1 updates a kind = call_logged row authored by parent_admin1 ->
+-- 1 row. The `kind <> 'note'` escape means the author-or-owning-role clause
+-- never applies here; only the (unchanged) account-scope predicate gates it.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_call_g bigint;
+  v_rows int;
+begin
+  select value::bigint into v_call_g from ids where name = 'call_g';
+  update public.interactions set body = 'helper1 amended the call log (g)' where id = v_call_g;
+  get diagnostics v_rows = row_count;
+  insert into results values (
+    '(g) helper updates a kind = ''call_logged'' row authored by the parent_admin -> 1 row',
+    v_rows = 1, format('rows=%s', v_rows)
+  );
+end $$;
+
+-- note_c: a fresh note helper1 authors specifically for parent_admin1 to
+-- soft-delete in check (c) — kept separate from note_a so (a)'s body edit
+-- and (c)'s deleted_at write never observe each other's side effect.
+insert into public.interactions (target_type, target_id, scope, kind, body)
+values ('reference', 5, 'account', 'note', 'helper1''s note, to be soft-deleted (c)')
+returning id as note_c \gset
+insert into ids values ('note_c', :'note_c');
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000002","role":"authenticated"}';
+
+-- ---------------------------------------------------------------------------
+-- (c) parent_admin1 soft-deletes helper1's note -> 1 row.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_note_c bigint;
+  v_rows int;
+begin
+  select value::bigint into v_note_c from ids where name = 'note_c';
+  update public.interactions set deleted_at = now() where id = v_note_c;
+  get diagnostics v_rows = row_count;
+  insert into results values (
+    '(c) parent_admin soft-deletes the helper''s note -> 1 row', v_rows = 1, format('rows=%s', v_rows)
+  );
+end $$;
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- (e) archive-and-re-add: helper1's ORIGINAL membership row (the one that
+-- authored note_a / note_e) is archived, and a fresh active row is inserted
+-- for the SAME (account_id, user_id) pair — legal because
+-- account_members_account_user_active_uq (01_tables.sql) is a PARTIAL
+-- unique index (`where status = 'active'`), so the archived and the new
+-- active row coexist with different ids. helper1 (same login, same active
+-- context A throughout — member_state is untouched by this) then updates
+-- note_e, which is still stamped with the OLD (now archived) membership id.
+-- ---------------------------------------------------------------------------
+update public.account_members
+set status = 'archived'
+where id = (select value::bigint from ids where name = 'helper1_membership_v1');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_a, 'a3060001-0000-0000-0000-000000000001', 'helper', 'active')
+returning id as helper1_membership_v2 \gset
+insert into ids values ('helper1_membership_v2', :'helper1_membership_v2');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'Arrange: helper1''s active context is still household A after the archive-and-re-add',
+       public.current_context_id() = :acct_a;
+
+do $$
+declare
+  v_note_e bigint;
+  v_rows int;
+begin
+  select value::bigint into v_note_e from ids where name = 'note_e';
+  update public.interactions set body = 'helper1''s note, edited post-re-add (e)' where id = v_note_e;
+  get diagnostics v_rows = row_count;
+  insert into results values (
+    '(e) after archive-and-re-add, that login updates the note it authored under the OLD membership id -> 1 row',
+    v_rows = 1, format('rows=%s', v_rows)
+  );
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- AC 5(ii): the SAME archive-and-re-add login reads can_moderate = true on
+-- its own pre-archive note, through interactions_summary.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed)
+select 'AC 5(ii): archive-and-re-add login reads can_moderate = true on its own pre-archive note',
+       coalesce(
+         (select can_moderate from public.interactions_summary
+          where id = (select value::bigint from ids where name = 'note_e')),
+         false
+       );
+
+-- ---------------------------------------------------------------------------
+-- AC 5(iii): a helper reads can_moderate = false on the parent_admin's note.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed)
+select 'AC 5(iii): a helper reads can_moderate = false on the parent_admin''s note',
+       coalesce(
+         (select can_moderate from public.interactions_summary
+          where id = (select value::bigint from ids where name = 'note_b')),
+         true
+       ) = false;
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000002","role":"authenticated"}';
+
+-- ---------------------------------------------------------------------------
+-- AC 5(iv), active-author half: parent_admin1 reads note_c (authored by
+-- helper1, who still holds an active membership of A) and sees the real
+-- name. note_c's own soft-delete (check c) does not affect author_name.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed, detail)
+select 'AC 5(iv): author_name equals the author''s first_name last_name for an active author',
+       (select author_name from public.interactions_summary
+        where id = (select value::bigint from ids where name = 'note_c')) = 'Chaya Katz',
+       (select author_name from public.interactions_summary
+        where id = (select value::bigint from ids where name = 'note_c'));
+
+reset role;
+
+-- helper2 (the login being fully archived out, never re-added) authors
+-- note_g while still active, THEN loses its only membership of A.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000007","role":"authenticated"}';
+
+insert into public.interactions (target_type, target_id, scope, kind, body)
+values ('reference', 6, 'account', 'note', 'helper2''s note, author later archived out (5(iv))')
+returning id as note_g \gset
+insert into ids values ('note_g', :'note_g');
+
+reset role;
+
+update public.account_members
+set status = 'archived'
+where account_id = (select value::bigint from ids where name = 'acct_a')
+  and user_id = 'a3060001-0000-0000-0000-000000000007';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000002","role":"authenticated"}';
+
+-- ---------------------------------------------------------------------------
+-- AC 5(iv), archived-author half: parent_admin1 reads note_g. helper2's ONLY
+-- membership of A is now archived (never re-added), so `members`' own
+-- read policy (05_policies.sql :18-29-equivalent — "an ACTIVE membership
+-- shared with the caller's active context") denies the LEFT JOIN, and
+-- author_name resolves to null rather than an error or a stale/leaked name.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed, detail)
+select 'AC 5(iv): author_name is null when the parent_admin reads a note whose author''s membership has since been archived',
+       (select author_name from public.interactions_summary
+        where id = (select value::bigint from ids where name = 'note_g')) is null,
+       (select author_name from public.interactions_summary
+        where id = (select value::bigint from ids where name = 'note_g'));
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Arrange (d): household D whose only OWNING membership is self_manager —
+-- the shape that fails if can_moderate_note() ever hardcodes
+-- `role = 'parent_admin'` instead of calling is_owning_membership_role().
+-- ---------------------------------------------------------------------------
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data)
+values (
+  'a3060001-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000000',
+  'authenticated', 'authenticated', 'ina-selfmanager@test.local',
+  '{"first_name":"Shira","last_name":"Adler"}'::jsonb
+);
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data)
+values (
+  'a3060001-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000000',
+  'authenticated', 'authenticated', 'ina-helperD@test.local',
+  '{"first_name":"Tzvi","last_name":"Roth"}'::jsonb
+);
+
+insert into public.accounts (name, kind) values ('INA Household D', 'household') returning id as acct_d \gset
+insert into ids values ('acct_d', :'acct_d');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_d, 'a3060001-0000-0000-0000-000000000003', 'self_manager', 'active');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_d, 'a3060001-0000-0000-0000-000000000004', 'helper', 'active');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000004","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'Arrange: helperD''s active context is household D', public.current_context_id() = :acct_d;
+
+insert into public.interactions (target_type, target_id, scope, kind, body)
+values ('reference', 7, 'account', 'note', 'helperD''s note (d)')
+returning id as note_d \gset
+insert into ids values ('note_d', :'note_d');
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000003","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'Arrange: self_manager''s active context is household D', public.current_context_id() = :acct_d;
+
+-- ---------------------------------------------------------------------------
+-- (d) in a household whose only owning membership is self_manager, that
+-- member soft-deletes a helper's note -> 1 row.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_note_d bigint;
+  v_rows int;
+begin
+  select value::bigint into v_note_d from ids where name = 'note_d';
+  update public.interactions set deleted_at = now() where id = v_note_d;
+  get diagnostics v_rows = row_count;
+  insert into results values (
+    '(d) self_manager (the only owning role in this household) soft-deletes a helper''s note -> 1 row',
+    v_rows = 1, format('rows=%s', v_rows)
+  );
+end $$;
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Arrange (f): ONE login U — parent_admin of household A2, shadchan of
+-- shadchanus B. activate_first_context activates A2 (U's first membership);
+-- adding B afterward leaves A2 active (household_scope_lift.sql precedent).
+-- ---------------------------------------------------------------------------
+insert into auth.users (id, instance_id, aud, role, email)
+values ('a3060001-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'ina-u2ctx@test.local');
+
+insert into public.accounts (name, kind) values ('INA Household A2', 'household') returning id as acct_a2 \gset
+insert into public.accounts (kind) values ('shadchanus') returning id as acct_b \gset
+insert into ids values ('acct_a2', :'acct_a2'), ('acct_b', :'acct_b');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_a2, 'a3060001-0000-0000-0000-000000000005', 'parent_admin', 'active');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_b, 'a3060001-0000-0000-0000-000000000005', 'shadchan', 'active');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000005","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'Arrange: U''s active context is household A2 right after both memberships exist',
+       public.current_context_id() = :acct_a2;
+
+insert into public.interactions (target_type, target_id, scope, kind, body)
+values ('reference', 8, 'account', 'note', 'U''s own note in A2 (f)')
+returning id as note_f \gset
+insert into ids values ('note_f', :'note_f');
+
+select public.set_active_context(:acct_b);
+
+insert into results (name, passed)
+select 'Arrange: U''s active context is shadchanus B after switching', public.current_context_id() = :acct_b;
+
+-- ---------------------------------------------------------------------------
+-- (f) one login holding memberships in household A2 and shadchanus B,
+-- active in B, updates a note in A2 -> 0 rows. U holds an OWNING role
+-- (parent_admin) in A2 itself, so this also proves the preserved
+-- account-scope `using` clause — not the new author clause alone — is what
+-- blocks it: nothing here would stop U if only can_moderate_note() gated
+-- the update.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_note_f bigint;
+  v_rows int;
+begin
+  select value::bigint into v_note_f from ids where name = 'note_f';
+  update public.interactions set body = 'U tried to edit A2''s note while active in B (f)' where id = v_note_f;
+  get diagnostics v_rows = row_count;
+  insert into results values (
+    '(f) one login, active in shadchanus B, updates its own note in household A2 -> 0 rows',
+    v_rows = 0, format('rows=%s', v_rows)
+  );
+end $$;
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Arrange (h): shadchan of shadchanus C.
+-- ---------------------------------------------------------------------------
+insert into auth.users (id, instance_id, aud, role, email)
+values ('a3060001-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'ina-shadchanC@test.local');
+
+insert into public.accounts (kind) values ('shadchanus') returning id as acct_c \gset
+insert into ids values ('acct_c', :'acct_c');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_c, 'a3060001-0000-0000-0000-000000000006', 'shadchan', 'active');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000006","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'Arrange: shadchan''s active context is shadchanus C', public.current_context_id() = :acct_c;
+
+-- ---------------------------------------------------------------------------
+-- (h) in a shadchanus context, insert kind = 'note', scope = 'account',
+-- then read it back -> insert succeeds, 1 row visible.
+--
+-- Implemented against target_type = 'reference', NOT 'shadchan' as AC 4's
+-- table literally reads. `shadchanim` is one of the 11 household-only
+-- tables 3-14 left untouched (validate_shadchanim_household_scope,
+-- 04_triggers.sql, still fires unconditionally on insert) — no
+-- `public.shadchanim` row can EVER exist with `account_id` equal to a
+-- shadchanus account. The account-scope branch for `target_type = 'shadchan'`
+-- requires `exists (select 1 from shadchanim where account_id =
+-- current_context_id())`, which can therefore never be satisfied while
+-- genuinely active in a shadchanus context — the literal AC 4(h) shape is
+-- unsatisfiable under the current schema, not merely untested. `reference`
+-- is the one target_type whose account-scope branch carries no existence
+-- check at all, and is the exact shape 3-14's OWN suite
+-- (household_scope_lift.sql AC 4(b)) uses for this identical "does an
+-- interactions insert succeed while active in a shadchanus context" proof.
+-- This still fully exercises (h)'s real intent — that 3-14 landing is what
+-- makes a NOTE insert (not just any interaction) succeed here, and that the
+-- SELECT policy this story split off still lets the caller read it back.
+-- Reported back to the story owner as a likely contract defect.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_id bigint;
+begin
+  insert into public.interactions (target_type, target_id, scope, kind, body)
+    values ('reference', 9, 'account', 'note', 'shadchan''s own note, active in shadchanus C (h)')
+    returning id into v_id;
+  insert into ids values ('note_h', v_id::text);
+  insert into results values (
+    '(h) in a shadchanus context, insert kind = ''note'' succeeds', true, null
+  );
+exception when others then
+  insert into results values (
+    '(h) in a shadchanus context, insert kind = ''note'' succeeds', false, sqlerrm
+  );
+end $$;
+
+insert into results (name, passed)
+select '(h) the inserted note is readable back, 1 row visible',
+       count(*) = 1
+from public.interactions
+where id = (select value::bigint from ids where name = 'note_h');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Emit the report as a single JSON array line, then undo everything.
+-- ---------------------------------------------------------------------------
+\t on
+\a
+select coalesce(json_agg(json_build_object('name', name, 'passed', passed, 'detail', detail) order by name), '[]'::json)
+from results;
+
+rollback;

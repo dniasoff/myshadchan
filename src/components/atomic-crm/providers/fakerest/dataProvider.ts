@@ -6,6 +6,7 @@ import {
 import fakeRestDataProvider from "ra-data-fakerest";
 
 import type {
+  AccountMember,
   AddRedtInput,
   AddSchoolInput,
   AiEntitlementInfo,
@@ -47,6 +48,7 @@ import {
 import generateData from "./dataGenerator";
 import type { Db } from "./dataGenerator/types";
 import { withSupabaseFilterAdapter } from "./internal/supabaseAdapter";
+import { resolveContextMembership } from "./internal/accountMemberships";
 import {
   linkReferenceToShidduch,
   logReferenceCall,
@@ -213,6 +215,109 @@ export const createDataProvider = ({
           .length,
         nb_redts: redts.filter((r: any) => r.shidduchim_id === row.id).length,
         catch_count: computeShidduchCatchCount(row, allShidduchim as any[]),
+      };
+    });
+  };
+
+  // Story 3.6 — the FakeRest resolver behind both the actor_member_id
+  // create-path stamp below and enrichInteractions()'s can_moderate: "the
+  // demo caller's own identity plus their active membership in the
+  // currently active account", the emulation counterpart of
+  // `current_member_id()`.
+  const resolveCallerMembership = async (): Promise<{
+    userId: string;
+    membership: AccountMember | null;
+  } | null> => {
+    const identity = await getIdentity();
+    if (identity == null) return null;
+    const userId = String(identity.id);
+    const membership = await resolveContextMembership(
+      baseDataProvider,
+      userId,
+      activeAccountId,
+    );
+    return { userId, membership };
+  };
+
+  // Mirrors `public.is_owning_membership_role()` (02_functions.sql). Kept as
+  // a local one-line predicate rather than imported from
+  // `providers/commons/roleAuthority.ts`, which this story does not own.
+  const isOwningMembershipRole = (role: string): boolean =>
+    role === "parent_admin" || role === "self_manager";
+
+  // Emulate the interactions_summary view (Story 3.6, AD-10 FakeRest
+  // mirror): resolve each row's author_name and can_moderate the same way
+  // the Postgres view and can_moderate_note() do, so a note's author byline
+  // and edit/delete controls render correctly in demo mode too.
+  //
+  // can_moderate for a null actor_member_id follows the SQL exactly: false
+  // on the author branch (there is no membership row to match), true only
+  // if the demo caller holds an owning role in their active context. Every
+  // legacy, authorless demo row (dataGenerator/references.ts) is therefore
+  // moderatable by owners only, never by its nominal "author" — there is
+  // none to compare against.
+  const enrichInteractions = async (rows: any[]): Promise<any[]> => {
+    if (rows.length === 0) return [];
+    const [{ data: accountMembers }, { data: members }, caller] =
+      await Promise.all([
+        baseDataProvider.getList<AccountMember>("account_members", {
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        }),
+        baseDataProvider.getList<Member>("members", {
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        }),
+        resolveCallerMembership(),
+      ]);
+    const membershipById = new Map(accountMembers.map((am) => [am.id, am]));
+    const memberByUserId = new Map(members.map((m) => [m.user_id, m]));
+    const callerOwnsCurrentContext =
+      caller?.membership != null &&
+      isOwningMembershipRole(caller.membership.role);
+
+    return rows.map((row: any) => {
+      const authorMembership =
+        row.actor_member_id != null
+          ? membershipById.get(row.actor_member_id)
+          : undefined;
+
+      // Mirrors `members`' own RLS: an author's name resolves only while
+      // they hold an ACTIVE membership of THIS row's account — an author
+      // who has since left the account yields `author_name: null`, never a
+      // stale name.
+      const authorIsActiveHere =
+        authorMembership != null &&
+        accountMembers.some(
+          (am) =>
+            am.status === "active" &&
+            am.user_id === authorMembership.user_id &&
+            String(am.account_id) === String(row.account_id),
+        );
+      const authorUserId = authorMembership?.user_id;
+      const authorProfile =
+        authorIsActiveHere && authorUserId != null
+          ? memberByUserId.get(authorUserId)
+          : undefined;
+      const authorName = authorProfile
+        ? `${authorProfile.first_name} ${authorProfile.last_name}`.trim()
+        : "";
+
+      // Mirrors can_moderate_note(): the caller wrote it (matched on
+      // user_id, NEVER on actor_member_id — an archived-and-re-added author
+      // keeps a different membership id for the same person), or the
+      // caller holds an owning role in their currently active context.
+      const isAuthor =
+        authorMembership != null &&
+        caller != null &&
+        authorMembership.user_id === caller.userId;
+
+      return {
+        ...row,
+        author_name: authorName || null,
+        can_moderate: isAuthor || callerOwnsCurrentContext,
       };
     });
   };
@@ -436,6 +541,15 @@ export const createDataProvider = ({
         );
         return { data: await computeShadchanStats(data), total };
       }
+      // Emulate the interactions_summary view (Story 3.6 AD-10 FakeRest
+      // mirror) the same way references_summary is emulated above.
+      if (resource === "interactions" || resource === "interactions_summary") {
+        const { data, total } = await baseDataProvider.getList(
+          "interactions",
+          params,
+        );
+        return { data: await enrichInteractions(data), total };
+      }
       return baseDataProvider.getList(resource, params);
     },
     async getOne(resource: string, params: any) {
@@ -465,11 +579,27 @@ export const createDataProvider = ({
         const [stats] = await computeShadchanStats([data]);
         return { data: stats };
       }
+      if (resource === "interactions" || resource === "interactions_summary") {
+        const { data } = await baseDataProvider.getOne("interactions", params);
+        const [enriched] = await enrichInteractions([data]);
+        return { data: enriched };
+      }
       return baseDataProvider.getOne(resource, params);
     },
     async create(resource: string, params: any) {
       if (resource === "interactions") {
         assertValidInteraction(params.data ?? {});
+        // Server-set, unconditionally overwritten — mirrors
+        // set_interaction_actor_member_id() (Story 3.5): a client can never
+        // attribute a row to another member, including by omission.
+        const caller = await resolveCallerMembership();
+        return baseDataProvider.create(resource, {
+          ...params,
+          data: {
+            ...params.data,
+            actor_member_id: caller?.membership?.id ?? null,
+          },
+        });
       }
       return baseDataProvider.create(resource, params);
     },

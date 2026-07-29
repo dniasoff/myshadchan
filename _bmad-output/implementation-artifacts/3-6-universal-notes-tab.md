@@ -1,6 +1,6 @@
 # Story 3.6: Universal Notes tab
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -294,31 +294,34 @@ one-line filter addition to the query 3.5 built, flagged in 3.5's own Dev Notes 
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Schema: soft delete, the split policies, the shared predicate** (AC: 1, 2, 3)
-  - [ ] Add `deleted_at timestamp with time zone` to `public.interactions` in `01_tables.sql`.
-  - [ ] Add `public.can_moderate_note(bigint)` to `02_functions.sql`, in exact `pg_dump` form,
+- [x] **Task 1 — Schema: soft delete, the split policies, the shared predicate** (AC: 1, 2, 3)
+  - [x] Add `deleted_at timestamp with time zone` to `public.interactions` in `01_tables.sql`.
+        (Found already present — 3.5 owns this column per contract §10; verified, not added.)
+  - [x] Add `public.can_moderate_note(bigint)` to `02_functions.sql`, in exact `pg_dump` form,
         placed beside `is_owning_membership_role` (`:439`). Grant per AC 3.
-  - [ ] In `05_policies.sql`, replace the single `for all` policy (`:262-315`) with three
+  - [x] In `05_policies.sql`, replace the single `for all` policy (`:262-315`) with three
         per-command policies. Preserve 3.5's visibility predicate **verbatim** in all three;
         AND the `kind <> 'note' or public.can_moderate_note(actor_member_id)` clause into the
         UPDATE policy's `using` **and** `with check` only. Write no DELETE policy, and say why
         in a comment.
-  - [ ] Widen the column grant to `(body, metadata, deleted_at)` in `06_grants.sql:616` and
+  - [x] Widen the column grant to `(body, metadata, deleted_at)` in `06_grants.sql:616` and
         extend the comment at `:611-614`.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
         add_interaction_soft_delete_and_note_authorship`, hand-check the output (expect: one
         `ALTER TABLE ... ADD COLUMN`, one `CREATE FUNCTION`, three `CREATE POLICY` + one
         `DROP POLICY`, grants — and **no** trigger or constraint churn), then
-        `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
+        `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. (No `ALTER
+        TABLE` needed — see above. `db diff` also dropped `WITH (security_invoker = on)` on the
+        new view and every grant/revoke statement, both hand-added — see Debug Log.)
 
-- [ ] **Task 2 — `interactions_summary` view** (AC: 5)
-  - [ ] Add the view to `03_views.sql` with explicit columns, `security_invoker = on`, and the
+- [x] **Task 2 — `interactions_summary` view** (AC: 5)
+  - [x] Add the view to `03_views.sql` with explicit columns, `security_invoker = on`, and the
         two left joins. Grant per AC 5.
-  - [ ] Regenerate and hand-check the migration in the same diff as Task 1 if not yet applied,
-        or a second one named `add_interactions_summary_view`.
+  - [x] Regenerate and hand-check the migration in the same diff as Task 1 if not yet applied,
+        or a second one named `add_interactions_summary_view`. (Same diff as Task 1.)
 
-- [ ] **Task 3 — FakeRest mirror (AD-10)** (AC: 5, 6)
-  - [ ] `withSupabaseFilterAdapter` strips the `_summary` suffix
+- [x] **Task 3 — FakeRest mirror (AD-10)** (AC: 5, 6)
+  - [x] `withSupabaseFilterAdapter` strips the `_summary` suffix
         [Source: src/components/atomic-crm/providers/fakerest/internal/supabaseAdapter.ts:4-8,18-20],
         so `interactions_summary` arrives at the FakeRest provider as `interactions`. Enrich
         the `interactions` `getList`/`getOne` results with `author_name` and `can_moderate`,
@@ -326,38 +329,46 @@ one-line filter addition to the query 3.5 built, flagged in 3.5's own Dev Notes 
         [Source: src/components/atomic-crm/providers/fakerest/dataProvider.ts:388-399] and the
         note already written at
         [Source: src/components/atomic-crm/providers/fakerest/dataProvider.ts:211-216].
-  - [ ] Mirror 3.5's `actor_member_id` trigger on the FakeRest `create` path for
+  - [x] Mirror 3.5's `actor_member_id` trigger on the FakeRest `create` path for
         `interactions`: stamp the demo caller's active membership id via `activeMembershipsFor`
         [Source: src/components/atomic-crm/providers/fakerest/internal/accountMemberships.ts:24-37].
         Without it every demo note carries `actor_member_id: null` (the current generator value
         — [Source: src/components/atomic-crm/providers/fakerest/dataGenerator/references.ts:307])
-        and `can_moderate` is false for everything in demo mode.
-  - [ ] `can_moderate` for a null `actor_member_id` follows the SQL: false for the author
+        and `can_moderate` is false for everything in demo mode. (Added `resolveContextMembership`
+        to `accountMemberships.ts` and a `resolveCallerMembership` closure in `dataProvider.ts`
+        that the create-path stamp and the enrichment's owning-role check both call.
+        `dataGenerator/references.ts` itself was not edited — those rows are `link_created`/
+        `call_logged`, not `note`, so NotesTab never reads them; left as the documented
+        authorless-legacy-data case rather than backfilled.)
+  - [x] `can_moderate` for a null `actor_member_id` follows the SQL: false for the author
         branch, true only if the demo caller holds an owning role. Legacy authorless rows are
         therefore moderatable by owners only — state it in a code comment.
 
-- [ ] **Task 4 — The `db` negative matrix** (AC: 4, 5)
-  - [ ] `supabase/tests/interaction_note_authorship.sql` + `.test.ts`, checks (a)–(h) of AC 4
-        plus AC 5's four view checks, one named `it` each.
-  - [ ] Rehearse against a seeded local stack:
+- [x] **Task 4 — The `db` negative matrix** (AC: 4, 5)
+  - [x] `supabase/tests/interaction_note_authorship.sql` + `.test.ts`, checks (a)–(h) of AC 4
+        plus AC 5's four view checks, one named `it` each. (Check (h) implemented against
+        `target_type = 'reference'` rather than `'shadchan'` — see the Debug Log and Completion
+        Notes for why the literal AC 4(h) shape is unsatisfiable under the current schema.)
+  - [x] Rehearse against a seeded local stack:
         `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db reset --local` then
         `npm run test:unit:db`.
 
-- [ ] **Task 5 — `NotesTab.tsx`** (AC: 6, 7, 9)
-  - [ ] Build per AC 6, importing `formatTimelineDate` from
+- [x] **Task 5 — `NotesTab.tsx`** (AC: 6, 7, 9)
+  - [x] Build per AC 6, importing `formatTimelineDate` from
         `entity360/tabs/interactionLabels.ts` and `UniversalTabProps` from
         `entity360/tabs/types.ts` (both 3.5's).
-  - [ ] `NotesTab.test.tsx` (`app` project): add / edit / soft-delete happy paths; the
+  - [x] `NotesTab.test.tsx` (`app` project): add / edit / soft-delete happy paths; the
         `can_moderate` control-visibility pair; the soft-deleted-note-absent case (AC 7); the
         four `targetType` scope payloads; empty / loading / error; the i18n sentinel (AC 9).
         AAA, one behaviour per `it`, no `waitForTimeout`.
 
-- [ ] **Task 6 — `ActivityTab` filter** (AC: 8)
-  - [ ] Add `"deleted_at@is": null` to `ActivityTab.tsx`'s `useGetList` filter and one case to
-        `ActivityTab.test.tsx`. Touch nothing else in that file.
+- [x] **Task 6 — `ActivityTab` filter** (AC: 8)
+  - [x] Add `"deleted_at@is": null` to `ActivityTab.tsx`'s `useGetList` filter and one case to
+        `ActivityTab.test.tsx`. Touch nothing else in that file. (Verified both were already
+        present — 3.5 shipped them ahead of this story's dependency; neither file was edited.)
 
-- [ ] **Task 7 — Validate**
-  - [ ] `npm run typecheck` · `npx vitest run` · `npm run test:unit:db` · `npm run lint` ·
+- [x] **Task 7 — Validate**
+  - [x] `npm run typecheck` · `npx vitest run` · `npm run test:unit:db` · `npm run lint` ·
         `npm run build`. (Equivalently `make typecheck` / `make test` / `make lint` /
         `make build`.)
 
@@ -532,8 +543,131 @@ function and widens a column grant [Source: .claude/rules/security-triggers.md].
 
 ### Agent Model Used
 
+Claude Sonnet 5 (claude-sonnet-5), dispatched as the harness `developer` role
+via the `bmad-dev-story` skill.
+
 ### Debug Log References
+
+- `deleted_at` was already present on `public.interactions` (3.5's column, per contract §10) —
+  confirmed via `01_tables.sql` before touching anything, per the story's explicit instruction to
+  stop and report rather than add it if missing. It was present, so Task 1's `ALTER TABLE` step
+  was a no-op.
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
+  add_interaction_soft_delete_and_note_authorship` produced the `DROP POLICY` + three
+  `CREATE POLICY` + `CREATE FUNCTION can_moderate_note` + `CREATE OR REPLACE VIEW
+  interactions_summary` — but **zero** grant/revoke statements and **no** `WITH (security_invoker
+  = on)` on the new view. Both are documented, pre-existing `db diff` gaps in this exact repo
+  (see `supabase/migrations/20260724112600_add_summary_stats_views.sql`'s own "MANUAL
+  ADJUSTMENTS" comment for the identical `security_invoker` drop; the missing grants are the same
+  class of gap, extended here to also cover a brand-new `SECURITY DEFINER` function and a
+  column-privilege widening in the same pass). Added by hand, in the same style/comment as that
+  precedent migration, then verified live: `alter view ... set (security_invoker = on)` was
+  proven load-bearing, not cosmetic — running the DB suite once *without* it reproduced two real
+  failures (AC 5(i)'s `reloptions` check, and AC 5(iv)'s archived-author check leaking "Devora
+  Fisch" straight through, because the view executed as its **owner**, bypassing `members`' own
+  RLS entirely). Fixed, then `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db reset --local`
+  (to apply the corrected migration from a clean state) followed by
+  `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local` → "No schema changes found".
+- AC 4(h) as literally tabled ("in a shadchanus context, insert `kind='note'`,
+  `target_type='shadchan'`, `scope='account'`") is **unsatisfiable** under the current schema, not
+  merely untested: `shadchanim` remains one of the 11 household-only tables 3-14 left untouched
+  (`validate_shadchanim_household_scope`, `04_triggers.sql`, still fires unconditionally on
+  insert), so no `public.shadchanim` row can ever have `account_id` equal to a shadchanus
+  account. The account-scope branch for `target_type = 'shadchan'` requires
+  `exists (select 1 from shadchanim where account_id = current_context_id())`, which can
+  therefore never hold while genuinely active in a shadchanus context. 3-14's own suite
+  (`household_scope_lift.sql` AC 4(b)) hit the identical wall and used `target_type = 'reference'`
+  instead — the one shape whose account-scope branch carries no existence check at all — for this
+  exact "does an interactions insert succeed while active in a shadchanus context" proof.
+  Implemented check (h) the same way, fully documented in `interaction_note_authorship.sql`'s
+  header and inline at that check, and flagged below as a likely contract defect rather than
+  silently "fixed".
+- `npm run test:unit:db` (default local stack): 10 files / 390 passed, 1 pre-existing skip — no
+  regressions from the policy split or the new view.
+- `make test STACK_ID=2` (full suite, all projects, isolated e2e stack, then released): 136 files
+  / 1409 tests passed, 1 pre-existing skip. `npm run typecheck`, `npm run lint`,
+  `npx prettier --check` (scoped to files this story owns — the repo-wide check also lists
+  pre-existing, unrelated `.mdx`/workflow formatting drift this story did not introduce) and
+  `npm run build` all clean.
+- Security review (security-review skill) performed on the full diff — RLS policy rewrite, new
+  `SECURITY DEFINER` function, widened column grant. See Completion Notes for the outcome.
 
 ### Completion Notes List
 
+- All 7 tasks and all 9 ACs implemented and verified; see the gate output above and in the final
+  handoff.
+- `01_tables.sql` was **not** touched, per the story's explicit instruction: `deleted_at` was
+  already present (3.5's column).
+- `ActivityTab.tsx` / `ActivityTab.test.tsx` were **not** touched: 3.5 had already shipped the
+  `"deleted_at@is": null` filter and its own falsifiable test case
+  ("ActivityTab — deleted_at exclusion against the real FakeRest provider (AC 11)"). Verified by
+  reading both files before deciding not to edit them, per the story's explicit "verify, don't
+  re-add" instruction.
+- `dataGenerator/references.ts` was granted but not edited: its interactions fixtures are
+  `link_created`/`call_logged` rows, never `kind = 'note'`, so `NotesTab` never reads them and
+  there was nothing for this story to stamp there. Their `actor_member_id: null` is the
+  documented "legacy authorless data" case (Task 3's third bullet), left as-is.
+- **Contract defect to report**: AC 4(h)'s literal `target_type = 'shadchan'` shape cannot pass
+  while genuinely active in a shadchanus context, for the structural reason in the Debug Log
+  above. Implemented against `target_type = 'reference'` instead, preserving the check's real
+  intent (proving 3-14's interactions-trigger drop, plus this story's own split policies, work
+  for a `kind = 'note'` insert/read in a shadchanus context) — the one target_type whose
+  account-scope branch has no existence-check gate, and the exact shape 3-14's own suite already
+  uses for this identical proof. This is a genuine schema-level constraint, not a testing
+  shortcut: `target_type = 'single'` has the identical problem (`singles` is also household-only),
+  so no different literal target_type would have closed this gap either.
+- `can_moderate_note()`'s two review-blocking traps (never `am.role = 'parent_admin'`, never
+  `actor_member_id = current_member_id()`) are both implemented per the story's exact `pg_dump`
+  text and independently proven by checks (d) and (e) of the db suite.
+- The FakeRest mirror's `resolveContextMembership` (new, in `accountMemberships.ts`) and
+  `resolveCallerMembership` (new closure in `dataProvider.ts`) are the emulation counterpart of
+  `current_member_id()`; `isOwningMembershipRole` is a small, local, one-line predicate in
+  `dataProvider.ts` rather than imported from `providers/commons/roleAuthority.ts` — that file is
+  outside this story's owned-paths list, and the predicate is two string comparisons, not worth a
+  cross-story dependency.
+- `registry.json` picked up exactly one addition (`NotesTab.tsx`) from `make registry-gen`; no
+  other entries changed.
+- Security review: no findings. Checked specifically for (1) the split-policy OR-widening hazard
+  (confirmed absent — the `for all` policy is fully replaced, not supplemented); (2) the
+  `can_moderate_note()` author branch being spoofable (confirmed not — `actor_member_id` is
+  server-set by 3.5's trigger and the client never supplies it in `NotesTab`); (3) the widened
+  `deleted_at` grant being exploitable beyond "an author can un-delete their own note", which AC 1
+  already accepts explicitly; (4) `interactions_summary`'s `security_invoker` actually applying
+  (see the Debug Log's account of catching this live, pre-fix); (5) `NotesTab.tsx` never sending
+  `actor_member_id` in its `create`/`update` payloads (asserted in `NotesTab.test.tsx`).
+- Nothing in the contract was found wrong beyond the AC 4(h) shape noted above.
+
 ### File List
+
+**Modified:**
+- `supabase/schemas/02_functions.sql`
+- `supabase/schemas/03_views.sql`
+- `supabase/schemas/05_policies.sql`
+- `supabase/schemas/06_grants.sql`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/internal/accountMemberships.ts`
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts`
+- `registry.json` (auto-generated by `make registry-gen`)
+
+**Added:**
+- `supabase/migrations/20260729042335_add_interaction_soft_delete_and_note_authorship.sql`
+- `supabase/tests/interaction_note_authorship.sql`
+- `supabase/tests/interaction_note_authorship.test.ts`
+- `src/components/atomic-crm/entity360/tabs/NotesTab.tsx`
+- `src/components/atomic-crm/entity360/tabs/NotesTab.test.tsx`
+
+**Verified, not edited (in-scope, already satisfied by 3.5):**
+- `supabase/schemas/01_tables.sql` (`deleted_at` already present)
+- `src/components/atomic-crm/entity360/tabs/ActivityTab.tsx` (filter already present)
+- `src/components/atomic-crm/entity360/tabs/ActivityTab.test.tsx` (test case already present)
+
+**Granted but not needed:**
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/references.ts` (no `kind = 'note'`
+  rows exist there — see Completion Notes)
+
+## Change Log
+
+| Date | Change |
+|---|---|
+| 2026-07-29 | Story implemented end-to-end: `can_moderate_note()` (AC 3), the `for all` interactions policy split into three per-command policies with the author-or-owning-role clause on UPDATE only (AC 2/3), the widened `(body, metadata, deleted_at)` column grant (AC 1), `interactions_summary` with `security_invoker = on` (AC 5, including a live-caught `db diff` gap that dropped the option), the FakeRest AD-10 mirror (author_name/can_moderate enrichment + actor_member_id create-path stamping, AC 5/6), the `interaction_note_authorship` db suite (AC 4's eight checks + AC 5's four view checks, with check (h) adapted to a satisfiable target_type and the deviation documented and reported), `NotesTab.tsx` + `NotesTab.test.tsx` (AC 6/7/9), and the i18n catalog entries under `crm.entity360.notes.*` (English + French). `ActivityTab.tsx`/`.test.tsx` and `01_tables.sql` verified already satisfied by 3.5 and left untouched. Status → review. |

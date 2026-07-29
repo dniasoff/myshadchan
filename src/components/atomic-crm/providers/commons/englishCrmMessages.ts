@@ -415,6 +415,24 @@ export const englishCrmMessages = {
         error: "Could not load the activity feed.",
         viewRecord: "View record",
       },
+      // Story 3.6 — NotesTab.tsx's own UX-DR11 states, its add/edit/delete
+      // controls, and the author fallback for a note whose author's
+      // membership has since left the account (interactions_summary.author_name
+      // resolves to null in that case).
+      notes: {
+        empty: "No notes yet.",
+        error: "Could not load the notes.",
+        placeholder: "Add a note…",
+        add: "Add note",
+        edit: "Edit",
+        delete: "Delete",
+        save: "Save",
+        cancel: "Cancel",
+        unknownAuthor: "Unknown",
+        addError: "Failed to add the note",
+        editError: "Failed to update the note",
+        deleteError: "Failed to delete the note",
+      },
       // Story 3.2 — ShowBase's explicit `loading` / `error` elements (AC 2).
       record_pending: "Loading…",
       record_unavailable: "This record is unavailable.",
