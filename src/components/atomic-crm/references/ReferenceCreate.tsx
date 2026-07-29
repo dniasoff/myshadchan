@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
-import type { Identifier } from "ra-core";
+import type { Identifier, RaRecord } from "ra-core";
 import { useDataProvider, useNotify, useRedirect, useTranslate } from "ra-core";
+import { Link } from "react-router";
 import { Create } from "@/components/admin/create";
 import { SimpleForm } from "@/components/admin/simple-form";
 import type { CrmDataProvider } from "../providers/types";
@@ -24,6 +25,26 @@ import { useReferenceMatch } from "./useReferenceMatch";
  * confirming a match links the existing reference to that shidduch and goes
  * straight to their page — which is the moment the user finally sees everything
  * they already know about this person.
+ *
+ * RULING 7 clause 5 — entry is always from a shidduch. A reference is created
+ * only through this shidduch-scoped path, never by browsing a reference list
+ * (there is none). Two consequences enforced here:
+ *
+ *  1. Without a resolvable `?shidduchim_id=`, the form itself is refused
+ *     (`RequiresShidduch`) rather than silently allowing an unscoped create.
+ *  2. When the "no match" / "different person" branch falls through to a
+ *     plain save, `mutationOptions.onSuccess` immediately links the new
+ *     reference to that shidduch via the same `link_reference_to_shidduch`
+ *     RPC match-on-entry already uses (idempotent, account-checked both
+ *     sides). Before this, a bare `<Create>` here let a genuinely new person
+ *     be saved with zero `reference_links` — a name-only orphan that
+ *     `match_identity` can never recover, because it requires a phone/school
+ *     corroborator match_reference_on_entry never gets to see. See
+ *     `/tmp/claude-1000/-home-daniel-repos-myshadchan/c6badcce-b0a1-4dd4-a9e3-16d3bfec7653/scratchpad/references-scoping-plan.md`
+ *     §2 for the full analysis. The atomic `create_reference_for_shidduch`
+ *     RPC the plan proposes (insert + link in one transaction) is a later,
+ *     schema-touching wave — this fix is deliberately client-side so it needs
+ *     no migration.
  */
 
 const MatchOnEntry = ({ shidduchimId }: { shidduchimId?: Identifier }) => {
@@ -86,16 +107,97 @@ const MatchOnEntry = ({ shidduchimId }: { shidduchimId?: Identifier }) => {
   );
 };
 
+/**
+ * Resolves the `?shidduchim_id=` query param to a usable id, or `undefined`
+ * for anything that is not a resolvable positive integer — a missing param,
+ * `NaN` from garbage input, or a non-positive number. Callers treat
+ * `undefined` as "no shidduch named" (Ruling 7 clause 5), whether that is
+ * because the param was never set or because it could not possibly identify
+ * a real shidduch.
+ */
+function parseShidduchimId(raw: string | null): Identifier | undefined {
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/**
+ * Ruling 7 clause 5 — a reference is always created from inside a shidduch.
+ * Rendered instead of the form when `/references/new` is opened without a
+ * resolvable `shidduchim_id`: a clear refusal beats a silent orphan.
+ */
+const RequiresShidduch = () => {
+  const translate = useTranslate();
+
+  return (
+    <div
+      role="alert"
+      className="flex flex-col items-start gap-2 rounded-lg border border-dashed p-10 text-sm text-muted-foreground"
+    >
+      <p>
+        {translate("crm.references.create.requires_shidduch", {
+          _: "A reference can only be created from inside a shidduch.",
+        })}
+      </p>
+      <Link
+        to="/shidduchim"
+        className="font-medium text-foreground underline underline-offset-4"
+      >
+        {translate("crm.references.create.requires_shidduch_link", {
+          _: "Go to the pipeline",
+        })}
+      </Link>
+    </div>
+  );
+};
+
 export const ReferenceCreate = () => {
   const shidduchimIdParam = new URLSearchParams(window.location.search).get(
     "shidduchim_id",
   );
-  const shidduchimId = shidduchimIdParam
-    ? Number(shidduchimIdParam)
-    : undefined;
+  const shidduchimId = parseShidduchimId(shidduchimIdParam);
+
+  const dataProvider = useDataProvider<CrmDataProvider>();
+  const notify = useNotify();
+  const redirect = useRedirect();
+  const translate = useTranslate();
+
+  if (shidduchimId == null) {
+    return <RequiresShidduch />;
+  }
 
   return (
-    <Create redirect={redirectToRecord}>
+    <Create
+      redirect={redirectToRecord}
+      mutationOptions={{
+        onSuccess: async (data: RaRecord) => {
+          try {
+            await dataProvider.linkReferenceToShidduch({
+              reference_id: data.id,
+              shidduchim_id: shidduchimId,
+            });
+            notify("crm.references.create.linked", {
+              type: "success",
+              messageArgs: {
+                _: "Reference saved and linked to this shidduch.",
+              },
+            });
+          } catch (error) {
+            // The reference itself was saved; only the link failed. Notify
+            // rather than swallow — the record is still reachable from its
+            // own page (which is where a future repair action belongs), it
+            // just is not yet linked to the shidduch the user came from.
+            notify(
+              error instanceof Error
+                ? error.message
+                : translate("ra.notification.http_error"),
+              { type: "error" },
+            );
+          }
+          redirect(redirectToRecord, "references", data.id, data);
+        },
+      }}
+    >
       <SimpleForm toolbar={<FormToolbar />}>
         <ReferenceInputs />
         <MatchOnEntry shidduchimId={shidduchimId} />
