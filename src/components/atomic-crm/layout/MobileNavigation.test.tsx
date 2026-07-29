@@ -107,10 +107,21 @@ describe("MobileNavigation — More menu contents (AC-5)", () => {
     const screen = await renderMobileNavigation([household]);
     await screen.getByRole("button", { name: "More" }).click();
 
-    // Assert — AC-1 semantics preserved: no visual trace at all.
+    // Assert — AC-1 semantics preserved: no visual trace at all, and no
+    // orphaned section label either.
     await expect
       .element(screen.getByText("The Klein Family", { exact: false }))
       .not.toBeInTheDocument();
+    await expect.element(screen.getByText("Context")).not.toBeInTheDocument();
+
+    // Review finding F1: a 1-context user must still see exactly the one
+    // separator dividing the nav items from the theme items — not two
+    // adjacent separators either side of an empty context section. Radix
+    // portals menu content to `document.body`, outside the render root, so
+    // a document-wide read is required (same reason the order test above
+    // reads `document.querySelectorAll` directly).
+    const separators = document.querySelectorAll('[role="separator"]');
+    expect(separators).toHaveLength(1);
   });
 
   it("lists every context, including the one not currently active, for a 2-context login", async () => {
@@ -125,6 +136,42 @@ describe("MobileNavigation — More menu contents (AC-5)", () => {
     await expect
       .element(screen.getByText("My Account · Shadchanus"))
       .toBeInTheDocument();
+  });
+
+  it("labels the context section and brackets it with exactly two separators for a 2-context login", async () => {
+    // Arrange / Act
+    const screen = await renderMobileNavigation([household, shadchanus]);
+    await screen.getByRole("button", { name: "More" }).click();
+
+    // Assert — F2: the mobile section has no trigger naming the active
+    // context (unlike the desktop pill), so it needs its own heading.
+    await expect.element(screen.getByText("Context")).toBeInTheDocument();
+
+    // One separator ahead of the section (dividing it from the nav items),
+    // one behind it (dividing it from the theme items) — never adjacent.
+    const separators = document.querySelectorAll('[role="separator"]');
+    expect(separators).toHaveLength(2);
+  });
+
+  it("marks the active context row with a check, and no other row", async () => {
+    // Arrange / Act
+    const screen = await renderMobileNavigation([household, shadchanus]);
+    await screen.getByRole("button", { name: "More" }).click();
+
+    // Assert — Task 4: rows are "name + kind + active check". The mobile
+    // section has no trigger naming the active context, so the check is the
+    // only in-menu indicator of which one is live.
+    const menuItems = Array.from(
+      document.querySelectorAll('[role="menuitem"]'),
+    );
+    const activeContextRow = menuItems.find((item) =>
+      item.textContent?.includes("The Klein Family · Household"),
+    );
+    const inactiveContextRow = menuItems.find((item) =>
+      item.textContent?.includes("My Account · Shadchanus"),
+    );
+    expect(activeContextRow?.querySelector("svg")).not.toBeNull();
+    expect(inactiveContextRow?.querySelector("svg")).toBeNull();
   });
 });
 

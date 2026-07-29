@@ -63,12 +63,18 @@ export const Dashboard = () => {
               <RecentSuggestions singleId={selectedSingleId} />
             </div>
             <div className="flex flex-col gap-6 lg:col-span-4">
-              <DashboardStat
-                label="Shadchanim"
-                value={totalShadchanim}
-                icon={Users}
-                to="/shadchanim"
-              />
+              {/* F4 fix: DashboardStat is a half-width tile (design-language
+                  §5.7); the grid wrapper survives even with a single child so
+                  it doesn't stretch to fill the column now that the
+                  References tile (RULING 7) is gone. */}
+              <div className="grid grid-cols-2 gap-4">
+                <DashboardStat
+                  label="Shadchanim"
+                  value={totalShadchanim}
+                  icon={Users}
+                  to="/shadchanim"
+                />
+              </div>
               <AttentionSection />
             </div>
           </div>

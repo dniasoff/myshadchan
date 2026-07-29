@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import {
   type Identifier,
   useDataProvider,
@@ -13,6 +13,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -45,8 +47,26 @@ const contextLabel = (context: MyContext, translate: Translate) =>
  * render surfaces — never a second implementation of the switch itself.
  * Renders nothing for a login with fewer than 2 contexts (AC-1 semantics,
  * preserved): no rows, no visual trace.
+ *
+ * Each row is "name + kind + active check" per Task 4 — the active context
+ * gets a trailing `<Check>`, matching `ThemeMenuItems`'s own indicator
+ * treatment, so a 2+ context user can tell which one is live from the rows
+ * alone (the desktop pill's trigger already names it; the mobile "More" menu
+ * has no trigger, so the rows are the only place this can show).
+ *
+ * `withSectionLabel` makes the component own its section's chrome — a
+ * `DropdownMenuLabel` plus a trailing `DropdownMenuSeparator`, emitted only
+ * when there are rows to bracket — for mounting inside a menu that also
+ * holds unrelated items (mobile's "More" menu, between the nav items and
+ * `ThemeMenuItems`). Without it, callers get bare rows: the desktop pill's
+ * `DropdownMenuContent` holds nothing else, so a label and self-supplied
+ * separator would be section chrome with nothing to divide.
  */
-export const ContextMenuItems = () => {
+export const ContextMenuItems = ({
+  withSectionLabel = false,
+}: {
+  withSectionLabel?: boolean;
+} = {}) => {
   const { data: contexts } = useMyContexts();
   const dataProvider = useDataProvider<CrmDataProvider>();
   const queryClient = useQueryClient();
@@ -90,7 +110,7 @@ export const ContextMenuItems = () => {
     }
   };
 
-  return (
+  const rows = (
     <>
       {contexts.map((context) => (
         <DropdownMenuItem
@@ -98,8 +118,25 @@ export const ContextMenuItems = () => {
           onSelect={() => handleSelect(context.account_id)}
         >
           {contextLabel(context, translate)}
+          {context.account_id === active.account_id ? (
+            <Check className="ms-auto size-4" aria-hidden="true" />
+          ) : null}
         </DropdownMenuItem>
       ))}
+    </>
+  );
+
+  if (!withSectionLabel) {
+    return rows;
+  }
+
+  return (
+    <>
+      <DropdownMenuLabel>
+        {translate("crm.context_switcher.section_title", { _: "Context" })}
+      </DropdownMenuLabel>
+      {rows}
+      <DropdownMenuSeparator />
     </>
   );
 };

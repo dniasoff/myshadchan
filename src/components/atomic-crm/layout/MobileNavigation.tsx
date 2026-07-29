@@ -253,8 +253,7 @@ const MoreButton = ({ isActive }: { isActive: boolean }) => {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <ContextMenuItems />
-        <DropdownMenuSeparator />
+        <ContextMenuItems withSectionLabel />
         <ThemeMenuItems />
       </DropdownMenuContent>
     </DropdownMenu>

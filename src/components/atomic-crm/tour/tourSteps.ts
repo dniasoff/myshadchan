@@ -61,10 +61,10 @@ const desktopSingleSwitcherStep: DriveStep = {
 
 /**
  * The auto-tour, in order (demo-onboarding-plan.md §B4). Plain, warm copy —
- * the audience is a parent, not a developer. Steps 1-8 live on the
- * dashboard; step 9 crosses over to `/shidduchim` (the only navigation in
- * the tour, driven by step 8's `onNextClick`); steps 9-12 live on the board;
- * step 13 returns attention to the always-present demo banner. On mobile,
+ * the audience is a parent, not a developer. Steps 1-7 live on the
+ * dashboard; step 8 crosses over to `/shidduchim` (the only navigation in
+ * the tour, driven by step 7's `onNextClick`); steps 8-11 live on the board;
+ * step 12 returns attention to the always-present demo banner. On mobile,
  * the Inbox/Tasks/Reminders/Settings/single-switcher steps are adapted — see
  * `TourStepsOptions.isMobile`.
  */

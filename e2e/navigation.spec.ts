@@ -5,18 +5,27 @@ import { test, expect, APP_URL } from "./fixtures";
  * imported from `layout/navItems.ts` — the same reason `pipeline.spec.ts`
  * hardcodes "Shidduchim" instead of reading the nav module: this spec must
  * fail loudly if the two ever drift apart.
+ *
+ * Review finding F5: a bare non-empty check passes even if two routes'
+ * components were swapped (each still renders *a* non-empty heading, just
+ * the wrong one). Each path is paired with a substring that only that
+ * route's real heading contains — "Chaya's shidduchim" for `/` (the
+ * dashboard greeting, once a single exists), "Pipeline" for `/shidduchim`
+ * (its own page heading, independent of the nav label), and each list
+ * page's plural resource name elsewhere — so this spec fails loudly on a
+ * swap, not just on a blank screen.
  */
-const PRIMARY_NAV_PATHS = [
-  "/",
-  "/inbox_items",
-  "/shidduchim",
-  "/shadchanim",
-  "/tasks",
-  "/reminders",
-  "/settings",
-];
+const PRIMARY_NAV_HEADINGS: Record<string, string> = {
+  "/": "shidduchim",
+  "/inbox_items": "Inbox",
+  "/shidduchim": "Pipeline",
+  "/shadchanim": "Shadchanim",
+  "/tasks": "Tasks",
+  "/reminders": "Reminders",
+  "/settings": "Settings",
+};
 
-test("every primary nav destination renders a non-empty heading", async ({
+test("every primary nav destination renders its own heading", async ({
   page,
   createMember,
   createSingle,
@@ -33,19 +42,20 @@ test("every primary nav destination renders a non-empty heading", async ({
 
   await signIn(page, member.email!);
 
-  for (const path of PRIMARY_NAV_PATHS) {
+  for (const [path, expectedText] of Object.entries(PRIMARY_NAV_HEADINGS)) {
     await page.goto(`${APP_URL}/#${path}`);
 
-    // `level: 1` matters: `admin/list.tsx` leaves a second, EMPTY `<h2>` on
-    // every `title={false}` list screen (InboxList.tsx's own comment — "that
-    // renderer bug is shared with 4 other screens and is fixed centrally,
-    // not here"), which would otherwise be the first heading found and make
-    // this assertion pass vacuously on an empty string. Every real page
-    // heading on these seven routes is an `<h1>`.
-    const heading = page.getByRole("heading", { level: 1 }).first();
+    // `level: 1` + a substring `name` filter (Playwright's default for a
+    // string `name`), not "the first `<h1>` on the page": some routes carry
+    // more than one — the mobile dashboard's app-title bar (`MobileDashboard`
+    // Wrapper) sits above the page's own "Chaya's shidduchim" heading, and
+    // `admin/list.tsx` leaves a second, EMPTY `<h2>` on every `title={false}`
+    // list screen (InboxList.tsx's own comment — "that renderer bug is
+    // shared with 4 other screens and is fixed centrally, not here"). Naming
+    // the expected text finds the route's own heading regardless of how many
+    // other headings share the page, rather than trusting DOM order.
+    const heading = page.getByRole("heading", { level: 1, name: expectedText });
     await expect(heading).toBeVisible();
-    const text = await heading.textContent();
-    expect(text?.trim().length ?? 0).toBeGreaterThan(0);
   }
 });
 

@@ -126,6 +126,28 @@ describe("ContextSwitcher", () => {
       .toBeInTheDocument();
   });
 
+  it("marks the active context row with a check, and no other row", async () => {
+    // Arrange — Task 4: rows are "name + kind + active check", shared by
+    // both render surfaces via `ContextMenuItems`.
+    const { screen } = await renderSwitcher([household, shadchanus]);
+
+    // Act
+    await screen.getByRole("button").click();
+
+    // Assert
+    const menuItems = Array.from(
+      document.querySelectorAll('[role="menuitem"]'),
+    );
+    const activeRow = menuItems.find((item) =>
+      item.textContent?.includes("The Klein Family · Household"),
+    );
+    const inactiveRow = menuItems.find((item) =>
+      item.textContent?.includes("My Account · Shadchanus"),
+    );
+    expect(activeRow?.querySelector("svg")).not.toBeNull();
+    expect(inactiveRow?.querySelector("svg")).toBeNull();
+  });
+
   it("switches context, invalidates every query, then navigates home, in that order", async () => {
     // Arrange
     const callOrder: string[] = [];
