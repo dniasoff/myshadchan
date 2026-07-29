@@ -920,6 +920,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/entity360/ad24Conformance.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/entity360/RolePending.tsx",
           "type": "registry:component"
         },

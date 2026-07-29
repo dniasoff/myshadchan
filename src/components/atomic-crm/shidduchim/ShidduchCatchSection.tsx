@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import type { Identifier } from "ra-core";
 import { useRedirect } from "ra-core";
 
-import { requireEntityDescriptor } from "../entity360/registry";
+import { buildRecordPath } from "../entity360/entityPaths";
 import type { ShidduchCatchSuggestion } from "../types";
 import { ShidduchCatchPanel } from "./ShidduchCatchPanel";
 import { EMPTY_CATCH, useShidduchCatch } from "./useShidduchCatch";
@@ -35,9 +35,7 @@ export const ShidduchCatchSection = ({
   const confirm = useCallback(
     (suggestion: ShidduchCatchSuggestion) => {
       redirect(
-        requireEntityDescriptor("shidduchim").buildRecordPath(
-          suggestion.prior_shidduchim_id,
-        ),
+        buildRecordPath("shidduchim", suggestion.prior_shidduchim_id),
         undefined,
         undefined,
         undefined,
