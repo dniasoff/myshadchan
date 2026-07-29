@@ -532,6 +532,18 @@ export const englishCrmMessages = {
           "%{smart_count} shidduch |||| %{smart_count} shidduchim",
       },
     },
+    // Story 4.3, AC 1 — ShidduchimViewSwitch's three-position control, the
+    // segmented-toggle counterpart to `entity_list.view_list`/`view_cards`
+    // above, plus a third "board" position `entity_list` has no equivalent
+    // for.
+    shidduchim: {
+      pageView: {
+        label: "Pipeline view",
+        board: "Board view",
+        list: "List view",
+        cards: "Cards view",
+      },
+    },
     references: {
       list: {
         title: "Reference book",

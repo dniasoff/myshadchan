@@ -128,6 +128,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/useShidduchTransition.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/useShidduchCatch.ts",
           "type": "registry:component"
         },
@@ -145,6 +149,18 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/boardUtils.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/TerminalMoveConfirm.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchimViewSwitch.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchimPipelineList.tsx",
           "type": "registry:component"
         },
         {
@@ -173,6 +189,14 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/ShidduchSchoolsSection.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchRow.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchMoveSheet.tsx",
           "type": "registry:component"
         },
         {
@@ -205,6 +229,18 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/RedtHistorySection.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/PipelineStateOptions.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/PipelineSection.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/PipelineJumpBar.tsx",
           "type": "registry:component"
         },
         {

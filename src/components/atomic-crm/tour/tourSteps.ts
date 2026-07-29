@@ -137,9 +137,13 @@ export const buildTourSteps = ({
   {
     element: '[data-tour="pipeline-board"]',
     popover: {
-      title: "The board",
+      title: "The pipeline",
+      // Story 4.3, Task 8: the board keeps drag, but it's no longer the ONLY
+      // way to move a shidduch along — the two-tap Move sheet works from
+      // every position, at every width, so the copy leads with that instead
+      // of assuming a drag gesture is even reachable here.
       description:
-        "Each column is a stage. Drag a card from one column to the next to move a suggestion along — that's how you record a decision.",
+        "Every stage is a group here. Tap Move to send a shidduch along — that's how you record a decision.",
       side: "top",
       align: "start",
     },

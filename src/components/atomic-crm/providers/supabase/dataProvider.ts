@@ -667,6 +667,39 @@ export const lifeCycleCallbacks: ResourceCallbacks[] = [
       return applyFullTextSearch(["name", "name_he", "location"])(params);
     },
   },
+  {
+    // Story 4.3 (AC 3): the shidduchim pipeline's search. Keyed to
+    // "shidduchim" — the resource `ShidduchimList.tsx`'s `<List>` is
+    // actually given — never "shidduchim_summary", even though
+    // `getDataProviderWithCustomMethods`'s `getList` override above
+    // redirects reads to that view internally. This is the one live
+    // redirect-backed resource in the epic that a search hook is keyed to,
+    // so 4.1's dead-hook rule (Dev Notes, "The dead-hook trap": a hook keyed
+    // to the redirect TARGET never sees the request, since
+    // `withLifecycleCallbacks` matches on the resource name the caller
+    // used, before any redirect runs) is load-bearing here, not academic.
+    //
+    // Ownership note for Story 5.2: AC-3 there drops `parents_en` /
+    // `parents_he` from both `public.shidduchim` and `shidduchim_summary`
+    // and requires a repo-wide zero-hit grep for both names. This column
+    // list still has them today (verified present in
+    // `supabase/schemas/03_views.sql`) — 5.2 must replace this exact pair
+    // with `father_en, father_he, mother_en, mother_he` in the same diff
+    // that drops the columns, or every shidduchim search 400s afterward.
+    resource: "shidduchim",
+    beforeGetList: async (params) => {
+      return applyFullTextSearch([
+        "name_en",
+        "name_he",
+        "shadchan_name",
+        "shadchan_name_he",
+        "parents_en",
+        "parents_he",
+        "location_en",
+        "location_he",
+      ])(params);
+    },
+  },
   ...entityFilesCleanupCallbacks,
 ];
 

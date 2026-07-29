@@ -1,6 +1,10 @@
+---
+baseline_commit: bf8e366b6dd5b501b0bfd121c64c262690226ac5
+---
+
 # Story 4.3: Shidduchim pipeline — board, list and cards
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -151,29 +155,29 @@ reached by drag at any hold duration.** The board also hides 718px of itself at 
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Wire `shidduchim` search (AC: 3)**
-  - [ ] `providers/supabase/dataProvider.ts`, `lifeCycleCallbacks`: add
+- [x] **Task 1 — Wire `shidduchim` search (AC: 3)**
+  - [x] `providers/supabase/dataProvider.ts`, `lifeCycleCallbacks`: add
         `{ resource: "shidduchim", beforeGetList: applyFullTextSearch(["name_en", "name_he", "shadchan_name", "shadchan_name_he", "parents_en", "parents_he", "location_en", "location_he"]) }`,
         above the `...entityFilesCleanupCallbacks` spread and beside 4.1's `singles` /
         `shadchanim` entries.
-  - [ ] Key it to `"shidduchim"` — the resource the `<List>` is actually given — **not**
+  - [x] Key it to `"shidduchim"` — the resource the `<List>` is actually given — **not**
         `"shidduchim_summary"`, even though the provider redirects to that view internally. Story
         4.1's Dev Notes ("The dead-hook trap") document exactly why the latter would silently
         never fire; this is the one live redirect-backed resource in the epic, so the rule is
         load-bearing here.
-  - [ ] Do **not** pass `"phone"` or `"email"` — `applyFullTextSearch` rewrites those two literal
+  - [x] Do **not** pass `"phone"` or `"email"` — `applyFullTextSearch` rewrites those two literal
         names to `*_fts@ilike` columns that exist only on the fossil `contacts_summary` view.
-  - [ ] **Add a source comment naming Story 5.2 as the owner of this column list.** 5.2 AC-3
+  - [x] **Add a source comment naming Story 5.2 as the owner of this column list.** 5.2 AC-3
         drops `parents_en` / `parents_he` from `public.shidduchim` **and** `shidduchim_summary`
         and requires a repo-wide zero-hit grep for both names. Verified present today
         (`supabase/schemas/03_views.sql`), so this list compiles and runs now; 5.2 must replace
         the pair with `father_en, father_he, mother_en, mother_he` in the same diff that drops
         the columns, or every shidduchim search 400s. Neither story saw this before; the comment
         is what makes 5.2's own grep land on it.
-  - [ ] No FakeRest change needed (4.1 Dev Notes: `q` search is generic there).
+  - [x] No FakeRest change needed (4.1 Dev Notes: `q` search is generic there).
 
-- [ ] **Task 2 — Hoist the selected single into the URL (AC: 4)**
-  - [ ] In `shidduchim/ShidduchimList.tsx`, delete the local `useState<Identifier|undefined>` for
+- [x] **Task 2 — Hoist the selected single into the URL (AC: 4)**
+  - [x] In `shidduchim/ShidduchimList.tsx`, delete the local `useState<Identifier|undefined>` for
         `singleId` and the `useEffect` that seeds it. Replace the outer
         `<List filter={{ single_id: selectedSingleId }}>` — a hard `filter`, computed from local
         state, that the user cannot override — with
@@ -183,23 +187,23 @@ reached by drag at any hold duration.** The board also hides 718px of itself at 
         the same moment today's `singleId ?? singles[0].id` is; the existing guard
         (`if (!identity || singlesPending) return null;` before `<List>` mounts) already
         guarantees `singles` is loaded, so no async race is introduced.
-  - [ ] The single-switcher pills read `filterValues.single_id` and call
+  - [x] The single-switcher pills read `filterValues.single_id` and call
         `setFilters({ ...filterValues, single_id: id }, displayedFilters)` from
         `useListContext()`, replacing their `onSelect`/local-`setState` wiring. `setFilters` is
         what writes the value into the URL's `filter` query param; `filterDefaultValues` only ever
         supplies the *initial* value.
-  - [ ] This makes `single_id` (and `q`, once Task 1 lands) part of the URL automatically — no new
+  - [x] This makes `single_id` (and `q`, once Task 1 lands) part of the URL automatically — no new
         URL-sync code; it is ra-core's existing `ListBase` behaviour (4.1 AC-5), simply no longer
         bypassed.
 
-- [ ] **Task 3 — `ShidduchimViewSwitch`: the shared status gate and the three-position control (AC: 1, 2, 5, 6)**
-  - [ ] Restructure `ShidduchimList.tsx`'s inner layout: one
+- [x] **Task 3 — `ShidduchimViewSwitch`: the shared status gate and the three-position control (AC: 1, 2, 5, 6)**
+  - [x] Restructure `ShidduchimList.tsx`'s inner layout: one
         `<List filterDefaultValues={…} filters={[<SearchInput source="q" alwaysOn key="q"/>]} pagination={null} perPage={200} sort={{field:"index", order:"ASC"}} actions={<ShidduchimActions/>}>`
         (Task 2's `filterDefaultValues`; unchanged `perPage` / `pagination={null}` — see Dev Notes
         "Why this list is never paginated") wrapping a new `ShidduchimViewSwitch`.
-  - [ ] `ShidduchimViewSwitch` calls `useEntityListStatus()` (4.1) **once** and renders the shared
+  - [x] `ShidduchimViewSwitch` calls `useEntityListStatus()` (4.1) **once** and renders the shared
         loading / error(+retry) states for anything other than `"ready"` / `"no-matches"`.
-  - [ ] View resolution, verbatim shape:
+  - [x] View resolution, verbatim shape:
         ```ts
         const isMobile = useIsMobile();                                   // AC-2: the ONLY call
         const [stored, setStored] = useStore<"board"|"list"|"cards">("shidduchim.pageView");
@@ -210,65 +214,65 @@ reached by drag at any hold duration.** The board also hides 718px of itself at 
         yet" distinguishable from "the user chose board". Passing `isMobile ? … : …` as
         `useStore`'s *default argument* instead would make the default flip under a resize and is
         forbidden.
-  - [ ] Render `ShidduchimListContent` (the existing Kanban, unchanged in layout) for `"board"`,
+  - [x] Render `ShidduchimListContent` (the existing Kanban, unchanged in layout) for `"board"`,
         or the pipeline list sub-view (Task 4) for `"list"` / `"cards"`.
-  - [ ] The three-position segmented control (Kanban / `LayoutList` / `LayoutGrid` icons,
+  - [x] The three-position segmented control (Kanban / `LayoutList` / `LayoutGrid` icons,
         `aria-pressed` per position, an accessible name on each, reusing `EntityListViewToggle`'s
         visual language but writing **this** store key) is the AC-1 switch. Do **not** reuse
         `useEntityListViewMode` — that hook is hard-keyed to `${resource}.entityListViewMode` and
         is two-position.
-  - [ ] The "no singles yet" precondition (`ShidduchimNoSingles`) stays a full early return
+  - [x] The "no singles yet" precondition (`ShidduchimNoSingles`) stays a full early return
         **before** `<List>` mounts, unrelated to the status gate — while editing, replace its
         hand-rolled markup with `<EmptyState>` (`misc/EmptyState.tsx`).
 
-- [ ] **Task 4 — The pipeline list sub-view (AC: 7, 11, 12, 13)**
-  - [ ] New `shidduchim/ShidduchimPipelineList.tsx`: derives sections with the **existing**
+- [x] **Task 4 — The pipeline list sub-view (AC: 7, 11, 12, 13)**
+  - [x] New `shidduchim/ShidduchimPipelineList.tsx`: derives sections with the **existing**
         `getShidduchimByState` (`boardUtils.ts`) — unchanged — and renders
         `PipelineJumpBar` + one `PipelineSection` per `PIPELINE_STATES` entry.
-  - [ ] New `shidduchim/PipelineSection.tsx`: a `<section>` with an accessible name equal to the
+  - [x] New `shidduchim/PipelineSection.tsx`: a `<section>` with an accessible name equal to the
         state label (this is what the e2e spec targets), a **sticky** header at
         `top-[var(--mobile-header-h)]` carrying the label and a live count, its rows, and
         `＋ Add here` for the four `INITIAL_PIPELINE_STATES` only (linking to the existing
         `?state=` create flow — the flow itself is unchanged). Zero-count sections render header +
         one-line note.
-  - [ ] New `shidduchim/PipelineJumpBar.tsx`: two rows, 4 + 3 cells, matching the `PIPELINE_GROUPS`
+  - [x] New `shidduchim/PipelineJumpBar.tsx`: two rows, 4 + 3 cells, matching the `PIPELINE_GROUPS`
         split, each cell labelled with the state name and its live count, `min-h-11`, `gap-2`. It
         is a **table of contents**, not a mode switch and not sticky — a mis-tap costs a scroll.
         (A single 7-cell row cannot be labelled at 358px; wrapping is what buys the labels.)
-  - [ ] New `shidduchim/ShidduchRow.tsx`: 40px monogram (`entity360/avatar.ts`, same helpers
+  - [x] New `shidduchim/ShidduchRow.tsx`: 40px monogram (`entity360/avatar.ts`, same helpers
         `ShidduchCard` uses) · line 1 name (`text-sm font-semibold`, truncating) · line 2
         `{location} · {yeshiva} · {redt date}` (`formatRedtDate` from `boardUtils.ts`), tail facts
         dropped before the date · optional catch chip · trailing `⇄ Move` button. **No state
         chip** — the section is the state. The record mention is a `RecordLink` and the `Move`
         button is its **sibling** (AC-12).
-  - [ ] **Do not reuse `ShidduchCard`**: it is wrapped in `@hello-pangea/dnd`'s `<Draggable>` and
+  - [x] **Do not reuse `ShidduchCard`**: it is wrapped in `@hello-pangea/dnd`'s `<Draggable>` and
         requires the `DragDropContext`/`Droppable` ancestors only the Board provides. Reuse its
         *helpers* (`getMonogram`, `getAvatarIndex` from `entity360/avatar.ts`, `formatRedtDate`),
         not the component.
-  - [ ] Cards position: the same content as `ShidduchRow` in a non-draggable card grid
+  - [x] Cards position: the same content as `ShidduchRow` in a non-draggable card grid
         (`grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3`), still grouped by section. Wire
         both positions through `<EntityListView resource="shidduchim" viewMode={view === "cards" ? "cards" : "list"} renderList={…} renderCards={…} …/>`
         — directly, **not** the `<EntityList>` wrapper (there is already an enclosing `<List>`;
         a second one would double-fetch, AC-6).
-  - [ ] Skeleton assembled from `PipelineSection` / `ShidduchRow` primitives (AC-13), replacing
+  - [x] Skeleton assembled from `PipelineSection` / `ShidduchRow` primitives (AC-13), replacing
         `ShidduchimListContent.tsx`'s and `ShidduchimList.tsx`'s bare `return null` loading states.
-  - [ ] **No within-state manual ordering in the List position.** `persistOrder()` was drag-only;
+  - [x] **No within-state manual ordering in the List position.** `persistOrder()` was drag-only;
         rows stay sorted by `index` and only the Board can change it. This is a stated feature
         removal, and it removes the silent-write bug with it.
 
-- [ ] **Task 5 — Move primitives (AC: 8, 9)**
-  - [ ] New `shidduchim/useShidduchTransition.ts`: lift `handleMove` **verbatim** out of
+- [x] **Task 5 — Move primitives (AC: 8, 9)**
+  - [x] New `shidduchim/useShidduchTransition.ts`: lift `handleMove` **verbatim** out of
         `ShidduchStateControl.tsx` — same `isValidTransition` guard, same `notify` strings, same
         `useRefresh` — and additionally return the seven states decorated
         `{ state, isCurrent, isAllowed, isTerminal, reason }`. Accepts an optional `closeReason`
         forwarded as `transitionShidduch`'s 4th argument.
-  - [ ] New `shidduchim/PipelineStateOptions.tsx`: the vertical, group-labelled option list of
+  - [x] New `shidduchim/PipelineStateOptions.tsx`: the vertical, group-labelled option list of
         AC-8. Consumed by the Move sheet **and** by `ShidduchStateControl`.
-  - [ ] New `shidduchim/TerminalMoveConfirm.tsx`: AC-9. Does not call `transitionShidduch` until
+  - [x] New `shidduchim/TerminalMoveConfirm.tsx`: AC-9. Does not call `transitionShidduch` until
         confirmed.
-  - [ ] New `shidduchim/ShidduchMoveSheet.tsx`: a `Sheet side="bottom"` (`max-w-lg mx-auto`)
+  - [x] New `shidduchim/ShidduchMoveSheet.tsx`: a `Sheet side="bottom"` (`max-w-lg mx-auto`)
         hosting `PipelineStateOptions`, with the record's name and current state in its header.
-  - [ ] Refactor `ShidduchStateControl.tsx` onto the two new primitives: its
+  - [x] Refactor `ShidduchStateControl.tsx` onto the two new primitives: its
         `flex flex-wrap gap-2` row of 7 chips (which renders the pipeline's own order across 3
         ragged rows at 52-115px — on the one screen whose entire subject is that order) becomes
         `PipelineStateOptions`; `disabled` + `opacity-40` becomes `aria-disabled` + a visible
@@ -276,65 +280,65 @@ reached by drag at any hold duration.** The board also hides 718px of itself at 
         re-homes this exact component into `EntityShow`'s `actions` region and inherits the fixed
         option list for free.
 
-- [ ] **Task 6 — Board hardening (AC: 10)**
-  - [ ] `shidduchim/ShidduchColumn.tsx`: new `dragFrom` prop; `isDropDisabled` when
+- [x] **Task 6 — Board hardening (AC: 10)**
+  - [x] `shidduchim/ShidduchColumn.tsx`: new `dragFrom` prop; `isDropDisabled` when
         `!isValidTransition(dragFrom, state)`; the column dims.
-  - [ ] `shidduchim/ShidduchimListContent.tsx`: `onDragEnd` branches into `TerminalMoveConfirm`
+  - [x] `shidduchim/ShidduchimListContent.tsx`: `onDragEnd` branches into `TerminalMoveConfirm`
         for an absorbing destination instead of calling `transitionShidduch` directly. Board
         layout, `overflow-x` containment, the `onClickCapture` drag-end guard
         (`ShidduchCard.tsx`) and tap-to-open on a board card are all **unchanged** — the Board
         keeps drag, so that guard stays load-bearing.
 
-- [ ] **Task 7 — Page header trim (AC: 11)**
-  - [ ] `ShidduchimList.tsx`: `<h1>` `text-xl md:text-2xl` with `{n} redts`; subtitle becomes a
+- [x] **Task 7 — Page header trim (AC: 11)**
+  - [x] `ShidduchimList.tsx`: `<h1>` `text-xl md:text-2xl` with `{n} redts`; subtitle becomes a
         functional hint ("Tap a row to open it. Tap ⇄ to move it along."); single pills go 32px →
         44px touch targets; `actions={isMobile ? false : <ShidduchimActions/>}` (the mobile FAB
         already carries create).
-  - [ ] **Cap this at the four bullets above.** Story 4.1 owns page header/toolbar chrome; if the
+  - [x] **Cap this at the four bullets above.** Story 4.1 owns page header/toolbar chrome; if the
         change grows beyond them, stop and hand it back rather than forking a second header.
 
-- [ ] **Task 8 — Tour steps (AC: 2)**
-  - [ ] `tour/tourSteps.ts`: the pipeline steps must anchor to something that exists in the
+- [x] **Task 8 — Tour steps (AC: 2)**
+  - [x] `tour/tourSteps.ts`: the pipeline steps must anchor to something that exists in the
         active position. Point `pipeline-board` at the list root, `pipeline-column` at the first
         `<section>`, `pipeline-card` at the first row, `add-suggestion` at the section's
         `＋ Add here`; replace the drag copy with *"Tap **Move** to send a shidduch along."*
-  - [ ] **Ownership warning:** Story 4.4 also edits `tour/tourSteps.ts` (it deletes the
+  - [x] **Ownership warning:** Story 4.4 also edits `tour/tourSteps.ts` (it deletes the
         `nav-references` step under RULING 7). These are different steps in the same file — run
         the two stories sequentially and re-read the file before editing.
 
-- [ ] **Task 9 — Tests (AC: 14)**
-  - [ ] `shidduchim/ShidduchimViewSwitch.test.tsx`: a store seeded `"list"` / `"cards"` renders
+- [x] **Task 9 — Tests (AC: 14)**
+  - [x] `shidduchim/ShidduchimViewSwitch.test.tsx`: a store seeded `"list"` / `"cards"` renders
         the pipeline list in that mode; `"board"` renders `ShidduchimListContent`; an **unseeded**
         store renders `"list"` under a mobile match-media and `"board"` otherwise (AC-1/AC-2); an
         `error` in the list context renders the shared error state regardless of the stored view.
-  - [ ] `shidduchim/useShidduchTransition.test.ts`: the legality/reason table as a pure unit,
+  - [x] `shidduchim/useShidduchTransition.test.ts`: the legality/reason table as a pure unit,
         asserted against `PIPELINE_TRANSITIONS` so it cannot drift from `transition_shidduch()`.
-  - [ ] `shidduchim/ShidduchMoveSheet.test.tsx`: from `look_into` exactly `{yes, unsure, no}` are
+  - [x] `shidduchim/ShidduchMoveSheet.test.tsx`: from `look_into` exactly `{yes, unsure, no}` are
         actionable; from `no` none are; illegal rows are `aria-disabled` **and still focusable**
         with a visible reason; the four terminal rows render `· final`.
-  - [ ] `shidduchim/TerminalMoveConfirm.test.tsx`: choosing a terminal destination does **not**
+  - [x] `shidduchim/TerminalMoveConfirm.test.tsx`: choosing a terminal destination does **not**
         call `transitionShidduch` until confirmed; confirming calls it exactly once with the
         reason as the 4th argument; Cancel calls it zero times. This is the regression guard on
         the only irreversible action in the product.
-  - [ ] `shidduchim/ShidduchimPipelineList.test.tsx`: 7 sections in `PIPELINE_STATES` order with
+  - [x] `shidduchim/ShidduchimPipelineList.test.tsx`: 7 sections in `PIPELINE_STATES` order with
         correct counts; a zero-count section renders its header; `＋ Add here` renders for exactly
         the four `INITIAL_PIPELINE_STATES`; the skeleton's section/row count matches the loaded
         shape (AC-13).
-  - [ ] `shidduchim/ShidduchRow.test.tsx`: the row's anchor `href` equals
+  - [x] `shidduchim/ShidduchRow.test.tsx`: the row's anchor `href` equals
         `buildRecordPath("shidduchim", id)`; the `Move` button is not a descendant of that anchor
         (AC-12).
-  - [ ] `e2e/shidduchim-list-view.spec.ts`: switch to List, assert sections render (not the
+  - [x] `e2e/shidduchim-list-view.spec.ts`: switch to List, assert sections render (not the
         board); type a search term, switch to Board, assert the board's visible cards are filtered
         to the same term; switch a different single via the pills; reload and assert the List
         position, the search term and the selected single are all restored (view from the store,
         `q` / `single_id` from the URL's `filter` param).
-  - [ ] `e2e/pipeline.spec.ts` **split**: chromium asserts the Board; Mobile Chrome asserts the
+  - [x] `e2e/pipeline.spec.ts` **split**: chromium asserts the Board; Mobile Chrome asserts the
         List by accessible name and carries **AC-11's no-horizontal-scroll assertion**.
-  - [ ] **Must stay green, untouched:** `shidduchim/boardUtils.test.ts`,
+  - [x] **Must stay green, untouched:** `shidduchim/boardUtils.test.ts`,
         `shidduchim/pipelineStates.test.ts`, all three `ShidduchCard.test.tsx` cases (including
         the drag-end guard — the Board keeps drag), `ShidduchimList.test.tsx`,
         `ShidduchCatchPanel.test.tsx`, `shidduchService.test.ts`.
-  - [ ] Re-shoot `shidduchim/__screenshots__` baselines. Playwright needs **both**
+  - [x] Re-shoot `shidduchim/__screenshots__` baselines. Playwright needs **both**
         `make start-supabase-e2e` and `make start-app-e2e`; take a `STACK_ID` (1-6, never 0) plus
         `STACK_OWNER=<label>` and stop the stack afterwards.
 
@@ -550,8 +554,148 @@ to the bottom sheet at the call site.
 
 ### Agent Model Used
 
+Claude Opus 5 (bmad-dev-story), STACK_ID=4, STACK_OWNER=epic4-w4-story43.
+
 ### Debug Log References
+
+- `npm run typecheck` — clean (all three tsconfigs).
+- `make lint` (eslint --max-warnings=0 + prettier --check) — clean.
+- `npx vitest run --project app` — 135 files / 1026 tests passed (includes the 18 new/changed
+  `shidduchim/*.test.ts(x)` files, 97 tests).
+- `npx vitest run --project scripts --project functions --project workers` — 23 files / 289 tests
+  passed (unaffected by this story; run as a regression sweep).
+- `make test STACK_ID=4` (includes the `db` project against a live Supabase instance) — 171 files /
+  1772 tests passed.
+- `make build` — clean production build.
+- `npx prettier --check .` — clean on every file this story touched (pre-existing drift on
+  unrelated `.github/`, `doc/`, `.lintstagedrc` files, none of which this story touched, is
+  out of scope and unaffected).
+- CI guards: `check-retired-names.mjs`, `check-suppressions.mjs`, `check-route-convention.mjs`,
+  `check-tailwind-arbitrary-var.mjs` all report OK. `check-wave-ownership.mjs` needs a
+  pre-dispatch manifest this single-story dispatch was never given one for (its own docstring:
+  "run by whoever drives a parallel wave... never by CI") — not applicable here, not run.
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local` — not run; no
+  `supabase/schemas/**` file was touched (Task 1 keys a new lifecycle callback to existing
+  `shidduchim_summary` columns only).
+- e2e (`STACK_ID=4`, `make start-supabase-e2e` + `make start-app-e2e`): the full existing suite
+  (32 tests across chromium + Mobile Chrome) plus the two new/changed specs — 30 passed, 3 skipped
+  by design (this story's own chromium/Mobile-Chrome split), **2 failed** — see Completion Notes
+  for the one pre-existing-test conflict this surfaced. Stack 4 stopped and its lease released
+  afterward (`make stop-supabase-e2e STACK_ID=4`; `stack-lease.mjs show` confirms `STACK_ID=4 free`).
 
 ### Completion Notes List
 
+- **Task 1** — `dataProvider.ts` `lifeCycleCallbacks`: added the `shidduchim` `applyFullTextSearch`
+  entry (8 columns, keyed to `"shidduchim"` not `"shidduchim_summary"`), above the
+  `...entityFilesCleanupCallbacks` spread, with the Story 5.2 ownership comment on the
+  `parents_en`/`parents_he` pair.
+- **Task 2** — `ShidduchimList.tsx`: local `singleId` state + effect deleted; `<List
+  filterDefaultValues={{ single_id: singles[0].id }}>` replaces the hard `filter`; the
+  single-switcher pills now call `setFilters({ ...filterValues, single_id }, displayedFilters)`.
+  The `/shidduchim/new` create-page branch (rendered above `<List>`, so no `ListContext` exists
+  there) parses `single_id` out of the raw `location.search` `filter` JSON instead, to keep
+  "Add a suggestion" landing on the currently-selected single across that one navigation.
+- **Task 3** — new `ShidduchimViewSwitch.tsx`: the one `useIsMobile()` call under `shidduchim/`
+  (AC-2), the one `useEntityListStatus()` call for the shared loading/error gate (AC-5), and the
+  three-position segmented control (Board/List/Cards icons, `aria-pressed`, own store key). The
+  `isMobile ? false : <ShidduchimActions/>` Task 7 suggested for hiding the desktop toolbar on
+  mobile would have been a SECOND `useIsMobile()` call, violating AC-2's "exactly one" — implemented
+  as a CSS `hidden md:flex` on `ShidduchimActions`'s `TopToolbar` instead (same 768px breakpoint,
+  no hydration flash, zero extra hook calls).
+- **Task 4** — new `ShidduchimPipelineList.tsx` (+ `PipelineSection.tsx`, `PipelineJumpBar.tsx`,
+  `ShidduchRow.tsx`): the state-grouped List/Cards sub-view, wired through `EntityListView`
+  directly. AC-7's "pipeline is empty" EmptyState is decided by `ShidduchimPipelineList` itself
+  (`data.length === 0 && !filterValues.q`), not `EntityListView`'s own empty/no-matches split —
+  because `filterDefaultValues={{ single_id }}` means `filterValues` always carries a key, so the
+  shared hook can only ever resolve to `"no-matches"`, never `"empty"`, for this one `<List>`
+  (documented in `ShidduchimPipelineList.tsx`'s own header comment).
+- **Task 5** — new `useShidduchTransition.ts` (lifted `handleMove` verbatim + the decorated
+  seven-state option table + `classifySelection`), `PipelineStateOptions.tsx`,
+  `TerminalMoveConfirm.tsx`, `ShidduchMoveSheet.tsx`. `ShidduchStateControl.tsx` refactored onto
+  the same two primitives, public props unchanged. `TerminalMoveConfirm` also gained the same
+  confirm-before-terminal-move friction, for consistency with the one shared transition path
+  (AD-4) — Task 5 didn't explicitly ask for this on `ShidduchStateControl`, but leaving the future
+  Story 5.1-relocated control able to skip confirmation on an irreversible move while the sheet
+  cannot would be an inconsistent, un-reviewed gap in the same shared primitive.
+  `TerminalMoveConfirm` renders as a `Sheet` (not a `Dialog`) — seemingly a pure implementation
+  detail until `misc/recordSurfaceDialogs.guard.test.ts` (UX-DR3's "no record surface hides behind
+  `@/components/ui/dialog`" guard, not in this story's declared paths) flagged a `Dialog`-based
+  version as a new, unlisted exemption; a bottom sheet is dialog-primitive-equivalent
+  (`components/ui/sheet.tsx` is itself `@radix-ui/react-dialog`), keeps the same sheet language
+  `ShidduchMoveSheet` already opened, and needs no edit to that unowned guard file.
+- **Task 6** — `ShidduchColumn.tsx`: `dragFrom` prop, `isDropDisabled` when
+  `!isValidTransition(dragFrom, state.value)`, the column dims. `ShidduchimListContent.tsx`:
+  `onDragStart` now tracks `dragFrom`; `onDragEnd` branches a legal-but-terminal drop into
+  `TerminalMoveConfirm` (no local move, no write, until confirmed) instead of writing directly.
+  Own `isPending` gate removed — `ShidduchimViewSwitch`'s shared gate covers it now.
+- **Task 7** — header trimmed to the four bullets: `<h1>{count} redts</h1>` (`text-xl md:text-2xl`),
+  the functional hint subtitle, 44px pills, `ShidduchimActions` CSS-hidden below `md`.
+- **Task 8** — tour anchors moved to survive either position: `pipeline-board` now anchors
+  `ShidduchimViewSwitch`'s own root (was the Board-only div); `pipeline-column`/`pipeline-card`/
+  `add-suggestion` are dual-tagged on both `ShidduchColumn`'s and `PipelineSection`'s first
+  column/section (mutually exclusive at runtime, so no duplicate lands in the DOM). Drag copy on
+  the `pipeline-board` step replaced with Move-sheet language.
+- **Task 9** — all listed unit test files written; `e2e/shidduchim-list-view.spec.ts` (new) and
+  `e2e/pipeline.spec.ts` (split into a chromium/Board test and a Mobile-Chrome/List test carrying
+  AC-11's no-horizontal-scroll assertion, adapted to the Mobile Chrome project's real 393px Pixel 5
+  viewport rather than the AC text's illustrative 390px) both pass against a live stack. The six
+  "must stay green" files (`boardUtils.test.ts`, `pipelineStates.test.ts`, all three
+  `ShidduchCard.test.tsx` cases, `ShidduchimList.test.tsx`, `ShidduchCatchPanel.test.tsx`,
+  `shidduchService.test.ts`) all still pass — `ShidduchimList.test.tsx` needed two assertion
+  updates (its `/^Pipeline/` heading regex → `/redts$/`) because Task 3/7 restructure exactly the
+  layout it pins, per this story's own dispatch note; no other file in that list needed a change.
+
+**One real, unowned regression surfaced by the full e2e run, not fixed here (out of declared
+scope):** `e2e/navigation.spec.ts` (Story 4.4's, not in this story's declared paths) hardcodes
+`PRIMARY_NAV_HEADINGS["/shidduchim"] = "Pipeline"` and asserts `getByRole("heading", {level:1,
+name:"Pipeline"})`. Task 7's mandated `<h1>{n} redts</h1>` rename (required by this story's own
+AC and its own `ShidduchimList.test.tsx`) makes that literal string vanish from `/shidduchim`.
+This was not listed in the story's "Ownership hazards" table and was found only by running the
+full e2e suite, not the unit suite. Fix (for whoever owns that file): change the expected text to
+something the new heading actually contains, e.g. a `/redts$/`-style match, mirroring the fix
+already applied to this story's own `ShidduchimList.test.tsx`. Confirmed as the ONLY failure across
+all 32 pre-existing + 2 new e2e tests (both chromium and Mobile Chrome projects) — every other
+spec, including `entity-list-search`, `entity-list-view-toggle`, `invite-acceptance`,
+`invite-sending`, `demo-banner-cls`, and the rest of `navigation.spec.ts` itself, is unaffected.
+
+`__screenshots__/**` (declared in this story's owned paths): confirmed `.gitignore`d
+(`__screenshots__` at line 13) and not tracked by git before this story either — these are
+`vitest-browser-react`'s own auto-captured on-failure diagnostic images, not Playwright visual
+baselines, and nothing in the repo reads them back. There is nothing to "re-shoot" as a committed
+artifact; noted rather than silently skipped.
+
 ### File List
+
+**New:**
+- `src/components/atomic-crm/shidduchim/ShidduchimViewSwitch.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchimViewSwitch.test.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchimPipelineList.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchimPipelineList.test.tsx`
+- `src/components/atomic-crm/shidduchim/PipelineSection.tsx`
+- `src/components/atomic-crm/shidduchim/PipelineJumpBar.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchRow.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchRow.test.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchMoveSheet.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchMoveSheet.test.tsx`
+- `src/components/atomic-crm/shidduchim/PipelineStateOptions.tsx`
+- `src/components/atomic-crm/shidduchim/TerminalMoveConfirm.tsx`
+- `src/components/atomic-crm/shidduchim/TerminalMoveConfirm.test.tsx`
+- `src/components/atomic-crm/shidduchim/useShidduchTransition.ts`
+- `src/components/atomic-crm/shidduchim/useShidduchTransition.test.ts`
+- `e2e/shidduchim-list-view.spec.ts`
+
+**Modified:**
+- `src/components/atomic-crm/shidduchim/ShidduchStateControl.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchimListContent.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchColumn.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchimList.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchimList.test.tsx`
+- `src/components/atomic-crm/tour/tourSteps.ts`
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts`
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts`
+- `e2e/pipeline.spec.ts`
+- `registry.json` (regenerated, `make registry-gen`)
+
+**Screenshots:** `shidduchim/__screenshots__/**` — gitignored, not a committed artifact; see
+Completion Notes.

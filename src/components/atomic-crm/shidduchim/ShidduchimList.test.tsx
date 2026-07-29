@@ -23,13 +23,14 @@ import shidduchim from "../shidduchim";
 
 /**
  * Pins Story 3.13 AC 1: mounting the real `shidduchim` resource at
- * `/shidduchim/new` renders the create page in place of the board — the
+ * `/shidduchim/new` renders the create page in place of the pipeline — the
  * early return sits above `<List>` (`ShidduchimList.tsx`'s `matchNew`
- * check), so neither the board nor `ShidduchimLayout`'s own `isPending` gate
- * sits in front of the page, and the board's own heading never mounts. The
- * second `it` mounts the same harness at `/shidduchim` and asserts the board
- * heading *does* render there — proof the negative assertion above is
- * actually exercising the code under test, not an unreachable heading.
+ * check), so neither the pipeline nor `ShidduchimBody`'s own list context
+ * sits in front of the page, and the pipeline's own `{n} redts` heading
+ * (Story 4.3, Task 7) never mounts. The second `it` mounts the same harness
+ * at `/shidduchim` and asserts that heading *does* render there — proof the
+ * negative assertion above is actually exercising the code under test, not
+ * an unreachable heading.
  */
 
 const buildAuthProvider = (): AuthProvider =>
@@ -77,7 +78,7 @@ const renderShidduchimResourceAt = async (initialEntries: string[]) =>
   );
 
 describe("ShidduchimList — the create page sits above <List> (AC 1)", () => {
-  it("renders the create heading and never the board heading at /shidduchim/new", async () => {
+  it("renders the create heading and never the pipeline's '{n} redts' heading at /shidduchim/new", async () => {
     // Arrange / Act
     const screen = await renderShidduchimResourceAt(["/shidduchim/new"]);
 
@@ -86,17 +87,17 @@ describe("ShidduchimList — the create page sits above <List> (AC 1)", () => {
       .element(screen.getByRole("heading", { name: "Add a suggestion" }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("heading", { name: /^Pipeline/ }))
+      .element(screen.getByRole("heading", { name: /redts$/ }))
       .not.toBeInTheDocument();
   });
 
-  it("renders the board heading at /shidduchim — the negative assertion above is discriminating", async () => {
+  it("renders the pipeline's '{n} redts' heading at /shidduchim — the negative assertion above is discriminating", async () => {
     // Arrange / Act
     const screen = await renderShidduchimResourceAt(["/shidduchim"]);
 
     // Assert
     await expect
-      .element(screen.getByRole("heading", { name: /^Pipeline/ }))
+      .element(screen.getByRole("heading", { name: /redts$/ }))
       .toBeInTheDocument();
   });
 });

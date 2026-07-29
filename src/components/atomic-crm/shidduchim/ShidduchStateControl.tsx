@@ -1,26 +1,26 @@
 import { useState } from "react";
 import type { Identifier } from "ra-core";
-import { useDataProvider, useNotify, useRefresh } from "ra-core";
 
-import { cn } from "@/lib/utils";
-
-import { StateChip } from "../misc/StateChip";
-import type { CrmDataProvider } from "../providers/types";
 import type { PipelineState } from "../types";
+import { PipelineStateOptions } from "./PipelineStateOptions";
+import { TerminalMoveConfirm } from "./TerminalMoveConfirm";
+import type { PipelineStateOption } from "./useShidduchTransition";
 import {
-  getPipelineStateDef,
-  isValidTransition,
-  PIPELINE_STATES,
-} from "./pipelineStates";
-
-const DECISION_STATES: PipelineState[] = ["yes", "unsure", "no"];
+  classifySelection,
+  useShidduchTransition,
+} from "./useShidduchTransition";
 
 /**
- * The state-transition control (Screen 18 body). Renders all 7 states as
- * StateChips; only the ones the transition graph actually allows from the
- * current state are clickable — the same isValidTransition() guard the board
- * drag-and-drop uses (AD-4 invariant 2). The DB's transition_shidduch() RPC
- * remains the enforcing authority; this is the friendly client mirror.
+ * The state-transition control (Screen 18 body). Renders all 7 states via
+ * `PipelineStateOptions` (Task 5) — the same vertical, group-labelled list
+ * `ShidduchMoveSheet` uses, replacing the pre-story `flex flex-wrap` row of
+ * 7 chips (which rendered the pipeline's own order across 3 ragged rows at
+ * 52-115px). Legality still comes from `isValidTransition()`
+ * (`useShidduchTransition` → `pipelineStates.ts`) — the DB's
+ * `transition_shidduch()` RPC remains the enforcing authority, this is the
+ * friendly client mirror. Public props are unchanged (Story 5.1 mounts this
+ * exact component, with this exact signature, inside `EntityShow`'s
+ * `actions` region).
  */
 export const ShidduchStateControl = ({
   id,
@@ -31,44 +31,31 @@ export const ShidduchStateControl = ({
   currentState: PipelineState;
   name?: string | null;
 }) => {
-  const dataProvider = useDataProvider<CrmDataProvider>();
-  const notify = useNotify();
-  const refresh = useRefresh();
-  const [pendingTo, setPendingTo] = useState<PipelineState | null>(null);
+  const { options, pendingTo, move } = useShidduchTransition({
+    id,
+    currentState,
+    name,
+  });
+  const [confirmState, setConfirmState] = useState<PipelineState | null>(null);
 
-  const handleMove = async (to: PipelineState) => {
-    if (to === currentState || pendingTo) return;
-
-    if (!isValidTransition(currentState, to)) {
-      const fromDef = getPipelineStateDef(currentState);
-      const toDef = getPipelineStateDef(to);
-      const decisionHint = DECISION_STATES.includes(to)
-        ? " A decision (Yes / Unsure / No) can only be made from Look-into."
-        : "";
-      notify(
-        `Can't move ${name ?? "this shidduch"} from ${
-          fromDef?.label ?? currentState
-        } to ${toDef?.label ?? to}.${decisionHint}`,
-        { type: "warning" },
-      );
+  const handleSelect = (option: PipelineStateOption) => {
+    const outcome = classifySelection(option);
+    if (outcome === "noop") return;
+    if (outcome === "warn") {
+      void move(option.state);
       return;
     }
-
-    setPendingTo(to);
-    try {
-      await dataProvider.transitionShidduch(id, currentState, to);
-      notify(`Moved to ${getPipelineStateDef(to)?.label ?? to}`, {
-        type: "info",
-      });
-      refresh();
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Failed to move shidduch",
-        { type: "error" },
-      );
-    } finally {
-      setPendingTo(null);
+    if (outcome === "confirm") {
+      setConfirmState(option.state);
+      return;
     }
+    void move(option.state);
+  };
+
+  const handleConfirm = (reason?: string) => {
+    if (!confirmState) return;
+    void move(confirmState, reason);
+    setConfirmState(null);
   };
 
   return (
@@ -79,46 +66,17 @@ export const ShidduchStateControl = ({
       <h3 className="mb-3 font-display text-lg font-semibold">
         Move through the pipeline
       </h3>
-      <div className="flex flex-wrap gap-2">
-        {PIPELINE_STATES.map((def) => {
-          const isCurrent = def.value === currentState;
-          const clickable =
-            !isCurrent && isValidTransition(currentState, def.value);
-          const tokenVar = `var(${def.token})`;
-
-          return (
-            <button
-              key={def.value}
-              type="button"
-              disabled={pendingTo !== null || (!isCurrent && !clickable)}
-              aria-current={isCurrent ? "step" : undefined}
-              onClick={() => handleMove(def.value)}
-              className={cn(
-                "inline-flex min-h-11 items-center rounded-full px-0.5 outline-none",
-                "transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)]",
-                "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                clickable &&
-                  "cursor-pointer hover:-translate-y-0.5 active:scale-[0.97]",
-                !clickable && !isCurrent && "opacity-40",
-                isCurrent && "cursor-default",
-                pendingTo === def.value && "animate-pulse",
-              )}
-              style={
-                isCurrent
-                  ? {
-                      boxShadow: `0 0 0 2px color-mix(in oklch, ${tokenVar} 55%, transparent), 0 0 18px -4px color-mix(in oklch, ${tokenVar} 65%, transparent)`,
-                    }
-                  : undefined
-              }
-            >
-              <StateChip state={def.value} />
-            </button>
-          );
-        })}
-      </div>
-      <p className="mt-3 text-xs text-muted-foreground">
-        A decision (Yes / Unsure / No) can only be made from Look-into.
-      </p>
+      <PipelineStateOptions
+        options={options}
+        pendingTo={pendingTo}
+        onSelect={handleSelect}
+      />
+      <TerminalMoveConfirm
+        toState={confirmState}
+        name={name}
+        onCancel={() => setConfirmState(null)}
+        onConfirm={handleConfirm}
+      />
     </section>
   );
 };

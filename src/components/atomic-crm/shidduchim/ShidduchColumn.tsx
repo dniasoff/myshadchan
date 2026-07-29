@@ -4,9 +4,10 @@ import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 
 import { buildNewPath } from "../entity360/entityPaths";
-import type { ShidduchSummary } from "../types";
+import type { PipelineState, ShidduchSummary } from "../types";
 import {
   INITIAL_PIPELINE_STATES,
+  isValidTransition,
   PIPELINE_GROUPS,
   type PipelineStateDef,
 } from "./pipelineStates";
@@ -31,20 +32,33 @@ export const ShidduchColumn = ({
   state,
   shidduchim,
   tourAnchor = false,
+  dragFrom = null,
 }: {
   state: PipelineStateDef;
   shidduchim: ShidduchSummary[];
   /** Anchors `data-tour="pipeline-column"` for the walkthrough (first column only). */
   tourAnchor?: boolean;
+  /**
+   * AC-10: the state a card is currently being dragged FROM, or null when no
+   * drag is in progress. A column failing `isValidTransition(dragFrom,
+   * state.value)` is not a droppable and dims — a column can never do the
+   * wrong thing structurally, not just get a post-hoc warning toast.
+   */
+  dragFrom?: PipelineState | null;
 }) => {
   const canAdd = INITIAL_PIPELINE_STATES.includes(state.value);
   const groupLabel =
     PIPELINE_GROUPS.find((g) => g.id === state.group)?.label ?? "";
+  const isDropDisabled =
+    dragFrom !== null && !isValidTransition(dragFrom, state.value);
 
   return (
     <section
       data-tour={tourAnchor ? "pipeline-column" : undefined}
-      className="flex w-[250px] shrink-0 flex-col gap-3"
+      className={cn(
+        "flex w-[250px] shrink-0 flex-col gap-3 transition-opacity duration-150",
+        isDropDisabled && "opacity-40",
+      )}
     >
       <div className="h-[15px] px-1 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
         {groupLabel}
@@ -77,7 +91,7 @@ export const ShidduchColumn = ({
         </p>
       ) : null}
 
-      <Droppable droppableId={state.value}>
+      <Droppable droppableId={state.value} isDropDisabled={isDropDisabled}>
         {(provided, snapshot) => (
           <div
             ref={provided.innerRef}
@@ -103,6 +117,10 @@ export const ShidduchColumn = ({
       {canAdd ? (
         <Link
           to={`${buildNewPath("shidduchim")}?state=${state.value}`}
+          // Task 8: the tour's "add-suggestion" step now anchors here (the
+          // first/anchor column's own Add-here link) rather than the
+          // desktop-only toolbar CreateButton — this exists on every width.
+          data-tour={tourAnchor ? "add-suggestion" : undefined}
           className="flex items-center gap-1.5 rounded-xl border border-dashed px-2.5 py-2 text-[12.5px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         >
           <PlusIcon /> Add here

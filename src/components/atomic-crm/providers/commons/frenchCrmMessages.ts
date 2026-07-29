@@ -479,6 +479,15 @@ export const frenchCrmMessages = {
           "%{smart_count} shidduch |||| %{smart_count} shidduchim",
       },
     },
+    // Story 4.3, AC 1 — see englishCrmMessages.ts for full context.
+    shidduchim: {
+      pageView: {
+        label: "Affichage du pipeline",
+        board: "Vue tableau",
+        list: "Vue liste",
+        cards: "Vue cartes",
+      },
+    },
     references: {
       list: {
         title: "Carnet de références",
