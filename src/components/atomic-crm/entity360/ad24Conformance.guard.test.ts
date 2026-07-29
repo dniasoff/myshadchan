@@ -3,6 +3,7 @@ import { RESOURCES } from "../root/routeManifest";
 import { ENTITY_TARGET_TYPES } from "../types";
 import {
   findAd24Violations,
+  findBrowseShapedIndexes,
   findBrowseSurfaceEnumeration,
   findListPathLinks,
   isBrowseSurfaceModule,
@@ -20,7 +21,8 @@ import { getEntityDescriptor } from "./registry";
  * "?raw"})` — the one in-repo precedent is
  * `references/entitlementGate.guard.test.ts` — and hands the results to
  * `findAd24Violations` as its scan-derived parameters (`modalRecordSurfaces`,
- * `handBuiltRecordPaths`, `navTargets`, `listPathLinks`).
+ * `handBuiltRecordPaths`, `navTargets`, `listPathLinks`,
+ * `browseSurfaceEnumerations`, `browseShapedIndexes`).
  *
  * Every alternation below is built from `RESOURCES` at test time, never a
  * hard-coded name list — a four-name literal is the exact defect that made
@@ -63,9 +65,20 @@ const sqlSources = import.meta.glob("../../../../supabase/schemas/*.sql", {
 
 /** Repo-relative-to-`atomic-crm` path, matching the shape every
  * `ad24Conformance.ts` exemption table key uses. The glob root is this
- * file's own directory (`entity360/`), one level inside `atomic-crm/`. */
+ * file's own directory (`entity360/`), one level inside `atomic-crm/`, so a
+ * sibling directory comes back as `../singles/SingleList.tsx`.
+ *
+ * Vite normalises a match inside the glob root's OWN directory to `./X.tsx`
+ * rather than `../entity360/X.tsx`, so a bare `replace(/^\.\.\//, "")` left
+ * `entity360/`'s own files keyed `./entityPaths.ts`. That silently defeated
+ * `isExcludedFromListPathScan`'s `path === "entity360/entityPaths.ts"` — the
+ * one module allowed to name a list path — so the path builder itself would
+ * have been reported as an offender the first time it mentioned one. Both
+ * shapes are mapped here instead. */
 const toAtomicCrmRelativePath = (globKey: string): string =>
-  globKey.replace(/^\.\.\//, "");
+  globKey.startsWith("../")
+    ? globKey.slice("../".length)
+    : `entity360/${globKey.replace(/^\.\//, "")}`;
 
 const isTestOrGuardFile = (path: string): boolean =>
   path.includes(".test.") || path.includes(".guard.");
@@ -120,6 +133,22 @@ describe("AD-24 conformance guard — scan sanity (AC 8)", () => {
     expect(
       Object.keys(scannedFiles).includes("shidduchim/ShidduchShow.tsx"),
     ).toBe(true);
+  });
+
+  it("keys entity360's OWN modules under entity360/, not './'", () => {
+    // Assert — Vite normalises same-directory glob matches to `./X.tsx`.
+    // Without `toAtomicCrmRelativePath` mapping them, the one file the
+    // list-path scan is meant to excuse (`entity360/entityPaths.ts`) is not
+    // excused, because the exclusion compares against this exact key.
+    expect(Object.keys(scannedFiles)).toEqual(
+      expect.arrayContaining([
+        "entity360/entityPaths.ts",
+        "entity360/RecordUnavailable.tsx",
+      ]),
+    );
+    expect(
+      Object.keys(scannedFiles).filter((path) => path.startsWith("./")),
+    ).toEqual([]);
   });
 
   it("the SQL glob resolves non-empty text containing the tasks table DDL", () => {
@@ -401,6 +430,111 @@ describe("AD-24 conformance guard — no-browse enumeration on a browse surface"
   });
 });
 
+// --- AC 10(c2) — the registered index component (real scan) ----------------
+
+/**
+ * Follows a resource's `<dir>/index.ts` registration to the module its
+ * `list` slot actually resolves to. This is REACHABILITY, not a filename
+ * convention: it reads the identifier assigned to `list:` and then the
+ * import that binds it, so re-pointing `list:` at any other module — however
+ * it is named — is what this tracks.
+ *
+ * Two binding forms exist in the tree: a plain named import
+ * (`references`, `singles`, `shadchanim`, `inbox_items`, `members`) and
+ * `React.lazy(() => import("./X"))` (`shidduchim`). `tasks` resolves to
+ * nothing on purpose — its definition is written inline in
+ * `root/routeManifest.ts` with no `tasks/index.ts` at all; the sanity test
+ * below pins exactly which resources resolve, so a silent resolution failure
+ * cannot quietly empty this scan.
+ */
+function resolveIndexModule(
+  name: string,
+): { path: string; source: string } | undefined {
+  const directory = resourceDirectory(name);
+  const indexSource = scannedFiles[`${directory}/index.ts`];
+  if (!indexSource) return undefined;
+
+  const component = /\blist:\s*([A-Za-z0-9_$]+)/.exec(indexSource)?.[1];
+  if (!component) return undefined;
+
+  const relative =
+    new RegExp(
+      `import\\s*\\{[^}]*\\b${component}\\b[^}]*\\}\\s*from\\s*["'](\\.[^"']+)["']`,
+    ).exec(indexSource)?.[1] ??
+    new RegExp(
+      `\\b${component}\\s*=\\s*React\\.lazy\\(\\s*\\(\\)\\s*=>\\s*import\\(\\s*["'](\\.[^"']+)["']`,
+    ).exec(indexSource)?.[1];
+  if (!relative) return undefined;
+
+  const base = `${directory}/${relative.replace(/^\.\//, "")}`;
+  for (const candidate of [`${base}.tsx`, `${base}.ts`, base]) {
+    const source = scannedFiles[candidate];
+    if (source != null) return { path: candidate, source };
+  }
+  return undefined;
+}
+
+const resolvedIndexModules = Object.fromEntries(
+  RESOURCE_NAMES.map(
+    (name) => [name, resolveIndexModule(name)] as const,
+  ).filter(
+    (entry): entry is [string, { path: string; source: string }] =>
+      entry[1] !== undefined,
+  ),
+);
+
+const indexSources = Object.fromEntries(
+  Object.entries(resolvedIndexModules).map(([name, module]) => [
+    name,
+    module.source,
+  ]),
+);
+
+const browseShapedIndexes = findBrowseShapedIndexes(indexSources);
+
+describe("AD-24 conformance guard — the registered index component (AC 10c)", () => {
+  it("resolves every resource that registers its list through an index.ts, and names the module", () => {
+    // Assert — non-vacuous by construction: a broken resolver would empty
+    // `indexSources` and make the rule below silently green. `tasks` is
+    // absent because its definition is inline in root/routeManifest.ts.
+    expect(Object.keys(resolvedIndexModules).sort()).toEqual([
+      "inbox_items",
+      "members",
+      "references",
+      "shadchanim",
+      "shidduchim",
+      "singles",
+    ]);
+    expect(resolvedIndexModules.references.path).toBe(
+      "references/ReferencesIndex.tsx",
+    );
+  });
+
+  it("flags the real browse components in the tree — the matcher is not inert", () => {
+    // Assert — every browsable entity's registered index IS browse-shaped,
+    // which is what proves `findBrowseShapedIndexes` fires against real
+    // source rather than against nothing. None of them is in
+    // NO_BROWSE_SURFACE_ENTITIES, so none produces a violation.
+    expect(browseShapedIndexes).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^singles: /),
+        expect.stringMatching(/^shadchanim: /),
+        expect.stringMatching(/^shidduchim: /),
+        expect.stringMatching(/^members: /),
+        expect.stringMatching(/^inbox_items: /),
+      ]),
+    );
+  });
+
+  it("does not flag ReferencesIndex — the unattached panel is not a browse component", () => {
+    // Assert — the §1a panel queries `references` (it must), but carries no
+    // <List>, no EntityList, no SearchInput and no CreateButton.
+    expect(
+      browseShapedIndexes.filter((entry) => entry.startsWith("references:")),
+    ).toEqual([]);
+  });
+});
+
 // --- The combined real check -------------------------------------------------
 
 describe("findAd24Violations — real manifest, registry and scans (Task 4/6)", () => {
@@ -425,6 +559,7 @@ describe("findAd24Violations — real manifest, registry and scans (Task 4/6)", 
       navTargets,
       listPathLinks,
       browseSurfaceEnumerations,
+      browseShapedIndexes,
     });
 
     // Assert — every AD-24 rule, including RULING 7

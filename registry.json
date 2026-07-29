@@ -424,6 +424,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/reminders/OutstandingCallsSection.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/references/useReferenceMatch.ts",
           "type": "registry:component"
         },
@@ -468,6 +472,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/references/ReferencesIndex.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/references/ReferenceTimeline.tsx",
           "type": "registry:component"
         },
@@ -492,10 +500,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/references/ReferenceList.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/references/ReferenceInputs.tsx",
           "type": "registry:component"
         },
@@ -509,6 +513,10 @@
         },
         {
           "path": "src/components/atomic-crm/references/ReferenceCallLog.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/references/ReferenceAttachToShidduch.tsx",
           "type": "registry:component"
         },
         {

@@ -461,6 +461,7 @@ export const frenchCrmMessages = {
       record_pending: "Chargement…",
       record_unavailable: "Cet enregistrement n'est pas disponible.",
       record_unavailable_link: "Retour à la liste",
+      record_unavailable_home_link: "Retour au tableau de bord",
       role_pending: "Chargement de vos accès…",
     },
     singles: {
@@ -503,13 +504,28 @@ export const frenchCrmMessages = {
       },
     },
     references: {
-      list: {
-        title: "Carnet de références",
-        search: "Rechercher un nom, un téléphone, une école...",
-        linkedTo: "Liée à",
-        linkedCount: "%{smart_count} célibataires",
-        openReminders: "Rappels",
-        hasOpenReminder: "A un rappel en attente",
+      index: {
+        eyebrow: "À rattacher",
+        title: "Références non rattachées",
+        subtitle:
+          "Personnes enregistrées sans shidduch. Rattachez chacune au shidduch dont vous leur avez parlé : elles seront ensuite accessibles depuis celui-ci.",
+        empty:
+          "Rien à trier — chaque référence appartient à un shidduch. Une référence se consulte depuis le shidduch concerné, jamais séparément.",
+        emptyLink: "Aller au pipeline",
+      },
+      attach: {
+        action: "Rattacher à un shidduch",
+        title: "Rattacher à un shidduch",
+        description:
+          "%{name} ne fait partie d'aucun shidduch. Choisissez celui dont vous lui avez parlé.",
+        noShidduchim: "Il n'y a encore aucun shidduch auquel la rattacher.",
+        done: "Rattachée. Cette personne appartient désormais à un shidduch.",
+      },
+      create: {
+        requires_shidduch:
+          "Une référence ne peut être créée que depuis un shidduch.",
+        requires_shidduch_link: "Aller au pipeline",
+        linked: "Référence enregistrée et rattachée à ce shidduch.",
       },
       header: {
         progress: "%{contacted} conversations sur %{total} effectuées",
@@ -624,6 +640,14 @@ export const frenchCrmMessages = {
         contradictionDetail:
           "%{warm} ont parlé chaleureusement et %{reserved} ont émis une réserve. Les deux méritent d'être lus en entier.",
         outstanding: "%{smart_count} conversations n'ont pas encore eu lieu.",
+      },
+    },
+    reminders: {
+      outstandingCalls: {
+        title: "Encore à appeler",
+        subtitle: "%{smart_count} conversations n'ont pas encore eu lieu.",
+        about: "à propos de",
+        overflow: "et %{smart_count} de plus",
       },
     },
     validation: {

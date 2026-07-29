@@ -17,8 +17,9 @@ export interface RecordLinkProps {
   children: ReactNode;
   className?: string;
   /**
-   * The one sanctioned escape hatch beyond `className`. Two swept sites
-   * (`singles/SingleCard.tsx`, `references/ReferenceList.tsx`) set
+   * The one sanctioned escape hatch beyond `className`. The swept site
+   * (`singles/SingleCard.tsx`; `references/ReferenceList.tsx` was the other
+   * until RULING 7 deleted it) sets
    * `style={{ animationDelay }}` on the anchor alongside the `.ql-enter`
    * class; `.ql-enter` is `animation: ql-rise … both` (`src/index.css`), and
    * `animation-fill-mode: both` keeps the final keyframe's `transform`

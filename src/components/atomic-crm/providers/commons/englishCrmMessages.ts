@@ -505,6 +505,9 @@ export const englishCrmMessages = {
       record_pending: "Loading…",
       record_unavailable: "This record is unavailable.",
       record_unavailable_link: "Back to the list",
+      // RULING 7 — a no-browse entity (`descriptor.browsable === false`) has
+      // no list to go back to; RecordUnavailable offers the dashboard.
+      record_unavailable_home_link: "Back to the dashboard",
       // Story 3.4 AC 6(a) — replaces the tab bar and tab content while the
       // viewer's role in the active context is still resolving.
       role_pending: "Loading your access…",
@@ -562,13 +565,30 @@ export const englishCrmMessages = {
       },
     },
     references: {
-      list: {
-        title: "Reference book",
-        search: "Search name, phone, school...",
-        linkedTo: "Linked to",
-        linkedCount: "%{smart_count} singles",
-        openReminders: "Reminders",
-        hasOpenReminder: "Has an open reminder",
+      // RULING 7 — the reference book is gone; `#/references` is the
+      // unattached-references index. These keys replaced `list.*`.
+      index: {
+        eyebrow: "Needs a shidduch",
+        title: "Unattached references",
+        subtitle:
+          "People recorded without a shidduch. Attach each one to the shidduch you spoke to them about, and they will be reached from there instead.",
+        empty:
+          "Nothing to sort out — every reference belongs to a shidduch. References are reached from the shidduch they were asked about, never browsed on their own.",
+        emptyLink: "Go to the pipeline",
+      },
+      attach: {
+        action: "Attach to a shidduch",
+        title: "Attach to a shidduch",
+        description:
+          "%{name} is not part of any shidduch yet. Pick the one you spoke to them about.",
+        noShidduchim: "There are no shidduchim to attach this person to yet.",
+        done: "Attached. This person now belongs to a shidduch.",
+      },
+      create: {
+        requires_shidduch:
+          "A reference can only be created from inside a shidduch.",
+        requires_shidduch_link: "Go to the pipeline",
+        linked: "Reference saved and linked to this shidduch.",
       },
       header: {
         progress: "%{contacted} of %{total} conversations done",
@@ -681,6 +701,17 @@ export const englishCrmMessages = {
         contradictionDetail:
           "%{warm} spoke warmly and %{reserved} raised a reservation. Both are worth reading in full.",
         outstanding: "%{smart_count} conversations have not happened yet.",
+      },
+    },
+    // RULING 7 — the account-wide "not yet spoken to" worklist the reference
+    // book used to carry as its `contacted_count@eq: 0` filter, rehomed onto
+    // the Reminders hub (`reminders/OutstandingCallsSection.tsx`).
+    reminders: {
+      outstandingCalls: {
+        title: "Still to call",
+        subtitle: "%{smart_count} conversations have not happened yet.",
+        about: "about",
+        overflow: "and %{smart_count} more",
       },
     },
     validation: {

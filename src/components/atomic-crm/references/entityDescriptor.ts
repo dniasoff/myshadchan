@@ -17,6 +17,15 @@ import { registerEntityDescriptor } from "../entity360/registry";
 export const referencesDescriptor: EntityDescriptor = {
   name: "references",
   label: "References",
+  /**
+   * RULING 7 — a reference exists only within a shidduch's context and has
+   * no browse surface. `/references` is the unattached-references index
+   * (`ReferencesIndex.tsx`), not a list, so the framework's two
+   * "go back to the list" fallbacks (`RecordUnavailable`,
+   * `redirectToRecord`) resolve to `/` instead. Kept in agreement with
+   * `ad24Conformance.ts`'s `NO_BROWSE_SURFACE_ENTITIES` by a test.
+   */
+  browsable: false,
   buildRecordPath: (id) => `/references/${id}/show`,
   tabs: [],
   pendingTabs: [

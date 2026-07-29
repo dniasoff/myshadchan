@@ -2,7 +2,7 @@ import type { ComponentType, ReactNode } from "react";
 import type { Identifier } from "ra-core";
 import { Route } from "react-router";
 
-import { buildListPath, buildRecordPath } from "./entityPaths";
+import { buildBrowseFallbackPath, buildRecordPath } from "./entityPaths";
 import { getEntityDescriptor } from "./registry";
 import { LegacyCreatePathRedirect } from "./LegacyCreatePathRedirect";
 
@@ -85,6 +85,9 @@ export function hasAd24RecordShape(name: string, id: Identifier): boolean {
  */
 export function redirectToRecord(resource?: string, id?: Identifier): string {
   if (resource == null) return "/";
-  if (id == null) return buildListPath(resource);
+  // `buildBrowseFallbackPath`, not `buildListPath`: a save that returns no
+  // id must not land the user on a browse surface RULING 7 closed (a
+  // no-browse entity resolves to `/` instead). See entityPaths.ts.
+  if (id == null) return buildBrowseFallbackPath(resource);
   return buildRecordPath(resource, id);
 }

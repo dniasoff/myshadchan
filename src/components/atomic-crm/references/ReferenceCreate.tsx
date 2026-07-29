@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 import type { Identifier, RaRecord } from "ra-core";
 import { useDataProvider, useNotify, useRedirect, useTranslate } from "ra-core";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { Create } from "@/components/admin/create";
 import { SimpleForm } from "@/components/admin/simple-form";
 import type { CrmDataProvider } from "../providers/types";
@@ -108,6 +108,24 @@ const MatchOnEntry = ({ shidduchimId }: { shidduchimId?: Identifier }) => {
 };
 
 /**
+ * Reads `?shidduchim_id=` off the ROUTER's location, never
+ * `window.location.search`.
+ *
+ * This app runs on `ra-core`'s default `HashRouter`, so the whole route —
+ * path AND query string — lives inside `window.location.hash`
+ * (`…/#/references/new?shidduchim_id=42`) and `window.location.search` is
+ * the empty string. Reading the param off `window.location` therefore
+ * resolved `null` for every real user, which combined with the refusal
+ * panel below meant the only sanctioned way to add a reference always
+ * refused. `useSearchParams` parses the location react-router itself
+ * resolved, which is hash-aware, so it works under either router.
+ */
+function useShidduchimIdParam(): Identifier | undefined {
+  const [searchParams] = useSearchParams();
+  return parseShidduchimId(searchParams.get("shidduchim_id"));
+}
+
+/**
  * Resolves the `?shidduchim_id=` query param to a usable id, or `undefined`
  * for anything that is not a resolvable positive integer — a missing param,
  * `NaN` from garbage input, or a non-positive number. Callers treat
@@ -152,10 +170,7 @@ const RequiresShidduch = () => {
 };
 
 export const ReferenceCreate = () => {
-  const shidduchimIdParam = new URLSearchParams(window.location.search).get(
-    "shidduchim_id",
-  );
-  const shidduchimId = parseShidduchimId(shidduchimIdParam);
+  const shidduchimId = useShidduchimIdParam();
 
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();

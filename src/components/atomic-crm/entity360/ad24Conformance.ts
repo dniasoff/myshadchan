@@ -711,11 +711,74 @@ export function findBrowseSurfaceEnumeration(
   return offenders;
 }
 
+/**
+ * The source-shape markers that make a component a BROWSE surface. Each one
+ * is a thing whose entire purpose is to put an unnamed set of records in
+ * front of a user, and each is verified present in this repo:
+ *
+ *  - `@/components/admin/list` — ra-core's `<List>` controller: an unbounded,
+ *    paginated, filterable query over a whole resource.
+ *  - `EntityList` — Story 4.1's shared list chrome, built on the same.
+ *  - `@/components/admin/search-input` — a free-text box over a resource,
+ *    which RULING 7 names explicitly ("enumeration with a search box in
+ *    front of it").
+ *  - `<CreateButton` — the list's own unscoped create entry, the affordance
+ *    RULING 7 clause 5 replaces with the in-shidduch CTA.
+ *
+ * Deliberately NOT a marker: `useGetList`. `ReferencesIndex` issues one, and
+ * so must any honest recovery surface — the ruling forbids browsing, not
+ * querying. See `findBrowseSurfaceEnumeration` for the query-shaped rule,
+ * which is scoped to modules that exist only to browse.
+ */
+const BROWSE_COMPONENT_MARKERS: { pattern: RegExp; marker: string }[] = [
+  {
+    pattern: /from\s+["'][^"']*\/components\/admin\/list["']/,
+    marker: "imports admin/list (<List>)",
+  },
+  { pattern: /\bEntityList\b/, marker: "renders EntityList" },
+  {
+    pattern: /from\s+["'][^"']*\/components\/admin\/search-input["']/,
+    marker: "imports admin/search-input (free-text search)",
+  },
+  { pattern: /<CreateButton\b/, marker: "renders <CreateButton>" },
+];
+
+/**
+ * AC 10(c) — the reachability half of RULING 7, and the clause the earlier
+ * pass could not write because `ReferencesIndex` did not exist yet.
+ *
+ * Clauses (a)/(b)/(b2) are all about what LINKS to or COUNTS a no-browse
+ * entity. None of them looks at what the entity's registered `list` actually
+ * renders — so the ruling could be re-opened, with every existing assertion
+ * still green, simply by pointing `references/index.ts` back at a list
+ * component. Nothing would link to it and no dashboard would count it; a
+ * user typing `#/references` would just get the book back.
+ *
+ * `indexSources` maps an entity name to the SOURCE TEXT of the module its
+ * `list` slot resolves to (the guard test follows `<entity>/index.ts`'s
+ * `list:` registration to the imported module, so this is reachability, not
+ * a filename convention). Returns `"<name>: <marker>"` for each browse-shaped
+ * one, naming the marker so the failure says what was found.
+ */
+export function findBrowseShapedIndexes(
+  indexSources: Record<string, string>,
+): string[] {
+  const offenders: string[] = [];
+  for (const [name, source] of Object.entries(indexSources)) {
+    const hit = BROWSE_COMPONENT_MARKERS.find(({ pattern }) =>
+      pattern.test(source),
+    );
+    if (hit) offenders.push(`${name}: ${hit.marker}`);
+  }
+  return offenders;
+}
+
 function findNoBrowseSurfaceViolations(
   resources: ResourceEntry[],
   navTargets: string[],
   listPathLinks: string[],
   browseSurfaceEnumerations: string[],
+  browseShapedIndexes: string[],
   noBrowseSurfaceEntities: Record<string, string>,
 ): Ad24Violation[] {
   const violations: Ad24Violation[] = [];
@@ -776,6 +839,22 @@ function findNoBrowseSurfaceViolations(
     }
   }
 
+  // (c2) …and a resource that IS in the table must not register a BROWSE
+  // component in that `list` slot. This is the other half of (c): (c) says
+  // the slot must be filled, this says what may fill it. Without it the
+  // ruling is enforced only against links and counts, and re-pointing
+  // `references/index.ts` back at `ReferenceList` would leave every other
+  // assertion in this file green.
+  for (const offender of browseShapedIndexes) {
+    const name = offender.split(":")[0];
+    if (!(name in noBrowseSurfaceEntities)) continue;
+    violations.push({
+      code: "browse-surface-on-scoped-entity",
+      subject: name,
+      detail: `the index registered as "${name}"'s \`list\` is a browse component (${offender}) — RULING 7 forbids a browse surface for it; the slot is the route mount and must hold a non-browse index`,
+    });
+  }
+
   // (d) every key in the table must name a resource that still exists. No
   // `kind`, so no `permanent-exemption-for-360-entity` direction here.
   for (const name of noBrowseNames) {
@@ -811,6 +890,10 @@ export function findAd24Violations(input: {
    * (`findBrowseSurfaceEnumeration`). Optional so the many single-rule
    * fixtures stay isolated; the real guard always passes it. */
   browseSurfaceEnumerations?: string[];
+  /** `"<entity>: <marker>"` for each entity whose registered `list` module is
+   * a browse component (`findBrowseShapedIndexes`). Optional so the many
+   * single-rule fixtures stay isolated; the real guard always passes it. */
+  browseShapedIndexes?: string[];
   exemptions?: Ad24Exemptions;
   noBrowseSurfaceEntities?: Record<string, string>;
 }): Ad24Violation[] {
@@ -843,6 +926,7 @@ export function findAd24Violations(input: {
       input.navTargets,
       input.listPathLinks,
       input.browseSurfaceEnumerations ?? [],
+      input.browseShapedIndexes ?? [],
       noBrowseSurfaceEntities,
     ),
   ];

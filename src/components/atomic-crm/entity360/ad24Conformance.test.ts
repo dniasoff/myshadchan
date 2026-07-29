@@ -21,6 +21,7 @@ import type { TabKey } from "./tabKeys";
 import {
   CANONICAL_TAB_SETS,
   findAd24Violations,
+  findBrowseShapedIndexes,
   findBrowseSurfaceEnumeration,
   findListPathLinks,
   findPendingTabs,
@@ -118,6 +119,7 @@ const baseInput = (
   navTargets: [],
   listPathLinks: [],
   browseSurfaceEnumerations: [],
+  browseShapedIndexes: [],
   exemptions: EMPTY_EXEMPTIONS,
   noBrowseSurfaceEntities: NO_BROWSE_NONE,
   ...overrides,
@@ -957,6 +959,76 @@ describe("findBrowseSurfaceEnumeration — the blind spot findListPathLinks left
   });
 });
 
+describe("findBrowseShapedIndexes — is the registered index a browse component?", () => {
+  it("flags an index built on ra-core's <List> controller", () => {
+    // Arrange
+    const sources = {
+      references: 'import { List } from "@/components/admin/list";',
+    };
+
+    // Act / Assert
+    expect(findBrowseShapedIndexes(sources)).toEqual([
+      "references: imports admin/list (<List>)",
+    ]);
+  });
+
+  it("flags an index built on the shared EntityList chrome", () => {
+    // Arrange
+    const sources = { references: "return <EntityList resource=... />;" };
+
+    // Act / Assert
+    expect(findBrowseShapedIndexes(sources)).toEqual([
+      "references: renders EntityList",
+    ]);
+  });
+
+  it("flags an index carrying a free-text search box", () => {
+    // Arrange
+    const sources = {
+      references:
+        'import { SearchInput } from "@/components/admin/search-input";',
+    };
+
+    // Act / Assert
+    expect(findBrowseShapedIndexes(sources)).toEqual([
+      "references: imports admin/search-input (free-text search)",
+    ]);
+  });
+
+  it("flags an index carrying the list's unscoped CreateButton", () => {
+    // Arrange
+    const sources = { references: '<CreateButton label="Add" />' };
+
+    // Act / Assert
+    expect(findBrowseShapedIndexes(sources)).toEqual([
+      "references: renders <CreateButton>",
+    ]);
+  });
+
+  it("does NOT flag a bounded, filtered index that merely issues a list query", () => {
+    // Arrange — ReferencesIndex's own shape: RULING 7 forbids browsing, not
+    // querying, and the §1a panel cannot exist without a query.
+    const sources = {
+      references:
+        'const { data } = useGetList("references", { filter: { "linked_shidduchim_count@eq": 0 } });',
+    };
+
+    // Act / Assert
+    expect(findBrowseShapedIndexes(sources)).toEqual([]);
+  });
+
+  it("reports each entity at most once, naming the first marker found", () => {
+    // Arrange
+    const sources = {
+      references:
+        'import { List } from "@/components/admin/list";\nimport { SearchInput } from "@/components/admin/search-input";\n<CreateButton />',
+    };
+
+    // Act / Assert
+    expect(findBrowseShapedIndexes(sources)).toHaveLength(1);
+  });
+});
+
 describe("isBrowseSurfaceModule — which modules the enumeration rule covers", () => {
   it("covers every dashboard module and the global-search modules", () => {
     // Act / Assert
@@ -1066,6 +1138,46 @@ describe("findAd24Violations — AC 10 RULING 7 fixtures", () => {
     ]);
   });
 
+  it("(c2) reports browse-surface-on-scoped-entity when a no-browse entity's registered index IS a browse component", () => {
+    // Arrange — THE RED FIXTURE for the clause that was missing: the ruling
+    // re-opened not by a link and not by a count, but by pointing
+    // `references/index.ts`'s `list:` slot back at a list component. Nothing
+    // links to it, no dashboard counts it, and every other AC 10 clause
+    // stays green — which is exactly why this clause has to exist.
+    const input = baseInput({
+      resources: [resourceEntry("references")],
+      exemptions: REFERENCES_EXEMPT_FROM_AC2,
+      browseShapedIndexes: ["references: imports admin/list (<List>)"],
+      noBrowseSurfaceEntities: NO_BROWSE_SURFACE_ENTITIES,
+    });
+
+    // Act
+    const violations = findAd24Violations(input);
+
+    // Assert
+    expect(violations).toEqual([
+      {
+        code: "browse-surface-on-scoped-entity",
+        subject: "references",
+        detail: expect.stringContaining("imports admin/list"),
+      },
+    ]);
+  });
+
+  it("(c2) stays silent for a browse-shaped index on an entity that IS browsable", () => {
+    // Arrange — `singles`' index is genuinely browse-shaped and must never
+    // be reported; the clause is scoped to NO_BROWSE_SURFACE_ENTITIES.
+    const input = baseInput({
+      resources: [resourceEntry("references")],
+      exemptions: REFERENCES_EXEMPT_FROM_AC2,
+      browseShapedIndexes: ["singles: renders EntityList"],
+      noBrowseSurfaceEntities: NO_BROWSE_SURFACE_ENTITIES,
+    });
+
+    // Act / Assert
+    expect(findAd24Violations(input)).toEqual([]);
+  });
+
   it("(c) reports unlisted-entity-missing-index for a resource outside the table with no list", () => {
     // Arrange — no show/create/edit, and exempted from AC 2, so this
     // fixture breaks exactly AC 10(c).
@@ -1144,6 +1256,21 @@ describe("findAd24Violations — the real manifest + registry", () => {
 
     // Assert
     expect(violations).toEqual([]);
+  });
+
+  it("sanity check — every no-browse entity's descriptor declares browsable: false, and no other does", () => {
+    // Assert — the table (the ruling) and the descriptor field (what the
+    // framework fallbacks read: RecordUnavailable, redirectToRecord) must
+    // agree in BOTH directions, or one of them drifts alone and a "back to
+    // the list" link quietly reopens the surface.
+    for (const name of Object.keys(NO_BROWSE_SURFACE_ENTITIES)) {
+      expect(getEntityDescriptor(name)?.browsable).toBe(false);
+    }
+    for (const { name } of RESOURCES) {
+      const descriptor = getEntityDescriptor(name);
+      if (!descriptor || descriptor.browsable !== false) continue;
+      expect(Object.keys(NO_BROWSE_SURFACE_ENTITIES)).toContain(name);
+    }
   });
 
   it("sanity check — NO_BROWSE_SURFACE_ENTITIES names a resource actually present in RESOURCES", () => {

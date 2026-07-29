@@ -82,6 +82,25 @@ export type EntityDescriptor<T extends RaRecord = RaRecord> = {
   pendingTabs?: TabKey[];
 
   relationships?: EntityRelationshipDescriptor<T>[];
+
+  /**
+   * `false` when this entity has NO browse surface — RULING 7's `references`
+   * is the only one today. Additive and defaulted: an omitted field means
+   * "browsable", so every other descriptor is unaffected.
+   *
+   * It exists because two framework fallbacks would otherwise send a user
+   * INTO a surface the ruling closed: `RecordUnavailable`'s "back to the
+   * list" link and `routeConvention.redirectToRecord`'s `id == null` branch,
+   * both of which called `buildListPath`. They call
+   * `entityPaths.buildBrowseFallbackPath` instead, which consults this
+   * field and falls back to `/`.
+   *
+   * It is metadata, not enforcement: the standing, mechanically-checked
+   * statement of the ruling is `ad24Conformance.ts`'s
+   * `NO_BROWSE_SURFACE_ENTITIES`, and `ad24Conformance.test.ts` pins the two
+   * in agreement so neither can drift alone.
+   */
+  browsable?: boolean;
 };
 
 /**

@@ -71,6 +71,26 @@ describe("redirectToRecord", () => {
     ).toBe("/route-convention-redirect-list-fixture");
   });
 
+  it('returns "/" instead of the list path when the entity has no browse surface', () => {
+    // Arrange — RULING 7's shape: a registered entity that declares
+    // `browsable: false`. Before this, the `id == null` branch sent the user
+    // to `/{name}`, i.e. straight into the surface the ruling closed.
+    registerEntityDescriptor(
+      {
+        name: "route-convention-no-browse-fixture",
+        label: "no browse",
+        browsable: false,
+        buildRecordPath: (id) => `/route-convention-no-browse-fixture/${id}`,
+      },
+      { replace: true },
+    );
+
+    // Act / Assert
+    expect(
+      redirectToRecord("route-convention-no-browse-fixture", undefined),
+    ).toBe("/");
+  });
+
   it("returns the record path when both resource and id are present", () => {
     // Arrange
     registerAd24("route-convention-redirect-record-fixture");

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import {
   CoreAdminContext,
@@ -23,21 +23,19 @@ import { ReferenceCreate } from "./ReferenceCreate";
  * "Add a reference" CTA must never be able to produce a `references` row
  * with zero `reference_links`.
  *
- * `ReferenceCreate` reads `?shidduchim_id=` off `window.location.search`
- * directly (not through the router), so each test drives that with
- * `window.history.pushState` rather than `TestMemoryRouter`'s
- * `initialEntries` — the two are independent here. `initialEntries` still
- * matters for the *redirect* assertions, which go through react-router's
- * memory history via `useRedirect`/`useNavigate`.
+ * The URL is driven ONLY through the router (`TestMemoryRouter`'s
+ * `initialEntries`) — never by writing `window.location` with
+ * `history.pushState`. That is not a stylistic preference, it is what makes
+ * these tests able to fail: the app runs on `ra-core`'s default
+ * `HashRouter`, where the query string lives inside the hash and
+ * `window.location.search` is ALWAYS empty. A version of this suite that
+ * pushed the URL onto `window.location` was green against a component
+ * reading `window.location.search`, while every real user hit the refusal
+ * panel — the test agreed with the bug because it never went through a
+ * router at all. Driving `initialEntries` exercises the same resolution
+ * path production does, so a component that reads the raw `window.location`
+ * fails here immediately.
  */
-
-const setUrl = (path: string) => {
-  window.history.pushState(null, "", path);
-};
-
-afterEach(() => {
-  setUrl("/");
-});
 
 const buildDataProvider = (
   overrides: Partial<CrmDataProvider> = {},
@@ -59,7 +57,6 @@ const renderReferenceCreate = async (
   url: string,
   dataProviderOverrides: Partial<CrmDataProvider> = {},
 ) => {
-  setUrl(url);
   const dataProvider = buildDataProvider(dataProviderOverrides);
   let pathname: string | undefined;
 
@@ -89,6 +86,28 @@ const renderReferenceCreate = async (
 
   return { screen, dataProvider, getPathname: () => pathname };
 };
+
+describe("ReferenceCreate — resolves shidduchim_id from the router, not window.location", () => {
+  it("renders the form for a router-supplied shidduchim_id while window.location carries none", async () => {
+    // Arrange — the production shape. Under the app's HashRouter the query
+    // string lives inside the hash, so `window.location.search` never
+    // carries `shidduchim_id`. Pinned explicitly so this test cannot be
+    // "fixed" by pushing the URL onto window.location. (The runner's own
+    // iframe puts a `?sessionId=…` on `window.location`, which is precisely
+    // why this asserts the absence of the param rather than an empty
+    // search string.)
+    expect(window.location.search).not.toContain("shidduchim_id");
+
+    // Act
+    const { screen } = await renderReferenceCreate(
+      "/references/new?shidduchim_id=42",
+    );
+
+    // Assert — the form, not the refusal panel.
+    await expect.element(screen.getByLabelText("Name")).toBeInTheDocument();
+    await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
+  });
+});
 
 describe("ReferenceCreate — refuses creation without a resolvable shidduch (Ruling 7 clause 5)", () => {
   it("renders a refusal, not the form, when shidduchim_id is missing", async () => {

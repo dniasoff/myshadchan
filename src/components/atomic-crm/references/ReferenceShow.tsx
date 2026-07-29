@@ -4,6 +4,7 @@ import { EditButton } from "@/components/admin/edit-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EntityAvatar } from "../entity360/EntityAvatar";
+import { RecordUnavailable } from "../entity360/RecordUnavailable";
 import { TopToolbar } from "../layout/TopToolbar";
 import type { Reference } from "../types";
 import { ReferenceCallLog } from "./ReferenceCallLog";
@@ -179,7 +180,20 @@ export const ReferenceShow = () => (
   // browse entry reached from inside the sanctioned in-shidduch path, which is
   // exactly what RULING 7 forbids. Suppressed on all three reference record
   // surfaces (show/edit/create).
-  <Show title={false} disableBreadcrumb actions={<ReferenceShowActions />}>
+  //
+  // `redirectOnError={false}` + an explicit `error` element: `useShowController`
+  // defaults `redirectOnError` to `"list"`, so a stale deep link
+  // (`#/references/9999`, a record from a non-active context) NAVIGATED the
+  // user into `#/references` — the one surface RULING 7 says is not a
+  // destination. Now the URL stays put and `RecordUnavailable` renders, whose
+  // own way out is `/` for a no-browse entity.
+  <Show
+    title={false}
+    disableBreadcrumb
+    actions={<ReferenceShowActions />}
+    redirectOnError={false}
+    error={<RecordUnavailable />}
+  >
     <ReferenceShowLayout />
   </Show>
 );

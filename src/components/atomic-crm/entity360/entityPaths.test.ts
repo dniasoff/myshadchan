@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { EntityDescriptor } from "./entityDescriptor";
 import {
+  buildBrowseFallbackPath,
   buildEditPath,
   buildListPath,
   buildNewPath,
@@ -37,6 +38,33 @@ describe("buildListPath", () => {
   it("returns /{name} for a registered resource", () => {
     // Act / Assert
     expect(buildListPath(FIXTURE_NAME)).toBe(`/${FIXTURE_NAME}`);
+  });
+});
+
+describe("buildBrowseFallbackPath", () => {
+  it("returns the list path for a normal, browsable entity", () => {
+    // Act / Assert — an omitted `browsable` means browsable.
+    expect(buildBrowseFallbackPath(FIXTURE_NAME)).toBe(`/${FIXTURE_NAME}`);
+  });
+
+  it('returns "/" for an entity that declares no browse surface', () => {
+    // Arrange — RULING 7's shape. This is what keeps `RecordUnavailable`'s
+    // "back" link and `redirectToRecord`'s id-less branch from walking a
+    // user into a closed surface.
+    registerEntityDescriptor(
+      { ...buildFixtureDescriptor(), browsable: false },
+      { replace: true },
+    );
+
+    // Act / Assert
+    expect(buildBrowseFallbackPath(FIXTURE_NAME)).toBe("/");
+  });
+
+  it("throws for an unregistered resource, like every other builder", () => {
+    // Act / Assert
+    expect(() => buildBrowseFallbackPath(UNREGISTERED_NAME)).toThrow(
+      `No entity descriptor registered for resource "${UNREGISTERED_NAME}"`,
+    );
   });
 });
 

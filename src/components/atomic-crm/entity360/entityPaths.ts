@@ -20,6 +20,24 @@ export function buildListPath(name: string): string {
   return `/${name}`;
 }
 
+/**
+ * Where to send someone who has to go SOMEWHERE and has no record to go to:
+ * the entity's list when it has one, `/` when it does not.
+ *
+ * The two callers are framework fallbacks, not navigation — `RecordUnavailable`
+ * ("this record is unavailable, go back") and `redirectToRecord`'s `id == null`
+ * branch. Both used to call `buildListPath` unconditionally, which for a
+ * no-browse entity (`descriptor.browsable === false`, RULING 7) walked the
+ * user straight into the surface the ruling closed. This is deliberately NOT
+ * folded into `buildListPath`: an explicit `buildListPath` call with a no-browse name is a
+ * defect the AD-24 guard reports, and silently rewriting it to `/` would hide
+ * that.
+ */
+export function buildBrowseFallbackPath(name: string): string {
+  const descriptor = requireEntityDescriptor(name);
+  return descriptor.browsable === false ? "/" : buildListPath(name);
+}
+
 /** `/${name}/new`. Serves AC 8's route; this story renames no live link —
  * that adoption is Story 3.12's (contract §5 scope boundary). */
 export function buildNewPath(name: string): string {

@@ -22,10 +22,17 @@ AD-24 exemption checks are symmetric — so the loser of a concurrent edit fails
 
 ## This story absorbs RULING 7 R2 (`/references`) — and it has no choice
 
-**The gap is live on `main` today.** `/references` renders `ReferenceList.tsx`: a search box,
+> **CLOSED — R2, R8 and AC-8 landed on `main` in the `ruling7-r2` round.** Everything in this
+> section describes the state of `main` BEFORE that round and is kept for the reasoning, not as
+> a work list. `/references` renders `ReferencesIndex`, `ReferenceList.tsx` is gone, the guard's
+> clause (c2) exists, and `browsable?: false` is wired. See "Landed ahead of this story by the
+> RULING 7 R2 round" below for exactly what shipped and what is left.
+
+**The gap was live on `main`.** `/references` rendered `ReferenceList.tsx`: a search box,
 three filters, sort, pagination, a `CreateButton`, and every reference in the account — a full
 browse surface for the one entity whose browse surface RULING 7 forbids. R1 (shidduch-scoped
-creation), R3 (nav / dashboard / tour) and R6 (MCP) are all closed; **R2 is not.**
+creation), R3 (nav / dashboard / tour) and R6 (MCP) were already closed; **R2 was not — it
+is now, see the `ruling7-r2` round note below.**
 
 It lands here rather than in a new story for a structural reason, not for tidiness:
 `buildEntityRoutes`' config types `List: ComponentType` as **required**
@@ -76,6 +83,8 @@ could not wait for this story. **Three things changed under your feet:**
    `ReferencesIndex` exists, which is why it stayed here; and (ii) widening clause (b)'s matcher
    to variable-argument `buildListPath(<identifier>)` for `RecordUnavailable.tsx:37` /
    `routeConvention.tsx:88`. Do not re-add (b2); extend around it.
+   **SUPERSEDED — both halves are settled by the `ruling7-r2` round below: (i) shipped as clause
+   (c2), (ii) dropped as offender-less. Nothing here is outstanding.**
 3. **The breadcrumb browse-entry is closed, and AC-4 must not reopen it.** `ReferenceShow`,
    `ReferenceEdit` and `ReferenceCreate` now pass `disableBreadcrumb`. Without it,
    `admin/show.tsx`/`edit.tsx`/`create.tsx` render `Home / **References** / <name>` with
@@ -83,6 +92,100 @@ could not wait for this story. **Three things changed under your feet:**
    in-shidduch path. When AC-4 moves the record surface onto `Entity360` the prop disappears with
    it (the 360 shell renders no breadcrumb), but **`ReferenceEdit` survives this story
    (`references/index.ts` keeps `Edit: ReferenceEdit`) and must keep `disableBreadcrumb`.**
+
+### Landed ahead of this story by the RULING 7 R2 round (owner `ruling7-r2`, branch `main`) — READ THIS BEFORE TASK 6, 7 OR AC-3
+
+A second standalone round landed on `main` after the refs-sweep above, because a verification
+pass returned **RULING 7: VIOLATED** and the sanctioned "Add a reference" path was broken in
+production. **AC-3, AC-7, AC-8 and AC-9 are now DONE, and Tasks 6 and 7 are complete.** Do not
+redo them; what is left of this story is the diligence half (AC-1, AC-2) and the `Entity360`
+migration (AC-4, AC-5, AC-6), i.e. Tasks 1-5.
+
+What shipped, precisely:
+
+1. **`/references` is `ReferencesIndex` (AC-7, Task 6 — done).** New
+   `references/ReferencesIndex.tsx` (`useGetList("references", { filter: {
+   "linked_shidduchim_count@eq": 0 }, perPage: 50 })`, each row a `RecordLink` + inline
+   `ReferenceAttachToShidduch`, self-emptying explainer when the set is empty). New
+   `references/ReferenceAttachToShidduch.tsx` — the one attach mechanism, calling
+   `dataProvider.linkReferenceToShidduch`. New `references/ReferencesIndex.test.tsx`.
+   `references/ReferenceList.tsx` is **deleted**; `references/index.ts` now reads
+   `list: ReferencesIndex` (the slot is kept — it is the route mount).
+   **One deviation from Task 6's text, deliberate:** `ReferenceAttachToShidduch` is a
+   `<Popover>`, not a `<Dialog>`. `misc/recordSurfaceDialogs.guard.test.ts` scans `references/`
+   for `@/components/ui/dialog` imports (UX-DR3) and a dialog here would have required a new
+   allowlist entry; a picker for an action does not need to be modal. Task 6's other
+   instruction stands and is honoured: it is rendered by `ReferencesIndex` and is the ONLY
+   attach affordance — when AC-4 builds the 360, render this same component in the actions
+   region under `useReferenceLinks(record.id).links.length === 0`, do not hand-roll a second.
+2. **The AD-24 guard's clause (c) is written (AC-8, Task 7 — done).** New exported pure matcher
+   `findBrowseShapedIndexes(indexSources)` in `ad24Conformance.ts`, plus a new
+   `browseShapedIndexes?: string[]` input to `findAd24Violations` and clause **(c2)**, which
+   reports `browse-surface-on-scoped-entity` when a `NO_BROWSE_SURFACE_ENTITIES` entity's
+   registered `list` module is a browse component (markers: an `admin/list` import, `EntityList`,
+   an `admin/search-input` import, or `<CreateButton>`). `ad24Conformance.guard.test.ts` follows
+   `<entity>/index.ts`'s `list:` registration to the module it actually resolves to — including
+   the `React.lazy(() => import(...))` form `shidduchim` uses — so this is reachability, not a
+   filename convention. **Proven with a red fixture:** pointing `references/index.ts` back at
+   `ReferenceList` makes three assertions fail, and clause (c2) is the only rule in the file that
+   catches it (nothing links to the reinstated book and no dashboard counts it, so clauses (b)
+   and (b2) stay green). Clause (c)'s original `continue` for the "must declare a list" half is
+   retained — (c2) is additive beside it, exactly as AC-8 asked.
+   **Not done, and no longer needed:** AC-8's second bullet (widening `findListPathLinks` to
+   variable-argument `buildListPath(<identifier>)`). Both live sites it named
+   (`RecordUnavailable.tsx`, `routeConvention.tsx`) no longer call `buildListPath` at all — see
+   (3) — so the widening would have had no offender to catch and would flag every legitimate
+   `buildListPath(resource)` in the tree. If a future site reintroduces the shape, revisit.
+   **One genuine bug fixed while in there:** the guard's `toAtomicCrmRelativePath` mapped only
+   `../<dir>/<file>` keys, but Vite normalises a glob match inside the glob root's own directory
+   to `./<file>` — so `entity360/`'s own modules were keyed `./entityPaths.ts` and
+   `isExcludedFromListPathScan`'s `path === "entity360/entityPaths.ts"` never matched. Both
+   shapes are mapped now, with a pin (`keys entity360's OWN modules under entity360/, not './'`).
+3. **`browsable?: false` (AC-9, Task 7 — done).** Added to `EntityDescriptor`, set on the
+   `references` descriptor. New `entityPaths.buildBrowseFallbackPath(name)` returns `/` for a
+   non-browsable entity and the list path otherwise; `RecordUnavailable.tsx` and
+   `routeConvention.redirectToRecord` both consult it instead of `buildListPath`.
+   `RecordUnavailable`'s label changes with the destination — new i18n key
+   `crm.entity360.record_unavailable_home_link` ("Back to the dashboard"), both catalogues.
+   Covered by `entity360/RecordUnavailable.test.tsx` (new), `entityPaths.test.ts` and
+   `routeConvention.test.tsx`. `ad24Conformance.test.ts` pins the descriptor field and
+   `NO_BROWSE_SURFACE_ENTITIES` in agreement in BOTH directions, so neither can drift alone.
+4. **`redirectOnError` on the reference record surfaces (not previously anyone's AC).**
+   `useShowController`/`useEditController` default `redirectOnError` to `"list"`, so a stale deep
+   link (`#/references/9999`) NAVIGATED the user into the index — the closed surface — before
+   AC-9's fallback could ever apply. `ReferenceShow` and `ReferenceEdit` now pass
+   `redirectOnError={false}` plus `error={<RecordUnavailable />}`. This required forwarding two
+   props that `src/components/admin/show.tsx` was silently dropping (`error`,
+   `redirectOnError`); `admin/edit.tsx` already spread them. **AC-4 must keep this behaviour**
+   when the record surface moves onto `Entity360` — `buildEntityRoutes` already passes
+   `RecordUnavailable` as `ShowBase`'s `error`, which sets `redirectOnError: false` implicitly,
+   so the migration inherits it; do not remove the explicit props from `ReferenceEdit`, which
+   survives this story.
+5. **The live create bug that started the round.** `ReferenceCreate.tsx` read `shidduchim_id`
+   from `window.location.search`. The app runs on `ra-core`'s default `HashRouter`, where the
+   query string lives INSIDE the hash — so the param never resolved, and the refusal panel the
+   refs-sweep added meant the only sanctioned way to add a reference refused for every user. It
+   now reads the router's own location (`useSearchParams`). `ReferenceCreate.test.tsx` was the
+   defect too: it drove the URL with `window.history.pushState`, so it agreed with the bug.
+   It now drives `TestMemoryRouter`'s `initialEntries` only.
+   **Note for AC-4's retarget list below:** the two `"/references/100/show"` assertions it names
+   are still there and still need retargeting, but the line numbers have moved.
+6. **The one workflow the reference book really carried is rehomed, not dropped.** The book's
+   `contacted_count@eq: 0` ("Not yet spoken to") filter was the only account-wide
+   outstanding-calls worklist. It is now `reminders/OutstandingCallsSection.tsx`, rendered on the
+   Reminders hub: it queries `reference_links` (not `references`), every row names and links to
+   the shidduch the conversation belongs to, and it hides itself when nothing is outstanding.
+   The dashboard was rejected as its home because `dashboard/**` is a declared browse-surface
+   module in `isBrowseSurfaceModule`. Do not re-add a "not yet spoken to" filter anywhere.
+7. **i18n.** `crm.references.list.*` is **deleted** from both catalogues and replaced by
+   `crm.references.index.*` / `crm.references.attach.*` / `crm.references.create.*`, plus
+   `crm.reminders.outstandingCalls.*`. That is most of R5; what remains of R5 is only the
+   `resources.references.fields.{linked_shidduchim_count,contacted_count,open_task_count}`
+   filter labels, which are harmless and still referenced by nothing.
+8. **E2E.** New `e2e/references-scoping.spec.ts`, green on both Playwright projects: opens a
+   shidduch, clicks "Add a reference", asserts the form renders (not the refusal), saves, asserts
+   the redirect to the record AND that a `reference_links` row exists in the database, and that
+   `#/references` renders "Unattached references" with no search box.
 
 ## Most of the diligence half already exists
 
@@ -129,8 +232,8 @@ information that has nowhere else to go.
 2. **Given** each reference row in the Diligence tab, **when** it renders, **then** it states
    whether this is a first conversation or one of several (via the shared
    `countOtherConversations` helper, excluding the current shidduch).
-3. **Given** a reference, **when** I open their own record, **then** it is reached **from a
-   shidduch's diligence** — never from primary navigation, never from a list, never from an
+3. **DONE (`ruling7-r2` round).** **Given** a reference, **when** I open their own record,
+   **then** it is reached **from a shidduch's diligence** — never from primary navigation, never from a list, never from an
    `EntityList`, and **never from search**. The original wording of this AC read "reached from
    diligence **or search**"; that is a defect. RULING 7 clause 1 (`epics.md:132-135`) says
    *"References also leave global search: a global search that returns reference records is a
@@ -176,8 +279,9 @@ information that has nowhere else to go.
    [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#3 — the `TabKey` union, the
    drift-closing ruling table (`conversations` kept and distinct), and rule 5's per-entity tab
    sets]
-   **This is not a `buildRecordPath` one-liner.** `references/index.ts:18-20` declares
-   `list: ReferenceList`, `show: ReferenceShow`, `edit: ReferenceEdit`, and `ra-core` maps
+   **This is not a `buildRecordPath` one-liner.** `references/index.ts` declares
+   `list: ReferencesIndex` (was `ReferenceList` before the `ruling7-r2` round),
+   `show: ReferenceShow`, `edit: ReferenceEdit`, and `ra-core` maps
    `edit` to the route `":id/*"` (`ra-core/dist/core/Resource.js:11-15`) — so the moment
    `buildRecordPath` emits `/references/{id}`, **`ReferenceEdit` renders where the 360 should
    be**: no error, no red test, a wrong page, and this AC unsatisfiable while the suite is
@@ -220,7 +324,8 @@ information that has nowhere else to go.
    Its candidate picker queries the **resource**, not the route, so replacing the list cannot
    break it; its post-merge redirect targets the record, which now resolves through the flipped
    `buildRecordPath`.
-7. **Given** RULING 7 R2, **when** I open `/references`, **then** I see the
+7. **DONE (`ruling7-r2` round — see Task 6).** **Given** RULING 7 R2, **when** I open
+   `/references`, **then** I see the
    **unattached-references panel** — `ReferencesIndex.tsx`, showing only references with
    `linked_shidduchim_count@eq: 0`, each row a `RecordLink` plus an inline
    `ReferenceAttachToShidduch` action; no search box, no filters, no sort, no pagination, no
@@ -237,7 +342,9 @@ information that has nowhere else to go.
    **Failing looks like:** `ReferencesIndex` issues a `getList("references")` with no
    `linked_shidduchim_count@eq` filter, or a reference that *is* linked to a shidduch appears
    in the panel.
-8. **Given** the AD-24 guard, **when** it runs after this story, **then** it can no longer be
+8. **DONE (`ruling7-r2` round — clause (c2) written and proven with a red fixture; the
+   `findListPathLinks` widening was dropped as offender-less, see the round note).**
+   **Given** the AD-24 guard, **when** it runs after this story, **then** it can no longer be
    green over a live browse surface on a no-browse entity. Two widenings, both **additive**:
    - clause (c) (`ad24Conformance.ts:688-699`) currently does
      `if (resource.name in noBrowseSurfaceEntities) continue;` — skipping the one entity the
@@ -250,7 +357,8 @@ information that has nowhere else to go.
    Both call sites are then fixed by R8's descriptor field (AC-9), not by suppressing the rule.
    **Failing looks like:** re-pointing `references/index.ts` back at `ReferenceList` and
    re-running `npx vitest run src/components/atomic-crm/entity360` still passes.
-9. **Given** RULING 7 R8, **when** `RecordUnavailable` or `redirectToRecord` needs a fallback
+9. **DONE (`ruling7-r2` round — `buildBrowseFallbackPath` + `browsable?: false`).**
+   **Given** RULING 7 R8, **when** `RecordUnavailable` or `redirectToRecord` needs a fallback
    destination for a no-browse entity, **then** it resolves to `/` and not to the unattached
    panel. Mechanism: one new optional `EntityDescriptor` field, `browsable?: false`
    (`entity360/entityDescriptor.ts`), set on the `references` descriptor and consulted by both
@@ -404,7 +512,10 @@ information that has nowhere else to go.
         edits to merge logic in this story.
   - [ ] `npm run typecheck && npm run lint && npx vitest run && npm run build`. **No
         `test:unit:db` run is needed** — Task 2's decision leaves this story schema-free.
-- [ ] **Task 6 — RULING 7 R2: `/references` becomes the unattached-references panel** (AC: 3, 7)
+- [x] **Task 6 — RULING 7 R2: `/references` becomes the unattached-references panel** (AC: 3, 7)
+      — **DONE by the `ruling7-r2` round.** Every subtask below shipped; the one deviation is
+      that `ReferenceAttachToShidduch` is a `<Popover>`, not a `<Dialog>` (UX-DR3 guard). Kept
+      for the reasoning only.
   - [ ] New `references/ReferencesIndex.tsx`:
         `useGetList("references", { filter: { "linked_shidduchim_count@eq": 0 }, pagination:
         { page: 1, perPage: 50 } })`; each row a `RecordLink` plus an inline
@@ -424,7 +535,10 @@ information that has nowhere else to go.
         that is Story 3-12's site 6, which goes green by deletion rather than migration.
   - [ ] New `references/ReferencesIndex.test.tsx`: asserts the `linked_shidduchim_count@eq: 0`
         filter is applied and that a reference **with** links never renders.
-- [ ] **Task 7 — RULING 7 R8 + close the guard blind spot** (AC: 8, 9)
+- [x] **Task 7 — RULING 7 R8 + close the guard blind spot** (AC: 8, 9) — **DONE by the
+      `ruling7-r2` round**, except the `findListPathLinks` variable-argument widening, which was
+      deliberately dropped: its two named offenders no longer call `buildListPath` at all. Kept
+      for the reasoning only.
   - [ ] `entity360/entityDescriptor.ts`: add one optional field, `browsable?: false`, with a
         doc comment naming RULING 7. Set it on the `references` descriptor. Additive only — do
         **not** add an eighth `Entity360` prop, and do **not** make `buildEntityRoutes`' `List`
@@ -445,7 +559,7 @@ information that has nowhere else to go.
 ### AC-4 is a route migration, not a `buildRecordPath` flip
 
 The most expensive mistake available here, and the same one 5-1, 5-8 and 5-9 each carry.
-`references/index.ts:18-20` declares `list: ReferenceList`, `show: ReferenceShow`,
+`references/index.ts` declares `list: ReferencesIndex`, `show: ReferenceShow`,
 `edit: ReferenceEdit`. `ra-core` maps a resource's `edit` prop to the route `":id/*"`
 (`ra-core/dist/core/Resource.js:11-15`), so the moment `buildRecordPath` emits
 `/references/{id}`, `/references/{id}/overview` is swallowed by that wildcard and

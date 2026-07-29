@@ -56,9 +56,11 @@ export const Show = ({
   className,
   disableAuthentication,
   disableBreadcrumb,
+  error,
   id,
   loading,
   queryOptions,
+  redirectOnError,
   render,
   resource,
   title,
@@ -70,6 +72,13 @@ export const Show = ({
     disableAuthentication={disableAuthentication}
     render={render}
     loading={loading}
+    // Forwarded (they were silently dropped before): `ShowBase` needs them
+    // to render a handled error state instead of `useShowController`'s
+    // default `redirectOnError: "list"`, which walks a stale deep link into
+    // the resource's list page. `ReferenceShow` is the caller that requires
+    // it — RULING 7 leaves `references` with no list to be walked into.
+    error={error}
+    redirectOnError={redirectOnError}
   >
     <ShowView
       title={title}

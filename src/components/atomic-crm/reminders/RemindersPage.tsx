@@ -1,6 +1,7 @@
 import { PlusIcon } from "lucide-react";
 import { useState } from "react";
 
+import { OutstandingCallsSection } from "./OutstandingCallsSection";
 import { ReminderCreateSheet } from "./ReminderCreateSheet";
 import { ReminderList } from "./ReminderList";
 import { useReminders } from "./useReminders";
@@ -11,6 +12,11 @@ import { useReminders } from "./useReminders";
  * groups — Overdue (honey, never red) and Upcoming — each reminder linked
  * back to the shidduch/reference/shadchan it's about, plus a single primary
  * CTA to add one via a bottom sheet.
+ *
+ * It also hosts "Still to call" (`OutstandingCallsSection`) — the
+ * account-wide outstanding-conversations worklist the reference book used to
+ * carry as its `contacted_count@eq: 0` filter, rehomed here when RULING 7
+ * closed the book. See that module for why this hub, and not the dashboard.
  */
 export const RemindersPage = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -46,6 +52,11 @@ export const RemindersPage = () => {
           Add a reminder
         </button>
       </div>
+
+      {/* The account-wide outstanding-calls worklist inherited from the
+          deleted reference book (RULING 7). Self-hiding when every
+          conversation has happened. */}
+      <OutstandingCallsSection />
 
       <ReminderList
         isPending={isPending}
