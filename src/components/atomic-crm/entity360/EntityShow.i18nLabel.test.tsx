@@ -7,11 +7,13 @@ import {
   TestMemoryRouter,
 } from "ra-core";
 import type { DataProvider } from "ra-core";
+import { QueryClient } from "@tanstack/react-query";
 import polyglotI18nProvider from "ra-i18n-polyglot";
 import englishMessages from "ra-language-english";
 import { raSupabaseEnglishMessages } from "ra-supabase-language-english";
 
 import { englishCrmMessages } from "../providers/commons/englishCrmMessages";
+import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import { buildEntityRoutes } from "./buildEntityRoutes";
 import type { EntityDescriptor } from "./entityDescriptor";
 import { EntityShow } from "./EntityShow";
@@ -72,15 +74,22 @@ const registerFixtureDescriptor = (
 };
 
 const renderEntityShow = async (initialEntries: string[]) => {
+  // Story 3.4: `EntityShow` calls `useViewerRole()`; seeded empty (no
+  // active context) so this fixture, which declares no `visibleTo`, keeps
+  // rendering exactly as before.
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, []);
   const dataProvider = {
     getOne: vi.fn().mockResolvedValue({ data: FIXTURE_RECORD }),
     getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    getMyContexts: vi.fn().mockResolvedValue([]),
   } as unknown as DataProvider;
 
   return render(
     <TestMemoryRouter initialEntries={initialEntries}>
       <CoreAdminContext
         dataProvider={dataProvider}
+        queryClient={queryClient}
         i18nProvider={registeredI18nProvider}
       >
         <ResourceContextProvider value={FIXTURE_RESOURCE}>

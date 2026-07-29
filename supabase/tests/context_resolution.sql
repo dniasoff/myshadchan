@@ -6,8 +6,10 @@
 -- explicit, server-held active context (member_state) rather than an
 -- arbitrary membership, and every RLS policy that used to read
 -- current_account_id() reads it. Story 2.2 extends this file (rather than
--- starting a third RLS suite) with: enforce_household_scope() on the 13
--- household-only domain tables, enforce_membership_role_matches_context() on
+-- starting a third RLS suite) with: enforce_household_scope() on the 11
+-- household-only domain tables (13 originally; Story 3.14 dropped
+-- interactions/tasks from the set — see household_scope_lift.sql for that
+-- story's own suite), enforce_membership_role_matches_context() on
 -- account_members, add_persona()/my_personas() provisioning and reporting,
 -- and the tightened `members` read policy. This file is specifically about
 -- ONE user holding MULTIPLE contexts — a case no earlier suite
@@ -532,10 +534,13 @@ where n.nspname = 'public'
 
 -- ---------------------------------------------------------------------------
 -- AC-3: enforce_household_scope() rejects a shadchanus-kind account_id on
--- every one of the 13 household-only domain tables. The BEFORE ROW trigger
--- raises before any other column/FK constraint is ever checked, so a minimal
--- (account_id)-only insert is enough to prove it — no other column needs to
--- be valid, because the raise aborts the statement before those checks run.
+-- every one of the 11 household-only domain tables (13 originally; Story
+-- 3.14 dropped interactions/tasks from the set — household_scope_lift.sql
+-- proves the two departed tables now accept it instead). The BEFORE ROW
+-- trigger raises before any other column/FK constraint is ever checked, so a
+-- minimal (account_id)-only insert is enough to prove it — no other column
+-- needs to be valid, because the raise aborts the statement before those
+-- checks run.
 -- ---------------------------------------------------------------------------
 insert into public.accounts (name, kind) values ('Persona Test Shadchanus', 'shadchanus') returning id as acct_shad \gset
 insert into ids values ('acct_shad', :acct_shad);
@@ -546,7 +551,7 @@ declare
   v_tables text[] := array[
     'singles', 'shadchanim', 'references', 'shidduchim', 'resumes',
     'reference_links', 'date_records', 'redts', 'shidduch_schools',
-    'interactions', 'identity_signals', 'inbox_items', 'tasks'
+    'identity_signals', 'inbox_items'
   ];
   v_shad_id bigint;
   v_raised boolean;
@@ -558,28 +563,20 @@ begin
     v_raised := false;
     v_detail := null;
     begin
-      if v_table = 'tasks' then
-        -- tasks also carries sync_task_target_trigger (BEFORE INSERT, sorts
-        -- BEFORE validate_tasks_household_scope alphabetically: 's' < 'v')
-        -- which raises its own "needs a target" error on a NULL target_id
-        -- before the household-scope trigger is ever reached — exactly the
-        -- masking review finding #3 identified. target_id carries no FK (it
-        -- is polymorphic across shidduchim/references/shadchanim), so any
-        -- non-null placeholder satisfies it without needing a real row.
-        execute format('insert into public.%I (account_id, target_id) values (%L, 1)', v_table, v_shad_id);
-      else
-        execute format('insert into public.%I (account_id) values (%L)', v_table, v_shad_id);
-      end if;
+      execute format('insert into public.%I (account_id) values (%L)', v_table, v_shad_id);
     exception when others then
       v_raised := true;
       v_detail := sqlerrm;
     end;
     -- Review finding #3: asserting v_raised alone is vacuous for tables that
-    -- also have a mandatory non-defaulted column besides account_id (9 of
-    -- the 13) — a NOT NULL/CHECK violation on THAT column raises just as
-    -- happily as enforce_household_scope() would, so the assertion passed
-    -- even with the trigger removed entirely (verified by hand). Matching
-    -- the exact message enforce_household_scope() raises
+    -- also have a mandatory non-defaulted column besides account_id (7 of
+    -- the 11 today — recounted, not assumed, after Story 3.14 removed
+    -- interactions/tasks, both of which were among the original 9 of 13:
+    -- interactions.target_type/target_id and tasks.target_id are not null,
+    -- [Source: 01_tables.sql]) — a NOT NULL/CHECK violation on THAT column
+    -- raises just as happily as enforce_household_scope() would, so the
+    -- assertion passed even with the trigger removed entirely (verified by
+    -- hand). Matching the exact message enforce_household_scope() raises
     -- (02_functions.sql) ties the assertion to the trigger actually firing,
     -- not to some other constraint incidentally rejecting the same row.
     insert into results (name, passed, detail)
@@ -591,9 +588,55 @@ begin
   end loop;
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- Story 3.14 replacement checks (AC 6): the loop above only ever proves a
+-- REJECTION, so removing interactions/tasks from v_tables drops the only
+-- coverage of what the trigger now does for them — nothing, on purpose.
+-- These two prove the positive: enforce_household_scope() no longer rejects
+-- a shadchanus-kind account_id on either table. household_scope_lift.sql
+-- covers the full AC 4/AC 5 behaviour (isolation, message-matching
+-- negatives); these are narrowly the "no longer rejects" fact, kept here so
+-- this file's own trigger-count/loop story stays self-contained.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_shad_id bigint;
+begin
+  select value into v_shad_id from ids where name = 'acct_shad';
+  insert into public.tasks (account_id, target_type, target_id)
+    values (v_shad_id, 'reference', 1);
+  insert into results values (
+    'Story 3.14: enforce_household_scope no longer rejects a shadchanus-kind account_id on tasks',
+    true, null
+  );
+exception when others then
+  insert into results values (
+    'Story 3.14: enforce_household_scope no longer rejects a shadchanus-kind account_id on tasks',
+    false, sqlerrm
+  );
+end $$;
+
+do $$
+declare
+  v_shad_id bigint;
+begin
+  select value into v_shad_id from ids where name = 'acct_shad';
+  insert into public.interactions (account_id, target_type, target_id, scope)
+    values (v_shad_id, 'reference', 1, 'account');
+  insert into results values (
+    'Story 3.14: enforce_household_scope no longer rejects a shadchanus-kind account_id on interactions',
+    true, null
+  );
+exception when others then
+  insert into results values (
+    'Story 3.14: enforce_household_scope no longer rejects a shadchanus-kind account_id on interactions',
+    false, sqlerrm
+  );
+end $$;
+
 insert into results (name, passed)
-select 'AC-3: enforce_household_scope is attached to exactly 13 tables',
-       (select count(*) from pg_trigger where tgfoid = 'public.enforce_household_scope'::regproc and not tgisinternal) = 13;
+select 'AC-3: enforce_household_scope is attached to exactly 11 tables',
+       (select count(*) from pg_trigger where tgfoid = 'public.enforce_household_scope'::regproc and not tgisinternal) = 11;
 
 insert into results (name, passed)
 select 'AC-3a: validate_singles_household_scope sorts after every set_/sync_ BEFORE trigger on singles',
@@ -620,9 +663,13 @@ select 'AC-4: subscription and ai_usage carry the documented carve-out comment',
 
 -- ---------------------------------------------------------------------------
 -- AC-3a: the ordering proof — an ordinary authenticated insert with NO
--- account_id supplied still succeeds on all 13 tables while the caller's
--- active context is a household (set_account_id_default() runs first,
--- enforce_household_scope() validates the value it set, never a NULL).
+-- account_id supplied still succeeds on all 11 household-only tables while
+-- the caller's active context is a household (set_account_id_default() runs
+-- first, enforce_household_scope() validates the value it set, never a
+-- NULL). interactions/tasks are inserted here too (below) and still checked
+-- for the same account_id-ordering fact, just under their own Story 3.14
+-- check — enforce_household_scope() no longer runs on either, so they no
+-- longer belong to THIS check's "household-only" conjunction.
 -- ---------------------------------------------------------------------------
 reset role;
 
@@ -656,7 +703,7 @@ insert into public.inbox_items (source) values ('upload') returning id as ac3a_i
 insert into public.tasks (target_type, target_id, text) values ('reference', :ac3a_reference, 'AC-3a Task') returning id as ac3a_task \gset
 
 insert into results (name, passed)
-select 'AC-3a: all 13 household-only tables accept an insert with no account_id while the active context is a household (trigger ordering proof)',
+select 'AC-3a: all 11 household-only tables accept an insert with no account_id while the active context is a household (trigger ordering proof)',
        (select count(*) from public.singles where id = :ac3a_single and account_id = :acct_owner) = 1
    and (select count(*) from public."references" where id = :ac3a_reference and account_id = :acct_owner) = 1
    and (select count(*) from public.shadchanim where id = :ac3a_shadchan and account_id = :acct_owner) = 1
@@ -666,9 +713,19 @@ select 'AC-3a: all 13 household-only tables accept an insert with no account_id 
    and (select count(*) from public.date_records where id = :ac3a_date_record and account_id = :acct_owner) = 1
    and (select count(*) from public.redts where id = :ac3a_redt and account_id = :acct_owner) = 1
    and (select count(*) from public.shidduch_schools where id = :ac3a_school and account_id = :acct_owner) = 1
-   and (select count(*) from public.interactions where id = :ac3a_interaction and account_id = :acct_owner) = 1
    and (select count(*) from public.identity_signals where id = :ac3a_signal and account_id = :acct_owner) = 1
-   and (select count(*) from public.inbox_items where id = :ac3a_inbox and account_id = :acct_owner) = 1
+   and (select count(*) from public.inbox_items where id = :ac3a_inbox and account_id = :acct_owner) = 1;
+
+-- Story 3.14: interactions/tasks no longer carry a validate_*_household_scope
+-- trigger, so they no longer belong to the "household-only" conjunction
+-- above — but set_account_id_default() still runs on both (it was never the
+-- trigger this story removed), and this is the only proof of that fact left
+-- in this file once the two tables leave the AC-3/AC-3a loops. Deleting
+-- these two inserts (rather than just re-homing their assertion) would
+-- silently drop that coverage.
+insert into results (name, passed)
+select 'Story 3.14: set_account_id_default() still populates account_id on interactions and tasks now that no household-scope trigger follows it',
+       (select count(*) from public.interactions where id = :ac3a_interaction and account_id = :acct_owner) = 1
    and (select count(*) from public.tasks where id = :ac3a_task and account_id = :acct_owner) = 1;
 
 -- ---------------------------------------------------------------------------

@@ -4,11 +4,14 @@ import type { AccountMember } from "../../../types";
 import { SORT_BY_ID } from "./accountMemberships";
 
 /**
- * Every household-only domain resource FakeRest actually models — mirrors
+ * Every domain resource FakeRest actually models — mirrors
  * `public.account_has_domain_data()` (`supabase/schemas/02_functions.sql`,
- * 2.5 review finding #1). `identity_signals` exists in the SQL schema (one
- * of `enforce_household_scope()`'s 13 household-only tables) but has no
- * FakeRest counterpart at all — it is never exposed through the
+ * 2.5 review finding #1), which still checks every table it always has.
+ * `identity_signals` exists in the SQL schema (one of
+ * `enforce_household_scope()`'s household-only tables — 11 of them as of
+ * Story 3.14; `interactions`/`tasks` no longer carry that trigger, but they
+ * stay in this list because `account_has_domain_data()` still checks them)
+ * but has no FakeRest counterpart at all — it is never exposed through the
  * dataProvider layer (no `Db["identity_signals"]`, no read/write site
  * anywhere in `src/`), so there is nothing to check here for it. Keep this
  * list in lockstep with the SQL function's table list by hand.

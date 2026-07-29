@@ -9,8 +9,10 @@ import {
   useRecordContext,
 } from "ra-core";
 import type { DataProvider, RaRecord } from "ra-core";
+import { QueryClient } from "@tanstack/react-query";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
+import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import { buildEntityRoutes } from "./buildEntityRoutes";
 import type { EntityDescriptor } from "./entityDescriptor";
 import { EntityShow } from "./EntityShow";
@@ -51,9 +53,17 @@ const renderEntityShow = async (
   initialEntries: string[],
   dataProviderOverrides: Partial<DataProvider> = {},
 ) => {
+  // Story 3.4: `EntityShow` now calls `useViewerRole()`, which reads the
+  // `["myContexts"]` cache — seeded empty (no active context) here so every
+  // pre-3.4 fixture in this file, none of which declares `visibleTo`, keeps
+  // rendering exactly as before (`hasVisibility` is `true` for a tab with no
+  // `visibleTo`, regardless of role).
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, []);
   const dataProvider = {
     getOne: vi.fn().mockResolvedValue({ data: FIXTURE_RECORD }),
     getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    getMyContexts: vi.fn().mockResolvedValue([]),
     ...dataProviderOverrides,
   } as unknown as DataProvider;
 
@@ -61,6 +71,7 @@ const renderEntityShow = async (
     <TestMemoryRouter initialEntries={initialEntries}>
       <CoreAdminContext
         dataProvider={dataProvider}
+        queryClient={queryClient}
         i18nProvider={testI18nProvider}
       >
         <ResourceContextProvider value={FIXTURE_RESOURCE}>

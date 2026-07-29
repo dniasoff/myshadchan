@@ -4,11 +4,27 @@ import type { EntityTabDescriptor } from "./entityDescriptor";
 import type { EntityRelationshipDescriptor } from "./relationshipDescriptor";
 import type { TabKey } from "./tabKeys";
 import { RelatedRecordsTab } from "./tabs/RelatedRecordsTab";
+import type { MemberRole } from "../types";
 
+/**
+ * Story 3.4 — carries `visibleTo` through from an explicit `tabs` entry.
+ * The function below spreads `tabs` verbatim into its return value, so an
+ * explicit tab's `visibleTo` already survived at runtime before this field
+ * existed on the type; declaring it here just makes that honest, and lets
+ * `EntityShow` filter the MERGED array (not `descriptor.tabs` before the
+ * merge) without a cast. Filtering post-merge — rather than pre-filtering
+ * `descriptor.tabs` — matters for one interaction: an explicit tab wins its
+ * key's slot over a same-keyed relationship regardless of visibility, so a
+ * denied explicit tab does not leave that key's relationship-derived
+ * fallback to render in its place. A relationship-derived tab always has
+ * `visibleTo: undefined` (the "Known gap, recorded" acceptance in this
+ * story's Dev Notes) — unrestricted, per `hasVisibility`'s own rule.
+ */
 export interface MergedEntityTab {
   key: TabKey;
   label?: string;
   render: () => ReactNode;
+  visibleTo?: MemberRole[];
 }
 
 /**

@@ -399,6 +399,9 @@ export const englishCrmMessages = {
       record_pending: "Loading…",
       record_unavailable: "This record is unavailable.",
       record_unavailable_link: "Back to the list",
+      // Story 3.4 AC 6(a) — replaces the tab bar and tab content while the
+      // viewer's role in the active context is still resolving.
+      role_pending: "Loading your access…",
     },
     references: {
       list: {

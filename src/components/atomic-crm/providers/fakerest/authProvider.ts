@@ -1,8 +1,35 @@
 import type { AuthProvider } from "ra-core";
 
-import type { Member } from "../../types";
+import type { Member, MemberRole } from "../../types";
 import { canAccess } from "../commons/canAccess";
+import { pickActiveRole } from "../commons/roleAuthority";
 import { dataProvider } from "./dataProvider";
+
+// Story 3.4 AC 8 — `canAccess`'s role source, resolved from the ACTIVE
+// context (`pickActiveRole`), never from the locally-stored user's
+// `administrator` flag. Concurrent `canAccess()` calls are deduped onto a
+// SINGLE `dataProvider.getMyContexts()` call via this module-scoped
+// in-flight promise, released the instant it settles — see the Supabase
+// authProvider's identical comment for the full rationale. The role is
+// never written to `localStorage`.
+let inFlightRole: Promise<MemberRole | undefined> | null = null;
+
+async function resolveActiveRole(): Promise<MemberRole | undefined> {
+  if (inFlightRole) {
+    return inFlightRole;
+  }
+
+  const promise = dataProvider
+    .getMyContexts()
+    .then((contexts) => pickActiveRole(contexts));
+
+  inFlightRole = promise;
+  try {
+    return await promise;
+  } finally {
+    inFlightRole = null;
+  }
+}
 
 export const DEFAULT_USER = {
   id: 0,
@@ -63,13 +90,19 @@ export const authProvider: AuthProvider = {
       ? Promise.resolve()
       : Promise.reject(),
   canAccess: async ({ signal: _signal, ...params }) => {
-    // Get the current user
-    const userItem = localStorage.getItem(USER_STORAGE_KEY);
-    const localUser = userItem ? (JSON.parse(userItem) as Member) : null;
-    if (!localUser) return false;
+    // No-session precondition, restored: `getIdentity()` (and therefore
+    // `dataProvider.getMyContexts()`, which calls it) always resolves to
+    // *some* user — it falls back to `DEFAULT_USER`'s id `0` — even with no
+    // `USER_STORAGE_KEY` entry, so `resolveActiveRole()` alone cannot tell
+    // "logged out" apart from "logged in as the seed user." This check must
+    // run first and fail closed before any role is resolved.
+    if (!localStorage.getItem(USER_STORAGE_KEY)) {
+      return false;
+    }
 
-    // Compute access rights from the member role
-    const role = localUser.administrator ? "admin" : "user";
+    // Story 3.4 AC 8 — the active-context role, never the locally-stored
+    // user's `administrator` flag (AD-2).
+    const role = await resolveActiveRole();
     return canAccess(role, params);
   },
   getIdentity: () => {

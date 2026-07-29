@@ -380,6 +380,7 @@ export const frenchCrmMessages = {
       record_pending: "Chargement…",
       record_unavailable: "Cet enregistrement n'est pas disponible.",
       record_unavailable_link: "Retour à la liste",
+      role_pending: "Chargement de vos accès…",
     },
     references: {
       list: {

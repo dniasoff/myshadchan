@@ -553,10 +553,12 @@ create table public.ai_usage (
     constraint ai_usage_resumes_parsed_nonneg check (resumes_parsed >= 0)
 );
 
--- Story 2.2 (AC-4): deliberately excluded from enforce_household_scope()'s 13
--- household-only tables. No source restricts a shadchanus context from
--- holding billing/entitlement rows; left scoped generically by
--- current_context_id() until a future story states a rule either way.
+-- Story 2.2 (AC-4): deliberately excluded from enforce_household_scope()'s
+-- 11 household-only tables (interactions/tasks dropped out of that set in
+-- Story 3.14 — see 04_triggers.sql — but subscription/ai_usage were never in
+-- it either way). No source restricts a shadchanus context from holding
+-- billing/entitlement rows; left scoped generically by current_context_id()
+-- until a future story states a rule either way.
 comment on table public.subscription is 'Deliberately excluded from enforce_household_scope() (Story 2.2 AC-4): no source restricts a shadchanus context from holding billing/entitlement rows; scoped generically by current_context_id() until a story states a rule.';
 comment on table public.ai_usage is 'Deliberately excluded from enforce_household_scope() (Story 2.2 AC-4): same open question as public.subscription — no source restricts entitlement usage-metering to household contexts.';
 

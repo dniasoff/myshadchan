@@ -23,7 +23,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import { invitableRoles } from "../providers/commons/roleAuthority";
+import {
+  invitableRoles,
+  pickActiveContext,
+} from "../providers/commons/roleAuthority";
 import type { CrmDataProvider } from "../providers/types";
 import { useMyContexts } from "../root/useMyContexts";
 import type { Invite, InvitableRole } from "../types";
@@ -116,7 +119,7 @@ export const InvitesSection = () => {
     refetch,
   } = useGetList<Invite>("invites", GET_LIST_PARAMS);
 
-  const activeContext = contexts?.find((context) => context.is_active);
+  const activeContext = pickActiveContext(contexts);
   const roleOptions = activeContext
     ? invitableRoles(activeContext.role, activeContext.kind)
     : [];

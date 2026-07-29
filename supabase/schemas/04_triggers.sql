@@ -145,12 +145,16 @@ create or replace trigger set_inbox_items_account_id
 -- =====================================================================
 
 -- AC-3/AC-3a: a shadchanus-kind account can never hold a household domain
--- row, enforced BEFORE insert or update of account_id on all 13
--- household-only domain tables (AD-1) — the exact set that already carries a
--- set_<table>_account_id trigger above. Postgres fires same-event BEFORE
--- triggers in ALPHABETICAL trigger-name order, and the SPA never sends
--- account_id on insert (set_account_id_default() fills it in) — so these are
--- named `validate_<table>_household_scope`, deliberately sorting AFTER every
+-- row, enforced BEFORE insert or update of account_id on 11 household-only
+-- domain tables (AD-1). interactions and tasks used to be in this set too
+-- (13 originally) but Story 3.14 dropped their validate_* triggers on the
+-- project owner's ruling that a shadchanus context must be able to hold a
+-- task and log an interaction (AD-2, "shadchan is active, not deny-only");
+-- they still carry their own set_<table>_account_id trigger above, just no
+-- longer a validate_* one. Postgres fires same-event BEFORE triggers in
+-- ALPHABETICAL trigger-name order, and the SPA never sends account_id on
+-- insert (set_account_id_default() fills it in) — so these are named
+-- `validate_<table>_household_scope`, deliberately sorting AFTER every
 -- `set_...`/`sync_...` trigger above ('v' > 's'). Renaming any of these is a
 -- migration-time total insert outage, not a refactor: read
 -- enforce_household_scope()'s comment (02_functions.sql) before touching a
@@ -192,20 +196,12 @@ create or replace trigger validate_shidduch_schools_household_scope
     before insert or update of account_id on public.shidduch_schools
     for each row execute function public.enforce_household_scope();
 
-create or replace trigger validate_interactions_household_scope
-    before insert or update of account_id on public.interactions
-    for each row execute function public.enforce_household_scope();
-
 create or replace trigger validate_identity_signals_household_scope
     before insert or update of account_id on public.identity_signals
     for each row execute function public.enforce_household_scope();
 
 create or replace trigger validate_inbox_items_household_scope
     before insert or update of account_id on public.inbox_items
-    for each row execute function public.enforce_household_scope();
-
-create or replace trigger validate_tasks_household_scope
-    before insert or update of account_id on public.tasks
     for each row execute function public.enforce_household_scope();
 
 -- AC-5: the mirror case on account_members itself — a shadchan-role

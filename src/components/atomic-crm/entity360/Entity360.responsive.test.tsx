@@ -7,6 +7,7 @@ import {
   TestMemoryRouter,
 } from "ra-core";
 import type { DataProvider } from "ra-core";
+import { QueryClient } from "@tanstack/react-query";
 
 // These assertions are about real, computed flexbox geometry (overflow,
 // bounding rects) — meaningless without the real Tailwind-generated
@@ -14,6 +15,7 @@ import type { DataProvider } from "ra-core";
 import "@/index.css";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
+import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import { buildEntityRoutes } from "./buildEntityRoutes";
 import { Entity360 } from "./Entity360";
 import type { EntityDescriptor } from "./entityDescriptor";
@@ -140,15 +142,22 @@ describe("EntityShow composition — the right rail lands beside the tab content
   };
 
   const renderEntityShow = async () => {
+    // Story 3.4: `EntityShow` calls `useViewerRole()`; seeded empty (no
+    // active context) so this fixture, which declares no `visibleTo`, keeps
+    // rendering exactly as before.
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, []);
     const dataProvider = {
       getOne: vi.fn().mockResolvedValue({ data: { id: 1 } }),
       getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+      getMyContexts: vi.fn().mockResolvedValue([]),
     } as unknown as DataProvider;
 
     return render(
       <TestMemoryRouter initialEntries={["/1"]}>
         <CoreAdminContext
           dataProvider={dataProvider}
+          queryClient={queryClient}
           i18nProvider={testI18nProvider}
         >
           <ResourceContextProvider value={FIXTURE_RESOURCE}>

@@ -271,9 +271,10 @@ grant execute on function public.set_account_id_default() to authenticated;
 grant execute on function public.set_account_id_default() to service_role;
 
 -- Story 2.2 (AC-3): enforce_household_scope() is the shared trigger function
--- backing the 13 validate_*_household_scope triggers. Not SECURITY DEFINER —
--- it only reads accounts.kind for the row it is validating, which the
--- caller's own RLS already lets them read — but every function gets an
+-- backing the 11 validate_*_household_scope triggers (13 originally; Story
+-- 3.14 dropped interactions/tasks from the set, AD-2). Not SECURITY
+-- DEFINER — it only reads accounts.kind for the row it is validating, which
+-- the caller's own RLS already lets them read — but every function gets an
 -- explicit revoke-then-grant regardless of PUBLIC's default execute grant.
 revoke all on function public.enforce_household_scope() from public, anon;
 grant execute on function public.enforce_household_scope() to authenticated;

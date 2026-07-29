@@ -6,9 +6,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // minimal `auth` surface is enough. `vi.hoisted` is required here (not plain
 // module-scope `const`) because `vi.mock`'s factory itself is hoisted above
 // every import/declaration in this file.
-const { signInWithOtp, verifyOtp } = vi.hoisted(() => ({
+const { signInWithOtp, verifyOtp, rpc } = vi.hoisted(() => ({
   signInWithOtp: vi.fn(),
   verifyOtp: vi.fn(),
+  // Story 3.4 AC 8 — `canAccess`'s role source (`my_contexts()`).
+  rpc: vi.fn(),
 }));
 
 vi.mock("./supabase", () => ({
@@ -23,6 +25,7 @@ vi.mock("./supabase", () => ({
       signOut: vi.fn().mockResolvedValue({ error: null }),
     },
     from: vi.fn(),
+    rpc,
   }),
 }));
 
@@ -183,5 +186,94 @@ describe("getAuthProvider().login", () => {
     // must not survive onto the app's passwordless auth seam.
     expect(authProvider.setPassword).toBeUndefined();
     expect(authProvider.resetPassword).toBeUndefined();
+  });
+});
+
+describe("getAuthProvider().canAccess", () => {
+  beforeEach(() => {
+    rpc.mockReset();
+  });
+
+  const contextRow = (role: string) => ({
+    account_id: 1,
+    kind: "household",
+    name: "The Klein Family",
+    role,
+    is_active: true,
+  });
+
+  it("denies members management for a helper active-context role — the administrator flag no longer decides (AD-2)", async () => {
+    // Arrange
+    rpc.mockResolvedValue({ data: [contextRow("helper")], error: null });
+    const authProvider = getAuthProvider();
+
+    // Act
+    const allowed = await authProvider.canAccess!({
+      resource: "members",
+      action: "list",
+    });
+
+    // Assert
+    expect(allowed).toBe(false);
+    expect(rpc).toHaveBeenCalledWith("my_contexts");
+  });
+
+  it("allows members management for a parent_admin active-context role, independent of any administrator flag", async () => {
+    // Arrange
+    rpc.mockResolvedValue({
+      data: [contextRow("parent_admin")],
+      error: null,
+    });
+    const authProvider = getAuthProvider();
+
+    // Act
+    const allowed = await authProvider.canAccess!({
+      resource: "members",
+      action: "list",
+    });
+
+    // Assert
+    expect(allowed).toBe(true);
+  });
+
+  it("fails closed when my_contexts() errors", async () => {
+    // Arrange
+    rpc.mockResolvedValue({ data: null, error: { message: "boom" } });
+    const authProvider = getAuthProvider();
+
+    // Act
+    const allowed = await authProvider.canAccess!({
+      resource: "members",
+      action: "list",
+    });
+
+    // Assert
+    expect(allowed).toBe(false);
+  });
+
+  it("dedupes a burst of concurrent calls onto a single my_contexts RPC, and issues a fresh one after the burst settles", async () => {
+    // Arrange
+    let callCount = 0;
+    rpc.mockImplementation(async () => {
+      callCount += 1;
+      return { data: [contextRow("parent_admin")], error: null };
+    });
+    const authProvider = getAuthProvider();
+
+    // Act — five concurrent calls in the same burst.
+    await Promise.all(
+      Array.from({ length: 5 }, () =>
+        authProvider.canAccess!({ resource: "shidduchim", action: "list" }),
+      ),
+    );
+
+    // Assert — exactly one RPC for the whole burst.
+    expect(callCount).toBe(1);
+
+    // Act — a sixth call, started after the burst has settled.
+    await authProvider.canAccess!({ resource: "shidduchim", action: "list" });
+
+    // Assert — a fresh RPC, proving there is no cross-time cache.
+    expect(callCount).toBe(2);
   });
 });

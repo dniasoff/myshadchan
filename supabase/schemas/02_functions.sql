@@ -374,7 +374,7 @@ $$;
 
 -- AC-3/AC-3a: a shadchanus-kind account can never hold a household domain
 -- row, enforced by Postgres rather than by convention. Attached
--- (04_triggers.sql) to all 13 household-only domain tables as
+-- (04_triggers.sql) to 11 household-only domain tables as
 -- `validate_<table>_household_scope` — NOT SECURITY DEFINER, because it only
 -- reads accounts.kind for the row it is validating, which the
 -- inserting/updating member's own RLS already lets them read. `before insert
@@ -384,6 +384,11 @@ $$;
 -- caller, since set_account_id_default() always fills it in first — see the
 -- trigger-naming rationale below before renaming anything. Mirrors
 -- purge_polymorphic_dependents()'s one-function-many-tables shape.
+-- Story 3.14 dropped this trigger from `interactions` and `tasks` (13 -> 11)
+-- on the project owner's ruling that a shadchanus context must be able to
+-- hold a task and log an interaction (AD-2). The function body itself is
+-- unchanged: it still just checks `accounts.kind`, and is simply no longer
+-- attached to those two tables.
 CREATE OR REPLACE FUNCTION "public"."enforce_household_scope"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     SET "search_path" TO ''
@@ -645,14 +650,17 @@ CREATE OR REPLACE FUNCTION "public"."my_personas"() RETURNS TABLE("persona" "tex
 $$;
 
 -- Review finding #1 (2.5): "does this account still hold real data" —
--- checked against every one of the 13 household-only domain tables
--- enforce_household_scope() already enumerates (04_triggers.sql's
--- validate_<table>_household_scope list), status-agnostic (an
--- archived/paused row is still data per AC-3's "remains auditable"). Kept
--- general rather than household-only: a shadchanus account can never have a
--- row in any of these tables today (the same trigger forbids it), so this
--- is structurally always false there — but it stays correct the moment
--- Epic 8 gives a shadchanus account its own domain rows.
+-- checked against every domain table this function has always enumerated
+-- (13 of them), status-agnostic (an archived/paused row is still data per
+-- AC-3's "remains auditable"). Kept general rather than scoped to the
+-- household-only set (04_triggers.sql's validate_<table>_household_scope
+-- list, 11 tables as of Story 3.14): a shadchanus account can never hold a
+-- row in any of those 11 (the same trigger still forbids it), so those arms
+-- stay structurally always false there — but `interactions` and `tasks` no
+-- longer carry that trigger (Story 3.14, AD-2), so a shadchanus account CAN
+-- answer yes via those two arms today. The function body below is unchanged
+-- on purpose: checking every table it always has is what keeps it correct
+-- both for the 11 that stay closed and the 2 Story 3.14 opened up.
 CREATE OR REPLACE FUNCTION "public"."account_has_domain_data"("p_account_id" bigint) RETURNS boolean
     LANGUAGE "sql" STABLE
     SET "search_path" TO ''

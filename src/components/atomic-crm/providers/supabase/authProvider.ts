@@ -1,7 +1,9 @@
 import type { AuthProvider } from "ra-core";
 import { supabaseAuthProvider } from "ra-supabase-core";
 
+import type { MemberRole, MyContext } from "../../types";
 import { canAccess } from "../commons/canAccess";
+import { pickActiveRole } from "../commons/roleAuthority";
 import { getSupabaseClient } from "./supabase";
 
 const getBaseAuthProvider = () =>
@@ -65,6 +67,39 @@ const getMember = async () => {
 function clearCache() {
   const storage = getLocalStorage();
   storage?.removeItem(CURRENT_MEMBER_CACHE_KEY);
+}
+
+// Story 3.4 AC 8 — `canAccess`'s role source, resolved from the ACTIVE
+// context (`pickActiveRole`), never from `getMember()`'s cached
+// per-login member row. Concurrent `canAccess()` calls are deduped onto a
+// SINGLE `my_contexts()` RPC via this module-scoped in-flight promise,
+// released the instant it settles: a call issued after the burst starts a
+// fresh RPC, so there is no time window in which a stale role could be
+// served. The role itself is never written to `localStorage` —
+// `CURRENT_MEMBER_CACHE_KEY` above stays untouched and keeps serving only
+// `getIdentity`.
+let inFlightRole: Promise<MemberRole | undefined> | null = null;
+
+async function resolveActiveRole(): Promise<MemberRole | undefined> {
+  if (inFlightRole) {
+    return inFlightRole;
+  }
+
+  const promise = (async (): Promise<MemberRole | undefined> => {
+    const { data, error } = await getSupabaseClient().rpc("my_contexts");
+    if (error) {
+      console.error("my_contexts.error", error);
+      return undefined;
+    }
+    return pickActiveRole(data as MyContext[] | undefined);
+  })();
+
+  inFlightRole = promise;
+  try {
+    return await promise;
+  } finally {
+    inFlightRole = null;
+  }
 }
 
 // GoTrue error codes that must never surface to the login UI: an unknown
@@ -143,12 +178,10 @@ export const getAuthProvider = (): AuthProvider => {
       return baseAuthProvider.checkAuth(params);
     },
     canAccess: async (params) => {
-      // Get the current user
-      const member = await getMember();
-      if (member == null) return false;
-
-      // Compute access rights from the member role
-      const role = member.administrator ? "admin" : "user";
+      // Story 3.4 AC 8 — the active-context role, never
+      // `member.administrator` (AD-2). `getMember()`/its localStorage cache
+      // are untouched; they still serve `getIdentity` only.
+      const role = await resolveActiveRole();
       return canAccess(role, params);
     },
     getAuthorizationDetails(authorizationId: string) {

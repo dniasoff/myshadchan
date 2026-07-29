@@ -29,7 +29,9 @@ create policy "Members readable by self or within active account" on public.memb
     );
 
 -- Tasks. Account-scoped like the rest of the shidduchim domain (AD-1);
--- set_account_id_default() populates account_id on every insert.
+-- set_account_id_default() populates account_id on every insert. No longer
+-- household-only (Story 3.14 dropped validate_tasks_household_scope) — do
+-- not infer that restriction from this table's neighbours in this file.
 create policy "Tasks scoped to account" on public.tasks
     for all to authenticated
     using (account_id = public.current_context_id())

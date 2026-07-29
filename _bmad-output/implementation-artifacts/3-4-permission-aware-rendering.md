@@ -1,6 +1,6 @@
 # Story 3.4: Permission-aware rendering
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -265,58 +265,58 @@ real data source, now.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — `entity360/visibility.ts`** (AC: 1, 2)
-  - [ ] Implement `hasVisibility` exactly as the AC 2 table specifies, in that order:
+- [x] **Task 1 — `entity360/visibility.ts`** (AC: 1, 2)
+  - [x] Implement `hasVisibility` exactly as the AC 2 table specifies, in that order:
         `visibleTo === undefined` → `true`; then `role === undefined` → `false`; then
         `visibleTo.includes(role)`. (`[]` falls out of the third rule as `false`.)
-  - [ ] `visibility.test.ts` — `it.each` over the full cartesian product, driven by
+  - [x] `visibility.test.ts` — `it.each` over the full cartesian product, driven by
         `ALL_MEMBER_ROLES`.
-  - [ ] `visibility.types.test.ts` — the `Record<MemberRole, true>` exhaustiveness record and
+  - [x] `visibility.types.test.ts` — the `Record<MemberRole, true>` exhaustiveness record and
         the `@ts-expect-error` assertion that `EntityDescriptor` has no `visibleTo`.
-  - [ ] Add **no** descriptor field. 3.3a already ships
+  - [x] Add **no** descriptor field. 3.3a already ships
         `EntityTabDescriptor.visibleTo?: MemberRole[]`
         [Source: _bmad-output/implementation-artifacts/3-3-entity-descriptor-registry.md:141,147];
         this story ships only the *enforcement*. If that field has drifted by the time this
         ticket is picked up, restore it there — do not add a second one here.
 
-- [ ] **Task 2 — the shared active-context selector** (AC: 3)
-  - [ ] Add `pickActiveContext(contexts: MyContext[] | undefined): MyContext | undefined` and
+- [x] **Task 2 — the shared active-context selector** (AC: 3)
+  - [x] Add `pickActiveContext(contexts: MyContext[] | undefined): MyContext | undefined` and
         `pickActiveRole(contexts): MemberRole | undefined` to
         `providers/commons/roleAuthority.ts`, with a header comment naming its three consumers.
-  - [ ] Adopt `pickActiveContext` at `settings/InvitesSection.tsx:119`, which hand-rolls the
+  - [x] Adopt `pickActiveContext` at `settings/InvitesSection.tsx:119`, which hand-rolls the
         same `find(c => c.is_active)` today. **Do not** change
         `layout/ContextSwitcher.tsx:65` — its `?? contexts[0]` display fallback is deliberately
         different (see Dev Notes).
 
-- [ ] **Task 3 — `entity360/useViewerRole.ts`** (AC: 3, 4)
-  - [ ] Implement the hook over `useMyContexts()` + `pickActiveRole`. No `useGetIdentity`, no
+- [x] **Task 3 — `entity360/useViewerRole.ts`** (AC: 3, 4)
+  - [x] Implement the hook over `useMyContexts()` + `pickActiveRole`. No `useGetIdentity`, no
         `members.administrator`, no `localStorage`.
-  - [ ] `useViewerRole.test.tsx` — the five cases in AC 3, on the `ContextSwitcher.test.tsx`
+  - [x] `useViewerRole.test.tsx` — the five cases in AC 3, on the `ContextSwitcher.test.tsx`
         harness.
-  - [ ] `roleSource.guard.test.ts` — the `?raw` scan, with `findForbiddenRoleSources` proven
+  - [x] `roleSource.guard.test.ts` — the `?raw` scan, with `findForbiddenRoleSources` proven
         red against the synthetic broken fixture in the same file.
 
-- [ ] **Task 4 — Wire filtering and the pending region into `EntityShow`** (AC: 5, 6, 7)
-  - [ ] In `entity360/EntityShow.tsx`: call `useViewerRole()`; while `isPending`, render the
+- [x] **Task 4 — Wire filtering and the pending region into `EntityShow`** (AC: 5, 6, 7)
+  - [x] In `entity360/EntityShow.tsx`: call `useViewerRole()`; while `isPending`, render the
         i18n-backed pending region in place of `tabBar`/`children`; otherwise pass
         `descriptor.tabs.filter(t => hasVisibility(t.visibleTo, role))` to `Entity360Tabs`.
-  - [ ] Add **no** permission code to `entity360/Entity360Tabs.tsx`. 3.2's unknown-tab
+  - [x] Add **no** permission code to `entity360/Entity360Tabs.tsx`. 3.2's unknown-tab
         fallback already resolves "first visible tab" correctly once the array is pre-filtered
         — verify, do not add a second fallback path.
-  - [ ] `EntityShow.permissions.test.tsx` — AC 5, AC 6 and AC 7. Register the fixture
+  - [x] `EntityShow.permissions.test.tsx` — AC 5, AC 6 and AC 7. Register the fixture
         descriptor under a test-only resource name with `{ replace: true }`; stub the
         dataProvider's `getOne` so `ShowBase` resolves a record.
 
-- [ ] **Task 5 — Rewrite `canAccess` onto `MemberRole`** (AC: 8, 9)
-  - [ ] `providers/commons/roleAuthority.ts`: add `canManageMembers`.
-  - [ ] `providers/commons/canAccess.ts`: new signature and the three rules.
-  - [ ] `providers/supabase/authProvider.ts` (`:145-153`): resolve the role via
+- [x] **Task 5 — Rewrite `canAccess` onto `MemberRole`** (AC: 8, 9)
+  - [x] `providers/commons/roleAuthority.ts`: add `canManageMembers`.
+  - [x] `providers/commons/canAccess.ts`: new signature and the three rules.
+  - [x] `providers/supabase/authProvider.ts` (`:145-153`): resolve the role via
         `rpc("my_contexts")` + `pickActiveRole`, behind the module-scoped in-flight promise.
         Leave `getMember()` and its cache alone — they still serve `getIdentity`.
-  - [ ] `providers/fakerest/authProvider.ts` (`:65-74`): the same, via
+  - [x] `providers/fakerest/authProvider.ts` (`:65-74`): the same, via
         `dataProvider.getMyContexts()`.
-  - [ ] `canAccess.test.ts` + the two provider behavioural tests + the one-RPC-per-burst test.
-  - [ ] Verify no `supabase/` file is touched.
+  - [x] `canAccess.test.ts` + the two provider behavioural tests + the one-RPC-per-burst test.
+  - [x] Verify no `supabase/` file is touched.
 
 ## Dev Notes
 
@@ -472,6 +472,16 @@ under it is created by 3.1 / 3.2 / 3.3a / 3.3b before this story starts.
    `administrator`" to "any owning role in the active context". This is the AD-2-mandated
    direction and cannot leak across accounts (AC 9, first bullet), but it is a visible
    behaviour change on a live production surface. Confirm.
+5. **A login holding memberships of which none is `is_active` is now locked out of every
+   resource, not just `members`.** `canAccess`'s rule 1 (`role === undefined` → `false`) is
+   correct per AC 8 and is not the thing to change. The reachable root cause is elsewhere and
+   outside this story's ownership: `activate_first_context_trigger` fires on INSERT only,
+   `current_context_id()` requires `status = 'active'`, `root/OnboardingGate.tsx` passes a
+   multi-row-but-all-inactive login straight through, and `layout/ContextSwitcher.tsx` needs
+   ≥2 contexts before it renders — so such a login sees an empty sidebar with no way to pick a
+   context. **Recommended follow-up:** an epic-owner-owned ticket spanning
+   `supabase/schemas/*`, `OnboardingGate.tsx` and `ContextSwitcher.tsx`. **Trigger:** before
+   this ships to a tenant with more than one context per login.
 
 ### References
 
@@ -517,8 +527,69 @@ writing, so its rules are restated inline above rather than cited by path.
 
 ### Agent Model Used
 
+claude-opus-5 (implementation, review-fix pass and wave commit).
+
 ### Debug Log References
+
+- Mutation checks, both proven red before being trusted green:
+  - Re-injected a duplicate `hasVisibility` check into `Entity360TabStrip` → the "`Entity360Tabs`
+    does no permission work" test goes RED; `Entity360Tabs.tsx` restored byte-for-byte
+    (`git diff --stat` empty on that file).
+  - Emptied `RolePending`'s body to `{null}` → the AC 6(a) `role="status"` assertion goes RED;
+    `RolePending.tsx` restored byte-for-byte.
+- Gate on the combined wave tree (`STACK_ID=3`, `STACK_OWNER=wave1-committer`):
+  `make typecheck` clean; `make lint` clean (`--max-warnings=0`); `npm run prettier` clean;
+  `npx vitest run` 130 files / 1321 tests passed; `npm run test:unit:db` (also with `CI=1`, so
+  `bailIfDbUnreachable` could not silently skip) 9 files / 367 tests passed; `make build`
+  succeeds; `npx supabase db diff --local` reports "No schema changes found".
 
 ### Completion Notes List
 
+- All eight ACs implemented. `EntityShow` filters the **merged** tab array
+  (`mergeEntityTabs(...).filter(hasVisibility)`), not `descriptor.tabs` pre-merge: pre-filtering
+  would drop a denied explicit tab from `explicitKeys` and let a same-keyed, unrestricted
+  relationship-derived tab render in its place. Covered by its own test.
+- AC 6(a): while the role is pending, `EntityShow` withholds the whole content row — not just
+  the tab bar — because `Entity360`'s content row renders the right rail alone when `children`
+  is absent, which is the exact 0.4-CLS shape Epic 3 part 1 already fixed once.
+- `canAccess`'s no-session precondition is expressed differently in the two providers, on
+  purpose: FakeRest keeps an explicit `USER_STORAGE_KEY` check because its `getIdentity()`
+  falls back to `DEFAULT_USER` (id `0`) and cannot distinguish "logged out" from "seed user";
+  the Supabase provider relies on `my_contexts()` being revoked from `anon`
+  [Source: supabase/schemas/06_grants.sql:257], so the RPC errors → role `undefined` → deny.
+  Both fail closed. Do not "harmonise" these by deleting the FakeRest guard.
+- Four flagged items were recorded at authoring time; a fifth (all-inactive-memberships
+  lockout) was added during the review-fix pass — the finding is real, but its root cause lives
+  entirely outside this story's owned file list.
+- Wave-commit reconciliation added the missing `registry.json` regeneration
+  (`make registry-gen`) for this story's three new non-test modules; the 3-4 dispatch declared
+  `registry.json` but never regenerated it.
+
 ### File List
+
+- `src/components/atomic-crm/entity360/visibility.ts` (new)
+- `src/components/atomic-crm/entity360/visibility.test.ts` (new)
+- `src/components/atomic-crm/entity360/visibility.types.test.ts` (new)
+- `src/components/atomic-crm/entity360/useViewerRole.ts` (new)
+- `src/components/atomic-crm/entity360/useViewerRole.test.tsx` (new)
+- `src/components/atomic-crm/entity360/roleSource.guard.test.ts` (new)
+- `src/components/atomic-crm/entity360/RolePending.tsx` (new)
+- `src/components/atomic-crm/entity360/EntityShow.permissions.test.tsx` (new)
+- `src/components/atomic-crm/entity360/EntityShow.tsx`
+- `src/components/atomic-crm/entity360/mergeEntityTabs.tsx`
+- `src/components/atomic-crm/entity360/EntityShow.test.tsx`
+- `src/components/atomic-crm/entity360/EntityShow.regions.test.tsx`
+- `src/components/atomic-crm/entity360/EntityShow.i18nLabel.test.tsx`
+- `src/components/atomic-crm/entity360/Entity360.responsive.test.tsx`
+- `src/components/atomic-crm/providers/commons/canAccess.ts`
+- `src/components/atomic-crm/providers/commons/canAccess.test.ts` (new)
+- `src/components/atomic-crm/providers/commons/roleAuthority.ts`
+- `src/components/atomic-crm/providers/commons/roleAuthority.test.ts` (new)
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts`
+- `src/components/atomic-crm/providers/supabase/authProvider.ts`
+- `src/components/atomic-crm/providers/supabase/authProvider.test.ts`
+- `src/components/atomic-crm/providers/fakerest/authProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/authProvider.test.ts` (new)
+- `src/components/atomic-crm/settings/InvitesSection.tsx`
+- `registry.json` (regenerated)

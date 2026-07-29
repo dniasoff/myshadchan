@@ -1,4 +1,4 @@
-import type { InvitableRole, MemberRole } from "../../types";
+import type { InvitableRole, MemberRole, MyContext } from "../../types";
 
 /**
  * TypeScript mirror of `public.role_authority()` / `public.is_invite_capable_role()`
@@ -57,3 +57,41 @@ export const invitableRoles = (
     (role) => ROLE_AUTHORITY[role] <= ROLE_AUTHORITY[callerRole],
   );
 };
+
+/**
+ * The active-context selector (Story 3.4). Three consumers, all through
+ * `pickActiveRole`: `entity360/useViewerRole.ts` (the one role source
+ * inside `entity360/`) and both authProviders' `canAccess`
+ * (`providers/supabase/authProvider.ts`, `providers/fakerest/authProvider.ts`)
+ * — so the React-tree tab-visibility check and the `useCanAccess` /
+ * `<CanAccess>` seam can never diverge on what "active" means.
+ * `pickActiveContext` alone additionally replaces `settings/InvitesSection
+ * .tsx`'s own hand-rolled `find(c => c.is_active)`.
+ *
+ * Deliberately NOT `layout/ContextSwitcher.tsx`'s `?? contexts[0]` display
+ * fallback: a login with no active membership has no role/context here and
+ * must fail closed, never borrow the first row (that switcher fallback only
+ * ever names a pill — it is not an authority decision).
+ */
+export const pickActiveContext = (
+  contexts: MyContext[] | undefined,
+): MyContext | undefined => contexts?.find((context) => context.is_active);
+
+export const pickActiveRole = (
+  contexts: MyContext[] | undefined,
+): MemberRole | undefined => pickActiveContext(contexts)?.role;
+
+/**
+ * The roles allowed to manage `public.members` (Story 3.4 AC 8, AD-2 —
+ * authorization derives from the active-context role, never a hardcoded
+ * per-login flag). Deliberately its own, separately named predicate: NOT
+ * aliased to `isInviteCapableRole` even though the two sets coincide today
+ * (this file's own convention above — distinct questions keep distinct
+ * predicates), and NOT `is_owning_membership_role()`
+ * (`supabase/schemas/02_functions.sql`, `parent_admin`/`self_manager` only
+ * — a household-persona predicate): a `shadchan` needs to manage their own
+ * shadchanus context's members too (Epic 8.5), and a shadchanus context
+ * holds no household persona at all.
+ */
+export const canManageMembers = (role: MemberRole): boolean =>
+  role === "parent_admin" || role === "self_manager" || role === "shadchan";

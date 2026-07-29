@@ -848,6 +848,14 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/entity360/visibility.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/useViewerRole.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/entity360/useTabLabel.ts",
           "type": "registry:component"
         },
@@ -897,6 +905,10 @@
         },
         {
           "path": "src/components/atomic-crm/entity360/avatar.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/RolePending.tsx",
           "type": "registry:component"
         },
         {

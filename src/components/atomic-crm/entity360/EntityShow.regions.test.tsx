@@ -7,12 +7,14 @@ import {
   TestMemoryRouter,
 } from "ra-core";
 import type { DataProvider, RaRecord } from "ra-core";
+import { QueryClient } from "@tanstack/react-query";
 
 // Real computed CSS is required for the avatar background-colour assertion
 // below — same precedent as `EntityAvatar.test.tsx`.
 import "@/index.css";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
+import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import { getAvatarIndex } from "./avatar";
 import { buildEntityRoutes } from "./buildEntityRoutes";
 import type { EntityDescriptor } from "./entityDescriptor";
@@ -45,15 +47,22 @@ const registerFixtureDescriptor = (
 };
 
 const renderEntityShow = async (initialEntries: string[]) => {
+  // Story 3.4: `EntityShow` calls `useViewerRole()`; seeded empty (no
+  // active context) so these pre-3.4 fixtures, none of which declares
+  // `visibleTo`, keep rendering exactly as before.
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, []);
   const dataProvider = {
     getOne: vi.fn().mockResolvedValue({ data: FIXTURE_RECORD }),
     getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    getMyContexts: vi.fn().mockResolvedValue([]),
   } as unknown as DataProvider;
 
   const screen = await render(
     <TestMemoryRouter initialEntries={initialEntries}>
       <CoreAdminContext
         dataProvider={dataProvider}
+        queryClient={queryClient}
         i18nProvider={testI18nProvider}
       >
         <ResourceContextProvider value={FIXTURE_RESOURCE}>
