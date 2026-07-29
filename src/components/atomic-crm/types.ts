@@ -722,3 +722,30 @@ export type PipelineTransition = {
   from_state: PipelineState;
   to_state: PipelineState;
 };
+
+/**
+ * Story 4.5: the exactly-three resources the global-search fan-out
+ * (`misc/useGlobalSearch.ts`) searches. A CLOSED union, not `string` — every
+ * browsable entity that exists by the end of Epic 4, and deliberately NOT a
+ * fourth: `references` is excluded by RULING 7 (see the story's Dev Notes,
+ * "Why references is not searchable" — a reference has no nav entry, no
+ * list and no global-search results). Epic 8 widens this union when it adds
+ * shadchanus-context entities; until then, widening it is a typecheck
+ * event, not a silent broadening.
+ */
+export type GlobalSearchResource = "singles" | "shidduchim" | "shadchanim";
+
+/**
+ * One row the global-search fan-out renders (AC-2/AC-3). Deliberately does
+ * NOT carry a resolved path — `GlobalSearch.tsx` resolves `href` at render
+ * time via `buildRecordPath` (through `RecordLink`), which reads the
+ * entity's own descriptor; baking a path in here would freeze Epic 5's
+ * per-entity route flips out of this result set.
+ */
+export type GlobalSearchResult = {
+  resource: GlobalSearchResource;
+  id: Identifier;
+  label_en: string;
+  label_he?: string | null;
+  subtitle?: string | null;
+};

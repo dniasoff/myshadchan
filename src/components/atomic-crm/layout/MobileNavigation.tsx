@@ -7,6 +7,7 @@ import {
   Moon,
   MoreHorizontal,
   Plus,
+  Search,
   Settings,
   Sun,
   type LucideIcon,
@@ -26,6 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { buildNewPath } from "../entity360/entityPaths";
+import { useGlobalSearchDialog } from "../misc/useGlobalSearch";
 import { ContextMenuItems } from "./ContextSwitcher";
 import { PRIMARY_NAV } from "./navItems";
 
@@ -191,6 +193,9 @@ const CreateButton = () => {
 
 const MoreButton = ({ isActive }: { isActive: boolean }) => {
   const translate = useTranslate();
+  // Story 4.5 (AC-1): mobile has no keyboard shortcut, so this dropdown item
+  // is the only trigger for the shell's single GlobalSearch dialog.
+  const { open: openGlobalSearch } = useGlobalSearchDialog();
 
   return (
     <DropdownMenu>
@@ -208,6 +213,13 @@ const MoreButton = ({ isActive }: { isActive: boolean }) => {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="mb-2">
+        <DropdownMenuItem
+          onSelect={openGlobalSearch}
+          className="flex items-center gap-2"
+        >
+          <Search className="size-4" aria-hidden="true" />
+          {translate("crm.global_search.trigger_label", { _: "Search" })}
+        </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link
             to={inboxItem.to}

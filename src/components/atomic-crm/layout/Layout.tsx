@@ -4,6 +4,7 @@ import { Notification } from "@/components/admin/notification";
 import { Error } from "@/components/admin/error";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { GlobalSearch, GlobalSearchProvider } from "../misc/GlobalSearch";
 import { OnboardingGate } from "../root/OnboardingGate";
 import { useConfigurationLoader } from "../root/useConfigurationLoader";
 import { TourAutostart } from "../tour/TourAutostart";
@@ -23,27 +24,33 @@ export const Layout = ({ children }: { children: ReactNode }) => {
   useConfigurationLoader();
   return (
     <OnboardingGate>
-      <div className="ql-wash min-h-screen bg-background">
-        <DemoBanner />
-        <Sidebar />
-        <div className="flex min-h-screen flex-col md:ps-[var(--sidebar-w)]">
-          <TopBar />
-          <main
-            className="mx-auto w-full max-w-screen-xl flex-1 px-4 py-6 sm:px-6"
-            id="main-content"
-          >
-            <ErrorBoundary FallbackComponent={Error}>
-              <Suspense
-                fallback={<Skeleton className="h-12 w-12 rounded-full" />}
-              >
-                {children}
-              </Suspense>
-            </ErrorBoundary>
-          </main>
+      {/* Story 4.5 (AC-1): one GlobalSearch instance for the whole desktop
+          shell, so TopBar's icon and the Cmd/Ctrl+K listener it owns share
+          the same dialog rather than each mounting a second one. */}
+      <GlobalSearchProvider>
+        <div className="ql-wash min-h-screen bg-background">
+          <DemoBanner />
+          <Sidebar />
+          <div className="flex min-h-screen flex-col md:ps-[var(--sidebar-w)]">
+            <TopBar />
+            <main
+              className="mx-auto w-full max-w-screen-xl flex-1 px-4 py-6 sm:px-6"
+              id="main-content"
+            >
+              <ErrorBoundary FallbackComponent={Error}>
+                <Suspense
+                  fallback={<Skeleton className="h-12 w-12 rounded-full" />}
+                >
+                  {children}
+                </Suspense>
+              </ErrorBoundary>
+            </main>
+          </div>
+          <Notification />
+          <TourAutostart />
+          <GlobalSearch />
         </div>
-        <Notification />
-        <TourAutostart />
-      </div>
+      </GlobalSearchProvider>
     </OnboardingGate>
   );
 };

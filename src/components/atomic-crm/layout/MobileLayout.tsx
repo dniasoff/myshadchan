@@ -4,6 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Suspense, type ReactNode } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 
+import { GlobalSearch, GlobalSearchProvider } from "../misc/GlobalSearch";
 import { OnboardingGate } from "../root/OnboardingGate";
 import { useConfigurationLoader } from "../root/useConfigurationLoader";
 import { TourAutostart } from "../tour/TourAutostart";
@@ -29,17 +30,24 @@ export const MobileLayout = ({ children }: { children: ReactNode }) => {
   useConfigurationLoader();
   return (
     <OnboardingGate>
-      <DemoBanner />
-      <ErrorBoundary FallbackComponent={Error}>
-        <Suspense fallback={<Skeleton className="h-12 w-12 rounded-full" />}>
-          <MobileContent>{children}</MobileContent>
-        </Suspense>
-      </ErrorBoundary>
-      <MobileNavigation />
-      <Notification
-        mobileOffset={{ bottom: "calc(var(--mobile-nav-clearance) + 0.5rem)" }}
-      />
-      <TourAutostart />
+      {/* Story 4.5 (AC-1): the mobile counterpart of Layout.tsx's provider —
+          MobileNavigation's "More" menu item opens this SAME instance. */}
+      <GlobalSearchProvider>
+        <DemoBanner />
+        <ErrorBoundary FallbackComponent={Error}>
+          <Suspense fallback={<Skeleton className="h-12 w-12 rounded-full" />}>
+            <MobileContent>{children}</MobileContent>
+          </Suspense>
+        </ErrorBoundary>
+        <MobileNavigation />
+        <Notification
+          mobileOffset={{
+            bottom: "calc(var(--mobile-nav-clearance) + 0.5rem)",
+          }}
+        />
+        <TourAutostart />
+        <GlobalSearch />
+      </GlobalSearchProvider>
     </OnboardingGate>
   );
 };

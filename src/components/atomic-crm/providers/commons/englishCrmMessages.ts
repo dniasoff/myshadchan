@@ -372,6 +372,19 @@ export const englishCrmMessages = {
     navigation: {
       label: "CRM navigation",
     },
+    // Story 4.5: the one search overlay reachable from every screen
+    // (TopBar's icon, Cmd/Ctrl+K, and MobileNavigation's "More" menu item —
+    // AC-1). `hint`/`placeholder` are the user-facing list of what is
+    // searchable and must NOT name references (RULING 7, AC-2).
+    global_search: {
+      trigger_label: "Search",
+      title: "Search",
+      description: "Search singles, shidduchim and shadchanim",
+      placeholder: "Search singles, shidduchim, shadchanim…",
+      hint: "Search singles, shidduchim, shadchanim…",
+      loading: "Searching…",
+      no_results: "No results",
+    },
     profile: {
       title: "Profile",
       updated: "Your profile has been updated",

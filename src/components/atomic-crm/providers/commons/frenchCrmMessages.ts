@@ -353,6 +353,16 @@ export const frenchCrmMessages = {
     navigation: {
       label: "Navigation CRM",
     },
+    global_search: {
+      trigger_label: "Rechercher",
+      title: "Rechercher",
+      description:
+        "Rechercher parmi les célibataires, shidduchim et chadchanim",
+      placeholder: "Rechercher célibataires, shidduchim, chadchanim…",
+      hint: "Rechercher célibataires, shidduchim, chadchanim…",
+      loading: "Recherche en cours…",
+      no_results: "Aucun résultat",
+    },
     profile: {
       title: "Profil",
       updated: "Votre profil a été mis à jour",

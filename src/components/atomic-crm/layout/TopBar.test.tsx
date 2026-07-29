@@ -3,9 +3,11 @@ import { render } from "vitest-browser-react";
 import { CoreAdminContext } from "ra-core";
 import fakeRestDataProvider from "ra-data-fakerest";
 
+import { GlobalSearchProvider } from "../misc/GlobalSearch";
+import { useGlobalSearchDialog } from "../misc/useGlobalSearch";
 import { withSupabaseFilterAdapter } from "../providers/fakerest/internal/supabaseAdapter";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
-import { SingleSwitcherPill } from "./TopBar";
+import { GlobalSearchButton, SingleSwitcherPill } from "./TopBar";
 
 /**
  * Pins 2.5 AC-8's mandatory minimum bar: an archived single is not
@@ -70,5 +72,43 @@ describe("SingleSwitcherPill", () => {
 
     // Assert
     await expect.element(screen.getByRole("button")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Story 4.5 (AC-1): TopBar's new search icon button opens the shell's single
+ * `GlobalSearch` dialog. `GlobalSearchButton` is exported for exactly this
+ * isolated test, mirroring `SingleSwitcherPill` above — the full `<TopBar/>`
+ * needs an auth provider (for `<UserMenu>`) this file has no reason to stub.
+ */
+describe("GlobalSearchButton", () => {
+  it("opens the dialog (isOpen flips to true) when clicked", async () => {
+    // Arrange
+    let isOpenSeen: boolean | undefined;
+    const ObserveIsOpen = () => {
+      isOpenSeen = useGlobalSearchDialog().isOpen;
+      return null;
+    };
+
+    const screen = await render(
+      <CoreAdminContext
+        dataProvider={withSupabaseFilterAdapter(fakeRestDataProvider({}))}
+        i18nProvider={testI18nProvider}
+      >
+        <GlobalSearchProvider>
+          <GlobalSearchButton />
+          <ObserveIsOpen />
+        </GlobalSearchProvider>
+      </CoreAdminContext>,
+    );
+
+    // Assert — closed before any interaction.
+    expect(isOpenSeen).toBe(false);
+
+    // Act
+    await screen.getByRole("button", { name: "Search" }).click();
+
+    // Assert
+    expect(isOpenSeen).toBe(true);
   });
 });

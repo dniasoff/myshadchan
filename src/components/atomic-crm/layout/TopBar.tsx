@@ -1,12 +1,13 @@
 import type { Identifier } from "ra-core";
 import { CanAccess, useGetList, useTranslate, useUserMenu } from "ra-core";
-import { ChevronDown, Settings, Users } from "lucide-react";
+import { ChevronDown, Search, Settings, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { RefreshButton } from "@/components/admin/refresh-button";
 import { ThemeModeToggle } from "@/components/admin/theme-mode-toggle";
 import { UserMenu } from "@/components/admin/user-menu";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+import { useGlobalSearchDialog } from "../misc/useGlobalSearch";
 import type { Single } from "../types";
 import { ContextSwitcher } from "./ContextSwitcher";
 
@@ -35,6 +37,7 @@ export const TopBar = () => (
       <ContextSwitcher />
     </div>
     <div className="flex items-center gap-1">
+      <GlobalSearchButton />
       <ThemeModeToggle />
       <RefreshButton />
       <UserMenu>
@@ -46,6 +49,31 @@ export const TopBar = () => (
     </div>
   </header>
 );
+
+/**
+ * Story 4.5 (AC-1): the desktop trigger for the shell's single
+ * `GlobalSearch` dialog (`Layout.tsx` mounts the provider + dialog once).
+ * The `(Cmd|Ctrl)+K` shortcut is a second, independent trigger for the same
+ * dialog — owned by `GlobalSearch.tsx` itself, not duplicated here.
+ */
+export const GlobalSearchButton = () => {
+  const translate = useTranslate();
+  const { open } = useGlobalSearchDialog();
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      aria-label={translate("crm.global_search.trigger_label", {
+        _: "Search",
+      })}
+      onClick={open}
+    >
+      <Search className="size-5" aria-hidden="true" />
+    </Button>
+  );
+};
 
 const singleLabel = (single: Single) =>
   [single.first_name_en, single.last_name_en].filter(Boolean).join(" ") ||

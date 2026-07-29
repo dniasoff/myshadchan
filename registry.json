@@ -680,6 +680,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/misc/useGlobalSearch.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/misc/useEntityListViewMode.ts",
           "type": "registry:component"
         },
@@ -701,6 +705,10 @@
         },
         {
           "path": "src/components/atomic-crm/misc/ImageEditorField.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/misc/GlobalSearch.tsx",
           "type": "registry:component"
         },
         {
