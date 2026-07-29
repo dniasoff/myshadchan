@@ -44,10 +44,19 @@ const renderRailSummary = async (
   },
   dataProviderOverrides: Partial<DataProvider>,
 ) => {
+  // Deliberately NOT `` `/${FIXTURE_RESOURCE}/${id}` `` — that shape is
+  // byte-identical to what a stray template literal would also produce, so
+  // an assertion built from it can never distinguish "routed through
+  // buildTabPath" from "hand-built the URL" (review finding F1). `/legacy/…`
+  // is the real pre-Epic-5 descriptor shape the contract documents
+  // (buildTabPath.ts's own header comment: "before an entity migrates onto
+  // Entity360, its descriptor's buildRecordPath returns `/{name}/{id}/show`"),
+  // so a template-literal regression here yields a visibly wrong href
+  // instead of an accidentally-correct one.
   const descriptor: EntityDescriptor = {
     name: FIXTURE_RESOURCE,
     label: "Fixture",
-    buildRecordPath: (id) => `/${FIXTURE_RESOURCE}/${id}`,
+    buildRecordPath: (id) => `/legacy/${id}/show`,
   };
   registerEntityDescriptor(descriptor, { replace: true });
 
@@ -119,27 +128,54 @@ describe("TasksRailSummary — the incomplete-tasks filter and default limit (AC
 
 describe("TasksRailSummary — seven tasks, three shown, no mutation controls (AC 5)", () => {
   it("renders exactly three rows, all incomplete, ordered by due_date ASC, with no checkbox, submit button or text input", async () => {
-    // Arrange — the data provider is the one boundary a rail summary trusts
-    // to have already applied the filter/sort/limit; this fixture returns
-    // exactly what a real "done_date@is: null, due_date ASC, perPage 3"
-    // query would, so the assertion is about rendering, not re-filtering.
+    // Arrange — AC 5(b)'s literal fixture: seven tasks, five incomplete and
+    // two complete, fed to the component UNFILTERED, unsorted and
+    // untruncated (review finding F4). Naming a mocked data provider "the
+    // boundary" cannot prove AC 5(b) — a provider that ignored
+    // `done_date@is` or shipped rows out of order would render identically
+    // to a correct one under the old, pre-filtered fixture. The two soonest
+    // incomplete rows carry earlier due dates than the two completed rows,
+    // so passing this also proves completion — not just position — decides
+    // what is excluded.
     const rows = [
+      buildTask({
+        text: "furthest incomplete",
+        due_date: "2026-01-05T00:00:00Z",
+      }),
+      buildTask({ text: "third", due_date: "2026-01-03T00:00:00Z" }),
+      buildTask({
+        text: "done one",
+        due_date: "2026-01-01T06:00:00Z",
+        done_date: "2026-01-10T00:00:00Z",
+      }),
       buildTask({ text: "soonest", due_date: "2026-01-01T00:00:00Z" }),
       buildTask({ text: "next", due_date: "2026-01-02T00:00:00Z" }),
-      buildTask({ text: "third", due_date: "2026-01-03T00:00:00Z" }),
+      buildTask({
+        text: "done two",
+        due_date: "2026-01-02T06:00:00Z",
+        done_date: "2026-01-11T00:00:00Z",
+      }),
+      buildTask({
+        text: "next-furthest incomplete",
+        due_date: "2026-01-04T00:00:00Z",
+      }),
     ];
-    const getList = vi.fn().mockResolvedValue({ data: rows, total: 5 });
+    const getList = vi.fn().mockResolvedValue({ data: rows, total: 7 });
 
     // Act
     const { screen } = await renderRailSummary({}, { getList });
     await expect.element(screen.getByText("soonest")).toBeInTheDocument();
 
-    // Assert — three rows, in order.
+    // Assert — three rows, in order, none of them a completed task.
     const items = screen.container.querySelectorAll("ul > li");
     expect(items.length).toBe(3);
     expect(items[0].textContent).toContain("soonest");
     expect(items[1].textContent).toContain("next");
+    expect(items[1].textContent).not.toContain("next-furthest");
     expect(items[2].textContent).toContain("third");
+    for (const item of items) {
+      expect(item.textContent).not.toContain("done");
+    }
 
     // Assert — no mutation surface anywhere in the rendered DOM.
     expect(screen.container.querySelector('[role="checkbox"]')).toBeNull();
@@ -158,9 +194,7 @@ describe("TasksRailSummary — seven tasks, three shown, no mutation controls (A
     // Assert
     const link = screen.getByRole("link");
     await expect.element(link).toBeInTheDocument();
-    expect(link.element().getAttribute("href")).toBe(
-      `/${FIXTURE_RESOURCE}/77/tasks`,
-    );
+    expect(link.element().getAttribute("href")).toBe("/legacy/77/show/tasks");
   });
 });
 
@@ -204,8 +238,6 @@ describe("TasksRailSummary — loading, empty and error states (AC 6)", () => {
       .toBeInTheDocument();
     const link = screen.getByRole("link");
     await expect.element(link).toBeInTheDocument();
-    expect(link.element().getAttribute("href")).toBe(
-      `/${FIXTURE_RESOURCE}/3/tasks`,
-    );
+    expect(link.element().getAttribute("href")).toBe("/legacy/3/show/tasks");
   });
 });

@@ -61,32 +61,85 @@ insert into ids values ('single_a', :single_a);
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"7ee00000-1111-1111-1111-111111111111","role":"authenticated"}';
 
--- The exact column set TasksTab.tsx's create() call sends: target_type,
--- target_id, text, due_date. Nothing else.
-insert into public.tasks (target_type, target_id, text, due_date)
-values ('single', :single_a, 'Follow up on the resume', now() + interval '3 days')
-returning id as task_a \gset
-insert into ids values ('task_a', :task_a);
+-- Wrapped in a DO block, not the bare top-level statement the previous
+-- revision used (review finding F2): under a reverted migration
+-- (tasks_target_type_check back to its pre-Story-3.8 three values) a bare
+-- insert here raises a check violation that \set ON_ERROR_STOP on treats as
+-- fatal, aborting the script before the JSON report is ever emitted —
+-- tasks_target_types.test.ts then sees no report line, bailIfDbUnreachable
+-- fires on the resulting "no report emitted" error, and the reverted run is
+-- silently reported as one skipped test (exit 0 locally) rather than the
+-- four failed assertions it should be. interactions_targets.sql's header
+-- comment names the same failure mode and the same fix: wrap every
+-- migration-dependent insert in its own `exception when others` so the run
+-- completes and emits a full report. psql does not interpolate :variables
+-- inside dollar-quoted blocks (interactions_targets.sql:91-93), so
+-- single_a is re-read from the `ids` temp table instead of `:single_a`.
+--
+-- Falsifiability record (contract §13 rule 2): proven by hand on stack 2 by
+-- directly reverting the live constraint (`alter table public.tasks drop
+-- constraint tasks_target_type_check; add constraint … check (target_type
+-- in ('shadchan','shidduch','reference'))`) and running this suite.
+-- Reverted-run result: the insert fails with `new row for relation "tasks"
+-- violates check constraint "tasks_target_type_check"`; all four checks
+-- below report `passed: false` with that exact detail, the script still
+-- reaches `rollback`, and the suite reports 4 failed / 3 passed (7 total)
+-- rather than 1 skipped. Restoring the constraint to its widened, four-value
+-- form and re-running confirms all seven checks green again.
+do $$
+declare
+  v_single_a bigint;
+  v_task_a bigint;
+begin
+  select value into v_single_a from ids where name = 'single_a';
 
-insert into results (name, passed)
-select '''single'' target is accepted by the widened tasks_target_type_check',
-       count(*) = 1
-from public.tasks where id = :task_a and target_type = 'single';
+  -- The exact column set TasksTab.tsx's create() call sends: target_type,
+  -- target_id, text, due_date. Nothing else.
+  insert into public.tasks (target_type, target_id, text, due_date)
+  values ('single', v_single_a, 'Follow up on the resume', now() + interval '3 days')
+  returning id into v_task_a;
 
-insert into results (name, passed)
-select 'a single-targeted task is scoped to the caller''s household account (account_id = current_context_id())',
-       t.account_id = public.current_context_id()
-from public.tasks t where t.id = :task_a;
+  insert into ids values ('task_a', v_task_a);
 
-insert into results (name, passed)
-select 'member_id resolves via the trigger to the caller''s own members row — the exact join the global Tasks list filters on',
-       t.member_id = (select id from public.members where user_id = auth.uid())
-from public.tasks t where t.id = :task_a;
+  insert into results (name, passed)
+  select '''single'' target is accepted by the widened tasks_target_type_check',
+         count(*) = 1
+  from public.tasks where id = v_task_a and target_type = 'single';
 
-insert into results (name, passed)
-select 'delivery_channels keeps its in-app + email default; the client never sent it',
-       t.delivery_channels = array['in_app', 'email']::text[]
-from public.tasks t where t.id = :task_a;
+  insert into results (name, passed)
+  select 'a single-targeted task is scoped to the caller''s household account (account_id = current_context_id())',
+         t.account_id = public.current_context_id()
+  from public.tasks t where t.id = v_task_a;
+
+  insert into results (name, passed)
+  select 'member_id resolves via the trigger to the caller''s own members row — the exact join the global Tasks list filters on',
+         t.member_id = (select id from public.members where user_id = auth.uid())
+  from public.tasks t where t.id = v_task_a;
+
+  insert into results (name, passed)
+  select 'delivery_channels keeps its in-app + email default; the client never sent it',
+         t.delivery_channels = array['in_app', 'email']::text[]
+  from public.tasks t where t.id = v_task_a;
+exception when others then
+  -- Reverted-schema red run: the 'single' insert itself fails, so all four
+  -- checks that depend on it are recorded failed with the real reason,
+  -- rather than the whole script aborting under ON_ERROR_STOP.
+  insert into results values (
+    '''single'' target is accepted by the widened tasks_target_type_check', false, sqlerrm
+  );
+  insert into results values (
+    'a single-targeted task is scoped to the caller''s household account (account_id = current_context_id())',
+    false, 'skipped — the single-targeted insert above failed: ' || sqlerrm
+  );
+  insert into results values (
+    'member_id resolves via the trigger to the caller''s own members row — the exact join the global Tasks list filters on',
+    false, 'skipped — the single-targeted insert above failed: ' || sqlerrm
+  );
+  insert into results values (
+    'delivery_channels keeps its in-app + email default; the client never sent it',
+    false, 'skipped — the single-targeted insert above failed: ' || sqlerrm
+  );
+end $$;
 
 do $$
 begin

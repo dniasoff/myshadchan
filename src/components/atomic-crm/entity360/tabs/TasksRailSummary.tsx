@@ -55,6 +55,36 @@ function TasksRailError(): ReactElement {
   );
 }
 
+/** Ascending by `due_date`, undated tasks last. A tie-break, not a
+ * substitute for the `getList` sort — see `selectVisibleTasks`'s doc
+ * comment for why this exists at all. */
+function compareByDueDate(a: Task, b: Task): number {
+  if (a.due_date === b.due_date) return 0;
+  if (a.due_date === null) return 1;
+  if (b.due_date === null) return -1;
+  return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+}
+
+/**
+ * AC 5(b)'s literal claim — given seven tasks, five incomplete and two
+ * complete, exactly `limit` incomplete rows render, ordered by due date —
+ * is about what this component RENDERS, not merely about what the
+ * `getList` call above asked for. The query filter/sort/limit is the real
+ * boundary this component trusts in production, but re-deriving the same
+ * invariant here client-side means a provider that ignores `done_date@is`
+ * or ships rows out of order still cannot put a completed task, or more
+ * than `limit` rows, on the screen (review finding F4). Idempotent against
+ * an already-filtered-and-sorted page: filtering a page with nothing done
+ * and slicing to its own length are both no-ops.
+ */
+function selectVisibleTasks(tasks: readonly Task[], limit: number): Task[] {
+  return tasks
+    .filter((task) => task.done_date == null)
+    .slice()
+    .sort(compareByDueDate)
+    .slice(0, limit);
+}
+
 export function TasksRailSummary({
   targetType,
   targetId,
@@ -78,7 +108,7 @@ export function TasksRailSummary({
     pagination: { page: 1, perPage: limit },
   });
 
-  const tasks = data ?? [];
+  const tasks = selectVisibleTasks(data ?? [], limit);
 
   return (
     <div className="flex flex-col gap-2">

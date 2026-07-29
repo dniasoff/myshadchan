@@ -138,7 +138,7 @@ describe("TasksTab — create payload shape (AC 3c)", () => {
 });
 
 describe("TasksTab — toggle cycle (AC 3b)", () => {
-  it("marks an incomplete task done by writing a non-null ISO due_date", async () => {
+  it("marks an incomplete task done by writing a non-null ISO done_date", async () => {
     // Arrange
     const task = buildTask({ id: 501, text: "Pending task", done_date: null });
     const getList = vi.fn().mockResolvedValue({ data: [task], total: 1 });
