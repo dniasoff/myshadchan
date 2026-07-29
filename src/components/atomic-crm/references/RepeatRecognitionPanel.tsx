@@ -1,6 +1,7 @@
 import type { Identifier } from "ra-core";
 import { useTranslate } from "ra-core";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { RecordLink } from "../entity360/RecordLink";
 import type { ReferenceLinkSummary } from "../types";
 import { CallStatusChip } from "./CallStatusChip";
@@ -19,19 +20,35 @@ import { summarizeCallProgress } from "./callStatus";
  * already looking at is excluded (`excludeShidduchimId`) — telling someone they
  * have spoken to a reference about the single they are currently reading is
  * noise.
+ *
+ * `isPending` (RULING 7 verification finding): `links` starts as `[]` while
+ * `useReferenceLinks` is still in flight, which is indistinguishable from a
+ * reference that genuinely has no other conversations. Without this flag the
+ * panel rendered its "no other conversations" copy on every load, briefly,
+ * for a reference that has plenty — the exact feature the owner asked for,
+ * saying the opposite while it warms up. `RepeatRecognitionSkeleton` reserves
+ * the card's rough footprint instead of returning `null`, the same reasoning
+ * `settings/ProfileSection.tsx` documents for its own skeleton (a late block
+ * popping in shifts the page).
  */
 export const RepeatRecognitionPanel = ({
   referenceName,
   links,
+  isPending = false,
   excludeShidduchimId,
   compact = false,
 }: {
   referenceName: string;
   links: ReferenceLinkSummary[];
+  isPending?: boolean;
   excludeShidduchimId?: Identifier | null;
   compact?: boolean;
 }) => {
   const translate = useTranslate();
+
+  if (isPending) {
+    return <RepeatRecognitionSkeleton compact={compact} />;
+  }
 
   const others = links.filter(
     (link): link is ReferenceLinkSummary & { shidduchim_id: Identifier } =>
@@ -97,6 +114,39 @@ export const RepeatRecognitionPanel = ({
             </li>
           ))}
         </ul>
+      </CardContent>
+    </Card>
+  );
+};
+
+/**
+ * Loading placeholder for `RepeatRecognitionPanel` — see the panel's own
+ * `isPending` doc comment for why this exists at all. `aria-busy="true"`
+ * matches this repo's shared skeleton idiom (`TasksTab`, `ActivityTab`,
+ * `ShidduchShow`): a few `Skeleton` bars, never a bare `null` or the
+ * component's own empty-state copy.
+ */
+const RepeatRecognitionSkeleton = ({ compact }: { compact: boolean }) => {
+  if (compact) {
+    return (
+      <div className="flex flex-col gap-2" aria-busy="true">
+        <Skeleton className="h-4 w-2/3" />
+        <Skeleton className="h-4 w-1/2" />
+      </div>
+    );
+  }
+
+  return (
+    <Card className="rounded-2xl shadow-sm" aria-busy="true">
+      <CardContent className="flex flex-col gap-3 pt-6">
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-5 w-3/4" />
+          <Skeleton className="h-4 w-1/2" />
+        </div>
+        <div className="flex flex-col gap-2 pt-1">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+        </div>
       </CardContent>
     </Card>
   );

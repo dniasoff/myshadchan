@@ -2,6 +2,7 @@ import { useRecordContext, useTranslate } from "ra-core";
 import { Show } from "@/components/admin/show";
 import { EditButton } from "@/components/admin/edit-button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EntityAvatar } from "../entity360/EntityAvatar";
 import { RecordUnavailable } from "../entity360/RecordUnavailable";
@@ -34,7 +35,7 @@ const activeTabClassName =
  * `ShowBase` record context. */
 export const ReferenceHeader = ({ reference }: { reference: Reference }) => {
   const translate = useTranslate();
-  const { links } = useReferenceLinks(reference.id);
+  const { links, isPending: linksPending } = useReferenceLinks(reference.id);
   const progress = summarizeCallProgress(links);
   const name = reference.name_en || "?";
   const meterPct =
@@ -76,25 +77,42 @@ export const ReferenceHeader = ({ reference }: { reference: Reference }) => {
         </div>
 
         <div className="w-full max-w-[220px] shrink-0 sm:w-[220px]">
-          <p className="text-end text-sm font-medium tabular-nums">
-            {translate("crm.references.header.progress", {
-              contacted: progress.contacted,
-              total: progress.total,
-              _: "%{contacted} of %{total} conversations done",
-            })}
-          </p>
-          <div
-            className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted"
-            role="progressbar"
-            aria-valuenow={meterPct}
-            aria-valuemin={0}
-            aria-valuemax={100}
-          >
-            <div
-              className="h-full rounded-full bg-positive transition-[width] duration-[320ms] ease-[var(--ease-out)]"
-              style={{ width: `${meterPct}%` }}
-            />
-          </div>
+          {linksPending ? (
+            // Same footprint as the settled meter below (text row + gap +
+            // bar), so the header's height never shifts once the count
+            // resolves. Without this, `progress.total` is 0 while
+            // `useReferenceLinks` is in flight, so the real meter would
+            // briefly claim "0 of 0 conversations done" on a reference that
+            // has some — the same false-empty state as the RULING 7
+            // `RepeatRecognitionPanel` finding, and it comes from the same
+            // ignored `isPending`.
+            <div aria-busy="true">
+              <Skeleton className="ms-auto h-5 w-40" />
+              <Skeleton className="mt-1.5 h-2 w-full rounded-full" />
+            </div>
+          ) : (
+            <>
+              <p className="text-end text-sm font-medium tabular-nums">
+                {translate("crm.references.header.progress", {
+                  contacted: progress.contacted,
+                  total: progress.total,
+                  _: "%{contacted} of %{total} conversations done",
+                })}
+              </p>
+              <div
+                className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-valuenow={meterPct}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <div
+                  className="h-full rounded-full bg-positive transition-[width] duration-[320ms] ease-[var(--ease-out)]"
+                  style={{ width: `${meterPct}%` }}
+                />
+              </div>
+            </>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -113,7 +131,7 @@ const ReferenceShowSkeleton = () => (
 const ReferenceShowLayout = () => {
   const record = useRecordContext<Reference>();
   const translate = useTranslate();
-  const { links } = useReferenceLinks(record?.id);
+  const { links, isPending: linksPending } = useReferenceLinks(record?.id);
 
   if (!record) return <ReferenceShowSkeleton />;
 
@@ -147,7 +165,11 @@ const ReferenceShowLayout = () => {
         </TabsList>
 
         <TabsContent value="conversations" className="flex flex-col gap-4 pt-4">
-          <RepeatRecognitionPanel referenceName={name} links={links} />
+          <RepeatRecognitionPanel
+            referenceName={name}
+            links={links}
+            isPending={linksPending}
+          />
           <ReferenceCallLog links={links} />
         </TabsContent>
 

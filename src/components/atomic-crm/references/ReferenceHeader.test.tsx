@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { StoryWrapper } from "@/test/StoryWrapper";
@@ -41,5 +41,49 @@ describe("ReferenceHeader", () => {
     }
     expect(chip.getAttribute("aria-hidden")).toBe("true");
     expect(chip.textContent).toBe("MF");
+  });
+});
+
+/**
+ * RULING 7 verification finding: `ReferenceHeader` destructured only
+ * `{ links }` from `useReferenceLinks` and dropped `isPending`, so while the
+ * `reference_links` query is in flight `summarizeCallProgress([])` reports
+ * `0`/`0` — the meter briefly claimed "0 of 0 conversations done" on a
+ * reference that has real conversations, the same false-empty state as the
+ * `RepeatRecognitionPanel` finding lower on the same page, from the same
+ * ignored `isPending`.
+ */
+describe("ReferenceHeader — isPending (RULING 7 false-empty finding)", () => {
+  it('does not show "0 of 0 conversations done" while the links query is pending', async () => {
+    // Arrange — the reference_links query never settles within the test.
+    const getList = vi.fn().mockReturnValue(new Promise(() => {}));
+
+    // Act
+    const screen = await render(
+      <StoryWrapper data={{ reference_links: [] }} dataProvider={{ getList }}>
+        <ReferenceHeader reference={reference} />
+      </StoryWrapper>,
+    );
+
+    // Assert
+    await expect
+      .element(screen.getByText(/conversations done/))
+      .not.toBeInTheDocument();
+  });
+
+  it("reserves the meter's footprint with a busy skeleton instead of the settled progress bar while pending", async () => {
+    // Arrange
+    const getList = vi.fn().mockReturnValue(new Promise(() => {}));
+
+    // Act
+    const screen = await render(
+      <StoryWrapper data={{ reference_links: [] }} dataProvider={{ getList }}>
+        <ReferenceHeader reference={reference} />
+      </StoryWrapper>,
+    );
+
+    // Assert
+    expect(screen.container.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(screen.container.querySelector('[role="progressbar"]')).toBeNull();
   });
 });
