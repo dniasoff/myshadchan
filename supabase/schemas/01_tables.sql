@@ -443,20 +443,28 @@ create table public.interactions (
     --   'shidduch' -> reference_link_id is required; visibility derives by
     --                 joining reference_links -> shidduchim.
     --   'account'  -> no shidduch parent exists, so there is no shidduch whose
-    --                 visibility could ever make this row single-visible. The
-    --                 future single policy denies this bucket wholesale.
+    --                 visibility could ever make this row single-visible. This
+    --                 is the only legal bucket for a shadchan- or
+    --                 single-targeted row (neither has one shidduch parent to
+    --                 derive visibility from — a single belongs to many
+    --                 shidduchim, a shadchan to more still), and it is the
+    --                 bucket the future single policy denies wholesale.
     --
     -- Without this discriminator a row with a null reference_link_id silently
     -- fell through BOTH branches, which is how a free-text note would have
-    -- leaked to a candidate regardless of the parent's pipeline state.
+    -- leaked to a single regardless of the parent's pipeline state.
     scope text not null default 'account',
     reference_link_id bigint,
     actor_member_id bigint,
     kind text not null default 'note',
     body text,
     metadata jsonb,
+    -- Soft-delete (Story 3.5 owns this column and its read filter; Story 3.6
+    -- owns the write path, its moderation policy and its UI). Nullable, no
+    -- default: a live row simply never sets it.
+    deleted_at timestamp with time zone,
     constraint interactions_target_type_check check (
-        target_type in ('reference', 'shidduch')
+        target_type in ('reference', 'shidduch', 'shadchan', 'single')
     ),
     constraint interactions_kind_check check (
         kind in ('note', 'call_logged', 'status_change', 'merge', 'link_created', 'link_removed')
@@ -467,13 +475,19 @@ create table public.interactions (
     -- depends on what the row is about:
     --   target_type = 'reference' -> via reference_link_id -> the link's shidduch
     --   target_type = 'shidduch'  -> target_id IS the shidduch, so no link
-    -- scope = 'account' means there is no shidduch parent at all, and is only
-    -- legal for reference-targeted rows: an interaction ABOUT a shidduch always
-    -- has that shidduch as its parent, so it can never be account-scoped.
+    -- scope = 'account' means there is no shidduch parent at all. It is the
+    -- only legal scope for a reference row with no conversation context AND
+    -- the only legal scope, unconditionally, for a shadchan- or
+    -- single-targeted row: neither entity has one shidduch parent from which
+    -- visibility could derive (a single belongs to many shidduchim, a
+    -- shadchan to more still), so there is no shidduch whose visibility could
+    -- ever gate the row. An interaction ABOUT a shidduch always has that
+    -- shidduch as its parent, so it can never be account-scoped.
     constraint interactions_scope_link_check check (
         (scope = 'shidduch' and target_type = 'reference' and reference_link_id is not null)
         or (scope = 'shidduch' and target_type = 'shidduch' and reference_link_id is null)
         or (scope = 'account' and target_type = 'reference' and reference_link_id is null)
+        or (scope = 'account' and target_type in ('shadchan', 'single') and reference_link_id is null)
     )
 );
 

@@ -144,4 +144,52 @@ describe("interactions guards (FakeRest parity with the database)", () => {
       }),
     ).rejects.toThrow(/append-only/i);
   });
+
+  // Story 3.5 (AC 11) — the two target types AC 1 widens
+  // interactions_target_type_check to, in lockstep with the DB migration.
+  it("accepts a shadchan-targeted, account-scoped interaction", async () => {
+    // Arrange
+    const dataProvider = makeProvider();
+
+    // Act
+    const { data } = await dataProvider.create("interactions", {
+      data: note({ target_type: "shadchan", target_id: 1, scope: "account" }),
+    });
+
+    // Assert
+    expect(data.target_type).toBe("shadchan");
+    expect(data.scope).toBe("account");
+    expect(data.reference_link_id ?? null).toBeNull();
+  });
+
+  it("accepts a single-targeted, account-scoped interaction", async () => {
+    // Arrange
+    const dataProvider = makeProvider();
+
+    // Act
+    const { data } = await dataProvider.create("interactions", {
+      data: note({ target_type: "single", target_id: 1, scope: "account" }),
+    });
+
+    // Assert
+    expect(data.target_type).toBe("single");
+    expect(data.scope).toBe("account");
+    expect(data.reference_link_id ?? null).toBeNull();
+  });
+
+  it("rejects a shadchan-targeted row claiming scope = 'shidduch' (shadchan has no shidduch parent to derive visibility from)", async () => {
+    // Arrange
+    const dataProvider = makeProvider();
+
+    // Act / Assert
+    await expect(
+      dataProvider.create("interactions", {
+        data: note({
+          target_type: "shadchan",
+          target_id: 1,
+          scope: "shidduch",
+        }),
+      }),
+    ).rejects.toThrow(/must declare which parent/i);
+  });
 });

@@ -260,13 +260,47 @@ alter table public.identity_signals enable row level security;
 -- reads the full candid interactions timeline until Epic 6 restricts single
 -- visibility. When it does, this join is the ONE place that gains
 -- `and public.is_single_visible_state(s.pipeline_state)`, and the `scope =
--- 'account'` branch becomes an outright deny for the single role.
+-- 'account'` disjunct below (now a three-way, target-aware disjunct rather
+-- than a bare predicate — Story 3.5) becomes an outright deny for the
+-- single role.
+--
+-- Story 3.5 widens the `scope = 'account'` disjunct to cover the two new
+-- target types AC 1 forces into that bucket unconditionally (`shadchan`,
+-- `single` — neither has a shidduch parent to derive visibility from). The
+-- enumeration is deliberately CLOSED, mirroring `interactions_scope_link_check`'s
+-- own exhaustiveness (AD-3): an account-scoped row with any other
+-- `target_type` (including `shidduch`, which the table constraint already
+-- forbids in this scope) is denied rather than falling through, so a future
+-- constraint loosening fails closed rather than silently granting visibility.
 create policy "Interactions scoped to account and parent visibility" on public.interactions
     for all to authenticated
     using (
         account_id = public.current_context_id()
         and (
-            scope = 'account'
+            (
+                scope = 'account'
+                and (
+                    target_type = 'reference'
+                    or (
+                        target_type = 'shadchan'
+                        and exists (
+                            select 1
+                            from public.shadchanim sh
+                            where sh.id = interactions.target_id
+                              and sh.account_id = public.current_context_id()
+                        )
+                    )
+                    or (
+                        target_type = 'single'
+                        and exists (
+                            select 1
+                            from public.singles si
+                            where si.id = interactions.target_id
+                              and si.account_id = public.current_context_id()
+                        )
+                    )
+                )
+            )
             or (
                 target_type = 'reference'
                 and exists (
@@ -292,7 +326,30 @@ create policy "Interactions scoped to account and parent visibility" on public.i
     with check (
         account_id = public.current_context_id()
         and (
-            scope = 'account'
+            (
+                scope = 'account'
+                and (
+                    target_type = 'reference'
+                    or (
+                        target_type = 'shadchan'
+                        and exists (
+                            select 1
+                            from public.shadchanim sh
+                            where sh.id = interactions.target_id
+                              and sh.account_id = public.current_context_id()
+                        )
+                    )
+                    or (
+                        target_type = 'single'
+                        and exists (
+                            select 1
+                            from public.singles si
+                            where si.id = interactions.target_id
+                              and si.account_id = public.current_context_id()
+                        )
+                    )
+                )
+            )
             or (
                 target_type = 'reference'
                 and exists (

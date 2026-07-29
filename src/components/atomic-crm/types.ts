@@ -497,7 +497,7 @@ export type InteractionScope = "shidduch" | "account";
 
 export type Interaction = {
   account_id: Identifier;
-  target_type: "reference" | "shidduch";
+  target_type: EntityTargetType;
   target_id: Identifier;
   scope: InteractionScope;
   /** Required when scope is "shidduch", forbidden when it is "account". */
@@ -507,6 +507,9 @@ export type Interaction = {
   body?: string | null;
   metadata?: Record<string, unknown> | null;
   created_at: string;
+  /** Soft-delete (Story 3.5 owns the column and this read filter; Story 3.6
+   *  owns the write path, its moderation policy and its UI). */
+  deleted_at?: string | null;
 } & Pick<RaRecord, "id">;
 
 /**

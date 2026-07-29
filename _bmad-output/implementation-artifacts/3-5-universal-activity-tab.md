@@ -1,6 +1,10 @@
+---
+baseline_commit: 3dd6394ccd309d55223b2e5ad87b1add834dad12
+---
+
 # Story 3.5: Universal Activity tab
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -385,81 +389,81 @@ shared module they will both import (AC 7), and Epic 5 replaces both surfaces la
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Schema: widen `interactions`, add `deleted_at`** (AC: 1, 2, 6)
-  - [ ] Edit `01_tables.sql`'s `interactions_target_type_check` (`:458-460`) and
+- [x] **Task 1 — Schema: widen `interactions`, add `deleted_at`** (AC: 1, 2, 6)
+  - [x] Edit `01_tables.sql`'s `interactions_target_type_check` (`:458-460`) and
         `interactions_scope_link_check` (`:473-476`) exactly as AC 1 specifies; add the
         `deleted_at` column.
-  - [ ] Rewrite the two comment blocks (`:438-451`, `:465-472`) for four target types and
+  - [x] Rewrite the two comment blocks (`:438-451`, `:465-472`) for four target types and
         replace "candidate" at `:451` (AC 2).
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
         widen_interactions_targets`. A CHECK-constraint change is a normal
         `ALTER TABLE … DROP CONSTRAINT … / ADD CONSTRAINT …` pair plus one `ADD COLUMN`;
         confirm the diff is exactly that and not a `DROP TABLE`/`CREATE TABLE` pair. Generated
         migrations are never applied unread [Source: AGENTS.md#Database-Management].
 
-- [ ] **Task 2 — Schema: RLS, `current_member_id()`, the actor trigger, the purge triggers**
+- [x] **Task 2 — Schema: RLS, `current_member_id()`, the actor trigger, the purge triggers**
       (AC: 3, 4, 5)
-  - [ ] Rework the `scope = 'account'` disjunct of `"Interactions scoped to account and parent
+  - [x] Rework the `scope = 'account'` disjunct of `"Interactions scoped to account and parent
         visibility"` (`05_policies.sql:262-313`) in `using` **and** `with check`, and update the
         Epic-6 instruction in its comment (`:255-261`).
-  - [ ] Add `current_member_id()` to `02_functions.sql` beside `current_context_id()`
+  - [x] Add `current_member_id()` to `02_functions.sql` beside `current_context_id()`
         (`:201-221`) in exact `pg_dump` form; add `set_interaction_actor_member_id()` in the
         shape of `set_account_id_default()` (`:359-369`); attach the `before insert on
         public.interactions` trigger in `04_triggers.sql` next to `set_interactions_account_id`
         (`:131-133`).
-  - [ ] Grant/revoke `current_member_id()` in `06_grants.sql` following `:224-227`.
-  - [ ] Replace the two inline member-id lookups (`02_functions.sql:2128-2132`, `:2381-2385`)
+  - [x] Grant/revoke `current_member_id()` in `06_grants.sql` following `:224-227`.
+  - [x] Replace the two inline member-id lookups (`02_functions.sql:2128-2132`, `:2381-2385`)
         with `public.current_member_id()`.
-  - [ ] Add `purge_single_dependents` and `purge_shadchan_dependents` to `04_triggers.sql`,
+  - [x] Add `purge_single_dependents` and `purge_shadchan_dependents` to `04_triggers.sql`,
         copying `:109-111` / `:118-120`.
-  - [ ] `db diff -f …` (prefer one migration for the whole story unless splitting makes the
+  - [x] `db diff -f …` (prefer one migration for the whole story unless splitting makes the
         diff easier to hand-check), hand-check, then
         `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
 
-- [ ] **Task 3 — The `db` suite** (AC: 10)
-  - [ ] Write `supabase/tests/interactions_targets.sql` + `interactions_targets.test.ts` with
+- [x] **Task 3 — The `db` suite** (AC: 10)
+  - [x] Write `supabase/tests/interactions_targets.sql` + `interactions_targets.test.ts` with
         checks (a)–(f). A new pair rather than an extension of `references_entity.sql`: this
         suite's fixture is one login in two contexts, which that file does not have.
-  - [ ] Prove each check red against a reverted schema, then green. Record which reversion was
+  - [x] Prove each check red against a reverted schema, then green. Record which reversion was
         used for each, in the SQL file's header comment, as
         `context_rls_hardening.sql:21-25` does.
 
-- [ ] **Task 4 — TS types and the schema guard** (AC: 6)
-  - [ ] `types.ts:477` → `EntityTargetType`; add `deleted_at?: string | null` to `Interaction`.
-  - [ ] Remove `interactions_target_type_check` from `PENDING_DB_WIDENINGS` and run 3.9's
+- [x] **Task 4 — TS types and the schema guard** (AC: 6)
+  - [x] `types.ts:477` → `EntityTargetType`; add `deleted_at?: string | null` to `Interaction`.
+  - [x] Remove `interactions_target_type_check` from `PENDING_DB_WIDENINGS` and run 3.9's
         `?raw` guard.
-  - [ ] `npm run typecheck`.
+  - [x] `npm run typecheck`.
 
-- [ ] **Task 5 — `interactionLabels.ts` and its two existing consumers** (AC: 7)
-  - [ ] Create `entity360/tabs/interactionLabels.ts` with `formatTimelineDate` and
+- [x] **Task 5 — `interactionLabels.ts` and its two existing consumers** (AC: 7)
+  - [x] Create `entity360/tabs/interactionLabels.ts` with `formatTimelineDate` and
         `INTERACTION_KIND_LABELS`.
-  - [ ] Add `crm.entity360.activity.kind.*` to `englishCrmMessages.ts` and
+  - [x] Add `crm.entity360.activity.kind.*` to `englishCrmMessages.ts` and
         `frenchCrmMessages.ts`; delete the dead `crm.references.timeline.kind` block from both.
-  - [ ] Delete the local maps in `ShidduchTimeline.tsx:12-26` and `ReferenceTimeline.tsx:27-47`
+  - [x] Delete the local maps in `ShidduchTimeline.tsx:12-26` and `ReferenceTimeline.tsx:27-47`
         and import the shared module. `ReferenceTimeline` already calls `useTranslate()`;
         `ShidduchTimeline` gains it.
 
-- [ ] **Task 6 — `ActivityTab.tsx` + `entity360/tabs/types.ts`** (AC: 8, 9, 12)
-  - [ ] Create `entity360/tabs/types.ts` with `UniversalTabProps`.
-  - [ ] Build `ActivityTab.tsx` on `ListBase` + `ListPagination` per AC 8, with the AC 9 mention
+- [x] **Task 6 — `ActivityTab.tsx` + `entity360/tabs/types.ts`** (AC: 8, 9, 12)
+  - [x] Create `entity360/tabs/types.ts` with `UniversalTabProps`.
+  - [x] Build `ActivityTab.tsx` on `ListBase` + `ListPagination` per AC 8, with the AC 9 mention
         branch and the AC 12 states.
 
-- [ ] **Task 7 — FakeRest parity** (AC: 11)
-  - [ ] Widen `assertValidInteraction` (`providers/fakerest/dataProvider.ts:95-123`) and its
+- [x] **Task 7 — FakeRest parity** (AC: 11)
+  - [x] Widen `assertValidInteraction` (`providers/fakerest/dataProvider.ts:95-123`) and its
         doc comment; extend `dataProvider.interactions.test.ts`.
-  - [ ] Make the interactions data generator write `deleted_at: null`.
+  - [x] Make the interactions data generator write `deleted_at: null`.
 
-- [ ] **Task 8 — Component tests** (AC: 8, 9, 11, 12)
-  - [ ] `ActivityTab.test.tsx` under the `app` project: one `it` per target type; plus loading
+- [x] **Task 8 — Component tests** (AC: 8, 9, 11, 12)
+  - [x] `ActivityTab.test.tsx` under the `app` project: one `it` per target type; plus loading
         skeleton, empty state, error state, newest-first ordering, 20-per-page + advance, the
         `RecordLink` branch, the `{shidduchim_id}` branch, the malformed-`metadata` branch, and
         the soft-deleted-row exclusion.
-  - [ ] `interactionLabels.test.ts`: the two changed link labels, and that every
+  - [x] `interactionLabels.test.ts`: the two changed link labels, and that every
         `InteractionKind` has an entry (a `Record<InteractionKind, …>` makes this a compile-time
         guarantee — the test's job is the *label text*, so assert the strings, not the keys'
         existence).
 
-- [ ] **Task 9 — Validation** — `npm run typecheck`, `npx vitest run`, `npm run test:unit:db`,
+- [x] **Task 9 — Validation** — `npm run typecheck`, `npx vitest run`, `npm run test:unit:db`,
       `npm run lint`, `npm run build` [Source: package.json:6,10,14,17,20 — equivalently
       `make typecheck` / `make test` / `make lint` / `make build`].
 
@@ -662,8 +666,140 @@ exactly what AC 7 exists to remove.
 
 ### Agent Model Used
 
+Claude Sonnet 5 (claude-sonnet-5), dispatched as the harness `developer` role
+via the `bmad-dev-story` skill.
+
 ### Debug Log References
+
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f widen_interactions_targets`
+  produced exactly one `DROP CONSTRAINT`/`ADD CONSTRAINT` pair plus one `ADD COLUMN` on
+  `interactions`, four `CREATE OR REPLACE FUNCTION` (new `current_member_id()`,
+  `set_interaction_actor_member_id()`, and the two rewritten `log_reference_call`/
+  `merge_references` bodies), one `DROP POLICY`/`CREATE POLICY` pair, and three
+  `CREATE TRIGGER` statements — no `DROP TABLE`/`CREATE TABLE`. `supabase db diff` did not
+  capture the two new functions' `REVOKE`/`GRANT` statements (a known quirk, AGENTS.md's own
+  "sometimes manual adjustment is needed"); added by hand into the generated migration to match
+  `06_grants.sql`.
+- Confirmed `pg_dump --local --schema public` renders `current_member_id()` and
+  `set_interaction_actor_member_id()` in the exact same shape as `current_context_id()` /
+  `set_account_id_default()` (`CREATE OR REPLACE FUNCTION "public"."name"() … LANGUAGE
+  "plpgsql" [STABLE SECURITY DEFINER] SET "search_path" TO ''`).
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local` (after `migration up`) →
+  "No schema changes found".
+- `interactions_targets.sql` red rehearsal: migration file moved out of
+  `supabase/migrations/`, `supabase db reset --local`, suite re-run. Results: AC 10(a) both
+  inserts fail (`violates check constraint interactions_scope_link_check` — Postgres evaluated
+  that constraint before `interactions_target_type_check` for this row shape; either is a valid
+  red signal per AC 1's own Dev Notes); AC 10(b) the two "caller sees its own row" assertions
+  fail, the "zero of B's" arms pass vacuously (no fixture); AC 10(c)'s embedded sanity swap is
+  collateral-red (the insert is blocked by the type/scope-link check before it ever reaches the
+  policy — expected, and exactly why the swap technique rather than a full revert is (c)'s real
+  falsifiability proof); AC 10(d) fails (`function public.current_member_id() does not exist`);
+  AC 10(e)'s shadchan/tasks arm fails (task row survives, no purge trigger), its interactions
+  arms pass vacuously (fixture insert blocked by the type check, same shape as (c)); AC 10(f) is
+  unaffected by the revert (3-14's own guarantee) and its own embedded sanity re-attachment of
+  `validate_interactions_household_scope` still turns it red live. Migration restored,
+  `db reset --local` re-run: all 25 checks green.
+- `pendingDbWidenings.test.ts`'s two red-run assertions (`tasks_target_type_check` removal,
+  and the new `interactions_target_type_check` revert-fixture test) both confirmed to fail
+  before this story's TS edits landed, and pass after.
+- `make test STACK_ID=2` (full suite, all projects): 134 files / 1385 tests passed. `npm run
+  typecheck`, `npm run lint`, `npx prettier --check` (scoped to files this story owns), and
+  `npm run build` all clean.
+- Security review (security-review skill) performed on the full diff: no findings. The RLS
+  policy's target-integrity `exists` clauses, `current_member_id()`'s scoping, and the
+  actor-attribution trigger's overwrite semantics were checked specifically for cross-account
+  bypass paths; none found.
 
 ### Completion Notes List
 
+- All 9 tasks and all 12 ACs implemented and verified; see the gate output above.
+- `01_tables.sql`/`05_policies.sql`/`02_functions.sql`/`04_triggers.sql`/`06_grants.sql` edited
+  exactly per the story's line-anchored instructions (the repo's real line numbers had already
+  drifted a few lines from the story's citations by the time this story started — content
+  matched, not the exact line numbers quoted).
+- `pendingDbWidenings.test.ts` (existing file, in-scope for this story) needed two updates
+  beyond what the story's Task 4 called out: the "parses the real interactions_target_type_check
+  values" test's expected array (2 values → 4), and the "fails when interactions_target_type_check
+  is removed from the pending list" test — which is no longer meaningful once the constraint is
+  fully at parity (removing an already-absent entry from `PENDING_DB_WIDENINGS` is a no-op) — was
+  replaced with a test that proves the same falsifiable claim (AC 6) directly against
+  `extractTargetTypeCheckValues`/`isAtParityWithEntityTargetTypes` using a literal
+  pre-Story-3.5 fixture string, rather than re-deriving a fixture from the live schema file.
+- `interactions_targets.sql`'s AC 10(c) (target-integrity `with check`) cannot be isolated by a
+  full-migration revert, because AC 1 (type widening) and AC 3 (target-integrity) ship in the
+  same migration — reverting the whole thing blocks the insert at the type-check stage before
+  the policy is ever reached, proving nothing about the `with check` clause specifically. Used
+  an in-suite transient policy swap instead (drop the real policy, install the pre-Story-3.5
+  bare `scope = 'account'` version, show the cross-context insert WRONGLY succeed, restore the
+  real policy, show it now correctly denied) — the same technique
+  `context_rls_hardening.sql` uses to isolate its DELETE policy's own contribution. Same
+  technique reused for AC 10(f)'s sanity check (transiently re-attach
+  `validate_interactions_household_scope`).
+- AC 10(e)'s `tasks`/`single` and every `identity_signals` arm are vacuously true, not because
+  the purge trigger doesn't work, but because the target type can't reach that table yet:
+  `tasks_target_type_check` doesn't accept `'single'` until Story 3.8, and
+  `identity_signals_target_type_check` never accepts `'single'`/`'shadchan'` at all (a
+  different, AD-5 vocabulary — `pendingDbWidenings.test.ts`'s own header explains why). Documented
+  in the SQL file rather than silently passing.
+- `RecordLink`'s rendered mention text ("View record", translated) is this story's own design
+  choice — the contract specifies the mention renders via `RecordLink`, not what text it shows,
+  and fetching the target record's own representation for a label would be an extra query per
+  row the contract does not ask for.
+- `ReferenceTimeline.tsx`'s own `new Date(...).toLocaleString()` date rendering was left
+  untouched — `formatTimelineDate` was ShidduchTimeline's helper, moved verbatim (AC 7 says "no
+  behaviour change"); ReferenceTimeline never used it, so switching it now would be an
+  unrequested behaviour change smuggled into a "no behaviour change" story.
+- Found and reported (not "fixed", since it's cross-story and outside this story's owned
+  paths) a pre-existing, unrelated flake: `references/ReferenceCreate.test.tsx` failed
+  intermittently against `src/components/atomic-crm/references/ReferenceCreate.tsx`, which was
+  already modified, uncommitted, by a concurrent agent's in-progress work at the time this story
+  ran its validation suite. Confirmed via `git status` that this file (and its untracked test)
+  were not touched by this story and are outside its ownership list. The flake did not
+  reproduce in the final full-suite run.
+- Two items flagged as worth the contract owner's attention (not defects blocking this story):
+  (1) Dev Notes' "Trigger mechanics" section states `set_interaction_actor_member_id` is "the
+  **second** BEFORE INSERT trigger" — alphabetically it actually sorts *before*
+  `set_interactions_account_id` (`'_'` < `'s'` in `set_interaction_` vs `set_interactions_`),
+  so it fires first, not second. Functionally immaterial, exactly as the same Dev Notes
+  paragraph says ("the order is irrelevant: neither reads the other's output"), but the
+  ordinal claim itself is backwards. (2) `current_member_id()`'s own comment inherited
+  verbatim from `current_context_id()`'s framing ("the definer privilege it needs lives inside
+  `current_member_id()`") is fine as written for `set_interaction_actor_member_id()`; no
+  action needed, noted only because Dev Notes emphasizes it as an easy point of confusion.
+
 ### File List
+
+**Modified:**
+- `supabase/schemas/01_tables.sql`
+- `supabase/schemas/02_functions.sql`
+- `supabase/schemas/04_triggers.sql`
+- `supabase/schemas/05_policies.sql`
+- `supabase/schemas/06_grants.sql`
+- `src/components/atomic-crm/types.ts`
+- `src/components/atomic-crm/entity360/pendingDbWidenings.ts`
+- `src/components/atomic-crm/entity360/pendingDbWidenings.test.ts`
+- `src/components/atomic-crm/shidduchim/ShidduchTimeline.tsx`
+- `src/components/atomic-crm/references/ReferenceTimeline.tsx`
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.interactions.test.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/references.ts`
+- `registry.json` (auto-generated by `make registry-gen`)
+
+**Added:**
+- `supabase/migrations/20260729025545_widen_interactions_targets.sql`
+- `supabase/tests/interactions_targets.sql`
+- `supabase/tests/interactions_targets.test.ts`
+- `src/components/atomic-crm/entity360/tabs/types.ts`
+- `src/components/atomic-crm/entity360/tabs/interactionLabels.ts`
+- `src/components/atomic-crm/entity360/tabs/interactionLabels.test.ts`
+- `src/components/atomic-crm/entity360/tabs/ActivityTab.tsx`
+- `src/components/atomic-crm/entity360/tabs/ActivityTab.test.tsx`
+
+## Change Log
+
+| Date | Change |
+|---|---|
+| 2026-07-29 | Story implemented end-to-end: `interactions` widened to all four `ENTITY_TARGET_TYPES` (AC 1/2), RLS's `scope = 'account'` disjunct made target-aware (AC 3), `current_member_id()` + server-set `actor_member_id` (AC 4), `purge_single_dependents`/`purge_shadchan_dependents` (AC 5), `types.ts` + `PENDING_DB_WIDENINGS` updated (AC 6), shared `interactionLabels.ts` replacing two duplicated maps with the two AC 7 wording fixes, `ActivityTab.tsx` (AC 8/9/12) on `ListBase` + `ListPagination`, FakeRest parity (AC 11), the `interactions_targets` db suite (AC 10) with a full red/green rehearsal plus in-suite transient-swap isolation for AC 3 and AC 5(f). Status → review. |

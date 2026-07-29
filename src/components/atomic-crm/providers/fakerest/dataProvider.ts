@@ -10,6 +10,7 @@ import type {
   AddSchoolInput,
   AiEntitlementInfo,
   CreateShidduchInput,
+  EntityTargetType,
   Invite,
   InvitableRole,
   InvitePreview,
@@ -30,6 +31,7 @@ import type {
   ShidduchCatch,
   ShidduchSchool,
 } from "../../types";
+import { ENTITY_TARGET_TYPES } from "../../types";
 import {
   INITIAL_PIPELINE_STATES,
   isValidTransition,
@@ -88,9 +90,13 @@ const processConfigLogo = async (logo: any): Promise<string> => {
  * grant; without the same rules here, demo mode would happily accept rows the
  * real backend rejects, and the demo would teach the wrong thing.
  *
- *   scope 'shidduch' + target 'reference' -> must carry a reference_link_id
- *   scope 'shidduch' + target 'shidduch'  -> the target IS the parent, no link
- *   scope 'account'                       -> reference-targeted only, no link
+ *   scope 'shidduch' + target 'reference'          -> must carry a reference_link_id
+ *   scope 'shidduch' + target 'shidduch'           -> the target IS the parent, no link
+ *   scope 'account'  + target 'reference'          -> no shidduch context, no link
+ *   scope 'account'  + target 'shadchan'/'single'  -> always account-scoped (Story 3.5,
+ *                                                      contract §8): neither entity has one
+ *                                                      shidduch parent to derive visibility
+ *                                                      from, so there is no fourth state.
  */
 const assertValidInteraction = (data: {
   target_type?: string;
@@ -104,14 +110,17 @@ const assertValidInteraction = (data: {
   if (scope !== "shidduch" && scope !== "account") {
     throw new Error(`invalid interaction scope: ${scope}`);
   }
-  if (targetType !== "reference" && targetType !== "shidduch") {
+  if (!ENTITY_TARGET_TYPES.includes(targetType as EntityTargetType)) {
     throw new Error(`invalid interaction target_type: ${targetType}`);
   }
 
   const valid =
     (scope === "shidduch" && targetType === "reference" && hasLink) ||
     (scope === "shidduch" && targetType === "shidduch" && !hasLink) ||
-    (scope === "account" && targetType === "reference" && !hasLink);
+    (scope === "account" && targetType === "reference" && !hasLink) ||
+    (scope === "account" &&
+      (targetType === "shadchan" || targetType === "single") &&
+      !hasLink);
 
   if (!valid) {
     throw new Error(

@@ -309,6 +309,7 @@ export const generateReferencesDomain = (db: Db) => {
       body: null,
       metadata: { shidduchim_id: seed.shidduchimId },
       created_at: REFERENCE_CREATED_AT,
+      deleted_at: null,
     });
 
     if (seed.calledOn) {
@@ -328,6 +329,7 @@ export const generateReferencesDomain = (db: Db) => {
           source: "manual",
         },
         created_at: seed.calledOn,
+        deleted_at: null,
       });
     }
   });

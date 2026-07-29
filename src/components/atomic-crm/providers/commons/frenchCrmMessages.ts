@@ -377,6 +377,17 @@ export const frenchCrmMessages = {
         error: "Impossible de charger les éléments associés.",
         empty: "Rien pour l'instant.",
       },
+      // Story 3.5 — interactionLabels.ts's INTERACTION_KIND_LABELS.
+      activity: {
+        kind: {
+          note: "Note",
+          call_logged: "Appel enregistré",
+          status_change: "Statut modifié",
+          merge: "Fusionnée",
+          link_created: "Liée à un shidduch",
+          link_removed: "Déliée d'un shidduch",
+        },
+      },
       record_pending: "Chargement…",
       record_unavailable: "Cet enregistrement n'est pas disponible.",
       record_unavailable_link: "Retour à la liste",
@@ -455,14 +466,6 @@ export const frenchCrmMessages = {
         notePlaceholder: "Ajouter une note sur cette personne",
         addNote: "Ajouter une note",
         empty: "Rien ne s'est encore passé avec cette personne.",
-        kind: {
-          note: "Note",
-          call_logged: "Appel enregistré",
-          status_change: "Statut modifié",
-          merge: "Fusionnée",
-          link_created: "Liée à un célibataire",
-          link_removed: "Déliée d'un célibataire",
-        },
       },
       tasks: {
         placeholder: "Me rappeler de...",

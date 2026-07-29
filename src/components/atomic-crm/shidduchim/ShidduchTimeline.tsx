@@ -1,29 +1,22 @@
 import { useState } from "react";
-import { format } from "date-fns";
 import type { Identifier } from "ra-core";
-import { useCreate, useGetList, useNotify, useRefresh } from "ra-core";
+import {
+  useCreate,
+  useGetList,
+  useNotify,
+  useRefresh,
+  useTranslate,
+} from "ra-core";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 
-import type { Interaction, InteractionKind } from "../types";
-
-/** Format an ISO timestamp (e.g. interaction.created_at) as "d MMM yyyy, HH:mm". */
-const formatTimelineDate = (iso: string): string => {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return format(date, "d MMM yyyy, HH:mm");
-};
-
-const KIND_LABELS: Record<InteractionKind, string> = {
-  note: "Note",
-  call_logged: "Call logged",
-  status_change: "Status changed",
-  merge: "Merged",
-  link_created: "Linked to a reference",
-  link_removed: "Unlinked from a reference",
-};
+import type { Interaction } from "../types";
+import {
+  formatTimelineDate,
+  INTERACTION_KIND_LABELS,
+} from "../entity360/tabs/interactionLabels";
 
 /**
  * Notes + timeline for a shidduch (Screen 18 body). A note is just an
@@ -93,6 +86,7 @@ export const ShidduchTimeline = ({
 }: {
   shidduchimId: Identifier;
 }) => {
+  const translate = useTranslate();
   const { data, isPending } = useGetList<Interaction>("interactions", {
     filter: { target_type: "shidduch", target_id: shidduchimId },
     pagination: { page: 1, perPage: 100 },
@@ -126,7 +120,9 @@ export const ShidduchTimeline = ({
             <li key={String(interaction.id)}>
               <div className="flex flex-wrap items-baseline gap-2">
                 <span className="text-sm font-medium">
-                  {KIND_LABELS[interaction.kind] ?? "Note"}
+                  {translate(INTERACTION_KIND_LABELS[interaction.kind].key, {
+                    _: INTERACTION_KIND_LABELS[interaction.kind].fallback,
+                  })}
                 </span>
                 <span className="text-xs tabular-nums text-muted-foreground">
                   {formatTimelineDate(interaction.created_at)}

@@ -9,11 +9,8 @@ import {
 } from "ra-core";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type {
-  Interaction,
-  InteractionKind,
-  ReferenceLinkSummary,
-} from "../types";
+import type { Interaction, ReferenceLinkSummary } from "../types";
+import { INTERACTION_KIND_LABELS } from "../entity360/tabs/interactionLabels";
 
 /**
  * The reference timeline and notes (§5b).
@@ -23,28 +20,6 @@ import type {
  * date. That is why this component covers both — building a parallel notes table
  * for references would have forked FR36's established pattern for no gain.
  */
-
-const KIND_LABELS: Record<InteractionKind, { key: string; fallback: string }> =
-  {
-    note: { key: "crm.references.timeline.kind.note", fallback: "Note" },
-    call_logged: {
-      key: "crm.references.timeline.kind.call_logged",
-      fallback: "Call logged",
-    },
-    status_change: {
-      key: "crm.references.timeline.kind.status_change",
-      fallback: "Status changed",
-    },
-    merge: { key: "crm.references.timeline.kind.merge", fallback: "Merged" },
-    link_created: {
-      key: "crm.references.timeline.kind.link_created",
-      fallback: "Linked to a single",
-    },
-    link_removed: {
-      key: "crm.references.timeline.kind.link_removed",
-      fallback: "Unlinked from a single",
-    },
-  };
 
 const GENERAL_NOTE = "general";
 
@@ -187,7 +162,9 @@ export const ReferenceTimeline = ({
       ) : (
         <ul className="flex flex-col gap-3 border-s ps-4">
           {interactions.map((interaction) => {
-            const label = KIND_LABELS[interaction.kind] ?? KIND_LABELS.note;
+            const label =
+              INTERACTION_KIND_LABELS[interaction.kind] ??
+              INTERACTION_KIND_LABELS.note;
             return (
               <li key={String(interaction.id)} className="relative">
                 <div className="flex flex-wrap items-baseline gap-2">

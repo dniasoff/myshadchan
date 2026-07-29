@@ -395,6 +395,19 @@ export const englishCrmMessages = {
         error: "Could not load related records.",
         empty: "Nothing here yet.",
       },
+      // Story 3.5 — interactionLabels.ts's INTERACTION_KIND_LABELS. One
+      // entry per InteractionKind, replacing the two duplicated maps that
+      // used to live in ShidduchTimeline.tsx and ReferenceTimeline.tsx.
+      activity: {
+        kind: {
+          note: "Note",
+          call_logged: "Call logged",
+          status_change: "Status changed",
+          merge: "Merged",
+          link_created: "Linked to a shidduch",
+          link_removed: "Unlinked from a shidduch",
+        },
+      },
       // Story 3.2 — ShowBase's explicit `loading` / `error` elements (AC 2).
       record_pending: "Loading…",
       record_unavailable: "This record is unavailable.",
@@ -474,14 +487,6 @@ export const englishCrmMessages = {
         notePlaceholder: "Add a note about this person",
         addNote: "Add note",
         empty: "Nothing has happened with this person yet.",
-        kind: {
-          note: "Note",
-          call_logged: "Call logged",
-          status_change: "Status changed",
-          merge: "Merged",
-          link_created: "Linked to a single",
-          link_removed: "Unlinked from a single",
-        },
       },
       tasks: {
         placeholder: "Remind me to...",

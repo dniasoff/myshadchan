@@ -220,6 +220,44 @@ begin
 end;
 $$;
 
+-- Resolves the caller's own account_members.id within their currently
+-- active context (Story 3.5). Same shape as current_context_id() and for
+-- the same reason: SECURITY DEFINER so it can be called from RLS policies
+-- (and from a client-visible "is this mine" read, Story 3.6) without
+-- recursing into the policies account_members itself carries. Returns NULL
+-- when there is no active context, because current_context_id() does
+-- (fail-closed by design) — a NULL actor_member_id is legal and correct
+-- for such a caller, who cannot insert at all under RLS's own
+-- `account_id = public.current_context_id()` (NULL-false).
+--
+-- `order by am.id limit 1` is a defensive tiebreak, not the primary
+-- guarantee: `account_members_account_user_active_uq` (01_tables.sql) is a
+-- PARTIAL unique index (`where status = 'active'`), so a login holding both
+-- an archived and an active membership in the same account has two rows,
+-- and this filters to `status = 'active'` explicitly rather than relying on
+-- the index alone — so this function cannot start raising "more than one
+-- row" if that partial index is ever dropped. The single named, reusable
+-- resolver every other caller (log_reference_call, merge_references,
+-- set_interaction_actor_member_id) replaces its own inline copy with.
+CREATE OR REPLACE FUNCTION "public"."current_member_id"() RETURNS bigint
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_member_id bigint;
+begin
+  select am.id into v_member_id
+  from public.account_members am
+  where am.user_id = auth.uid()
+    and am.account_id = public.current_context_id()
+    and am.status = 'active'
+  order by am.id
+  limit 1;
+
+  return v_member_id;
+end;
+$$;
+
 -- Private writer shared by set_active_context() and the
 -- activate_first_context trigger (AC-4/AC-5) — the ONLY code path that ever
 -- writes member_state. Does no membership validation of its own: callers are
@@ -364,6 +402,24 @@ begin
   if new.account_id is null then
     new.account_id := public.current_context_id();
   end if;
+  return new;
+end;
+$$;
+
+-- Server-sets actor_member_id on every interactions insert (Story 3.5, AC 4).
+-- Unconditionally OVERWRITES any client-supplied value — unlike
+-- set_account_id_default() above, this does not merely default a NULL — so a
+-- caller cannot attribute a row to another member by supplying
+-- actor_member_id in the request body. NOT SECURITY DEFINER: the definer
+-- privilege it needs lives inside current_member_id() itself, which this
+-- trigger just calls (mirrors the current_context_id()/set_account_id_default
+-- split above).
+CREATE OR REPLACE FUNCTION "public"."set_interaction_actor_member_id"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  new.actor_member_id := public.current_member_id();
   return new;
 end;
 $$;
@@ -2133,11 +2189,7 @@ begin
       using errcode = 'check_violation';
   end if;
 
-  select am.id into v_member_id
-  from public.account_members am
-  where am.user_id = auth.uid() and am.account_id = v_account_id
-  order by am.id
-  limit 1;
+  v_member_id := public.current_member_id();
 
   v_entry := jsonb_build_object(
     'at', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
@@ -2386,11 +2438,7 @@ begin
     raise exception 'reference % not found in current account', p_winner_id;
   end if;
 
-  select am.id into v_member_id
-  from public.account_members am
-  where am.user_id = auth.uid() and am.account_id = v_account_id
-  order by am.id
-  limit 1;
+  v_member_id := public.current_member_id();
 
   for v_collision in
     select

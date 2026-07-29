@@ -112,14 +112,14 @@ describe("extractTargetTypeCheckValues — shown red then green", () => {
     ).toEqual(["shadchan", "shidduch", "reference"]);
   });
 
-  it("parses the real interactions_target_type_check values from 01_tables.sql", () => {
+  it("parses the real interactions_target_type_check values from 01_tables.sql (Story 3.5 widened it to all four ENTITY_TARGET_TYPES)", () => {
     // Act / Assert
     expect(
       extractTargetTypeCheckValues(
         TABLES_SQL,
         "interactions_target_type_check",
       ),
-    ).toEqual(["reference", "shidduch"]);
+    ).toEqual(["reference", "shidduch", "shadchan", "single"]);
   });
 });
 
@@ -177,16 +177,30 @@ describe("PENDING_DB_WIDENINGS guard", () => {
     expect(offenders).toEqual(["tasks_target_type_check"]);
   });
 
-  it("fails, naming the constraint, when interactions_target_type_check is removed from the pending list before its migration lands", () => {
-    // Arrange
-    const prematurelyNotPending = PENDING_DB_WIDENINGS.filter(
-      (name) => name !== "interactions_target_type_check",
-    );
+  /**
+   * interactions_target_type_check reached parity in Story 3.5 and is no
+   * longer in PENDING_DB_WIDENINGS at all, so "remove it from the pending
+   * list" (the shape the tasks_target_type_check test above uses) is a
+   * no-op here — it is already absent. AC 6's own falsifiable claim is
+   * instead: reverting the migration itself (the constraint's value list
+   * back to its pre-Story-3.5 two values) turns the guard red. Proven
+   * directly against the two lower-level functions the offender-scan is
+   * built from, rather than re-deriving a fixture from the real schema
+   * text.
+   */
+  it("interactions_target_type_check would fail parity again if its migration were reverted to the pre-Story-3.5 two-value constraint", () => {
+    // Arrange — the exact pre-Story-3.5 constraint text (AC 1's falsifiable claim).
+    const revertedFixture =
+      "constraint interactions_target_type_check check (\n        target_type in ('reference', 'shidduch')\n    )";
 
     // Act
-    const offenders = findOffendingConstraints(prematurelyNotPending);
+    const values = extractTargetTypeCheckValues(
+      revertedFixture,
+      "interactions_target_type_check",
+    );
 
     // Assert
-    expect(offenders).toEqual(["interactions_target_type_check"]);
+    expect(values).toEqual(["reference", "shidduch"]);
+    expect(isAtParityWithEntityTargetTypes(values!)).toBe(false);
   });
 });

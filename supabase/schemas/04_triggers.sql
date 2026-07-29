@@ -110,6 +110,18 @@ create or replace trigger purge_reference_dependents
     before delete on public."references"
     for each row execute function public.purge_polymorphic_dependents('reference');
 
+-- Story 3.5 (contract §8 rule 3): the same cascade, for the two target
+-- types interactions.target_type widens to. purge_polymorphic_dependents()
+-- itself is untouched — its TG_ARGV[0] design is exactly why one function
+-- serves every polymorphic parent.
+create or replace trigger purge_single_dependents
+    before delete on public.singles
+    for each row execute function public.purge_polymorphic_dependents('single');
+
+create or replace trigger purge_shadchan_dependents
+    before delete on public.shadchanim
+    for each row execute function public.purge_polymorphic_dependents('shadchan');
+
 -- Second caller of the shared identity service (AD-5).
 create or replace trigger sync_shidduch_signals
     after insert or update on public.shidduchim
@@ -131,6 +143,17 @@ create or replace trigger sync_task_target_trigger
 create or replace trigger set_interactions_account_id
     before insert on public.interactions
     for each row execute function public.set_account_id_default();
+
+-- Story 3.5 (AC 4): server-sets actor_member_id, overwriting any
+-- client-supplied value. The second BEFORE INSERT trigger on interactions;
+-- ordering versus set_interactions_account_id above is irrelevant — neither
+-- reads the other's output (current_member_id() resolves through
+-- current_context_id(), not new.account_id). Named `set_interaction_…`
+-- (singular), not `set_interactions_…`, per the contract's fixed symbol —
+-- do not "correct" it to match the table-name convention.
+create or replace trigger set_interaction_actor_member_id
+    before insert on public.interactions
+    for each row execute function public.set_interaction_actor_member_id();
 
 create or replace trigger set_identity_signals_account_id
     before insert on public.identity_signals

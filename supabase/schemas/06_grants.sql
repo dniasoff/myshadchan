@@ -226,6 +226,13 @@ revoke all on function public.current_context_id() from public, anon;
 grant execute on function public.current_context_id() to authenticated;
 grant execute on function public.current_context_id() to service_role;
 
+-- current_member_id() is SECURITY DEFINER, so anon must never execute it
+-- (Story 3.5). Story 3.6 calls it from RLS and from a client-visible "is
+-- this mine" read.
+revoke all on function public.current_member_id() from public, anon;
+grant execute on function public.current_member_id() to authenticated;
+grant execute on function public.current_member_id() to service_role;
+
 -- set_active_context() is SECURITY DEFINER and is the only validated way a
 -- client switches its active context (AD-19); anon must never execute it.
 revoke all on function public.set_active_context(bigint) from public, anon;
@@ -269,6 +276,11 @@ grant execute on function public.enforce_pipeline_transition() to service_role;
 revoke all on function public.set_account_id_default() from public, anon;
 grant execute on function public.set_account_id_default() to authenticated;
 grant execute on function public.set_account_id_default() to service_role;
+
+-- Story 3.5 (AC 4): the trigger function backing set_interaction_actor_member_id.
+revoke all on function public.set_interaction_actor_member_id() from public, anon;
+grant execute on function public.set_interaction_actor_member_id() to authenticated;
+grant execute on function public.set_interaction_actor_member_id() to service_role;
 
 -- Story 2.2 (AC-3): enforce_household_scope() is the shared trigger function
 -- backing the 11 validate_*_household_scope triggers (13 originally; Story
