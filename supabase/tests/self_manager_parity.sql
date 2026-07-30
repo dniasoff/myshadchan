@@ -50,6 +50,16 @@
 --
 -- Run via: npm run test:unit:db  (needs the local stack up).
 --
+-- Scope note: this suite proves parity (self_manager reads exactly what
+-- parent_admin reads) — it is structurally blind to a WIDENING that grants
+-- both roles more than they should have (e.g. a policy that reads `using
+-- (true)`), since both sides of an equality check would simply read the
+-- same, larger number. Catching an over-broad grant is the job of each
+-- table's own isolation suite (single_row_scoping.sql,
+-- single_field_scoping.sql, medical_notes.sql, etc.), which asserts what a
+-- DENIED role sees, not what an ALLOWED one does — this file is not a
+-- substitute for those.
+--
 
 \set ON_ERROR_STOP on
 begin;
@@ -77,29 +87,41 @@ insert into ids (name, value) values
 
 -- ---------------------------------------------------------------------------
 -- AC-2: household S's provisioning, read back as postgres (ground truth) —
--- exactly one account_members row (self_manager, active) and exactly one
--- singles row, linked by member_id, no second singles row. Arranged with a
+-- add_persona('single') created exactly one account_members row for the
+-- fresh caller (self_manager, active) and exactly one singles row linked to
+-- it by member_id, no second singles row FROM THAT CALL. Arranged with a
 -- user who held NO membership at all before add_persona('single') ran (Task
 -- 1's note on why this assertion needs the fresh-user path specifically).
+--
+-- Review fix: scoped to the fresh caller's own user_id/member_id, not to
+-- "the whole account_id" — householdFixtureDataSql() now deliberately seeds
+-- a SECOND account_members row and a SECOND singles row per household (see
+-- its own doc comment) so the AC1/AC3/AC5 parity loop below can tell "every
+-- row" from "only my own row". Counting by account_id here would make THAT
+-- fixture row look like a violation of add_persona()'s atomicity, which it
+-- is not — the two are different claims: this checks what one RPC call
+-- produced, the parity loop checks what a role can SEE.
 -- ---------------------------------------------------------------------------
 insert into results (name, passed, detail)
 select
-  'AC-2: household S holds exactly one account_members row (role = self_manager, status = active)',
-  (select count(*) from public.account_members where account_id = :s_account_id) = 1
+  'AC-2: add_persona(''single'') created exactly one account_members row for the fresh caller (role = self_manager, status = active)',
+  (select count(*) from public.account_members
+     where user_id = (select user_id from public.account_members where id = :s_member_id)) = 1
     and exists (
       select 1 from public.account_members
       where id = :s_member_id and role = 'self_manager' and status = 'active'
     ),
-  format('account_members count=%s',
-    (select count(*) from public.account_members where account_id = :s_account_id));
+  format('account_members rows for this caller=%s',
+    (select count(*) from public.account_members
+       where user_id = (select user_id from public.account_members where id = :s_member_id)));
 
 insert into results (name, passed, detail)
 select
-  'AC-2: household S holds exactly one singles row, linked by member_id to the self-manager''s own membership — no second singles row',
-  (select count(*) from public.singles where account_id = :s_account_id) = 1
+  'AC-2: add_persona(''single'') linked exactly one singles row to the self-manager''s own membership by member_id — no second singles row from that call',
+  (select count(*) from public.singles where member_id = :s_member_id) = 1
     and exists (select 1 from public.singles where id = :s_single_id and member_id = :s_member_id),
-  format('singles count=%s',
-    (select count(*) from public.singles where account_id = :s_account_id));
+  format('singles rows linked to this caller''s member_id=%s',
+    (select count(*) from public.singles where member_id = :s_member_id));
 
 -- ---------------------------------------------------------------------------
 -- AC-1 / AC-3 / AC-5: full, unfiltered read counts — every table AC-3 names

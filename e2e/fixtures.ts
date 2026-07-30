@@ -145,6 +145,103 @@ async function createSingle({
 }
 
 /**
+ * Story 6.5 review fix (AC-3's tab half): provisions a SELF-MANAGER
+ * household directly — a household whose only membership is `role =
+ * 'self_manager'`, with a `singles` row linked back to it by `member_id`
+ * (the same "one household, self-managed" shape `add_persona('single')`
+ * produces — mirrors `createSingle` above, differing only in `role` and the
+ * `member_id` link). Provisioned directly through the service-role client,
+ * exactly like `createSingle`, rather than by calling `add_persona()`
+ * through an authenticated session this fixture has no reason to open.
+ *
+ * Exists so `navigation.spec.ts` can sign in as a REAL self-manager and
+ * prove — through the actual app, not a unit fixture — that every tab
+ * Stories 6.2/6.3 restrict still names `self_manager` in its `visibleTo`
+ * allow-list (`singles/entityDescriptor.tsx`, `shidduchim/entityDescriptor
+ * .tsx`): no unit test reads those two files' arrays directly, so dropping
+ * `self_manager` from one is silent everywhere else (review finding #3).
+ */
+async function createSelfManagedSingle({
+  member,
+  first_name_en,
+}: {
+  member: { user_id: string };
+  first_name_en: string;
+}) {
+  const { data: account, error: accountError } = await adminSupabase
+    .from("accounts")
+    .insert({ name: "E2E Self-Managed Household" })
+    .select()
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(`Failed to create account: ${accountError?.message}`);
+  }
+
+  const { data: membership, error: membershipError } = await adminSupabase
+    .from("account_members")
+    .insert({
+      account_id: account.id,
+      user_id: member.user_id,
+      role: "self_manager",
+      status: "active",
+    })
+    .select()
+    .single();
+
+  if (membershipError || !membership) {
+    throw new Error(
+      `Failed to create self-manager membership for member ${member.user_id}: ${membershipError?.message}`,
+    );
+  }
+
+  const { data, error } = await adminSupabase
+    .from("singles")
+    .insert({
+      account_id: account.id,
+      first_name_en,
+      member_id: membership.id,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to create self-managed single: ${error.message}`);
+  }
+
+  return data;
+}
+
+/**
+ * Seeds a bare shidduch directly against an already-provisioned account/
+ * single — the minimal shape needed to open every one of Story 6.5's
+ * restricted-tab checks (overview/medical/files/diligence/external-links/
+ * notes/tasks/activity all render off the record alone, no further data
+ * required).
+ */
+async function createShidduch({
+  accountId,
+  singleId,
+  nameEn,
+}: {
+  accountId: number;
+  singleId: number;
+  nameEn: string;
+}) {
+  const { data, error } = await adminSupabase
+    .from("shidduchim")
+    .insert({ account_id: accountId, single_id: singleId, name_en: nameEn })
+    .select()
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to create shidduch "${nameEn}": ${error?.message}`);
+  }
+
+  return data;
+}
+
+/**
  * Story 4.1: seeds a shadchan row directly against an already-provisioned
  * account (`single.account_id`, itself created by `createSingle` above) —
  * unlike `createSingle`/`createInvite`, this does NOT provision its own
@@ -340,6 +437,8 @@ export const test = base.extend<{
   resetDb: void;
   createMember: typeof createMember;
   createSingle: typeof createSingle;
+  createSelfManagedSingle: typeof createSelfManagedSingle;
+  createShidduch: typeof createShidduch;
   createShadchan: typeof createShadchan;
   createSecondContext: typeof createSecondContext;
   createInvite: typeof createInvite;
@@ -362,6 +461,12 @@ export const test = base.extend<{
   },
   createSingle: async ({}, cb) => {
     await cb(createSingle);
+  },
+  createSelfManagedSingle: async ({}, cb) => {
+    await cb(createSelfManagedSingle);
+  },
+  createShidduch: async ({}, cb) => {
+    await cb(createShidduch);
   },
   createShadchan: async ({}, cb) => {
     await cb(createShadchan);

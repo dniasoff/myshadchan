@@ -4,6 +4,8 @@ import { useMemo } from "react";
 
 import { buildNewPath } from "../entity360/entityPaths";
 import { EntityList } from "../misc/EntityList";
+import { pickActiveContext } from "../providers/commons/roleAuthority";
+import { useMyContexts } from "../root/useMyContexts";
 import { useMyPersonas } from "../root/useMyPersonas";
 import type { Single, SingleSummary } from "../types";
 import { SingleCardGrid, SingleCardGridSkeleton } from "./SingleCardGrid";
@@ -62,15 +64,37 @@ const SingleRowList = ({ data }: { data: RaRecord[] }) => {
  * "Why 'self-seeker is not a separate account type' matters here"). A
  * `helper`/`shadchan` — or a still-loading personas read — holds neither
  * persona and falls through to the existing, unchanged copy.
+ *
+ * Review fix: `useMyPersonas()` is user-GLOBAL (one row per persona the
+ * login holds across EVERY account it belongs to), but this list is scoped
+ * to whichever account is currently active. Reading it unfiltered produced
+ * two wrong-copy cases: a self-manager who also `helper`s in an unrelated
+ * household saw the self-managed copy while browsing that OTHER household's
+ * (not their own) roster, and a `parent_admin` of one household who also
+ * self-manages another saw the parent copy while looking at the household
+ * they self-manage. Filtering `personas` to `pickActiveContext(contexts)
+ * .account_id` (the same "active" `useViewerRole()` reads, via the same
+ * `useMyContexts()` cache — no second RPC call) makes both branches answer
+ * for the account actually on screen.
  */
 export const SingleList = () => {
   const translate = useTranslate();
   const { data: personas } = useMyPersonas();
+  const { data: contexts } = useMyContexts();
+  const activeAccountId = pickActiveContext(contexts)?.account_id;
+  const activePersonas = personas?.filter(
+    (p) => p.account_id === activeAccountId,
+  );
   const holdsParentPersona =
-    personas?.some((p) => p.persona === "parent") ?? false;
+    activePersonas?.some((p) => p.persona === "parent") ?? false;
+  // Also true for an ordinary `single`-role viewer (my_personas()'s third
+  // union matches `role = 'single'` too, not only an owning role with a
+  // linked singles row) — the name is "the pipeline shown is my own", not
+  // "I hold the self_manager role specifically"; both cases read correctly
+  // as the self-referential copy either way, so no narrower check is needed.
   const isSelfManagedOnly =
     !holdsParentPersona &&
-    (personas?.some((p) => p.persona === "single") ?? false);
+    (activePersonas?.some((p) => p.persona === "single") ?? false);
 
   return (
     <EntityList

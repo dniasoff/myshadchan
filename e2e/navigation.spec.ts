@@ -95,6 +95,95 @@ test("references has no nav entry on either surface (RULING 7)", async ({
   }
 });
 
+/**
+ * Story 6.5 review fix (AC-3's tab half, review finding #3): Stories 6.2
+ * (AC-10) and 6.3 (AC-9) restrict several tabs to an allow-list that always
+ * names `self_manager` alongside `parent_admin`/`helper`/`shadchan` — the
+ * "no dead shell for a role RLS empties the table for" rule. No unit test
+ * reads `singles/entityDescriptor.tsx` / `shidduchim/entityDescriptor.tsx`'s
+ * actual `visibleTo` arrays (`EntityShow.permissions.test.tsx` proves the
+ * MECHANISM against a throwaway fixture descriptor, never these two real
+ * ones) — dropping `self_manager` from any one of the ten arrays compiles,
+ * typechecks, and leaves every existing suite green. Only a real sign-in as
+ * a `self_manager`, resolving `useViewerRole()` off the actual
+ * `my_contexts()` RPC and running the real `hasVisibility` filter, can catch
+ * it — which is what this test does: navigate directly to each restricted
+ * tab's URL and assert the tab renders in place. A denied tab does not 404
+ * or blank — `Entity360Tabs`' unknown-tab fallback silently REDIRECTS to the
+ * first visible tab (`overview`), so asserting the URL still names the tab
+ * AND the tab strip shows it is what makes a dropped allow-list entry fail
+ * loudly here instead of passing as a quiet redirect.
+ */
+test("every tab restricted by 6.2 AC-10 / 6.3 AC-9 renders for a self-manager viewer (AC-3)", async ({
+  page,
+  createMember,
+  createSelfManagedSingle,
+  createShidduch,
+  signIn,
+}) => {
+  // Arrange
+  const member = await createMember({
+    first_name: "Chaya",
+    last_name: "SelfManaged",
+    email: `e2e-navigation-self-manager-${Date.now()}@example.com`,
+  });
+  const single = await createSelfManagedSingle({
+    member,
+    first_name_en: "Chaya",
+  });
+  const shidduch = await createShidduch({
+    accountId: single.account_id,
+    singleId: single.id,
+    nameEn: "Yanky Klein",
+  });
+
+  await signIn(page, member.email!);
+
+  // Assert — singles/entityDescriptor.tsx's four restricted tabs.
+  const SINGLES_TAB_LABELS: Record<string, string> = {
+    files: "Files",
+    notes: "Notes",
+    tasks: "Tasks",
+    activity: "Activity",
+  };
+  for (const [tab, label] of Object.entries(SINGLES_TAB_LABELS)) {
+    await page.goto(`${APP_URL}/#/singles/${single.id}/${tab}`);
+    // Tab presence/selection is the deterministic signal, checked BEFORE the
+    // URL: a denied tab redirects via a post-mount effect (`replace: true`),
+    // so the URL can transiently still read the requested tab for one paint
+    // even when the tab itself never renders — asserting the tab settles
+    // first avoids that race (found live: a `self_manager`-dropped mutation
+    // here made `toHaveURL` pass on the pre-redirect URL while the tab
+    // assertion below correctly failed).
+    const tabTrigger = page.getByRole("tab", { name: label });
+    await expect(tabTrigger).toBeVisible();
+    await expect(tabTrigger).toHaveAttribute("aria-selected", "true");
+    await expect(page).toHaveURL(new RegExp(`#/singles/${single.id}/${tab}$`));
+  }
+
+  // Assert — shidduchim/entityDescriptor.tsx's seven restricted tabs
+  // (`medical` keeps its own, narrower Story 5.5 allow-list, unchanged by
+  // 6.3, but AC-3 still requires it render for a self-manager).
+  const SHIDDUCH_TAB_LABELS: Record<string, string> = {
+    medical: "Medical",
+    files: "Files",
+    diligence: "Diligence",
+    "external-links": "External links",
+    notes: "Notes",
+    tasks: "Tasks",
+    activity: "Activity",
+  };
+  for (const [tab, label] of Object.entries(SHIDDUCH_TAB_LABELS)) {
+    await page.goto(`${APP_URL}/#/shidduchim/${shidduch.id}/${tab}`);
+    const tabTrigger = page.getByRole("tab", { name: label });
+    await expect(tabTrigger).toBeVisible();
+    await expect(tabTrigger).toHaveAttribute("aria-selected", "true");
+    await expect(page).toHaveURL(
+      new RegExp(`#/shidduchim/${shidduch.id}/${tab}$`),
+    );
+  }
+});
+
 test("the context switcher is reachable on both surfaces for a 2-context user", async ({
   page,
   createMember,

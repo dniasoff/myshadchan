@@ -6,8 +6,9 @@ import { QueryClient } from "@tanstack/react-query";
 import fakeDataProvider from "ra-data-fakerest";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
+import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import { MY_PERSONAS_QUERY_KEY } from "../root/useMyPersonas";
-import type { MyPersona } from "../types";
+import type { MyContext, MyPersona } from "../types";
 // Side-effect import — registers the real `singles` descriptor so
 // SingleCard's RecordLink resolves a real href instead of degrading to a
 // plain span (entity360/RecordLink.tsx).
@@ -32,6 +33,20 @@ const PARENT_PERSONA: MyPersona = {
   role: "parent_admin",
 };
 
+// The active-context default every pre-existing test below implicitly relies
+// on: account_id 1, matching PARENT_PERSONA/SELF_MANAGER_PERSONA's own
+// `account_id`, marked `is_active`. `pickActiveContext` (SingleList's
+// review-fix scoping) needs a matching context row to resolve anything at
+// all — without one, `activeAccountId` is `undefined` and no persona would
+// ever match.
+const ACTIVE_HOUSEHOLD_CONTEXT: MyContext = {
+  account_id: 1,
+  kind: "household",
+  name: "Household",
+  role: "parent_admin",
+  is_active: true,
+};
+
 /**
  * `CoreAdminContext`'s own `store` prop defaults to a module-level
  * `memoryStore()` singleton (`ra-core/src/core/CoreAdminContext.tsx`) shared
@@ -41,25 +56,32 @@ const PARENT_PERSONA: MyPersona = {
  * rule). Every render below gets its own fresh store for exactly that
  * reason.
  *
- * `personas`/`singles` are overridable (Story 6.5): the QueryClient is
- * pre-seeded with `MY_PERSONAS_QUERY_KEY` (PersonasSection.test.tsx's own
- * pattern) so `SingleList`'s persona branch resolves on the FIRST paint, and
- * `getMyPersonas` is also wired on the dataProvider so a react-query
- * background refetch (default `staleTime` 0) resolves to the same value
- * rather than erroring against `ra-data-fakerest`'s generic provider, which
- * has no such method.
+ * `personas`/`singles`/`contexts` are overridable (Story 6.5): the
+ * QueryClient is pre-seeded with `MY_PERSONAS_QUERY_KEY` and
+ * `MY_CONTEXTS_QUERY_KEY` (PersonasSection.test.tsx's own pattern) so
+ * `SingleList`'s persona branch resolves on the FIRST paint, and
+ * `getMyPersonas`/`getMyContexts` are also wired on the dataProvider so a
+ * react-query background refetch (default `staleTime` 0) resolves to the
+ * same value rather than erroring against `ra-data-fakerest`'s generic
+ * provider, which has no such method.
  */
 const renderSingleList = (
   store: Store = memoryStore(),
-  { personas = [PARENT_PERSONA], singles = SINGLES } = {} as {
+  {
+    personas = [PARENT_PERSONA],
+    singles = SINGLES,
+    contexts = [ACTIVE_HOUSEHOLD_CONTEXT],
+  } = {} as {
     personas?: MyPersona[];
     singles?: typeof SINGLES;
+    contexts?: MyContext[];
   },
 ) => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   queryClient.setQueryData(MY_PERSONAS_QUERY_KEY, personas);
+  queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, contexts);
 
   return render(
     <TestMemoryRouter>
@@ -76,6 +98,7 @@ const renderSingleList = (
             })),
           }),
           getMyPersonas: async () => personas,
+          getMyContexts: async () => contexts,
         }}
         i18nProvider={testI18nProvider}
       >
@@ -314,5 +337,78 @@ describe("SingleList — self-manager copy branch (Story 6.5, AC 4)", () => {
         ),
       )
       .toBeInTheDocument();
+  });
+
+  // Review fix: `useMyPersonas()` is user-GLOBAL — these two tests pin the
+  // active-account filtering that keeps a login's OTHER household's persona
+  // from leaking into the roster currently on screen.
+  it("shows the default copy, NOT the self-referential one, for a self-manager whose ACTIVE context is a different household they only helper in", async () => {
+    // Arrange — the login holds a self_manager persona in household 1, but
+    // is currently viewing household 2 (where they are merely a helper —
+    // `my_personas()` reports no persona at all for a `helper` role).
+    const screen = await renderSingleList(undefined, {
+      personas: [SELF_MANAGER_PERSONA],
+      contexts: [
+        { ...ACTIVE_HOUSEHOLD_CONTEXT, is_active: false },
+        {
+          account_id: 2,
+          kind: "household",
+          name: "Other Household",
+          role: "helper",
+          is_active: true,
+        },
+      ],
+    });
+
+    // Assert — the OTHER household's roster is not "their own pipeline".
+    await expect
+      .element(
+        screen.getByText(
+          "Every single you are redting for, each with their own pipeline.",
+        ),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText("Your own shidduchim pipeline, all in one place."),
+      )
+      .not.toBeInTheDocument();
+  });
+
+  it("shows the self-referential copy for a parent_admin of one household who is browsing a DIFFERENT household they self-manage", async () => {
+    // Arrange — the login is parent_admin of household 1 (PARENT_PERSONA)
+    // and separately self-manages household 2; the active context is
+    // household 2, so household 1's `parent` persona must not leak in.
+    const selfManagerInOtherAccount: MyPersona = {
+      ...SELF_MANAGER_PERSONA,
+      account_id: 2,
+    };
+    const screen = await renderSingleList(undefined, {
+      personas: [PARENT_PERSONA, selfManagerInOtherAccount],
+      contexts: [
+        { ...ACTIVE_HOUSEHOLD_CONTEXT, is_active: false },
+        {
+          account_id: 2,
+          kind: "household",
+          name: "Self-Managed Household",
+          role: "self_manager",
+          is_active: true,
+        },
+      ],
+    });
+
+    // Assert
+    await expect
+      .element(
+        screen.getByText("Your own shidduchim pipeline, all in one place."),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "Every single you are redting for, each with their own pipeline.",
+        ),
+      )
+      .not.toBeInTheDocument();
   });
 });

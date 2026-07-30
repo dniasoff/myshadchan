@@ -319,6 +319,21 @@ ${attachManagedSingle}`;
  * LIVE insert-then-moderate-as-author check in self_manager_parity.sql
  * (`can_moderate_note()`'s AUTHOR branch needs a real, freshly-authored row,
  * not this one).
+ *
+ * Review fix: also seeds a SECOND, member-less `singles` row and a SECOND,
+ * login-less `account_members` row per household. Without these, each
+ * household held exactly one row in both tables, so "self_manager sees
+ * every row" and "self_manager sees only their own row" produced the
+ * IDENTICAL count (1) — equality could tell "all" from "none" but never
+ * "all" from "the subset a Story 6.2-shaped narrowing would leave". Mutating
+ * `public.singles`/`public.account_members` to add
+ * `and (current_member_role() <> 'self_manager' or <own-row clause>)`
+ * previously passed this suite's AC1/AC3/AC5 loop 44/44 green; with the
+ * second row on each side, that narrowing now reads 1 (own row) against the
+ * parent_admin's un-narrowed 2 and fails loudly. Both households get the
+ * SAME shape (a second row each), so the un-mutated baseline stays
+ * parity-equal (2 == 2) — only a real narrowing regression makes the two
+ * sides diverge.
  */
 export function householdFixtureDataSql(household: ParityHousehold): string {
   const h = household;
@@ -455,5 +470,19 @@ values (
   '${ownerUserId}'
 )
 returning id as ${h}_private_photo_object_id \\gset
+
+-- Review fix: a second, member-less singles row and a second, login-less
+-- account_members row — see this function's own doc comment above for why
+-- a single row per table left "full access" and "own-row-only" arithmetically
+-- indistinguishable. Neither row is referenced by any other insert in this
+-- function or by self_manager_parity.sql's write-parity/invite-authority
+-- blocks — they exist purely to be counted.
+insert into public.singles (account_id, first_name_en, gender)
+values (:${h}_account_id, 'Household ${h.toUpperCase()} Second Single (member-less)', 'female')
+returning id as ${h}_second_single_id \\gset
+
+insert into public.account_members (account_id, role, status)
+values (:${h}_account_id, 'helper', 'active')
+returning id as ${h}_second_member_id \\gset
 `;
 }
