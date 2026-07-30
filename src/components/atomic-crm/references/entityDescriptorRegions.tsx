@@ -10,6 +10,7 @@ import { TasksTab } from "../entity360/tabs/TasksTab";
 import type { EntityRelationshipDescriptor } from "../entity360/relationshipDescriptor";
 import { TopToolbar } from "../layout/TopToolbar";
 import type { Reference } from "../types";
+import { ReferenceAttachToShidduch } from "./ReferenceAttachToShidduch";
 import { ReferenceCallLog } from "./ReferenceCallLog";
 import { ReferenceHeader } from "./ReferenceHeader";
 import { ReferenceMergeButton } from "./ReferenceMergeButton";
@@ -40,13 +41,33 @@ export const ReferenceIdentityHeader = ({ record }: { record: Reference }) => (
  * carried in its own action bar — an `EditButton` back to
  * `/references/{id}/edit`, and the merge-duplicates action — rendered
  * INSIDE the identity header, immediately after it (contract §2 rule 2).
+ *
+ * **Review fix.** Task 6's own text (subtask 2) names this exact call site —
+ * "reused by the 360 … render it in the reference's actions region when
+ * `useReferenceLinks(record.id).links.length === 0`, and only then" — as
+ * the second and last place `ReferenceAttachToShidduch` is ever rendered.
+ * That wiring was missing: an orphan reference opened at its own 360 had no
+ * way to fix its own orphan-ness short of navigating back to the unattached-
+ * references index (`ReferencesIndex.tsx`). `useReferenceLinks` is already
+ * imported in this module for the two tab adapters below, so this reuses the
+ * same query rather than issuing a second one.
  */
-export const ReferenceActions = () => (
-  <TopToolbar>
-    <EditButton />
-    <ReferenceMergeButton />
-  </TopToolbar>
-);
+export const ReferenceActions = ({ record }: { record: Reference }) => {
+  const { links, isPending } = useReferenceLinks(record.id);
+
+  return (
+    <TopToolbar>
+      {!isPending && links.length === 0 && (
+        <ReferenceAttachToShidduch
+          referenceId={record.id}
+          referenceName={record.name_en}
+        />
+      )}
+      <EditButton />
+      <ReferenceMergeButton />
+    </TopToolbar>
+  );
+};
 
 /**
  * The `conversations` tab: unchanged content (`RepeatRecognitionPanel` +
@@ -88,6 +109,18 @@ export function ReferenceConversationsTab(): ReactNode {
  * column is nullable and an unguarded row would render a `RecordLink` to
  * `/shidduchim/null` (`RepeatRecognitionPanel.tsx`/`ReferenceCallLog.tsx`
  * already guard the same case).
+ *
+ * **Review fix.** `shidduchim.name_en` is nullable and `shidduchim/index.ts`
+ * declares no `recordRepresentation`, so a null `shidduch_name_en` fell
+ * through to ra-core's default representation of the QUERIED row — the
+ * `reference_links_summary` link row, not the shidduch — rendering the
+ * unrelated link id (`#<link-id>`) as the label. Same defect Story 5.8's own
+ * review fix closed for `singles/entityDescriptorRegions.tsx`'s identical
+ * `shidduchim` relationship, with the identical fallback field
+ * (`single_first_name_en`) available on this same view. The id fallback
+ * must be `row.shidduchim_id` (the link target), not `row.id` (the link
+ * row) — singles's `#${row.id}` works only because `resource` there IS
+ * `shidduchim` itself.
  */
 const referenceShidduchim: EntityRelationshipDescriptor = {
   key: "shidduchim",
@@ -98,7 +131,8 @@ const referenceShidduchim: EntityRelationshipDescriptor = {
   }),
   linkResource: "shidduchim",
   linkId: (row) => row.shidduchim_id,
-  linkLabel: (row) => row.shidduch_name_en,
+  linkLabel: (row) =>
+    row.shidduch_name_en ?? row.single_first_name_en ?? `#${row.shidduchim_id}`,
 };
 
 export function ReferenceShidduchimTab(): ReactNode {

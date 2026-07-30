@@ -10,6 +10,7 @@ import { Notification } from "@/components/admin/notification";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
+import type { ReferenceMatchCandidate } from "../types";
 
 // Side-effect import — registers the "references" entity descriptor, exactly
 // as `references/index.ts` does at boot. `redirectToRecord` (the post-save
@@ -197,5 +198,61 @@ describe("ReferenceCreate — no orphan can be produced on save (Ruling 7 / §2 
     await expect
       .element(screen.getByText("shidduch 42 not found"))
       .toBeInTheDocument();
+  });
+});
+
+describe("ReferenceCreate — match-on-entry confirm redirects to the linked record, not a bare show route (Story 5.10 review fix)", () => {
+  /**
+   * `MatchOnEntry.handleConfirm` (`ReferenceCreate.tsx`) was reverted from
+   * `redirect("show", …)` to `redirect(redirectToRecord, …)` outside this
+   * story's task list, and every other test in this file stubs
+   * `matchReferenceOnEntry` to `[]` — so `ReferenceMatchPanel` never renders,
+   * `handleConfirm` is never reached, and the change was unfalsifiable
+   * (reverting it left all 77 `references/` tests green). This drives the
+   * confirm branch for real: a candidate is returned, the user clicks
+   * "Yes, this is …", and the redirect is asserted to land on the
+   * AD-24 `buildRecordPath` shape (`/references/{id}`) rather than the
+   * pre-fix `useCreatePath`-resolved `/references/{id}/show`.
+   */
+  const buildCandidate = (
+    overrides: Partial<ReferenceMatchCandidate> = {},
+  ): ReferenceMatchCandidate => ({
+    reference_id: 555,
+    confidence: 0.95,
+    deciding_facts: [{ signal: "phone", detail: "Same phone number" }],
+    name_en: "Existing Person",
+    linked_shidduchim_count: 0,
+    ...overrides,
+  });
+
+  it("links the confirmed candidate to the shidduch and redirects to its own record page", async () => {
+    // Arrange
+    const { screen, dataProvider, getPathname } = await renderReferenceCreate(
+      "/references/new?shidduchim_id=42",
+      {
+        matchReferenceOnEntry: vi.fn().mockResolvedValue([buildCandidate()]),
+      },
+    );
+    await screen.getByLabelText("Name").fill("Existing Person");
+    await screen.getByLabelText("Phone").fill("555-0100");
+
+    // Act — the match request is debounced; the auto-retrying `expect.element`
+    // waits it out rather than asserting immediately.
+    const confirmButton = screen.getByRole("button", {
+      name: "Yes, this is Existing Person",
+    });
+    await expect.element(confirmButton).toBeInTheDocument();
+    await confirmButton.click();
+
+    // Assert — linked to the candidate's OWN id (never a newly created
+    // record: nothing is ever saved on the confirm branch), and redirected
+    // to the AD-24 record path, not the pre-fix `/references/555/show`.
+    await expect.poll(() => getPathname()).toBe("/references/555");
+    expect(dataProvider.create).not.toHaveBeenCalled();
+    expect(dataProvider.linkReferenceToShidduch).toHaveBeenCalledTimes(1);
+    expect(dataProvider.linkReferenceToShidduch).toHaveBeenCalledWith({
+      reference_id: 555,
+      shidduchim_id: 42,
+    });
   });
 });
