@@ -16,6 +16,7 @@ import type {
   ResumePhoto,
   Shadchan,
   Shidduch,
+  ShidduchExternalLink,
   ShidduchSchool,
   Single,
   Task,
@@ -49,6 +50,10 @@ export interface Db {
   date_records: DateRecord[];
   redts: Redt[];
   shidduch_schools: ShidduchSchool[];
+  // External links tab (Story 5.6) — seeded empty, same reasoning as
+  // medical_notes above: the demo build must not crash on this tab. Plain
+  // CRUD through dataProvider.create/getList/delete (no custom method).
+  shidduchim_external_links: ShidduchExternalLink[];
   pipeline_transitions: PipelineTransition[];
   interactions: Interaction[];
   // Files tab (Story 3.7) — seeded empty; the demo build must not crash on

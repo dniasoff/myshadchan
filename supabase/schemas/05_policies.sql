@@ -71,6 +71,7 @@ alter table public.reference_links enable row level security;
 alter table public.date_records enable row level security;
 alter table public.redts enable row level security;
 alter table public.shidduch_schools enable row level security;
+alter table public.shidduchim_external_links enable row level security;
 alter table public.pipeline_transitions enable row level security;
 
 -- Accounts: a member sees every account they hold ANY membership in
@@ -298,6 +299,14 @@ create policy "Redts scoped to account" on public.redts
     with check (account_id = public.current_context_id());
 
 create policy "Shidduch schools scoped to account" on public.shidduch_schools
+    for all to authenticated
+    using (account_id = public.current_context_id())
+    with check (account_id = public.current_context_id());
+
+-- Story 5.6: same shape as "Shidduch schools scoped to account" above — a
+-- URL bookmark is not sensitive data, so there is no sensitivity tier and no
+-- role check, only account scoping.
+create policy "Shidduchim external links scoped to account" on public.shidduchim_external_links
     for all to authenticated
     using (account_id = public.current_context_id())
     with check (account_id = public.current_context_id());

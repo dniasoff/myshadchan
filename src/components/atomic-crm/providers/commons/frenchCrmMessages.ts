@@ -496,6 +496,18 @@ export const frenchCrmMessages = {
         add: "Ajouter une note",
         addError: "Échec de l'ajout de la note",
       },
+      // Story 5.6 — ExternalLinksTab.tsx.
+      "external-links": {
+        empty: "Aucun lien externe pour l'instant.",
+        error: "Impossible de charger les liens externes.",
+        urlPlaceholder: "https://exemple.com/profil",
+        labelPlaceholder: "Libellé (facultatif)",
+        add: "Ajouter un lien",
+        addError: "Échec de l'ajout du lien",
+        invalidUrl: "Saisissez une URL valide (avec https://).",
+        remove: "Supprimer",
+        removeError: "Échec de la suppression du lien",
+      },
       record_pending: "Chargement…",
       record_unavailable: "Cet enregistrement n'est pas disponible.",
       record_unavailable_link: "Retour à la liste",

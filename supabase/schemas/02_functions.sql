@@ -829,16 +829,17 @@ $$;
 
 -- Review finding #1 (2.5): "does this account still hold real data" —
 -- checked against every domain table this function has always enumerated
--- (13 of them), status-agnostic (an archived/paused row is still data per
--- AC-3's "remains auditable"). Kept general rather than scoped to the
--- household-only set (04_triggers.sql's validate_<table>_household_scope
--- list, 11 tables as of Story 3.14): a shadchanus account can never hold a
--- row in any of those 11 (the same trigger still forbids it), so those arms
--- stay structurally always false there — but `interactions` and `tasks` no
--- longer carry that trigger (Story 3.14, AD-2), so a shadchanus account CAN
--- answer yes via those two arms today. The function body below is unchanged
--- on purpose: checking every table it always has is what keeps it correct
--- both for the 11 that stay closed and the 2 Story 3.14 opened up.
+-- (14 of them, Story 5.6 adds shidduchim_external_links), status-agnostic
+-- (an archived/paused row is still data per AC-3's "remains auditable").
+-- Kept general rather than scoped to the household-only set (04_triggers.sql's
+-- validate_<table>_household_scope list, 11 tables as of Story 3.14): a
+-- shadchanus account can never hold a row in any of those 11 (the same
+-- trigger still forbids it), so those arms stay structurally always false
+-- there — but `interactions` and `tasks` no longer carry that trigger
+-- (Story 3.14, AD-2), so a shadchanus account CAN answer yes via those two
+-- arms today. The function body below is unchanged on purpose: checking
+-- every table it always has is what keeps it correct both for the 11 that
+-- stay closed and the 2 Story 3.14 opened up.
 CREATE OR REPLACE FUNCTION "public"."account_has_domain_data"("p_account_id" bigint) RETURNS boolean
     LANGUAGE "sql" STABLE
     SET "search_path" TO ''
@@ -853,6 +854,7 @@ CREATE OR REPLACE FUNCTION "public"."account_has_domain_data"("p_account_id" big
     or exists (select 1 from public.date_records where account_id = p_account_id)
     or exists (select 1 from public.redts where account_id = p_account_id)
     or exists (select 1 from public.shidduch_schools where account_id = p_account_id)
+    or exists (select 1 from public.shidduchim_external_links where account_id = p_account_id)
     or exists (select 1 from public.interactions where account_id = p_account_id)
     or exists (select 1 from public.identity_signals where account_id = p_account_id)
     or exists (select 1 from public.inbox_items where account_id = p_account_id)

@@ -102,6 +102,12 @@ create or replace trigger set_shidduch_schools_account_id
     before insert on public.shidduch_schools
     for each row execute function public.set_account_id_default();
 
+-- Story 5.6: server-set account_id on insert (AD-1), same shape as
+-- set_shidduch_schools_account_id above.
+create or replace trigger set_shidduchim_external_links_account_id
+    before insert on public.shidduchim_external_links
+    for each row execute function public.set_account_id_default();
+
 -- Keep shidduchim's denormalized redt summary (last date, latest/first shadchan)
 -- in sync whenever the redt history changes.
 create or replace trigger refresh_shidduch_redts
@@ -264,6 +270,14 @@ create or replace trigger validate_redts_household_scope
 
 create or replace trigger validate_shidduch_schools_household_scope
     before insert or update of account_id on public.shidduch_schools
+    for each row execute function public.enforce_household_scope();
+
+-- Story 5.6: a shidduch is household-only, so its child table is too — no
+-- exclusion applies (unlike entity_files, which a shadchanus context must
+-- be able to hold from day one). Bumps household_scope_lift.sql's
+-- catalog-fact literal from 13 to 14 in the same diff.
+create or replace trigger validate_shidduchim_external_links_household_scope
+    before insert or update of account_id on public.shidduchim_external_links
     for each row execute function public.enforce_household_scope();
 
 create or replace trigger validate_identity_signals_household_scope

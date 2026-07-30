@@ -256,6 +256,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/ExternalLinksTab.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shadchanim/shadchanUtils.ts",
           "type": "registry:component"
         },

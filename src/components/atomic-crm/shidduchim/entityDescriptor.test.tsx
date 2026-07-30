@@ -140,3 +140,33 @@ describe("shidduchimDescriptor — the real medical tab's visibleTo (Story 5.5, 
       .not.toBeInTheDocument();
   });
 });
+
+describe("shidduchimDescriptor — tab strip order (Story 5.6, AC 1 / AC 2)", () => {
+  it("renders all ten canonical tabs, Files after Medical and External links after Diligence", async () => {
+    // Act — the rendered strip, not the descriptor literal (Task 5's own
+    // instruction): a parent_admin sees every tab, including the
+    // parent_admin/self_manager-gated Medical tab.
+    const { screen } = await renderShidduchShow("parent_admin");
+    await expect
+      .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
+
+    // Assert
+    const names = screen
+      .getByRole("tab")
+      .elements()
+      .map((element) => element.textContent?.trim());
+    expect(names).toEqual([
+      "Overview",
+      "Resume",
+      "Photo",
+      "Medical",
+      "Files",
+      "Diligence",
+      "External links",
+      "Notes",
+      "Tasks",
+      "Activity",
+    ]);
+  });
+});

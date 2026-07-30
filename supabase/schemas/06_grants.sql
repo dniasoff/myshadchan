@@ -159,6 +159,10 @@ revoke all on table public.shidduch_schools from anon;
 grant all on table public.shidduch_schools to authenticated;
 grant all on table public.shidduch_schools to service_role;
 
+revoke all on table public.shidduchim_external_links from anon;
+grant all on table public.shidduchim_external_links to authenticated;
+grant all on table public.shidduchim_external_links to service_role;
+
 revoke all on table public.pipeline_transitions from anon;
 grant select on table public.pipeline_transitions to authenticated;
 grant all on table public.pipeline_transitions to service_role;
@@ -227,6 +231,10 @@ grant all on sequence public.redts_id_seq to service_role;
 revoke all on sequence public.shidduch_schools_id_seq from anon;
 grant all on sequence public.shidduch_schools_id_seq to authenticated;
 grant all on sequence public.shidduch_schools_id_seq to service_role;
+
+revoke all on sequence public.shidduchim_external_links_id_seq from anon;
+grant all on sequence public.shidduchim_external_links_id_seq to authenticated;
+grant all on sequence public.shidduchim_external_links_id_seq to service_role;
 
 -- Function grants (execute for authenticated + service_role, never anon).
 -- current_context_id() is SECURITY DEFINER, so anon must never execute it.
@@ -654,6 +662,12 @@ grant select, insert, update, delete on table public.redts to authenticated;
 
 revoke all on table public.shidduch_schools from anon, authenticated;
 grant select, insert, update, delete on table public.shidduch_schools to authenticated;
+
+-- Story 5.6: same full-CRUD-at-the-grant-layer shape as shidduch_schools
+-- above. RLS (05_policies.sql) is the real gate — account-scoped only, no
+-- sensitivity tier — and the grant only makes the table reachable at all.
+revoke all on table public.shidduchim_external_links from anon, authenticated;
+grant select, insert, update, delete on table public.shidduchim_external_links to authenticated;
 
 -- The three tables this epic added, restated here so the whole hardening rule
 -- reads in one place. interactions withholds DELETE as well (audit trail).

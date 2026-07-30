@@ -380,6 +380,19 @@ export type AddSchoolInput = {
   end_year?: number | null;
 };
 
+/**
+ * Story 5.6 — a bookmark to an external profile (a shidduch site, a social
+ * profile) with no file behind it. Shidduch-scoped only, deliberately not
+ * polymorphic (YAGNI) — see `shidduchim/ExternalLinksTab.tsx`.
+ */
+export type ShidduchExternalLink = {
+  account_id: Identifier;
+  shidduchim_id: Identifier;
+  url: string;
+  label?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
 /** Input accepted by createShidduch() — mirrors the create_shidduch RPC (AD-4). */
 export type CreateShidduchInput = {
   single_id: Identifier;

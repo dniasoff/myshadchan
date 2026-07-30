@@ -549,6 +549,19 @@ export const englishCrmMessages = {
         add: "Add note",
         addError: "Failed to add the note",
       },
+      // Story 5.6 — ExternalLinksTab.tsx's own UX-DR11 states, its add/
+      // remove controls, and the invalid-URL rejection message (AC 4).
+      "external-links": {
+        empty: "No external links yet.",
+        error: "Could not load the external links.",
+        urlPlaceholder: "https://example.com/profile",
+        labelPlaceholder: "Label (optional)",
+        add: "Add link",
+        addError: "Failed to add the link",
+        invalidUrl: "Enter a valid URL (including https://).",
+        remove: "Remove",
+        removeError: "Failed to remove the link",
+      },
       // Story 3.2 — ShowBase's explicit `loading` / `error` elements (AC 2).
       record_pending: "Loading…",
       record_unavailable: "This record is unavailable.",

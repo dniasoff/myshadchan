@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useGetList, useRecordContext } from "ra-core";
 
 import { ActivityTab } from "../entity360/tabs/ActivityTab";
+import { FilesTab } from "../entity360/tabs/FilesTab";
 import { NotesTab } from "../entity360/tabs/NotesTab";
 import { TasksTab } from "../entity360/tabs/TasksTab";
 import { ShidduchReferencesSection } from "../references/ShidduchReferencesSection";
@@ -63,7 +64,7 @@ export const ShidduchActions = ({ record }: { record: ShidduchSummary }) => (
 );
 
 /**
- * `render` is arity-zero (contract §2 rule 4) — each of these four thin
+ * `render` is arity-zero (contract §2 rule 4) — each of these five thin
  * wrappers reaches the record via `useRecordContext()` rather than a typed
  * prop, exactly like `ShidduchOverviewTab` itself.
  */
@@ -71,6 +72,20 @@ export function ShidduchDiligenceTab(): ReactNode {
   const record = useRecordContext<ShidduchSummary>();
   if (!record) return null;
   return <ShidduchReferencesSection shidduchimId={record.id} />;
+}
+
+/**
+ * Story 5.6 — the `files` tab (AC 1). `FilesTab` is the universal, Story
+ * 3.7-shipped tab (`entity360/tabs/FilesTab.tsx`); this wrapper is the
+ * shidduch-side `targetType`/`targetId` adapter, exactly like
+ * `ShidduchNotesTab`/`ShidduchTasksTab`/`ShidduchActivityTab` below. No
+ * shidduch-specific file storage or upload code lives here — that would
+ * duplicate what Story 3.7 already ships.
+ */
+export function ShidduchFilesTab(): ReactNode {
+  const record = useRecordContext<ShidduchSummary>();
+  if (!record) return null;
+  return <FilesTab targetType="shidduch" targetId={record.id} />;
 }
 
 export function ShidduchNotesTab(): ReactNode {

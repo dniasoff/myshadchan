@@ -2,12 +2,14 @@ import type { EntityDescriptor } from "../entity360/entityDescriptor";
 import { registerEntityDescriptor } from "../entity360/registry";
 import { PhotoTab } from "../resumes/PhotoTab";
 import { ResumeTab } from "../resumes/ResumeTab";
+import { ExternalLinksTab } from "./ExternalLinksTab";
 import { MedicalTab } from "./MedicalTab";
 import { ShidduchOverviewTab } from "./ShidduchOverviewTab";
 import {
   ShidduchActions,
   ShidduchActivityTab,
   ShidduchDiligenceTab,
+  ShidduchFilesTab,
   ShidduchIdentityHeader,
   ShidduchNotesTab,
   ShidduchTasksTab,
@@ -63,6 +65,15 @@ import type { ShidduchSummary } from "../types";
  * `PhotoTab` — a medical note is shidduch-scoped only per this epic, with
  * no single-level or shadchan-level concept, so it has no reason to live
  * outside this entity's own folder.
+ *
+ * Story 5.6 moves the last two keys, `files` and `external-links`, out of
+ * `pendingTabs` and into `tabs`, in canonical position
+ * (`CANONICAL_TAB_SETS.shidduchim`) — the same diff that wires `FilesTab`
+ * (Story 3.7's universal tab, wrapped by `ShidduchFilesTab` for the
+ * `targetType`/`targetId` adapter) and builds `ExternalLinksTab` (a new,
+ * shidduch-only tab — no other Epic 5 story asks for it elsewhere, so it is
+ * not made polymorphic, per YAGNI). `pendingTabs` is now empty: this is the
+ * shidduch descriptor's last pending key.
  */
 export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
   name: "shidduchim",
@@ -79,12 +90,14 @@ export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
       visibleTo: ["parent_admin", "self_manager"],
       render: () => <MedicalTab />,
     },
+    { key: "files", render: () => <ShidduchFilesTab /> },
     { key: "diligence", render: () => <ShidduchDiligenceTab /> },
+    { key: "external-links", render: () => <ExternalLinksTab /> },
     { key: "notes", render: () => <ShidduchNotesTab /> },
     { key: "tasks", render: () => <ShidduchTasksTab /> },
     { key: "activity", render: () => <ShidduchActivityTab /> },
   ],
-  pendingTabs: ["files", "external-links"],
+  pendingTabs: [],
 };
 
 registerEntityDescriptor(shidduchimDescriptor, { replace: true });

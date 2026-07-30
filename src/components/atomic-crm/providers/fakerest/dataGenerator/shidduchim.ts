@@ -8,6 +8,7 @@ import type {
   ResumePhoto,
   Shadchan,
   Shidduch,
+  ShidduchExternalLink,
   ShidduchSchool,
   Single,
 } from "../../../types";
@@ -414,6 +415,9 @@ export const generateShidduchimDomain = (db: Db) => {
   // Medical tab (Story 5.5) — seeded empty, same reasoning as resume_photos
   // above: the demo build must not crash on this tab.
   db.medical_notes = [] as MedicalNote[];
+  // External links tab (Story 5.6) — seeded empty, same reasoning as
+  // medical_notes above.
+  db.shidduchim_external_links = [] as ShidduchExternalLink[];
   // db.references / db.reference_links / db.interactions are seeded by
   // generateReferencesDomain() (references.ts), which runs after this module
   // so it can point reference_links.shidduchim_id at real shidduchim ids.

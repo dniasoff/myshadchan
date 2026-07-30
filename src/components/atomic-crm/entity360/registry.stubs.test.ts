@@ -18,9 +18,10 @@ import type { TabKey } from "./tabKeys";
  * Three of the four (`singles`, `shadchanim`, `references`) are still Story
  * 3.9's unmigrated stub — `/{name}/1/show`, empty `tabs`, a full
  * `pendingTabs`. `shidduchim` is Story 5.1's real descriptor (Story 5.3
- * moved `resume`, 5.4 moved `photo`, 5.5 moved `medical` — each from
- * `pendingTabs` into `tabs`, in canonical position): the bare AD-24 path,
- * its eight real `tabs`, and the two keys still pending.
+ * moved `resume`, 5.4 moved `photo`, 5.5 moved `medical`, 5.6 moved `files`
+ * and `external-links` — each from `pendingTabs` into `tabs`, in canonical
+ * position): the bare AD-24 path, its full ten-key `tabs`, and an empty
+ * `pendingTabs` — Story 5.6 is the last story to move a `shidduchim` key.
  *
  * `buildRecordPath` and `tabs` are per-case `StubCase` fields, not a shared
  * template string / shared literal (Story 5.1's reshape of this file):
@@ -50,12 +51,14 @@ const CASES: StubCase[] = [
       "resume",
       "photo",
       "medical",
+      "files",
       "diligence",
+      "external-links",
       "notes",
       "tasks",
       "activity",
     ],
-    pendingTabs: ["files", "external-links"],
+    pendingTabs: [],
   },
   {
     name: "singles",
