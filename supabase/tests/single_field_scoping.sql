@@ -169,6 +169,26 @@ insert into ids values
   ('shidduch_note_id', :'shidduch_note_id'),
   ('shidduch_status_change_id', :'shidduch_status_change_id');
 
+-- Arrange control (anti-vacuity) for every "single sees zero interactions"
+-- check below. A denial assertion is green whenever its subject does not
+-- exist: if these three rows silently failed to insert, `count(*) = 0` as
+-- Leah would pass while proving nothing at all. Asserted here, as postgres,
+-- where the rows are unconditionally visible — the parent-side counterpart
+-- further down (`AC8: parent_admin sees non-zero rows in interactions`) is
+-- the same guard from the other side, but it sits ~300 lines away and is
+-- itself subject to the parent's RLS, so it cannot stand in for this.
+insert into results (name, passed, detail)
+select
+  'Arrange control (every "single sees zero interactions" check is vacuous without it): all three fixture interaction rows exist',
+  count(*) = 3,
+  format('rows=%s kinds=%s', count(*), string_agg(kind, ',' order by kind))
+from public.interactions
+where id in (
+  :'shadchan_note_id'::bigint,
+  :'shidduch_note_id'::bigint,
+  :'shidduch_status_change_id'::bigint
+);
+
 -- medical_notes (Story 5.5) — AC-5's unconditional negative test.
 insert into public.medical_notes (account_id, shidduchim_id, body)
 values (:sibling_fixture_account_id, :leah_visible_id, 'Candid medical content')
@@ -282,19 +302,153 @@ select 'AC5: single sees zero rows in medical_notes (unconditional negative test
 -- through every one of the three per-command policies — including the
 -- 5.9-migrated shadchan-targeted note.
 -- ---------------------------------------------------------------------------
+-- Deliberately positioned BEFORE the carve-out INSERT below: at this point
+-- the single has written nothing, so the only interaction rows in existence
+-- are the parent's three, and the claim really is "zero, of anything". The
+-- post-carve-out counterpart — "only her own single_input row, nothing
+-- else" — is asserted immediately after (iii). Keep this ordering: moving
+-- this check below the INSERT silently turns it into the weaker claim.
 insert into results (name, passed)
-select 'AC2/AC8: single sees zero rows in interactions (shadchan-targeted note + shidduch-scoped note + status_change row all denied)',
+select 'AC2/AC8: single sees zero rows in interactions before she has written any input (shadchan-targeted note + shidduch-scoped note + status_change row all denied)',
        (select count(*) from public.interactions) = 0;
 
+-- ---------------------------------------------------------------------------
+-- AC 2 (amended by Story 6.4's adjudication) — the INSERT half.
+--
+-- This check used to read: "a single's INSERT into interactions is denied",
+-- exercised with kind = 'single_input' on Leah's own visible suggestion.
+-- That was over-broad as written. Story 6.4 opens exactly one hole in this
+-- story's default deny — a `single` may add kind = 'single_input' on a
+-- suggestion they can already see — and that hole is not an erosion of the
+-- privacy model, it IS the model: the dignity floor is un-lowerable by
+-- AD-3 ("the single always sees their live prospects and can give input")
+-- and by FR93, and FR66 spells out the same capability. Story 6.3's own
+-- text anticipated it twice — AC-2 says "Story 6.4 is what carves the one
+-- exception", and Task 2 says "a single sees zero interactions must be true
+-- at the end of THIS story". Those are statements about a moment in the
+-- delivery order (6.6 -> 6.2 -> 6.3 -> 6.4 -> 6.1 -> 6.5), but a regression
+-- suite asserts for all time, and the row this check used was exactly the
+-- shape 6.4's carve-out opens.
+--
+-- So the blanket claim is kept for every kind it is still true of, and the
+-- one exception is covered positively rather than deleted. Deleting it
+-- would have thrown away a real guard: `interactions` is where private
+-- parent notes, the activity timeline and the 5.9-migrated candid shadchan
+-- commentary live, and a single must reach none of it.
+-- ---------------------------------------------------------------------------
+
+-- (i) The blanket deny, for every kind EXCEPT the carve-out. One results
+-- row, but the detail names any kind that leaked, so a loosened policy
+-- still identifies itself.
 do $$
-declare v_count int;
+declare
+  v_kind text;
+  v_leaked text[] := '{}';
+begin
+  foreach v_kind in array array['note', 'call_logged', 'status_change', 'merge', 'link_created', 'link_removed']
+  loop
+    begin
+      insert into public.interactions (target_type, target_id, scope, kind, body)
+      values ('shidduch', (select value::bigint from ids where name = 'leah_visible_id'), 'shidduch', v_kind, 'a single trying to write ' || v_kind);
+      v_leaked := v_leaked || v_kind;
+    exception when others then
+      null; -- denied, as required
+    end;
+  end loop;
+
+  insert into results values (
+    'AC2: single''s INSERT into interactions is denied for EVERY kind except single_input (note/call_logged/status_change/merge/link_created/link_removed), even on her own visible suggestion',
+    cardinality(v_leaked) = 0,
+    format('kinds that unexpectedly inserted: %s', coalesce(array_to_string(v_leaked, ','), 'none'))
+  );
+end $$;
+
+-- (ii) The carve-out is NARROW: single_input is denied on a suggestion the
+-- single cannot see. Without this, (iii) below could pass under a policy
+-- that let a single write input on anyone's suggestion — which would leak
+-- the sibling's suggestion id as a side channel and break AC-1 of 6.4.
+--
+-- Which clause is load-bearing here, established by mutation rather than by
+-- reading: the guard is the policy's whole `exists (select 1 from
+-- shidduchim s join singles c ...)` subquery, NOT its trailing
+-- `c.member_id = public.current_member_id()` conjunct. Deleting only that
+-- conjunct leaves this check GREEN, because the subquery is evaluated under
+-- the caller's own RLS and Story 6.2 already hides a sibling's shidduchim
+-- row from her — so the EXISTS is false either way. The conjunct is
+-- defence-in-depth (it would matter if 6.2's row policy were ever
+-- loosened), not the thing that denies this insert today. Mutate the whole
+-- EXISTS away and this check goes red; mutate only the conjunct and it does
+-- not. Do not "simplify" the policy on the strength of this check alone.
+do $$
 begin
   insert into public.interactions (target_type, target_id, scope, kind, body)
-  values ('shidduch', (select value::bigint from ids where name = 'leah_visible_id'), 'shidduch', 'single_input', 'a single trying to write')
-  returning 1 into v_count;
-  insert into results values ('AC2: single''s INSERT into interactions is denied (raises or is filtered)', false, 'insert unexpectedly succeeded');
+  values ('shidduch', (select value::bigint from ids where name = 'rivka_visible_id'), 'shidduch', 'single_input', 'Leah writing on Rivka''s suggestion');
+  insert into results values (
+    'AC2/6.4-AC1: the single_input carve-out is NARROW — a single''s INSERT on a SIBLING''s suggestion is still denied',
+    false, 'insert unexpectedly succeeded'
+  );
 exception when others then
-  insert into results values ('AC2: single''s INSERT into interactions is denied (raises or is filtered)', true, sqlerrm);
+  insert into results values (
+    'AC2/6.4-AC1: the single_input carve-out is NARROW — a single''s INSERT on a SIBLING''s suggestion is still denied',
+    true, sqlerrm
+  );
+end $$;
+
+-- (iii) The carve-out WORKS — the positive half. This is the dignity floor
+-- (AD-3 / FR93 / FR66) expressed as a test: if this goes red, the single
+-- can no longer give input and Story 6.4's central feature does not exist.
+-- Asserts the row landed AND that the attribution trigger stamped Leah's
+-- own membership id (never client-supplied), so a row that inserted with a
+-- null or foreign actor cannot pass.
+do $$
+declare
+  v_id bigint;
+  v_actor bigint;
+  v_expected bigint;
+begin
+  v_expected := public.current_member_id();
+  insert into public.interactions (target_type, target_id, scope, kind, body)
+  values ('shidduch', (select value::bigint from ids where name = 'leah_visible_id'), 'shidduch', 'single_input', 'Leah''s own input on her own visible suggestion')
+  returning id, actor_member_id into v_id, v_actor;
+  insert into ids values ('leah_input_id', v_id::text);
+
+  insert into results values (
+    'AC2/6.4-AC1 (dignity floor, AD-3/FR93/FR66): a single MAY insert kind = ''single_input'' on her OWN visible suggestion, attributed to her by the server-set trigger',
+    v_id is not null and v_actor is not null and v_actor = v_expected,
+    format('id=%s actor_member_id=%s expected=%s', v_id, v_actor, v_expected)
+  );
+exception when others then
+  insert into results values (
+    'AC2/6.4-AC1 (dignity floor, AD-3/FR93/FR66): a single MAY insert kind = ''single_input'' on her OWN visible suggestion, attributed to her by the server-set trigger',
+    false, sqlerrm
+  );
+end $$;
+
+-- (iv) The post-carve-out read claim, the exact replacement for the old
+-- blanket "zero rows in interactions". The single now sees EXACTLY one row
+-- — her own input — and nothing else: not the parent's note, not the
+-- shadchan-targeted note (the 5.9-migrated candid commentary), not the
+-- status_change timeline row. Asserted as a set, not a count, so a policy
+-- that leaked a note while she happened to have one input row cannot pass.
+do $$
+declare
+  v_total int;
+  v_own int;
+  v_foreign_kinds text;
+begin
+  select count(*) into v_total from public.interactions;
+  select count(*) into v_own
+  from public.interactions
+  where kind = 'single_input' and actor_member_id = public.current_member_id();
+  select string_agg(distinct kind, ',') into v_foreign_kinds
+  from public.interactions
+  where not (kind = 'single_input' and actor_member_id = public.current_member_id());
+
+  insert into results values (
+    'AC2/AC8 (amended by 6.4): after giving input, a single sees ONLY her own single_input row in interactions — zero rows of every other kind, and none of another member''s',
+    v_total = 1 and v_own = 1 and v_foreign_kinds is null,
+    format('total=%s own_single_input=%s leaked_kinds=%s', v_total, v_own, coalesce(v_foreign_kinds, 'none'))
+  );
 end $$;
 
 do $$
@@ -452,8 +606,34 @@ select 'AC7: single sees zero rows in references_summary', (select count(*) from
 insert into results (name, passed)
 select 'AC7: single sees zero rows in reference_links_summary', (select count(*) from public.reference_links_summary) = 0;
 
-insert into results (name, passed)
-select 'AC7: single sees zero rows in interactions_summary', (select count(*) from public.interactions_summary) = 0;
+-- AC 7 (amended by Story 6.4's adjudication), same reasoning as AC-2's
+-- INSERT half above: interactions_summary is `security_invoker = on`, so it
+-- carries base-table RLS through verbatim — including the carve-out. The
+-- blanket "zero rows" claim is therefore false for exactly one row and
+-- true for every other, and is re-authored to say precisely that rather
+-- than being deleted. The view must not widen what the base table grants
+-- (a view that returned MORE than the base table would be the actual leak
+-- this check exists to catch), so it is asserted against the same set.
+do $$
+declare
+  v_total int;
+  v_own int;
+  v_foreign_kinds text;
+begin
+  select count(*) into v_total from public.interactions_summary;
+  select count(*) into v_own
+  from public.interactions_summary
+  where kind = 'single_input' and actor_member_id = public.current_member_id();
+  select string_agg(distinct kind, ',') into v_foreign_kinds
+  from public.interactions_summary
+  where not (kind = 'single_input' and actor_member_id = public.current_member_id());
+
+  insert into results values (
+    'AC7 (amended by 6.4): interactions_summary shows a single ONLY her own single_input row — the security_invoker view widens nothing beyond the base table',
+    v_total = 1 and v_own = 1 and v_foreign_kinds is null,
+    format('total=%s own_single_input=%s leaked_kinds=%s', v_total, v_own, coalesce(v_foreign_kinds, 'none'))
+  );
+end $$;
 
 insert into results (name, passed)
 select 'AC7: single sees zero rows in entity_files_summary', (select count(*) from public.entity_files_summary) = 0;

@@ -107,21 +107,59 @@ select 'AC 5(i): interactions_summary is created with security_invoker = on',
 -- ---------------------------------------------------------------------------
 -- AC 2: the catalog fact this AC actually mandates — also position-
 -- independent. `pg_policies.cmd` is `INSERT`/`SELECT`/`UPDATE`/`DELETE`/`ALL`
--- per policy row; asserting the exact 3-element set (order-independent via
--- `array_agg(... order by cmd)`, so array equality is stable) fails if a
--- `for all` remnant survives, if a fourth policy is added, if a `for delete`
--- policy appears, or if the split is renamed away from this shape — the
--- exact enumeration Story 6.4's cross-reference depends on.
+-- per policy row.
+--
+-- Story 6.4 amendment — why this is two checks now, not one:
+-- this used to assert `array_agg(cmd order by cmd) = array['INSERT',
+-- 'SELECT', 'UPDATE']`, i.e. the exact MULTISET of commands, which pinned
+-- "exactly three policies, one per command". Its own comment listed four
+-- distinct things it meant to catch: a `for all` remnant, a fourth policy,
+-- a `for delete` policy, and a rename away from this shape.
+--
+-- Three of those four are permanent invariants. The fourth — "a fourth
+-- policy is added" — was over-broad as written: Story 6.4 adds exactly two
+-- by design (`"Single reads own input"` SELECT, `"Single adds input on a
+-- visible suggestion"` INSERT), the narrow carve-out the dignity floor
+-- (FR93 / AD-3, "the single always sees their live prospects and can give
+-- input") requires. A cmd-multiset assertion cannot express "these two, and
+-- no others" — and it also could never tell a POLICY RENAME apart from the
+-- expected shape, since renaming a policy leaves `cmd` untouched.
+--
+-- Split into (a) the invariant that is genuinely permanent and is what the
+-- append-only audit-trail rule rests on, and (b) an exact name→cmd set,
+-- which is strictly STRONGER than the old assertion: it still fails on a
+-- `for all` remnant, on a `for delete` policy, on an unexpected sixth
+-- policy, AND on a rename the old check would have slept through.
 -- ---------------------------------------------------------------------------
 insert into results (name, passed, detail)
-select 'AC 2: interactions carries exactly {INSERT,SELECT,UPDATE} policies — no ALL, no DELETE',
-       (
-         select array_agg(cmd order by cmd)
+select 'AC 2(a): interactions carries no ALL policy and no DELETE policy (append-only audit trail; unaffected by Story 6.4)',
+       not exists (
+         select 1 from pg_policies
+         where schemaname = 'public' and tablename = 'interactions'
+           and cmd in ('ALL', 'DELETE')
+       ),
+       coalesce((
+         select string_agg(policyname || ':' || cmd, ', ' order by policyname)
          from pg_policies
          where schemaname = 'public' and tablename = 'interactions'
-       ) = array['INSERT', 'SELECT', 'UPDATE'],
+           and cmd in ('ALL', 'DELETE')
+       ), 'none');
+
+insert into results (name, passed, detail)
+select 'AC 2(b): interactions carries exactly the five expected named policies — the three account-scoped ones plus Story 6.4''s two single-role carve-outs, and nothing else',
        (
-         select string_agg(policyname || ':' || cmd, ', ' order by cmd)
+         select array_agg(policyname || ':' || cmd order by policyname)
+         from pg_policies
+         where schemaname = 'public' and tablename = 'interactions'
+       ) = array[
+         'Interactions insertable within account and parent visibility:INSERT',
+         'Interactions readable within account and parent visibility:SELECT',
+         'Interactions updatable by author or owning role:UPDATE',
+         'Single adds input on a visible suggestion:INSERT',
+         'Single reads own input:SELECT'
+       ],
+       (
+         select string_agg(policyname || ':' || cmd, ', ' order by policyname)
          from pg_policies
          where schemaname = 'public' and tablename = 'interactions'
        );
@@ -263,17 +301,84 @@ returning id as call_g \gset
 insert into ids values ('call_g', :'call_g');
 
 -- single_g (checks g2 / AC 5-single, Story 5.7 review finding F2):
--- parent_admin1 authors a kind = 'single_input' row. Reused the same
+-- a kind = 'single_input' row ATTRIBUTED to parent_admin1. Reused the same
 -- account-scope shape as call_g/note_b (target_type = 'reference', scope =
 -- 'account') rather than the real single_input shape (target_type =
 -- 'shidduch') — this suite tests the UPDATE policy's author-or-owning-role
 -- ESCAPE, which is identical for both target types; the shidduch-join
 -- branch of the visibility predicate is already covered elsewhere
 -- (interactions_targets.sql).
+--
+-- Story 6.4 amendment — why this ONE arrange step runs as `postgres`:
+-- Story 6.4 added `and kind <> 'single_input'` to the INSERT policy
+-- `"Interactions insertable within account and parent visibility"`, so
+-- `single_input` is now creatable through exactly one path — a `single`
+-- writing on their own visible suggestion — and through no other role's.
+-- parent_admin1 is not that role, so this INSERT, run as `authenticated`,
+-- now raises and aborts the whole script under `\set ON_ERROR_STOP on`,
+-- degrading the entire suite to an error rather than surfacing anything.
+--
+-- That is a FIXTURE-AUTHORING accident, not a finding: nothing in this
+-- suite is about who may create a single_input row. Every check downstream
+-- of this line is about the UPDATE policy's moderation escape, which needs
+-- the row to merely EXIST and to carry parent_admin1's actor_member_id.
+-- `reset role` runs the insert as `postgres` (BYPASSRLS — verified:
+-- rolbypassrls = true, and public.interactions is not FORCE RLS), which
+-- skips only the RLS check. Both BEFORE INSERT triggers still fire and are
+-- driven by `request.jwt.claims` (a session GUC), not by the Postgres role,
+-- so `set_interactions_account_id` and `set_interaction_actor_member_id`
+-- still resolve through auth.uid() to parent_admin1 exactly as before —
+-- the arranged row is byte-identical to the one this suite used to build.
+-- CHECK constraints are NOT bypassed by BYPASSRLS (proven separately in
+-- interactions_targets.sql, which is what that suite's AC 5 check is for).
+--
+-- The anti-vacuity control below is not optional. With the INSERT moved off
+-- the RLS path, a future regression that silently produced no row, or a row
+-- with a null/foreign actor_member_id, would make BOTH (g2) ("-> 0 rows")
+-- and AC 5-single ("can_moderate is false") pass for the wrong reason —
+-- a denial test is green whenever its subject does not exist. The control
+-- pins existence AND attribution so those two checks cannot go vacuous.
+reset role;
+
 insert into public.interactions (target_type, target_id, scope, kind, body)
 values ('reference', 10, 'account', 'single_input', 'parent_admin1''s single_input row (g2)')
 returning id as single_g \gset
 insert into ids values ('single_g', :'single_g');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3060001-0000-0000-0000-000000000002","role":"authenticated"}';
+
+-- Control (anti-vacuity, see above): the single_g row exists and is
+-- attributed to parent_admin1 — the exact preconditions (g2) and
+-- AC 5-single silently depend on.
+--
+-- Written as `select ... into` + `found` inside a DO block, NOT as
+-- `insert into results (...) select ... from public.interactions where id
+-- = ...`: that latter shape inserts NO results row at all when the fixture
+-- row is missing, which reads as the check having VANISHED rather than
+-- failed and leaves the suite green. Same defect, same fix, as the
+-- shadchan_stats assertions in single_field_scoping.sql.
+do $$
+declare
+  v_actor bigint;
+  v_kind text;
+  v_id bigint;
+  v_expected bigint;
+  v_found boolean;
+begin
+  v_expected := public.current_member_id();
+  select i.id, i.actor_member_id, i.kind into v_id, v_actor, v_kind
+  from public.interactions i
+  where i.id = (select value::bigint from ids where name = 'single_g');
+  v_found := found;
+
+  insert into results values (
+    'Arrange control (g2/AC 5-single are vacuous without it): the single_input fixture row exists and carries parent_admin1''s actor_member_id',
+    v_found and v_actor is not null and v_actor = v_expected and v_kind = 'single_input',
+    format('found=%s id=%s actor_member_id=%s expected=%s kind=%s',
+           v_found, v_id, v_actor, v_expected, v_kind)
+  );
+end $$;
 
 reset role;
 

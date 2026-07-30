@@ -51,14 +51,46 @@ whole diff.
    story closes the data half of that ruling for the `single` role.)
 
 2. **`interactions` denies the `single` role by default on every command,
-   through every policy the table carries.** This covers private parent notes
-   (`kind = 'note'`), the full activity/status-change timeline, and — since
-   Story 5.9 migrated `shadchanim.notes` into `interactions` rows
-   (`target_type = 'shadchan'`, `scope = 'account'`, `kind = 'note'`) — the
-   family's candid shadchan commentary too. The table carries **three**
-   per-command policies at HEAD (verified, listed in Task 2); the deny must
-   land on all three. A single sees no interaction row of any kind at the end
-   of this story — Story 6.4 is what carves the one exception.
+   through every policy the table carries — with exactly one permanent
+   exception, `kind = 'single_input'`, added by Story 6.4.** This covers
+   private parent notes (`kind = 'note'`), the full activity/status-change
+   timeline, and — since Story 5.9 migrated `shadchanim.notes` into
+   `interactions` rows (`target_type = 'shadchan'`, `scope = 'account'`,
+   `kind = 'note'`) — the family's candid shadchan commentary too. The table
+   carries **three** per-command policies at HEAD (verified, listed in
+   Task 2); the deny must land on all three.
+
+   **Amended 2026-07-30 (6.3/6.4 adjudication).** This AC previously ended
+   "A single sees no interaction row of any kind at the end of this story —
+   Story 6.4 is what carves the one exception." That was accurate about a
+   *moment in the delivery order* but was written into a **regression
+   suite**, which asserts for all time. The two shipped forms of the claim —
+   `single_field_scoping.sql`'s *"AC2: single's INSERT into interactions is
+   denied"* (exercised with `kind = 'single_input'` on a `look_into` +
+   `shared` row, precisely the shape 6.4 opens) and *"AC7: single sees zero
+   rows in `interactions_summary`"* — therefore went red the moment 6.4
+   landed, and the only ways to keep them green were to weaken 6.4's ACs or
+   to delete a genuine guard.
+
+   **Ruling: 6.4's carve-out is the product intent; this AC was over-broad
+   as written, not wrong in spirit.** Sources, all pointing one way: the
+   dignity floor is **un-lowerable** by `ARCHITECTURE-SPINE.md` **AD-3**
+   ("the child always sees their live prospects **and can give input**");
+   **FR93** says the same and adds "this cannot be switched off"; **FR66**
+   spells out the capability ("On a live suggestion, the candidate can give
+   input… and leave a private note or question for the parent"); and this
+   story's own Task 2 already scoped the claim to "at the end of *this*
+   story". A blanket deny would delete Story 6.4 — a story titled "the
+   single's input" — and make Epic 6 self-defeating. **FR68** is not in
+   tension: it withholds *candid reference content*, which the single still
+   never reads; giving input is a write, not a read of anything candid.
+
+   The permanent form of this AC is therefore: **a single sees and may write
+   nothing in `interactions` except `single_input` rows they authored
+   themselves, on a suggestion Story 6.2 already makes visible to them.**
+   Every other kind — `note`, `call_logged`, `status_change`, `merge`,
+   `link_created`, `link_removed` — stays denied on every command, and that
+   remains this story's guard to keep.
 
 3. **`shadchanim` rows stay readable to a single; writes are denied.**
    Post-5.9 the table holds no candid column — verified at HEAD: the columns
@@ -121,7 +153,9 @@ whole diff.
    `single` reading `reference_links` / `"references"` / `interactions` /
    `entity_files` / `shidduchim_external_links` / `medical_notes` gets zero
    rows even when a `parent_admin` in the same account gets non-zero rows in
-   the same test run — the `interactions` fixture includes a
+   the same test run — **except** for `interactions`, where post-6.4 the
+   single sees exactly their own `single_input` rows and nothing else (see
+   AC-2's amendment). The `interactions` fixture includes a
    shadchan-targeted `note` row (the 5.9-migrated shape) to prove the former
    `shadchanim.notes` content is covered; a `single` reading a visible
    suggestion's `close_reason` gets `NULL` while a `parent_admin` reading the
@@ -185,6 +219,14 @@ whole diff.
         story's own negative test (AC-8) honest: "a single sees zero
         interactions" must be true at the end of *this* story,
         unconditionally.
+  - [x] **Amended 2026-07-30 (6.3/6.4 adjudication).** The sentence above is
+        correct as a statement about *this story's* end state and was the
+        right instruction to the implementer. It is **not** a permanent
+        invariant, and the tests written from it were. See AC-2's amendment
+        for the ruling; `single_field_scoping.sql`'s AC-2/AC-7 checks now
+        keep the blanket claim for every kind other than `single_input` and
+        cover the carve-out positively. **Do not "restore" the blanket
+        deny** on the strength of this bullet — doing so deletes Story 6.4.
 
 - [x] **Task 3 — `shadchanim`: row-readable, write-denied** (AC: 3)
   - [x] Add `and public.current_member_role() <> 'single'` to
@@ -398,7 +440,10 @@ that is where this story's edits sit next to 5.4's.
 - **The single's dating history and redt history** — denied by Story 6.2's
   wholesale list; unchanged here.
 - **Whether the single may write anything at all** — Story 6.4's, and its
-  one exception is deliberately absent from this story's policies.
+  one exception is deliberately absent from this story's policies. (It is
+  *not* absent from this story's **tests** any more: see AC-2's amendment.
+  The suite has to describe the shipped tree, and the shipped tree includes
+  6.4.)
 
 ### Testing standard
 
@@ -548,4 +593,17 @@ Unchanged (verified, not edited — regression-only per Task 8):
 
 ## Change Log
 
+- 2026-07-30 (6.3/6.4 adjudication): **AC-2 and AC-8 amended to state Story
+  6.4's `single_input` carve-out explicitly**, and Task 2's "leave the gap
+  open" bullet annotated so it can no longer be read as a permanent
+  invariant. Ruling recorded in AC-2: the carve-out is the product intent
+  (AD-3's un-lowerable dignity floor, FR93, FR66); this story's AC was
+  over-broad as written rather than wrong in spirit; FR68 is not in tension
+  because it governs *reading candid content*, not writing input.
+  `supabase/tests/single_field_scoping.sql` re-authored accordingly — the
+  blanket deny is kept and broadened to every kind except `single_input`
+  (previously only one kind was probed), the carve-out gets positive
+  coverage plus a narrowness check, and an arrange control now pins the
+  three fixture interaction rows so the surviving "sees zero" claims cannot
+  pass vacuously. 47 -> 51 checks. Every changed assertion mutation-proven.
 - 2026-07-30: Story 6.3 implemented — field-level scoping for a single at the database (AC 1-9). RLS narrows `"references"`/`reference_links`/`shidduchim_external_links`/`entity_files` and all three `interactions` policies to deny `single` outright; `shadchanim` split into row-readable/write-denied; `shidduchim_summary.close_reason` redacted via CASE; medical_notes re-verified as an unconditional allow-list with its own negative test; 6 storage policies narrowed (photos untouched). New `single_field_scoping` DB suite (41 checks). Frontend hides the now-permanently-empty tabs (`diligence`/`external-links`/`files`/`notes`/`activity` on shidduchim, `files`/`notes`/`activity` on singles) via `visibleTo`. Two pre-existing regression files (Story 6.2's `single_row_scoping.sql`, Story 5.6's `shidduchim_external_links.sql`) now fail as a self-consistent, documented consequence of this story's ACs and are flagged for a follow-up commit rather than edited outside this story's declared ownership.

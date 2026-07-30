@@ -682,11 +682,46 @@ end $$;
 
 -- ---------------------------------------------------------------------------
 -- Story 5.7 AC 5: interactions_kind_check widened to accept 'single_input'
--- — the shidduch right rail's read-side panel. Still authenticated as U,
--- active context A. A single_input row is target_type = 'shidduch',
--- scope = 'shidduch', reference_link_id = null, which already satisfies the
--- existing interactions_scope_link_check disjunct for shidduch-targeted
--- rows (01_tables.sql) — this story touches no other constraint.
+-- — the shidduch right rail's read-side panel. A single_input row is
+-- target_type = 'shidduch', scope = 'shidduch', reference_link_id = null,
+-- which already satisfies the existing interactions_scope_link_check
+-- disjunct for shidduch-targeted rows (01_tables.sql) — this story touches
+-- no other constraint.
+--
+-- Story 6.4 amendment — why this ONE check runs as `postgres`:
+-- this check is about a CHECK CONSTRAINT, and only about that. It used to
+-- run as `authenticated` (U, a parent_admin in context A) purely because
+-- that was the ambient identity, not because the identity mattered. Story
+-- 6.4 then added `and kind <> 'single_input'` to the INSERT policy
+-- `"Interactions insertable within account and parent visibility"` — the
+-- narrow dignity-floor carve-out (FR93 / AD-3) makes a `single` writing on
+-- their own visible suggestion the ONLY path that may create this kind — so
+-- U's insert now trips RLS before the constraint is ever consulted, and the
+-- broad `exception when others` below reported the check RED with a
+-- row-level-security message. That is a false negative ABOUT THE
+-- CONSTRAINT: it says nothing at all about whether interactions_kind_check
+-- accepts 'single_input'.
+--
+-- `reset role` runs it as `postgres`, which has rolbypassrls = true (and
+-- public.interactions is not FORCE RLS), so the RLS check is skipped.
+-- CHECK constraints are NOT bypassed by BYPASSRLS or by ownership — proven
+-- directly, and re-proven by the AC 5 sanity check immediately below, which
+-- inserts a bogus kind and requires the failure to name
+-- interactions_kind_check. So this check still exercises exactly the
+-- constraint it is named for, and now nothing else.
+--
+-- Two guards keep that honest:
+--  * the exception arm records the SQLSTATE, so a future RLS-shaped
+--    masquerade (42501 / row-level security) can never again be mistaken
+--    for "the constraint rejected it" (23514) when reading a red run;
+--  * the pass condition asserts the row actually LANDED with
+--    kind = 'single_input', not merely that no error was raised — an
+--    "it inserted" check whose row does not exist is the vacuous twin of a
+--    "it was denied" check whose row was never created.
+--
+-- Whether a parent_admin may create a single_input row is Story 6.4's
+-- question, asserted in supabase/tests/single_input.sql (it may not) and in
+-- single_field_scoping.sql. It is deliberately not re-litigated here.
 -- ---------------------------------------------------------------------------
 insert into public.shidduchim (single_id, name_en)
 values ((select value::bigint from ids where name = 'single_a'), 'IT Shidduch A')
@@ -694,12 +729,16 @@ returning id as shidduch_a \gset
 
 insert into ids values ('shidduch_a', :'shidduch_a');
 
+reset role;
+
 do $$
 declare
   v_id bigint;
+  v_kind text;
 begin
-  insert into public.interactions (target_type, target_id, scope, kind)
+  insert into public.interactions (account_id, target_type, target_id, scope, kind)
     values (
+      (select value::bigint from ids where name = 'acct_a'),
       'shidduch',
       (select value::bigint from ids where name = 'shidduch_a'),
       'shidduch',
@@ -707,18 +746,27 @@ begin
     )
     returning id into v_id;
   insert into ids values ('interaction_single_input', v_id::text);
+
+  select kind into v_kind from public.interactions where id = v_id;
+
   insert into results values (
     'AC 5: a single_input-kind interaction on a shidduch-targeted row inserts (interactions_kind_check widened)',
-    true, null
+    v_id is not null and v_kind = 'single_input',
+    format('id=%s stored_kind=%s', v_id, v_kind)
   );
 exception when others then
   -- Reverted-schema red run: interactions_kind_check does not accept
-  -- 'single_input' yet.
+  -- 'single_input' yet -> SQLSTATE 23514 naming interactions_kind_check.
+  -- Any other SQLSTATE here means the check was defeated by something that
+  -- is NOT the constraint, and the detail below says which.
   insert into results values (
     'AC 5: a single_input-kind interaction on a shidduch-targeted row inserts (interactions_kind_check widened)',
-    false, sqlerrm
+    false, format('SQLSTATE=%s %s', sqlstate, sqlerrm)
   );
 end $$;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a3050001-0000-0000-0000-000000000001","role":"authenticated"}';
 
 do $$
 begin

@@ -359,6 +359,61 @@ clause, and the write-side form.
         `interactions_targets.test.ts` 35/35,
         `single_row_scoping.test.ts` 52/52,
         `single_field_scoping.test.ts` 48/48).
+  - [x] **Adjudication addendum (2026-07-30), from the agent that made those
+        three diffs.** Three corrections and one open defect, recorded here
+        because this story's text is where the next reader will look:
+        1. **The ruling is recorded in Story 6.3, not here.** 6.3's **AC-2**
+           now carries it in full: this story's carve-out is the product
+           intent — `ARCHITECTURE-SPINE.md` **AD-3** makes the dignity floor
+           **un-lowerable** ("the child always sees their live prospects
+           **and can give input**"), **FR93** repeats it and adds "this
+           cannot be switched off", and **FR66** spells out the capability.
+           6.3's blanket deny was **over-broad as written, not wrong in
+           spirit**; its own Task 2 had already scoped the claim to "at the
+           end of *this* story", and only its *tests* turned a moment in the
+           delivery order into a permanent invariant. **FR68** is not in
+           tension: it withholds candid reference *content* from the single,
+           and giving input reads nothing candid. 6.3's AC-2/AC-8 and its
+           Task 2 bullet have been amended so no future agent "restores" the
+           blanket deny and deletes this story's central feature.
+        2. **There was a FOURTH collision, not three.**
+           `interaction_note_authorship.sql`'s catalog check *"AC 2:
+           interactions carries exactly {INSERT,SELECT,UPDATE} policies — no
+           ALL, no DELETE"* asserted the exact **multiset of `cmd` values**,
+           i.e. "exactly three policies, one per command". This story adds
+           two by design, so it was red too. It was invisible in the
+           original report because the `single_g` fixture INSERT aborted the
+           script under `ON_ERROR_STOP` *before any results were emitted* —
+           a suite that dies reports no checks at all, so the abort masked
+           it. It is now split into `AC 2(a)` (no `ALL`, no `DELETE` — the
+           permanent invariant the append-only audit trail rests on,
+           untouched by this story) and `AC 2(b)` (the exact **name -> cmd**
+           set, including this story's two policies by name). 2(b) is
+           strictly stronger than what it replaced: it also catches a policy
+           **rename**, which a `cmd`-multiset assertion can never see.
+        3. **Final count corrected:** `single_field_scoping.test.ts` is
+           **52/52**, not 48/48 — the re-authoring landed at 51 checks
+           (47 - 2 + 6) plus the suite's own exact-count guard.
+        4. **Open defect this story introduced and did NOT close —
+           `interactions_summary.can_moderate` now lies.**
+           `03_views.sql:304` still computes
+           `kind not in ('note','single_input') or can_moderate_note(actor)`,
+           which mirrors the UPDATE policy's **pre-6.4** shape. AC-3 made
+           `single_input` unupdatable by **every** role, but
+           `can_moderate_note()` returns true for the **author** — so a
+           single reading her own input row is told `can_moderate = true`
+           while the UPDATE affects **zero rows**. Verified live on stack 5:
+           view says `t`, `UPDATE ... affected 0 rows`. Not fixed by the
+           adjudicating agent: the fix is a view change, which needs a
+           migration in `supabase/migrations/**` — a path **this story
+           declares and was actively writing** — so it was left alone rather
+           than written into another agent's in-flight ownership. **This is
+           a real follow-up**, not cosmetic: it is the same class of defect
+           (a view contradicting its policy) that 5.7's finding F2 fixed in
+           the other direction, and no existing test catches it —
+           `interaction_note_authorship.sql`'s `AC 5-single` check happens
+           to probe a *non-author* caller, for whom the view is still
+           correct.
   - [x] Frontend: component test for `SingleInputForm` (renders only for a
         `single` viewer, renders nothing while `isPending`, submit calls
         `create` with the exact fixed shape and never sends

@@ -92,8 +92,16 @@ describe("single_field_scoping (database)", () => {
   // into` + `found`. An exact count catches any check disappearing, not just
   // a large drop. Update this number in the same diff as any change to the
   // number of `insert into results` statements in single_field_scoping.sql.
+  //
+  // 47 -> 51 in the Story 6.3/6.4 adjudication: AC-2's single INSERT-denied
+  // check and AC-7's blanket interactions_summary check were each replaced
+  // by a pair that keeps the blanket claim for every kind other than
+  // `single_input` and covers the dignity-floor carve-out positively (see
+  // single_field_scoping.sql's own AC-2 comment), plus one arrange control
+  // pinning the three fixture interaction rows into existence so the
+  // remaining "sees zero" claims cannot pass vacuously. Net: -2, +6.
   it("runs every AC 1 / AC 2 / AC 3 / AC 4 / AC 5 / AC 6 / AC 7 / AC 8 check group", () => {
-    expect(checks.length).toBe(47);
+    expect(checks.length).toBe(51);
   });
 
   for (const check of checks) {
