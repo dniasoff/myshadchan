@@ -35,7 +35,7 @@ const STATUS_LABEL: Record<string, string> = {
  * monogram avatar, name, gender/community meta, and a status pill
  * (design-language §5.5 tinted-pill formula applied to `--positive` instead
  * of a pipeline-state token). Pressing the card opens the single's profile
- * (`SingleShow`).
+ * (the single's 360, `/singles/{id}`).
  */
 export const SingleCard = ({ single, index, openCount }: SingleCardProps) => {
   const nameEn = [single.first_name_en, single.last_name_en]

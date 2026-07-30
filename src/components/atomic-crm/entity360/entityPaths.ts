@@ -58,11 +58,12 @@ export function buildRecordPath(name: string, id: Identifier): string {
  * the story's Dev Notes, "Why `buildEditPath` is a literal"). Before an
  * entity migrates onto `Entity360`, its descriptor's `buildRecordPath`
  * returns `/{name}/{id}/show` (contract §2 — Epic 5 flips it), so composing
- * from it would produce `/singles/1/show/edit`, which `react-router` ranks
- * onto `<Resource>`'s `:id/show/*` route and renders the show surface, not
- * edit. `/{name}/{id}/edit` as a literal resolves correctly in both worlds:
- * today it matches `<Resource>`'s `:id/*` splat (`SingleEdit`); after
- * migration it matches `buildEntityRoutes`'s explicit `:id/edit`.
+ * from it would produce `/shadchanim/1/show/edit`, which `react-router`
+ * ranks onto `<Resource>`'s `:id/show/*` route and renders the show
+ * surface, not edit. `/{name}/{id}/edit` as a literal resolves correctly in
+ * both worlds: for a not-yet-migrated entity it matches `<Resource>`'s
+ * `:id/*` splat (`ShadchanEdit`); after migration (e.g. `singles`, Story
+ * 5.8) it matches `buildEntityRoutes`'s explicit `:id/edit`.
  */
 export function buildEditPath(name: string, id: Identifier): string {
   requireEntityDescriptor(name);

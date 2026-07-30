@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 
 import type { Single } from "../types";
-import { SingleProfileHeader } from "./SingleShow";
+import { SingleProfileHeader } from "./SingleProfileHeader";
 
 /**
  * Story 3.1 AC 5 rewire coverage: `SingleProfileHeader` composes its avatar

@@ -1,6 +1,5 @@
 import type { ReactElement } from "react";
 import { useDataProvider, useGetList, useNotify, useTranslate } from "ra-core";
-import type { Identifier } from "ra-core";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatTimelineDate } from "../entity360/tabs/interactionLabels";
 import type { CrmDataProvider } from "../providers/types";
 import type { Resume, ResumeFileVersion } from "../types";
+import { resumeSubjectFilter, type ResumeSubject } from "./resumeSubject";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 
 function ResumeListSkeleton(): ReactElement {
@@ -89,19 +89,15 @@ function ResumeVersionRow({
 }
 
 /**
- * AC 1 / AC 3: reads the shidduch's single `resumes` row — unique on
- * `shidduchim_id` (01_tables.sql), so at most one row ever exists — and
- * renders its `files` newest-first. The array is append-only
- * (`add_resume_file`, AC 2), not stored sorted, so this sorts client-side
- * rather than trusting insertion order.
+ * AC 1 / AC 3: reads the subject's single `resumes` row — unique on
+ * `shidduchim_id` OR `single_id` (01_tables.sql, widened by Story 5.8 AC 2),
+ * so at most one row ever exists — and renders its `files` newest-first.
+ * The array is append-only (`add_resume_file`, AC 2), not stored sorted, so
+ * this sorts client-side rather than trusting insertion order.
  */
-export function ResumeVersionList({
-  shidduchimId,
-}: {
-  shidduchimId: Identifier;
-}): ReactElement {
+export function ResumeVersionList(subject: ResumeSubject): ReactElement {
   const { data, error, isPending } = useGetList<Resume>("resumes", {
-    filter: { shidduchim_id: shidduchimId },
+    filter: resumeSubjectFilter(subject),
     pagination: { page: 1, perPage: 1 },
     sort: { field: "id", order: "ASC" },
   });

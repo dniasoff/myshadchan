@@ -444,15 +444,20 @@ revoke all on function public.add_school(bigint, text, text, text, integer, inte
 grant execute on function public.add_school(bigint, text, text, text, integer, integer) to authenticated;
 grant execute on function public.add_school(bigint, text, text, text, integer, integer) to service_role;
 
--- Story 5.3: the sole write path into resumes.files (AC 2).
-revoke all on function public.add_resume_file(bigint, text, text, text, bigint) from public, anon;
-grant execute on function public.add_resume_file(bigint, text, text, text, bigint) to authenticated;
-grant execute on function public.add_resume_file(bigint, text, text, text, bigint) to service_role;
+-- Story 5.3: the sole write path into resumes.files (AC 2). Story 5.8
+-- widened the argument list to also accept a single (p_shidduchim_id/
+-- p_single_id, both defaulted) — a signature change is a DROP FUNCTION +
+-- CREATE FUNCTION under the hood, which drops the function's grants, so
+-- these are re-issued against the new signature in the same diff.
+revoke all on function public.add_resume_file(text, text, text, bigint, bigint, bigint) from public, anon;
+grant execute on function public.add_resume_file(text, text, text, bigint, bigint, bigint) to authenticated;
+grant execute on function public.add_resume_file(text, text, text, bigint, bigint, bigint) to service_role;
 
--- Story 5.4: the two write paths into resume_photos (AC 2).
-revoke all on function public.add_resume_photo(bigint, text, text) from public, anon;
-grant execute on function public.add_resume_photo(bigint, text, text) to authenticated;
-grant execute on function public.add_resume_photo(bigint, text, text) to service_role;
+-- Story 5.4: the two write paths into resume_photos (AC 2). Story 5.8
+-- widened add_resume_photo the same way as add_resume_file above.
+revoke all on function public.add_resume_photo(text, bigint, bigint, text) from public, anon;
+grant execute on function public.add_resume_photo(text, bigint, bigint, text) to authenticated;
+grant execute on function public.add_resume_photo(text, bigint, bigint, text) to service_role;
 
 revoke all on function public.hide_resume_photo(bigint) from public, anon;
 grant execute on function public.hide_resume_photo(bigint) to authenticated;

@@ -1737,17 +1737,28 @@ $$;
 -- UNIQUE on shidduchim_id (01_tables.sql), so ON CONFLICT is clean, and its
 -- DO UPDATE re-reads `files` from the row Postgres has just locked — not a
 -- value read into a variable earlier in this function — so two concurrent
--- calls for the same shidduch can never silently overwrite each other's
--- entry; the second call blocks on the row lock until the first commits,
--- then appends onto what the first one wrote. Never mutates or removes an
--- existing array element. Account-scoped so a file can never be attached to
--- a foreign account's shidduch. SECURITY INVOKER so RLS applies.
+-- calls for the same shidduch (or the same single, Story 5.8) can never
+-- silently overwrite each other's entry; the second call blocks on the row
+-- lock until the first commits, then appends onto what the first one wrote.
+-- Never mutates or removes an existing array element. Account-scoped so a
+-- file can never be attached to a foreign account's shidduch/single.
+-- SECURITY INVOKER so RLS applies.
+--
+-- Story 5.8 widens this to a single's OWN resume: exactly one of
+-- p_shidduchim_id/p_single_id is required (mirrors resumes_owner_check),
+-- and the two required-then-defaulted parameters move after the four
+-- always-required ones — Postgres requires every parameter with a DEFAULT
+-- to follow every parameter without one, regardless of the shape callers
+-- actually use (PostgREST/supabase-js always calls by name, never
+-- positionally, so this reorder is invisible to the SPA; direct SQL call
+-- sites — the paired .sql test suites — must use named notation too).
 CREATE OR REPLACE FUNCTION "public"."add_resume_file"(
-    "p_shidduchim_id" bigint,
     "p_path" text,
     "p_filename" text,
     "p_mime_type" text,
-    "p_size" bigint
+    "p_size" bigint,
+    "p_shidduchim_id" bigint DEFAULT NULL,
+    "p_single_id" bigint DEFAULT NULL
 ) RETURNS SETOF public.resumes
     LANGUAGE "plpgsql"
     SET "search_path" TO ''
@@ -1758,11 +1769,24 @@ declare
 begin
   v_account_id := public.current_context_id();
 
-  if not exists (
-    select 1 from public.shidduchim s
-    where s.id = p_shidduchim_id and s.account_id = v_account_id
-  ) then
-    raise exception 'shidduch % not found in current account', p_shidduchim_id;
+  if (p_shidduchim_id is not null) = (p_single_id is not null) then
+    raise exception 'exactly one of p_shidduchim_id/p_single_id must be provided';
+  end if;
+
+  if p_shidduchim_id is not null then
+    if not exists (
+      select 1 from public.shidduchim s
+      where s.id = p_shidduchim_id and s.account_id = v_account_id
+    ) then
+      raise exception 'shidduch % not found in current account', p_shidduchim_id;
+    end if;
+  else
+    if not exists (
+      select 1 from public.singles s
+      where s.id = p_single_id and s.account_id = v_account_id
+    ) then
+      raise exception 'single % not found in current account', p_single_id;
+    end if;
   end if;
 
   v_entry := jsonb_build_object(
@@ -1774,12 +1798,21 @@ begin
     'size', p_size
   );
 
-  return query
-  insert into public.resumes (account_id, shidduchim_id, files)
-  values (v_account_id, p_shidduchim_id, jsonb_build_array(v_entry))
-  on conflict (shidduchim_id) do update
-    set files = coalesce(public.resumes.files, '[]'::jsonb) || jsonb_build_array(v_entry)
-  returning *;
+  if p_shidduchim_id is not null then
+    return query
+    insert into public.resumes (account_id, shidduchim_id, files)
+    values (v_account_id, p_shidduchim_id, jsonb_build_array(v_entry))
+    on conflict (shidduchim_id) where shidduchim_id is not null do update
+      set files = coalesce(public.resumes.files, '[]'::jsonb) || jsonb_build_array(v_entry)
+    returning *;
+  else
+    return query
+    insert into public.resumes (account_id, single_id, files)
+    values (v_account_id, p_single_id, jsonb_build_array(v_entry))
+    on conflict (single_id) where single_id is not null do update
+      set files = coalesce(public.resumes.files, '[]'::jsonb) || jsonb_build_array(v_entry)
+    returning *;
+  end if;
 end;
 $$;
 
@@ -1793,10 +1826,16 @@ $$;
 -- resumes_shidduchim_id_key uniqueness add_resume_file relies on), because
 -- a shidduch may get its first photo before it ever has a resume file.
 -- SECURITY INVOKER (no clause = invoker) so RLS applies; account-scoped so
--- a photo can never be attached to a foreign account's shidduch.
+-- a photo can never be attached to a foreign account's shidduch/single.
+--
+-- Story 5.8 widens this the same way as add_resume_file above: exactly one
+-- of p_shidduchim_id/p_single_id, both defaulted and moved after the one
+-- always-required parameter (Postgres' default-parameter ordering rule —
+-- see that function's own comment).
 CREATE OR REPLACE FUNCTION "public"."add_resume_photo"(
-    "p_shidduchim_id" bigint,
     "p_path" text,
+    "p_shidduchim_id" bigint DEFAULT NULL,
+    "p_single_id" bigint DEFAULT NULL,
     "p_visibility" text DEFAULT 'shared'
 ) RETURNS SETOF public.resume_photos
     LANGUAGE "plpgsql"
@@ -1808,17 +1847,37 @@ declare
 begin
   v_account_id := public.current_context_id();
 
-  if not exists (
-    select 1 from public.shidduchim s
-    where s.id = p_shidduchim_id and s.account_id = v_account_id
-  ) then
-    raise exception 'shidduch % not found in current account', p_shidduchim_id;
+  if (p_shidduchim_id is not null) = (p_single_id is not null) then
+    raise exception 'exactly one of p_shidduchim_id/p_single_id must be provided';
   end if;
 
-  insert into public.resumes (account_id, shidduchim_id)
-  values (v_account_id, p_shidduchim_id)
-  on conflict (shidduchim_id) do update set shidduchim_id = excluded.shidduchim_id
-  returning id into v_resume_id;
+  if p_shidduchim_id is not null then
+    if not exists (
+      select 1 from public.shidduchim s
+      where s.id = p_shidduchim_id and s.account_id = v_account_id
+    ) then
+      raise exception 'shidduch % not found in current account', p_shidduchim_id;
+    end if;
+
+    insert into public.resumes (account_id, shidduchim_id)
+    values (v_account_id, p_shidduchim_id)
+    on conflict (shidduchim_id) where shidduchim_id is not null
+      do update set shidduchim_id = excluded.shidduchim_id
+    returning id into v_resume_id;
+  else
+    if not exists (
+      select 1 from public.singles s
+      where s.id = p_single_id and s.account_id = v_account_id
+    ) then
+      raise exception 'single % not found in current account', p_single_id;
+    end if;
+
+    insert into public.resumes (account_id, single_id)
+    values (v_account_id, p_single_id)
+    on conflict (single_id) where single_id is not null
+      do update set single_id = excluded.single_id
+    returning id into v_resume_id;
+  end if;
 
   return query
   insert into public.resume_photos (account_id, resume_id, path, visibility)

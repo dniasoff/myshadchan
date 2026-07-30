@@ -88,19 +88,31 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/singles/singleLabels.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/singles/index.ts",
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/singles/entityDescriptor.ts",
+          "path": "src/components/atomic-crm/singles/entityDescriptorRegions.tsx",
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/singles/SingleShow.tsx",
+          "path": "src/components/atomic-crm/singles/entityDescriptor.tsx",
           "type": "registry:component"
         },
         {
           "path": "src/components/atomic-crm/singles/SingleRow.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/singles/SingleProfileHeader.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/singles/SingleOverviewTab.tsx",
           "type": "registry:component"
         },
         {
@@ -425,6 +437,10 @@
         },
         {
           "path": "src/components/atomic-crm/resumes/useLatestResumeFile.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/resumes/resumeSubject.ts",
           "type": "registry:component"
         },
         {

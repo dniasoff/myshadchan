@@ -462,9 +462,18 @@ export type ResumeFileVersion = {
   size: number;
 };
 
+/**
+ * Story 5.8: a resume belongs to EITHER a shidduch OR a single (never
+ * both, never neither — `resumes_owner_check`, `01_tables.sql`), so both
+ * owner columns are optional here rather than `shidduchim_id` staying
+ * required. Prefer `resumes/resumeSubject.ts#ResumeSubject` at any call
+ * site that needs the exactly-one-of guarantee typed — this shape exists to
+ * match the wire row, not to be constructed by hand.
+ */
 export type Resume = {
   account_id: Identifier;
-  shidduchim_id: Identifier;
+  shidduchim_id?: Identifier | null;
+  single_id?: Identifier | null;
   files?: ResumeFileVersion[] | null;
   extracted?: unknown;
   sections?: unknown;

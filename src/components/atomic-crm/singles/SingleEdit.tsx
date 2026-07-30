@@ -12,7 +12,7 @@ import { TopToolbar } from "../layout/TopToolbar";
  * Overrides the admin default actions to omit Delete: `singles.id` cascades
  * to `shidduchim` and `date_records` (ON DELETE CASCADE), so deleting a
  * single here would silently wipe its pipeline history with no confirmation
- * of that impact. Mirrors `SingleShow`'s custom actions until a safe,
+ * of that impact. Mirrors the single's 360 `actions` region until a safe,
  * impact-aware delete flow exists.
  */
 const SingleEditActions = () => (

@@ -61,7 +61,9 @@ test("desktop: opens via the TopBar icon, finds a single by name, and navigates 
   await resultLink.click();
 
   // AC-1/AC-3: navigates to the single's own page and closes the dialog.
-  await expect(page).toHaveURL(new RegExp(`/singles/${single.id}/show`));
+  // Story 5.8 flips `singles`' `buildRecordPath` to the bare AD-24 shape
+  // (no `/show`).
+  await expect(page).toHaveURL(new RegExp(`/singles/${single.id}$`));
   await expect(page.getByRole("dialog")).not.toBeVisible();
 });
 

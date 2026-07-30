@@ -6,7 +6,8 @@ import type { DataProvider } from "ra-core";
 import { TextInput } from "@/components/admin/text-input";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
-// Side-effect import — registers the real `singles` stub descriptor.
+// Side-effect import — registers the real `singles` descriptor (Story 5.8's
+// migrated, AD-24-shaped one).
 import "../singles/entityDescriptor";
 import { requireEntityDescriptor } from "../entity360/registry";
 import { EditSheet } from "./EditSheet";

@@ -1,5 +1,10 @@
 import type { DataProvider, Identifier } from "ra-core";
 
+import {
+  isSingleSubject,
+  resumeSubjectFilter,
+  type ResumeSubject,
+} from "../../../resumes/resumeSubject";
 import type { Resume, ResumeFileVersion } from "../../../types";
 
 /**
@@ -12,19 +17,19 @@ import type { Resume, ResumeFileVersion } from "../../../types";
  */
 export type ResumeFileBlobUrls = Map<string, string>;
 
-export type UploadResumeFileParams = {
-  shidduchimId: Identifier;
+export type UploadResumeFileParams = ResumeSubject & {
   file: File;
 };
 
 /**
- * FakeRest mirror of `add_resume_file` (AC 2): finds the shidduch's existing
- * `resumes` row (unique on `shidduchim_id`, exactly like the real table) and
- * appends, or creates the row on first upload. `baseDataProvider.update`
- * carries the FULL previous `files` array forward plus the new entry — this
- * is the one place in the FakeRest session allowed to do that read-append-
- * write, because (unlike the real database) nothing else can run
- * concurrently against this in-memory store.
+ * FakeRest mirror of `add_resume_file` (AC 2; widened to a single subject
+ * by Story 5.8): finds the subject's existing `resumes` row (unique on
+ * `shidduchim_id`/`single_id`, exactly like the real table) and appends, or
+ * creates the row on first upload. `baseDataProvider.update` carries the
+ * FULL previous `files` array forward plus the new entry — this is the one
+ * place in the FakeRest session allowed to do that read-append-write,
+ * because (unlike the real database) nothing else can run concurrently
+ * against this in-memory store.
  */
 export async function uploadResumeFile(
   baseDataProvider: DataProvider,
@@ -33,8 +38,11 @@ export async function uploadResumeFile(
   memberId: Identifier | null,
   params: UploadResumeFileParams,
 ): Promise<Resume> {
-  const { shidduchimId, file } = params;
-  const storagePath = `${accountId}/resumes/${shidduchimId}/${crypto.randomUUID()}-${file.name}`;
+  const { file, ...subject } = params;
+  const ownerSegment = isSingleSubject(subject)
+    ? `single-${subject.singleId}`
+    : `${subject.shidduchimId}`;
+  const storagePath = `${accountId}/resumes/${ownerSegment}/${crypto.randomUUID()}-${file.name}`;
   blobUrls.set(storagePath, URL.createObjectURL(file));
 
   const entry: ResumeFileVersion = {
@@ -47,7 +55,7 @@ export async function uploadResumeFile(
   };
 
   const { data: matches } = await baseDataProvider.getList<Resume>("resumes", {
-    filter: { shidduchim_id: shidduchimId },
+    filter: resumeSubjectFilter(subject),
     pagination: { page: 1, perPage: 1 },
     sort: { field: "id", order: "ASC" },
   });
@@ -65,7 +73,7 @@ export async function uploadResumeFile(
   const { data } = await baseDataProvider.create<Resume>("resumes", {
     data: {
       account_id: accountId,
-      shidduchim_id: shidduchimId,
+      ...resumeSubjectFilter(subject),
       files: [entry],
       created_at: new Date().toISOString(),
     },

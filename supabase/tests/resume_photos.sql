@@ -138,10 +138,14 @@ insert into ids values ('single_id', :'single_id'), ('shidduch_id', :'shidduch_i
 -- shidduch — one 'shared', one 'private_parent' — each a fresh row, the
 -- parent `resumes` row upserted (not duplicated) on the second call.
 -- ---------------------------------------------------------------------------
+-- Story 5.8 reordered add_resume_photo's parameters (p_shidduchim_id/
+-- p_single_id moved after the always-required p_path, per that function's
+-- own comment) — every call site here uses named notation so it is immune
+-- to any future reorder.
 select public.add_resume_photo(
-  :shidduch_id,
-  :'acct_a' || '/photos/shared/' || :'shidduch_id' || '/p-shared.jpg',
-  'shared'
+  p_shidduchim_id => :shidduch_id,
+  p_path => :'acct_a' || '/photos/shared/' || :'shidduch_id' || '/p-shared.jpg',
+  p_visibility => 'shared'
 );
 
 insert into results (name, passed)
@@ -149,9 +153,9 @@ select '(f) add_resume_photo: the first call creates exactly one resumes row for
        (select count(*) from public.resumes where shidduchim_id = :shidduch_id) = 1;
 
 select public.add_resume_photo(
-  :shidduch_id,
-  :'acct_a' || '/photos/private_parent/' || :'shidduch_id' || '/p-private.jpg',
-  'private_parent'
+  p_shidduchim_id => :shidduch_id,
+  p_path => :'acct_a' || '/photos/private_parent/' || :'shidduch_id' || '/p-private.jpg',
+  p_visibility => 'private_parent'
 );
 
 insert into results (name, passed)
@@ -209,7 +213,7 @@ do $$
 declare v_shidduch_id bigint;
 begin
   select value::bigint into v_shidduch_id from ids where name = 'shidduch_id';
-  perform public.add_resume_photo(v_shidduch_id, 'evil/photos/shared/evil/evil.jpg', 'shared');
+  perform public.add_resume_photo(p_shidduchim_id => v_shidduch_id, p_path => 'evil/photos/shared/evil/evil.jpg', p_visibility => 'shared');
   insert into results values ('(f) add_resume_photo: cannot attach a photo to a foreign account''s shidduch', false, 'call unexpectedly succeeded');
 exception when others then
   insert into results values (

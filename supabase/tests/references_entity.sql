@@ -774,8 +774,12 @@ select 'an interaction''s parent columns are not client-writable',
    and has_column_privilege('authenticated', 'public.interactions', 'body', 'UPDATE');
 
 insert into results (name, passed)
+-- Story 5.8 adds `resumes_single_id_fkey` — a SECOND composite
+-- (account_id, single_id) FK on `resumes`, alongside its existing
+-- (account_id, shidduchim_id) one, now that a resume may belong to either
+-- a shidduch or a single — bumping the count from 9 to 10.
 select 'every account-scoped FK carries account_id, so no cascade crosses tenants',
-       count(*) = 9
+       count(*) = 10
 from pg_constraint c
 where c.contype = 'f'
   and c.conrelid in (

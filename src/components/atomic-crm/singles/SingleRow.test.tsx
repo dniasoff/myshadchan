@@ -35,10 +35,10 @@ describe("SingleRow — the List-mode counterpart to SingleCard (Story 4.2, AC 1
       </TestMemoryRouter>,
     );
 
-    // Assert
+    // Assert — Story 5.8 flips `buildRecordPath` to the bare AD-24 shape.
     await expect
       .element(screen.getByRole("link", { name: /Chaim Cohen/ }))
-      .toHaveAttribute("href", "/singles/42/show");
+      .toHaveAttribute("href", "/singles/42");
   });
 
   it("shows the status label", async () => {

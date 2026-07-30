@@ -1,15 +1,16 @@
 import { useRef, useState } from "react";
 import type { ChangeEvent, ReactElement } from "react";
 import { useDataProvider, useNotify, useRefresh, useTranslate } from "ra-core";
-import type { Identifier } from "ra-core";
 
 import { Button } from "@/components/ui/button";
 
 import type { CrmDataProvider } from "../providers/types";
+import type { ResumeSubject } from "./resumeSubject";
 
 /**
- * The upload half of the Resume tab (Story 5.3, AC 1 / AC 2 / AC 5). A thin
- * wrapper over `dataProvider.uploadResumeFile` — same shape as
+ * The upload half of the Resume tab (Story 5.3, AC 1 / AC 2 / AC 5; widened
+ * to a single subject by Story 5.8 AC 3). A thin wrapper over
+ * `dataProvider.uploadResumeFile` — same shape as
  * `entity360/tabs/FilesTab.tsx`'s own upload button, minus visibility (a
  * resume has none) and minus replace: a resume is versioned by APPENDING
  * (`add_resume_file`), never by replacing an existing entry (AC 2).
@@ -18,11 +19,7 @@ import type { CrmDataProvider } from "../providers/types";
  * own — that is what makes a successful upload here show up in the sibling
  * `ResumeVersionList` without any prop-drilled callback between the two.
  */
-export function ResumeUpload({
-  shidduchimId,
-}: {
-  shidduchimId: Identifier;
-}): ReactElement {
+export function ResumeUpload(subject: ResumeSubject): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const translate = useTranslate();
@@ -37,7 +34,7 @@ export function ResumeUpload({
 
     setIsUploading(true);
     try {
-      await dataProvider.uploadResumeFile({ shidduchimId, file });
+      await dataProvider.uploadResumeFile({ ...subject, file });
       refresh();
     } catch (error) {
       notify(

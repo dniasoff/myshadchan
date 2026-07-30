@@ -8,7 +8,6 @@ import {
   useRefresh,
   useTranslate,
 } from "ra-core";
-import type { Identifier } from "ra-core";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -23,6 +22,7 @@ import type {
   ShidduchSummary,
 } from "../types";
 import { PhotoRevealCard } from "./PhotoRevealCard";
+import { resumeSubjectFilter, type ResumeSubject } from "./resumeSubject";
 
 const VISIBILITY_OPTIONS: readonly ResumePhotoVisibility[] = [
   "shared",
@@ -63,16 +63,13 @@ function PhotoError(): ReactElement {
 }
 
 /**
- * The upload control (AC 2): a plain two-option visibility radio group,
- * `shared` preselected, plus a file picker. Visibility is chosen at upload
- * time only — there is no UPDATE policy to change it afterward (AC 4's
- * consequence); hide + re-upload is the only path to change it.
+ * The upload control (AC 2; widened to a single subject by Story 5.8 AC 3):
+ * a plain two-option visibility radio group, `shared` preselected, plus a
+ * file picker. Visibility is chosen at upload time only — there is no
+ * UPDATE policy to change it afterward (AC 4's consequence); hide +
+ * re-upload is the only path to change it.
  */
-function PhotoUpload({
-  shidduchimId,
-}: {
-  shidduchimId: Identifier;
-}): ReactElement {
+function PhotoUpload({ subject }: { subject: ResumeSubject }): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const translate = useTranslate();
@@ -89,7 +86,7 @@ function PhotoUpload({
     setIsUploading(true);
     try {
       await dataProvider.uploadResumePhoto({
-        shidduchimId,
+        ...subject,
         file,
         visibility,
       });
@@ -154,19 +151,19 @@ function PhotoUpload({
 }
 
 /**
- * AC 1 / AC 2 / AC 7: reads the shidduch's `resumes` row to resolve its
+ * AC 1 / AC 2 / AC 7: reads the subject's `resumes` row to resolve its
  * `resume_id` (the same lookup `ResumeVersionList` performs — resume_photos
- * has no `shidduchim_id` column of its own to filter by directly, AC 5's
- * structural separation), then lists `resume_photos` filtered
- * `hidden_at is null`. The `resume_photos` query is disabled until a
- * `resume_id` resolves, so a shidduch with no resume row yet renders the
+ * has no `shidduchim_id`/`single_id` column of its own to filter by
+ * directly, AC 5's structural separation), then lists `resume_photos`
+ * filtered `hidden_at is null`. The `resume_photos` query is disabled until
+ * a `resume_id` resolves, so a subject with no resume row yet renders the
  * SAME empty state as one with a resume and zero photos — never a second
  * network request for a resource that cannot exist yet.
  */
 function PhotoTabContent({
-  shidduchimId,
+  subject,
 }: {
-  shidduchimId: Identifier;
+  subject: ResumeSubject;
 }): ReactElement {
   const refresh = useRefresh();
 
@@ -175,7 +172,7 @@ function PhotoTabContent({
     isPending: isResumePending,
     error: resumeError,
   } = useGetList<Resume>("resumes", {
-    filter: { shidduchim_id: shidduchimId },
+    filter: resumeSubjectFilter(subject),
     pagination: { page: 1, perPage: 1 },
     sort: { field: "id", order: "ASC" },
   });
@@ -201,7 +198,7 @@ function PhotoTabContent({
 
   return (
     <div className="flex flex-col gap-4">
-      <PhotoUpload shidduchimId={shidduchimId} />
+      <PhotoUpload subject={subject} />
 
       {isPending ? (
         <PhotoSkeleton />
@@ -227,11 +224,15 @@ function PhotoTabContent({
 /**
  * The shidduch descriptor's `photo` tab entry point (Story 5.4, AC 1 / AC 2
  * / AC 7). `render` is arity-zero (contract §2 rule 4) — this reaches the
- * shidduch via `useRecordContext()`, exactly like `ResumeTab`.
+ * shidduch via `useRecordContext()`, exactly like `ResumeTab`. Story 5.8's
+ * single-owned Photo tab mounts `PhotoTabContent` directly with a
+ * `{ singleId }` subject instead — this wrapper stays shidduch-only.
  */
 export function PhotoTab(): ReactNode {
   const record = useRecordContext<ShidduchSummary>();
   if (!record) return null;
 
-  return <PhotoTabContent shidduchimId={record.id} />;
+  return <PhotoTabContent subject={{ shidduchimId: record.id }} />;
 }
+
+export { PhotoTabContent };

@@ -59,7 +59,7 @@ export const EditButton = (props: EditButtonProps) => {
   // Epic 5's one-line flip), the live edit route moves to
   // `/{resource}/{id}/edit` and this button must follow it. Until that flip,
   // `buildEditPath` would collide with the pre-migration `:id/show/*` route
-  // (`/singles/1/show/edit`), so `useCreatePath`'s `/{resource}/{id}`
+  // (`/shadchanim/1/show/edit`), so `useCreatePath`'s `/{resource}/{id}`
   // fallback — today's real edit route — is kept.
   const link =
     resource && record?.id != null && hasAd24RecordShape(resource, record.id)

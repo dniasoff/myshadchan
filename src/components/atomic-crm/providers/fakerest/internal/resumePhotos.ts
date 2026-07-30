@@ -1,5 +1,10 @@
 import type { DataProvider, Identifier } from "ra-core";
 
+import {
+  isSingleSubject,
+  resumeSubjectFilter,
+  type ResumeSubject,
+} from "../../../resumes/resumeSubject";
 import type {
   Resume,
   ResumePhoto,
@@ -16,19 +21,19 @@ import type {
  */
 export type ResumePhotoBlobUrls = Map<string, string>;
 
-export type UploadResumePhotoParams = {
-  shidduchimId: Identifier;
+export type UploadResumePhotoParams = ResumeSubject & {
   file: File;
   visibility?: ResumePhotoVisibility;
 };
 
 /**
- * FakeRest mirror of `add_resume_photo` (AC 2): finds the shidduch's
- * existing `resumes` row (unique on `shidduchim_id`, exactly like the real
- * table) or creates it, exactly like `uploadResumeFile`'s own upsert — a
- * shidduch may get its first photo before its first resume file. Then
- * inserts a fresh `resume_photos` row (never appended to an array — one row
- * per photo, matching the real table's shape).
+ * FakeRest mirror of `add_resume_photo` (AC 2; widened to a single subject
+ * by Story 5.8): finds the subject's existing `resumes` row (unique on
+ * `shidduchim_id`/`single_id`, exactly like the real table) or creates it,
+ * exactly like `uploadResumeFile`'s own upsert — a subject may get its
+ * first photo before its first resume file. Then inserts a fresh
+ * `resume_photos` row (never appended to an array — one row per photo,
+ * matching the real table's shape).
  */
 export async function uploadResumePhoto(
   baseDataProvider: DataProvider,
@@ -36,12 +41,15 @@ export async function uploadResumePhoto(
   accountId: Identifier,
   params: UploadResumePhotoParams,
 ): Promise<ResumePhoto> {
-  const { shidduchimId, file, visibility = "shared" } = params;
-  const storagePath = `${accountId}/photos/${visibility}/${shidduchimId}/${crypto.randomUUID()}-${file.name}`;
+  const { file, visibility = "shared", ...subject } = params;
+  const ownerSegment = isSingleSubject(subject)
+    ? `single-${subject.singleId}`
+    : `${subject.shidduchimId}`;
+  const storagePath = `${accountId}/photos/${visibility}/${ownerSegment}/${crypto.randomUUID()}-${file.name}`;
   blobUrls.set(storagePath, URL.createObjectURL(file));
 
   const { data: matches } = await baseDataProvider.getList<Resume>("resumes", {
-    filter: { shidduchim_id: shidduchimId },
+    filter: resumeSubjectFilter(subject),
     pagination: { page: 1, perPage: 1 },
     sort: { field: "id", order: "ASC" },
   });
@@ -51,7 +59,7 @@ export async function uploadResumePhoto(
     const { data: resume } = await baseDataProvider.create<Resume>("resumes", {
       data: {
         account_id: accountId,
-        shidduchim_id: shidduchimId,
+        ...resumeSubjectFilter(subject),
         created_at: new Date().toISOString(),
       },
     });

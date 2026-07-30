@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, Resource, TestMemoryRouter } from "ra-core";
 import type { DataProvider, ResourceProps } from "ra-core";
+import { QueryClient } from "@tanstack/react-query";
 import { matchPath, Route, Routes } from "react-router";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import { buildNewPath } from "./entityPaths";
+import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 // The real, post-change `singles` / `references` / `shidduchim` resource
 // definitions — the same objects `<CRM>` spreads onto `<Resource>`
 // (`root/routeManifest.ts`'s `RESOURCES`, `root/CRM.tsx:54-56`). Neither
@@ -44,6 +46,7 @@ const renderResourceAt = async (
   definition: Omit<ResourceProps, "name">,
   initialEntries: string[],
   dataProviderOverrides: Partial<DataProvider> = {},
+  queryClient?: QueryClient,
 ) => {
   let pathname: string | undefined;
   let search: string | undefined;
@@ -59,6 +62,7 @@ const renderResourceAt = async (
     >
       <CoreAdminContext
         dataProvider={dataProvider}
+        queryClient={queryClient}
         i18nProvider={testI18nProvider}
       >
         <Routes>
@@ -101,8 +105,19 @@ describe("route-convention adoption — singles (AC 1)", () => {
     expect(getSearch()).toBe("?foo=1");
   });
 
-  it("still renders the edit screen at /singles/1 — the static new/create routes do not shadow :id", async () => {
-    // Arrange / Act
+  it("renders the Entity360 tab strip at /singles/1, not the edit form — the static new/create routes do not shadow :id (Story 5.8 AC 4)", async () => {
+    // Arrange — Story 5.8 mounts `singles` on `buildEntityRoutes`, so `:id`
+    // (unqualified, no `/show`) now resolves to `EntityShow`, never
+    // `SingleEdit`; this is the AD-24 successor to this test's original
+    // pre-migration claim. `useViewerRole()` reads the `["myContexts"]`
+    // cache (Story 3.4) — seeded empty here (`EntityShow.test.tsx`'s own
+    // pattern) so it resolves immediately instead of erroring against an
+    // unmocked `getMyContexts`; `getList` is a blanket empty fallback for
+    // every tab's own fetch (PipelineSnapshot, the universal tabs, …), none
+    // of which this routing-shape assertion needs real data from.
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, []);
+
     const { screen } = await renderResourceAt(
       "singles",
       singles,
@@ -111,11 +126,21 @@ describe("route-convention adoption — singles (AC 1)", () => {
         getOne: vi
           .fn()
           .mockResolvedValue({ data: { id: 1, first_name_en: "Nechama" } }),
+        getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+        getMyContexts: vi.fn().mockResolvedValue([]),
       },
+      queryClient,
     );
 
-    // Assert
-    await expect.element(screen.getByText("Edit single")).toBeInTheDocument();
+    // Assert — the identity header (from the record) and the tab strip both
+    // render; "Edit single" (the pre-migration render) does not. The
+    // heading role disambiguates from the Overview tab's own "Name" fact,
+    // which renders the same "Nechama" text a second time.
+    await expect
+      .element(screen.getByRole("heading", { name: "Nechama" }))
+      .toBeInTheDocument();
+    expect(screen.container.querySelectorAll('[role="tab"]').length).toBe(8);
+    expect(screen.getByText("Edit single").query()).toBeNull();
   });
 });
 

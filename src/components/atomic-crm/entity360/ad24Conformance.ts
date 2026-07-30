@@ -119,8 +119,6 @@ export const DESCRIPTORLESS_RESOURCES: Record<string, Ad24Exemption> = {
  * get no entry at all.
  */
 export const RECORD_SURFACE_EXEMPTIONS: Record<string, Ad24Exemption> = {
-  "singles:show": { kind: "pending", retiredBy: "5.8" },
-  "singles:edit": { kind: "pending", retiredBy: "5.8" },
   "shadchanim:show": { kind: "pending", retiredBy: "5.9" },
   "shadchanim:edit": { kind: "pending", retiredBy: "5.9" },
   "references:show": { kind: "pending", retiredBy: "5.10" },
@@ -171,7 +169,6 @@ export const MODAL_RECORD_SURFACES: Record<string, Ad24Exemption> = {
  * this row.
  */
 export const PENDING_ROUTE_SHAPES: Record<string, Ad24Exemption> = {
-  singles: { kind: "pending", retiredBy: "5.8" },
   shadchanim: { kind: "pending", retiredBy: "5.9" },
   references: { kind: "pending", retiredBy: "5.10" },
 };

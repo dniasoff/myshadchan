@@ -1,6 +1,10 @@
+---
+baseline_commit: 3662dd679e8eccd40f5560b441117fa247061aab
+---
+
 # Story 5.8: Single 360
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -158,49 +162,49 @@ already representable.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Confirm gates** (prerequisite)
-  - [ ] Confirm Epic 3's shell/descriptor registry, `buildEntityRoutes` and universal tabs exist.
+- [x] **Task 1 — Confirm gates** (prerequisite)
+  - [x] Confirm Epic 3's shell/descriptor registry, `buildEntityRoutes` and universal tabs exist.
         Confirm Story 5.3 (`resumes` upload path) and Story 5.4 (`resume_photos`) have landed —
         this story extends both rather than reimplementing them.
-- [ ] **Task 2 — Verify the polymorphic targets, do not migrate them** (AC: 1)
-  - [ ] Run the AC-1 `pg_get_constraintdef` query; confirm the TypeScript unions
+- [x] **Task 2 — Verify the polymorphic targets, do not migrate them** (AC: 1)
+  - [x] Run the AC-1 `pg_get_constraintdef` query; confirm the TypeScript unions
         (`Interaction.target_type`, `TaskTargetType` — both alias `EntityTargetType`,
         `types.ts:79-94`) already carry `"single"`. No schema or type change here.
-  - [ ] Confirm 3.5's cross-account negative tests cover `target_type = 'single'`
+  - [x] Confirm 3.5's cross-account negative tests cover `target_type = 'single'`
         (`supabase/tests/interactions_targets.sql` + its runner); if that suite somehow lacks the
         case, extend it rather than writing a new style.
-- [ ] **Task 3 — Extend `resumes` to a single** (AC: 2)
-  - [ ] `01_tables.sql`: `alter column shidduchim_id drop not null`; add `single_id bigint`;
+- [x] **Task 3 — Extend `resumes` to a single** (AC: 2)
+  - [x] `01_tables.sql`: `alter column shidduchim_id drop not null`; add `single_id bigint`;
         composite FK `(account_id, single_id)` → `singles(account_id, id)` `on delete cascade`;
         drop `resumes_shidduchim_id_key`, add the two partial unique indexes; add
         `constraint resumes_owner_check check ((shidduchim_id is not null) <> (single_id is not null))`.
         Leave `resumes_account_id_id_key` alone (AC-2).
-  - [ ] No view work: `grep -n "resumes" supabase/schemas/03_views.sql` returns nothing at HEAD —
+  - [x] No view work: `grep -n "resumes" supabase/schemas/03_views.sql` returns nothing at HEAD —
         no view joins `resumes`, so no `security_invoker` or view grant is at risk. Re-run the
         grep rather than trusting this line.
-  - [ ] Generate + hand-check migration (workflow below).
-- [ ] **Task 4 — Generalise the Resume/Photo components** (AC: 3)
-  - [ ] `resumes/ResumeVersionList.tsx`, `ResumeUpload.tsx`, `PhotoTab.tsx`: change their subject
+  - [x] Generate + hand-check migration (workflow below).
+- [x] **Task 4 — Generalise the Resume/Photo components** (AC: 3)
+  - [x] `resumes/ResumeVersionList.tsx`, `ResumeUpload.tsx`, `PhotoTab.tsx`: change their subject
         prop from a bare `shidduchimId: Identifier` to a discriminated union
         `{ shidduchimId: Identifier } | { singleId: Identifier }`, and thread it through to
         `add_resume_file` / `add_resume_photo` (Stories 5.3/5.4's RPCs) — update their SQL
         signatures to accept `p_single_id` as an alternative to `p_shidduchim_id` (same
         exactly-one-of check as the table).
-  - [ ] **`06_grants.sql`:** changing an RPC's argument list changes its **signature**, so the
+  - [x] **`06_grants.sql`:** changing an RPC's argument list changes its **signature**, so the
         migration is `DROP FUNCTION … ; CREATE FUNCTION …` — which **drops the function's
         grants**. Re-issue the `revoke all on function … from public, anon; grant execute … to
         authenticated; … to service_role;` triple for each changed RPC, following the pattern at
         `06_grants.sql:291-293` and `:334-336`. Function grants live in `06_grants.sql`, never in
         `02_functions.sql`.
-- [ ] **Task 5 — Mount `singles` on the AD-24 route shape** (AC: 4, 5)
-  - [ ] `singles/index.ts`: adopt `buildEntityRoutes` + explicit `hasShow`/`hasEdit`, drop
+- [x] **Task 5 — Mount `singles` on the AD-24 route shape** (AC: 4, 5)
+  - [x] `singles/index.ts`: adopt `buildEntityRoutes` + explicit `hasShow`/`hasEdit`, drop
         `show:`/`edit:`, keep `hasCreate: true` and `children: buildCreateRoutes("singles")` with
         no `New` argument. Keep `import "./entityDescriptor";` as the first line
         (`entity360/entityDescriptor.ts:29-36`).
-  - [ ] Delete the three exemption rows named in AC-5, in this same diff.
-  - [ ] Run `findAd24Violations` against the real manifest — it must return `[]`.
-- [ ] **Task 6 — Single descriptor and tabs** (AC: 6, 7, 8, 9)
-  - [ ] **Edit `singles/entityDescriptor.ts` in place**, keeping exactly **one**
+  - [x] Delete the three exemption rows named in AC-5, in this same diff.
+  - [x] Run `findAd24Violations` against the real manifest — it must return `[]`.
+- [x] **Task 6 — Single descriptor and tabs** (AC: 6, 7, 8, 9)
+  - [x] **Edit `singles/entityDescriptor.ts` in place**, keeping exactly **one**
         `registerEntityDescriptor` call. The module is not a "minimal `name` +
         `buildRecordPath` stub" — it already carries `label`, `tabs: []` and the full 8-key
         `pendingTabs` (`:18-33`); read it before editing.
@@ -213,15 +217,15 @@ already representable.
         `registry.ts:29-33` throws only when a **second** registration site for the same `name`
         runs without the flag. The flag is uniform-by-convention here, not a fix for a live
         throw; keep one module and one call.
-  - [ ] Flip `buildRecordPath` per AC-4; declare all eight tabs in canonical order; set
+  - [x] Flip `buildRecordPath` per AC-4; declare all eight tabs in canonical order; set
         `pendingTabs: []`.
-  - [ ] Add the `identityHeader` adapter and re-home `SingleProfileHeader` per AC-9; delete
+  - [x] Add the `identityHeader` adapter and re-home `SingleProfileHeader` per AC-9; delete
         `SingleShow.tsx` and repoint `SingleProfileHeader.test.tsx:5`.
-  - [ ] Add **no** `label` overrides. All eight labels already ship
+  - [x] Add **no** `label` overrides. All eight labels already ship
         (`entity360/tabKeys.ts:42-58`, `englishCrmMessages.ts:382-398`); an override needs a
         "why THAT entity deviates" comment (`entityDescriptor.ts:97-104`) for a deviation that
         does not exist. **Epic 5 adds no `crm.entity360.tab.*` keys.**
-  - [ ] Overview: `render` is arity-zero and reaches the record via `useRecordContext<Single>()`.
+  - [x] Overview: `render` is arity-zero and reaches the record via `useRecordContext<Single>()`.
         **That record is the base `singles` row, not `singles_summary`** — unlike `shidduchim`
         and `references`, the Supabase provider does **not** redirect `singles` reads to a summary
         view (`providers/supabase/dataProvider.ts:103-127`). Compose the Overview from `Single`'s
@@ -232,32 +236,32 @@ already representable.
         component owns that `useGetOne("singles_summary", …)` — region and tab renderers are
         component boundaries and MAY call hooks; `EntityShow` fetches nothing beyond the record
         (`entityDescriptor.ts:53-56`). **No new columns are needed either way.**
-  - [ ] Shidduchim tab: the explicit `tabs` entry at position 5 rendering
+  - [x] Shidduchim tab: the explicit `tabs` entry at position 5 rendering
         `<RelatedRecordsTab relationship={…}/>` per AC-8.
-  - [ ] Files / Notes / Tasks / Activity: mount Epic 3's universal components with
+  - [x] Files / Notes / Tasks / Activity: mount Epic 3's universal components with
         `targetType="single"` + `targetId` (AC-7).
-  - [ ] `entity360/registry.stubs.test.ts`: update the pinned `singles` row (AC-6).
-- [ ] **Task 7 — Lockstep and generated artifacts**
-  - [ ] `types.ts`: `Resume` gains `single_id` and `shidduchim_id` becomes nullable.
-  - [ ] FakeRest per AD-10: `providers/fakerest/dataProvider.ts`, the resumes generator, and
+  - [x] `entity360/registry.stubs.test.ts`: update the pinned `singles` row (AC-6).
+- [x] **Task 7 — Lockstep and generated artifacts**
+  - [x] `types.ts`: `Resume` gains `single_id` and `shidduchim_id` becomes nullable.
+  - [x] FakeRest per AD-10: `providers/fakerest/dataProvider.ts`, the resumes generator, and
         `providers/fakerest/internal/accountDomainData.ts` (`resumes` is already in
         `DOMAIN_RESOURCES`, `:19-32` — verify it still reads correctly with a single-owned
         resume). Also verify `providers/fakerest/internal/removePersona.ts`, whose single-archive
         path runs through the same domain-data check; record "no change needed" in the File List
         rather than silently omitting it.
-  - [ ] `supabase/tests/`: a new `.sql` suite for AC-2's negative cases needs a **paired
+  - [x] `supabase/tests/`: a new `.sql` suite for AC-2's negative cases needs a **paired
         `.test.ts` runner** — every `.sql` suite has one, 13 pairs at HEAD, no exceptions.
         Alternatively extend an existing pair.
-  - [ ] `registry.json`: this story adds (`SingleProfileHeader.tsx`) and deletes
+  - [x] `registry.json`: this story adds (`SingleProfileHeader.tsx`) and deletes
         (`SingleShow.tsx`) non-test source files under `src/components/atomic-crm/`, so
         `scripts/generate-registry.mjs` output changes. `.husky/pre-commit` regenerates it; commit
         the result.
-  - [ ] `e2e/entity-list-view-toggle.spec.ts` drives `/#/singles` — the list route now resolves
+  - [x] `e2e/entity-list-view-toggle.spec.ts` drives `/#/singles` — the list route now resolves
         through `buildEntityRoutes`' `index` route rather than `<Resource>`'s `/*` catch-all.
         **Run the e2e suite at least once in this story's wave**; a path/route change that reaches
         e2e is the Epic-4 failure mode, and the unit suite does not cover it.
-- [ ] **Task 8 — Verify**
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus
+- [x] **Task 8 — Verify**
+  - [x] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus
         `npx vitest run src/components/atomic-crm/entity360` and one e2e run.
 
 ## Dev Notes
@@ -333,8 +337,182 @@ see Task 2). Then `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up 
 
 ### Agent Model Used
 
+Claude (bmad-dev-story workflow), STACK_ID=3 / STACK_OWNER=5-8.
+
 ### Debug Log References
+
+- `supabase db diff --local -f resume_single_owner` was hand-edited before applying: the raw
+  diff also proposed `drop view` / `create or replace view` for `reference_links_summary`,
+  `shadchan_stats`, `shidduchim_summary`, `singles_summary` — none of which reference `resumes`
+  (confirmed by re-running the same diff on the pre-story tree, which reproduces it identically).
+  Applying it verbatim would have silently dropped `security_invoker = on` from all four (`db
+  diff` never re-emits it — confirmed live: `pg_class.reloptions` already read
+  `{security_invoker=on}` on all four before this diff). Stripped from the applied migration;
+  documented as a MANUAL ADJUSTMENT in the migration file's own header. This is pre-existing
+  drift, not caused by this story.
+- `add_resume_file`/`add_resume_photo`'s widened signatures move `p_shidduchim_id`/`p_single_id`
+  after the always-required parameters (Postgres requires every defaulted parameter to follow
+  every non-defaulted one) — `supabase/tests/documents_storage.sql` and `resume_photos.sql`
+  called both positionally and needed converting to named notation (`p_path => …`) to keep
+  working; PostgREST/supabase-js already call by name, so the SPA call sites were unaffected.
+- Fixed 4 pre-existing tests broken by the AD-24 migration itself (not touched by any earlier
+  story, discovered by running the full suite): `SingleRow.test.tsx` and
+  `routeConvention.routes.test.tsx` pinned the old `/singles/{id}/show` shape;
+  `show-button.test.tsx` / `edit-button.test.tsx` used the real `singlesDescriptor` as their
+  "still a stub" fixture — repointed to `shadchanimDescriptor` (Story 5.9 hasn't migrated it
+  yet), the same file-repointing fix rather than inventing a synthetic fixture resource.
+  `e2e/global-search.spec.ts` hard-coded `/singles/{id}/show` (the exact "Epic-4 failure mode"
+  L15 warns about) — fixed and proved red-then-green live against a real e2e run.
+  `supabase/tests/references_entity.sql`'s "every account-scoped FK carries account_id" check
+  hard-coded `count(*) = 9`; Story 5.8's second composite FK on `resumes` bumps it to 10.
+- Verified end-to-end against a FRESH e2e stack (`STACK_ID=3`, migrations replayed from scratch,
+  not just applied incrementally to the long-running dev DB): `make test STACK_ID=3` (2075/2075
+  unit+DB tests) and the full Playwright suite (`npx playwright test`, 39 passed / 7
+  project-skipped, 0 failed), including `e2e/entity-list-view-toggle.spec.ts` (Task 7's named
+  file) and `e2e/global-search.spec.ts` (the file this story's own migration broke). Stack
+  stopped and lease released afterward.
 
 ### Completion Notes List
 
+- AC 1: verified `tasks_target_type_check` / `interactions_target_type_check` /
+  `interactions_scope_link_check` already carry `'single'` (Stories 3.5/3.8); shipped no
+  migration touching them. `TaskTargetType`/`Interaction.target_type` already alias
+  `EntityTargetType`, which already includes `"single"`.
+- AC 2: `resumes.shidduchim_id` is now nullable, `resumes.single_id` added, FK `(account_id,
+  single_id) -> singles(account_id, id) on delete cascade`, `resumes_owner_check` enforces
+  exactly one of the two, `resumes_shidduchim_id_key`/`resumes_single_id_key` are now two
+  partial unique indexes. `resumes_account_id_id_key` untouched. New negative-case suite
+  `supabase/tests/resume_single_owner.sql` + `.test.ts` (12 checks) proves the check constraint,
+  both partial unique indexes, the RPC-level exactly-one-of guard and the account-ownership
+  guard for a single subject.
+- AC 3: `ResumeUpload`, `ResumeVersionList` and `PhotoTab`'s exported `PhotoTabContent` now take
+  a `ResumeSubject` discriminated union (`resumes/resumeSubject.ts`, new) instead of a bare
+  `shidduchimId`. No new upload, version-list or reveal component was written — `ResumeTab`
+  (shidduch) and the new `singles/entityDescriptorRegions.tsx` adapters (single) are the two
+  callers.
+- AC 4/AC 5: `singles/index.ts` now registers `list: buildEntityRoutes({ List, Edit, Show:
+  EntityShow })` + explicit `hasShow: true`/`hasEdit: true`, dropping `show:`/`edit:`.
+  `singles/entityDescriptor.tsx`'s `buildRecordPath` is `` (id) => `/singles/${encodeURIComponent(id)}` ``.
+  The three AC-5 exemption rows (`RECORD_SURFACE_EXEMPTIONS["singles:show"/"singles:edit"]`,
+  `PENDING_ROUTE_SHAPES.singles`) are deleted. `root/routeManifest.ts`'s `RECORD_FLAG_EXEMPTIONS`
+  confirmed to have no `singles` entry (nothing to delete, none added).
+- AC 6/7: all eight canonical tab keys (`overview, resume, photo, files, shidduchim, notes,
+  tasks, activity`) declared in `singles/entityDescriptor.tsx#tabs`, in canonical order;
+  `pendingTabs: []`. Files/Notes/Tasks/Activity wrappers pass `targetType="single"` +
+  `targetId={record.id}` (never `target_type`). `entity360/registry.stubs.test.ts`'s `singles`
+  case updated to the migrated shape (all three assertions now green by design, not red).
+- AC 8: Shidduchim is an explicit `tabs` entry at position 5 rendering `<RelatedRecordsTab
+  relationship={singleShidduchimRelationship}/>` (`resource: "shidduchim", getFilter: (r) => ({
+  single_id: r.id })` — the worked example verbatim) — never a `relationships` entry, and no
+  hand-rolled `useGetList`.
+- AC 9: `SingleShow.tsx` deleted. `SingleProfileHeader` relocated to its own
+  `singles/SingleProfileHeader.tsx` (prop signature unchanged); `SingleProfileHeader.test.tsx`'s
+  import repointed. `SingleIdentityHeader` in `singles/entityDescriptorRegions.tsx` is the
+  one-line `{ record } -> { single: record }` adapter. `PipelineSnapshot` relocated into
+  `SingleOverviewTab.tsx`'s `children`. `grep -rn "SingleShow" src/` returns nothing (including
+  in every comment touched by this diff).
+- AC 10: not built (out of scope, per the story) — the single's Resume tab is the one canonical
+  resume location a future outbound-send flow (Epic 9) will read from.
+- Added, beyond the story's explicit ACs, but load-bearing for parity: `actions:
+  SingleActions` (an `EditButton`, preserving the one affordance the deleted routed record page
+  carried in its own action bar — otherwise `/singles/{id}/edit` becomes unreachable from the
+  UI). Kept deliberately minimal (one existing button, no new surface).
+- `singles/entityDescriptor.ts` (the 3.9 stub) was deleted and replaced by
+  `singles/entityDescriptor.tsx` (needs JSX for the tab `render` functions) — mirrors the
+  `shidduchim/entityDescriptor.tsx` rename precedent from Story 5.1.
+- Task 7's FakeRest verification: `providers/fakerest/internal/accountDomainData.ts`'s
+  `resumes` check filters by `account_id` only, so it already reads correctly for a
+  single-owned resume — no change needed. `providers/fakerest/internal/removePersona.ts`'s
+  single-archive path runs through the same `accountHasDomainData` check — verified, no change
+  needed.
+- All eight gates green: `make typecheck`, `npm run lint` (0 warnings), `npx vitest run` (2075/
+  2075), `make build`, `npx prettier --check .` (clean except pre-existing, untouched
+  `.github/`/`doc/` drift), all four CI guards (`check-retired-names`, `check-suppressions`,
+  `check-route-convention`, `check-tailwind-arbitrary-var`), `make test STACK_ID=3` (2075/2075
+  against a freshly-bootstrapped e2e stack), `supabase db diff --local` (clean of any
+  resumes-related residue after applying).
+
 ### File List
+
+**Schema / migration**
+- `supabase/schemas/01_tables.sql` — `resumes`: `shidduchim_id` nullable, `single_id` added,
+  `resumes_owner_check`, `resumes_single_id_fkey`, two partial unique indexes replacing
+  `resumes_shidduchim_id_key`.
+- `supabase/schemas/02_functions.sql` — `add_resume_file`/`add_resume_photo` widened to accept
+  `p_single_id` as an alternative to `p_shidduchim_id`.
+- `supabase/schemas/06_grants.sql` — grants re-issued for both widened RPC signatures.
+- `supabase/migrations/20260730080056_resume_single_owner.sql` — new (hand-adjusted; see Debug
+  Log References).
+- `supabase/tests/resume_single_owner.sql` — new (AC-2 negative-case suite).
+- `supabase/tests/resume_single_owner.test.ts` — new (paired runner).
+- `supabase/tests/documents_storage.sql` — `add_resume_file` calls converted to named notation.
+- `supabase/tests/resume_photos.sql` — `add_resume_photo` calls converted to named notation.
+- `supabase/tests/references_entity.sql` — the account-scoped-FK count bumped 9 -> 10.
+
+**Frontend — singles**
+- `src/components/atomic-crm/singles/entityDescriptor.ts` — deleted (3.9 stub).
+- `src/components/atomic-crm/singles/entityDescriptor.tsx` — new (replaces it; AD-24-migrated
+  descriptor).
+- `src/components/atomic-crm/singles/entityDescriptorRegions.tsx` — new (identityHeader/actions/
+  tab adapters).
+- `src/components/atomic-crm/singles/SingleShow.tsx` — deleted.
+- `src/components/atomic-crm/singles/SingleProfileHeader.tsx` — new (relocated from
+  `SingleShow.tsx`).
+- `src/components/atomic-crm/singles/SingleProfileHeader.test.tsx` — import repointed.
+- `src/components/atomic-crm/singles/SingleOverviewTab.tsx` — new (Overview tab content).
+- `src/components/atomic-crm/singles/singleLabels.ts` — new (shared `GENDER_LABEL`/
+  `STATUS_LABEL`, extracted for `react-refresh/only-export-components`).
+- `src/components/atomic-crm/singles/index.ts` — mounted on `buildEntityRoutes` + explicit
+  `hasShow`/`hasEdit`.
+- `src/components/atomic-crm/singles/SingleCard.tsx` — doc comment: no more "SingleShow"
+  literal.
+- `src/components/atomic-crm/singles/SingleEdit.tsx` — doc comment: no more "SingleShow"
+  literal.
+- `src/components/atomic-crm/singles/SingleRow.test.tsx` — assertion updated to the AD-24 path
+  shape.
+
+**Frontend — resumes (generalised to a single subject)**
+- `src/components/atomic-crm/resumes/resumeSubject.ts` — new (`ResumeSubject` discriminated
+  union + helpers).
+- `src/components/atomic-crm/resumes/resumeSubject.test.ts` — new.
+- `src/components/atomic-crm/resumes/ResumeUpload.tsx` — subject prop widened.
+- `src/components/atomic-crm/resumes/ResumeVersionList.tsx` — subject prop widened.
+- `src/components/atomic-crm/resumes/PhotoTab.tsx` — subject prop widened; `PhotoTabContent`
+  exported for the single-side call site.
+
+**Frontend — providers**
+- `src/components/atomic-crm/providers/supabase/resumes.ts` — `uploadResumeFile` widened.
+- `src/components/atomic-crm/providers/supabase/resumePhotos.ts` — `uploadResumePhoto` widened.
+- `src/components/atomic-crm/providers/fakerest/internal/resumes.ts` — FakeRest mirror widened.
+- `src/components/atomic-crm/providers/fakerest/internal/resumePhotos.ts` — FakeRest mirror
+  widened.
+- `src/components/atomic-crm/types.ts` — `Resume.shidduchim_id` optional, `Resume.single_id`
+  added.
+
+**entity360 framework**
+- `src/components/atomic-crm/entity360/ad24Conformance.ts` — 3 `singles` exemption rows
+  deleted.
+- `src/components/atomic-crm/entity360/registry.stubs.test.ts` — `singles` case updated to the
+  migrated shape; header comment updated.
+- `src/components/atomic-crm/entity360/entityPaths.ts` — doc comment example switched from
+  `singles` (now migrated) to `shadchanim` (still a stub).
+- `src/components/atomic-crm/entity360/routeConvention.routes.test.tsx` — the stale
+  pre-migration "singles" assertion replaced with an AD-24-shaped one; `renderResourceAt` gained
+  an optional `queryClient` parameter.
+- `src/components/atomic-crm/entity360/routeConvention.redirect.test.tsx` — doc comment
+  corrected (no longer claims `singlesDescriptor` is "the real stub").
+- `src/components/atomic-crm/misc/EditSheet.test.tsx` — doc comment corrected.
+
+**Framework (shared, broken by the migration itself)**
+- `src/components/admin/edit-button.tsx` — doc-comment example switched to `shadchanim`.
+- `src/components/admin/edit-button.test.tsx` — repointed to `shadchanimDescriptor` (still a
+  stub) instead of the now-migrated `singlesDescriptor`.
+- `src/components/admin/show-button.test.tsx` — same repointing.
+
+**e2e**
+- `e2e/global-search.spec.ts` — the `/singles/{id}/show` assertion (Epic-4 failure mode L15)
+  fixed to the AD-24 shape.
+
+**Generated**
+- `registry.json` — regenerated (`make registry-gen`) to reflect the added/removed source
+  files.

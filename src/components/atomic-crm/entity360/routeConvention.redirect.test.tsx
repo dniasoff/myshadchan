@@ -28,11 +28,13 @@ import { redirectToRecord } from "./routeConvention";
  * `SingleCreate`/`SingleEdit` surfaces: what Task 4 changes is the
  * `redirect` prop, not the form fields.
  *
- * Both tests register an AD-24-shaped `singles` descriptor
- * (`buildRecordPath: (id) => \`/singles/${id}\``) instead of relying on the
- * real stub's `buildRecordPath: (id) => \`/singles/${id}/show\``. The stub's
- * shape is byte-identical to what the retired hardcoded show-record verb
- * would have produced, so asserting against it could not distinguish
+ * Both tests register an explicit AD-24-shaped `singles` descriptor
+ * (`buildRecordPath: (id) => \`/singles/${id}\``) rather than depending on
+ * whatever `singlesDescriptor` happens to be at the moment this file runs —
+ * true today (Story 5.8) but was, at write time, still Story 3.9's stub
+ * (`buildRecordPath: (id) => \`/singles/${id}/show\``). That stub's shape
+ * is byte-identical to what the retired hardcoded show-record verb would
+ * have produced, so asserting against it could not distinguish
  * `redirectToRecord` from the mechanism this story replaces — reverting the
  * `redirect` prop below from `redirectToRecord` back to that retired verb
  * still passed both tests. The real descriptor is restored in `afterEach`,

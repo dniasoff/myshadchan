@@ -1,28 +1,10 @@
 import { differenceInYears } from "date-fns";
-import { useRecordContext } from "ra-core";
-import { EditButton } from "@/components/admin/edit-button";
-import { Show } from "@/components/admin/show";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-import { PipelineSnapshot } from "../dashboard/PipelineSnapshot";
 import { EntityAvatar } from "../entity360/EntityAvatar";
-import { TopToolbar } from "../layout/TopToolbar";
 import type { Single } from "../types";
-
-const GENDER_LABEL: Record<string, string> = {
-  female: "Female",
-  male: "Male",
-};
-
-// 2.5 AC-8: SingleList/SingleShow keep archived singles reachable (the full
-// family record), so the pill must read "Archived" rather than the generic
-// non-active "Paused" — mirrors SingleCard.tsx's own STATUS_LABEL.
-const STATUS_LABEL: Record<string, string> = {
-  active: "Active",
-  paused: "Paused",
-  archived: "Archived",
-};
+import { GENDER_LABEL, STATUS_LABEL } from "./singleLabels";
 
 /** Format a YYYY-MM-DD date of birth as "9 Jul 2010" (timezone-safe). */
 const formatDob = (dateString?: string | null): string | null => {
@@ -39,9 +21,15 @@ const formatDob = (dateString?: string | null): string | null => {
   return `${formatted} (age ${age})`;
 };
 
-/** Exported for direct render coverage of the AC 5 EntityAvatar rewire
+/**
+ * The single's identity card (screen 32b) — relocated here verbatim from
+ * the entity's now-deleted routed record page (Story 5.8 AC 9). Exported
+ * for direct render coverage of the AC 5 (Story 3.1) `EntityAvatar` rewire
  * (`SingleProfileHeader.test.tsx`) — otherwise only reachable through the
- * full `ShowBase` record context. */
+ * full `ShowBase` record context. Wrapped by `singles/entityDescriptor.tsx`'s
+ * `SingleIdentityHeader` adapter to fit the descriptor's `identityHeader:
+ * ComponentType<{ record: T }>` shape.
+ */
 export const SingleProfileHeader = ({ single }: { single: Single }) => {
   const nameEn = [single.first_name_en, single.last_name_en]
     .filter(Boolean)
@@ -103,32 +91,3 @@ export const SingleProfileHeader = ({ single }: { single: Single }) => {
     </Card>
   );
 };
-
-const SingleShowLayout = () => {
-  const record = useRecordContext<Single>();
-  if (!record) return null;
-
-  return (
-    <div className="flex flex-col gap-4">
-      <SingleProfileHeader single={record} />
-      <PipelineSnapshot singleId={record.id} />
-    </div>
-  );
-};
-
-const SingleShowActions = () => (
-  <TopToolbar>
-    <EditButton />
-  </TopToolbar>
-);
-
-/**
- * The single profile (screen 32b): identity + status at a glance, and the
- * same "moment" pipeline-snapshot component the dashboard uses (reused, not
- * reimplemented) as the "open pipeline" affordance for this single.
- */
-export const SingleShow = () => (
-  <Show title={false} actions={<SingleShowActions />}>
-    <SingleShowLayout />
-  </Show>
-);

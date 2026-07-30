@@ -1,5 +1,9 @@
 import type { Identifier } from "ra-core";
 
+import {
+  isSingleSubject,
+  type ResumeSubject,
+} from "../../resumes/resumeSubject";
 import type { ResumePhoto, ResumePhotoVisibility } from "../../types";
 import { getSupabaseClient } from "./supabase";
 
@@ -34,8 +38,7 @@ async function getCurrentAccountId(): Promise<number> {
   return data as number;
 }
 
-export type UploadResumePhotoParams = {
-  shidduchimId: Identifier;
+export type UploadResumePhotoParams = ResumeSubject & {
   file: File;
   visibility?: ResumePhotoVisibility;
 };
@@ -50,19 +53,25 @@ export type HideResumePhotoParams = {
 
 /**
  * AC 2/AC 4: uploads under the AC-4 key grammar — the visibility is segment
- * 3 of the path itself, `{account}/photos/{visibility}/{shidduchim}/{uuid}-
+ * 3 of the path itself, `{account}/photos/{visibility}/{owner}/{uuid}-
  * {filename}` — then calls `add_resume_photo()`, which upserts the parent
- * `resumes` row (a shidduch may get its first photo before its first
+ * `resumes` row (a shidduch/single may get its first photo before its first
  * resume file) and inserts the catalog row. Mirrors `uploadResumeFile`'s
  * "no object without a row" ordering: if the RPC rejects, the just-uploaded
  * object is removed before rethrowing.
+ *
+ * Story 5.8 widens the subject to a single alongside a shidduch — same
+ * `single-{id}` owner-segment convention as `resumes.ts#uploadResumeFile`.
  */
 export async function uploadResumePhoto(
   params: UploadResumePhotoParams,
 ): Promise<ResumePhoto> {
-  const { shidduchimId, file, visibility = "shared" } = params;
+  const { file, visibility = "shared", ...subject } = params;
   const accountId = await getCurrentAccountId();
-  const storagePath = `${accountId}/photos/${visibility}/${shidduchimId}/${crypto.randomUUID()}-${file.name}`;
+  const ownerSegment = isSingleSubject(subject)
+    ? `single-${subject.singleId}`
+    : `${subject.shidduchimId}`;
+  const storagePath = `${accountId}/photos/${visibility}/${ownerSegment}/${crypto.randomUUID()}-${file.name}`;
 
   const { error: uploadError } = await getSupabaseClient()
     .storage.from(DOCUMENTS_BUCKET)
@@ -73,9 +82,12 @@ export async function uploadResumePhoto(
   }
 
   const { data, error } = await getSupabaseClient().rpc("add_resume_photo", {
-    p_shidduchim_id: shidduchimId,
     p_path: storagePath,
     p_visibility: visibility,
+    p_shidduchim_id: isSingleSubject(subject)
+      ? undefined
+      : subject.shidduchimId,
+    p_single_id: isSingleSubject(subject) ? subject.singleId : undefined,
   });
   if (error) {
     console.error("uploadResumePhoto.add_resume_photo.error", error);

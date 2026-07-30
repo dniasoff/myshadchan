@@ -240,12 +240,16 @@ returning id as shidduch_id \gset
 
 insert into ids values ('single_id', :'single_id'), ('shidduch_id', :'shidduch_id');
 
+-- Story 5.8 reordered add_resume_file's parameters (p_shidduchim_id/
+-- p_single_id moved after the always-required ones, per that function's own
+-- comment) — every call site here uses named notation so it is immune to
+-- any future reorder.
 select public.add_resume_file(
-  :shidduch_id,
-  :'acct_a' || '/resumes/' || :'shidduch_id' || '/v1-resume.pdf',
-  'resume-v1.pdf',
-  'application/pdf',
-  1000
+  p_shidduchim_id => :shidduch_id,
+  p_path => :'acct_a' || '/resumes/' || :'shidduch_id' || '/v1-resume.pdf',
+  p_filename => 'resume-v1.pdf',
+  p_mime_type => 'application/pdf',
+  p_size => 1000
 );
 
 insert into results (name, passed)
@@ -266,11 +270,11 @@ insert into ids values (
 );
 
 select public.add_resume_file(
-  :shidduch_id,
-  :'acct_a' || '/resumes/' || :'shidduch_id' || '/v2-resume.pdf',
-  'resume-v2.pdf',
-  'application/pdf',
-  2000
+  p_shidduchim_id => :shidduch_id,
+  p_path => :'acct_a' || '/resumes/' || :'shidduch_id' || '/v2-resume.pdf',
+  p_filename => 'resume-v2.pdf',
+  p_mime_type => 'application/pdf',
+  p_size => 2000
 );
 
 insert into results (name, passed)
@@ -302,7 +306,7 @@ do $$
 declare v_shidduch_id bigint;
 begin
   select value::bigint into v_shidduch_id from ids where name = 'shidduch_id';
-  perform public.add_resume_file(v_shidduch_id, 'evil/resumes/evil/evil.pdf', 'evil.pdf', 'application/pdf', 1);
+  perform public.add_resume_file(p_shidduchim_id => v_shidduch_id, p_path => 'evil/resumes/evil/evil.pdf', p_filename => 'evil.pdf', p_mime_type => 'application/pdf', p_size => 1);
   insert into results values ('(e) add_resume_file: cannot attach a file to a foreign account''s shidduch', false, 'call unexpectedly succeeded');
 exception when others then
   insert into results values (
