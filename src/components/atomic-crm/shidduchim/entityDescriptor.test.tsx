@@ -5,6 +5,7 @@ import {
   ResourceContextProvider,
   TestMemoryRouter,
 } from "ra-core";
+import type { Identifier } from "ra-core";
 import { QueryClient } from "@tanstack/react-query";
 import { Route, Routes } from "react-router";
 
@@ -12,7 +13,7 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import { createDataProvider } from "../providers/fakerest/dataProvider";
 import generateData from "../providers/fakerest/dataGenerator";
 import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
-import type { MemberRole, MyContext } from "../types";
+import type { EntityFile, MemberRole, MyContext } from "../types";
 import { buildEntityRoutes } from "../entity360/buildEntityRoutes";
 import { EntityShow } from "../entity360/EntityShow";
 // Side-effect import — registers the REAL shidduchimDescriptor, exactly like
@@ -41,9 +42,16 @@ const contextFor = (role: MemberRole): MyContext => ({
   is_active: true,
 });
 
-const renderShidduchShow = async (role?: MemberRole) => {
+const renderShidduchShow = async (
+  role?: MemberRole,
+  configureDb: (
+    db: ReturnType<typeof generateData>,
+    shidduchId: Identifier,
+  ) => void = () => {},
+) => {
   const db = generateData();
   const shidduchId = db.shidduchim[0].id;
+  configureDb(db, shidduchId);
   const dataProvider = createDataProvider({ db, latency: 0, silent: true });
   const contexts = role ? [contextFor(role)] : [];
   dataProvider.getMyContexts = vi.fn().mockResolvedValue(contexts);
@@ -168,5 +176,74 @@ describe("shidduchimDescriptor — tab strip order (Story 5.6, AC 1 / AC 2)", ()
       "Tasks",
       "Activity",
     ]);
+  });
+});
+
+describe("shidduchimDescriptor — the real Files tab is scoped to this record (Story 5.6, AC 1)", () => {
+  const buildFile = (
+    overrides: Partial<EntityFile> & Pick<EntityFile, "id">,
+  ): EntityFile => ({
+    account_id: 1,
+    target_type: "shidduch",
+    target_id: 1,
+    storage_path: "1/shidduch/1/file.pdf",
+    file_name: "file.pdf",
+    mime_type: "application/pdf",
+    size_bytes: 1024,
+    visibility: "shared",
+    uploaded_by_member_id: null,
+    created_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  });
+
+  it("renders this shidduch's own file, never a row filed under a different target_id or a different targetType sharing this numeric id", async () => {
+    // Arrange — `ShidduchFilesTab` (entityDescriptorRegions.tsx) is supposed
+    // to render `<FilesTab targetType="shidduch" targetId={record.id} />`.
+    // Neither prop is checked by any existing test: mutating either one to a
+    // wrong-but-still-valid value (e.g. `targetType="single"`) previously
+    // left `make typecheck` and the whole suite green. Seeding one
+    // wrong-target_id row and one wrong-targetType row alongside the correct
+    // one makes both mutations fail this test.
+    const { screen } = await renderShidduchShow(
+      "parent_admin",
+      (db, shidduchId) => {
+        db.entity_files = [
+          buildFile({
+            id: 1,
+            target_type: "shidduch",
+            target_id: shidduchId,
+            file_name: "This Shidduch File.pdf",
+          }),
+          buildFile({
+            id: 2,
+            target_type: "shidduch",
+            target_id: 9999999,
+            file_name: "Other Shidduch File.pdf",
+          }),
+          buildFile({
+            id: 3,
+            target_type: "single",
+            target_id: shidduchId,
+            file_name: "Same Id Wrong Type File.pdf",
+          }),
+        ];
+      },
+    );
+
+    // Act
+    await screen.getByRole("tab", { name: "Files" }).click();
+
+    // Assert — the record's own file renders...
+    await expect
+      .element(screen.getByText("This Shidduch File.pdf"))
+      .toBeInTheDocument();
+    // ...and neither the wrong-target_id row nor the wrong-targetType row
+    // (which shares this shidduch's numeric id) does.
+    expect(screen.container.textContent ?? "").not.toContain(
+      "Other Shidduch File.pdf",
+    );
+    expect(screen.container.textContent ?? "").not.toContain(
+      "Same Id Wrong Type File.pdf",
+    );
   });
 });
