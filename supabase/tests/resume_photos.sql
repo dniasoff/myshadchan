@@ -16,7 +16,7 @@
 -- share with `add_resume_file`/`add_redt`/`add_school`, and the soft-hide
 -- contract (AC 2: `hidden_at` is set, the row is never deleted).
 --
--- Three users: `u1` holds a `parent_admin` membership of household account A
+-- Four users: `u1` holds a `parent_admin` membership of household account A
 -- and a SECOND `parent_admin` membership of household account B (active in
 -- A) — the same "one login, two households" shape entity_files.sql /
 -- documents_storage.sql use, for the same reason: two disjoint users would
@@ -25,7 +25,25 @@
 -- 'single' is a real, invitable role at HEAD (account_members_role_check,
 -- 01_tables.sql), so this is not gated on any later epic. `u3` holds a
 -- `parent_admin` membership of a THIRD, fully unrelated household account C
--- — AC 4's "a second account can reach neither" check.
+-- — AC 4's "a second account can reach neither" check. `u4` holds a
+-- `single` membership of account A (created first, so
+-- activate_first_context_trigger makes A active) AND a `parent_admin`
+-- membership of account C (created second, so activation never moves) — the
+-- one shape none of u1/u2/u3 exercises: a caller whose ACTIVE membership is
+-- `single` but who ALSO holds a non-`single` role in a DIFFERENT account.
+-- This is load-bearing, not incidental: the RLS predicate's `exists` clause
+-- must match on `am.id = current_member_id()` (scoped to the caller's
+-- ACTIVE membership only, 02_functions.sql), never on the wider
+-- `am.user_id = auth.uid()` (every membership row the user holds, active or
+-- not) — `account_members`' own select policy
+-- (`user_id = auth.uid() OR account_id = current_context_id()`,
+-- 05_policies.sql) lets a caller read every membership they hold, so an
+-- unscoped rewrite would let u4's C-side `parent_admin` row satisfy
+-- `role <> 'single'` while u4 is active (and `single`) in A, wrongly
+-- exposing the `private_parent` row. u1/u2/u3 cannot surface this: no
+-- login among them holds both a `single` and a non-`single` role across two
+-- accounts, so a mutant that re-derives membership from `auth.uid()`
+-- unscoped stays green against them.
 --
 -- The storage half reuses the technique context_rls_hardening.sql /
 -- entity_files.sql / documents_storage.sql already established: insert into
@@ -53,13 +71,14 @@ grant all on results to public;
 grant all on ids to public;
 
 -- ---------------------------------------------------------------------------
--- Arrange: three logins, three household accounts.
+-- Arrange: four logins, three household accounts.
 -- ---------------------------------------------------------------------------
 insert into auth.users (id, instance_id, aud, role, email)
 values
   ('e5111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rp-admin@test.local'),
   ('e5222222-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rp-single@test.local'),
-  ('e5333333-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rp-foreign@test.local');
+  ('e5333333-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rp-foreign@test.local'),
+  ('e5444444-4444-4444-4444-444444444444', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rp-mixed@test.local');
 
 delete from public.account_members;
 
@@ -79,12 +98,31 @@ values (:acct_a, 'e5222222-2222-2222-2222-222222222222', 'single', 'active');
 insert into public.account_members (account_id, user_id, role, status)
 values (:acct_c, 'e5333333-3333-3333-3333-333333333333', 'parent_admin', 'active');
 
+-- u4: single in A first (activates A), parent_admin in C second (activation
+-- never moves) — see the "Four users" comment above for why this shape is
+-- the one that discriminates a correctly-scoped RLS predicate from an
+-- unscoped one.
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_a, 'e5444444-4444-4444-4444-444444444444', 'single', 'active');
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_c, 'e5444444-4444-4444-4444-444444444444', 'parent_admin', 'active');
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e5111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
 insert into results (name, passed)
 select 'Arrange: u1''s active context is household A right after both memberships exist',
        public.current_context_id() = (select value::bigint from ids where name = 'acct_a');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e5444444-4444-4444-4444-444444444444","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'Arrange: u4''s active context is household A (single-first, parent_admin-in-C-second — activation never moves)',
+       public.current_context_id() = (select value::bigint from ids where name = 'acct_a');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e5111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
 -- A single + shidduch in A, created by u1 (admin) while A is active.
 insert into public.singles (first_name_en) values ('RP Single Person')
@@ -279,6 +317,40 @@ select '(c) storage: a foreign account''s member reads zero rows for the shared 
 insert into results (name, passed)
 select '(c) storage: a foreign account''s member reads zero rows for the private_parent object',
        (select count(*) from storage.objects where id = (select value::uuid from ids where name = 'obj_private')) = 0;
+
+-- ---------------------------------------------------------------------------
+-- (h) Table + storage RLS: u4 is 'single' in the ACTIVE account (A) but
+-- 'parent_admin' in a DIFFERENT account (C). This is the one shape that
+-- discriminates the shipped policy — `am.id = current_member_id()`, scoped
+-- to the caller's ACTIVE membership only — from a mutant that re-derives
+-- membership as `am.user_id = auth.uid()` (every membership row the user
+-- holds, active or not, since account_members' own select policy exposes
+-- them all). Under the mutant, u4's C-side parent_admin row would satisfy
+-- `role <> 'single'` and wrongly unlock the private_parent row in A. Under
+-- the shipped policy it must not. u1/u2/u3 above cannot exercise this: none
+-- of them holds both a `single` and a non-`single` role across two
+-- accounts.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e5444444-4444-4444-4444-444444444444","role":"authenticated"}';
+
+insert into results (name, passed)
+select '(h) table: single-in-active-account-but-parent_admin-elsewhere (u4) reads exactly one resume_photos row (only shared)',
+       (select count(*) from public.resume_photos rp
+          join public.resumes r on r.id = rp.resume_id
+        where r.shidduchim_id = (select value::bigint from ids where name = 'shidduch_id')) = 1;
+
+insert into results (name, passed)
+select '(h) table: u4 CANNOT read the private_parent photo row (role check must resolve off the ACTIVE membership only, not any membership the user holds)',
+       (select count(*) from public.resume_photos where id = (select value::bigint from ids where name = 'private_photo_id')) = 0;
+
+insert into results (name, passed)
+select '(h) storage: u4 CANNOT read the private_parent photo object (same property, at the storage layer)',
+       (select count(*) from storage.objects where id = (select value::uuid from ids where name = 'obj_private')) = 0;
+
+insert into results (name, passed)
+select '(h) storage: u4 CAN read the shared photo object',
+       (select count(*) from storage.objects where id = (select value::uuid from ids where name = 'obj_shared')) = 1;
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e5111111-1111-1111-1111-111111111111","role":"authenticated"}';

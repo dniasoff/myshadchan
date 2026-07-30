@@ -87,9 +87,20 @@ is a persisted, RLS-enforced fact.
    the `resumes/` prefix precisely so this story can write stricter rules for its own.
    **Negative test (storage):** the `single` member's client cannot download or list the
    `private_parent` object but can download the `shared` one; a second account can reach
-   neither. Asserted against the running local Supabase storage API, not mocked.
+   neither. Asserted at the real Postgres SQL/RLS layer (`select … from storage.objects` under
+   `set local role authenticated`, the same technique `documents_storage.sql` /
+   `entity_files.sql` already established), not mocked — the storage HTTP API is a thin client
+   over the same policy, so this exercises the identical grant the sign/download endpoints go
+   through. **Also cover the "single in the active account but non-`single` elsewhere" shape**
+   (a caller who holds a `single` membership of the active account and a non-`single` membership
+   of a different one): the RLS predicate resolves the caller's role through
+   `current_member_id()`, which is scoped to the ACTIVE membership only, and a predicate that
+   instead re-derived membership from `auth.uid()` unscoped would wrongly see the caller's
+   non-`single` role in the other account and leak the `private_parent` row. A fixture where
+   every `single` login holds no other membership cannot catch that regression.
    **Fails when:** the `single` member can `list` `{account}/photos/private_parent/`, or a
-   foreign account can read either object.
+   foreign account can read either object, or a caller who is `single` only in the active
+   account but not elsewhere is granted access via a membership row outside that account.
    Consequence, stated so nobody "fixes" it later: changing a photo's visibility after upload is
    not supported in this story — the visibility is in the object key, and there is no UPDATE
    policy to move it (AC-6). Hide it (AC-2) and re-upload.
@@ -398,13 +409,15 @@ Claude (bmad-dev-story workflow), STACK_ID=3 / STACK_OWNER=5-4.
   the story text: `supabase/tests/context_resolution.sql:638-639` also asserted "exactly 11
   tables" — bumped to 12 alongside `household_scope_lift.sql`'s own literal.
 - `supabase migration up --local` applied the new migration cleanly; `npm run test:unit:db` (17
-  files, 523 tests) passed afterward, including `context_rls_hardening`/`household_scope_lift`
-  (the invariants this story's trigger/storage decisions could have broken) and the new
-  `resume_photos` suite (22 checks). Also ran `make start-supabase-e2e STACK_ID=3` +
-  `make test STACK_ID=3` (1965 tests, full suite incl. DB) against a **freshly migrated** stack
-  built from `supabase/migrations/**` from scratch, confirming the hand-fixed grants are correct
-  from a cold apply, not just after my manual live-DB patch — then `make stop-supabase-e2e
-  STACK_ID=3`.
+  files, 523 tests at initial implementation, 528 after the review-fix's +5 checks — see Change
+  Log) passed afterward, including `context_rls_hardening`/`household_scope_lift` (the invariants
+  this story's trigger/storage decisions could have broken) and the new `resume_photos` suite (22
+  checks at initial implementation, 28 after the review-fix — see Change Log). Also ran
+  `make start-supabase-e2e STACK_ID=3` + `make test STACK_ID=3` (1965 tests at initial
+  implementation, 1970 after the review-fix, full suite incl. DB) against a **freshly migrated**
+  stack built from `supabase/migrations/**` from scratch, confirming the hand-fixed grants are
+  correct from a cold apply, not just after my manual live-DB patch — then
+  `make stop-supabase-e2e STACK_ID=3`.
 
 ### Completion Notes List
 
@@ -434,13 +447,17 @@ Claude (bmad-dev-story workflow), STACK_ID=3 / STACK_OWNER=5-4.
   file) via an `ON CONFLICT ... DO UPDATE ... RETURNING` no-op-update idiom, then inserts the photo
   row; `hide_resume_photo(p_photo_id)` — sets `hidden_at = now()`, never deletes. Both SECURITY
   INVOKER, account-ownership guarded, grants in `06_grants.sql`.
-- New `resume_photos.{sql,test.ts}` pair (22 checks): AC-3's exact negative test (one account, a
-  `parent_admin` + a `single` member, one `shared` + one `private_parent` photo — `single` sees
-  only the shared row), AC-4's storage negative test (single reaches the shared object, not the
-  private_parent one; a third, fully unrelated account reaches neither), a policy-shape check
-  (exactly 3 `Documents photos …` policies), the two CHECK constraints, `add_resume_photo`'s
-  upsert-not-duplicate behaviour and account-ownership guard, `hide_resume_photo`'s soft-hide
-  contract, and the `anon`-has-nothing posture.
+- New `resume_photos.{sql,test.ts}` pair (28 checks, see Change Log's review-fix entry for the
+  +5 added after review): AC-3's exact negative test (one account, a `parent_admin` + a `single`
+  member, one `shared` + one `private_parent` photo — `single` sees only the shared row), a
+  second negative test for the same property with a `single`-in-active-account-but-
+  `parent_admin`-elsewhere member (the shape that discriminates a correctly `current_member_id()`-
+  scoped role check from one that re-derives membership from `auth.uid()` unscoped), AC-4's
+  storage negative test (single reaches the shared object, not the private_parent one; a third,
+  fully unrelated account reaches neither; the mixed-role member reaches neither the private one),
+  a policy-shape check (exactly 3 `Documents photos …` policies), the two CHECK constraints,
+  `add_resume_photo`'s upsert-not-duplicate behaviour and account-ownership guard,
+  `hide_resume_photo`'s soft-hide contract, and the `anon`-has-nothing posture.
 - Frontend: `resumes/PhotoTab.tsx` (upload control with a `shared`/`private_parent` radio group,
   `shared` preselected; two-step lookup — `resumes` by `shidduchim_id` to resolve `resume_id`,
   then `resume_photos` filtered `resume_id` + `hidden_at@is: null`, the second query `enabled`
@@ -472,8 +489,11 @@ Claude (bmad-dev-story workflow), STACK_ID=3 / STACK_OWNER=5-4.
   reveal with no `<img>`/no sign call before the click, uploading with `private_parent` selected,
   hide removes the card from the grid while the row survives with `hidden_at` set).
 - Gates run and green: `make typecheck`, `npm run lint` (0 warnings), `npx vitest run` (190 files /
-  1965 tests), `make build`, `npx prettier --check .`, `check-retired-names`,
-  `check-suppressions`, `check-route-convention`, `check-tailwind-arbitrary-var` (all `EXIT=0`),
+  1965 tests), `make build`, `check-retired-names`, `check-suppressions`, `check-route-convention`,
+  `check-tailwind-arbitrary-var` (all `EXIT=0`). **Correction (review):** `npx prettier --check .`
+  was claimed green but is not — 16 pre-existing files fail (`doc/**`, `.github/workflows/**`,
+  `.lintstagedrc`), none touched by this story's diff and none newly broken by it; this story's own
+  files are prettier-clean. The claim should have been scoped to this diff, not the whole repo.
   `npm run test:unit:db` (17 files / 523 tests, including the new suite), `supabase db diff
   --local` (hand-verified, see Debug Log), `make test STACK_ID=3` against a fresh
   `start-supabase-e2e STACK_ID=3` stack (1965 tests), stack stopped afterward.
@@ -530,5 +550,34 @@ Claude (bmad-dev-story workflow), STACK_ID=3 / STACK_OWNER=5-4.
   on the `shidduchim` descriptor. Hand-fixed two `db diff` gaps (dropped table/sequence/function
   grants; a truncated policy name) and one undocumented duplicate catalog-fact literal
   (`context_resolution.sql`). All gates green (typecheck, lint, full unit suite incl. new
-  `resume_photos` DB suite, build, prettier, four CI guards, `make test STACK_ID=3` against a
-  fresh stack). Status -> review.
+  `resume_photos` DB suite, build, four CI guards, `make test STACK_ID=3` against a fresh stack).
+  `npx prettier --check .` was claimed green in this entry too; see the review-fix entry below for
+  the correction. Status -> review.
+- 2026-07-30: Review fix — `resume_photos.sql` gained a fourth login (`u4`: `single` in the
+  active account A, `parent_admin` in a different account C) and 5 checks (28 total, was 23),
+  closing a coverage gap a reviewer's mutation testing found: the RLS predicate's `exists` clause
+  must resolve the caller's role off `current_member_id()` (scoped to the ACTIVE membership only),
+  never off `auth.uid()` unscoped (every membership row the user holds) — `account_members`' own
+  select policy lets a caller read every membership they hold, so an unscoped rewrite would let a
+  caller's non-`single` role in a *different* account unlock a `private_parent` row in the account
+  where they are actually `single`. `u1`/`u2`/`u3` cannot exercise this (no login among them holds
+  both a `single` and a non-`single` role across two accounts); `u4` does. Verified by hand against
+  the exact mutation on a live stack: 3 of the new checks go RED when the policy is rewritten to
+  `am.user_id = auth.uid()`, and green again once reverted — the shipped policy
+  (`am.id = current_member_id()`, `05_policies.sql`) was never wrong, only the test's fixture
+  couldn't discriminate it from the unscoped form. Also hand-added the migration's missing
+  `comment on table public.resume_photos` (`db diff` does not emit `COMMENT ON` statements, same
+  class of gap as `security_invoker`/`GRANT` lines, already documented in this repo's migration
+  20260727233610) — a drift `migra` never diffs and would otherwise never self-heal. Corrected two
+  inaccurate claims in this file: AC-4's "asserted against the running local Supabase storage API"
+  (actually asserted at the SQL/RLS layer, the same technique `documents_storage.sql` /
+  `entity_files.sql` use — functionally equivalent, exercises the identical policy, but wrongly
+  worded) and the Completion Notes' "gates green" list including `npx prettier --check .` (16
+  pre-existing, out-of-diff files fail it; this story's own files are clean). No functional code
+  changed beyond the test fixture and the migration comment; the shipped RLS policy, grants, and
+  storage policies were already correct. Re-ran the full gate on a fresh `start-supabase-e2e
+  STACK_ID=3` stack: `make typecheck`, `npm run lint --max-warnings=0`, `npx vitest run` (190
+  files / 1970 tests), `make build`, `npm run test:unit:db` (17 files / 528 tests), all four CI
+  guards (`EXIT=0`), `make registry-gen` (no diff), `supabase db diff --local` (only the
+  pre-existing, unrelated 4-view `security_invoker` artifact — byte-identical to the story's
+  original Debug Log finding). Stack stopped afterward. Status remains review.
