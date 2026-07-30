@@ -516,6 +516,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/references/repeatRecognition.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/references/relationshipQuestions.ts",
           "type": "registry:component"
         },
@@ -524,7 +528,11 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/references/entityDescriptor.ts",
+          "path": "src/components/atomic-crm/references/entityDescriptorRegions.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/references/entityDescriptor.tsx",
           "type": "registry:component"
         },
         {
@@ -552,15 +560,7 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/references/ReferenceTimeline.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/references/ReferenceTasks.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/references/ReferenceShow.tsx",
+          "path": "src/components/atomic-crm/references/ReferenceOverviewTab.tsx",
           "type": "registry:component"
         },
         {
@@ -577,6 +577,10 @@
         },
         {
           "path": "src/components/atomic-crm/references/ReferenceInputs.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/references/ReferenceHeader.tsx",
           "type": "registry:component"
         },
         {

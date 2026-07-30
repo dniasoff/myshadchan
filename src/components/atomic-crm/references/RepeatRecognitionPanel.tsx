@@ -6,6 +6,7 @@ import { RecordLink } from "../entity360/RecordLink";
 import type { ReferenceLinkSummary } from "../types";
 import { CallStatusChip } from "./CallStatusChip";
 import { summarizeCallProgress } from "./callStatus";
+import { filterOtherConversations } from "./repeatRecognition";
 
 /**
  * Repeat recognition (FR42): "you have spoken to this person before, about these
@@ -50,10 +51,7 @@ export const RepeatRecognitionPanel = ({
     return <RepeatRecognitionSkeleton compact={compact} />;
   }
 
-  const others = links.filter(
-    (link): link is ReferenceLinkSummary & { shidduchim_id: Identifier } =>
-      link.shidduchim_id != null && link.shidduchim_id !== excludeShidduchimId,
-  );
+  const others = filterOtherConversations(links, excludeShidduchimId);
 
   if (others.length === 0) {
     return compact ? null : (

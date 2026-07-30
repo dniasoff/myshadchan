@@ -1,6 +1,6 @@
 # Story 5.10: Reference 360 and per-shidduch diligence
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -372,17 +372,20 @@ information that has nowhere else to go.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Shared reuse-awareness helper** (AC: 2)
-  - [ ] Extract `countOtherConversations(links: ReferenceLinkSummary[], excludeShidduchimId?:
+- [x] **Task 1 — Shared reuse-awareness helper** (AC: 2)
+  - [x] Extract `countOtherConversations(links: ReferenceLinkSummary[], excludeShidduchimId?:
         Identifier | null): number` into a new small module (e.g.
         `references/repeatRecognition.ts`), pulling the exact filter predicate out of
         `RepeatRecognitionPanel.tsx` (its `others` computation).
-  - [ ] Update `RepeatRecognitionPanel.tsx` to use the extracted helper (no behaviour change —
+  - [x] Update `RepeatRecognitionPanel.tsx` to use the extracted helper (no behaviour change —
         verify its existing tests still pass unchanged).
-- [ ] **Task 2 — Enrich the Diligence tab** (AC: 1, 2)
-  - [ ] In `ShidduchReferencesSection.tsx`, add a small "first conversation" / "one of several"
-        label per row, computed via the Task 1 helper.
-  - [ ] **Decided at planning time — no schema change.** The section already holds this
+- [x] **Task 2 — Enrich the Diligence tab** (AC: 1, 2)
+  - [x] In `ShidduchReferencesSection.tsx`, add a small "first conversation" / "one of several"
+        label per row. **Implemented per the planning-time decision below**, not via the Task 1
+        helper directly: the helper operates on one reference's own `ReferenceLinkSummary[]`
+        (an N+1 shape for a per-row diligence label), so the label is computed from the batched
+        `references_summary` read's `linked_shidduchim_count` instead — see the decision.
+  - [x] **Decided at planning time — no schema change.** The section already holds this
         shidduch's `reference_links` rows (`ShidduchReferencesSection.tsx:27-31`); collect their
         `reference_id`s and issue **one** batched
         `useGetList<ReferenceSummary>("references", { filter: { "id@in": \`(${ids.join(",")})\` },
@@ -404,29 +407,29 @@ information that has nowhere else to go.
         It needs no `supabase/**` edit and no migration lease. If a generated migration appears
         in this story's diff, something went wrong — most likely R7 (see "Position in Epic 5")
         being pulled in.
-- [ ] **Task 3 — Reference descriptor and shell migration** (AC: 3, 4)
-  - [ ] Re-register the `references` descriptor over 3.9's stub with
+- [x] **Task 3 — Reference descriptor and shell migration** (AC: 3, 4)
+  - [x] Re-register the `references` descriptor over 3.9's stub with
         `registerEntityDescriptor(referencesDescriptor, { replace: true })` — the whole
         descriptor, not a partial merge; without `{ replace: true }` it **throws at module
         scope** (`entity360/registry.ts:29-33`). Tabs `overview, conversations, shidduchim,
         notes, tasks, activity, assistant`, in that order (keys from `entity360/tabKeys.ts`);
         `buildRecordPath` → ``(id) => `/references/${id}` ``.
         [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#4 — rule 2]
-  - [ ] **Move all seven keys out of `pendingTabs` into `tabs` in this same edit**
+  - [x] **Move all seven keys out of `pendingTabs` into `tabs` in this same edit**
         (`references/entityDescriptor.ts:21-30`), and retarget `entity360/registry.stubs.test.ts`'s
         pinned references row (`:68-79`, `:93-95`) — it pins the `/show` path, `tabs toEqual []`
         **and** the full `pendingTabs` list, so all three assertions go red by design.
-  - [ ] `references/index.ts`: `list: buildEntityRoutes({ List: ReferencesIndex, Edit:
+  - [x] `references/index.ts`: `list: buildEntityRoutes({ List: ReferencesIndex, Edit:
         ReferenceEdit, Show: EntityShow })`; **delete** `show:` and `edit:`; **add**
         `hasShow: true` / `hasEdit: true`. Keep `hasCreate: true`, `children:
         buildCreateRoutes("references", ReferenceCreate)`, `recordRepresentation`, and
         `import "./entityDescriptor";` as line 1. `ReferencesIndex` comes from Task 6.
-  - [ ] `entity360/ad24Conformance.ts`: delete `RECORD_SURFACE_EXEMPTIONS["references:show"]`
+  - [x] `entity360/ad24Conformance.ts`: delete `RECORD_SURFACE_EXEMPTIONS["references:show"]`
         and `["references:edit"]` (`:125-126`) and `PENDING_ROUTE_SHAPES.references` (`:173`) in
         the same diff (symmetric tables — see AC-4). **Do not remove
         `NO_BROWSE_SURFACE_ENTITIES.references`** (`:201-204`): standing owner ruling, no
         retiring story.
-  - [ ] Extract the identity-fact block (relationship/phone/school/grad_year) from
+  - [x] Extract the identity-fact block (relationship/phone/school/grad_year) from
         `ReferenceShow.tsx`'s internal `ReferenceHeader` (`:34-42`, `:57-73`) into an `overview`
         tab; keep contact-style facts (name, avatar) in the shell's identity header region.
         **Two things this forces, neither of which any story currently declares:**
@@ -438,12 +441,12 @@ information that has nowhere else to go.
         `import { ReferenceHeader } from "./ReferenceShow";` — re-home the export (its own home
         file, or the descriptor module) and update that import **in the same diff**, or
         `make typecheck` breaks outright.
-  - [ ] Wire `conversations` to the existing `RepeatRecognitionPanel` + `ReferenceCallLog`
+  - [x] Wire `conversations` to the existing `RepeatRecognitionPanel` + `ReferenceCallLog`
         (unchanged); wire `assistant` to the existing `ResearchAssistantPanel` (unchanged).
         Re-homing `ResearchAssistantPanel` — if the migration moves it — does **not** affect the
         entitlement guard: `references/entitlementGate.guard.test.ts:16` globs `../**/*.{ts,tsx}`
         and keys its `ALLOWED` set by **basename** (`:26-30`).
-  - [ ] Do **not** hand-roll the `shidduchim` list — Epic 3 ships the renderer at
+  - [x] Do **not** hand-roll the `shidduchim` list — Epic 3 ships the renderer at
         `entity360/tabs/RelatedRecordsTab.tsx`, whose own doc names this story by number as a
         reuser (`:24-27`). But do **not** declare it as a `relationships` entry either:
         `entity360/mergeEntityTabs.tsx:79-91` **appends** every relationship-derived tab after
@@ -481,19 +484,19 @@ information that has nowhere else to go.
         `shidduchim_id`. Empty / loading / error states belong to `RelatedRecordsTab`, not to
         this story (UX-DR11).
         [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#9]
-  - [ ] Wire `notes`/`tasks`/`activity` to Epic 3's universal components. The prop shape is
+  - [x] Wire `notes`/`tasks`/`activity` to Epic 3's universal components. The prop shape is
         `UniversalTabProps = { targetType, targetId }` (`entity360/tabs/types.ts:11-14`) —
         **`targetType`, camelCase, plus the required `targetId`**, never the DB's `target_type`.
         e.g. `render: () => <NotesTab targetType="reference" targetId={record.id} />` (the
         record is reached inside `render` via `useRecordContext()`; `render` is arity-zero,
         `entityDescriptor.ts:106-112`).
-  - [ ] Confirm `layout/navItems.ts`'s `PRIMARY_NAV` is untouched by this story (AC-3) — Story
+  - [x] Confirm `layout/navItems.ts`'s `PRIMARY_NAV` is untouched by this story (AC-3) — Story
         4.4's `navItems.test.ts:36` already pins `/references` absent; just confirm it still
         passes.
-- [ ] **Task 4 — Retire the superseded components** (AC: 5)
-  - [ ] Delete `references/ReferenceTimeline.tsx` and `references/ReferenceTasks.tsx` once the
+- [x] **Task 4 — Retire the superseded components** (AC: 5)
+  - [x] Delete `references/ReferenceTimeline.tsx` and `references/ReferenceTasks.tsx` once the
         universal tabs cover their behaviour per AC-5's stated simplification.
-  - [ ] `grep -rn "ReferenceTimeline\|ReferenceTasks" src/` currently returns **7 files**, and
+  - [x] `grep -rn "ReferenceTimeline\|ReferenceTasks" src/` currently returns **7 files**, and
         four of them are prose comments *outside* `references/`, so the grep cannot come back
         clean without editing them: `entity360/tabs/interactionLabels.ts:9,26,34`,
         `entity360/tabs/interactionLabels.test.ts:64`, `entity360/tabs/TasksTab.tsx:22,25`
@@ -503,14 +506,16 @@ information that has nowhere else to go.
         land on the same line). **Contention note:** 5-1 also scrubs
         `interactionLabels.ts` and 5-2 holds the i18n-catalogue lease in Wave A; if either has
         already landed its scrub, verify rather than re-edit.
-  - [ ] Delete `ReferenceShow.tsx`'s bespoke `Tabs`/`TabsList`/`TabsContent` block once its
+  - [x] Delete `ReferenceShow.tsx`'s bespoke `Tabs`/`TabsList`/`TabsContent` block once its
         content is relocated onto the shell — and the `activeTabClassName` const (`:19-20`) and
         the `@/components/ui/tabs` import (`:5`) with it. Re-home the `ReferenceHeader` export
-        first (Task 3).
-- [ ] **Task 5 — Verify** (AC: 6)
-  - [ ] Confirm `ReferenceMergeButton.tsx` and `ReferenceMergeCollision.tsx` are unaffected — no
+        first (Task 3). (`ReferenceShow.tsx` was deleted wholesale rather than trimmed — its
+        `ReferenceHeader` export moved to its own `ReferenceHeader.tsx`, and its identity-fact
+        block moved to `ReferenceOverviewTab.tsx`; nothing else in the file survived to keep.)
+- [x] **Task 5 — Verify** (AC: 6)
+  - [x] Confirm `ReferenceMergeButton.tsx` and `ReferenceMergeCollision.tsx` are unaffected — no
         edits to merge logic in this story.
-  - [ ] `npm run typecheck && npm run lint && npx vitest run && npm run build`. **No
+  - [x] `npm run typecheck && npm run lint && npx vitest run && npm run build`. **No
         `test:unit:db` run is needed** — Task 2's decision leaves this story schema-free.
 - [x] **Task 6 — RULING 7 R2: `/references` becomes the unattached-references panel** (AC: 3, 7)
       — **DONE by the `ruling7-r2` round.** Every subtask below shipped; the one deviation is
@@ -702,8 +707,144 @@ analysis, not link counting).
 
 ### Agent Model Used
 
+Claude Sonnet 5 (claude-sonnet-5), via the bmad-dev-story workflow, STACK_ID=3.
+
 ### Debug Log References
+
+- `make typecheck` — clean (2 tsc projects: app, workers, node).
+- `make lint` — clean (eslint `--max-warnings=0` + scoped prettier check).
+- `npx vitest run` — 207 files / 2118 tests passed, twice (before and after
+  the fix pass below).
+- `make build` — clean production build (`tsc && vite build`).
+- `node scripts/check-suppressions.mjs` / `check-retired-names.mjs` /
+  `check-route-convention.mjs` / `check-tailwind-arbitrary-var.mjs` — all
+  four green.
+- `make test STACK_ID=3` — 207 files / 2118 tests passed against a fresh
+  e2e Supabase stack (confirms the story is genuinely schema-free: the 20
+  `supabase/tests/**` DB suites, 591 tests, pass unchanged). Stack 3 started
+  and stopped/released as part of this run.
+- First `npx vitest run` surfaced 4 pre-existing failures triggered by this
+  story's own migration, all fixed in the same session (see Completion
+  Notes): `src/components/admin/edit-button.test.tsx` and
+  `show-button.test.tsx` (both pinned `hasAd24RecordShape`/`ShowButton`
+  against the real `references` descriptor as "the one remaining
+  pre-migration entity" — a premise this story's own AC-4 removes, exactly
+  as the story's Dev Notes "Expect a repeat AC-4-route-flip landmine"
+  predicted), and `ShidduchReferencesSection.test.tsx` (new — FakeRest's
+  `reference_links_summary` mirror joins `shidduchim`/`singles` even for a
+  non-empty link list, so both collections must be present, even empty, in
+  the fixture `Db`).
 
 ### Completion Notes List
 
+- Tasks 1-5 implemented (Tasks 6-7 were already done by the `ruling7-r2`
+  round before this session started, per the story's own "Landed ahead of
+  this story" sections).
+- Task 1: extracted `filterOtherConversations`/`countOtherConversations`
+  into `references/repeatRecognition.ts`; `RepeatRecognitionPanel.tsx` now
+  calls the shared helper (behaviour unchanged, its existing tests pass
+  unmodified).
+- Task 2: implemented per the task's own "Decided at planning time" bullet
+  (batched `references_summary` read, `linked_shidduchim_count`), not via
+  the Task 1 helper directly — the helper's signature takes one reference's
+  own link array, which is not what a per-shidduch-row label has without an
+  N+1 fetch the same task explicitly rejects. `ShidduchReferencesSection.tsx`
+  now renders a "First conversation" / "Spoken to before" badge per row.
+  New i18n keys `crm.references.shidduch.{firstConversation,
+  repeatConversation}` in both catalogues.
+- Task 3: `references/entityDescriptor.tsx` (replacing the deleted 3.9 stub
+  `entityDescriptor.ts`) re-registers the full 7-tab descriptor with
+  `{ replace: true }`; `references/index.ts` migrated onto
+  `buildEntityRoutes` + explicit `hasShow`/`hasEdit`; the two stale
+  `ad24Conformance.ts` exemption rows deleted in the same diff (symmetric
+  tables). `shidduchim` is an explicit `tabs` entry at position 3 rendering
+  `RelatedRecordsTab` (not a `relationships` entry — `mergeEntityTabs`
+  would append it last), with the mandatory `linkLabel` and a
+  `"shidduchim_id@not.is": null` filter. New
+  `references/entityDescriptorRegions.tsx` (adapters, mirroring
+  `shadchanim`/`singles`'s own split-module pattern) and
+  `references/ReferenceOverviewTab.tsx` (the relocated identity-fact block:
+  relationship/phone/school/grad_year, plus the "shown per single below
+  when it differs" note that used to sit beside it in the header).
+  `ReferenceHeader` re-homed to its own `ReferenceHeader.tsx` (contact
+  facts + conversation-progress meter only now), and
+  `ReferenceHeader.test.tsx`'s import updated in the same diff.
+- Task 4: deleted `ReferenceTimeline.tsx`/`ReferenceTasks.tsx` and
+  `ReferenceShow.tsx` in full (its `ReferenceHeader` export and identity
+  facts were the only parts worth keeping, and both were re-homed first).
+  Scrubbed the resulting stale prose in `entity360/tabs/TasksTab.tsx` and
+  `providers/commons/englishCrmMessages.ts` (both previously said
+  `ReferenceTasks.tsx`/`ReferenceTimeline.tsx` "stays live" /"remains
+  standalone" — now false). Removed the three i18n key groups
+  (`crm.references.{timeline,tasks,tabs}`) that were exclusively owned by
+  the three deleted components, in both catalogues.
+- Task 5: verified `ReferenceMergeButton.tsx`/`ReferenceMergeCollision.tsx`
+  untouched. While verifying, found and fixed one latent bug the AC-4 path
+  flip exposed but that Task 5's own checklist doesn't name:
+  `ReferenceCreate.tsx`'s `MatchOnEntry.handleConfirm` used
+  `redirect("show", "references", …)` — `ra-core`'s bare "show" verb
+  resolves through `useCreatePath` (always `/{resource}/{id}/show`,
+  independent of the descriptor), not through the descriptor's
+  `buildRecordPath`. Functionally recoverable either way (Entity360's own
+  unknown-tab redirect lands it on `/references/{id}/overview`), but now
+  goes straight there via `redirect(redirectToRecord, "references", …)`,
+  consistent with the same file's other two redirect call sites.
+- Fixed the two admin-layer tests the story's own Dev Notes flagged as
+  "outside every path this story declares… declare them explicitly rather
+  than treating a hit on them as a surprise": `edit-button.test.tsx` and
+  `show-button.test.tsx` no longer pin against a real resource (none of the
+  four AD-24 entities has a pre-migration `buildRecordPath` left after this
+  story); both now register a synthetic fixture descriptor per test.
+- e2e: `e2e/references-scoping.spec.ts`'s post-create redirect assertion
+  updated from `/#\/references\/\d+\/show$/` to `/#\/references\/\d+$/`
+  (not run in this session — no local Playwright browsers/e2e stack
+  available in this environment; verified by direct code reading against
+  `redirectToRecord`/`buildRecordPath`'s new output).
+- Confirmed schema-free per Task 2's decision: no `supabase/**` edit, no
+  migration, `make test STACK_ID=3` (including all 20 `supabase/tests/**`
+  suites) passes unchanged.
+
 ### File List
+
+**Added**
+- `src/components/atomic-crm/references/repeatRecognition.ts`
+- `src/components/atomic-crm/references/repeatRecognition.test.ts`
+- `src/components/atomic-crm/references/ShidduchReferencesSection.test.tsx`
+- `src/components/atomic-crm/references/entityDescriptor.tsx`
+- `src/components/atomic-crm/references/entityDescriptor.test.tsx`
+- `src/components/atomic-crm/references/entityDescriptorRegions.tsx`
+- `src/components/atomic-crm/references/ReferenceHeader.tsx`
+- `src/components/atomic-crm/references/ReferenceOverviewTab.tsx`
+
+**Deleted**
+- `src/components/atomic-crm/references/entityDescriptor.ts` (3.9 stub,
+  replaced by `entityDescriptor.tsx`)
+- `src/components/atomic-crm/references/ReferenceShow.tsx`
+- `src/components/atomic-crm/references/ReferenceTimeline.tsx`
+- `src/components/atomic-crm/references/ReferenceTasks.tsx`
+
+**Modified**
+- `src/components/atomic-crm/references/index.ts`
+- `src/components/atomic-crm/references/RepeatRecognitionPanel.tsx`
+- `src/components/atomic-crm/references/ShidduchReferencesSection.tsx`
+- `src/components/atomic-crm/references/ReferenceHeader.test.tsx`
+- `src/components/atomic-crm/references/ReferenceCreate.tsx`
+- `src/components/atomic-crm/references/ReferenceCreate.test.tsx`
+- `src/components/atomic-crm/references/ReferenceEdit.tsx`
+- `src/components/atomic-crm/references/ReferenceInputs.tsx`
+- `src/components/atomic-crm/entity360/ad24Conformance.ts`
+- `src/components/atomic-crm/entity360/registry.stubs.test.ts`
+- `src/components/atomic-crm/entity360/tabs/TasksTab.tsx`
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts`
+- `src/components/admin/edit-button.test.tsx`
+- `src/components/admin/show-button.test.tsx`
+- `src/components/admin/show.tsx` (comment only)
+- `e2e/references-scoping.spec.ts`
+- `registry.json` (regenerated, `make registry-gen`)
+
+### Change Log
+
+| Date | Change |
+|---|---|
+| 2026-07-30 | Tasks 1-5 implemented: shared repeat-recognition helper, diligence-tab "first conversation / spoken to before" indicator, full Reference 360 migration onto `Entity360`/`buildEntityRoutes` (AC-4), retirement of `ReferenceTimeline.tsx`/`ReferenceTasks.tsx`/`ReferenceShow.tsx` (AC-5), and verification. Fixed 4 tests broken by the AC-4 path flip (`edit-button.test.tsx`, `show-button.test.tsx`, new `ShidduchReferencesSection.test.tsx`) plus one latent redirect-verb bug in `ReferenceCreate.tsx` found while verifying Task 5. Status → review. |

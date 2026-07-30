@@ -432,9 +432,10 @@ export const englishCrmMessages = {
       },
       // Story 3.5 — interactionLabels.ts's INTERACTION_KIND_LABELS. One
       // entry per InteractionKind, replacing the two duplicated maps that
-      // used to live in per-entity timeline components — ReferenceTimeline.tsx
-      // is the one that remains standalone; the shidduch pipeline's own
-      // timeline was folded into ActivityTab by Story 5.1.
+      // used to live in per-entity timeline components: the shidduch
+      // pipeline's own timeline was folded into ActivityTab by Story 5.1,
+      // and ReferenceTimeline.tsx (the other one) was deleted the same way
+      // by Story 5.10.
       // `empty` / `error` / `viewRecord` are ActivityTab.tsx's own UX-DR11
       // states and AC 9 mention link text — catalogued here so French users
       // get a real translation rather than always falling through to the
@@ -678,12 +679,8 @@ export const englishCrmMessages = {
       shidduch: {
         empty: "Nobody has been asked about this single yet.",
         add: "Add a reference",
-      },
-      tabs: {
-        conversations: "Conversations",
-        timeline: "Timeline and notes",
-        reminders: "Reminders",
-        assistant: "Assistant",
+        firstConversation: "First conversation",
+        repeatConversation: "Spoken to before",
       },
       match: {
         title: "You may have spoken to this person before",
@@ -728,17 +725,6 @@ export const englishCrmMessages = {
         none: "No other conversations with this person yet.",
         title: "You have spoken to %{name} about %{smart_count} other singles",
         progress: "%{contacted} of %{total} of those conversations happened",
-      },
-      timeline: {
-        notePlaceholder: "Add a note about this person",
-        addNote: "Add note",
-        empty: "Nothing has happened with this person yet.",
-      },
-      tasks: {
-        placeholder: "Remind me to...",
-        dueDate: "Due date",
-        add: "Add reminder",
-        empty: "No reminders on this person.",
       },
       merge: {
         action: "Merge duplicates",

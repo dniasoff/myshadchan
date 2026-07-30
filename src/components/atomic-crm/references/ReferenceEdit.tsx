@@ -7,8 +7,9 @@ import { FormToolbar } from "../layout/FormToolbar";
 import { ReferenceInputs } from "./ReferenceInputs";
 
 export const ReferenceEdit = () => (
-  // `disableBreadcrumb`: see ReferenceShow — the breadcrumb's "References"
-  // crumb links to the list, a browse entry RULING 7 forbids.
+  // `disableBreadcrumb`: the default breadcrumb renders "Home / References /
+  // <name>", where "References" is a LINK to the list — a browse entry
+  // RULING 7 forbids.
   //
   // `redirectOnError={false}` + an explicit `error` element: `useEditController`
   // defaults `redirectOnError` to `"list"`, so a stale deep link

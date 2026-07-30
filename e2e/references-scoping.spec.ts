@@ -94,8 +94,10 @@ test("adding a reference from a shidduch saves it AND links it to that shidduch"
   await page.getByLabel("Name", { exact: true }).fill("Mrs Devora Gold");
   await page.getByRole("button", { name: "Save" }).click();
 
-  // Assert — landed on the reference's own record…
-  await expect(page).toHaveURL(/#\/references\/\d+\/show$/);
+  // Assert — landed on the reference's own record. Story 5.10 moved the
+  // reference record page off `/show` onto `Entity360`'s bare `/{id}` shape
+  // (AD-24), the same migration Story 5.1 already did for shidduchim above.
+  await expect(page).toHaveURL(/#\/references\/\d+$/);
 
   // …and the row is NOT an orphan: the link the shidduch reaches it through
   // exists in the database.

@@ -1,10 +1,11 @@
 import type { Identifier } from "ra-core";
 import { useGetList, useTranslate } from "ra-core";
 import { Link } from "react-router";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { buildNewPath } from "../entity360/entityPaths";
 import { RecordLink } from "../entity360/RecordLink";
-import type { ReferenceLinkSummary } from "../types";
+import type { ReferenceLinkSummary, ReferenceSummary } from "../types";
 import { CallStatusChip } from "./CallStatusChip";
 import { summarizeCallProgress } from "./callStatus";
 
@@ -34,6 +35,31 @@ export const ShidduchReferencesSection = ({
   const links = data ?? [];
   const progress = summarizeCallProgress(links);
 
+  // "First conversation or one of several" (epic AC 2, Task 2). One batched
+  // `references_summary` read over this shidduch's own reference ids, not an
+  // N+1 `useReferenceLinks` per row and no schema change: both providers
+  // already map `getList("references")` onto `references_summary`, which
+  // already carries `linked_shidduchim_count` — the number of DISTINCT
+  // shidduchim this reference is linked to, INCLUDING this one. Since every
+  // reference in `links` is by definition linked to this shidduch already,
+  // `linked_shidduchim_count > 1` means at least one OTHER shidduch has
+  // spoken to them too.
+  const referenceIds = [...new Set(links.map((link) => link.reference_id))];
+  const { data: referenceSummaries } = useGetList<ReferenceSummary>(
+    "references",
+    {
+      filter: { "id@in": `(${referenceIds.join(",")})` },
+      pagination: { page: 1, perPage: 50 },
+    },
+    { enabled: referenceIds.length > 0 },
+  );
+  const linkedShidduchimCountByReferenceId = new Map(
+    (referenceSummaries ?? []).map((reference) => [
+      reference.id,
+      reference.linked_shidduchim_count,
+    ]),
+  );
+
   return (
     <section>
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
@@ -62,33 +88,57 @@ export const ShidduchReferencesSection = ({
         </p>
       ) : (
         <ul className="mb-3 flex flex-col divide-y">
-          {links.map((link) => (
-            <li
-              key={String(link.id)}
-              className="flex flex-wrap items-center justify-between gap-2 py-2"
-            >
-              <div className="min-w-0">
-                <RecordLink
-                  resource="references"
-                  id={link.reference_id}
-                  className="font-medium hover:underline"
-                >
-                  {link.reference_name_en}
-                </RecordLink>
-                <p className="truncate text-xs text-muted-foreground">
-                  {[link.effective_relationship, link.reference_phone]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-                {link.what_they_said ? (
-                  <p className="mt-1 line-clamp-2 text-sm">
-                    {link.what_they_said}
+          {links.map((link) => {
+            const linkedShidduchimCount =
+              linkedShidduchimCountByReferenceId.get(link.reference_id);
+            return (
+              <li
+                key={String(link.id)}
+                className="flex flex-wrap items-center justify-between gap-2 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <RecordLink
+                      resource="references"
+                      id={link.reference_id}
+                      className="font-medium hover:underline"
+                    >
+                      {link.reference_name_en}
+                    </RecordLink>
+                    {linkedShidduchimCount != null ? (
+                      <Badge
+                        variant={
+                          linkedShidduchimCount > 1 ? "secondary" : "outline"
+                        }
+                        className="text-xs font-normal"
+                      >
+                        {linkedShidduchimCount > 1
+                          ? translate(
+                              "crm.references.shidduch.repeatConversation",
+                              { _: "Spoken to before" },
+                            )
+                          : translate(
+                              "crm.references.shidduch.firstConversation",
+                              { _: "First conversation" },
+                            )}
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {[link.effective_relationship, link.reference_phone]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
-                ) : null}
-              </div>
-              <CallStatusChip status={link.call_status} />
-            </li>
-          ))}
+                  {link.what_they_said ? (
+                    <p className="mt-1 line-clamp-2 text-sm">
+                      {link.what_they_said}
+                    </p>
+                  ) : null}
+                </div>
+                <CallStatusChip status={link.call_status} />
+              </li>
+            );
+          })}
         </ul>
       )}
 

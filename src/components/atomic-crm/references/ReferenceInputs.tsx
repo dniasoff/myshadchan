@@ -11,7 +11,7 @@ import { NumberInput } from "@/components/admin/number-input";
  * field `source`s are unchanged.
  *
  * Section headers and labels go through translate() with English `_`
- * fallbacks, matching ReferencesIndex/ReferenceShow/ReferenceCallLog.
+ * fallbacks, matching ReferencesIndex/ReferenceHeader/ReferenceCallLog.
  */
 export const ReferenceInputs = () => {
   const translate = useTranslate();

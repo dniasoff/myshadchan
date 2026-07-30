@@ -4,7 +4,7 @@ import { render } from "vitest-browser-react";
 import { StoryWrapper } from "@/test/StoryWrapper";
 
 import type { Reference } from "../types";
-import { ReferenceHeader } from "./ReferenceShow";
+import { ReferenceHeader } from "./ReferenceHeader";
 
 /**
  * Story 3.1 AC 5 rewire coverage: `ReferenceHeader` composes its avatar chip

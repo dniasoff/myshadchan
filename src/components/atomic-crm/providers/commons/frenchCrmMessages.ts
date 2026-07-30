@@ -601,12 +601,8 @@ export const frenchCrmMessages = {
       shidduch: {
         empty: "Personne n'a encore été interrogé au sujet de ce célibataire.",
         add: "Ajouter une référence",
-      },
-      tabs: {
-        conversations: "Conversations",
-        timeline: "Historique et notes",
-        reminders: "Rappels",
-        assistant: "Assistant",
+        firstConversation: "Première conversation",
+        repeatConversation: "Déjà contactée",
       },
       match: {
         title: "Vous avez peut-être déjà parlé à cette personne",
@@ -652,17 +648,6 @@ export const frenchCrmMessages = {
         title:
           "Vous avez parlé à %{name} au sujet de %{smart_count} autres célibataires",
         progress: "%{contacted} de ces %{total} conversations ont eu lieu",
-      },
-      timeline: {
-        notePlaceholder: "Ajouter une note sur cette personne",
-        addNote: "Ajouter une note",
-        empty: "Rien ne s'est encore passé avec cette personne.",
-      },
-      tasks: {
-        placeholder: "Me rappeler de...",
-        dueDate: "Date d'échéance",
-        add: "Ajouter un rappel",
-        empty: "Aucun rappel sur cette personne.",
       },
       merge: {
         action: "Fusionner les doublons",

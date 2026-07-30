@@ -75,8 +75,11 @@ export const Show = ({
     // Forwarded (they were silently dropped before): `ShowBase` needs them
     // to render a handled error state instead of `useShowController`'s
     // default `redirectOnError: "list"`, which walks a stale deep link into
-    // the resource's list page. `ReferenceShow` is the caller that requires
-    // it — RULING 7 leaves `references` with no list to be walked into.
+    // the resource's list page. A no-browse entity under RULING 7 (e.g.
+    // `references`, before Story 5.10 migrated its record page onto
+    // `Entity360`) has no list to be walked into, so this must be an
+    // explicit opt-in rather than always-on. `admin/edit.tsx` already
+    // forwards both for the same reason.
     error={error}
     redirectOnError={redirectOnError}
   >

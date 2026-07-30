@@ -20,10 +20,10 @@ import type { UniversalTabProps } from "./types";
 /**
  * The universal Tasks tab (Story 3.8, contract §8, Ruling 2). Generalises
  * `references/ReferenceTasks.tsx` — the working, record-scoped
- * implementation this tab is built from — by parameterising both
+ * implementation this tab was built from — by parameterising both
  * `target_type` and `target_id` instead of hardcoding `"reference"` /
- * `referenceId`. `ReferenceTasks.tsx` itself is untouched and stays live
- * behind `references/ReferenceShow.tsx` until Story 5.10 deletes it.
+ * `referenceId`. Story 5.10 deleted `ReferenceTasks.tsx` once this tab
+ * covered its behaviour.
  *
  * `TasksTab` is the ONLY component in the codebase that mutates tasks from a
  * 360 — `TasksRailSummary.tsx` is a read-only summary (Ruling 2). Takes

@@ -116,11 +116,11 @@ export const DESCRIPTORLESS_RESOURCES: Record<string, Ad24Exemption> = {
  * the three below (transcribing AC 3's prose literally would have shipped
  * three `stale-exemption`s on day one; verified against each `index.ts`
  * instead). `shidduchim`, `inbox_items` and `tasks` register `list` only and
- * get no entry at all.
+ * get no entry at all. `references` is no longer here either — Story 5.10
+ * migrated it onto `buildEntityRoutes` in the same diff that removed this
+ * row (the last of the four AD-24 entities to do so).
  */
 export const RECORD_SURFACE_EXEMPTIONS: Record<string, Ad24Exemption> = {
-  "references:show": { kind: "pending", retiredBy: "5.10" },
-  "references:edit": { kind: "pending", retiredBy: "5.10" },
   "members:edit": {
     kind: "permanent",
     reason:
@@ -158,17 +158,13 @@ export const MODAL_RECORD_SURFACES: Record<string, Ad24Exemption> = {
 // moment `tasks` gets a descriptor.
 
 /**
- * AC 5a. Keyed by resource name. Three of the four AD-24 entities are still
- * `pending`: their stub descriptors (Story 3.9) honestly return the real,
- * working `/{resource}/{id}/show` route rather than an aspirational
- * `/{resource}/{id}` — Epic 5 flips each `buildRecordPath` one line at a
- * time. `shidduchim` is no longer here — Story 5.1 flipped its
- * `buildRecordPath` to the bare AD-24 shape in the same diff that removed
- * this row.
+ * AC 5a. Keyed by resource name. All four AD-24 entities have now flipped
+ * `buildRecordPath` to the bare AD-24 shape, each in the same diff that
+ * removed its own row here: `shidduchim` (5.1), `singles` (5.8),
+ * `shadchanim` (5.9), and `references` (5.10, the last of the four). Empty
+ * on purpose — there is no fifth AD-24 entity pending migration.
  */
-export const PENDING_ROUTE_SHAPES: Record<string, Ad24Exemption> = {
-  references: { kind: "pending", retiredBy: "5.10" },
-};
+export const PENDING_ROUTE_SHAPES: Record<string, Ad24Exemption> = {};
 
 /** Bundles the four exemption tables above — the default value of
  * `findAd24Violations`' `exemptions` parameter. There is no fifth,

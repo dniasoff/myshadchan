@@ -166,7 +166,7 @@ describe("ReferenceCreate — no orphan can be produced on save (Ruling 7 / §2 
 
     // Assert — created, then linked with the SAME id the create call
     // returned (the exact invariant that rules out a zero-link orphan).
-    await expect.poll(() => getPathname()).toBe("/references/100/show");
+    await expect.poll(() => getPathname()).toBe("/references/100");
     expect(dataProvider.create).toHaveBeenCalledTimes(1);
     expect(dataProvider.linkReferenceToShidduch).toHaveBeenCalledTimes(1);
     expect(dataProvider.linkReferenceToShidduch).toHaveBeenCalledWith({
@@ -192,7 +192,7 @@ describe("ReferenceCreate — no orphan can be produced on save (Ruling 7 / §2 
 
     // Assert — the user is not stranded on a dead form: the reference was
     // created and they land on it, even though the link failed.
-    await expect.poll(() => getPathname()).toBe("/references/100/show");
+    await expect.poll(() => getPathname()).toBe("/references/100");
     expect(dataProvider.linkReferenceToShidduch).toHaveBeenCalledTimes(1);
     await expect
       .element(screen.getByText("shidduch 42 not found"))

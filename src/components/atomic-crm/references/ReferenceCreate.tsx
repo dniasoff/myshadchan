@@ -81,10 +81,15 @@ const MatchOnEntry = ({ shidduchimId }: { shidduchimId?: Identifier }) => {
         });
       }
       // Clear the half-typed duplicate so leaving the form prompts nothing, then
-      // hand the user the record they actually wanted.
+      // hand the user the record they actually wanted. `redirectToRecord`, not
+      // the bare "show" verb: `useRedirect`'s "show" resolves through
+      // `ra-core`'s own `useCreatePath` (always `/{resource}/{id}/show`,
+      // independent of the descriptor), which is the same
+      // pre-AD-24-migration shape this story's own `buildRecordPath` flip
+      // (AC 4) moves away from.
       setValue("name_en", "", { shouldDirty: false });
       setValue("phone", "", { shouldDirty: false });
-      redirect("show", "references", candidate.reference_id);
+      redirect(redirectToRecord, "references", candidate.reference_id);
     } catch (error) {
       notify(
         error instanceof Error
@@ -184,8 +189,8 @@ export const ReferenceCreate = () => {
   return (
     <Create
       redirect={redirectToRecord}
-      // See ReferenceShow — the breadcrumb's "References" crumb links to the
-      // list, a browse entry RULING 7 forbids.
+      // The default breadcrumb renders "Home / References / <name>", where
+      // "References" is a LINK to the list — a browse entry RULING 7 forbids.
       disableBreadcrumb
       mutationOptions={{
         onSuccess: async (data: RaRecord) => {
