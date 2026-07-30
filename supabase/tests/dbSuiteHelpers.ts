@@ -176,3 +176,284 @@ values (:sibling_fixture_account_id, 'Rivka', 'female', :sibling_fixture_rivka_m
 returning id as sibling_fixture_rivka_single_id \\gset
 `;
 }
+
+/**
+ * Fixed identifiers for Story 6.5's parity fixture
+ * (`self_manager_parity.sql`) — two SEPARATE fresh households (never
+ * siblings under one parent, unlike `SIBLING_FIXTURE` above): household S
+ * (a self-manager, provisioned via the real `add_persona('single')` RPC as a
+ * user with no existing membership at all — AC-2's own arrangement
+ * requirement) and household P (a `parent_admin`, provisioned via
+ * `add_persona('parent')` the same way, then given a managed `singles` row
+ * with no login of its own — the ordinary "child with no account"
+ * shape used throughout this directory, e.g. `medical_notes.sql`,
+ * `resume_single_owner.sql`). A different literal prefix (`5182…`) than
+ * `SIBLING_FIXTURE`'s `5181…` is not load-bearing (every suite here runs in
+ * its own rolled-back transaction) — it just keeps the two fixtures visually
+ * distinct in a failed assertion's `detail` column.
+ */
+export const PARITY_FIXTURE = {
+  selfManagerUserId: "51820000-0000-0000-0000-000000000001",
+  parentUserId: "51820000-0000-0000-0000-000000000002",
+} as const;
+
+/** The one piece of information `ownerHouseholdFixtureSql`/
+ * `householdFixtureDataSql` need per household: which persona to provision
+ * and which fixed user id (`PARITY_FIXTURE`) that provisioning runs as. */
+type ParityHousehold = "s" | "p";
+
+const PARITY_HOUSEHOLD_PERSONA: Record<ParityHousehold, "single" | "parent"> = {
+  s: "single",
+  p: "parent",
+};
+
+const PARITY_HOUSEHOLD_USER_ID: Record<ParityHousehold, string> = {
+  s: PARITY_FIXTURE.selfManagerUserId,
+  p: PARITY_FIXTURE.parentUserId,
+};
+
+/**
+ * Provisions ONE of Story 6.5's two comparative households by calling the
+ * REAL `add_persona()` RPC as a fresh, otherwise-unaffiliated user —
+ * `household` is `"s"` for the self-manager (calls `add_persona('single')`)
+ * or `"p"` for the parent (calls `add_persona('parent')`). This is the
+ * "same code, seeded twice" the story's Task 2 requires: both households run
+ * through this one function, differing only in which persona string and
+ * which fixed user id (`PARITY_FIXTURE`) get passed in — there is no
+ * household-specific branch a future edit could accidentally desync.
+ *
+ * `add_persona('single')` on a membership-less caller inserts the account,
+ * the `account_members` row (`role = 'self_manager'`) AND the linked
+ * `singles` row in one transaction (02_functions.sql, verified by Story
+ * 6.5's Task 1) — household S needs nothing further. `add_persona('parent')`
+ * only ever provisions the account + `parent_admin` membership; it never
+ * attaches a `singles` row (that is Story 6.1's invite flow, out of scope
+ * here), so household P gets one manually, `member_id` left NULL — the
+ * ordinary "a household member with no login of their own" shape this
+ * directory already uses elsewhere.
+ *
+ * Leaves `\gset` variables `<household>_member_id`, `<household>_account_id`
+ * and `<household>_single_id` set for the caller's own script — the exact
+ * inputs `householdFixtureDataSql()` below expects.
+ *
+ * Ends by clearing `request.jwt.claims` back to `{}` (`reset role` alone
+ * reverts the ROLE but leaves that GUC's `set local` value in place for the
+ * rest of the transaction) — so `householdFixtureDataSql()`'s own postgres-run
+ * inserts see `auth.uid()` resolve to NULL, exactly like every OTHER suite's
+ * "as postgres" arrange phase in this directory, rather than incidentally
+ * inheriting this function's just-provisioned user as an authorship signal.
+ */
+export function ownerHouseholdFixtureSql(household: ParityHousehold): string {
+  const persona = PARITY_HOUSEHOLD_PERSONA[household];
+  const userId = PARITY_HOUSEHOLD_USER_ID[household];
+  const email = `story65-household-${household}@test.local`;
+
+  const attachManagedSingle =
+    persona === "parent"
+      ? `
+-- Household P's managed single: an ordinary member-less \`singles\` row
+-- (the "child with no login" shape), attached AFTER add_persona('parent')
+-- rather than through it — add_persona() never creates one for the parent
+-- branch (Task 1).
+insert into public.singles (account_id, first_name_en, gender)
+values (:${household}_account_id, 'Household P Managed Single', 'female')
+returning id as ${household}_single_id \\gset
+`
+      : `
+-- Household S: the singles row add_persona('single') already created,
+-- linked by member_id — looked up, never re-inserted, so this stays a pure
+-- READ of what the RPC produced (AC-2's own atomicity claim).
+select s.id as ${household}_single_id
+from public.singles s
+where s.member_id = :${household}_member_id
+\\gset
+`;
+
+  return `
+-- ---------------------------------------------------------------------------
+-- Household ${household.toUpperCase()} (dbSuiteHelpers.ts, ownerHouseholdFixtureSql):
+-- provisioned via the REAL add_persona('${persona}') RPC as a fresh user
+-- with NO existing membership at all.
+-- ---------------------------------------------------------------------------
+insert into auth.users (id, instance_id, aud, role, email)
+values ('${userId}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '${email}');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"${userId}","role":"authenticated"}';
+
+select public.add_persona('${persona}');
+
+reset role;
+set local request.jwt.claims = '{}';
+
+select am.id as ${household}_member_id, am.account_id as ${household}_account_id
+from public.account_members am
+where am.user_id = '${userId}' and am.status = 'active'
+\\gset
+${attachManagedSingle}`;
+}
+
+/**
+ * Seeds ONE household (already provisioned by `ownerHouseholdFixtureSql`
+ * above) with the exact data shape `single_row_scoping.sql` /
+ * `single_field_scoping.sql` use for their own single-role fixtures — every
+ * table Story 6.5's AC-3 names, plus the four storage keys AC-3 also names.
+ * Called once per household (`"s"` then `"p"`) with the SAME literal SQL,
+ * substituting only the `<household>_account_id`/`<household>_single_id`
+ * variables `ownerHouseholdFixtureSql` left set — the "seeded by the same
+ * code" guarantee Story 6.5's Task 2 requires, so household S and household
+ * P cannot silently drift apart in shape.
+ *
+ * Includes one `kind = 'note'` row and one `kind = 'single_input'` row,
+ * both inserted directly (bypassing RLS, as postgres/superuser, `auth.uid()`
+ * NULL) rather than through any client path — `single_input` has exactly one
+ * INSERT policy and it requires `current_member_role() = 'single'`, a role
+ * neither a self-manager nor a parent_admin ever holds, so there is no
+ * real-world route for either of them to author one. `actor_member_id` on
+ * both rows is therefore NULL, a permanently legal state
+ * (`can_moderate_note()`'s own Dev Notes, 02_functions.sql). Neither
+ * assertion this fixture feeds needs an author: the single_input row exists
+ * purely so the write-parity assertion (Story 6.4 AC-3: append-only, denies
+ * EVERY role) has something to attempt updating, and the `note` row here is
+ * a pure read-count fixture item, DISTINCT from the write-parity suite's own
+ * LIVE insert-then-moderate-as-author check in self_manager_parity.sql
+ * (`can_moderate_note()`'s AUTHOR branch needs a real, freshly-authored row,
+ * not this one).
+ */
+export function householdFixtureDataSql(household: ParityHousehold): string {
+  const h = household;
+  const ownerUserId = PARITY_HOUSEHOLD_USER_ID[household];
+
+  return `
+-- ---------------------------------------------------------------------------
+-- Household ${h.toUpperCase()} data (dbSuiteHelpers.ts, householdFixtureDataSql):
+-- same shape as single_row_scoping.sql / single_field_scoping.sql's own
+-- single-role fixtures, run once per household with an identical script.
+-- ---------------------------------------------------------------------------
+insert into public.shadchanim (account_id, name)
+values (:${h}_account_id, 'Household ${h.toUpperCase()} Shadchan')
+returning id as ${h}_shadchan_id \\gset
+
+insert into public.shidduchim (account_id, single_id, shadchan_id, name_en, visibility, pipeline_state, close_reason)
+values (
+  :${h}_account_id, :${h}_single_id, :${h}_shadchan_id,
+  'Household ${h.toUpperCase()} Visible Suggestion', 'shared', 'look_into',
+  'Household ${h.toUpperCase()} candid decision rationale'
+)
+returning id as ${h}_visible_id \\gset
+
+insert into public.shidduchim (account_id, single_id, name_en, visibility, pipeline_state)
+values (:${h}_account_id, :${h}_single_id, 'Household ${h.toUpperCase()} New Suggestion', 'shared', 'new')
+returning id as ${h}_new_id \\gset
+
+insert into public.resumes (account_id, shidduchim_id)
+values (:${h}_account_id, :${h}_visible_id)
+returning id as ${h}_resume_id \\gset
+
+insert into public.shidduch_schools (account_id, shidduchim_id, kind, name_en)
+values (:${h}_account_id, :${h}_visible_id, 'seminary', 'Household ${h.toUpperCase()} Seminary')
+returning id as ${h}_school_id \\gset
+
+insert into public.resume_photos (account_id, resume_id, path, visibility)
+values (
+  :${h}_account_id, :${h}_resume_id,
+  :'${h}_account_id' || '/photos/shared/' || :'${h}_visible_id' || '/photo.jpg', 'shared'
+)
+returning id as ${h}_photo_id \\gset
+
+insert into public."references" (account_id, name_en)
+values (:${h}_account_id, 'Household ${h.toUpperCase()} Reference')
+returning id as ${h}_reference_id \\gset
+
+insert into public.reference_links (account_id, reference_id, shidduchim_id, call_status, what_they_said)
+values (:${h}_account_id, :${h}_reference_id, :${h}_visible_id, 'answered', 'Household ${h.toUpperCase()} candid call content')
+returning id as ${h}_reference_link_id \\gset
+
+insert into public.entity_files (account_id, target_type, target_id, storage_path, file_name, mime_type, size_bytes)
+values (
+  :${h}_account_id, 'shidduch', :${h}_visible_id,
+  :'${h}_account_id' || '/shidduch/' || :'${h}_visible_id' || '/diligence.pdf',
+  'diligence.pdf', 'application/pdf', 1024
+)
+returning id as ${h}_entity_file_id \\gset
+
+insert into public.shidduchim_external_links (account_id, shidduchim_id, url, label)
+values (:${h}_account_id, :${h}_visible_id, 'https://example.test/household-${h}-diligence', 'Household ${h.toUpperCase()} link')
+returning id as ${h}_external_link_id \\gset
+
+insert into public.interactions (account_id, target_type, target_id, scope, kind, body)
+values (:${h}_account_id, 'shidduch', :${h}_visible_id, 'shidduch', 'note', 'Household ${h.toUpperCase()} candid note')
+returning id as ${h}_note_id \\gset
+
+-- Seeded directly (bypassing RLS, actor_member_id NULL): see this
+-- function's own doc comment on why no client path can author this row for
+-- either role, and why NULL is fine for what this row is used to assert.
+insert into public.interactions (account_id, target_type, target_id, scope, kind, body)
+values (:${h}_account_id, 'shidduch', :${h}_visible_id, 'shidduch', 'single_input', 'Household ${h.toUpperCase()} single_input row (seeded directly)')
+returning id as ${h}_single_input_id \\gset
+
+insert into public.tasks (account_id, target_type, target_id, text)
+values (:${h}_account_id, 'shidduch', :${h}_visible_id, 'Household ${h.toUpperCase()} follow up')
+returning id as ${h}_task_id \\gset
+
+insert into public.invites (account_id, email, role)
+values (:${h}_account_id, 'household-${h}-zero-row-invite@test.local', 'helper')
+returning id as ${h}_invite_id \\gset
+
+insert into public.date_records (account_id, single_id, person_name_en, outcome)
+values (:${h}_account_id, :${h}_single_id, 'Household ${h.toUpperCase()} Prior Date', 'ended')
+returning id as ${h}_date_record_id \\gset
+
+insert into public.redts (account_id, shidduchim_id, note)
+values (:${h}_account_id, :${h}_visible_id, 'Household ${h.toUpperCase()} redt note')
+returning id as ${h}_redt_id \\gset
+
+insert into public.inbox_items (account_id)
+values (:${h}_account_id)
+returning id as ${h}_inbox_item_id \\gset
+
+insert into public.subscription (account_id)
+values (:${h}_account_id)
+returning id as ${h}_subscription_id \\gset
+
+insert into public.ai_usage (account_id, period)
+values (:${h}_account_id, '2026-07')
+returning id as ${h}_ai_usage_id \\gset
+
+insert into public.medical_notes (account_id, shidduchim_id, body)
+values (:${h}_account_id, :${h}_visible_id, 'Household ${h.toUpperCase()} candid medical content')
+returning id as ${h}_medical_note_id \\gset
+
+insert into storage.objects (bucket_id, name, owner)
+values (
+  'entity-files',
+  :'${h}_account_id' || '/shidduch/' || :'${h}_visible_id' || '/diligence-storage.pdf',
+  '${ownerUserId}'
+)
+returning id as ${h}_entity_files_object_id \\gset
+
+insert into storage.objects (bucket_id, name, owner)
+values (
+  'documents',
+  :'${h}_account_id' || '/resumes/' || :'${h}_visible_id' || '/resume.pdf',
+  '${ownerUserId}'
+)
+returning id as ${h}_resumes_object_id \\gset
+
+insert into storage.objects (bucket_id, name, owner)
+values (
+  'documents',
+  :'${h}_account_id' || '/photos/shared/' || :'${h}_visible_id' || '/shared.jpg',
+  '${ownerUserId}'
+)
+returning id as ${h}_shared_photo_object_id \\gset
+
+insert into storage.objects (bucket_id, name, owner)
+values (
+  'documents',
+  :'${h}_account_id' || '/photos/private_parent/' || :'${h}_visible_id' || '/private.jpg',
+  '${ownerUserId}'
+)
+returning id as ${h}_private_photo_object_id \\gset
+`;
+}

@@ -1,6 +1,10 @@
+---
+baseline_commit: f3f383dbb09d35a05bfa276abe6e05e06be0f2c6
+---
+
 # Story 6.5: A self-managing single
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -121,8 +125,8 @@ for this refresh, so the story is not measuring an earlier design):
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Verify the provisioning path as landed** (AC: 2)
-  - [ ] Read `add_persona()`'s `single` branch (`02_functions.sql:722-766`).
+- [x] **Task 1 — Verify the provisioning path as landed** (AC: 2)
+  - [x] Read `add_persona()`'s `single` branch (`02_functions.sql:722-766`).
         Verified for this refresh and expected unchanged: the no-op guard
         (`singles` row already pointing at one of the caller's own active
         memberships, with `s.status = 'active'` load-bearing for the
@@ -132,19 +136,19 @@ for this refresh, so the story is not measuring an earlier design):
         landed code has drifted (e.g. defaults the creator to
         `parent_admin`), fix that line in Epic 2's function with a comment
         citing this story — do not add a second provisioning path here.
-  - [ ] Note the consequence for AC-2's "no second `singles` row" assertion:
+  - [x] Note the consequence for AC-2's "no second `singles` row" assertion:
         when the caller **already** holds an owning membership, this branch
         attaches a `singles` row to that existing household rather than
         creating a new one. The assertion is therefore about the fresh-user
         path specifically; arrange it with a user who holds no membership at
         all.
 
-- [ ] **Task 2 — The parity test suite** (AC: 1, 2, 3, 5)
-  - [ ] New `supabase/tests/self_manager_parity.sql` + `.test.ts`, reusing
+- [x] **Task 2 — The parity test suite** (AC: 1, 2, 3, 5)
+  - [x] New `supabase/tests/self_manager_parity.sql` + `.test.ts`, reusing
         Story 6.2's shared fixture helper from
         `supabase/tests/dbSuiteHelpers.ts` so household P and household S are
         seeded by the same code and cannot drift.
-  - [ ] Arrange household S by calling `add_persona('single')` as a fresh
+  - [x] Arrange household S by calling `add_persona('single')` as a fresh
         authenticated user (this doubles as AC-2's provisioning assertion),
         then seed it with the same data shape
         `single_row_scoping.sql`/`single_field_scoping.sql` use: a `new`
@@ -156,10 +160,10 @@ for this refresh, so the story is not measuring an earlier design):
         rows under `entity-files`, `documents/resumes/`,
         `documents/photos/shared/` and `documents/photos/private_parent/`.
         Arrange household P identically under a `parent_admin`.
-  - [ ] Assert (AC-2): household S holds exactly one `account_members` row
+  - [x] Assert (AC-2): household S holds exactly one `account_members` row
         (`role = 'self_manager'`, `status = 'active'`) and exactly one
         `singles` row, linked by `member_id`, and no second `singles` row.
-  - [ ] Assert (AC-1/3/5): for every table named in AC-3 plus `shidduchim`,
+  - [x] Assert (AC-1/3/5): for every table named in AC-3 plus `shidduchim`,
         `resumes`, `shidduch_schools`, `singles`, `accounts` and
         `resume_photos`, the self-manager's `select count(*)` equals the
         `parent_admin`'s on the identical fixture — full counts, never the
@@ -169,13 +173,13 @@ for this refresh, so the story is not measuring an earlier design):
         (`references_summary`, `reference_links_summary`,
         `interactions_summary`, `entity_files_summary`), and all four
         `storage.objects` keys (all visible).
-  - [ ] Assert (write parity): the self-manager can `update` their own
+  - [x] Assert (write parity): the self-manager can `update` their own
         `accounts` row, insert an `interactions` note, moderate a note they
         authored (`can_moderate_note()`'s owning-role branch), and is refused
         an `update` on a `single_input` row exactly as a `parent_admin` is
         (Story 6.4 AC-3 denies it to every role — parity here means *equally
         denied*, which is the assertion most likely to be written backwards).
-  - [ ] Assert (invite authority): `create_invite('x@y.z', 'helper')`
+  - [x] Assert (invite authority): `create_invite('x@y.z', 'helper')`
         succeeds for the self-manager (`is_invite_capable_role()` includes
         `self_manager`, `role_authority('helper') = 1 ≤ 2`) and
         `create_invite('x@y.z', 'parent_admin')` raises. This is the one
@@ -183,8 +187,8 @@ for this refresh, so the story is not measuring an earlier design):
         `parent_admin`'s, and asserting it stops a future "parity" edit from
         flattening the ladder.
 
-- [ ] **Task 3 — Copy audit** (AC: 4)
-  - [ ] **Do not** run a bare `grep -rniE "\bchild\b|\bchildren\b"` and treat
+- [x] **Task 3 — Copy audit** (AC: 4)
+  - [x] **Do not** run a bare `grep -rniE "\bchild\b|\bchildren\b"` and treat
         every hit as a 1.3 regression. At HEAD that grep returns
         `crm.auth.onboarding.persona_parent` — *"I'm looking for a shidduch
         for my children"* — which is **correct** copy for the parent persona
@@ -194,7 +198,7 @@ for this refresh, so the story is not measuring an earlier design):
         bare word also matches React's `children` prop and legitimate domain
         prose. Run the repo's own guard instead, and treat *its* output as
         the regression signal.
-  - [ ] The real audit is narrower and role-shaped: for each surface a
+  - [x] The real audit is narrower and role-shaped: for each surface a
         self-manager reaches, check whether the copy presumes a second
         person. Known hit at HEAD, to fix in this story:
         `crm.singles.list.emptyDescription` — *"A shidduchim pipeline belongs
@@ -206,42 +210,42 @@ for this refresh, so the story is not measuring an earlier design):
         `login/OnboardingChoice.tsx`, `login/FirstRunSetup.tsx`,
         `root/OnboardingGate.tsx` and the Singles nav item label
         (`layout/navItems.ts`).
-  - [ ] Where one component serves both a self-manager and a parent, branch
+  - [x] Where one component serves both a self-manager and a parent, branch
         on the personas held (`my_personas()` / the existing personas query)
         rather than on `useViewerRole()` alone — a self-manager who *also*
         holds the parent persona legitimately manages other singles and
         should see the parent-shaped copy.
-  - [ ] Any new or changed string goes through the `i18nProvider` (AD-18 — no
+  - [x] Any new or changed string goes through the `i18nProvider` (AD-18 — no
         hardcoded UI text), with keys in **both**
         `providers/commons/englishCrmMessages.ts` and
         `frenchCrmMessages.ts` (the French catalogue's values are runtime
         data, permitted by `.claude/rules/english-only.md`).
-  - [ ] Update the affected component tests
+  - [x] Update the affected component tests
         (`singles/SingleList.test.tsx`, `settings/PersonasSection.test.tsx`,
         `login/OnboardingChoice.test.tsx`,
         `login/PersonaChecklist.test.tsx`) — several of them assert the
         current strings verbatim and will go red.
 
-- [ ] **Task 4 — No schema migration expected**
-  - [ ] This story changes no policy and no table. If Task 1 uncovers a
+- [x] **Task 4 — No schema migration expected**
+  - [x] This story changes no policy and no table. If Task 1 uncovers a
         genuine drift in `add_persona()`, that fix lands as a small,
         separately-justified migration — but the expected outcome is **no
         migration at all**, because Stories 6.2–6.4 were written
         role-symmetric. Do not manufacture a migration to have something to
         ship; nothing-needed is the correct, honest outcome here.
 
-- [ ] **Task 5 — Run and verify**
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`
+- [x] **Task 5 — Run and verify**
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`
         and `make check-migration-safety` only if Task 1 produced a
         migration; otherwise skip straight to tests.
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`
+  - [x] `make typecheck && npm run lint && make test && npm run test:unit:db`
         (the DB suites need `make start`). Re-run `single_row_scoping.sql`,
         `single_field_scoping.sql` and `single_input.sql` from Stories
         6.2–6.4 **unmodified** alongside this story's new suite, in the same
         run, so a regression in either direction (self-manager
         over-restricted, or single under-restricted) is caught by the
         combined suite.
-  - [ ] Run the repo's retired-name guard (the checker that consumes
+  - [x] Run the repo's retired-name guard (the checker that consumes
         `scripts/retired-names.json`) and the AD-24 conformance suite; both
         must be green after the copy changes.
 
@@ -443,8 +447,184 @@ E2E:
 
 ### Agent Model Used
 
+Claude Sonnet 5 (claude-sonnet-5) — bmad-dev-story workflow, STACK_ID=6.
+
 ### Debug Log References
+
+- Task 1: re-read `add_persona()`'s `single` branch
+  (`02_functions.sql:785-831`) against the story's own description — no
+  drift found (no-op guard with `s.status = 'active'`, attach-to-existing-
+  owning-membership, otherwise fresh household with `role = 'self_manager'`,
+  all present exactly as described). No fix, no migration — Task 4's
+  "no migration expected" confirmed rather than assumed.
+- Designed the parity fixture as two dbSuiteHelpers.ts functions —
+  `ownerHouseholdFixtureSql(household)` (calls the REAL
+  `add_persona('single')`/`add_persona('parent')` RPC as a fresh user with
+  no prior membership, differing only by which literal persona/user-id gets
+  passed in — the "same code, seeded twice" Task 2 asks for) and
+  `householdFixtureDataSql(household)` (the downstream data shape, called
+  once per household with identical SQL text) — rather than reusing
+  `siblingHouseholdFixtureSql()` verbatim, which produces a different shape
+  (one parent + two `single`-role siblings, not a self-manager/parent-admin
+  pair).
+- `set local role authenticated`'s `request.jwt.claims` GUC survives a plain
+  `reset role` (only the ROLE resets, not the custom GUC) — without an
+  explicit `set local request.jwt.claims = '{}'` at the end of
+  `ownerHouseholdFixtureSql()`, `householdFixtureDataSql()`'s own
+  postgres-run inserts would have incidentally inherited the
+  just-provisioned user as `auth.uid()`, silently stamping
+  `actor_member_id` on the fixture's `note`/`single_input` rows instead of
+  leaving it NULL like every other "arrange as postgres" block in this
+  directory. Caught by reasoning about the trigger
+  (`set_interaction_actor_member_id`) before running anything, not by a
+  failing test — fixed before the first real run.
+- First real `npx vitest run supabase/tests/self_manager_parity.test.ts`
+  (STACK_ID=6): 44/44 green on the first attempt — no debugging needed
+  after the design above.
+- `npm run test:unit:db STACK_ID=6`: 26 files / 847 tests, including
+  `single_row_scoping.sql`/`single_field_scoping.sql`/`single_input.sql`
+  unmodified, in the same run.
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local` run
+  twice against the default local stack: `No schema changes found` both
+  times, confirming Task 4's "no migration" outcome.
+- `make check-migration-safety STACK_ID=6`: PASSED (no pending migration to
+  check — trivially green, as expected).
+- Copy audit (Task 3): read every file in the story's own re-check list
+  (`settings/PersonasSection.tsx`, `login/OnboardingChoice.tsx`,
+  `login/PersonaChecklist.tsx`, `login/FirstRunSetup.tsx`,
+  `root/OnboardingGate.tsx`, `layout/navItems.ts`) — none needed a change.
+  `FirstRunSetup.tsx` is only ever rendered on the `parent`-ticked
+  onboarding branch (`OnboardingChoice.tsx`'s `mode === "own-household"`,
+  reachable only when `selected.includes("parent")`), so its "Add your
+  first single" copy is correctly parent-scoped and unreachable by a pure
+  self-manager. `layout/navItems.ts` carries no singles-related label at
+  all — `/singles` is reached via `settings/FamilySection.tsx` (not in this
+  story's file ownership), confirmed by grep, not assumed. The one real hit
+  was `crm.singles.list.emptyDescription`, plus `crm.singles.list.subtitle`
+  (same defect, always-visible rather than empty-state-only, found during
+  the audit — not named in the story's own "known hit" line but squarely
+  inside AC-4's literal "every string" wording) — both fixed in
+  `SingleList.tsx`, branched on `useMyPersonas()` holding `single` without
+  `parent`.
+- `node scripts/check-suppressions.mjs`, `node scripts/check-retired-names.mjs`,
+  `node scripts/check-route-convention.mjs`,
+  `node scripts/check-tailwind-arbitrary-var.mjs` (the four CI `guards` job
+  steps): all green.
+- `src/components/atomic-crm/entity360/ad24Conformance.test.ts` +
+  `.guard.test.ts`: 76/76 green (no tab/nav change, so no violation
+  expected or found).
+- `make typecheck`, `npm run lint`, `npx vitest run` (full suite, 218 files
+  / 2472 tests), `npm run build`, `npx prettier --check .` (clean on every
+  file this story touched — the 18 pre-existing warnings elsewhere are
+  unmodified files, confirmed via `git status`, out of this story's scope):
+  all green, run repeatedly after each change.
 
 ### Completion Notes List
 
+- Task 1 (AC-2): verified, not rebuilt. `add_persona()`'s `single` branch
+  matches the story's description exactly at HEAD — no drift, no fix, no
+  migration.
+- Task 2 (AC 1/2/3/5): new `supabase/tests/self_manager_parity.sql` +
+  `.test.ts` (44 checks) — a comparative suite asserting household S
+  (self-manager, provisioned via the real `add_persona('single')` RPC as a
+  membership-less fresh user) and household P (`parent_admin`, via
+  `add_persona('parent')` + a manually-attached managed `singles` row, the
+  ordinary "child with no login" shape) get IDENTICAL, non-zero
+  `select count(*)` results on: `shidduchim`, `resumes`, `shidduch_schools`,
+  `singles`, `accounts`, `resume_photos`, `tasks`, `invites`,
+  `date_records`, `redts`, `identity_signals`, `inbox_items`,
+  `subscription`, `ai_usage`, `account_members`, `reference_links`,
+  `references`, `interactions`, `entity_files`,
+  `shidduchim_external_links`, `medical_notes`, all four
+  `security_invoker` summary views, and all four `storage.objects` keys —
+  plus `shidduchim_summary.close_reason` reading its real (non-`NULL`)
+  value for both. Write parity: both roles can `UPDATE` their own
+  `accounts` row, `INSERT` an interactions note and moderate (`UPDATE`) a
+  note they authored themselves, and are BOTH refused an `UPDATE` on a
+  `single_input` row (Story 6.4 AC-3's append-only rule, denied to every
+  role). Invite authority (the one deliberate difference):
+  `create_invite('helper')` succeeds for both roles;
+  `create_invite('parent_admin')` succeeds for `parent_admin` but is
+  REFUSED for `self_manager` (`role_authority` 3 > 2) — pinned explicitly so
+  a future "parity" edit cannot flatten the ladder. `dbSuiteHelpers.ts`
+  gained `PARITY_FIXTURE`, `ownerHouseholdFixtureSql()` and
+  `householdFixtureDataSql()`; `single_row_scoping.sql`/
+  `single_field_scoping.sql`/`single_input.sql` are untouched and re-run in
+  the same `npm run test:unit:db` pass.
+- Task 3 (AC-4): `singles/SingleList.tsx`'s `subtitle` and empty-state
+  `description` now branch on `useMyPersonas()` — a viewer holding the
+  `single` persona WITHOUT `parent` gets new, self-referential copy
+  (`crm.singles.list.subtitleSelfManaged` /
+  `crm.singles.list.emptyDescriptionSelfManaged`, added to both
+  `englishCrmMessages.ts` and `frenchCrmMessages.ts`); everyone else
+  (including a self-manager who ALSO holds `parent`, and a `helper`/
+  `shadchan` holding neither) keeps the original, unchanged strings.
+  `SingleList.test.tsx` extended: `renderSingleList()` now pre-seeds
+  `MY_PERSONAS_QUERY_KEY` on its own `QueryClient` (defaulting every
+  pre-existing test to a `parent` persona, so none of them changed
+  behaviour) and wires a matching `getMyPersonas` onto the dataProvider; a
+  new `describe` block covers self-manager-only (new copy), self-manager +
+  parent (old copy — the "legitimately manages other singles too" case),
+  and neither persona (old copy, fail-toward-the-shipped-default). Ran the
+  repo's retired-name guard rather than a bare grep, per the story's own
+  caution — it stayed green (`crm.auth.onboarding.persona_parent`'s
+  "my children" text is the deliberately-exempted, correct parent copy).
+  `PersonasSection.tsx`, `OnboardingChoice.tsx`, `PersonaChecklist.tsx`,
+  `FirstRunSetup.tsx`, `OnboardingGate.tsx` and `layout/navItems.ts` were
+  all re-checked and found to need no change (reasons in the Debug Log).
+  `registry.json` regenerated — no diff (no new component).
+- Task 4: no migration — confirmed by two clean `db diff --local` runs and
+  a trivially-passing `check-migration-safety` (nothing pending to check).
+- Task 5: full gate run — see Debug Log for each command's result. All
+  green.
+- Nothing from the declared path list was left untouched without reason:
+  `e2e/navigation.spec.ts`/`e2e/fixtures.ts` needed no change (grepped for
+  every changed string — zero hits) and `scripts/retired-names.json`
+  needed no new exemption (the two new strings introduce no
+  child/children/sale/fossil-word text).
+
 ### File List
+
+Schema / DB (no schema files touched — Task 1 found no drift):
+- `supabase/tests/self_manager_parity.sql` (new)
+- `supabase/tests/self_manager_parity.test.ts` (new)
+- `supabase/tests/dbSuiteHelpers.ts` (modified — `PARITY_FIXTURE`,
+  `ownerHouseholdFixtureSql()`, `householdFixtureDataSql()` added)
+
+Frontend:
+- `src/components/atomic-crm/singles/SingleList.tsx` (modified)
+- `src/components/atomic-crm/singles/SingleList.test.tsx` (modified)
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (modified)
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (modified)
+- `registry.json` (regenerated — no diff)
+
+Re-checked, unmodified (no defect found — see Debug Log/Completion Notes):
+- `src/components/atomic-crm/settings/PersonasSection.tsx` /
+  `PersonasSection.test.tsx`
+- `src/components/atomic-crm/login/OnboardingChoice.tsx` /
+  `OnboardingChoice.test.tsx`
+- `src/components/atomic-crm/login/PersonaChecklist.tsx` /
+  `PersonaChecklist.test.tsx`
+- `src/components/atomic-crm/login/FirstRunSetup.tsx`
+- `src/components/atomic-crm/root/OnboardingGate.tsx` /
+  `OnboardingGate.test.tsx`
+- `src/components/atomic-crm/layout/navItems.ts` / `navItems.test.ts`
+- `scripts/retired-names.json`
+- `e2e/navigation.spec.ts` / `e2e/fixtures.ts`
+
+### Change Log
+
+- 2026-07-31: Story 6.5 implemented — the Epic 6 parity regression fence.
+  `add_persona()`'s `single` branch verified as landed (no drift, no
+  migration). New comparative `self_manager_parity.sql`/`.test.ts` suite
+  (44 checks) proves a `self_manager` gets identical, unfiltered row/field/
+  storage access to a `parent_admin` across every table and view Stories
+  6.2-6.4 touch, plus write parity, plus the one deliberate invite-authority
+  difference. `singles/SingleList.tsx`'s subtitle and empty-state copy now
+  branch on personas held so a self-manager is never told their own
+  pipeline belongs to someone they are redting for, while a self-manager
+  who also holds the parent persona keeps the parent-shaped copy. All 5
+  tasks complete; DB suite (847 tests), full unit suite (2472 tests),
+  `make typecheck`, `npm run lint`, `npm run build`, `npx prettier --check`,
+  all four CI guards, the AD-24 conformance suite, `db diff` (clean twice)
+  and `make check-migration-safety` all green. Status → review.

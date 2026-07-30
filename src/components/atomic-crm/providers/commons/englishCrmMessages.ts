@@ -619,6 +619,13 @@ export const englishCrmMessages = {
         emptyTitle: "Add your first single",
         emptyDescription:
           "A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions.",
+        // Story 6.5 (AC 4): shown instead of `subtitle`/`emptyDescription`
+        // above when the viewer holds the `single` persona WITHOUT `parent`
+        // (SingleList.tsx) — a self-manager's own pipeline is their own, not
+        // someone else's they are redting for.
+        subtitleSelfManaged: "Your own shidduchim pipeline, all in one place.",
+        emptyDescriptionSelfManaged:
+          "This is where your own shidduchim pipeline will live. Add your record to start tracking suggestions.",
         noMatches: "No singles match this search.",
       },
       // Story 6.1 (AC 1) — SingleLoginInvite.tsx's own copy: the one entry

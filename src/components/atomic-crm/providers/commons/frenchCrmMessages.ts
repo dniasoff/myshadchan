@@ -547,6 +547,10 @@ export const frenchCrmMessages = {
         emptyTitle: "Ajoutez votre premier célibataire",
         emptyDescription:
           "Un parcours de shidduchim appartient à un célibataire — la personne pour qui vous faites des propositions. Ajoutez un célibataire pour commencer à suivre les propositions.",
+        subtitleSelfManaged:
+          "Votre propre parcours de shidduchim, réuni au même endroit.",
+        emptyDescriptionSelfManaged:
+          "C'est ici que vivra votre propre parcours de shidduchim. Ajoutez votre fiche pour commencer à suivre les propositions.",
         noMatches: "Aucun célibataire ne correspond à cette recherche.",
       },
       loginInvite: {

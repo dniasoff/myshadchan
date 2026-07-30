@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import { buildNewPath } from "../entity360/entityPaths";
 import { EntityList } from "../misc/EntityList";
+import { useMyPersonas } from "../root/useMyPersonas";
 import type { Single, SingleSummary } from "../types";
 import { SingleCardGrid, SingleCardGridSkeleton } from "./SingleCardGrid";
 import { SingleRow } from "./SingleRow";
@@ -51,17 +52,39 @@ const SingleRowList = ({ data }: { data: RaRecord[] }) => {
  * heading, empty/error/loading states, pagination, the List/Cards toggle)
  * comes from `EntityList` (Story 4.1/4.2, AD-24); this file supplies only
  * the per-single renderers and this list's own copy.
+ *
+ * Story 6.5 (AC 4): the subtitle and empty-state description are written
+ * from a parent's point of view ("the person you are redting for") — false
+ * for a self-manager, whose own pipeline is their own. Branched on the
+ * PERSONAS held (`useMyPersonas()`), never on `useViewerRole()` alone: a
+ * self-manager who ALSO holds the `parent` persona legitimately manages
+ * other singles too and should see the parent-shaped copy (Dev Notes,
+ * "Why 'self-seeker is not a separate account type' matters here"). A
+ * `helper`/`shadchan` — or a still-loading personas read — holds neither
+ * persona and falls through to the existing, unchanged copy.
  */
 export const SingleList = () => {
   const translate = useTranslate();
+  const { data: personas } = useMyPersonas();
+  const holdsParentPersona =
+    personas?.some((p) => p.persona === "parent") ?? false;
+  const isSelfManagedOnly =
+    !holdsParentPersona &&
+    (personas?.some((p) => p.persona === "single") ?? false);
 
   return (
     <EntityList
       resource="singles"
       eyebrow={translate("crm.singles.list.eyebrow", { _: "Family roster" })}
-      subtitle={translate("crm.singles.list.subtitle", {
-        _: "Every single you are redting for, each with their own pipeline.",
-      })}
+      subtitle={
+        isSelfManagedOnly
+          ? translate("crm.singles.list.subtitleSelfManaged", {
+              _: "Your own shidduchim pipeline, all in one place.",
+            })
+          : translate("crm.singles.list.subtitle", {
+              _: "Every single you are redting for, each with their own pipeline.",
+            })
+      }
       createTo={buildNewPath("singles")}
       createLabel={translate("crm.singles.list.createLabel", {
         _: "Add a single",
@@ -87,9 +110,13 @@ export const SingleList = () => {
         title: translate("crm.singles.list.emptyTitle", {
           _: "Add your first single",
         }),
-        description: translate("crm.singles.list.emptyDescription", {
-          _: "A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions.",
-        }),
+        description: isSelfManagedOnly
+          ? translate("crm.singles.list.emptyDescriptionSelfManaged", {
+              _: "This is where your own shidduchim pipeline will live. Add your record to start tracking suggestions.",
+            })
+          : translate("crm.singles.list.emptyDescription", {
+              _: "A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions.",
+            }),
         actionLabel: translate("crm.singles.list.createLabel", {
           _: "Add a single",
         }),
