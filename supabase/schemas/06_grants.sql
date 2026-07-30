@@ -249,6 +249,12 @@ revoke all on function public.current_member_id() from public, anon;
 grant execute on function public.current_member_id() to authenticated;
 grant execute on function public.current_member_id() to service_role;
 
+-- current_member_role() is SECURITY DEFINER, so anon must never execute it
+-- (Story 6.2). Every RLS policy that gates on the caller's role calls it.
+revoke all on function public.current_member_role() from public, anon;
+grant execute on function public.current_member_role() to authenticated;
+grant execute on function public.current_member_role() to service_role;
+
 -- set_active_context() is SECURITY DEFINER and is the only validated way a
 -- client switches its active context (AD-19); anon must never execute it.
 revoke all on function public.set_active_context(bigint) from public, anon;

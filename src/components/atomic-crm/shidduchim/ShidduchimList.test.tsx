@@ -9,6 +9,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
+import type { MyContext } from "../types";
 import { PIPELINE_STATES } from "./pipelineStates";
 
 // The real, post-change `shidduchim` resource definition — the same object
@@ -203,6 +204,27 @@ const SHIDDUCH_RECORD = {
   name_en: "Chaim Cohen",
 };
 
+// Seeded so `useViewerRole()` resolves immediately (contract §6 rule 1). A
+// resolved `parent_admin` context, not `[]`: Story 6.2 (AC 10) added
+// `visibleTo` to the `tasks` tab, so an unresolved role now fails closed on
+// it (`hasVisibility`'s own rule 2) exactly like Story 5.5 already did for
+// `medical` — an empty-contexts seed would hide the very tab the "renders
+// the Tasks tab's content" case below exercises. `parent_admin` keeps every
+// tab visible, so `isPending` settling is still all this helper's other
+// cases (which are not testing role-gating) need. Used for BOTH the seeded
+// query-cache data and the `getMyContexts` mock below, so a background
+// refetch (react-query's default `refetchOnMount`) cannot silently revert
+// the viewer to unresolved mid-test.
+const RECORD_VIEWER_CONTEXTS: MyContext[] = [
+  {
+    account_id: 1,
+    kind: "household",
+    name: "Fixture Household",
+    role: "parent_admin",
+    is_active: true,
+  },
+];
+
 const buildRecordDataProvider = (): CrmDataProvider =>
   ({
     getOne: vi.fn((resource: string) =>
@@ -212,7 +234,7 @@ const buildRecordDataProvider = (): CrmDataProvider =>
     ),
     getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
     getMany: vi.fn().mockResolvedValue({ data: [] }),
-    getMyContexts: vi.fn().mockResolvedValue([]),
+    getMyContexts: vi.fn().mockResolvedValue(RECORD_VIEWER_CONTEXTS),
     catchShidduch: vi
       .fn()
       .mockResolvedValue({ has_catch: false, suggestions: [], dates: [] }),
@@ -220,10 +242,7 @@ const buildRecordDataProvider = (): CrmDataProvider =>
 
 const renderShidduchimRecordAt = async (initialEntries: string[]) => {
   const queryClient = new QueryClient();
-  // Seeded so `useViewerRole()` resolves immediately (contract §6 rule 1):
-  // none of this story's five tabs declare `visibleTo`, so `hasVisibility`
-  // is `true` regardless of role — only `isPending` needs to settle.
-  queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, []);
+  queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, RECORD_VIEWER_CONTEXTS);
 
   return render(
     <TestMemoryRouter initialEntries={initialEntries}>

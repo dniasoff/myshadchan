@@ -187,6 +187,33 @@ describe("shidduchimDescriptor — tab strip order (Story 5.6, AC 1 / AC 2)", ()
   });
 });
 
+describe("shidduchimDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC 10)", () => {
+  it("shows the Tasks tab to a parent_admin viewer", async () => {
+    // Act
+    const { screen } = await renderShidduchShow("parent_admin");
+
+    // Assert
+    await expect
+      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .toBeInTheDocument();
+  });
+
+  it("never renders the Tasks tab (or its label anywhere) for a single viewer — RLS empties the table, this hides the dead shell", async () => {
+    // Act
+    const { screen } = await renderShidduchShow("single");
+
+    // Assert — the Overview anchor proves the tab strip has actually
+    // mounted before the negative assertion runs.
+    await expect
+      .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .not.toBeInTheDocument();
+    expect(screen.container.textContent ?? "").not.toContain("Tasks");
+  });
+});
+
 describe("shidduchimDescriptor — the real Files tab is scoped to this record (Story 5.6, AC 1)", () => {
   const buildFile = (
     overrides: Partial<EntityFile> & Pick<EntityFile, "id">,

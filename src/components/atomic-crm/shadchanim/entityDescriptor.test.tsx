@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import {
   CoreAdminContext,
@@ -14,7 +14,13 @@ import { createDataProvider } from "../providers/fakerest/dataProvider";
 import generateData from "../providers/fakerest/dataGenerator";
 import type { CrmDataProvider } from "../providers/types";
 import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
-import type { Interaction, MyContext, Shidduch, Task } from "../types";
+import type {
+  Interaction,
+  MemberRole,
+  MyContext,
+  Shidduch,
+  Task,
+} from "../types";
 import { buildEntityRoutes } from "../entity360/buildEntityRoutes";
 import { buildRecordPath } from "../entity360/entityPaths";
 import { EntityShow } from "../entity360/EntityShow";
@@ -35,12 +41,12 @@ import "./entityDescriptor";
  * mistakes, etc.) fails a real assertion instead of only `make typecheck`.
  */
 
-const contextsFor = (): MyContext[] => [
+const contextsFor = (role: MemberRole = "parent_admin"): MyContext[] => [
   {
     account_id: 1,
     kind: "household",
     name: "Fixture Household",
-    role: "parent_admin",
+    role,
     is_active: true,
   },
 ];
@@ -53,6 +59,7 @@ const renderShadchanShow = async (
   overrideDataProvider: (
     base: CrmDataProvider,
   ) => Partial<CrmDataProvider> = () => ({}),
+  role: MemberRole = "parent_admin",
 ) => {
   const db = generateData();
   const shadchanId = db.shadchanim[0].id;
@@ -62,7 +69,14 @@ const renderShadchanShow = async (
     ...baseDataProvider,
     ...overrideDataProvider(baseDataProvider),
   };
-  const contexts = contextsFor();
+  const contexts = contextsFor(role);
+  // A real refetch (react-query's default `refetchOnMount`) would otherwise
+  // overwrite the seeded cache below with whatever FakeRest's own
+  // account_members fixture resolves — silently reverting `role` to
+  // "parent_admin" regardless of what this helper was asked for (Story 6.2's
+  // Tasks-tab `visibleTo` tests are the first callers to pass a non-default
+  // role here).
+  dataProvider.getMyContexts = vi.fn().mockResolvedValue(contexts);
   const queryClient = new QueryClient();
   queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, contexts);
 
@@ -130,6 +144,37 @@ describe("shadchanimDescriptor — tab strip order (Story 5.9, AC 3)", () => {
       "Tasks",
       "Activity",
     ]);
+  });
+});
+
+describe("shadchanimDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC 10)", () => {
+  it("shows the Tasks tab to a parent_admin viewer", async () => {
+    // Act
+    const { screen } = await renderShadchanShow(
+      undefined,
+      undefined,
+      "parent_admin",
+    );
+
+    // Assert
+    await expect
+      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .toBeInTheDocument();
+  });
+
+  it("never renders the Tasks tab (or its label anywhere) for a single viewer — RLS empties the table, this hides the dead shell", async () => {
+    // Act
+    const { screen } = await renderShadchanShow(undefined, undefined, "single");
+
+    // Assert — the Overview anchor proves the tab strip has actually
+    // mounted before the negative assertion runs.
+    await expect
+      .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .not.toBeInTheDocument();
+    expect(screen.container.textContent ?? "").not.toContain("Tasks");
   });
 });
 

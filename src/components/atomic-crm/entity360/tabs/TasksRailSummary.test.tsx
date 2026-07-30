@@ -224,6 +224,22 @@ describe("TasksRailSummary — loading, empty and error states (AC 6)", () => {
     await expect.element(screen.getByText("No tasks yet.")).toBeInTheDocument();
   });
 
+  it("renders the same empty state for a single viewer, whose tasks read RLS denies entirely (Story 6.2, AC 10) — no client-side role guard added here, Ruling 2 keeps the rail read-only", async () => {
+    // Arrange — Story 6.2 denies the `single` role every row of `tasks` at
+    // the database layer (05_policies.sql); a real single's getList('tasks')
+    // resolves empty exactly like this mock, so this component needs no role
+    // branching of its own. This test names that intent explicitly rather
+    // than leaving it as an unstated implication of the empty-state test
+    // above.
+    const getList = vi.fn().mockResolvedValue({ data: [], total: 0 });
+
+    // Act
+    const { screen } = await renderRailSummary({}, { getList });
+
+    // Assert
+    await expect.element(screen.getByText("No tasks yet.")).toBeInTheDocument();
+  });
+
   it("shows a translated error message and still renders the link into the tab", async () => {
     // Arrange
     const getList = vi.fn().mockRejectedValue(new Error("boom"));

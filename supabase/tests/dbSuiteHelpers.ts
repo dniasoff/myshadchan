@@ -42,3 +42,95 @@ export function bailIfDbUnreachable(error: string | undefined): boolean {
   it.skip(`skipped — local Supabase unreachable: ${firstLine}`, () => {});
   return true;
 }
+
+/**
+ * Fixed identifiers for the "two siblings, one household" fixture below —
+ * not parameterised, because every suite in this directory runs its own
+ * script inside a single `begin; ... rollback;` transaction (the universal
+ * shape here — see `references_entity.sql` et al.), so no two suites, and no
+ * two runs of the same suite, ever see these rows at the same time. A fixed,
+ * memorable literal is also easier to read back out of a failed assertion's
+ * `detail` column than a freshly generated one would be.
+ */
+export const SIBLING_FIXTURE = {
+  parentUserId: "51810000-0000-0000-0000-000000000001",
+  leahUserId: "51810000-0000-0000-0000-000000000002",
+  rivkaUserId: "51810000-0000-0000-0000-000000000003",
+  accountName: "Sibling Fixture Household",
+} as const;
+
+/**
+ * The "two siblings, one household" fixture shared across Epic 6's
+ * single-access suites (Story 6.2, `single_row_scoping.sql`, is the first
+ * caller; 6.1's real-invite flow, 6.3's field-level scoping, 6.4's single
+ * input and 6.5's parity guard all build directly on top of the SAME two
+ * logins and two `singles` rows rather than each hand-rolling a slightly
+ * different copy that could silently drift from this one — deciding the
+ * shape once, here, is the point).
+ *
+ * Produces one `household`-kind account, one `parent_admin` member, and two
+ * `single`-role members ("Leah" and "Rivka" — named for readable failure
+ * output, never used as a matching signal), each linked via `member_id` to
+ * its own `singles` row. `activate_first_context_trigger` (04_triggers.sql)
+ * fires on each of the three `account_members` inserts below and activates
+ * that login's context automatically — no caller needs to call
+ * `set_active_context()` itself before switching identity with `set local
+ * request.jwt.claims`.
+ *
+ * Returned as raw SQL text, meant to be spliced into a suite's own script
+ * BEFORE its `\i <suite>.sql` (see `single_row_scoping.test.ts`'s
+ * `isolatedScript()`), never as a file some other `.sql` suite tries to
+ * `\i` directly — psql has no notion of importing a TypeScript module. The
+ * `delete from public.account_members` here is the same defensive clear
+ * every suite in this directory already does before seeding its own rows
+ * (a long-running local dev stack can hold real, manually-created
+ * membership rows that a fresh migration/seed pass never touches); it runs
+ * AFTER the `auth.users` inserts, not before, in case any of them ever grows
+ * a login-time trigger that touches this table.
+ *
+ * `\gset` variables it leaves set for the caller's own script:
+ * `sibling_fixture_account_id`, `sibling_fixture_parent_member_id`,
+ * `sibling_fixture_leah_member_id`, `sibling_fixture_rivka_member_id`,
+ * `sibling_fixture_leah_single_id`, `sibling_fixture_rivka_single_id`.
+ */
+export function siblingHouseholdFixtureSql(): string {
+  const { parentUserId, leahUserId, rivkaUserId, accountName } =
+    SIBLING_FIXTURE;
+
+  return `
+-- ---------------------------------------------------------------------------
+-- Shared fixture (dbSuiteHelpers.ts, siblingHouseholdFixtureSql): one
+-- household, one parent_admin, two single-role siblings each linked to their
+-- own singles row.
+-- ---------------------------------------------------------------------------
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('${parentUserId}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'sibling-fixture-parent@test.local'),
+  ('${leahUserId}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'sibling-fixture-leah@test.local'),
+  ('${rivkaUserId}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'sibling-fixture-rivka@test.local');
+
+delete from public.account_members;
+
+insert into public.accounts (name, kind) values ('${accountName}', 'household')
+returning id as sibling_fixture_account_id \\gset
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:sibling_fixture_account_id, '${parentUserId}', 'parent_admin', 'active')
+returning id as sibling_fixture_parent_member_id \\gset
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:sibling_fixture_account_id, '${leahUserId}', 'single', 'active')
+returning id as sibling_fixture_leah_member_id \\gset
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:sibling_fixture_account_id, '${rivkaUserId}', 'single', 'active')
+returning id as sibling_fixture_rivka_member_id \\gset
+
+insert into public.singles (account_id, first_name_en, gender, member_id)
+values (:sibling_fixture_account_id, 'Leah', 'female', :sibling_fixture_leah_member_id)
+returning id as sibling_fixture_leah_single_id \\gset
+
+insert into public.singles (account_id, first_name_en, gender, member_id)
+values (:sibling_fixture_account_id, 'Rivka', 'female', :sibling_fixture_rivka_member_id)
+returning id as sibling_fixture_rivka_single_id \\gset
+`;
+}

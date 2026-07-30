@@ -258,6 +258,22 @@ begin
 end;
 $$;
 
+-- The single authority for "what role does the caller hold in their
+-- active context" (AD-2). Derived from current_member_id() (defined
+-- above, once) so the membership-row resolution stays single-owner.
+-- SECURITY DEFINER so RLS policies can call it without recursing into
+-- account_members' own policies (the same reason current_context_id()
+-- and current_member_id() are SECURITY DEFINER).
+-- Returns NULL when the caller has no active membership — fails closed.
+CREATE OR REPLACE FUNCTION "public"."current_member_role"() RETURNS text
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select am.role
+  from public.account_members am
+  where am.id = public.current_member_id();
+$$;
+
 -- Private writer shared by set_active_context() and the
 -- activate_first_context trigger (AC-4/AC-5) — the ONLY code path that ever
 -- writes member_state. Does no membership validation of its own: callers are

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import {
   CoreAdminContext,
@@ -16,6 +16,7 @@ import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import type {
   EntityFile,
   Interaction,
+  MemberRole,
   MyContext,
   Shidduch,
   Task,
@@ -46,12 +47,12 @@ import "./entityDescriptor";
  * is `shidduchim/entityDescriptor.test.tsx`'s pattern applied to `singles`.
  */
 
-const contextsFor = (): MyContext[] => [
+const contextsFor = (role: MemberRole = "parent_admin"): MyContext[] => [
   {
     account_id: 1,
     kind: "household",
     name: "Fixture Household",
-    role: "parent_admin",
+    role,
     is_active: true,
   },
 ];
@@ -61,12 +62,20 @@ const renderSingleShow = async (
     db: ReturnType<typeof generateData>,
     singleId: Identifier,
   ) => void = () => {},
+  role: MemberRole = "parent_admin",
 ) => {
   const db = generateData();
   const singleId = db.singles[0].id;
   configureDb(db, singleId);
   const dataProvider = createDataProvider({ db, latency: 0, silent: true });
-  const contexts = contextsFor();
+  const contexts = contextsFor(role);
+  // A real refetch (react-query's default `refetchOnMount`) would otherwise
+  // overwrite the seeded cache below with whatever FakeRest's own
+  // account_members fixture resolves — silently reverting `role` to
+  // "parent_admin" regardless of what this helper was asked for (Story 6.2's
+  // Tasks-tab `visibleTo` tests are the first callers to pass a non-default
+  // role here).
+  dataProvider.getMyContexts = vi.fn().mockResolvedValue(contexts);
   const queryClient = new QueryClient();
   queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, contexts);
 
@@ -117,6 +126,33 @@ describe("singlesDescriptor — tab strip order (Story 5.8, AC 6)", () => {
       "Tasks",
       "Activity",
     ]);
+  });
+});
+
+describe("singlesDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC 10)", () => {
+  it("shows the Tasks tab to a parent_admin viewer", async () => {
+    // Act
+    const { screen } = await renderSingleShow(undefined, "parent_admin");
+
+    // Assert
+    await expect
+      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .toBeInTheDocument();
+  });
+
+  it("never renders the Tasks tab (or its label anywhere) for a single viewer — RLS empties the table, this hides the dead shell", async () => {
+    // Act
+    const { screen } = await renderSingleShow(undefined, "single");
+
+    // Assert — the Overview anchor proves the tab strip has actually
+    // mounted before the negative assertion runs.
+    await expect
+      .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .not.toBeInTheDocument();
+    expect(screen.container.textContent ?? "").not.toContain("Tasks");
   });
 });
 

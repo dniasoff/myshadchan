@@ -64,7 +64,15 @@ export const shadchanimDescriptor: EntityDescriptor<Shadchan> = {
     { key: "overview", render: () => <ShadchanOverviewTab /> },
     { key: "shidduchim", render: () => <ShadchanShidduchimTab /> },
     { key: "notes", render: () => <ShadchanNotesTab /> },
-    { key: "tasks", render: () => <ShadchanTasksTab /> },
+    {
+      key: "tasks",
+      // Story 6.2 (AC 10): tasks is one of the tables RLS empties for a
+      // single (05_policies.sql) — hide the now-permanently-empty tab
+      // rather than leave it as a dead shell (visibleTo is an allow-list,
+      // so excluding `single` means naming the other four roles).
+      visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
+      render: () => <ShadchanTasksTab />,
+    },
     { key: "activity", render: () => <ShadchanActivityTab /> },
   ],
   pendingTabs: [],

@@ -104,7 +104,15 @@ export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
     { key: "diligence", render: () => <ShidduchDiligenceTab /> },
     { key: "external-links", render: () => <ExternalLinksTab /> },
     { key: "notes", render: () => <ShidduchNotesTab /> },
-    { key: "tasks", render: () => <ShidduchTasksTab /> },
+    {
+      key: "tasks",
+      // Story 6.2 (AC 10): tasks is one of the tables RLS empties for a
+      // single (05_policies.sql) — hide the now-permanently-empty tab
+      // rather than leave it as a dead shell (visibleTo is an allow-list,
+      // so excluding `single` means naming the other four roles).
+      visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
+      render: () => <ShidduchTasksTab />,
+    },
     { key: "activity", render: () => <ShidduchActivityTab /> },
   ],
   pendingTabs: [],

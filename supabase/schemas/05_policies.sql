@@ -32,10 +32,21 @@ create policy "Members readable by self or within active account" on public.memb
 -- set_account_id_default() populates account_id on every insert. No longer
 -- household-only (Story 3.14 dropped validate_tasks_household_scope) — do
 -- not infer that restriction from this table's neighbours in this file.
+--
+-- Story 6.2 (AC 5): denies the `single` role entirely — zero rows on every
+-- command. The family's follow-through work (CAP-6); free-text `text`
+-- routinely names candid diligence steps. No Epic 6 story needs a single to
+-- read this table; default-deny is the safe posture per AD-1.
 create policy "Tasks scoped to account" on public.tasks
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
 -- Configuration (Story 2.7, AC-9: the admin-role-check helper this file used
 -- to call for writes is retired — writes are service-role-only now, not
@@ -86,7 +97,36 @@ alter table public.pipeline_transitions enable row level security;
 -- policy is safe only because account_members's own policy never reads
 -- accounts back — see Story 2.1's Dev Notes on the recursion risk before
 -- changing either.
-create policy "Account access scoped to member" on public.accounts
+--
+-- Story 6.2 (AC 4) splits this single `for all` policy into two, per command,
+-- rather than adding `and public.current_member_role() <> 'single'` to the
+-- one policy above: a `single` must keep reading the household's own name
+-- (the app shell and context switcher need it, and `my_contexts()` — SECURITY
+-- INVOKER, 02_functions.sql — joins accounts under the caller's own rights),
+-- but must never write it. A role guard on the shared `using`/`with check`
+-- would have broken that read. The membership-`exists` predicate is
+-- unchanged, verbatim, in both halves below — this is the two-policy pattern
+-- (Dev Notes), not a narrowing of who may read.
+create policy "Accounts readable to their members" on public.accounts
+    for select to authenticated
+    using (
+        exists (
+            select 1 from public.account_members am
+            where am.account_id = accounts.id
+              and am.user_id = auth.uid()
+              and am.status = 'active'
+        )
+    );
+
+-- INSERT/UPDATE/DELETE keep the same membership lookup, plus the `single`
+-- role guard on BOTH `using` and `with check` — the `using` half is what
+-- stops a single's DELETE, which never consults `with check` (Story 6.2).
+-- `for all`, not a comma list (`CREATE POLICY ... FOR` accepts exactly one of
+-- ALL/SELECT/INSERT/UPDATE/DELETE, never several) — safe here because the
+-- unrestricted SELECT policy above already OR-combines to cover reads for
+-- every role, so this policy's own SELECT reach is moot; only its
+-- INSERT/UPDATE/DELETE reach is exercised in practice.
+create policy "Accounts writable by non-single members" on public.accounts
     for all to authenticated
     using (
         exists (
@@ -95,6 +135,7 @@ create policy "Account access scoped to member" on public.accounts
               and am.user_id = auth.uid()
               and am.status = 'active'
         )
+        and public.current_member_role() <> 'single'
     )
     with check (
         exists (
@@ -103,6 +144,7 @@ create policy "Account access scoped to member" on public.accounts
               and am.user_id = auth.uid()
               and am.status = 'active'
         )
+        and public.current_member_role() <> 'single'
     );
 
 -- Account members: scoped to the caller's account, PLUS always the caller's
@@ -145,20 +187,42 @@ create policy "Account access scoped to member" on public.accounts
 -- function owner and is unaffected by this grant. Any future client-facing
 -- role-change flow (Story 2.5/2.7) must add its own SECURITY DEFINER
 -- function, never a raw grant of UPDATE back onto this table.)
+-- Story 6.2 (AC 5): the roster branch (`account_id = current_context_id()`)
+-- is guarded with `and public.current_member_role() <> 'single'` — a single
+-- must never browse the household roster. The own-rows branch
+-- (`user_id = auth.uid()`) is left UNGUARDED: `my_contexts()` (SECURITY
+-- INVOKER) and therefore `useViewerRole()`, the context switcher and sign-in
+-- itself all depend on a caller reading their own membership row(s), single
+-- included — guarding it would break sign-in for every single the moment
+-- this migration landed. No `with check` to mirror on this SELECT-only policy.
 create policy "Account members readable by owner or within active account" on public.account_members
     for select to authenticated
     using (
         user_id = auth.uid()
-        or account_id = public.current_context_id()
+        or (
+            account_id = public.current_context_id()
+            and public.current_member_role() <> 'single'
+        )
     );
 
 create policy "Account members insertable within active account" on public.account_members
     for insert to authenticated
-    with check (account_id = public.current_context_id());
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
 create policy "Account members deletable within active account" on public.account_members
     for delete to authenticated
-    using (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
+
+-- Deliberately no `for update` policy on this table (Story 2.2 review
+-- finding #1's fix, restated by Story 6.2): UPDATE is withheld entirely from
+-- `authenticated` at the grant layer (06_grants.sql), so there is nothing for
+-- a `single` role guard to narrow here — do not add one.
 
 -- The active-context pointer (Story 2.1, AD-19). SELECT only — there is no
 -- insert/update/delete policy for authenticated at all, so the only way this
@@ -179,14 +243,44 @@ create policy "Member state readable by owner" on public.member_state
 -- permissive `with check (account_id = current_context_id())` insert policy
 -- would let any active member, including a `helper`, PostgREST-insert a
 -- `role = 'parent_admin'` invite directly.
+-- Story 6.2 (AC 5): a single never browses the household's invite list —
+-- membership management is an owning-role concern (`is_invite_capable_role()`
+-- already refuses a `single` caller inside `create_invite()`); this narrows
+-- the read surface to match. SELECT-only, no `with check` to mirror: there is
+-- no insert/update/delete policy for `authenticated` on this table at all
+-- (06_grants.sql withholds DML entirely), so there is no PostgREST insert
+-- surface for this story to close on top of.
 create policy "Invites readable within active account" on public.invites
     for select to authenticated
-    using (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
 create policy "Singles scoped to account" on public.singles
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
+
+-- Story 6.2 (AC 3): a single reads exactly their own singles row — not a
+-- sibling's, not another household's (already impossible via account_id, but
+-- the same-household sibling case is the one worth naming). SELECT-only,
+-- additive to the policy above (the two-policy pattern, Dev Notes): a single
+-- caller's `for all` predicate above is now false (role guard), so they fall
+-- through to seeing only what this policy grants.
+create policy "Singles visible to self" on public.singles
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() = 'single'
+        and member_id = public.current_member_id()
+    );
 
 create policy "Shadchanim scoped to account" on public.shadchanim
     for all to authenticated
@@ -200,13 +294,78 @@ create policy "References scoped to account" on public."references"
 
 create policy "Shidduchim scoped to account" on public.shidduchim
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
+
+-- Story 6.2 (AC 1): a single sees a suggestion only when all three are
+-- simultaneously true — it belongs to their OWN singles row (not a
+-- sibling's, per the epic's "or yourself" dignity floor — Dev Notes "Why
+-- sibling exclusion is this story's, not an invention"), its visibility is
+-- 'shared' (excludes 'private_parent' and 'private_single' —
+-- shidduchim_visibility_check, 01_tables.sql), and its pipeline_state is one
+-- of the three single-visible states (is_single_visible_state(), the one
+-- authority for that axis — never re-implemented here). SELECT-only,
+-- additive to the policy above (the two-policy pattern, Dev Notes).
+create policy "Shidduchim visible to single" on public.shidduchim
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() = 'single'
+        and visibility = 'shared'
+        and public.is_single_visible_state(pipeline_state)
+        and exists (
+            select 1 from public.singles c
+            where c.id = shidduchim.single_id
+              and c.member_id = public.current_member_id()
+        )
+    );
 
 create policy "Resumes scoped to account" on public.resumes
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
+
+-- Story 6.2 (AC 2): a single's resume-adjacent facts. Two mutually exclusive
+-- branches (resumes_owner_check, 01_tables.sql, guarantees exactly one of
+-- shidduchim_id/single_id is set): a visible suggestion's resume (the same
+-- account/visibility/state/sibling join as "Shidduchim visible to single"
+-- above), or the single's OWN outbound resume (the Story 5.8 shape — it
+-- describes the single themselves and carries no candid third-party content,
+-- so AC 2 grants it unconditionally once ownership is proven).
+create policy "Resumes visible to single" on public.resumes
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() = 'single'
+        and (
+            exists (  -- a visible suggestion's resume
+                select 1
+                from public.shidduchim s
+                    join public.singles c on c.id = s.single_id
+                where s.id = resumes.shidduchim_id
+                  and s.visibility = 'shared'
+                  and public.is_single_visible_state(s.pipeline_state)
+                  and c.member_id = public.current_member_id()
+            )
+            or exists (  -- the single's own outbound resume (5.8 shape)
+                select 1 from public.singles c
+                where c.id = resumes.single_id
+                  and c.member_id = public.current_member_id()
+            )
+        )
+    );
 
 -- Photo tab (Story 5.4, AC-3). Unlike every plain "scoped to account"
 -- policy in this file, this one narrows further: a caller whose ACTIVE
@@ -216,33 +375,28 @@ create policy "Resumes scoped to account" on public.resumes
 -- covers other tables, e.g. interactions below) — 'single' is already a
 -- real, invitable role at HEAD (account_members_role_check, 01_tables.sql).
 --
--- current_member_id() is SECURITY DEFINER and already resolves to the
--- caller's ACTIVE membership ((auth.uid(), current_context_id(), status =
--- 'active') — 02_functions.sql). The exists() below matches ONLY on
--- `am.id = current_member_id()`, never re-derives the membership from
--- auth.uid() unscoped, and when the caller has no active membership
--- current_member_id() returns null, `am.id = null` matches nothing, so this
--- policy fails closed.
+-- current_member_role() (Story 6.2) is SECURITY DEFINER and already resolves
+-- to the caller's ACTIVE membership's role ((auth.uid(), current_context_id(),
+-- status = 'active') — 02_functions.sql), derived from current_member_id().
+-- When the caller has no active membership it returns NULL, and
+-- `NULL <> 'single'` is NULL (falsy in a USING clause) — exactly the fail-
+-- closed behaviour the inlined `exists (… am.id = current_member_id() …)`
+-- this replaces already had (Story 6.2 Task 7 — a DRY fold, not a behaviour
+-- change; `resume_photos.sql` passes unmodified).
 create policy "Resume photos scoped to account, single sees only shared" on public.resume_photos
     for all to authenticated
     using (
         account_id = public.current_context_id()
         and (
             visibility = 'shared'
-            or exists (
-                select 1 from public.account_members am
-                where am.id = public.current_member_id() and am.role <> 'single'
-            )
+            or public.current_member_role() <> 'single'
         )
     )
     with check (
         account_id = public.current_context_id()
         and (
             visibility = 'shared'
-            or exists (
-                select 1 from public.account_members am
-                where am.id = public.current_member_id() and am.role <> 'single'
-            )
+            or public.current_member_role() <> 'single'
         )
     );
 
@@ -252,13 +406,13 @@ create policy "Resume photos scoped to account, single sees only shared" on publ
 -- are denied outright; a `shadchan` has no membership path into a household
 -- row at all (AD-20), so no explicit shadchan check is needed.
 --
--- current_member_id() is SECURITY DEFINER and already resolves to the
--- caller's ACTIVE membership ((auth.uid(), current_context_id(), status =
--- 'active') — 02_functions.sql). The exists() below matches ONLY on
--- `am.id = current_member_id()`, never re-derives the membership from
--- auth.uid() unscoped, and when the caller has no active membership
--- current_member_id() returns null, `am.id = null` matches nothing, so this
--- policy fails closed — same shape as "Resume photos …" above.
+-- current_member_role() (Story 6.2) is SECURITY DEFINER and already resolves
+-- to the caller's ACTIVE membership's role, derived from current_member_id()
+-- — when the caller has no active membership it returns NULL, and
+-- `NULL in (...)` is NULL (falsy), so this policy fails closed exactly like
+-- the inlined `exists (… am.id = current_member_id() …)` it replaces (Story
+-- 6.2 Task 7 — a DRY fold, not a behaviour change; `medical_notes.sql`
+-- passes unmodified).
 --
 -- ONE `for all` policy, not a `for all` plus a narrower `for select`:
 -- permissive policies OR together per command, so a second policy could
@@ -268,19 +422,11 @@ create policy "Medical notes scoped to account, parent_admin/self_manager only" 
     for all to authenticated
     using (
         account_id = public.current_context_id()
-        and exists (
-            select 1 from public.account_members am
-            where am.id = public.current_member_id()
-              and am.role in ('parent_admin', 'self_manager')
-        )
+        and public.current_member_role() in ('parent_admin', 'self_manager')
     )
     with check (
         account_id = public.current_context_id()
-        and exists (
-            select 1 from public.account_members am
-            where am.id = public.current_member_id()
-              and am.role in ('parent_admin', 'self_manager')
-        )
+        and public.current_member_role() in ('parent_admin', 'self_manager')
     );
 
 create policy "Reference links scoped to account" on public.reference_links
@@ -288,20 +434,61 @@ create policy "Reference links scoped to account" on public.reference_links
     using (account_id = public.current_context_id())
     with check (account_id = public.current_context_id());
 
+-- Story 6.2 (AC 5): denies the `single` role entirely — zero rows on every
+-- command. Dating history `notes` is free-text and unaudited for candour.
 create policy "Date records scoped to account" on public.date_records
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
+-- Story 6.2 (AC 5): denies the `single` role entirely — zero rows on every
+-- command. The redt history's own `note` field is shadchan/parent commentary.
 create policy "Redts scoped to account" on public.redts
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
 create policy "Shidduch schools scoped to account" on public.shidduch_schools
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
+
+-- Story 6.2 (AC 2): the resume-adjacent facts a single may see — a school
+-- tied to a suggestion that passes AC-1's three-part test. SELECT-only,
+-- additive to the policy above (the two-policy pattern, Dev Notes).
+create policy "Shidduch schools visible to single" on public.shidduch_schools
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() = 'single'
+        and exists (
+            select 1
+            from public.shidduchim s
+                join public.singles c on c.id = s.single_id
+            where s.id = shidduch_schools.shidduchim_id
+              and s.visibility = 'shared'
+              and public.is_single_visible_state(s.pipeline_state)
+              and c.member_id = public.current_member_id()
+        )
+    );
 
 -- Story 5.6: same shape as "Shidduch schools scoped to account" above — a
 -- URL bookmark is not sensitive data, so there is no sensitivity tier and no
@@ -618,9 +805,17 @@ create policy "Interactions updatable by author or owning role" on public.intera
 -- SECURITY DEFINER sync triggers, because a client that could write its own
 -- match keys could make matchIdentity() point anywhere. Reads stay
 -- account-scoped (PRV-2: identity is never pooled across accounts).
+--
+-- Story 6.2 (AC 5): denies the `single` role entirely. This is an internal
+-- match-key store spanning EVERY matchable entity in the household (not
+-- singles-row-scoped), so a naive per-single read would leak cross-sibling
+-- signals — SELECT-only, so the `<> 'single'` clause narrows `using` alone.
 create policy "Identity signals readable within account" on public.identity_signals
     for select to authenticated
-    using (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
 -- Billing (E4). subscription and ai_usage are SELECT-only for the account
 -- owner — a member may read their own entitlement and usage meter, nothing
@@ -630,27 +825,46 @@ create policy "Identity signals readable within account" on public.identity_sign
 -- status='active'). Every write is service_role (payment webhook / the AI edge
 -- functions incrementing the meter), which bypasses RLS. This is the tenant
 -- half of what makes ai_entitlement() unforgeable from the browser.
+--
+-- Story 6.2 (AC 5) denies the `single` role on both: billing/entitlement is
+-- household-owner business.
 alter table public.subscription enable row level security;
 alter table public.ai_usage enable row level security;
 
 create policy "Subscription readable within account" on public.subscription
     for select to authenticated
-    using (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
 create policy "AI usage readable within account" on public.ai_usage
     for select to authenticated
-    using (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
 -- Inbox items (Epic 2): full CRUD within the caller's account. Insert/update
 -- are with-check-scoped so a client can capture (share/upload) and resolve its
 -- own items but never read, write, or resolve another account's captures. The
 -- inbound-email webhook writes as service_role (RLS-exempt).
+--
+-- Story 6.2 (AC 5): denies the `single` role entirely — zero rows on every
+-- command. Raw, pre-confirm captures; the least triaged, most candid layer
+-- in the product (AD-6).
 alter table public.inbox_items enable row level security;
 
 create policy "Inbox items scoped to account" on public.inbox_items
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
 -- Files tab (Story 3.7, AC 2d): copies "Tasks scoped to account" verbatim.
 -- entity_files is account-scoped like the rest of the domain and, like tasks
