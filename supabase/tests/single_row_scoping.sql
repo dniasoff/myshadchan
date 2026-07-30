@@ -594,31 +594,46 @@ exception when others then
   );
 end $$;
 
--- AC 6 SCOPE NOTE (review finding #2 — previously untested; documented, not
--- silently skipped): log_reference_call() and merge_references() operate
--- entirely through reference_links/"references"/interactions, none of which
--- carries a `single`-role guard yet — that is explicitly Story 6.3's axis
--- (Dev Notes, "What this story deliberately does not decide": "6.3 puts
--- interactions into 'deny the single role by default'"). Unlike
--- link_reference_to_shidduch() above, neither function touches a table THIS
--- story gates, so there is no lever here to deny Leah with — both calls
--- below genuinely succeed today. Asserting a denial would be a false green;
--- these two results instead pin the CURRENT, honestly-disclosed behaviour,
--- so Story 6.3 turns them red (a signal to update the expectation to
--- "denied"), not silently leaves them looking untested.
+-- AC 6 (review finding #2; the expectation below was flipped from "succeeds"
+-- to "denied" when Story 6.3 landed — see the two SCOPE NOTE paragraphs this
+-- comment replaces, preserved in this file's history).
+--
+-- When Story 6.2 shipped, log_reference_call() and merge_references()
+-- operated entirely through reference_links/"references", neither of which
+-- carried a `single`-role guard, so both calls genuinely succeeded for Leah.
+-- Asserting a denial then would have been a false green, so these two results
+-- honestly pinned the behaviour of the day and said in as many words that
+-- Story 6.3 "turns them red (a signal to update the expectation to
+-- 'denied')". Story 6.3 landed exactly that: `and
+-- public.current_member_role() <> 'single'` on both "References scoped to
+-- account" (05_policies.sql) and "Reference links scoped to account".
+--
+-- The denial is structural, not a special case bolted onto the RPCs: neither
+-- function is SECURITY DEFINER (02_functions.sql — both carry only `SET
+-- search_path TO ''`), so their own `select ... into` lookups run under the
+-- CALLER's RLS and simply find nothing. That is why the assertions match the
+-- SPECIFIC "not found in current account" message the lookups raise rather
+-- than accepting `when others`: a suite that passes on any exception is
+-- equally green for a typo, a dropped function or a broken search_path, which
+-- would make it worthless as a denial test.
+--
+-- The two parent-side controls after the identity switch below close the
+-- other half. Without them, both assertions here would stay green against an
+-- implementation that had deleted the fixture rows outright — a denial test
+-- must prove there was something real to be denied.
 do $$
 declare v_link_id bigint; v_count int;
 begin
   select value::bigint into v_link_id from ids where name = 'reference_link_id';
   select count(*) into v_count from public.log_reference_call(v_link_id, p_call_status => 'answered', p_what_they_said => 'test call');
   insert into results values (
-    'AC6 SCOPE NOTE (Story 6.3 to close): log_reference_call() is not yet denied for a single — succeeds today',
-    v_count = 1, 'rows: ' || v_count
+    'AC6 (Story 6.3 closed this): log_reference_call() is denied for a single — reference_links is invisible to the role',
+    false, 'call unexpectedly succeeded, rows: ' || v_count
   );
 exception when others then
   insert into results values (
-    'AC6 SCOPE NOTE (Story 6.3 to close): log_reference_call() is not yet denied for a single — succeeds today',
-    false, sqlerrm
+    'AC6 (Story 6.3 closed this): log_reference_call() is denied for a single — reference_links is invisible to the role',
+    sqlerrm like 'reference link % not found in current account', sqlerrm
   );
 end $$;
 
@@ -629,13 +644,13 @@ begin
   select value::bigint into v_winner_id from ids where name = 'reference_id';
   select public.merge_references(v_loser_id, v_winner_id) into v_result;
   insert into results values (
-    'AC6 SCOPE NOTE (Story 6.3 to close): merge_references() is not yet denied for a single — succeeds today',
-    v_result = v_winner_id, 'winner: ' || v_result
+    'AC6 (Story 6.3 closed this): merge_references() is denied for a single — "references" is invisible to the role',
+    false, 'call unexpectedly succeeded, winner: ' || v_result
   );
 exception when others then
   insert into results values (
-    'AC6 SCOPE NOTE (Story 6.3 to close): merge_references() is not yet denied for a single — succeeds today',
-    false, sqlerrm
+    'AC6 (Story 6.3 closed this): merge_references() is denied for a single — "references" is invisible to the role',
+    sqlerrm like 'reference % not found in current account', sqlerrm
   );
 end $$;
 
@@ -653,6 +668,31 @@ end $$;
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- ---------------------------------------------------------------------------
+-- The second half of the two RPC denials above, read back as the parent_admin
+-- who owns these rows. A denial assertion that only checks "the call raised"
+-- is satisfied by an implementation with no rows at all, or with the function
+-- missing; these two prove the rows were really there to be denied AND that
+-- the single's two raised calls left them byte-for-byte untouched — a raise
+-- after a partial write would be a far worse defect than a clean refusal.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed)
+select 'AC6 control: the reference_link the single could not log against still exists, with an empty call log (the denial was real, and wrote nothing)',
+       exists (
+         select 1 from public.reference_links rl
+         where rl.id = (select value::bigint from ids where name = 'reference_link_id')
+           and rl.call_status is null
+           and coalesce(jsonb_array_length(rl.conversation_log), 0) = 0
+       );
+
+insert into results (name, passed)
+select 'AC6 control: the merge the single attempted did not happen — both "references" rows survive (the denial was real, and deleted nothing)',
+       (select count(*) from public."references"
+         where id in (
+           (select value::bigint from ids where name = 'reference_id'),
+           (select value::bigint from ids where name = 'reference_b_id')
+         )) = 2;
 
 -- ---------------------------------------------------------------------------
 -- Emit the report as a single JSON array line, then undo everything.

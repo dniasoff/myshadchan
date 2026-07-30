@@ -81,8 +81,13 @@ const { checks, error } = runSuite();
 describe("single_row_scoping (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
+  // A floor, not an exact count — new checks are welcome, silently vanishing
+  // ones are not. Raised from 30 to 51 when the two AC-6 RPC assertions were
+  // flipped from "succeeds today" to "denied" and gained their parent-side
+  // controls: a denial check that can quietly disappear without the run going
+  // red is exactly as useless as one that was never written.
   it("runs every AC 1 / AC 2 / AC 3 / AC 4 / AC 5 / AC 6 / AC 8 check group", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(30);
+    expect(checks.length).toBeGreaterThanOrEqual(51);
   });
 
   for (const check of checks) {

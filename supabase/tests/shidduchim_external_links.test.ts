@@ -11,12 +11,13 @@ import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
  *
  * The assertions live in shidduchim_external_links.sql, because what they
  * check — RLS scoping every command to `account_id`, no role restriction
- * (unlike medical_notes), the fail-closed case for a caller with zero active
- * memberships, the household-scope trigger, the composite FK's cross-account
- * guard, and the `url` NOT NULL constraint — only exists inside Postgres and
- * cannot be meaningfully exercised through a mock. The SQL emits one JSON
- * row per check; this file turns each into a named test so a failure names
- * the invariant that broke.
+ * among the household's working roles (unlike medical_notes), Story 6.3's
+ * outright denial of the `single` role on every command, the fail-closed
+ * case for a caller with zero active memberships, the household-scope
+ * trigger, the composite FK's cross-account guard, and the `url` NOT NULL
+ * constraint — only exists inside Postgres and cannot be meaningfully
+ * exercised through a mock. The SQL emits one JSON row per check; this file
+ * turns each into a named test so a failure names the invariant that broke.
  *
  * Needs `make start` (or `supabase start`). If the database is unreachable
  * the suite reports a single skipped test rather than failing the whole run.
@@ -75,8 +76,13 @@ const { checks, error } = runSuite();
 describe("shidduchim_external_links (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
+  // A floor, not an exact count — new checks are welcome, silently vanishing
+  // ones are not. Raised from 14 to 22 when Story 6.3's `single`-role denial
+  // (case c2) was added: a denial suite whose checks can quietly disappear
+  // without the run going red is exactly as useless as one that never
+  // asserted them.
   it("runs every AC 6 / AC 7 check group", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(14);
+    expect(checks.length).toBeGreaterThanOrEqual(22);
   });
 
   for (const check of checks) {
