@@ -428,6 +428,11 @@ revoke all on function public.add_school(bigint, text, text, text, integer, inte
 grant execute on function public.add_school(bigint, text, text, text, integer, integer) to authenticated;
 grant execute on function public.add_school(bigint, text, text, text, integer, integer) to service_role;
 
+-- Story 5.3: the sole write path into resumes.files (AC 2).
+revoke all on function public.add_resume_file(bigint, text, text, text, bigint) from public, anon;
+grant execute on function public.add_resume_file(bigint, text, text, text, bigint) to authenticated;
+grant execute on function public.add_resume_file(bigint, text, text, text, bigint) to service_role;
+
 -- References epic: new tables, views and functions. anon is revoked everywhere,
 -- exactly as for the rest of the shidduchim domain.
 -- interactions is the diligence audit timeline. Two grants are deliberately

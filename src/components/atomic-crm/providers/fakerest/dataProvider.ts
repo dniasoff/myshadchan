@@ -29,6 +29,7 @@ import type {
   ReferenceLink,
   ReferenceMatchCandidate,
   ReferenceMergePreview,
+  Resume,
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
@@ -43,6 +44,14 @@ import type {
   EntityFileBlobUrls,
   UploadEntityFileParams,
 } from "./internal/entityFiles";
+import {
+  signResumeFileUrl as signResumeFileUrlImpl,
+  uploadResumeFile as uploadResumeFileImpl,
+} from "./internal/resumes";
+import type {
+  ResumeFileBlobUrls,
+  UploadResumeFileParams,
+} from "./internal/resumes";
 import {
   INITIAL_PIPELINE_STATES,
   isValidTransition,
@@ -166,6 +175,11 @@ export const createDataProvider = ({
   // ./internal/entityFiles.ts. One map per createDataProvider() session, so
   // a fresh demo/test session never sees a previous one's blob URLs.
   const entityFileBlobUrls: EntityFileBlobUrls = new Map();
+
+  // Resume tab (Story 5.3): the same in-memory "bytes" idea, kept in its own
+  // map (a different bucket, `documents`, in the real backend) — see
+  // ./internal/resumes.ts.
+  const resumeFileBlobUrls: ResumeFileBlobUrls = new Map();
 
   // Emulate the shidduchim_summary view (AD-10 FakeRest mirror): enrich each
   // shidduch with its shadchan name ("via {shadchan}"), single names, and
@@ -1019,6 +1033,30 @@ export const createDataProvider = ({
       storagePath: string;
     }): Promise<void> =>
       deleteEntityFileImpl(baseDataProvider, entityFileBlobUrls, params),
+    // ---------------------------------------------------------------------
+    // Resume tab (Story 5.3) -- FakeRest mirrors of add_resume_file /
+    // signed-URL minting, backed by ./internal/resumes.ts.
+    // ---------------------------------------------------------------------
+    uploadResumeFile: async (
+      params: UploadResumeFileParams,
+    ): Promise<Resume> => {
+      const [accountId, caller] = await Promise.all([
+        resolveCurrentAccountId(),
+        resolveCallerMembership(),
+      ]);
+      return uploadResumeFileImpl(
+        baseDataProvider,
+        resumeFileBlobUrls,
+        accountId,
+        caller?.membership?.id ?? null,
+        params,
+      );
+    },
+    signResumeFileUrl: (params: {
+      storagePath: string;
+      fileName: string;
+    }): Promise<string> =>
+      signResumeFileUrlImpl(resumeFileBlobUrls, params.storagePath),
   };
 
   const dataProvider = withLifecycleCallbacks(

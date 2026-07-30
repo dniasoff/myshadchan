@@ -433,10 +433,26 @@ export type InboxItem = {
   resolved_shidduchim_id?: Identifier | null;
 };
 
+/**
+ * One entry in `Resume.files` (Story 5.3, AC 2). Written ONLY by
+ * `add_resume_file()` — the SPA never PATCHes `resumes.files` wholesale,
+ * because a client read-modify-write would race under concurrent uploads.
+ * `uploaded_by` is a `members.id` (never resolved to a name here — there is
+ * no `resumes_summary` view; Task 4 does not need one).
+ */
+export type ResumeFileVersion = {
+  path: string;
+  filename: string;
+  uploaded_at: string;
+  uploaded_by: Identifier | null;
+  mime_type: string;
+  size: number;
+};
+
 export type Resume = {
   account_id: Identifier;
   shidduchim_id: Identifier;
-  files?: unknown;
+  files?: ResumeFileVersion[] | null;
   photos?: unknown;
   extracted?: unknown;
   sections?: unknown;

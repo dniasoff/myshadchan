@@ -1722,6 +1722,64 @@ begin
 end;
 $$;
 
+-- Append one file version to a shidduch's resume (Story 5.3, AC 2). The ONE
+-- write path into resumes.files — the SPA never PATCHes the column
+-- directly, because a client read-modify-write would race under concurrent
+-- uploads (two tabs, two uploads, last write wins, silently dropping the
+-- other version). This function closes that race the same way
+-- log_reference_call() closes it for reference_links.conversation_log: the
+-- append happens inside one statement, server-side.
+--
+-- The resumes row is upserted on first upload: resumes_shidduchim_id_key is
+-- UNIQUE on shidduchim_id (01_tables.sql), so ON CONFLICT is clean, and its
+-- DO UPDATE re-reads `files` from the row Postgres has just locked — not a
+-- value read into a variable earlier in this function — so two concurrent
+-- calls for the same shidduch can never silently overwrite each other's
+-- entry; the second call blocks on the row lock until the first commits,
+-- then appends onto what the first one wrote. Never mutates or removes an
+-- existing array element. Account-scoped so a file can never be attached to
+-- a foreign account's shidduch. SECURITY INVOKER so RLS applies.
+CREATE OR REPLACE FUNCTION "public"."add_resume_file"(
+    "p_shidduchim_id" bigint,
+    "p_path" text,
+    "p_filename" text,
+    "p_mime_type" text,
+    "p_size" bigint
+) RETURNS SETOF public.resumes
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+  v_entry jsonb;
+begin
+  v_account_id := public.current_context_id();
+
+  if not exists (
+    select 1 from public.shidduchim s
+    where s.id = p_shidduchim_id and s.account_id = v_account_id
+  ) then
+    raise exception 'shidduch % not found in current account', p_shidduchim_id;
+  end if;
+
+  v_entry := jsonb_build_object(
+    'path', p_path,
+    'filename', p_filename,
+    'uploaded_at', now(),
+    'uploaded_by', public.current_member_id(),
+    'mime_type', p_mime_type,
+    'size', p_size
+  );
+
+  return query
+  insert into public.resumes (account_id, shidduchim_id, files)
+  values (v_account_id, p_shidduchim_id, jsonb_build_array(v_entry))
+  on conflict (shidduchim_id) do update
+    set files = coalesce(public.resumes.files, '[]'::jsonb) || jsonb_build_array(v_entry)
+  returning *;
+end;
+$$;
+
 -- =====================================================================
 -- MyShadchan — Identity matching + References (AD-5, AD-12, AD-13)
 -- =====================================================================

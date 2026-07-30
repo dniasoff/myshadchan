@@ -3,8 +3,12 @@
 -- This file declares storage bucket policies.
 --
 
--- The `attachments` bucket holds resumes and photos — PRV-1's highest-sensitivity
--- data. It is PRIVATE and account-scoped by object-key prefix.
+-- The `attachments` bucket is a private, account-scoped bucket for general
+-- account assets (the config logo, member avatars). It used to hold resumes
+-- and photos too; Story 5.3 moved resumes to the `documents` bucket below
+-- (Story 5.4 moves photos there as well) — see that bucket's own comment for
+-- why a resume/photo needs a bucket `attachments`' account-wide policies
+-- cannot retrofit.
 --
 -- Inherited from the Atomic CRM fork, this bucket was `public = true` with a single
 -- unscoped policy (`for select to authenticated using (bucket_id = 'attachments')`),
@@ -88,4 +92,62 @@ create policy "Entity files deletable within account" on storage.objects
     using (
         bucket_id = 'entity-files'
         and (storage.foldername(name))[1] = public.current_context_id()::text
+    );
+
+-- Story 5.3: a THIRD private bucket, `documents`, for resumes (this story's
+-- `resumes/` prefix) and — Story 5.4 — photos (a `photos/` prefix). Not a
+-- security fix for `attachments` or `entity-files` (both are already
+-- private and account-scoped): a new capability with stricter-than-account
+-- read rules a permissive policy on either existing bucket cannot retrofit.
+--
+-- Postgres storage policies are permissive — they OR together. A policy can
+-- only ever ADD access; it can never take it away. `attachments` and
+-- `entity-files` each already carry an account-wide SELECT policy (every
+-- member of the account, any role), so no later, narrower policy on either
+-- of THOSE buckets could ever produce a stricter-than-account read for a
+-- future prefix. Story 5.4's AC-4 needs exactly that (a `single`-role member
+-- must not reach a `private_parent` photo at the storage layer), which is
+-- only achievable in a bucket whose every policy is written from scratch —
+-- hence a third bucket, with every prefix except the ones explicitly
+-- defined below staying deny-by-default.
+--
+-- This story defines only the `resumes/` second-level prefix. Both halves
+-- of every predicate are required: the `bucket_id` guard (or the folder
+-- predicate would apply to every other bucket's objects too, exactly like
+-- `entity-files`' own comment above) AND the `(storage.foldername(name))[2]
+-- = 'resumes'` guard (or a future `photos/` prefix, added in Story 5.4,
+-- would inherit these same three policies rather than getting its own).
+--
+-- Deliberately ONLY select/insert/delete — NO update policy, and (as for
+-- `entity-files` above) that is load-bearing:
+-- supabase/tests/context_rls_hardening.sql asserts, table-wide, that no
+-- UPDATE-applicable policy exists on storage.objects at all. A resume is
+-- versioned by INSERTING a new object and appending to `resumes.files`
+-- (public.add_resume_file) — never by mutating or renaming an existing one.
+insert into storage.buckets (id, name, public)
+values ('documents', 'documents', false)
+on conflict (id) do nothing;
+
+create policy "Documents resumes readable within account" on storage.objects
+    for select to authenticated
+    using (
+        bucket_id = 'documents'
+        and (storage.foldername(name))[1] = public.current_context_id()::text
+        and (storage.foldername(name))[2] = 'resumes'
+    );
+
+create policy "Documents resumes writable within account" on storage.objects
+    for insert to authenticated
+    with check (
+        bucket_id = 'documents'
+        and (storage.foldername(name))[1] = public.current_context_id()::text
+        and (storage.foldername(name))[2] = 'resumes'
+    );
+
+create policy "Documents resumes deletable within account" on storage.objects
+    for delete to authenticated
+    using (
+        bucket_id = 'documents'
+        and (storage.foldername(name))[1] = public.current_context_id()::text
+        and (storage.foldername(name))[2] = 'resumes'
     );

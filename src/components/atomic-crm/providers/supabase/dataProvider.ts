@@ -29,6 +29,7 @@ import type {
   ReferenceLink,
   ReferenceMatchCandidate,
   ReferenceMergePreview,
+  Resume,
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
@@ -47,6 +48,14 @@ import type {
   SignEntityFileUrlParams,
   UploadEntityFileParams,
 } from "./entityFiles";
+import {
+  signResumeFileUrl as signResumeFileUrlImpl,
+  uploadResumeFile as uploadResumeFileImpl,
+} from "./resumes";
+import type {
+  SignResumeFileUrlParams,
+  UploadResumeFileParams,
+} from "./resumes";
 import { getSupabaseClient } from "./supabase";
 
 const getBaseDataProvider = () =>
@@ -591,6 +600,18 @@ const getDataProviderWithCustomMethods = () => {
     },
     async deleteEntityFile(params: DeleteEntityFileParams): Promise<void> {
       return deleteEntityFileImpl(baseDataProvider, params);
+    },
+
+    // ---------------------------------------------------------------------
+    // Resume tab (Story 5.3). Implementation lives in ./resumes.ts, mirroring
+    // ./entityFiles.ts's own split — this file is already large
+    // (.claude/rules/coding-style.md file-size guidance).
+    // ---------------------------------------------------------------------
+    async uploadResumeFile(params: UploadResumeFileParams): Promise<Resume> {
+      return uploadResumeFileImpl(params);
+    },
+    async signResumeFileUrl(params: SignResumeFileUrlParams): Promise<string> {
+      return signResumeFileUrlImpl(params);
     },
   } satisfies DataProvider;
 };

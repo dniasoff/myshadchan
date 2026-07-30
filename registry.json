@@ -404,6 +404,18 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/resumes/ResumeVersionList.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/resumes/ResumeUpload.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/resumes/ResumeTab.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/reminders/useReminders.ts",
           "type": "registry:component"
         },
@@ -544,6 +556,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/supabase/resumes.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/supabase/index.ts",
           "type": "registry:component"
         },
@@ -593,6 +609,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/internal/shidduchCatch.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/resumes.ts",
           "type": "registry:component"
         },
         {

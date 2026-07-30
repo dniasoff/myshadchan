@@ -463,6 +463,15 @@ export const frenchCrmMessages = {
           private_single: "Célibataire uniquement",
         },
       },
+      // Story 5.3 — ResumeTab.tsx.
+      resume: {
+        empty: "Aucun CV téléversé pour l'instant.",
+        error: "Impossible de charger le CV.",
+        upload: "Téléverser une nouvelle version",
+        uploadError: "Échec du téléversement du CV",
+        download: "Télécharger",
+        downloadError: "Échec de la génération du lien de téléchargement",
+      },
       record_pending: "Chargement…",
       record_unavailable: "Cet enregistrement n'est pas disponible.",
       record_unavailable_link: "Retour à la liste",

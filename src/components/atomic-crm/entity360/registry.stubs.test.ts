@@ -17,8 +17,9 @@ import type { TabKey } from "./tabKeys";
  * `buildRecordPath`, its `tabs` keys (in order) and its `pendingTabs` row.
  * Three of the four (`singles`, `shadchanim`, `references`) are still Story
  * 3.9's unmigrated stub — `/{name}/1/show`, empty `tabs`, a full
- * `pendingTabs`. `shidduchim` is Story 5.1's real descriptor: the bare
- * AD-24 path, its five real `tabs`, and the five keys still pending.
+ * `pendingTabs`. `shidduchim` is Story 5.1's real descriptor (Story 5.3
+ * moved `resume` from `pendingTabs` into `tabs`): the bare AD-24 path, its
+ * six real `tabs`, and the four keys still pending.
  *
  * `buildRecordPath` and `tabs` are per-case `StubCase` fields, not a shared
  * template string / shared literal (Story 5.1's reshape of this file):
@@ -43,8 +44,8 @@ const CASES: StubCase[] = [
   {
     name: "shidduchim",
     buildRecordPath: "/shidduchim/1",
-    tabs: ["overview", "diligence", "notes", "tasks", "activity"],
-    pendingTabs: ["resume", "photo", "medical", "files", "external-links"],
+    tabs: ["overview", "resume", "diligence", "notes", "tasks", "activity"],
+    pendingTabs: ["photo", "medical", "files", "external-links"],
   },
   {
     name: "singles",

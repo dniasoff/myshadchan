@@ -6,9 +6,10 @@
 -- current_account_id() to current_context_id(). Four of those repoints
 -- shipped with no automated cross-context negative test:
 --   * storage.objects (07_storage.sql) — the three "Attachments ... within
---     account" policies gate the `attachments` bucket, which holds resumes
---     and photos (PRV-1's highest-sensitivity data, and the surface of a live
---     cross-account leak shortly before this suite was written).
+--     account" policies gate the `attachments` bucket (PRV-1's highest-
+--     sensitivity data at the time, and the surface of a live cross-account
+--     leak shortly before this suite was written; resumes and photos have
+--     since moved to the `documents` bucket, Stories 5.3/5.4).
 --   * public.inbox_items — exercised elsewhere only via the AC-3a
 --     household-scope trigger-ordering fixture (context_resolution.sql),
 --     never via a genuine cross-context read attempt.

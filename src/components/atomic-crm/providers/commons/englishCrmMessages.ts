@@ -508,6 +508,17 @@ export const englishCrmMessages = {
           private_single: "Single only",
         },
       },
+      // Story 5.3 — ResumeTab's own UX-DR11 states and its upload/download
+      // controls. No visibility control (a resume has none) and no replace
+      // (a resume is versioned by appending, never replacing — AC 2).
+      resume: {
+        empty: "No resume uploaded yet.",
+        error: "Could not load the resume.",
+        upload: "Upload a new version",
+        uploadError: "Failed to upload the resume",
+        download: "Download",
+        downloadError: "Failed to get a download link",
+      },
       // Story 3.2 — ShowBase's explicit `loading` / `error` elements (AC 2).
       record_pending: "Loading…",
       record_unavailable: "This record is unavailable.",
