@@ -430,6 +430,19 @@ describe("ActivityTab — call_logged regression (AC 4, Story 5.11)", () => {
     expect(link.element().getAttribute("href")).toBe(
       `/${SHIDDUCHIM_RESOURCE}/7`,
     );
+    // The claim this test exists to make: it is queried with
+    // target_type = "reference", never "shidduch" — a target_type =
+    // "shidduch" filter could never have returned this row.
+    expect(getList).toHaveBeenCalledWith(
+      "interactions",
+      expect.objectContaining({
+        filter: {
+          target_type: "reference",
+          target_id: 55,
+          "deleted_at@is": null,
+        },
+      }),
+    );
   });
 });
 

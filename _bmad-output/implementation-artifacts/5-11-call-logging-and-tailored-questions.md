@@ -77,11 +77,20 @@ capture sheet**, with no AI call, no entitlement check, and no new question cont
    this story adds a read-only question display, it does not change the save path.
    **Failing looks like:** the diff touches `dataProvider.logReferenceCall`,
    `02_functions.sql#log_reference_call`, or `CallCaptureSheet.tsx:46-59`'s `handleSave`.
-4. **Given** a logged call, **when** I open the **shidduch's** Activity tab (Epic 3's universal
-   tab, now live per Story 5.1), **then** the `call_logged` interaction appears there, rendered
-   via `RecordLink` back to the reference — a regression check on already-working backend
-   behaviour, not new backend work. (AD-23: "shidduch", never "suggestion". The earlier wording
-   of this AC said "the suggestion's Activity tab".)
+4. **Given** a logged call, **when** I open the **reference's** Activity tab (Epic 3's universal
+   tab, live per Story 5.1, mounted onto the reference 360 by Story 5.10), **then** the
+   `call_logged` interaction appears there, rendered via `RecordLink` to its shidduch — a
+   regression check on already-working backend behaviour, not new backend work. (AD-23:
+   "shidduch", never "suggestion".)
+   **Review-fix correction:** this AC previously read "the **shidduch's** Activity tab … rendered
+   via `RecordLink` back to the reference" — inverted relative to what the code actually does.
+   `log_reference_call` always writes `target_type = 'reference'` (never `'shidduch'`), and
+   `ActivityTab`'s filter is a flat `target_type`/`target_id` equality, so a `call_logged` row is
+   only ever returned by the **reference's own** Activity tab, never the shidduch's. It resolves
+   through the existing `metadata.shidduchim_id` mention branch into a `RecordLink` **to the
+   shidduch**. See the Dev Agent Record's "Finding on AC 4's wording" for the full trace; the
+   shipped code and its test already assert this corrected, real mechanism — only this AC's prose
+   was wrong.
    **Failing looks like:** the interaction renders as plain text with no link, or does not
    render at all because `scope = 'shidduch'` / `reference_link_id` is not resolved.
 5. **Given** `CallCaptureSheet`'s single invocation path (it is opened only by
@@ -131,9 +140,9 @@ capture sheet**, with no AI call, no entitlement check, and no new question cont
         `references/entitlementGate.guard.test.ts`, and the `log_reference_call` coverage in
         `supabase/tests/references_entity.sql` + its runner.
   - [x] AC-4's test lands in **`entity360/tabs/ActivityTab.test.tsx`**, not under `references/`:
-        it asserts that a `call_logged` interaction renders in the universal Activity tab with a
-        working `RecordLink` to the reference. This is the first story where the Activity tab
-        actually exists to test against (per Story 5.1).
+        it asserts that a `call_logged` interaction renders in the **reference's** Activity tab
+        with a working `RecordLink` **to its shidduch** (review-fix correction — see AC-4). This
+        is the first story where the Activity tab actually exists to test against (per Story 5.1).
   - [x] Run the AC-5 grep; manually verify the capture path post-5.10 (Diligence row →
         `RecordLink` → reference 360 → Conversations tab → `CallCaptureSheet`).
 - [x] **Task 4 — Close the AD-24 pending-tab ledger** (AC: 6)
@@ -275,7 +284,8 @@ Claude Sonnet 5 (developer subagent, STACK_ID=3, STACK_OWNER=5-11)
   explicit "no second write path") actually supports. Per this story's own Dev Notes ("do not add
   a second write path 'to be safe'"), the fix is not a new backend write to make the AC's literal
   wording true; the new test in `ActivityTab.test.tsx` documents and asserts the real mechanism
-  instead. No story text was edited.
+  instead. **Superseded by the Review Fix Notes below (F1): the story originally left AC-4's text
+  uninverted rather than correcting it — that was the review's blocking finding, now fixed.**
 - **AC 5 grep caveat.** `grep -rn "CallCaptureSheet" src/ --include='*.tsx' | grep import` now
   also matches this story's own new `CallCaptureSheet.test.tsx` (a test file, `.tsx` by
   extension), in addition to the one production invoker `references/ReferenceCallLog.tsx`.
@@ -289,11 +299,52 @@ Claude Sonnet 5 (developer subagent, STACK_ID=3, STACK_OWNER=5-11)
   renamed it, and deleted the stale "informational" comment. It passes: the flip is satisfiable.
 - New test file: `references/CallCaptureSheet.test.tsx` (did not exist before, per Task 3).
 
+### Review Fix Notes (findings F1, F2, F3, F5 — F4 report-and-stop, not fixed here)
+
+- **F1 (should-fix, fixed).** AC-4 and Task 3's bullet said "the shidduch's Activity tab …
+  RecordLink back to the reference" while the box was checked `[x]` — a false acceptance record on
+  Epic 5's closing story. The dev-time trace recorded above already established the real mechanism
+  is the reverse (reference's Activity tab → RecordLink to its shidduch); the prose simply was not
+  corrected to match. Corrected AC-4 and the Task 3 bullet in place, following the precedent set by
+  the 5-8 review fix (`4321f19`, "AC-4 text correction"). No code change — the implementation and
+  its test were already right.
+- **F2 (should-fix, fixed).** The new `ActivityTab.test.tsx` case for `call_logged` never asserted
+  the filter `getList` was actually called with, so it could not distinguish "queried with
+  `target_type: 'reference'`" from "queried with `target_type: 'shidduch'`" — the exact claim its
+  comment argues. Added the `expect(getList).toHaveBeenCalledWith("interactions",
+  expect.objectContaining({ filter: { target_type: "reference", target_id: 55, "deleted_at@is":
+  null } }))` assertion, matching the existing AC-8 `it.each` case's style.
+- **F3 (nit, agreed and fixed).** `CallCaptureSheet.test.tsx`'s "falls back rather than guessing for
+  an unrecognised relationship" test asserted only that a universal question was present — true
+  whether or not a relationship set was wrongly matched, since universal questions are appended to
+  every set. Added a negative assertion: a teacher-specific question is *not* rendered for a "dog
+  walker" relationship, which is what the test's own title claims and is now what it tests.
+- **F5 (nit, agreed and fixed).** The `<summary>` toggle read "Show questions" even once the
+  disclosure was expanded. Made the `<details>` controlled (`open` state + `onToggle`) and added a
+  second i18n key, `crm.references.call.questionsToggleHide` ("Hide questions"), to both
+  catalogues, alongside a new test asserting the label flips once expanded.
+- **F4 (nit, report-and-stop, not fixed).** Agreed with the review's own disposition: the stale
+  future-tense prose in `entity360/ad24Conformance.ts:23-27,596-601` and
+  `ad24Conformance.guard.test.ts`'s hand-off note (c) is real, but that file is a contested file
+  outside this story's declared ownership set (per the pre-flight brief's contested-files table),
+  so fixing it here would be an ownership excursion. Left unfixed and reported to the orchestrator
+  instead.
+- Re-ran the full gate after these changes: `make typecheck`, `npm run lint`, `npx vitest run`
+  (full suite), `make build`, and all four CI guards — see the top-level Debug Log entry appended
+  below.
+
 ### File List
 
-- `src/components/atomic-crm/references/CallCaptureSheet.tsx` (modified — Task 2)
-- `src/components/atomic-crm/references/CallCaptureSheet.test.tsx` (new — Task 3/5)
-- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (modified — Task 2, i18n)
-- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (modified — Task 2, i18n)
-- `src/components/atomic-crm/entity360/tabs/ActivityTab.test.tsx` (modified — Task 3, AC 4)
+- `src/components/atomic-crm/references/CallCaptureSheet.tsx` (modified — Task 2; review fix F5,
+  controlled `<details>` toggle label)
+- `src/components/atomic-crm/references/CallCaptureSheet.test.tsx` (new — Task 3/5; review fix F3
+  negative assertion, F5 toggle-label test)
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (modified — Task 2, i18n;
+  review fix F5, `questionsToggleHide` key)
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (modified — Task 2, i18n;
+  review fix F5, `questionsToggleHide` key)
+- `src/components/atomic-crm/entity360/tabs/ActivityTab.test.tsx` (modified — Task 3, AC 4; review
+  fix F2, asserts the `getList` filter)
 - `src/components/atomic-crm/entity360/ad24Conformance.test.ts` (modified — Task 4, AC 6)
+- `_bmad-output/implementation-artifacts/5-11-call-logging-and-tailored-questions.md` (modified —
+  review fix F1, AC-4/Task-3 text correction)

@@ -631,6 +631,7 @@ export const frenchCrmMessages = {
         howDidItGo: "Comment s'est passé l'appel ?",
         questionsTitle: "Questions à poser",
         questionsToggle: "Afficher les questions",
+        questionsToggleHide: "Masquer les questions",
         whatTheySaid: "Ce qu'elle a dit",
         placeholder: "Écrivez autant ou aussi peu que vous voulez.",
         save: "Enregistrer et ajouter au journal",

@@ -44,6 +44,7 @@ export const CallCaptureSheet = ({
   );
   const [note, setNote] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [areQuestionsOpen, setAreQuestionsOpen] = useState(false);
 
   const handleSave = async () => {
     if (isSaving) return;
@@ -151,11 +152,21 @@ export const CallCaptureSheet = ({
                 _: "Questions to ask",
               })}
             </p>
-            <details className="text-sm">
+            <details
+              className="text-sm"
+              open={areQuestionsOpen}
+              onToggle={(event) =>
+                setAreQuestionsOpen(event.currentTarget.open)
+              }
+            >
               <summary className="cursor-pointer text-muted-foreground">
-                {translate("crm.references.call.questionsToggle", {
-                  _: "Show questions",
-                })}
+                {areQuestionsOpen
+                  ? translate("crm.references.call.questionsToggleHide", {
+                      _: "Hide questions",
+                    })
+                  : translate("crm.references.call.questionsToggle", {
+                      _: "Show questions",
+                    })}
               </summary>
               <ol className="mt-2 list-inside list-decimal">
                 {questions.map((question) => (

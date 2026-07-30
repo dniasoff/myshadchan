@@ -117,12 +117,24 @@ describe("CallCaptureSheet — falls back to the universal questions (AC 2)", ()
     const { screen } = await renderCallCaptureSheet(link);
     await screen.getByText("Show questions").click();
 
-    // Assert
+    // Assert — the universal fallback question is present...
     await expect
       .element(
         screen.getByText("How long have you known them, and in what setting?"),
       )
       .toBeVisible();
+    // ...and, the actual claim in this test's title: no relationship-specific
+    // question is guessed at. Universal questions are appended to every set
+    // (relationshipQuestions.ts), so a passing assertion on the line above
+    // alone cannot tell "fell back" apart from "matched the wrong set" — this
+    // one can, by pinning a teacher-only question's absence.
+    await expect
+      .element(
+        screen.getByText(
+          "How did they handle a subject or a situation they found difficult?",
+        ),
+      )
+      .not.toBeInTheDocument();
   });
 });
 
@@ -151,5 +163,24 @@ describe("CallCaptureSheet — the save path is unchanged (AC 3)", () => {
       what_they_said: "Warm, reliable, always on time.",
       source: "manual",
     });
+  });
+});
+
+describe("CallCaptureSheet — questions toggle label (review fix F5)", () => {
+  it("flips the toggle label once the questions section is expanded", async () => {
+    // Arrange
+    const link = buildLink({ effective_relationship: "employer" });
+    const { screen } = await renderCallCaptureSheet(link);
+    await expect.element(screen.getByText("Show questions")).toBeVisible();
+
+    // Act
+    await screen.getByText("Show questions").click();
+
+    // Assert — the label reflects the disclosure's actual state, not a
+    // static string that would read wrong once expanded.
+    await expect.element(screen.getByText("Hide questions")).toBeVisible();
+    await expect
+      .element(screen.getByText("Show questions"))
+      .not.toBeInTheDocument();
   });
 });
