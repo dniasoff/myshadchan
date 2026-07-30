@@ -1,6 +1,10 @@
+---
+baseline_commit: c27cf8e3386a73b94bb1f58c4b30065de4fdad00
+---
+
 # Story 6.1: A single joins the household
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -128,16 +132,16 @@ extends it and never builds a parallel invite system):
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Read the landed acceptance path before writing anything** (AC: 3)
-  - [ ] Read `public.accept_invite()` (`supabase/schemas/02_functions.sql:79-138`)
+- [x] **Task 1 — Read the landed acceptance path before writing anything** (AC: 3)
+  - [x] Read `public.accept_invite()` (`supabase/schemas/02_functions.sql:79-138`)
         and `supabase/tests/invites.sql:441-560`. The suite's own comment at
         `:441-443` states the binding move explicitly. Any instruction in an
         older story draft that names `handle_new_user()`'s "invite-binding
         branch" is describing code that no longer exists — do not resurrect
         it.
 
-- [ ] **Task 2 — Schema: `invites.target_single_id`** (AC: 2, 4, 5)
-  - [ ] `01_tables.sql`: append the column to the **end** of the
+- [x] **Task 2 — Schema: `invites.target_single_id`** (AC: 2, 4, 5)
+  - [x] `01_tables.sql`: append the column to the **end** of the
         `create table public.invites` block (COLUMN-ORDER TRAP at the top of
         that file — physical order is what `db diff` compares, and
         `supabase/tests/column_order.test.ts` fails on a mismatch). Add the
@@ -145,7 +149,7 @@ extends it and never builds a parallel invite system):
         `alter table` region alongside `:865`/`:880`/`:916`, in the same
         style (define it composite from the start — no interim single-column
         FK).
-  - [ ] `02_functions.sql`, `create_invite()`: add
+  - [x] `02_functions.sql`, `create_invite()`: add
         `p_target_single_id bigint default null` as the **last** parameter
         (a new leading or middle parameter changes the PostgREST RPC
         signature for existing callers). When not null, raise unless the
@@ -154,12 +158,12 @@ extends it and never builds a parallel invite system):
         current account'`). When null and `p_role = 'single'`, raise: the
         check constraint would catch it, but a named error is a better
         client message than a constraint violation.
-  - [ ] Confirm the `invites` RLS policy needs no change: `target_single_id`
+  - [x] Confirm the `invites` RLS policy needs no change: `target_single_id`
         is covered by the existing account-scoping plus the FK, and Story
         6.2's Task 6 already denies the whole table to the `single` role.
 
-- [ ] **Task 3 — Acceptance: the atomic link inside `accept_invite()`** (AC: 3, 4)
-  - [ ] Add `v_membership_id bigint;` to the `declare` block; change the
+- [x] **Task 3 — Acceptance: the atomic link inside `accept_invite()`** (AC: 3, 4)
+  - [x] Add `v_membership_id bigint;` to the `declare` block; change the
         existing membership insert to `returning id into v_membership_id`;
         then, only when `v_invite.target_single_id is not null`:
         ```sql
@@ -181,13 +185,13 @@ extends it and never builds a parallel invite system):
         the whole function, including the invite's `status = 'accepted'`
         claim — which is correct: an invite that could not be honoured must
         not be burnt.
-  - [ ] Do not touch any of the function's existing token/email/expiry/
+  - [x] Do not touch any of the function's existing token/email/expiry/
         idempotency logic — this is one `returning`, one `update` and one
         `if not found` added to one existing code path.
-  - [ ] `handle_new_user()` is **not** edited by this story.
+  - [x] `handle_new_user()` is **not** edited by this story.
 
-- [ ] **Task 4 — Frontend: the invite entry point** (AC: 1)
-  - [ ] `singles/entityDescriptorRegions.tsx`: `SingleActions` currently
+- [x] **Task 4 — Frontend: the invite entry point** (AC: 1)
+  - [x] `singles/entityDescriptorRegions.tsx`: `SingleActions` currently
         renders a bare `<TopToolbar><EditButton /></TopToolbar>`. Add a
         sibling action — "give {name} their own login" — in a new component
         file (`singles/SingleLoginInvite.tsx`, kept out of
@@ -195,7 +199,7 @@ extends it and never builds a parallel invite system):
         list). It renders only when `useViewerRole().role` is
         `parent_admin`/`self_manager` **and** `record.member_id == null`;
         `isPending` renders nothing (fail-closed, the `RolePending` posture).
-  - [ ] It calls `dataProvider.createInvite(email, "single", targetSingleId)`
+  - [x] It calls `dataProvider.createInvite(email, "single", targetSingleId)`
         and shows the same copyable `${origin}/#/accept-invite/${token}` link
         `settings/InvitesSection.tsx` already builds. Extend the method
         signature in **both** providers (AD-10):
@@ -204,10 +208,10 @@ extends it and never builds a parallel invite system):
         `providers/fakerest/dataProvider.ts:1033` →
         `providers/fakerest/internal/invites.ts:47` (mirror the target
         checks, including the already-linked refusal).
-  - [ ] Once linked, the action is replaced by a read-only "has their own
+  - [x] Once linked, the action is replaced by a read-only "has their own
         login" indicator — no active invite button on a linked single (the
         UI mirror of the Task 2/3 guards, never a substitute).
-  - [ ] `settings/InvitesSection.tsx`: remove `single` from the generic role
+  - [x] `settings/InvitesSection.tsx`: remove `single` from the generic role
         selector. The selector's options come from
         `providers/commons/roleAuthority.ts`'s `invitableRoles()`, whose
         household candidate list is `["parent_admin", "helper", "single"]` —
@@ -216,69 +220,69 @@ extends it and never builds a parallel invite system):
         from the record"). `InvitableRole` in `types.ts` is **not** narrowed:
         `invites_role_check` still admits `'single'`, and the pending-invites
         list must still render single invites like any other.
-  - [ ] i18n keys for every new string in **both**
+  - [x] i18n keys for every new string in **both**
         `providers/commons/englishCrmMessages.ts` and
         `frenchCrmMessages.ts` (AD-18 — no hardcoded UI text).
 
-- [ ] **Task 5 — Generate and hand-check the migration** (AC: 2, 3)
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f single_invite_linking`
-  - [ ] Confirm the composite FK is present in the generated migration
+- [x] **Task 5 — Generate and hand-check the migration** (AC: 2, 3)
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f single_invite_linking`
+  - [x] Confirm the composite FK is present in the generated migration
         (verify by hand against `01_tables.sql`), and that the
         `create_invite()`/`accept_invite()` bodies match the exact `pg_dump`
         format rule from AGENTS.md.
-  - [ ] `create_invite()` gains a parameter, so `db diff` emits a **new**
+  - [x] `create_invite()` gains a parameter, so `db diff` emits a **new**
         function rather than a replacement. Check whether the 2-argument
         overload survives; if it does, `drop function public.create_invite(text, text);`
         by hand in the same migration (two overloads make the PostgREST RPC
         call ambiguous) and re-issue its grant for the new signature —
         `06_grants.sql` grants execute per signature, and `db diff` does not
         re-emit function grants (AGENTS.md).
-  - [ ] `make check-migration-safety` — this migration adds a column and
+  - [x] `make check-migration-safety` — this migration adds a column and
         drops nothing, so it must pass with no new `declared-moves.sql`
         entry. (Story 6.6 refreshed the fixture; if 6.6 has not landed, this
         command fails inside the fixture, not on your migration.)
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
         Never `db reset --local`, never `db push`.
 
-- [ ] **Task 6 — Tests** (AC: 4, 5, 6)
-  - [ ] Extend `supabase/tests/invites.sql` rather than starting a parallel
+- [x] **Task 6 — Tests** (AC: 4, 5, 6)
+  - [x] Extend `supabase/tests/invites.sql` rather than starting a parallel
         suite — it already arranges two households, a full `create_invite()`
         authority matrix and four `accept_invite()` scenarios, and this story
         changes both functions. Add a new section at its end; do not
         restructure what is there.
-  - [ ] Acceptance is exercised the way that suite already does it:
+  - [x] Acceptance is exercised the way that suite already does it:
         `set local request.jwt.claims = '{"sub":"<uuid>","role":"authenticated"}'`
         then `select public.accept_invite(:'token'::uuid);` — never an
         `auth.users` insert carrying `invite_token` metadata (that path was
         removed by 2.7's review fix and would silently assert nothing).
-  - [ ] Assert (AC-5): an `invites` row (inserted as `postgres`) in household
+  - [x] Assert (AC-5): an `invites` row (inserted as `postgres`) in household
         A with `target_single_id` pointing at household B's single fails at
         the FK; `role = 'helper'` + target fails the check; `role = 'single'`
         + null target fails the check.
-  - [ ] Assert (AC-3/4): a valid acceptance yields exactly one
+  - [x] Assert (AC-3/4): a valid acceptance yields exactly one
         `account_members` row with `role = 'single'` and
         `singles.member_id` equal to its id; a second invite accepted against
         the now-linked single raises **and** `member_id` is unchanged on
         re-select **and** the second invite is still `pending` (the rollback
         of the status claim).
-  - [ ] Assert (AC-4): the existing idempotency case still passes — a repeat
+  - [x] Assert (AC-4): the existing idempotency case still passes — a repeat
         `accept_invite()` by the same bound caller neither raises nor creates
         a second membership.
-  - [ ] Assert (AC-6): immediately after linking, `set local
+  - [x] Assert (AC-6): immediately after linking, `set local
         request.jwt.claims` to the new user and re-run the core assertions
         from `single_row_scoping.sql` / `single_field_scoping.sql` via
         `supabase/tests/dbSuiteHelpers.ts` (or inline, if the helper does not
         expose them): same visible-suggestion set, zero rows on the 6.2/6.3
         deny tables, own-row-only on `account_members`.
-  - [ ] Component tests: `SingleLoginInvite` renders for an owning role on an
+  - [x] Component tests: `SingleLoginInvite` renders for an owning role on an
         unlinked single, renders nothing for `single`/`helper`, renders
         nothing while `isPending`, and renders the indicator once linked.
         `vitest-browser-react` + `TestMemoryRouter` (React Testing Library is
         not a dependency in this repo).
-  - [ ] `e2e/invite-sending.spec.ts` asserts the Settings role selector's
+  - [x] `e2e/invite-sending.spec.ts` asserts the Settings role selector's
         options; it will go red when `single` is removed — update it in this
         story, and add the Single-360 path as the replacement coverage.
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`.
+  - [x] `make typecheck && npm run lint && make test && npm run test:unit:db`.
 
 ## Dev Notes
 
@@ -415,8 +419,155 @@ No new top-level directory.
 
 ### Agent Model Used
 
+Claude Opus 5 (claude-opus-5) — bmad-dev-story workflow, STACK_ID=5.
+
 ### Debug Log References
+
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local --workdir .supabase-e2e-5 -f single_invite_linking` —
+  generated `supabase/migrations/20260730204933_single_invite_linking.sql`.
+  `migra` correctly emitted `drop function if exists
+  "public"."create_invite"(p_email text, p_role text)` on its own (the
+  2-argument overload did NOT survive, contrary to the task's own
+  "check whether it survives" caution) but, as warned, emitted no GRANT
+  statements at all for the new 3-argument overload — hand-added the
+  revoke/grant block for `create_invite(text, text, bigint)`, copied
+  verbatim from `06_grants.sql`.
+- `db diff --local` run twice post-migration: both `No schema changes
+  found`.
+- `make check-migration-safety STACK_ID=5`: PASSED (adds a column, drops
+  nothing — no `declared-moves.sql` entry needed).
+- `npm run test:unit:db STACK_ID=5`: 25 files / 803 tests passed
+  (`invites.test.ts` alone: 75 tests, including the new Story 6.1
+  section).
+- Two real bugs caught and fixed while writing `invites.sql`'s new
+  section, both from the newly-linked `single` caller being unable to
+  read `public.invites` under RLS at all (6.2's own deny-the-whole-table
+  policy — exactly the behaviour AC-6 exists to prove): a DO block that
+  looked up an invite's token via `select token into v_token from
+  public.invites where email = ...` under the SINGLE's OWN role found
+  zero rows and silently passed the wrong (NULL) token to
+  `accept_invite()`, producing the generic "invalid" message instead of
+  the specific one each test intended to pin. Fixed by adding a small,
+  RLS-free `invite_tokens` temp table (the shared `ids` table is
+  bigint-valued only, so a uuid token could not go there) populated
+  BEFORE the identity switch, since psql's `:'var'` interpolation does
+  not reach inside `do $$ … $$` bodies (confirmed empirically) — the
+  file's own established `ids`-table convention adapted for a uuid
+  value instead of invented from scratch.
+- `make typecheck`, `npm run lint`, `npx vitest run` (full suite, 217
+  files / 2425 tests), `make build`: all green, run repeatedly after
+  each fix.
+- `misc/recordSurfaceDialogs.guard.test.ts` (UX-DR3) failed on the first
+  pass: `SingleLoginInvite.tsx` had been built with `@/components/ui
+  /dialog`, which the guard flags as a new, unrecognized dialog-wrapped
+  record-surface file. Rebuilt on `@/components/ui/popover` instead —
+  `references/ReferenceAttachToShidduch.tsx` is the exact same call for
+  the exact same reason (a one-tap action with a small form, not a
+  record's own screen) — rather than adding an allowlist entry to a file
+  outside this story's declared path ownership.
 
 ### Completion Notes List
 
+- Schema: `invites.target_single_id bigint` appended to the tail of the
+  `create table` block (column-order trap respected), plus
+  `invites_role_target_check` (`(role = 'single') = (target_single_id is
+  not null)`) and a composite `invites_target_single_id_fkey (account_id,
+  target_single_id) references singles(account_id, id) on delete
+  cascade`, defined composite from the start.
+- `create_invite()` gains `p_target_single_id bigint default null` as its
+  LAST parameter (a new overload, not a breaking change to existing
+  callers) with two named-exception UX checks (null target for a
+  single-role invite; target not found/foreign/already-linked in the
+  caller's own account) ahead of the real boundary (the check constraint
+  and composite FK).
+- `accept_invite()` gained exactly the diff the story specified: one
+  `returning id into v_membership_id` on the existing membership insert,
+  and one race-safe `update … where member_id is null` +
+  `if not found then raise` immediately after, gated on
+  `v_invite.target_single_id is not null`. Nothing else in the function
+  was touched; `handle_new_user()` was not touched at all.
+- Migration hand-adjustments (both flagged in the task and both
+  confirmed necessary): the 2-argument `create_invite` overload's drop
+  WAS auto-emitted by `migra` this time; its new 3-argument overload's
+  grants were NOT and were hand-added, matching the `resume_photos`
+  migration's own "MANUAL ADJUSTMENTS" header convention.
+- Frontend: `SingleLoginInvite.tsx` (new) is a `Popover`-based action
+  (not a `Dialog` — see Debug Log) mounted as a sibling to `EditButton`
+  inside `SingleActions`, which now receives `record` and threads it
+  through. Gated on `useViewerRole()` (`parent_admin`/`self_manager`,
+  fail-closed on `isPending`) and `single.member_id == null`; once
+  linked, renders a read-only "Has their own login" badge instead.
+  Calls `dataProvider.createInvite(email, "single", single.id)`.
+- Both providers' `createInvite` extended with an optional third
+  `targetSingleId` parameter (Supabase: `p_target_single_id` in the RPC
+  payload; FakeRest: `providers/fakerest/internal/invites.ts`, whose
+  role/kind validation was rewritten to check `ROLE_AUTHORITY`/
+  `isInviteCapableRole` directly rather than through `invitableRoles()` —
+  that helper's own candidate list no longer includes `single`, so
+  routing a `single`-role FakeRest call through it would have incorrectly
+  refused every one of them).
+- `roleAuthority.ts`'s `invitableRoles()` household candidate list drops
+  `single` (comment cites this story); `InvitableRole`/`invites_role_check`
+  are untouched, and `InvitesSection.tsx` itself needed no edit — it
+  already derives its options from `invitableRoles()` and its
+  pending-invites list already renders any `InvitableRole` uniformly, so
+  a `single`-role invite still lists correctly (new test added: `still
+  renders a pending 'single'-role invite in the list, exactly like any
+  other role`).
+- `e2e/invite-sending.spec.ts`: added an explicit assertion that the
+  Settings role selector no longer offers "Single", and a new test
+  covering the Single-360 replacement path end-to-end (send from the
+  record, see the copyable link). `e2e/invite-acceptance.spec.ts` and
+  `e2e/fixtures.ts` needed no change — the generic OTP-based acceptance
+  flow and its fixtures are unaffected by this story, and AC-6's full
+  post-acceptance scoping regression is covered at the DB layer (the
+  authoritative layer for RLS, per AD-1), not re-proven at the e2e layer.
+- `registry.json` regenerated (`make registry-gen`) for the new
+  `SingleLoginInvite.tsx` file, per the pre-commit-hook convention.
+- Nothing from the declared path list was left untouched without reason:
+  `settings/InvitesSection.tsx` and `singles/entityDescriptor.tsx`
+  required no edits (verified, not merely skipped) — the former already
+  reads its options from `invitableRoles()`, the latter's `actions:
+  SingleActions` reference needed no change since `SingleActions`'s new
+  `{ record }` signature already matches `EntityDescriptor`'s
+  `ComponentType<{ record: T }>` contract for the `actions` region.
+
 ### File List
+
+Schema / DB:
+- `supabase/schemas/01_tables.sql` (modified)
+- `supabase/schemas/02_functions.sql` (modified)
+- `supabase/schemas/06_grants.sql` (modified)
+- `supabase/migrations/20260730204933_single_invite_linking.sql` (new)
+- `supabase/tests/invites.sql` (modified)
+
+Frontend:
+- `src/components/atomic-crm/singles/SingleLoginInvite.tsx` (new)
+- `src/components/atomic-crm/singles/SingleLoginInvite.test.tsx` (new)
+- `src/components/atomic-crm/singles/entityDescriptorRegions.tsx` (modified)
+- `src/components/atomic-crm/singles/entityDescriptor.test.tsx` (modified —
+  new coverage for the real `actions` region wiring; `entityDescriptor.tsx`
+  itself needed no change)
+- `src/components/atomic-crm/settings/InvitesSection.test.tsx` (modified)
+- `src/components/atomic-crm/providers/commons/roleAuthority.ts` (modified)
+- `src/components/atomic-crm/providers/commons/roleAuthority.test.ts` (modified)
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts` (modified)
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts` (modified)
+- `src/components/atomic-crm/providers/fakerest/internal/invites.ts` (modified)
+- `src/components/atomic-crm/providers/fakerest/internal/invites.test.ts` (new)
+- `src/components/atomic-crm/types.ts` (modified)
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (modified)
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (modified)
+- `registry.json` (regenerated)
+
+E2E:
+- `e2e/invite-sending.spec.ts` (modified)
+
+### Change Log
+
+- 2026-07-30: Story 6.1 implemented — `invites.target_single_id`,
+  `create_invite()`/`accept_invite()` extended, `SingleLoginInvite.tsx`
+  entry point, `single` dropped from the generic invite-role selector.
+  All 6 tasks complete; DB suite (803 tests), full unit suite (2425
+  tests), `make typecheck`, `make lint`, `make build`, `db diff` (clean
+  twice) and `make check-migration-safety` all green. Status → review.
