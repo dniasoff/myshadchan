@@ -153,13 +153,25 @@ export const ShidduchInputs = () => {
             inputClassName="font-hebrew"
           />
           <TextInput
-            source="parents_en"
-            label="Parents (English)"
+            source="father_en"
+            label="Father (English)"
             helperText={false}
           />
           <TextInput
-            source="parents_he"
-            label="Parents (Hebrew)"
+            source="father_he"
+            label="Father (Hebrew)"
+            helperText={false}
+            dir="rtl"
+            inputClassName="font-hebrew"
+          />
+          <TextInput
+            source="mother_en"
+            label="Mother (English)"
+            helperText={false}
+          />
+          <TextInput
+            source="mother_he"
+            label="Mother (Hebrew)"
             helperText={false}
             dir="rtl"
             inputClassName="font-hebrew"
@@ -187,7 +199,35 @@ export const ShidduchInputs = () => {
             source="age"
             helperText="Informational only — never used for matching"
           />
+          {/* Story 5.2: DOB is the more precise source when both are known —
+              the Overview tab prefers a live age computed from it. */}
+          <DateInput
+            source="dob"
+            label="Date of birth"
+            helperText="Optional — shown alongside age"
+          />
           <TextInput source="height" helperText={false} />
+          <TextInput
+            source="marital_status"
+            label="Marital status"
+            helperText={false}
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-4">
+          <TextInput
+            source="background"
+            label="Background"
+            multiline
+            rows={2}
+            helperText={false}
+          />
+          <TextInput
+            source="existing_children_note"
+            label="Existing children"
+            multiline
+            rows={2}
+            helperText="The suggested person's own prior children, if any"
+          />
         </div>
       </FormSection>
     </div>

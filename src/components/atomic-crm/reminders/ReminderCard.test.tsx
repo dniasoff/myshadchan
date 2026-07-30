@@ -55,7 +55,7 @@ describe("ReminderCard — linked entity renders through RecordLink (AC 5)", () 
       .toHaveAttribute("href", "/shadchanim/9/show");
   });
 
-  it("links a shidduch-targeted reminder to the shidduch's /show route", async () => {
+  it("links a shidduch-targeted reminder to the shidduch's AD-24 record route (Story 5.1)", async () => {
     // Arrange
     const item: ReminderItem = {
       task: buildTask({ target_type: "shidduch", target_id: 42 }),
@@ -65,10 +65,11 @@ describe("ReminderCard — linked entity renders through RecordLink (AC 5)", () 
     // Act
     const screen = await renderCard(item);
 
-    // Assert
+    // Assert — Story 5.1 flipped shidduchim's buildRecordPath to the bare
+    // AD-24 shape; this pin follows it in the same diff.
     await expect
       .element(screen.getByRole("link", { name: "Chaim Cohen" }))
-      .toHaveAttribute("href", "/shidduchim/42/show");
+      .toHaveAttribute("href", "/shidduchim/42");
   });
 
   it("renders no link when the task has no linked entity", async () => {

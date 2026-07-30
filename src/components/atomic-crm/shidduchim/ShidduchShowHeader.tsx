@@ -1,5 +1,4 @@
 import { format } from "date-fns";
-import { DialogTitle } from "@/components/ui/dialog";
 
 import { EntityAvatar } from "../entity360/EntityAvatar";
 import { StateChip } from "../misc/StateChip";
@@ -17,7 +16,9 @@ const formatSuggestedAt = (iso: string): string => {
 /**
  * The 360 view header (Screen 18): monogram avatar, bilingual name, current
  * state, and the "via {shadchan} · Redt {date} · redt xN" meta row — the
- * board card's identity treatment, raised to hero scale.
+ * board card's identity treatment, raised to hero scale. Renders as
+ * `identityHeader` on a real page (Story 5.1) — no `DialogTitle` wrapper;
+ * this component was the routed dialog's own title until then.
  */
 export const ShidduchShowHeader = ({
   shidduch,
@@ -45,19 +46,17 @@ export const ShidduchShowHeader = ({
           className="size-14 rounded-2xl text-lg"
         />
         <div className="min-w-0 flex-1">
-          <DialogTitle asChild>
-            <h2 className="flex flex-wrap items-baseline gap-x-3 font-display text-2xl font-bold tracking-tight">
-              <span>{name}</span>
-              {shidduch.name_he ? (
-                <span
-                  className="font-hebrew text-lg font-medium text-muted-foreground"
-                  dir="rtl"
-                >
-                  {shidduch.name_he}
-                </span>
-              ) : null}
-            </h2>
-          </DialogTitle>
+          <h2 className="flex flex-wrap items-baseline gap-x-3 font-display text-2xl font-bold tracking-tight">
+            <span>{name}</span>
+            {shidduch.name_he ? (
+              <span
+                className="font-hebrew text-lg font-medium text-muted-foreground"
+                dir="rtl"
+              >
+                {shidduch.name_he}
+              </span>
+            ) : null}
+          </h2>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StateChip state={shidduch.pipeline_state} />
             {meta ? (

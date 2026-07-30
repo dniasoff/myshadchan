@@ -18,8 +18,10 @@ const shidduch = (overrides: Partial<Shidduch>): Shidduch =>
     single_id: 10,
     name_en: null,
     name_he: null,
-    parents_en: null,
-    parents_he: null,
+    father_en: null,
+    father_he: null,
+    mother_en: null,
+    mother_he: null,
     seminary_en: null,
     seminary_he: null,
     shul_en: null,
@@ -123,6 +125,51 @@ describe("computeShidduchCatchCount", () => {
     expect(count).toBe(0);
   });
 
+  it("catches on a name match corroborated by the combined father + mother signal (Story 5.2 AD-5)", () => {
+    // Arrange
+    const target = shidduch({
+      id: 1,
+      name_en: "Chaim Cohen",
+      father_en: "Yaakov Cohen",
+      mother_en: "Rivka Cohen",
+    });
+    const other = shidduch({
+      id: 2,
+      name_en: "Chaim Cohen",
+      father_en: "Yaakov Cohen",
+      mother_en: "Rivka Cohen",
+    });
+
+    // Act
+    const count = computeShidduchCatchCount(target, [target, other]);
+
+    // Assert
+    expect(count).toBe(1);
+  });
+
+  it("does not corroborate on parents when the father matches but the mother differs", () => {
+    // Arrange — the combined "parents" signal is the joined father+mother
+    // string, not an independent per-parent comparison.
+    const target = shidduch({
+      id: 1,
+      name_en: "Chaim Cohen",
+      father_en: "Yaakov Cohen",
+      mother_en: "Rivka Cohen",
+    });
+    const other = shidduch({
+      id: 2,
+      name_en: "Chaim Cohen",
+      father_en: "Yaakov Cohen",
+      mother_en: "Different Mother",
+    });
+
+    // Act
+    const count = computeShidduchCatchCount(target, [target, other]);
+
+    // Assert — name-only match, no corroborator, never catches.
+    expect(count).toBe(0);
+  });
+
   it("never pools identity across accounts", () => {
     // Arrange — an identical person, but in another account.
     const target = shidduch({
@@ -153,13 +200,13 @@ describe("catchShidduch", () => {
       id: 1,
       single_id: 10,
       name_en: "Chaim Cohen",
-      parents_en: "Yaakov Cohen",
+      father_en: "Yaakov Cohen",
     });
     const prior = shidduch({
       id: 2,
       single_id: 11,
       name_en: "Chaim Cohen",
-      parents_en: "Yaakov Cohen",
+      father_en: "Yaakov Cohen",
     });
     const provider = providerFor({
       shidduchim: [target, prior],

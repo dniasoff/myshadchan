@@ -4,9 +4,11 @@ import { render } from "vitest-browser-react";
 import { CoreAdminContext, Resource, TestMemoryRouter } from "ra-core";
 import type { AuthProvider } from "ra-core";
 import { Route, Routes } from "react-router";
+import { QueryClient } from "@tanstack/react-query";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
+import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import { PIPELINE_STATES } from "./pipelineStates";
 
 // The real, post-change `shidduchim` resource definition — the same object
@@ -173,6 +175,166 @@ describe("ShidduchimList — the pre-<List> pending state (AC-5, review fix F4)"
     // Assert — the skeleton hands off to the real pipeline heading.
     await expect
       .element(screen.getByRole("heading", { name: /redts$/ }))
+      .toBeInTheDocument();
+  });
+});
+
+/**
+ * Story 5.1 AC 1: mounting the real, migrated `shidduchim` resource at a
+ * RECORD url (`/shidduchim/{id}`, `/shidduchim/{id}/{tab}`) renders
+ * `Entity360` via `buildEntityRoutes`' `:id` / `:id/:tab` routes — never the
+ * board's `/^Pipeline/`-style heading and never `RecordUnavailable`. A
+ * separate data provider from the two describe blocks above: those never
+ * define `getOne`, `getMyContexts` or `catchShidduch`, which a record route
+ * needs (`ShowBase`, `useViewerRole`, `ShidduchOverviewTab`'s
+ * `ShidduchCatchSection`) and the create/board tests above do not.
+ */
+const SHIDDUCH_RECORD = {
+  id: 1,
+  account_id: 1,
+  single_id: 1,
+  pipeline_state: "new",
+  first_suggested_at: "2026-01-01T00:00:00Z",
+  redt_date: "2026-01-02",
+  origin: "manual",
+  visibility: "shared",
+  index: 0,
+  created_at: "2026-01-01T00:00:00Z",
+  name_en: "Chaim Cohen",
+};
+
+const buildRecordDataProvider = (): CrmDataProvider =>
+  ({
+    getOne: vi.fn((resource: string) =>
+      resource === "shidduchim"
+        ? Promise.resolve({ data: SHIDDUCH_RECORD })
+        : Promise.reject(new Error(`unexpected getOne(${resource})`)),
+    ),
+    getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    getMany: vi.fn().mockResolvedValue({ data: [] }),
+    getMyContexts: vi.fn().mockResolvedValue([]),
+    catchShidduch: vi
+      .fn()
+      .mockResolvedValue({ has_catch: false, suggestions: [], dates: [] }),
+  }) as unknown as CrmDataProvider;
+
+const renderShidduchimRecordAt = async (initialEntries: string[]) => {
+  const queryClient = new QueryClient();
+  // Seeded so `useViewerRole()` resolves immediately (contract §6 rule 1):
+  // none of this story's five tabs declare `visibleTo`, so `hasVisibility`
+  // is `true` regardless of role — only `isPending` needs to settle.
+  queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, []);
+
+  return render(
+    <TestMemoryRouter initialEntries={initialEntries}>
+      <CoreAdminContext
+        dataProvider={buildRecordDataProvider()}
+        authProvider={buildAuthProvider()}
+        queryClient={queryClient}
+        i18nProvider={testI18nProvider}
+      >
+        <Suspense fallback={null}>
+          <Routes>
+            <Route
+              path="shidduchim/*"
+              element={<Resource name="shidduchim" {...shidduchim} />}
+            />
+          </Routes>
+        </Suspense>
+      </CoreAdminContext>
+    </TestMemoryRouter>,
+  );
+};
+
+describe("ShidduchimList — AC 1: a record URL renders Entity360, not the board", () => {
+  it("renders the overview tab's content at /shidduchim/1 — never the board's '{n} redts' heading", async () => {
+    // Arrange / Act
+    const screen = await renderShidduchimRecordAt(["/shidduchim/1"]);
+
+    // Assert — Entity360's overview tab (the default active tab) rendered.
+    await expect
+      .element(screen.getByRole("heading", { name: "Shidduch facts" }))
+      .toBeInTheDocument();
+    // Assert — failing looks like the board's heading appearing at a
+    // record URL, or RecordUnavailable, per this AC's own falsifiable text.
+    await expect
+      .element(screen.getByRole("heading", { name: /redts$/ }))
+      .not.toBeInTheDocument();
+  });
+
+  /**
+   * Review fix F2 (AC-5): the pre-fix suite exercised no assertion that
+   * would go red if `identityHeader`/`actions` were dropped from
+   * `shidduchimDescriptor` entirely — `EntityShow` silently falls back to
+   * `DefaultIdentityHeader` with no `actions` region, and the page still
+   * "worked" by every other test's standard. These two assertions pin the
+   * hero header (`ShidduchIdentityHeader` renders `ShidduchShowHeader`,
+   * whose name heading is `SHIDDUCH_RECORD.name_en`) and the pipeline-
+   * transition control (`ShidduchActions` renders `ShidduchStateControl`,
+   * whose own heading is "Move through the pipeline") every tab shares.
+   */
+  it("renders the identity header's name and the state-transition control at /shidduchim/1", async () => {
+    // Arrange / Act
+    const screen = await renderShidduchimRecordAt(["/shidduchim/1"]);
+
+    // Assert — identityHeader: ShidduchIdentityHeader -> ShidduchShowHeader.
+    await expect
+      .element(screen.getByRole("heading", { name: "Chaim Cohen" }))
+      .toBeInTheDocument();
+    // Assert — actions: ShidduchActions -> ShidduchStateControl.
+    await expect
+      .element(
+        screen.getByRole("heading", { name: "Move through the pipeline" }),
+      )
+      .toBeInTheDocument();
+  });
+
+  it("renders the Notes tab's content at /shidduchim/1/notes", async () => {
+    // Arrange / Act
+    const screen = await renderShidduchimRecordAt(["/shidduchim/1/notes"]);
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "Add note" }))
+      .toBeInTheDocument();
+  });
+
+  /**
+   * Review gap (AC-5's own falsifiable clause, never written): "an RTL
+   * render of /shidduchim/1/diligence shows the references section and
+   * /shidduchim/1/tasks shows TasksTab". `ShidduchDiligenceTab` and
+   * `ShidduchTasksTab` (both in `entityDescriptorRegions.tsx`) had zero
+   * coverage before this fix.
+   */
+  it("renders the references section at /shidduchim/1/diligence", async () => {
+    // Arrange / Act
+    const screen = await renderShidduchimRecordAt(["/shidduchim/1/diligence"]);
+
+    // Assert — ShidduchDiligenceTab -> ShidduchReferencesSection.
+    await expect
+      .element(screen.getByRole("heading", { name: "References" }))
+      .toBeInTheDocument();
+  });
+
+  it("renders the Tasks tab's content at /shidduchim/1/tasks", async () => {
+    // Arrange / Act
+    const screen = await renderShidduchimRecordAt(["/shidduchim/1/tasks"]);
+
+    // Assert — ShidduchTasksTab -> the universal TasksTab.
+    await expect
+      .element(screen.getByRole("button", { name: "Add task" }))
+      .toBeInTheDocument();
+  });
+
+  it("renders the Activity tab's content at /shidduchim/1/activity", async () => {
+    // Arrange / Act
+    const screen = await renderShidduchimRecordAt(["/shidduchim/1/activity"]);
+
+    // Assert — ShidduchActivityTab -> the universal ActivityTab's empty state
+    // (the record data provider's default getList([]) applies to
+    // "interactions" too, so this is the discriminating render, not a stub).
+    await expect
+      .element(screen.getByText("Nothing logged yet."))
       .toBeInTheDocument();
   });
 });

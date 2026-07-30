@@ -4,6 +4,7 @@ import {
   type OnDragStartResponder,
 } from "@hello-pangea/dnd";
 import isEqual from "lodash/isEqual";
+import type { Identifier } from "ra-core";
 import {
   useDataProvider,
   useListContext,
@@ -40,7 +41,9 @@ interface PendingDrop {
  * component, so by the time it mounts, `data` is always the ready array.
  */
 export const ShidduchimListContent = () => {
-  const { data } = useListContext<ShidduchSummary>();
+  const { data, filterValues } = useListContext<ShidduchSummary>();
+  const singleId = (filterValues as Record<string, unknown> | undefined)
+    ?.single_id as Identifier | undefined;
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const refresh = useRefresh();
@@ -184,6 +187,7 @@ export const ShidduchimListContent = () => {
               shidduchim={byState[state.value] ?? []}
               tourAnchor={columnIndex === 0}
               dragFrom={dragFrom}
+              singleId={singleId}
             />
           ))}
         </div>

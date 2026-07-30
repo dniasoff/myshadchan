@@ -3,8 +3,31 @@ import { defineConfig } from "vitest/config";
 import { playwright } from "@vitest/browser-playwright";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import type { BrowserContext, CDPSession, Page } from "playwright";
 
 import { resolveStack } from "./scripts/stack-env.mjs";
+
+// Backs the "app" project's `setTimezone` browser command below. Chrome
+// (verified empirically against 149.x) errors "Timezone override is already
+// in effect" if a second CDP session tries to set an override while an
+// earlier one on the same page is still open, and — separately — detaching a
+// session that set the override reverts it immediately, before any test code
+// gets to run. So exactly one session is opened per page, on first use, kept
+// open (never detached) for the page's lifetime, and reused for every later
+// call. Module-scoped: this config file is loaded once per worker process.
+const timezoneSessionsByPage = new WeakMap<Page, Promise<CDPSession>>();
+
+function getTimezoneSession(
+  context: BrowserContext,
+  page: Page,
+): Promise<CDPSession> {
+  let session = timezoneSessionsByPage.get(page);
+  if (!session) {
+    session = context.newCDPSession(page);
+    timezoneSessionsByPage.set(page, session);
+  }
+  return session;
+}
 
 // Per-agent stack allocation (scripts/stack-env.mjs). Only the "app" project
 // needs it here — it boots a real browser against a Vite server whose port and
@@ -75,14 +98,16 @@ export default defineConfig({
               },
             ],
             commands: {
-              // Uses Chrome DevTools Protocol to override the timezone at runtime,
-              // since process.env.TZ has no effect in a real browser environment.
+              // Uses Chrome DevTools Protocol to override the timezone at
+              // runtime, since process.env.TZ has no effect in a real browser
+              // environment. See getTimezoneSession above for why the session
+              // is cached per page rather than opened (and detached) fresh on
+              // every call.
               async setTimezone({ context, page }, timezoneId: string) {
-                const session = await context.newCDPSession(page);
+                const session = await getTimezoneSession(context, page);
                 await session.send("Emulation.setTimezoneOverride", {
                   timezoneId,
                 });
-                await session.detach();
               },
             },
           },

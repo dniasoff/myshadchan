@@ -143,7 +143,8 @@ select 'shidduchim_summary: the "Zzyx" search returns exactly tenant A''s row, n
 from public.shidduchim_summary
 where name_en ilike '%Zzyx%' or name_he ilike '%Zzyx%'
    or shadchan_name ilike '%Zzyx%' or shadchan_name_he ilike '%Zzyx%'
-   or parents_en ilike '%Zzyx%' or parents_he ilike '%Zzyx%'
+   or father_en ilike '%Zzyx%' or father_he ilike '%Zzyx%'
+   or mother_en ilike '%Zzyx%' or mother_he ilike '%Zzyx%'
    or location_en ilike '%Zzyx%' or location_he ilike '%Zzyx%';
 
 insert into results (name, passed, detail)
@@ -180,7 +181,8 @@ select 'shidduchim_summary: sanity control — as tenant B, the same search retu
 from public.shidduchim_summary
 where name_en ilike '%Zzyx%' or name_he ilike '%Zzyx%'
    or shadchan_name ilike '%Zzyx%' or shadchan_name_he ilike '%Zzyx%'
-   or parents_en ilike '%Zzyx%' or parents_he ilike '%Zzyx%'
+   or father_en ilike '%Zzyx%' or father_he ilike '%Zzyx%'
+   or mother_en ilike '%Zzyx%' or mother_he ilike '%Zzyx%'
    or location_en ilike '%Zzyx%' or location_he ilike '%Zzyx%';
 
 insert into results (name, passed, detail)

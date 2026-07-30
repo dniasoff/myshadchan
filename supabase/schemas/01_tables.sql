@@ -271,9 +271,13 @@ create table public.shidduchim (
     -- Single's identity (bilingual, AD-12)
     name_en text,
     name_he text,
-    -- Name-bearing context fields, bilingual where they carry a name
-    parents_en text,
-    parents_he text,
+    -- Name-bearing context fields, bilingual where they carry a name.
+    -- Story 5.2: father/mother replace the single combined `parents_*` pair
+    -- (dropped outright — demo/test data only, NFR-14 forbids a shim).
+    father_en text,
+    father_he text,
+    mother_en text,
+    mother_he text,
     seminary_en text,
     seminary_he text,
     shul_en text,
@@ -283,6 +287,16 @@ create table public.shidduchim (
     -- Informational only — NEVER matching signals (FR11)
     age integer,
     height text,
+    -- Story 5.2: the Overview tab's remaining under-specified facts. Single
+    -- script, not bilingual — prose/free text, not an identity signal (AD-12
+    -- does not apply; see the story's under-specification table).
+    dob date,
+    background text,
+    marital_status text,
+    -- The SUGGESTED PERSON's own prior children — a shidduch fact, not the
+    -- retired `children` resource (now `singles`, AD-23). Exempted in
+    -- scripts/retired-names.json, not renamed — see Story 5.2's ruling.
+    existing_children_note text,
     -- The one canonical state (AD-4); NO decision_substate (D4)
     pipeline_state public.pipeline_state not null default 'new',
     -- Provenance (FR13): first shadchan to redt + when

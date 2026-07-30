@@ -29,8 +29,8 @@ import { getEntityDescriptor } from "./registry";
  * an earlier guard unfalsifiable (Epic 3 preflight brief §6, item 15). This
  * file also excludes its OWN sibling, `ad24Conformance.ts`: that module's
  * doc comments and exemption-table `detail` strings legitimately mention
- * paths like "shidduchim/ShidduchShow.tsx" and "/references/${id}" in prose,
- * which would otherwise register as false positives in the very scans it
+ * paths like "tasks/TaskEdit.tsx" and "/references/${id}" in prose, which
+ * would otherwise register as false positives in the very scans it
  * defines.
  *
  * Hand-off notes (Task 6):
@@ -128,11 +128,11 @@ describe("AD-24 conformance guard — scan sanity (AC 8)", () => {
     expect(Object.keys(sources).length).toBeGreaterThan(100);
   });
 
-  it("the .ts/.tsx glob includes the known modal record surface ShidduchShow.tsx", () => {
-    // Assert
-    expect(
-      Object.keys(scannedFiles).includes("shidduchim/ShidduchShow.tsx"),
-    ).toBe(true);
+  it("the .ts/.tsx glob includes the known modal record surface TaskEdit.tsx", () => {
+    // Assert — Story 5.1 deleted `shidduchim/ShidduchShow.tsx` (the routed
+    // dialog this needle used to name), which is why this pin retargets to
+    // `tasks/TaskEdit.tsx` — `MODAL_RECORD_SURFACES`' remaining entry.
+    expect(Object.keys(scannedFiles).includes("tasks/TaskEdit.tsx")).toBe(true);
   });
 
   it("keys entity360's OWN modules under entity360/, not './'", () => {
@@ -363,12 +363,14 @@ describe("AD-24 conformance guard — target-type parity (AC 7)", () => {
 const noBrowseNames = Object.keys(NO_BROWSE_SURFACE_ENTITIES);
 
 /** Excluded from the AC 10(b) scan: the builder itself, every descriptor
- * module (a descriptor legitimately declares `/${name}` inside
- * `buildRecordPath`/`buildListPath` call sites it does not itself call),
+ * module — `.tsx` matched too, since Story 5.1's is the first descriptor
+ * whose region renderers need JSX (`shidduchim/entityDescriptor.tsx`) — a
+ * descriptor legitimately declares `/${name}` inside
+ * `buildRecordPath`/`buildListPath` call sites it does not itself call,
  * and each resource's own route-mount `index.ts`. */
 function isExcludedFromListPathScan(path: string): boolean {
   if (path === "entity360/entityPaths.ts") return true;
-  if (/\/entityDescriptor\.ts$/.test(path)) return true;
+  if (/\/entityDescriptor\.tsx?$/.test(path)) return true;
   if (RESOURCE_DIRECTORIES.some((dir) => path === `${dir}/index.ts`)) {
     return true;
   }
@@ -435,18 +437,29 @@ describe("AD-24 conformance guard — no-browse enumeration on a browse surface"
 /**
  * Follows a resource's `<dir>/index.ts` registration to the module its
  * `list` slot actually resolves to. This is REACHABILITY, not a filename
- * convention: it reads the identifier assigned to `list:` and then the
- * import that binds it, so re-pointing `list:` at any other module — however
- * it is named — is what this tracks.
+ * convention: it reads the identifier assigned to the browse component and
+ * then the import that binds it, so re-pointing `list:` at any other
+ * module — however it is named — is what this tracks.
  *
- * Two binding forms exist in the tree: a plain named import
- * (`references`, `singles`, `shadchanim`, `inbox_items`, `members`) and
- * `React.lazy(() => import("./X"))` (`shidduchim`). `tasks` resolves to
- * nothing on purpose — its definition is written inline in
- * `root/routeManifest.ts` with no `tasks/index.ts` at all; the sanity test
- * below pins exactly which resources resolve, so a silent resolution failure
- * cannot quietly empty this scan.
+ * Three binding forms exist in the tree: a plain named import
+ * (`references`, `singles`, `shadchanim`, `inbox_items`, `members`),
+ * `React.lazy(() => import("./X"))`, and — since Story 5.1, the first AD-24
+ * migration — `list: buildEntityRoutes({ List: X, ... })`, where the browse
+ * component sits one level inside the call rather than directly after
+ * `list:` (`shidduchim`). `tasks` resolves to nothing on purpose — its
+ * definition is written inline in `root/routeManifest.ts` with no
+ * `tasks/index.ts` at all; the sanity test below pins exactly which
+ * resources resolve, so a silent resolution failure cannot quietly empty
+ * this scan.
  */
+function extractListComponentName(indexSource: string): string | undefined {
+  const migrated =
+    /\blist:\s*buildEntityRoutes\(\s*\{[^}]*\bList:\s*([A-Za-z0-9_$]+)/.exec(
+      indexSource,
+    )?.[1];
+  return migrated ?? /\blist:\s*([A-Za-z0-9_$]+)/.exec(indexSource)?.[1];
+}
+
 function resolveIndexModule(
   name: string,
 ): { path: string; source: string } | undefined {
@@ -454,7 +467,7 @@ function resolveIndexModule(
   const indexSource = scannedFiles[`${directory}/index.ts`];
   if (!indexSource) return undefined;
 
-  const component = /\blist:\s*([A-Za-z0-9_$]+)/.exec(indexSource)?.[1];
+  const component = extractListComponentName(indexSource);
   if (!component) return undefined;
 
   const relative =

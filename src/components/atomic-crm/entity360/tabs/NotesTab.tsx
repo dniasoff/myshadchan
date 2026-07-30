@@ -20,8 +20,9 @@ import type { UniversalTabProps } from "./types";
 /**
  * A note is an interaction with `kind: "note"` (contract §8). This tab is
  * the ONLY place `interactions_summary` is read and the ONLY place a note is
- * added, edited or soft-deleted — Epic 5's Story 5.1 removes the inline
- * `AddNote` this generalises from `shidduchim/ShidduchTimeline.tsx`.
+ * added, edited or soft-deleted — Story 5.1 removed the inline `AddNote`
+ * this generalises from the shidduch's own routed-dialog timeline
+ * component (deleted along with the dialog it lived in).
  */
 type NoteRow = Interaction & {
   author_name: string | null;
@@ -153,7 +154,7 @@ function AddNoteForm({
  * never the `interactions_summary` view. Rendered only when `can_moderate`
  * is true — a client-side convenience; AC 3's policy is the real boundary,
  * and a denied attempt (e.g. a stale row) surfaces through `useNotify`
- * exactly as `ShidduchTimeline.tsx`'s `AddNote` does.
+ * exactly as the old shidduch timeline dialog's `AddNote` did.
  */
 function NoteRowView({
   note,

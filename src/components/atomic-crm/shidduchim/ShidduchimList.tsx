@@ -1,6 +1,5 @@
 import type { Identifier } from "ra-core";
 import { useGetIdentity, useGetList, useListContext } from "ra-core";
-import { matchPath, useLocation } from "react-router";
 
 import { CreateButton } from "@/components/admin/create-button";
 import { List } from "@/components/admin/list";
@@ -11,39 +10,12 @@ import { buildNewPath } from "../entity360/entityPaths";
 import { TopToolbar } from "../layout/TopToolbar";
 import { EmptyState } from "../misc/EmptyState";
 import type { Single } from "../types";
-import { ShidduchCreate } from "./ShidduchCreate";
 import { PipelineListSkeleton } from "./ShidduchimPipelineList";
-import { ShidduchShow } from "./ShidduchShow";
 import { ShidduchimViewSwitch } from "./ShidduchimViewSwitch";
 
 const singleLabel = (single: Single) => single.first_name_en ?? `#${single.id}`;
 
-/**
- * `single_id` lives in the URL's `filter` param once `<List>` mounts (Task
- * 2) — but the create page (`matchNew` below) is returned ABOVE `<List>`, so
- * there is no `ListContext` there to read it from. Parsing the raw query
- * string directly is what keeps "Add a suggestion" landing on whichever
- * single the pills currently have selected, across that one navigation that
- * doesn't mount `<List>`. Falls back to the first single on any parse
- * failure or a fresh visit with no `filter` param yet.
- */
-const parseSingleIdFromSearch = (search: string): Identifier | undefined => {
-  try {
-    const raw = new URLSearchParams(search).get("filter");
-    if (!raw) return undefined;
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const value = parsed.single_id;
-    return typeof value === "string" || typeof value === "number"
-      ? value
-      : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
 const ShidduchimList = () => {
-  const location = useLocation();
-  const matchNew = matchPath(buildNewPath("shidduchim"), location.pathname);
   const { identity } = useGetIdentity();
   const { data: singles, isPending: singlesPending } = useGetList<Single>(
     "singles",
@@ -64,16 +36,9 @@ const ShidduchimList = () => {
   if (!identity || singlesPending) return <PipelineListSkeleton />;
   if (!singles || singles.length === 0) return <ShidduchimNoSingles />;
 
-  // The create page is returned above `<List>`, not inside the body below
-  // (Story 3.13 Dev Notes): a page needs neither the board's own `shidduchim`
-  // query nor its `isPending` gate, and mounting `<List>` underneath it would
-  // keep the pipeline alive beneath the page — the modal shape with the scrim
-  // removed, not a page.
-  if (matchNew) {
-    const singleId = parseSingleIdFromSearch(location.search) ?? singles[0].id;
-    return <ShidduchCreate singleId={singleId} />;
-  }
-
+  // Story 5.1: the create page is no longer matched inside this component —
+  // it is `ShidduchCreatePage`, mounted by `buildEntityRoutes`'s own `new`
+  // route (`shidduchim/index.ts`). `<List>` now renders unconditionally here.
   return (
     <List
       title={false}
@@ -111,8 +76,6 @@ const ShidduchimActions = () => (
 );
 
 const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
-  const location = useLocation();
-  const matchShow = matchPath("/shidduchim/:id/show", location.pathname);
   const { data, filterValues, setFilters, displayedFilters } = useListContext();
 
   const singleId = (filterValues as Record<string, unknown> | undefined)
@@ -161,7 +124,6 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
       </div>
 
       <ShidduchimViewSwitch />
-      <ShidduchShow open={!!matchShow} id={matchShow?.params.id} />
     </div>
   );
 };

@@ -182,3 +182,33 @@ describe("lifeCycleCallbacks wiring (AC 4, Dev Notes 'the dead-hook trap')", () 
     });
   });
 });
+
+describe("shidduchim search column list (Story 5.2 AC-3)", () => {
+  it("searches father/mother, never the dropped combined-parents column pair", async () => {
+    // Arrange
+    const beforeGetList = findBeforeGetList("shidduchim");
+
+    // Act
+    const result = await beforeGetList(buildParams({ q: "Cohen" }));
+
+    // Assert
+    expect(result.filter["@or"]).toEqual({
+      "name_en@ilike": "Cohen",
+      "name_he@ilike": "Cohen",
+      "shadchan_name@ilike": "Cohen",
+      "shadchan_name_he@ilike": "Cohen",
+      "father_en@ilike": "Cohen",
+      "father_he@ilike": "Cohen",
+      "mother_en@ilike": "Cohen",
+      "mother_he@ilike": "Cohen",
+      "location_en@ilike": "Cohen",
+      "location_he@ilike": "Cohen",
+    });
+    expect(
+      lifeCycleCallbacks.some(
+        (callback: ResourceCallbacks) =>
+          callback.resource === "shidduchim_summary",
+      ),
+    ).toBe(false);
+  });
+});

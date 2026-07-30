@@ -40,8 +40,10 @@ type Signals = {
 type PersonFields = {
   name_en?: string | null;
   name_he?: string | null;
-  parents_en?: string | null;
-  parents_he?: string | null;
+  father_en?: string | null;
+  father_he?: string | null;
+  mother_en?: string | null;
+  mother_he?: string | null;
   seminary_en?: string | null;
   seminary_he?: string | null;
   shul_en?: string | null;
@@ -50,10 +52,20 @@ type PersonFields = {
   location_he?: string | null;
 };
 
+// AD-5's combined "parents" signal, derived from father/mother (Story 5.2 —
+// the columns split, the signal name and derivation shape do not). Mirrors
+// the SQL formula in sync_shidduch_identity_signals()/catch_shidduch()
+// verbatim (AD-10): join whichever of each pair is set, filtering out the
+// unset side, so a lone father or lone mother still yields a signal.
+const combinedParents = (s: PersonFields): string | null =>
+  [s.father_en ?? s.father_he, s.mother_en ?? s.mother_he]
+    .filter((part): part is string => Boolean(part))
+    .join(" ") || null;
+
 const signalsOf = (s: PersonFields): Signals => ({
   nameEn: normalizeIdentityText(s.name_en),
   nameHe: normalizeIdentityText(s.name_he),
-  parents: normalizeIdentityText(s.parents_en ?? s.parents_he),
+  parents: normalizeIdentityText(combinedParents(s)),
   seminary: normalizeIdentityText(s.seminary_en ?? s.seminary_he),
   shul: normalizeIdentityText(s.shul_en ?? s.shul_he),
   location: normalizeIdentityText(s.location_en ?? s.location_he),

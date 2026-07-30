@@ -1431,8 +1431,14 @@ CREATE OR REPLACE FUNCTION "public"."create_shidduch"(
     "p_shadchan_id" bigint DEFAULT NULL,
     "p_name_en" text DEFAULT NULL,
     "p_name_he" text DEFAULT NULL,
-    "p_parents_en" text DEFAULT NULL,
-    "p_parents_he" text DEFAULT NULL,
+    "p_father_en" text DEFAULT NULL,
+    "p_father_he" text DEFAULT NULL,
+    "p_mother_en" text DEFAULT NULL,
+    "p_mother_he" text DEFAULT NULL,
+    "p_dob" date DEFAULT NULL,
+    "p_background" text DEFAULT NULL,
+    "p_marital_status" text DEFAULT NULL,
+    "p_existing_children_note" text DEFAULT NULL,
     "p_seminary_en" text DEFAULT NULL,
     "p_seminary_he" text DEFAULT NULL,
     "p_shul_en" text DEFAULT NULL,
@@ -1493,7 +1499,9 @@ begin
   insert into public.shidduchim (
     account_id, single_id, shadchan_id,
     name_en, name_he,
-    parents_en, parents_he, seminary_en, seminary_he,
+    father_en, father_he, mother_en, mother_he,
+    dob, background, marital_status, existing_children_note,
+    seminary_en, seminary_he,
     shul_en, shul_he, location_en, location_he,
     age, height,
     pipeline_state, first_suggested_by, first_suggested_at, redt_date,
@@ -1501,7 +1509,9 @@ begin
   ) values (
     v_account_id, p_single_id, p_shadchan_id,
     p_name_en, p_name_he,
-    p_parents_en, p_parents_he, p_seminary_en, p_seminary_he,
+    p_father_en, p_father_he, p_mother_en, p_mother_he,
+    p_dob, p_background, p_marital_status, p_existing_children_note,
+    p_seminary_en, p_seminary_he,
     p_shul_en, p_shul_he, p_location_en, p_location_he,
     p_age, p_height,
     p_initial_state, p_shadchan_id, v_redt_date, v_redt_date,
@@ -1956,7 +1966,10 @@ begin
     public.normalize_identity_text(new.name_he),
     public.identity_name_key(new.name_en),
     public.identity_name_key(new.name_he),
-    public.normalize_identity_text(coalesce(new.parents_en, new.parents_he)),
+    public.normalize_identity_text(nullif(trim(
+      coalesce(new.father_en, new.father_he, '') || ' ' ||
+      coalesce(new.mother_en, new.mother_he, '')
+    ), '')),
     public.normalize_identity_text(coalesce(new.seminary_en, new.seminary_he)),
     public.normalize_identity_text(coalesce(new.shul_en, new.shul_he)),
     public.normalize_identity_text(coalesce(new.location_en, new.location_he))
@@ -2788,7 +2801,10 @@ begin
       v_s.name_en,
       v_s.name_he,
       null,
-      coalesce(v_s.parents_en, v_s.parents_he),
+      nullif(trim(
+        coalesce(v_s.father_en, v_s.father_he, '') || ' ' ||
+        coalesce(v_s.mother_en, v_s.mother_he, '')
+      ), ''),
       coalesce(v_s.seminary_en, v_s.seminary_he),
       coalesce(v_s.shul_en, v_s.shul_he),
       coalesce(v_s.location_en, v_s.location_he),
@@ -2805,7 +2821,10 @@ begin
   v_name_he_norm := public.normalize_identity_text(v_s.name_he);
   v_name_en_key := public.identity_name_key(v_s.name_en);
   v_name_he_key := public.identity_name_key(v_s.name_he);
-  v_parents_norm := public.normalize_identity_text(coalesce(v_s.parents_en, v_s.parents_he));
+  v_parents_norm := public.normalize_identity_text(nullif(trim(
+    coalesce(v_s.father_en, v_s.father_he, '') || ' ' ||
+    coalesce(v_s.mother_en, v_s.mother_he, '')
+  ), ''));
   v_seminary_norm := public.normalize_identity_text(coalesce(v_s.seminary_en, v_s.seminary_he));
   v_location_norm := public.normalize_identity_text(coalesce(v_s.location_en, v_s.location_he));
 

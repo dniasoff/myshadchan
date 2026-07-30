@@ -9,10 +9,15 @@ export const englishCrmMessages = {
         shadchan_id: "Shadchan",
         seminary_en: "Yeshiva / seminary",
         location_en: "Location",
-        parents_en: "Parents",
+        father_en: "Father",
+        mother_en: "Mother",
         shul_en: "Shul",
         age: "Age",
         height: "Height",
+        dob: "Date of birth",
+        background: "Background",
+        marital_status: "Marital status",
+        existing_children_note: "Existing children",
         redt_date: "Redt date",
         pipeline_state: "State",
       },
@@ -428,7 +433,9 @@ export const englishCrmMessages = {
       },
       // Story 3.5 — interactionLabels.ts's INTERACTION_KIND_LABELS. One
       // entry per InteractionKind, replacing the two duplicated maps that
-      // used to live in ShidduchTimeline.tsx and ReferenceTimeline.tsx.
+      // used to live in per-entity timeline components — ReferenceTimeline.tsx
+      // is the one that remains standalone; the shidduch pipeline's own
+      // timeline was folded into ActivityTab by Story 5.1.
       // `empty` / `error` / `viewRecord` are ActivityTab.tsx's own UX-DR11
       // states and AC 9 mention link text — catalogued here so French users
       // get a real translation rather than always falling through to the

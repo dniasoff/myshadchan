@@ -126,7 +126,8 @@ export type PipelineState =
 export type DemoSuggestion = {
   key: string;
   name_en: string;
-  parents_en: string;
+  father_en: string;
+  mother_en: string;
   // The suggestion's own school: a boy's yeshiva/beis medrash when suggested
   // to the girl, or a girl's seminary when suggested to the boy.
   seminary_en: string;
@@ -144,7 +145,8 @@ export const RIVKY_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "AhronKlein",
     name_en: "Ahron Klein",
-    parents_en: "R' Moshe & Esther Klein",
+    father_en: "R' Moshe Klein",
+    mother_en: "Esther Klein",
     seminary_en: "Beth Medrash Govoha (BMG)",
     location_en: "Lakewood, NJ",
     age: 23,
@@ -156,7 +158,8 @@ export const RIVKY_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "YisroelMeirFriedman",
     name_en: "Yisroel Meir Friedman",
-    parents_en: "R' Dovid & Rochel Friedman",
+    father_en: "R' Dovid Friedman",
+    mother_en: "Rochel Friedman",
     seminary_en: "Mir (Yerushalayim)",
     location_en: "Yerushalayim",
     age: 24,
@@ -168,7 +171,8 @@ export const RIVKY_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "ShmuelBrog",
     name_en: "Shmuel Brog",
-    parents_en: "R' Aryeh & Devora Brog",
+    father_en: "R' Aryeh Brog",
+    mother_en: "Devora Brog",
     seminary_en: "Ner Yisroel (Baltimore)",
     location_en: "Baltimore, MD",
     age: 22,
@@ -180,7 +184,8 @@ export const RIVKY_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "NaftaliSchwartz",
     name_en: "Naftali Schwartz",
-    parents_en: "R' Yaakov & Bracha Schwartz",
+    father_en: "R' Yaakov Schwartz",
+    mother_en: "Bracha Schwartz",
     seminary_en: "Yeshiva Chaim Berlin",
     location_en: "Brooklyn, NY",
     age: 25,
@@ -192,7 +197,8 @@ export const RIVKY_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "EliezerKatz",
     name_en: "Eliezer Katz",
-    parents_en: "R' Chaim & Miriam Katz",
+    father_en: "R' Chaim Katz",
+    mother_en: "Miriam Katz",
     seminary_en: "Yeshiva Gedolah of Philadelphia",
     location_en: "Philadelphia, PA",
     age: 23,
@@ -204,7 +210,8 @@ export const RIVKY_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "YosefMandel",
     name_en: "Yosef Mandel",
-    parents_en: "R' Shloime & Faigy Mandel",
+    father_en: "R' Shloime Mandel",
+    mother_en: "Faigy Mandel",
     seminary_en: "Yeshiva Torah Vodaas",
     location_en: "Brooklyn, NY",
     age: 24,
@@ -216,7 +223,8 @@ export const RIVKY_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "BinyominReiss",
     name_en: "Binyomin Reiss",
-    parents_en: "R' Zev & Leah Reiss",
+    father_en: "R' Zev Reiss",
+    mother_en: "Leah Reiss",
     seminary_en: "Beth Medrash Govoha (BMG)",
     location_en: "Lakewood, NJ",
     age: 22,
@@ -233,7 +241,8 @@ export const YAAKOV_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "EstherMalkaWeiss",
     name_en: "Esther Malka Weiss",
-    parents_en: "R' Shmuel & Rivka Weiss",
+    father_en: "R' Shmuel Weiss",
+    mother_en: "Rivka Weiss",
     seminary_en: "Bais Yaakov of Lakewood",
     location_en: "Lakewood, NJ",
     age: 19,
@@ -245,7 +254,8 @@ export const YAAKOV_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "DevoraLeahGross",
     name_en: "Devora Leah Gross",
-    parents_en: "R' Aryeh & Sarah Gross",
+    father_en: "R' Aryeh Gross",
+    mother_en: "Sarah Gross",
     seminary_en: "Bais Yaakov of Yerushalayim (BJJ)",
     location_en: "Monsey, NY",
     age: 20,
@@ -257,7 +267,8 @@ export const YAAKOV_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "ChanaRosen",
     name_en: "Chana Rosen",
-    parents_en: "R' Dovid & Miriam Rosen",
+    father_en: "R' Dovid Rosen",
+    mother_en: "Miriam Rosen",
     seminary_en: "Bais Yaakov of Baltimore",
     location_en: "Baltimore, MD",
     age: 18,
@@ -269,7 +280,8 @@ export const YAAKOV_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "ShiraFeldman",
     name_en: "Shira Feldman",
-    parents_en: "R' Yosef & Chava Feldman",
+    father_en: "R' Yosef Feldman",
+    mother_en: "Chava Feldman",
     seminary_en: "Michlalah (Yerushalayim)",
     location_en: "Passaic, NJ",
     age: 19,
@@ -281,7 +293,8 @@ export const YAAKOV_SUGGESTIONS: DemoSuggestion[] = [
   {
     key: "BrachaGold",
     name_en: "Bracha Gold",
-    parents_en: "R' Menachem & Rochel Gold",
+    father_en: "R' Menachem Gold",
+    mother_en: "Rochel Gold",
     seminary_en: "Bais Yaakov of Lakewood",
     location_en: "Lakewood, NJ",
     age: 20,

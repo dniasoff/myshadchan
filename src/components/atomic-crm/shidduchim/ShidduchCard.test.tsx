@@ -54,11 +54,11 @@ describe("ShidduchCardContent — AC 4 accessibility fix", () => {
     // Arrange / Act
     const { screen } = await renderCard();
 
-    // Assert — fails on today's pre-fix code: role="button" via dnd's
-    // dragHandleProps, no href at all.
+    // Assert — Story 5.1 flipped shidduchim's buildRecordPath to the bare
+    // AD-24 shape (no more /show segment).
     await expect
       .element(screen.getByRole("link"))
-      .toHaveAttribute("href", "/shidduchim/42/show");
+      .toHaveAttribute("href", "/shidduchim/42");
   });
 
   it("navigates to the record on an ordinary click", async () => {
@@ -69,7 +69,7 @@ describe("ShidduchCardContent — AC 4 accessibility fix", () => {
     await screen.getByRole("link").click();
 
     // Assert
-    await expect.poll(() => getPathname()).toBe("/shidduchim/42/show");
+    await expect.poll(() => getPathname()).toBe("/shidduchim/42");
   });
 
   it("does not navigate when the click ends a drag", async () => {

@@ -21,6 +21,15 @@ const Dummy: ComponentType = () => null;
 // Built via `createElement` rather than JSX so this file can stay `.ts`.
 const anElement = createElement("div") as never;
 
+describe("RECORD_FLAG_EXEMPTIONS — Story 5.1 removed the shidduchim row", () => {
+  it("no longer names shidduchim — it registers hasShow explicitly now", () => {
+    // Assert — shidduchim/index.ts migrated onto buildEntityRoutes and
+    // passes hasShow: true, so the written exemption this row used to
+    // record no longer applies. Leaving it would be a stale exemption.
+    expect(RECORD_FLAG_EXEMPTIONS).not.toHaveProperty("shidduchim");
+  });
+});
+
 describe("findManifestViolations", () => {
   it("returns no violations for the real manifest", () => {
     // Arrange

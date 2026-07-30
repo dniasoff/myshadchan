@@ -1,4 +1,5 @@
 import { Droppable } from "@hello-pangea/dnd";
+import type { Identifier } from "ra-core";
 import { Link } from "react-router";
 
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ export const ShidduchColumn = ({
   shidduchim,
   tourAnchor = false,
   dragFrom = null,
+  singleId,
 }: {
   state: PipelineStateDef;
   shidduchim: ShidduchSummary[];
@@ -45,6 +47,13 @@ export const ShidduchColumn = ({
    * wrong thing structurally, not just get a post-hoc warning toast.
    */
   dragFrom?: PipelineState | null;
+  /**
+   * Story 5.1 AC 3: the single currently selected by the pipeline's own
+   * pill row, threaded onto the "Add here" link so the create page
+   * (`ShidduchCreatePage`) lands on the same single the column is already
+   * showing, instead of always falling back to the account's first single.
+   */
+  singleId?: Identifier;
 }) => {
   const canAdd = INITIAL_PIPELINE_STATES.includes(state.value);
   const groupLabel =
@@ -116,7 +125,11 @@ export const ShidduchColumn = ({
 
       {canAdd ? (
         <Link
-          to={`${buildNewPath("shidduchim")}?state=${state.value}`}
+          to={
+            singleId != null
+              ? `${buildNewPath("shidduchim")}?state=${state.value}&single_id=${singleId}`
+              : `${buildNewPath("shidduchim")}?state=${state.value}`
+          }
           // Task 8: the tour's "add-suggestion" step now anchors here (the
           // first/anchor column's own Add-here link) rather than the
           // desktop-only toolbar CreateButton — this exists on every width.

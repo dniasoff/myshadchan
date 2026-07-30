@@ -40,9 +40,11 @@ const importsDialog = (content: string): boolean =>
   /from\s+["']@\/components\/ui\/dialog["']/.test(content);
 
 // Named, permanent or story-scoped exemptions — see each comment for why.
+// `ShidduchShow.tsx` (the routed 360 dialog) and `ShidduchShowHeader.tsx`
+// (which imported `DialogTitle` only because it rendered inside the above)
+// were here until Story 5.1: the dialog is deleted and the header no longer
+// imports `@/components/ui/dialog` at all.
 const ALLOWED = new Set([
-  "ShidduchShow.tsx", // routed 360 dialog — deleted by Story 5.1
-  "ShidduchShowHeader.tsx", // DialogTitle only, because it renders inside the above — 5.1
   "ReferenceMergeButton.tsx", // a merge confirmation, not a record surface — permanent
   "TaskEdit.tsx", // AC 4's recorded exemption — see the doc comment on the file itself
 ]);

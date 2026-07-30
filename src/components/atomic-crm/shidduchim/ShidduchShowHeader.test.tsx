@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 
-import { Dialog } from "@/components/ui/dialog";
-
 import type { ShidduchSummary } from "../types";
 import { ShidduchShowHeader } from "./ShidduchShowHeader";
 
@@ -15,9 +13,10 @@ import { ShidduchShowHeader } from "./ShidduchShowHeader";
  * while `EntityAvatar` is a `<div>` — `div[aria-hidden="true"]` isolates the
  * avatar chip unambiguously.
  *
- * The header renders `<DialogTitle asChild>` around its name heading, so it
- * only mounts inside a real `Dialog` in production (`ShidduchShow.tsx`) — a
- * bare `<Dialog>` wrapper here supplies that context.
+ * Story 5.1 removed the `<DialogTitle asChild>` wrapper this header used to
+ * render its name heading through (it rendered inside the old routed
+ * dialog, `ShidduchShow.tsx`, since deleted) — no dialog context needed
+ * here any more.
  */
 
 const shidduch: ShidduchSummary = {
@@ -37,11 +36,7 @@ const shidduch: ShidduchSummary = {
 describe("ShidduchShowHeader", () => {
   it("renders the EntityAvatar chip with the AC 5 size/radius/text classes and aria-hidden", async () => {
     // Arrange / Act
-    const screen = await render(
-      <Dialog open>
-        <ShidduchShowHeader shidduch={shidduch} />
-      </Dialog>,
-    );
+    const screen = await render(<ShidduchShowHeader shidduch={shidduch} />);
     const chip = screen.container.querySelector(
       'div[aria-hidden="true"]',
     ) as HTMLElement;

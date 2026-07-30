@@ -70,8 +70,14 @@ const createShidduchViaRpc = async (
     p_shadchan_id: input.shadchan_id ?? null,
     p_name_en: input.name_en ?? null,
     p_name_he: input.name_he ?? null,
-    p_parents_en: input.parents_en ?? null,
-    p_parents_he: input.parents_he ?? null,
+    p_father_en: input.father_en ?? null,
+    p_father_he: input.father_he ?? null,
+    p_mother_en: input.mother_en ?? null,
+    p_mother_he: input.mother_he ?? null,
+    p_dob: input.dob ?? null,
+    p_background: input.background ?? null,
+    p_marital_status: input.marital_status ?? null,
+    p_existing_children_note: input.existing_children_note ?? null,
     p_seminary_en: input.seminary_en ?? null,
     p_seminary_he: input.seminary_he ?? null,
     p_shul_en: input.shul_en ?? null,
@@ -679,13 +685,12 @@ export const lifeCycleCallbacks: ResourceCallbacks[] = [
     // `withLifecycleCallbacks` matches on the resource name the caller
     // used, before any redirect runs) is load-bearing here, not academic.
     //
-    // Ownership note for Story 5.2: AC-3 there drops `parents_en` /
-    // `parents_he` from both `public.shidduchim` and `shidduchim_summary`
-    // and requires a repo-wide zero-hit grep for both names. This column
-    // list still has them today (verified present in
-    // `supabase/schemas/03_views.sql`) — 5.2 must replace this exact pair
-    // with `father_en, father_he, mother_en, mother_he` in the same diff
-    // that drops the columns, or every shidduchim search 400s afterward.
+    // Story 5.2 AC-3: the old combined "parents" column pair is dropped from
+    // `public.shidduchim` and `shidduchim_summary` in the same diff (father/
+    // mother replace it as two separate pairs). This column list is updated
+    // here, in lockstep, to `father_en, father_he, mother_en, mother_he` —
+    // leaving the retired pair here after the columns drop would 400 every
+    // shidduchim search.
     resource: "shidduchim",
     beforeGetList: async (params) => {
       return applyFullTextSearch([
@@ -693,8 +698,10 @@ export const lifeCycleCallbacks: ResourceCallbacks[] = [
         "name_he",
         "shadchan_name",
         "shadchan_name_he",
-        "parents_en",
-        "parents_he",
+        "father_en",
+        "father_he",
+        "mother_en",
+        "mother_he",
         "location_en",
         "location_he",
       ])(params);

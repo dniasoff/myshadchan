@@ -58,6 +58,8 @@
       "flags": "i",
       "exempt": [
         "node:child_process",
+        "p_existing_children_note",
+        "existing_children_note",
         "first-child",
         "last-child",
         "only-child",
@@ -67,6 +69,8 @@
       ],
       "exemptReasons": {
         "node:child_process": "Node's own module specifier.",
+        "p_existing_children_note": "Story 5.2: create_shidduch()'s parameter for the SUGGESTED PERSON'S own prior children (a shidduch fact), not the retired `children` resource, which is now `singles` (AD-23).",
+        "existing_children_note": "Story 5.2: shidduchim column for the suggested person's own prior children — see above.",
         "first-child": "CSS pseudo-class.",
         "last-child": "CSS pseudo-class.",
         "only-child": "CSS pseudo-class.",

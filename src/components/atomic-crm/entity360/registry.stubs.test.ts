@@ -13,43 +13,43 @@ import { getEntityDescriptor } from "./registry";
 import type { TabKey } from "./tabKeys";
 
 /**
- * AC 2 — pins the four Epic 3 stub descriptors' paths and `pendingTabs`
- * rows, transcribed verbatim from contract §3 rule 5 / this story's own
- * table. Deleting any one `registerEntityDescriptor` call above, or
- * changing one path or one `pendingTabs` row, turns this test red.
+ * Pins each of the four AD-24 entities' descriptor shape: its
+ * `buildRecordPath`, its `tabs` keys (in order) and its `pendingTabs` row.
+ * Three of the four (`singles`, `shadchanim`, `references`) are still Story
+ * 3.9's unmigrated stub — `/{name}/1/show`, empty `tabs`, a full
+ * `pendingTabs`. `shidduchim` is Story 5.1's real descriptor: the bare
+ * AD-24 path, its five real `tabs`, and the five keys still pending.
  *
- * This test IS MEANT to fail the day Epic 5 flips one of these entities'
- * route shape (`/{r}/{id}/show` -> `/{r}/{id}`) or moves a tab from
- * `pendingTabs` into `tabs` without updating the pin here in the same diff.
- * Re-read `root/routeManifest.ts:92-100` and the failing entity's
- * `<entity>/index.ts` when that happens — the pins are literal strings by
- * design (`ResourceEntry.definition` holds components, not path templates,
- * so there is nothing else to derive them from).
+ * `buildRecordPath` and `tabs` are per-case `StubCase` fields, not a shared
+ * template string / shared literal (Story 5.1's reshape of this file):
+ * before 5.1, all four cases shared one `it(...)` body asserting
+ * `buildRecordPath(1) === "/${name}/1/show"` and `tabs toEqual []` for
+ * every case — an assertion that cannot express "one of four now differs".
+ * `pendingTabs` was already a per-case field and is unchanged in shape.
+ *
+ * Deleting a `registerEntityDescriptor` call above, or changing any one
+ * field below, turns this test red — re-read `root/routeManifest.ts` and
+ * the failing entity's `<entity>/index.ts` when that happens.
  */
 
 interface StubCase {
   name: "shidduchim" | "singles" | "shadchanim" | "references";
+  buildRecordPath: string;
+  tabs: TabKey[];
   pendingTabs: TabKey[];
 }
 
 const CASES: StubCase[] = [
   {
     name: "shidduchim",
-    pendingTabs: [
-      "overview",
-      "resume",
-      "photo",
-      "medical",
-      "files",
-      "diligence",
-      "external-links",
-      "notes",
-      "tasks",
-      "activity",
-    ],
+    buildRecordPath: "/shidduchim/1",
+    tabs: ["overview", "diligence", "notes", "tasks", "activity"],
+    pendingTabs: ["resume", "photo", "medical", "files", "external-links"],
   },
   {
     name: "singles",
+    buildRecordPath: "/singles/1/show",
+    tabs: [],
     pendingTabs: [
       "overview",
       "resume",
@@ -63,10 +63,14 @@ const CASES: StubCase[] = [
   },
   {
     name: "shadchanim",
+    buildRecordPath: "/shadchanim/1/show",
+    tabs: [],
     pendingTabs: ["overview", "shidduchim", "notes", "tasks", "activity"],
   },
   {
     name: "references",
+    buildRecordPath: "/references/1/show",
+    tabs: [],
     pendingTabs: [
       "overview",
       "conversations",
@@ -80,9 +84,9 @@ const CASES: StubCase[] = [
 ];
 
 describe.each(CASES)(
-  "$name stub descriptor (AC 2)",
-  ({ name, pendingTabs }) => {
-    it("is registered with the pinned buildRecordPath, empty tabs, and full pendingTabs", () => {
+  "$name descriptor (AC 2 / Story 5.1 Task 2)",
+  ({ name, buildRecordPath, tabs, pendingTabs }) => {
+    it("is registered with the pinned buildRecordPath, tabs, and pendingTabs", () => {
       // Act
       const descriptor = getEntityDescriptor(name);
 
@@ -90,8 +94,8 @@ describe.each(CASES)(
       expect(descriptor).toBeDefined();
       expect(descriptor?.name).toBe(name);
       expect(descriptor?.label.length).toBeGreaterThan(0);
-      expect(descriptor?.buildRecordPath(1)).toBe(`/${name}/1/show`);
-      expect(descriptor?.tabs).toEqual([]);
+      expect(descriptor?.buildRecordPath(1)).toBe(buildRecordPath);
+      expect(descriptor?.tabs?.map((tab) => tab.key) ?? []).toEqual(tabs);
       expect(descriptor?.pendingTabs).toEqual(pendingTabs);
     });
   },

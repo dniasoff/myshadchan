@@ -13,7 +13,7 @@ import {
 } from "./interactionLabels";
 import type { UniversalTabProps } from "./types";
 
-/** AC 12 — loading placeholder, `ShidduchShow.tsx`'s skeleton idiom. */
+/** AC 12 — loading placeholder, the old shidduch timeline dialog's skeleton idiom. */
 function ActivitySkeleton(): ReactElement {
   return (
     <div className="flex flex-col gap-2" aria-busy="true">
@@ -25,9 +25,9 @@ function ActivitySkeleton(): ReactElement {
 }
 
 /**
- * AC 12 — a plain inline translated empty message, `ShidduchTimeline.tsx`'s
- * idiom. Deliberately NOT `misc/EmptyState.tsx`'s CTA treatment, which is
- * for whole-page emptiness, not one tab.
+ * AC 12 — a plain inline translated empty message, the idiom the old
+ * shidduch timeline dialog used. Deliberately NOT `misc/EmptyState.tsx`'s
+ * CTA treatment, which is for whole-page emptiness, not one tab.
  */
 function ActivityEmpty(): ReactElement {
   const translate = useTranslate();

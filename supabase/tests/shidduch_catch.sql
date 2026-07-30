@@ -48,31 +48,32 @@ insert into public.singles (account_id, first_name_en, gender)
 values (:acct_a, 'Rivka', 'female') returning id as single_rivka \gset
 
 -- The same boy, suggested for both singles, spelled two ways (Chaim / Haim) and
--- corroborated by the same parents + seminary -> a catch each way.
-insert into public.shidduchim (account_id, single_id, name_en, parents_en, seminary_en, age)
-values (:acct_a, :single_leah, 'Chaim Cohen', 'Yaakov Cohen', 'Yeshivas Ohr', 24)
+-- corroborated by the same parents (now father + mother, Story 5.2) + seminary
+-- -> a catch each way.
+insert into public.shidduchim (account_id, single_id, name_en, father_en, mother_en, seminary_en, age)
+values (:acct_a, :single_leah, 'Chaim Cohen', 'Yaakov', 'Cohen', 'Yeshivas Ohr', 24)
 returning id as shid_chaim \gset
-insert into public.shidduchim (account_id, single_id, name_en, parents_en, seminary_en, age)
-values (:acct_a, :single_rivka, 'Haim Cohen', 'Yaakov Cohen', 'Yeshivas Ohr', 25)
+insert into public.shidduchim (account_id, single_id, name_en, father_en, mother_en, seminary_en, age)
+values (:acct_a, :single_rivka, 'Haim Cohen', 'Yaakov', 'Cohen', 'Yeshivas Ohr', 25)
 returning id as shid_haim \gset
 
 -- A solo suggestion with a unique name -> never a catch.
-insert into public.shidduchim (account_id, single_id, name_en, parents_en, seminary_en)
-values (:acct_a, :single_leah, 'Shloime Klein', 'Berel Klein', 'Mir')
+insert into public.shidduchim (account_id, single_id, name_en, father_en, mother_en, seminary_en)
+values (:acct_a, :single_leah, 'Shloime Klein', 'Berel', 'Klein', 'Mir')
 returning id as shid_solo \gset
 
 -- Same exact name as shid_chaim but nothing else shared -> name-only, NOT a catch.
-insert into public.shidduchim (account_id, single_id, name_en, parents_en, seminary_en)
-values (:acct_a, :single_leah, 'Chaim Cohen', 'Shimon Berger', 'Ponovezh')
+insert into public.shidduchim (account_id, single_id, name_en, father_en, mother_en, seminary_en)
+values (:acct_a, :single_leah, 'Chaim Cohen', 'Shimon', 'Berger', 'Ponovezh')
 returning id as shid_nameonly \gset
 
 -- Two suggestions sharing an exact name AND an age, but no real corroborator:
 -- age must never be the signal that ties them (FR11).
-insert into public.shidduchim (account_id, single_id, name_en, parents_en, age)
-values (:acct_a, :single_leah, 'Yosef Stern', 'Avi Stern', 22)
+insert into public.shidduchim (account_id, single_id, name_en, father_en, mother_en, age)
+values (:acct_a, :single_leah, 'Yosef Stern', 'Avi', 'Stern', 22)
 returning id as shid_age1 \gset
-insert into public.shidduchim (account_id, single_id, name_en, parents_en, age)
-values (:acct_a, :single_rivka, 'Yosef Stern', 'Dovid Frank', 22)
+insert into public.shidduchim (account_id, single_id, name_en, father_en, mother_en, age)
+values (:acct_a, :single_rivka, 'Yosef Stern', 'Dovid', 'Frank', 22)
 returning id as shid_age2 \gset
 
 -- Honest prior dating: one date record for the same person WITH a corroborator
@@ -84,11 +85,39 @@ insert into public.date_records (account_id, single_id, person_name_en, outcome,
 values (:acct_a, :single_leah, 'Chaim Cohen', 'ended', '2025-12-01')
 returning id as date_nameonly \gset
 
+-- Review fix F4 (Story 5.2): every parents-corroborated pair above
+-- (shid_chaim/shid_haim, and the tenant-B pair below) ALSO shares
+-- seminary_en = 'Yeshivas Ohr', so a derivation that silently drops the
+-- mother (or drops the parents signal entirely) still catches on seminary
+-- alone and none of these checks would notice. These two pairs isolate the
+-- parents signal as the ONLY shared corroborator (no seminary/shul/location
+-- on either), so a broken derivation changes the outcome:
+--   - shid_diffmother_1/2: same name, same father, DIFFERENT mother -> the
+--     combined "father mother" string differs, so this must NOT catch. A
+--     father-only derivation would wrongly ignore the mother and catch it.
+--   - shid_bothmatch_1/2: same name, same father AND mother -> the combined
+--     string is identical, so this MUST catch, with no other corroborator to
+--     fall back on. A derivation that drops the parents signal entirely
+--     (nulls it out) would wrongly miss this catch.
+insert into public.shidduchim (account_id, single_id, name_en, father_en, mother_en)
+values (:acct_a, :single_leah, 'Devorah Katz', 'Moshe', 'Sarah')
+returning id as shid_diffmother_1 \gset
+insert into public.shidduchim (account_id, single_id, name_en, father_en, mother_en)
+values (:acct_a, :single_rivka, 'Devorah Katz', 'Moshe', 'Chana')
+returning id as shid_diffmother_2 \gset
+
+insert into public.shidduchim (account_id, single_id, name_en, father_en, mother_en)
+values (:acct_a, :single_leah, 'Yehuda Weiss', 'Aharon', 'Miriam')
+returning id as shid_bothmatch_1 \gset
+insert into public.shidduchim (account_id, single_id, name_en, father_en, mother_en)
+values (:acct_a, :single_rivka, 'Yehuda Weiss', 'Aharon', 'Miriam')
+returning id as shid_bothmatch_2 \gset
+
 -- Tenant B: an IDENTICAL person. Must never appear in tenant A's catches.
 insert into public.singles (account_id, first_name_en, gender)
 values (:acct_b, 'Miriam', 'female') returning id as single_b \gset
-insert into public.shidduchim (account_id, single_id, name_en, parents_en, seminary_en)
-values (:acct_b, :single_b, 'Chaim Cohen', 'Yaakov Cohen', 'Yeshivas Ohr')
+insert into public.shidduchim (account_id, single_id, name_en, father_en, mother_en, seminary_en)
+values (:acct_b, :single_b, 'Chaim Cohen', 'Yaakov', 'Cohen', 'Yeshivas Ohr')
 returning id as shid_b \gset
 
 -- ---------------------------------------------------------------------------
@@ -107,6 +136,29 @@ insert into results (name, passed) values
    and (select catch_count from public.shidduchim_summary where id = :shid_age2) = 0),
   ('catch view: an identical person in another tenant is never counted (PRV-2)',
    (select catch_count from public.shidduchim_summary where id = :shid_chaim) = 1);
+
+-- ---------------------------------------------------------------------------
+-- Story 5.2 AC-5: the "parents" signal now derives from father + mother, not
+-- the retired combined columns — the trigger must still populate it.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed) values
+  ('identity_signals: parents_norm is derived from father + mother (Story 5.2)',
+   (select parents_norm from public.identity_signals
+    where target_type = 'shidduch' and target_id = :shid_chaim) is not null);
+
+-- ---------------------------------------------------------------------------
+-- Review fix F4 (Story 5.2): parents as the SOLE corroborator, isolated from
+-- seminary. See the fixture comment above for why these two pairs are the
+-- ones that actually exercise the father+mother combination, not just its
+-- presence.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed) values
+  ('catch view: sharing father but a DIFFERENT mother is NOT a catch (Story 5.2 AC-5)',
+   (select catch_count from public.shidduchim_summary where id = :shid_diffmother_1) = 0
+   and (select catch_count from public.shidduchim_summary where id = :shid_diffmother_2) = 0),
+  ('catch view: sharing BOTH father and mother, with no other corroborator, IS a catch (Story 5.2 AC-5)',
+   (select catch_count from public.shidduchim_summary where id = :shid_bothmatch_1) = 1
+   and (select catch_count from public.shidduchim_summary where id = :shid_bothmatch_2) = 1);
 
 -- ---------------------------------------------------------------------------
 -- catch_shidduch() as tenant A
@@ -148,6 +200,21 @@ select 'catch_shidduch: an exact name with no corroborator catches nothing',
 insert into results (name, passed)
 select 'catch_shidduch: age alone (FR11) catches nothing',
        jsonb_array_length(public.catch_shidduch(:shid_age1) -> 'suggestions') = 0;
+
+-- Review fix F4 (Story 5.2): catch_shidduch() derives the parents signal
+-- LIVE from father/mother at its own two sites (unlike identity_signals,
+-- which reads it back from the trigger-maintained column) — these two checks
+-- exercise that derivation directly, not just the pre-computed view.
+insert into results (name, passed)
+select 'catch_shidduch: sharing father but a DIFFERENT mother is NOT a corroborated match (Story 5.2 AC-5)',
+       jsonb_array_length(public.catch_shidduch(:shid_diffmother_1) -> 'suggestions') = 0;
+
+insert into results (name, passed)
+select 'catch_shidduch: sharing BOTH father and mother, with no other corroborator, IS a match (Story 5.2 AC-5)',
+       exists (
+         select 1 from jsonb_array_elements(public.catch_shidduch(:shid_bothmatch_1) -> 'suggestions') e
+         where (e ->> 'prior_shidduchim_id')::bigint = :shid_bothmatch_2
+       );
 
 insert into results (name, passed)
 select 'catch_shidduch: a corroborated prior date is surfaced honestly',

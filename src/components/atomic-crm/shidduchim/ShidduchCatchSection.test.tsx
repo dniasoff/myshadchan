@@ -17,7 +17,7 @@ import type * as EntityPaths from "../entity360/entityPaths";
 /**
  * Pins Task 5's live-code edit: confirming a catch suggestion must redirect
  * through `entity360/entityPaths.ts`'s `buildRecordPath` — never a
- * hand-built `/shidduchim/${id}/show` literal — while leaving
+ * hand-built `/shidduchim/${id}` literal — while leaving
  * `{ _scrollToTop: false }` untouched. AD-24 (contract §4): nothing but
  * `entityPaths.ts` builds a record path.
  *
@@ -79,10 +79,9 @@ describe("ShidduchCatchSection — confirm redirect (Task 5)", () => {
     // Act
     await screen.getByRole("button", { name: /Confirm match/i }).click();
 
-    // Assert — today's real AD-24 shape for an unmigrated entity
-    // (`/shidduchim/{id}/show`, per the stub descriptor); Epic 5's one-line
-    // `buildRecordPath` flip changes this automatically.
-    expect(getPathname()).toBe("/shidduchim/42/show");
+    // Assert — the real AD-24 shape (Story 5.1 flipped `buildRecordPath` to
+    // the bare `/shidduchim/{id}`, with no trailing show segment).
+    expect(getPathname()).toBe("/shidduchim/42");
     // Assert — independently of the string it happens to produce today,
     // that it got there by calling entity360/entityPaths.ts's OWN
     // `buildRecordPath` (F2 fix, Story 3-11 review): the pre-fix bypass

@@ -284,8 +284,10 @@ export type Shidduch = {
   shadchan_id?: Identifier | null;
   name_en?: string | null;
   name_he?: string | null;
-  parents_en?: string | null;
-  parents_he?: string | null;
+  father_en?: string | null;
+  father_he?: string | null;
+  mother_en?: string | null;
+  mother_he?: string | null;
   seminary_en?: string | null;
   seminary_he?: string | null;
   shul_en?: string | null;
@@ -294,6 +296,10 @@ export type Shidduch = {
   location_he?: string | null;
   age?: number | null;
   height?: string | null;
+  dob?: string | null;
+  background?: string | null;
+  marital_status?: string | null;
+  existing_children_note?: string | null;
   pipeline_state: PipelineState;
   first_suggested_by?: Identifier | null;
   first_suggested_at: string;
@@ -380,8 +386,10 @@ export type CreateShidduchInput = {
   shadchan_id?: Identifier | null;
   name_en?: string | null;
   name_he?: string | null;
-  parents_en?: string | null;
-  parents_he?: string | null;
+  father_en?: string | null;
+  father_he?: string | null;
+  mother_en?: string | null;
+  mother_he?: string | null;
   seminary_en?: string | null;
   seminary_he?: string | null;
   shul_en?: string | null;
@@ -390,6 +398,10 @@ export type CreateShidduchInput = {
   location_he?: string | null;
   age?: number | null;
   height?: string | null;
+  dob?: string | null;
+  background?: string | null;
+  marital_status?: string | null;
+  existing_children_note?: string | null;
   origin?: ShidduchOrigin;
   initial_state?: PipelineState;
   visibility?: ShidduchVisibility;

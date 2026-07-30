@@ -12,7 +12,7 @@ import {
  * existence, and the two wording changes AC 7 makes on purpose.
  */
 
-describe("formatTimelineDate — moved verbatim from ShidduchTimeline.tsx", () => {
+describe("formatTimelineDate — lifted verbatim from the now-deleted shidduch timeline dialog", () => {
   it("formats an ISO timestamp as 'd MMM yyyy, HH:mm'", () => {
     // Act / Assert
     expect(formatTimelineDate("2026-03-05T14:07:00.000Z")).toMatch(
@@ -59,9 +59,9 @@ describe("INTERACTION_KIND_LABELS — one entry per InteractionKind, under crm.e
    * The two deliberate wording changes (AC 7): the only writer of these rows,
    * `link_reference_to_shidduch()`, always writes `target_type = 'reference'`
    * with `metadata = {shidduchim_id}` — a reference_link joins a reference to
-   * a shidduch, never directly to a single. `ShidduchTimeline`'s old "Linked
-   * to a reference" labelled a row no code path produces, and
-   * `ReferenceTimeline`'s old "Linked to a single" was factually wrong.
+   * a shidduch, never directly to a single. The old shidduch-side timeline's
+   * "Linked to a reference" labelled a row no code path produces, and the
+   * old reference-side timeline's "Linked to a single" was factually wrong.
    */
   it("link_created reads 'Linked to a shidduch', not the old 'Linked to a reference' / 'Linked to a single'", () => {
     expect(INTERACTION_KIND_LABELS.link_created).toEqual({

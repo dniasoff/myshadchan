@@ -145,9 +145,10 @@ export const RECORD_SURFACE_EXEMPTIONS: Record<string, Ad24Exemption> = {
  * AC 4 (UX-DR3). Keyed by repo-relative path under `src/components/atomic-crm/`.
  * `shidduchim/ShidduchCreate.tsx` is deliberately NOT here — Story 3.13
  * converted it to the page at `/shidduchim/new` before this story landed.
+ * `shidduchim/ShidduchShow.tsx` (the routed dialog) is also NOT here any
+ * more — Story 5.1 deleted it in the same diff that removed this row.
  */
 export const MODAL_RECORD_SURFACES: Record<string, Ad24Exemption> = {
-  "shidduchim/ShidduchShow.tsx": { kind: "pending", retiredBy: "5.1" },
   "tasks/TaskEdit.tsx": {
     kind: "permanent",
     reason:
@@ -161,14 +162,15 @@ export const MODAL_RECORD_SURFACES: Record<string, Ad24Exemption> = {
 // moment `tasks` gets a descriptor.
 
 /**
- * AC 5a. Keyed by resource name. All four AD-24 entities are `pending`
- * today: their stub descriptors (Story 3.9) honestly return the real,
+ * AC 5a. Keyed by resource name. Three of the four AD-24 entities are still
+ * `pending`: their stub descriptors (Story 3.9) honestly return the real,
  * working `/{resource}/{id}/show` route rather than an aspirational
  * `/{resource}/{id}` — Epic 5 flips each `buildRecordPath` one line at a
- * time.
+ * time. `shidduchim` is no longer here — Story 5.1 flipped its
+ * `buildRecordPath` to the bare AD-24 shape in the same diff that removed
+ * this row.
  */
 export const PENDING_ROUTE_SHAPES: Record<string, Ad24Exemption> = {
-  shidduchim: { kind: "pending", retiredBy: "5.1" },
   singles: { kind: "pending", retiredBy: "5.8" },
   shadchanim: { kind: "pending", retiredBy: "5.9" },
   references: { kind: "pending", retiredBy: "5.10" },
@@ -431,14 +433,18 @@ function findNonAd24RecordPathViolations(
 /**
  * Exactly two legitimate shapes for building a `/{entity}/{id}…` string:
  * `entity360/entityPaths.ts` itself, and a descriptor's own
- * `buildRecordPath` (any `entityDescriptor.ts` — the one place a record
- * path is DECLARED). Test/guard files are excluded because they
- * legitimately reference the shape in fixtures and prose.
+ * `buildRecordPath` (any `entityDescriptor.ts`/`.tsx` — the one place a
+ * record path is DECLARED). `.tsx` is matched too: Story 5.1 is the first
+ * descriptor module whose region renderers need JSX
+ * (`shidduchim/entityDescriptor.tsx`), and it will not be the last — 5.8 /
+ * 5.9 / 5.10 each need a one-line JSX adapter over an existing header. Test/
+ * guard files are excluded because they legitimately reference the shape in
+ * fixtures and prose.
  */
 function isPathBuilderAllowed(path: string): boolean {
   if (path.includes(".test.") || path.includes(".guard.")) return true;
   if (/(^|\/)entity360\/entityPaths\.ts$/.test(path)) return true;
-  if (/\/entityDescriptor\.ts$/.test(path)) return true;
+  if (/\/entityDescriptor\.tsx?$/.test(path)) return true;
   return false;
 }
 
@@ -624,7 +630,8 @@ export function findPendingTabs(
  * followed by a closing quote/backtick/`?` — the path ends at that
  * segment, so `/references/${id}`, `/references/1/show` and
  * `/references/new` do NOT match), and a `buildListPath("<name>")` call
- * site. File-level exclusions (the builder itself, `*\/entityDescriptor.ts`,
+ * site. File-level exclusions (the builder itself, `*\/entityDescriptor.ts`/
+ * `.tsx` — see `isPathBuilderAllowed` above, widened by Story 5.1 —
  * `<name>/index.ts`, `.test.`/`.guard.` files) are the caller's job when it
  * assembles `files` — this matcher has no path-based exclusion of its own.
  */

@@ -71,7 +71,12 @@ test("adding a reference from a shidduch saves it AND links it to that shidduch"
   });
 
   await signIn(page, member.email!);
-  await page.goto(`${APP_URL}/#/shidduchim/${shidduchId}/show`);
+  // Story 5.1 moved the shidduch 360 off the routed `/show` dialog onto
+  // `Entity360`'s `/{id}/{tab}` shape, and re-homed
+  // `ShidduchReferencesSection` (this CTA's container) onto the diligence
+  // tab (AC-5) — `/show` now falls through the unknown-tab redirect to
+  // `overview`, where the section, and this link, do not render.
+  await page.goto(`${APP_URL}/#/shidduchim/${shidduchId}/diligence`);
 
   // Act — the ONE sanctioned entry point (RULING 7 clause 5).
   await page.getByRole("link", { name: "Add a reference" }).click();
@@ -109,8 +114,9 @@ test("adding a reference from a shidduch saves it AND links it to that shidduch"
     { reference_id: reference!.id, shidduchim_id: shidduchId },
   ]);
 
-  // And it is visible from the shidduch it was created from.
-  await page.goto(`${APP_URL}/#/shidduchim/${shidduchId}/show`);
+  // And it is visible from the shidduch it was created from — the
+  // diligence tab, where `ShidduchReferencesSection` now lives (5.1 AC-5).
+  await page.goto(`${APP_URL}/#/shidduchim/${shidduchId}/diligence`);
   await expect(page.getByText("Mrs Devora Gold")).toBeVisible();
 });
 

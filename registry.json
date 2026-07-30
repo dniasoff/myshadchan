@@ -136,6 +136,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/shidduchAge.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/pipelineStates.ts",
           "type": "registry:component"
         },
@@ -144,7 +148,11 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/shidduchim/entityDescriptor.ts",
+          "path": "src/components/atomic-crm/shidduchim/entityDescriptorRegions.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/entityDescriptor.tsx",
           "type": "registry:component"
         },
         {
@@ -172,10 +180,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/shidduchim/ShidduchTimeline.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/shidduchim/ShidduchStateControl.tsx",
           "type": "registry:component"
         },
@@ -184,15 +188,15 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/shidduchim/ShidduchShow.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/shidduchim/ShidduchSchoolsSection.tsx",
           "type": "registry:component"
         },
         {
           "path": "src/components/atomic-crm/shidduchim/ShidduchRow.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchOverviewTab.tsx",
           "type": "registry:component"
         },
         {
@@ -205,6 +209,10 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/ShidduchFactsCard.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchCreatePage.tsx",
           "type": "registry:component"
         },
         {

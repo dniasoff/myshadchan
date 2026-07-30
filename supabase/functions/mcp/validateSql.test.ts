@@ -35,7 +35,7 @@ describe("validateReadOnly", () => {
     ],
     [
       "UPDATE in string literal",
-      "SELECT * FROM shidduchim WHERE parents_en = 'Please UPDATE your info'",
+      "SELECT * FROM shidduchim WHERE father_en = 'Please UPDATE your info'",
     ],
     [
       "DROP in block comment",

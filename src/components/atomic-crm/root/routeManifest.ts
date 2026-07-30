@@ -129,12 +129,12 @@ export function resourcesFor(surface: "desktop" | "mobile"): ResourceEntry[] {
  * (`ra-core/dist/core/Resource.js:28-34`); without either flag,
  * `useGetPathForRecordCallback` never resolves a link and every
  * `<DataTable>` row goes unclickable (`admin/data-table.tsx:233`). Exactly
- * these three entries, and no others — a fourth list-only resource needs its
- * own written reason here, not a silent addition.
+ * these two entries, and no others — a third list-only resource needs its
+ * own written reason here, not a silent addition. `shidduchim` was the
+ * third entry until Story 5.1 migrated it onto `buildEntityRoutes` and
+ * added `hasShow: true` explicitly, in the same diff that removed its row.
  */
 export const RECORD_FLAG_EXEMPTIONS: Record<string, string> = {
-  shidduchim:
-    "Kanban board; rows never render through <DataTable>, so useGetPathForRecordCallback is never called. Story 5.1 migrates it onto buildEntityRoutes and adds hasShow/hasEdit.",
   inbox_items:
     "Triage surface only (InboxList.tsx): each card resolves via a dialog or is dismissed, never through <DataTable>, and there is no inbox_items/{id} record route to link a row to.",
   tasks:
