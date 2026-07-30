@@ -1,6 +1,10 @@
+---
+baseline_commit: 748cc2688a1a157de8659875f7fc3a17dbdeca60
+---
+
 # Story 5.11: Call logging and tailored questions
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -100,57 +104,57 @@ capture sheet**, with no AI call, no entitlement check, and no new question cont
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Confirm the existing mechanism, do not rebuild it** (prerequisite)
-  - [ ] `grep -n "getQuestionsForRelationship" src/components/atomic-crm -r` and confirm it is
+- [x] **Task 1 — Confirm the existing mechanism, do not rebuild it** (prerequisite)
+  - [x] `grep -n "getQuestionsForRelationship" src/components/atomic-crm -r` and confirm it is
         still only called from `ResearchAssistantPanel.tsx` (if a prior story already wired it
         elsewhere, this story is a no-op on that AC — verify before touching anything).
-  - [ ] Confirm `log_reference_call`'s `interactions` insert is unchanged since this document was
+  - [x] Confirm `log_reference_call`'s `interactions` insert is unchanged since this document was
         written (`supabase/schemas/02_functions.sql`) — if it has been altered, re-verify AC-4
         still holds before assuming it does.
-- [ ] **Task 2 — Wire tailored questions into the manual sheet** (AC: 1, 2)
-  - [ ] In `CallCaptureSheet.tsx`, call `getQuestionsForRelationship(link.effective_relationship)`
+- [x] **Task 2 — Wire tailored questions into the manual sheet** (AC: 1, 2)
+  - [x] In `CallCaptureSheet.tsx`, call `getQuestionsForRelationship(link.effective_relationship)`
         and render the returned `questions` list (e.g. a collapsible "Questions to ask" section
         above the notes textarea) — read-only display, no interactivity beyond expand/collapse.
-  - [ ] No `useAiEntitlement`/billing import anywhere in this change — that is the whole point of
+  - [x] No `useAiEntitlement`/billing import anywhere in this change — that is the whole point of
         the gap this story closes, and `references/entitlementGate.guard.test.ts` fails the build
         if one appears.
-  - [ ] **Both i18n catalogues** (`providers/commons/englishCrmMessages.ts` and
+  - [x] **Both i18n catalogues** (`providers/commons/englishCrmMessages.ts` and
         `frenchCrmMessages.ts`): add keys for the section header ("Questions to ask") and the
         expand/collapse copy. No story currently declares this and there is no parity test —
         `i18nProvider` runs `allowMissing: true`, so a missing French key falls back to English
         **silently**. Add both or the French UI quietly degrades.
-- [ ] **Task 3 — Regression checks** (AC: 3, 4, 5)
-  - [ ] `references/CallCaptureSheet.test.tsx` **does not exist** — this story creates it. (The
+- [x] **Task 3 — Regression checks** (AC: 3, 4, 5)
+  - [x] `references/CallCaptureSheet.test.tsx` **does not exist** — this story creates it. (The
         earlier text said "existing `CallCaptureSheet` tests continue to pass unchanged"; there
         are none. Do not go looking for a file to leave alone.) What *does* exist and must stay
         green untouched: `references/relationshipQuestions.test.ts`,
         `references/entitlementGate.guard.test.ts`, and the `log_reference_call` coverage in
         `supabase/tests/references_entity.sql` + its runner.
-  - [ ] AC-4's test lands in **`entity360/tabs/ActivityTab.test.tsx`**, not under `references/`:
+  - [x] AC-4's test lands in **`entity360/tabs/ActivityTab.test.tsx`**, not under `references/`:
         it asserts that a `call_logged` interaction renders in the universal Activity tab with a
         working `RecordLink` to the reference. This is the first story where the Activity tab
         actually exists to test against (per Story 5.1).
-  - [ ] Run the AC-5 grep; manually verify the capture path post-5.10 (Diligence row →
+  - [x] Run the AC-5 grep; manually verify the capture path post-5.10 (Diligence row →
         `RecordLink` → reference 360 → Conversations tab → `CallCaptureSheet`).
-- [ ] **Task 4 — Close the AD-24 pending-tab ledger** (AC: 6)
-  - [ ] `entity360/ad24Conformance.test.ts:807-824`: replace
+- [x] **Task 4 — Close the AD-24 pending-tab ledger** (AC: 6)
+  - [x] `entity360/ad24Conformance.test.ts:807-824`: replace
         `expect(Array.isArray(ledger)).toBe(true)` + the `console.warn` with
         `expect(ledger).toEqual([])`, rename the case (drop "informational — non-empty is
         expected through Epic 5"), and delete the now-false `:803-806` comment. Keep the first
         case in that `describe` (`:785-800`, the fixture-driven one) exactly as it is.
-  - [ ] If it is red, read the failure: it names the entity that still has `pendingTabs`. That
+  - [x] If it is red, read the failure: it names the entity that still has `pendingTabs`. That
         is a real Epic 5 gap in **that** story, not a defect in this assertion. Report it; do
         not soften the assertion.
-- [ ] **Task 5 — Tests**
-  - [ ] Component test for the new question display (renders relationship-specific questions;
+- [x] **Task 5 — Tests**
+  - [x] Component test for the new question display (renders relationship-specific questions;
         falls back to universal questions when relationship is blank/unrecognised — reuse
         `relationshipQuestions.test.ts`'s existing fixtures, do not invent new relationship
         strings).
-  - [ ] Test stack: **`vitest-browser-react` in Chromium** with `StoryWrapper` /
+  - [x] Test stack: **`vitest-browser-react` in Chromium** with `StoryWrapper` /
         `TestMemoryRouter` (see `references/ReferenceCreate.test.tsx` for the shape).
         **React Testing Library is not a dependency of this repo** — do not
         `import { render } from "@testing-library/react"`.
-  - [ ] `make typecheck && npm run lint && make test`.
+  - [x] `make typecheck && npm run lint && make test`.
 
 ## Dev Notes
 
@@ -215,8 +219,81 @@ AC-6's flip is only satisfiable once every other Epic 5 story has moved its keys
 
 ### Agent Model Used
 
+Claude Sonnet 5 (developer subagent, STACK_ID=3, STACK_OWNER=5-11)
+
 ### Debug Log References
+
+- `make typecheck` — clean (all three tsconfig projects).
+- `make lint` — clean (`eslint --max-warnings=0` + the project's scoped `prettier --check`).
+- `npx vitest run` (full suite) — 208 files / 2125 tests passed.
+- `npx vitest run src/components/atomic-crm/references src/components/atomic-crm/entity360` —
+  58 files / 523 tests passed (includes the new/edited files plus every test named in Task 3's
+  "must stay green" list: `relationshipQuestions.test.ts`, `entitlementGate.guard.test.ts`,
+  `registry.stubs.test.ts`, `ad24Conformance.guard.test.ts`).
+- `make build` — clean.
+- Four CI guards — all `EXIT=0`: `check-retired-names.mjs`, `check-suppressions.mjs`,
+  `check-route-convention.mjs`, `check-tailwind-arbitrary-var.mjs`.
+- `make start-supabase-e2e STACK_ID=3` → `make test STACK_ID=3` (full `npm run test`, all five
+  projects incl. `db`) — 208 files / 2125 tests passed; the `db` project alone (20 files / 591
+  tests, incl. `references_entity.sql`'s `log_reference_call` coverage) verified separately
+  against stack 3's live database. `make stop-supabase-e2e STACK_ID=3` released the stack and
+  lease afterward. No schema touched, so `supabase db diff --local` does not apply.
 
 ### Completion Notes List
 
+- **Task 1 verified, no rebuild needed.** `getQuestionsForRelationship` was still called from
+  exactly one place (`ResearchAssistantPanel.tsx`) before this story's changes.
+  `log_reference_call` (`supabase/schemas/02_functions.sql`) was unchanged from the story's
+  description: it already inserts an `interactions` row with `target_type = 'reference'`,
+  `target_id = v_link.reference_id`, `scope = 'shidduch'`, `reference_link_id` set, and
+  `metadata.shidduchim_id` — no RPC change was made or needed.
+- **AC 1/AC 2 (Task 2).** `CallCaptureSheet.tsx` now calls
+  `getQuestionsForRelationship(link.effective_relationship)` and renders the questions in a
+  `<details>/<summary>` disclosure (the same idiom already used by `ReferenceCallLog.tsx`'s log
+  entries, for consistency — no accordion library pulled in) above the "What they said" field. No
+  `useAiEntitlement` import was added; `entitlementGate.guard.test.ts` was run and passes
+  (initially caught the literal string "useAiEntitlement" inside an explanatory code comment —
+  the guard is a raw-text scan, not an import scan — reworded the comment to avoid the substring
+  without changing its meaning). Added `crm.references.call.questionsTitle` and
+  `.questionsToggle` to both `englishCrmMessages.ts` and `frenchCrmMessages.ts`.
+- **Finding on AC 4's wording (verified, not "fixed" — recorded here rather than edited into the
+  AC).** AC-4 and Task 3 describe the regression as "the shidduch's Activity tab ... rendered via
+  RecordLink back to the reference." Tracing the real write path
+  (`02_functions.sql#log_reference_call`, its FakeRest mirror in
+  `providers/fakerest/internal/referenceLinks.ts`, and the fixture generator) shows every
+  reference↔shidduch interaction — `call_logged` exactly like the pre-existing `link_created`/
+  `link_removed` — is written with `target_type = 'reference'`, never `target_type = 'shidduch'`.
+  `ActivityTab`'s filter is a flat `{target_type, target_id}` equality
+  (`entity360/tabs/ActivityTab.tsx`), so a `target_type = 'reference'` row is only ever returned
+  by the **reference's own** Activity tab (`targetType="reference"`, wired by Story 5.10's
+  `ReferenceActivityTab`) — never by the shidduch's (`targetType="shidduch"`, Story 5.1's
+  `ShidduchActivityTab`). The row's mention then resolves through the existing
+  `metadata.shidduchim_id` branch of `ActivityMention`, i.e. a RecordLink **to the shidduch**, the
+  same mechanism already pinned for `link_created` in `ActivityTab.test.tsx`. So the true,
+  falsifiable regression is: reference's Activity tab → call_logged → RecordLink to its shidduch —
+  the entity names in AC-4's prose are inverted relative to what the code (and the Dev Notes'
+  explicit "no second write path") actually supports. Per this story's own Dev Notes ("do not add
+  a second write path 'to be safe'"), the fix is not a new backend write to make the AC's literal
+  wording true; the new test in `ActivityTab.test.tsx` documents and asserts the real mechanism
+  instead. No story text was edited.
+- **AC 5 grep caveat.** `grep -rn "CallCaptureSheet" src/ --include='*.tsx' | grep import` now
+  also matches this story's own new `CallCaptureSheet.test.tsx` (a test file, `.tsx` by
+  extension), in addition to the one production invoker `references/ReferenceCallLog.tsx`.
+  Filtering test files out (`| grep -v '\.test\.'`) confirms exactly one production invocation
+  site, unchanged. Manually re-traced the capture path per Story 5.10: Diligence row → RecordLink
+  → reference 360 → Conversations tab → `ReferenceCallLog` → `CallCaptureSheet`.
+- **AC 6 (Task 4), the epic-closing flip.** All four AD-24 entities
+  (`shidduchim`/`singles`/`shadchanim`/`references`) already carry `pendingTabs: []` on `main` at
+  the start of this story (Stories 5.1–5.10 all landed). Flipped
+  `entity360/ad24Conformance.test.ts`'s informational case to `expect(ledger).toEqual([])`,
+  renamed it, and deleted the stale "informational" comment. It passes: the flip is satisfiable.
+- New test file: `references/CallCaptureSheet.test.tsx` (did not exist before, per Task 3).
+
 ### File List
+
+- `src/components/atomic-crm/references/CallCaptureSheet.tsx` (modified — Task 2)
+- `src/components/atomic-crm/references/CallCaptureSheet.test.tsx` (new — Task 3/5)
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (modified — Task 2, i18n)
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (modified — Task 2, i18n)
+- `src/components/atomic-crm/entity360/tabs/ActivityTab.test.tsx` (modified — Task 3, AC 4)
+- `src/components/atomic-crm/entity360/ad24Conformance.test.ts` (modified — Task 4, AC 6)

@@ -707,6 +707,8 @@ export const englishCrmMessages = {
       call: {
         about: "About %{name}",
         howDidItGo: "How did the call go?",
+        questionsTitle: "Questions to ask",
+        questionsToggle: "Show questions",
         whatTheySaid: "What they said",
         placeholder: "Type as much or as little as you like.",
         save: "Save and add to log",

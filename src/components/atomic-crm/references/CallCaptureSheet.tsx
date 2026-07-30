@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import type { CallStatus, ReferenceLinkSummary } from "../types";
 import type { CrmDataProvider } from "../providers/types";
 import { CALL_STATUS_DESCRIPTORS } from "./callStatus";
+import { getQuestionsForRelationship } from "./relationshipQuestions";
 
 /**
  * Mid-call capture (§5c, NFR-1). This is used with a phone against one ear, so
@@ -73,6 +74,18 @@ export const CallCaptureSheet = ({
 
   const subject = link.shidduch_name_en || link.reference_name_en;
 
+  // Story 5.11 (AC 1/AC 2): the same free, deterministic question sets the
+  // paid research assistant uses (`relationshipQuestions.ts`'s own doc
+  // comment: "the call script itself is never behind the paywall"). This
+  // file must stay off the AI entitlement gate entirely — the repo's own
+  // build-time scan (`references/entitlementGate.guard.test.ts`) fails if
+  // it ever consults that hook. Falls back to the universal questions when
+  // `effective_relationship` is blank or unrecognised, so the list is
+  // never empty.
+  const { questions } = getQuestionsForRelationship(
+    link.effective_relationship,
+  );
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -130,6 +143,28 @@ export const CallCaptureSheet = ({
                 );
               })}
             </div>
+          </div>
+
+          <div>
+            <p className="mb-1 text-sm font-medium">
+              {translate("crm.references.call.questionsTitle", {
+                _: "Questions to ask",
+              })}
+            </p>
+            <details className="text-sm">
+              <summary className="cursor-pointer text-muted-foreground">
+                {translate("crm.references.call.questionsToggle", {
+                  _: "Show questions",
+                })}
+              </summary>
+              <ol className="mt-2 list-inside list-decimal">
+                {questions.map((question) => (
+                  <li key={question} className="py-0.5">
+                    {question}
+                  </li>
+                ))}
+              </ol>
+            </details>
           </div>
 
           <div>

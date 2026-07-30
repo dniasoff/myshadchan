@@ -805,11 +805,13 @@ describe("findPendingTabs — AC 9", () => {
     ]);
   });
 
-  // Informational (AC 9b): must keep passing throughout Epic 5, when the
-  // real ledger is legitimately non-empty (5-1 through 5-6). Epic 5's
-  // closing story flips this to `toEqual([])` — a one-line change, not a
-  // new scan.
-  it("returns an array for the real registry (informational — non-empty is expected through Epic 5)", () => {
+  // Epic 5's closing story (5.11, AC 6): every entity has landed its full
+  // canonical tab set, so the real registry's pending-tab ledger is now
+  // asserted empty rather than merely logged. A regression here names the
+  // entity that still has a `pendingTabs` key — that is a real Epic 5 gap
+  // in that entity's story, not a reason to soften this assertion back to
+  // informational.
+  it("is empty for the real registry — Epic 5 has landed every canonical tab", () => {
     // Arrange
     const descriptors = descriptorMap(
       ...["shidduchim", "singles", "shadchanim", "references"]
@@ -821,11 +823,7 @@ describe("findPendingTabs — AC 9", () => {
     const ledger = findPendingTabs(descriptors);
 
     // Assert
-    expect(Array.isArray(ledger)).toBe(true);
-    // AC 9b calls for `console.info`, but this repo's lint config allows
-    // only `warn`/`error` (eslint.config: no-console); `console.warn`
-    // reports the ledger without failing the build.
-    console.warn("AD-24 pending-tab ledger:", ledger);
+    expect(ledger).toEqual([]);
   });
 });
 

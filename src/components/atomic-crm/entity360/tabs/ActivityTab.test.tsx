@@ -390,6 +390,49 @@ describe("ActivityTab — the RecordLink mention branch (AC 9)", () => {
   });
 });
 
+describe("ActivityTab — call_logged regression (AC 4, Story 5.11)", () => {
+  it("renders a logged call on the reference's own Activity tab, with a working RecordLink to its shidduch", async () => {
+    // Arrange — `log_reference_call` (02_functions.sql) always writes
+    // target_type = 'reference', target_id = the reference's own id, with
+    // metadata.shidduchim_id set — the identical shape already proven above
+    // for link_created/link_removed, never target_type = 'shidduch'. A
+    // target_type = 'shidduch' filter can therefore never return this row;
+    // the reference's own Activity tab (targetType="reference", wired by
+    // Story 5.10) is the tab that actually queries it, and it renders
+    // through the same shidduchim_id mention branch (AC 9 above), now
+    // proven for the call_logged kind too.
+    registerFixtureDescriptors();
+    const row = buildInteraction({
+      target_type: "reference",
+      target_id: 55,
+      kind: "call_logged",
+      body: "Warm, reliable, always on time.",
+      metadata: {
+        call_status: "answered",
+        shidduchim_id: 7,
+        source: "manual",
+      },
+    });
+    const getList = vi.fn().mockResolvedValue({ data: [row], total: 1 });
+
+    // Act
+    const { screen } = await renderActivityTab(
+      { targetType: "reference", targetId: 55 },
+      { getList },
+    );
+
+    // Assert
+    await expect
+      .element(screen.getByText("Warm, reliable, always on time."))
+      .toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "View record" });
+    await expect.element(link).toBeInTheDocument();
+    expect(link.element().getAttribute("href")).toBe(
+      `/${SHIDDUCHIM_RESOURCE}/7`,
+    );
+  });
+});
+
 describe("ActivityTab — deleted_at exclusion against the real FakeRest provider (AC 11)", () => {
   it("renders every other row and not a soft-deleted one", async () => {
     // Arrange — the real FakeRest data provider, not a mock, so the
