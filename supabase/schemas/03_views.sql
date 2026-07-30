@@ -269,23 +269,60 @@ group by sh.id;
 -- yields author_name = null through the LEFT JOIN, never an error and never
 -- a leaked name.
 --
--- can_moderate: mirrors the UPDATE policy's FULL predicate, not just its
--- can_moderate_note() half -- `kind not in ('note', 'single_input') or
--- can_moderate_note(...)`, the same escape 05_policies.sql ANDs into the
--- UPDATE policy (widened to include `single_input` in Story 5.7's
--- review-fix pass, finding F2 -- see that policy's own comment for why).
--- Calling can_moderate_note() unconditionally (the pre-review-fix shape)
--- reported `can_moderate = false` for a non-note row (call_logged,
--- status_change, merge, link_created, link_removed) authored or actively
--- owned by someone else, even though the UPDATE policy's escape lets ANY
--- account member update it -- harmless while only NotesTab reads this view
--- (it filters to kind = 'note'), but a live lie the day AC 8's own written
--- trigger for revisiting moves ActivityTab onto this view. A row this view
--- returns at all has already passed the (byte-identical) SELECT visibility
--- predicate, so for a kind on the "any member may update" branch the UPDATE
--- policy's own visibility conjunct is guaranteed to hold too -- can_moderate
--- can therefore be `true` outright on that branch, with no additional
--- visibility check needed here.
+-- can_moderate: mirrors the UPDATE policy's moderation clause EXACTLY --
+-- `kind not in ('note', 'single_input') or (kind = 'note' and
+-- can_moderate_note(...))`, character for character the clause 05_policies.sql
+-- ANDs into `"Interactions updatable by author or owning role"`, in both its
+-- `using` and its `with check` halves. This column is a UI affordance: the
+-- one thing it must never do is advertise an action the database will refuse.
+-- Any edit to that policy clause has to be made here in the same commit.
+--
+-- Calling can_moderate_note() unconditionally (the Story 3.6 shape) reported
+-- `can_moderate = false` for a non-note row (call_logged, status_change,
+-- merge, link_created, link_removed) authored or actively owned by someone
+-- else, even though the UPDATE policy's escape lets ANY account member update
+-- it -- harmless while only NotesTab reads this view (it filters to
+-- kind = 'note'), but a live lie the day AC 8's own written trigger for
+-- revisiting moves ActivityTab onto this view.
+--
+-- STALE-COMMENT CORRECTION (Epic 6). The text here used to describe the
+-- Story 5.7 review-fix shape, `kind not in ('note', 'single_input') or
+-- can_moderate_note(...)`, which put `single_input` in the SAME bucket as
+-- `note`. Story 6.4 decided `single_input` is APPEND-ONLY -- no role updates
+-- it, not an owning-role member, not a parent_admin, not its own author (see
+-- that policy's comment, and the story's Dev Notes "Append-only -- decided,
+-- against a shipped nuance"). The policy was rewritten; this column was not,
+-- and the comment kept asserting a mirror that no longer held. The
+-- consequence was live: `can_moderate_note()` returns true for a row's
+-- AUTHOR, so a single reading back her own submitted input was told
+-- `can_moderate = t` on a row every UPDATE path refuses -- an edit button the
+-- database answers with 0 rows affected. Both the predicate and this
+-- paragraph are the correction. A view that drifts from a policy is not
+-- self-announcing: only a check that asserts the two AGREE catches it, which
+-- is what (g3) in supabase/tests/interaction_note_authorship.sql now does.
+--
+-- Why the visibility half of the UPDATE policy still needs no mirroring here:
+-- a row this view returns has already passed a SELECT policy, and the general
+-- SELECT policy's account-scope and target-visibility conjuncts are preserved
+-- byte-identical in the UPDATE policy -- so on the "any member may update"
+-- branch the UPDATE policy's own visibility conjunct is guaranteed to hold
+-- too, and can_moderate can be `true` outright there.
+--
+-- That argument covers the visibility conjuncts ONLY. It deliberately does
+-- NOT extend to the UPDATE policy's `current_member_role() <> 'single'`
+-- conjunct, because Story 6.4 broke its premise: `interactions` now carries
+-- TWO permissive SELECT policies, and the second (`"Single reads own input"`)
+-- is NOT byte-identical to UPDATE's predicate -- it is the one path by which
+-- a `single`-role caller sees any row at all. The reason can_moderate is
+-- nonetheless correct for that caller today is narrower and worth writing
+-- down: `"Single reads own input"` restricts a single to `kind =
+-- 'single_input'` rows they authored, and on `single_input` the clause above
+-- already evaluates to false -- so the role conjunct has nothing left to
+-- decide. That is a coincidence of the current carve-out, not a standing
+-- guarantee. If a later story widens what a `single` may READ to any other
+-- kind (Story 6.5's self-manager parity work is the live candidate), this
+-- column starts over-reporting for that role the moment it does, and
+-- `and public.current_member_role() <> 'single'` has to be ANDed in here.
 create or replace view public.interactions_summary with (security_invoker = on) as
 select
     i.id,
@@ -301,7 +338,7 @@ select
     i.metadata,
     i.deleted_at,
     nullif(btrim(coalesce(m.first_name, '') || ' ' || coalesce(m.last_name, '')), '') as author_name,
-    (i.kind not in ('note', 'single_input') or public.can_moderate_note(i.actor_member_id)) as can_moderate
+    (i.kind not in ('note', 'single_input') or (i.kind = 'note' and public.can_moderate_note(i.actor_member_id))) as can_moderate
 from public.interactions i
     left join public.account_members am on am.id = i.actor_member_id
     left join public.members m on m.user_id = am.user_id;

@@ -741,3 +741,51 @@ References for the full timeline and why),
   3 were subsequently fixed by another agent coordinating on the shared
   working tree; none are part of this story's own commit. See Task 5 and
   Dev Agent Record for the full account.
+
+### Post-merge follow-up — the view that drifted from this story's policy
+
+Landed after this story, by a separate agent, as
+`20260730202040_fix_interactions_summary_can_moderate_single_input.sql`.
+Recorded here because it is this story's policy rewrite that the defect
+was a consequence of, not a defect of its own.
+
+**What was wrong.** AC 3 narrowed the `interactions` UPDATE policy to
+`kind not in ('note', 'single_input') or (kind = 'note' and
+can_moderate_note(actor_member_id))`, making `single_input` append-only
+for every role. `interactions_summary.can_moderate` (03_views.sql) was
+left on the Story 5.7 shape, `kind not in ('note', 'single_input') or
+can_moderate_note(...)`, which still calls `can_moderate_note()` on a
+`single_input` row. That function returns true for the row's **author**,
+so the view advertised `can_moderate = t` on a row every UPDATE path
+refuses — a single reading back her own submitted input was offered an
+edit control the database answers with 0 rows affected. The policy and
+the view disagreed from the moment AC 3 landed.
+
+**Why the existing suites stayed green.** Both `single_input` view checks
+in `interaction_note_authorship.sql` — check (g2) and `AC 5-single` —
+read the view as `helper1`, who is neither the fixture row's author nor
+an owning role. `can_moderate_note()` is false for that caller, so the
+drifted view returned the right answer by the wrong route. No check
+anywhere read the view as a caller `can_moderate_note()` returns **true**
+for, which is the only caller the two shapes differ on.
+
+**Regression assertion added.** `(g3)` in
+`supabase/tests/interaction_note_authorship.sql`, as `parent_admin1` —
+the fixture row's author. It asserts the *agreement* itself,
+`can_moderate = (rows > 0)`, rather than either value alone, and pins the
+row's visibility through the view first so a missing fixture fails the
+check instead of vacuously passing it. Proven red before the fix
+(`can_moderate=t rows=0`) and green after (`can_moderate=f rows=0`).
+
+**Known sibling, deliberately not touched** (this story's declared file,
+and its owning agent was live at the time): the FakeRest read path,
+`enrichInteractions()` in
+`src/components/atomic-crm/providers/fakerest/dataProvider.ts`, still
+computes `canModerate = row.kind !== "note" || isAuthor ||
+callerOwnsCurrentContext` — the Story **3.6** shape, which never received
+5.7's `single_input` widening either. For `kind === 'single_input'` that
+is `true` for *every* caller, so in demo mode the moderation control
+renders on every single's-input row and clicking it hits this story's own
+append-only guard in `update()` (which *was* updated correctly) and
+throws. The write path is right; the read path that decides whether to
+show the control is not. Reported, not patched.

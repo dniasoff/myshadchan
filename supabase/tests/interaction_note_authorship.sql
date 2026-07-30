@@ -521,6 +521,90 @@ begin
   );
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- (g3) The AUTHOR of a single_input row — the gap (g2) and AC 5-single leave
+-- open, and the one shape that can see the view drift away from the policy.
+--
+-- Both existing single_input checks read the view as helper1, who is neither
+-- single_g's author nor an owning role in household A. For helper1,
+-- `can_moderate_note(single_g.actor_member_id)` is false, so the pre-fix
+-- view reported the RIGHT answer by the WRONG route: it agreed with the
+-- UPDATE policy while computing a predicate that no longer matches it. No
+-- existing check anywhere reads this view as someone `can_moderate_note()`
+-- returns TRUE for, which is the only caller the two shapes disagree on.
+--
+-- parent_admin1 IS single_g's author (and an owning role), so
+-- `can_moderate_note()` returns true for them on both branches. The pre-6.4
+-- view predicate — `kind not in ('note','single_input') or
+-- can_moderate_note(...)` — therefore reported `can_moderate = true`, while
+-- Story 6.4's UPDATE policy — `kind not in ('note','single_input') or
+-- (kind = 'note' and can_moderate_note(...))`, 05_policies.sql — affects 0
+-- rows, because `single_input` is append-only for EVERY role including its
+-- own author. The view told the UI an action was available that the database
+-- refuses. That disagreement is the whole defect.
+--
+-- The assertion is the AGREEMENT itself, `can_moderate = (rows > 0)`, not
+-- `can_moderate = false` and not `rows = 0` asserted separately. Either value
+-- alone can be right for the wrong reason (that is exactly how AC 5-single
+-- stayed green through the drift); the invariant this view exists to uphold
+-- is that it never advertises an action the database will refuse. The
+-- append-only policy fact is asserted as its own row alongside it, so a
+-- future policy change that re-permitted the author would fail HERE, loudly,
+-- rather than being silently absorbed by the agreement check.
+--
+-- Anti-vacuity: `v_seen` pins that the row was visible THROUGH THE VIEW to
+-- parent_admin1 at all. A denial check is green whenever its subject does not
+-- exist — if single_g were never created, or the view stopped returning it,
+-- `can_moderate` is NULL and the `coalesce(..., true) = false` shape the two
+-- checks above use would call that a pass. The arrange control further up
+-- pins existence and attribution in the BASE TABLE; this pins visibility
+-- through the VIEW, which is the surface under test here. Both results are
+-- emitted from a DO block (never `insert into results ... select ... where`)
+-- so a missing subject fails the checks instead of deleting them from the
+-- report — the same defect, and same fix, as the arrange control's own
+-- comment describes.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_single_g bigint;
+  v_can_moderate boolean;
+  v_seen boolean;
+  v_rows int;
+begin
+  select value::bigint into v_single_g from ids where name = 'single_g';
+
+  select s.can_moderate into v_can_moderate
+  from public.interactions_summary s
+  where s.id = v_single_g;
+  v_seen := found;
+
+  update public.interactions
+  set body = 'the author tried to revise their own single_input row (g3)'
+  where id = v_single_g;
+  get diagnostics v_rows = row_count;
+
+  insert into results values (
+    '(g3) the AUTHOR of a single_input row updates it -> 0 rows (append-only for every role, Story 6.4 AC 3)',
+    v_seen and v_rows = 0,
+    format('seen_through_view=%s rows=%s', v_seen, v_rows)
+  );
+
+  insert into results values (
+    '(g3) interactions_summary.can_moderate AGREES with the UPDATE outcome for the AUTHOR of a single_input row',
+    v_seen and v_can_moderate is not null and v_can_moderate = (v_rows > 0),
+    format('seen_through_view=%s can_moderate=%s rows=%s', v_seen, v_can_moderate, v_rows)
+  );
+exception when others then
+  insert into results values (
+    '(g3) the AUTHOR of a single_input row updates it -> 0 rows (append-only for every role, Story 6.4 AC 3)',
+    false, sqlerrm
+  );
+  insert into results values (
+    '(g3) interactions_summary.can_moderate AGREES with the UPDATE outcome for the AUTHOR of a single_input row',
+    false, sqlerrm
+  );
+end $$;
+
 reset role;
 
 -- ---------------------------------------------------------------------------
