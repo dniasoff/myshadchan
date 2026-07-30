@@ -41,8 +41,12 @@ this button's implementation, not adds a second button beside it.
 lets a single actually submit input on a shidduch, and it lands after Epic 5. This story
 builds the **read-side panel** now — it queries `interactions` for a new `kind = 'single_input'`
 value and renders whatever it finds, correctly showing an empty state until Epic 6 wires up the
-write path. The panel is not decorative: extending `interactions_kind_check` now means Epic 6
-does not have to touch this table's constraint later, only add the write UI.
+write path. The panel is not decorative: extending `interactions_kind_check`, and — as of this
+story's review-fix pass (finding F2) — widening the UPDATE policy's author-or-owning-role escape
+to also cover `single_input` (see Dev Notes below), together mean Epic 6 does not have to touch
+this table's constraint or its moderation policy later, only add the write UI. (The first cut of
+this story extended the constraint alone and left the escape untouched — a real gap the review
+caught: see Dev Notes.)
 
 ## Acceptance Criteria
 
@@ -202,15 +206,35 @@ import `@testing-library/react`. Source-scanning guards use the `?raw` `import.m
 - Story 5.3's `ResumeVersionList` sort/latest-version logic — do not re-derive "which file is
   newest."
 
-### Why no RLS change is needed for `single_input`
+### Why no RLS *visibility* branch is needed for `single_input` — but the UPDATE moderation escape did need widening (review finding F2)
 
 Because a `single_input` row is `target_type = 'shidduch'`, it already flows through the existing
 `interactions` RLS branch that joins to `shidduchim` and checks `account_id` — the
 `target_type = 'shidduch'` `exists` clause at `05_policies.sql:337-345` (select) and its mirror in
 `"Interactions insertable within account and parent visibility"` (`:349`). That is the same branch
 every other shidduch-targeted interaction (`status_change`, `note` about the shidduch itself)
-already uses. Only the `kind` enum needs extending; the visibility/scope machinery is unchanged.
-Do not add a new RLS branch for this — that would be solving a problem that does not exist.
+already uses. This half of the original claim holds: do not add a new *visibility* branch for
+this — that would be solving a problem that does not exist.
+
+**What the first cut of this story got wrong**: it reasoned only about that SELECT/INSERT
+visibility branch and concluded the `kind` enum was the only thing that needed extending. It never
+considered the separate UPDATE policy — `"Interactions updatable by author or owning role"`
+(`05_policies.sql`) — which ANDs an *additional*, orthogonal escape onto that same visibility
+predicate: `kind <> 'note' or can_moderate_note(actor_member_id)`, governing who may rewrite or
+soft-delete a row (not who may read or insert one). Before the review-fix pass, `single_input`
+fell into that escape's default "any account member may rewrite it" bucket — the bucket that is
+correct for the five machine-written kinds (`call_logged`, `status_change`, `merge`,
+`link_created`, `link_removed`) but is the *opposite* of what a kind meaning "the single's own
+words" needs: any helper could rewrite, or soft-delete, a single's own submitted input.
+
+The fix (already applied, not merely noted): widen that escape to
+`kind not in ('note', 'single_input') or can_moderate_note(actor_member_id)`, in both `using` and
+`with check` of the UPDATE policy, mirrored in `interactions_summary.can_moderate`
+(`03_views.sql`) — the exact pair `supabase/tests/interaction_note_authorship.sql` already
+exercises for `note`, extended here with checks (g2) / AC 5-single for `single_input`, each proven
+red against the pre-fix escape before being shown green. No production exposure existed at any
+point: Epic 6 Story 6.4 owns the write path and no `single_input` row can exist before it lands,
+so there was no window in which a real row was ever moderable by the wrong bucket.
 
 ### Project Structure Notes
 
@@ -310,11 +334,56 @@ still reads `{security_invoker=on}` on all four views, and `interactions_kind_ch
   or touched by this change.
 - Nothing could not be done; no scope was cut.
 
+### Review Fix Notes (commit `b213582`'s review — findings F1, F2, F3)
+
+- **F1 (blocking, fixed)**: AC-3's binding claim (`TasksRailSummary` mounted with
+  `{ targetType: "shidduch", targetId }`) had zero coverage — the only rail-integration test
+  touching it asserted the "Reminders" heading and the "See all tasks" link's presence, never a
+  task actually belonging to this shidduch, never the link's `href`. Added a test to
+  `entityDescriptor.test.tsx` mirroring the sibling single-input scoping test: seeds one task with
+  `target_type: "shidduch", target_id: <this shidduch>` and one under a foreign `target_id`,
+  asserts the first renders and the second does not, and asserts the "See all tasks" link's `href`
+  equals `buildTabPath("shidduchim", id, "tasks")`. Proved red against both of the review's
+  mutations (`targetType="reference"` and `targetId={999999}` on `ShidduchRightRail.tsx:50`) before
+  restoring the clean file.
+- **F2 (blocking, fixed)**: the `interactions_kind_check` widening silently enrolled
+  `single_input` in the UPDATE policy's default "any account member may rewrite it" escape
+  (`kind <> 'note' or can_moderate_note(...)`) — right for the five machine-written kinds, wrong
+  for "the single's own words." Widened the escape to
+  `kind not in ('note', 'single_input') or can_moderate_note(...)` in
+  `"Interactions updatable by author or owning role"` (`05_policies.sql`, both `using` and
+  `with check`) and mirrored it in `interactions_summary.can_moderate` (`03_views.sql`). New
+  migration `20260730073442_interactions_single_input_moderation.sql` (hand-added
+  `alter view … set (security_invoker = on)` after the generated `create or replace view` —
+  verified live that, unlike `20260729052308`'s precedent, this `create or replace view` DID clear
+  the reloption this time). Extended `supabase/tests/interaction_note_authorship.sql` with checks
+  (g2) and AC 5-single, both proved red against the pre-fix escape then green against the fix.
+  Corrected the two now-false Dev Notes passages that reasoned only about the SELECT/INSERT
+  visibility branch and never considered the UPDATE escape.
+- **F3 (strongly recommended, fixed)**: nothing in the suite ever drove `navigator.share` itself —
+  the only test touching `navigator.canShare` forced the fallback path. Added a test to
+  `ForwardResumeButton.test.tsx` that stubs `navigator.canShare`/`navigator.share` as supported,
+  clicks, and asserts the object handed to `navigator.share` holds exactly one file named
+  `resume.pdf` — AD-9's photo-exclusion guarantee on the path that actually calls the Web Share
+  API, giving AC-4's primary path its first coverage. Proved red against a mutation that added an
+  extra file to the share payload.
+- F4/F5 (noted, not blocking) were left as recorded in the original review — implementation-pin
+  and weak-but-not-vacuous, respectively, not addressed in this pass.
+
 ### File List
 
 - `supabase/schemas/01_tables.sql` — widen `interactions_kind_check` to accept `'single_input'`.
 - `supabase/migrations/20260730065512_interactions_single_input.sql` — new migration (hand-edited to
   drop the spurious four-view re-emit, per Debug Log).
+- `supabase/schemas/05_policies.sql` — review fix (F2): widen the UPDATE policy's
+  author-or-owning-role escape to `kind not in ('note', 'single_input')`.
+- `supabase/schemas/03_views.sql` — review fix (F2): mirror the widened escape in
+  `interactions_summary.can_moderate`.
+- `supabase/schemas/02_functions.sql` — review fix (F2): comment-only correction of a stale quoted
+  escape literal (no function body change).
+- `supabase/migrations/20260730073442_interactions_single_input_moderation.sql` — new migration
+  (review fix F2; hand-added the `security_invoker` re-assertion `create or replace view` cleared).
+- `supabase/tests/interaction_note_authorship.sql` — review fix (F2): checks (g2) / AC 5-single.
 - `supabase/tests/interactions_targets.sql` — positive/negative `single_input` kind-check coverage.
 - `src/components/atomic-crm/types.ts` — add `"single_input"` to `InteractionKind`.
 - `src/components/atomic-crm/entity360/tabs/interactionLabels.ts` — `INTERACTION_KIND_LABELS` entry.
@@ -324,13 +393,15 @@ still reads `{security_invoker=on}` on all four views, and `interactions_kind_ch
 - `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` — same, in French.
 - `src/components/atomic-crm/providers/fakerest/dataProvider.interactions.test.ts` — extended.
 - `src/components/atomic-crm/shidduchim/entityDescriptor.tsx` — `rightRail: ShidduchRightRail`.
-- `src/components/atomic-crm/shidduchim/entityDescriptor.test.tsx` — three new rail-integration tests.
+- `src/components/atomic-crm/shidduchim/entityDescriptor.test.tsx` — three rail-integration tests,
+  plus review fix (F1): the reminders panel's targetType/targetId + link-href coverage.
 - `src/components/atomic-crm/shidduchim/ShidduchRightRail.tsx` — new.
 - `src/components/atomic-crm/shidduchim/ShidduchRightRail.guard.test.ts` — new.
 - `src/components/atomic-crm/shidduchim/SingleInputPanel.tsx` — new.
 - `src/components/atomic-crm/shidduchim/SingleInputPanel.test.tsx` — new.
 - `src/components/atomic-crm/shidduchim/ForwardResumeButton.tsx` — new.
-- `src/components/atomic-crm/shidduchim/ForwardResumeButton.test.tsx` — new.
+- `src/components/atomic-crm/shidduchim/ForwardResumeButton.test.tsx` — new, plus review fix (F3):
+  the Web Share primary-path coverage.
 - `src/components/atomic-crm/resumes/useLatestResumeFile.ts` — new (shared "newest version" hook +
   sort function).
 - `src/components/atomic-crm/resumes/useLatestResumeFile.test.tsx` — new.

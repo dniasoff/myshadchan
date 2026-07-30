@@ -485,7 +485,7 @@ create policy "Interactions insertable within account and parent visibility" on 
     );
 
 -- The UPDATE policy alone gains AC 3's author-or-owning-role clause,
--- `and (kind <> 'note' or public.can_moderate_note(actor_member_id))`,
+-- `and (kind not in ('note', 'single_input') or public.can_moderate_note(actor_member_id))`,
 -- ANDed onto the same visibility predicate above, in BOTH `using` and
 -- `with check`:
 --   `using`      — AC 4's own observable is a ZERO ROWS AFFECTED update,
@@ -494,10 +494,23 @@ create policy "Interactions insertable within account and parent visibility" on 
 --                   caller's UPDATE.
 --   `with check` — so the update cannot re-point a row into a shape the
 --                   caller was never allowed to target in the first place.
--- The `kind <> 'note'` escape means every OTHER interaction kind
--- (call_logged, status_change, merge, link_created, link_removed —
--- 01_tables.sql) keeps today's plain account-scoped update behaviour
--- unchanged; only notes gain the author-or-owning-role restriction.
+-- The `kind not in ('note', 'single_input')` escape means every OTHER
+-- interaction kind (call_logged, status_change, merge, link_created,
+-- link_removed — 01_tables.sql) keeps today's plain account-scoped update
+-- behaviour unchanged; notes and single_input rows both gain the
+-- author-or-owning-role restriction.
+--
+-- `single_input` joined this bucket in Story 5.7's review-fix pass (finding
+-- F2), one migration after `interactions_kind_check` first admitted the
+-- kind: a `single_input` row is "the single's own words" on a shidduch, the
+-- same authorship shape a `note` has, not a machine-written record like
+-- `call_logged`/`status_change`/`merge`/`link_created`/`link_removed` that
+-- any account member may legitimately amend. Leaving it in the default
+-- bucket would have let any helper rewrite — or soft-delete, via the same
+-- UPDATE path — a single's own submitted words. `can_moderate_note()` itself
+-- needed no change: it already answers "is the caller this row's author (by
+-- user_id) or an owning-role member of the active context", which is exactly
+-- the right question for `single_input` too.
 create policy "Interactions updatable by author or owning role" on public.interactions
     for update to authenticated
     using (
@@ -548,7 +561,7 @@ create policy "Interactions updatable by author or owning role" on public.intera
                 )
             )
         )
-        and (kind <> 'note' or public.can_moderate_note(actor_member_id))
+        and (kind not in ('note', 'single_input') or public.can_moderate_note(actor_member_id))
     )
     with check (
         account_id = public.current_context_id()
@@ -598,7 +611,7 @@ create policy "Interactions updatable by author or owning role" on public.intera
                 )
             )
         )
-        and (kind <> 'note' or public.can_moderate_note(actor_member_id))
+        and (kind not in ('note', 'single_input') or public.can_moderate_note(actor_member_id))
     );
 
 -- identity_signals is READ-ONLY to clients. It is written exclusively by the

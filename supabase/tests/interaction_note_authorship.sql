@@ -9,6 +9,12 @@
 -- `interactions_summary` view checks, in one file, because both the policy
 -- and the view call the SAME function and must never disagree.
 --
+-- Story 5.7's review-fix pass (finding F2) widened that escape to `kind not
+-- in ('note', 'single_input') or public.can_moderate_note(...)`, extended
+-- here as checks (g2) and AC 5-single rather than a separate suite — same
+-- function, same policy, same reason the original four AC 5 checks live
+-- alongside AC 4's matrix.
+--
 -- "Zero rows affected" (checks a/b/f) is asserted through
 -- `GET DIAGNOSTICS ... ROW_COUNT` inside a DO block, never through
 -- PostgREST: a 0-row UPDATE there returns 404/PGRST116, indistinguishable
@@ -17,8 +23,13 @@
 -- Falsifiability record (contract §13 rule 2 — every check must be provably
 -- red before it is shown green):
 --   (a)/(c)/(g) — fail if the UPDATE policy's account-scope conjunct or the
---     `kind <> 'note'` escape is dropped (every update would then either
---     0-row or raise).
+--     `kind not in ('note', 'single_input')` escape is dropped (every
+--     update would then either 0-row or raise).
+--   (g2)/AC 5-single — the mirror-image proof for Story 5.7's widened
+--     escape: fails (wrongly passes with rows=1, or reports can_moderate =
+--     true) if `single_input` were left out of the escape's `kind not in
+--     (...)` list on either side (the UPDATE policy or
+--     interactions_summary), or if the two ever disagreed with each other.
 --   (b) — fails (wrongly passes with rows=1) if `can_moderate_note()` omits
 --     the author check, or if a second permissive UPDATE policy were added
 --     instead of replacing the `for all` policy (the OR-widening hazard
@@ -251,6 +262,19 @@ values ('reference', 4, 'account', 'call_logged', 'parent_admin1 logged a call (
 returning id as call_g \gset
 insert into ids values ('call_g', :'call_g');
 
+-- single_g (checks g2 / AC 5-single, Story 5.7 review finding F2):
+-- parent_admin1 authors a kind = 'single_input' row. Reused the same
+-- account-scope shape as call_g/note_b (target_type = 'reference', scope =
+-- 'account') rather than the real single_input shape (target_type =
+-- 'shidduch') — this suite tests the UPDATE policy's author-or-owning-role
+-- ESCAPE, which is identical for both target types; the shidduch-join
+-- branch of the visibility predicate is already covered elsewhere
+-- (interactions_targets.sql).
+insert into public.interactions (target_type, target_id, scope, kind, body)
+values ('reference', 10, 'account', 'single_input', 'parent_admin1''s single_input row (g2)')
+returning id as single_g \gset
+insert into ids values ('single_g', :'single_g');
+
 reset role;
 
 set local role authenticated;
@@ -286,8 +310,9 @@ end $$;
 
 -- ---------------------------------------------------------------------------
 -- (g) helper1 updates a kind = call_logged row authored by parent_admin1 ->
--- 1 row. The `kind <> 'note'` escape means the author-or-owning-role clause
--- never applies here; only the (unchanged) account-scope predicate gates it.
+-- 1 row. The `kind not in ('note', 'single_input')` escape means the
+-- author-or-owning-role clause never applies here; only the (unchanged)
+-- account-scope predicate gates it.
 -- ---------------------------------------------------------------------------
 do $$
 declare
@@ -304,19 +329,63 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- (g2) Story 5.7 review finding F2 — helper1 updates a kind = 'single_input'
+-- row authored by parent_admin1 -> 0 rows. Proves the OPPOSITE outcome from
+-- (g): `single_input` joined the author-or-owning-role bucket alongside
+-- `note` (05_policies.sql), because a single_input row is "the single's own
+-- words" — the same authorship shape a note has — not a machine-written
+-- record like call_logged that any account member may legitimately amend.
+-- Before this fix, single_input fell into (g)'s bucket instead and this
+-- check would have failed with rows=1.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_single_g bigint;
+  v_rows int;
+begin
+  select value::bigint into v_single_g from ids where name = 'single_g';
+  update public.interactions set body = 'helper1 tried to rewrite the single''s words (g2)' where id = v_single_g;
+  get diagnostics v_rows = row_count;
+  insert into results values (
+    '(g2) helper updates a kind = ''single_input'' row authored by the parent_admin -> 0 rows',
+    v_rows = 0, format('rows=%s', v_rows)
+  );
+exception when others then
+  insert into results values (
+    '(g2) helper updates a kind = ''single_input'' row authored by the parent_admin -> 0 rows', false, sqlerrm
+  );
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- AC 5 / view correctness: interactions_summary.can_moderate mirrors the
--- `kind <> 'note'` escape, not just can_moderate_note() -- fails if the view
--- calls can_moderate_note() unconditionally, which would report `false` here
--- (helper1 is neither call_g's author nor an owning role in A) even though
--- (g) just proved the UPDATE policy lets helper1 update this exact row.
+-- `kind not in ('note', 'single_input')` escape, not just can_moderate_note()
+-- -- fails if the view calls can_moderate_note() unconditionally, which
+-- would report `false` here (helper1 is neither call_g's author nor an
+-- owning role in A) even though (g) just proved the UPDATE policy lets
+-- helper1 update this exact row.
 -- ---------------------------------------------------------------------------
 insert into results (name, passed)
-select 'AC 5: interactions_summary.can_moderate is true for a non-note row the caller may still update per the ''kind <> note'' escape',
+select 'AC 5: interactions_summary.can_moderate is true for a non-note/non-single_input row the caller may still update per the escape',
        coalesce(
          (select can_moderate from public.interactions_summary
           where id = (select value::bigint from ids where name = 'call_g')),
          false
        );
+
+-- ---------------------------------------------------------------------------
+-- AC 5-single / Story 5.7 review finding F2: interactions_summary.can_moderate
+-- is false for a single_input row the caller may NOT update -- (g2) just
+-- proved the UPDATE policy denies helper1 this exact row; a view that still
+-- called can_moderate_note() unconditionally, or that omitted single_input
+-- from its own escape, would report `true` here.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed)
+select 'AC 5-single: interactions_summary.can_moderate is false for a single_input row the caller may not update',
+       coalesce(
+         (select can_moderate from public.interactions_summary
+          where id = (select value::bigint from ids where name = 'single_g')),
+         true
+       ) = false;
 
 -- note_c: a fresh note helper1 authors specifically for parent_admin1 to
 -- soft-delete in check (c) — kept separate from note_a so (a)'s body edit

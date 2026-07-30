@@ -166,3 +166,65 @@ describe("ForwardResumeButton — falls back to a plain download (AC 4)", () => 
       .not.toBeDisabled();
   });
 });
+
+describe("ForwardResumeButton — the Web Share primary path (AC 4, review finding F3)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(navigator, "canShare");
+    Reflect.deleteProperty(navigator, "share");
+  });
+
+  /**
+   * The only other test in this file that touches `navigator.canShare`
+   * forces it `undefined`, exercising the plain-download fallback exclusively
+   * — `navigator.share` is never invoked anywhere in the repo's test suite
+   * (review finding F3). A call site written as `navigator.share({ files:
+   * [...payload.files, photoFile] })` would pass every existing test. This
+   * stubs the Web Share API as supported, drives the primary path, and
+   * asserts the object handed to `navigator.share` holds exactly one file
+   * named `resume.pdf` — AD-9's "a photo is never included in a share unless
+   * chosen" guarantee, on the path that actually calls `navigator.share`,
+   * not only on `buildResumeSharePayload` in isolation
+   * (`resumeSharePayload.test.ts`).
+   */
+  it("invokes navigator.share with exactly one file named resume.pdf, and never falls back to a download", async () => {
+    // Arrange
+    const canShare = vi.fn().mockReturnValue(true);
+    const share = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "canShare", {
+      value: canShare,
+      configurable: true,
+    });
+    Object.defineProperty(navigator, "share", {
+      value: share,
+      configurable: true,
+    });
+    const pdfBytes = new Blob(["pdf-bytes"], { type: "application/pdf" });
+    const fetchSpy = vi
+      .spyOn(window, "fetch")
+      .mockResolvedValue(new Response(pdfBytes));
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    const signResumeFileUrl = vi
+      .fn()
+      .mockResolvedValue("https://signed.example/share");
+    const { screen } = await renderButton({
+      getList: vi
+        .fn()
+        .mockResolvedValue({ data: [buildResumeRow()], total: 1 }),
+      signResumeFileUrl,
+    });
+
+    // Act
+    await screen.getByRole("button", { name: "Forward resume" }).click();
+
+    // Assert
+    await expect.poll(() => share.mock.calls.length).toBe(1);
+    const payload = share.mock.calls[0][0] as { files: File[] };
+    expect(payload.files).toHaveLength(1);
+    expect(payload.files[0].name).toBe("resume.pdf");
+    expect(payload.files[0].type).toBe("application/pdf");
+    // The primary path was taken end to end — no fallback download opened.
+    expect(openSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+});

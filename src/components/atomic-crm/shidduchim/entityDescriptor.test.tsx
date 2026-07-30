@@ -19,8 +19,10 @@ import type {
   MemberRole,
   MyContext,
   Resume,
+  Task,
 } from "../types";
 import { buildEntityRoutes } from "../entity360/buildEntityRoutes";
+import { buildTabPath } from "../entity360/entityPaths";
 import { EntityShow } from "../entity360/EntityShow";
 // Side-effect import — registers the REAL shidduchimDescriptor, exactly like
 // `<entity>/index.ts` does at boot. This file proves the real registered
@@ -325,6 +327,62 @@ describe("shidduchimDescriptor — the right rail (Story 5.7, AC 1 / AC 2 / AC 3
     );
     expect(screen.container.textContent ?? "").not.toContain(
       "Same Shidduch Wrong Kind Note",
+    );
+  });
+
+  it("the reminders panel lists only this shidduch's own open tasks and links to THIS shidduch's Tasks tab (review finding F1)", async () => {
+    // Arrange — one task that belongs to this shidduch, one filed under a
+    // different shidduch's target_id. Mutating `ShidduchRightRail`'s
+    // `targetType`/`targetId` props on `TasksRailSummary` previously left
+    // `make typecheck` and the whole suite green: the only existing coverage
+    // of the mounted rail asserted the "Reminders" heading and that a "See
+    // all tasks" link exists, never that a task belonging to this shidduch
+    // renders or that the link's href targets this shidduch (review finding
+    // F1). `capturedShidduchId` lets the assertions below reference the
+    // SAME id `renderShidduchShow` generated, rather than a hardcoded one.
+    let capturedShidduchId: Identifier | undefined;
+    const { screen } = await renderShidduchShow(
+      "parent_admin",
+      (db, shidduchId) => {
+        capturedShidduchId = shidduchId;
+        let nextId = 80000;
+        const buildTask = (overrides: Partial<Task>): Task => ({
+          id: nextId++,
+          type: "reminder",
+          text: "placeholder",
+          due_date: "2026-02-01T00:00:00Z",
+          done_date: null,
+          target_type: "shidduch",
+          target_id: shidduchId,
+          ...overrides,
+        });
+        db.tasks = [
+          ...db.tasks,
+          buildTask({ text: "This Shidduch's Own Reminder" }),
+          buildTask({
+            target_id: 9999999,
+            text: "A Different Shidduch's Reminder",
+          }),
+        ];
+      },
+    );
+
+    // Assert — this shidduch's own open task renders...
+    await expect
+      .element(screen.getByText("This Shidduch's Own Reminder"))
+      .toBeInTheDocument();
+    // ...the foreign shidduch's task never does...
+    expect(screen.container.textContent ?? "").not.toContain(
+      "A Different Shidduch's Reminder",
+    );
+    // ...and the "See all tasks" link targets THIS shidduch's Tasks tab,
+    // built through `buildTabPath` — a wrong `targetId` (e.g. a stray
+    // literal) would still pass every other assertion here but produce a
+    // broken href.
+    const link = screen.getByRole("link", { name: "See all tasks" });
+    await expect.element(link).toBeInTheDocument();
+    expect(link.element().getAttribute("href")).toBe(
+      buildTabPath("shidduchim", capturedShidduchId!, "tasks"),
     );
   });
 

@@ -586,10 +586,11 @@ $$;
 --        (c) a SECURITY DEFINER writer (log_reference_call(),
 --            merge_references()) invoked with no active context stamps
 --            current_member_id(), which is NULL by design (see its own
---            comment above). Such rows are 'call_logged' or 'merge', never
---            'note', so both callers' `kind <> 'note' or
---            can_moderate_note(...)` guard means they never reach this
---            function — but (c) is why the column is nullable at all, and
+--            comment above). Such rows are 'call_logged' or 'merge', neither
+--            'note' nor 'single_input', so both callers' `kind not in
+--            ('note', 'single_input') or can_moderate_note(...)` guard means
+--            they never reach this function — but (c) is why the column is
+--            nullable at all, and
 --            why a NOT NULL constraint must not be "tidied" onto it.
 --      (b) and (c) are ongoing, not historical. A backfill would therefore
 --      never converge — it would have to be re-run forever, which is the
