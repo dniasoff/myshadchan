@@ -134,4 +134,44 @@ describe("shadchan_stats emulation (E5)", () => {
     expect(data.nb_open_singles).toBe(0);
     expect(data.last_redt_date).toBeNull();
   });
+
+  it("counts nb_open_singles as DISTINCT singles, not shidduchim, when two open shidduchim share one single", async () => {
+    // Arrange — one single, one shadchan, TWO open shidduchim both attributed
+    // to that same single (still-in-triage states, so both count as "open").
+    // "How many singles" must read 1 here, never 2 — a regression from
+    // `Set<single_id>.size` to a plain open-shidduchim count would return 2
+    // and this is the one fixture that can tell the difference (every other
+    // fixture in this suite attributes at most one open shidduch per single).
+    const dataProvider = makeProvider();
+    const { data: single } = await dataProvider.create<Single>("singles", {
+      data: {
+        account_id: 1,
+        first_name_en: "Shared",
+        status: "active",
+      } as Single,
+    });
+    const { data: shadchan } = await dataProvider.create<Shadchan>(
+      "shadchanim",
+      { data: { account_id: 1, name: "Two-Open-Same-Single" } as Shadchan },
+    );
+    await dataProvider.createShidduch({
+      single_id: single.id,
+      shadchan_id: shadchan.id,
+      initial_state: "new",
+    });
+    await dataProvider.createShidduch({
+      single_id: single.id,
+      shadchan_id: shadchan.id,
+      initial_state: "look_into",
+    });
+
+    // Act
+    const { data } = await dataProvider.getOne("shadchan_stats", {
+      id: shadchan.id,
+    });
+
+    // Assert
+    expect(data.nb_suggestions).toBe(2);
+    expect(data.nb_open_singles).toBe(1);
+  });
 });

@@ -725,6 +725,64 @@ Claude (bmad-dev-story workflow)
   `entity-list-view-toggle.spec.ts` / `navigation.spec.ts` (chromium project) against
   `STACK_ID=3`. Stack 3 released after use.
 
+### Review Fix Notes (STACK_ID=3 / STACK_OWNER=fix-5-9 review — findings F1–F4 + minor)
+
+No shipped behaviour was wrong; every finding was a coverage/contract-conformance gap in the
+guards themselves. All fixed within this story's own declared files.
+
+- **F1 (blocking, fixed): `nb_open_singles` was unguarded at all three layers.** No existing
+  fixture (UI, FakeRest, or SQL) ever gave a shadchan two open shidduchim sharing one single, so
+  `count(distinct s.single_id)` and a plain non-distinct count produced the same answer everywhere
+  — the "non-negotiable" DISTINCT was untested. Added the distinguishing fixture at all three
+  layers: `providers/fakerest/dataProvider.summaryStats.test.ts` (a new case: one single, two open
+  shidduchim, asserts `nb_open_singles === 1` while `nb_suggestions === 2`);
+  `supabase/tests/references_entity.sql` (a second shidduch added to the AC-6 isolation shadchan,
+  same single, plus a dedicated DISTINCT-vs-plain-count assertion); `shadchanim/entityDescriptor.test.tsx`
+  (the Overview-tab fixture now attributes two shidduchim on two different singles — one open, one
+  terminal — so `nb_suggestions` (2) and `nb_open_singles` (1) are deliberately different values,
+  with an exact-string assertion on the fact row). Proved each fixture falsifiable by reverting the
+  guarded code (`Set<single_id>` → plain count, `count(distinct …)` → `count(…)`,
+  `nb_open_singles` → `nb_suggestions`) and confirming red, then restoring green.
+- **F2 (blocking, fixed): the stat-band adapter test was decoration.** It asserted only that a
+  "Progressed" label was present; `StatStrip` renders every tile unconditionally
+  (`data?.x ?? 0`), so a `shadchanId` swapped for a nonexistent id still renders the label — just
+  with "0". Rewrote the test to attribute a known, non-zero shidduch to the shadchan and assert the
+  tile's exact value (`"1Progressed"`, scoped to its own segment), which a wrong/missing id cannot
+  coincidentally produce.
+- **F3 (blocking, fixed): AC-6's cross-account negative used two disjoint users, not
+  one-login-two-accounts.** Contract §13 rule 3 requires the latter shape specifically because two
+  disjoint single-membership users cannot distinguish "filtered by the active context" from
+  "filtered by any membership the caller holds" — with only one membership each, the two
+  coincide. Replaced the negative in `references_entity.sql` with a fourth user carrying active
+  memberships in both tenants, switching via `set_active_context()` (the same shape
+  `interactions_targets.sql` already uses for AC-5), and corrected the block's own comment, which
+  had falsely claimed parity with the (also two-disjoint-user) check above it. Proved the new
+  shape's value directly: temporarily rewrote `shadchanim`'s RLS policy from
+  `account_id = current_context_id()` to an "any active membership" `exists(...)` check — the new
+  one-login-two-accounts assertions went red, while the old-shape two-disjoint-user checks
+  elsewhere in the same file (structurally identical to what this block used to be) stayed green,
+  confirming that shape genuinely cannot catch this bug class. Restored the real policy and
+  reconfirmed all 591 DB tests green.
+- **F4 (disclosed originally, now also forwarded): the `src/components/admin/{edit-button,show-button}.test.tsx`
+  ownership excursion will recur on 5.10.** Added a note to `5-10-reference-360-and-diligence.md`'s
+  own Project Structure Notes flagging both files up front, so 5.10 declares them instead of
+  hitting them as a surprise.
+- **Minor (fixed): `ShadchanOverviewTab` silently swallowed a `shadchan_stats` fetch error**,
+  rendering the generic "No details on file yet." empty state instead of surfacing the failure
+  (`.claude/rules/coding-style.md`: never silently swallow errors). Added an explicit `error`
+  branch with a translated message, a new test simulating a rejected `getOne("shadchan_stats", …)`,
+  and `enabled: record != null` (rather than `id: record?.id ?? ""`, which is not `null` and so
+  never actually skipped the request before the record resolved).
+- **Minor (fixed): two fact-row assertions used `toContain`, which a value like `"10"` or `"21"`
+  would also satisfy.** Switched both (`entityDescriptor.test.tsx`'s empty-state and Overview
+  fixtures) to exact-string equality on the fact row's full text content.
+
+Re-ran the full gate after all fixes: `make typecheck` clean, `make lint` (eslint + prettier)
+clean, `npx vitest run` 204 files / 2102 tests, `npm run test:unit:db` against a fresh `STACK_ID=3`
+stack (20 files / 591 tests), all four CI guards OK, `make registry-gen` zero diff, `make build`
+clean, `e2e/entity-list-search.spec.ts` 3/3 chromium against the same stack. Stack 3 released after
+use.
+
 ### File List
 
 **Migrations (new):**

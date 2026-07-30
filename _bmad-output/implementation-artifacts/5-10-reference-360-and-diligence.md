@@ -635,6 +635,15 @@ analysis, not link counting).
 - **No schema change, no migration, no migration lease.** Task 2's decision (batched
   `references_summary` read) removes the only candidate. If a `supabase/**` edit appears in this
   story's diff, RULING 7 R7 has been pulled in from the S16 wave — revert it.
+- **Expect a repeat AC-4-route-flip landmine in `src/components/admin/`.** Story 5.9 hit this
+  first: `edit-button.test.tsx` and `show-button.test.tsx` each pin `hasAd24RecordShape`'s two
+  branches against an entity "that still HAS a pre-migration state" — 5.9's own migration removed
+  `shadchanim` as that entity, so 5.9's review fix repointed both tests at `references` (this
+  story's still-unmigrated stub) instead, same assertions, same shape. Once this story's own AC-4
+  route flip lands, `references` is no longer a valid pre-migration example either — both files
+  will need to move to whatever entity is still unmigrated at that point (or fail if none is). Both
+  files are outside every path this story declares elsewhere in this section; declare them
+  explicitly rather than treating a hit on them as a surprise out-of-scope excursion.
 - Frontend changes are **not** confined to `references/`. This story also writes
   `entity360/{entityDescriptor.ts, ad24Conformance.ts, ad24Conformance.test.ts,
   registry.stubs.test.ts, RecordUnavailable.tsx, routeConvention.tsx}`,

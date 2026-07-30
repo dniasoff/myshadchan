@@ -1,4 +1,4 @@
-import { useGetOne, useRecordContext } from "ra-core";
+import { useGetOne, useRecordContext, useTranslate } from "ra-core";
 
 import { OverviewTab } from "../entity360/tabs/OverviewTab";
 import type { OverviewFact } from "../entity360/tabs/OverviewFactGrid";
@@ -19,12 +19,35 @@ import type { Shadchan, ShadchanStats } from "../types";
  */
 export function ShadchanOverviewTab() {
   const record = useRecordContext<Shadchan>();
-  const { data: stats, isPending } = useGetOne<ShadchanStats>(
+  const translate = useTranslate();
+  // `enabled: record != null` (rather than falling back to `id: ""`) so no
+  // request fires before the record resolves — an empty-string id is not
+  // `null`, so `useGetOne`'s own `enabled: id != null` default would not
+  // have skipped it.
+  const {
+    data: stats,
+    isPending,
+    error,
+  } = useGetOne<ShadchanStats>(
     "shadchan_stats",
-    { id: record?.id ?? "" },
+    { id: record?.id },
+    { enabled: record != null },
   );
 
   if (!record) return null;
+
+  // Never silently swallow a failed fetch (coding-style.md) — a 403/500 on
+  // `shadchan_stats` must not render as though this shadchan simply has no
+  // details on file.
+  if (error) {
+    return (
+      <p className="text-sm text-destructive">
+        {translate("crm.entity360.overview.statsError", {
+          _: "Could not load this shadchan's stats. Try refreshing the page.",
+        })}
+      </p>
+    );
+  }
 
   const facts: OverviewFact[] = [
     { label: "Hebrew name", he: record.name_he ?? null },

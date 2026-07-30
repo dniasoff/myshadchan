@@ -12,6 +12,7 @@ import { Route, Routes } from "react-router";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import { createDataProvider } from "../providers/fakerest/dataProvider";
 import generateData from "../providers/fakerest/dataGenerator";
+import type { CrmDataProvider } from "../providers/types";
 import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import type { Interaction, MyContext, Shidduch, Task } from "../types";
 import { buildEntityRoutes } from "../entity360/buildEntityRoutes";
@@ -49,11 +50,18 @@ const renderShadchanShow = async (
     db: ReturnType<typeof generateData>,
     shadchanId: Identifier,
   ) => void = () => {},
+  overrideDataProvider: (
+    base: CrmDataProvider,
+  ) => Partial<CrmDataProvider> = () => ({}),
 ) => {
   const db = generateData();
   const shadchanId = db.shadchanim[0].id;
   configureDb(db, shadchanId);
-  const dataProvider = createDataProvider({ db, latency: 0, silent: true });
+  const baseDataProvider = createDataProvider({ db, latency: 0, silent: true });
+  const dataProvider: CrmDataProvider = {
+    ...baseDataProvider,
+    ...overrideDataProvider(baseDataProvider),
+  };
   const contexts = contextsFor();
   const queryClient = new QueryClient();
   queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, contexts);
@@ -82,6 +90,26 @@ const renderShadchanShow = async (
   return { screen, shadchanId, dataProvider };
 };
 
+const buildShidduch = (
+  overrides: Partial<Shidduch> & Pick<Shidduch, "id" | "single_id">,
+): Shidduch => ({
+  account_id: 1,
+  shadchan_id: null,
+  name_en: null,
+  name_he: null,
+  pipeline_state: "new",
+  first_suggested_by: null,
+  first_suggested_at: "2026-01-01T00:00:00Z",
+  redt_date: "2026-03-15",
+  close_reason: null,
+  origin: "manual",
+  owner_member_id: null,
+  visibility: "shared",
+  index: 0,
+  created_at: "2026-01-01T00:00:00Z",
+  ...overrides,
+});
+
 describe("shadchanimDescriptor — tab strip order (Story 5.9, AC 3)", () => {
   it("renders all five canonical tabs, in canonical order, on the rendered strip (not merely the descriptor literal)", async () => {
     // Act
@@ -106,9 +134,26 @@ describe("shadchanimDescriptor — tab strip order (Story 5.9, AC 3)", () => {
 });
 
 describe("shadchanimDescriptor — identity header and stat band adapters render the real record (Story 5.9)", () => {
-  it("shows the shadchan's own name (ShadchanIdentityHeader) and the shidduchim stat tiles (ShadchanStatBand)", async () => {
-    // Arrange — this shadchan's own name, from the seeded fixture.
-    const { screen, shadchanId } = await renderShadchanShow();
+  it("shows the shadchan's own name (ShadchanIdentityHeader) and the shidduchim stat tiles keyed on THIS shadchan's own id (ShadchanStatBand)", async () => {
+    // Arrange — this shadchan's own name, from the seeded fixture, plus a
+    // distinctive, non-zero "Progressed" count attributed ONLY to this
+    // shadchan. `StatStrip` renders every tile unconditionally (`data?.x ??
+    // 0`), so a mutated `shadchanId={9999999}` still renders a "Progressed"
+    // label — it renders "0", not this fixture's exact value. Asserting the
+    // label's presence alone (as an earlier version of this test did) cannot
+    // tell the two apart; asserting the exact value can.
+    const { screen, shadchanId } = await renderShadchanShow((db, id) => {
+      const singleId = db.singles[0].id;
+      db.shidduchim = [
+        ...db.shidduchim.filter((s) => s.shadchan_id !== id),
+        buildShidduch({
+          id: 90610,
+          single_id: singleId,
+          shadchan_id: id,
+          pipeline_state: "yes",
+        }),
+      ];
+    });
     const shadchanName = "Mrs. Gold";
 
     // Assert — the identity header adapter rendered ShadchanHeader with
@@ -119,43 +164,34 @@ describe("shadchanimDescriptor — identity header and stat band adapters render
       .toBeInTheDocument();
 
     // Assert — the stat band adapter rendered ShadchanStatsRow keyed on
-    // THIS shadchan's id (a mutated `shadchanId` prop would fetch the wrong
-    // row or crash) — its "Progressed" tile (unlike "Shidduchim", this label
-    // has no same-named tab to collide with).
-    await expect
-      .element(screen.getByText("Progressed", { exact: true }))
-      .toBeInTheDocument();
+    // THIS shadchan's id: exactly one shidduch, already at "yes", so
+    // "Progressed" reads "1" (moved past "new") and nothing else could
+    // produce that exact value by coincidence with a wrong/missing id (which
+    // renders "0"). Scoped to the segment sharing this label, not a bare
+    // `getByText("1")` — the identity header's own "In your book since" line
+    // does not contain a bare "1", but scoping avoids relying on that.
+    const progressedLabel = screen.getByText("Progressed", { exact: true });
+    await expect.element(progressedLabel).toBeInTheDocument();
+    const segment = progressedLabel.element().parentElement;
+    expect(segment?.textContent).toBe("1Progressed");
     expect(shadchanId).toBeDefined();
   });
 });
 
 describe("shadchanimDescriptor — the Overview tab renders Last redt / Working on now from shadchan_stats (Story 5.9, RULING 8)", () => {
-  const buildShidduch = (
-    overrides: Partial<Shidduch> & Pick<Shidduch, "id" | "single_id">,
-  ): Shidduch => ({
-    account_id: 1,
-    shadchan_id: null,
-    name_en: null,
-    name_he: null,
-    pipeline_state: "new",
-    first_suggested_by: null,
-    first_suggested_at: "2026-01-01T00:00:00Z",
-    redt_date: "2026-03-15",
-    close_reason: null,
-    origin: "manual",
-    owner_member_id: null,
-    visibility: "shared",
-    index: 0,
-    created_at: "2026-01-01T00:00:00Z",
-    ...overrides,
-  });
-
   it("renders Last redt and Working on now once shadchan_stats resolves", async () => {
     // Arrange — clear whatever the base fixture already attributed to this
-    // shadchan, so the one shidduch added below is unambiguously the sole
-    // (and therefore the max) redt_date and the sole open single.
+    // shadchan, then attribute TWO shidduchim on two DIFFERENT singles: one
+    // still open, one already at a terminal state. nb_suggestions (2) and
+    // nb_open_singles (1) are deliberately different values here — a swap of
+    // `stats.nb_open_singles` for `stats.nb_suggestions` in
+    // `ShadchanOverviewTab.tsx` would render "2", not "1", and the exact-value
+    // assertion below catches it (the earlier fixture used exactly one
+    // shidduch, where both counts happen to coincide at 1 and a swap would
+    // have gone undetected).
     const { screen } = await renderShadchanShow((db, shadchanId) => {
       const singleId = db.singles[0].id;
+      const otherSingleId = db.singles[1].id;
       db.shidduchim = [
         ...db.shidduchim.filter((s) => s.shadchan_id !== shadchanId),
         buildShidduch({
@@ -165,6 +201,13 @@ describe("shadchanimDescriptor — the Overview tab renders Last redt / Working 
           pipeline_state: "look_into",
           redt_date: "2026-03-15",
         }),
+        buildShidduch({
+          id: 90601,
+          single_id: otherSingleId,
+          shadchan_id: shadchanId,
+          pipeline_state: "yes",
+          redt_date: "2026-01-01",
+        }),
       ];
     });
 
@@ -173,10 +216,15 @@ describe("shadchanimDescriptor — the Overview tab renders Last redt / Working 
 
     // Assert
     await expect.element(screen.getByText("Last redt")).toBeInTheDocument();
-    await expect
-      .element(screen.getByText("Working on now"))
-      .toBeInTheDocument();
+    const workingOnNowLabel = screen.getByText("Working on now");
+    await expect.element(workingOnNowLabel).toBeInTheDocument();
     await expect.element(screen.getByText("15 Mar 2026")).toBeInTheDocument();
+    // Scoped to this fact row's own container, exact value: 1 distinct open
+    // single, never 2 (the total shidduchim count) and never fabricated. An
+    // exact match (not `toContain`/`endsWith`) so a value like "21" cannot
+    // also satisfy it.
+    const factRow = workingOnNowLabel.element().closest("div");
+    expect(factRow?.textContent).toBe("Working on now1");
   });
 
   it("renders the empty state (no Last redt / no Working on now count) for a shadchan with zero attributed shidduchim", async () => {
@@ -194,10 +242,42 @@ describe("shadchanimDescriptor — the Overview tab renders Last redt / Working 
     await expect.element(workingOnNowLabel).toBeInTheDocument();
     // Scoped to this fact row's own container — the stat band above it
     // (ShadchanStatsRow) also renders zeroed tiles for an idle shadchan, so
-    // a bare `getByText("0")` would match more than one element.
+    // a bare `getByText("0")` would match more than one element. An exact
+    // match (not `toContain`) so a value like "10" cannot also satisfy it.
     const factRow = workingOnNowLabel.element().closest("div");
-    expect(factRow?.textContent ?? "").toContain("0");
+    expect(factRow?.textContent).toBe("Working on now0");
     expect(screen.container.textContent ?? "").not.toContain("Last redt");
+  });
+
+  it("shows a translated error message, never the empty-details copy, when shadchan_stats fails to load", async () => {
+    // Arrange — `shadchan_stats` rejects (e.g. a 403), everything else
+    // (including the shadchan record itself) still resolves normally.
+    const { screen } = await renderShadchanShow(undefined, (base) => ({
+      getOne: (async (
+        resource: Parameters<CrmDataProvider["getOne"]>[0],
+        params: Parameters<CrmDataProvider["getOne"]>[1],
+      ) => {
+        if (resource === "shadchan_stats") {
+          throw new Error("shadchan_stats fetch failed");
+        }
+        return base.getOne(resource, params);
+      }) as CrmDataProvider["getOne"],
+    }));
+
+    // Act
+    await screen.getByRole("tab", { name: "Overview" }).click();
+
+    // Assert — never silently swallowed as "no details on file yet."
+    await expect
+      .element(
+        screen.getByText(
+          "Could not load this shadchan's stats. Try refreshing the page.",
+        ),
+      )
+      .toBeInTheDocument();
+    expect(screen.container.textContent ?? "").not.toContain(
+      "No details on file yet.",
+    );
   });
 });
 

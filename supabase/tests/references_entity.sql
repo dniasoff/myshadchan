@@ -61,6 +61,20 @@ insert into public.account_members (account_id, user_id, role)
 values (:acct_a, '11111111-1111-1111-1111-111111111111', 'parent_admin'),
        (:acct_b, '22222222-2222-2222-2222-222222222222', 'parent_admin');
 
+-- A fourth user, arranged here (still under the superuser role, before the
+-- `set local role authenticated` switch below — `auth.users`/`account_members`
+-- writes are not reachable once that switch happens) but not acted on until
+-- Story 5.9 AC-6's shadchan_stats check further down: ONE login with active
+-- membership in BOTH tenants, the shape a cross-tenant negative needs to tell
+-- "filtered by the active context" apart from "filtered by any membership".
+insert into auth.users (id, instance_id, aud, role, email)
+values ('44444444-4444-4444-4444-444444444444', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'dual-tenant@test.local');
+
+insert into public.account_members (account_id, user_id, role)
+values (:acct_a, '44444444-4444-4444-4444-444444444444', 'parent_admin');
+insert into public.account_members (account_id, user_id, role)
+values (:acct_b, '44444444-4444-4444-4444-444444444444', 'parent_admin');
+
 insert into public.singles (account_id, first_name_en, gender)
 values (:acct_a, 'Leah', 'female') returning id as single_a \gset
 insert into ids values ('single_a', :single_a);
@@ -688,10 +702,16 @@ select 'tenant A reads only its own single from public.singles_summary, never te
 
 -- ---------------------------------------------------------------------------
 -- Story 5.9 AC-6 (RULING 8), continued: the widened shadchan_stats view
--- (last_redt_date, nb_open_singles) must not leak another account's rows
--- either — same one-login-two-accounts shape as the singles_summary check
--- just above. Tenant A's own shadchan and its one open shidduch are created
--- now that we are back under tenant A's claims.
+-- (last_redt_date, nb_open_singles) must not leak another account's rows.
+-- Contract §13 rule 3 is explicit: a cross-tenant negative is ONE login with
+-- memberships in two accounts, active in one — never two disjoint users.
+-- Two disjoint users (each with a single membership) can only prove
+-- account_id filtering; they cannot catch a policy that resolves visibility
+-- by "any membership the caller holds" instead of the caller's ACTIVE
+-- context, because neither user has a second membership to leak from. This
+-- extends the same set_active_context() shape AC-5 already uses in
+-- interactions_targets.sql. Tenant A's own shadchan and its one open
+-- shidduch are created now that we are back under tenant A's claims.
 -- ---------------------------------------------------------------------------
 insert into public.shadchanim (name) values ('Tenant A Shadchan (isolation)')
 returning id as shadchan_a_isolation \gset
@@ -699,15 +719,44 @@ returning id as shadchan_a_isolation \gset
 insert into public.shidduchim (single_id, name_en, shadchan_id, pipeline_state)
 values (:single_a, 'Isolation check shidduch', :shadchan_a_isolation, 'look_into');
 
+-- A SECOND open shidduch attributed to this shadchan, on the SAME single
+-- (`single_a`, already used above) — the fixture "how many singles" ≠ "how
+-- many shidduchim" needs. `count(distinct s.single_id)` must still read 1;
+-- a regression to plain `count(s.single_id)` (no DISTINCT) would read 2.
+insert into public.shidduchim (single_id, name_en, shadchan_id, pipeline_state)
+values (:single_a, 'Second isolation check shidduch, same single', :shadchan_a_isolation, 'new');
+
+-- ONE login, active membership in BOTH tenants (arranged near the top of
+-- this file, before the role switch to `authenticated` — see the comment
+-- there) — the shape that can actually distinguish "filtered by active
+-- context" from "filtered by any membership".
+set local request.jwt.claims = '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}';
+select public.set_active_context(:acct_a);
+
 insert into results (name, passed)
-select 'tenant A reads only its own shadchan from public.shadchan_stats, never tenant B''s',
+select 'one login active in A: reads only its own shadchan from public.shadchan_stats, never tenant B''s',
        (select count(*) from public.shadchan_stats where id = :shadchan_a_isolation) = 1
    and (select count(*) from public.shadchan_stats where id = :shadchan_b_isolation) = 0;
 
 insert into results (name, passed)
-select 'tenant A''s shadchan_stats row reflects only its own attributed shidduch (nb_open_singles = 1, last_redt_date not null) — never fabricated, never tenant B''s',
+select 'one login active in A: shadchan_stats row reflects only its own attributed shidduchim (nb_open_singles = 1, last_redt_date not null) — never fabricated, never tenant B''s',
        (select nb_open_singles from public.shadchan_stats where id = :shadchan_a_isolation) = 1
    and (select last_redt_date from public.shadchan_stats where id = :shadchan_a_isolation) is not null;
+
+insert into results (name, passed)
+select 'nb_open_singles counts DISTINCT singles, not shidduchim: 2 open shidduchim sharing one single still reads 1, not 2 — a regression to plain count(s.single_id) (no DISTINCT) would fail this',
+       (select nb_open_singles from public.shadchan_stats where id = :shadchan_a_isolation) = 1
+   and (select nb_suggestions from public.shadchan_stats where id = :shadchan_a_isolation) = 2;
+
+select public.set_active_context(:acct_b);
+
+insert into results (name, passed)
+select 'same login, after switching active context to B: visibility swaps to B''s shadchan and away from A''s — proves shadchan_stats is filtered by the ACTIVE context, not by "is this user a member of the row''s account"',
+       (select count(*) from public.shadchan_stats where id = :shadchan_b_isolation) = 1
+   and (select count(*) from public.shadchan_stats where id = :shadchan_a_isolation) = 0;
+
+-- Restore tenant A's claims for the rest of the suite.
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
 -- The merge's definer helper is the one way an interaction can be re-parented.
 -- It must not become a way to move a note onto a DIFFERENT shidduch, which is
