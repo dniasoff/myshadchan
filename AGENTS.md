@@ -39,6 +39,29 @@ npx supabase db push                    # Push migrations to remote
 npx supabase db reset --local           # Reset local database (destructive)
 ```
 
+#### The column-order trap (`db diff` never converges)
+
+If `db diff` emits `drop view` + `create or replace view` for views you did not
+touch, on a tree with no pending edit, **do not commit that as a migration** —
+it is non-convergent and the next diff reproduces it identically. It also
+silently drops `security_invoker = on` and the `06_grants.sql` grants from every
+view it rewrites.
+
+The cause is a `create table` block in `supabase/schemas/01_tables.sql` whose
+column order no longer matches the database's physical order — `alter table add
+column` appends to the tail, `drop column` leaves a hole, and `migra` compares
+by ordinal position. Fix it by reordering the declarative block, **never** with
+a migration:
+
+```bash
+npm run test:unit:db -- column_order   # names any table whose declared order has drifted
+```
+
+Full explanation, including the Epic-5 incident that cost a deploy and the two
+migration comments that misdiagnose it, is in the `COLUMN-ORDER TRAP` header of
+`supabase/schemas/01_tables.sql`. After any fix, run `db diff` **twice** — once
+for clean, once for convergence.
+
 ### Registry (Shadcn Components)
 
 ```bash
@@ -161,6 +184,7 @@ When modifying an entity's data structures (e.g. `shidduchim`, `references`):
 4. If using FakeRest, update data generators in `src/components/atomic-crm/providers/fakerest/dataGenerator/`
 5. Don't forget to update the related summary view (e.g. `shidduchim_summary`, `references_summary`) in `03_views.sql`
 6. Don't forget the merge logic if the entity supports merging (e.g. `merge_references()`)
+7. If the migration added or dropped a column, reorder the `create table` block in `01_tables.sql` to the database's physical order — see "The column-order trap" above, and `npm run test:unit:db -- column_order`
 
 ### Git Hooks
 

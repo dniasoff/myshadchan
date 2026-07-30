@@ -2,15 +2,29 @@
 -- Standing guard: every `public` schema view is `security_invoker = on` —
 -- database test suite.
 --
--- Review fix F1/F2 (Story 5.2). `supabase db diff`'s dependency tracking on
--- `public.shidduchim` cascaded a DROP + CREATE VIEW onto three sibling views
--- that never referenced the columns this story changed (see
--- 20260730011428_shidduch_overview_fields.sql's own MANUAL ADJUSTMENTS
--- comment and Debug Log) — and neither `CREATE OR REPLACE VIEW` nor a fresh
--- `CREATE VIEW` ever carries `WITH (security_invoker = on)` or its grants
--- forward. That cascade is a standing landmine for every future migration
--- that touches `shidduchim` (or any other table with dependent views): a
--- per-story hand-restore only helps if someone notices the diff did it.
+-- Review fix F1/F2 (Story 5.2). `supabase db diff` drops and recreates every
+-- view that depends on a table it considers changed, and neither `CREATE OR
+-- REPLACE VIEW` nor a fresh `CREATE VIEW` ever carries `WITH
+-- (security_invoker = on)` or its grants forward. That is a standing landmine
+-- for every migration that touches a table with dependent views: a per-story
+-- hand-restore only helps if someone notices the diff did it.
+--
+-- CORRECTION (Epic 5 close). 20260730011428_shidduch_overview_fields.sql's
+-- MANUAL ADJUSTMENTS comment — echoed by 20260730094101 and by an earlier
+-- version of this header — blamed the four view drops on "`db diff`'s own
+-- dependency-tracking artifact on this repo's view graph", as if the cascade
+-- were unavoidable noise. It was not. Story 5.2 left `public.shidduchim`'s
+-- physical column order out of step with 01_tables.sql, `migra` therefore
+-- classified the table as changed on a tree with no pending edit, and the
+-- four drops repeated on every diff forever. Reordering the declarative
+-- `create table` block fixed it with no migration; the Epic-4 baseline
+-- (a8c5e3d) diffs clean on the same view graph. See COLUMN-ORDER TRAP at the
+-- top of supabase/schemas/01_tables.sql. Migrations are append-only history,
+-- so the wrong comments stand where they are — this is the correction.
+--
+-- The guard below is worth keeping regardless: the cascade is real whenever a
+-- table genuinely changes, and it strips `security_invoker` when it fires.
+-- supabase/tests/view_grants.sql is its grants-side twin.
 --
 -- Without `security_invoker = on` a view runs as its OWNER, so `FORCE ROW
 -- LEVEL SECURITY` on the underlying tables never applies through it and

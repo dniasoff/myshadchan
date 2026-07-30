@@ -2,6 +2,63 @@
 -- Tables
 -- This file declares all tables in the public schema.
 --
+-- ===========================================================================
+-- COLUMN-ORDER TRAP — read this before adding or moving a column
+-- ===========================================================================
+-- Every `create table` block below must list its columns in the *physical*
+-- order the migrated database has them (`pg_attribute.attnum`), not in a tidy
+-- logical order. This is not cosmetic:
+--
+--   `supabase db diff` builds a shadow database from THIS file and diffs it
+--   against the migrated database with `migra`. migra compares a table's
+--   columns by ordinal position as well as by name. If the two orders differ
+--   it classifies the table as changed — but it has no way to express
+--   "reorder columns" in SQL, so it emits NO `alter table` at all. What it
+--   does emit is the collateral: every view that depends on that table gets a
+--   `drop view` + `create or replace view`, verbatim and pointlessly.
+--
+--   That output is NON-CONVERGENT. Committing it as a migration does not fix
+--   the column order, so the very next `db diff` reproduces the identical
+--   drops, forever, on a tree with no pending edit. Worse, `create view`
+--   carries forward neither `with (security_invoker = on)` nor the grants in
+--   06_grants.sql, so every one of those generated migrations is a live RLS
+--   bypass and a lockout waiting to be applied unnoticed.
+--
+-- HOW IT HAPPENS: `alter table ... add column` always appends to the tail, and
+-- `alter table ... drop column` leaves a hole. So a story that drops a column
+-- from mid-table and adds new ones will leave the database in an order this
+-- file no longer matches, however sensible this file reads.
+--
+-- WHAT TO DO after generating a migration that adds or drops columns: check
+--   select attnum, attname from pg_attribute
+--   where attrelid = 'public.<table>'::regclass and attnum > 0 and not attisdropped
+--   order by attnum;
+-- and reorder the `create table` block here to match. That is a change to this
+-- file only — never a migration. Then re-run `db diff` TWICE: once to see it
+-- clean, once to prove it converges. `supabase/tests/column_order.test.ts`
+-- (`npm run test:unit:db -- column_order`) automates the comparison for every
+-- table in this file against a running stack, and names the ones that drifted.
+--
+-- HISTORY: Story 5.2's migration 20260730011428_shidduch_overview_fields.sql
+-- dropped `parents_en`/`parents_he` from the middle of `public.shidduchim` and
+-- appended eight columns to its tail without reordering this file. That
+-- migration and 20260730094101_shadchan_stats_overview.sql both explain the
+-- resulting four view drops as "`db diff`'s own dependency-tracking artifact
+-- on this repo's view graph", i.e. as unavoidable. **That explanation is
+-- wrong** — migrations are append-only history so those comments stand, but do
+-- not believe them. The same view graph diffs perfectly clean at the Epic-4
+-- baseline (a8c5e3d), and reordering `shidduchim` here — nothing else, no
+-- migration — made `db diff` report "No schema changes found" again. The cause
+-- is always this file disagreeing with `pg_attribute`, and it is always
+-- fixable here.
+--
+-- `public.tasks`, `public.shidduchim` and `public.resumes` below all carry
+-- tail-ordered columns that exist only for this reason. `resumes` is the
+-- cautionary case: Story 5.8 appended `single_id` and nothing complained,
+-- because no view depends on `resumes` — migra had no dependent to drop, so it
+-- stayed silent while the drift accumulated. `db diff` being quiet is not
+-- evidence that the orders agree; only the guard below is.
+-- ===========================================================================
 
 -- Extensions
 create extension if not exists "http" with schema "extensions";
@@ -37,7 +94,7 @@ create table public.tasks (
     member_id bigint,
     -- Column order here deliberately matches the order `supabase db diff` appends
     -- them (alphabetical), so the declared schema and a migrated database agree
-    -- and `db diff` stays quiet.
+    -- and `db diff` stays quiet. See COLUMN-ORDER TRAP at the top of this file.
     account_id bigint not null,
     delivery_channels text[] not null default array['in_app', 'email']::text[],
     target_id bigint not null,
@@ -270,13 +327,9 @@ create table public.shidduchim (
     -- Single's identity (bilingual, AD-12)
     name_en text,
     name_he text,
+    -- COLUMN ORDER IS LOAD-BEARING — see COLUMN-ORDER TRAP at the top of this
+    -- file before moving, inserting or grouping anything below.
     -- Name-bearing context fields, bilingual where they carry a name.
-    -- Story 5.2: father/mother replace the single combined `parents_*` pair
-    -- (dropped outright — demo/test data only, NFR-14 forbids a shim).
-    father_en text,
-    father_he text,
-    mother_en text,
-    mother_he text,
     seminary_en text,
     seminary_he text,
     shul_en text,
@@ -286,16 +339,6 @@ create table public.shidduchim (
     -- Informational only — NEVER matching signals (FR11)
     age integer,
     height text,
-    -- Story 5.2: the Overview tab's remaining under-specified facts. Single
-    -- script, not bilingual — prose/free text, not an identity signal (AD-12
-    -- does not apply; see the story's under-specification table).
-    dob date,
-    background text,
-    marital_status text,
-    -- The SUGGESTED PERSON's own prior children — a shidduch fact, not the
-    -- retired `children` resource (now `singles`, AD-23). Exempted in
-    -- scripts/retired-names.json, not renamed — see Story 5.2's ruling.
-    existing_children_note text,
     -- The one canonical state (AD-4); NO decision_substate (D4)
     pipeline_state public.pipeline_state not null default 'new',
     -- Provenance (FR13): first shadchan to redt + when
@@ -313,6 +356,31 @@ create table public.shidduchim (
     visibility text not null default 'shared',
     -- Per-column ordering on the board.
     index smallint not null default 0,
+    -- ---------------------------------------------------------------------
+    -- Story 5.2 additions. They sit at the END, out of any reading order,
+    -- because that is where `ALTER TABLE ADD COLUMN` physically put them in
+    -- 20260730011428_shidduch_overview_fields.sql, and this file must mirror
+    -- the database's physical column order, not a tidy logical one. Grouping
+    -- `father_*`/`mother_*` back up with the other name-bearing fields, or
+    -- `dob` next to `age`, re-breaks `supabase db diff` — see COLUMN-ORDER
+    -- TRAP at the top of this file.
+    -- ---------------------------------------------------------------------
+    -- Prose/free text, single script, not bilingual — not identity signals
+    -- (AD-12 does not apply; see Story 5.2's under-specification table).
+    background text,
+    dob date,
+    -- The SUGGESTED PERSON's own prior children — a shidduch fact, not the
+    -- retired `children` resource (now `singles`, AD-23). Exempted in
+    -- scripts/retired-names.json, not renamed — see Story 5.2's ruling.
+    existing_children_note text,
+    -- Story 5.2: father/mother replace the single combined `parents_*` pair
+    -- (dropped outright — demo/test data only, NFR-14 forbids a shim).
+    -- Name-bearing and bilingual, despite sitting down here.
+    father_en text,
+    father_he text,
+    marital_status text,
+    mother_en text,
+    mother_he text,
     constraint shidduchim_origin_check check (origin in ('channel', 'manual', 'shadchan')),
     constraint shidduchim_visibility_check check (
         visibility in ('shared', 'private_parent', 'private_single')
@@ -332,10 +400,15 @@ create table public.resumes (
     account_id bigint not null,
     created_at timestamp with time zone not null default now(),
     shidduchim_id bigint,
-    single_id bigint,
     files jsonb,
     extracted jsonb,
     sections jsonb,
+    -- Story 5.8 appended this, so it sits at the tail rather than next to
+    -- `shidduchim_id` where it belongs logically. Physical order is what
+    -- `db diff` compares — see COLUMN-ORDER TRAP at the top of this file.
+    -- Nothing flagged it at the time only because no view depends on
+    -- `resumes`, so migra had no dependent to drop and stayed silent.
+    single_id bigint,
     constraint resumes_owner_check check ((shidduchim_id is not null) <> (single_id is not null))
 );
 

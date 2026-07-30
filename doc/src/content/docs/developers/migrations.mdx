@@ -66,6 +66,32 @@ npx supabase db diff --local
 
 This should output "No schema changes found".
 
+:::danger[The column-order trap]
+If step 5 instead prints `drop view` + `create or replace view` for views you
+never touched, **do not generate a migration from it**. That output is
+non-convergent: applying it does not change anything the diff is complaining
+about, so the very next diff reproduces it identically — and each generated
+`create view` silently loses `with (security_invoker = on)` and the grants
+declared in `06_grants.sql`, which is an RLS bypass.
+
+The real cause is a `create table` block in `01_tables.sql` whose column order
+no longer matches the database. `alter table ... add column` always appends to
+the tail and `drop column` leaves a hole, so a migration that removes a column
+from mid-table and adds new ones puts the two out of step; `migra` compares
+columns by ordinal position, decides the table changed, cannot express a
+reorder in SQL, and emits only the collateral view drops.
+
+Fix it by reordering the `create table` block in `supabase/schemas/01_tables.sql`
+to match `pg_attribute.attnum` — a schema-file edit, never a migration:
+
+```sh
+npm run test:unit:db -- column_order   # names any table whose declared order has drifted
+```
+
+Then re-run `db diff` twice: once to see it clean, once to prove it converges.
+See the `COLUMN-ORDER TRAP` header in `supabase/schemas/01_tables.sql`.
+:::
+
 ### Option B: Use Supabase Studio
 
 You can modify the schema using the local Supabase Dashboard (Studio) at http://localhost:54323/. When working on a local database, Studio automatically creates a migration for each change you make.
