@@ -13,14 +13,31 @@
 --    bigint) entry so the applied database matches the declared schema
 --    exactly. The old 2-argument overload's own grants need no matching
 --    REVOKE here: dropping the function drops its ACL with it.
+-- 2. Review fix (BLOCKER #2): `db diff` naturally emitted a
+--    `validate constraint` for `invites_role_target_check` right after
+--    adding it, because the LOCAL shadow database it diffs against is
+--    always empty (`db reset` applies migrations before seeding). Against
+--    a non-empty PRODUCTION `invites` table, that statement aborts the
+--    whole migration the moment it meets a `role = 'single'` row with no
+--    target — which can already exist: Epic 2 shipped `single` as an
+--    ordinary invitable household role two epics before this constraint
+--    was ever conceived. Reproduced locally by rewinding `invites` to the
+--    pre-6.1 shape, seeding exactly that row, and replaying this file.
+--    The `validate constraint` line below is REMOVED by hand (not
+--    generated) — `01_tables.sql` now declares this constraint NOT VALID
+--    permanently, with the full rationale in its own comment, and
+--    `accept_invite()` gained a matching guard so a legacy row like this
+--    fails with the same friendly message as any other unhonourable
+--    invite instead of a raw constraint-violation error. The
+--    `invites_target_single_id_fkey` validate below is unaffected and
+--    stays: `target_single_id` is null on every pre-existing row, and a
+--    null referencing column trivially satisfies a composite FK.
 
 drop function if exists "public"."create_invite"(p_email text, p_role text);
 
 alter table "public"."invites" add column "target_single_id" bigint;
 
 alter table "public"."invites" add constraint "invites_role_target_check" CHECK (((role = 'single'::text) = (target_single_id IS NOT NULL))) not valid;
-
-alter table "public"."invites" validate constraint "invites_role_target_check";
 
 alter table "public"."invites" add constraint "invites_target_single_id_fkey" FOREIGN KEY (account_id, target_single_id) REFERENCES public.singles(account_id, id) ON DELETE CASCADE not valid;
 
@@ -149,6 +166,23 @@ begin
   end if;
 
   if v_invite.expires_at <= now() then
+    raise exception 'This invite is invalid, expired, or has already been used.'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Story 6.1 review fix (BLOCKER #2): a `role = 'single'` invite that
+  -- predates this story's `target_single_id` column (Epic 2 shipped
+  -- `single` as an ordinary invitable household role two epics earlier) can
+  -- have no target. `invites_role_target_check` (01_tables.sql) is
+  -- deliberately NOT VALID forever rather than backfilled or deleted (the
+  -- migration-data-safety guard forbids both for a pre-existing row), which
+  -- means the UPDATE just below WOULD still raise for such a row — but as a
+  -- raw constraint-violation error, not this function's own vocabulary.
+  -- Catching it here first turns it into the exact same friendly message
+  -- every other unhonourable invite gets: it can never be linked under the
+  -- invariant this story establishes, so it is refused the same way an
+  -- expired or already-used one is, never a leaked implementation detail.
+  if v_invite.role = 'single' and v_invite.target_single_id is null then
     raise exception 'This invite is invalid, expired, or has already been used.'
       using errcode = 'check_violation';
   end if;

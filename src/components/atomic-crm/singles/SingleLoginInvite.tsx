@@ -33,11 +33,15 @@ const singleDisplayName = (single: Single): string =>
  *
  * Renders only for `parent_admin`/`self_manager` (`useViewerRole()`) on an
  * UNLINKED single (`member_id == null`); renders nothing while the role is
- * still resolving — the same fail-closed `isPending` idiom
- * `shidduchim/SingleInputForm.tsx` uses (RolePending posture, never a
- * flash of the wrong affordance). Once linked, the action is replaced by a
- * read-only indicator — never a substitute for the Task 2/3 database
- * guards, which are the real boundary (AD-1).
+ * still resolving, same as any other unresolved role — `useViewerRole()`
+ * (backed by a plain `useQuery`, no `initialData`) can only be `isPending`
+ * while its `role` is `undefined`, so the `role !== "parent_admin" &&
+ * role !== "self_manager"` check below already fails closed for that case
+ * on its own (review fix: a separate `isPending` branch here was dead code
+ * — `SingleLoginInvite.test.tsx`'s "still resolving" case passed whether or
+ * not it existed). Once linked, the action is replaced by a read-only
+ * indicator — never a substitute for the Task 2/3 database guards, which
+ * are the real boundary (AD-1).
  *
  * A `<Popover>`, not a `<Dialog>`: this is a one-tap action with a small
  * form, not a record's own screen, and `misc/recordSurfaceDialogs.guard
@@ -50,7 +54,7 @@ const singleDisplayName = (single: Single): string =>
  * real state (the popover, the email field, the created link).
  */
 export function SingleLoginInvite({ single }: { single: Single }) {
-  const { role, isPending: isRolePending } = useViewerRole();
+  const { role } = useViewerRole();
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const translate = useTranslate();
@@ -61,7 +65,6 @@ export function SingleLoginInvite({ single }: { single: Single }) {
   const [createdLink, setCreatedLink] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
 
-  if (isRolePending) return null;
   if (role !== "parent_admin" && role !== "self_manager") return null;
 
   if (single.member_id != null) {

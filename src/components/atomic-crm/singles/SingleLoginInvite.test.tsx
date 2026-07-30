@@ -74,7 +74,13 @@ const renderInvite = async (
 
 describe("SingleLoginInvite — role/link-state gate (AC 1)", () => {
   it("renders nothing while the viewer role is still resolving", async () => {
-    // Arrange — an in-flight, never-resolving query.
+    // Arrange — an in-flight, never-resolving query. `getMyContexts` never
+    // settles, so `useMyContexts()` (a plain `useQuery`, no `initialData`)
+    // reports `data: undefined` for as long as this test runs — there is no
+    // way to observe `isPending: true` together with a resolved `role`
+    // through the real hook, which is why `SingleLoginInvite.tsx` does not
+    // branch on `isPending` separately (review fix: it used to, and this
+    // exact test passed with that branch deleted).
     const dataProvider = {
       getMyContexts: vi.fn().mockReturnValue(new Promise(() => {})),
       createInvite: vi.fn(),

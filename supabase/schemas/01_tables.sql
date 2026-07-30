@@ -265,14 +265,6 @@ create table public.invites (
     ),
     constraint invites_status_check check (
         status in ('pending', 'accepted', 'revoked', 'expired')
-    ),
-    -- Story 6.1 (AC-2): a single-role invite always names its target, and no
-    -- other role may carry one — see 02_functions.sql's create_invite() for
-    -- why an unbound single-role invite can never happen even before this
-    -- constraint is checked, and Dev Notes "Why the role and the target are
-    -- coupled" (story 6.1) for the full rationale.
-    constraint invites_role_target_check check (
-        (role = 'single') = (target_single_id is not null)
     )
 );
 
@@ -864,9 +856,35 @@ alter table public.invites
 -- household's single fails referential integrity, exactly like the
 -- singles/references/shidduchim composite FKs below. Defined composite from
 -- the start, never an interim single-column FK on target_single_id alone.
+-- Safe to fully VALIDATE even against a production table: `target_single_id`
+-- is null on every pre-existing row (the column is new), and a composite FK
+-- with any null referencing column is trivially satisfied (MATCH SIMPLE).
 alter table public.invites
     add constraint invites_target_single_id_fkey
     foreign key (account_id, target_single_id) references public.singles(account_id, id) on delete cascade;
+-- Story 6.1 review fix (BLOCKER #2): declared NOT VALID and NEVER validated
+-- — deliberately, permanently, not a "validate later" TODO. Epic 2 shipped
+-- `single` as an ordinary invitable household role two epics before this
+-- constraint existed (Settings' generic selector, `invitableRoles()`), so a
+-- production `invites` row with `role = 'single'` and no target can already
+-- exist in ANY status. Running `validate constraint` against it — which
+-- `db diff` naturally emits and which passes every local gate because
+-- `db reset` always starts from an EMPTY table — aborts `supabase db push`
+-- against a non-empty production table (reproduced locally against a
+-- rewound `invites` table; see the migration's own header comment). The
+-- migration-data-safety guard (`supabase/tests/migration-data-safety/`)
+-- forbids the alternative of deleting or rewriting such a row to make it
+-- validate, so NOT VALID — enforced for every new INSERT/UPDATE from here
+-- on, silently grandfathering only the rows that already existed — is the
+-- correct, permanent state, not a transitional one. `accept_invite()`
+-- (02_functions.sql) has its own explicit guard turning what would
+-- otherwise be a raw constraint-violation error on such a legacy row into
+-- the same friendly "invalid, expired, or already used" message every
+-- other unhonourable invite gets.
+alter table public.invites
+    add constraint invites_role_target_check check (
+        (role = 'single') = (target_single_id is not null)
+    ) not valid;
 
 alter table public.singles
     add constraint singles_account_id_fkey foreign key (account_id) references public.accounts(id) on delete cascade;

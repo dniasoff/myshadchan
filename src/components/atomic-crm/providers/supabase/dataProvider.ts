@@ -579,6 +579,20 @@ const getDataProviderWithCustomMethods = () => {
     // parameter (02_functions.sql). `InvitesSection.tsx`'s generic form
     // never passes it (its role selector no longer offers `single` at all,
     // roleAuthority.ts).
+    //
+    // Review fix (FINDING 3): the RPC payload omits `p_target_single_id`
+    // entirely when it is null/undefined, rather than always sending it as
+    // `null`. `create_invite()`'s 3-argument signature is a NEW overload —
+    // the migration that adds it and drops the old 2-argument one is a
+    // separate deploy step from this frontend change. If the frontend ships
+    // first (or the two land in the same deploy but the migration hasn't
+    // run yet), PostgREST's schema cache still only knows the 2-argument
+    // function; a call naming a third parameter — even `null` — matches no
+    // known signature and fails for EVERY invite, `single`-role or not.
+    // Omitting the key keeps every pre-existing (helper/parent_admin/
+    // shadchan) invite call working across that window; only a `single`-
+    // role invite from the new Single-360 entry point ever needs the
+    // post-migration signature at all.
     // ---------------------------------------------------------------------
     async createInvite(
       email: string,
@@ -588,7 +602,9 @@ const getDataProviderWithCustomMethods = () => {
       const { data, error } = await getSupabaseClient().rpc("create_invite", {
         p_email: email,
         p_role: role,
-        p_target_single_id: targetSingleId ?? null,
+        ...(targetSingleId != null
+          ? { p_target_single_id: targetSingleId }
+          : {}),
       });
       if (error) {
         console.error("create_invite.error", error);
