@@ -35,9 +35,34 @@ The database schema is defined declaratively in `supabase/schemas/` (source of t
 ```bash
 npx supabase db diff --local -f <name>  # Generate migration from schema changes
 npx supabase migration up --local       # Apply migrations locally
+make check-migration-safety             # REQUIRED before push — see below
 npx supabase db push                    # Push migrations to remote
 npx supabase db reset --local           # Reset local database (destructive)
 ```
+
+#### The empty-table trap (a green migration that erases production)
+
+`db reset` applies migrations to an **empty** database and seeds afterwards,
+and `db diff` compares **shapes** — so no other gate in this repo ever runs a
+migration against a row. A `drop column` with no backfill, or a resync that
+recomputes a derived column from columns that are NULL at that moment, is
+green on every local gate and destroys production, because production is the
+only place the table is not empty. It has happened twice:
+`20260729095558_backfill_member_state.sql` (shipped; blanked production) and
+`20260730011428_shidduch_overview_fields.sql` (caught at pre-flight).
+
+`make check-migration-safety` (`STACK_ID=<n>` for your own stack) is the only
+check that closes it: it resets a stack to the **last deployed** migration,
+seeds production-shaped rows, applies just the **pending** migrations, then
+asserts every seeded row still exists, every value in a surviving column is
+unchanged, and every column that vanished while holding data has a declared,
+verified destination. CI runs the same script against the merge base.
+
+The fix when it goes red is always the same shape, and `db diff` will never
+generate it: **`add column` before `drop column`, backfill between them, and
+a fail-closed assertion** so a wrong assumption about the data halts the
+deploy instead of erasing it. Declare intentional losses in
+`supabase/tests/migration-data-safety/declared-moves.sql`.
 
 #### The column-order trap (`db diff` never converges)
 

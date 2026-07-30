@@ -92,6 +92,50 @@ Then re-run `db diff` twice: once to see it clean, once to prove it converges.
 See the `COLUMN-ORDER TRAP` header in `supabase/schemas/01_tables.sql`.
 :::
 
+:::danger[The empty-table trap]
+Step 4 above applies your migration to a database that `db reset` just
+rebuilt from nothing, and step 5 compares *shapes*. **Neither one can see a
+row.** A migration that drops a column, renames a table or rewrites a derived
+value is therefore perfectly green locally and still destroys production,
+because production is the only place the table is not empty.
+
+This has happened twice here. `20260729095558_backfill_member_state.sql`
+shipped correct DDL with no backfill for pre-existing rows and blanked
+production — HTTP 200 with zero rows on every surface.
+`20260730011428_shidduch_overview_fields.sql` was caught at pre-flight: it
+dropped `shidduchim.parents_en`/`parents_he` before adding
+`father_*`/`mother_*`, with nothing in between, against 24 populated rows —
+and its own review fix (`update public.shidduchim set id = id`, added to stop
+`identity_signals.parents_norm` going stale) would have run *after* the drop
+and overwritten all 24 rows' `parents_norm` with NULL. Six clean `db diff`
+runs saw none of it.
+
+**Before `supabase db push`, run the guard:**
+
+```sh
+make check-migration-safety            # add STACK_ID=<n> for your own stack
+```
+
+It resets a local stack to the **last deployed** migration, seeds
+production-shaped rows, applies only the *pending* migrations, and then
+asserts that every seeded row still exists, that every value in a surviving
+column is unchanged, and that every column that disappeared while holding
+data has a declared, *verified* destination. CI runs the same script
+(`🧬 Migration data-safety`) against the merge base.
+
+When it goes red, the fix is almost always the same three moves inside the
+migration file: **put the `add column`s above the `drop column`s, backfill
+between them, and make it fail closed** — assert the data landed before the
+drop runs, so a wrong assumption halts the deploy instead of erasing rows.
+`db diff` will never emit any of that; it is a manual adjustment, and one of
+the legitimate reasons to hand-edit a generated migration.
+
+If a column's data genuinely goes nowhere, declare it in
+`supabase/tests/migration-data-safety/declared-moves.sql` with a written
+reason. That file is the guard's only per-migration input, and an undeclared
+drop of a populated column is a failure by default.
+:::
+
 ### Option B: Use Supabase Studio
 
 You can modify the schema using the local Supabase Dashboard (Studio) at http://localhost:54323/. When working on a local database, Studio automatically creates a migration for each change you make.

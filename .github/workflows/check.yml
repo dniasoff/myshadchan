@@ -122,6 +122,57 @@ jobs:
               if: always()
               run: make stop-supabase-e2e
 
+    # The only job that runs a migration against a NON-EMPTY table. Every
+    # other gate here — `db diff`, the db suite, e2e — works off `db reset`,
+    # which applies migrations to an empty database and seeds afterwards, so a
+    # `drop column` never meets a row and a missing backfill is invisible.
+    # `20260729095558_backfill_member_state.sql` and
+    # `20260730011428_shidduch_overview_fields.sql` both passed everything
+    # above green while destroying production data.
+    #
+    # The baseline is "what production had before this change": the merge base
+    # on a pull request, `github.event.before` on a push (this repo deploys
+    # every push to main, so that commit IS the deployed schema). When neither
+    # yields a usable ref, or nothing is pending, the script says so and
+    # passes — see scripts/check-migration-data-safety.mjs.
+    migration-data-safety:
+        name: 🧬 Migration data-safety (non-empty table)
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
+        steps:
+            - name: 📥 Checkout repo
+              uses: actions/checkout@v7
+              with:
+                  # The guard reads supabase/migrations at the base ref, so the
+                  # base commit has to be in the clone.
+                  fetch-depth: 0
+
+            - name: ⚙️ Setup node
+              uses: actions/setup-node@v7
+              with:
+                  node-version-file: .nvmrc
+                  cache: npm
+
+            - name: 📥 Download deps
+              run: npm ci
+
+            - name: 🐘 Start local Supabase stack
+              run: make start-supabase-e2e
+
+            - name: 🧬 Do the pending migrations destroy existing data?
+              run: |
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                    BASE_REF="origin/${{ github.base_ref }}"
+                  else
+                    BASE_REF="${{ github.event.before }}"
+                  fi
+                  node scripts/check-migration-data-safety.mjs --base-ref "$BASE_REF"
+
+            - name: 🛑 Stop local Supabase stack
+              if: always()
+              run: make stop-supabase-e2e
+
     guards:
         name: 🛡️ Suppression, retired-name & Tailwind-syntax guards
         runs-on: ubuntu-latest

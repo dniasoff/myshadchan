@@ -213,6 +213,20 @@ test: ## run the unit test suites (STACK_ID=<n> targets that stack's database)
 	  npm run test; \
 	fi
 
+# The only gate in this repo that runs a migration against a NON-EMPTY table.
+# `db reset` applies migrations to an empty database and seeds afterwards, so
+# a `drop column` never meets a row there and a missing backfill is invisible
+# — which is how 20260729095558_backfill_member_state.sql and
+# 20260730011428_shidduch_overview_fields.sql passed every other gate green.
+# Run this before `supabase db push`. Needs a running stack; honours STACK_ID.
+#
+# `$(value …)` + single quotes for the same reason as STACK_ID and SESSION:
+# BASE_REF is user-supplied text pasted into a shell line.
+override BASE_REF := $(value BASE_REF)
+
+check-migration-safety: ## verify the pending migrations do not destroy production data (honours STACK_ID)
+	@node scripts/check-migration-data-safety.mjs $(if $(BASE_REF),--base-ref '$(BASE_REF)',)
+
 test-e2e: start-e2e ## run the e2e suite with the Playwright UI (honours STACK_ID)
 	npx playwright test --ui
 

@@ -39,6 +39,39 @@
 
 alter table "public"."resume_photos" enable row level security;
 
+-- MANUAL ADJUSTMENT (see AGENTS.md). `resumes.photos` is a shaped-but-unused
+-- placeholder — declared in 01_tables.sql from the start ("resume detail is
+-- Epic-3; the table is shaped now"), typed `photos?: unknown` in types.ts,
+-- and written by nothing: no component, no data-provider path, no edge
+-- function, no RPC, no migration. There is therefore nothing to move into
+-- `resume_photos` above, and no honest backfill to write — the jsonb shape
+-- was never fixed, so any conversion would be invented rather than recovered.
+--
+-- But "no writer in the repo" is an argument about the code, not a
+-- measurement of the production table, and `authenticated` holds column-level
+-- write grants on `resumes`. So assert it before dropping: if the belief is
+-- wrong, this aborts the migration and halts the deploy instead of erasing
+-- the rows. `db diff` emits the bare DROP; this block is hand-added.
+do $$
+declare
+    v_rows bigint;
+begin
+    select count(*)
+      into v_rows
+      from public.resumes
+     where photos is not null
+       and photos <> 'null'::jsonb
+       and photos <> '[]'::jsonb
+       and photos <> '{}'::jsonb;
+
+    if v_rows > 0 then
+        raise exception
+            'resume_photos: resumes.photos holds data on % row(s); it was believed to be an unused placeholder. Refusing to drop it — write a backfill into public.resume_photos first',
+            v_rows;
+    end if;
+end;
+$$;
+
 alter table "public"."resumes" drop column "photos";
 
 CREATE INDEX resume_photos_account_id_idx ON public.resume_photos USING btree (account_id);

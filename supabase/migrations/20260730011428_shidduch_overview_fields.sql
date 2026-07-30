@@ -1,16 +1,26 @@
 drop function if exists "public"."create_shidduch"(p_single_id bigint, p_shadchan_id bigint, p_name_en text, p_name_he text, p_parents_en text, p_parents_he text, p_seminary_en text, p_seminary_he text, p_shul_en text, p_shul_he text, p_location_en text, p_location_he text, p_age integer, p_height text, p_origin text, p_initial_state public.pipeline_state, p_visibility text, p_redt_date date);
 
-drop view if exists "public"."reference_links_summary";
-
-drop view if exists "public"."shadchan_stats";
-
-drop view if exists "public"."shidduchim_summary";
-
-drop view if exists "public"."singles_summary";
-
-alter table "public"."shidduchim" drop column "parents_en";
-
-alter table "public"."shidduchim" drop column "parents_he";
+-- MANUAL ADJUSTMENT (see AGENTS.md), and the load-bearing one in this file:
+-- the ADDs and the backfill below run BEFORE the DROPs, not after.
+--
+-- `supabase db diff` emits DDL in dependency order and knows nothing about
+-- rows, so it wrote `drop column parents_en/parents_he` above the eight
+-- `add column`s — which loses every value in a column it is *renaming in
+-- substance*. That is invisible to every local gate: `db reset` applies
+-- migrations to an EMPTY database and seeds afterwards, so `shidduchim` has
+-- zero rows when the drop runs, and six clean `db diff` runs are schema-shape
+-- checks that cannot see a row at all. Production has 24 shidduchim, all 24
+-- with a non-empty `parents_en`.
+--
+-- Reordering is safe for the diff's own purpose: `add column` always appends
+-- to the physical tail and `drop column` leaves a hole, so moving the ADDs
+-- above the DROPs produces exactly the same `pg_attribute.attnum` order and
+-- the same declared order in `01_tables.sql`. See the COLUMN-ORDER TRAP
+-- header there.
+--
+-- Verified by supabase/tests/migration-data-safety/, which seeds
+-- production-shaped rows at the last deployed migration and re-checks them
+-- after this file runs.
 
 alter table "public"."shidduchim" add column "background" text;
 
@@ -27,6 +37,82 @@ alter table "public"."shidduchim" add column "marital_status" text;
 alter table "public"."shidduchim" add column "mother_en" text;
 
 alter table "public"."shidduchim" add column "mother_he" text;
+
+-- DATA MIGRATION. Split the combined parents value into the two halves the
+-- rest of this migration assumes exist.
+--
+-- Every one of the 24 production values is `R' <father> & <mother>` (19-27
+-- chars, 12 distinct, `' & '` in all 24, no `/` or `and` variant, and the
+-- split yields two non-empty halves with no third part). The rulings this
+-- implements:
+--
+--   * split on `' & '`; the `R'` honorific is a MALE honorific preceding the
+--     father's name, so it stays with the father half;
+--   * a value with no `' & '` goes wholly to `father_*` with `mother_*` left
+--     NULL — never dropped on the floor;
+--   * `parents_he` gets the same treatment as `parents_en` (zero rows today,
+--     but a migration must not be selectively correct).
+--
+-- Everything after the FIRST `' & '` becomes the mother half, so a value with
+-- two separators keeps all of its text rather than silently losing the tail
+-- that `split_part(..., 2)` would discard.
+update public.shidduchim
+   set father_en = case
+           when strpos(parents_en, ' & ') > 0
+               then nullif(btrim(left(parents_en, strpos(parents_en, ' & ') - 1)), '')
+           else nullif(btrim(parents_en), '')
+       end,
+       mother_en = case
+           when strpos(parents_en, ' & ') > 0
+               then nullif(btrim(substr(parents_en, strpos(parents_en, ' & ') + 3)), '')
+           else null
+       end,
+       father_he = case
+           when strpos(parents_he, ' & ') > 0
+               then nullif(btrim(left(parents_he, strpos(parents_he, ' & ') - 1)), '')
+           else nullif(btrim(parents_he), '')
+       end,
+       mother_he = case
+           when strpos(parents_he, ' & ') > 0
+               then nullif(btrim(substr(parents_he, strpos(parents_he, ' & ') + 3)), '')
+           else null
+       end
+ where nullif(btrim(parents_en), '') is not null
+    or nullif(btrim(parents_he), '') is not null;
+
+-- Fail closed rather than drop silently. The columns are still here, so this
+-- aborts the whole migration (and the deploy) if any row would cross the DROP
+-- below with its parents unaccounted for — a wrong assumption about the data
+-- must stop the deploy, not erase the rows.
+do $$
+declare
+    v_lost bigint;
+begin
+    select count(*)
+      into v_lost
+      from public.shidduchim
+     where (nullif(btrim(parents_en), '') is not null and father_en is null)
+        or (nullif(btrim(parents_he), '') is not null and father_he is null);
+
+    if v_lost > 0 then
+        raise exception
+            'shidduch_overview_fields: parents backfill left % row(s) with no father_*/mother_* value; refusing to drop parents_en/parents_he',
+            v_lost;
+    end if;
+end;
+$$;
+
+drop view if exists "public"."reference_links_summary";
+
+drop view if exists "public"."shadchan_stats";
+
+drop view if exists "public"."shidduchim_summary";
+
+drop view if exists "public"."singles_summary";
+
+alter table "public"."shidduchim" drop column "parents_en";
+
+alter table "public"."shidduchim" drop column "parents_he";
 
 set check_function_bodies = off;
 
@@ -407,6 +493,21 @@ $function$
 -- UPDATE re-fires the trigger (it has no column list and no WHEN clause) for
 -- every row with the function just redefined above, resyncing every signal
 -- column, not only parents_norm.
+--
+-- THIS STATEMENT IS ONLY SAFE BECAUSE THE BACKFILL ABOVE RAN FIRST. The
+-- redefined trigger computes `parents_norm` from `father_*`/`mother_*`; with
+-- the ADDs and the DROPs in `db diff`'s original order those columns were
+-- NULL on every pre-existing row at this point, so this resync — added to
+-- PREVENT a stale signal — would instead have overwritten all 24 rows'
+-- populated `parents_norm` with NULL, silently degrading `match_identity()`
+-- and `catch_shidduch()` parents corroboration. Do not move it above the
+-- backfill.
+--
+-- With the backfill in place the recomputed value is byte-identical to the
+-- old one: `normalize_identity_text` maps `&` to a space and collapses
+-- whitespace, so `R' Yaakov & Sarah` and `R' Yaakov` + `Sarah` both normalise
+-- to `r yaakov sarah`. supabase/tests/migration-data-safety/ asserts exactly
+-- that, on rows seeded before this file runs.
 update public.shidduchim set id = id;
 
 -- MANUAL ADJUSTMENTS (see AGENTS.md). `supabase db diff` emits none of the
