@@ -30,6 +30,7 @@ import type {
   ReferenceMatchCandidate,
   ReferenceMergePreview,
   Resume,
+  ResumePhoto,
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
@@ -56,6 +57,16 @@ import type {
   SignResumeFileUrlParams,
   UploadResumeFileParams,
 } from "./resumes";
+import {
+  hideResumePhoto as hideResumePhotoImpl,
+  signResumePhotoUrl as signResumePhotoUrlImpl,
+  uploadResumePhoto as uploadResumePhotoImpl,
+} from "./resumePhotos";
+import type {
+  HideResumePhotoParams,
+  SignResumePhotoUrlParams,
+  UploadResumePhotoParams,
+} from "./resumePhotos";
 import { getSupabaseClient } from "./supabase";
 
 const getBaseDataProvider = () =>
@@ -612,6 +623,24 @@ const getDataProviderWithCustomMethods = () => {
     },
     async signResumeFileUrl(params: SignResumeFileUrlParams): Promise<string> {
       return signResumeFileUrlImpl(params);
+    },
+
+    // ---------------------------------------------------------------------
+    // Photo tab (Story 5.4). Implementation lives in ./resumePhotos.ts,
+    // mirroring ./resumes.ts's own split.
+    // ---------------------------------------------------------------------
+    async uploadResumePhoto(
+      params: UploadResumePhotoParams,
+    ): Promise<ResumePhoto> {
+      return uploadResumePhotoImpl(params);
+    },
+    async signResumePhotoUrl(
+      params: SignResumePhotoUrlParams,
+    ): Promise<string> {
+      return signResumePhotoUrlImpl(params);
+    },
+    async hideResumePhoto(params: HideResumePhotoParams): Promise<ResumePhoto> {
+      return hideResumePhotoImpl(params);
     },
   } satisfies DataProvider;
 };

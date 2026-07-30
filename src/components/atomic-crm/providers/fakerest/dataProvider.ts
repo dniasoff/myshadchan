@@ -30,6 +30,7 @@ import type {
   ReferenceMatchCandidate,
   ReferenceMergePreview,
   Resume,
+  ResumePhoto,
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
@@ -52,6 +53,15 @@ import type {
   ResumeFileBlobUrls,
   UploadResumeFileParams,
 } from "./internal/resumes";
+import {
+  hideResumePhoto as hideResumePhotoImpl,
+  signResumePhotoUrl as signResumePhotoUrlImpl,
+  uploadResumePhoto as uploadResumePhotoImpl,
+} from "./internal/resumePhotos";
+import type {
+  ResumePhotoBlobUrls,
+  UploadResumePhotoParams,
+} from "./internal/resumePhotos";
 import {
   INITIAL_PIPELINE_STATES,
   isValidTransition,
@@ -180,6 +190,11 @@ export const createDataProvider = ({
   // map (a different bucket, `documents`, in the real backend) — see
   // ./internal/resumes.ts.
   const resumeFileBlobUrls: ResumeFileBlobUrls = new Map();
+
+  // Photo tab (Story 5.4): the same in-memory "bytes" idea again, its own
+  // map (a different `photos/` prefix of the same `documents` bucket in the
+  // real backend) — see ./internal/resumePhotos.ts.
+  const resumePhotoBlobUrls: ResumePhotoBlobUrls = new Map();
 
   // Emulate the shidduchim_summary view (AD-10 FakeRest mirror): enrich each
   // shidduch with its shadchan name ("via {shadchan}"), single names, and
@@ -1057,6 +1072,26 @@ export const createDataProvider = ({
       fileName: string;
     }): Promise<string> =>
       signResumeFileUrlImpl(resumeFileBlobUrls, params.storagePath),
+    // ---------------------------------------------------------------------
+    // Photo tab (Story 5.4) -- FakeRest mirrors of add_resume_photo /
+    // hide_resume_photo / signed-URL minting, backed by
+    // ./internal/resumePhotos.ts.
+    // ---------------------------------------------------------------------
+    uploadResumePhoto: async (
+      params: UploadResumePhotoParams,
+    ): Promise<ResumePhoto> => {
+      const accountId = await resolveCurrentAccountId();
+      return uploadResumePhotoImpl(
+        baseDataProvider,
+        resumePhotoBlobUrls,
+        accountId,
+        params,
+      );
+    },
+    signResumePhotoUrl: (params: { storagePath: string }): Promise<string> =>
+      signResumePhotoUrlImpl(resumePhotoBlobUrls, params.storagePath),
+    hideResumePhoto: (params: { id: Identifier }): Promise<ResumePhoto> =>
+      hideResumePhotoImpl(baseDataProvider, params),
   };
 
   const dataProvider = withLifecycleCallbacks(

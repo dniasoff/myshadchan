@@ -54,8 +54,8 @@ grant all on ids to public;
 -- fixture is built, so nothing above can accidentally influence it.
 -- ---------------------------------------------------------------------------
 insert into results (name, passed)
-select 'AC 4(d): enforce_household_scope is attached to exactly 11 tables, neither tasks nor interactions among them',
-       (select count(*) from pg_trigger where tgfoid = 'public.enforce_household_scope'::regproc and not tgisinternal) = 11
+select 'AC 4(d): enforce_household_scope is attached to exactly 12 tables, neither tasks nor interactions among them',
+       (select count(*) from pg_trigger where tgfoid = 'public.enforce_household_scope'::regproc and not tgisinternal) = 12
    and not exists (
      select 1 from pg_trigger
      where tgfoid = 'public.enforce_household_scope'::regproc

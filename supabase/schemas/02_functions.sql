@@ -1780,6 +1780,82 @@ begin
 end;
 $$;
 
+-- Append one photo row to a shidduch's resume (Story 5.4, AC 2). Distinct
+-- in shape from add_resume_file above: a photo is a first-class
+-- per-photo ROW (RLS enforces at row granularity, AD-1), not an appended
+-- entry inside a whole-row-visible jsonb array, so this is a plain INSERT —
+-- no ON CONFLICT/upsert shape for the photo itself, because resume_photos
+-- carries no unique-per-resume constraint (many photos per resume is the
+-- normal case). The parent `resumes` row IS upserted first (the same
+-- resumes_shidduchim_id_key uniqueness add_resume_file relies on), because
+-- a shidduch may get its first photo before it ever has a resume file.
+-- SECURITY INVOKER (no clause = invoker) so RLS applies; account-scoped so
+-- a photo can never be attached to a foreign account's shidduch.
+CREATE OR REPLACE FUNCTION "public"."add_resume_photo"(
+    "p_shidduchim_id" bigint,
+    "p_path" text,
+    "p_visibility" text DEFAULT 'shared'
+) RETURNS SETOF public.resume_photos
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+  v_resume_id bigint;
+begin
+  v_account_id := public.current_context_id();
+
+  if not exists (
+    select 1 from public.shidduchim s
+    where s.id = p_shidduchim_id and s.account_id = v_account_id
+  ) then
+    raise exception 'shidduch % not found in current account', p_shidduchim_id;
+  end if;
+
+  insert into public.resumes (account_id, shidduchim_id)
+  values (v_account_id, p_shidduchim_id)
+  on conflict (shidduchim_id) do update set shidduchim_id = excluded.shidduchim_id
+  returning id into v_resume_id;
+
+  return query
+  insert into public.resume_photos (account_id, resume_id, path, visibility)
+  values (v_account_id, v_resume_id, p_path, coalesce(p_visibility, 'shared'))
+  returning *;
+end;
+$$;
+
+-- Soft-hide a photo (Story 5.4, AC 2): sets hidden_at and never deletes — a
+-- hidden photo is excluded everywhere by a plain `hidden_at is null` filter
+-- (PhotoTab.tsx), including in any future share, matching the "never a
+-- DELETE" contract this function exists to close off. Account-scoped so a
+-- caller can never hide a photo belonging to a foreign account's shidduch.
+-- SECURITY INVOKER so RLS applies.
+CREATE OR REPLACE FUNCTION "public"."hide_resume_photo"(
+    "p_photo_id" bigint
+) RETURNS SETOF public.resume_photos
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+begin
+  v_account_id := public.current_context_id();
+
+  if not exists (
+    select 1 from public.resume_photos p
+    where p.id = p_photo_id and p.account_id = v_account_id
+  ) then
+    raise exception 'photo % not found in current account', p_photo_id;
+  end if;
+
+  return query
+  update public.resume_photos
+  set hidden_at = now()
+  where id = p_photo_id and account_id = v_account_id
+  returning *;
+end;
+$$;
+
 -- =====================================================================
 -- MyShadchan — Identity matching + References (AD-5, AD-12, AD-13)
 -- =====================================================================

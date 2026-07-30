@@ -3,10 +3,14 @@
 --
 -- AC 4's falsifiable claims about the new `documents` bucket: a second
 -- seeded account can neither `select` nor `delete` under the first
--- account's `resumes/` prefix (a), and a path written under a NON-`resumes/`
--- prefix stays deny-by-default — unreadable even by its own account's
--- member — because no policy defines it yet (b; Story 5.4 defines
--- `photos/` next). The table-wide "no UPDATE policy on storage.objects"
+-- account's `resumes/` prefix (a), and a path written under a prefix NEITHER
+-- `resumes/` NOR `photos/` defines stays deny-by-default — unreadable even
+-- by its own account's member — because no policy names it (b). Story 5.4
+-- defined `photos/` (its own negative tests live in resume_photos.sql), so
+-- (b)'s fixture deliberately uses a THIRD prefix name that still has no
+-- policy at all, rather than `photos/` itself, which is no longer
+-- deny-by-default now that 5.4 has landed. The table-wide "no UPDATE policy
+-- on storage.objects"
 -- invariant is already asserted by context_rls_hardening.sql and is not
 -- re-tested here — adding a documents-scoped duplicate would just be a
 -- second way for the same fact to go stale.
@@ -163,29 +167,29 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"df111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
 -- ---------------------------------------------------------------------------
--- (b) Deny-by-default for a non-`resumes/` prefix (AC 4's own falsifiable:
--- "an object written under a non-resumes/ prefix of documents is readable
--- by anyone"). Inserted as postgres (bypassing storage RLS, the way a
--- service-role write from Story 5.4's not-yet-built `photos/` feature
--- would) under A's OWN account prefix — even so, the account's own member
--- reads zero rows, because no policy names any prefix but `resumes/` yet.
+-- (b) Deny-by-default for a prefix NEITHER `resumes/` NOR `photos/` defines
+-- (AC 4's own falsifiable: "an object written under an undefined prefix of
+-- documents is readable by anyone"). Inserted as postgres (bypassing
+-- storage RLS, the way a service-role write would) under A's OWN account
+-- prefix — even so, the account's own member reads zero rows, because no
+-- policy names a `sections/` prefix.
 -- ---------------------------------------------------------------------------
 reset role;
 
 insert into storage.objects (bucket_id, name, owner)
-select 'documents', value || '/photos/1/p.jpg', 'df111111-1111-1111-1111-111111111111'
+select 'documents', value || '/sections/1/p.jpg', 'df111111-1111-1111-1111-111111111111'
 from ids where name = 'acct_a'
-returning id as obj_photo \gset
+returning id as obj_undefined \gset
 
-insert into ids values ('obj_photo', :'obj_photo');
+insert into ids values ('obj_undefined', :'obj_undefined');
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"df111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
 insert into results (name, passed)
-select '(b) storage: a documents object under a non-resumes/ prefix is unreadable, even by its own account''s member (deny-by-default)',
+select '(b) storage: a documents object under an undefined prefix is unreadable, even by its own account''s member (deny-by-default)',
        count(*) = 0
-from storage.objects where id = (select value::uuid from ids where name = 'obj_photo');
+from storage.objects where id = (select value::uuid from ids where name = 'obj_undefined');
 
 -- ---------------------------------------------------------------------------
 -- (f) Policy shape, not just policy effect. The behavioural checks above

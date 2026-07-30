@@ -519,6 +519,25 @@ export const englishCrmMessages = {
         download: "Download",
         downloadError: "Failed to get a download link",
       },
+      // Story 5.4 — PhotoTab.tsx's own UX-DR11 states, its upload control's
+      // visibility radio group (resume_photos' narrower subset of
+      // ShidduchVisibility — no `private_single`, see the story's own
+      // reasoning), and PhotoRevealCard's reveal-then-show / hide controls.
+      photo: {
+        empty: "No photos uploaded yet.",
+        error: "Could not load the photos.",
+        upload: "Upload a photo",
+        uploadError: "Failed to upload the photo",
+        reveal: "Reveal",
+        revealError: "Failed to reveal the photo",
+        hide: "Hide",
+        hideError: "Failed to hide the photo",
+        alt: "Photo",
+        visibilityOption: {
+          shared: "Shared",
+          private_parent: "Parents only",
+        },
+      },
       // Story 3.2 — ShowBase's explicit `loading` / `error` elements (AC 2).
       record_pending: "Loading…",
       record_unavailable: "This record is unavailable.",

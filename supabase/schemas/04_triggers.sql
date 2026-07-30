@@ -74,6 +74,12 @@ create or replace trigger set_resumes_account_id
     before insert on public.resumes
     for each row execute function public.set_account_id_default();
 
+-- Story 5.4: server-set account_id on insert (AD-1), same shape as
+-- set_resumes_account_id above.
+create or replace trigger set_resume_photos_account_id
+    before insert on public.resume_photos
+    for each row execute function public.set_account_id_default();
+
 create or replace trigger set_reference_links_account_id
     before insert on public.reference_links
     for each row execute function public.set_account_id_default();
@@ -217,6 +223,14 @@ create or replace trigger validate_shidduchim_household_scope
 
 create or replace trigger validate_resumes_household_scope
     before insert or update of account_id on public.resumes
+    for each row execute function public.enforce_household_scope();
+
+-- Story 5.4: a photo of the suggested person is household data with no
+-- shadchanus meaning (unlike entity_files, which a shadchanus context must
+-- be able to hold from day one — Epic 8.5). Bumps household_scope_lift.sql's
+-- catalog-fact literal from 11 to 12 in the same diff.
+create or replace trigger validate_resume_photos_household_scope
+    before insert or update of account_id on public.resume_photos
     for each row execute function public.enforce_household_scope();
 
 create or replace trigger validate_reference_links_household_scope

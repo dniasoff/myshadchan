@@ -204,6 +204,10 @@ revoke all on sequence public.resumes_id_seq from anon;
 grant all on sequence public.resumes_id_seq to authenticated;
 grant all on sequence public.resumes_id_seq to service_role;
 
+revoke all on sequence public.resume_photos_id_seq from anon;
+grant all on sequence public.resume_photos_id_seq to authenticated;
+grant all on sequence public.resume_photos_id_seq to service_role;
+
 revoke all on sequence public.reference_links_id_seq from anon;
 grant all on sequence public.reference_links_id_seq to authenticated;
 grant all on sequence public.reference_links_id_seq to service_role;
@@ -433,6 +437,15 @@ revoke all on function public.add_resume_file(bigint, text, text, text, bigint) 
 grant execute on function public.add_resume_file(bigint, text, text, text, bigint) to authenticated;
 grant execute on function public.add_resume_file(bigint, text, text, text, bigint) to service_role;
 
+-- Story 5.4: the two write paths into resume_photos (AC 2).
+revoke all on function public.add_resume_photo(bigint, text, text) from public, anon;
+grant execute on function public.add_resume_photo(bigint, text, text) to authenticated;
+grant execute on function public.add_resume_photo(bigint, text, text) to service_role;
+
+revoke all on function public.hide_resume_photo(bigint) from public, anon;
+grant execute on function public.hide_resume_photo(bigint) to authenticated;
+grant execute on function public.hide_resume_photo(bigint) to service_role;
+
 -- References epic: new tables, views and functions. anon is revoked everywhere,
 -- exactly as for the rest of the shidduchim domain.
 -- interactions is the diligence audit timeline. Two grants are deliberately
@@ -610,6 +623,14 @@ grant select, insert, update, delete on table public.shidduchim to authenticated
 
 revoke all on table public.resumes from anon, authenticated;
 grant select, insert, update, delete on table public.resumes to authenticated;
+
+-- Story 5.4: same full-CRUD shape as resumes above. RLS (05_policies.sql) is
+-- the real gate — the SPA disciplines itself to write only through
+-- add_resume_photo()/hide_resume_photo(), the same "sole write path" pattern
+-- resumes.files already establishes for add_resume_file().
+revoke all on table public.resume_photos from anon, authenticated;
+grant select, insert, update, delete on table public.resume_photos to authenticated;
+grant all on table public.resume_photos to service_role;
 
 revoke all on table public.reference_links from anon, authenticated;
 grant select, insert, update, delete on table public.reference_links to authenticated;

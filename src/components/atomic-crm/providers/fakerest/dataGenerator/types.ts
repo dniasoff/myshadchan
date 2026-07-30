@@ -12,6 +12,7 @@ import type {
   Reference,
   ReferenceLink,
   Resume,
+  ResumePhoto,
   Shadchan,
   Shidduch,
   ShidduchSchool,
@@ -32,6 +33,11 @@ export interface Db {
   references: Reference[];
   shidduchim: Shidduch[];
   resumes: Resume[];
+  // Photo tab (Story 5.4) — seeded empty, matching entity_files below: the
+  // demo build must not crash on this tab. Written only through
+  // uploadResumePhoto()/hideResumePhoto() (never a raw dataProvider.create/
+  // update).
+  resume_photos: ResumePhoto[];
   reference_links: ReferenceLink[];
   date_records: DateRecord[];
   redts: Redt[];

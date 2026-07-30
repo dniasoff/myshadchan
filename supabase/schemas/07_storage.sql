@@ -151,3 +151,53 @@ create policy "Documents resumes deletable within account" on storage.objects
         and (storage.foldername(name))[1] = public.current_context_id()::text
         and (storage.foldername(name))[2] = 'resumes'
     );
+
+-- Story 5.4: the `photos/` second-level prefix on the SAME `documents`
+-- bucket (this story's whole reason for that bucket's existence — see the
+-- comment above). Key grammar:
+-- `{account_id}/photos/{visibility}/{shidduchim_id}/{uuid}-{filename}` — the
+-- visibility is segment [3], because storage policies can only reason about
+-- storage.foldername(name), never about a resume_photos row (AC-4). Without
+-- this, resume_photos' table RLS (05_policies.sql) is decorative: a
+-- `single`-role member could read the row (learning nothing useful) but
+-- could just as easily be handed a signed URL if the OBJECT itself were not
+-- also gated by the same role check.
+--
+-- Deliberately ONLY select/insert/delete — NO update policy (AC-6, same
+-- load-bearing invariant `entity-files`/`documents resumes` above already
+-- carry, asserted table-wide by
+-- supabase/tests/context_rls_hardening.sql): a photo's visibility is fixed
+-- at upload time; changing it means hide (hide_resume_photo) + re-upload,
+-- never an in-place object rename.
+create policy "Documents photos readable within account" on storage.objects
+    for select to authenticated
+    using (
+        bucket_id = 'documents'
+        and (storage.foldername(name))[1] = public.current_context_id()::text
+        and (storage.foldername(name))[2] = 'photos'
+        and (
+            (storage.foldername(name))[3] = 'shared'
+            or exists (
+                select 1 from public.account_members am
+                where am.id = public.current_member_id() and am.role <> 'single'
+            )
+        )
+    );
+
+create policy "Documents photos writable within account" on storage.objects
+    for insert to authenticated
+    with check (
+        bucket_id = 'documents'
+        and (storage.foldername(name))[1] = public.current_context_id()::text
+        and (storage.foldername(name))[2] = 'photos'
+        and (storage.foldername(name))[3] in ('shared', 'private_parent')
+    );
+
+create policy "Documents photos deletable within account" on storage.objects
+    for delete to authenticated
+    using (
+        bucket_id = 'documents'
+        and (storage.foldername(name))[1] = public.current_context_id()::text
+        and (storage.foldername(name))[2] = 'photos'
+        and (storage.foldername(name))[3] in ('shared', 'private_parent')
+    );

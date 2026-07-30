@@ -416,6 +416,14 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/resumes/PhotoTab.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/resumes/PhotoRevealCard.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/reminders/useReminders.ts",
           "type": "registry:component"
         },
@@ -560,6 +568,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/supabase/resumePhotos.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/supabase/index.ts",
           "type": "registry:component"
         },
@@ -613,6 +625,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/internal/resumes.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/resumePhotos.ts",
           "type": "registry:component"
         },
         {

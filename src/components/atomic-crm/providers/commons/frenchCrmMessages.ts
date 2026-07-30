@@ -472,6 +472,22 @@ export const frenchCrmMessages = {
         download: "Télécharger",
         downloadError: "Échec de la génération du lien de téléchargement",
       },
+      // Story 5.4 — PhotoTab.tsx / PhotoRevealCard.tsx.
+      photo: {
+        empty: "Aucune photo téléversée pour l'instant.",
+        error: "Impossible de charger les photos.",
+        upload: "Téléverser une photo",
+        uploadError: "Échec du téléversement de la photo",
+        reveal: "Révéler",
+        revealError: "Échec de la révélation de la photo",
+        hide: "Masquer",
+        hideError: "Échec du masquage de la photo",
+        alt: "Photo",
+        visibilityOption: {
+          shared: "Partagé",
+          private_parent: "Parents uniquement",
+        },
+      },
       record_pending: "Chargement…",
       record_unavailable: "Cet enregistrement n'est pas disponible.",
       record_unavailable_link: "Retour à la liste",

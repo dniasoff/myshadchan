@@ -27,6 +27,7 @@ import type { TabKey } from "./tabKeys";
  * `buildRecordPath(1) === "/${name}/1/show"` and `tabs toEqual []` for
  * every case — an assertion that cannot express "one of four now differs".
  * `pendingTabs` was already a per-case field and is unchanged in shape.
+ * (Story 5.4 moved `photo` from `pendingTabs` into `tabs`.)
  *
  * Deleting a `registerEntityDescriptor` call above, or changing any one
  * field below, turns this test red — re-read `root/routeManifest.ts` and
@@ -44,8 +45,16 @@ const CASES: StubCase[] = [
   {
     name: "shidduchim",
     buildRecordPath: "/shidduchim/1",
-    tabs: ["overview", "resume", "diligence", "notes", "tasks", "activity"],
-    pendingTabs: ["photo", "medical", "files", "external-links"],
+    tabs: [
+      "overview",
+      "resume",
+      "photo",
+      "diligence",
+      "notes",
+      "tasks",
+      "activity",
+    ],
+    pendingTabs: ["medical", "files", "external-links"],
   },
   {
     name: "singles",

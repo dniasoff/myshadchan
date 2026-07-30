@@ -453,10 +453,41 @@ export type Resume = {
   account_id: Identifier;
   shidduchim_id: Identifier;
   files?: ResumeFileVersion[] | null;
-  photos?: unknown;
   extracted?: unknown;
   sections?: unknown;
   created_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
+ * `resume_photos.visibility` (Story 5.4) — the narrower subset of
+ * `ShidduchVisibility` that means something for a photo of the suggested
+ * person: `private_single` would hide it from its own uploader (the
+ * process manager), which is nonsense here, so the column's own CHECK
+ * constraint excludes it.
+ */
+export type ResumePhotoVisibility = Extract<
+  ShidduchVisibility,
+  "shared" | "private_parent"
+>;
+
+/**
+ * A row of `public.resume_photos` (Story 5.4): one row per uploaded photo of
+ * the suggested person, replacing `resumes.photos jsonb`. RLS enforces at
+ * ROW granularity, so per-photo visibility (unlike `Resume.files`, an
+ * appended jsonb array) needs its own table. `path` embeds the visibility
+ * segment (`{account_id}/photos/{visibility}/{shidduchim_id}/{uuid}-{name}`)
+ * — never resolved to a URL here; `signResumePhotoUrl` mints one per reveal
+ * click and never persists it (AC 1). `hidden_at` is a soft-hide: a hidden
+ * photo is excluded everywhere by a plain `hidden_at is null` filter, never
+ * deleted.
+ */
+export type ResumePhoto = {
+  account_id: Identifier;
+  resume_id: Identifier;
+  path: string;
+  uploaded_at: string;
+  visibility: ResumePhotoVisibility;
+  hidden_at?: string | null;
 } & Pick<RaRecord, "id">;
 
 /** The four call outcomes a shadchan actually records (FR40), plus "not started". */

@@ -1,5 +1,6 @@
 import type { EntityDescriptor } from "../entity360/entityDescriptor";
 import { registerEntityDescriptor } from "../entity360/registry";
+import { PhotoTab } from "../resumes/PhotoTab";
 import { ResumeTab } from "../resumes/ResumeTab";
 import { ShidduchOverviewTab } from "./ShidduchOverviewTab";
 import {
@@ -37,6 +38,17 @@ import type { ShidduchSummary } from "../types";
  * shared with the single's own 360 later (Story 5.8), and it reaches the
  * shidduch via its own `useRecordContext()`, not `targetType`/`targetId`,
  * so it does not fit `entityDescriptorRegions.tsx`'s universal-tab adapters.
+ *
+ * Story 5.4 moves `photo` out of `pendingTabs` and into `tabs`, in
+ * canonical position (`photo` follows `resume` —
+ * `entity360/ad24Conformance.ts`'s `CANONICAL_TAB_SETS.shidduchim`) — the
+ * same diff that builds `PhotoTab`, per AD-24's hand-off note (b): a story
+ * that builds a tab moves its key, or the tab ships built-and-unmounted. No
+ * `label` override: "Photo" is already the i18n default
+ * (`entity360/tabKeys.ts`), and an override would need a "why THIS entity
+ * deviates" comment for a deviation that does not exist. `PhotoTab` lives
+ * in `resumes/`, alongside `ResumeTab`, for the same reason: a photo
+ * belongs to the shidduch's resume record, not to `shidduchim/`.
  */
 export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
   name: "shidduchim",
@@ -47,12 +59,13 @@ export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
   tabs: [
     { key: "overview", render: () => <ShidduchOverviewTab /> },
     { key: "resume", render: () => <ResumeTab /> },
+    { key: "photo", render: () => <PhotoTab /> },
     { key: "diligence", render: () => <ShidduchDiligenceTab /> },
     { key: "notes", render: () => <ShidduchNotesTab /> },
     { key: "tasks", render: () => <ShidduchTasksTab /> },
     { key: "activity", render: () => <ShidduchActivityTab /> },
   ],
-  pendingTabs: ["photo", "medical", "files", "external-links"],
+  pendingTabs: ["medical", "files", "external-links"],
 };
 
 registerEntityDescriptor(shidduchimDescriptor, { replace: true });

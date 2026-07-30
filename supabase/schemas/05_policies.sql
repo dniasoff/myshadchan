@@ -65,6 +65,7 @@ alter table public.shadchanim enable row level security;
 alter table public."references" enable row level security;
 alter table public.shidduchim enable row level security;
 alter table public.resumes enable row level security;
+alter table public.resume_photos enable row level security;
 alter table public.reference_links enable row level security;
 alter table public.date_records enable row level security;
 alter table public.redts enable row level security;
@@ -204,6 +205,44 @@ create policy "Resumes scoped to account" on public.resumes
     for all to authenticated
     using (account_id = public.current_context_id())
     with check (account_id = public.current_context_id());
+
+-- Photo tab (Story 5.4, AC-3). Unlike every plain "scoped to account"
+-- policy in this file, this one narrows further: a caller whose ACTIVE
+-- membership role is 'single' must never read (or write) a 'private_parent'
+-- row. This is a self-contained role check on this one table, not a
+-- dependency on Epic 6's general single-access work (which lands later and
+-- covers other tables, e.g. interactions below) — 'single' is already a
+-- real, invitable role at HEAD (account_members_role_check, 01_tables.sql).
+--
+-- current_member_id() is SECURITY DEFINER and already resolves to the
+-- caller's ACTIVE membership ((auth.uid(), current_context_id(), status =
+-- 'active') — 02_functions.sql). The exists() below matches ONLY on
+-- `am.id = current_member_id()`, never re-derives the membership from
+-- auth.uid() unscoped, and when the caller has no active membership
+-- current_member_id() returns null, `am.id = null` matches nothing, so this
+-- policy fails closed.
+create policy "Resume photos scoped to account, single sees only shared" on public.resume_photos
+    for all to authenticated
+    using (
+        account_id = public.current_context_id()
+        and (
+            visibility = 'shared'
+            or exists (
+                select 1 from public.account_members am
+                where am.id = public.current_member_id() and am.role <> 'single'
+            )
+        )
+    )
+    with check (
+        account_id = public.current_context_id()
+        and (
+            visibility = 'shared'
+            or exists (
+                select 1 from public.account_members am
+                where am.id = public.current_member_id() and am.role <> 'single'
+            )
+        )
+    );
 
 create policy "Reference links scoped to account" on public.reference_links
     for all to authenticated
