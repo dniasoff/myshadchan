@@ -84,8 +84,16 @@ const { checks, error } = runSuite();
 describe("single_field_scoping (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
+  // Review should-fix #5: a `>=` floor lets any check silently vanish (an
+  // `insert into results (...) select ... from <view> where id = ...` with
+  // no matching row inserts nothing at all, rather than a named failure) as
+  // long as the total stays above the threshold — exactly what happened to
+  // the shadchan_stats checks before they were rewritten with `select ...
+  // into` + `found`. An exact count catches any check disappearing, not just
+  // a large drop. Update this number in the same diff as any change to the
+  // number of `insert into results` statements in single_field_scoping.sql.
   it("runs every AC 1 / AC 2 / AC 3 / AC 4 / AC 5 / AC 6 / AC 7 / AC 8 check group", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(30);
+    expect(checks.length).toBe(47);
   });
 
   for (const check of checks) {

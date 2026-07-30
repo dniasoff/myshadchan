@@ -4,12 +4,24 @@
 -- Covers AC 1-8: the four candid tables that deny `single` outright
 -- (reference_links, "references", entity_files, shidduchim_external_links),
 -- interactions' default deny (AC 2, all three per-command policies —
--- including the 5.9-migrated shadchan-targeted note shape), the shadchanim
--- row-readable/write-denied split plus the shadchan_stats aggregate-leak
--- assertion (AC 3), the shidduchim_summary.close_reason redaction (AC 4),
--- the medical_notes unconditional negative test (AC 5), the six storage
--- policies with the two-sided entity-files/resumes/photos assertion (AC 6),
--- and the summary-view pass-through (AC 7).
+-- including the 5.9-migrated shadchan-targeted note shape, plus a
+-- WHERE-less UPDATE that isolates the UPDATE policy's own guard from the
+-- SELECT policy), the shadchanim row-readable/write-denied split plus the
+-- shadchan_stats aggregate-leak assertion and a cross-account negative test
+-- (AC 3), the shidduchim_summary.close_reason redaction plus an honestly-pinned
+-- SCOPE NOTE on the base-table gap that redaction doesn't close (AC 4), the
+-- medical_notes unconditional negative test (AC 5), the six storage policies
+-- with the two-sided entity-files/resumes/photos SELECT assertion plus
+-- INSERT/DELETE guards on entity-files and documents/resumes/ (AC 6), and the
+-- summary-view pass-through (AC 7).
+--
+-- Post-review hardening (see the story's own review-fix pass): the
+-- cross-account shadchanim check, the WHERE-less interactions UPDATE check,
+-- the entity-files/documents-resumes INSERT+DELETE checks, the AC-4 base-table
+-- SCOPE NOTE, and the `select ... into` + `found` rewrite of both
+-- shadchan_stats checks (a `select ... from shadchan_stats where id = ...`
+-- with no matching row inserts NO result row at all — a vanished check reads
+-- as untested, not failed, and the suite stays green regardless).
 --
 -- Arrange uses the shared "two siblings, one household" fixture
 -- (dbSuiteHelpers.ts, siblingHouseholdFixtureSql()) — spliced in by
@@ -18,8 +30,10 @@
 -- two-singles shape here. This file only adds what is specific to THIS
 -- story's assertions: one shidduch visible to Leah (close_reason set, a
 -- shadchan attached), one visible to Rivka attached to a SECOND, otherwise
--- unattached shadchan (the shadchan_stats leak fixture), one row in each of
--- the six AC-1/AC-2/AC-5 zero-row tables, and four storage.objects rows.
+-- unattached shadchan (the shadchan_stats leak fixture), a THIRD, unrelated
+-- household account with its own shadchan (the cross-account fixture), one
+-- row in each of the six AC-1/AC-2/AC-5 zero-row tables, and four
+-- storage.objects rows.
 --
 -- Every check appends one row to `results`; the script emits them as JSON at
 -- the end and rolls back, so it leaves nothing behind. The runner
@@ -134,9 +148,26 @@ insert into public.interactions (account_id, target_type, target_id, scope, kind
 values (:sibling_fixture_account_id, 'shidduch', :leah_visible_id, 'shidduch', 'note', 'Candid parent note on Leah''s own visible suggestion')
 returning id as shidduch_note_id \gset
 
+-- Review should-fix #4's own falsifiable: a `status_change`-kind row (the
+-- other half of AC-2's "full activity/status-change timeline"), deliberately
+-- NOT kind = 'note'/'single_input'. Both rows above are kind = 'note', so
+-- `"Interactions updatable by author or owning role"`'s trailing
+-- `(kind not in ('note', 'single_input') or can_moderate_note(actor_member_id))`
+-- clause blocks Leah from either of them regardless of the policy's own
+-- `current_member_role() <> 'single'` guard (she authored neither and holds
+-- no owning role) — a no-WHERE UPDATE against ONLY those two rows would
+-- therefore stay green even with that guard deleted, proving nothing. This
+-- row's kind bypasses that secondary clause entirely, so the guard is the
+-- only thing standing between Leah and updating it (confirmed live: guard
+-- removed -> this row updates, guard present -> it does not).
+insert into public.interactions (account_id, target_type, target_id, scope, kind, body)
+values (:sibling_fixture_account_id, 'shidduch', :leah_visible_id, 'shidduch', 'status_change', 'Status changed on Leah''s own visible suggestion')
+returning id as shidduch_status_change_id \gset
+
 insert into ids values
   ('shadchan_note_id', :'shadchan_note_id'),
-  ('shidduch_note_id', :'shidduch_note_id');
+  ('shidduch_note_id', :'shidduch_note_id'),
+  ('shidduch_status_change_id', :'shidduch_status_change_id');
 
 -- medical_notes (Story 5.5) — AC-5's unconditional negative test.
 insert into public.medical_notes (account_id, shidduchim_id, body)
@@ -144,6 +175,23 @@ values (:sibling_fixture_account_id, :leah_visible_id, 'Candid medical content')
 returning id as medical_note_id \gset
 
 insert into ids values ('medical_note_id', :'medical_note_id');
+
+-- Cross-account negative test fixture (review blocker #2): a SECOND,
+-- unrelated household account with its own shadchan row. AC-3's "whole
+-- book" grant on "Shadchanim visible to single" is deliberately
+-- account-scoped (`account_id = current_context_id()`), never global — this
+-- is the falsifiable proof that guard is load-bearing, not merely present.
+insert into public.accounts (name, kind)
+values ('Story 6.3 Foreign Household', 'household')
+returning id as foreign_account_id \gset
+
+insert into public.shadchanim (account_id, name)
+values (:foreign_account_id, 'Foreign Household Shadchan')
+returning id as foreign_shadchan_id \gset
+
+insert into ids values
+  ('foreign_account_id', :'foreign_account_id'),
+  ('foreign_shadchan_id', :'foreign_shadchan_id');
 
 -- Four storage.objects rows, inserted directly as postgres (AC-6/AC-8): one
 -- entity-files object, one documents/resumes object, one documents/photos/
@@ -235,7 +283,7 @@ select 'AC5: single sees zero rows in medical_notes (unconditional negative test
 -- 5.9-migrated shadchan-targeted note.
 -- ---------------------------------------------------------------------------
 insert into results (name, passed)
-select 'AC2/AC8: single sees zero rows in interactions (shadchan-targeted note + shidduch-scoped note both denied)',
+select 'AC2/AC8: single sees zero rows in interactions (shadchan-targeted note + shidduch-scoped note + status_change row all denied)',
        (select count(*) from public.interactions) = 0;
 
 do $$
@@ -260,6 +308,31 @@ begin
   );
 end $$;
 
+-- Review should-fix #4: the WHERE id = ... shape above targets
+-- shidduch_note_id, a kind = 'note' row — that row is ALSO blocked by the
+-- trailing `(kind not in ('note','single_input') or
+-- can_moderate_note(actor_member_id))` clause regardless of whether the
+-- policy's OWN `current_member_role() <> 'single'` guard is present (Leah
+-- authored neither note and holds no owning role), so it cannot, by itself,
+-- prove that guard is load-bearing. Confirmed live: deleting just that guard
+-- from the policy still leaves the WHERE-qualified check at rows=0, for
+-- exactly that reason. A WHERE-less UPDATE against the WHOLE table also
+-- reaches shidduch_status_change_id (kind = 'status_change', fixture above)
+-- — a kind the can_moderate_note clause never applies to — which is why that
+-- row exists: it is the one row in this fixture the guard is the ONLY thing
+-- protecting. Confirmed live: guard present -> 0 rows; guard deleted -> 1
+-- row (this exact row flips).
+do $$
+declare v_rows_affected int;
+begin
+  update public.interactions set body = 'Tampered By Single (no WHERE clause)';
+  get diagnostics v_rows_affected = row_count;
+  insert into results values (
+    'AC2 (review should-fix): single''s UPDATE on interactions with NO WHERE clause affects zero rows (reaches the status_change row the can_moderate_note clause does not gate, isolating the UPDATE policy''s own guard)',
+    v_rows_affected = 0, 'rows affected: ' || v_rows_affected
+  );
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- AC 3: shadchanim — row-readable, write-denied, whole book (not just own
 -- suggestion's shadchan).
@@ -271,6 +344,10 @@ select 'AC3: single reads the WHOLE shadchan book (both rows), not just her own 
 insert into results (name, passed)
 select 'AC3: single reads leah_shadchan_id by name',
        exists (select 1 from public.shadchanim where id = (select value::bigint from ids where name = 'leah_shadchan_id') and name = 'Leah''s Shadchan');
+
+insert into results (name, passed)
+select 'AC3/cross-account (review blocker #2): single does NOT see a shadchan belonging to a DIFFERENT, unrelated household account',
+       not exists (select 1 from public.shadchanim where id = (select value::bigint from ids where name = 'foreign_shadchan_id'));
 
 do $$
 declare v_rows_affected int;
@@ -294,13 +371,37 @@ end $$;
 -- shadchan_stats aggregate-leak assertion: the stats shadchan is attributed
 -- ONLY to Rivka's visible suggestion, which is denied to Leah under 6.2's
 -- RLS — the aggregate must show zeroes, never Rivka's real counts.
-insert into results (name, passed, detail)
-select 'AC3: shadchan_stats shows ZEROED aggregates to single for a shadchan attributed only to a sibling''s suggestion (not a leak)',
-       nb_suggestions = 0 and nb_progressed = 0 and nb_reached_yes = 0 and last_redt_date is null and nb_open_singles = 0,
-       format('nb_suggestions=%s nb_progressed=%s nb_reached_yes=%s last_redt_date=%s nb_open_singles=%s',
-              nb_suggestions, nb_progressed, nb_reached_yes, last_redt_date, nb_open_singles)
-from public.shadchan_stats
-where id = (select value::bigint from ids where name = 'stats_shadchan_id');
+--
+-- Review should-fix #5 (vanishing-assertion defect): the naive
+-- `insert into results (...) select ... from public.shadchan_stats where
+-- id = ...` shape inserts NO row at all if the view returns no row for that
+-- id (e.g. if "Shadchanim visible to single" itself were ever dropped,
+-- making the shadchan row — and hence its shadchan_stats row, driven by a
+-- LEFT JOIN off shadchanim — invisible). That reads as the check having
+-- vanished, not failed, and the suite still reports green. `select ... into`
+-- + `found` makes an absent row an explicit, named failure instead.
+do $$
+declare
+  v_nb_suggestions int;
+  v_nb_progressed int;
+  v_nb_reached_yes int;
+  v_last_redt_date date;
+  v_nb_open_singles int;
+  v_found boolean;
+begin
+  select nb_suggestions, nb_progressed, nb_reached_yes, last_redt_date, nb_open_singles
+    into v_nb_suggestions, v_nb_progressed, v_nb_reached_yes, v_last_redt_date, v_nb_open_singles
+  from public.shadchan_stats
+  where id = (select value::bigint from ids where name = 'stats_shadchan_id');
+  v_found := found;
+
+  insert into results values (
+    'AC3: shadchan_stats shows ZEROED aggregates to single for a shadchan attributed only to a sibling''s suggestion (not a leak)',
+    v_found and v_nb_suggestions = 0 and v_nb_progressed = 0 and v_nb_reached_yes = 0 and v_last_redt_date is null and v_nb_open_singles = 0,
+    format('found=%s nb_suggestions=%s nb_progressed=%s nb_reached_yes=%s last_redt_date=%s nb_open_singles=%s',
+           v_found, v_nb_suggestions, v_nb_progressed, v_nb_reached_yes, v_last_redt_date, v_nb_open_singles)
+  );
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- AC 4 / AC 7: shidduchim_summary.close_reason is redacted for single, even
@@ -313,6 +414,34 @@ select 'AC4/AC7: single reads NULL close_reason on her own otherwise-visible sug
 insert into results (name, passed)
 select 'AC4/AC7: single still reads every OTHER column of her own otherwise-visible suggestion (the row itself is not hidden)',
        (select name_en from public.shidduchim_summary where id = (select value::bigint from ids where name = 'leah_visible_id')) = 'Leah Visible Suggestion';
+
+-- AC 4 SCOPE NOTE (review blocker #3 — documented, not silently left
+-- unproven): the CASE above redacts close_reason in shidduchim_summary, but
+-- a `single` selecting close_reason DIRECTLY off the BASE TABLE
+-- public.shidduchim (e.g. `GET /rest/v1/shidduchim?select=close_reason` over
+-- PostgREST) still gets the real value. Postgres RLS is row-scoped only — it
+-- has no column-level primitive — and every app role, `single` and
+-- `parent_admin` alike, connects to Postgres as the SAME literal role
+-- (`authenticated`); the distinction is a session-level JWT claim read by
+-- current_member_role(), never a separate Postgres role. A static,
+-- role-level `revoke select (close_reason) ... from authenticated` would
+-- therefore block EVERY caller equally, including a legitimate parent_admin
+-- reading the same column through the view (security_invoker = on means the
+-- view's own query needs the INVOKER's column privilege to evaluate the
+-- CASE, regardless of what the CASE returns). Closing this at the database
+-- needs a SECURITY DEFINER masking function plus a column-level REVOKE —
+-- changes to 02_functions.sql and 06_grants.sql, both outside this fix's
+-- declared file ownership (05_policies.sql, 03_views.sql, 07_storage.sql,
+-- migrations, this test file, the two entityDescriptor files, registry.json).
+-- Pinned here, honestly, as the CURRENT behaviour — same "pin now, flip when
+-- it's fixed" shape as single_row_scoping.sql's own AC-6 SCOPE NOTEs — rather
+-- than silently left unproven. A follow-up story with that file ownership
+-- should flip this assertion to `is null` when it closes AC-4 at the base
+-- table.
+insert into results (name, passed)
+select 'AC4 SCOPE NOTE (follow-up story to close, needs 02_functions.sql/06_grants.sql ownership): single reads the REAL close_reason directly off the base table public.shidduchim — the view redaction is a read-path convention, not yet a database column-level control — succeeds today',
+       (select close_reason from public.shidduchim where id = (select value::bigint from ids where name = 'leah_visible_id'))
+         = 'Candid decision rationale — not for the single''s eyes';
 
 -- ---------------------------------------------------------------------------
 -- AC 7: the summary views pass RLS through unchanged — zero rows for single.
@@ -354,6 +483,82 @@ select 'AC6/AC8 positive control: single STILL sees exactly one storage.objects 
         where bucket_id = 'documents' and (storage.foldername(name))[2] = 'photos' and (storage.foldername(name))[3] = 'shared') = 1;
 
 -- ---------------------------------------------------------------------------
+-- AC 6 / AC 8 (review should-fix #4): the entity-files and
+-- documents/resumes/ INSERT and DELETE guards were previously exercised only
+-- via the SELECT checks above — a loosened INSERT or DELETE guard on either
+-- prefix stayed unproven. A single must not be able to plant a new object in
+-- either prefix, nor delete an existing one.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  insert into storage.objects (bucket_id, name, owner)
+  values (
+    'entity-files',
+    (select value from ids where name = 'account_id') || '/shidduch/' ||
+      (select value from ids where name = 'leah_visible_id') || '/planted-by-single.pdf',
+    '51810000-0000-0000-0000-000000000002'
+  );
+  insert into results values ('AC6/AC8 (review should-fix): single''s INSERT into entity-files storage is denied (raises)', false, 'insert unexpectedly succeeded');
+exception when others then
+  insert into results values ('AC6/AC8 (review should-fix): single''s INSERT into entity-files storage is denied (raises)', true, sqlerrm);
+end $$;
+
+do $$
+begin
+  insert into storage.objects (bucket_id, name, owner)
+  values (
+    'documents',
+    (select value from ids where name = 'account_id') || '/resumes/' ||
+      (select value from ids where name = 'leah_visible_id') || '/planted-by-single.pdf',
+    '51810000-0000-0000-0000-000000000002'
+  );
+  insert into results values ('AC6/AC8 (review should-fix): single''s INSERT into documents/resumes/ storage is denied (raises)', false, 'insert unexpectedly succeeded');
+exception when others then
+  insert into results values ('AC6/AC8 (review should-fix): single''s INSERT into documents/resumes/ storage is denied (raises)', true, sqlerrm);
+end $$;
+
+-- DELETE, with storage.allow_delete_query set so the statement-level guard
+-- (storage.protect_delete()) is not what denies it — an RLS denial, not a
+-- locked door with no key (same pattern as entity_files.sql /
+-- documents_storage.sql's own DELETE checks).
+--
+-- Verified live, mutation-tested (matching the review's own method): with
+-- ONLY "Entity files deletable within account"'s (or "Documents resumes
+-- deletable within account"'s) own `current_member_role() <> 'single'`
+-- clause removed — the corresponding readable policy left untouched — this
+-- DELETE still affects zero rows, because PostgreSQL requires a row to be
+-- visible under an applicable SELECT policy before UPDATE/DELETE can target
+-- it at all (the same coupling the interactions UPDATE comment above
+-- documents); "Entity files readable within account" denies `single` the
+-- row regardless of what the deletable policy's own clause says. The
+-- deletable policy's clause is therefore NOT independently provable via a
+-- black-box SQL probe as long as its sibling SELECT policy carries the same
+-- guard — confirmed by additionally removing BOTH clauses together, which
+-- DOES flip this check red. What this check genuinely proves: the object is
+-- not reachable for deletion through the CURRENT combination of policies
+-- (readable AND deletable), which is the property that actually matters —
+-- it is not a claim that the deletable policy's clause is individually
+-- load-bearing in isolation.
+set local storage.allow_delete_query = 'true';
+delete from storage.objects where id = (select value::uuid from ids where name = 'entity_files_object_id');
+delete from storage.objects where id = (select value::uuid from ids where name = 'resumes_object_id');
+
+reset role;
+
+insert into results (name, passed)
+select 'AC6/AC8 (review should-fix): single''s DELETE attempt on the entity-files object left it intact (RLS denial, not the statement guard)',
+       count(*) = 1
+from storage.objects where id = (select value::uuid from ids where name = 'entity_files_object_id');
+
+insert into results (name, passed)
+select 'AC6/AC8 (review should-fix): single''s DELETE attempt on the documents/resumes/ object left it intact (RLS denial, not the statement guard)',
+       count(*) = 1
+from storage.objects where id = (select value::uuid from ids where name = 'resumes_object_id');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+-- ---------------------------------------------------------------------------
 -- Re-asserted as parent_admin, in the same test run: every table above is
 -- non-zero and shows the REAL close_reason value — the denial above is
 -- `single`-specific, not a regression on everyone else (AC-8's own shape).
@@ -377,8 +582,8 @@ insert into results (name, passed)
 select 'AC8: parent_admin sees non-zero rows in medical_notes', (select count(*) from public.medical_notes) > 0;
 
 insert into results (name, passed)
-select 'AC8: parent_admin sees non-zero rows in interactions (both the shadchan-note and the shidduch-note)',
-       (select count(*) from public.interactions) >= 2;
+select 'AC8: parent_admin sees non-zero rows in interactions (the shadchan-note, the shidduch-note and the status_change row)',
+       (select count(*) from public.interactions) >= 3;
 
 insert into results (name, passed)
 select 'AC4/AC8: parent_admin reads the REAL close_reason on the same suggestion',
@@ -397,12 +602,25 @@ select 'AC7/AC8: parent_admin sees non-zero rows in interactions_summary', (sele
 insert into results (name, passed)
 select 'AC7/AC8: parent_admin sees non-zero rows in entity_files_summary', (select count(*) from public.entity_files_summary) > 0;
 
-insert into results (name, passed, detail)
-select 'AC3/AC8: parent_admin sees the REAL, non-zero shadchan_stats aggregate for the leak-test shadchan',
-       nb_suggestions > 0,
-       format('nb_suggestions=%s', nb_suggestions)
-from public.shadchan_stats
-where id = (select value::bigint from ids where name = 'stats_shadchan_id');
+-- Review should-fix #5, parent side: same `select ... into` + `found` shape
+-- as the single-side check above, so a missing row fails this assertion by
+-- name instead of silently not inserting one.
+do $$
+declare
+  v_nb_suggestions int;
+  v_found boolean;
+begin
+  select nb_suggestions into v_nb_suggestions
+  from public.shadchan_stats
+  where id = (select value::bigint from ids where name = 'stats_shadchan_id');
+  v_found := found;
+
+  insert into results values (
+    'AC3/AC8: parent_admin sees the REAL, non-zero shadchan_stats aggregate for the leak-test shadchan',
+    v_found and v_nb_suggestions > 0,
+    format('found=%s nb_suggestions=%s', v_found, v_nb_suggestions)
+  );
+end $$;
 
 insert into results (name, passed)
 select 'AC6/AC8: parent_admin sees the entity-files object', (select count(*) from storage.objects where bucket_id = 'entity-files') = 1;
