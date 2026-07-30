@@ -1,5 +1,6 @@
 import { createDataProvider } from "./dataProvider";
 import generateData from "./dataGenerator";
+import type { Interaction } from "../../types";
 
 /**
  * Demo mode must refuse exactly what Postgres refuses. These mirror the
@@ -329,6 +330,60 @@ describe("single_input FakeRest parity (Story 6.4, AC 1 / AC 3 / AC 7)", () => {
         previousData: created,
       }),
     ).rejects.toThrow(/append-only/i);
+  });
+
+  // Review fix (Story 6.4): `enrichInteractions()`'s `can_moderate` mirror
+  // still had the pre-6.4 shape (`kind !== "note"` alone made it `true` for
+  // EVERY single_input row), so the demo UI offered an edit/delete control
+  // on a row this same describe block already proves `update()` refuses
+  // unconditionally — clicking it would throw instead of the control simply
+  // not rendering. Checked from BOTH sides `can_moderate_note()` would
+  // otherwise return true for: the row's own author, and a parent_admin (an
+  // owning role) in the same account.
+  //
+  // The row is seeded directly into `db.interactions`, never through
+  // `singleProvider.create()`: `createDataProvider` snapshots `db` into its
+  // own FakeRest store at construction, so a row created through ONE
+  // provider instance is invisible to a SEPARATE provider instance built
+  // from the same `db` object afterwards (verified live — a cross-provider
+  // `getOne` for such a row throws "No item with identifier"). Seeding
+  // before EITHER provider is constructed is what makes both instances see
+  // the same row.
+  it("reports can_moderate: false for a single_input row, for its own author and for a parent_admin — never true, append-only has no escape", async () => {
+    // Arrange
+    const db = dbWithSingleMember();
+    const accountId = db.accounts[0].id;
+    const singleInputRow: Interaction = {
+      id: 90501,
+      account_id: accountId,
+      target_type: "shidduch",
+      target_id: 1,
+      scope: "shidduch",
+      reference_link_id: null,
+      actor_member_id: 9001, // the single member seeded by dbWithSingleMember()
+      kind: "single_input",
+      body: "the single's own input",
+      metadata: null,
+      created_at: "2026-01-01T00:00:00.000Z",
+      deleted_at: null,
+    };
+    db.interactions = [...db.interactions, singleInputRow];
+    const singleProvider = makeSingleProvider(db);
+    const parentProvider = makeParentProvider(db);
+
+    // Act
+    const { data: seenBySingle } = await singleProvider.getOne(
+      "interactions_summary",
+      { id: singleInputRow.id },
+    );
+    const { data: seenByParent } = await parentProvider.getOne(
+      "interactions_summary",
+      { id: singleInputRow.id },
+    );
+
+    // Assert
+    expect(seenBySingle.can_moderate).toBe(false);
+    expect(seenByParent.can_moderate).toBe(false);
   });
 
   it("still allows a parent_admin to update a note they authored — the append-only rule is single_input-specific", async () => {

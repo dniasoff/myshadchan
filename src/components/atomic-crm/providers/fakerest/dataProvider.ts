@@ -300,11 +300,19 @@ export const createDataProvider = ({
 
   // Emulate the interactions_summary view (Story 3.6, AD-10 FakeRest
   // mirror): resolve each row's author_name and can_moderate the same way
-  // the Postgres view and the UPDATE policy's full predicate do, so a note's
-  // author byline and edit/delete controls render correctly in demo mode
-  // too. can_moderate mirrors `kind <> 'note' or can_moderate_note(...)`,
-  // never can_moderate_note() alone (review fix, 3-6) — see the `canModerate`
-  // computation below.
+  // the Postgres view and the UPDATE policy's moderation clause do, so a
+  // note's author byline and edit/delete controls render correctly in demo
+  // mode too. can_moderate mirrors `kind not in ('note', 'single_input') or
+  // (kind = 'note' and can_moderate_note(...))` — never can_moderate_note()
+  // alone (review fix, 3-6), and never on the `single_input` branch at all
+  // (Story 6.4 review fix: this mirror still had the pre-6.4 shape, `kind <>
+  // 'note' or can_moderate_note(...)`, so `row.kind !== "note"` alone made
+  // canModerate true for every `single_input` row regardless of caller —
+  // the demo UI offered an edit/delete control that this same file's own
+  // `update()` guard unconditionally refuses, throwing instead of the
+  // control simply not rendering. The real `interactions_summary` view had
+  // the identical drift, fixed the same way in 03_views.sql) — see the
+  // `canModerate` computation below.
   //
   // On the note-kind branch, can_moderate for a null actor_member_id follows
   // the SQL exactly: false on the author branch (there is no membership row
@@ -376,16 +384,22 @@ export const createDataProvider = ({
         caller != null &&
         authorMembership.user_id === caller.userId;
 
-      // Mirrors the UPDATE policy's FULL predicate (05_policies.sql), not
-      // just can_moderate_note(): `kind <> 'note' or can_moderate_note(...)`.
-      // A row this enricher ever sees has already passed the same
-      // account-scope visibility every other RLS-emulating enricher here
-      // relies on, so for a non-note kind (call_logged, status_change,
-      // merge, link_created, link_removed) the real policy lets ANY account
-      // member update it — can_moderate must be `true` outright on that
-      // branch, not gated behind isAuthor/callerOwnsCurrentContext.
+      // Mirrors the UPDATE policy's moderation clause (05_policies.sql):
+      // `kind not in ('note', 'single_input') or (kind = 'note' and
+      // can_moderate_note(...))`. A row this enricher ever sees has already
+      // passed the same account-scope visibility every other RLS-emulating
+      // enricher here relies on, so for a kind that is neither `note` nor
+      // `single_input` (call_logged, status_change, merge, link_created,
+      // link_removed) the real policy lets ANY account member update it —
+      // can_moderate must be `true` outright on that branch, not gated
+      // behind isAuthor/callerOwnsCurrentContext. `single_input` reaches
+      // neither branch (Story 6.4 AC 3: append-only for every role,
+      // including its own author and a parent_admin) — can_moderate is
+      // `false` there unconditionally, the one case this predicate is NOT
+      // `row.kind !== "note"`.
       const canModerate =
-        row.kind !== "note" || isAuthor || callerOwnsCurrentContext;
+        (row.kind !== "note" && row.kind !== "single_input") ||
+        (row.kind === "note" && (isAuthor || callerOwnsCurrentContext));
 
       return {
         ...row,
