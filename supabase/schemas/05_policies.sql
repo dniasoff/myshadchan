@@ -381,22 +381,87 @@ create policy "Resumes visible to single" on public.resumes
 -- When the caller has no active membership it returns NULL, and
 -- `NULL <> 'single'` is NULL (falsy in a USING clause) — exactly the fail-
 -- closed behaviour the inlined `exists (… am.id = current_member_id() …)`
--- this replaces already had (Story 6.2 Task 7 — a DRY fold, not a behaviour
--- change; `resume_photos.sql` passes unmodified).
-create policy "Resume photos scoped to account, single sees only shared" on public.resume_photos
+-- this replaces already had (Story 6.2 Task 7 — a DRY fold).
+--
+-- Story 6.2 REVIEW FIX (finding #2): Task 7's original fold kept the
+-- `visibility = 'shared'` test account-WIDE — any `single` could read, and
+-- (being a `for all` policy) HIDE, any shared photo in the household,
+-- including a sibling's, and could read a `shared`-tagged photo whose parent
+-- suggestion is itself `private_parent` (a suggestion AC-1 says must be
+-- wholly invisible to them). That was consistent with Story 5.4's
+-- household-wide "single" model, but every OTHER single-adjacent table this
+-- story touches (`resumes`, `shidduch_schools`, `shidduchim`) is scoped to
+-- the caller's OWN suggestion via a `singles.member_id` join — leaving this
+-- one table household-wide reopened exactly the sibling leak AC-1/AC-8 exist
+-- to close, and made it a write hole too (`hide_resume_photo()` is SECURITY
+-- INVOKER and trusts this policy's own SELECT for its "does this photo
+-- exist" check). Closed with the SAME ownership join "Resumes visible to
+-- single" already uses (own visible suggestion, or the single's own
+-- outbound resume) — one authority for "is this resume mine", not a second,
+-- table-local reinvention. `resume_photos.sql`'s fixture was updated
+-- alongside this (its `single` members are now linked to a real `singles`
+-- row via `member_id` — see that file's own note) rather than this policy
+-- being loosened to keep an un-updated fixture green.
+create policy "Resume photos scoped to account, single sees only own shared" on public.resume_photos
     for all to authenticated
     using (
         account_id = public.current_context_id()
         and (
-            visibility = 'shared'
-            or public.current_member_role() <> 'single'
+            public.current_member_role() <> 'single'
+            or (
+                visibility = 'shared'
+                and exists (
+                    select 1
+                    from public.resumes r
+                    where r.id = resume_photos.resume_id
+                      and (
+                        exists (  -- a visible suggestion's resume
+                            select 1
+                            from public.shidduchim s
+                                join public.singles c on c.id = s.single_id
+                            where s.id = r.shidduchim_id
+                              and s.visibility = 'shared'
+                              and public.is_single_visible_state(s.pipeline_state)
+                              and c.member_id = public.current_member_id()
+                        )
+                        or exists (  -- the single's own outbound resume (5.8 shape)
+                            select 1 from public.singles c
+                            where c.id = r.single_id
+                              and c.member_id = public.current_member_id()
+                        )
+                      )
+                )
+            )
         )
     )
     with check (
         account_id = public.current_context_id()
         and (
-            visibility = 'shared'
-            or public.current_member_role() <> 'single'
+            public.current_member_role() <> 'single'
+            or (
+                visibility = 'shared'
+                and exists (
+                    select 1
+                    from public.resumes r
+                    where r.id = resume_photos.resume_id
+                      and (
+                        exists (
+                            select 1
+                            from public.shidduchim s
+                                join public.singles c on c.id = s.single_id
+                            where s.id = r.shidduchim_id
+                              and s.visibility = 'shared'
+                              and public.is_single_visible_state(s.pipeline_state)
+                              and c.member_id = public.current_member_id()
+                        )
+                        or exists (
+                            select 1 from public.singles c
+                            where c.id = r.single_id
+                              and c.member_id = public.current_member_id()
+                        )
+                      )
+                )
+            )
         )
     );
 

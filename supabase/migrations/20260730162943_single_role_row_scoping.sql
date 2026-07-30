@@ -1,3 +1,51 @@
+-- PRE-FLIGHT GUARD (Story 6.2 review finding #3), MANUAL ADDITION — `db
+-- diff` only ever emits DDL, never a data check, so this is hand-written
+-- and does not correspond to anything in supabase/schemas/.
+--
+-- This migration narrows an ACTIVE `single`-role member to see only their
+-- own `singles` row's suggestion (via `singles.member_id`). `create_invite()`
+-- already permits inviting `p_role = 'single'` into a household account
+-- (02_functions.sql) and has done so since Story 2.7/2.8 — well before this
+-- Epic — and `accept_invite()` binds the resulting `account_members` row
+-- without creating or linking a `singles` row at all. A `single`-role member
+-- who exists today with no linked `singles` row would, after this
+-- migration, silently see zero shidduchim/resumes/tasks/schools — a blank
+-- app with no error and no data loss (so `make check-migration-safety`,
+-- which only checks for destroyed ROWS, cannot see this: the rows are
+-- intact, only newly invisible to the one member who held them). That is
+-- exactly the "narrows without handling pre-existing rows" shape the
+-- member_state incident and the 5.2 parents-backfill incident were about —
+-- the fix there was "fail the deploy loudly", not "narrow and hope", and the
+-- same fix applies here even though nothing is being dropped.
+--
+-- Fails the whole migration (and therefore the deploy) if any such member
+-- exists, naming the account so the operator can either link the member to
+-- a real `singles` row (a plain `update public.singles set member_id = …`)
+-- or deactivate the stray membership before re-running `db push`.
+do $$
+declare
+    v_orphaned_count bigint;
+    v_orphaned_detail text;
+begin
+    select count(*), string_agg(
+        format('account_members.id=%s (account_id=%s)', am.id, am.account_id), ', '
+    )
+      into v_orphaned_count, v_orphaned_detail
+      from public.account_members am
+     where am.role = 'single'
+       and am.status = 'active'
+       and not exists (
+           select 1 from public.singles s where s.member_id = am.id
+       );
+
+    if v_orphaned_count > 0 then
+        raise exception
+            'single_role_row_scoping: % active single-role account_members row(s) have no linked singles row (singles.member_id): %. After this migration each would see zero shidduchim/resumes/tasks — a silent blank app, not the intended narrower access. Link each to a singles row (or deactivate the membership) before deploying. See Story 6.2 review finding #3.',
+            v_orphaned_count, v_orphaned_detail;
+    end if;
+end;
+$$;
+
 drop policy "Account access scoped to member" on "public"."accounts";
 
 drop policy "Account members deletable within active account" on "public"."account_members";
@@ -220,13 +268,27 @@ with check (((account_id = public.current_context_id()) AND (public.current_memb
 
 
 
-  create policy "Resume photos scoped to account, single sees only shared"
+  create policy "Resume photos scoped to account, single sees only own shared"
   on "public"."resume_photos"
   as permissive
   for all
   to authenticated
-using (((account_id = public.current_context_id()) AND ((visibility = 'shared'::text) OR (public.current_member_role() <> 'single'::text))))
-with check (((account_id = public.current_context_id()) AND ((visibility = 'shared'::text) OR (public.current_member_role() <> 'single'::text))));
+using (((account_id = public.current_context_id()) AND ((public.current_member_role() <> 'single'::text) OR ((visibility = 'shared'::text) AND (EXISTS ( SELECT 1
+   FROM public.resumes r
+  WHERE ((r.id = resume_photos.resume_id) AND ((EXISTS ( SELECT 1
+           FROM (public.shidduchim s
+             JOIN public.singles c ON ((c.id = s.single_id)))
+          WHERE ((s.id = r.shidduchim_id) AND (s.visibility = 'shared'::text) AND public.is_single_visible_state(s.pipeline_state) AND (c.member_id = public.current_member_id())))) OR (EXISTS ( SELECT 1
+           FROM public.singles c
+          WHERE ((c.id = r.single_id) AND (c.member_id = public.current_member_id()))))))))))))
+with check (((account_id = public.current_context_id()) AND ((public.current_member_role() <> 'single'::text) OR ((visibility = 'shared'::text) AND (EXISTS ( SELECT 1
+   FROM public.resumes r
+  WHERE ((r.id = resume_photos.resume_id) AND ((EXISTS ( SELECT 1
+           FROM (public.shidduchim s
+             JOIN public.singles c ON ((c.id = s.single_id)))
+          WHERE ((s.id = r.shidduchim_id) AND (s.visibility = 'shared'::text) AND public.is_single_visible_state(s.pipeline_state) AND (c.member_id = public.current_member_id())))) OR (EXISTS ( SELECT 1
+           FROM public.singles c
+          WHERE ((c.id = r.single_id) AND (c.member_id = public.current_member_id()))))))))))));
 
 
 

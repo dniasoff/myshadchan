@@ -19,6 +19,25 @@ import { dbUrlFromEnv } from "../../scripts/stack-env.mjs";
 export const DB_URL: string = dbUrlFromEnv();
 
 /**
+ * Patterns that only appear when psql could not reach a server at all — a
+ * missing/stopped local stack — as opposed to a server that answered and
+ * then reported a real error (a syntax error, a raised exception, an RLS
+ * denial the suite's own `\set ON_ERROR_STOP on` turned into a non-zero
+ * exit). Deliberately narrow: matching too broadly here is exactly the
+ * defect this list exists to close (see bailIfDbUnreachable's own comment).
+ */
+const UNREACHABLE_PATTERNS: RegExp[] = [
+  /could not connect to server/i,
+  /connection to server .* failed/i,
+  /connection refused/i,
+  /econnrefused/i,
+  /is the server running/i,
+  /server closed the connection unexpectedly/i,
+  /the database system is starting up/i,
+  /timeout expired/i,
+];
+
+/**
  * Shared escape hatch for the database test suites (billing_entitlement,
  * references_entity, shidduch_catch, members_rename): each shells out to
  * `psql` against the local Supabase stack and, when it's unreachable, would
@@ -27,13 +46,36 @@ export const DB_URL: string = dbUrlFromEnv();
  * database has to fail loudly instead of silently skipping the RLS /
  * SECURITY DEFINER suite AD-1 leans on (see .claude rules / AC-9).
  *
+ * Story 6.2 review fix: `error` used to gate the WHOLE decision on "is this
+ * string non-empty", not on what it says. Node's execFileSync appends the
+ * child's real stderr to `error.message` on ANY non-zero exit — a missing
+ * stack and a genuine SQL regression inside the suite (a mutated policy that
+ * now lets something through un-denied, a typo, a raised exception) both
+ * produce a non-empty `error`, and only the first is "unreachable". Gating
+ * on presence alone meant a real regression skipped silently in local dev
+ * (reported as one green-ish "skipped" test) and only failed in CI — a
+ * developer running the suite locally after breaking something would see
+ * green. Now: only a message matching UNREACHABLE_PATTERNS above is treated
+ * as "no local stack"; every other error throws unconditionally, dev or CI,
+ * because it means the server answered and the suite itself failed.
+ *
  * Returns true when the caller's `describe()` block should return early
- * (the local-dev skip was registered); throws instead when `CI` is set.
+ * (the local-dev skip was registered); throws instead for a genuine suite
+ * failure (always) or an unreachable stack in CI.
  */
 export function bailIfDbUnreachable(error: string | undefined): boolean {
   if (!error) return false;
 
   const firstLine = error.split("\n")[0];
+  const isUnreachable = UNREACHABLE_PATTERNS.some((pattern) =>
+    pattern.test(error),
+  );
+
+  if (!isUnreachable) {
+    throw new Error(
+      `Database suite failed (not a missing local stack — see the full error): ${firstLine}`,
+    );
+  }
 
   if (process.env.CI) {
     throw new Error(`Local Supabase unreachable in CI: ${firstLine}`);

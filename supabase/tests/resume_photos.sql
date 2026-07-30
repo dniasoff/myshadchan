@@ -16,6 +16,21 @@
 -- share with `add_resume_file`/`add_redt`/`add_school`, and the soft-hide
 -- contract (AC 2: `hidden_at` is set, the row is never deleted).
 --
+-- Story 6.2 review fix (ownership excursion, disclosed): `05_policies.sql`'s
+-- `resume_photos` policy is no longer household-wide for the `single` role —
+-- it now requires ownership of the underlying resume, mirroring `resumes`'
+-- own `singles.member_id` join, closing a cross-sibling read/write hole the
+-- review found (a `single` could read AND hide_resume_photo() a SIBLING's
+-- shared photo). u2 and u4 are each linked, in turn, to the one `singles`
+-- row this suite's shidduch/resume/photo belong to (see the `update
+-- public.singles set member_id = …` statements before (b) and before (h))
+-- so this file's existing "single CAN read the shared photo" assertions
+-- keep exercising a real, intended access path instead of the household-
+-- wide one Story 5.4 originally shipped. This file is out of Story 6.2's
+-- declared ownership; the edit is the minimal, disclosed exception needed
+-- to keep AC-7 ("resume_photos.sql … green") true against the corrected
+-- policy rather than loosening the policy to fit the old fixture.
+--
 -- Four users: `u1` holds a `parent_admin` membership of household account A
 -- and a SECOND `parent_admin` membership of household account B (active in
 -- A) — the same "one login, two households" shape entity_files.sql /
@@ -94,7 +109,8 @@ values (:acct_a, 'e5111111-1111-1111-1111-111111111111', 'parent_admin', 'active
 insert into public.account_members (account_id, user_id, role, status)
 values (:acct_b, 'e5111111-1111-1111-1111-111111111111', 'parent_admin', 'active');
 insert into public.account_members (account_id, user_id, role, status)
-values (:acct_a, 'e5222222-2222-2222-2222-222222222222', 'single', 'active');
+values (:acct_a, 'e5222222-2222-2222-2222-222222222222', 'single', 'active')
+returning id as u2_member_id \gset
 insert into public.account_members (account_id, user_id, role, status)
 values (:acct_c, 'e5333333-3333-3333-3333-333333333333', 'parent_admin', 'active');
 
@@ -103,9 +119,12 @@ values (:acct_c, 'e5333333-3333-3333-3333-333333333333', 'parent_admin', 'active
 -- the one that discriminates a correctly-scoped RLS predicate from an
 -- unscoped one.
 insert into public.account_members (account_id, user_id, role, status)
-values (:acct_a, 'e5444444-4444-4444-4444-444444444444', 'single', 'active');
+values (:acct_a, 'e5444444-4444-4444-4444-444444444444', 'single', 'active')
+returning id as u4_member_id \gset
 insert into public.account_members (account_id, user_id, role, status)
 values (:acct_c, 'e5444444-4444-4444-4444-444444444444', 'parent_admin', 'active');
+
+insert into ids values ('u2_member_id', :'u2_member_id'), ('u4_member_id', :'u4_member_id');
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e5111111-1111-1111-1111-111111111111","role":"authenticated"}';
@@ -128,7 +147,13 @@ set local request.jwt.claims = '{"sub":"e5111111-1111-1111-1111-111111111111","r
 insert into public.singles (first_name_en) values ('RP Single Person')
 returning id as single_id \gset
 
-insert into public.shidduchim (single_id, name_en) values (:single_id, 'RP Shidduch')
+-- Story 6.2 review fix: `pipeline_state` must be explicitly single-visible
+-- (the raw-insert default is 'new', which is NOT — is_single_visible_state()
+-- admits only look_into/yes/unsure) now that resume_photos' own ownership
+-- join (see the note above (b), below) requires the SAME AC-1 three-part
+-- test "Resumes visible to single" already does. 'look_into' is legal for a
+-- raw insert (enforce_shidduch_initial_state).
+insert into public.shidduchim (single_id, name_en, pipeline_state) values (:single_id, 'RP Shidduch', 'look_into')
 returning id as shidduch_id \gset
 
 insert into ids values ('single_id', :'single_id'), ('shidduch_id', :'shidduch_id');
@@ -256,6 +281,23 @@ select '(f) hide_resume_photo: the row still exists — never deleted',
 update public.resume_photos set hidden_at = null where id = (select value::bigint from ids where name = 'private_photo_id');
 
 -- ---------------------------------------------------------------------------
+-- Story 6.2 review fix: `resume_photos`' `single`-role branch is no longer
+-- household-wide — it now requires ownership of the underlying resume (the
+-- same `singles.member_id` join "Resumes visible to single" already uses),
+-- to close a cross-sibling read/write hole the review found (a `single`
+-- could read AND hide_resume_photo() a SIBLING's shared photo, since this
+-- table's own policy never joined back to who the resume belongs to). u2
+-- (below, (b)) and u4 (below, (h)) must each be linked, via `member_id`, to
+-- the ONE `singles` row this suite's shidduch/resume/photo belong to, or
+-- the "single CAN read the shared photo" assertions below would now
+-- (correctly) return zero rows instead of proving the intended, narrower,
+-- OWN-suggestion access path. Run as u1 (parent_admin), who still has
+-- unrestricted write access to `singles` (Story 6.2, Task 4).
+-- ---------------------------------------------------------------------------
+update public.singles set member_id = (select value::bigint from ids where name = 'u2_member_id')
+where id = (select value::bigint from ids where name = 'single_id');
+
+-- ---------------------------------------------------------------------------
 -- (a) Table RLS, AC 3: parent_admin (u1, active in A) sees both rows.
 -- ---------------------------------------------------------------------------
 insert into results (name, passed)
@@ -335,6 +377,15 @@ select '(c) storage: a foreign account''s member reads zero rows for the private
 -- of them holds both a `single` and a non-`single` role across two
 -- accounts.
 -- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e5111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+-- Story 6.2 review fix (see the note above the (b) block): re-point
+-- member_id at u4 for this block — each of u2/u4 in turn "is" this suite's
+-- one single, for the ownership check the (h) block exercises.
+update public.singles set member_id = (select value::bigint from ids where name = 'u4_member_id')
+where id = (select value::bigint from ids where name = 'single_id');
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e5444444-4444-4444-4444-444444444444","role":"authenticated"}';
 

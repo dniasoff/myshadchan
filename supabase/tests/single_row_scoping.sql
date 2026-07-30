@@ -152,14 +152,72 @@ values (:sibling_fixture_account_id);
 insert into public.ai_usage (account_id, period)
 values (:sibling_fixture_account_id, '2026-07');
 
--- A reference, for the link_reference_to_shidduch() RPC check (AC 6).
--- references/reference_links/interactions are Story 6.3's axis, untouched
--- here — see Dev Notes "What this story deliberately does not decide".
+-- Review finding #2's own fix, falsified here: resume_photos on RIVKA's
+-- visible suggestion (sibling exclusion) and on LEAH's own PRIVATE_PARENT
+-- suggestion (a photo's own visibility='shared' must not override its
+-- parent suggestion being wholly invisible under AC-1). Both photos are
+-- themselves visibility='shared' — the negative case is the ownership join,
+-- not the photo's own visibility flag.
+insert into public.resumes (account_id, shidduchim_id)
+values (:sibling_fixture_account_id, :rivka_visible_id)
+returning id as rivka_visible_resume_id \gset
+
+insert into public.resumes (account_id, shidduchim_id)
+values (:sibling_fixture_account_id, :leah_private_id)
+returning id as leah_private_resume_id \gset
+
+insert into public.resume_photos (account_id, resume_id, path, visibility)
+values (
+  :sibling_fixture_account_id, :rivka_visible_resume_id,
+  :'sibling_fixture_account_id' || '/photos/shared/' || :'rivka_visible_id' || '/sibling.jpg', 'shared'
+)
+returning id as rivka_photo_id \gset
+
+insert into public.resume_photos (account_id, resume_id, path, visibility)
+values (
+  :sibling_fixture_account_id, :leah_private_resume_id,
+  :'sibling_fixture_account_id' || '/photos/shared/' || :'leah_private_id' || '/private-suggestion.jpg', 'shared'
+)
+returning id as leah_private_photo_id \gset
+
+-- Positive control: a photo on LEAH's OWN visible suggestion, proving the
+-- ownership join above narrows without over-restricting the case it exists
+-- to grant.
+insert into public.resume_photos (account_id, resume_id, path, visibility)
+values (
+  :sibling_fixture_account_id, :leah_visible_resume_id,
+  :'sibling_fixture_account_id' || '/photos/shared/' || :'leah_visible_id' || '/own.jpg', 'shared'
+)
+returning id as leah_own_photo_id \gset
+
+insert into ids values
+  ('rivka_photo_id', :'rivka_photo_id'),
+  ('leah_private_photo_id', :'leah_private_photo_id'),
+  ('leah_own_photo_id', :'leah_own_photo_id');
+
+-- A reference, for the link_reference_to_shidduch() RPC check (AC 6), plus a
+-- reference_link (for log_reference_call()) and a second reference (for
+-- merge_references()). references/reference_links/interactions are Story
+-- 6.3's axis, untouched here — see Dev Notes "What this story deliberately
+-- does not decide"; the fixture below exists only so AC-6's own two
+-- functions get an honest, run assertion instead of staying untested (review
+-- finding #2).
 insert into public."references" (account_id, name_en)
 values (:sibling_fixture_account_id, 'Some Reference')
 returning id as reference_id \gset
 
-insert into ids values ('reference_id', :'reference_id');
+insert into public."references" (account_id, name_en)
+values (:sibling_fixture_account_id, 'Some Reference B (merge loser)')
+returning id as reference_b_id \gset
+
+insert into public.reference_links (account_id, reference_id, shidduchim_id)
+values (:sibling_fixture_account_id, :reference_id, :leah_visible_id)
+returning id as reference_link_id \gset
+
+insert into ids values
+  ('reference_id', :'reference_id'),
+  ('reference_b_id', :'reference_b_id'),
+  ('reference_link_id', :'reference_link_id');
 
 -- ---------------------------------------------------------------------------
 -- Baseline: current_member_role() itself (AC 9's own function).
@@ -180,6 +238,21 @@ set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000099","r
 insert into results (name, passed)
 select 'current_member_role(): NULL for a caller with no active membership (fails closed)',
        public.current_member_role() is null;
+
+-- Dev Notes "The NULL trap this story avoids", pinned directly (review
+-- finding #5): `current_member_role() <> 'single'` must evaluate to NULL
+-- (falsy in a USING clause), never true, for a caller with no active
+-- membership — `IS DISTINCT FROM` would wrongly evaluate to true here. Every
+-- policy in this story ANDs this with `account_id = current_context_id()`
+-- (itself NULL for the same caller), so a live policy fails closed either
+-- way and no black-box query against a real table can tell `<>` and
+-- `IS DISTINCT FROM` apart (confirmed: mutating `tasks`'s clause to
+-- `IS DISTINCT FROM` still passes every check below). This assertion pins
+-- the expression itself, in isolation, so at least a direct test of the
+-- convention exists.
+insert into results (name, passed)
+select 'The NULL trap: current_member_role() <> ''single'' is NULL (falsy), not true, for an unaffiliated caller — this is why every policy in this story uses <>, never IS DISTINCT FROM',
+       (select public.current_member_role() <> 'single') is null;
 
 -- ---------------------------------------------------------------------------
 -- AC 1 / AC 8: shidduchim — Leah sees exactly her own visible suggestion.
@@ -255,6 +328,26 @@ select 'AC2: Leah reads the shidduch_schools row tied to her own visible suggest
 insert into results (name, passed)
 select 'AC2: Leah does NOT read the shidduch_schools row tied to her own invisible ''new'' suggestion',
        not exists (select 1 from public.shidduch_schools where id = (select value::bigint from ids where name = 'leah_new_school_id'));
+
+-- ---------------------------------------------------------------------------
+-- Review finding #2's own fix: resume_photos ownership. `resume_photos` was
+-- household-wide for the `single` role before this fix (any shared photo,
+-- regardless of whose suggestion it belonged to) — the review reproduced a
+-- real cross-sibling read (and, via hide_resume_photo(), write) using
+-- exactly this shape. Both photos below have their OWN visibility='shared';
+-- the negative case is entirely the ownership join, not that flag.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed)
+select 'AC2/review#2: Leah does NOT read a resume_photos row on her sibling Rivka''s suggestion',
+       not exists (select 1 from public.resume_photos where id = (select value::bigint from ids where name = 'rivka_photo_id'));
+
+insert into results (name, passed)
+select 'AC1/review#2: Leah does NOT read a resume_photos row on her own private_parent suggestion (visibility overrides state, and this table too)',
+       not exists (select 1 from public.resume_photos where id = (select value::bigint from ids where name = 'leah_private_photo_id'));
+
+insert into results (name, passed)
+select 'AC2/review#2 positive control: Leah DOES read a resume_photos row on her OWN visible suggestion (the ownership join narrows without over-restricting)',
+       exists (select 1 from public.resume_photos where id = (select value::bigint from ids where name = 'leah_own_photo_id'));
 
 -- ---------------------------------------------------------------------------
 -- AC 3: singles — Leah reads exactly her own row.
@@ -421,6 +514,46 @@ exception when others then
   insert into results values ('AC6: add_resume_file() raises or affects zero rows for a single', true, sqlerrm);
 end $$;
 
+-- AC 6 (review finding #2 — previously untested): add_resume_photo() against
+-- Leah's OWN visible suggestion. Denied not by resume_photos itself but one
+-- level up: the function's own upsert into `resumes` is refused by RLS
+-- (Task 3's `<> 'single'` guard) before a resume_photos row is ever reached.
+do $$
+declare v_id bigint; v_count int;
+begin
+  select value::bigint into v_id from ids where name = 'leah_visible_id';
+  select count(*) into v_count from public.add_resume_photo(
+    p_shidduchim_id => v_id, p_path => 'x/photos/shared/x/x.jpg', p_visibility => 'shared'
+  );
+  insert into results values ('AC6: add_resume_photo() raises or affects zero rows for a single', v_count = 0, 'rows: ' || v_count);
+exception when others then
+  insert into results values ('AC6: add_resume_photo() raises or affects zero rows for a single', true, sqlerrm);
+end $$;
+
+-- AC 6 / review finding #2 (previously untested, and the exact shape the
+-- review reproduced as a real vulnerability pre-fix): hide_resume_photo()
+-- against a photo on Rivka's suggestion — a SIBLING's photo, not a denied
+-- shidduch's. Before this story's review fix to `resume_photos`'s policy,
+-- this call succeeded (hide_resume_photo()'s own "does this photo exist"
+-- check is a plain SELECT that trusted the table's own, then household-wide,
+-- RLS). Now denied: Leah cannot even SEE the row, so the function's own
+-- `not exists` check raises 'photo % not found in current account'.
+do $$
+declare v_photo_id bigint; v_count int;
+begin
+  select value::bigint into v_photo_id from ids where name = 'rivka_photo_id';
+  select count(*) into v_count from public.hide_resume_photo(v_photo_id);
+  insert into results values (
+    'AC6/review#2: hide_resume_photo() raises or affects zero rows for a single targeting a SIBLING''s photo',
+    v_count = 0, 'rows: ' || v_count
+  );
+exception when others then
+  insert into results values (
+    'AC6/review#2: hide_resume_photo() raises or affects zero rows for a single targeting a SIBLING''s photo',
+    true, sqlerrm
+  );
+end $$;
+
 -- link_reference_to_shidduch() is exercised against Leah's sibling's
 -- suggestion (denied to Leah under AC-1), not her own visible one: neither
 -- `reference_links` nor `interactions` is this story's axis (Dev Notes,
@@ -437,6 +570,73 @@ begin
   insert into results values ('AC6: link_reference_to_shidduch() raises or affects zero rows for a single targeting a denied shidduch', v_count = 0, 'rows: ' || v_count);
 exception when others then
   insert into results values ('AC6: link_reference_to_shidduch() raises or affects zero rows for a single targeting a denied shidduch', true, sqlerrm);
+end $$;
+
+-- AC 6 (review finding #2 — previously untested): match_reference_on_entry()
+-- fixed target_type='reference' — its own axis is identity_signals (AD-5),
+-- which IS this story's own AC-5 zero-row table. Even though `references`
+-- itself has no single-role guard yet (Story 6.3's axis), the underlying
+-- identity_signals row (auto-populated for "Some Reference" by
+-- sync_reference_identity_signals()) is invisible to Leah, so no candidate
+-- ever surfaces through this RPC.
+do $$
+declare v_count int;
+begin
+  select count(*) into v_count from public.match_reference_on_entry(p_name_en => 'Some Reference');
+  insert into results values (
+    'AC6: match_reference_on_entry() returns zero candidates for a single (identity_signals is RLS-empty)',
+    v_count = 0, 'rows: ' || v_count
+  );
+exception when others then
+  insert into results values (
+    'AC6: match_reference_on_entry() returns zero candidates for a single (identity_signals is RLS-empty)',
+    true, sqlerrm
+  );
+end $$;
+
+-- AC 6 SCOPE NOTE (review finding #2 — previously untested; documented, not
+-- silently skipped): log_reference_call() and merge_references() operate
+-- entirely through reference_links/"references"/interactions, none of which
+-- carries a `single`-role guard yet — that is explicitly Story 6.3's axis
+-- (Dev Notes, "What this story deliberately does not decide": "6.3 puts
+-- interactions into 'deny the single role by default'"). Unlike
+-- link_reference_to_shidduch() above, neither function touches a table THIS
+-- story gates, so there is no lever here to deny Leah with — both calls
+-- below genuinely succeed today. Asserting a denial would be a false green;
+-- these two results instead pin the CURRENT, honestly-disclosed behaviour,
+-- so Story 6.3 turns them red (a signal to update the expectation to
+-- "denied"), not silently leaves them looking untested.
+do $$
+declare v_link_id bigint; v_count int;
+begin
+  select value::bigint into v_link_id from ids where name = 'reference_link_id';
+  select count(*) into v_count from public.log_reference_call(v_link_id, p_call_status => 'answered', p_what_they_said => 'test call');
+  insert into results values (
+    'AC6 SCOPE NOTE (Story 6.3 to close): log_reference_call() is not yet denied for a single — succeeds today',
+    v_count = 1, 'rows: ' || v_count
+  );
+exception when others then
+  insert into results values (
+    'AC6 SCOPE NOTE (Story 6.3 to close): log_reference_call() is not yet denied for a single — succeeds today',
+    false, sqlerrm
+  );
+end $$;
+
+do $$
+declare v_loser_id bigint; v_winner_id bigint; v_result bigint;
+begin
+  select value::bigint into v_loser_id from ids where name = 'reference_b_id';
+  select value::bigint into v_winner_id from ids where name = 'reference_id';
+  select public.merge_references(v_loser_id, v_winner_id) into v_result;
+  insert into results values (
+    'AC6 SCOPE NOTE (Story 6.3 to close): merge_references() is not yet denied for a single — succeeds today',
+    v_result = v_winner_id, 'winner: ' || v_result
+  );
+exception when others then
+  insert into results values (
+    'AC6 SCOPE NOTE (Story 6.3 to close): merge_references() is not yet denied for a single — succeeds today',
+    false, sqlerrm
+  );
 end $$;
 
 do $$
