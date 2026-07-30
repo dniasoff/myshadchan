@@ -6,6 +6,7 @@ import type {
   InboxItem,
   Interaction,
   Invite,
+  MedicalNote,
   Member,
   PipelineTransition,
   Redt,
@@ -38,6 +39,12 @@ export interface Db {
   // uploadResumePhoto()/hideResumePhoto() (never a raw dataProvider.create/
   // update).
   resume_photos: ResumePhoto[];
+  // Medical tab (Story 5.5) — seeded empty, matching resume_photos/entity_files
+  // above: the demo build must not crash on this tab. Plain CRUD through
+  // dataProvider.create/getList (no custom method — unlike resume_photos'
+  // uploadResumePhoto()/hideResumePhoto(), a medical note has no storage
+  // object or soft-hide to broker).
+  medical_notes: MedicalNote[];
   reference_links: ReferenceLink[];
   date_records: DateRecord[];
   redts: Redt[];

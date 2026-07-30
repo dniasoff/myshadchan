@@ -635,8 +635,8 @@ exception when others then
 end $$;
 
 insert into results (name, passed)
-select 'AC-3: enforce_household_scope is attached to exactly 12 tables',
-       (select count(*) from pg_trigger where tgfoid = 'public.enforce_household_scope'::regproc and not tgisinternal) = 12;
+select 'AC-3: enforce_household_scope is attached to exactly 13 tables',
+       (select count(*) from pg_trigger where tgfoid = 'public.enforce_household_scope'::regproc and not tgisinternal) = 13;
 
 insert into results (name, passed)
 select 'AC-3a: validate_singles_household_scope sorts after every set_/sync_ BEFORE trigger on singles',

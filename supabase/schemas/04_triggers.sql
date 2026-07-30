@@ -80,6 +80,12 @@ create or replace trigger set_resume_photos_account_id
     before insert on public.resume_photos
     for each row execute function public.set_account_id_default();
 
+-- Story 5.5: server-set account_id on insert (AD-1), same shape as
+-- set_resume_photos_account_id above.
+create or replace trigger set_medical_notes_account_id
+    before insert on public.medical_notes
+    for each row execute function public.set_account_id_default();
+
 create or replace trigger set_reference_links_account_id
     before insert on public.reference_links
     for each row execute function public.set_account_id_default();
@@ -231,6 +237,17 @@ create or replace trigger validate_resumes_household_scope
 -- catalog-fact literal from 11 to 12 in the same diff.
 create or replace trigger validate_resume_photos_household_scope
     before insert or update of account_id on public.resume_photos
+    for each row execute function public.enforce_household_scope();
+
+-- Story 5.5: a medical note is household data with no shadchanus meaning —
+-- this story's whole point is that a shadchan has no path to it at all
+-- (05_policies.sql). Named 'validate_...' so it sorts after
+-- 'set_medical_notes_account_id' above (Postgres fires same-event BEFORE
+-- triggers in alphabetical name order, 'v' > 's'). Bumps
+-- household_scope_lift.sql's catalog-fact literal from 12 to 13 in the same
+-- diff.
+create or replace trigger validate_medical_notes_household_scope
+    before insert or update of account_id on public.medical_notes
     for each row execute function public.enforce_household_scope();
 
 create or replace trigger validate_reference_links_household_scope

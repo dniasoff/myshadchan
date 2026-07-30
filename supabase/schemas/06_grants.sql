@@ -208,6 +208,10 @@ revoke all on sequence public.resume_photos_id_seq from anon;
 grant all on sequence public.resume_photos_id_seq to authenticated;
 grant all on sequence public.resume_photos_id_seq to service_role;
 
+revoke all on sequence public.medical_notes_id_seq from anon;
+grant all on sequence public.medical_notes_id_seq to authenticated;
+grant all on sequence public.medical_notes_id_seq to service_role;
+
 revoke all on sequence public.reference_links_id_seq from anon;
 grant all on sequence public.reference_links_id_seq to authenticated;
 grant all on sequence public.reference_links_id_seq to service_role;
@@ -631,6 +635,13 @@ grant select, insert, update, delete on table public.resumes to authenticated;
 revoke all on table public.resume_photos from anon, authenticated;
 grant select, insert, update, delete on table public.resume_photos to authenticated;
 grant all on table public.resume_photos to service_role;
+
+-- Story 5.5: same full-CRUD-at-the-grant-layer shape as resume_photos above.
+-- RLS (05_policies.sql) is the real gate — restricted to parent_admin/
+-- self_manager — and the grant only makes the table reachable at all.
+revoke all on table public.medical_notes from anon, authenticated;
+grant select, insert, update, delete on table public.medical_notes to authenticated;
+grant all on table public.medical_notes to service_role;
 
 revoke all on table public.reference_links from anon, authenticated;
 grant select, insert, update, delete on table public.reference_links to authenticated;

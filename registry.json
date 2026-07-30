@@ -252,6 +252,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/MedicalTab.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shadchanim/shadchanUtils.ts",
           "type": "registry:component"
         },

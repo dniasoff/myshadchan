@@ -2,6 +2,7 @@ import type {
   Account,
   AccountMember,
   DateRecord,
+  MedicalNote,
   Redt,
   Resume,
   ResumePhoto,
@@ -410,6 +411,9 @@ export const generateShidduchimDomain = (db: Db) => {
   db.shidduchim = shidduchim;
   db.resumes = [] as Resume[];
   db.resume_photos = [] as ResumePhoto[];
+  // Medical tab (Story 5.5) — seeded empty, same reasoning as resume_photos
+  // above: the demo build must not crash on this tab.
+  db.medical_notes = [] as MedicalNote[];
   // db.references / db.reference_links / db.interactions are seeded by
   // generateReferencesDomain() (references.ts), which runs after this module
   // so it can point reference_links.shidduchim_id at real shidduchim ids.

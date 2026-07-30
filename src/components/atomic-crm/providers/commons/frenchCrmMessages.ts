@@ -488,6 +488,14 @@ export const frenchCrmMessages = {
           private_parent: "Parents uniquement",
         },
       },
+      // Story 5.5 — MedicalTab.tsx.
+      medical: {
+        empty: "Aucune note médicale pour l'instant.",
+        error: "Impossible de charger les notes médicales.",
+        placeholder: "Ajouter une note médicale…",
+        add: "Ajouter une note",
+        addError: "Échec de l'ajout de la note",
+      },
       record_pending: "Chargement…",
       record_unavailable: "Cet enregistrement n'est pas disponible.",
       record_unavailable_link: "Retour à la liste",

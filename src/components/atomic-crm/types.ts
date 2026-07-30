@@ -490,6 +490,24 @@ export type ResumePhoto = {
   hidden_at?: string | null;
 } & Pick<RaRecord, "id">;
 
+/**
+ * A row of `public.medical_notes` (Story 5.5, the sensitive tier): a plain,
+ * shidduch-scoped note table, never funnelled through `interactions` — RLS
+ * (05_policies.sql) restricts every command to a caller whose ACTIVE
+ * membership role is `parent_admin` or `self_manager`, so this type is only
+ * ever populated for those two viewers. `author_member_id` is not
+ * server-stamped (no trigger sets it, unlike `interactions.actor_member_id`)
+ * because no AC requires per-note attribution — it stays optional and is
+ * left null by every write path today.
+ */
+export type MedicalNote = {
+  account_id: Identifier;
+  shidduchim_id: Identifier;
+  author_member_id?: Identifier | null;
+  body: string;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
 /** The four call outcomes a shadchan actually records (FR40), plus "not started". */
 export const CALL_STATUSES = [
   "not_started",

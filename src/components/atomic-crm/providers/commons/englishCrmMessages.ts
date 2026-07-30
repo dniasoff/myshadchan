@@ -538,6 +538,17 @@ export const englishCrmMessages = {
           private_parent: "Parents only",
         },
       },
+      // Story 5.5 — MedicalTab.tsx's own UX-DR11 states and its add-a-note
+      // form. No edit/delete control (no AC asks for one) and no visibility
+      // option (the tab itself is restricted to parent_admin/self_manager by
+      // `visibleTo` — every note within it is visible to both, uniformly).
+      medical: {
+        empty: "No medical notes yet.",
+        error: "Could not load the medical notes.",
+        placeholder: "Add a medical note…",
+        add: "Add note",
+        addError: "Failed to add the note",
+      },
       // Story 3.2 — ShowBase's explicit `loading` / `error` elements (AC 2).
       record_pending: "Loading…",
       record_unavailable: "This record is unavailable.",

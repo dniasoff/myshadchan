@@ -2,6 +2,7 @@ import type { EntityDescriptor } from "../entity360/entityDescriptor";
 import { registerEntityDescriptor } from "../entity360/registry";
 import { PhotoTab } from "../resumes/PhotoTab";
 import { ResumeTab } from "../resumes/ResumeTab";
+import { MedicalTab } from "./MedicalTab";
 import { ShidduchOverviewTab } from "./ShidduchOverviewTab";
 import {
   ShidduchActions,
@@ -49,6 +50,19 @@ import type { ShidduchSummary } from "../types";
  * deviates" comment for a deviation that does not exist. `PhotoTab` lives
  * in `resumes/`, alongside `ResumeTab`, for the same reason: a photo
  * belongs to the shidduch's resume record, not to `shidduchim/`.
+ *
+ * Story 5.5 moves `medical` out of `pendingTabs` and into `tabs`, in
+ * canonical position (`medical` follows `photo` — `CANONICAL_TAB_SETS`
+ * again), the same diff that builds `MedicalTab`. `visibleTo:
+ * ["parent_admin", "self_manager"]` is an explicit allow-list, not an
+ * ordered threshold (contract §2 — there is no `minVisibility`): the three
+ * omitted `MemberRole` values (`helper`, `shadchan`, `single`) are each
+ * denied. RLS (05_policies.sql) is the authoritative boundary; this is the
+ * courtesy that keeps a denied viewer's client from ever requesting the
+ * tab's data. `MedicalTab` lives in `shidduchim/`, unlike `ResumeTab`/
+ * `PhotoTab` — a medical note is shidduch-scoped only per this epic, with
+ * no single-level or shadchan-level concept, so it has no reason to live
+ * outside this entity's own folder.
  */
 export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
   name: "shidduchim",
@@ -60,12 +74,17 @@ export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
     { key: "overview", render: () => <ShidduchOverviewTab /> },
     { key: "resume", render: () => <ResumeTab /> },
     { key: "photo", render: () => <PhotoTab /> },
+    {
+      key: "medical",
+      visibleTo: ["parent_admin", "self_manager"],
+      render: () => <MedicalTab />,
+    },
     { key: "diligence", render: () => <ShidduchDiligenceTab /> },
     { key: "notes", render: () => <ShidduchNotesTab /> },
     { key: "tasks", render: () => <ShidduchTasksTab /> },
     { key: "activity", render: () => <ShidduchActivityTab /> },
   ],
-  pendingTabs: ["medical", "files", "external-links"],
+  pendingTabs: ["files", "external-links"],
 };
 
 registerEntityDescriptor(shidduchimDescriptor, { replace: true });

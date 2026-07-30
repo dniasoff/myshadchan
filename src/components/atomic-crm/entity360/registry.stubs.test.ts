@@ -18,8 +18,9 @@ import type { TabKey } from "./tabKeys";
  * Three of the four (`singles`, `shadchanim`, `references`) are still Story
  * 3.9's unmigrated stub — `/{name}/1/show`, empty `tabs`, a full
  * `pendingTabs`. `shidduchim` is Story 5.1's real descriptor (Story 5.3
- * moved `resume` from `pendingTabs` into `tabs`): the bare AD-24 path, its
- * six real `tabs`, and the four keys still pending.
+ * moved `resume`, 5.4 moved `photo`, 5.5 moved `medical` — each from
+ * `pendingTabs` into `tabs`, in canonical position): the bare AD-24 path,
+ * its eight real `tabs`, and the two keys still pending.
  *
  * `buildRecordPath` and `tabs` are per-case `StubCase` fields, not a shared
  * template string / shared literal (Story 5.1's reshape of this file):
@@ -27,7 +28,6 @@ import type { TabKey } from "./tabKeys";
  * `buildRecordPath(1) === "/${name}/1/show"` and `tabs toEqual []` for
  * every case — an assertion that cannot express "one of four now differs".
  * `pendingTabs` was already a per-case field and is unchanged in shape.
- * (Story 5.4 moved `photo` from `pendingTabs` into `tabs`.)
  *
  * Deleting a `registerEntityDescriptor` call above, or changing any one
  * field below, turns this test red — re-read `root/routeManifest.ts` and
@@ -49,12 +49,13 @@ const CASES: StubCase[] = [
       "overview",
       "resume",
       "photo",
+      "medical",
       "diligence",
       "notes",
       "tasks",
       "activity",
     ],
-    pendingTabs: ["medical", "files", "external-links"],
+    pendingTabs: ["files", "external-links"],
   },
   {
     name: "singles",

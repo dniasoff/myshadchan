@@ -66,6 +66,7 @@ alter table public."references" enable row level security;
 alter table public.shidduchim enable row level security;
 alter table public.resumes enable row level security;
 alter table public.resume_photos enable row level security;
+alter table public.medical_notes enable row level security;
 alter table public.reference_links enable row level security;
 alter table public.date_records enable row level security;
 alter table public.redts enable row level security;
@@ -241,6 +242,43 @@ create policy "Resume photos scoped to account, single sees only shared" on publ
                 select 1 from public.account_members am
                 where am.id = public.current_member_id() and am.role <> 'single'
             )
+        )
+    );
+
+-- Medical tab (Story 5.5, AC-3): readable and writable ONLY by a caller whose
+-- ACTIVE membership role is 'parent_admin' or 'self_manager' — the two roles
+-- that actually run a household's shidduch process. `helper` and `single`
+-- are denied outright; a `shadchan` has no membership path into a household
+-- row at all (AD-20), so no explicit shadchan check is needed.
+--
+-- current_member_id() is SECURITY DEFINER and already resolves to the
+-- caller's ACTIVE membership ((auth.uid(), current_context_id(), status =
+-- 'active') — 02_functions.sql). The exists() below matches ONLY on
+-- `am.id = current_member_id()`, never re-derives the membership from
+-- auth.uid() unscoped, and when the caller has no active membership
+-- current_member_id() returns null, `am.id = null` matches nothing, so this
+-- policy fails closed — same shape as "Resume photos …" above.
+--
+-- ONE `for all` policy, not a `for all` plus a narrower `for select`:
+-- permissive policies OR together per command, so a second policy could
+-- only ever widen access (account_members' own comment states the hazard
+-- above).
+create policy "Medical notes scoped to account, parent_admin/self_manager only" on public.medical_notes
+    for all to authenticated
+    using (
+        account_id = public.current_context_id()
+        and exists (
+            select 1 from public.account_members am
+            where am.id = public.current_member_id()
+              and am.role in ('parent_admin', 'self_manager')
+        )
+    )
+    with check (
+        account_id = public.current_context_id()
+        and exists (
+            select 1 from public.account_members am
+            where am.id = public.current_member_id()
+              and am.role in ('parent_admin', 'self_manager')
         )
     );
 
