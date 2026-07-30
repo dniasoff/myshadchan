@@ -76,13 +76,26 @@ import type { ShidduchSummary } from "../types";
  * not made polymorphic, per YAGNI). `pendingTabs` is now empty: this is the
  * shidduch descriptor's last pending key.
  *
- * Story 5.7 sets `rightRail: ShidduchRightRail` — this story's ONLY edit to
- * this file. It declares no tab and touches neither `tabs` nor
- * `pendingTabs`: `rightRail` is a region, not a tab (contract §11 Ruling 2 —
- * the rail is a compact, read-only summary that links into the canonical
- * Tasks tab, never a second mutation surface). `ShidduchRightRail` lives in
- * `shidduchim/`, alongside its two panels, imported directly here exactly
- * like `ShidduchOverviewTab`/`ResumeTab`.
+ * Story 5.7 sets `rightRail: ShidduchRightRail`. It declares no tab and
+ * touches neither `tabs` nor `pendingTabs`: `rightRail` is a region, not a
+ * tab (contract §11 Ruling 2 — the rail is a compact, read-only summary
+ * that links into the canonical Tasks tab, never a second mutation
+ * surface). `ShidduchRightRail` lives in `shidduchim/`, alongside its two
+ * panels, imported directly here exactly like `ShidduchOverviewTab`/
+ * `ResumeTab`.
+ *
+ * Story 6.3 (AC 9) adds `visibleTo: ["parent_admin", "self_manager",
+ * "helper", "shadchan"]` — the same allow-list Story 6.2 (AC 10) put on
+ * `tasks` — to `diligence`, `external-links`, `files`, `notes` and
+ * `activity`: this story empties every one of their tables for a `single`
+ * at the database (`reference_links`/`"references"` for diligence,
+ * `shidduchim_external_links`, `entity_files`, `interactions` for both
+ * notes and activity), so hiding the now-permanently-empty tab is the same
+ * "no dead shell" rule as `tasks`, not a new one. `medical` keeps its own,
+ * narrower Story 5.5 allow-list unchanged (it already excludes `single`).
+ * `overview`, `resume`, `photo` and `shidduchim` — `shidduchim` has no tab
+ * here, `tasks` already restricted — stay unrestricted: they are the
+ * dignity floor Story 6.2 built (AD-3).
  */
 export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
   name: "shidduchim",
@@ -100,10 +113,33 @@ export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
       visibleTo: ["parent_admin", "self_manager"],
       render: () => <MedicalTab />,
     },
-    { key: "files", render: () => <ShidduchFilesTab /> },
-    { key: "diligence", render: () => <ShidduchDiligenceTab /> },
-    { key: "external-links", render: () => <ExternalLinksTab /> },
-    { key: "notes", render: () => <ShidduchNotesTab /> },
+    {
+      key: "files",
+      // Story 6.3 (AC 9): entity_files denies `single` at the database.
+      visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
+      render: () => <ShidduchFilesTab />,
+    },
+    {
+      key: "diligence",
+      // Story 6.3 (AC 9): reference_links / "references" deny `single` at
+      // the database.
+      visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
+      render: () => <ShidduchDiligenceTab />,
+    },
+    {
+      key: "external-links",
+      // Story 6.3 (AC 9): shidduchim_external_links denies `single` at the
+      // database.
+      visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
+      render: () => <ExternalLinksTab />,
+    },
+    {
+      key: "notes",
+      // Story 6.3 (AC 9): interactions denies `single` by default at the
+      // database (AC 2).
+      visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
+      render: () => <ShidduchNotesTab />,
+    },
     {
       key: "tasks",
       // Story 6.2 (AC 10): tasks is one of the tables RLS empties for a
@@ -113,7 +149,14 @@ export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
       visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
       render: () => <ShidduchTasksTab />,
     },
-    { key: "activity", render: () => <ShidduchActivityTab /> },
+    {
+      key: "activity",
+      // Story 6.3 (AC 9): interactions denies `single` by default at the
+      // database (AC 2) — the activity timeline reads through the same
+      // table as notes.
+      visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
+      render: () => <ShidduchActivityTab />,
+    },
   ],
   pendingTabs: [],
 };

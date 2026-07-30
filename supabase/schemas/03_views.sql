@@ -77,7 +77,20 @@ select
     s.first_suggested_by,
     s.first_suggested_at,
     s.redt_date,
-    s.close_reason,
+    -- Story 6.3 (AC 4/AC 7): free-text decision rationale can carry candid
+    -- content, so it always reads NULL for a `single` caller — even on an
+    -- otherwise fully visible suggestion. Postgres RLS is row-scoped (a
+    -- policy decides whether a row comes back at all, never which columns
+    -- do), so this one-column-on-an-otherwise-visible-row redaction lives in
+    -- this security_invoker view's CASE, not in 05_policies.sql (Dev Notes,
+    -- "Why close_reason redaction happens in a view, not a policy"). Same
+    -- ordinal position as before — `create or replace view` can only append
+    -- columns, never reorder them (the COLUMN-ORDER TRAP this file's own
+    -- shadchan_stats comment already names).
+    case
+        when public.current_member_role() = 'single' then null
+        else s.close_reason
+    end as close_reason,
     s.origin,
     s.owner_member_id,
     s.visibility,

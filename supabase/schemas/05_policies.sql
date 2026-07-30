@@ -282,15 +282,55 @@ create policy "Singles visible to self" on public.singles
         and member_id = public.current_member_id()
     );
 
+-- Story 6.3 (AC 3): writes stay denied to a `single`; reads are carved out
+-- into a second, SELECT-only policy below rather than added here — the same
+-- two-policy pattern Story 6.2 established for `accounts`/`account_members`
+-- (permissive policies OR together per command, so a role guard on this
+-- shared `for all` predicate would have blocked the read too).
 create policy "Shadchanim scoped to account" on public.shadchanim
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
+-- Story 6.3 (AC 3): a single reads the WHOLE household shadchan book, not
+-- just shadchanim attached to their own visible suggestions. Deliberate —
+-- see Dev Notes "Why the single sees the whole shadchan book" in
+-- 6-3-field-level-scoping-for-a-single.md: post-5.9 a shadchanim row is a
+-- contact card (name/location/contact details/responsiveness) with no
+-- candid column left (the candid commentary now lives in `interactions`,
+-- denied by this same story), and narrowing to "own suggestions only" would
+-- break every RecordLink render of a shadchan the moment a suggestion
+-- leaves the single's visible set. SELECT-only, additive to the policy
+-- above (the two-policy pattern).
+create policy "Shadchanim visible to single" on public.shadchanim
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() = 'single'
+    );
+
+-- Story 6.3 (AC 1): denies the `single` role entirely — zero rows on every
+-- command. The reference book itself is candid by construction (the whole
+-- diligence surface); no row is safe to expose regardless of the parent
+-- suggestion's visibility, so this is a pure narrowing of the existing `for
+-- all` policy, not a two-policy split. R7-scoped besides (no nav, no browse
+-- surface, out of global search) — this closes the data half of that ruling.
 create policy "References scoped to account" on public."references"
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
 create policy "Shidduchim scoped to account" on public.shidduchim
     for all to authenticated
@@ -494,10 +534,21 @@ create policy "Medical notes scoped to account, parent_admin/self_manager only" 
         and public.current_member_role() in ('parent_admin', 'self_manager')
     );
 
+-- Story 6.3 (AC 1): denies the `single` role entirely — zero rows on every
+-- command. `call_status`/`what_they_said`/`conversation_log` are candid
+-- diligence content by construction; no row-subset is safe to expose, so
+-- this is a pure narrowing of the existing `for all` policy, not a
+-- two-policy split.
 create policy "Reference links scoped to account" on public.reference_links
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
 -- Story 6.2 (AC 5): denies the `single` role entirely — zero rows on every
 -- command. Dating history `notes` is free-text and unaudited for candour.
@@ -558,10 +609,22 @@ create policy "Shidduch schools visible to single" on public.shidduch_schools
 -- Story 5.6: same shape as "Shidduch schools scoped to account" above — a
 -- URL bookmark is not sensitive data, so there is no sensitivity tier and no
 -- role check, only account scoping.
+--
+-- Story 6.3 (AC 1): denies the `single` role entirely, all the same — a link
+-- bookmark attached during diligence is candid by construction (it names
+-- what was uploaded/found during the diligence pass), with no per-row
+-- visibility column to narrow on. Pure narrowing of the existing `for all`
+-- policy, not a two-policy split.
 create policy "Shidduchim external links scoped to account" on public.shidduchim_external_links
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
 -- Pipeline transitions are static, non-tenant reference data (the legal
 -- state graph). Read-only for authenticated users; seeded by migration.
@@ -632,10 +695,17 @@ alter table public.identity_signals enable row level security;
 -- holds no DELETE grant on `interactions` at all (06_grants.sql, the
 -- append-only audit-trail rule) — a DELETE policy here would be dead text
 -- implying a capability nobody has.
+-- Story 6.3 (AC 2): denies the `single` role by default on every command —
+-- private parent notes, the full activity/status-change timeline, and the
+-- 5.9-migrated shadchan commentary (target_type = 'shadchan') all live here.
+-- `and public.current_member_role() <> 'single'` is ANDed onto the WHOLE
+-- predicate (not one branch), so a single sees zero interaction rows of any
+-- kind at the end of this story — Story 6.4 carves the one narrow exception.
 create policy "Interactions readable within account and parent visibility" on public.interactions
     for select to authenticated
     using (
         account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
         and (
             (
                 scope = 'account'
@@ -684,10 +754,13 @@ create policy "Interactions readable within account and parent visibility" on pu
         )
     );
 
+-- Story 6.3 (AC 2): the same deny-the-single-role-by-default clause as the
+-- SELECT policy above, ANDed onto the whole predicate.
 create policy "Interactions insertable within account and parent visibility" on public.interactions
     for insert to authenticated
     with check (
         account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
         and (
             (
                 scope = 'account'
@@ -763,10 +836,17 @@ create policy "Interactions insertable within account and parent visibility" on 
 -- needed no change: it already answers "is the caller this row's author (by
 -- user_id) or an owning-role member of the active context", which is exactly
 -- the right question for `single_input` too.
+-- Story 6.3 (AC 2): the same deny-the-single-role-by-default clause as the
+-- SELECT/INSERT policies above, ANDed onto the whole predicate in BOTH
+-- `using` and `with check` — not merely one of the two, for the same reason
+-- the surrounding comment already states (a `using`-only clause silently
+-- filters, `with check` stops re-pointing a row into a shape the caller was
+-- never allowed to target).
 create policy "Interactions updatable by author or owning role" on public.interactions
     for update to authenticated
     using (
         account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
         and (
             (
                 scope = 'account'
@@ -817,6 +897,7 @@ create policy "Interactions updatable by author or owning role" on public.intera
     )
     with check (
         account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
         and (
             (
                 scope = 'account'
@@ -937,9 +1018,20 @@ create policy "Inbox items scoped to account" on public.inbox_items
 -- attach files to its own shadchan/shidduch rows from day one (Epic 8.5).
 -- Not FORCE ROW LEVEL SECURITY — no table in this repo has it (01_tables.sql
 -- notes the gap; a single forced table would diverge from the other 22).
+--
+-- Story 6.3 (AC 1) adds the `single` role guard tasks already carries: a
+-- Story 3.7 upload is a diligence attachment, candid by construction, with
+-- no per-row visibility column to narrow on — no row is safe to expose, so
+-- this is a pure narrowing, not a two-policy split.
 alter table public.entity_files enable row level security;
 
 create policy "Entity files scoped to account" on public.entity_files
     for all to authenticated
-    using (account_id = public.current_context_id())
-    with check (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );

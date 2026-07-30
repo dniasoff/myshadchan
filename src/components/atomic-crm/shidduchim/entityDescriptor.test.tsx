@@ -214,6 +214,64 @@ describe("shidduchimDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC
   });
 });
 
+describe("shidduchimDescriptor — the real diligence/external-links/files/notes/activity tabs' visibleTo (Story 6.3, AC 9)", () => {
+  it.each([
+    ["Files", "parent_admin"],
+    ["Diligence", "parent_admin"],
+    ["External links", "parent_admin"],
+    ["Notes", "parent_admin"],
+    ["Activity", "parent_admin"],
+  ] as const)("shows the %s tab to a %s viewer", async (tabName, role) => {
+    // Act
+    const { screen } = await renderShidduchShow(role);
+
+    // Assert
+    await expect
+      .element(screen.getByRole("tab", { name: tabName }))
+      .toBeInTheDocument();
+  });
+
+  it.each([
+    "Files",
+    "Diligence",
+    "External links",
+    "Notes",
+    "Activity",
+  ] as const)(
+    "never renders the %s tab (or its label anywhere) for a single viewer — RLS empties the underlying table(s), this hides the dead shell",
+    async (tabName) => {
+      // Act
+      const { screen } = await renderShidduchShow("single");
+
+      // Assert — the Overview anchor proves the tab strip has actually
+      // mounted before the negative assertion runs.
+      await expect
+        .element(screen.getByRole("tab", { name: "Overview" }))
+        .toBeInTheDocument();
+      await expect
+        .element(screen.getByRole("tab", { name: tabName }))
+        .not.toBeInTheDocument();
+      expect(screen.container.textContent ?? "").not.toContain(tabName);
+    },
+  );
+
+  it("a single viewer still sees the dignity-floor tabs (Overview, Resume, Photo)", async () => {
+    // Act
+    const { screen } = await renderShidduchShow("single");
+
+    // Assert
+    await expect
+      .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("tab", { name: "Resume" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("tab", { name: "Photo" }))
+      .toBeInTheDocument();
+  });
+});
+
 describe("shidduchimDescriptor — the real Files tab is scoped to this record (Story 5.6, AC 1)", () => {
   const buildFile = (
     overrides: Partial<EntityFile> & Pick<EntityFile, "id">,

@@ -1,6 +1,10 @@
+---
+baseline_commit: 5ce5422374eaf0ab33bffd6989ef3dd9afa047b6
+---
+
 # Story 6.3: Field-level scoping for a single
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -143,8 +147,8 @@ whole diff.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Deny the four candid tables to `single`** (AC: 1)
-  - [ ] Add `and public.current_member_role() <> 'single'` to the existing
+- [x] **Task 1 — Deny the four candid tables to `single`** (AC: 1)
+  - [x] Add `and public.current_member_role() <> 'single'` to the existing
         `for all` policy's `using` **and** `with check` on each of
         `"References scoped to account"` (`05_policies.sql:196`),
         `"Reference links scoped to account"` (`:286`),
@@ -153,8 +157,8 @@ whole diff.
         for any of them — there is no row-subset that is safe, so the edit is
         a pure narrowing, not a two-policy split like Story 6.2's pattern.
 
-- [ ] **Task 2 — Deny `interactions` to `single` by default** (AC: 2)
-  - [ ] `select policyname, cmd from pg_policies where tablename = 'interactions';`
+- [x] **Task 2 — Deny `interactions` to `single` by default** (AC: 2)
+  - [x] `select policyname, cmd from pg_policies where tablename = 'interactions';`
         — re-confirm at implementation time. Settled, not speculative: Story
         3.6 replaced the original single `for all` policy with three
         per-command policies, each carrying the same account/parent-visibility
@@ -176,14 +180,14 @@ whole diff.
         There is no `for delete` policy and none is to be added:
         `authenticated` holds no DELETE grant on this table
         (`06_grants.sql:679-680`, the append-only audit-trail rule).
-  - [ ] Do **not** add a `single`-scoped policy in this story. Story 6.4 adds
+  - [x] Do **not** add a `single`-scoped policy in this story. Story 6.4 adds
         exactly one, narrowly. Leaving the gap open here is what keeps this
         story's own negative test (AC-8) honest: "a single sees zero
         interactions" must be true at the end of *this* story,
         unconditionally.
 
-- [ ] **Task 3 — `shadchanim`: row-readable, write-denied** (AC: 3)
-  - [ ] Add `and public.current_member_role() <> 'single'` to
+- [x] **Task 3 — `shadchanim`: row-readable, write-denied** (AC: 3)
+  - [x] Add `and public.current_member_role() <> 'single'` to
         `"Shadchanim scoped to account"` (`05_policies.sql:191`), both
         halves, then add:
         ```sql
@@ -196,21 +200,21 @@ whole diff.
         ```
         Whole-book read is deliberate — see Dev Notes "Why the single sees
         the whole shadchan book".
-  - [ ] `shadchan_stats` (`03_views.sql:225`) is a `security_invoker` view
+  - [x] `shadchan_stats` (`03_views.sql:225`) is a `security_invoker` view
         over `shadchanim` + `shidduchim` + `redts`. A single reads the
         shadchan rows but zero `redts` (6.2), so its aggregate columns come
         back as zeroes/nulls rather than as another household member's
         counts. Assert that in Task 8 rather than assuming it — a view whose
         aggregate silently ignores RLS would be a leak.
 
-- [ ] **Task 4 — Redact `shidduchim.close_reason` for `single`** (AC: 4, 7)
-  - [ ] `supabase/schemas/03_views.sql`, `shidduchim_summary` (`:51`, the
+- [x] **Task 4 — Redact `shidduchim.close_reason` for `single`** (AC: 4, 7)
+  - [x] `supabase/schemas/03_views.sql`, `shidduchim_summary` (`:51`, the
         `s.close_reason` projection at `:80`): change it to
         `case when public.current_member_role() = 'single' then null else s.close_reason end as close_reason`.
         Keep the column in the **same ordinal position** — `create or replace
         view` can only append columns, never reorder them (the file's own
         comment at `:224` states this trap for `shadchan_stats`).
-  - [ ] Confirm no frontend read path selects `shidduchim.close_reason`
+  - [x] Confirm no frontend read path selects `shidduchim.close_reason`
         directly from the base table on a single-reachable surface.
         `grep -rn "close_reason" src/components/atomic-crm/` at HEAD returns
         `types.ts` (the `ShidduchSummary` field), the two dataProviders'
@@ -218,8 +222,8 @@ whole diff.
         read. If one has appeared, point it at the view rather than
         duplicating the redaction (AD-1's one-place principle).
 
-- [ ] **Task 5 — Medical notes: no schema change, unconditional negative test** (AC: 5)
-  - [ ] Read `"Medical notes scoped to account, parent_admin/self_manager
+- [x] **Task 5 — Medical notes: no schema change, unconditional negative test** (AC: 5)
+  - [x] Read `"Medical notes scoped to account, parent_admin/self_manager
         only"` (`05_policies.sql:267`) and confirm it is still an allow-list
         naming exactly `parent_admin`/`self_manager` (Story 6.2 Task 7 will
         have rewritten the lookup onto `current_member_role()`; the role set
@@ -227,46 +231,46 @@ whole diff.
         `<> 'single'` clause to a policy that already denies by allow-list is
         a DRY violation and would make a future role addition look safe when
         it is not.
-  - [ ] Only if it has somehow become a deny-list, add
+  - [x] Only if it has somehow become a deny-list, add
         `and public.current_member_role() <> 'single'` as in Task 1 and say
         so in the PR.
-  - [ ] Either way, the negative test in Task 8 is unconditional.
+  - [x] Either way, the negative test in Task 8 is unconditional.
 
-- [ ] **Task 6 — Storage policies** (AC: 6)
-  - [ ] `supabase/schemas/07_storage.sql`: add
+- [x] **Task 6 — Storage policies** (AC: 6)
+  - [x] `supabase/schemas/07_storage.sql`: add
         `and public.current_member_role() <> 'single'` to exactly six
         policies — `"Entity files readable/writable/deletable within
         account"` (`:76`, `:83`, `:90`) and `"Documents resumes
         readable/writable/deletable within account"` (`:131`, `:139`,
         `:147`).
-  - [ ] Do **not** touch `"Documents photos readable/writable/deletable
+  - [x] Do **not** touch `"Documents photos readable/writable/deletable
         within account"` (`:174`, `:189`, `:198`) or any `attachments`
         policy. The photos-readable policy already contains the role check
         Story 5.4 shipped; rewriting its inlined
         `exists (… am.role <> 'single')` onto `current_member_role()` is
         Story 6.2's Task 7, not this story's.
-  - [ ] Add no `UPDATE` policy (`context_rls_hardening.sql` asserts
+  - [x] Add no `UPDATE` policy (`context_rls_hardening.sql` asserts
         table-wide that none exists).
 
-- [ ] **Task 7 — Generate and hand-check the migration** (AC: all)
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f single_role_field_scoping`
-  - [ ] Confirm the diff is `DROP POLICY`+`CREATE POLICY` / `ALTER POLICY` /
+- [x] **Task 7 — Generate and hand-check the migration** (AC: all)
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f single_role_field_scoping`
+  - [x] Confirm the diff is `DROP POLICY`+`CREATE POLICY` / `ALTER POLICY` /
         `CREATE OR REPLACE VIEW` only. If the diff **drops and recreates**
         `shidduchim_summary` rather than replacing it, hand-add
         `with (security_invoker = on)` and the view's grants — `db diff`
         re-emits neither (AGENTS.md). `supabase/tests/security_invoker_views.sql`
         and `supabase/tests/view_grants.sql` are the mechanical check for
         both; they must pass.
-  - [ ] Verify the storage-policy changes actually appear — `db diff` on
+  - [x] Verify the storage-policy changes actually appear — `db diff` on
         `storage.objects` is often incomplete (Story 5.3 hit the same); add
         them by hand if omitted.
-  - [ ] `make check-migration-safety`. This story drops no column and deletes
+  - [x] `make check-migration-safety`. This story drops no column and deletes
         no row, so it must pass with no new `declared-moves.sql` entry.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
         Never `db reset --local`, never `db push`.
 
-- [ ] **Task 8 — Tests** (AC: 7, 8)
-  - [ ] New `supabase/tests/single_field_scoping.sql` + `.test.ts`. Reuse
+- [x] **Task 8 — Tests** (AC: 7, 8)
+  - [x] New `supabase/tests/single_field_scoping.sql` + `.test.ts`. Reuse
         Story 6.2's fixture helper if it was factored into
         `dbSuiteHelpers.ts`; otherwise arrange: one household, one
         `parent_admin`, one `single` linked to a `look_into`+`shared`
@@ -280,43 +284,43 @@ whole diff.
         `{acct}/resumes/…`, `{acct}/photos/shared/…`,
         `{acct}/photos/private_parent/…` in `documents`, and one in
         `entity-files`.
-  - [ ] Assert (AC-8): as `single`, `select count(*)` from each of
+  - [x] Assert (AC-8): as `single`, `select count(*)` from each of
         `reference_links`, `"references"`, `interactions`, `entity_files`,
         `shidduchim_external_links`, `medical_notes` = `0`; as `parent_admin`
         in the same account, each is non-zero. One `insert into results` row
         per table, so a loosened policy names itself.
-  - [ ] Assert (AC-4/7): as `single`, `select close_reason from
+  - [x] Assert (AC-4/7): as `single`, `select close_reason from
         public.shidduchim_summary where id = :shid` is `NULL` even though the
         row itself is returned; as `parent_admin`, the real value comes back.
-  - [ ] Assert (AC-7): as `single`, `references_summary`,
+  - [x] Assert (AC-7): as `single`, `references_summary`,
         `reference_links_summary`, `interactions_summary` and
         `entity_files_summary` each return zero rows while the
         `parent_admin` gets non-zero.
-  - [ ] Assert (AC-3): as `single`, the shadchan row is returned
+  - [x] Assert (AC-3): as `single`, the shadchan row is returned
         (name/location readable); an `update` on it affects zero rows; an
         `insert` raises. Assert `shadchan_stats` returns the shadchan with
         zeroed counts, not the parent's counts.
-  - [ ] Assert (AC-6/8), both directions: as `single`,
+  - [x] Assert (AC-6/8), both directions: as `single`,
         `select count(*) from storage.objects where bucket_id =
         'entity-files'` = `0`; the `documents` key under `resumes/` = `0`;
         the `documents` key under `photos/private_parent/` = `0`; the
         `documents` key under `photos/shared/` = **1**. As `parent_admin`,
         all four are visible.
-  - [ ] Regression: `references_entity.sql`, `shidduch_catch.sql`,
+  - [x] Regression: `references_entity.sql`, `shidduch_catch.sql`,
         `medical_notes.sql`, `resume_photos.sql`, `entity_files.sql`,
         `shidduchim_external_links.sql`, `documents_storage.sql`,
         `interaction_note_authorship.sql`, `interactions_targets.sql`,
         `context_rls_hardening.sql`, `security_invoker_views.sql`,
         `view_grants.sql` and Story 6.2's `single_row_scoping.sql` all pass
         **unmodified**.
-  - [ ] Frontend (AC-9): the shidduch and single descriptor tests assert each
+  - [x] Frontend (AC-9): the shidduch and single descriptor tests assert each
         newly-restricted tab is absent for a `single` viewer and present for
         a `parent_admin`, and that `overview`/`resume`/`photo` remain present
         for a `single`. `vitest-browser-react` + `TestMemoryRouter`; the
         `EntityShow.permissions.test.tsx` pattern already exists for this.
         Run `npx vitest run src/components/atomic-crm/entity360/ad24Conformance`
         to confirm the validator stays quiet.
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`
+  - [x] `make typecheck && npm run lint && make test && npm run test:unit:db`
         (the DB suites need `make start`).
 
 ## Dev Notes
@@ -485,8 +489,63 @@ exist). If any string is added, both
 
 ### Agent Model Used
 
+Claude Sonnet 5 (developer agent, STACK_ID=3, STACK_OWNER=6.3).
+
 ### Debug Log References
+
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --workdir .supabase-e2e-3 -f single_role_field_scoping` — generated migration, hand-checked (only `DROP POLICY`/`CREATE POLICY`/`CREATE OR REPLACE VIEW`, no `DROP TABLE`/`CREATE TABLE`).
+- Hand-added `alter view "public"."shidduchim_summary" set (security_invoker = on);` to the generated migration — `db diff` emitted a bare `create or replace view` (no drop), but even that resets `security_invoker` to off with no `WITH (...)` clause. Caught by `security_invoker_views.test.ts` and `global_search.test.ts` both going red before the fix, both green after. Grants survived untouched (a bare `CREATE OR REPLACE VIEW` does not touch the pg_class ACL the way a DROP+CREATE does) — confirmed via `view_grants.test.ts` staying green throughout, so no grant re-issue was needed (unlike `20260730094101`'s drop-and-recreate case).
+- `supabase db diff --workdir .supabase-e2e-3` — clean twice after applying the migration (`post_fix_clean_1`/`post_fix_clean_2`, both "No schema changes found").
+- `make check-migration-safety STACK_ID=3` — PASSED (no column drop, no row delete, no new `declared-moves.sql` entry).
+- `npx vitest run` (STACK_ID=3, full repo, all projects) — 2312/2316 passed. The 4 remaining failures are pre-existing test files this story does not own and Task 8 explicitly requires to "pass unmodified" — both are direct, unavoidable, and correctly-predicted consequences of this story's ACs, not defects in this story's own diff. See Completion Notes for the full explanation of each.
+- `make typecheck`, `make lint`, `make build`, `npx prettier --check .` — all clean.
+- Four CI guards (`check-suppressions.mjs`, `check-retired-names.mjs`, `check-route-convention.mjs`, `check-tailwind-arbitrary-var.mjs`) — all OK.
+- `make registry-gen` — zero diff (no new UI component touched).
 
 ### Completion Notes List
 
+- Tasks 1-8 implemented exactly as specified. Task 1: `"references"`/`reference_links`/`shidduchim_external_links`/`entity_files` each narrowed with `and public.current_member_role() <> 'single'` on both `using` and `with check` of their existing `for all` policy — no second policy added. Task 2: the same clause added to the WHOLE predicate (not one branch) of all three `interactions` per-command policies (SELECT/INSERT/UPDATE), verified at HEAD to still be exactly three, no `for delete` policy added or needed. Task 3: `shadchanim` split into the existing `for all` (narrowed to deny `single`) plus a new SELECT-only `"Shadchanim visible to single"` policy granting the whole book, account-wide, no join to the caller's own suggestion — the two-policy pattern Story 6.2 established. Task 4: `shidduchim_summary.close_reason` redacted via `CASE WHEN current_member_role() = 'single' THEN NULL ELSE s.close_reason END`, same ordinal position. Task 5: verified `"Medical notes scoped to account, parent_admin/self_manager only"` is still an allow-list at HEAD — no schema change made, per the story's own instruction. Task 6: exactly six storage policies gained the role guard (`entity-files` ×3, `documents`/`resumes` ×3); the three `documents`/`photos` policies were deliberately left untouched, confirmed by a diff review of `07_storage.sql` before committing.
+- `shadchan_stats` aggregate-leak assertion (Task 3's own bullet) proven with a dedicated fixture: a second shadchan attributed ONLY to a sibling's visible suggestion — Leah (single) reads the shadchan row but the view's own LEFT JOIN to `shidduchim` returns zero rows under her RLS, so every aggregate column comes back as 0/NULL; the parent in the same run sees the real, non-zero count. This is the two-sided assertion the story asks for ("zeroed counts, not the parent's counts"), not just a single-sided "reads zero" check.
+- `single_field_scoping.sql`/`.test.ts`: 41 checks (AC 1-8), reusing `dbSuiteHelpers.ts`'s shared sibling fixture unchanged, exactly as Story 6.2 factored it for this purpose. Every regression file Task 8 names as "must pass unmodified" was run and confirmed green **except** the two documented below, which are direct, self-consistent consequences of this story's own ACs.
+- Frontend (AC-9): `shidduchim/entityDescriptor.tsx` gained `visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"]` on `diligence`/`external-links`/`files`/`notes`/`activity`; `singles/entityDescriptor.tsx` gained the same allow-list on `files`/`notes`/`activity`. `medical` (shidduchim) keeps its own, narrower Story 5.5 allow-list unchanged. `overview`/`resume`/`photo`/`shidduchim` (dignity floor) stay unrestricted. `tabs ∪ pendingTabs` unchanged on both descriptors — `ad24Conformance.test.ts` stays green, no `CANONICAL_TAB_SETS` edit needed. `registry.json` regenerated with zero diff (no new UI component).
+- **NOT owned, decided per the story's own instruction:** AC-9 restricts only the `shidduchim` and `singles` descriptors. `shadchanim/entityDescriptor.tsx` (wave 2's file, not in this story's declared ownership) is left untouched — its `notes`/`activity` tabs stay reachable and now render permanently-empty shells for a `single` viewer (AC-3 grants a single account-wide `shadchanim` read, so the Shadchan 360 itself stays reachable). Per the story's own framing ("Either widen AC-9 and this entry, or accept the shells explicitly"), this is the **"accept the shells explicitly"** branch, made because widening AC-9 to a table this story does not own is out of scope for a STACK_ID=3 dispatch scoped to `shidduchim`/`singles` only. Flagging for a follow-up story/task to add the same `visibleTo` allow-list to `shadchanim/entityDescriptor.tsx`'s `notes`/`activity` tabs.
+- **Two pre-existing regression files, explicitly named by this story's own Task 8 as "must pass unmodified," now fail — by design, not by defect — and are outside this story's declared ownership, so left untouched and flagged here rather than edited:**
+  - `supabase/tests/single_row_scoping.sql` (Story 6.2's file): 2 of its own assertions — `AC6 SCOPE NOTE (Story 6.3 to close): log_reference_call() is not yet denied for a single` and the same for `merge_references()` — are pinned, in that file's own comments, to flip red the moment this story lands ("Story 6.3 turns them red ... a signal to update the expectation to 'denied', not silently leaves them looking untested"). That is exactly what happened: both RPCs now raise `... not found in current account` for a `single` caller, because they read `reference_links`/`"references"` under RLS (Task 1). Fixing this requires updating those two DO blocks' expected outcome from "succeeds" to "denied" inside a file this story does not own (`supabase/tests/single_row_scoping.sql`, `supabase/tests/single_row_scoping.test.ts`) — needs a follow-up commit to that file, not this one.
+  - `supabase/tests/shidduchim_external_links.sql` (Story 5.6's file): 2 assertions — `(c) select`/`(c) update: single ... (AC 6: no role check)` — literally assert the pre-6.3 behaviour Task 1 is expressly designed to overturn (`shidduchim_external_links` is one of the four tables AC-1 names). This file has no forward-looking note the way `single_row_scoping.sql` does, but the conflict is the same shape: a prior story's regression test pins a decision this story's binding AC explicitly reverses. Needs a follow-up commit updating those two assertions to expect denial, inside a file this story does not own.
+  - Both were confirmed to be the ONLY failures in the full, repo-wide `npx vitest run` (STACK_ID=3) — 2312/2316 passing, the same 4 failures whether run via `npx vitest run` or `make test STACK_ID=3`.
+- One file outside this story's declared ownership was fixed directly, unlike the two above, because Story 6.2 already established the precedent of fixing this EXACT file for this EXACT mechanism (see 6.2's own Completion Notes) and it carries no "must pass unmodified" instruction anywhere in this story: `src/components/atomic-crm/entity360/routeConvention.routes.test.tsx`'s unresolved-role tab-count assertion for `/singles/1` dropped from 7 to 4 (Story 6.2 previously bumped it from 8 to 7 for the identical `tasks`-tab mechanism; this story's `files`/`notes`/`activity` additions remove three more tabs for an unresolved role under `hasVisibility`'s fail-closed rule).
+
 ### File List
+
+Schema / DB:
+- `supabase/schemas/05_policies.sql` (policy edits: `"references"`, `reference_links`, `shidduchim_external_links`, `entity_files` narrowed; `interactions` ×3 narrowed; `shadchanim` narrowed + new `"Shadchanim visible to single"` policy)
+- `supabase/schemas/03_views.sql` (`shidduchim_summary.close_reason` redaction)
+- `supabase/schemas/07_storage.sql` (6 policies narrowed: `entity-files` ×3, `documents`/`resumes` ×3; `documents`/`photos` ×3 untouched)
+- `supabase/migrations/20260730175650_single_role_field_scoping.sql` (generated + hand-checked + hand-added `alter view ... set (security_invoker = on)`)
+- `supabase/tests/single_field_scoping.sql` (new)
+- `supabase/tests/single_field_scoping.test.ts` (new)
+- `supabase/tests/dbSuiteHelpers.ts` (unchanged — 6.2's shared fixture reused as-is, no new helper needed)
+
+Frontend (AC-9):
+- `src/components/atomic-crm/shidduchim/entityDescriptor.tsx` (+`visibleTo` on `diligence`/`external-links`/`files`/`notes`/`activity`)
+- `src/components/atomic-crm/shidduchim/entityDescriptor.test.tsx` (+describe block for the 5 newly-restricted tabs' `visibleTo`)
+- `src/components/atomic-crm/singles/entityDescriptor.tsx` (+`visibleTo` on `files`/`notes`/`activity`)
+- `src/components/atomic-crm/singles/entityDescriptor.test.tsx` (+describe block for the 3 newly-restricted tabs' `visibleTo`)
+- `registry.json` (regenerated — zero diff)
+
+Outside originally declared ownership, fixed as a direct, unavoidable, mechanical consequence of AC-9 (see Completion Notes; mirrors Story 6.2's own precedent for this exact file):
+- `src/components/atomic-crm/entity360/routeConvention.routes.test.tsx` (unresolved-role tab count: 7 → 4)
+
+Outside originally declared ownership, deliberately left UNCHANGED and flagged for follow-up (both explicitly named "must pass unmodified" by this story's own Task 8, both now genuinely red as a self-consistent consequence of this story's binding ACs — see Completion Notes):
+- `supabase/tests/single_row_scoping.sql` / `supabase/tests/single_row_scoping.test.ts` (Story 6.2's file — 2 self-documented "Story 6.3 to close" SCOPE NOTE assertions now flip red)
+- `supabase/tests/shidduchim_external_links.sql` / `supabase/tests/shidduchim_external_links.test.ts` (Story 5.6's file — 2 "AC 6: no role check" assertions now flip red)
+
+Not touched (out of this story's scope, per its own instruction, "accept the shells explicitly"):
+- `src/components/atomic-crm/shadchanim/entityDescriptor.tsx` (wave 2's file — `notes`/`activity` tabs stay reachable and now render empty for a `single` viewer)
+
+Unchanged (verified, not edited — regression-only per Task 8):
+- `supabase/tests/references_entity.sql`, `supabase/tests/shidduch_catch.sql`, `supabase/tests/medical_notes.sql`, `supabase/tests/resume_photos.sql`, `supabase/tests/entity_files.sql`, `supabase/tests/documents_storage.sql`, `supabase/tests/interaction_note_authorship.sql`, `supabase/tests/interactions_targets.sql`, `supabase/tests/context_rls_hardening.sql`, `supabase/tests/security_invoker_views.sql`, `supabase/tests/view_grants.sql`
+
+## Change Log
+
+- 2026-07-30: Story 6.3 implemented — field-level scoping for a single at the database (AC 1-9). RLS narrows `"references"`/`reference_links`/`shidduchim_external_links`/`entity_files` and all three `interactions` policies to deny `single` outright; `shadchanim` split into row-readable/write-denied; `shidduchim_summary.close_reason` redacted via CASE; medical_notes re-verified as an unconditional allow-list with its own negative test; 6 storage policies narrowed (photos untouched). New `single_field_scoping` DB suite (41 checks). Frontend hides the now-permanently-empty tabs (`diligence`/`external-links`/`files`/`notes`/`activity` on shidduchim, `files`/`notes`/`activity` on singles) via `visibleTo`. Two pre-existing regression files (Story 6.2's `single_row_scoping.sql`, Story 5.6's `shidduchim_external_links.sql`) now fail as a self-consistent, documented consequence of this story's ACs and are flagged for a follow-up commit rather than edited outside this story's declared ownership.

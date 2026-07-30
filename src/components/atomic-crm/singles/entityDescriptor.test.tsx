@@ -156,6 +156,58 @@ describe("singlesDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC 10
   });
 });
 
+describe("singlesDescriptor — the real Files/Notes/Activity tabs' visibleTo (Story 6.3, AC 9)", () => {
+  it.each(["Files", "Notes", "Activity"] as const)(
+    "shows the %s tab to a parent_admin viewer",
+    async (tabName) => {
+      // Act
+      const { screen } = await renderSingleShow(undefined, "parent_admin");
+
+      // Assert
+      await expect
+        .element(screen.getByRole("tab", { name: tabName }))
+        .toBeInTheDocument();
+    },
+  );
+
+  it.each(["Files", "Notes", "Activity"] as const)(
+    "never renders the %s tab (or its label anywhere) for a single viewer — entity_files/interactions both deny `single` at the database, this hides the dead shell",
+    async (tabName) => {
+      // Act
+      const { screen } = await renderSingleShow(undefined, "single");
+
+      // Assert — the Overview anchor proves the tab strip has actually
+      // mounted before the negative assertion runs.
+      await expect
+        .element(screen.getByRole("tab", { name: "Overview" }))
+        .toBeInTheDocument();
+      await expect
+        .element(screen.getByRole("tab", { name: tabName }))
+        .not.toBeInTheDocument();
+      expect(screen.container.textContent ?? "").not.toContain(tabName);
+    },
+  );
+
+  it("a single viewer still sees the dignity-floor tabs (Overview, Resume, Photo, Shidduchim)", async () => {
+    // Act
+    const { screen } = await renderSingleShow(undefined, "single");
+
+    // Assert
+    await expect
+      .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("tab", { name: "Resume" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("tab", { name: "Photo" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("tab", { name: "Shidduchim" }))
+      .toBeInTheDocument();
+  });
+});
+
 const buildShidduch = (
   overrides: Partial<Shidduch> & Pick<Shidduch, "id" | "single_id">,
 ): Shidduch => ({

@@ -73,11 +73,16 @@ insert into storage.buckets (id, name, public)
 values ('entity-files', 'entity-files', false)
 on conflict (id) do nothing;
 
+-- Story 6.3 (AC 6): a `single` is denied outright — the key grammar carries
+-- no visibility segment, so deny is the only expressible posture (a
+-- diligence upload is candid by construction, same reasoning as the
+-- entity_files row policy this bucket backs).
 create policy "Entity files readable within account" on storage.objects
     for select to authenticated
     using (
         bucket_id = 'entity-files'
         and (storage.foldername(name))[1] = public.current_context_id()::text
+        and public.current_member_role() <> 'single'
     );
 
 create policy "Entity files writable within account" on storage.objects
@@ -85,6 +90,7 @@ create policy "Entity files writable within account" on storage.objects
     with check (
         bucket_id = 'entity-files'
         and (storage.foldername(name))[1] = public.current_context_id()::text
+        and public.current_member_role() <> 'single'
     );
 
 create policy "Entity files deletable within account" on storage.objects
@@ -92,6 +98,7 @@ create policy "Entity files deletable within account" on storage.objects
     using (
         bucket_id = 'entity-files'
         and (storage.foldername(name))[1] = public.current_context_id()::text
+        and public.current_member_role() <> 'single'
     );
 
 -- Story 5.3: a THIRD private bucket, `documents`, for resumes (this story's
@@ -128,12 +135,18 @@ insert into storage.buckets (id, name, public)
 values ('documents', 'documents', false)
 on conflict (id) do nothing;
 
+-- Story 6.3 (AC 6): a `single` is denied outright — the `resumes/` prefix
+-- carries no visibility segment (unlike `photos/` below), so deny is the
+-- only expressible posture. The resumes ROW facts a single is entitled to
+-- (`resumes_visible_to_single`, Story 6.2) are served through the API, not
+-- by opening the underlying PDF object.
 create policy "Documents resumes readable within account" on storage.objects
     for select to authenticated
     using (
         bucket_id = 'documents'
         and (storage.foldername(name))[1] = public.current_context_id()::text
         and (storage.foldername(name))[2] = 'resumes'
+        and public.current_member_role() <> 'single'
     );
 
 create policy "Documents resumes writable within account" on storage.objects
@@ -142,6 +155,7 @@ create policy "Documents resumes writable within account" on storage.objects
         bucket_id = 'documents'
         and (storage.foldername(name))[1] = public.current_context_id()::text
         and (storage.foldername(name))[2] = 'resumes'
+        and public.current_member_role() <> 'single'
     );
 
 create policy "Documents resumes deletable within account" on storage.objects
@@ -150,6 +164,7 @@ create policy "Documents resumes deletable within account" on storage.objects
         bucket_id = 'documents'
         and (storage.foldername(name))[1] = public.current_context_id()::text
         and (storage.foldername(name))[2] = 'resumes'
+        and public.current_member_role() <> 'single'
     );
 
 -- Story 5.4: the `photos/` second-level prefix on the SAME `documents`
@@ -171,6 +186,15 @@ create policy "Documents resumes deletable within account" on storage.objects
 -- supabase/tests/context_rls_hardening.sql): a photo's visibility is fixed
 -- at upload time; changing it means hide (hide_resume_photo) + re-upload,
 -- never an in-place object rename.
+--
+-- Story 6.3 scope note ("the `resume_photos` correction" in that story's Dev
+-- Notes): these three `photos/` policies are DELIBERATELY NOT touched by
+-- 6.3. Every `single` gets every object under `photos/shared/…` (Story 5.4's
+-- own AC) and is denied only `photos/private_parent/…` — narrowing this
+-- wholesale to match `entity-files`/`documents resumes` above would silently
+-- reverse that shipped, tested decision. The inlined `role <> 'single'`
+-- check on the readable policy below is Story 6.2 Task 7's DRY-fold target
+-- (onto `current_member_role()`), not this story's.
 create policy "Documents photos readable within account" on storage.objects
     for select to authenticated
     using (

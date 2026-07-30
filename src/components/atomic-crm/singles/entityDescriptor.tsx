@@ -45,6 +45,14 @@ import { SingleOverviewTab } from "./SingleOverviewTab";
  * `{ singleId }` subject (AC 3) — no new upload, version-list or reveal
  * component. `Shidduchim` renders through the universal
  * `RelatedRecordsTab` (AC 8), never a hand-rolled `useGetList`.
+ *
+ * Story 6.3 (AC 9) adds `visibleTo: ["parent_admin", "self_manager",
+ * "helper", "shadchan"]` — the same allow-list Story 6.2 (AC 10) put on
+ * `tasks` — to `files` and `notes`: `entity_files` and `interactions` both
+ * deny the `single` role at the database (AC 1/AC 2), so a single's own
+ * 360 would otherwise show a permanently-empty Files/Notes tab. `activity`
+ * gets it too (same `interactions` table). `overview`, `resume`, `photo`
+ * and `shidduchim` stay unrestricted — they are the dignity floor.
  */
 export const singlesDescriptor: EntityDescriptor<Single> = {
   name: "singles",
@@ -56,9 +64,20 @@ export const singlesDescriptor: EntityDescriptor<Single> = {
     { key: "overview", render: () => <SingleOverviewTab /> },
     { key: "resume", render: () => <SingleResumeTab /> },
     { key: "photo", render: () => <SinglePhotoTab /> },
-    { key: "files", render: () => <SingleFilesTab /> },
+    {
+      key: "files",
+      // Story 6.3 (AC 9): entity_files denies `single` at the database.
+      visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
+      render: () => <SingleFilesTab />,
+    },
     { key: "shidduchim", render: () => <SingleShidduchimTab /> },
-    { key: "notes", render: () => <SingleNotesTab /> },
+    {
+      key: "notes",
+      // Story 6.3 (AC 9): interactions denies `single` by default at the
+      // database (AC 2).
+      visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
+      render: () => <SingleNotesTab />,
+    },
     {
       key: "tasks",
       // Story 6.2 (AC 10): tasks is one of the tables RLS empties for a
@@ -68,7 +87,14 @@ export const singlesDescriptor: EntityDescriptor<Single> = {
       visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
       render: () => <SingleTasksTab />,
     },
-    { key: "activity", render: () => <SingleActivityTab /> },
+    {
+      key: "activity",
+      // Story 6.3 (AC 9): interactions denies `single` by default at the
+      // database (AC 2) — the activity timeline reads through the same
+      // table as notes.
+      visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
+      render: () => <SingleActivityTab />,
+    },
   ],
   pendingTabs: [],
 };

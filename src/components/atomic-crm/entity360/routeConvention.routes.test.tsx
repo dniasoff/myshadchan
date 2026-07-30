@@ -135,18 +135,22 @@ describe("route-convention adoption — singles (AC 1)", () => {
     // Assert — the identity header (from the record) and the tab strip both
     // render; "Edit single" (the pre-migration render) does not. The
     // heading role disambiguates from the Overview tab's own "Name" fact,
-    // which renders the same "Nechama" text a second time. Seven tabs, not
+    // which renders the same "Nechama" text a second time. Four tabs, not
     // eight: `getMyContexts` above resolves to an unresolved role (no active
-    // membership), and Story 6.2 (AC 10) added `visibleTo` to `tasks` —
-    // `hasVisibility`'s own fail-closed rule hides it for an unresolved
-    // role, exactly like `medical` already does for `shidduchimDescriptor`.
-    // This assertion is about the routing shape (record URL -> Entity360,
-    // never SingleEdit), not about role-gating, so the count simply follows
-    // whatever `singlesDescriptor` + the viewer role produce.
+    // membership). Story 6.2 (AC 10) added `visibleTo` to `tasks`, and
+    // Story 6.3 (AC 9) added it to `files`/`notes`/`activity` too (their
+    // underlying tables — `entity_files`/`interactions` — both deny the
+    // `single` role at the database, same reasoning as `tasks`) —
+    // `hasVisibility`'s own fail-closed rule hides all four for an
+    // unresolved role, exactly like `medical` already does for
+    // `shidduchimDescriptor`. This assertion is about the routing shape
+    // (record URL -> Entity360, never SingleEdit), not about role-gating,
+    // so the count simply follows whatever `singlesDescriptor` + the viewer
+    // role produce.
     await expect
       .element(screen.getByRole("heading", { name: "Nechama" }))
       .toBeInTheDocument();
-    expect(screen.container.querySelectorAll('[role="tab"]').length).toBe(7);
+    expect(screen.container.querySelectorAll('[role="tab"]').length).toBe(4);
     expect(screen.getByText("Edit single").query()).toBeNull();
   });
 });
