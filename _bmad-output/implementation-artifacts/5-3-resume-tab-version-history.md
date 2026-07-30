@@ -93,9 +93,24 @@ same three.
    file path, filename or upload date is ever mutated or removed — appends only, enforced
    server-side (not by a client-side read-modify-write of the JSON array, which would race under
    concurrent uploads).
-   **Fails when:** the DB test in Task 4 issues two `add_resume_file` calls inside overlapping
-   transactions and `jsonb_array_length(files)` is 1 rather than 2, or any client code path
-   `PATCH`es `resumes.files` wholesale.
+   **Fails when:** the DB test in Task 4 issues two sequential `add_resume_file` calls and
+   `jsonb_array_length(files)` is 1 rather than 2, or the first entry's `path`/`uploaded_at`
+   differ after the second call, or any client code path `PATCH`es `resumes.files` wholesale.
+   **On race-safety specifically** (corrected from an earlier draft that specified "inside
+   overlapping transactions"): `documents_storage.sql`'s (c)/(d) checks issue the two calls
+   sequentially in one transaction, which proves append-vs-replace but not concurrent-safety by
+   itself. The concurrent-safety guarantee instead comes from `add_resume_file`'s single
+   `INSERT ... ON CONFLICT DO UPDATE` statement — Postgres holds the row lock for the full
+   duration of that one statement, so a second, truly concurrent call against the same
+   `shidduchim_id` blocks until the first commits and then reads its result, rather than racing
+   against a stale copy. That is a documented Postgres guarantee, not a property this suite can
+   re-derive with a single `psql -f` connection (this repo's DB-test harness has no precedent for
+   orchestrating two overlapping connections, and building one for a single check risks the
+   timing-dependent flakiness `.claude/rules/testing.md` warns against). It was verified by hand
+   during review: two real concurrent `psql` sessions racing `add_resume_file` against a fresh row
+   (one delayed via `pg_sleep`) produced `jsonb_array_length(files) = 2` with both entries intact —
+   recorded here rather than automated, so the claim is not silently overstated by the automated
+   suite.
 3. **Given** a shidduch with no resume yet, **when** I open Resume, **then** I see an empty
    state with only an upload action — no fabricated content.
    **Fails when:** the tab renders a placeholder row, a skeleton that never resolves, or an
@@ -348,7 +363,7 @@ Claude (bmad-dev-story workflow), STACK_ID=3 / STACK_OWNER=5-3.
   in the same position 07_storage.sql itself uses.
 - `supabase migration up --local` applied the new migration cleanly; `npm run test:unit:db` (16
   files, 496 tests) passed afterward, including `context_rls_hardening` (the table-wide no-UPDATE-
-  policy invariant this story could have broken) and the new `documents_storage` suite (15 checks).
+  policy invariant this story could have broken) and the new `documents_storage` suite (18 checks).
 
 ### Completion Notes List
 
@@ -362,11 +377,13 @@ Claude (bmad-dev-story workflow), STACK_ID=3 / STACK_OWNER=5-3.
   appends to `files` inside the `ON CONFLICT ... DO UPDATE`'s own row-locked read (never a
   client-supplied stale value), so two calls append two entries rather than one overwriting the
   other. Grants added to `06_grants.sql` (not `02_functions.sql`).
-- New `documents_storage.{sql,test.ts}` pair (15 checks): cross-account SELECT/INSERT/DELETE denial
+- New `documents_storage.{sql,test.ts}` pair (18 checks): cross-account SELECT/INSERT/DELETE denial
   under the `resumes/` prefix, deny-by-default for a non-`resumes/` prefix (Story 5.4's future
   `photos/` prefix stays untouched), `add_resume_file`'s append-only behaviour (two calls -> array
-  length 2, first entry's `path`/`uploaded_at` byte-identical afterward), and the same
-  account-ownership guard `add_redt`/`add_school` already carry.
+  length 2, first entry's `path`/`uploaded_at` byte-identical afterward), the same
+  account-ownership guard `add_redt`/`add_school` already carry, and a `pg_policies` shape check
+  on each of the three `documents`-bucket policies (their own `qual`/`with_check` text, not just an
+  effect the SELECT policy could also produce, per review finding G1/G2).
 - Frontend: new `resumes/` domain folder (`ResumeTab`, `ResumeUpload`, `ResumeVersionList`) —
   `ResumeTab` is the descriptor's `render` target, arity-zero, reaching the shidduch via
   `useRecordContext()`. `ResumeVersionList` reads the shidduch's single `resumes` row and sorts
@@ -441,3 +458,17 @@ Claude (bmad-dev-story workflow), STACK_ID=3 / STACK_OWNER=5-3.
   ResumeUpload / ResumeVersionList), `resume` moved from `pendingTabs` into `tabs` on the
   `shidduchim` descriptor. All gates green (typecheck, lint, full unit suite, DB suite, build,
   prettier, four CI guards). Status -> review.
+- 2026-07-30: Review fix — `documents_storage.sql` gained 4 checks (18 total, was 14): a
+  `pg_policies` shape assertion per `documents`-bucket policy (its own `qual`/`with_check` text
+  must mention both `current_context_id` and `resumes`), closing two coverage gaps a reviewer's
+  mutation testing found — a widened DELETE policy was masked by the SELECT policy applying to a
+  DELETE's own WHERE clause (G1), and INSERT's `resumes/` prefix clause was never independently
+  exercised, only its account clause (G2, load-bearing for 5.4's `photos/` prefix). Proved against
+  both mutations by hand (each now fails loudly; reverted, tree clean). Also corrected AC-2's
+  "Fails when" clause, which specified "overlapping transactions" while the DB test issues two
+  sequential calls (G3) — reworded to describe the sequential test as written and to name the
+  actual source of the concurrency guarantee (the row lock held for the duration of
+  `add_resume_file`'s single `INSERT ... ON CONFLICT DO UPDATE` statement), rather than adding a
+  multi-connection timing test this repo's DB-test harness has no precedent for and
+  `.claude/rules/testing.md` counsels against. No functional code changed; the review found no
+  implementation defect, only test-coverage and AC-wording gaps.

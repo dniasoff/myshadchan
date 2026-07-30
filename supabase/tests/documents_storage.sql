@@ -18,6 +18,19 @@
 -- account-ownership guard `add_redt`/`add_school` already carry, proven
 -- here for the new function.
 --
+-- (f) reads each of the three policies' own predicate text out of
+-- pg_policies, independent of (a)/(b)'s behavioural checks. That
+-- independence matters: Postgres applies a table's SELECT policies to a
+-- DELETE's WHERE clause too, so (a)'s DELETE-denial check is also satisfied
+-- by the SELECT policy alone — a DELETE qual that silently lost its own
+-- account/prefix guard would not be caught by (a). Similarly, every INSERT
+-- attempted above already targets a `resumes/` path, so INSERT's own
+-- `[2] = 'resumes'` clause is never independently exercised by (a)/(b) —
+-- only its account clause is, and Story 5.4 reuses this exact bucket for a
+-- `photos/` prefix. (f) asserts each policy's qual/with_check mentions both
+-- `current_context_id` and `resumes` directly, so either regression fails
+-- loudly here rather than shipping silent.
+--
 -- One login `u1` holds a `parent_admin` membership of household account A
 -- and a `parent_admin` membership of household account B (active in A) —
 -- the same shape context_rls_hardening.sql / entity_files.sql use, and for
@@ -173,6 +186,44 @@ insert into results (name, passed)
 select '(b) storage: a documents object under a non-resumes/ prefix is unreadable, even by its own account''s member (deny-by-default)',
        count(*) = 0
 from storage.objects where id = (select value::uuid from ids where name = 'obj_photo');
+
+-- ---------------------------------------------------------------------------
+-- (f) Policy shape, not just policy effect. The behavioural checks above
+-- prove a DELETE on B's object is denied, but Postgres applies a table's
+-- SELECT policies to a DELETE's WHERE clause too — so that denial is
+-- satisfied by the SELECT policy alone, and would stay green even if the
+-- DELETE policy's own qual lost its account/prefix guard entirely. Likewise
+-- INSERT's `(storage.foldername(name))[2] = 'resumes'` clause is never
+-- independently exercised above — only its account clause is (every insert
+-- attempted is already under a `resumes/` path). Story 5.4 reuses this exact
+-- `documents` bucket for a `photos/` prefix, so an INSERT policy that
+-- silently lost its prefix guard must fail loudly here, not ship silent.
+-- These checks read each policy's own predicate text directly from
+-- pg_policies rather than inferring it from an effect another policy could
+-- also produce.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed, detail)
+select
+  '(f) storage: exactly 3 "Documents resumes …" policies exist on storage.objects (select/insert/delete)',
+  count(*) = 3,
+  string_agg(policyname || ':' || cmd, ', ')
+from pg_policies
+where schemaname = 'storage' and tablename = 'objects' and policyname like 'Documents resumes %';
+
+insert into results (name, passed, detail)
+select
+  '(f) storage: the "' || policyname || '" policy''s own predicate scopes on both current_context_id() and the resumes/ prefix',
+  (coalesce(qual, '') || coalesce(with_check, '')) like '%current_context_id%'
+    and (coalesce(qual, '') || coalesce(with_check, '')) like '%resumes%',
+  'qual=' || coalesce(qual, '<null>') || ' with_check=' || coalesce(with_check, '<null>')
+from pg_policies
+where schemaname = 'storage'
+  and tablename = 'objects'
+  and policyname in (
+    'Documents resumes readable within account',
+    'Documents resumes writable within account',
+    'Documents resumes deletable within account'
+  );
 
 -- ---------------------------------------------------------------------------
 -- (c)/(d) add_resume_file: append-only (AC 2). Still active in A.

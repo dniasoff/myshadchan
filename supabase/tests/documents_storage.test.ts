@@ -73,7 +73,7 @@ describe("documents_storage (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   it("runs every AC 2 / AC 4 check group", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(12);
+    expect(checks.length).toBeGreaterThanOrEqual(18);
   });
 
   for (const check of checks) {
