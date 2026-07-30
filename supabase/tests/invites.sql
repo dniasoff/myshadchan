@@ -607,6 +607,301 @@ select 'the expired invite is left untouched (still pending in storage, not sile
 from public.invites where id = :expired_invite_id;
 
 -- ---------------------------------------------------------------------------
+-- Story 6.1: a single joins the household — invites.target_single_id,
+-- create_invite()'s target checks, and accept_invite()'s atomic
+-- singles.member_id link. Reuses this file's existing household A
+-- (acct_household, admin_membership/helper_membership) and adds ONE more
+-- account (household B) purely so AC-5's cross-tenant case has a genuinely
+-- foreign singles.id to name.
+-- ---------------------------------------------------------------------------
+-- A dedicated, RLS-free temp table for the two invite tokens below (this
+-- file's shared `ids` table stores bigint values only, and a uuid token has
+-- to survive an identity switch to the newly-linked `single` caller — who
+-- cannot read `public.invites` at all once linked, per AC-6 below — so a
+-- lookup by email against the real table from inside that caller's own DO
+-- block would silently resolve to no rows, not a test bug that shows up as
+-- a wrong assertion).
+create temp table invite_tokens (name text primary key, token uuid) on commit drop;
+grant all on invite_tokens to public;
+
+insert into public.singles (account_id, first_name_en)
+values (:acct_household, 'Chana')
+returning id as target_single_id \gset
+insert into ids values ('target_single_id', :target_single_id);
+
+insert into public.accounts (name, kind) values ('Invites Household B', 'household')
+returning id as acct_household_b \gset
+
+insert into public.singles (account_id, first_name_en)
+values (:acct_household_b, 'Foreign Single')
+returning id as foreign_single_id \gset
+insert into ids values ('foreign_single_id', :foreign_single_id);
+
+-- AC-5: a direct insert (as postgres — authenticated holds no insert grant
+-- at all, proven above) naming another household's singles.id fails at the
+-- composite FK, never an application check. Asserts the specific FK
+-- SQLSTATE (23503), not merely "an error was raised" — a suite that passes
+-- on any exception cannot tell this apart from a typo or a dropped
+-- constraint.
+do $$
+declare v_acct bigint; v_foreign_single bigint;
+begin
+  select value into v_acct from ids where name = 'acct_household';
+  select value into v_foreign_single from ids where name = 'foreign_single_id';
+  insert into public.invites (email, account_id, role, target_single_id)
+  values ('cross-tenant-target@test.local', v_acct, 'single', v_foreign_single);
+  insert into results values ('AC5: an invite naming another household''s single fails the composite FK', false, 'insert succeeded');
+exception when others then
+  insert into results values ('AC5: an invite naming another household''s single fails the composite FK', sqlstate = '23503', sqlerrm);
+end $$;
+
+-- AC-5: role/target coupling — a non-single role with a target, and a
+-- single role with no target, each fail invites_role_target_check (SQLSTATE
+-- 23514), independent of create_invite()'s own named-exception mirror of
+-- the same rule below.
+do $$
+declare v_acct bigint; v_target bigint;
+begin
+  select value into v_acct from ids where name = 'acct_household';
+  select value into v_target from ids where name = 'target_single_id';
+  insert into public.invites (email, account_id, role, target_single_id)
+  values ('role-target-mismatch@test.local', v_acct, 'helper', v_target);
+  insert into results values ('AC5: a non-single-role invite with a target fails invites_role_target_check', false, 'insert succeeded');
+exception when others then
+  insert into results values ('AC5: a non-single-role invite with a target fails invites_role_target_check', sqlstate = '23514', sqlerrm);
+end $$;
+
+do $$
+declare v_acct bigint;
+begin
+  select value into v_acct from ids where name = 'acct_household';
+  insert into public.invites (email, account_id, role)
+  values ('single-no-target@test.local', v_acct, 'single');
+  insert into results values ('AC5: a single-role invite with no target fails invites_role_target_check', false, 'insert succeeded');
+exception when others then
+  insert into results values ('AC5: a single-role invite with no target fails invites_role_target_check', sqlstate = '23514', sqlerrm);
+end $$;
+
+-- AC-2/AC-4: create_invite()'s own UX-layer mirrors of the same two rules —
+-- named exceptions, not bare constraint violations — plus the "target
+-- outside my account" case the composite FK alone cannot distinguish from
+-- "target doesn't exist" at this layer.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-00000000a001","role":"authenticated"}';
+
+do $$
+begin
+  perform public.create_invite('no-target@test.local', 'single');
+  insert into results values ('create_invite refuses a single-role invite with no target', false, 'call succeeded');
+exception when others then
+  insert into results values ('create_invite refuses a single-role invite with no target', sqlerrm like '%single-role invite requires a target single%', sqlerrm);
+end $$;
+
+do $$
+declare v_foreign_single bigint;
+begin
+  select value into v_foreign_single from ids where name = 'foreign_single_id';
+  perform public.create_invite('foreign-target@test.local', 'single', v_foreign_single);
+  insert into results values ('create_invite refuses a target single outside the caller''s account', false, 'call succeeded');
+exception when others then
+  insert into results values ('create_invite refuses a target single outside the caller''s account', sqlerrm like 'single % not found in current account', sqlerrm);
+end $$;
+
+-- The success path: two invites against the SAME still-unlinked target —
+-- the second is what proves AC-4's race guard below rather than merely a
+-- creation-time refusal (a naive re-check-then-accept implementation could
+-- pass a pre-check and still race).
+select (public.create_invite('chana-first@test.local', 'single', :target_single_id)).token as chana_first_token \gset
+select (public.create_invite('chana-second@test.local', 'single', :target_single_id)).token as chana_second_token \gset
+
+reset role;
+
+insert into invite_tokens values
+  ('chana_first', :'chana_first_token'::uuid),
+  ('chana_second', :'chana_second_token'::uuid);
+
+insert into results (name, passed)
+select 'create_invite sets target_single_id on a single-role invite',
+       target_single_id = :target_single_id and role = 'single'
+from public.invites where token = :'chana_first_token'::uuid;
+
+-- AC-3: acceptance creates exactly one account_members row AND, in the same
+-- statement, links singles.member_id to it.
+insert into auth.users (id, instance_id, aud, role, email)
+values ('61810000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'chana-first@test.local');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"61810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select public.accept_invite(:'chana_first_token'::uuid);
+
+reset role;
+
+insert into results (name, passed)
+select 'AC3: accept_invite() creates exactly one account_members row for the invited single',
+       count(*) = 1
+from public.account_members where user_id = '61810000-0000-0000-0000-000000000001';
+
+insert into results (name, passed)
+select 'AC3: accept_invite() links singles.member_id to the new membership''s id, in the same statement',
+       exists (
+         select 1 from public.singles s
+         join public.account_members am on am.user_id = '61810000-0000-0000-0000-000000000001'
+         where s.id = :target_single_id and s.member_id = am.id
+       );
+
+-- AC-4: the idempotent-retry branch is preserved for a linked single — a
+-- page-reload retry by the SAME already-bound caller is still a silent
+-- no-op, never an error, because it returns before this story's linking
+-- code is ever reached.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"61810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare v_token uuid;
+begin
+  select token into v_token from invite_tokens where name = 'chana_first';
+  perform public.accept_invite(v_token);
+  insert into results values ('AC4: a repeat accept_invite() by the same already-linked caller is still a silent no-op', true, null);
+exception when others then
+  insert into results values ('AC4: a repeat accept_invite() by the same already-linked caller is still a silent no-op', false, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'AC4: the retry did not create a second account_members row',
+       count(*) = 1
+from public.account_members where user_id = '61810000-0000-0000-0000-000000000001';
+
+-- AC-4: create_invite() also refuses the now-linked target at creation
+-- time (UX), independent of the race case below.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-00000000a001","role":"authenticated"}';
+
+do $$
+declare v_target bigint;
+begin
+  select value into v_target from ids where name = 'target_single_id';
+  perform public.create_invite('too-late@test.local', 'single', v_target);
+  insert into results values ('create_invite refuses an already-linked target at creation time', false, 'call succeeded');
+exception when others then
+  insert into results values ('create_invite refuses an already-linked target at creation time', sqlerrm like 'single % not found in current account', sqlerrm);
+end $$;
+
+reset role;
+
+-- AC-4: the race case — a SECOND invite (created earlier, while the target
+-- was still unlinked) accepted AFTER the first one already linked it raises
+-- a named exception, and leaves BOTH the single's member_id and the second
+-- invite's own status untouched (the rollback of the accepted-status claim
+-- Task 3 describes) — re-selected and compared, not merely "an error was
+-- raised".
+insert into auth.users (id, instance_id, aud, role, email)
+values ('61810000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'chana-second@test.local');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"61810000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+do $$
+declare v_token uuid;
+begin
+  select token into v_token from invite_tokens where name = 'chana_second';
+  perform public.accept_invite(v_token);
+  insert into results values ('AC4: a second invite accepted against an already-linked single raises', false, 'call succeeded');
+exception when others then
+  insert into results values (
+    'AC4: a second invite accepted against an already-linked single raises',
+    sqlerrm like 'single % is already linked to a login, or does not belong to this household',
+    sqlerrm
+  );
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'AC4: the already-linked single''s member_id is unchanged after the refused second acceptance',
+       exists (
+         select 1 from public.singles s
+         join public.account_members am on am.user_id = '61810000-0000-0000-0000-000000000001'
+         where s.id = :target_single_id and s.member_id = am.id
+       );
+
+insert into results (name, passed)
+select 'AC4: the refused second invite is still pending — the accepted-status claim rolled back too',
+       status = 'pending' and accepted_at is null
+from public.invites where email = 'chana-second@test.local';
+
+insert into results (name, passed)
+select 'AC4: the refused second acceptance created no account_members row for its own caller',
+       count(*) = 0
+from public.account_members where user_id = '61810000-0000-0000-0000-000000000002';
+
+-- AC-6: the newly-linked single's very first authenticated read is already
+-- scoped by Stories 6.2/6.3's policies — one visible suggestion (her own,
+-- look_into+shared), her own invisible 'new' suggestion stays invisible,
+-- zero rows on two of 6.2's deny tables (tasks; invites — the latter
+-- despite this account already holding many rows, seeded across this whole
+-- file), zero rows on one of 6.3's deny tables (entity_files), and
+-- own-row-only on account_members (the household now has three real
+-- members: the admin, the helper, and this newly-linked single).
+insert into public.shidduchim (account_id, single_id, name_en, visibility, pipeline_state)
+values (:acct_household, :target_single_id, 'Chana Visible Suggestion', 'shared', 'look_into')
+returning id as chana_visible_shidduch_id \gset
+
+insert into public.shidduchim (account_id, single_id, name_en, visibility, pipeline_state)
+values (:acct_household, :target_single_id, 'Chana New Suggestion', 'shared', 'new')
+returning id as chana_new_shidduch_id \gset
+
+insert into public.tasks (account_id, target_type, target_id, text)
+values (:acct_household, 'shidduch', :chana_visible_shidduch_id, 'Follow up with Chana');
+
+insert into public.entity_files (account_id, target_type, target_id, storage_path, file_name, mime_type, size_bytes)
+values (
+  :acct_household, 'shidduch', :chana_visible_shidduch_id,
+  :'acct_household' || '/x/y.pdf', 'y.pdf', 'application/pdf', 1
+);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"61810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC6: the newly-linked single sees exactly one shidduch — her own visible suggestion',
+       (select count(*) from public.shidduchim) = 1
+       and exists (select 1 from public.shidduchim where id = :chana_visible_shidduch_id);
+
+insert into results (name, passed)
+select 'AC6: the newly-linked single cannot see her own invisible ''new'' suggestion',
+       not exists (select 1 from public.shidduchim where id = :chana_new_shidduch_id);
+
+insert into results (name, passed)
+select 'AC6: the newly-linked single sees zero rows on tasks (6.2 deny table)',
+       (select count(*) from public.tasks) = 0;
+
+insert into results (name, passed)
+select 'AC6: the newly-linked single sees zero rows on invites (6.2 denies the whole table, even though this account holds many)',
+       (select count(*) from public.invites) = 0;
+
+insert into results (name, passed)
+select 'AC6: the newly-linked single sees zero rows on entity_files (6.3 deny table)',
+       (select count(*) from public.entity_files) = 0;
+
+insert into results (name, passed)
+select 'AC6: the newly-linked single sees exactly her own account_members row, never the household roster',
+       (select count(*) from public.account_members) = 1;
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-00000000a001","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC6 control: the parent''s session sees the full household roster (this account''s other suite fixtures included) in the same test run',
+       (select count(*) from public.account_members where account_id = :acct_household) = 4;
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- AC-8/AC-9: structural regression guards — the last surviving definer view
 -- and the admin-only write path are gone, at the catalog level.
 -- ---------------------------------------------------------------------------

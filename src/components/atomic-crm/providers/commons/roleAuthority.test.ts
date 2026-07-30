@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { MemberRole, MyContext } from "../../types";
 import {
   canManageMembers,
+  invitableRoles,
   pickActiveContext,
   pickActiveRole,
 } from "./roleAuthority";
@@ -14,6 +15,13 @@ import {
  * (`canManageMembers`). `invitableRoles` / `isInviteCapableRole` /
  * `ROLE_AUTHORITY` predate this story and are already covered by
  * `settings/InvitesSection.test.tsx`.
+ *
+ * Story 6.1 adds direct coverage here too, for the one falsifiable claim
+ * that story's own comment on `invitableRoles` makes: `single` is gone from
+ * the household candidate list (any authority, any household caller),
+ * `shadchanus` accounts are unaffected, and `InvitableRole` itself stays
+ * unnarrowed — `invites_role_check` still admits `single`, so the type
+ * merely stops being an OPTION here, never becomes invalid to construct.
  */
 
 const buildContext = (overrides: Partial<MyContext> = {}): MyContext => ({
@@ -105,5 +113,29 @@ describe("canManageMembers", () => {
     for (const role of ALL_MEMBER_ROLES) {
       expect(typeof canManageMembers(role)).toBe("boolean");
     }
+  });
+});
+
+describe("invitableRoles — single dropped from the household selector (Story 6.1)", () => {
+  it.each(["parent_admin", "self_manager"] as MemberRole[])(
+    "never offers 'single' to a %s caller in a household account",
+    (role) => {
+      expect(invitableRoles(role, "household")).not.toContain("single");
+    },
+  );
+
+  it("still offers parent_admin and helper to a parent_admin caller", () => {
+    expect(invitableRoles("parent_admin", "household")).toEqual([
+      "parent_admin",
+      "helper",
+    ]);
+  });
+
+  it("a self_manager (authority 2) still sees only helper — never parent_admin, never single", () => {
+    expect(invitableRoles("self_manager", "household")).toEqual(["helper"]);
+  });
+
+  it("does not affect the shadchanus candidate list", () => {
+    expect(invitableRoles("shadchan", "shadchanus")).toEqual(["shadchan"]);
   });
 });

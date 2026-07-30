@@ -20,6 +20,10 @@ export type InvitePreview = {
  * UI — `InvitesSection.tsx`). `role` is `InvitableRole`, not the broader
  * `MemberRole`: the table's own `invites_role_check` constraint
  * (01_tables.sql) permits every `MemberRole` except `self_manager`.
+ *
+ * `target_single_id` (Story 6.1): the `singles` row a `role = 'single'`
+ * invite links at acceptance — always set for that role, always null for
+ * every other (the table's own `invites_role_target_check`).
  */
 export type Invite = {
   token: string;
@@ -27,6 +31,7 @@ export type Invite = {
   account_id: Identifier;
   role: InvitableRole;
   invited_by?: Identifier | null;
+  target_single_id?: Identifier | null;
   status: "pending" | "accepted" | "revoked" | "expired";
   expires_at: string;
   accepted_at?: string | null;

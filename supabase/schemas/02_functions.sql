@@ -76,6 +76,17 @@ $$;
 -- only this definer function, and only for the session's own email).
 -- Idempotent: a retry for an invite this SAME caller already completed
 -- (a page reload right after success) is a silent no-op, not an error.
+--
+-- Story 6.1 (AC-3/AC-4): when the invite names a target single
+-- (`target_single_id`, a `role = 'single'` invite only — the table's own
+-- `invites_role_target_check` constraint), the same statement block also
+-- links `singles.member_id` to the membership row just created, so a
+-- `singles` row is never left half-linked. The link's own guard
+-- (`where ... member_id is null` + `if not found`) is race-safe: two
+-- concurrent acceptances of invites naming the same target cannot both pass
+-- — the second UPDATE matches zero rows and raises, rolling back the whole
+-- function INCLUDING the invite's `status = 'accepted'` claim above, which
+-- is correct: an invite that could not be honoured must not be burnt.
 CREATE OR REPLACE FUNCTION "public"."accept_invite"("p_token" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -84,6 +95,7 @@ declare
   v_user_id uuid := auth.uid();
   v_email text;
   v_invite public.invites;
+  v_membership_id bigint;
 begin
   if v_user_id is null then
     raise exception 'accept_invite requires an authenticated caller'
@@ -133,7 +145,26 @@ begin
   end if;
 
   insert into public.account_members (account_id, user_id, role, invited_by, status)
-  values (v_invite.account_id, v_user_id, v_invite.role, v_invite.invited_by, 'active');
+  values (v_invite.account_id, v_user_id, v_invite.role, v_invite.invited_by, 'active')
+  returning id into v_membership_id;
+
+  -- Story 6.1 (AC-3/AC-4): a `role = 'single'` invite always carries a
+  -- target (the table's check constraint), so this branch is the ONLY place
+  -- `singles.member_id` is ever set from an invite. Fails closed even if the
+  -- target became linked in the window between invite and acceptance (e.g.
+  -- via add_persona('single')) — never silently reassigned.
+  if v_invite.target_single_id is not null then
+    update public.singles
+    set member_id = v_membership_id
+    where id = v_invite.target_single_id
+      and account_id = v_invite.account_id
+      and member_id is null;
+
+    if not found then
+      raise exception 'single % is already linked to a login, or does not belong to this household', v_invite.target_single_id
+        using errcode = 'check_violation';
+    end if;
+  end if;
 end;
 $$;
 
@@ -1152,7 +1183,16 @@ $$;
 -- the invitee. Sets `invited_by` from the caller's own
 -- `account_members.id`, never from a parameter — a client cannot forge who
 -- an invite came from.
-CREATE OR REPLACE FUNCTION "public"."create_invite"("p_email" "text", "p_role" "text") RETURNS "public"."invites"
+--
+-- Story 6.1 (AC-1/AC-2): `p_target_single_id` is appended LAST (a leading or
+-- middle parameter would change the PostgREST RPC signature for every
+-- existing caller). The two checks against it are a UX layer only — for a
+-- better client message than a raw constraint violation — never the tenant
+-- boundary: `invites_role_target_check` (role/target coupling) and the
+-- `invites_target_single_id_fkey` composite FK (cross-household targeting)
+-- are what actually enforce this at INSERT time regardless of what this
+-- function validates first.
+CREATE OR REPLACE FUNCTION "public"."create_invite"("p_email" "text", "p_role" "text", "p_target_single_id" bigint DEFAULT NULL) RETURNS "public"."invites"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -1198,8 +1238,29 @@ begin
       using errcode = 'check_violation';
   end if;
 
-  insert into public.invites (email, account_id, role, invited_by)
-  values (p_email, v_account_id, p_role, v_membership_id)
+  -- Story 6.1 (AC-2, AC-4): a single-role invite always names a target — the
+  -- check constraint would catch a null one too, but this is a clearer
+  -- client message than a bare constraint violation.
+  if p_role = 'single' and p_target_single_id is null then
+    raise exception 'a single-role invite requires a target single'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Story 6.1 (AC-4): refuses an already-linked target at creation time
+  -- (UX only — accept_invite() fails closed independently if the target
+  -- becomes linked in the window between invite and acceptance).
+  if p_target_single_id is not null and not exists (
+    select 1 from public.singles s
+    where s.id = p_target_single_id
+      and s.account_id = v_account_id
+      and s.member_id is null
+  ) then
+    raise exception 'single % not found in current account', p_target_single_id
+      using errcode = 'check_violation';
+  end if;
+
+  insert into public.invites (email, account_id, role, invited_by, target_single_id)
+  values (p_email, v_account_id, p_role, v_membership_id, p_target_single_id)
   returning * into v_invite;
 
   return v_invite;

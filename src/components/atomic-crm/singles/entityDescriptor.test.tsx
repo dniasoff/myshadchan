@@ -129,6 +129,40 @@ describe("singlesDescriptor — tab strip order (Story 5.8, AC 6)", () => {
   });
 });
 
+describe("singlesDescriptor — the real actions region mounts SingleLoginInvite with the record (Story 6.1, AC 1)", () => {
+  it("renders the invite action for a parent_admin viewer on an unlinked single (the seeded fixture carries no member_id)", async () => {
+    // Act
+    const { screen, singleId } = await renderSingleShow(
+      undefined,
+      "parent_admin",
+    );
+
+    // Assert — proves EntityShow's `<Actions record={record} />` really
+    // reaches `SingleActions` with the real record (singleId, first_name_en
+    // "Rivky" from the seed fixture), not merely that the component compiles
+    // in isolation.
+    await expect
+      .element(
+        screen.getByRole("button", {
+          name: "Give Rivky Klein their own login",
+        }),
+      )
+      .toBeInTheDocument();
+    expect(singleId).toBe(1);
+  });
+
+  it("renders nothing for a single viewer (fails closed, same posture as the tabs above)", async () => {
+    // Act
+    const { screen } = await renderSingleShow(undefined, "single");
+
+    // Assert — the Overview anchor proves the 360 actually mounted.
+    await expect
+      .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
+    expect(screen.container.textContent ?? "").not.toContain("their own login");
+  });
+});
+
 describe("singlesDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC 10)", () => {
   it("shows the Tasks tab to a parent_admin viewer", async () => {
     // Act

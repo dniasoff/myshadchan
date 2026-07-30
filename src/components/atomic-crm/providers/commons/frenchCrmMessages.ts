@@ -549,6 +549,15 @@ export const frenchCrmMessages = {
           "Un parcours de shidduchim appartient à un célibataire — la personne pour qui vous faites des propositions. Ajoutez un célibataire pour commencer à suivre les propositions.",
         noMatches: "Aucun célibataire ne correspond à cette recherche.",
       },
+      loginInvite: {
+        action: "Donner à %{name} son propre accès",
+        description:
+          "%{name} pourra se connecter et voir ce que vous partagez avec lui/elle.",
+        emailLabel: "E-mail",
+        sendButton: "Envoyer l'invitation",
+        sendError: "Impossible d'envoyer cette invitation. Réessayez.",
+        linkedIndicator: "A son propre accès",
+      },
     },
     shadchanim: {
       list: {

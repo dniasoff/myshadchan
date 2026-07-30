@@ -621,6 +621,18 @@ export const englishCrmMessages = {
           "A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions.",
         noMatches: "No singles match this search.",
       },
+      // Story 6.1 (AC 1) — SingleLoginInvite.tsx's own copy: the one entry
+      // point that gives a single their own login, mounted on the record
+      // itself. linkedIndicator replaces the action once member_id is set.
+      loginInvite: {
+        action: "Give %{name} their own login",
+        description:
+          "%{name} will be able to sign in and see what you share with them.",
+        emailLabel: "Email",
+        sendButton: "Send invite",
+        sendError: "Couldn't send that invite. Try again.",
+        linkedIndicator: "Has their own login",
+      },
     },
     // Story 4.1 — the shadchan book's own copy, same shape as `singles`
     // above.

@@ -2,13 +2,14 @@ import type { DataProvider, Identifier } from "ra-core";
 
 import {
   isInviteCapableRole,
-  invitableRoles,
+  ROLE_AUTHORITY,
 } from "../../commons/roleAuthority";
 import type {
   Account,
   AccountMember,
   Invite,
   InvitableRole,
+  Single,
 } from "../../../types";
 import { activeMembershipsFor, type GetIdentity } from "./accountMemberships";
 
@@ -43,13 +44,30 @@ const randomToken = (): string =>
 
 const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
 
-/** FakeRest mirror of `public.create_invite()`. */
+/**
+ * FakeRest mirror of `public.create_invite()`. Every role/kind check below
+ * is copied straight from the SQL function itself, via `ROLE_AUTHORITY`/
+ * `isInviteCapableRole` — deliberately NOT `invitableRoles()`, which is a
+ * narrower, UI-only mirror of the SAME rules for the Settings selector's
+ * candidate list (`InvitesSection.tsx`). Story 6.1 drops `single` from that
+ * selector's list, but `create_invite()` itself still accepts a
+ * `single`-role call from `singles/SingleLoginInvite.tsx`'s own, different
+ * entry point, gated by the same authority/kind rules as any other role —
+ * routing this function's own validation through `invitableRoles()` would
+ * incorrectly refuse it too.
+ *
+ * `targetSingleId` mirrors `p_target_single_id` (Story 6.1): required (and
+ * validated — exists, unlinked, in the caller's own account) for a
+ * `single`-role invite, mirroring `create_invite()`'s own two checks in the
+ * same order.
+ */
 export async function createInvite(
   baseDataProvider: DataProvider,
   getIdentity: GetIdentity,
   getActiveAccountId: () => Identifier | null,
   email: string,
   role: InvitableRole,
+  targetSingleId?: Identifier | null,
 ): Promise<Invite> {
   const identity = await getIdentity();
   if (identity == null) {
@@ -68,18 +86,50 @@ export async function createInvite(
   if (!isInviteCapableRole(membership.role)) {
     throw new Error(`role ${membership.role} may not send invites`);
   }
+  if (ROLE_AUTHORITY[role] > ROLE_AUTHORITY[membership.role]) {
+    throw new Error(`cannot invite role ${role} above your own authority`);
+  }
 
   const { data: account } = await baseDataProvider.getOne<Account>("accounts", {
     id: membership.account_id,
   });
 
-  const allowed = invitableRoles(membership.role, account.kind);
-  if (!allowed.includes(role)) {
+  if (
+    account.kind === "household" &&
+    role !== "parent_admin" &&
+    role !== "helper" &&
+    role !== "single"
+  ) {
     throw new Error(
-      account.kind === "household"
-        ? `role ${role} is not invitable into a household-kind account`
-        : `role ${role} is not invitable into a shadchanus-kind account`,
+      `role ${role} is not invitable into a household-kind account`,
     );
+  }
+  if (account.kind === "shadchanus" && role !== "shadchan") {
+    throw new Error(
+      `role ${role} is not invitable into a shadchanus-kind account`,
+    );
+  }
+
+  // Story 6.1 (AC-2): a single-role invite always names a target, and a
+  // target is only ever valid when it exists, unlinked, in the caller's own
+  // account — mirrors create_invite()'s own two checks exactly, including
+  // which one runs first.
+  if (role === "single" && targetSingleId == null) {
+    throw new Error("a single-role invite requires a target single");
+  }
+  if (targetSingleId != null) {
+    const { data: candidateSingles } = await baseDataProvider.getList<Single>(
+      "singles",
+      {
+        filter: { id: targetSingleId, account_id: membership.account_id },
+        pagination: { page: 1, perPage: 1 },
+        sort: { field: "id", order: "ASC" },
+      },
+    );
+    const target = candidateSingles[0];
+    if (!target || target.member_id != null) {
+      throw new Error(`single ${targetSingleId} not found in current account`);
+    }
   }
 
   const now = Date.now();
@@ -89,6 +139,7 @@ export async function createInvite(
       account_id: membership.account_id,
       role,
       invited_by: membership.id,
+      target_single_id: targetSingleId ?? null,
       status: "pending",
       token: randomToken(),
       created_at: new Date(now).toISOString(),

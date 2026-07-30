@@ -389,9 +389,17 @@ grant execute on function public.is_invite_capable_role(text) to service_role;
 -- authenticated write path onto a table with no client DML grant — every
 -- check in AC-3 is performed inside the function itself, since RLS no
 -- longer backstops it.
-revoke all on function public.create_invite(text, text) from public, anon;
-grant execute on function public.create_invite(text, text) to authenticated;
-grant execute on function public.create_invite(text, text) to service_role;
+--
+-- Story 6.1: `p_target_single_id` was appended as create_invite()'s THIRD
+-- parameter (02_functions.sql), which PostgREST/Postgres treat as a
+-- distinct overload from the old two-argument signature — grants are
+-- per-signature, not per-name, so this is a new grant, not an edit of the
+-- one above. The migration this story generates drops the now-superseded
+-- two-argument overload by hand (two overloads make PostgREST RPC
+-- resolution ambiguous) — see the migration's own comment.
+revoke all on function public.create_invite(text, text, bigint) from public, anon;
+grant execute on function public.create_invite(text, text, bigint) to authenticated;
+grant execute on function public.create_invite(text, text, bigint) to service_role;
 
 -- Story 2.7 (AC-4): get_invite_preview() is deliberately anon-callable — the
 -- one new anon surface this story adds, so an unauthenticated invitee can

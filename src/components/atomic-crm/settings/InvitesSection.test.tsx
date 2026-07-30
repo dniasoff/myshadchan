@@ -93,9 +93,12 @@ describe("InvitesSection", () => {
     const { screen } = await renderSection(parentContext);
     await screen.getByRole("combobox").click();
 
-    // Assert — parent_admin (authority 3) may invite parent_admin/helper/
-    // single (all <= 3, all valid in a household-kind account) but never
-    // shadchan (invalid in a household-kind account regardless of authority).
+    // Assert — parent_admin (authority 3) may invite parent_admin/helper
+    // (both <= 3, both valid in a household-kind account) but never shadchan
+    // (invalid in a household-kind account regardless of authority). Story
+    // 6.1 drops `single` from this generic selector — the one path to a
+    // single's login is their own record (singles/SingleLoginInvite.tsx),
+    // never this form.
     await expect
       .element(screen.getByRole("option", { name: "Parent / admin" }))
       .toBeInTheDocument();
@@ -104,7 +107,7 @@ describe("InvitesSection", () => {
       .toBeInTheDocument();
     await expect
       .element(screen.getByRole("option", { name: "Single" }))
-      .toBeInTheDocument();
+      .not.toBeInTheDocument();
     await expect
       .element(screen.getByRole("option", { name: "Shadchan" }))
       .not.toBeInTheDocument();
@@ -121,6 +124,35 @@ describe("InvitesSection", () => {
     await expect
       .element(screen.getByRole("button", { name: "Send invite" }))
       .not.toBeInTheDocument();
+  });
+
+  it("still renders a pending 'single'-role invite in the list, exactly like any other role (Story 6.1)", async () => {
+    // Arrange — `single` is gone from the SELECTOR's own candidate list
+    // (the test above), but `InvitableRole`/`invites_role_check` are
+    // deliberately NOT narrowed: a single-role invite still exists (sent
+    // from the single's own record, singles/SingleLoginInvite.tsx) and its
+    // row belongs here like any other.
+    const invites = [
+      buildInvite({
+        id: 5,
+        role: "single",
+        status: "pending",
+        email: "chana@example.com",
+      }),
+    ];
+
+    // Act
+    const { screen } = await renderSection(parentContext, {
+      getList: vi
+        .fn()
+        .mockResolvedValue({ data: invites, total: invites.length }),
+    });
+
+    // Assert
+    await expect
+      .element(screen.getByText("chana@example.com"))
+      .toBeInTheDocument();
+    await expect.element(screen.getByText("Single")).toBeInTheDocument();
   });
 
   it("shows a Revoke button only for a still-pending, not-yet-expired invite", async () => {

@@ -57,6 +57,12 @@ test("a parent_admin sends an invite from Settings, sees the link, then revokes 
   const roleTrigger = page.locator("#invite-role");
   await roleTrigger.scrollIntoViewIfNeeded();
   await roleTrigger.click();
+
+  // Story 6.1: `single` is gone from this generic selector — the one path
+  // to a single's login is their own record (see the Single-360 test
+  // below), never this form.
+  await expect(page.getByRole("option", { name: "Single" })).not.toBeVisible();
+
   await page.getByRole("option", { name: "Helper" }).click();
 
   await page.getByRole("button", { name: "Send invite" }).click();
@@ -94,4 +100,44 @@ test("a parent_admin sends an invite from Settings, sees the link, then revokes 
   // invite can never be revoked again.
   await expect(inviteRow.getByText("Revoked", { exact: true })).toBeVisible();
   await expect(revokeButton).not.toBeVisible();
+});
+
+// Story 6.1 (AC-1/AC-2): the replacement coverage for the selector option
+// this story removes above — a single's own login is invited from THEIR OWN
+// record, not from Settings. Covers the entry point (renders only for an
+// owning role on an unlinked single), the same copyable-link shape
+// InvitesSection's own form produces, and the read-only indicator that
+// replaces the action once the single is linked.
+test("a parent_admin gives a single their own login from the Single 360", async ({
+  page,
+  createMember,
+  createSingle,
+  signIn,
+}) => {
+  const member = await createMember({
+    first_name: "Devorah",
+    last_name: "Klein",
+    email: `e2e-single-inviter-${Date.now()}@example.com`,
+  });
+  const single = await createSingle({ member, first_name_en: "Chaya" });
+
+  await signIn(page, member.email!);
+
+  await page.goto(`${APP_URL}/#/singles/${single.id}`);
+
+  const inviteButton = page.getByRole("button", {
+    name: "Give Chaya their own login",
+  });
+  await expect(inviteButton).toBeVisible();
+  await inviteButton.click();
+
+  const inviteEmail = `e2e-single-invitee-${Date.now()}@example.com`;
+  await page.getByLabel("Email").fill(inviteEmail);
+  await page.getByRole("button", { name: "Send invite" }).click();
+
+  // AC-2: the same copyable share-link shape InvitesSection's own form
+  // produces — no outbound email.
+  const linkField = page.locator("input[readonly]");
+  await expect(linkField).toBeVisible();
+  await expect(linkField).toHaveValue(/\/#\/accept-invite\//);
 });

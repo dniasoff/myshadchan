@@ -1071,14 +1071,24 @@ export const createDataProvider = ({
     // Both scope to the caller's CURRENT active context, exactly like
     // getMyContexts/switchActiveContext above -- shares the same
     // closure-local activeAccountId.
+    //
+    // Story 6.1: `targetSingleId` mirrors create_invite()'s own
+    // p_target_single_id -- singles/SingleLoginInvite.tsx's one call site
+    // for a `single`-role invite; InvitesSection.tsx's generic form never
+    // passes it.
     // ---------------------------------------------------------------------
-    createInvite: (email: string, role: InvitableRole): Promise<Invite> =>
+    createInvite: (
+      email: string,
+      role: InvitableRole,
+      targetSingleId?: Identifier | null,
+    ): Promise<Invite> =>
       createInvite(
         baseDataProvider,
         getIdentity,
         () => activeAccountId,
         email,
         role,
+        targetSingleId,
       ),
     revokeInvite: (id: Identifier): Promise<void> =>
       revokeInvite(baseDataProvider, getIdentity, () => activeAccountId, id),

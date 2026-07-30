@@ -572,11 +572,23 @@ const getDataProviderWithCustomMethods = () => {
     // AC-2) means these two RPCs are the only way `authenticated` ever
     // writes it — this file never calls dataProvider.create against it
     // directly (AC-8).
+    //
+    // Story 6.1 (AC-1/AC-2): `targetSingleId` is the third, optional
+    // parameter `singles/SingleLoginInvite.tsx` passes for a `single`-role
+    // invite — `p_target_single_id`, `create_invite()`'s own last
+    // parameter (02_functions.sql). `InvitesSection.tsx`'s generic form
+    // never passes it (its role selector no longer offers `single` at all,
+    // roleAuthority.ts).
     // ---------------------------------------------------------------------
-    async createInvite(email: string, role: InvitableRole): Promise<Invite> {
+    async createInvite(
+      email: string,
+      role: InvitableRole,
+      targetSingleId?: Identifier | null,
+    ): Promise<Invite> {
       const { data, error } = await getSupabaseClient().rpc("create_invite", {
         p_email: email,
         p_role: role,
+        p_target_single_id: targetSingleId ?? null,
       });
       if (error) {
         console.error("create_invite.error", error);

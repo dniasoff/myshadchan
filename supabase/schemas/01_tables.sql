@@ -255,11 +255,24 @@ create table public.invites (
     status text not null default 'pending',
     expires_at timestamp with time zone not null default (now() + interval '14 days'),
     accepted_at timestamp with time zone,
+    -- Story 6.1: the single a `role = 'single'` invite links at acceptance.
+    -- Appended at the tail (COLUMN-ORDER TRAP above) rather than placed
+    -- logically near `role` — this table already has migrated rows, so its
+    -- physical column order must match `db diff`'s shadow database exactly.
+    target_single_id bigint,
     constraint invites_role_check check (
         role in ('parent_admin', 'helper', 'single', 'shadchan')
     ),
     constraint invites_status_check check (
         status in ('pending', 'accepted', 'revoked', 'expired')
+    ),
+    -- Story 6.1 (AC-2): a single-role invite always names its target, and no
+    -- other role may carry one — see 02_functions.sql's create_invite() for
+    -- why an unbound single-role invite can never happen even before this
+    -- constraint is checked, and Dev Notes "Why the role and the target are
+    -- coupled" (story 6.1) for the full rationale.
+    constraint invites_role_target_check check (
+        (role = 'single') = (target_single_id is not null)
     )
 );
 
@@ -846,6 +859,14 @@ alter table public.invites
     add constraint invites_account_id_fkey foreign key (account_id) references public.accounts(id) on delete cascade;
 alter table public.invites
     add constraint invites_invited_by_fkey foreign key (invited_by) references public.account_members(id) on delete set null;
+-- Story 6.1 (AC-2/AC-5): the tenant boundary for target_single_id is this
+-- composite FK, not an application check — a tampered invite naming another
+-- household's single fails referential integrity, exactly like the
+-- singles/references/shidduchim composite FKs below. Defined composite from
+-- the start, never an interim single-column FK on target_single_id alone.
+alter table public.invites
+    add constraint invites_target_single_id_fkey
+    foreign key (account_id, target_single_id) references public.singles(account_id, id) on delete cascade;
 
 alter table public.singles
     add constraint singles_account_id_fkey foreign key (account_id) references public.accounts(id) on delete cascade;

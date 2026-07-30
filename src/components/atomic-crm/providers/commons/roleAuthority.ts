@@ -41,6 +41,15 @@ export const isInviteCapableRole = (role: MemberRole): boolean =>
  * role, `role_authority()` ceiling, account-kind match). Returns `[]` for a
  * non-invite-capable caller (e.g. a `helper`), so the form can render no
  * options at all rather than an error after submitting.
+ *
+ * Story 6.1: `single` dropped from the household candidate list — the one
+ * path to a single's login is now their own record
+ * (`singles/SingleLoginInvite.tsx`), not this generic selector, because the
+ * action needs a `target_single_id` this selector has no picker for.
+ * `InvitableRole`/`invites_role_check` are deliberately NOT narrowed to
+ * match: a `single`-role invite still exists (created from the single's own
+ * record) and its row still belongs in `InvitesSection.tsx`'s pending-list,
+ * same as any other role.
  */
 export const invitableRoles = (
   callerRole: MemberRole,
@@ -49,9 +58,7 @@ export const invitableRoles = (
   if (!isInviteCapableRole(callerRole)) return [];
 
   const candidates: InvitableRole[] =
-    accountKind === "household"
-      ? ["parent_admin", "helper", "single"]
-      : ["shadchan"];
+    accountKind === "household" ? ["parent_admin", "helper"] : ["shadchan"];
 
   return candidates.filter(
     (role) => ROLE_AUTHORITY[role] <= ROLE_AUTHORITY[callerRole],

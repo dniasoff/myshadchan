@@ -14,6 +14,7 @@ import { PhotoTabContent } from "../resumes/PhotoTab";
 import { ResumeUpload } from "../resumes/ResumeUpload";
 import { ResumeVersionList } from "../resumes/ResumeVersionList";
 import type { Single } from "../types";
+import { SingleLoginInvite } from "./SingleLoginInvite";
 import { SingleProfileHeader } from "./SingleProfileHeader";
 
 /**
@@ -40,9 +41,16 @@ export const SingleIdentityHeader = ({ record }: { record: Single }) => (
  * `/singles/{id}/edit` — rendered INSIDE the identity header, immediately
  * after it (contract §2 rule 2), exactly like `shidduchim/
  * entityDescriptorRegions.tsx`'s own `ShidduchActions`.
+ *
+ * Story 6.1 (AC-1) adds `SingleLoginInvite` as a sibling action — the one
+ * entry point that gives this single their own login. It owns its own
+ * role/link-state gating (renders nothing, the button, or the linked
+ * indicator) — this component stays a thin composition, matching
+ * `entityDescriptorRegions.tsx`'s own "thin adapter list" convention.
  */
-export const SingleActions = () => (
+export const SingleActions = ({ record }: { record: Single }) => (
   <TopToolbar>
+    <SingleLoginInvite single={record} />
     <EditButton />
   </TopToolbar>
 );
