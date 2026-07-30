@@ -1,8 +1,54 @@
-# Story 12.1: Reminder delivery
+# Story 12.2: Reminder delivery
 
-Status: ready-for-dev
+Status: ready-for-dev *(code); delivery blocked on Epic 12 gate **G1** — see below.*
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
+
+## Placement — SETTLED 2026-07-30 (reconciliation pass)
+
+Renumbered from `12.1` to **Story 12.2** — two stories written in the same round both claimed
+12.1. Epic 12 is **Phase-1 Completion & Operational Readiness**; the section *"The identifier —
+Epic 12, story 12.1"* below is kept as history and is superseded by this block on the number only.
+Its reasoning for *why a new epic* was accepted in full. Traceability tag unchanged: **(S5, AD-13)**.
+
+**Binding delivery order inside Epic 12: 12.3 → 12.1 → 12.2 → 12.4.**
+
+### Cross-story reconciliation findings (from the same pass)
+
+- **F2 — BLOCKING contradiction with Story 12.3 (family-shared tasks). AC-5 must change once 12.3
+  lands.** AC-5 currently requires a null `member_id` to settle **`failed`** with an error. Story
+  12.3 introduces an explicit **Unassigned** option (its AC-3) and its migration *nulls* every
+  unresolvable `member_id` (its AC-9). Landing both as written makes every deliberately-unassigned
+  reminder a `failed` delivery row and drives AC-9's Settings heartbeat toward a permanent error
+  state. **Ruling:** after 12.3, `member_id is null` settles **`skipped`** — a deliberate choice,
+  not a failure. `failed` is reserved for a **non-null** `member_id` that names no live or no
+  enabled member. Nothing is dropped without a record either way, so AC-5's intent survives intact.
+- **F3 — BLOCKING product consequence, jointly with 12.3.** 12.3 rules that `member_id` is the
+  *assignee* and that the creator is **not tracked**. This story emails `member_id`. Together: a
+  parent who creates a reminder and assigns it to their spouse receives no notification at all, and
+  nothing records who asked. The ruling is accepted, but AC-3's reworded delivery line in
+  `ReminderCreateSheet.tsx` **must name the recipient** (e.g. *"Delivered in-app, and by email to
+  the person it is assigned to. We never send SMS."*) — a line that is true today and still true
+  after 12.3. Do not ship a second line that has to be corrected again.
+- **F4 — BLOCKING wave conflict with Story 12.3.** Both edit `reminders/ReminderCreateSheet.tsx`
+  (this story removes the push checkbox and rewords `:323-337`; 12.3 adds the assignee select to
+  the same form), plus `types.ts`, both i18n catalogues, `supabase/schemas/01|02|06`,
+  `registry.json`, `e2e/fixtures.ts`, and each adds its own `supabase/migrations/**` file. Neither
+  author could see the other. **Never the same wave; 12.3 first.** This story's own dependency D5
+  already anticipated it ("the enqueue step's recipient join is the single place that changes") —
+  that is now a scheduled fact, not a contingency.
+- **F8 — dependency D1 is now Epic 12 gate G1, shared with Story 12.4 (Stripe billing).** Both
+  stories independently discovered that no Cloudflare Worker has ever deployed and both extend
+  `.github/workflows/deploy.yml`'s secret-push steps. The prerequisite is discharged **once**, at
+  the epic level; see `epics.md` → Epic 12 → gate G1. Do not obtain the Cloudflare credentials
+  twice, and do not share a wave with 12.4 (`deploy.yml`).
+- **F9 — `workers/shared/` conventions.** This story creates `workers/shared/resend.ts`; 12.4
+  creates `workers/shared/cors.ts`; Story 7.5 (Epic 7, unbuilt) claims both. Whichever lands first
+  sets the conventions for the directory; the later ones **extend, never fork**.
+- **F12 — Story 12.1 (dashboard reminders card) is complementary, not duplicative.** 12.1 is the
+  in-app glance; this story is AD-13's out-of-app floor. Neither supersedes the other and neither
+  may be dropped as redundant. No surface overlap: AC-9's status row lands in Settings, not on the
+  dashboard.
 
 ## Story
 

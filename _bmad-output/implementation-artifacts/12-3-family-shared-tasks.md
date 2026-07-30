@@ -1,8 +1,57 @@
 # Story 12.3: Family-shared tasks with assignees
 
-Status: ready-for-dev
+Status: ready-for-dev — **first story of Epic 12**
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
+
+## Placement — SETTLED 2026-07-30 (reconciliation pass)
+
+Number confirmed: **Story 12.3**, in **Epic 12 — Phase-1 Completion & Operational Readiness**.
+The section *"Why the identifier is `12-3`"* below is kept as history; its predictions about
+sibling numbering (12-5, 12-6) are superseded — the adopted orphans landed as 12.1, 12.3 (this),
+12.4 and **5.12**, plus 12.2 from the silent-defects track.
+
+The story's argument against Epic 5 was accepted in full, against the gap brief's own suggestion
+("give it a story in Epic 5 alongside 5.9"): it has zero Epic 5 dependency, and Epic 5 placement
+would put it in a wave contending on `types.ts`, `registry.json`, both i18n catalogues,
+`supabase/schemas/**` and `entity360/tabs/{TasksTab,TasksRailSummary}.tsx` with 5.8/5.9/5.10 for
+no reason. Its "not schedulable in the same wave as any Epic 5 story" constraint is recorded in
+`epics.md` and stands.
+
+**It is scheduled first in Epic 12 because two sibling stories depend on its outcome.**
+Binding delivery order: **12.3 → 12.1 → 12.2 → 12.4.**
+
+### Cross-story reconciliation findings (from the same pass)
+
+- **F2 — BLOCKING interaction with Story 12.2 (reminder delivery), resolved in 12.2's favour of
+  intent.** 12.2 AC-5 settles a null `member_id` as **`failed`**; this story makes **Unassigned**
+  an explicit, legitimate choice (AC-3) and *nulls* every unresolvable `member_id` in its migration
+  (AC-9). Together, every deliberately-unassigned reminder would be a permanent delivery failure.
+  **Ruling, recorded in both files:** after this story, `member_id is null` settles **`skipped`**;
+  `failed` is reserved for a non-null `member_id` naming no live or no enabled member. Nothing in
+  *this* story changes — the amendment lands in 12.2 — but do not "fix" the null semantics here.
+- **F3 — BLOCKING product consequence this story must state in its Rulings section.** The ruling
+  *"`member_id` is the assignee and the creator is not tracked"* is accepted. Its consequence,
+  once 12.2 ships, is that **assigning a reminder to your spouse silently redirects the only
+  notification away from you, with no record of who asked.** Add this to *"Rulings this story makes
+  (do not re-litigate inside the story)"* as an accepted cost, so a future reviewer meets it as a
+  decision rather than as a bug report. 12.2 carries the mitigation: its reworded delivery line
+  must name the recipient.
+- **F4 — BLOCKING wave conflict with Story 12.2.** Both edit `reminders/ReminderCreateSheet.tsx`
+  (this story adds the assignee select; 12.2 removes the push checkbox and rewords `:323-337`),
+  plus `types.ts`, both i18n catalogues, `supabase/schemas/01|02|06`, `registry.json`,
+  `e2e/fixtures.ts`, and each adds its own migration. **Never the same wave; this story first.**
+- **F6 — AC-10's surface list is one surface short.** It enumerates `/tasks`, `/reminders`,
+  `TasksTab` and `TasksRailSummary`. Story 12.1 adds a **dashboard** reminders card that lists
+  household tasks — the same "shows everyone, unlabelled" shape this story exists to fix. This
+  story does **not** grow to cover it (12.1's file does not exist yet at implementation time);
+  instead, `tasks/TaskAssigneeChip.tsx` must be exported as a **reusable, surface-agnostic**
+  component so 12.1 imports it rather than writing a second chip. 12.1 carries the obligation.
+- **F10 — the 3-8 amendment is recorded in `epics.md`.** This story supersedes `3-8` AC 3(c) in
+  part (`member_id` becomes client-sendable; `account_id`/`delivery_channels` do not), and per
+  corpus convention does not edit `3-8`. The amendment is now noted under Epic 12 in `epics.md` so
+  it cannot be lost with this file.
+- **F14 — `registry.json` and both catalogues are contended** with 12.1, 12.2, 5.12 and Epic 5.
 
 ## Story
 

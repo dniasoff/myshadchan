@@ -1,8 +1,51 @@
 # Story 12.1: Dashboard reminders card
 
-Status: ready-for-dev
+Status: ready-for-dev *(schedule after Story 12.3 — see F6 below)*
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
+
+## Placement — SETTLED 2026-07-30 (reconciliation pass)
+
+Number confirmed: **Story 12.1**, in **Epic 12 — Phase-1 Completion & Operational Readiness**.
+The section *"Why this identifier"* below is kept as history; its predictions about sibling
+numbering (12.5, 12.12) are superseded — the four adopted orphans landed as 12.1 (this),
+12.3 (family-shared tasks), 12.4 (Stripe billing) and **5.12** (Guided Call mode, placed inside
+Epic 5), joined by 12.2 (reminder delivery, from the silent-defects track).
+
+**Epic 4 was considered as a home and rejected.** Epic 4 covers UX-DR2 / UX-DR7 / UX-DR10 — route
+convention, list framework, navigation set — and the dashboard is none of those. FR54 sits in the
+FR1–FR78 *"substantially delivered"* bucket that no epic re-stories, which is exactly what Epic 12
+now exists to close. Epic 4 is also built and deployed; reopening a shipped epic would make it
+incomplete again for a story it never scoped.
+
+**Binding delivery order inside Epic 12: 12.3 → 12.1 → 12.2 → 12.4.**
+
+### Cross-story reconciliation findings (from the same pass)
+
+- **F6 — BLOCKING. As written, this card reproduces on a third surface the exact defect Story 12.3
+  fixes.** AC-1 makes the card account-wide with no assignee attribution — which is precisely
+  12.3's diagnosis of `/reminders`: *"already shows the whole household, unlabelled"*. 12.3's AC-10
+  enumerates every surface that must carry the assignee (`/tasks`, `/reminders`,
+  `entity360/tabs/TasksTab.tsx`, `TasksRailSummary.tsx`) and could not see the dashboard.
+  **Rulings:** (a) **12.3 lands first**; (b) a row whose task is assigned to someone other than the
+  viewer renders 12.3's `tasks/TaskAssigneeChip.tsx` — **import it, never re-implement it**
+  (contract §11 Ruling 2 point 5 forbids a parallel implementation); (c) the card stays
+  **account-wide and does not read 12.3's `useTaskAssigneeScope` store key** — it is a read-only
+  summary, like the Tasks rail, and a summary that silently hides half the household is the defect
+  again. AC-1's "account-wide" is therefore reaffirmed, not weakened.
+- **F7 — the "reminders/** is not touched" claim holds for this diff and not for the world.**
+  Story 12.3 rewrites four files in that folder: `useReminders.ts` (adds a scope filter),
+  `ReminderCard.tsx`, `ReminderCreateSheet.tsx`, `RemindersPage.tsx`. This story deliberately
+  *copies* the hub's pure helpers rather than importing `useReminders` (AC-3 forbids the import,
+  because `useReminders` calls `useUpdate`). That copy will silently diverge from a post-12.3
+  `useReminders`. **Re-read `useReminders.ts` and `ReminderCard.tsx` at implementation time** and
+  record the divergence as a decision in the Dev Agent Record, not as an oversight.
+- **F12 — Story 12.2 (reminder delivery) is complementary, not duplicative.** Both address "the
+  user never learns there is something to do": this card is the in-app glance, 12.2 is AD-13's
+  out-of-app email floor. Neither supersedes the other; do not drop either as redundant. No surface
+  overlap — 12.2's delivery-status row lands in Settings.
+- **F14 — `registry.json` and both i18n catalogues are contended** with 12.2, 12.3, 5.12 and Epic
+  5's in-flight stories. A lease matter, not a design conflict.
 
 ## Story
 

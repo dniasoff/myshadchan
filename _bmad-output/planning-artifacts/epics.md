@@ -197,6 +197,9 @@ Owned by Story 5.9 (Shadchan 360), Task 2b.
 | 9 — Listings & sharing | FR101–107, PRV-13 |
 | 10 — Capture funnel completion | FR27–28, FR78, PRD §13 |
 | 11 — AI layer | PRD §13–14, billing gate |
+| 12 — Phase-1 completion & operational readiness | FR44–46, FR54, PRD §14 billing; AD-13 |
+
+Note on Epic 5: FR60 (the guided call script) is covered by **Story 5.12**, added 2026-07-30.
 
 ## Epic List
 
@@ -211,6 +214,8 @@ Owned by Story 5.9 (Shadchan 360), Task 2b.
 9. **Listings & Sharing** — opt-in publication, revocable links
 10. **Capture Funnel Completion** — share, inbox, attribution
 11. **AI Layer** — dossier and auto-parse, server-gated
+12. **Phase-1 Completion & Operational Readiness** — the FR1–FR78 surfaces that shipped
+    incomplete, and the deployment that makes them real
 
 ---
 
@@ -913,6 +918,46 @@ So that nothing is lost.
 **And** questions are tailored to that person's relationship
 **And** the call appears in the suggestion's Activity.
 
+### Story 5.12: Guided Call mode *(added 2026-07-30 — gap D4, FR60)*
+
+As a parent on the phone to a reference,
+I want the questions for this person one at a time, written straight onto the conversation this
+call belongs to,
+So that I get through the call without losing my place and without writing it up afterwards from
+memory.
+
+**Acceptance Criteria:**
+
+**Given** a reference link on a shidduch
+**When** I start Call mode
+**Then** the questions for that relationship are presented one at a time, cursor held in the URL
+**And** each answer is written to the call log as I go, with `source: "assistant"`
+**And** an empty answer is skipped and writes nothing
+**And** the flow is free — it makes no inference call and never consults the entitlement gate
+**And** it reads at arm's length on a 390px phone, one-handed.
+
+**Placement and delivery order.** This is one of the four orphaned mobile-gap items the owner
+adopted (see *Mobile gap analysis outcomes*, below). It was drafted as `12.4` and placed **inside
+Epic 5** because it hard-depends on 5.10 and 5.11, edits `references/ReferenceCallLog.tsx` (which
+5.10 declares "unchanged" — true of 5.10's diff, not of the world after it), and lives entirely in
+`references/`. It adds no `TabKey` and no descriptor change, so 5.11's AC-6 stays green behind it.
+**Binding: 5.10 → 5.11 → 5.12.** Story file:
+`_bmad-output/implementation-artifacts/5-12-guided-call-mode.md`.
+
+**Not paywalled.** FR60's *coaching* half (generated per-question rationale) stays in Epic 11;
+the script itself is free and Story 5.12 AC-9 machine-enforces that. Epic 5 placement was chosen
+partly because filing it in Epic 11 would paywall it by filing.
+
+**Contention to schedule around:** `references/entitlementGate.guard.test.ts` is also edited by
+Story 12.4 (Stripe billing) — adjacent arrays in one file, never the same wave. `registry.json`
+and both i18n catalogues are contended with 5.1, 5.2, 5.9, 5.10 and Epic 12.
+
+**Delivery note (gap D6, not a story).** Once 5.12 ships, the dead
+`Log a call (coming soon)` stub at `layout/MobileNavigation.tsx:184-186` reads as its entry point,
+and 5.11 AC-5 forbids a second call-log entry point. **Delete the stub** before closing 5.12; it is
+a one-line change that needs no story of its own. The companion
+`Scan a resume (coming soon)` stub belongs to Story 11.2 or to the same deletion.
+
 ---
 
 ## Epic 6: The Single's Access
@@ -1307,6 +1352,208 @@ So that I can see agreement, contradiction and gaps.
 
 ---
 
+## Epic 12: Phase-1 Completion & Operational Readiness
+
+*Added 2026-07-30 by the mobile-gap reconciliation pass.*
+
+Epics 1–11 re-story the A2 amendment. This epic closes the other half of the truth: the
+**FR1–FR78 surfaces the Requirements Inventory calls "substantially delivered" that are not** —
+a dashboard with no reminders, two parents keeping disjoint task lists, reminders that reach no
+channel, and a Subscribe button that has never charged anyone. Three of the four are surfaces
+the user already sees and believes are working, which is why none of them ever raised a bug.
+
+**Why a twelfth epic rather than a home in 1–11.** Each was tested against an existing epic first.
+Epic 4 does not cover the dashboard (it covers UX-DR2/7/10) and is shipped — reopening it would
+make a closed epic incomplete. Epic 5 would drag 12.3 into a wave contending on `types.ts`,
+`registry.json`, both catalogues, `supabase/schemas/**` and the universal Tasks tab for no reason
+(12.3 has zero Epic 5 dependency). Epic 7 **explicitly disowns** reminder delivery in `7-5`'s own
+scope note. Epic 11 is the AI *Layer*, and 12.4 makes no inference call. The one adopted item that
+did find an existing home went there: **Guided Call mode is Story 5.12**, not a story here.
+
+**Binding delivery order: 12.3 → 12.1 → 12.2 → 12.4.** 12.3 first because 12.1 imports its
+assignee chip and 12.2's recipient join is defined by its outcome.
+
+**Scheduling constraint (whole epic).** Every story here writes `registry.json`, and 12.1–12.3
+write both i18n catalogues; 12.2 and 12.3 additionally write `types.ts`, `supabase/schemas/**` and
+a migration each. **No Epic 12 story may share a wave with an Epic 5 story**, and 12.2 must not
+share a wave with 12.3 (`ReminderCreateSheet.tsx`, `types.ts`, migrations) or with 12.4
+(`.github/workflows/deploy.yml`).
+
+### Gate G1 — the Cloudflare Workers have never deployed *(blocking, ops, not code)*
+
+Stories 12.2 and 12.4 independently discovered the same thing: `deploy.yml`'s `deploy-workers`
+matrix has printed *"Cloudflare Workers deployment skipped"* on every push to date, so there is no
+running Worker for a cron tick to fire in or a Stripe webhook to arrive at. **Discharge this once,
+at the epic level, not twice inside two stories.** It needs: `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` as repository secrets (these un-gate the whole job), a **pinned** Worker
+URL per Worker rather than a `workers.dev` default, plus `RESEND_API_KEY` + `RESEND_FROM` with a
+**verified sending domain** (12.2) and the four Stripe secrets + a registered webhook endpoint
+(12.4). No Worker currently has CORS or a declared route; both are new work neither story's
+estimate anticipated. Until G1 is discharged, 12.2 and 12.4 can be built and unit-tested but
+cannot be *delivered* — for both, deployment is inside the definition of done.
+
+### Story 12.1: Dashboard reminders card *(gap D1, FR54)*
+
+As a parent,
+I want the dashboard to show me what is due,
+So that I learn there is something to do without navigating to the Reminders hub.
+
+**Acceptance Criteria:**
+
+**Given** open reminders in my account
+**When** I load the dashboard on a phone or a desktop
+**Then** one read-only card shows at most three, overdue first, each linking to its entity
+**And** the card reserves its space so it cannot shift the page as it loads
+**And** a reminder on a reference links through its **shidduch**, never to `/references/{id}`
+**And** the card adds nothing under `supabase/`.
+
+**Depends on:** Epics 3 and 4 as deployed (`RecordLink`, RULING 7 machinery, the Reminders hub),
+and on **Story 12.3** — see below. Story file: `12-1-dashboard-reminders-card.md`.
+
+**Reconciliation:** as drafted, the card lists household tasks with no attribution — the same
+"shows everyone, unlabelled" shape 12.3 exists to fix. It must land **after** 12.3 and import
+12.3's `tasks/TaskAssigneeChip.tsx`. It stays account-wide and does **not** read 12.3's scope
+toggle: it is a read-only summary, and a summary that hides half the household is the defect again.
+It is **complementary to 12.2, not duplicative** — the in-app glance versus AD-13's out-of-app
+floor; neither may be dropped as redundant.
+
+### Story 12.2: Reminder delivery *(S5, AD-13)*
+
+As a parent,
+I want the reminders I set to actually reach me by email,
+So that a follow-up does not depend on me remembering to open the app.
+
+**Acceptance Criteria:**
+
+**Given** an open reminder that is due
+**When** the cron sweep runs
+**Then** exactly one email is sent, exactly once, idempotent by construction
+**And** snoozing re-arms delivery
+**And** the pre-existing overdue backlog is suppressed by the same migration that creates the queue
+**And** the create sheet stops promising a channel the product cannot deliver
+**And** Settings shows whether the sweep is running at all.
+
+**Depends on:** gate **G1** (blocking), and **Story 12.3** (ordering). Shares
+`workers/shared/resend.ts`, `workers/cron/**`, `wrangler.toml` and `types.ts` with **Story 7.5** —
+either order, never the same wave. Story file: `12-2-reminder-delivery.md`.
+
+**Reconciliation — two amendments to the drafted story, both load-bearing:**
+1. Its AC-5 settles a null `member_id` as `failed`. After 12.3, **Unassigned is a deliberate
+   choice**, so a null `member_id` settles **`skipped`**; `failed` is reserved for a non-null
+   `member_id` naming no live or no enabled member. Without this, every unassigned reminder is a
+   permanent delivery failure and the new Settings heartbeat sits red forever.
+2. With 12.3 landed, **assigning a reminder to your spouse silently redirects the only
+   notification away from you**, and 12.3 rules that the creator is not tracked. The cost is
+   accepted; the mitigation is that 12.2's reworded delivery line must **name the recipient**.
+
+This story closes **S5** and partially closes **S11** (it removes push from the task side and
+constrains `task_notifications.channel` to `('email')`; the `MessageNotificationChannel` half
+remains Epic 7's).
+
+### Story 12.3: Family-shared tasks with assignees *(gap D3)*
+
+As a parent sharing a household with my spouse,
+I want to assign a task to either of us and see what the other is handling,
+So that we stop keeping two private to-do lists for one family's shidduchim.
+
+**Acceptance Criteria:**
+
+**Given** a household with two active members
+**When** I open `/tasks`
+**Then** I see the whole household's open tasks by default, each row naming its assignee
+**And** I can narrow to "Assigned to me", and the choice persists
+**And** I can assign a task to any active member of my current context, or leave it Unassigned
+**And** assigning across a context boundary is refused by the database, not only by the client
+**And** archiving a member leaves their tasks listed, completable and reassignable.
+
+**Depends on:** Epic 2 (contexts, personas, the archive-not-delete lifecycle), Story 3.14
+(Ruling 1 — `tasks` scope lift), Story 3.8 (Ruling 2 — Tasks tab canonical, rail read-only). All
+built and deployed at `a8c5e3d`. **Not** Epic 5 — but not schedulable in an Epic 5 wave either.
+Story file: `12-3-family-shared-tasks.md`.
+
+**Why it is not a feature.** The disjointness is one line —
+`tasks/TasksListByDueDate.tsx:32` passes `filter: { member_id: identity?.id }` — while RLS
+(`05_policies.sql:35-38`) has no `member_id` term and `/reminders` already shows the whole
+household **unlabelled**. The product holds two contradictory behaviours on one table; this fixes
+both halves. It is still a migration: there is no FK between `public.members` and
+`account_members`, so a member picker needs a new `security_invoker` view, and `member_id` is
+client-writable to any value today.
+
+**Amendment to Story 3.8 (recorded here because a story may not edit another).** 12.3 supersedes
+`3-8` AC 3(c) **in part**: `member_id` becomes client-sendable; `account_id` and
+`delivery_channels` do not. `3-8`'s test that pins the create payload is retargeted, not loosened.
+
+### Story 12.4: Stripe billing — checkout, webhook, subscription lifecycle *(gap D7)*
+
+As the platform owner,
+I want an account to pay for the AI tier through Stripe, with Stripe's own state synced into the
+`subscription` row `ai_entitlement()` already reads,
+So that the paid tier stops being a "contact us" stub — without adding a second thing that can
+decide whether an account is entitled.
+
+**Acceptance Criteria:**
+
+**Given** an account on the free plan
+**When** it completes Stripe Checkout
+**Then** entitlement changes only because the **webhook** wrote `subscription` — never the
+checkout return, and never the `accounts` billing columns
+**And** `ai_entitlement()` is unchanged and remains the single authority
+**And** replayed and out-of-order webhook events change nothing
+**And** a lapse pauses the subscription row, never deletes it
+**And** the SPA never asserts entitlement for itself.
+
+**Depends on:** gate **G1** (blocking). **No in-repo dependency** — the E4 substrate
+(`subscription`, `ai_usage`, `ai_entitlement()`) is shipped, and it does not depend on Epic 5 or
+Epic 11. Shares `workers/shared/env.ts` with Story 11.1. Story file: `12-4-stripe-billing.md`.
+
+**Cross-epic ordering ruling (the story left this to the owner; it is now set).** Build order is
+free — 12.4 may be implemented at any time. **Enablement order is not:** the paid tier must not be
+switched on before 11.2 and 11.3 give it something to sell.
+
+**Deliberate deviation from AD-16, flagged not silent.** AD-16 says the webhook syncs to
+`accounts.{stripe_customer_id, subscription_status, plan, current_period_end, trial_end}`. E4
+superseded that: those five columns are a documented decoy, revoked from client UPDATE, and read
+by nothing in `src/`, `supabase/schemas/`, `workers/` or `scripts/`. A builder following AD-16
+literally would write entitlement state into columns nothing reads. The webhook writes
+`subscription` and `stripe_events` only.
+
+**Contention:** `references/entitlementGate.guard.test.ts` is also edited by **Story 5.12** —
+`ALLOWED` here, `FREE_FEATURES_THAT_MUST_NOT_GATE` there. One file, adjacent arrays, never the same
+wave, and neither edit may be satisfied by weakening the guard.
+
+---
+
+## Mobile gap analysis outcomes (2026-07-30)
+
+The mobile gap analysis attributed every mockup-vs-app gap to an owner. **Six were orphaned** —
+present in the mockups, absent from the app, owned by no story. The owner adopted four. This table
+is the closed ledger; nothing below should be rediscovered as a gap.
+
+| Gap | Disposition | Where |
+|---|---|---|
+| D1 — dashboard shows no reminders | **Adopted** | Story 12.1 |
+| D3 — tasks not shared across the family | **Adopted** | Story 12.3 |
+| D4 — Guided Call mode (FR60) | **Adopted** | Story **5.12** (inside Epic 5) |
+| D7 — Subscribe is inert | **Adopted** | Story 12.4 |
+| D8 — per-account private inbound address (FR22) | **DROPPED** | S9, below |
+| D10 — Hebrew / RTL UI | **DROPPED** | S27, below |
+
+Also settled by the same pass, none of which needed a story:
+
+- **D5** (Reference 360's 4th tab clipped at 390px) — an AC on Story 3.1's shell test and a
+  blocking prerequisite of 5.10, per the analysis's own recommendation. Story 5.12 AC-11 pins the
+  assertion shape that let it ship green twice: measure `scrollWidth <= clientWidth` on the
+  scrolling container, **not** on the page root.
+- **D6** (two dead "coming soon" stubs on the `(+)` capture control) — a one-line deletion,
+  recorded as a delivery note under Story 5.12.
+- **D12** (singles roster reachable only via Settings → Family) — a nav AC on Story 5.8.
+- **D2 / D9 / D11 / D13** — the polish batch; D11 was already earmarked for 4-1's Dev Notes
+  (S23) and never folded in.
+- The **reminder delivery** defect (S5) is not a Category-D item — it came from the parallel
+  silent-defects track — but it is adopted in the same round as **Story 12.2**.
+
+---
+
 ## Unowned work surfaced by the Epic 2–11 story review (2026-07-26)
 
 Ten adversarial reviewers plus two cross-checks surfaced work that **no story owns**.
@@ -1363,9 +1610,15 @@ superseded by S14 / Story 3.14**: the structural trigger block on inserting into
 exist (`shadchan`, `shidduch`, `reference`). The residual here is narrower — adding the
 `connection` target-type value itself remains Epic 8's (8.2/8.5).
 
-### S5 — AD-13 reminder delivery is never wired
-Story 7.5 builds the first real Resend / Web-Push delivery; no story connects the reminders
-sweep to it, so reminders remain undelivered by any real channel.
+### S5 — AD-13 reminder delivery is never wired ✅ OWNED by Story 12.2 (2026-07-30)
+Story 7.5 builds the first real Resend / Web-Push delivery; no story connected the reminders
+sweep to it, so reminders were delivered by no real channel at all. **Now owned by Story 12.2**,
+which does not wait for 7.5: `workers/cron/index.ts`'s `scheduled()` is an 18-line
+`console.warn`, nothing anywhere reads `delivery_channels`, no Resend call exists in the tree,
+and `deploy-workers` has never run — so this has never worked in any environment, and
+`ReminderCreateSheet.tsx:323-328` tells every user today that it does. 12.2 also partially closes
+**S11** (push is removed from the task side and `task_notifications.channel` is constrained to
+`('email')`; unifying with `MessageNotificationChannel` remains Epic 7's).
 
 ### S6 — AD-8 observability and AD-17 rate limiting are unowned
 Epic 11 ships the product's first real inference calls, but Langfuse tracing, the
@@ -1386,8 +1639,26 @@ migrate every list.
 The spine's AD-6 and stack table name Cloudflare Email Routing; the shipped code is
 Postmark, and `workers/ingest/index.ts` calls the migration "separate future work".
 
-### S9 — FR22, the per-account private inbound address
+### S9 — FR22, the per-account private inbound address ❌ DELIBERATELY DROPPED (2026-07-30)
 The product has one global `VITE_INBOUND_EMAIL`. No story delivers per-account addresses.
+
+**Dropped, not deferred.** This is gap **D8** of the mobile gap analysis — the mockup's copyable
+`you@in.myshadchan.space` chip — one of the six orphans, and one of the two the owner did **not**
+adopt. Reasons, recorded so this is a decision and not an oversight:
+
+1. **It would be built twice.** Per-account addressing is a mail-provider routing feature, and
+   **S8** records that the inbound path is mid-migration: the spine names Cloudflare Email Routing,
+   the shipped code is Postmark, and `workers/ingest/index.ts` calls the migration "separate future
+   work". An address scheme designed against Postmark's routing is thrown away by S8.
+2. **The gap it closes is already narrowing.** Story 10.1 completes the share target (the phone
+   path) and 10.2 adds attribution for ambiguous senders (the desktop-forward path), which is most
+   of what the private address was for.
+3. **Cost of reversal is low and does not grow.** It is one column, one generated local-part and
+   one routing rule; nothing shipped between now and then makes it harder.
+
+**Revisit only when S8 lands**, and then as an AC on the Epic 10 story that owns the new ingress —
+not as a standalone item. Until then the global address is the intended behaviour, and the mockup's
+per-account chip is out of scope by decision.
 
 ### S10 — Passwordless e2e sign-in helper ✅ CLOSED (2026-07-28 Epic 3 refresh)
 **Done.** `e2e/fixtures.ts` exports a shared `fetchOtpCode` plus a two-step passwordless
@@ -1631,3 +1902,30 @@ rather than the whole line (previously any exempt term blanked its entire line, 
 defect — 71 lines in the tree were blind spots), but they should be removed so the config stops
 implying a coverage it does not have. Editing `retired-names.json` was outside every bucket's
 declared paths.
+
+### S27 — Hebrew / RTL UI ❌ DELIBERATELY DROPPED (2026-07-30)
+Gap **D10** of the mobile gap analysis: the mockups made `EN ⇄ עברית` first-class and flipped
+`dir` app-wide. The app ships English and French catalogues, sets `dir` nowhere, and has no
+Hebrew catalogue. One of the six orphans; one of the two the owner did **not** adopt.
+
+**What is dropped, precisely** — the distinction matters, because half of this is already built
+and must not be "fixed" back:
+
+- **Not dropped, already working:** bilingual *data*. AD-12's `*_he` columns are stored and
+  rendered inline throughout (`reference_name_en` / `shidduch_name_en` and their Hebrew siblings).
+  Displaying Hebrew **strings** is not an RTL **UI** and never depended on this item.
+- **Dropped:** a Hebrew message catalogue, a language toggle beyond EN/FR, `dir="rtl"` on the
+  document, and mirrored layout. PRD **PRV-12** defers internationalisation as a legal-scope
+  matter; this ruling extends that to the UI direction question PRV-12 does not actually answer,
+  so that it stops being answered by omission.
+
+**The one honest cost, recorded because it grows.** Reversal is bounded but not cheap, and unlike
+S9 it gets more expensive with every screen shipped: Tailwind physical utilities (`pl-`, `mr-`,
+`text-left`, `left-0`) do not mirror, so an RTL retrofit is an app-wide audit whose size is
+proportional to the surface area at the time. Epics 5–11 add roughly thirty screens. If Hebrew-first
+users are ever in scope, **decide before Epic 6**, not after Epic 11 — that is the whole reason
+this entry exists rather than a silent no.
+
+**No hedge is mandated.** Requiring logical properties (`ps-`/`pe-`/`ms-`/`me-`) in new code was
+considered and not adopted: a half-observed convention would produce a false sense that the
+retrofit is prepaid.

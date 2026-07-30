@@ -1,9 +1,49 @@
-# Story 12.D7: Stripe billing — checkout, webhook, and the subscription lifecycle
+# Story 12.4: Stripe billing — checkout, webhook, and the subscription lifecycle
 
-Status: blocked — becomes ready-for-dev the moment the deployment prerequisite below is
-discharged. Everything else in the story is buildable and testable today.
+Status: blocked on Epic 12 gate **G1** — becomes ready-for-dev the moment it is discharged.
+Everything else in the story is buildable and testable today.
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
+
+## Placement — SETTLED 2026-07-30 (reconciliation pass)
+
+Renumbered `12.D7` → **Story 12.4**, file renamed `12-4-stripe-billing.md`. The section
+*"Identifier — why `12.D7`"* below is kept as history and is superseded on the number only.
+Traceability tag: **(gap D7)**.
+
+**Epic 12 is *Phase-1 Completion & Operational Readiness*, not *Commerce & Operational Readiness*
+— and this story stays in it rather than moving to Epic 11.** Epic 11 was considered as `11.4`:
+rejected because Epic 11 is the AI *Layer* and this story makes zero inference calls, and because
+its real neighbour is Story 12.2 (reminder delivery) — the two share the identical blocking
+prerequisite (no Cloudflare Worker has ever deployed), both extend
+`.github/workflows/deploy.yml`'s secret-push steps, and both add files to `workers/shared/`.
+Grouping them means that prerequisite is discharged once.
+
+**The cross-epic ordering ruling the story left to the owner is now recorded:** this story may be
+*built* at any time — it has no in-repo dependency on Epic 11 — but the paid tier must not be
+**switched on** before 11.2 and 11.3 give it something to sell. Build order free; enablement
+order 11.2 + 11.3 → 12.4.
+
+**Binding delivery order inside Epic 12: 12.3 → 12.1 → 12.2 → 12.4.**
+
+### Cross-story reconciliation findings (from the same pass)
+
+- **F5 — BLOCKING file contention with Story 5.12 (Guided Call mode).** This story updates the
+  `ALLOWED` set in `references/entitlementGate.guard.test.ts:26-30`; 5.12's AC-9 appends
+  `"GuidedCall"` to `FREE_FEATURES_THAT_MUST_NOT_GATE` in the same file (`:33-41`). Two adjacent
+  arrays, one file, and neither author could see the other. **Not the same wave**; whichever lands
+  second re-reads the file rather than reapplying a remembered diff. Note the shared intent: both
+  edits exist to keep the gate narrow, so neither may be satisfied by weakening the guard.
+- **F8 — the deployment prerequisite is now Epic 12 gate G1, shared with Story 12.2.** See
+  `epics.md` → Epic 12 → gate G1. Obtain the Cloudflare credentials once. Do not share a wave with
+  12.2 (`.github/workflows/deploy.yml`).
+- **F9 — `workers/shared/` conventions.** This story creates `workers/shared/cors.ts`; 12.2 creates
+  `workers/shared/resend.ts`; Story 7.5 (Epic 7, unbuilt) claims both, and 11.1 shares
+  `workers/shared/env.ts`. Whichever lands first sets the directory's conventions; the later ones
+  **extend, never fork**.
+- **F14 — `registry.json` is contended** with Stories 12.1-12.3, 5.12 and Epic 5's in-flight work.
+  This story's "both i18n catalogues or neither" ruling stands and its default outcome is
+  *neither*, which is the cheapest way out of the contention.
 
 ## Story
 

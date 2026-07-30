@@ -1,8 +1,46 @@
-# Story 12.4: Guided Call mode
+# Story 5.12: Guided Call mode
 
 Status: ready-for-dev
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
+
+## Placement — SETTLED 2026-07-30 (reconciliation pass)
+
+This story was drafted as `12.4` by an author who could not see its four siblings. It has been
+placed as **Story 5.12, inside Epic 5**, and the file renamed `5-12-guided-call-mode.md`.
+The section *"Why this file is numbered 12.4"* below is the author's reasoning at writing time and
+is kept as history; where it speculates about sibling numbering it is superseded by this block.
+
+**Why Epic 5 and not a new epic.** The story itself named `5.12` as defensible, and every
+scheduling fact points there: it hard-depends on **5.10** and **5.11**, it edits
+`references/ReferenceCallLog.tsx` — a file 5.10 declares "unchanged", which is true of 5.10's diff
+and not of the world after it — and it lives entirely inside `references/`. Filing it outside
+Epic 5 would put it in a wave that does not hold the leases on its own files. It adds no `TabKey`
+and touches no descriptor, so 5.11's AC-6 (`findPendingTabs(realRegistry)` equals `[]`) stays green
+behind it. **Delivery order is binding: 5.10 → 5.11 → 5.12.**
+
+Note that Epic 5 placement does **not** paywall it. The free ruling below stands and is
+machine-enforced by AC-9.
+
+### Cross-story reconciliation findings (from the same pass)
+
+- **F5 — file contention with Story 12.4 (Stripe billing).** AC-9 appends `"GuidedCall"` to
+  `FREE_FEATURES_THAT_MUST_NOT_GATE` (`references/entitlementGate.guard.test.ts:33-41`); Story 12.4
+  updates the `ALLOWED` set in the same file (`:26-30`). Two adjacent arrays, one file, and neither
+  author could see the other. **Not the same wave**; whichever lands second re-reads the file
+  rather than reapplying a remembered diff.
+- **F11 — this story makes an existing dead stub actively misleading.**
+  `layout/MobileNavigation.tsx:184-186` renders `Log a call (coming soon)`. Once Call mode exists,
+  that stub reads as its entry point — and 5.11 AC-5 forbids a second call-log entry point, so it
+  must be **deleted, not wired**. This story correctly disclaims ownership of it; the deletion is
+  gap **D6**, recorded in `epics.md` under Story 5.12 as a delivery note. Confirm it is gone before
+  closing 5.12.
+- **F13 — the 5.11 boundary was independently verified and holds.** 5.11 owns
+  `CallCaptureSheet.tsx` and this story never imports or edits it; both read
+  `relationshipQuestions.ts` and neither restructures it; both call
+  `dataProvider.logReferenceCall` at the same 4-arg signature.
+- **F14 — `registry.json` and both i18n catalogues are contended** with 5.1, 5.2, 5.9, 5.10 and
+  with Stories 12.1-12.4. A lease matter, not a design conflict.
 
 ## Story
 
