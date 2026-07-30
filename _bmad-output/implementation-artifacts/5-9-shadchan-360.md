@@ -1,6 +1,6 @@
 # Story 5.9: Shadchan 360
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -167,31 +167,31 @@ place turns every shadchan save into a PostgREST 400 against a column that no lo
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Verify the polymorphic targets, do not migrate them** (AC: 1)
-  - [ ] Run the AC-1 `pg_get_constraintdef` query; confirm `types.ts`'s
+- [x] **Task 1 — Verify the polymorphic targets, do not migrate them** (AC: 1)
+  - [x] Run the AC-1 `pg_get_constraintdef` query; confirm `types.ts`'s
         `Interaction.target_type` already carries `"shadchan"` (Story 3.5's edit). No schema or
         type change here.
-- [ ] **Task 2 — Migrate and drop `shadchanim.notes`** (AC: 2)
-  - [ ] Hand-add to the generated migration (data steps are never auto-emitted by `db diff`):
+- [x] **Task 2 — Migrate and drop `shadchanim.notes`** (AC: 2)
+  - [x] Hand-add to the generated migration (data steps are never auto-emitted by `db diff`):
         `insert into public.interactions (account_id, target_type, target_id, scope, kind, body)
         select account_id, 'shadchan', id, 'account', 'note', notes from public.shadchanim where
         notes is not null and notes <> '';` **before** `alter table public.shadchanim drop
         column notes;`.
-  - [ ] `types.ts:229-238`: remove `notes` from the `Shadchan` type.
-  - [ ] `ShadchanHeader.tsx`: remove the notes block (`:125-134`) and the now-unused prop path.
+  - [x] `types.ts:229-238`: remove `notes` from the `Shadchan` type.
+  - [x] `ShadchanHeader.tsx`: remove the notes block (`:125-134`) and the now-unused prop path.
         `ShadchanHeader.test.tsx`'s 5 cases assert avatar classes, the sparse meta-line
         fallback, a missing `created_at`, quick actions and no-contact-info — **none** asserts
         the notes block, so that file needs no edit.
-  - [ ] `ShadchanInputs.tsx:35`: delete `<TextInput source="notes" multiline rows={3}
+  - [x] `ShadchanInputs.tsx:35`: delete `<TextInput source="notes" multiline rows={3}
         helperText={false} />`. This is the form that *writes* the column; leaving it turns
         every shadchan save into a 400.
-  - [ ] Both i18n catalogues: delete `resources.shadchanim.fields.notes`
+  - [x] Both i18n catalogues: delete `resources.shadchanim.fields.notes`
         (`providers/commons/englishCrmMessages.ts:38`, `frenchCrmMessages.ts:40`).
-  - [ ] Seed data needs no value migration — verified 2026-07-26: `seed_demo/dataset.ts`'s
+  - [x] Seed data needs no value migration — verified 2026-07-26: `seed_demo/dataset.ts`'s
         `DemoShadchan` has no `notes` field and `dataGenerator/shidduchim.ts`'s `shadchanimSeed`
         sets none. Just confirm both still compile once `Shadchan.notes` is removed.
-- [ ] **Task 2b — Widen `shadchan_stats` for the Overview tab** (AC: 3, 6 — RULING 8, option B)
-  - [ ] `supabase/schemas/03_views.sql:202-211`: replace the `shadchan_stats` body with exactly
+- [x] **Task 2b — Widen `shadchan_stats` for the Overview tab** (AC: 3, 6 — RULING 8, option B)
+  - [x] `supabase/schemas/03_views.sql:202-211`: replace the `shadchan_stats` body with exactly
         this — the two new columns **appended after** `nb_reached_yes`, never inserted mid-list:
 
         ```sql
@@ -216,7 +216,7 @@ place turns every shadchan save into a PostgREST 400 against a column that no lo
         `refresh_shidduch_redt_summary()` (`02_functions.sql:1594`), whose contract is that
         `redt_date` is the most recent redt and `shadchan_id` is that redt's shadchan — so
         `(s.shadchan_id, s.redt_date)` already *is* "this shadchan's redt of this shidduch".
-  - [ ] **Do not reach for `redts`.** A `left join public.redts r on r.shadchan_id = sh.id`
+  - [x] **Do not reach for `redts`.** A `left join public.redts r on r.shadchan_id = sh.id`
         silently inflates all three shipped tiles: the existing `count(s.id)` / `count(s.id)
         filter (…)` are **not** `distinct`, so a second one-to-many join fans them out. The
         repo's own precedent is the opposite — `references_summary` (`03_views.sql:101-125`)
@@ -228,22 +228,22 @@ place turns every shadchan save into a PostgREST 400 against a column that no lo
         "last time this shadchan was the current redter of something", matching the
         current-attribution scoping every other tile on the view already uses
         (`03_views.sql:194-201`'s own comment).
-  - [ ] **`count(distinct s.single_id)` is non-negotiable** — "how many singles" ≠ "how many
+  - [x] **`count(distinct s.single_id)` is non-negotiable** — "how many singles" ≠ "how many
         shidduchim". Under the LEFT JOIN a shadchan with no shidduchim yields
         `count(distinct null) = 0`, not null; no `coalesce` needed.
-  - [ ] Reuse `singles_summary`'s existing "open" predicate **verbatim** — the view is
+  - [x] Reuse `singles_summary`'s existing "open" predicate **verbatim** — the view is
         `03_views.sql:170-190`, the filter itself `:185-187`
         (`new`/`look_into`/`not_sure`; terminal = `for_sure_not`/`yes`/`unsure`/`no`). Do not
         invent a second definition of open. FakeRest already has the matching
         `OPEN_PIPELINE_STATES` set (`providers/fakerest/dataProvider.ts:435`).
-  - [ ] **Append at the end; never insert mid-list.** `create or replace view` can only add
+  - [x] **Append at the end; never insert mid-list.** `create or replace view` can only add
         *trailing* columns — placing `last_redt_date` before `nb_suggestions` fails with `42P16`
         and pushes `db diff` into a `drop view` / `create view` pair, which **also drops the
         grants** at `06_grants.sql:483-485`. If the generated diff contains `drop view`, the
         columns were placed wrong; fix the schema file, do not patch the migration.
-  - [ ] This is this story's **second** migration, separate from Task 2's:
+  - [x] This is this story's **second** migration, separate from Task 2's:
         `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f shadchan_stats_overview`.
-  - [ ] **Hand-add the `security_invoker` line.** `supabase db diff` **never** emits
+  - [x] **Hand-add the `security_invoker` line.** `supabase db diff` **never** emits
         `with (security_invoker = on)` — this repo has been bitten before and wrote the
         precedent down:
         `supabase/migrations/20260724112600_add_summary_stats_views.sql:20-27` emits
@@ -259,18 +259,18 @@ place turns every shadchan save into a PostgREST 400 against a column that no lo
         `pg_class.reloptions` assertion plus the cross-account negative is the guard.
         Note 2 of that same block (`db diff` does not diff privileges) is not triggered so long
         as the two columns are appended, because no `drop view` is generated.
-  - [ ] `types.ts:247-252`: add to `ShadchanStats`
+  - [x] `types.ts:247-252`: add to `ShadchanStats`
         `last_redt_date: string | null;` (a `date`; null iff the shadchan has zero attributed
         shidduchim) and `nb_open_singles: number;`.
-  - [ ] FakeRest (AD-10 lockstep): `providers/fakerest/dataProvider.ts:445-467`
+  - [x] FakeRest (AD-10 lockstep): `providers/fakerest/dataProvider.ts:445-467`
         `computeShadchanStats` must return both fields — reuse `OPEN_PIPELINE_STATES` (`:435`)
         for `nb_open_singles` over a `Set` of `single_id`, and `Math.max` over `redt_date` for
         `last_redt_date` (null when the shadchan has no shidduchim). Extend
         `providers/fakerest/dataProvider.summaryStats.test.ts:91-125`'s two cases to assert
         both new fields, including the zeroed/null row. Skipping this ships an Overview the
         real backend fills and the demo leaves blank.
-- [ ] **Task 3 — Shell wiring** (AC: 3)
-  - [ ] Re-register the `shadchanim` descriptor over 3.9's stub with
+- [x] **Task 3 — Shell wiring** (AC: 3)
+  - [x] Re-register the `shadchanim` descriptor over 3.9's stub with
         `registerEntityDescriptor(shadchanimDescriptor, { replace: true })` — the whole
         descriptor, not a partial merge; without `{ replace: true }`
         `registerEntityDescriptor` **throws at module scope** (`entity360/registry.ts:29-33`),
@@ -278,7 +278,7 @@ place turns every shadchan save into a PostgREST 400 against a column that no lo
         `ShadchanHeader` (via adapter), stat band = `ShadchanStatsRow` (via adapter), tabs
         `overview, shidduchim, notes, tasks, activity` (keys from `entity360/tabKeys.ts`).
         [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#4 — rule 2]
-  - [ ] **Move all five keys out of `pendingTabs` and into `tabs` in this same edit.** The stub
+  - [x] **Move all five keys out of `pendingTabs` and into `tabs` in this same edit.** The stub
         (`shadchanim/entityDescriptor.ts:25-26`) is `tabs: []` +
         `pendingTabs: ["overview", "shidduchim", "notes", "tasks", "activity"]`. After this
         story `pendingTabs` is empty or absent. A key left in both is `tab-key-duplicated`; a
@@ -286,7 +286,7 @@ place turns every shadchan save into a PostgREST 400 against a column that no lo
         shadchanim row (`:64-67`, `:93-95`) in the same diff — it pins the `/show` path,
         `tabs toEqual []`, **and** the full `pendingTabs` list, so all three assertions go red
         by design.
-  - [ ] `overview` tab: build it from the **widened** `shadchan_stats` (RULING 8 — option B; see
+  - [x] `overview` tab: build it from the **widened** `shadchan_stats` (RULING 8 — option B; see
         Dev Notes "RULING 8 — the Overview tab gets real content"). Render through
         `entity360/tabs/OverviewTab`: **Last redt** (`last_redt_date`) and **Working on now**
         (`nb_open_singles` — distinct singles this shadchan has in a non-terminal shidduch), plus
@@ -296,7 +296,7 @@ place turns every shadchan save into a PostgREST 400 against a column that no lo
         migration — if the widened view is not in the schema yet, that migration is the blocker,
         not an open question. `name_he` alone is *not* an acceptable Overview: the original
         instruction ("whatever `Shadchan` fields remain outside the header") is superseded.
-  - [ ] `shidduchim` tab: `ShadchanSuggestions.tsx`, structurally unchanged (already
+  - [x] `shidduchim` tab: `ShadchanSuggestions.tsx`, structurally unchanged (already
         `RecordLink`-based post-3.9), mounted as an explicit `tabs` entry with
         `key: "shidduchim"`. An explicit `tabs` entry legitimately overrides the generic
         `relationships` → `RelatedRecordsTab` rendering for the same key
@@ -316,28 +316,28 @@ place turns every shadchan save into a PostgREST 400 against a column that no lo
         `ShadchanShow.tsx` no longer carries the `label="Suggestions"` stat tile at all (the tile
         moved into `ShadchanStatsRow.tsx:34`, which already reads `label: "Shidduchim"`). Do not
         "fix" either file.
-  - [ ] **The one live AD-23 violation this story does own:** `ShadchanCard.tsx:71-72`'s
+  - [x] **The one live AD-23 violation this story does own:** `ShadchanCard.tsx:71-72`'s
         `{suggestionCount === 1 ? "suggestion" : "suggestions"}` (and its `suggestionCount` prop
         name at `:12`/`:24` and the `:20` doc comment). It is on the shadchanim **list** page.
         Epic 5's pre-flight assigned it here because Epic 4's 4-2 keeps `ShadchanCard` as the
         cards renderer and did not fix it — check first whether 4-2 has since landed the fix,
         and if so, skip. Rename the user-facing words only if the prop rename would collide
         with an in-flight Epic 4 diff.
-  - [ ] `notes`/`tasks`/`activity`: Epic 3's universal components. The prop shape is
+  - [x] `notes`/`tasks`/`activity`: Epic 3's universal components. The prop shape is
         `UniversalTabProps = { targetType, targetId }` (`entity360/tabs/types.ts:11-14`) —
         **`targetType`, camelCase, plus the required `targetId`**, never the DB's
         `target_type`. e.g. `render: () => <NotesTab targetType="shadchan" targetId={record.id} />`
         (the record is reached inside `render` via `useRecordContext()`; `render` is arity-zero,
         `entityDescriptor.ts:106-112`). Writing `target_type` is an excess-property error plus a
         missing required prop — `make typecheck` catches it, but only if it is run.
-  - [ ] Delete `ShadchanShow.tsx` entirely once its three rendered components are relocated into the
+  - [x] Delete `ShadchanShow.tsx` entirely once its three rendered components are relocated into the
         descriptor — the file is now only the `<Show>` wrapper, the skeleton and the
         `EditButton` toolbar (48 lines); `Entity360`/`EntityShow` supply all three. Drop the
         `show:` import from `shadchanim/index.ts` with it (Task 4). `ShadchanStatsRow` is
         **already extracted** — there is nothing to extract in this move.
-- [ ] **Task 4 — Route migration** (AC: 4)
-  - [ ] `shadchanim/entityDescriptor.ts:24`: `buildRecordPath` → ``(id) => `/shadchanim/${id}` ``.
-  - [ ] `shadchanim/index.ts`: `list: buildEntityRoutes({ List: ShadchanList, Edit: ShadchanEdit,
+- [x] **Task 4 — Route migration** (AC: 4)
+  - [x] `shadchanim/entityDescriptor.ts:24`: `buildRecordPath` → ``(id) => `/shadchanim/${id}` ``.
+  - [x] `shadchanim/index.ts`: `list: buildEntityRoutes({ List: ShadchanList, Edit: ShadchanEdit,
         Show: EntityShow })`; **delete** `edit: ShadchanEdit` and `show: ShadchanShow`; **add**
         `hasShow: true` and `hasEdit: true` explicitly. Keep `hasCreate: true`,
         `children: buildCreateRoutes("shadchanim", ShadchanCreate)`, `recordRepresentation`, and
@@ -347,7 +347,7 @@ place turns every shadchan save into a PostgREST 400 against a column that no lo
         equally valid; doing **both** would declare `/shadchanim/new` twice. Without the two explicit flags `ra-core`
         computes both as `false` and every `<DataTable>` row on the shadchanim list goes
         unclickable (`entity360/buildEntityRoutes.tsx:43-54`).
-  - [ ] `entity360/ad24Conformance.ts`: delete `RECORD_SURFACE_EXEMPTIONS["shadchanim:show"]`
+  - [x] `entity360/ad24Conformance.ts`: delete `RECORD_SURFACE_EXEMPTIONS["shadchanim:show"]`
         and `["shadchanim:edit"]` (`:123-124`) and `PENDING_ROUTE_SHAPES.shadchanim` (`:172`),
         **in this same diff**. Symmetric tables: keeping a row whose offender is gone fires
         `stale-exemption`; removing the offender without the row fires the mirror. Do **not**
@@ -355,7 +355,7 @@ place turns every shadchan save into a PostgREST 400 against a column that no lo
         `RECORD_FLAG_EXEMPTIONS` in `root/routeManifest.ts` (`inbox_items` and `tasks` by the
         time this story runs — it held three until Story 5.1 deleted its own `shidduchim` row;
         `shadchanim` was never one of them and adding it would be wrong).
-  - [ ] Retarget every literal that pins the old path:
+  - [x] Retarget every literal that pins the old path:
         `entity360/registry.stubs.test.ts:64-67` + `:93-95` (Task 3 covers the tab halves);
         `shadchanim/ShadchanRow.test.tsx:44` `toHaveAttribute("href", "/shadchanim/7/show")`;
         `reminders/ReminderCard.test.tsx:55` `toHaveAttribute("href", "/shadchanim/9/show")`
@@ -369,33 +369,33 @@ place turns every shadchan save into a PostgREST 400 against a column that no lo
         `e2e/entity-list-search.spec.ts:143-147`, whose `a[href$="/show"]` locator **and** its
         three-line explanatory comment both pin `buildRecordPath("shadchanim", id)`. Nothing in
         the unit suite covers that last one — **run the e2e suite at least once in this wave.**
-  - [ ] `grep -rn "/show" src/components/atomic-crm/shadchanim/ e2e/` returns nothing afterward
+  - [x] `grep -rn "/show" src/components/atomic-crm/shadchanim/ e2e/` returns nothing afterward
         (today: `ShadchanShow.tsx:4`'s `@/components/admin/show` import — which goes with the
         file — `ShadchanRow.test.tsx:44`, `entityDescriptor.ts:24`, and the e2e locator).
-- [ ] **Task 5 — Tests** (AC: 5, 6)
-  - [ ] AC-6: assert `shadchan_stats` still carries `security_invoker=on` and that a login active
+- [x] **Task 5 — Tests** (AC: 5, 6)
+  - [x] AC-6: assert `shadchan_stats` still carries `security_invoker=on` and that a login active
         in another account reads no row from it — same one-login-two-accounts shape as AC-5.
         SQL suites are **paired**: every `supabase/tests/<name>.sql` has a `<name>.test.ts`
         runner alongside it (13 pairs today, no exceptions). Extending an existing pair costs
         nothing; adding a new `.sql` without its runner means the assertions never execute.
-  - [ ] Extend the existing cross-account `interactions` test to cover `target_type = 'shadchan'`
+  - [x] Extend the existing cross-account `interactions` test to cover `target_type = 'shadchan'`
         — `supabase/tests/interactions_targets.sql` + its runner is the file that already proves
         this shape for `reference`/`shidduch`. Cross-tenant negatives are **one login with
         memberships in two accounts, active in one** — never two disjoint users
         [Source: _bmad-output/planning-artifacts/epic3-api-contract.md#13 — rule 3].
-  - [ ] `06_grants.sql:483-485` already grants `select on public.shadchan_stats to
+  - [x] `06_grants.sql:483-485` already grants `select on public.shadchan_stats to
         authenticated`. Appending columns to a `create or replace view` preserves it — but
         **re-read the file after the migration lands** and confirm the three lines are intact;
         if the generated diff contained a `drop view`, they were silently dropped and every
         authenticated read of the stat band 403s.
-  - [ ] Component tests run in **Chromium via `vitest-browser-react`** with `StoryWrapper` /
+  - [x] Component tests run in **Chromium via `vitest-browser-react`** with `StoryWrapper` /
         `TestMemoryRouter` (see `references/ReferenceCreate.test.tsx`,
         `dashboard/StatStrip.test.tsx`). **React Testing Library is not a dependency of this
         repo** — do not `import { render } from "@testing-library/react"`. Cover: the adapter
         wrappers render (`EntityShow` for a shadchan shows the header's name and the three stat
         tiles), and the Overview tab renders **Last redt** + **Working on now** from a stubbed
         `shadchan_stats` row, with the empty state only when both are null/0-and-absent.
-  - [ ] `npm run typecheck && npm run lint && npx vitest run && npm run test:unit:db`, plus one
+  - [x] `npm run typecheck && npm run lint && npx vitest run && npm run test:unit:db`, plus one
         e2e run (`e2e/entity-list-search.spec.ts` is the file this story breaks and nothing in
         the unit suite covers).
 
@@ -641,8 +641,139 @@ either, and it does not diff storage-bucket rows. Read the generated file; do no
 
 ### Agent Model Used
 
+Claude (bmad-dev-story workflow)
+
 ### Debug Log References
+
+- AC-1 verified live: `pg_get_constraintdef` on `tasks_target_type_check` /
+  `interactions_target_type_check` / `interactions_scope_link_check` already includes `'shadchan'`
+  everywhere required — no migration touched these, per Task 1.
+- `supabase db diff --local` reproduces a **pre-existing, no-op false-positive cascade**
+  (`drop view` + recreate of `reference_links_summary`, `shadchan_stats`, `shidduchim_summary`,
+  `singles_summary`) on *every* diff run that touches anything reachable from
+  `shadchanim`/`shidduchim` — reproduced by hand with a completely clean, unmodified schema (zero
+  pending edits) and it still appears, byte-identical. Not something this story introduced or
+  could fix; handled the same way the repo's own precedent
+  (`20260724112600_add_summary_stats_views.sql`'s MANUAL ADJUSTMENTS block) does: accept the
+  cascade, hand-restore `security_invoker=on` + the `06_grants.sql` grants for all four views in
+  both of this story's migrations, and confirmed a subsequent `db diff` shows the identical
+  cascade again post-migration (proving it is the tool, not real drift).
+- Story text said the security-invoker check must "hand-check it re-emits" the clause — this is
+  backwards (`db diff` never emits it); implemented per the pre-flight brief's correction instead
+  (hand-add `alter view … set (security_invoker = on)`), matching AC-6 and both Debug Log entries
+  above.
+- Two extra files outside the story's declared "Project Structure Notes" list needed edits to
+  keep `make typecheck`/`npx vitest run` green, both direct, unavoidable consequences of the AC-4
+  route flip (pinned literals in files no story named — the exact landmine class the pre-flight
+  brief's L15 describes): `src/components/admin/edit-button.test.tsx` and
+  `src/components/admin/show-button.test.tsx` pinned `hasAd24RecordShape`'s two branches against
+  `shadchanim`'s *stub* state specifically because it was "an entity that still HAS a
+  pre-migration state to pin" — repointed both at `references` (Story 5.10's still-unmigrated
+  stub) instead, same assertions, same shape.
+- `entity360/entityDescriptor.test.ts`'s `ShadchanStats`-shaped fixture needed the two new fields
+  to keep compiling once the type gained them.
+- `e2e/entity-list-search.spec.ts`'s sort-mode locator assumed a plain (non-hash) `href` prefix
+  match; the app is hash-routed (`#/shadchanim/{id}`), so a `[href^="/shadchanim/"]` prefix match
+  can never match the leading `#` — switched to a `*=` contains match, still excluding
+  `/shadchanim/new`.
 
 ### Completion Notes List
 
+- Task 1: verified, no migration needed (see Debug Log).
+- Task 2: `shadchanim.notes` backfilled into `interactions` (`target_type='shadchan'`,
+  `scope='account'`, `kind='note'`) and dropped in one migration
+  (`20260730093837_shadchan_notes_migration.sql`); `ShadchanHeader.tsx`'s notes block,
+  `ShadchanInputs.tsx`'s notes input, `Shadchan.notes` and both i18n catalogues' `fields.notes`
+  all removed in the same diff. Seed data needed no change (confirmed no `notes` field anywhere
+  in FakeRest seeds).
+- Task 2b: `shadchan_stats` widened with `last_redt_date`/`nb_open_singles`, appended at the end
+  (no `redts` join — zero new joins, per the ruling), in a second migration
+  (`20260730094101_shadchan_stats_overview.sql`) with the hand-added `security_invoker=on` +
+  grants restoration. `ShadchanStats` type, FakeRest's `computeShadchanStats`, and
+  `dataProvider.summaryStats.test.ts` all extended to match.
+- Task 3: `shadchanimDescriptor` rebuilt in `entityDescriptor.tsx` (+ `entityDescriptorRegions.tsx`
+  for the adapter components, mirroring the shidduchim/singles split), all five canonical tabs
+  moved into `tabs` with `pendingTabs` now `[]`. `ShadchanOverviewTab.tsx` built per RULING 8
+  option B (Hebrew name, Last redt, Working on now — Location/Responsiveness/tenure deliberately
+  NOT re-rendered). `shidduchim` tab kept `ShadchanSuggestions.tsx` unchanged, per the story's
+  explicit divergence ruling. `ShadchanCard.tsx`'s "suggestion"/"suggestions" text (the one live
+  AD-23 violation this story owns, per `ShadchanRow.tsx`'s own Story 4.2 doc comment naming this
+  story as the remediator) now uses the same `crm.shadchanim.row.shidduchimCount` i18n key
+  `ShadchanRow.tsx` already used — `suggestionCount` prop and `countSuggestionsByShadchan` keep
+  their existing names, per that same comment. `ShadchanShow.tsx` deleted.
+- Task 4: `shadchanim/index.ts` migrated onto `buildEntityRoutes` + explicit `hasShow`/`hasEdit`;
+  `buildRecordPath` flipped to the bare `/shadchanim/{id}` shape; the four symmetric
+  `ad24Conformance.ts` exemption rows deleted; every pinned `/show` literal retargeted
+  (`registry.stubs.test.ts`, `ShadchanRow.test.tsx`, `ReminderCard.test.tsx` incl. its doc
+  comment/case title/inline comment, `e2e/entity-list-search.spec.ts`'s locator — the app is
+  hash-routed so the fix is a `*=` contains match, not a `^=` prefix match). `grep -rn "/show"
+  src/components/atomic-crm/shadchanim/ e2e/` returns nothing.
+- Task 5: `interactions_targets.sql` extended with a shadchan-targeted `tasks` cross-account
+  negative (AC-5; `interactions` itself already covered `shadchan` via Story 3.5's own AC 10(b)).
+  `references_entity.sql` extended with a `shadchan_stats` cross-account negative plus a
+  `security_invoker=on` assertion (AC-6; the generic `security_invoker_views.sql` standing guard
+  also covers the reloptions half automatically). New `shadchanim/entityDescriptor.test.tsx`
+  covers: tab-strip order, the identity-header/stat-band adapters rendering the real record, the
+  Overview tab's Last-redt/Working-on-now facts (populated and empty-state), and
+  targetType-scoping for Notes/Tasks/Shidduchim (mirroring `singles/entityDescriptor.test.tsx`'s
+  pattern).
+- Gates run and green: `make typecheck`, `make lint` (eslint + prettier), `npx vitest run`
+  (204 files / 2098 tests), `npm run test:unit:db` (589 tests), `make build`, all four CI guards
+  (`check-retired-names`, `check-suppressions`, `check-route-convention`,
+  `check-tailwind-arbitrary-var`), `make test STACK_ID=3` (against a real e2e Supabase instance,
+  204 files / 2098 tests), and `e2e/entity-list-search.spec.ts` plus `global-search.spec.ts` /
+  `entity-list-view-toggle.spec.ts` / `navigation.spec.ts` (chromium project) against
+  `STACK_ID=3`. Stack 3 released after use.
+
 ### File List
+
+**Migrations (new):**
+- `supabase/migrations/20260730093837_shadchan_notes_migration.sql`
+- `supabase/migrations/20260730094101_shadchan_stats_overview.sql`
+
+**Schema:**
+- `supabase/schemas/01_tables.sql`
+- `supabase/schemas/03_views.sql`
+
+**DB tests:**
+- `supabase/tests/interactions_targets.sql`
+- `supabase/tests/references_entity.sql`
+
+**shadchanim/ (new):**
+- `src/components/atomic-crm/shadchanim/entityDescriptor.tsx`
+- `src/components/atomic-crm/shadchanim/entityDescriptorRegions.tsx`
+- `src/components/atomic-crm/shadchanim/ShadchanOverviewTab.tsx`
+- `src/components/atomic-crm/shadchanim/entityDescriptor.test.tsx`
+
+**shadchanim/ (deleted):**
+- `src/components/atomic-crm/shadchanim/entityDescriptor.ts`
+- `src/components/atomic-crm/shadchanim/ShadchanShow.tsx`
+
+**shadchanim/ (modified):**
+- `src/components/atomic-crm/shadchanim/index.ts`
+- `src/components/atomic-crm/shadchanim/ShadchanHeader.tsx`
+- `src/components/atomic-crm/shadchanim/ShadchanInputs.tsx`
+- `src/components/atomic-crm/shadchanim/ShadchanCard.tsx`
+- `src/components/atomic-crm/shadchanim/ShadchanRow.tsx`
+- `src/components/atomic-crm/shadchanim/ShadchanRow.test.tsx`
+- `src/components/atomic-crm/shadchanim/ShadchanCardGrid.test.tsx`
+- `src/components/atomic-crm/shadchanim/ShadchanList.test.tsx`
+
+**entity360/:**
+- `src/components/atomic-crm/entity360/ad24Conformance.ts`
+- `src/components/atomic-crm/entity360/registry.stubs.test.ts`
+- `src/components/atomic-crm/entity360/entityDescriptor.test.ts`
+
+**providers/:**
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.summaryStats.test.ts`
+
+**Other:**
+- `src/components/atomic-crm/types.ts`
+- `src/components/atomic-crm/reminders/ReminderCard.test.tsx`
+- `src/components/admin/edit-button.test.tsx` (out-of-scope fix — see Debug Log)
+- `src/components/admin/show-button.test.tsx` (out-of-scope fix — see Debug Log)
+- `e2e/entity-list-search.spec.ts`
+- `registry.json` (regenerated)
