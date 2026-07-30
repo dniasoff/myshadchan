@@ -1,6 +1,10 @@
+---
+baseline_commit: 9d3157a
+---
+
 # Story 5.3: Resume tab with version history
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -127,8 +131,8 @@ same three.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Storage bucket and RLS** (AC: 4)
-  - [ ] `supabase/schemas/07_storage.sql`: create the `documents` bucket
+- [x] **Task 1 — Storage bucket and RLS** (AC: 4)
+  - [x] `supabase/schemas/07_storage.sql`: create the `documents` bucket
         (`insert into storage.buckets (id, name, public) values ('documents', 'documents', false)
         on conflict (id) do nothing;` — match the `entity-files` idiom at `:68-70`) and **exactly
         3 policies (select / insert / delete — never update)** scoped by
@@ -139,27 +143,27 @@ same three.
         **`current_context_id()`, never `current_account_id()`:** the latter no longer exists
         (Epic 2 Story 2.1 deleted it), so a policy naming it fails to apply.
         **Do not touch the existing `attachments` or `entity-files` buckets or their policies.**
-  - [ ] Carry a comment block above the new bucket in the shape of `07_storage.sql:46-67`,
+  - [x] Carry a comment block above the new bucket in the shape of `07_storage.sql:46-67`,
         recording (a) why this is a third bucket rather than reuse — the permissive-OR argument
         above — and (b) that the absence of an UPDATE policy is deliberate and asserted by
         `supabase/tests/context_rls_hardening.sql:141-146`.
-  - [ ] **Correct two now-stale prose claims in the same diff.** `07_storage.sql:6-7` says *"The
+  - [x] **Correct two now-stale prose claims in the same diff.** `07_storage.sql:6-7` says *"The
         `attachments` bucket holds resumes and photos"* and
         `supabase/tests/context_rls_hardening.sql:8-11` repeats it. After this story and 5.4 that
         is false — resumes and photos live in `documents`. Reword both; do not change any policy
         while doing it.
-  - [ ] Generate + hand-check the migration exactly as for any policy change (`db diff` over
+  - [x] Generate + hand-check the migration exactly as for any policy change (`db diff` over
         storage objects is often incomplete — verify all 3 policies and the bucket insert exist
         in the generated file before applying).
-  - [ ] Add the AC-4 negative test as a **new pair**, `supabase/tests/documents_storage.sql` +
+  - [x] Add the AC-4 negative test as a **new pair**, `supabase/tests/documents_storage.sql` +
         `supabase/tests/documents_storage.test.ts`. Every `.sql` suite in that directory has a
         paired `.test.ts` runner — 13 pairs at HEAD, no exceptions; copy `entity_files.test.ts`'s shape
         (it shells `psql` via `dbSuiteHelpers.ts`'s `DB_URL`/`bailIfDbUnreachable` and turns each
         emitted result row into a named test). Seed two accounts, write a path under each, assert
         account A's client can neither `select` nor `delete` account B's path, and that a path
         under a non-`resumes/` prefix is unreadable by its own writer.
-- [ ] **Task 2 — Server-side append (no client read-modify-write)** (AC: 2)
-  - [ ] New SQL function `public.add_resume_file(p_shidduchim_id bigint, p_path text,
+- [x] **Task 2 — Server-side append (no client read-modify-write)** (AC: 2)
+  - [x] New SQL function `public.add_resume_file(p_shidduchim_id bigint, p_path text,
         p_filename text, p_mime_type text, p_size bigint)` in `supabase/schemas/02_functions.sql`:
         validates the shidduch belongs to `current_context_id()`, upserts the `resumes` row
         (creating it on first upload — note `resumes_shidduchim_id_key unique (shidduchim_id)`
@@ -168,68 +172,68 @@ same three.
         atomically, so two concurrent uploads cannot silently overwrite each other's entry.
         `current_member_id()` (`02_functions.sql:242`) is the shipped caller-resolution function
         — reuse it, do not re-derive the member lookup inline.
-  - [ ] **`supabase/schemas/06_grants.sql`, not `02_functions.sql`** — every function's
+  - [x] **`supabase/schemas/06_grants.sql`, not `02_functions.sql`** — every function's
         `revoke all … from public, anon` + `grant execute … to authenticated, service_role`
         triple lives in the grants file (see `06_grants.sql:226-241` for the shape). A function
         added without its grant block is reachable by nobody. Follow the doc-comment convention
         of `add_redt` / `add_school` / `log_reference_call` (`02_functions.sql:2288`) for the
         function itself.
-- [ ] **Task 3 — Frontend and the tab mount** (AC: 1, 3, 5, 6)
-  - [ ] New folder `src/components/atomic-crm/resumes/` (a resume is its own domain, shared by
+- [x] **Task 3 — Frontend and the tab mount** (AC: 1, 3, 5, 6)
+  - [x] New folder `src/components/atomic-crm/resumes/` (a resume is its own domain, shared by
         the shidduch and — Story 5.8 — the single; do not nest it inside `shidduchim/`).
-  - [ ] `ResumeTab.tsx`: the descriptor's `resume` tab entry point — reads the shidduch via
+  - [x] `ResumeTab.tsx`: the descriptor's `resume` tab entry point — reads the shidduch via
         `useRecordContext()` and composes `ResumeVersionList` + `ResumeUpload` (plus AC-3's empty
         state). It is what the descriptor's `render` returns; without it the `render: () =>
         <ResumeTab />` below names a component nothing creates.
-  - [ ] `ResumeVersionList.tsx`: renders `resumes.files` newest-first (sort client-side by
+  - [x] `ResumeVersionList.tsx`: renders `resumes.files` newest-first (sort client-side by
         `uploaded_at desc` — the array is append-only, not stored sorted); each entry links a
         signed download URL fetched **on demand, per click** (do not pre-sign every entry on list
         load — `providers/supabase/entityFiles.ts:23-27` is the shipped precedent, and its TTL
         constant `ENTITY_FILE_URL_TTL_SECONDS = 60` is the right order of magnitude for a
         per-click URL).
-  - [ ] `ResumeUpload.tsx`: file picker → upload to `documents` at the AC-4 path → call
+  - [x] `ResumeUpload.tsx`: file picker → upload to `documents` at the AC-4 path → call
         `add_resume_file`. Add the matching `CrmDataProvider` custom method
         `uploadResumeFile({ shidduchimId, file }): Promise<Resume>` in
         `providers/supabase/dataProvider.ts` (which is where `CrmDataProvider` is declared;
         `providers/types.ts:1` only re-exports it), mirroring `addRedt` /`addSchool`
         (`dataProvider.ts:191-223`) — a thin wrapper over the RPC.
-  - [ ] Mirror in `providers/fakerest/dataProvider.ts` (AD-10: every custom method is kept in
+  - [x] Mirror in `providers/fakerest/dataProvider.ts` (AD-10: every custom method is kept in
         sync in both providers; see `:808-880` for the existing three).
-  - [ ] **Move the tab key.** In `shidduchim/entityDescriptor.ts`: add
+  - [x] **Move the tab key.** In `shidduchim/entityDescriptor.ts`: add
         `{ key: "resume", render: () => <ResumeTab /> }` to `tabs` **in canonical position**
         (`resume` follows `overview` — `ad24Conformance.ts:216-229`) and **delete `"resume"` from
         `pendingTabs`**. Do **not** add a `label`: "Resume" is already the i18n default
         (`entity360/tabKeys.ts:49`, `providers/commons/englishCrmMessages.ts:389`), and an
         override would require a "why THIS entity deviates" comment
         (`entity360/entityDescriptor.ts:97-105`) for a deviation that does not exist.
-  - [ ] **`render` is arity-zero** (`entityDescriptor.ts:106-112`). The tab component reaches the
+  - [x] **`render` is arity-zero** (`entityDescriptor.ts:106-112`). The tab component reaches the
         shidduch through `useRecordContext()` — `EntityShow` mounts inside `ShowBase`, so a
         `RecordContext` always exists. Do not thread the record in as a prop, and do not add a
         prop to the descriptor to carry it.
-  - [ ] Update `entity360/registry.stubs.test.ts`'s pinned `shidduchim` row (`:36-50`) — the
+  - [x] Update `entity360/registry.stubs.test.ts`'s pinned `shidduchim` row (`:36-50`) — the
         `pendingTabs` literal loses `"resume"`. Note the file's blanket
         `expect(descriptor?.tabs).toEqual([])` at `:94` also goes red for `shidduchim` once 5.1
         lands; if 5.1 has not already reshaped that assertion, reshape it here rather than
         deleting it.
-- [ ] **Task 4 — Types, i18n and tests**
-  - [ ] `types.ts`: add a `ResumeFileVersion` type (`path`, `filename`, `uploaded_at`,
+- [x] **Task 4 — Types, i18n and tests**
+  - [x] `types.ts`: add a `ResumeFileVersion` type (`path`, `filename`, `uploaded_at`,
         `uploaded_by`, `mime_type`, `size`) and change `Resume.files` (`:427`) from `unknown` to
         `ResumeFileVersion[] | null`.
-  - [ ] **Both i18n catalogues** — `providers/commons/englishCrmMessages.ts` **and**
+  - [x] **Both i18n catalogues** — `providers/commons/englishCrmMessages.ts` **and**
         `frenchCrmMessages.ts` — for this story's content strings (empty state, upload button,
         version-row labels, error notifications). `i18nProvider` runs `allowMissing: true`, so a
         key added only to English falls back silently and is never caught by a test. **No
         `crm.entity360.tab.*` key is needed** — all 15 tab labels already ship
         (`englishCrmMessages.ts:381-397`).
-  - [ ] Component tests for `ResumeVersionList` / `ResumeUpload` covering empty, loading and
+  - [x] Component tests for `ResumeVersionList` / `ResumeUpload` covering empty, loading and
         error states (`.claude/rules/testing.md`). **Stack:** `vitest-browser-react`'s `render`
         in Chromium, with `CoreAdminContext` + `TestMemoryRouter` from `ra-core` and the FakeRest
         provider — copy `entity360/tabs/FilesTab.test.tsx:1-16`. **React Testing Library is not a
         dependency of this repo**; do not import `@testing-library/react`.
-  - [ ] A DB test for `add_resume_file`'s append behaviour, in the
+  - [x] A DB test for `add_resume_file`'s append behaviour, in the
         `supabase/tests/documents_storage.{sql,test.ts}` pair from Task 1 (or its own pair — but
         a `.sql` file without a `.test.ts` runner never executes).
-  - [ ] `make typecheck && npm run lint && make test`, plus `npm run test:unit:db` (needs
+  - [x] `make typecheck && npm run lint && make test`, plus `npm run test:unit:db` (needs
         `make start`) — the last is the only thing that runs Task 1's negative test and
         `context_rls_hardening`.
 
@@ -327,8 +331,113 @@ having satisfied AD-9.
 
 ### Agent Model Used
 
+Claude (bmad-dev-story workflow), STACK_ID=3 / STACK_OWNER=5-3.
+
 ### Debug Log References
+
+- `npx supabase db diff --local` was run twice (once before any schema edit, once after) to
+  fingerprint a pre-existing, unrelated diff artifact: even with zero changes, `db diff` re-emits a
+  drop+recreate of `reference_links_summary` / `shadchan_stats` / `shidduchim_summary` /
+  `singles_summary` (security_invoker stripped, per the repo's known `db diff`-and-views quirk —
+  already documented and hand-fixed once in 5-2's migration). Confirmed reproducible independent of
+  this story's changes, so the generated migration excludes those four statements entirely rather
+  than re-doing unrelated work; the post-change diff was re-verified to contain nothing else besides
+  the same pre-existing noise.
+- `db diff` did not emit the `insert into storage.buckets (...) values ('documents', ...)` statement
+  at all (the story's own warning: "db diff over storage objects is often incomplete") — hand-added
+  in the same position 07_storage.sql itself uses.
+- `supabase migration up --local` applied the new migration cleanly; `npm run test:unit:db` (16
+  files, 496 tests) passed afterward, including `context_rls_hardening` (the table-wide no-UPDATE-
+  policy invariant this story could have broken) and the new `documents_storage` suite (15 checks).
 
 ### Completion Notes List
 
+- Storage: added the `documents` bucket (private) with exactly 3 policies (select/insert/delete,
+  scoped to `bucket_id = 'documents' AND [1] = current_context_id() AND [2] = 'resumes'`) — no UPDATE
+  policy, verified `context_rls_hardening.sql`'s table-wide invariant stays green. Corrected the two
+  stale "attachments holds resumes and photos" prose comments (07_storage.sql, context_rls_hardening.sql)
+  without touching either bucket's policies.
+- DB function: `add_resume_file(p_shidduchim_id, p_path, p_filename, p_mime_type, p_size)` —
+  SECURITY INVOKER, account-ownership check, upserts `resumes` on `shidduchim_id` conflict and
+  appends to `files` inside the `ON CONFLICT ... DO UPDATE`'s own row-locked read (never a
+  client-supplied stale value), so two calls append two entries rather than one overwriting the
+  other. Grants added to `06_grants.sql` (not `02_functions.sql`).
+- New `documents_storage.{sql,test.ts}` pair (15 checks): cross-account SELECT/INSERT/DELETE denial
+  under the `resumes/` prefix, deny-by-default for a non-`resumes/` prefix (Story 5.4's future
+  `photos/` prefix stays untouched), `add_resume_file`'s append-only behaviour (two calls -> array
+  length 2, first entry's `path`/`uploaded_at` byte-identical afterward), and the same
+  account-ownership guard `add_redt`/`add_school` already carry.
+- Frontend: new `resumes/` domain folder (`ResumeTab`, `ResumeUpload`, `ResumeVersionList`) —
+  `ResumeTab` is the descriptor's `render` target, arity-zero, reaching the shidduch via
+  `useRecordContext()`. `ResumeVersionList` reads the shidduch's single `resumes` row and sorts
+  `files` newest-first client-side (append-only, not stored sorted); AC-3's empty state covers both
+  "no `resumes` row yet" and "row exists with an empty `files` array". Download mints a signed URL
+  per click via a new `signResumeFileUrl` custom method (60s TTL, matching `ENTITY_FILE_URL_TTL_SECONDS`'s
+  order of magnitude, never `ATTACHMENT_URL_TTL_SECONDS`).
+- Provider: `providers/supabase/resumes.ts` (`uploadResumeFile`, `signResumeFileUrl`, modelled on
+  `entityFiles.ts`) wired into `dataProvider.ts`'s custom-methods overlay; mirrored in
+  `providers/fakerest/internal/resumes.ts` + `providers/fakerest/dataProvider.ts` (AD-10) with its
+  own blob-URL map, separate from `entityFileBlobUrls`.
+- Descriptor: `shidduchim/entityDescriptor.tsx` — `{ key: "resume", render: () => <ResumeTab /> }`
+  added to `tabs` in canonical position (after `overview`), `"resume"` removed from `pendingTabs`,
+  in the same diff. `entity360/registry.stubs.test.ts`'s pinned `shidduchim` row updated to match
+  (`tabs` gains `resume`, `pendingTabs` loses it) — 5.1 had already reshaped this file into
+  `describe.each`, so no further reshape was needed (the story's own hedge).
+- Types: `ResumeFileVersion` added; `Resume.files` widened from `unknown` to
+  `ResumeFileVersion[] | null`.
+- i18n: `crm.entity360.resume.*` (empty/error/upload/uploadError/download/downloadError) added to
+  both `englishCrmMessages.ts` and `frenchCrmMessages.ts`. No `crm.entity360.tab.*` key needed
+  ("Resume" was already the shipped default).
+- Tests: `ResumeUpload.test.tsx`, `ResumeVersionList.test.tsx` (loading/empty/error/ordering/signed-
+  URL-per-click), and `ResumeTab.test.tsx` (a real FakeRest round trip proving `useRefresh()`'s
+  global invalidation makes an upload show up in the sibling list, and that a second upload appends
+  rather than replaces).
+- Gates run and green: `make typecheck`, `npm run lint` (0 warnings), `npx vitest run` (187 files /
+  1927 tests), `make build`, `npx prettier --check .` (no new file flagged — all pre-existing
+  warnings are in `doc/`, `.github/`, `.lintstagedrc`, none touched by this story),
+  `check-retired-names`, `check-suppressions`, `check-route-convention`,
+  `check-tailwind-arbitrary-var` (all `EXIT=0`), `npm run test:unit:db` (16 files / 496 tests,
+  including the new suite), `supabase db diff --local` (hand-verified, see Debug Log).
+  `make test STACK_ID=3` was also run: the DB project's suites report skipped (this story required
+  no e2e/browser flow, so no `make start-app-e2e`/`start-supabase-e2e` stack was started under
+  STACK_ID 3 — `bailIfDbUnreachable` skips gracefully outside CI); DB coverage was independently
+  confirmed via `npm run test:unit:db` against the local dev Supabase stack instead.
+- Not done / deferred, by design: no `useLatestResumeFile` extraction — Story 5.7's own task text
+  (`5-7-shidduch-right-rail.md` Task 3) defers that extraction to itself ("if it does not already
+  exist as a reusable function"), so building it here would be scope creep the pre-flight brief's
+  §8 warns against.
+
 ### File List
+
+- `supabase/schemas/07_storage.sql` (new `documents` bucket + 3 policies; stale prose corrected)
+- `supabase/schemas/02_functions.sql` (`add_resume_file`)
+- `supabase/schemas/06_grants.sql` (`add_resume_file` grants)
+- `supabase/tests/context_rls_hardening.sql` (stale prose corrected, no policy change)
+- `supabase/tests/documents_storage.sql` (new)
+- `supabase/tests/documents_storage.test.ts` (new)
+- `supabase/migrations/20260730025903_resume_documents_bucket.sql` (new)
+- `src/components/atomic-crm/types.ts` (`ResumeFileVersion`, `Resume.files` widened)
+- `src/components/atomic-crm/resumes/ResumeTab.tsx` (new)
+- `src/components/atomic-crm/resumes/ResumeTab.test.tsx` (new)
+- `src/components/atomic-crm/resumes/ResumeUpload.tsx` (new)
+- `src/components/atomic-crm/resumes/ResumeUpload.test.tsx` (new)
+- `src/components/atomic-crm/resumes/ResumeVersionList.tsx` (new)
+- `src/components/atomic-crm/resumes/ResumeVersionList.test.tsx` (new)
+- `src/components/atomic-crm/providers/supabase/resumes.ts` (new)
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts` (wires `uploadResumeFile` /
+  `signResumeFileUrl`)
+- `src/components/atomic-crm/providers/fakerest/internal/resumes.ts` (new)
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts` (AD-10 mirror wiring)
+- `src/components/atomic-crm/shidduchim/entityDescriptor.tsx` (`resume` moved into `tabs`)
+- `src/components/atomic-crm/entity360/registry.stubs.test.ts` (pinned `shidduchim` row updated)
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (`crm.entity360.resume.*`)
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (`crm.entity360.resume.*`)
+- `registry.json` (regenerated — 4 new source files)
+
+## Change Log
+
+- 2026-07-30: Story implemented — `documents` storage bucket (3 policies, no UPDATE),
+  `add_resume_file()` server-side append function, `resumes/` frontend domain (ResumeTab /
+  ResumeUpload / ResumeVersionList), `resume` moved from `pendingTabs` into `tabs` on the
+  `shidduchim` descriptor. All gates green (typecheck, lint, full unit suite, DB suite, build,
+  prettier, four CI guards). Status -> review.
