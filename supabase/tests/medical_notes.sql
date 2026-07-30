@@ -8,11 +8,13 @@
 -- self_manager members must see the row. A fifth case: a member of a
 -- SECOND account sees zero rows.
 --
--- Five logins, two household accounts. Account A holds all four roles so
+-- Six logins, two household accounts. Account A holds all four roles so
 -- every negative/positive case is checked against the SAME row, under the
 -- SAME account_id — the account-scoping half (AC 3's "account_id =
 -- current_context_id()") is exercised separately by the second-account case
--- (u5), never conflated with the role check.
+-- (u5), never conflated with the role check. u6 gets NO account_members row
+-- at all — the fail-closed case the policy's own comment claims but that no
+-- check here previously exercised (see (k)).
 --
 -- Every check appends one row to `results`; the script emits them as JSON at
 -- the end and rolls back, so it leaves nothing behind. The runner
@@ -34,8 +36,9 @@ grant all on results to public;
 grant all on ids to public;
 
 -- ---------------------------------------------------------------------------
--- Arrange: five logins. u1-u4 are the four roles inside household account A;
--- u5 is a parent_admin of a SEPARATE household account B (AC 3's fifth case).
+-- Arrange: six logins. u1-u4 are the four roles inside household account A;
+-- u5 is a parent_admin of a SEPARATE household account B (AC 3's fifth
+-- case); u6 gets no account_members row anywhere (case (k)).
 -- ---------------------------------------------------------------------------
 insert into auth.users (id, instance_id, aud, role, email)
 values
@@ -43,7 +46,8 @@ values
   ('e6222222-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'mn-single@test.local'),
   ('e6333333-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'mn-helper@test.local'),
   ('e6444444-4444-4444-4444-444444444444', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'mn-selfmgr@test.local'),
-  ('e6555555-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'mn-foreign@test.local');
+  ('e6555555-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'mn-foreign@test.local'),
+  ('e6666666-6666-6666-6666-666666666666', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'mn-nobody@test.local');
 
 delete from public.account_members;
 
@@ -241,6 +245,33 @@ select '(j) anon: holds no privilege on public.medical_notes',
          select 1 from information_schema.role_table_grants
          where table_schema = 'public' and table_name = 'medical_notes' and grantee = 'anon'
        );
+
+-- ---------------------------------------------------------------------------
+-- (k) An AUTHENTICATED caller with ZERO active memberships anywhere sees
+-- zero rows — the policy comment's own fail-closed claim (05_policies.sql:
+-- "when the caller holds no active membership current_member_id() returns
+-- null, am.id = null matches nothing"), asserted directly rather than only
+-- implied by (c)/(d)'s role checks, which both still resolve a real
+-- context. u6 has an auth.users row but no account_members row at all, so
+-- current_context_id() itself returns NULL (references_entity.sql's
+-- "a user with no membership resolves to NO account" precedent) — double
+-- fail-closed, same as the UI-layer AC 2(b) proof.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e6666666-6666-6666-6666-666666666666","role":"authenticated"}';
+
+insert into results (name, passed)
+select '(k) an authenticated caller with zero active memberships resolves to no active context',
+       public.current_context_id() is null;
+
+insert into results (name, passed)
+select '(k) an authenticated caller with zero active memberships sees zero medical_notes rows (fails closed)',
+       (select count(*) from public.medical_notes) = 0;
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e6111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
 -- ---------------------------------------------------------------------------
 -- Emit the report as a single JSON array line, then undo everything.

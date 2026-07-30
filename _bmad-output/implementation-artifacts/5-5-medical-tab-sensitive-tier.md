@@ -433,6 +433,98 @@ Claude Sonnet 5 (bmad-dev-story workflow)
   `make test STACK_ID=3` (1994/1994, against a freshly-provisioned stack —
   stopped afterward per the concurrency rules).
 
+### Review Fixes (adversarial review response, `NEEDS-FIX` verdict)
+
+Fixed the one blocker, adopted one of the two advisory residuals as a should-fix,
+used the reviewer's own optional suggestion instead of deleting code, corrected two
+Dev Agent Record over-claims, and left two findings unactioned with evidence below.
+
+1. **Finding 1 (BLOCKER) — the shadchan case in `entityDescriptor.test.tsx` was
+   vacuous.** Confirmed exactly as reported: the case had no positive anchor, so
+   `not.toBeInTheDocument()` on "Medical" was satisfied at t=0, before the tab strip
+   had even mounted — it stayed green while deleting `visibleTo` from the descriptor
+   entirely (making the tab visible to every role). Added the same
+   `getByRole("tab", { name: "Overview" })` positive-anchor line the single/helper
+   cases already carry, immediately before the negative assertion. Re-ran the
+   reviewer's own mutation (deleting `visibleTo` from the `medical` tab entry) by
+   hand against the fixed test: it now goes red (previously stayed green), matching
+   the reviewer's proof-by-construction. `entityDescriptor.test.tsx` still passes
+   green on the unmodified descriptor.
+2. **Recommended optional fix — the never-exercised `role?` parameter.** Used it
+   rather than dropping it, per the reviewer's own alternative ("or use it to assert
+   AC-2(b)'s undefined-role fail-closed on the real descriptor"): added
+   `"an unresolved role (no active membership) never sees the Medical tab — AC 2(b),
+   fails closed"`, calling `renderShidduchShow()` with no role at all (empty
+   `MyContext[]`, so `pickActiveRole` resolves `undefined` and `useMyContexts` is
+   already resolved, not pending). This is a real, previously-missing proof of the
+   behaviour `EntityShow.tsx`'s own doc comment claims ("An `undefined` role...
+   fails closed the same way an insufficient one does") on the real registered
+   descriptor, not merely on the generic mechanism.
+3. **Residual (advisory, adopted) — no DB-layer test for "authenticated caller with
+   zero active memberships."** The reviewer flagged this as advisory, not blocking,
+   but I agree it belongs in this story's own suite: AC-3 calls RLS "the
+   authoritative boundary" for the most sensitive table in the epic, the gap is the
+   exact fail-closed claim the policy's own comment makes
+   (`05_policies.sql`: "when the caller holds no active membership
+   `current_member_id()` returns null... fails closed"), and the fix is cheap and
+   fully precedented (`references_entity.sql`'s "a user with no membership resolves
+   to NO account" case). Added a sixth login (`u6`, `auth.users` row, zero
+   `account_members` rows anywhere) and two new checks, `(k)`, to
+   `supabase/tests/medical_notes.sql`: `current_context_id()` resolves `NULL` for
+   that caller, and `select * from medical_notes` returns zero rows for them. Bumped
+   `medical_notes.test.ts`'s `toBeGreaterThanOrEqual` floor from 14 to 16 (2 new
+   checks on top of the suite's actual pre-fix count of 14 — see Finding 4 below).
+   Ran the new pair against a pre-fix copy of the policy (temporarily replacing the
+   `for all` predicate with a version that grants any authenticated caller) to
+   confirm both go red before the real policy is restored — they are genuinely
+   falsifiable, not vacuously true.
+4. **Finding — Dev Agent Record over-claims, corrected.** The original Task 4
+   completion note above claims "15 checks"; the actual pre-fix count was 14 (the
+   review verified this directly and the runner's own `>= 14` floor already agreed).
+   Left that sentence in place rather than edited, per this repo's own review-fix
+   convention (the review trail stays intact) — **correction:** it was 14, not 15,
+   before this fix; it is 16 now that Finding 3's two checks are added. Separately,
+   the review noted the same completion note's DB suite did not, at the time,
+   contain any check for "no active membership" — true when written; Finding 3
+   above closes that specific gap, so the sentence is accurate as of this commit
+   even though it was not when first written.
+5. **Finding — the `entityDescriptor.test.tsx` completion note's "absent... for
+   `single`/`helper`/`shadchan`" claim.** The review's proof-by-construction showed
+   the shadchan third of that claim was, at the time, asserted by a vacuous test —
+   not false as a claim about the shipped descriptor (the descriptor itself has
+   always denied `shadchan`, structurally, via the allow-list), but unearned as a
+   claim about what the test file proved. Finding 1's fix (and Finding 2's addition)
+   make the test file actually prove it; no change needed to the sentence itself.
+6. **Finding 2 (advisory) — the i18n keys are untested. Not actioned, disagree with
+   fixing it inside this story.** The review's own characterization is the reason:
+   "Correct as shipped, but unguarded — the standing repo condition the brief names
+   at L13, not a 5-5 regression." `i18nProvider`'s `allowMissing: true` plus zero
+   parity testing between `englishCrmMessages.ts` and `frenchCrmMessages.ts` is a
+   repo-wide gap (the pre-flight brief's L13 names it against a different story,
+   `interactionLabels.ts`/activity kinds) that predates this story and is shared by
+   every tab that ships i18n content, not specific to `medical`. Building a parity
+   test harness for two catalogues is a repo-level investment outside this story's
+   scope and its `STACK_ID=3` file-ownership lease. Hand-verified (as the review
+   already did) that both catalogues' `crm.entity360.medical.*` keys resolve
+   correctly in English and French — no content defect exists, only the absence of
+   a guard that nothing else in the repo has either.
+7. **Residual (advisory) — `MedicalTab.tsx`'s `notify(error.message)` surfaces the
+   raw server error string. Not actioned.** The review's own framing already
+   answers this: "Consistent with every other tab, so not a regression." Changing
+   only this tab's error handling would make it diverge from every other tab's
+   pattern for no story-specific reason; a repo-wide error-message policy change
+   (if wanted) belongs in its own story, not folded into this one under review-fix
+   pressure.
+
+Re-ran the full gate after all fixes — see the top-level Change Log entry below for
+real output. `npm run test:unit:db` went from 543 to 545 (the two new `(k)` checks in
+`medical_notes.sql`, each turning into one named assertion in
+`medical_notes.test.ts`). `npx vitest run` (the full multi-project run, which already
+includes the `db` project's suites, `medical_notes.test.ts` among them) went from
+1994 to 1997 — the same two new DB checks plus one new frontend case in
+`entityDescriptor.test.tsx` (the AC-2(b) undefined-role case; the anchor line added
+to the existing shadchan case does not add a test).
+
 ### File List
 
 - `supabase/schemas/01_tables.sql` (modified)
@@ -440,15 +532,20 @@ Claude Sonnet 5 (bmad-dev-story workflow)
 - `supabase/schemas/05_policies.sql` (modified)
 - `supabase/schemas/06_grants.sql` (modified)
 - `supabase/migrations/20260730045700_medical_notes.sql` (new)
-- `supabase/tests/medical_notes.sql` (new)
-- `supabase/tests/medical_notes.test.ts` (new)
+- `supabase/tests/medical_notes.sql` (new; **review fix, Finding 3** — added a
+  sixth login with zero `account_members` rows and case `(k)`, the
+  zero-active-memberships fail-closed check)
+- `supabase/tests/medical_notes.test.ts` (new; **review fix, Finding 3** — bumped
+  the check-count floor from 14 to 16)
 - `supabase/tests/household_scope_lift.sql` (modified — catalog-fact literal 12→13)
 - `supabase/tests/context_resolution.sql` (modified — the second, undeclared copy of the same catalog-fact literal, 12→13)
 - `src/components/atomic-crm/types.ts` (modified — `MedicalNote` type)
 - `src/components/atomic-crm/shidduchim/MedicalTab.tsx` (new)
 - `src/components/atomic-crm/shidduchim/MedicalTab.test.tsx` (new)
 - `src/components/atomic-crm/shidduchim/entityDescriptor.tsx` (modified — `medical` tab declared, removed from `pendingTabs`)
-- `src/components/atomic-crm/shidduchim/entityDescriptor.test.tsx` (new)
+- `src/components/atomic-crm/shidduchim/entityDescriptor.test.tsx` (new; **review
+  fix, Finding 1** — added the missing Overview anchor to the shadchan case;
+  **review fix, Finding 2** — added the AC-2(b) undefined-role fail-closed case)
 - `src/components/atomic-crm/entity360/registry.stubs.test.ts` (modified — pinned `shidduchim` row)
 - `src/components/atomic-crm/providers/fakerest/dataGenerator/types.ts` (modified — `medical_notes` in `Db`)
 - `src/components/atomic-crm/providers/fakerest/dataGenerator/shidduchim.ts` (modified — seeded empty)
@@ -469,3 +566,18 @@ Claude Sonnet 5 (bmad-dev-story workflow)
   (typecheck, lint, full unit suite incl. new `medical_notes` DB suite and a
   new real-descriptor visibility test, build, four CI guards, `make test
   STACK_ID=3` against a fresh stack).
+- 2026-07-30: Review-fix pass (`NEEDS-FIX` verdict) — fixed the vacuous shadchan
+  case in `entityDescriptor.test.tsx` (missing Overview anchor; it stayed green
+  under a `visibleTo`-deletion mutation), added a real AC-2(b) undefined-role
+  fail-closed case using the previously-unexercised optional `role` parameter,
+  and added a DB-layer fail-closed case (`medical_notes.sql` `(k)`, a caller with
+  zero active memberships anywhere) that the review flagged as an untested gap
+  against the policy's own stated guarantee. Corrected two Dev Agent Record
+  over-claims (14, not 15, checks pre-fix; the "no active membership" DB case did
+  not exist pre-fix). Left two advisory findings unactioned with reasoning: the
+  i18n-keys-untested gap (a repo-wide condition predating this story, per the
+  review's own characterization) and `MedicalTab.tsx`'s `notify(error.message)`
+  (consistent with every other tab, per the review's own note). See "Review
+  Fixes" under Dev Agent Record for full detail. Full gate re-run green:
+  `make typecheck`, `make lint`, `npx vitest run` (1997/1997), `npm run
+  test:unit:db` (545/545), `make build`, all four CI guards.

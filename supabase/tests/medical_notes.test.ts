@@ -11,9 +11,10 @@ import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
  *
  * The assertions live in medical_notes.sql, because what they check — RLS
  * restricting every command to `parent_admin`/`self_manager`, account
- * scoping, the household-scope trigger, and `interactions_kind_check`
- * rejecting `'medical'` as a kind — only exists inside Postgres and cannot
- * be meaningfully exercised through a mock. The SQL emits one JSON row per
+ * scoping, the fail-closed case for a caller with zero active memberships,
+ * the household-scope trigger, and `interactions_kind_check` rejecting
+ * `'medical'` as a kind — only exists inside Postgres and cannot be
+ * meaningfully exercised through a mock. The SQL emits one JSON row per
  * check; this file turns each into a named test so a failure names the
  * invariant that broke.
  *
@@ -74,7 +75,7 @@ describe("medical_notes (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   it("runs every AC 3 / AC 4 check group", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(14);
+    expect(checks.length).toBeGreaterThanOrEqual(16);
   });
 
   for (const check of checks) {

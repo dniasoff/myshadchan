@@ -109,7 +109,32 @@ describe("shidduchimDescriptor — the real medical tab's visibleTo (Story 5.5, 
     // Act
     const { screen } = await renderShidduchShow("shadchan");
 
+    // Assert — the Overview anchor proves the tab strip has actually
+    // mounted before the negative assertion runs; without it, `not
+    // .toBeInTheDocument()` on "Medical" is satisfied trivially at t=0
+    // (before render), so this case would stay green even if `visibleTo`
+    // were deleted from the descriptor entirely.
+    await expect
+      .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("tab", { name: "Medical" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("an unresolved role (no active membership) never sees the Medical tab — AC 2(b), fails closed", async () => {
+    // Act — no role at all, mirroring a caller whose active context resolved
+    // but who holds no active membership in it (`useViewerRole()` returns
+    // `role: undefined`, `isPending: false`). `EntityShow.tsx`'s own doc
+    // comment states this must fail closed exactly like an insufficient
+    // role; this is that behaviour asserted on the real registered
+    // descriptor rather than assumed.
+    const { screen } = await renderShidduchShow();
+
     // Assert
+    await expect
+      .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
     await expect
       .element(screen.getByRole("tab", { name: "Medical" }))
       .not.toBeInTheDocument();
