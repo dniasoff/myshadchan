@@ -6,6 +6,7 @@ import { RedtHistorySection } from "./RedtHistorySection";
 import { ShidduchCatchSection } from "./ShidduchCatchSection";
 import { ShidduchFactsCard } from "./ShidduchFactsCard";
 import { ShidduchSchoolsSection } from "./ShidduchSchoolsSection";
+import { SingleInputForm } from "./SingleInputForm";
 
 /**
  * The `overview` tab's content (Story 5.1 AC 5/6) — the four presentational
@@ -42,6 +43,12 @@ export const ShidduchOverviewTab = () => {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Story 6.4 (AC 6): the single's write surface, above the catch
+          section — a canonical tab is the host, never the read-only right
+          rail (ShidduchRightRail.guard.test.ts). Renders nothing for any
+          viewer other than a single. */}
+      <SingleInputForm shidduchId={record.id} />
+
       <ShidduchCatchSection shidduchimId={record.id} />
 
       <ShidduchFactsCard shidduch={record} />

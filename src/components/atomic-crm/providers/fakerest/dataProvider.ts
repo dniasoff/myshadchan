@@ -747,6 +747,20 @@ export const createDataProvider = ({
         // set_interaction_actor_member_id() (Story 3.5): a client can never
         // attribute a row to another member, including by omission.
         const caller = await resolveCallerMembership();
+        // Story 6.4 (AC 1/AC 7): mirrors "Single adds input on a visible
+        // suggestion" (05_policies.sql) — only a single-role session may
+        // create a `single_input` row. The policy's own visibility join
+        // (own single, shared, single-visible pipeline state) is real RLS
+        // enforced only at the database; this FakeRest mirror stops at the
+        // role check, the narrow parity Task 4 asks for.
+        if (
+          params.data?.kind === "single_input" &&
+          caller?.membership?.role !== "single"
+        ) {
+          throw new Error(
+            "only a single may add their own input on a suggestion",
+          );
+        }
         return baseDataProvider.create(resource, {
           ...params,
           data: {
@@ -759,6 +773,21 @@ export const createDataProvider = ({
     },
     async update(resource: string, params: any) {
       if (resource === "interactions") {
+        const previous = params.previousData ?? {};
+        // Story 6.4 (AC 3): a `single_input` row is append-only for every
+        // role, including its own author and a `parent_admin` — mirrors the
+        // real UPDATE policy's `kind not in ('note', 'single_input') or
+        // (kind = 'note' and can_moderate_note(...))` clause, which never
+        // admits `single_input` on either branch. Checked on the STORED
+        // kind (previousData), never `params.data.kind` — kind is also not
+        // client-writable in Postgres (06_grants.sql's column grant is
+        // `body, metadata, deleted_at` only), so a payload can never change
+        // a row INTO or OUT of this kind at update time either way.
+        if (previous.kind === "single_input") {
+          throw new Error(
+            "a single's input is append-only and cannot be edited after submission",
+          );
+        }
         // The structural columns are not client-writable in Postgres
         // (column-level UPDATE is revoked), so they are not writable here.
         const structural = [
@@ -768,7 +797,6 @@ export const createDataProvider = ({
           "target_id",
           "account_id",
         ] as const;
-        const previous = params.previousData ?? {};
         for (const column of structural) {
           if (
             params.data?.[column] !== undefined &&

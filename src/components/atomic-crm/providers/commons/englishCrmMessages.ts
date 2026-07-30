@@ -422,6 +422,17 @@ export const englishCrmMessages = {
       },
       overview: {
         empty: "No details on file yet.",
+        // Story 6.4 — SingleInputForm.tsx, mounted above ShidduchCatchSection
+        // in ShidduchOverviewTab.tsx. Deliberately its own namespace, not
+        // `rail.singleInput` above: that one is the read-only feed's own
+        // UX-DR11 states; this is the write form's, a different surface
+        // (Ruling 2 — the rail never mutates).
+        singleInput: {
+          heading: "Share your input",
+          placeholder: "What do you think of this suggestion?",
+          submit: "Send",
+          error: "Failed to send your input",
+        },
       },
       // Story 3-10 Task 6 / Story 3.3b — RelatedRecordsTab's own pending /
       // error / empty states (UX-DR11).

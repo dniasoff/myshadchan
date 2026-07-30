@@ -341,6 +341,37 @@ describe("shidduchimDescriptor — the real Files tab is scoped to this record (
   });
 });
 
+describe("shidduchimDescriptor — the Overview tab mounts SingleInputForm (Story 6.4, AC 6)", () => {
+  it("shows the single's input form on the Overview tab for a single viewer", async () => {
+    // Act
+    const { screen } = await renderShidduchShow("single");
+    await screen.getByRole("tab", { name: "Overview" }).click();
+
+    // Assert
+    await expect
+      .element(screen.getByText("Share your input"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByPlaceholder("What do you think of this suggestion?"))
+      .toBeInTheDocument();
+  });
+
+  it("never mounts the form (or its heading anywhere) for a parent_admin viewer — the tab content itself gates on role, not only the rail", async () => {
+    // Act
+    const { screen } = await renderShidduchShow("parent_admin");
+    await screen.getByRole("tab", { name: "Overview" }).click();
+
+    // Assert — the Overview tab strip itself proves the tab actually
+    // rendered before the negative assertion runs.
+    await expect
+      .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
+    expect(screen.container.textContent ?? "").not.toContain(
+      "Share your input",
+    );
+  });
+});
+
 describe("shidduchimDescriptor — the right rail (Story 5.7, AC 1 / AC 2 / AC 3 / AC 4)", () => {
   /**
    * Dev Notes: `EntityShow` deliberately withholds `rightRail` while the

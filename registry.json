@@ -180,6 +180,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/SingleInputForm.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/ShidduchimViewSwitch.tsx",
           "type": "registry:component"
         },

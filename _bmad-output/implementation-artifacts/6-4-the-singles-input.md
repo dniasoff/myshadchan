@@ -1,6 +1,10 @@
+---
+baseline_commit: f3784c8
+---
+
 # Story 6.4: The single's input
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -122,24 +126,24 @@ clause, and the write-side form.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Verify the landed prior work this story builds on** (AC: 2, 5)
-  - [ ] `grep -n "single_input" supabase/schemas/01_tables.sql` — 5.7 already
+- [x] **Task 1 — Verify the landed prior work this story builds on** (AC: 2, 5)
+  - [x] `grep -n "single_input" supabase/schemas/01_tables.sql` — 5.7 already
         widened `interactions_kind_check`. If absent, that is a 5.7
         regression to fix at its source, not a constraint for this story to
         add. Read `interactions_scope_check`/`interactions_scope_link_check`
         (`01_tables.sql:647-668`) and confirm a `single_input` row fits the
         existing `target_type = 'shidduch'` / `scope = 'shidduch'` /
         `reference_link_id is null` branch — no constraint change expected.
-  - [ ] `grep -n "set_interaction_actor_member_id" supabase/schemas/04_triggers.sql`
+  - [x] `grep -n "set_interaction_actor_member_id" supabase/schemas/04_triggers.sql`
         — the attribution trigger fires on every insert; this story adds no
         second one.
-  - [ ] Read `shidduchim/SingleInputPanel.tsx` and
+  - [x] Read `shidduchim/SingleInputPanel.tsx` and
         `shidduchim/ShidduchRightRail.guard.test.ts` before writing any
         frontend code, so the read/write split in AC-6 is concrete rather
         than remembered.
 
-- [ ] **Task 2 — The narrow single-role policies on `interactions`** (AC: 1, 3, 4)
-  - [ ] Postgres policies take one command each, so append-only means
+- [x] **Task 2 — The narrow single-role policies on `interactions`** (AC: 1, 3, 4)
+  - [x] Postgres policies take one command each, so append-only means
         **two** new policies, additive to 6.3's default deny (which stays
         untouched) — deliberately no `UPDATE` or `DELETE` policy for
         `single`:
@@ -176,7 +180,7 @@ clause, and the write-side form.
         The `actor_member_id = current_member_id()` clause is satisfied by
         construction (the trigger runs before the check) and pins the policy
         against any future weakening of that trigger.
-  - [ ] **Immutability, in the `using` half as well as `with check`.** On the
+  - [x] **Immutability, in the `using` half as well as `with check`.** On the
         UPDATE policy `"Interactions updatable by author or owning role"`,
         change the tail clause in **both** `using` and `with check` from
         ```sql
@@ -194,28 +198,34 @@ clause, and the write-side form.
         policy's long comment block, which currently explains why
         `single_input` joined the moderatable bucket — replace that
         paragraph rather than leaving it contradicting the code.
-  - [ ] On the INSERT policy `"Interactions insertable within account and
+  - [x] On the INSERT policy `"Interactions insertable within account and
         parent visibility"`, add `and kind <> 'single_input'` to its
         `with check`, so no non-single path can create one. (6.3 already
         added `and public.current_member_role() <> 'single'` to the same
         expression; both clauses stand.)
-  - [ ] Leave the SELECT policy `"Interactions readable within account and
+  - [x] Leave the SELECT policy `"Interactions readable within account and
         parent visibility"` alone beyond 6.3's edit — the parent's rail reads
         through it and must keep working (AC-5).
 
-- [ ] **Task 3 — Generate and hand-check the migration** (AC: 1, 3, 4)
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f single_input_policies`
-  - [ ] Expect `CREATE POLICY` × 2 plus `DROP POLICY`+`CREATE POLICY` (or
+- [x] **Task 3 — Generate and hand-check the migration** (AC: 1, 3, 4)
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f single_input_policies`
+        (run against the STACK_ID=4 stack, not the shared default local
+        instance — see Dev Agent Record for the exact commands).
+  - [x] Expect `CREATE POLICY` × 2 plus `DROP POLICY`+`CREATE POLICY` (or
         `ALTER POLICY`) on the existing UPDATE and INSERT policies — no
         constraint changes (Task 1 verified 5.7 owns the kind widening), no
-        trigger changes, no grant changes.
-  - [ ] `make check-migration-safety`. Policies only; must pass with no new
-        `declared-moves.sql` entry.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
-        Never `db reset --local`, never `db push`.
+        trigger changes, no grant changes. Confirmed: the generated migration
+        is exactly `CREATE POLICY` × 2 (new) + `DROP POLICY`/`CREATE POLICY`
+        × 2 (existing UPDATE and INSERT policies), nothing else.
+  - [x] `make check-migration-safety`. Policies only; must pass with no new
+        `declared-moves.sql` entry. PASSED against STACK_ID=4 (32 seeded rows
+        across 19 tables survived intact).
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
+        Never `db reset --local`, never `db push`. Applied to STACK_ID=4;
+        `db diff` confirmed clean twice afterward.
 
-- [ ] **Task 4 — Frontend: the single's input form** (AC: 6)
-  - [ ] New `src/components/atomic-crm/shidduchim/SingleInputForm.tsx`: a
+- [x] **Task 4 — Frontend: the single's input form** (AC: 6)
+  - [x] New `src/components/atomic-crm/shidduchim/SingleInputForm.tsx`: a
         labelled textarea + submit, rendered only when
         `useViewerRole().role === "single"` (a UX gate — Task 2's RLS is the
         boundary, per AD-1) and nothing at all while `isPending`. It calls
@@ -224,73 +234,144 @@ clause, and the write-side form.
         "single_input", body } })` — no new custom RPC; the `WITH CHECK` does
         all the validation a bespoke function would (Dev Notes "Why no new
         RPC"). It never sends `actor_member_id` or `account_id`.
-  - [ ] Mount it in `shidduchim/ShidduchOverviewTab.tsx`, above
+  - [x] Mount it in `shidduchim/ShidduchOverviewTab.tsx`, above
         `ShidduchCatchSection`. Do **not** touch `ShidduchRightRail.tsx` or
         `SingleInputPanel.tsx` — `ShidduchRightRail.guard.test.ts` will fail
         the moment either imports a mutation hook or a form control, and that
         failure is the intended design constraint, not an obstacle to route
-        around.
-  - [ ] After a successful create, refetch the panel's list (invalidate the
+        around. Neither file was touched; the guard suite passes unmodified.
+  - [x] After a successful create, refetch the panel's list (invalidate the
         `interactions` list query) so the single sees their own submission
-        immediately — their read policy grants it.
-  - [ ] All strings through the `i18nProvider` (AD-18), keys added to **both**
+        immediately — their read policy grants it. Implemented via
+        `useRefresh()` (the same remedy `NotesTab.tsx`'s `AddNoteForm` uses),
+        not a targeted `invalidateQueries` call — broader but always correct,
+        and consistent with the existing codebase idiom.
+  - [x] All strings through the `i18nProvider` (AD-18), keys added to **both**
         `providers/commons/englishCrmMessages.ts` and `frenchCrmMessages.ts`.
         Note `crm.entity360.rail.singleInput.*` keys already exist for the
         read side; the form's keys are new and belong under the shidduch
-        overview namespace, not the rail one.
-  - [ ] FakeRest parity (AD-10): extend the existing `interactions`
+        overview namespace, not the rail one. Landed as
+        `crm.entity360.overview.singleInput.*`, alongside the existing
+        generic `crm.entity360.overview.empty` key both `entity360/tabs/
+        OverviewTab.tsx` and `shadchanim/ShadchanOverviewTab.tsx` already use
+        for their own bespoke Overview tabs — the real "shidduch overview
+        namespace" in this codebase, not a new top-level block.
+  - [x] FakeRest parity (AD-10): extend the existing `interactions`
         structural-guarantee branch in
         `providers/fakerest/dataProvider.ts` (which already emulates the
         no-delete/no-rehome rules and, per
         `dataProvider.interactions.test.ts:197-216`, already accepts a
         `single_input` insert) so it accepts `single_input` **only** for a
         `single` fake session and rejects updates to `single_input` rows for
-        everyone.
+        everyone. The pre-existing "accepts a single_input-kind interaction"
+        test (line ~201) now runs as an explicit single-role session
+        (updated, not left as-is, since the default demo caller is
+        `parent_admin`); new tests cover the non-single rejection and the
+        append-only update guard (for the author and for a separate
+        `parent_admin` session against the same in-memory db), plus a
+        regression proving `note` moderation is untouched.
 
-- [ ] **Task 5 — Tests** (AC: 7)
-  - [ ] New `supabase/tests/single_input.sql` + `.test.ts`, reusing Story
+- [x] **Task 5 — Tests** (AC: 7) — see the regression bullet below and Dev
+      Agent Record for a nuance worth reading even though every item now
+      passes: 3 of the 4 named regression files needed a fix to keep
+      passing once this story's own ACs were implemented correctly, and
+      those fixes were made by another agent coordinating on the shared
+      working tree, not by this story.
+  - [x] New `supabase/tests/single_input.sql` + `.test.ts`, reusing Story
         6.2's fixture helper from `dbSuiteHelpers.ts` where possible.
         Arrange: one household, one `parent_admin`, one `single` linked to a
         `look_into`+`shared` suggestion, one `new` suggestion (same single,
         unwritable), one sibling `single` with her own visible suggestion and
         one `single_input` row on it.
-  - [ ] Assert: as the single, inserting `kind = 'single_input'` on their own
+  - [x] Assert: as the single, inserting `kind = 'single_input'` on their own
         visible suggestion (without naming `actor_member_id`) succeeds and
         stores their own membership id; an insert payload naming someone
         else's `actor_member_id` either raises (column withheld from the
         insert grant) or stores the caller's own id — assert no row ever
         carries the forged id.
-  - [ ] Assert: as the single, inserting on the `new` suggestion raises;
+  - [x] Assert: as the single, inserting on the `new` suggestion raises;
         inserting on the sibling's suggestion raises; inserting
         `kind = 'note'` raises even on their own visible suggestion;
         `update ... set body` on their own `single_input` row affects **zero
         rows** (not raises — this is what the `using`-half edit in Task 2
         buys); `update ... set deleted_at = now()` on it likewise affects
         zero rows.
-  - [ ] Assert: as the `parent_admin`, the single's `single_input` row is
+  - [x] Assert: as the `parent_admin`, the single's `single_input` row is
         readable with the correct `actor_member_id`/`created_at`; inserting a
         `single_input` row raises; updating the single's row affects zero
         rows; soft-deleting it affects zero rows.
-  - [ ] Assert: as the `parent_admin`, updating a `kind = 'note'` row they
+  - [x] Assert: as the `parent_admin`, updating a `kind = 'note'` row they
         authored still works — the moderation path for notes is untouched by
         this story, and a test proving it is what stops Task 2's clause edit
         from over-reaching.
-  - [ ] Assert: as the single, `select * from public.interactions` returns
+  - [x] Assert: as the single, `select * from public.interactions` returns
         only their own `single_input` row(s) — not the sibling's, not the
         parent-seeded `note`/`status_change` rows — and
         `public.interactions_summary` returns the same set.
-  - [ ] Regression: `interaction_note_authorship.sql`,
+  - [x] Regression: `interaction_note_authorship.sql`,
         `interactions_targets.sql`, `single_row_scoping.sql`,
-        `single_field_scoping.sql` all pass **unmodified**.
-  - [ ] Frontend: component test for `SingleInputForm` (renders only for a
+        `single_field_scoping.sql` all pass. **Not literally "unmodified" —
+        verified empirically, not assumed, and worth reading in full even
+        though the end state is green.** `single_row_scoping.sql` passes
+        genuinely unmodified (52/52) — it never touches `interactions`. The
+        other three initially did NOT pass unmodified once Task 2's policy
+        edits were applied, because implementing AC-1/AC-3/AC-7 correctly is
+        exactly what invalidated their pre-6.4 fixtures/assertions:
+        - `interaction_note_authorship.sql` (Story 5.7's suite): its `single_g`
+          fixture had `parent_admin1` INSERT a `kind='single_input'` row
+          directly (to set up the pre-6.4 UPDATE-moderation-escape check),
+          which this story's new `and kind <> 'single_input'` INSERT clause
+          denies, aborting the whole script.
+        - `interactions_targets.sql` (~"AC 5: a single_input-kind interaction
+          on a shidduch-targeted row inserts"): the identical shape,
+          inserting as a `parent_admin`-role login to prove
+          `interactions_kind_check` accepts the kind — denied by RLS before
+          reaching the constraint.
+        - `single_field_scoping.sql` (Story 6.3's own suite): its Leah
+          fixture suggestion is look_into+shared — exactly the shape this
+          story's carve-out opens. Two checks ("AC2: single's INSERT into
+          interactions is denied", "AC7: single sees zero rows in
+          interactions_summary") were blanket "single can insert/read
+          nothing" claims this story deliberately falsifies for this one
+          kind on this one row — a direct logical conflict between 6.3's
+          blanket-deny AC and 6.4's narrow-carve AC over the identical
+          fixture row, not a fixture-authoring accident like the other two.
+        None of these 3 files are in this story's declared ownership. Per
+        `.claude/rules/parallel-ownership.md` ("Out-of-scope work is
+        reported, not taken"), this story did not edit any of them —
+        instead, each conflict was reported live via `SendMessage` to the
+        dispatching session as it was found, naming the exact failing
+        checks, the root cause, and a proposed minimal fix. **All three were
+        subsequently fixed by another agent coordinating on the shared
+        working tree** — `interaction_note_authorship.sql` and
+        `interactions_targets.sql` via the proposed remedy (the one
+        RLS-checked fixture-arrange INSERT in each moved to run as
+        `postgres`/BYPASSRLS instead; the first also gained an anti-vacuity
+        control and an updated AC-2 policy-count assertion for this story's
+        two new policies), `single_field_scoping.sql` via a re-authored pair
+        of assertions (the harder of the three, since it needed the claim
+        itself to change, not just the arrange mechanism). This story does
+        not take credit for those 3 diffs and does not include them in its
+        own commit (`make commit` names only this story's own declared
+        paths) — see Dev Agent Record for the full, live timeline. Final
+        state, re-verified: all four regression suites green
+        (`interaction_note_authorship.test.ts` 31/31,
+        `interactions_targets.test.ts` 35/35,
+        `single_row_scoping.test.ts` 52/52,
+        `single_field_scoping.test.ts` 48/48).
+  - [x] Frontend: component test for `SingleInputForm` (renders only for a
         `single` viewer, renders nothing while `isPending`, submit calls
         `create` with the exact fixed shape and never sends
         `actor_member_id`), plus an assertion that `ShidduchOverviewTab`
         mounts it. `vitest-browser-react` + `TestMemoryRouter`; React Testing
         Library is not a dependency. ≥80% coverage on new/changed files.
-  - [ ] `ShidduchRightRail.guard.test.ts` must pass **unmodified** — it is
-        the mechanical statement of AC-6.
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`.
+  - [x] `ShidduchRightRail.guard.test.ts` must pass **unmodified** — it is
+        the mechanical statement of AC-6. Confirmed unmodified and green.
+  - [x] `make typecheck && npm run lint && make test && npm run test:unit:db`.
+        `typecheck`/`lint` clean. `make test STACK_ID=4`, final run: 215/215
+        test files, 2373/2373 tests green (see the regression bullet above
+        for the live timeline of the 3 files that needed a fix along the
+        way, by another agent, to get there).
 
 ## Dev Notes
 
@@ -434,8 +515,174 @@ E2E:
 
 ### Agent Model Used
 
+Claude (bmad-dev-story workflow), STACK_ID=4 / STACK_OWNER=6.4.
+
 ### Debug Log References
+
+- Empirically verified (not assumed) that Task 2's policy edits, applied
+  exactly as specified, break 3 of the 4 files Task 5 lists as
+  "regression-only, must pass unmodified": generated the migration against a
+  live STACK_ID=4 stack, applied it, and ran each named suite before/after.
+  Baseline (pre-migration): `interaction_note_authorship.test.ts` 29/29,
+  `single_row_scoping.test.ts` 52/52, `interactions_targets.test.ts` and
+  `single_field_scoping.test.ts` green. After applying this story's
+  migration: `interaction_note_authorship.test.ts` aborts entirely
+  (`ERROR: new row violates row-level security policy for table
+  "interactions"` at its own line 275 — a `parent_admin` fixture-arrange
+  INSERT of `kind='single_input'`, legal before this story, illegal after);
+  `interactions_targets.test.ts` loses 1 check (`AC 5: a single_input-kind
+  interaction...inserts`, same shape, same root cause);
+  `single_field_scoping.test.ts` loses 2 checks (`AC2: single's INSERT into
+  interactions is denied`, `AC7: single sees zero rows in
+  interactions_summary` — Leah's own fixture suggestion in that suite is
+  look_into+shared, i.e. exactly the shape this story's carve-out opens, so
+  those two blanket-deny assertions are directly superseded, not merely
+  fixture-broken). `single_row_scoping.sql` stays 52/52 (it never touches
+  `interactions`).
+- Reported this live via `SendMessage` to `main` during implementation
+  (before writing the frontend), naming the 3 files, the exact failing
+  checks, the root cause for each, and a proposed minimal fix per file
+  (change the fixture-arrange INSERT's execution context in the first two;
+  re-author the two blanket-deny assertions in the third to acknowledge the
+  new carve-out, e.g. asserting denial with `kind='note'` instead). This
+  story's own scope was implemented and gated in full without waiting for a
+  reply, per `.claude/rules/parallel-ownership.md` ("Out-of-scope work is
+  reported, not taken... That report is a successful outcome").
+- All 3 were subsequently fixed by another agent, coordinating on the
+  shared working tree, while this story's own frontend/dataProvider/i18n
+  work continued: `interaction_note_authorship.sql` and
+  `interactions_targets.sql` via exactly the proposed remedy (each suite's
+  one RLS-checked fixture-arrange INSERT moved to run as `postgres`/
+  BYPASSRLS instead; the first also gained a new anti-vacuity control and an
+  updated AC-2 policy-count assertion for this story's two new policies),
+  `single_field_scoping.sql` via a re-authored pair of assertions (the
+  harder of the three — a fixture-arrange tweak alone could not have fixed
+  it, since the claim itself was superseded, not merely broken by role). This
+  story did not author any of those 3 diffs and does not include them in its
+  own commit — `make commit` below names only this story's own declared
+  paths; the 3 fixes are left in the working tree for their own owner/wave
+  to commit. Final re-verification, all four green:
+  `interaction_note_authorship.test.ts` 31/31,
+  `interactions_targets.test.ts` 35/35, `single_row_scoping.test.ts` 52/52,
+  `single_field_scoping.test.ts` 48/48. Full `make test STACK_ID=4`:
+  215/215 files, 2373/2373 tests.
+- `make check-migration-safety STACK_ID=4`: PASSED — 32 seeded rows across
+  19 tables survived intact.
+- `supabase db diff --workdir .supabase-e2e-4`: "No schema changes found",
+  run twice after `check-migration-safety`'s own full `db reset` cycle.
 
 ### Completion Notes List
 
+- Implemented exactly the two new policies, the two clause edits, and the
+  comment-block rewrite Task 2 specifies, verbatim to the story's own SQL —
+  no deviation.
+- `SingleInputForm.tsx` is a new, small, focused component (~115 lines):
+  role-gated on `useViewerRole()`, writes via the standard `useCreate` hook
+  (no bespoke RPC), never sends `actor_member_id`/`account_id`, and calls
+  `useRefresh()` after a successful submit (the same idiom `NotesTab.tsx`'s
+  `AddNoteForm` uses) so the right rail's `SingleInputPanel` — a sibling
+  component elsewhere in the 360 view — shows the new row immediately.
+- i18n keys landed as `crm.entity360.overview.singleInput.*`, alongside the
+  existing generic `crm.entity360.overview.empty` key both
+  `entity360/tabs/OverviewTab.tsx` and `shadchanim/ShadchanOverviewTab.tsx`
+  already use for their own bespoke Overview tabs — this IS the "shidduch
+  overview namespace" Task 4 refers to; there is no separate one to create.
+- FakeRest parity in `dataProvider.ts` is two small additions to the
+  existing `interactions` create/update branches: a role check
+  (`kind === "single_input"` requires the caller's resolved membership role
+  to be `"single"`) and an append-only check on the STORED kind
+  (`previousData.kind === "single_input"` always throws on update,
+  regardless of which columns the payload touches). Neither duplicates the
+  real RLS visibility join — the narrow parity Task 4 asks for.
+- **Named cost carried forward, per the story's own Dev Notes**: there is no
+  retraction path for a `single_input` row after this story. A future
+  product decision to add one needs its own AC and its own write path, not a
+  silent re-widening of the UPDATE policy's clause.
+- **Cross-story interaction worth a reviewer's attention, even though it
+  resolved clean**: implementing this story's own ACs correctly made 3
+  pre-existing test files (owned by Stories 5.7, 3.5, and 6.3 respectively)
+  fail. None were in this story's ownership, so none were edited by this
+  story — each was reported live via `SendMessage` with a root cause and a
+  proposed fix, and all 3 were fixed by another agent coordinating on the
+  shared working tree before hand-off (see Debug Log References and the
+  Task 5 regression bullet for the full, empirically-verified timeline).
+  This story's own commit does not include those 3 diffs.
+- All gates are clean: `make typecheck`, `make lint`, `npx prettier --check .`
+  (repo-root run surfaces 16 pre-existing warnings in `.github/workflows/*.yml`
+  and `doc/**/*.mdx` — none touched by this story; `make lint`'s own
+  narrower prettier check, scoped to `{mjs,js,json,ts,tsx,css,md,html}`, is
+  clean), `make build`, all four CI guard scripts
+  (`check-suppressions.mjs`, `check-retired-names.mjs`,
+  `check-route-convention.mjs`, `check-tailwind-arbitrary-var.mjs`), the
+  full `app`/`workers`/`scripts` vitest projects (1289/1289 on `app` alone),
+  `make check-migration-safety`, `supabase db diff` clean twice, and
+  `make test STACK_ID=4` (215/215 files, 2373/2373 tests, final run).
+
 ### File List
+
+Schema / DB:
+- `supabase/schemas/05_policies.sql` — two new policies ("Single reads own
+  input", "Single adds input on a visible suggestion"), the INSERT policy's
+  `and kind <> 'single_input'` clause, the UPDATE policy's `using`/
+  `with check` clause rewrite, and its comment block rewritten.
+- `supabase/migrations/20260730192236_single_input_policies.sql` — new,
+  generated via `supabase db diff` against STACK_ID=4 and hand-checked
+  (`CREATE POLICY` × 2 + `DROP POLICY`/`CREATE POLICY` × 2, nothing else).
+- `supabase/tests/single_input.sql` — new.
+- `supabase/tests/single_input.test.ts` — new.
+
+Frontend:
+- `src/components/atomic-crm/shidduchim/SingleInputForm.tsx` — new.
+- `src/components/atomic-crm/shidduchim/SingleInputForm.test.tsx` — new.
+- `src/components/atomic-crm/shidduchim/ShidduchOverviewTab.tsx` — mounts
+  `SingleInputForm` above `ShidduchCatchSection`.
+- `src/components/atomic-crm/shidduchim/entityDescriptor.test.tsx` — new
+  describe block asserting the Overview tab mounts `SingleInputForm` for a
+  `single` viewer and never for a `parent_admin` viewer.
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts` — the
+  `interactions` create/update branches gain the single-role-only
+  `single_input` insert guard and the append-only update guard.
+- `src/components/atomic-crm/providers/fakerest/dataProvider.interactions.test.ts`
+  — the pre-existing single_input-insert test now runs as an explicit
+  single-role session; new tests cover the non-single rejection, the
+  append-only guard (own author and a separate `parent_admin` session), and
+  the `note`-moderation-untouched regression.
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` — new
+  `entity360.overview.singleInput.*` keys.
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` — same,
+  translated.
+- `registry.json` — regenerated (`make registry-gen`); the only change is
+  the new `SingleInputForm.tsx` entry.
+
+Not touched by this story (regression-only, per this story's own file
+ownership) — see Debug Log References:
+`supabase/tests/interaction_note_authorship.sql`,
+`supabase/tests/interactions_targets.sql`, and
+`supabase/tests/single_field_scoping.sql` (all 3 needed, and received, a fix
+from another agent coordinating on the shared working tree, to keep passing
+once this story's ACs landed — not this story's own commit; see Debug Log
+References for the full timeline and why),
+`supabase/tests/single_row_scoping.sql` (passes genuinely unmodified,
+52/52),
+`supabase/tests/dbSuiteHelpers.ts` (the shared fixture needed no new case),
+`src/components/atomic-crm/shidduchim/ShidduchRightRail.tsx`,
+`src/components/atomic-crm/shidduchim/SingleInputPanel.tsx`,
+`src/components/atomic-crm/shidduchim/ShidduchRightRail.guard.test.ts`,
+`src/components/atomic-crm/entity360/useViewerRole.ts`.
+
+### Change Log
+
+- Two new `interactions` RLS policies (single reads/inserts own
+  `single_input`), the general INSERT policy's `kind <> 'single_input'`
+  clause, and the UPDATE policy narrowed to deny `single_input` to every
+  role — a deliberate append-only decision (Dev Notes), not incidental.
+- New `SingleInputForm.tsx` mounted in the shidduch Overview tab; the
+  single's write surface for their input on a visible suggestion.
+- FakeRest parity for the role-gated insert and the append-only update
+  guard.
+- Flagged, not silently patched: implementing this story's own ACs made 3
+  pre-existing db test files (owned by other stories) fail as a direct,
+  verified consequence — reported live rather than edited out of scope. All
+  3 were subsequently fixed by another agent coordinating on the shared
+  working tree; none are part of this story's own commit. See Task 5 and
+  Dev Agent Record for the full account.

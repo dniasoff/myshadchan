@@ -756,11 +756,20 @@ create policy "Interactions readable within account and parent visibility" on pu
 
 -- Story 6.3 (AC 2): the same deny-the-single-role-by-default clause as the
 -- SELECT policy above, ANDed onto the whole predicate.
+--
+-- Story 6.4 (AC 1/AC 7): `and kind <> 'single_input'` is ANDed on below,
+-- alongside the `<> 'single'` role clause, so no non-single path can ever
+-- create a `single_input` row — that kind has exactly one INSERT path, the
+-- narrow "Single adds input on a visible suggestion" policy just below,
+-- never this general one. Without this clause a `parent_admin`/`helper`
+-- could plant words into a single's own input feed, which is exactly the
+-- forgery AC 2's attribution guarantee exists to rule out.
 create policy "Interactions insertable within account and parent visibility" on public.interactions
     for insert to authenticated
     with check (
         account_id = public.current_context_id()
         and public.current_member_role() <> 'single'
+        and kind <> 'single_input'
         and (
             (
                 scope = 'account'
@@ -809,10 +818,61 @@ create policy "Interactions insertable within account and parent visibility" on 
         )
     );
 
+-- Story 6.4 (AC 1, AC 2, AC 4, AC 7): the one narrow hole in Story 6.3's
+-- "deny `single` by default" wall — additive two-policy pattern (Dev Notes),
+-- deliberately no UPDATE or DELETE policy for `single` anywhere on this
+-- table (AC 3's append-only rule).
+--
+-- SELECT: a single reads back only their OWN `single_input` rows — not a
+-- sibling's, not any other `kind`. `actor_member_id = current_member_id()`
+-- is the whole boundary; it is safe to compare directly here (unlike the
+-- INSERT policy's identical-looking clause below) because a stored row's
+-- `actor_member_id` was already stamped by `set_interaction_actor_member_id`
+-- at insert time and is not client-writable afterward (06_grants.sql column
+-- grant omits it) — there is no forgery window on the read side.
+create policy "Single reads own input" on public.interactions
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() = 'single'
+        and kind = 'single_input'
+        and actor_member_id = public.current_member_id()
+    );
+
+-- INSERT: a single may add `single_input` on a suggestion they can see under
+-- Story 6.2's own visibility rule (own singles row, visibility = 'shared',
+-- is_single_visible_state(pipeline_state)) — the identical three-clause
+-- join "Shidduchim visible to single" (above) already proved, never
+-- re-derived. `actor_member_id = current_member_id()` is satisfied BY
+-- CONSTRUCTION here: `set_interaction_actor_member_id` (04_triggers.sql) is
+-- a BEFORE INSERT trigger, so it has already overwritten whatever the
+-- client sent by the time this WITH CHECK evaluates — the clause pins the
+-- policy against a future weakening of that trigger rather than doing any
+-- live forgery-detection work of its own today.
+create policy "Single adds input on a visible suggestion" on public.interactions
+    for insert to authenticated
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() = 'single'
+        and kind = 'single_input'
+        and actor_member_id = public.current_member_id()
+        and target_type = 'shidduch'
+        and scope = 'shidduch'
+        and exists (
+            select 1
+            from public.shidduchim s
+                join public.singles c on c.id = s.single_id
+            where s.id = interactions.target_id
+              and s.visibility = 'shared'
+              and public.is_single_visible_state(s.pipeline_state)
+              and c.member_id = public.current_member_id()
+        )
+    );
+
 -- The UPDATE policy alone gains AC 3's author-or-owning-role clause,
--- `and (kind not in ('note', 'single_input') or public.can_moderate_note(actor_member_id))`,
--- ANDed onto the same visibility predicate above, in BOTH `using` and
--- `with check`:
+-- `and (kind not in ('note', 'single_input') or (kind = 'note' and
+-- public.can_moderate_note(actor_member_id)))`, ANDed onto the same
+-- visibility predicate above, in BOTH `using` and `with check`:
 --   `using`      — AC 4's own observable is a ZERO ROWS AFFECTED update,
 --                   not a raised error. A with-check-only clause would
 --                   raise instead of silently filtering the row out of the
@@ -822,26 +882,35 @@ create policy "Interactions insertable within account and parent visibility" on 
 -- The `kind not in ('note', 'single_input')` escape means every OTHER
 -- interaction kind (call_logged, status_change, merge, link_created,
 -- link_removed — 01_tables.sql) keeps today's plain account-scoped update
--- behaviour unchanged; notes and single_input rows both gain the
--- author-or-owning-role restriction.
+-- behaviour unchanged; `note` alone reaches `can_moderate_note()`, and
+-- `single_input` satisfies neither branch, so it is denied to every role —
+-- including its own author and a `parent_admin` — full stop.
 --
--- `single_input` joined this bucket in Story 5.7's review-fix pass (finding
--- F2), one migration after `interactions_kind_check` first admitted the
--- kind: a `single_input` row is "the single's own words" on a shidduch, the
--- same authorship shape a `note` has, not a machine-written record like
--- `call_logged`/`status_change`/`merge`/`link_created`/`link_removed` that
--- any account member may legitimately amend. Leaving it in the default
--- bucket would have let any helper rewrite — or soft-delete, via the same
--- UPDATE path — a single's own submitted words. `can_moderate_note()` itself
--- needed no change: it already answers "is the caller this row's author (by
--- user_id) or an owning-role member of the active context", which is exactly
--- the right question for `single_input` too.
+-- Story 6.4 (AC 3) narrows this from what Story 5.7's review-fix pass
+-- (finding F2) shipped: F2 added `single_input` to the SAME bucket as
+-- `note` (`kind not in ('note', 'single_input') or
+-- can_moderate_note(actor_member_id))`), so the author or an owning-role
+-- member could still edit or soft-delete a single's submitted words —
+-- exactly the shape a `note` has. That stopped a HELPER rewriting the
+-- single's voice, but left the single free to revise their own past input,
+-- and an owning-role member free to "correct" it — both of which put words
+-- in the single's mouth that were not there when they hit submit. This
+-- story decides append-only instead (Dev Notes "Append-only — decided,
+-- against a shipped nuance", story 6-4-the-singles-input.md): a
+-- `single_input` row records what was said at the time, not a draft to be
+-- revised, so `kind = 'single_input'` is carved OUT of `can_moderate_note`'s
+-- reach with `(kind = 'note' and can_moderate_note(...))` rather than
+-- calling that function on it at all. `can_moderate_note()` itself needed
+-- no change — the exclusion lives entirely in this policy's own clause —
+-- and the `note` behaviour it still governs is completely untouched.
 -- Story 6.3 (AC 2): the same deny-the-single-role-by-default clause as the
 -- SELECT/INSERT policies above, ANDed onto the whole predicate in BOTH
 -- `using` and `with check` — not merely one of the two, for the same reason
 -- the surrounding comment already states (a `using`-only clause silently
 -- filters, `with check` stops re-pointing a row into a shape the caller was
--- never allowed to target).
+-- never allowed to target). Moot for `single_input` specifically now that no
+-- role reaches it through this policy at all, but the `single` role is
+-- still denied on every OTHER kind through this exact clause, so it stays.
 create policy "Interactions updatable by author or owning role" on public.interactions
     for update to authenticated
     using (
@@ -893,7 +962,8 @@ create policy "Interactions updatable by author or owning role" on public.intera
                 )
             )
         )
-        and (kind not in ('note', 'single_input') or public.can_moderate_note(actor_member_id))
+        and (kind not in ('note', 'single_input')
+             or (kind = 'note' and public.can_moderate_note(actor_member_id)))
     )
     with check (
         account_id = public.current_context_id()
@@ -944,7 +1014,8 @@ create policy "Interactions updatable by author or owning role" on public.intera
                 )
             )
         )
-        and (kind not in ('note', 'single_input') or public.can_moderate_note(actor_member_id))
+        and (kind not in ('note', 'single_input')
+             or (kind = 'note' and public.can_moderate_note(actor_member_id)))
     );
 
 -- identity_signals is READ-ONLY to clients. It is written exclusively by the

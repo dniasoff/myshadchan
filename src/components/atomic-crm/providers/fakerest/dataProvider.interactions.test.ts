@@ -1,4 +1,5 @@
 import { createDataProvider } from "./dataProvider";
+import generateData from "./dataGenerator";
 
 /**
  * Demo mode must refuse exactly what Postgres refuses. These mirror the
@@ -8,6 +9,47 @@ import { createDataProvider } from "./dataProvider";
  */
 
 const makeProvider = () => createDataProvider({ latency: 0, silent: true });
+
+// Story 6.4 — the default demo seed's only account_member is user_id "0",
+// role "parent_admin" (dataGenerator/shidduchim.ts). These two helpers pin
+// identity EXPLICITLY via a custom authProvider, rather than relying on
+// `defaultAuthProvider`'s localStorage-derived fallback (id 0 when no
+// USER_STORAGE_KEY entry exists) — deterministic regardless of what a
+// browser-mode test run's localStorage happens to hold.
+const SINGLE_USER_ID = "story-6-4-single";
+
+const dbWithSingleMember = () => {
+  const db = generateData();
+  const accountId = db.accounts[0].id;
+  db.account_members = [
+    ...db.account_members,
+    {
+      id: 9001,
+      account_id: accountId,
+      user_id: SINGLE_USER_ID,
+      role: "single",
+      status: "active",
+      created_at: "2026-01-01T00:00:00.000Z",
+    },
+  ];
+  return db;
+};
+
+const makeSingleProvider = (db = dbWithSingleMember()) =>
+  createDataProvider({
+    db,
+    latency: 0,
+    silent: true,
+    authProvider: { getIdentity: async () => ({ id: SINGLE_USER_ID }) },
+  });
+
+const makeParentProvider = (db = generateData()) =>
+  createDataProvider({
+    db,
+    latency: 0,
+    silent: true,
+    authProvider: { getIdentity: async () => ({ id: 0 }) },
+  });
 
 const note = (overrides: Record<string, unknown>) => ({
   target_type: "reference",
@@ -196,11 +238,15 @@ describe("interactions guards (FakeRest parity with the database)", () => {
   // Story 5.7 (AC 5/AC 6) — the right rail's SingleInputPanel read path. A
   // single_input row is target_type = 'shidduch', scope = 'shidduch',
   // reference_link_id = null, the same shape every other shidduch-targeted
-  // interaction already uses — no new FakeRest validation branch, just the
-  // widened `InteractionKind` union round-tripping through the AD-10 mirror.
-  it("accepts a single_input-kind interaction targeting a shidduch", async () => {
+  // interaction already uses.
+  //
+  // Story 6.4 narrows WHO may create one: only a single-role session, never
+  // a parent_admin/helper/etc — see the "single_input FakeRest parity"
+  // describe block below for the role guard's own tests. This case is
+  // therefore updated (not left as it shipped in 5.7) to run as a single.
+  it("accepts a single_input-kind interaction targeting a shidduch, for a single-role session", async () => {
     // Arrange
-    const dataProvider = makeProvider();
+    const dataProvider = makeSingleProvider();
 
     // Act
     const { data } = await dataProvider.create("interactions", {
@@ -216,5 +262,93 @@ describe("interactions guards (FakeRest parity with the database)", () => {
     expect(data.kind).toBe("single_input");
     expect(data.target_type).toBe("shidduch");
     expect(data.reference_link_id ?? null).toBeNull();
+  });
+});
+
+describe("single_input FakeRest parity (Story 6.4, AC 1 / AC 3 / AC 7)", () => {
+  it("rejects a single_input insert from a non-single (parent_admin) session", async () => {
+    // Arrange
+    const dataProvider = makeParentProvider();
+
+    // Act / Assert
+    await expect(
+      dataProvider.create("interactions", {
+        data: note({
+          target_type: "shidduch",
+          target_id: 1,
+          kind: "single_input",
+          scope: "shidduch",
+        }),
+      }),
+    ).rejects.toThrow(/only a single may add/i);
+  });
+
+  it("treats a single_input row as append-only, even for its own single author", async () => {
+    // Arrange
+    const db = dbWithSingleMember();
+    const singleProvider = makeSingleProvider(db);
+    const { data: created } = await singleProvider.create("interactions", {
+      data: note({
+        target_type: "shidduch",
+        target_id: 1,
+        kind: "single_input",
+        scope: "shidduch",
+      }),
+    });
+
+    // Act / Assert
+    await expect(
+      singleProvider.update("interactions", {
+        id: created.id,
+        data: { body: "revised after the fact" },
+        previousData: created,
+      }),
+    ).rejects.toThrow(/append-only/i);
+  });
+
+  it("treats a single_input row as append-only for a parent_admin too — no owning-role moderation escape", async () => {
+    // Arrange — the single creates the row; a SEPARATE parent_admin session
+    // against the same in-memory db then tries to moderate it.
+    const db = dbWithSingleMember();
+    const singleProvider = makeSingleProvider(db);
+    const { data: created } = await singleProvider.create("interactions", {
+      data: note({
+        target_type: "shidduch",
+        target_id: 1,
+        kind: "single_input",
+        scope: "shidduch",
+      }),
+    });
+    const parentProvider = makeParentProvider(db);
+
+    // Act / Assert
+    await expect(
+      parentProvider.update("interactions", {
+        id: created.id,
+        data: { deleted_at: "2026-01-01T00:00:00.000Z" },
+        previousData: created,
+      }),
+    ).rejects.toThrow(/append-only/i);
+  });
+
+  it("still allows a parent_admin to update a note they authored — the append-only rule is single_input-specific", async () => {
+    // Arrange — the moderation path for every other kind is untouched by
+    // this story; this is the falsifiable counterpart to the two checks
+    // above (a guard that rejected every update, not just single_input's,
+    // would still pass those two but fail this one).
+    const parentProvider = makeParentProvider();
+    const { data: created } = await parentProvider.create("interactions", {
+      data: note({ scope: "account" }),
+    });
+
+    // Act
+    const { data: updated } = await parentProvider.update("interactions", {
+      id: created.id,
+      data: { body: "corrected wording" },
+      previousData: created,
+    });
+
+    // Assert
+    expect(updated.body).toBe("corrected wording");
   });
 });

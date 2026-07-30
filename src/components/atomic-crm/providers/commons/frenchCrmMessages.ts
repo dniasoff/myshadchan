@@ -396,6 +396,13 @@ export const frenchCrmMessages = {
       },
       overview: {
         empty: "Aucune information enregistrée pour l'instant.",
+        // Story 6.4 — SingleInputForm.tsx.
+        singleInput: {
+          heading: "Partagez votre avis",
+          placeholder: "Que pensez-vous de cette suggestion ?",
+          submit: "Envoyer",
+          error: "Échec de l'envoi de votre avis",
+        },
       },
       related: {
         loading: "Chargement…",
