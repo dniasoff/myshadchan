@@ -140,11 +140,17 @@ test.describe("Entity list sort survives a hard reload (AC 5, AC 10) — /shadch
     await signIn(page, member.email!);
     await page.getByRole("link", { name: "Shadchanim" }).click();
 
-    // `[href$="/show"]` (not `[href*="/shadchanim/"]`, which also matches
-    // the "Add a shadchan" CTA's `/shadchanim/new`) — each card is a
-    // `RecordLink` to `buildRecordPath("shadchanim", id)` ==
-    // `/shadchanim/{id}/show` (shadchanim/entityDescriptor.ts).
-    const shadchanLinks = page.locator('a[href$="/show"]');
+    // `a[href*="/shadchanim/"]:not([href$="/new"])` — the app is
+    // hash-routed, so the real attribute is `#/shadchanim/{id}` (a `^=`
+    // prefix match would never match the leading `#`); excluding `/new`
+    // keeps out the "Add a shadchan" CTA's `#/shadchanim/new`, and the nav
+    // link itself (`#/shadchanim`, no trailing slash) never matches `*=
+    // "/shadchanim/"` at all. Each card is a `RecordLink` to
+    // `buildRecordPath("shadchanim", id)` == `/shadchanim/{id}` (Story 5.9,
+    // shadchanim/entityDescriptor.tsx).
+    const shadchanLinks = page.locator(
+      'a[href*="/shadchanim/"]:not([href$="/new"])',
+    );
     await expect(shadchanLinks).toHaveCount(2);
 
     // The default sort is `{ field: "name", order: "ASC" }` — "Ariella"

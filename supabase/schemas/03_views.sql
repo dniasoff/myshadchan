@@ -199,19 +199,40 @@ group by c.id;
 -- shadchan's id, mirroring the "Suggestions from this shadchan" list which
 -- filters shidduchim by shadchan_id (the latest-redt provenance, FR18) — so the
 -- tile totals match the list beneath them. Counts:
---   nb_suggestions  = shidduchim currently attributed to this shadchan
---   nb_progressed   = of those, any that moved past 'new'
---   nb_reached_yes  = of those, any that reached the 'yes' decision
+--   nb_suggestions   = shidduchim currently attributed to this shadchan
+--   nb_progressed    = of those, any that moved past 'new'
+--   nb_reached_yes   = of those, any that reached the 'yes' decision
+--   last_redt_date   = the most recent redt_date among shidduchim currently
+--                      attributed to this shadchan (Story 5.9, RULING 8) —
+--                      "last time this shadchan was the CURRENT redter of
+--                      something", the same current-attribution scoping as
+--                      the three counts above, NOT "the last time this
+--                      shadchan redt anything ever" (a redt later superseded
+--                      by a different shadchan is invisible here, same as it
+--                      already is to nb_suggestions).
+--   nb_open_singles  = distinct singles, among those shidduchim, still in an
+--                      active triage state (new/look_into/not_sure) —
+--                      "how many singles", not "how many shidduchim"; reuses
+--                      singles_summary's own "open" predicate verbatim
+--                      (:172-190 above), not a second definition of open.
 -- A "led to dates" metric is deliberately omitted: date_records carries no
--- shadchan linkage, so there is no honest field to count. account-scoped by
--- base-table RLS via security_invoker.
+-- shadchan linkage, so there is no honest field to count. Zero new joins:
+-- both new columns come off the same shidduchim row already joined here —
+-- do NOT join redts, which would silently fan out (inflate) the three
+-- existing counts, none of which is `distinct`. account-scoped by base-table
+-- RLS via security_invoker. New columns are appended at the end, never
+-- inserted mid-list: `create or replace view` can only add trailing columns.
 create or replace view public.shadchan_stats with (security_invoker = on) as
 select
     sh.id,
     sh.account_id,
     count(s.id) as nb_suggestions,
     count(s.id) filter (where s.pipeline_state <> 'new') as nb_progressed,
-    count(s.id) filter (where s.pipeline_state = 'yes') as nb_reached_yes
+    count(s.id) filter (where s.pipeline_state = 'yes') as nb_reached_yes,
+    max(s.redt_date) as last_redt_date,
+    count(distinct s.single_id) filter (
+        where s.pipeline_state in ('new', 'look_into', 'not_sure')
+    ) as nb_open_singles
 from public.shadchanim sh
     left join public.shidduchim s on s.shadchan_id = sh.id
 group by sh.id;

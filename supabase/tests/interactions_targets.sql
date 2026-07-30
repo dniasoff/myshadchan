@@ -187,6 +187,32 @@ exception when others then
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- Story 5.9 AC 5: `tasks` is a plain account-scoped resource — "Tasks
+-- scoped to account" (05_policies.sql) never looks at target_type — so the
+-- shadchan-targeted arm below is the same account-scope branch every other
+-- target already proves this shape for (household_scope_lift.sql's own
+-- fixture uses target_type = 'reference'; context_resolution.sql uses
+-- 'shidduch'); this extends the identical shape to 'shadchan', in this same
+-- suite rather than a new test style, per the story's own instruction.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_id bigint;
+begin
+  insert into public.tasks (target_type, target_id, text)
+    values ('shadchan', (select value::bigint from ids where name = 'shadchan_a'), 'IT task on shadchan A')
+    returning id into v_id;
+  insert into ids values ('task_shadchan_a', v_id::text);
+  insert into results values (
+    'Story 5.9 AC 5: inserting a shadchan-targeted task succeeds while active in A', true, null
+  );
+exception when others then
+  insert into results values (
+    'Story 5.9 AC 5: inserting a shadchan-targeted task succeeds while active in A', false, sqlerrm
+  );
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Arrange (continued): the same two shapes in household B, created while B
 -- is the active context so AC 3's own target-integrity check lets them
 -- through. Feeds AC 10(b)/(c) below. Wrapped for the same reason as above:
@@ -225,6 +251,23 @@ begin
 exception when others then
   insert into results values (
     'Arrange: a single-targeted interaction insert succeeds while active in B', false, sqlerrm
+  );
+end $$;
+
+do $$
+declare
+  v_id bigint;
+begin
+  insert into public.tasks (target_type, target_id, text)
+    values ('shadchan', (select value::bigint from ids where name = 'shadchan_b'), 'IT task on shadchan B')
+    returning id into v_id;
+  insert into ids values ('task_shadchan_b', v_id::text);
+  insert into results values (
+    'Story 5.9 AC 5: a shadchan-targeted task insert succeeds while active in B', true, null
+  );
+exception when others then
+  insert into results values (
+    'Story 5.9 AC 5: a shadchan-targeted task insert succeeds while active in B', false, sqlerrm
   );
 end $$;
 
@@ -271,6 +314,39 @@ select 'AC 10(b): after switching to B, A''s shadchan-targeted interaction is no
        count(*) = 0
 from public.interactions
 where id = (select value::bigint from ids where name = 'interaction_shadchan_a');
+
+select public.set_active_context(:acct_a);
+
+-- ---------------------------------------------------------------------------
+-- Story 5.9 AC 5: a member with no membership in account B cannot read B's
+-- shadchan-targeted `tasks` rows — the same one-login-two-accounts shape
+-- AC 10(b) above already proves for `interactions`, extended to `tasks`.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed)
+select 'Story 5.9 AC 5: active in A — the caller sees its own shadchan-targeted task',
+       count(*) = 1
+from public.tasks
+where id = (select value::bigint from ids where name = 'task_shadchan_a');
+
+insert into results (name, passed)
+select 'Story 5.9 AC 5: active in A — zero of B''s shadchan-targeted task is visible',
+       count(*) = 0
+from public.tasks
+where id = (select value::bigint from ids where name = 'task_shadchan_b');
+
+select public.set_active_context(:acct_b);
+
+insert into results (name, passed)
+select 'Story 5.9 AC 5: after switching to B, visibility swaps — B''s shadchan-targeted task is now visible',
+       count(*) = 1
+from public.tasks
+where id = (select value::bigint from ids where name = 'task_shadchan_b');
+
+insert into results (name, passed)
+select 'Story 5.9 AC 5: after switching to B, A''s shadchan-targeted task is now invisible',
+       count(*) = 0
+from public.tasks
+where id = (select value::bigint from ids where name = 'task_shadchan_a');
 
 select public.set_active_context(:acct_a);
 

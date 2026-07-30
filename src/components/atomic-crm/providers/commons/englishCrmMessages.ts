@@ -40,7 +40,6 @@ export const englishCrmMessages = {
         name: "Name",
         location: "Location",
         responsiveness: "Responsiveness",
-        notes: "Notes",
       },
     },
     references: {
@@ -626,9 +625,9 @@ export const englishCrmMessages = {
         noMatches: "No shadchanim match this search.",
       },
       // Story 4.2, AC 5 — `ShadchanRow`'s count label. AD-23 vocabulary
-      // ("shidduchim"), never "suggestion(s)"; `ShadchanCard.tsx`'s existing
-      // "suggestion"/"suggestions" text is Story 5.9's remediation, not
-      // this one's.
+      // ("shidduchim"), never "suggestion(s)". Story 5.9 pointed
+      // `ShadchanCard.tsx`'s own count label at this same key, retiring its
+      // last "suggestion"/"suggestions" text.
       row: {
         shidduchimCount:
           "%{smart_count} shidduch |||| %{smart_count} shidduchim",

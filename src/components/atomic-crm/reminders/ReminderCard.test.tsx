@@ -13,11 +13,9 @@ import type { ReminderItem } from "./useReminders";
 /**
  * AC 5 item 2: `ReminderCard` renders `RecordLink` from
  * `RESOURCE_FOR_TARGET[linkedEntity.type]`, no longer a precomputed `to`
- * string. The shadchan case is the one that is RED on today's pre-fix code
- * (today's retired hand-rolled path builder returns `/shadchanim/{id}` with
- * no `/show`, silently landing on the EDIT page since
- * `shadchanim/index.ts` registers `show: ShadchanShow`) — this test pins
- * the fix.
+ * string. Story 5.9 flipped `shadchanim`'s `buildRecordPath` to the bare
+ * AD-24 shape (`/shadchanim/{id}`, no `/show`); this pin follows it in the
+ * same diff, mirroring the `shidduch` case below (Story 5.1).
  */
 
 const buildTask = (overrides: Partial<Task> = {}): Task => ({
@@ -38,7 +36,7 @@ const renderCard = async (item: ReminderItem) =>
   );
 
 describe("ReminderCard — linked entity renders through RecordLink (AC 5)", () => {
-  it("links a shadchan-targeted reminder to the shadchan's /show route, not its edit page", async () => {
+  it("links a shadchan-targeted reminder to the shadchan's AD-24 record route (Story 5.9)", async () => {
     // Arrange
     const item: ReminderItem = {
       task: buildTask({ target_type: "shadchan", target_id: 9 }),
@@ -48,11 +46,11 @@ describe("ReminderCard — linked entity renders through RecordLink (AC 5)", () 
     // Act
     const screen = await renderCard(item);
 
-    // Assert — RED on today's pre-fix code: the retired path builder
-    // returned /shadchanim/9 (no /show), landing on ShadchanEdit instead.
+    // Assert — Story 5.9 flipped shadchanim's buildRecordPath to the bare
+    // AD-24 shape; this pin follows it in the same diff.
     await expect
       .element(screen.getByRole("link", { name: "Malka Klein" }))
-      .toHaveAttribute("href", "/shadchanim/9/show");
+      .toHaveAttribute("href", "/shadchanim/9");
   });
 
   it("links a shidduch-targeted reminder to the shidduch's AD-24 record route (Story 5.1)", async () => {

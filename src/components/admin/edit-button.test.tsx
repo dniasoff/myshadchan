@@ -9,27 +9,28 @@ import {
 
 import { testI18nProvider } from "@/components/atomic-crm/providers/commons/i18nProvider";
 import { registerEntityDescriptor } from "@/components/atomic-crm/entity360/registry";
-import { shadchanimDescriptor } from "@/components/atomic-crm/shadchanim/entityDescriptor";
+import { referencesDescriptor } from "@/components/atomic-crm/references/entityDescriptor";
 
 import { EditButton } from "./edit-button";
 
 /**
  * Pins Story 3.12 AC 3's `hasAd24RecordShape` predicate, both branches. The
- * "today" branch uses the real registered `shadchanim` stub descriptor
- * (imported above — `buildRecordPath` still `/shadchanim/{id}/show`; Story
- * 5.9 migrates it. Pinned against `shadchanim` rather than `singles`, which
- * Story 5.8 already flipped to the AD-24 shape — this file needs an entity
- * that still HAS a pre-migration state to pin); the "Epic 5" branch replaces
- * it with a descriptor whose `buildRecordPath` already matches the AD-24
- * shape. The real descriptor is restored in `afterEach` so neither test
- * depends on the other running first (.claude/rules/testing.md#Test-isolation).
+ * "today" branch uses the real registered `references` stub descriptor
+ * (imported above — `buildRecordPath` still `/references/{id}/show`; Story
+ * 5.10 migrates it. Pinned against `references` rather than `shadchanim`/
+ * `singles` — both already flipped to the AD-24 shape by Stories 5.9/5.8 —
+ * this file needs an entity that still HAS a pre-migration state to pin);
+ * the "Epic 5" branch replaces it with a descriptor whose `buildRecordPath`
+ * already matches the AD-24 shape. The real descriptor is restored in
+ * `afterEach` so neither test depends on the other running first
+ * (.claude/rules/testing.md#Test-isolation).
  */
 
 const renderEditButton = () =>
   render(
     <TestMemoryRouter>
       <CoreAdminContext i18nProvider={testI18nProvider}>
-        <ResourceContextProvider value="shadchanim">
+        <ResourceContextProvider value="references">
           <RecordContextProvider value={{ id: 1 }}>
             <EditButton />
           </RecordContextProvider>
@@ -40,7 +41,7 @@ const renderEditButton = () =>
 
 describe("EditButton — hasAd24RecordShape predicate (AC 3)", () => {
   afterEach(() => {
-    registerEntityDescriptor(shadchanimDescriptor, { replace: true });
+    registerEntityDescriptor(referencesDescriptor, { replace: true });
   });
 
   it("falls back to useCreatePath's live edit route against today's stub descriptor", async () => {
@@ -50,13 +51,13 @@ describe("EditButton — hasAd24RecordShape predicate (AC 3)", () => {
     // Assert
     await expect
       .element(screen.getByRole("link"))
-      .toHaveAttribute("href", "/shadchanim/1");
+      .toHaveAttribute("href", "/references/1");
   });
 
   it("resolves through buildEditPath once the descriptor already matches the AD-24 shape", async () => {
     // Arrange — the Epic 5 state: buildRecordPath already `/{name}/{id}`.
     registerEntityDescriptor(
-      { ...shadchanimDescriptor, buildRecordPath: (id) => `/shadchanim/${id}` },
+      { ...referencesDescriptor, buildRecordPath: (id) => `/references/${id}` },
       { replace: true },
     );
 
@@ -66,6 +67,6 @@ describe("EditButton — hasAd24RecordShape predicate (AC 3)", () => {
     // Assert
     await expect
       .element(screen.getByRole("link"))
-      .toHaveAttribute("href", "/shadchanim/1/edit");
+      .toHaveAttribute("href", "/references/1/edit");
   });
 });

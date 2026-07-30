@@ -32,7 +32,6 @@ export const ShadchanInputs = () => (
       <SectionLabel>Details</SectionLabel>
       <TextInput source="location" helperText={false} />
       <ResponsivenessInput source="responsiveness" label="Responsiveness" />
-      <TextInput source="notes" multiline rows={3} helperText={false} />
     </div>
   </>
 );

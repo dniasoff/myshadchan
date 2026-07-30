@@ -231,7 +231,6 @@ create table public.shadchanim (
     name_he text,
     location text,
     contacts jsonb,
-    notes text,
     responsiveness text
 );
 

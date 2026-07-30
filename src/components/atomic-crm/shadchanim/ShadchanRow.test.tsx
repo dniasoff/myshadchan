@@ -41,7 +41,7 @@ describe("ShadchanRow — the List-mode counterpart to ShadchanCard (Story 4.2, 
     // Assert
     await expect
       .element(screen.getByRole("link", { name: /Rivka Stern/ }))
-      .toHaveAttribute("href", "/shadchanim/7/show");
+      .toHaveAttribute("href", "/shadchanim/7");
   });
 
   it("labels a count of 1 'shidduch' (singular), never 'suggestion'", async () => {

@@ -232,7 +232,6 @@ export type Shadchan = {
   name_he?: string | null;
   location?: string | null;
   contacts?: unknown;
-  notes?: string | null;
   responsiveness?: string | null;
   created_at: string;
 } & Pick<RaRecord, "id">;
@@ -243,12 +242,19 @@ export type Shadchan = {
  * filters shidduchim by shadchan_id, so the tiles agree with the list.
  * A "led to dates" metric is intentionally absent: date_records carries no
  * shadchan linkage, so there is no honest field to count.
+ *
+ * `last_redt_date`/`nb_open_singles` (Story 5.9, RULING 8) feed the shadchan
+ * 360's Overview tab: the most recent redt among shidduchim currently
+ * attributed to this shadchan (null iff there are none), and the count of
+ * distinct singles among those shidduchim still in an open pipeline state.
  */
 export type ShadchanStats = {
   account_id: Identifier;
   nb_suggestions: number;
   nb_progressed: number;
   nb_reached_yes: number;
+  last_redt_date: string | null;
+  nb_open_singles: number;
 } & Pick<RaRecord, "id">;
 
 export type Reference = {

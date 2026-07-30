@@ -102,6 +102,13 @@ describe("shadchan_stats emulation (E5)", () => {
     // progressed = moved past 'new' -> the yes and the for_sure_not
     expect(data.nb_progressed).toBe(2);
     expect(data.nb_reached_yes).toBe(1);
+    // Story 5.9 (RULING 8): all three shidduchim share the one single, and
+    // only A ('new') is still open — B reached 'yes', C reached
+    // 'for_sure_not', both terminal. last_redt_date is set (all three were
+    // created "now", so it is today's date), never fabricated to a
+    // different value.
+    expect(data.nb_open_singles).toBe(1);
+    expect(data.last_redt_date).not.toBeNull();
   });
 
   it("returns a zeroed row for a shadchan with no suggestions", async () => {
@@ -122,5 +129,9 @@ describe("shadchan_stats emulation (E5)", () => {
     expect(data.nb_suggestions).toBe(0);
     expect(data.nb_progressed).toBe(0);
     expect(data.nb_reached_yes).toBe(0);
+    // Story 5.9 (RULING 8): the zeroed/null row — no shidduchim, so no open
+    // singles and no redt to report, never a fabricated 0-date.
+    expect(data.nb_open_singles).toBe(0);
+    expect(data.last_redt_date).toBeNull();
   });
 });

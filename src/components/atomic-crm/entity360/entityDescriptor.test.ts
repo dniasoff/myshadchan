@@ -174,6 +174,8 @@ describe("EntityDescriptor region renderers — AC 2 (component boundary, proven
       nb_suggestions: 4,
       nb_progressed: 2,
       nb_reached_yes: 1,
+      last_redt_date: "2026-03-15",
+      nb_open_singles: 2,
     };
     let resolveGetOne: (value: { data: ShadchanStats }) => void = () => {};
     const getOnePromise = new Promise<{ data: ShadchanStats }>((resolve) => {

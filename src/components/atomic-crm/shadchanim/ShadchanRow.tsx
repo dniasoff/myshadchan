@@ -20,9 +20,9 @@ export interface ShadchanRowProps {
  *
  * AC 5 (AD-23 vocabulary): the count reads "shidduch"/"shidduchim", never
  * "suggestion(s)" — `suggestionCount` and `countSuggestionsByShadchan` keep
- * their DB/code names (unchanged by this story); only the rendered label
- * differs from `ShadchanCard.tsx`'s existing text, which is Story 5.9's
- * remediation, not this one's.
+ * their DB/code names (unchanged by this story). Story 5.9 later pointed
+ * `ShadchanCard.tsx`'s own count label at this same i18n key, retiring the
+ * text this component's own label already avoided.
  *
  * Also avoids `ShadchanCard.tsx`'s known horizontal-overflow defect
  * (`whitespace-nowrap` on its count text, measured `scrollWidth 799` in a

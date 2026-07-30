@@ -1,4 +1,5 @@
 import { MapPin, Send } from "lucide-react";
+import { useTranslate } from "ra-core";
 
 import { Card } from "@/components/ui/card";
 
@@ -17,13 +18,26 @@ export interface ShadchanCardProps {
 /**
  * One row of the shadchan book: monogram + name (mirrors `ShidduchCard`'s
  * identity pattern), location, a tasteful responsiveness cue, and the count
- * of suggestions this shadchan has redt.
+ * of shidduchim this shadchan has redt.
+ *
+ * Story 5.9 (AD-23 remediation): the rendered count label now reads
+ * "shidduch"/"shidduchim", never "suggestion(s)" — the one live AD-23
+ * violation this story owns (`ShadchanRow.tsx`'s Story 4.2 doc comment named
+ * it as this story's job). `suggestionCount` and `countSuggestionsByShadchan`
+ * keep their existing DB/code names, per that same doc comment — only the
+ * rendered label changes, via the same i18n key `ShadchanRow.tsx` already
+ * uses.
  */
 export const ShadchanCard = ({
   shadchan,
   suggestionCount,
   index,
 }: ShadchanCardProps) => {
+  const translate = useTranslate();
+  const countLabel = translate("crm.shadchanim.row.shidduchimCount", {
+    smart_count: suggestionCount,
+    _: "%{smart_count} shidduch |||| %{smart_count} shidduchim",
+  });
   const monogram = getMonogram(shadchan.name);
   const avatarIndex = getAvatarIndex(shadchan.name ?? String(shadchan.id));
 
@@ -68,8 +82,7 @@ export const ShadchanCard = ({
           <ResponsivenessChip value={shadchan.responsiveness} />
           <span className="inline-flex items-center gap-1 text-[11.5px] tabular-nums text-muted-foreground">
             <Send className="size-3 shrink-0" aria-hidden="true" />
-            {suggestionCount}{" "}
-            {suggestionCount === 1 ? "suggestion" : "suggestions"}
+            {countLabel}
           </span>
         </div>
       </Card>

@@ -42,7 +42,6 @@ export const frenchCrmMessages = {
         name: "Nom",
         location: "Lieu",
         responsiveness: "Réactivité",
-        notes: "Notes",
       },
     },
     references: {

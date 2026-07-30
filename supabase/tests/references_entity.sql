@@ -667,6 +667,13 @@ end $$;
 insert into public.singles (first_name_en, gender) values ('Devora', 'female')
 returning id as single_b_isolation \gset
 
+-- Story 5.9 AC-6 (RULING 8): tenant B's isolation-check shadchan is created
+-- here too, still under tenant B's claims (set above) — before the switch
+-- back to tenant A below — so it lands in B's account via
+-- set_account_id_default(), exactly like the single just above.
+insert into public.shadchanim (name) values ('Tenant B Shadchan (isolation)')
+returning id as shadchan_b_isolation \gset
+
 set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
 insert into results (name, passed)
@@ -678,6 +685,29 @@ insert into results (name, passed)
 select 'tenant A reads only its own single from public.singles_summary, never tenant B''s',
        (select count(*) from public.singles_summary where id = :single_a) = 1
    and (select count(*) from public.singles_summary where id = :single_b_isolation) = 0;
+
+-- ---------------------------------------------------------------------------
+-- Story 5.9 AC-6 (RULING 8), continued: the widened shadchan_stats view
+-- (last_redt_date, nb_open_singles) must not leak another account's rows
+-- either — same one-login-two-accounts shape as the singles_summary check
+-- just above. Tenant A's own shadchan and its one open shidduch are created
+-- now that we are back under tenant A's claims.
+-- ---------------------------------------------------------------------------
+insert into public.shadchanim (name) values ('Tenant A Shadchan (isolation)')
+returning id as shadchan_a_isolation \gset
+
+insert into public.shidduchim (single_id, name_en, shadchan_id, pipeline_state)
+values (:single_a, 'Isolation check shidduch', :shadchan_a_isolation, 'look_into');
+
+insert into results (name, passed)
+select 'tenant A reads only its own shadchan from public.shadchan_stats, never tenant B''s',
+       (select count(*) from public.shadchan_stats where id = :shadchan_a_isolation) = 1
+   and (select count(*) from public.shadchan_stats where id = :shadchan_b_isolation) = 0;
+
+insert into results (name, passed)
+select 'tenant A''s shadchan_stats row reflects only its own attributed shidduch (nb_open_singles = 1, last_redt_date not null) — never fabricated, never tenant B''s',
+       (select nb_open_singles from public.shadchan_stats where id = :shadchan_a_isolation) = 1
+   and (select last_redt_date from public.shadchan_stats where id = :shadchan_a_isolation) is not null;
 
 -- The merge's definer helper is the one way an interaction can be re-parented.
 -- It must not become a way to move a note onto a DIFFERENT shidduch, which is

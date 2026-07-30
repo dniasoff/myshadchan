@@ -471,6 +471,13 @@ export const createDataProvider = ({
   // suggestions attributed to it (shidduchim.shadchan_id), those that moved
   // past 'new', and those that reached 'yes'. Keyed on the shadchan's id so
   // getOne("shadchan_stats", { id }) resolves like the Postgres view.
+  //
+  // last_redt_date/nb_open_singles (Story 5.9, RULING 8) mirror the widened
+  // view exactly: the latest redt_date among this shadchan's shidduchim
+  // (null when there are none — no coalesce to a fabricated date), and the
+  // count of DISTINCT singles among those shidduchim still in an open
+  // pipeline state (reusing OPEN_PIPELINE_STATES, the same set
+  // enrichSinglesSummary above uses, never a second "open" definition).
   const computeShadchanStats = async (shadchanim: any[]) => {
     if (shadchanim.length === 0) return shadchanim;
     const { data: shidduchim } = await baseDataProvider.getList("shidduchim", {
@@ -482,6 +489,18 @@ export const createDataProvider = ({
       const forShadchan = shidduchim.filter(
         (s: any) => s.shadchan_id === sh.id,
       );
+      const openSingleIds = new Set(
+        forShadchan
+          .filter((s: any) => OPEN_PIPELINE_STATES.has(s.pipeline_state))
+          .map((s: any) => s.single_id),
+      );
+      const lastRedtDate = forShadchan.reduce<string | null>(
+        (latest: string | null, s: any) =>
+          !latest || (s.redt_date && s.redt_date > latest)
+            ? (s.redt_date ?? latest)
+            : latest,
+        null,
+      );
       return {
         id: sh.id,
         account_id: sh.account_id,
@@ -492,6 +511,8 @@ export const createDataProvider = ({
         nb_reached_yes: forShadchan.filter(
           (s: any) => s.pipeline_state === "yes",
         ).length,
+        last_redt_date: lastRedtDate,
+        nb_open_singles: openSingleIds.size,
       };
     });
   };

@@ -36,10 +36,11 @@ const formatBookSince = (
  * The shadchan detail's hero card (screen 20, mobile-redesign-plan.md §4
  * S-C): monogram + name, a joined location/tenure meta line (never empty —
  * "In your book since {month year}" is the non-null fallback, since most
- * shadchanim have no location yet), a tasteful responsiveness chip, contact
- * quick actions (when present — `contacts` is a free-form jsonb column with
- * no seeded shape yet, so missing fields are simply omitted, never
- * fabricated), and notes.
+ * shadchanim have no location yet), a tasteful responsiveness chip, and
+ * contact quick actions (when present — `contacts` is a free-form jsonb
+ * column with no seeded shape yet, so missing fields are simply omitted,
+ * never fabricated). Notes live in the Notes tab (Story 5.9) — this card no
+ * longer renders `shadchanim.notes`, which the same story dropped.
  *
  * The name/meta group and the chip share a `flex-wrap` row (wave S review,
  * F3): most records fit on one line at any width, but the chip drops to its
@@ -119,17 +120,6 @@ export const ShadchanHeader = ({ shadchan }: ShadchanHeaderProps) => {
               </a>
             </Button>
           ) : null}
-        </div>
-      ) : null}
-
-      {shadchan.notes ? (
-        <div className="mt-4 border-t border-border pt-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-            Notes
-          </p>
-          <p className="mt-1.5 whitespace-pre-wrap text-sm text-foreground">
-            {shadchan.notes}
-          </p>
         </div>
       ) : null}
     </Card>

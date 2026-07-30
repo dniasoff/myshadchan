@@ -107,18 +107,28 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
   // fixture renderers, so nothing in the tree noticed if `ShadchanList`
   // itself passed the same renderer to both props — swapping
   // `ShadchanRowList` for `ShadchanCardGrid` on both `renderList`/
-  // `renderCards` left the whole suite green. `ShadchanCard` and
-  // `ShadchanRow` render the count with deliberately different wording
-  // ("suggestion(s)" vs "shidduch(im)", AC 5), which doubles as an
-  // unambiguous, non-CSS-coupled signal that the real row renderer — not a
-  // second copy of the card renderer — is what mounted.
-  it("switching to List mode swaps in ShadchanRow's AD-23 wording, not the same card grid (AC 1, AC 5)", async () => {
+  // `renderCards` left the whole suite green.
+  //
+  // Story 5.9 (AD-23 remediation) pointed `ShadchanCard`'s count label at
+  // the same i18n key `ShadchanRow` already used, so the two now render
+  // IDENTICAL wording ("1 shidduch") — the wording difference this test
+  // used to rely on as its distinguishing signal is gone. Mirrors
+  // `singles/SingleList.test.tsx`'s identical case (`SingleCard`/`SingleRow`
+  // always rendered identical wording): this project does not load
+  // Tailwind's stylesheet (`vitest.config.ts`), so a computed-layout
+  // measurement cannot tell the two apart either — the one CSS-independent
+  // signal left is the class *attribute string* itself: `ShadchanCardGrid`'s
+  // wrapper is literally `grid grid-cols-1 ...`, `ShadchanRowList`'s is
+  // `flex flex-col gap-2`.
+  it("switching to List mode swaps in ShadchanRowList's markup, not the same card grid (AC 1, AC 5)", async () => {
     // Arrange
     const screen = await renderShadchanList(memoryStore(), [
       { id: 1, shadchan_id: 1 },
     ]);
     await expect.element(screen.getByText("Rivka Stern")).toBeInTheDocument();
-    await expect.element(screen.getByText("1 suggestion")).toBeInTheDocument();
+    await expect.element(screen.getByText("1 shidduch")).toBeInTheDocument();
+    expect(screen.container.querySelector(".grid.grid-cols-1")).not.toBeNull();
+    expect(screen.container.querySelector(".flex-col.gap-2")).toBeNull();
 
     // Act
     await screen.getByRole("button", { name: "List view" }).click();
@@ -126,12 +136,11 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
       .element(screen.getByRole("button", { name: "List view" }))
       .toHaveAttribute("aria-pressed", "true");
 
-    // Assert — the card renderer's wording is gone, the row renderer's is
-    // present. If `renderList` still pointed at `ShadchanCardGrid`, "1
-    // suggestion" would still be on screen and "1 shidduch" would not.
-    await expect
-      .element(screen.getByText("1 suggestion"))
-      .not.toBeInTheDocument();
+    // Assert — the card grid's own marker is gone, the row list's is
+    // present. If `renderList` still pointed at `ShadchanCardGrid`, this
+    // would be unchanged.
+    expect(screen.container.querySelector(".grid.grid-cols-1")).toBeNull();
+    expect(screen.container.querySelector(".flex-col.gap-2")).not.toBeNull();
     await expect.element(screen.getByText("1 shidduch")).toBeInTheDocument();
   });
 
