@@ -1,6 +1,10 @@
+---
+baseline_commit: 9a969a0
+---
+
 # Story 6.6: Deploy and migration-guard hardening
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -121,19 +125,19 @@ Path-disjoint from every other Epic 6 story: this one touches
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Reproduce the fixture failure** (AC: 2, 3)
-  - [ ] Create a throwaway pending migration (e.g. a no-op
+- [x] **Task 1 — Reproduce the fixture failure** (AC: 2, 3)
+  - [x] Create a throwaway pending migration (e.g. a no-op
         `select 1;` file with a future timestamp) so `partitionMigrations()`
         reports something pending, then run
         `STACK_ID=<1-6> STACK_OWNER=<label> make check-migration-safety`.
         Capture the output. Expected: the run gets past "resetting to
         baseline" and fails inside `fixture.sql`.
-  - [ ] Record the exact error in the Dev Agent Record → Debug Log
+  - [x] Record the exact error in the Dev Agent Record → Debug Log
         References. Delete the throwaway migration afterwards; it must not
         appear in the commit.
 
-- [ ] **Task 2 — Correct the fixture to the post-Epic-5 schema** (AC: 1, 5)
-  - [ ] `supabase/tests/migration-data-safety/fixture.sql`:
+- [x] **Task 2 — Correct the fixture to the post-Epic-5 schema** (AC: 1, 5)
+  - [x] `supabase/tests/migration-data-safety/fixture.sql`:
     - `insert into public.shadchanim (...)` — drop the `notes` column and its
       value.
     - `insert into public.shidduchim (...)` — replace `parents_en`/
@@ -147,60 +151,60 @@ Path-disjoint from every other Epic 6 story: this one touches
       column that no longer exists.
     - `insert into public.resumes (...)` — drop the `photos` column and its
       `'[]'::jsonb` value.
-  - [ ] Add the Epic 6 shapes (AC-5): a second `auth.users` row, an
+  - [x] Add the Epic 6 shapes (AC-5): a second `auth.users` row, an
         `account_members` row with `role = 'single'`, and a `singles` row
         whose `member_id` points at it. Seed `medical_notes`, `entity_files`,
         `shidduchim_external_links`, `resume_photos`, `subscription` and
         `ai_usage` with one row each, with fixed ids in the same
         `9000001`-style band.
-  - [ ] `resume_photos` and `entity_files` carry storage-path check
+  - [x] `resume_photos` and `entity_files` carry storage-path check
         constraints (`resume_photos_storage_path_scope_check`,
         `entity_files_storage_path_scope_check`) requiring the path to begin
         with `account_id::text || '/'` — seed paths that satisfy them, or the
         fixture fails on its own inserts.
-  - [ ] Extend the `migration_guard.capture(...)` list at the bottom to cover
+  - [x] Extend the `migration_guard.capture(...)` list at the bottom to cover
         every newly-seeded table. `capture()` snapshots whole rows as jsonb
         keyed by `id`, so every table it names must have an `id` column —
         all of the above do.
-  - [ ] Do **not** widen `migration_guard.expected_rewrites`. It is empty by
+  - [x] Do **not** widen `migration_guard.expected_rewrites`. It is empty by
         design: a rewrite of pre-existing data has to be argued for in
         writing, per the file's own comment.
 
-- [ ] **Task 3 — Retire the deployed declarations** (AC: 4)
-  - [ ] `supabase/tests/migration-data-safety/declared-moves.sql`: delete the
+- [x] **Task 3 — Retire the deployed declarations** (AC: 4)
+  - [x] `supabase/tests/migration-data-safety/declared-moves.sql`: delete the
         three `column_moves`/`discarded_columns` blocks for 5.2, 5.9 and 5.4.
         Their migrations are deployed; the columns are not in the baseline
         schema, so nothing in `assert.sql` can ever reach them again.
-  - [ ] Add one line to the file's header explaining the lifecycle: a
+  - [x] Add one line to the file's header explaining the lifecycle: a
         declaration is written when its migration is pending and removed once
         that migration is deployed, so the file always reads as "what the
         pending migrations claim", never as an archaeological record.
-  - [ ] The file must remain valid SQL when it contains no `insert`
+  - [x] The file must remain valid SQL when it contains no `insert`
         statements at all (that is its steady state between epics) — verify
         by running the guard with an empty declarations file.
 
-- [ ] **Task 4 — Prove the fix** (AC: 1, 2, 3)
-  - [ ] Re-create a throwaway pending migration and re-run
+- [x] **Task 4 — Prove the fix** (AC: 1, 2, 3)
+  - [x] Re-create a throwaway pending migration and re-run
         `make check-migration-safety`. Expected: `migration data-safety guard
         PASSED — N seeded row(s) across M table(s) survived intact.` Capture
         it in the Debug Log References beside Task 1's failure.
-  - [ ] Sanity-check the guard still *catches* something: temporarily point
+  - [x] Sanity-check the guard still *catches* something: temporarily point
         the throwaway migration at a destructive statement (e.g. `alter table
         public.shadchanim drop column responsiveness;`) and confirm the guard
         reports `COLUMN DROPPED WITH DATA`. Revert. Without this, a fixture
         that seeds nothing useful would also report PASSED.
-  - [ ] Delete the throwaway migration. Stop the stack (`make stop`) when
+  - [x] Delete the throwaway migration. Stop the stack (`make stop`) when
         done — `STACK_ID` 1-6, never 0, and `make start-app-e2e` rather than
         `make start-e2e-ci`.
 
-- [ ] **Task 5 — Share one retry helper between the two PATCH steps** (AC: 6, 7, 8)
-  - [ ] Add `scripts/ci/patch-supabase-auth-config.sh`: takes a path to a
+- [x] **Task 5 — Share one retry helper between the two PATCH steps** (AC: 6, 7, 8)
+  - [x] Add `scripts/ci/patch-supabase-auth-config.sh`: takes a path to a
         JSON payload file, PATCHes
         `https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_ID/config/auth`,
         and returns non-zero on terminal failure. A shell script rather than
         two inline `bash` blocks so the logic exists once (AC-8) and can be
         read and reviewed on its own.
-  - [ ] Behaviour:
+  - [x] Behaviour:
     - capture the HTTP status with `-w '%{http_code}'` and the body to a
       temp file (never to stdout — a successful PATCH returns the whole auth
       config, 242 keys including an unmasked `smtp_pass` and
@@ -215,7 +219,7 @@ Path-disjoint from every other Epic 6 story: this one touches
       prints today;
     - after the final failed attempt → exit non-zero with the same message
       shape, plus the attempt count.
-  - [ ] Rewrite the two steps to call it:
+  - [x] Rewrite the two steps to call it:
     - `📡 Enable the invite-signup Auth Hook (before_user_created)` — build
       its two-key payload with `jq -n` into a temp file, then call the
       script. Preserve the step's existing comment block explaining why this
@@ -225,25 +229,25 @@ Path-disjoint from every other Epic 6 story: this one touches
       build exactly as they are (the repo stays the single source of truth
       for subject and template body), and replace only the `curl` invocation
       with the script call. Keep the `$GITHUB_STEP_SUMMARY` line.
-  - [ ] Keep both steps' `if: ${{ env.IS_SUPABASE_CONFIGURED }}` guards and
+  - [x] Keep both steps' `if: ${{ env.IS_SUPABASE_CONFIGURED }}` guards and
         their positions in the job unchanged (AC-9).
-  - [ ] Update the mailer step's comment to state the new behaviour in one
+  - [x] Update the mailer step's comment to state the new behaviour in one
         sentence: transient failures are retried three times; a 400 still
         fails the deploy immediately because it means SMTP was removed.
 
-- [ ] **Task 6 — Verify the workflow** (AC: 6, 7, 8, 9)
-  - [ ] `shellcheck scripts/ci/patch-supabase-auth-config.sh` (or the repo's
+- [x] **Task 6 — Verify the workflow** (AC: 6, 7, 8, 9)
+  - [x] `shellcheck scripts/ci/patch-supabase-auth-config.sh` (or the repo's
         equivalent lint) and `bash -n` on the file.
-  - [ ] Exercise the script's three branches locally against a stub endpoint
+  - [x] Exercise the script's three branches locally against a stub endpoint
         (a local `python3 -m http.server`-style responder, or `SUPABASE_API_BASE`
         overridable for tests) — 200 first try, 502 twice then 200, and 400
         once. Record the three outcomes in the Debug Log References. Do not
         exercise them against the real project.
-  - [ ] Diff `.github/workflows/deploy.yml` and confirm nothing outside the
+  - [x] Diff `.github/workflows/deploy.yml` and confirm nothing outside the
         two steps changed — in particular the `needs:` graph, the
         `trigger-frontend` job and the orphaned-function reconciliation are
         byte-identical.
-  - [ ] `make typecheck && npm run lint && make test` — none of them should
+  - [x] `make typecheck && npm run lint && make test` — none of them should
         be affected, which is itself the check that this story stayed in its
         lane.
 
@@ -375,8 +379,154 @@ touched. No new npm dependency. No new repository secret.
 
 ### Agent Model Used
 
+Claude (Sonnet 5), via the bmad-dev-story workflow. Stack `STACK_ID=1`,
+`STACK_OWNER=6.6`.
+
 ### Debug Log References
+
+**Task 1 — guard RED on the unfixed fixture.** Throwaway pending migration
+`99999999999999_guard_throwaway.sql` (`select 1;`), then
+`STACK_ID=1 STACK_OWNER=6.6 make check-migration-safety`:
+
+```
+[2/4] seeding production-shaped rows and snapshotting them
+psql:/home/daniel/repos/myshadchan/supabase/tests/migration-data-safety/fixture.sql:155: ERROR:  column "notes" of relation "shadchanim" does not exist
+LINE 1: ....shadchanim (id, account_id, name, name_he, location, notes)
+                                                                 ^
+migration data-safety guard: Command failed: psql -v ON_ERROR_STOP=1 --quiet -d postgresql://postgres:postgres@127.0.0.1:54352/postgres -f .../fixture.sql
+make: *** [makefile:228: check-migration-safety] Error 1
+```
+
+Exactly the column AC-1 names — confirms the fixture failure is real and
+not hypothetical. Throwaway migration deleted immediately after.
+
+**Task 4 — guard GREEN after the fix.** Fixture corrected (Task 2),
+declarations retired (Task 3, now zero `insert` statements — this run is
+also the "empty declarations file" verification Task 3's third bullet
+asks for), throwaway migration re-created, same command:
+
+```
+[3/4] applying the 1 pending migration(s)
+[4/4] asserting the seeded data survived
+psql:.../assert.sql:202: NOTICE:  migration data-safety guard PASSED — 32 seeded row(s) across 19 table(s) survived intact.
+...
+migration data-safety guard PASSED.
+```
+
+19 tables = the 13 original + the 6 new Epic-6/account-scoped captures
+(`resume_photos`, `medical_notes`, `shidduchim_external_links`,
+`entity_files`, `subscription`, `ai_usage`). 32 rows matches two
+`account_members`/`auth.users`/`members` rows (parent + single), five
+`shidduchim`, and one row each of the other seeded tables plus
+`identity_signals`.
+
+**Task 4 — guard still CATCHES a real destructive statement.** Temporarily
+pointed the throwaway migration at
+`alter table public.shadchanim drop column location;` (`location` is
+seeded non-empty, `'Lakewood'`, unlike `responsiveness` which the story's
+own example names but which the fixture never seeds a value for):
+
+```
+psql:.../assert.sql:202: ERROR:  migration data-safety guard FAILED — 1 problem(s):
+  - COLUMN DROPPED WITH DATA: public.shadchanim.location held a non-empty value on 1 of 1 pre-existing row(s) and was dropped with no destination declared. Add a row to migration_guard.column_moves (supabase/tests/migration-data-safety/declared-moves.sql) saying where that data went, and backfill it in the migration BEFORE the drop.
+```
+
+Reverted; throwaway migration deleted; stack stopped
+(`make stop-supabase-e2e STACK_ID=1`).
+
+No one-line fix to `scripts/check-migration-data-safety.mjs` was needed:
+the Task-4 PASS run above already ran with a zero-`insert` declarations
+file end to end (`psql -f` on a comment-only file is valid SQL and a
+no-op), so the driver already tolerates it. Left unchanged, per the
+story's own scope note.
+
+**Task 6 — retry script's branches against a local stub** (Python
+`http.server`-based responder, `SUPABASE_API_BASE` pointed at
+`127.0.0.1:<port>`, never the real project):
+
+| Scenario | Requests received | Wall time | Exit | Message |
+|---|---|---|---|---|
+| 200 first try | 1 | 0.05s | 0 | (none — success) |
+| 502, 502, 200 | 3 | 20.07s (5s + 15s backoff) | 0 | (none — success) |
+| 400 once | 1 (no retry) | 0.05s | 1 | `::error::probe rejected — if this is a 400, custom SMTP was removed from the project` + body |
+| always-5xx (bonus, exhausts retries) | 3 | 20.08s | 1 | `::error::probe rejected (after 3 attempts)` + body |
+
+`shellcheck scripts/ci/patch-supabase-auth-config.sh` and
+`bash -n scripts/ci/patch-supabase-auth-config.sh`: both clean, no
+findings.
+
+`git diff -- .github/workflows/deploy.yml`: confirmed only the two PATCH
+steps' `run:`/comment blocks changed; `needs:`, `trigger-frontend`, the
+orphaned-function reconciliation and the `deploy-workers` matrix are
+byte-identical.
+
+`make typecheck`, `npm run lint` (eslint + prettier), `npx vitest run`
+(211 files / 2198 tests), `make build`, `node scripts/check-suppressions.mjs`,
+`node scripts/check-retired-names.mjs`,
+`node scripts/check-route-convention.mjs`,
+`node scripts/check-tailwind-arbitrary-var.mjs`, `make test STACK_ID=1`
+(same 211/2198), and `supabase db diff --local` (twice, both
+"No schema changes found") all pass. `npx prettier --check .` (the bare
+default-glob form, distinct from `make lint`'s narrower
+`--config ./.prettierrc.json` glob) flags the same 16 pre-existing files —
+including `deploy.yml` and `check.yml`, neither of which is in the
+narrower glob `make lint` enforces — before and after this diff
+(confirmed via `git stash`); this story introduces no new entry in that
+list.
 
 ### Completion Notes List
 
+- Fixed `supabase/tests/migration-data-safety/fixture.sql` to the
+  post-Epic-5 schema: `shadchanim.notes` and `resumes.photos` dropped from
+  their inserts; `shidduchim.parents_en/he` replaced by
+  `father_en/he`/`mother_en/he` across all five documented shapes (AC-1).
+- Added the Epic 6 shapes (AC-5): a second `auth.users` row, an
+  `account_members` row with `role = 'single'` on the same household
+  account, and the existing `singles` row's `member_id` now points at it —
+  the exact link 6.1's `accept_invite()` and 6.5's `add_persona('single')`
+  write to. Seeded `resume_photos`, `medical_notes`,
+  `shidduchim_external_links`, `entity_files`, `subscription` and
+  `ai_usage` (one row each, `9000001`-band ids, storage-path check
+  constraints satisfied), and added all six to `migration_guard.capture()`.
+  `expected_rewrites` left empty, as instructed.
+- Retired the three deployed `declared-moves.sql` entries (5.2, 5.9, 5.4)
+  and added the lifecycle line to the header; the file's steady state is
+  now zero `insert` statements, verified to run cleanly (AC-4).
+- Proved the failure was real (guard red on the unfixed fixture, Task 1)
+  and the fix works (guard green, Task 4), and that the guard still
+  catches a genuine destructive drop (Task 4) — all three captured above,
+  satisfying AC-2/AC-3's "never seen fail" standard.
+- Added `scripts/ci/patch-supabase-auth-config.sh`: a bounded 3-attempt,
+  status-aware retry (2xx success; 5xx/429/curl-transport-failure retried
+  with 5s/15s backoff; any other 4xx fails immediately with no retry) for
+  the shared `/config/auth` scoped Management-API PATCH, with the response
+  body captured to a temp file and never printed on success (AC-6/7/8).
+  Verified against a local stub across all three required branches plus
+  the exhausted-retry path.
+- Rewired both `deploy.yml` PATCH steps
+  (`📡 Enable the invite-signup Auth Hook` and `📡 Push auth mailer config`)
+  to call the shared script, preserving each step's existing
+  scoped-PATCH-not-`config push` rationale, the mailer step's
+  `awk`/`jq --rawfile` extraction, the `$GITHUB_STEP_SUMMARY` line, and
+  both steps' `if:`/position — confirmed via diff that nothing else in the
+  file changed (AC-9).
+- `scripts/check-migration-data-safety.mjs` needed no change: verified
+  live that the driver already tolerates a zero-`insert` declarations
+  file. Left untouched, as the story's scope note anticipates either
+  outcome.
+- `assert.sql` and `makefile` untouched, as required.
+
 ### File List
+
+- `.github/workflows/deploy.yml` (modified)
+- `scripts/ci/patch-supabase-auth-config.sh` (new)
+- `supabase/tests/migration-data-safety/fixture.sql` (modified)
+- `supabase/tests/migration-data-safety/declared-moves.sql` (modified)
+
+## Change Log
+
+- 2026-07-30: Story 6.6 implemented — migration-safety guard fixture
+  corrected to the post-Epic-5 schema and extended with Epic 6's `single`
+  shapes and the newer account-scoped tables; deployed `declared-moves.sql`
+  entries retired; shared retry helper added for the deploy pipeline's two
+  post-`db push` Management-API PATCH steps. Status set to `review`.

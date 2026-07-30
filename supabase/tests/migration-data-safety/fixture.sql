@@ -139,62 +139,94 @@ values (
     'parent_admin', 'active'
 );
 
+-- Epic 6 shape (AC-5): a single with her OWN login. A second `auth.users`
+-- row, a second `account_members` row scoped `role = 'single'` on the SAME
+-- household account, and — below — the `singles` row's `member_id` pointing
+-- at this membership. This is exactly what 6.1's `accept_invite()` and 6.5's
+-- `add_persona('single')` produce, and what a future migration that
+-- recreates `account_members` or narrows `singles` would otherwise never
+-- meet.
+insert into auth.users (
+    id, instance_id, aud, role, email, encrypted_password,
+    email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+    created_at, updated_at
+)
+values (
+    '00000000-0000-4000-8000-000000009002',
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated', 'authenticated', 'guard.single@example.test',
+    '$2a$10$abcdefghijklmnopqrstuvwxyz012345678901234567890123',
+    now(),
+    '{"provider": "email", "providers": ["email"]}'::jsonb,
+    '{"first_name": "Leah", "last_name": "Guardstein"}'::jsonb,
+    now(), now()
+);
+
+insert into public.account_members (id, account_id, user_id, role, status)
+values (
+    9000002, 9000001,
+    '00000000-0000-4000-8000-000000009002',
+    'single', 'active'
+);
+
 insert into public.singles (
     id, account_id, first_name_en, first_name_he, last_name_en, last_name_he,
-    gender, dob, community, status
+    gender, dob, community, status, member_id
 )
 values (
     9000001, 9000001, 'Leah', 'לאה', 'Guardstein', 'גוארדשטיין',
-    'female', date '2003-04-11', 'Yeshivish', 'active'
+    'female', date '2003-04-11', 'Yeshivish', 'active', 9000002
 );
 
-insert into public.shadchanim (id, account_id, name, name_he, location, notes)
+insert into public.shadchanim (id, account_id, name, name_he, location)
 values (
-    9000001, 9000001, 'Mrs. Bracha Katz', 'מרת ברכה כץ', 'Lakewood',
-    'Prefers WhatsApp. Knows the Rosenberg family well.'
+    9000001, 9000001, 'Mrs. Bracha Katz', 'מרת ברכה כץ', 'Lakewood'
 );
 
--- The five shapes that matter for `parents_en`/`parents_he`. All 24 rows in
--- production are the first shape (`R' <father> & <mother>`, 19-27 chars,
--- `' & '` splitting into two non-empty halves); the rest are the cases a
--- backfill has to not lose.
+-- The five shapes that matter for `father_en`/`father_he`/`mother_en`/
+-- `mother_he` (Story 5.2 split `parents_en`/`parents_he` into these four and
+-- dropped the originals — declared-moves.sql's now-retired entry). All 24
+-- rows in production are the first shape (both halves populated, honorific
+-- on the father half); the rest are the cases 5.2's backfill produced or had
+-- to not lose, translated into the post-split columns so this guard keeps
+-- covering them even though the migration that created them is deployed.
 insert into public.shidduchim (
     id, account_id, single_id, shadchan_id,
-    name_en, name_he, parents_en, parents_he,
+    name_en, name_he, father_en, father_he, mother_en, mother_he,
     seminary_en, shul_en, location_en, age, height,
     pipeline_state, origin, visibility, owner_member_id
 )
 values
-    -- 1. The production shape.
+    -- 1. The production shape: both halves populated.
     (9000001, 9000001, 9000001, 9000001,
      'Yosef Rosenberg', 'יוסף רוזנברג',
-     'R'' Yaakov Rosenberg & Chaya Rosenberg', null,
+     'R'' Yaakov Rosenberg', null, 'Chaya Rosenberg', null,
      'Mir', 'Bais Medrash Govoha', 'Lakewood', 24, '5''10"',
      'new', 'manual', 'shared', 9000001),
     -- 2. The production shape again, different family.
     (9000002, 9000001, 9000001, 9000001,
      'Shmuel Weiss', 'שמואל וייס',
-     'R'' Dovid Weiss & Rivka Weiss', null,
+     'R'' Dovid Weiss', null, 'Rivka Weiss', null,
      'Ner Yisroel', null, 'Baltimore', 25, '6''0"',
      'look_into', 'manual', 'shared', 9000001),
-    -- 3. No `' & '` separator. The ruling: the whole trimmed value goes to
-    --    the father half and the mother half stays NULL — never dropped.
+    -- 3. Father-only, mother NULL — what 5.2's backfill produced for a
+    --    pre-split value with no `' & '` separator. Never dropped.
     (9000003, 9000001, 9000001, null,
      'Mendel Friedman', null,
-     'Mendel Friedman Sr', null,
+     'Mendel Friedman Sr', null, null, null,
      null, null, 'Monsey', 23, null,
      'new', 'manual', 'shared', null),
     -- 4. Hebrew only. Zero rows in production today, but the migration must
     --    not be selectively correct.
     (9000004, 9000001, 9000001, 9000001,
      null, 'אברהם לוי',
-     null, 'ר׳ יעקב לוי & חיה לוי',
+     null, 'ר׳ יעקב לוי', null, 'חיה לוי',
      null, null, null, 26, null,
      'new', 'manual', 'shared', 9000001),
     -- 5. Control: no parents at all. Must stay empty, not acquire a value.
     (9000005, 9000001, 9000001, null,
      'Anonymous Prospect', null,
-     null, null,
+     null, null, null, null,
      null, null, null, null, null,
      'new', 'channel', 'private_parent', null);
 
@@ -219,13 +251,55 @@ values (
     '[{"q": "How long have you known him?", "a": "Six years."}]'::jsonb
 );
 
-insert into public.resumes (id, account_id, shidduchim_id, files, photos, extracted)
+insert into public.resumes (id, account_id, shidduchim_id, files, extracted)
 values (
     9000001, 9000001, 9000001,
     '[{"path": "9000001/resume.pdf", "title": "resume.pdf"}]'::jsonb,
-    '[]'::jsonb,
     '{"age": 24}'::jsonb
 );
+
+-- Story 5.4: one photo row per resume, path-scoped to its account
+-- (resume_photos_storage_path_scope_check).
+insert into public.resume_photos (id, account_id, resume_id, path, visibility)
+values (
+    9000001, 9000001, 9000001,
+    '9000001/photos/shared/9000001/guard-photo.jpg', 'shared'
+);
+
+-- Story 5.5: a medical note hangs off a shidduch, never off the account
+-- directly (medical_notes.shidduchim_id not null).
+insert into public.medical_notes (id, account_id, shidduchim_id, author_member_id, body)
+values (
+    9000001, 9000001, 9000001, 9000001,
+    'No known allergies. Sees Dr. Fein annually.'
+);
+
+-- Story 5.6: an external link (vosizneias-style writeup, shul directory,
+-- etc.) attached to a shidduch.
+insert into public.shidduchim_external_links (id, account_id, shidduchim_id, url, label)
+values (
+    9000001, 9000001, 9000001,
+    'https://example.test/guard-writeup', 'Community writeup'
+);
+
+-- Story 3.7: a Files-tab row, path-scoped to its account
+-- (entity_files_storage_path_scope_check).
+insert into public.entity_files (
+    id, account_id, target_type, target_id, storage_path, file_name,
+    mime_type, size_bytes, visibility, uploaded_by_member_id
+)
+values (
+    9000001, 9000001, 'shidduch', 9000001,
+    '9000001/shidduch/9000001/guard-file.pdf', 'guard-file.pdf',
+    'application/pdf', 12345, 'shared', 9000001
+);
+
+-- E4: the free/paid entitlement row and its usage meter, one per account.
+insert into public.subscription (id, account_id, plan, status)
+values (9000001, 9000001, 'free', 'none');
+
+insert into public.ai_usage (id, account_id, period, resumes_parsed)
+values (9000001, 9000001, '2026-07', 3);
 
 insert into public.interactions (
     id, account_id, target_type, target_id, scope, kind, body, actor_member_id
@@ -263,6 +337,12 @@ select migration_guard.capture('redts');
 select migration_guard.capture('references');
 select migration_guard.capture('reference_links');
 select migration_guard.capture('resumes');
+select migration_guard.capture('resume_photos');
+select migration_guard.capture('medical_notes');
+select migration_guard.capture('shidduchim_external_links');
+select migration_guard.capture('entity_files');
+select migration_guard.capture('subscription');
+select migration_guard.capture('ai_usage');
 select migration_guard.capture('interactions');
 select migration_guard.capture('tasks');
 select migration_guard.capture('identity_signals');
