@@ -5,6 +5,7 @@ import { ResumeTab } from "../resumes/ResumeTab";
 import { ExternalLinksTab } from "./ExternalLinksTab";
 import { MedicalTab } from "./MedicalTab";
 import { ShidduchOverviewTab } from "./ShidduchOverviewTab";
+import { ShidduchRightRail } from "./ShidduchRightRail";
 import {
   ShidduchActions,
   ShidduchActivityTab,
@@ -74,6 +75,14 @@ import type { ShidduchSummary } from "../types";
  * shidduch-only tab — no other Epic 5 story asks for it elsewhere, so it is
  * not made polymorphic, per YAGNI). `pendingTabs` is now empty: this is the
  * shidduch descriptor's last pending key.
+ *
+ * Story 5.7 sets `rightRail: ShidduchRightRail` — this story's ONLY edit to
+ * this file. It declares no tab and touches neither `tabs` nor
+ * `pendingTabs`: `rightRail` is a region, not a tab (contract §11 Ruling 2 —
+ * the rail is a compact, read-only summary that links into the canonical
+ * Tasks tab, never a second mutation surface). `ShidduchRightRail` lives in
+ * `shidduchim/`, alongside its two panels, imported directly here exactly
+ * like `ShidduchOverviewTab`/`ResumeTab`.
  */
 export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
   name: "shidduchim",
@@ -81,6 +90,7 @@ export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
   buildRecordPath: (id) => `/shidduchim/${id}`,
   identityHeader: ShidduchIdentityHeader,
   actions: ShidduchActions,
+  rightRail: ShidduchRightRail,
   tabs: [
     { key: "overview", render: () => <ShidduchOverviewTab /> },
     { key: "resume", render: () => <ResumeTab /> },

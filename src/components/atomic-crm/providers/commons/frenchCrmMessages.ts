@@ -412,6 +412,7 @@ export const frenchCrmMessages = {
           merge: "Fusionnée",
           link_created: "Liée à un shidduch",
           link_removed: "Déliée d'un shidduch",
+          single_input: "La saisie du célibataire",
         },
         empty: "Rien n'a encore été enregistré.",
         error: "Impossible de charger le fil d'activité.",
@@ -507,6 +508,22 @@ export const frenchCrmMessages = {
         invalidUrl: "Saisissez une URL valide (avec https://).",
         remove: "Supprimer",
         removeError: "Échec de la suppression du lien",
+      },
+      // Story 5.7 — le panneau latéral du shidduch.
+      rail: {
+        singleInput: {
+          heading: "La saisie du célibataire",
+          empty: "Rien n'a encore été partagé.",
+          error: "Impossible de charger la saisie du célibataire.",
+        },
+        reminders: {
+          heading: "Rappels",
+        },
+        forward: {
+          action: "Transférer le CV",
+          noResume: "Aucun CV à transférer pour l'instant.",
+          error: "Échec du transfert du CV",
+        },
       },
       record_pending: "Chargement…",
       record_unavailable: "Cet enregistrement n'est pas disponible.",

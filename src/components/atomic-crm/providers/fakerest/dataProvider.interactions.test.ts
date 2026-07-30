@@ -192,4 +192,29 @@ describe("interactions guards (FakeRest parity with the database)", () => {
       }),
     ).rejects.toThrow(/must declare which parent/i);
   });
+
+  // Story 5.7 (AC 5/AC 6) — the right rail's SingleInputPanel read path. A
+  // single_input row is target_type = 'shidduch', scope = 'shidduch',
+  // reference_link_id = null, the same shape every other shidduch-targeted
+  // interaction already uses — no new FakeRest validation branch, just the
+  // widened `InteractionKind` union round-tripping through the AD-10 mirror.
+  it("accepts a single_input-kind interaction targeting a shidduch", async () => {
+    // Arrange
+    const dataProvider = makeProvider();
+
+    // Act
+    const { data } = await dataProvider.create("interactions", {
+      data: note({
+        target_type: "shidduch",
+        target_id: 1,
+        kind: "single_input",
+        scope: "shidduch",
+      }),
+    });
+
+    // Assert
+    expect(data.kind).toBe("single_input");
+    expect(data.target_type).toBe("shidduch");
+    expect(data.reference_link_id ?? null).toBeNull();
+  });
 });

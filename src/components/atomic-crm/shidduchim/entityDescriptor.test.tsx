@@ -13,7 +13,13 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import { createDataProvider } from "../providers/fakerest/dataProvider";
 import generateData from "../providers/fakerest/dataGenerator";
 import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
-import type { EntityFile, MemberRole, MyContext } from "../types";
+import type {
+  EntityFile,
+  Interaction,
+  MemberRole,
+  MyContext,
+  Resume,
+} from "../types";
 import { buildEntityRoutes } from "../entity360/buildEntityRoutes";
 import { EntityShow } from "../entity360/EntityShow";
 // Side-effect import — registers the REAL shidduchimDescriptor, exactly like
@@ -245,5 +251,113 @@ describe("shidduchimDescriptor — the real Files tab is scoped to this record (
     expect(screen.container.textContent ?? "").not.toContain(
       "Same Id Wrong Type File.pdf",
     );
+  });
+});
+
+describe("shidduchimDescriptor — the right rail (Story 5.7, AC 1 / AC 2 / AC 3 / AC 4)", () => {
+  /**
+   * Dev Notes: `EntityShow` deliberately withholds `rightRail` while the
+   * viewer role is pending (`EntityShow.tsx:116-137`) — `renderShidduchShow`
+   * always seeds `MY_CONTEXTS_QUERY_KEY` synchronously, so every assertion
+   * here is against the already-settled state, per that instruction.
+   */
+  it("renders all three rail panels beside the tab content, with the settled empty/disabled states, for a viewer with no rail data yet", async () => {
+    // Act
+    const { screen } = await renderShidduchShow("parent_admin");
+
+    // Assert — the tab strip proves the settled (non-pending) render.
+    await expect
+      .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
+    // The single's input panel, empty.
+    await expect
+      .element(screen.getByText("The single's input"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Nothing has been shared yet."))
+      .toBeInTheDocument();
+    // The reminders panel, empty, with a link to the Tasks tab.
+    await expect.element(screen.getByText("Reminders")).toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("link", { name: "See all tasks" }))
+      .toBeInTheDocument();
+    // The forward action, disabled — no resume exists for this shidduch.
+    await expect
+      .element(screen.getByRole("button", { name: "Forward resume" }))
+      .toBeDisabled();
+  });
+
+  it("the single input panel renders only this shidduch's own single_input rows, never a different shidduch's or a different kind", async () => {
+    // Arrange — one row that belongs, one filed under a different
+    // shidduch's target_id, one that belongs to this shidduch but under a
+    // different kind. Mutating `SingleInputPanel`'s filter to drop any one
+    // of the three fields previously left `make typecheck` and the rest of
+    // the suite green.
+    const { screen } = await renderShidduchShow(
+      "parent_admin",
+      (db, shidduchId) => {
+        let nextId = 90000;
+        const build = (overrides: Partial<Interaction>): Interaction => ({
+          id: nextId++,
+          account_id: 1,
+          target_type: "shidduch",
+          target_id: shidduchId,
+          scope: "shidduch",
+          kind: "single_input",
+          created_at: "2026-01-01T00:00:00Z",
+          ...overrides,
+        });
+        db.interactions = [
+          ...db.interactions,
+          build({ body: "This Shidduch's Own Share" }),
+          build({ target_id: 9999999, body: "A Different Shidduch's Share" }),
+          build({ kind: "note", body: "Same Shidduch Wrong Kind Note" }),
+        ];
+      },
+    );
+
+    // Assert
+    await expect
+      .element(screen.getByText("This Shidduch's Own Share"))
+      .toBeInTheDocument();
+    expect(screen.container.textContent ?? "").not.toContain(
+      "A Different Shidduch's Share",
+    );
+    expect(screen.container.textContent ?? "").not.toContain(
+      "Same Shidduch Wrong Kind Note",
+    );
+  });
+
+  it("the forward button becomes enabled once a resume file exists for this shidduch", async () => {
+    // Arrange
+    const { screen } = await renderShidduchShow(
+      "parent_admin",
+      (db, shidduchId) => {
+        db.resumes = [
+          ...db.resumes,
+          {
+            id: 90000,
+            account_id: 1,
+            shidduchim_id: shidduchId,
+            files: [
+              {
+                path: `1/resumes/${shidduchId}/rail-resume.pdf`,
+                filename: "rail-resume.pdf",
+                uploaded_at: "2026-01-01T00:00:00Z",
+                uploaded_by: null,
+                mime_type: "application/pdf",
+                size: 1024,
+              },
+            ],
+            created_at: "2026-01-01T00:00:00Z",
+          } satisfies Resume,
+        ];
+      },
+    );
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "Forward resume" }))
+      .not.toBeDisabled();
   });
 });

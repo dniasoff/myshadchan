@@ -577,14 +577,22 @@ export type ReferenceLinkSummary = ReferenceLink & {
   single_first_name_he?: string | null;
 };
 
-/** Polymorphic interaction timeline (AD-13). A note is just kind === "note". */
+/**
+ * Polymorphic interaction timeline (AD-13). A note is just kind === "note".
+ * `single_input` (Story 5.7) is the read-side half of Epic 6's Story 6.4:
+ * a `target_type = 'shidduch'` row the single will eventually write once
+ * that story lands the write path. Widening this union without an entry in
+ * `entity360/tabs/interactionLabels.ts`'s `INTERACTION_KIND_LABELS`
+ * (`Record<InteractionKind, …>`) is an immediate `tsc` error by design.
+ */
 export type InteractionKind =
   | "note"
   | "call_logged"
   | "status_change"
   | "merge"
   | "link_created"
-  | "link_removed";
+  | "link_removed"
+  | "single_input";
 
 /**
  * Which parent an interaction derives its visibility from (AD-3). Not a

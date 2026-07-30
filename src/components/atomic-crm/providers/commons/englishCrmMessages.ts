@@ -448,6 +448,7 @@ export const englishCrmMessages = {
           merge: "Merged",
           link_created: "Linked to a shidduch",
           link_removed: "Unlinked from a shidduch",
+          single_input: "The single's input",
         },
         empty: "Nothing logged yet.",
         error: "Could not load the activity feed.",
@@ -561,6 +562,26 @@ export const englishCrmMessages = {
         invalidUrl: "Enter a valid URL (including https://).",
         remove: "Remove",
         removeError: "Failed to remove the link",
+      },
+      // Story 5.7 — the shidduch right rail: `SingleInputPanel`'s own
+      // UX-DR11 states (a read-only feed of `kind = 'single_input'`
+      // interactions) and `ForwardResumeButton`'s disabled-tooltip and
+      // failure copy (Ruling 2 — the rail never mutates; only the states a
+      // read-only panel and a download/share action need).
+      rail: {
+        singleInput: {
+          heading: "The single's input",
+          empty: "Nothing has been shared yet.",
+          error: "Could not load the single's input.",
+        },
+        reminders: {
+          heading: "Reminders",
+        },
+        forward: {
+          action: "Forward resume",
+          noResume: "No resume to forward yet.",
+          error: "Failed to forward the resume",
+        },
       },
       // Story 3.2 — ShowBase's explicit `loading` / `error` elements (AC 2).
       record_pending: "Loading…",

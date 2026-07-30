@@ -164,6 +164,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/SingleInputPanel.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/ShidduchimViewSwitch.tsx",
           "type": "registry:component"
         },
@@ -193,6 +197,10 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/ShidduchRow.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchRightRail.tsx",
           "type": "registry:component"
         },
         {
@@ -253,6 +261,10 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/MedicalTab.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ForwardResumeButton.tsx",
           "type": "registry:component"
         },
         {
@@ -409,6 +421,14 @@
         },
         {
           "path": "src/components/atomic-crm/root/CRM.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/resumes/useLatestResumeFile.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/resumes/resumeSharePayload.ts",
           "type": "registry:component"
         },
         {

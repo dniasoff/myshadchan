@@ -605,6 +605,66 @@ exception when others then
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- Story 5.7 AC 5: interactions_kind_check widened to accept 'single_input'
+-- — the shidduch right rail's read-side panel. Still authenticated as U,
+-- active context A. A single_input row is target_type = 'shidduch',
+-- scope = 'shidduch', reference_link_id = null, which already satisfies the
+-- existing interactions_scope_link_check disjunct for shidduch-targeted
+-- rows (01_tables.sql) — this story touches no other constraint.
+-- ---------------------------------------------------------------------------
+insert into public.shidduchim (single_id, name_en)
+values ((select value::bigint from ids where name = 'single_a'), 'IT Shidduch A')
+returning id as shidduch_a \gset
+
+insert into ids values ('shidduch_a', :'shidduch_a');
+
+do $$
+declare
+  v_id bigint;
+begin
+  insert into public.interactions (target_type, target_id, scope, kind)
+    values (
+      'shidduch',
+      (select value::bigint from ids where name = 'shidduch_a'),
+      'shidduch',
+      'single_input'
+    )
+    returning id into v_id;
+  insert into ids values ('interaction_single_input', v_id::text);
+  insert into results values (
+    'AC 5: a single_input-kind interaction on a shidduch-targeted row inserts (interactions_kind_check widened)',
+    true, null
+  );
+exception when others then
+  -- Reverted-schema red run: interactions_kind_check does not accept
+  -- 'single_input' yet.
+  insert into results values (
+    'AC 5: a single_input-kind interaction on a shidduch-targeted row inserts (interactions_kind_check widened)',
+    false, sqlerrm
+  );
+end $$;
+
+do $$
+begin
+  insert into public.interactions (target_type, target_id, scope, kind)
+    values (
+      'shidduch',
+      (select value::bigint from ids where name = 'shidduch_a'),
+      'shidduch',
+      'not_a_real_kind'
+    );
+  insert into results values (
+    'AC 5 sanity: an unrecognised kind value is still rejected by interactions_kind_check (the widening is exactly one value, not a free-text column)',
+    false, 'insert unexpectedly succeeded with an invalid kind'
+  );
+exception when others then
+  insert into results values (
+    'AC 5 sanity: an unrecognised kind value is still rejected by interactions_kind_check (the widening is exactly one value, not a free-text column)',
+    sqlerrm like '%interactions_kind_check%', sqlerrm
+  );
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- AC 10(e): deleting a single or a shadchan leaves no orphaned polymorphic
 -- rows. As postgres, to keep this section independent of which context is
 -- active and free to attach fixture rows to either household directly.

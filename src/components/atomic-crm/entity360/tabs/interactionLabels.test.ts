@@ -76,4 +76,12 @@ describe("INTERACTION_KIND_LABELS — one entry per InteractionKind, under crm.e
       fallback: "Unlinked from a shidduch",
     });
   });
+
+  /** Story 5.7, AC 6 — the new kind the right rail's SingleInputPanel reads. */
+  it("single_input", () => {
+    expect(INTERACTION_KIND_LABELS.single_input).toEqual({
+      key: "crm.entity360.activity.kind.single_input",
+      fallback: "The single's input",
+    });
+  });
 });

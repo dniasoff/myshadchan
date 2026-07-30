@@ -1,6 +1,10 @@
+---
+baseline_commit: 08243fe043407313b85fd79dc9fef56e8d2cdc5c
+---
+
 # Story 5.7: Shidduch right rail
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -109,71 +113,71 @@ does not have to touch this table's constraint later, only add the write UI.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Schema and the four-place kind widening** (AC: 5, 6)
-  - [ ] `supabase/schemas/01_tables.sql`: add `'single_input'` to `interactions_kind_check`
+- [x] **Task 1 — Schema and the four-place kind widening** (AC: 5, 6)
+  - [x] `supabase/schemas/01_tables.sql`: add `'single_input'` to `interactions_kind_check`
         (`:469-471`).
-  - [ ] `types.ts`: add `"single_input"` to `InteractionKind` (`:491-497`).
-  - [ ] `entity360/tabs/interactionLabels.ts`: add the `single_input` entry to
+  - [x] `types.ts`: add `"single_input"` to `InteractionKind` (`:491-497`).
+  - [x] `entity360/tabs/interactionLabels.ts`: add the `single_input` entry to
         `INTERACTION_KIND_LABELS` (`:36-39`) — `{ key: "crm.entity360.activity.kind.single_input",
         fallback: "…" }`. Non-optional: the map is `Record<InteractionKind, …>`.
-  - [ ] `entity360/tabs/interactionLabels.test.ts`: extend, it enumerates the kinds.
-  - [ ] **Both** i18n catalogues: `englishCrmMessages.ts:420-427` and
+  - [x] `entity360/tabs/interactionLabels.test.ts`: extend, it enumerates the kinds.
+  - [x] **Both** i18n catalogues: `englishCrmMessages.ts:420-427` and
         `frenchCrmMessages.ts:389-396`.
-  - [ ] Generate + hand-check migration
+  - [x] Generate + hand-check migration
         (`DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f interactions_single_input`):
         a single `ALTER TABLE … DROP CONSTRAINT … ADD CONSTRAINT` on `interactions_kind_check`
         only — verify `db diff` does **not** also touch `interactions_scope_link_check` or
         `interactions_target_type_check`. Then
         `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. Never
         `db reset` / `db push`.
-  - [ ] `supabase/tests/interactions_targets.sql` **and its paired
+  - [x] `supabase/tests/interactions_targets.sql` **and its paired
         `interactions_targets.test.ts` runner**: this is the existing home for
         `interactions`-constraint coverage — add the positive case (a `single_input` row with
         `scope = 'shidduch'`, `reference_link_id = null` inserts) and the negative
         (a pre-migration kind value is still rejected). Every `.sql` suite in `supabase/tests/`
         has a paired runner; there are no exceptions.
-  - [ ] `providers/fakerest/dataProvider.interactions.test.ts`: its fixture pins `kind: "note"`
+  - [x] `providers/fakerest/dataProvider.interactions.test.ts`: its fixture pins `kind: "note"`
         (`:15`), so nothing breaks — but the FakeRest mirror is where the `single_input` read path
         gets demo coverage (AD-10). Extend rather than adding a parallel test file.
-- [ ] **Task 2 — Rail panels** (AC: 1, 2, 3)
-  - [ ] `src/components/atomic-crm/shidduchim/ShidduchRightRail.tsx`: composes the three panels.
+- [x] **Task 2 — Rail panels** (AC: 1, 2, 3)
+  - [x] `src/components/atomic-crm/shidduchim/ShidduchRightRail.tsx`: composes the three panels.
         Signature `({ record }: { record: Shidduch })` — see AC-1.
-  - [ ] `shidduchim/entityDescriptor.ts`: set `rightRail: ShidduchRightRail`. This is the only
+  - [x] `shidduchim/entityDescriptor.ts`: set `rightRail: ShidduchRightRail`. This is the only
         edit this story makes to that file — it declares **no** tab and touches **neither**
         `tabs` nor `pendingTabs`, so `entity360/registry.stubs.test.ts` stays untouched.
-  - [ ] `SingleInputPanel.tsx`: `useGetList("interactions", { filter: { target_type: "shidduch",
+  - [x] `SingleInputPanel.tsx`: `useGetList("interactions", { filter: { target_type: "shidduch",
         target_id, kind: "single_input" } })`, newest-first, empty state. (Those are **database
         column names in a `getList` filter**, not the universal-tab prop shape — the camelCase
         `targetType`/`targetId` rule applies to `UniversalTabProps` mounts only.)
-  - [ ] Reminders panel: mount 3.8's `TasksRailSummary` with
+  - [x] Reminders panel: mount 3.8's `TasksRailSummary` with
         `targetType="shidduch"` + `targetId` per AC-3 (read-only; the mutating `TasksTab` stays in
         the Tasks tab, which the summary links to via `buildTabPath`). `TasksRailSummary` calls
         `useResourceContext()` and **throws** without one (`TasksRailSummary.tsx:94-99`); mounted
         through `EntityShow` inside `<Resource name="shidduchim">` that context always exists, but
         any isolated test render must supply a `ResourceContextProvider`.
-- [ ] **Task 3 — Forward/share action** (AC: 4)
-  - [ ] `ForwardResumeButton.tsx`: reads the newest entry from Story 5.3's `ResumeVersionList`
+- [x] **Task 3 — Forward/share action** (AC: 4)
+  - [x] `ForwardResumeButton.tsx`: reads the newest entry from Story 5.3's `ResumeVersionList`
         data (or a small shared hook, `useLatestResumeFile(shidduchimId)`, to avoid duplicating
         the "which version is newest" sort logic already written for 5.3 — extract it into
         `resumes/` if it does not already exist as a reusable function).
-  - [ ] Feature-detect `navigator.canShare?.({ files: [...] })`; fall back to a plain `<a
+  - [x] Feature-detect `navigator.canShare?.({ files: [...] })`; fall back to a plain `<a
         download>` when unsupported or when no file exists (disabled state, not hidden).
-- [ ] **Task 4 — Tests**
-  - [ ] Component tests: empty state for `SingleInputPanel`; disabled state for
+- [x] **Task 4 — Tests**
+  - [x] Component tests: empty state for `SingleInputPanel`; disabled state for
         `ForwardResumeButton` with no resume; the reminders summary lists at most `limit`
         incomplete tasks, nearest due date first, and renders a link to the Tasks tab.
-  - [ ] Rail-region test: an `EntityShow` render for a shidduch shows the rail. Note that
+  - [x] Rail-region test: an `EntityShow` render for a shidduch shows the rail. Note that
         `EntityShow` **deliberately withholds `rightRail` while the viewer role is pending**
         (`EntityShow.tsx:116-137`) — assert the settled state, and do not "fix" that withholding.
-  - [ ] Widened read-only guard per AC-7:
+  - [x] Widened read-only guard per AC-7:
         `shidduchim/ShidduchRightRail.guard.test.ts`, same `?raw` glob idiom as
         `entity360/tabs/TasksRailSummary.guard.test.ts`, scanning `ShidduchRightRail.tsx` and its
         panel modules. 3.8 owns the `TasksRailSummary.tsx` scan; this story owns the wrapper's.
-  - [ ] Payload test per AC-4: the forward/share payload holds exactly one `resumes.files`
+  - [x] Payload test per AC-4: the forward/share payload holds exactly one `resumes.files`
         entry and nothing derived from `resume_photos`.
-  - [ ] `make typecheck && npm run lint && npx vitest run && npm run test:unit:db`.
-- [ ] **Task 5 — `registry.json`**
-  - [ ] Three new non-test source files land under `src/components/atomic-crm/`
+  - [x] `make typecheck && npm run lint && npx vitest run && npm run test:unit:db`.
+- [x] **Task 5 — `registry.json`**
+  - [x] Three new non-test source files land under `src/components/atomic-crm/`
         (`ShidduchRightRail.tsx`, `SingleInputPanel.tsx`, `ForwardResumeButton.tsx`), so
         `scripts/generate-registry.mjs` picks them up and `registry.json` changes.
         `.husky/pre-commit` regenerates it; commit the result.
@@ -230,8 +234,108 @@ Do not add a new RLS branch for this — that would be solving a problem that do
 
 ### Agent Model Used
 
+Claude Opus 5 (developer subagent).
+
 ### Debug Log References
+
+AC-7's guard, proven red once then green (contract §13 rule 2). Temporarily added
+`useUpdate` to `ShidduchRightRail.tsx`'s import list (no call site — the import alone is
+enough, matching the guard's own text-scan design) and ran
+`npx vitest run src/components/atomic-crm/shidduchim/ShidduchRightRail.guard.test.ts`:
+
+```
+FAIL  |app (chromium)| src/components/atomic-crm/shidduchim/ShidduchRightRail.guard.test.ts
+  > references none of the mutation hooks, in any of the three files
+AssertionError: ./ShidduchRightRail.tsx references: useUpdate: expected [ 'useUpdate' ] to deeply equal []
+Tests  1 failed | 2 passed (3)
+```
+
+Reverted the import; re-ran the same command — `Tests  3 passed (3)`.
+
+`supabase db diff --local` reproduces a pre-existing, repo-known quirk on every run
+regardless of what changes: it spuriously re-emits `reference_links_summary`,
+`shadchan_stats`, `shidduchim_summary`, `singles_summary` (drop + recreate, security_invoker
+stripped) even for a change — this story's `interactions_kind_check` widening — that touches
+none of their base tables. Confirmed by re-running `db diff --local` with zero local changes
+staged: the same four-view block reappears verbatim. Followed the established remediation
+(migrations `20260730025903`, `20260730041150`): the four-view block was deleted from the
+generated migration file before applying it. Verified post-migration: `pg_class.reloptions`
+still reads `{security_invoker=on}` on all four views, and `interactions_kind_check`'s
+`pg_get_constraintdef` includes `'single_input'::text`.
 
 ### Completion Notes List
 
+- Task 1: widened `interactions_kind_check` (migration `20260730065512_interactions_single_input.sql`,
+  hand-edited per the known `db diff` view-quirk above), `InteractionKind`, `INTERACTION_KIND_LABELS`
+  (+ its test), and both i18n catalogues, all in one diff (AC 5, AC 6). Added the positive/negative
+  SQL checks to `supabase/tests/interactions_targets.sql` (still-authenticated household-A section,
+  after the AC-4 current_member_id() check) rather than a new suite, and one FakeRest round-trip test
+  to `dataProvider.interactions.test.ts`, per the story's own file-ownership notes.
+- Task 2: `ShidduchRightRail` takes exactly `{ record }` and is the descriptor's only new field
+  (`rightRail: ShidduchRightRail`) — no tab, no `pendingTabs` edit, `registry.stubs.test.ts` untouched,
+  confirmed by the full suite staying green. `SingleInputPanel` filters `interactions` on the raw
+  column names per the story's own clarification (not `UniversalTabProps`).
+- Task 3: extracted `sortResumeFilesNewestFirst` out of `ResumeVersionList.tsx` into a new
+  `resumes/useLatestResumeFile.ts` (the "small shared hook" the story names) and refactored
+  `ResumeVersionList` to call the shared function — no behaviour change, `ResumeVersionList.test.tsx`
+  stays green unmodified. `ForwardResumeButton`'s plain-download fallback reuses
+  `ResumeVersionList`'s own `window.open(url, "_blank", "noopener,noreferrer")` idiom against the
+  same `dataProvider.signResumeFileUrl` call (which already sets `download: fileName` server-side)
+  rather than building a separate `<a download>` element — same user-visible behaviour, one fewer
+  download mechanism in the codebase. The Web Share payload builder (`buildResumeSharePayload`) was
+  pulled into its own `resumes/resumeSharePayload.ts` module (not inlined in the button component)
+  because `react-refresh/only-export-components` flags a file mixing a component export with a plain
+  function export — the same reason `entityDescriptorRegions.tsx` is split from `entityDescriptor.tsx`.
+- Task 4: added `ShidduchRightRail.guard.test.ts` (AC 7, widened scan over all three new files, proven
+  red once — see Debug Log), unit tests for `SingleInputPanel`, `ForwardResumeButton` (disabled state,
+  download fallback, error handling) and `resumeSharePayload`/`useLatestResumeFile`, and three
+  descriptor-level integration tests in `shidduchim/entityDescriptor.test.tsx` mounting the REAL
+  registered descriptor through `EntityShow` + FakeRest (the file's own established pattern): the
+  settled rail renders all three panels; the single-input panel is scoped correctly (own shidduch, own
+  kind, excluding a wrong-target_id and a wrong-kind row); the forward button enables once a resume
+  exists.
+- Task 5: `make registry-gen` picked up the three new non-test source files
+  (`ShidduchRightRail.tsx`, `SingleInputPanel.tsx`, `ForwardResumeButton.tsx`) plus
+  `resumes/useLatestResumeFile.ts` and `resumes/resumeSharePayload.ts`; committed the regenerated
+  `registry.json`.
+- Gates run for real, not assumed: `make typecheck` (three tsconfigs) clean; `make lint` (ESLint 0
+  warnings + Prettier) clean after moving the payload builder out of the component file;
+  `npx vitest run` — 200 files / 2051 tests passed; `npm run test:unit:db` — 19 files / 563 tests
+  passed; `make build` succeeded; all four CI guards
+  (`check-retired-names`/`check-suppressions`/`check-route-convention`/`check-tailwind-arbitrary-var`)
+  printed `OK`/exit 0; `make test STACK_ID=3` (leased under `STACK_OWNER=5-7`, stopped afterward) —
+  200 files / 2051 tests passed against the isolated stack-3 database. `npx prettier --check .`
+  (repo-wide) flags 16 pre-existing files (`.github/workflows/*.yml`, `.lintstagedrc`, several
+  `doc/**/*.mdx`) outside this story's File List and outside `make lint`'s own glob — not introduced
+  or touched by this change.
+- Nothing could not be done; no scope was cut.
+
 ### File List
+
+- `supabase/schemas/01_tables.sql` — widen `interactions_kind_check` to accept `'single_input'`.
+- `supabase/migrations/20260730065512_interactions_single_input.sql` — new migration (hand-edited to
+  drop the spurious four-view re-emit, per Debug Log).
+- `supabase/tests/interactions_targets.sql` — positive/negative `single_input` kind-check coverage.
+- `src/components/atomic-crm/types.ts` — add `"single_input"` to `InteractionKind`.
+- `src/components/atomic-crm/entity360/tabs/interactionLabels.ts` — `INTERACTION_KIND_LABELS` entry.
+- `src/components/atomic-crm/entity360/tabs/interactionLabels.test.ts` — extended.
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` — `activity.kind.single_input`
+  + new `entity360.rail.*` namespace.
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` — same, in French.
+- `src/components/atomic-crm/providers/fakerest/dataProvider.interactions.test.ts` — extended.
+- `src/components/atomic-crm/shidduchim/entityDescriptor.tsx` — `rightRail: ShidduchRightRail`.
+- `src/components/atomic-crm/shidduchim/entityDescriptor.test.tsx` — three new rail-integration tests.
+- `src/components/atomic-crm/shidduchim/ShidduchRightRail.tsx` — new.
+- `src/components/atomic-crm/shidduchim/ShidduchRightRail.guard.test.ts` — new.
+- `src/components/atomic-crm/shidduchim/SingleInputPanel.tsx` — new.
+- `src/components/atomic-crm/shidduchim/SingleInputPanel.test.tsx` — new.
+- `src/components/atomic-crm/shidduchim/ForwardResumeButton.tsx` — new.
+- `src/components/atomic-crm/shidduchim/ForwardResumeButton.test.tsx` — new.
+- `src/components/atomic-crm/resumes/useLatestResumeFile.ts` — new (shared "newest version" hook +
+  sort function).
+- `src/components/atomic-crm/resumes/useLatestResumeFile.test.tsx` — new.
+- `src/components/atomic-crm/resumes/resumeSharePayload.ts` — new.
+- `src/components/atomic-crm/resumes/resumeSharePayload.test.ts` — new.
+- `src/components/atomic-crm/resumes/ResumeVersionList.tsx` — refactored to reuse
+  `sortResumeFilesNewestFirst`.
+- `registry.json` — regenerated (`make registry-gen`).

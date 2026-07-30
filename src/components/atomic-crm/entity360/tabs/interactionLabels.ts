@@ -63,4 +63,8 @@ export const INTERACTION_KIND_LABELS: Record<
     key: "crm.entity360.activity.kind.link_removed",
     fallback: "Unlinked from a shidduch",
   },
+  single_input: {
+    key: "crm.entity360.activity.kind.single_input",
+    fallback: "The single's input",
+  },
 };

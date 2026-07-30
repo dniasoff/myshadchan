@@ -561,7 +561,7 @@ create table public.interactions (
         target_type in ('reference', 'shidduch', 'shadchan', 'single')
     ),
     constraint interactions_kind_check check (
-        kind in ('note', 'call_logged', 'status_change', 'merge', 'link_created', 'link_removed')
+        kind in ('note', 'call_logged', 'status_change', 'merge', 'link_created', 'link_removed', 'single_input')
     ),
     constraint interactions_scope_check check (scope in ('shidduch', 'account')),
     -- The structural half of AD-3, enumerated exhaustively. scope = 'shidduch'

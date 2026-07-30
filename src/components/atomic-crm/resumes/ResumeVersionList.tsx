@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatTimelineDate } from "../entity360/tabs/interactionLabels";
 import type { CrmDataProvider } from "../providers/types";
 import type { Resume, ResumeFileVersion } from "../types";
+import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 
 function ResumeListSkeleton(): ReactElement {
   return (
@@ -108,9 +109,7 @@ export function ResumeVersionList({
   if (isPending) return <ResumeListSkeleton />;
   if (error) return <ResumeError />;
 
-  const versions = [...(data?.[0]?.files ?? [])].sort((a, b) =>
-    b.uploaded_at.localeCompare(a.uploaded_at),
-  );
+  const versions = sortResumeFilesNewestFirst(data?.[0]?.files ?? []);
 
   if (versions.length === 0) return <ResumeEmpty />;
 
