@@ -27,6 +27,13 @@ provisioning path Epic 2 built produces a correctly-linked record. It is
 ordered last because there is nothing to test parity against until 6.2–6.4
 exist.
 
+**Before editing any `single`-role predicate, read Dev Notes → "Inherited
+risk from Story 6.4 — two things that are safe only by coincidence".** Two
+shipped constructs (the `interactions_summary.can_moderate` column and three
+clauses of `"Single adds input on a visible suggestion"`) are correct only
+while a `single`'s read set stays exactly as narrow as 6.4 left it, and
+neither has a test that would catch it if that changed.
+
 **Binding delivery order: 6.6 → 6.2 → 6.3 → 6.4 → 6.1 → 6.5.**
 
 **The shipped role/context model this story checks itself against** (verified
@@ -258,6 +265,62 @@ The two allow-lists in the single's blast radius that *do* name roles both
 already include `self_manager`: `medical_notes`' policy
 (`parent_admin`/`self_manager`, `05_policies.sql:267`) and the `visibleTo`
 arrays Stories 6.2/6.3 add. Task 2's read assertions cover both.
+
+### Inherited risk from Story 6.4 — two things that are safe only by coincidence
+
+Recorded here by the post-6.4 orphaned-findings pass (2026-07-30), because
+this is the story whose builder is most likely to trip them and neither
+belongs to a story that is still open. **Neither is a defect today.** Both
+are conditional: they hold only while a `single`-role caller's read set stays
+exactly as narrow as Story 6.4 left it. This story as scoped does not widen
+it — it concerns `self_manager`, a different role, and explicitly "builds
+nothing". The trigger is a *parity fix* that generalises a predicate: if
+Task 4 (or a reviewer) decides some `= 'single'` / `<> 'single'` clause
+should be re-phrased around roles, or if the comparative suite prompts an
+edit to `"Single reads own input"` or `"Shidduchim visible to single"`, read
+both of these first.
+
+**1. `interactions_summary.can_moderate` omits the UPDATE policy's
+`current_member_role() <> 'single'` conjunct.** The view mirrors only the
+policy's moderation clause, `kind not in ('note', 'single_input') or (kind =
+'note' and can_moderate_note(actor_member_id))`. It deliberately does not
+mirror the role conjunct, and the argument for that (written out in full at
+`03_views.sql`, immediately above the view) is narrow: `interactions` now
+carries **two** permissive SELECT policies, and the second — `"Single reads
+own input"` — is the only way a `single`-role caller sees any row at all. It
+restricts that caller to `kind = 'single_input'` rows they authored, and on
+`single_input` the moderation clause is already `false`, so the missing role
+conjunct has nothing left to decide. **That is a property of the current
+carve-out, not an invariant.** The moment a `single` may READ any other kind
+through any path, `can_moderate` starts reporting `true` to a role the
+UPDATE policy denies outright, and `and public.current_member_role() <>
+'single'` has to be ANDed into the view's expression in the same commit.
+The view is a UI affordance whose one job is never to advertise an action
+the database refuses; the standing guard is `(g3)` in
+`supabase/tests/interaction_note_authorship.sql`, which asserts the
+*agreement* between the column and the UPDATE outcome — but only for the
+caller shape it exercises. This exact drift has already happened twice on
+this one predicate (Story 5.7 finding F2, then Story 6.4), each time costing
+a dedicated migration.
+
+**2. Three clauses of `"Single adds input on a visible suggestion"` are
+currently unfalsifiable by any test.** Story 6.4's review mutation-tested
+them on a live stack: deleting
+`public.is_single_visible_state(s.pipeline_state)`, deleting `c.member_id =
+public.current_member_id()`, or deleting `actor_member_id =
+public.current_member_id()` each leaves `single_input.test.ts` **19/19
+green**. They are redundant today because RLS applies inside a policy's own
+`EXISTS` subquery — `"Shidduchim visible to single"` (Story 6.2) has already
+filtered `shidduchim` to the single's own shared, visible-state rows — and
+because `set_interaction_actor_member_id` is a BEFORE INSERT trigger that has
+overwritten `actor_member_id` before the `WITH CHECK` runs. They are correct
+defence-in-depth and **must not be deleted as dead code**. The risk for this
+story: they become load-bearing the moment `"Shidduchim visible to single"`
+is widened or a single gains a second read path into `shidduchim`, and on
+that day **no existing test would catch a mistake in them.** If anything in
+this story's work touches that SELECT policy, the clauses need direct
+coverage (a fixture where the shidduch is visible but not `shared`, or not a
+visible pipeline state) added in the same change.
 
 ### Why "self-seeker is not a separate account type" matters here
 

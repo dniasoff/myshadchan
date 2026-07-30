@@ -44,8 +44,12 @@ earlier drafts assumed:
   (`02_functions.sql:417`, wired in `04_triggers.sql`) fires before insert on
   every `interactions` row, and `06_grants.sql:705-706` revokes UPDATE
   table-wide and re-grants it on `(body, metadata, deleted_at)` only, so
-  `actor_member_id` is not client-writable at all. This story adds **no
-  trigger**.
+  `actor_member_id` is not client-writable **after the row is stored**.
+  **Post-review correction (finding 3): it IS writable in the INSERT
+  payload** — INSERT is granted table-wide on `interactions`, never
+  column-narrowed, so on the write path the trigger is the entire defence
+  and the grant layer contributes nothing. This story adds **no trigger**,
+  which makes the existing one load-bearing rather than redundant.
 - **The viewer's role already resolves to `"single"`.** `entity360/useViewerRole.ts`
   reads `my_contexts()` through `root/useMyContexts.ts` and
   `providers/commons/roleAuthority.ts`'s `pickActiveRole`, returning the real
@@ -110,16 +114,28 @@ clause, and the write-side form.
    The form therefore lives in a new `shidduchim/SingleInputForm.tsx` mounted
    inside `ShidduchOverviewTab.tsx` — an existing canonical tab that a single
    can reach (Story 6.2 grants the row; Story 6.3 leaves `overview`
-   unrestricted) and that already hosts a mutation surface
-   (`ShidduchCatchSection`). No new `TabKey`, no `CANONICAL_TAB_SETS`
-   amendment, no `Entity360` region added.
+   unrestricted). ~~and that already hosts a mutation surface
+   (`ShidduchCatchSection`)~~ — **struck post-review (finding 4): that
+   rationale was false and is not needed.** `ShidduchCatchSection` writes
+   nothing: confirm is a `useRedirect()` to the prior suggestion, dismiss is
+   a `useState` set held for the session, and its own file comment says so
+   ("Confirm and dismiss are session-level… nothing is written and nothing
+   merges"). `SingleInputForm` is therefore the **first** mutation surface on
+   the Overview tab, not an additional one. The placement still holds on the
+   two reasons that are true — the rail is read-only by ruling and by test,
+   and Overview is the one canonical tab a single reaches in full — but no
+   future story may cite "Overview already mutates" as precedent, because it
+   did not. No new `TabKey`, no `CANONICAL_TAB_SETS` amendment, no
+   `Entity360` region added.
 
 7. **Negative tests, required by `.claude/rules/security-triggers.md`:** a
    single cannot insert a `kind` other than `single_input`; a single cannot
    insert against a suggestion outside their own visible set; a forged
-   `actor_member_id` never lands (the column is withheld from the insert
-   grant and the trigger overwrites — either refusal satisfies the test, a
-   stored forged id fails it); a single cannot update their own
+   `actor_member_id` never lands (**mechanism corrected post-review, see
+   "Finding 3" below — the column is NOT withheld from the insert grant;
+   the BEFORE INSERT trigger is the whole of the write-side defence** —
+   either refusal satisfies the test, a stored forged id fails it); a
+   single cannot update their own
    `single_input` row; a `parent_admin` can neither insert nor update a
    `single_input` row; a single reading `interactions` sees only their own
    `single_input` rows.
@@ -777,15 +793,128 @@ row's visibility through the view first so a missing fixture fails the
 check instead of vacuously passing it. Proven red before the fix
 (`can_moderate=t rows=0`) and green after (`can_moderate=f rows=0`).
 
-**Known sibling, deliberately not touched** (this story's declared file,
-and its owning agent was live at the time): the FakeRest read path,
-`enrichInteractions()` in
-`src/components/atomic-crm/providers/fakerest/dataProvider.ts`, still
-computes `canModerate = row.kind !== "note" || isAuthor ||
+**Known sibling — CLOSED, not open** (this paragraph previously ended
+"Reported, not patched"; that is no longer true and the stale text was
+the exact hazard this file warns about elsewhere — prose that invites a
+later agent to "restore" a fixed bug in good faith). The FakeRest read
+path, `enrichInteractions()` in
+`src/components/atomic-crm/providers/fakerest/dataProvider.ts`, computed
+`canModerate = row.kind !== "note" || isAuthor ||
 callerOwnsCurrentContext` — the Story **3.6** shape, which never received
 5.7's `single_input` widening either. For `kind === 'single_input'` that
-is `true` for *every* caller, so in demo mode the moderation control
-renders on every single's-input row and clicking it hits this story's own
-append-only guard in `update()` (which *was* updated correctly) and
-throws. The write path is right; the read path that decides whether to
-show the control is not. Reported, not patched.
+was `true` for *every* caller, so in demo mode the moderation control
+rendered on every single's-input row and clicking it hit this story's own
+append-only guard in `update()` (which *was* updated correctly) and threw.
+
+**Fixed in `a736175`**, by the same agent that fixed the SQL half, once
+that agent's ownership window on this file opened. The shipped expression
+is now the De Morgan of the policy's own clause:
+
+```ts
+const canModerate =
+  (row.kind !== "note" && row.kind !== "single_input") ||
+  (row.kind === "note" && (isAuthor || callerOwnsCurrentContext));
+```
+
+Regression test: `"reports can_moderate: false for a single_input row, for
+its own author and for a parent_admin"` in
+`dataProvider.interactions.test.ts`. Its falsifiability was **re-verified
+independently** (2026-07-30, orphaned-findings pass): reverting the
+expression to `row.kind !== "note" || isAuthor || callerOwnsCurrentContext`
+turns it red (`expected true to be false`, 1 failed / 17 passed);
+restoring turns it green (18/18).
+
+### Review findings 2-7 — adjudicated, not inherited
+
+This story's review raised one MUST-FIX (finding 1, closed above) and six
+"does not block" findings. The fix agent closed finding 1's two halves and
+characterised 3/4/5 as "story-prose accuracy issues in a file neither of us
+owns", 2 as "inherent to RLS composition", 6 as "pre-existing/demo-only",
+7 as informational. Those were reasonable calls made by an agent with an
+interest in them not blocking, and nobody owned the file they landed in.
+They are re-judged here, independently, against the shipped tree — because
+"neither of us owns it" is how work disappears. Verdicts below.
+
+**Finding 2 — three INSERT-policy clauses have zero test sensitivity.
+CONFIRMED, not a bug, and the forward risk is real.** Deleting any of
+`is_single_visible_state(s.pipeline_state)`, `c.member_id =
+current_member_id()`, or `actor_member_id = current_member_id()` from
+`"Single adds input on a visible suggestion"` leaves `single_input.test.ts`
+19/19 green. The reviewer's diagnosis is correct: RLS applies to tables
+referenced *inside* a policy's own `EXISTS` subquery, so `"Shidduchim
+visible to single"` (Story 6.2) has already filtered `public.shidduchim`
+down to the single's own shared, visible-state rows before this policy's
+join runs, and the actor clause is satisfied by construction because
+`set_interaction_actor_member_id` is a BEFORE INSERT trigger. The clauses
+are correct defence-in-depth and must not be deleted as dead code — but
+**no test in this repo would catch it if they were, and no test would catch
+a mistake in them the day they become load-bearing.** They become
+load-bearing the moment any story widens `"Shidduchim visible to single"`
+or gives a single a second read path into `shidduchim`. Story 6.5
+(self-manager parity) is the live candidate; the risk is written into its
+story file rather than left here.
+
+**Finding 3 — AC-7's stated mechanism is wrong. CONFIRMED, real, fixed
+above.** `06_grants.sql` grants table-wide `insert` on `public.interactions`
+to `authenticated` (`grant select, insert, update on table
+public.interactions`); only UPDATE is column-narrowed (`revoke update …` /
+`grant update (body, metadata, deleted_at) …`). So a client **can** name any
+`actor_member_id` in an INSERT payload, and the only thing that stops the
+forgery is the BEFORE INSERT trigger `set_interaction_actor_member_id`
+overwriting it. This is not cosmetic: AC-7 named a protection that does not
+exist, and the policy's own `actor_member_id = current_member_id()` clause
+evaluates *after* the trigger has already overwritten the value (05_policies
+says so in its own comment), so it pins the trigger rather than catching a
+live forgery. An agent trusting AC-7 could remove or weaken that trigger
+believing the grant layer had it covered, and every negative test would stay
+green. AC-7's parenthetical now says so. **AC-2 is accurate as written** —
+it names the *UPDATE* grant, which genuinely does withhold the column; the
+review's "AC-2/AC-7" framing over-reached by one AC.
+
+**Finding 4 — AC-6's rationale is inaccurate. CONFIRMED, fixed above.**
+`ShidduchCatchSection` writes nothing (`useRedirect` + a session-local
+`useState` set; its own file comment states it). `SingleInputForm` is the
+first mutation surface on the Overview tab. The placement decision survives
+on its two true reasons; the false precedent has been struck so no later
+story can cite it.
+
+**Finding 5 — pre-existing `single_input` rows become permanently
+un-editable. CONFIRMED as a mechanism, effectively empty in practice, and
+the practical part is what was missing.** The reviewer verified there is no
+data loss (`check-migration-safety` PASSED, the migration is DDL-only).
+What was not written down is the exposure: **no shipped code path could
+create a `single_input` row before this story.** `single_input` entered the
+`kind` check in Story 5.7, but `SingleInputPanel.tsx` only *reads* it
+(`useGetList` with `kind: "single_input"`), and `SingleInputForm.tsx` — the
+first and only writer — is this story's own. Production is at `b6e2a2b`
+(Epics 1-5), so any pre-existing row could only have come from a direct
+PostgREST/SQL call by an account member, not from the app. The deploy round
+therefore needs no backfill or carve-out for them; if one is ever found,
+it is frozen by design (AC-3) and the retraction question re-opens as its
+own decision, exactly as Dev Notes says.
+
+**Finding 6 — FakeRest parity is write-side only. CONFIRMED, still open,
+demo-only, and now explicitly owned rather than orphaned.** The write half
+is mirrored: `create()` refuses a `single_input` from a non-`single`
+session, `update()` refuses every `single_input` edit. The read half is not
+mirrored at all — `getList`/`getOne` for `interactions` /
+`interactions_summary` apply no role filter, so a demo `single` session
+reads every interaction in the fixture, including the parent's candid
+`note` rows. Real RLS (`"Interactions readable within account and parent
+visibility"`'s `current_member_role() <> 'single'` plus `"Single reads own
+input"`) makes this impossible against a real backend, so there is **no
+production exposure** — but demo mode is where the single's-access story is
+shown to people, and it currently shows the opposite of what Epic 6 built.
+Pre-existing from Story 6.3, widened in scope by this story's carve-out.
+**Not fixed here** — `providers/fakerest/dataProvider.ts` was under another
+story's active ownership at the time of this pass (Story 6.1, live on it).
+**Handoff:** whoever next holds that file mirrors the two SELECT policies in
+the interactions read path, with a test that a `single`-role FakeRest
+session sees only its own `single_input` rows.
+
+**Finding 7 — ownership/red-main. CONFIRMED and closed.** `d8b831a` touched
+exactly its 14 declared paths; the three out-of-ownership suites it
+invalidated were repaired in `a7e071b`, so `main` was red between those two
+commits. Re-verified at `a736175` on an independent stack: 215 test files,
+2376 tests, all green; `check-migration-safety` PASSED; `db diff` clean
+twice against the committed schemas; all four CI guards pass.
