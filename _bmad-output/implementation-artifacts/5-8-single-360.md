@@ -75,13 +75,24 @@ already representable.
 4. **Given** the `singles` resource, **when** this story lands, **then** it is mounted on the
    AD-24 route shape — **and this is the half that a `buildRecordPath` flip alone does not
    deliver**:
-   - `singles/index.ts` registers **`list: buildEntityRoutes({ List: SingleList, New:
-     SingleCreate, Edit: SingleEdit, Show: EntityShow })`** plus explicit **`hasShow: true`** and
-     **`hasEdit: true`**, and **drops** its own `show:` and `edit:` props
-     (`singles/index.ts:18-20` today). It keeps `hasCreate: true` and keeps
-     `children: buildCreateRoutes("singles")` — **called with no `New` argument**, since `New` now
-     lives inside `buildEntityRoutes`; what remains in `children` is only the `/create` → `/new`
-     compatibility redirect (`entity360/routeConvention.tsx:43-56`).
+   - `singles/index.ts` registers **`list: buildEntityRoutes({ List: SingleList, Edit: SingleEdit,
+     Show: EntityShow })`** plus explicit **`hasShow: true`** and **`hasEdit: true`**, and
+     **drops** its own `show:` and `edit:` props (`singles/index.ts:18-20` today). It keeps
+     `hasCreate: true` and keeps **`children: buildCreateRoutes("singles", SingleCreate)`** —
+     **`New` is NOT passed to `buildEntityRoutes` here**.
+     **Review-fix correction (finding 4):** the paragraph below originally said the inverse —
+     `New` inside `buildEntityRoutes` and `buildCreateRoutes("singles")` called with no `New`
+     argument. That shape is `shidduchim`'s own **one-time exception** (Story 5.1's doc comment,
+     `shidduchim/index.ts`, names it explicitly: "the sole entity whose create surface used to be
+     matched inside its own list… declaring `New` in both places at once would register
+     `/{entity}/new` twice"). `singles` — like `shadchanim`/`references` — keeps its create surface
+     routed the way `buildCreateRoutes` already provides it: `hasCreate: true` keeps `<List>`'s
+     built-in `CreateButton` rendering, and `children: buildCreateRoutes("singles", SingleCreate)`
+     supplies the `new/*` route plus the `/create` → `/new` compatibility redirect
+     (`entity360/routeConvention.tsx:43-56`) — the exact pattern `shadchanim/index.ts` (pre-5.9
+     stub) and `references/index.ts` (Story 4.x) already use. `shidduchim/index.ts`'s inverse shape
+     is `shidduchim`'s own one-time exception, not the default other entities should copy; 5.9 and
+     5.10's own story text already state this correctly.
    - `singles/entityDescriptor.ts`'s `buildRecordPath` becomes ``(id) => `/singles/${encodeURIComponent(id)}` ``
      — the `encodeURIComponent` form is what `hasAd24RecordShape` compares against
      (`routeConvention.tsx:67-72`), which is the predicate `EditButton` uses to tell a migrated
@@ -132,7 +143,15 @@ already representable.
    ```ts
    { key: "shidduchim", resource: "shidduchim", getFilter: (r) => ({ single_id: r.id }) }
    ```
-   `resource` **is** the link target here, so no `linkResource`/`linkId`/`linkLabel` is needed.
+   `resource` **is** the link target here, so no `linkResource`/`linkId` is needed.
+   **Review-fix correction (finding 1): `linkLabel` IS needed here, despite the contract's own
+   worked example saying otherwise.** That example's "no `linkLabel` is needed" holds only when
+   the queried resource has a `recordRepresentation`; `shidduchim/index.ts` declares none (unlike
+   `singles`/`shadchanim`/`references`/`members`), so without one, `RelatedRecordsTab` renders
+   ra-core's bare `#{id}` fallback for every row. Add
+   `linkLabel: (row) => row.name_en ?? row.single_first_name_en ?? \`#${row.id}\`` (matching
+   `shidduchim/ShidduchCard.tsx`'s own display-name convention) — wholly inside this story's own
+   `singles/entityDescriptorRegions.tsx`, not `shidduchim/index.ts`.
    **Declare it as an explicit `tabs` entry rendering `<RelatedRecordsTab relationship={…}/>` at
    position 5, not as a `relationships` entry.** `mergeEntityTabs` **appends** every
    relationship-derived tab after every explicit `tabs` entry (`mergeEntityTabs.tsx:91`, whose own
@@ -404,7 +423,9 @@ Claude (bmad-dev-story workflow), STACK_ID=3 / STACK_OWNER=5-8.
 - AC 8: Shidduchim is an explicit `tabs` entry at position 5 rendering `<RelatedRecordsTab
   relationship={singleShidduchimRelationship}/>` (`resource: "shidduchim", getFilter: (r) => ({
   single_id: r.id })` — the worked example verbatim) — never a `relationships` entry, and no
-  hand-rolled `useGetList`.
+  hand-rolled `useGetList`. **Review fix (finding 1):** the relationship also carries `linkLabel`
+  — `shidduchim/index.ts` has no `recordRepresentation`, so without it every row rendered
+  ra-core's bare `#{id}`, not a name. See Review Fix Notes below.
 - AC 9: `SingleShow.tsx` deleted. `SingleProfileHeader` relocated to its own
   `singles/SingleProfileHeader.tsx` (prop signature unchanged); `SingleProfileHeader.test.tsx`'s
   import repointed. `SingleIdentityHeader` in `singles/entityDescriptorRegions.tsx` is the
@@ -432,6 +453,57 @@ Claude (bmad-dev-story workflow), STACK_ID=3 / STACK_OWNER=5-8.
   against a freshly-bootstrapped e2e stack), `supabase db diff --local` (clean of any
   resumes-related residue after applying).
 
+### Review Fix Notes (commit `d083970`'s review — findings 1, 2, 4, 5)
+
+- **Finding 1 (blocking, fixed)**: the Shidduchim tab (AC 8) listed each row as ra-core's bare
+  `#{id}` fallback, not a name — `shidduchim/index.ts` declares no `recordRepresentation` (unlike
+  `singles`/`shadchanim`/`references`/`members`), so `RelatedRecordsTab`'s
+  `relationship.linkLabel?.(row) ?? getRecordRepresentation(row)` fell through to it. The worked
+  example in `relationshipDescriptor.ts` ("no `linkLabel` is needed" when `resource` IS the link
+  target) is correct only when the target resource has a representation; it does not here. Fixed
+  entirely within this story's own files — no ownership call needed — by adding
+  `linkLabel: (row) => row.name_en ?? row.single_first_name_en ?? \`#${row.id}\`` to
+  `singleShidduchimRelationship` (`singles/entityDescriptorRegions.tsx`), matching
+  `shidduchim/ShidduchCard.tsx`'s own display-name convention. Proved red (reproducing the exact
+  `#{id}` regression) with the `linkLabel` line removed, then green with it restored.
+- **Finding 2 (blocking, fixed)**: `entityDescriptorRegions.tsx` and `SingleOverviewTab.tsx`
+  shipped with zero test coverage, so a `targetType`/`targetId`/subject swap in any of the six
+  region adapters was invisible to the suite — proven live in review (`SingleNotesTab`'s
+  `targetType="single"` → `"shidduch"`, and all three of
+  `ResumeUpload`/`ResumeVersionList`/`PhotoTabContent`'s `singleId` → `shidduchimId`, both left the
+  full suite green). New `singles/entityDescriptor.test.tsx` (`shidduchim/entityDescriptor.test.tsx`'s
+  pattern applied to `singles`, mounted through the REAL registered `singlesDescriptor` via
+  `EntityShow`, real FakeRest data provider): a Files/Notes/Tasks/Activity test per universal tab,
+  each seeding this single's own row, a same-type-wrong-`target_id` row, and a same-numeric-id-
+  wrong-`targetType` row (mirrors `shidduchim/entityDescriptor.test.tsx`'s own Files-tab pattern);
+  a Resume-tab and a Photo-tab test that upload through the real component tree and assert the
+  resulting `resumes` row is keyed by `single_id`, never `shidduchim_id`; and the AC-8 test finding
+  1 needed anyway. Proved every one of these red against the reviewer's exact mutations
+  (`SingleNotesTab` target type, `SingleTasksTab` target type, the Resume-tab subject swap) before
+  restoring the clean file and confirming green.
+- **Finding 3 (should-fix, agreed and fixed)**: the only existing tab-strip assertion
+  (`routeConvention.routes.test.tsx`) checked a tab **count**, not the rendered **order** — AC-8's
+  own instruction ("assert on the rendered strip order, never the descriptor literal") was
+  unimplemented. Added a "tab strip order" test to the new `entityDescriptor.test.tsx` asserting
+  the real rendered `role="tab"` sequence equals all eight canonical labels in order.
+- **Finding 4 (should-fix, agreed and fixed)**: AC-4's text mandated
+  `buildEntityRoutes({ …, New: SingleCreate, … })` plus `buildCreateRoutes("singles")` called with
+  no `New` argument — the shipped code does the opposite (`New` stays out of `buildEntityRoutes`;
+  `children: buildCreateRoutes("singles", SingleCreate)`), which is the *correct* shape:
+  `shidduchim/index.ts`'s own doc comment names its inverse arrangement as a one-time exception,
+  and `shadchanim`/`references` (both already shipped) use the same shape this story shipped.
+  Corrected AC-4's text in place so a future reader does not inherit the wrong instruction.
+- **Finding 5 (should-fix, agreed and fixed)**: `supabase/schemas/07_storage.sql:158`'s photo
+  storage-key-grammar comment still documented only the shidduch form
+  (`{shidduchim_id}`); this story also writes `single-{single_id}` there (verified live:
+  `191/resumes/single-140/…`). The RLS policies only inspect segments [1]-[3] (never [4]), so
+  security reasoning was unaffected — the comment was just incomplete. Extended it to document
+  both forms.
+- Finding 6 (informational, not actionable within this story) was left as recorded — a pre-existing
+  shared DB-test-runner behavior (`supabase/tests/dbSuiteHelpers.ts`'s `bailIfDbUnreachable`),
+  outside this story's own File List, and confirmed safe under `CI=1` (the gate this repo's CI
+  actually runs with).
+
 ### File List
 
 **Schema / migration**
@@ -448,13 +520,19 @@ Claude (bmad-dev-story workflow), STACK_ID=3 / STACK_OWNER=5-8.
 - `supabase/tests/documents_storage.sql` — `add_resume_file` calls converted to named notation.
 - `supabase/tests/resume_photos.sql` — `add_resume_photo` calls converted to named notation.
 - `supabase/tests/references_entity.sql` — the account-scoped-FK count bumped 9 -> 10.
+- `supabase/schemas/07_storage.sql` — review fix (finding 5): the photo storage-key-grammar
+  comment extended to document the `single-{single_id}` form alongside `{shidduchim_id}`.
 
 **Frontend — singles**
 - `src/components/atomic-crm/singles/entityDescriptor.ts` — deleted (3.9 stub).
 - `src/components/atomic-crm/singles/entityDescriptor.tsx` — new (replaces it; AD-24-migrated
   descriptor).
 - `src/components/atomic-crm/singles/entityDescriptorRegions.tsx` — new (identityHeader/actions/
-  tab adapters).
+  tab adapters); review fix (finding 1): `singleShidduchimRelationship` gains `linkLabel`.
+- `src/components/atomic-crm/singles/entityDescriptor.test.tsx` — new (review fix, findings 2/3):
+  tab-strip order; the real Shidduchim tab's rendered label + link (finding 1's coverage);
+  Files/Notes/Tasks/Activity targetType/targetId scoping; Resume/Photo `{ singleId }` subject
+  wiring proved through a real upload.
 - `src/components/atomic-crm/singles/SingleShow.tsx` — deleted.
 - `src/components/atomic-crm/singles/SingleProfileHeader.tsx` — new (relocated from
   `SingleShow.tsx`).

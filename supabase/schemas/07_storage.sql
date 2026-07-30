@@ -155,8 +155,10 @@ create policy "Documents resumes deletable within account" on storage.objects
 -- Story 5.4: the `photos/` second-level prefix on the SAME `documents`
 -- bucket (this story's whole reason for that bucket's existence — see the
 -- comment above). Key grammar:
--- `{account_id}/photos/{visibility}/{shidduchim_id}/{uuid}-{filename}` — the
--- visibility is segment [3], because storage policies can only reason about
+-- `{account_id}/photos/{visibility}/{shidduchim_id}/{uuid}-{filename}`, or
+-- (Story 5.8) `{account_id}/photos/{visibility}/single-{single_id}/{uuid}-{filename}`
+-- for a single's own resume — the visibility is segment [3] either way,
+-- because storage policies can only reason about
 -- storage.foldername(name), never about a resume_photos row (AC-4). Without
 -- this, resume_photos' table RLS (05_policies.sql) is decorative: a
 -- `single`-role member could read the row (learning nothing useful) but

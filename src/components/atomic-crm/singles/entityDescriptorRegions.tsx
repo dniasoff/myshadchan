@@ -80,16 +80,28 @@ export function SinglePhotoTab(): ReactNode {
 /**
  * AC 8: the worked `relationshipDescriptor.ts` example for this exact case
  * — `resource` IS the link target (a plain FK), so no `linkResource`/
- * `linkId`/`linkLabel` is needed. Declared as an explicit `tabs` entry
- * rendering `<RelatedRecordsTab/>` (below), NOT as a `relationships` entry —
+ * `linkId` is needed. Declared as an explicit `tabs` entry rendering
+ * `<RelatedRecordsTab/>` (below), NOT as a `relationships` entry —
  * `mergeEntityTabs` appends every relationship-derived tab AFTER every
  * explicit `tabs` entry, which would render Shidduchim last instead of at
  * its canonical position 5.
+ *
+ * **Review fix.** `relationshipDescriptor.ts`'s worked example says no
+ * `linkLabel` is needed when `resource` IS the link target — true only when
+ * that resource has a `recordRepresentation`. `shidduchim/index.ts` (unlike
+ * `singles`/`shadchanim`/`references`/`members`) declares none, so without
+ * `linkLabel` each row falls back to ra-core's bare `#{id}` — a functioning
+ * link to an unreadable label. `RelatedRecordsTab.tsx` reads
+ * `relationship.linkLabel?.(row) ?? getRecordRepresentation(row)`, so this
+ * is a purely additive, in-scope fix: `resource: "shidduchim"` resolves
+ * (both live and FakeRest) through `shidduchim_summary`, whose own display
+ * convention (`ShidduchCard.tsx`) is `name_en ?? single_first_name_en`.
  */
 const singleShidduchimRelationship: EntityRelationshipDescriptor = {
   key: "shidduchim",
   resource: "shidduchim",
   getFilter: (record) => ({ single_id: record.id }),
+  linkLabel: (row) => row.name_en ?? row.single_first_name_en ?? `#${row.id}`,
 };
 
 export function SingleShidduchimTab(): ReactNode {
