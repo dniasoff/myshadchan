@@ -119,7 +119,10 @@ const createShidduchViaRpc = async (
   return row as Shidduch;
 };
 
-const getDataProviderWithCustomMethods = () => {
+// Exported for `dataProviderReads.test.ts`: the read redirects below are now a
+// privilege requirement, not only an AD-10 convention, so the test exercises
+// what ships rather than a re-implementation of it.
+export const getDataProviderWithCustomMethods = () => {
   const baseDataProvider = getBaseDataProvider();
 
   return {
@@ -154,6 +157,26 @@ const getDataProviderWithCustomMethods = () => {
       }
 
       return baseDataProvider.getOne(resource, params);
+    },
+    // `getMany` has to redirect too, and unlike getList/getOne above this is
+    // not merely an AD-10 convention any more — it is load-bearing.
+    // public.shidduchim no longer grants `authenticated` a table-level SELECT:
+    // the close_reason column privilege is what enforces Story 6.3's AC-4, and
+    // Postgres has no "all columns except one" grant, so SELECT is granted
+    // column by column WITHOUT close_reason (06_grants.sql). PostgREST's
+    // default representation is `select=*`, which needs SELECT on EVERY
+    // column, so a raw `getMany("shidduchim")` now answers
+    // `403 {"code":"42501","message":"permission denied for table shidduchim"}`
+    // — the reminders hub would render its shidduch reminders as a bare error
+    // instead of a label. shidduchim_summary carries the same rows (it is
+    // `security_invoker = on`, so RLS is unchanged) plus the joined names the
+    // hub wants, and reads close_reason through the masking accessor.
+    // Any NEW read of shidduchim must go through the view for the same reason.
+    async getMany(resource: string, params: any) {
+      if (resource === "shidduchim") {
+        return baseDataProvider.getMany("shidduchim_summary", params);
+      }
+      return baseDataProvider.getMany(resource, params);
     },
 
     async memberUpdate(id: Identifier, data: Partial<MemberFormData>) {

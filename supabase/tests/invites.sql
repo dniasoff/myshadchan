@@ -902,6 +902,119 @@ select 'AC6 control: the parent''s session sees the full household roster (this 
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- Pre-Epic-6 `role = 'single'` invites with no target: the row shape only a
+-- PRODUCTION database has.
+--
+-- Epic 2 shipped `single` as an ordinary invitable household role two epics
+-- before Story 6.1 added `target_single_id`, so real accounts carry pending
+-- `single` invites with a null target. Story 6.1 deliberately added
+-- `invites_role_target_check` as `not valid` (the migration-data-safety guard
+-- forbids both backfilling and deleting a pre-existing row), and `not valid`
+-- exempts ONLY the rows that already existed — every subsequent INSERT *and
+-- UPDATE* is still checked. So `update invites set status = ...` on such a row
+-- raises a bare 23514, which is what accept_invite() was given a guard for and
+-- revoke_invite() was not: clicking Revoke surfaced a raw constraint violation.
+--
+-- Reproduced exactly the way production got there — drop the constraint,
+-- insert, re-add it `not valid` — rather than by switching constraint checking
+-- off wholesale, so the row is genuinely constraint-violating and genuinely
+-- exempt, like its production counterpart.
+alter table public.invites drop constraint invites_role_target_check;
+
+insert into public.invites (email, account_id, role, invited_by, status)
+select 'legacy-single@test.local', :acct_household, 'single', am.id, 'pending'
+from public.account_members am
+where am.account_id = :acct_household and am.user_id = 'a0000000-0000-0000-0000-00000000a001'
+returning id as legacy_invite_id, token as legacy_invite_token \gset
+
+alter table public.invites
+  add constraint invites_role_target_check
+  check (((role = 'single') = (target_single_id is not null))) not valid;
+
+-- Through the shared `ids` / `invite_tokens` tables, never a psql variable:
+-- psql does not interpolate `:name` inside a dollar-quoted `do $$ ... $$`
+-- body, so every check below reads its id back out of a table (the same shape
+-- every other do-block in this file uses).
+insert into ids values ('legacy_invite', :legacy_invite_id);
+insert into invite_tokens values ('legacy_single', :'legacy_invite_token'::uuid);
+
+-- The mechanism, pinned first: without it the two checks below could pass for
+-- the wrong reason (a constraint that had quietly stopped applying).
+do $$
+declare v_invite_id bigint;
+begin
+  select value into v_invite_id from ids where name = 'legacy_invite';
+  update public.invites set status = 'revoked' where id = v_invite_id;
+  insert into results values (
+    'legacy single-invite: a bare UPDATE on the pre-existing row still violates the NOT VALID constraint (the mechanism both guards exist for)',
+    false, 'update succeeded — the constraint is no longer enforced on UPDATE'
+  );
+exception when check_violation then
+  insert into results values (
+    'legacy single-invite: a bare UPDATE on the pre-existing row still violates the NOT VALID constraint (the mechanism both guards exist for)',
+    sqlstate = '23514', sqlstate || ' ' || sqlerrm
+  );
+end $$;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-00000000a001","role":"authenticated"}';
+
+-- BLOCKER: revoke_invite() reached that UPDATE unguarded and raised the bare
+-- 23514 at the admin. It now refuses in its own vocabulary — asserted on the
+-- MESSAGE, not merely on "an error was raised", because a bare constraint
+-- violation would satisfy the weaker claim.
+do $$
+declare v_invite_id bigint;
+begin
+  select value into v_invite_id from ids where name = 'legacy_invite';
+  perform public.revoke_invite(v_invite_id);
+  insert into results values (
+    'revoke_invite() refuses a pre-Epic-6 targetless single invite in its own words, never a bare 23514',
+    false, 'call succeeded'
+  );
+exception when others then
+  insert into results values (
+    'revoke_invite() refuses a pre-Epic-6 targetless single invite in its own words, never a bare 23514',
+    sqlerrm like '%predates single-invite targeting%', sqlstate || ' ' || sqlerrm
+  );
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'revoke_invite()''s refusal left the legacy invite untouched — no half-written status',
+       status = 'pending'
+from public.invites where id = (select value from ids where name = 'legacy_invite');
+
+-- The sibling guard accept_invite() already had, asserted in the same place so
+-- the pair cannot drift apart again: the same row is equally unusable from the
+-- invitee's side, and says so in the same shared vocabulary every unhonourable
+-- invite gets.
+insert into auth.users (id, instance_id, aud, role, email)
+values ('61810000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'legacy-single@test.local');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"61810000-0000-0000-0000-000000000009","role":"authenticated"}';
+
+do $$
+declare v_token uuid;
+begin
+  select token into v_token from invite_tokens where name = 'legacy_single';
+  perform public.accept_invite(v_token);
+  insert into results values (
+    'accept_invite() refuses the same pre-Epic-6 targetless single invite (the sibling guard, pinned so the pair cannot drift)',
+    false, 'call succeeded'
+  );
+exception when others then
+  insert into results values (
+    'accept_invite() refuses the same pre-Epic-6 targetless single invite (the sibling guard, pinned so the pair cannot drift)',
+    sqlerrm like '%invalid, expired, or has already been used%', sqlstate || ' ' || sqlerrm
+  );
+end $$;
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- AC-8/AC-9: structural regression guards — the last surviving definer view
 -- and the admin-only write path are gone, at the catalog level.
 -- ---------------------------------------------------------------------------

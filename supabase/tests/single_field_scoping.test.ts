@@ -17,7 +17,8 @@ import {
  * RLS denying `single` outright on reference_links/"references"/entity_files/
  * shidduchim_external_links/interactions/medical_notes, the shadchanim
  * row-readable/write-denied split and its shadchan_stats aggregate-leak
- * guard, the shidduchim_summary.close_reason CASE redaction, and the
+ * guard, the close_reason column privilege on public.shidduchim (and the
+ * SECURITY DEFINER accessor that is now its only read path), and the
  * two-sided storage.objects assertion — only exists inside Postgres and
  * cannot be meaningfully exercised through a mock. The SQL emits one JSON
  * row per check; this file turns each into a named test so a failure names
@@ -100,8 +101,24 @@ describe("single_field_scoping (database)", () => {
   // single_field_scoping.sql's own AC-2 comment), plus one arrange control
   // pinning the three fixture interaction rows into existence so the
   // remaining "sees zero" claims cannot pass vacuously. Net: -2, +6.
+  //
+  // 51 -> 56 closing AC-4 at the base table: the single SCOPE-NOTE check that
+  // ASSERTED the close_reason leak ("succeeds today") is gone, replaced by
+  // four single-side checks (the base-table column is refused, `select *` is
+  // refused, the SECURITY DEFINER accessor answers NULL when called directly,
+  // the rest of the row is still readable) and two parent_admin-side ones
+  // (the base-table column is refused for them too — the column privilege is
+  // role-blind — and the accessor still hands them the real value, so the
+  // redaction did not become a blackout), plus one catalog-level
+  // grant-completeness guard — the grant enumerates columns, so a column added
+  // to public.shidduchim without a matching grant line is unreadable, and that
+  // has to fail by name here rather than as a 403 in production, and one
+  // pinning that a single's transition_shidduch() call is refused and moves
+  // nothing — that RPC lost its `returning *` in the same change (the clause
+  // would need SELECT on close_reason) and now re-reads the row, so "the
+  // re-read papers over nothing" needs saying out loud. Net: -1, +8.
   it("runs every AC 1 / AC 2 / AC 3 / AC 4 / AC 5 / AC 6 / AC 7 / AC 8 check group", () => {
-    expect(checks.length).toBe(51);
+    expect(checks.length).toBe(58);
   });
 
   for (const check of checks) {

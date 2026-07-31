@@ -81,16 +81,28 @@ select
     -- content, so it always reads NULL for a `single` caller — even on an
     -- otherwise fully visible suggestion. Postgres RLS is row-scoped (a
     -- policy decides whether a row comes back at all, never which columns
-    -- do), so this one-column-on-an-otherwise-visible-row redaction lives in
-    -- this security_invoker view's CASE, not in 05_policies.sql (Dev Notes,
-    -- "Why close_reason redaction happens in a view, not a policy"). Same
-    -- ordinal position as before — `create or replace view` can only append
-    -- columns, never reorder them (the COLUMN-ORDER TRAP this file's own
-    -- shadchan_stats comment already names).
-    case
-        when public.current_member_role() = 'single' then null
-        else s.close_reason
-    end as close_reason,
+    -- do), so the redaction cannot live in 05_policies.sql (Dev Notes,
+    -- "Why close_reason redaction happens in a view, not a policy").
+    --
+    -- It used to live HERE, as a `case when current_member_role() = 'single'`
+    -- over `s.close_reason` — and that was the leak, not the fix. PostgREST
+    -- exposes base tables, `authenticated` held table-level SELECT on
+    -- public.shidduchim, and a single reading
+    -- `/rest/v1/shidduchim?select=close_reason` walked straight past this
+    -- view. A CASE in a view is a read-path convention; the control is the
+    -- column privilege. 06_grants.sql now grants SELECT on this table column
+    -- by column WITHOUT close_reason, and the only reader of it is
+    -- public.shidduch_close_reason() (02_functions.sql), the SECURITY DEFINER
+    -- accessor called here — which is also why this view can no longer
+    -- mention `s.close_reason` at all: `security_invoker = on` means the
+    -- view's own scan needs the INVOKER's column privilege, so the old CASE
+    -- would now fail for every caller rather than redact for one.
+    --
+    -- Same ordinal position and same type as before — `create or replace
+    -- view` can only append columns, never reorder or retype them (the
+    -- COLUMN-ORDER TRAP this file's own shadchan_stats comment already
+    -- names).
+    public.shidduch_close_reason(s.id) as close_reason,
     s.origin,
     s.owner_member_id,
     s.visibility,

@@ -438,6 +438,23 @@ revoke all on function public.enforce_shidduch_initial_state() from public, anon
 grant execute on function public.enforce_shidduch_initial_state() to authenticated;
 grant execute on function public.enforce_shidduch_initial_state() to service_role;
 
+-- The two halves of the close_reason column control (02_functions.sql).
+-- `authenticated` MUST hold execute on both: shidduchim_summary is
+-- `security_invoker = on`, so shidduch_close_reason() is called with the
+-- INVOKER's privileges when the board reads the view. That is safe because
+-- the accessor guards itself — its `where` mirrors the "Shidduchim scoped to
+-- account" policy, so calling it straight through
+-- `/rest/v1/rpc/shidduch_close_reason` answers nothing a caller could not
+-- already read, and answers NULL for the `single` role by construction.
+-- `anon` is denied both, like every other domain function here.
+revoke all on function public.shidduch_close_reason(bigint) from public, anon;
+grant execute on function public.shidduch_close_reason(bigint) to authenticated;
+grant execute on function public.shidduch_close_reason(bigint) to service_role;
+
+revoke all on function public.shidduch_row(bigint) from public, anon;
+grant execute on function public.shidduch_row(bigint) to authenticated;
+grant execute on function public.shidduch_row(bigint) to service_role;
+
 revoke all on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) from public, anon;
 grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) to authenticated;
 grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) to service_role;
@@ -649,8 +666,70 @@ grant select, insert, update, delete on table public.shadchanim to authenticated
 revoke all on table public."references" from anon, authenticated;
 grant select, insert, update, delete on table public."references" to authenticated;
 
+-- The ONE table in this schema whose SELECT is granted COLUMN BY COLUMN, and
+-- the only reason it is: `close_reason` (Story 6.3, AC-4) must always read
+-- NULL for a `single` caller. Story 6.3 expressed that as a CASE inside
+-- shidduchim_summary, and a single simply asked PostgREST for the base table
+-- instead — `GET /rest/v1/shidduchim?select=id,close_reason` returned the
+-- candid text. RLS cannot fix it (row-scoped, never column-scoped), and
+-- `revoke select (close_reason) ... from authenticated` cannot either: while
+-- the role holds table-level SELECT, a column-level REVOKE is a silent no-op
+-- (has_column_privilege stays true). Postgres offers no "all columns except
+-- one" grant, so the grant is enumerated and close_reason is simply absent
+-- from it.
+--
+-- `authenticated` is the single Postgres role EVERY member of every household
+-- logs in as — parent_admin, helper, shadchan and single alike — so there is
+-- no role to re-grant the column to. The legitimate readers go through
+-- public.shidduch_close_reason() (02_functions.sql), a SECURITY DEFINER
+-- accessor whose guard mirrors the "Shidduchim scoped to account" policy;
+-- shidduchim_summary calls it, and public.shidduch_row() carries it into the
+-- three RPCs that return SETOF public.shidduchim.
+--
+-- Consequences to keep in mind:
+--   * `select *` on this table is now an error (42501) for authenticated —
+--     including PostgREST's default representation. Client reads go through
+--     shidduchim_summary (dataProvider getList/getOne/getMany redirect), and
+--     the one base-table write names its returned columns explicitly.
+--   * ADDING A COLUMN to public.shidduchim means adding it HERE too, or it is
+--     unreadable. That default is deliberate: fail closed, loudly.
+--   * INSERT/UPDATE/DELETE stay table-level. Writing close_reason needs
+--     UPDATE, not SELECT; RLS (05_policies.sql) is what gates the writes.
 revoke all on table public.shidduchim from anon, authenticated;
-grant select, insert, update, delete on table public.shidduchim to authenticated;
+grant insert, update, delete on table public.shidduchim to authenticated;
+grant select (
+    id,
+    account_id,
+    created_at,
+    single_id,
+    shadchan_id,
+    name_en,
+    name_he,
+    seminary_en,
+    seminary_he,
+    shul_en,
+    shul_he,
+    location_en,
+    location_he,
+    age,
+    height,
+    pipeline_state,
+    first_suggested_by,
+    first_suggested_at,
+    redt_date,
+    origin,
+    owner_member_id,
+    visibility,
+    index,
+    background,
+    dob,
+    existing_children_note,
+    father_en,
+    father_he,
+    marital_status,
+    mother_en,
+    mother_he
+) on table public.shidduchim to authenticated;
 
 revoke all on table public.resumes from anon, authenticated;
 grant select, insert, update, delete on table public.resumes to authenticated;

@@ -351,7 +351,15 @@ create table public.shidduchim (
     first_suggested_at timestamp with time zone not null default now(),
     -- Board-visible "Redt {date}"
     redt_date date not null default current_date,
-    -- Set when entering a terminal state
+    -- Set when entering a terminal state. THE ONE COLUMN IN THIS SCHEMA THAT
+    -- `authenticated` MAY NOT SELECT: candid decision rationale, which Story
+    -- 6.3's AC-4 requires to read NULL for a `single`. RLS is row-scoped and
+    -- cannot narrow a column, so 06_grants.sql grants SELECT on this table
+    -- COLUMN BY COLUMN and simply omits this one, and the sole read path is
+    -- public.shidduch_close_reason() (02_functions.sql). Two consequences for
+    -- anyone editing this table: a NEW COLUMN must be added to that grant or
+    -- it is unreadable, and `select *` on public.shidduchim is an error for
+    -- every logged-in caller.
     close_reason text,
     -- 'channel' | 'manual' | 'shadchan' (shadchan reserved for Phase-2)
     origin text not null default 'manual',
@@ -880,7 +888,11 @@ alter table public.invites
 -- (02_functions.sql) has its own explicit guard turning what would
 -- otherwise be a raw constraint-violation error on such a legacy row into
 -- the same friendly "invalid, expired, or already used" message every
--- other unhonourable invite gets.
+-- other unhonourable invite gets. `revoke_invite()` needed the SAME guard
+-- and shipped without it — clicking Revoke on such a row raised a bare
+-- 23514 at the admin — and now has one. ANY future function that UPDATEs
+-- this table needs it too: `not valid` grandfathers a row only against the
+-- constraint's own validation pass, never against the next write to it.
 alter table public.invites
     add constraint invites_role_target_check check (
         (role = 'single') = (target_single_id is not null)

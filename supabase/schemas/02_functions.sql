@@ -1430,6 +1430,29 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
+  -- The mirror of accept_invite()'s own pre-UPDATE guard, and the reason it
+  -- has to exist HERE too: `invites_role_target_check` (01_tables.sql) is
+  -- deliberately `not valid` forever, and `not valid` only exempts rows that
+  -- already existed — every subsequent INSERT *and UPDATE* is still checked.
+  -- A `role = 'single'` invite that predates Story 6.1's `target_single_id`
+  -- column (Epic 2 shipped `single` as an ordinary invitable household role
+  -- two epics earlier) therefore makes the UPDATE below raise a bare 23514
+  -- the moment an admin clicks Revoke on it — a raw constraint violation
+  -- surfaced to the client, not this function's vocabulary. accept_invite()
+  -- was given this guard in the same story; revoke_invite() was not, and it
+  -- reproduces on any production-shaped database that carries such a row.
+  --
+  -- It refuses rather than repairs, on purpose. Repairing would mean writing
+  -- a `target_single_id` this invite never had (there is no honest value) or
+  -- rewriting its `role`, and deleting it would erase a row the audit trail
+  -- keeps for every other outcome. The row is already inert — accept_invite()
+  -- refuses it with the same finality — so the honest answer is a refusal in
+  -- this function's own words, naming the state.
+  if v_invite.role = 'single' and v_invite.target_single_id is null then
+    raise exception 'invite % predates single-invite targeting and cannot be revoked; it can never be accepted either', p_invite_id
+      using errcode = 'check_violation';
+  end if;
+
   -- Review finding #4 (2.8): the status check and the write used to be two
   -- separate statements (a plain SELECT already read above, then an
   -- unconditional UPDATE), leaving a window under READ COMMITTED where a
@@ -1515,6 +1538,123 @@ begin
   end if;
   return new;
 end;
+$$;
+
+-- =====================================================================
+-- close_reason: the column-level control (Epic 6 follow-up, Story 6.3 AC-4)
+-- =====================================================================
+--
+-- Story 6.3 redacted `close_reason` for a `single` caller in
+-- shidduchim_summary's own CASE. That was a READ-PATH CONVENTION, not a
+-- control: PostgREST exposes base tables, 06_grants.sql granted table-level
+-- SELECT on public.shidduchim to `authenticated`, and
+-- `GET /rest/v1/shidduchim?select=id,close_reason` therefore handed a single
+-- the candid text verbatim. RLS cannot close it — a policy decides whether a
+-- ROW comes back, never which COLUMNS do — so the control has to be a column
+-- privilege.
+--
+-- Postgres cannot subtract a column from a table-level grant: `revoke select
+-- (close_reason) ... from authenticated` is a silent no-op while the role
+-- still holds table-level SELECT (verified: has_column_privilege stays true).
+-- So 06_grants.sql now grants SELECT on public.shidduchim COLUMN BY COLUMN,
+-- omitting close_reason. `authenticated` — the ONE Postgres role every member
+-- of every household logs in as, whatever their `account_members.role` — can
+-- no longer read that column at all, through any path.
+--
+-- Which leaves the legitimate readers. There is no per-member-role Postgres
+-- role to re-grant the column to (member role is a row in account_members,
+-- resolved by current_member_role()), and shidduchim_summary is
+-- `security_invoker = on`, so the view's own scan needs the INVOKER's column
+-- privilege — the CASE could not even be evaluated any more. Hence this
+-- SECURITY DEFINER accessor: it is the ONLY thing in the database that reads
+-- public.shidduchim.close_reason on behalf of `authenticated`, and it hands
+-- the value back only to a caller the SELECT policy would already have shown
+-- the whole row to.
+--
+-- The guard is a byte-for-byte mirror of "Shidduchim scoped to account"'s
+-- `using` clause (05_policies.sql) — `account_id = current_context_id() and
+-- current_member_role() <> 'single'` — plus the id. That policy is the WHOLE
+-- non-single read predicate for this table (`visibility`/`owner_member_id`
+-- narrow nothing for a non-single member), so a definer function cannot
+-- widen anything here: any row it answers for is a row the caller can
+-- already SELECT. For a `single` caller the role conjunct fails and the
+-- function returns NULL — the AC-4 promise, now enforced by the database
+-- rather than described by a view.
+--
+-- Any change to that policy has to be made here in the same commit.
+CREATE OR REPLACE FUNCTION "public"."shidduch_close_reason"("p_shidduchim_id" bigint) RETURNS "text"
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select s.close_reason
+  from public.shidduchim s
+  where s.id = p_shidduchim_id
+    and s.account_id = public.current_context_id()
+    and public.current_member_role() <> 'single';
+$$;
+
+-- The masked whole-row read of public.shidduchim, and the reason the column
+-- grant above does not break every RPC in this section.
+--
+-- create_shidduch(), transition_shidduch() and add_redt() all return
+-- `SETOF public.shidduchim` and all reached it with `select *`. `select *`
+-- needs SELECT on EVERY column, so each of them would now fail with a bare
+-- 42501 for every caller, single or not. Listing 31 columns three times over
+-- would be the same list drifting in three places, so it is written ONCE
+-- here and the three RPCs (plus catch_shidduch's row fetch) read through it.
+--
+-- SECURITY INVOKER (the default) — deliberately, and this is the load-bearing
+-- half: RLS on public.shidduchim still applies exactly as it did to the
+-- `select *` this replaces, so these functions return the same rows to the
+-- same callers as before. Only close_reason changes, and only for a caller
+-- the accessor above refuses.
+--
+-- COLUMN-ORDER TRAP: the select list is the PHYSICAL column order of
+-- public.shidduchim (declaredColumnOrder.ts / column_order.test.ts is the
+-- guard for that order), because `RETURNS SETOF public.shidduchim` matches
+-- positionally. A column added to the table must be appended here, and must
+-- be added to the grant in 06_grants.sql, or this function stops compiling —
+-- loudly, which is the intended failure mode for a table whose default is now
+-- "not readable".
+CREATE OR REPLACE FUNCTION "public"."shidduch_row"("p_shidduchim_id" bigint) RETURNS SETOF public.shidduchim
+    LANGUAGE "sql" STABLE
+    SET "search_path" TO ''
+    AS $$
+  select
+    s.id,
+    s.account_id,
+    s.created_at,
+    s.single_id,
+    s.shadchan_id,
+    s.name_en,
+    s.name_he,
+    s.seminary_en,
+    s.seminary_he,
+    s.shul_en,
+    s.shul_he,
+    s.location_en,
+    s.location_he,
+    s.age,
+    s.height,
+    s.pipeline_state,
+    s.first_suggested_by,
+    s.first_suggested_at,
+    s.redt_date,
+    public.shidduch_close_reason(s.id),
+    s.origin,
+    s.owner_member_id,
+    s.visibility,
+    s.index,
+    s.background,
+    s.dob,
+    s.existing_children_note,
+    s.father_en,
+    s.father_he,
+    s.marital_status,
+    s.mother_en,
+    s.mother_he
+  from public.shidduchim s
+  where s.id = p_shidduchim_id;
 $$;
 
 -- The SOLE INSERT path into shidduchim (AD-4 invariant 1). Written as a
@@ -1634,7 +1774,7 @@ begin
     );
   end if;
 
-  return query select * from public.shidduchim where id = v_id;
+  return query select * from public.shidduch_row(v_id);
 end;
 $$;
 
@@ -1653,6 +1793,7 @@ CREATE OR REPLACE FUNCTION "public"."transition_shidduch"(
     AS $$
 declare
   v_current public.pipeline_state;
+  v_close_reason text;
 begin
   select pipeline_state into v_current
   from public.shidduchim
@@ -1669,7 +1810,7 @@ begin
   end if;
 
   if p_from is not distinct from p_to then
-    return query select * from public.shidduchim where id = p_id;
+    return query select * from public.shidduch_row(p_id);
     return;
   end if;
 
@@ -1681,15 +1822,39 @@ begin
       using errcode = 'check_violation';
   end if;
 
-  return query
+  -- Two reads of close_reason had to move off the base table, because
+  -- `authenticated` no longer holds SELECT on that column (06_grants.sql) and
+  -- Postgres checks SELECT on every column an UPDATE *reads*, in its SET
+  -- expressions as well as in RETURNING — not only on what it writes:
+  --
+  --   * `coalesce(p_close_reason, close_reason)` (keep the existing rationale
+  --     when the caller supplies none) now coalesces onto the value fetched
+  --     through the accessor just below;
+  --   * `returning *` becomes a re-read through shidduch_row().
+  --
+  -- Writing the column is untouched — that needs UPDATE, which is still
+  -- granted table-wide — so the transition itself behaves exactly as before.
+  v_close_reason := public.shidduch_close_reason(p_id);
+
   update public.shidduchim
   set pipeline_state = p_to,
       close_reason = case
-        when p_to in ('for_sure_not', 'yes', 'unsure', 'no') then coalesce(p_close_reason, close_reason)
+        when p_to in ('for_sure_not', 'yes', 'unsure', 'no') then coalesce(p_close_reason, v_close_reason)
         else null
       end
-  where id = p_id
-  returning *;
+  where id = p_id;
+
+  -- `returning *` used to carry the "did the write actually happen?" answer as
+  -- well as the row: when RLS refused the UPDATE the statement affected zero
+  -- rows and the RPC returned an empty set. Re-reading through shidduch_row()
+  -- would silently restore a row here — the caller would get back a shidduch
+  -- that looks fine and assume the transition landed. FOUND keeps the old
+  -- contract exactly: no write, no row.
+  if not found then
+    return;
+  end if;
+
+  return query select * from public.shidduch_row(p_id);
 end;
 $$;
 
@@ -1774,7 +1939,7 @@ begin
   insert into public.redts (account_id, shidduchim_id, shadchan_id, redt_date, note)
   values (v_account_id, p_shidduchim_id, p_shadchan_id, coalesce(p_redt_date, current_date), p_note);
 
-  return query select * from public.shidduchim where id = p_shidduchim_id;
+  return query select * from public.shidduch_row(p_shidduchim_id);
 end;
 $$;
 
@@ -3055,9 +3220,13 @@ begin
     return jsonb_build_object('has_catch', false, 'suggestions', '[]'::jsonb, 'dates', '[]'::jsonb);
   end if;
 
+  -- shidduch_row() rather than `select * from public.shidduchim`: the same
+  -- RLS-filtered row (that function is SECURITY INVOKER), reached without the
+  -- SELECT-on-every-column that `select *` demands and `authenticated` no
+  -- longer has for close_reason. Nothing below reads v_s.close_reason.
   select * into v_s
-  from public.shidduchim s
-  where s.id = p_shidduchim_id and s.account_id = v_account_id;
+  from public.shidduch_row(p_shidduchim_id) s
+  where s.account_id = v_account_id;
 
   if not found then
     raise exception 'shidduch % not found in current account', p_shidduchim_id;

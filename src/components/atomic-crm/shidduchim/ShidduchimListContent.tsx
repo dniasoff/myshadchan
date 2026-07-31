@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import type { CrmDataProvider } from "../providers/types";
 import type { PipelineState, ShidduchSummary } from "../types";
 import { getShidduchimByState, type ShidduchimByState } from "./boardUtils";
+import { persistOrder } from "./persistOrder";
 import {
   getPipelineStateDef,
   isValidTransition,
@@ -226,24 +227,6 @@ const moveLocally = (
     [source.state]: sourceColumn,
     [destination.state]: destinationColumn,
   };
-};
-
-const persistOrder = async (
-  dataProvider: CrmDataProvider,
-  cards: ShidduchSummary[],
-): Promise<void> => {
-  const updates = cards.flatMap((card, index) =>
-    card.index === index
-      ? []
-      : [
-          dataProvider.update("shidduchim", {
-            id: card.id,
-            data: { index },
-            previousData: card,
-          }),
-        ],
-  );
-  await Promise.all(updates);
 };
 
 const getErrorMessage = (error: unknown): string =>

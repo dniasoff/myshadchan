@@ -569,33 +569,125 @@ insert into results (name, passed)
 select 'AC4/AC7: single still reads every OTHER column of her own otherwise-visible suggestion (the row itself is not hidden)',
        (select name_en from public.shidduchim_summary where id = (select value::bigint from ids where name = 'leah_visible_id')) = 'Leah Visible Suggestion';
 
--- AC 4 SCOPE NOTE (review blocker #3 — documented, not silently left
--- unproven): the CASE above redacts close_reason in shidduchim_summary, but
--- a `single` selecting close_reason DIRECTLY off the BASE TABLE
--- public.shidduchim (e.g. `GET /rest/v1/shidduchim?select=close_reason` over
--- PostgREST) still gets the real value. Postgres RLS is row-scoped only — it
--- has no column-level primitive — and every app role, `single` and
--- `parent_admin` alike, connects to Postgres as the SAME literal role
--- (`authenticated`); the distinction is a session-level JWT claim read by
--- current_member_role(), never a separate Postgres role. A static,
--- role-level `revoke select (close_reason) ... from authenticated` would
--- therefore block EVERY caller equally, including a legitimate parent_admin
--- reading the same column through the view (security_invoker = on means the
--- view's own query needs the INVOKER's column privilege to evaluate the
--- CASE, regardless of what the CASE returns). Closing this at the database
--- needs a SECURITY DEFINER masking function plus a column-level REVOKE —
--- changes to 02_functions.sql and 06_grants.sql, both outside this fix's
--- declared file ownership (05_policies.sql, 03_views.sql, 07_storage.sql,
--- migrations, this test file, the two entityDescriptor files, registry.json).
--- Pinned here, honestly, as the CURRENT behaviour — same "pin now, flip when
--- it's fixed" shape as single_row_scoping.sql's own AC-6 SCOPE NOTEs — rather
--- than silently left unproven. A follow-up story with that file ownership
--- should flip this assertion to `is null` when it closes AC-4 at the base
--- table.
+-- AC 4, CLOSED AT THE BASE TABLE. This assertion used to be a SCOPE NOTE
+-- pinning the opposite outcome: a `single` selecting close_reason DIRECTLY
+-- off public.shidduchim (`GET /rest/v1/shidduchim?select=id,close_reason`
+-- over PostgREST — base tables are exposed too) got the real candid text,
+-- because the redaction was only a CASE inside shidduchim_summary. A
+-- client-filtered field still present in the API response is not a control,
+-- and a test that asserts the leak defends it. It is flipped here.
+--
+-- What closes it is a COLUMN privilege, not a policy: RLS decides whether a
+-- ROW comes back, never which COLUMNS do. `authenticated` — the one Postgres
+-- role every member logs in as, whatever their account_members.role — is now
+-- granted SELECT on public.shidduchim column by column WITHOUT close_reason
+-- (06_grants.sql), so the column is unreadable through EVERY path: no member
+-- role, no view, no `select *`. The legitimate readers go through
+-- public.shidduch_close_reason(), the SECURITY DEFINER accessor whose guard
+-- mirrors the "Shidduchim scoped to account" policy.
+--
+-- The consequence is a DENIAL (SQLSTATE 42501 / PostgREST error), not a NULL:
+-- Postgres refuses the query rather than blanking the column. That is the
+-- honest shape of a column privilege, and the assertion says so precisely —
+-- an `is null` here would silently pass again the day someone re-granted
+-- table-level SELECT and the CASE came back.
+do $$
+declare v_leak text;
+begin
+  select close_reason into v_leak
+  from public.shidduchim
+  where id = (select value::bigint from ids where name = 'leah_visible_id');
+
+  insert into results values (
+    'AC4: single selecting close_reason DIRECTLY off the base table public.shidduchim is REFUSED by the column privilege (this check asserted the leak before; it now proves the redaction)',
+    false, 'no error raised — the column was readable and returned: ' || coalesce(v_leak, '<null>')
+  );
+exception when insufficient_privilege then
+  insert into results values (
+    'AC4: single selecting close_reason DIRECTLY off the base table public.shidduchim is REFUSED by the column privilege (this check asserted the leak before; it now proves the redaction)',
+    true, sqlstate || ' ' || sqlerrm
+  );
+end $$;
+
+-- The same denial reached the other way round: `select *` (PostgREST's own
+-- default representation) needs SELECT on EVERY column, so it is refused too.
+-- Pinned deliberately — it is the blast radius of the fix, and the reason the
+-- client's shidduchim reads all go through shidduchim_summary.
+do $$
+begin
+  perform * from public.shidduchim
+  where id = (select value::bigint from ids where name = 'leah_visible_id');
+
+  insert into results values (
+    'AC4: `select *` on the base table public.shidduchim is refused for a single (no column-complete read survives the grant)',
+    false, 'no error raised'
+  );
+exception when insufficient_privilege then
+  insert into results values (
+    'AC4: `select *` on the base table public.shidduchim is refused for a single (no column-complete read survives the grant)',
+    true, sqlstate || ' ' || sqlerrm
+  );
+end $$;
+
+-- transition_shidduch() lost its `returning *` in the same change (that clause
+-- would need SELECT on close_reason); it re-reads the moved row through
+-- shidduch_row() instead. Asserted here on the one row a single CAN see and
+-- must not be able to move.
+--
+-- What this proves, precisely: the single's call is refused and the state is
+-- unchanged. It does NOT exercise the function's own `if not found then
+-- return` guard — verified empirically, and worth writing down rather than
+-- implying: `select pipeline_state ... for update` applies the UPDATE policy's
+-- `using` clause as well as the SELECT policies, so a single's call is already
+-- refused by the function's `shidduch % not found` raise several statements
+-- BEFORE the UPDATE. That guard is contract preservation (the old `returning
+-- *` returned zero rows when RLS refused the write; a naive re-read would have
+-- handed back a row that looks like it moved), not a live path, and no
+-- black-box probe through this RPC can reach it while the lock is refused
+-- first. The falsifiable half is the state: if RLS ever let a single move a
+-- suggestion, `state_after` flips to `yes` and this fails by name.
+do $$
+declare
+  v_id bigint;
+  v_moved boolean;
+  v_detail text;
+  v_state text;
+begin
+  select value::bigint into v_id from ids where name = 'leah_visible_id';
+
+  begin
+    perform * from public.transition_shidduch(v_id, 'look_into', 'yes', 'Single-forced decision');
+    v_moved := true;
+    v_detail := 'call returned without error';
+  exception when others then
+    v_moved := false;
+    v_detail := sqlstate || ' ' || sqlerrm;
+  end;
+
+  select pipeline_state::text into v_state from public.shidduchim where id = v_id;
+
+  insert into results values (
+    'AC4: a single''s transition_shidduch() call is refused and the suggestion does not move (the shidduch_row() re-read papers over nothing)',
+    not v_moved and v_state = 'look_into',
+    format('refusal=%s state_after=%s', v_detail, v_state)
+  );
+end $$;
+
+-- The accessor itself, probed directly the way PostgREST would expose it
+-- (`POST /rest/v1/rpc/shidduch_close_reason`). It is SECURITY DEFINER, so it
+-- CAN read the column — and it must still answer NULL to a single. This is
+-- the check that would catch a future edit dropping the role conjunct from
+-- its guard, which no view-level assertion can see.
 insert into results (name, passed)
-select 'AC4 SCOPE NOTE (follow-up story to close, needs 02_functions.sql/06_grants.sql ownership): single reads the REAL close_reason directly off the base table public.shidduchim — the view redaction is a read-path convention, not yet a database column-level control — succeeds today',
-       (select close_reason from public.shidduchim where id = (select value::bigint from ids where name = 'leah_visible_id'))
-         = 'Candid decision rationale — not for the single''s eyes';
+select 'AC4: public.shidduch_close_reason() answers NULL to a single even called directly as an RPC (the SECURITY DEFINER accessor guards itself)',
+       public.shidduch_close_reason((select value::bigint from ids where name = 'leah_visible_id')) is null;
+
+-- Every other column of the base table is still readable — the grant narrows
+-- exactly one column, it does not lock a single out of the row they may see.
+insert into results (name, passed)
+select 'AC4: single still reads the non-candid columns off the base table (the grant narrows one column, not the row)',
+       (select name_en from public.shidduchim where id = (select value::bigint from ids where name = 'leah_visible_id'))
+         = 'Leah Visible Suggestion';
 
 -- ---------------------------------------------------------------------------
 -- AC 7: the summary views pass RLS through unchanged — zero rows for single.
@@ -735,6 +827,34 @@ select 'AC6/AC8 (review should-fix): single''s DELETE attempt on the documents/r
        count(*) = 1
 from storage.objects where id = (select value::uuid from ids where name = 'resumes_object_id');
 
+-- Grant-completeness, read straight out of the catalog (run as postgres —
+-- has_column_privilege() for another role needs it). Because close_reason is
+-- withheld by ENUMERATING the other columns rather than by subtracting one
+-- (Postgres has no "all columns except" grant, and a column-level REVOKE
+-- against a role holding table-level SELECT is a silent no-op), a column added
+-- to public.shidduchim without a matching line in 06_grants.sql is simply
+-- unreadable — every list that names it would 403. This check is what turns
+-- that into a named test failure instead of a production incident, and it is
+-- two-sided: it also fails if someone re-grants close_reason.
+do $$
+declare v_missing text; v_leaked boolean;
+begin
+  select string_agg(a.attname, ', ' order by a.attnum) into v_missing
+  from pg_attribute a
+  where a.attrelid = 'public.shidduchim'::regclass
+    and a.attnum > 0 and not a.attisdropped
+    and a.attname <> 'close_reason'
+    and not has_column_privilege('authenticated', a.attrelid, a.attname, 'SELECT');
+
+  v_leaked := has_column_privilege('authenticated', 'public.shidduchim'::regclass, 'close_reason', 'SELECT');
+
+  insert into results values (
+    'AC4: the column grant on public.shidduchim covers every column EXCEPT close_reason — a column added without a grant, or close_reason re-granted, fails here',
+    v_missing is null and not v_leaked,
+    format('ungranted=%s close_reason_readable=%s', coalesce(v_missing, 'none'), v_leaked)
+  );
+end $$;
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000002","role":"authenticated"}';
 
@@ -768,6 +888,35 @@ select 'AC8: parent_admin sees non-zero rows in interactions (the shadchan-note,
 insert into results (name, passed)
 select 'AC4/AC8: parent_admin reads the REAL close_reason on the same suggestion',
        (select close_reason from public.shidduchim_summary where id = (select value::bigint from ids where name = 'leah_visible_id'))
+         = 'Candid decision rationale — not for the single''s eyes';
+
+-- The other half of the column-privilege fix, and the reason it needed a
+-- SECURITY DEFINER accessor rather than a bare REVOKE: the grant is role-BLIND
+-- (parent_admin and single are the same Postgres role), so a parent_admin is
+-- refused the base-table column exactly as hard as a single is. What restores
+-- the legitimate read is shidduch_close_reason(), asserted here directly so a
+-- regression that made the accessor return NULL for everyone — a "fix" that
+-- silently blanks the Right Rail for the people who need it — fails by name
+-- instead of passing as "redacted".
+do $$
+begin
+  perform close_reason from public.shidduchim
+  where id = (select value::bigint from ids where name = 'leah_visible_id');
+
+  insert into results values (
+    'AC4/AC8: parent_admin is ALSO refused close_reason off the base table — the column privilege is role-blind, the accessor is the only read path',
+    false, 'no error raised — the column was readable'
+  );
+exception when insufficient_privilege then
+  insert into results values (
+    'AC4/AC8: parent_admin is ALSO refused close_reason off the base table — the column privilege is role-blind, the accessor is the only read path',
+    true, sqlstate || ' ' || sqlerrm
+  );
+end $$;
+
+insert into results (name, passed)
+select 'AC4/AC8: public.shidduch_close_reason() hands the REAL value to a parent_admin (the redaction did not become a blackout)',
+       public.shidduch_close_reason((select value::bigint from ids where name = 'leah_visible_id'))
          = 'Candid decision rationale — not for the single''s eyes';
 
 insert into results (name, passed)

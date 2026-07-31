@@ -160,6 +160,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/persistOrder.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/index.ts",
           "type": "registry:component"
         },
