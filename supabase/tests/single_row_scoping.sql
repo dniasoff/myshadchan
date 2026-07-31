@@ -42,6 +42,58 @@ grant all on results to public;
 grant all on ids to public;
 
 -- ---------------------------------------------------------------------------
+-- Denial assertions name the error they expect.
+--
+-- `exception when others then insert into results values (…, true, sqlerrm)`
+-- records a PASS for ANY failure — a typo, a dropped function, a broken
+-- search_path, a fixture that never materialised. Demonstrated on this very
+-- file: renaming add_redt() out of existence left "AC6: add_redt() raises or
+-- affects zero rows for a single" green and the suite 52/52. A denial test
+-- that cannot tell "the policy refused me" from "the call blew up" proves
+-- nothing, which is why the two RPC denials further down already matched
+-- their specific message instead (see their comment). Every handler in this
+-- file now does the same, through these two helpers:
+--
+--   denied()           — the call MUST raise, with THIS sqlstate and THIS
+--                        message. A different failure fails the assertion.
+--   unexpected_raise() — the call must NOT raise at all (it denies by
+--                        returning nothing). Any exception fails.
+-- ---------------------------------------------------------------------------
+create function pg_temp.denied(
+  p_name text,
+  p_expected_sqlstate text,
+  p_expected_message_like text,
+  p_actual_sqlstate text,
+  p_actual_message text
+) returns void language plpgsql as $$
+begin
+  insert into results values (
+    p_name,
+    p_actual_sqlstate = p_expected_sqlstate
+      and p_actual_message like p_expected_message_like,
+    format('sqlstate %s %L (expected %s matching %L)',
+           p_actual_sqlstate, p_actual_message,
+           p_expected_sqlstate, p_expected_message_like)
+  );
+end;
+$$;
+
+create function pg_temp.unexpected_raise(
+  p_name text,
+  p_actual_sqlstate text,
+  p_actual_message text
+) returns void language plpgsql as $$
+begin
+  insert into results values (
+    p_name,
+    false,
+    format('expected the call to return an empty result, not raise; got sqlstate %s %L',
+           p_actual_sqlstate, p_actual_message)
+  );
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Arrange (continued from the shared fixture, run as postgres/superuser):
 -- six shidduchim, two per single-visible-state case, one per sibling.
 -- enforce_shidduch_initial_state permits raw inserts only into
@@ -55,8 +107,12 @@ insert into ids values
   ('leah_single_id', :'sibling_fixture_leah_single_id'),
   ('rivka_single_id', :'sibling_fixture_rivka_single_id');
 
-insert into public.shidduchim (account_id, single_id, name_en, visibility, pipeline_state)
-values (:sibling_fixture_account_id, :sibling_fixture_leah_single_id, 'Leah Visible Suggestion', 'shared', 'look_into')
+-- `location_en` is not decoration: it is the ONE corroborator that lifts an
+-- exact name match above match_identity()'s NULL-confidence floor, which is
+-- what gives the catch twin below (and therefore catch_shidduch()'s
+-- parent-side control) something real to find.
+insert into public.shidduchim (account_id, single_id, name_en, location_en, visibility, pipeline_state)
+values (:sibling_fixture_account_id, :sibling_fixture_leah_single_id, 'Leah Visible Suggestion', 'Lakewood', 'shared', 'look_into')
 returning id as leah_visible_id \gset
 
 insert into public.shidduchim (account_id, single_id, name_en, visibility, pipeline_state)
@@ -79,8 +135,20 @@ insert into public.shidduchim (account_id, single_id, name_en, visibility, pipel
 values (:sibling_fixture_account_id, :sibling_fixture_rivka_single_id, 'Rivka Private Suggestion', 'private_parent', 'look_into')
 returning id as rivka_private_id \gset
 
+-- The catch twin: the SAME person (name + location) already suggested for
+-- Rivka. This is what makes catch_shidduch()'s denial assertion falsifiable —
+-- without it, `has_catch: false` is the answer for EVERY caller, including
+-- the parent_admin, so "the single never sees a catch" would be green against
+-- a fixture that had no catch to see. Kept in the `new` pipeline_state so it
+-- stays invisible to BOTH siblings' own AC-1 row counts (it is a fixture for
+-- the parent-side control, not a fourth visibility case).
+insert into public.shidduchim (account_id, single_id, name_en, location_en, visibility, pipeline_state)
+values (:sibling_fixture_account_id, :sibling_fixture_rivka_single_id, 'Leah Visible Suggestion', 'Lakewood', 'shared', 'new')
+returning id as catch_twin_id \gset
+
 insert into ids values
   ('leah_visible_id', :'leah_visible_id'),
+  ('catch_twin_id', :'catch_twin_id'),
   ('leah_new_id', :'leah_new_id'),
   ('leah_private_id', :'leah_private_id'),
   ('rivka_visible_id', :'rivka_visible_id'),
@@ -202,8 +270,14 @@ insert into ids values
 -- does not decide"; the fixture below exists only so AC-6's own two
 -- functions get an honest, run assertion instead of staying untested (review
 -- finding #2).
-insert into public."references" (account_id, name_en)
-values (:sibling_fixture_account_id, 'Some Reference')
+-- The phone is load-bearing for match_reference_on_entry()'s assertion below:
+-- match_identity() scores an exact name with no corroborating fact at NULL
+-- confidence, so a name-only reference is invisible to EVERY caller and
+-- "the single gets zero candidates" would be green for the wrong reason. With
+-- a phone, the parent-side control returns a real candidate and the single's
+-- empty result is attributable to RLS.
+insert into public."references" (account_id, name_en, phone)
+values (:sibling_fixture_account_id, 'Some Reference', '054-999-8888')
 returning id as reference_id \gset
 
 insert into public."references" (account_id, name_en)
@@ -439,79 +513,141 @@ insert into results (name, passed)
 select 'AC5/AC8: the parent''s session sees the full three-member roster in the same test run',
        (select count(*) from public.account_members) = 3;
 
+-- The other half of the eight zero-row assertions, and the reason they mean
+-- anything: "Leah sees zero rows in X" is equally green when X was never
+-- seeded, or was seeded into a different account. One control per table,
+-- read in the same run by the parent_admin who owns them, so the eight
+-- denials above are attributable to the `single` role and nothing else.
+insert into results (name, passed)
+select 'AC5 control: the parent sees a real row in all eight zero-row tables (the single''s zeros are RLS, not an empty fixture)',
+       (select count(*) from public.tasks) > 0
+       and (select count(*) from public.invites) > 0
+       and (select count(*) from public.date_records) > 0
+       and (select count(*) from public.redts) > 0
+       and (select count(*) from public.identity_signals) > 0
+       and (select count(*) from public.inbox_items) > 0
+       and (select count(*) from public.subscription) > 0
+       and (select count(*) from public.ai_usage) > 0;
+
+insert into results (name, passed)
+select 'AC2/review#2 control: the sibling''s resume_photos row hide_resume_photo() cannot reach DOES exist for the parent',
+       exists (select 1 from public.resume_photos where id = (select value::bigint from ids where name = 'rivka_photo_id'));
+
 -- ---------------------------------------------------------------------------
 -- AC 6: a single cannot reach a denied row through an RPC either. Every
--- SECURITY INVOKER domain RPC gets a raised exception or zero affected rows
--- from a `single` caller. Structured as one named result per function so a
--- future definer-isation of any one of them fails a named assertion.
+-- SECURITY INVOKER domain RPC is denied to a `single` caller, and each one is
+-- pinned to the SPECIFIC denial it produces — a named sqlstate and message
+-- for the ones that raise, an empty result plus a parent-side control for the
+-- two that deny by returning nothing. Structured as one named result per
+-- function so a future definer-isation of any one of them fails a named
+-- assertion — and, because the expected error is named, so does a rename, a
+-- dropped function or a broken search_path.
 -- ---------------------------------------------------------------------------
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000002","role":"authenticated"}';
 
+-- transition_shidduch() denies through the UPDATE half of RLS: its opening
+-- `select … for update` is a locking read, so a row Leah can SELECT but not
+-- UPDATE is simply not returned and the function raises its own "not found".
+-- That message would be identical for a row that never existed, so it gets an
+-- existence control of its own first — the assertion pair is "she can see it"
+-- AND "the locking read still cannot reach it", which is the actual claim.
+insert into results (name, passed)
+select 'AC6 control: the shidduch transition_shidduch() reports as "not found" IS visible to Leah (the denial is the UPDATE policy, not a missing row)',
+       exists (select 1 from public.shidduchim where id = (select value::bigint from ids where name = 'leah_visible_id'));
+
 do $$
-declare v_id bigint; v_count int;
+declare
+  v_name constant text := 'AC6: transition_shidduch() is denied for a single — a row she can SELECT but not UPDATE is unreachable to its locking read';
+  v_id bigint; v_count int;
 begin
   select value::bigint into v_id from ids where name = 'leah_visible_id';
   select count(*) into v_count from public.transition_shidduch(v_id, 'look_into'::public.pipeline_state, 'yes'::public.pipeline_state);
-  insert into results values ('AC6: transition_shidduch() raises or affects zero rows for a single', v_count = 0, 'rows: ' || v_count);
+  insert into results values (v_name, false, format('call unexpectedly succeeded, rows: %s', v_count));
 exception when others then
-  insert into results values ('AC6: transition_shidduch() raises or affects zero rows for a single', true, sqlerrm);
+  perform pg_temp.denied(v_name, 'P0001', 'shidduch % not found', sqlstate, sqlerrm);
 end $$;
 
+-- catch_shidduch() denies by returning an EMPTY answer, not by raising: the
+-- prior-suggestion and prior-date lookups both read RLS-empty tables for a
+-- single. So any exception here is a real failure, never a pass — and the
+-- parent-side control further down proves there was a catch to find.
 do $$
-declare v_id bigint;
+declare
+  v_name constant text := 'AC6: catch_shidduch() never fabricates a match for a single (identity_signals/date_records both RLS-empty)';
+  v_id bigint; v_result jsonb;
 begin
   select value::bigint into v_id from ids where name = 'leah_visible_id';
+  v_result := public.catch_shidduch(v_id);
   insert into results values (
-    'AC6: catch_shidduch() never fabricates a match for a single (identity_signals/date_records both RLS-empty)',
-    public.catch_shidduch(v_id) = jsonb_build_object('has_catch', false, 'suggestions', '[]'::jsonb, 'dates', '[]'::jsonb),
-    public.catch_shidduch(v_id)::text
+    v_name,
+    v_result = jsonb_build_object('has_catch', false, 'suggestions', '[]'::jsonb, 'dates', '[]'::jsonb),
+    v_result::text
   );
 exception when others then
-  insert into results values ('AC6: catch_shidduch() never fabricates a match for a single (identity_signals/date_records both RLS-empty)', true, sqlerrm);
+  perform pg_temp.unexpected_raise(v_name, sqlstate, sqlerrm);
 end $$;
 
+-- add_redt()/add_school()/create_shidduch()/add_resume_file()/
+-- add_resume_photo() all clear their own account-scope check (Leah's context
+-- IS the household) and are then stopped by the INSERT half of RLS on the
+-- table they write. The expected error is therefore the row-security
+-- violation for THAT table, named here so that definer-ising the function,
+-- widening the policy, or breaking the function outright each fail
+-- differently and visibly.
 do $$
-declare v_id bigint; v_count int;
+declare
+  v_name constant text := 'AC6: add_redt() is denied for a single by row-level security on public.redts';
+  v_id bigint; v_count int;
 begin
   select value::bigint into v_id from ids where name = 'leah_visible_id';
   select count(*) into v_count from public.add_redt(v_id);
-  insert into results values ('AC6: add_redt() raises or affects zero rows for a single', v_count = 0, 'rows: ' || v_count);
+  insert into results values (v_name, false, format('call unexpectedly succeeded, rows: %s', v_count));
 exception when others then
-  insert into results values ('AC6: add_redt() raises or affects zero rows for a single', true, sqlerrm);
+  perform pg_temp.denied(
+    v_name, '42501', 'new row violates row-level security policy for table "redts"', sqlstate, sqlerrm);
 end $$;
 
 do $$
-declare v_id bigint; v_count int;
+declare
+  v_name constant text := 'AC6: add_school() is denied for a single by row-level security on public.shidduch_schools';
+  v_id bigint; v_count int;
 begin
   select value::bigint into v_id from ids where name = 'leah_visible_id';
   select count(*) into v_count from public.add_school(v_id);
-  insert into results values ('AC6: add_school() raises or affects zero rows for a single', v_count = 0, 'rows: ' || v_count);
+  insert into results values (v_name, false, format('call unexpectedly succeeded, rows: %s', v_count));
 exception when others then
-  insert into results values ('AC6: add_school() raises or affects zero rows for a single', true, sqlerrm);
+  perform pg_temp.denied(
+    v_name, '42501', 'new row violates row-level security policy for table "shidduch_schools"', sqlstate, sqlerrm);
 end $$;
 
 do $$
-declare v_single_id bigint; v_count int;
+declare
+  v_name constant text := 'AC6: create_shidduch() is denied for a single by row-level security on public.shidduchim';
+  v_single_id bigint; v_count int;
 begin
   select value::bigint into v_single_id from ids where name = 'leah_single_id';
   select count(*) into v_count from public.create_shidduch(p_single_id => v_single_id);
-  insert into results values ('AC6: create_shidduch() raises or affects zero rows for a single', v_count = 0, 'rows: ' || v_count);
+  insert into results values (v_name, false, format('call unexpectedly succeeded, rows: %s', v_count));
 exception when others then
-  insert into results values ('AC6: create_shidduch() raises or affects zero rows for a single', true, sqlerrm);
+  perform pg_temp.denied(
+    v_name, '42501', 'new row violates row-level security policy for table "shidduchim"', sqlstate, sqlerrm);
 end $$;
 
 do $$
-declare v_id bigint; v_count int;
+declare
+  v_name constant text := 'AC6: add_resume_file() is denied for a single by row-level security on public.resumes';
+  v_id bigint; v_count int;
 begin
   select value::bigint into v_id from ids where name = 'leah_visible_id';
   select count(*) into v_count from public.add_resume_file(
     p_path => 'x/y.pdf', p_filename => 'y.pdf', p_mime_type => 'application/pdf', p_size => 1,
     p_shidduchim_id => v_id
   );
-  insert into results values ('AC6: add_resume_file() raises or affects zero rows for a single', v_count = 0, 'rows: ' || v_count);
+  insert into results values (v_name, false, format('call unexpectedly succeeded, rows: %s', v_count));
 exception when others then
-  insert into results values ('AC6: add_resume_file() raises or affects zero rows for a single', true, sqlerrm);
+  perform pg_temp.denied(
+    v_name, '42501', 'new row violates row-level security policy for table "resumes"', sqlstate, sqlerrm);
 end $$;
 
 -- AC 6 (review finding #2 — previously untested): add_resume_photo() against
@@ -519,15 +655,18 @@ end $$;
 -- level up: the function's own upsert into `resumes` is refused by RLS
 -- (Task 3's `<> 'single'` guard) before a resume_photos row is ever reached.
 do $$
-declare v_id bigint; v_count int;
+declare
+  v_name constant text := 'AC6: add_resume_photo() is denied for a single by row-level security on public.resumes (one level up from resume_photos)';
+  v_id bigint; v_count int;
 begin
   select value::bigint into v_id from ids where name = 'leah_visible_id';
   select count(*) into v_count from public.add_resume_photo(
     p_shidduchim_id => v_id, p_path => 'x/photos/shared/x/x.jpg', p_visibility => 'shared'
   );
-  insert into results values ('AC6: add_resume_photo() raises or affects zero rows for a single', v_count = 0, 'rows: ' || v_count);
+  insert into results values (v_name, false, format('call unexpectedly succeeded, rows: %s', v_count));
 exception when others then
-  insert into results values ('AC6: add_resume_photo() raises or affects zero rows for a single', true, sqlerrm);
+  perform pg_temp.denied(
+    v_name, '42501', 'new row violates row-level security policy for table "resumes"', sqlstate, sqlerrm);
 end $$;
 
 -- AC 6 / review finding #2 (previously untested, and the exact shape the
@@ -539,19 +678,16 @@ end $$;
 -- RLS). Now denied: Leah cannot even SEE the row, so the function's own
 -- `not exists` check raises 'photo % not found in current account'.
 do $$
-declare v_photo_id bigint; v_count int;
+declare
+  v_name constant text := 'AC6/review#2: hide_resume_photo() is denied for a single targeting a SIBLING''s photo — the row is invisible, so its own existence check raises';
+  v_photo_id bigint; v_count int;
 begin
   select value::bigint into v_photo_id from ids where name = 'rivka_photo_id';
   select count(*) into v_count from public.hide_resume_photo(v_photo_id);
-  insert into results values (
-    'AC6/review#2: hide_resume_photo() raises or affects zero rows for a single targeting a SIBLING''s photo',
-    v_count = 0, 'rows: ' || v_count
-  );
+  insert into results values (v_name, false, format('call unexpectedly succeeded, rows: %s', v_count));
 exception when others then
-  insert into results values (
-    'AC6/review#2: hide_resume_photo() raises or affects zero rows for a single targeting a SIBLING''s photo',
-    true, sqlerrm
-  );
+  perform pg_temp.denied(
+    v_name, 'P0001', 'photo % not found in current account', sqlstate, sqlerrm);
 end $$;
 
 -- link_reference_to_shidduch() is exercised against Leah's sibling's
@@ -562,14 +698,17 @@ end $$;
 -- itself denies Leah the row before the RPC ever reaches the tables it
 -- writes.
 do $$
-declare v_reference_id bigint; v_shidduch_id bigint; v_count int;
+declare
+  v_name constant text := 'AC6: link_reference_to_shidduch() is denied for a single — its own account-scope lookup runs under her RLS and finds neither the reference nor the sibling''s shidduch';
+  v_reference_id bigint; v_shidduch_id bigint; v_count int;
 begin
   select value::bigint into v_reference_id from ids where name = 'reference_id';
   select value::bigint into v_shidduch_id from ids where name = 'rivka_visible_id';
   select count(*) into v_count from public.link_reference_to_shidduch(v_reference_id, v_shidduch_id);
-  insert into results values ('AC6: link_reference_to_shidduch() raises or affects zero rows for a single targeting a denied shidduch', v_count = 0, 'rows: ' || v_count);
+  insert into results values (v_name, false, format('call unexpectedly succeeded, rows: %s', v_count));
 exception when others then
-  insert into results values ('AC6: link_reference_to_shidduch() raises or affects zero rows for a single targeting a denied shidduch', true, sqlerrm);
+  perform pg_temp.denied(
+    v_name, 'P0001', 'reference % not found in current account', sqlstate, sqlerrm);
 end $$;
 
 -- AC 6 (review finding #2 — previously untested): match_reference_on_entry()
@@ -579,19 +718,20 @@ end $$;
 -- identity_signals row (auto-populated for "Some Reference" by
 -- sync_reference_identity_signals()) is invisible to Leah, so no candidate
 -- ever surfaces through this RPC.
+-- Like catch_shidduch(), this one denies by returning nothing rather than by
+-- raising, so any exception is a failure. The name+phone pair is the one that
+-- scores 0.98 for the parent (control further down) — a name-only call scores
+-- NULL for everyone and would make this assertion unfalsifiable.
 do $$
-declare v_count int;
+declare
+  v_name constant text := 'AC6: match_reference_on_entry() returns zero candidates for a single (identity_signals is RLS-empty)';
+  v_count int;
 begin
-  select count(*) into v_count from public.match_reference_on_entry(p_name_en => 'Some Reference');
-  insert into results values (
-    'AC6: match_reference_on_entry() returns zero candidates for a single (identity_signals is RLS-empty)',
-    v_count = 0, 'rows: ' || v_count
-  );
+  select count(*) into v_count
+  from public.match_reference_on_entry(p_name_en => 'Some Reference', p_phone => '054-999-8888');
+  insert into results values (v_name, v_count = 0, 'rows: ' || v_count);
 exception when others then
-  insert into results values (
-    'AC6: match_reference_on_entry() returns zero candidates for a single (identity_signals is RLS-empty)',
-    true, sqlerrm
-  );
+  perform pg_temp.unexpected_raise(v_name, sqlstate, sqlerrm);
 end $$;
 
 -- AC 6 (review finding #2; the expectation below was flipped from "succeeds"
@@ -693,6 +833,22 @@ select 'AC6 control: the merge the single attempted did not happen — both "ref
            (select value::bigint from ids where name = 'reference_id'),
            (select value::bigint from ids where name = 'reference_b_id')
          )) = 2;
+
+-- The other half of the two RPCs that deny by returning an EMPTY answer
+-- rather than raising. Neither can be pinned by an error message, so the only
+-- thing that separates "RLS hid it" from "there was nothing to find" is the
+-- SAME call, on the SAME fixture, made by a role that is allowed to see it.
+insert into results (name, passed)
+select 'AC6 control: the same match_reference_on_entry() call returns a real candidate for the parent (the single''s zero is RLS, not an unmatchable fixture)',
+       (select count(*) from public.match_reference_on_entry(
+          p_name_en => 'Some Reference', p_phone => '054-999-8888')) > 0;
+
+insert into results (name, passed)
+select 'AC6 control: the same catch_shidduch() call DOES report a catch for the parent — the single''s empty answer is RLS, not a fixture with no catch in it',
+       (public.catch_shidduch((select value::bigint from ids where name = 'leah_visible_id')) ->> 'has_catch')::boolean
+       and jsonb_array_length(
+             public.catch_shidduch((select value::bigint from ids where name = 'leah_visible_id')) -> 'suggestions'
+           ) > 0;
 
 -- ---------------------------------------------------------------------------
 -- Emit the report as a single JSON array line, then undo everything.

@@ -42,6 +42,50 @@ grant all on results to public;
 grant all on ids to public;
 
 -- ---------------------------------------------------------------------------
+-- Denial assertions name the error they expect (same helper, same reasoning,
+-- as single_row_scoping.sql — see its comment for the demonstration).
+--
+-- `exception when others then insert into results values (…, true, sqlerrm)`
+-- records a PASS for ANY failure, so it cannot tell "the WITH CHECK refused
+-- me" from "the table was renamed" or "the trigger threw". Every INSERT
+-- denial below is a row-security violation on public.interactions and says
+-- so, so a different failure fails the assertion.
+-- ---------------------------------------------------------------------------
+create function pg_temp.denied(
+  p_name text,
+  p_expected_sqlstate text,
+  p_expected_message_like text,
+  p_actual_sqlstate text,
+  p_actual_message text
+) returns void language plpgsql as $$
+begin
+  insert into results values (
+    p_name,
+    p_actual_sqlstate = p_expected_sqlstate
+      and p_actual_message like p_expected_message_like,
+    format('sqlstate %s %L (expected %s matching %L)',
+           p_actual_sqlstate, p_actual_message,
+           p_expected_sqlstate, p_expected_message_like)
+  );
+end;
+$$;
+
+-- The one denial in this file that RLS may satisfy either way (see AC 2/AC 7
+-- below): the insert is allowed to succeed with the caller's own id
+-- substituted, OR to be refused outright — but only by the row-security
+-- policy on public.interactions. Any other exception is a failure.
+create function pg_temp.denied_row_security(
+  p_name text, p_actual_sqlstate text, p_actual_message text
+) returns void language plpgsql as $$
+begin
+  perform pg_temp.denied(
+    p_name, '42501',
+    'new row violates row-level security policy for table "interactions"',
+    p_actual_sqlstate, p_actual_message);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Arrange (continued from the shared fixture, run as postgres/superuser):
 -- three shidduchim (Leah's writable + unwritable, Rivka's writable).
 -- ---------------------------------------------------------------------------
@@ -159,43 +203,52 @@ begin
     format('stored actor_member_id=%s (leah=%s, rivka=%s)', v_actor_member_id, v_leah_member_id, v_rivka_member_id)
   );
 exception when others then
-  insert into results values (
+  -- Either outcome satisfies the AC — but only these two. A raise from
+  -- anywhere OTHER than the row-security policy (a broken trigger, a renamed
+  -- column) is a failure, not a denial.
+  perform pg_temp.denied_row_security(
     'AC 2/AC 7: a forged actor_member_id in the insert payload never lands (trigger overwrites before WITH CHECK evaluates)',
-    true, sqlerrm
+    sqlstate, sqlerrm
   );
 end $$;
 
 -- AC 1/AC 7: inserting on her own suggestion that is NOT in a
 -- single-visible pipeline_state ('new') raises.
 do $$
+declare
+  v_name constant text := 'AC 1/AC 7: single''s INSERT on her own NOT-yet-visible (new) suggestion is denied by row-level security on public.interactions';
 begin
   insert into public.interactions (target_type, target_id, scope, kind, body)
   values ('shidduch', (select value::bigint from ids where name = 'leah_new_id'), 'shidduch', 'single_input', 'a single trying to write on a new suggestion');
-  insert into results values ('AC 1/AC 7: single''s INSERT on her own NOT-yet-visible (new) suggestion is denied (raises)', false, 'insert unexpectedly succeeded');
+  insert into results values (v_name, false, 'insert unexpectedly succeeded');
 exception when others then
-  insert into results values ('AC 1/AC 7: single''s INSERT on her own NOT-yet-visible (new) suggestion is denied (raises)', true, sqlerrm);
+  perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
 end $$;
 
 -- AC 1/AC 7: inserting on a SIBLING's visible suggestion raises.
 do $$
+declare
+  v_name constant text := 'AC 1/AC 7: single''s INSERT on a sibling''s visible suggestion is denied by row-level security on public.interactions';
 begin
   insert into public.interactions (target_type, target_id, scope, kind, body)
   values ('shidduch', (select value::bigint from ids where name = 'rivka_visible_id'), 'shidduch', 'single_input', 'a single trying to write on her sibling''s suggestion');
-  insert into results values ('AC 1/AC 7: single''s INSERT on a sibling''s visible suggestion is denied (raises)', false, 'insert unexpectedly succeeded');
+  insert into results values (v_name, false, 'insert unexpectedly succeeded');
 exception when others then
-  insert into results values ('AC 1/AC 7: single''s INSERT on a sibling''s visible suggestion is denied (raises)', true, sqlerrm);
+  perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
 end $$;
 
 -- AC 7: inserting kind = 'note' — even on her own visible suggestion —
 -- raises. The single-only INSERT policy requires kind = 'single_input'; the
 -- general INSERT policy denies every single-role caller outright (6.3).
 do $$
+declare
+  v_name constant text := 'AC 7: single''s INSERT of kind = ''note'' on her own visible suggestion is denied by row-level security on public.interactions';
 begin
   insert into public.interactions (target_type, target_id, scope, kind, body)
   values ('shidduch', (select value::bigint from ids where name = 'leah_visible_id'), 'shidduch', 'note', 'a single trying to write a note');
-  insert into results values ('AC 7: single''s INSERT of kind = ''note'' on her own visible suggestion is denied (raises)', false, 'insert unexpectedly succeeded');
+  insert into results values (v_name, false, 'insert unexpectedly succeeded');
 exception when others then
-  insert into results values ('AC 7: single''s INSERT of kind = ''note'' on her own visible suggestion is denied (raises)', true, sqlerrm);
+  perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
 end $$;
 
 -- AC 3/AC 7: updating the BODY of her own single_input row affects ZERO
@@ -287,6 +340,22 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
 
+-- The other half of the four "the single does NOT see X" assertions above:
+-- each of them is equally green when X was never inserted. The parent_admin's
+-- own read policy is untouched by this story, so it sees all five fixture
+-- rows — the single's narrower set is attributable to her role and nothing
+-- else.
+insert into results (name, passed)
+select 'AC 4/AC 7 control: the parent sees all five fixture interactions rows (the single''s two are RLS narrowing, not a thin fixture)',
+       (select count(*) from public.interactions) = 5
+       and (select count(*) from public.interactions where id in (
+             (select value::bigint from ids where name = 'rivka_single_input_id'),
+             (select value::bigint from ids where name = 'parent_note_id'),
+             (select value::bigint from ids where name = 'parent_status_change_id'),
+             (select value::bigint from ids where name = 'leah_single_input_id'),
+             (select value::bigint from ids where name = 'leah_forged_single_input_id')
+           )) = 5;
+
 -- AC 2: the single's single_input row is readable to the parent, with the
 -- correct actor_member_id/created_at — the untouched account-scoped
 -- interactions read policy, exactly as before this story.
@@ -312,12 +381,14 @@ end $$;
 -- the general INSERT policy's `kind <> 'single_input'` clause denies every
 -- non-single path, and the single-only policy denies on role.
 do $$
+declare
+  v_name constant text := 'AC 3/AC 7: parent_admin''s INSERT of a single_input row is denied by row-level security on public.interactions';
 begin
   insert into public.interactions (target_type, target_id, scope, kind, body)
   values ('shidduch', (select value::bigint from ids where name = 'leah_visible_id'), 'shidduch', 'single_input', 'a parent trying to speak as the single');
-  insert into results values ('AC 3/AC 7: parent_admin''s INSERT of a single_input row is denied (raises)', false, 'insert unexpectedly succeeded');
+  insert into results values (v_name, false, 'insert unexpectedly succeeded');
 exception when others then
-  insert into results values ('AC 3/AC 7: parent_admin''s INSERT of a single_input row is denied (raises)', true, sqlerrm);
+  perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
 end $$;
 
 -- AC 3/AC 7: updating the single's single_input row affects ZERO rows —

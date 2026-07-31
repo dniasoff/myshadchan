@@ -85,9 +85,14 @@ describe("single_row_scoping (database)", () => {
   // ones are not. Raised from 30 to 51 when the two AC-6 RPC assertions were
   // flipped from "succeeds today" to "denied" and gained their parent-side
   // controls: a denial check that can quietly disappear without the run going
-  // red is exactly as useless as one that was never written.
+  // red is exactly as useless as one that was never written. Raised to 56
+  // when the ten `when others -> pass` AC-6 handlers were pinned to the
+  // specific error each denial produces and the five missing existence
+  // controls (the eight zero-row tables, the sibling's photo, the shidduch
+  // transition_shidduch() calls "not found", and the two RPCs that deny by
+  // returning nothing) were added alongside them.
   it("runs every AC 1 / AC 2 / AC 3 / AC 4 / AC 5 / AC 6 / AC 8 check group", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(51);
+    expect(checks.length).toBeGreaterThanOrEqual(56);
   });
 
   for (const check of checks) {

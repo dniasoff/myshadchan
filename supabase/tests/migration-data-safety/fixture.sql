@@ -183,6 +183,44 @@ values (
     9000001, 9000001, 'Mrs. Bracha Katz', 'מרת ברכה כץ', 'Lakewood'
 );
 
+-- `invites`, in EVERY shape the baseline schema admits. This table was the
+-- one Epic 6 alters structurally (`target_single_id`, plus two constraints)
+-- and the one this fixture did not seed, so `make check-migration-safety`
+-- passed the whole epic while being unable to see its only DDL. The grid is
+-- deliberate rather than illustrative: `invites_role_check` admits four
+-- roles, three of which (`parent_admin`, `helper`, `single`) Epic 2 shipped
+-- as invitable into a household two epics before Epic 6 gave `single` a
+-- meaning, and `invites_status_check` admits `pending`/`accepted`/`revoked`
+-- (`expired` is only ever reached by expiry, never written). Every
+-- combination therefore already exists in production and every combination
+-- has to survive a migration.
+--
+-- The `role = 'single'`, `status = 'pending'`, `target_single_id IS NULL` row
+-- (9000003) is the specific one Story 6.1's review found: it violates the new
+-- `invites_role_target_check`, so a migration that VALIDATES that constraint
+-- — as `db diff` naturally emits, because the shadow database it diffs is
+-- always empty — aborts on it and takes the whole deploy with it. Without
+-- this row nothing in the repo can tell the two versions of that migration
+-- apart.
+--
+-- `token` and `expires_at` keep their defaults: the snapshot is taken in the
+-- same transaction that writes them, so whatever they resolve to is what
+-- assert.sql compares against. `invited_by` points at the parent_admin
+-- membership above, exactly as create_invite() writes it.
+insert into public.invites (
+    id, account_id, email, role, status, invited_by, accepted_at
+)
+values
+    (9000001, 9000001, 'guard.invite.parent.pending@example.test',  'parent_admin', 'pending',  9000001, null),
+    (9000002, 9000001, 'guard.invite.helper.pending@example.test',  'helper',       'pending',  9000001, null),
+    (9000003, 9000001, 'guard.invite.single.pending@example.test',  'single',       'pending',  9000001, null),
+    (9000004, 9000001, 'guard.invite.parent.accepted@example.test', 'parent_admin', 'accepted', 9000001, now()),
+    (9000005, 9000001, 'guard.invite.helper.accepted@example.test', 'helper',       'accepted', 9000001, now()),
+    (9000006, 9000001, 'guard.invite.single.accepted@example.test', 'single',       'accepted', 9000001, now()),
+    (9000007, 9000001, 'guard.invite.parent.revoked@example.test',  'parent_admin', 'revoked',  9000001, null),
+    (9000008, 9000001, 'guard.invite.helper.revoked@example.test',  'helper',       'revoked',  9000001, null),
+    (9000009, 9000001, 'guard.invite.single.revoked@example.test',  'single',       'revoked',  9000001, null);
+
 -- The five shapes that matter for `father_en`/`father_he`/`mother_en`/
 -- `mother_he` (Story 5.2 split `parents_en`/`parents_he` into these four and
 -- dropped the originals — declared-moves.sql's now-retired entry). All 24
@@ -332,6 +370,7 @@ select migration_guard.capture('account_members');
 select migration_guard.capture('members');
 select migration_guard.capture('singles');
 select migration_guard.capture('shadchanim');
+select migration_guard.capture('invites');
 select migration_guard.capture('shidduchim');
 select migration_guard.capture('redts');
 select migration_guard.capture('references');

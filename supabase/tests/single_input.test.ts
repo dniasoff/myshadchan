@@ -87,7 +87,7 @@ describe("single_input (database)", () => {
   // in the same diff as any change to the number of `insert into results`
   // statements in single_input.sql.
   it("runs every AC 1 / AC 2 / AC 3 / AC 4 / AC 7 check", () => {
-    expect(checks.length).toBe(18);
+    expect(checks.length).toBe(19);
   });
 
   for (const check of checks) {
