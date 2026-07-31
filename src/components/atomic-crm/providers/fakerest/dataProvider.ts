@@ -11,6 +11,7 @@ import type {
   AddSchoolInput,
   AiEntitlementInfo,
   CreateShidduchInput,
+  CreateThreadInput,
   EntityFile,
   EntityTargetType,
   Invite,
@@ -34,6 +35,7 @@ import type {
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
+  Thread,
 } from "../../types";
 import { ENTITY_TARGET_TYPES } from "../../types";
 import {
@@ -87,6 +89,11 @@ import { addPersona, getMyPersonas } from "./internal/personas";
 import { removePersona } from "./internal/removePersona";
 import { getMyContexts, switchActiveContext } from "./internal/contexts";
 import { createInvite, revokeInvite } from "./internal/invites";
+import {
+  createMessage,
+  createThread,
+  createThreadParticipant,
+} from "./internal/threads";
 import {
   catchShidduch,
   computeShidduchCatchCount,
@@ -783,6 +790,39 @@ export const createDataProvider = ({
           },
         });
       }
+      // Story 7.1 (AC-4, AC-8): the ThreadPanel composer's own
+      // dataProvider.create("messages", { thread_id, body }) call needs the
+      // same server-stamped account_id/connection_id/sender_member_id
+      // set_message_defaults() copies from the parent thread, and the same
+      // participant gate the real INSERT policy enforces — see
+      // ./internal/threads.ts's createMessage(). Cast to `any`: this
+      // override's return type is a per-resource union DataProvider's own
+      // generic `create<RecordType>` signature cannot express, exactly like
+      // `params: any` above.
+      if (resource === "messages") {
+        const message = await createMessage(
+          baseDataProvider,
+          getIdentity,
+          () => activeAccountId,
+          params.data ?? {},
+        );
+        return { data: message } as any;
+      }
+      // Story 7.1 (AC-2, AC-8): defense-in-depth parity for a direct
+      // dataProvider.create("thread_participants", …) — no built UI calls
+      // this today (create_thread() seeds every participant this story's
+      // SPA needs), but the real INSERT policy exists for exactly this case
+      // (Dev Notes, "Why the INSERT policy still matters") and this mirror
+      // matches it.
+      if (resource === "thread_participants") {
+        const participant = await createThreadParticipant(
+          baseDataProvider,
+          getIdentity,
+          () => activeAccountId,
+          params.data ?? {},
+        );
+        return { data: participant } as any;
+      }
       return baseDataProvider.create(resource, params);
     },
     async update(resource: string, params: any) {
@@ -861,6 +901,11 @@ export const createDataProvider = ({
     // primitive a future fileInboxItem() wraps. The board's create form calls
     // this directly; raw dataProvider.create("shidduchim") is never used by the UI.
     createShidduch: createShidduchImpl,
+    // Story 7.1 (AC-1, AC-2, AC-7) — FakeRest mirror of create_thread(). The
+    // SOLE creation path for a thread and its initial participants; see
+    // ./internal/threads.ts.
+    createThread: (input: CreateThreadInput): Promise<Thread> =>
+      createThread(baseDataProvider, getIdentity, () => activeAccountId, input),
     // The SOLE writer of pipeline_state (AD-4 invariant 2) — FakeRest mirror of
     // transition_shidduch. Enforces the transitions-as-data graph with the same
     // optimistic-concurrency check as Postgres.

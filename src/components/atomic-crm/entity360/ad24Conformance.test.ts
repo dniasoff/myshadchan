@@ -138,12 +138,17 @@ const FIVE_ONE_SHIDDUCH_TABS: TabKey[] = [
   "tasks",
   "activity",
 ];
+// "discussions" (Story 7.1) widened CANONICAL_TAB_SETS.shidduchim to 11 keys
+// after 5-1 shipped; declared pending here so this fixture's union stays
+// complete against TODAY's canonical row — CANONICAL_TAB_SETS is read
+// directly by findAd24Violations, not overridable per test.
 const FIVE_ONE_SHIDDUCH_PENDING: TabKey[] = [
   "resume",
   "photo",
   "medical",
   "files",
   "external-links",
+  "discussions",
 ];
 
 describe("findAd24Violations — one it per Ad24ViolationCode (AC 1)", () => {
@@ -329,6 +334,7 @@ describe("findAd24Violations — one it per Ad24ViolationCode (AC 1)", () => {
             "medical",
             "files",
             "external-links",
+            "discussions",
           ],
         }),
       ),

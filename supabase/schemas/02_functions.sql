@@ -2482,6 +2482,29 @@ begin
   delete from public.entity_files
   where account_id = old.account_id and target_type = v_target_type and target_id = old.id;
 
+  -- Story 7.1 (AC-10): a deleted shidduch takes its threads with it, on
+  -- BOTH scope axes. thread_participants/messages cascade from this delete
+  -- via their own composite FKs to threads (01_tables.sql) — no separate
+  -- delete needed for them. An account_id = old.account_id predicate alone
+  -- would miss a connection-scoped thread about the same subject (its
+  -- account_id is NULL), leaving a shadchan holding a conversation about a
+  -- deleted shidduch, pointing at a dangling subject — hence the exists()
+  -- arm walking the connection back to old.account_id. v_target_type is
+  -- 'reference'/'single'/'shadchan' for the other three callers of this
+  -- function; none of those ever matches a thread's subject_type
+  -- ('shidduch'/'relationship'), so this delete is a no-op for them.
+  delete from public.threads t
+  where t.subject_type = v_target_type
+    and t.subject_id = old.id
+    and (
+      t.account_id = old.account_id
+      or exists (
+        select 1 from public.connections c
+        where c.id = t.connection_id
+          and c.household_account_id = old.account_id
+      )
+    );
+
   return old;
 end;
 $$;
@@ -3403,5 +3426,275 @@ begin
     'resumes_used', v_resumes_used,
     'resumes_limit', v_resumes_limit
   );
+end;
+$$;
+
+-- =====================================================================
+-- MyShadchan — Communication (Epic 7: threads, AD-1, AD-3, AD-20, AD-22)
+-- =====================================================================
+
+-- Story 7.1 (AC-5, AC-6): a connection's household side must actually be a
+-- household-kind account and its shadchanus side a shadchanus-kind one —
+-- enforced by Postgres, not by convention (mirrors enforce_household_scope()
+-- above). NOT SECURITY DEFINER: it only reads accounts.kind for the two
+-- rows being connected, which `connections` SELECT policy already lets a
+-- caller on either side read; and this table has no client INSERT path
+-- anyway (06_grants.sql) — only service_role ever fires this trigger.
+-- Named `enforce_*`/wired as `validate_connections_kinds` so it sorts after
+-- any future `set_*` trigger were one ever added to this table (04_triggers.sql's
+-- alphabetical BEFORE-trigger-order warning) — none exists today.
+CREATE OR REPLACE FUNCTION "public"."enforce_connection_kinds"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_household_kind text;
+  v_shadchanus_kind text;
+begin
+  select kind into v_household_kind from public.accounts where id = new.household_account_id;
+  select kind into v_shadchanus_kind from public.accounts where id = new.shadchanus_account_id;
+
+  if v_household_kind is distinct from 'household' then
+    raise exception 'connections.household_account_id % is not a household-kind account', new.household_account_id
+      using errcode = 'check_violation';
+  end if;
+
+  if v_shadchanus_kind is distinct from 'shadchanus' then
+    raise exception 'connections.shadchanus_account_id % is not a shadchanus-kind account', new.shadchanus_account_id
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+-- Story 7.1 (AC-5, AC-7): server-sets threads.account_id from the caller's
+-- active context ONLY when BOTH scope columns are null — never overwrites
+-- a non-null value (a connection-scoped row, seeded by service_role until
+-- Story 7.4, is never touched) and never sets both. Also defaults
+-- created_by_member_id when the caller omitted it; create_thread() always
+-- supplies both, so this only matters for a direct
+-- dataProvider.create("threads", …), which the INSERT policy
+-- (05_policies.sql) additionally restricts to
+-- account_id = current_context_id() regardless. Reuses current_context_id()/
+-- current_member_id() — never a re-resolved inline query, per this story's
+-- Dev Notes.
+CREATE OR REPLACE FUNCTION "public"."set_thread_defaults"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  if new.account_id is null and new.connection_id is null then
+    new.account_id := public.current_context_id();
+  end if;
+  if new.created_by_member_id is null then
+    new.created_by_member_id := public.current_member_id();
+  end if;
+  return new;
+end;
+$$;
+
+-- Story 7.1 (AC-2, AC-5): a thread_participants row always lands on the
+-- SAME axis as its parent thread — copying only account_id (the older
+-- single-axis pattern other tables use) is the bug that would make every
+-- connection-scoped participant row violate its own XOR check. Never
+-- trusts a client-sent scope column: both are copied from the parent
+-- thread, never taken from new.account_id/new.connection_id themselves.
+CREATE OR REPLACE FUNCTION "public"."set_thread_participant_defaults"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+  v_connection_id bigint;
+begin
+  if new.account_id is null and new.connection_id is null then
+    select t.account_id, t.connection_id into v_account_id, v_connection_id
+    from public.threads t where t.id = new.thread_id;
+    new.account_id := v_account_id;
+    new.connection_id := v_connection_id;
+  end if;
+  return new;
+end;
+$$;
+
+-- Story 7.1 (AC-4, AC-5): same parent-copy shape as
+-- set_thread_participant_defaults() above, plus server-stamps
+-- sender_member_id — an IF-NULL default (mirrors
+-- set_entity_files_uploaded_by()'s shape, not
+-- set_interaction_actor_member_id()'s unconditional overwrite), since
+-- create_thread() never inserts a message and the SPA always omits it.
+CREATE OR REPLACE FUNCTION "public"."set_message_defaults"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+  v_connection_id bigint;
+begin
+  if new.account_id is null and new.connection_id is null then
+    select t.account_id, t.connection_id into v_account_id, v_connection_id
+    from public.threads t where t.id = new.thread_id;
+    new.account_id := v_account_id;
+    new.connection_id := v_connection_id;
+  end if;
+  if new.sender_member_id is null then
+    new.sender_member_id := public.current_member_id();
+  end if;
+  return new;
+end;
+$$;
+
+-- Story 7.1 (AC-1, AC-9): the ONE authority every Epic 7 RLS policy calls —
+-- exactly as is_single_visible_state() is the one authority for its own
+-- axis. v1 (this story): the connection axis is unreachable to
+-- `authenticated` (fails closed, AC-11) until Story 7.4 opens it, so 7.4 is
+-- a pure widening with nothing to un-leak. Does NOT branch on `visibility`
+-- — that is Story 7.3's job, and doing it here would mean it gets done
+-- twice or reviewed once (Dev Notes, "What this story does not do").
+--
+-- AC-9: for a `single`, a `subject_type = 'shidduch'` thread is readable
+-- ONLY when the subject shidduch satisfies Story 6.2's shipped three-clause
+-- test verbatim in shape (05_policies.sql:352-367) — visibility = 'shared'
+-- AND is_single_visible_state(pipeline_state) AND the row's single_id
+-- resolves to the caller's OWN singles row. Reusing one clause of that test
+-- (e.g. the pipeline state alone) is a leak in any household with two
+-- singles or one using 'private_parent' visibility — this is the composed
+-- dignity floor, not a re-derivation of it.
+CREATE OR REPLACE FUNCTION "public"."thread_is_readable"("p_thread_id" bigint) RETURNS boolean
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_thread public.threads;
+begin
+  select * into v_thread from public.threads where id = p_thread_id;
+  if not found then
+    return false;
+  end if;
+
+  -- The connection axis is unreachable to `authenticated` until Story 7.4
+  -- opens it — failing closed here means 7.4 is a pure widening with
+  -- nothing to un-leak.
+  if v_thread.connection_id is not null then
+    return false;
+  end if;
+
+  -- `is distinct from`, not `<>`: a NULL current_context_id() (no active
+  -- context) must deny, not silently fall through to `true` the way a
+  -- NULL-yielding `<>` comparison would inside an `if`.
+  if v_thread.account_id is distinct from public.current_context_id() then
+    return false;
+  end if;
+
+  if v_thread.subject_type = 'shidduch' and public.current_member_role() = 'single' then
+    return exists (
+      select 1
+      from public.shidduchim s
+      where s.id = v_thread.subject_id
+        and s.visibility = 'shared'
+        and public.is_single_visible_state(s.pipeline_state)
+        and exists (
+          select 1 from public.singles c
+          where c.id = s.single_id and c.member_id = public.current_member_id()
+        )
+    );
+  end if;
+
+  return true;
+end;
+$$;
+
+-- Story 7.1 (AC-1, AC-2, AC-7): the SOLE creation path for a thread and its
+-- initial participants together (mirrors create_shidduch()'s "one creation
+-- path" precedent, AD-4) — the SPA never calls
+-- dataProvider.create("threads", …) directly. SECURITY DEFINER so its
+-- inserts are unaffected by the participant-gated INSERT policies
+-- (05_policies.sql) — `postgres` (the owner) carries BYPASSRLS, so this is
+-- unaffected by FORCE ROW LEVEL SECURITY either (Task 5's evidence).
+--
+-- This story's signature has NO p_connection_id — that parameter and its
+-- validation are Story 7.4's; every thread this function creates today is
+-- account-scoped, and `coalesce(p_visibility, 'open')` is the one
+-- expression Story 7.2 changes, nothing else.
+CREATE OR REPLACE FUNCTION "public"."create_thread"(
+    "p_subject_type" text,
+    "p_subject_id" bigint DEFAULT NULL,
+    "p_participant_member_ids" bigint[] DEFAULT '{}',
+    "p_visibility" text DEFAULT NULL
+) RETURNS public.threads
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+  v_member_id bigint;
+  v_visibility text;
+  v_thread public.threads;
+  v_participant_id bigint;
+begin
+  v_account_id := public.current_context_id();
+  if v_account_id is null then
+    raise exception 'no account context for create_thread (no account exists)';
+  end if;
+
+  v_member_id := public.current_member_id();
+  if v_member_id is null then
+    raise exception 'no active membership for create_thread';
+  end if;
+
+  if p_subject_type not in ('shidduch', 'relationship') then
+    raise exception 'invalid thread subject_type: %', p_subject_type
+      using errcode = 'check_violation';
+  end if;
+
+  -- Never cross the account boundary (AD-1): the subject shidduch must
+  -- belong to the caller's account, and must actually exist.
+  if p_subject_type = 'shidduch' and not exists (
+    select 1 from public.shidduchim where id = p_subject_id and account_id = v_account_id
+  ) then
+    raise exception 'shidduch % not found in current account', p_subject_id;
+  end if;
+
+  v_visibility := coalesce(p_visibility, 'open');
+  if v_visibility not in ('open', 'private') then
+    raise exception 'invalid thread visibility: %', v_visibility
+      using errcode = 'check_violation';
+  end if;
+
+  insert into public.threads (
+    account_id, connection_id, subject_type, subject_id, visibility, created_by_member_id
+  ) values (
+    v_account_id, null,
+    p_subject_type,
+    case when p_subject_type = 'shidduch' then p_subject_id else null end,
+    v_visibility, v_member_id
+  )
+  returning * into v_thread;
+
+  -- The creator is always a participant, from the moment the thread exists
+  -- (AC-2).
+  insert into public.thread_participants (account_id, connection_id, thread_id, member_id)
+  values (v_account_id, null, v_thread.id, v_member_id);
+
+  -- One row per DISTINCT supplied id (AC-7). Fail fast on any id that is
+  -- not an active account_members row of the caller's own account — never
+  -- let a caller believe someone is in a conversation who silently was
+  -- not added (.claude/rules/coding-style.md). ON CONFLICT DO NOTHING
+  -- (thread_participants_thread_id_member_id_key) absorbs a duplicate in
+  -- the array, or the caller's own id repeated, without a second check.
+  foreach v_participant_id in array coalesce(p_participant_member_ids, '{}') loop
+    if not exists (
+      select 1 from public.account_members
+      where id = v_participant_id and account_id = v_account_id and status = 'active'
+    ) then
+      raise exception 'member % not found in current account', v_participant_id;
+    end if;
+    insert into public.thread_participants (account_id, connection_id, thread_id, member_id)
+    values (v_account_id, null, v_thread.id, v_participant_id)
+    on conflict (thread_id, member_id) do nothing;
+  end loop;
+
+  return v_thread;
 end;
 $$;

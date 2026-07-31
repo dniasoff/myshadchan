@@ -11,6 +11,7 @@ import type {
   AddSchoolInput,
   AiEntitlementInfo,
   CreateShidduchInput,
+  CreateThreadInput,
   EntityFile,
   Invite,
   InvitableRole,
@@ -34,6 +35,7 @@ import type {
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
+  Thread,
 } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
@@ -117,6 +119,28 @@ const createShidduchViaRpc = async (
   }
   const row = Array.isArray(data) ? data[0] : data;
   return row as Shidduch;
+};
+
+// Story 7.1 (AC-1, AC-2, AC-7): the SOLE creation path for a thread and its
+// initial participants together (mirrors create_shidduch()'s "one creation
+// path" precedent above) — the SPA never calls dataProvider.create("threads",
+// …) directly. `p_connection_id` has no parameter here on purpose: every
+// thread this RPC creates is account-scoped until Story 7.4.
+const createThreadViaRpc = async (
+  input: CreateThreadInput,
+): Promise<Thread> => {
+  const { data, error } = await getSupabaseClient().rpc("create_thread", {
+    p_subject_type: input.subject_type,
+    p_subject_id: input.subject_id ?? null,
+    p_participant_member_ids: input.participant_member_ids ?? [],
+    p_visibility: input.visibility ?? null,
+  });
+  if (error) {
+    console.error("createThread.error", error);
+    throw new Error(error.message || "Failed to start the discussion");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return row as Thread;
 };
 
 // Exported for `dataProviderReads.test.ts`: the read redirects below are now a
@@ -210,6 +234,12 @@ export const getDataProviderWithCustomMethods = () => {
     // primitive a future fileInboxItem() (Epic-6) wraps. Backed by the
     // create_shidduch RPC; see createShidduchViaRpc above.
     createShidduch: createShidduchViaRpc,
+    // Story 7.1 (AC-1, AC-2, AC-7): the SOLE creation path for a thread —
+    // see createThreadViaRpc above. Plain dataProvider.create("messages", …)
+    // / getList("messages"|"thread_participants", …) need no wrapper — RLS
+    // and the triggers (set_message_defaults, set_thread_participant_
+    // defaults) do the rest.
+    createThread: createThreadViaRpc,
     // The SOLE writer of pipeline_state (AD-4 invariant 2). Calls the
     // transition_shidduch RPC, which enforces the transitions-as-data graph.
     async transitionShidduch(

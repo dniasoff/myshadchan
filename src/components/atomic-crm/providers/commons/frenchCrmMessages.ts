@@ -716,6 +716,26 @@ export const frenchCrmMessages = {
         outstanding: "%{smart_count} conversations n'ont pas encore eu lieu.",
       },
     },
+    // Story 7.1 — l'onglet Discussions (ThreadList/ThreadPanel,
+    // shidduchim/ShidduchDiscussionsTab). Voir la même note dans
+    // englishCrmMessages.ts.
+    threads: {
+      list: {
+        empty: "Aucune discussion pour l'instant.",
+        error: "Impossible de charger les discussions.",
+        start: "Démarrer une discussion",
+        startError: "Échec du démarrage de la discussion",
+        rowOpen: "Ouverte",
+        rowPrivate: "Privée",
+      },
+      panel: {
+        empty: "Aucun message pour l'instant.",
+        error: "Impossible de charger les messages.",
+        placeholder: "Écrire un message…",
+        send: "Envoyer",
+        sendError: "Échec de l'envoi du message",
+      },
+    },
     reminders: {
       outstandingCalls: {
         title: "Encore à appeler",

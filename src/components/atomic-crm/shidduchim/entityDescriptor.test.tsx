@@ -157,8 +157,8 @@ describe("shidduchimDescriptor — the real medical tab's visibleTo (Story 5.5, 
   });
 });
 
-describe("shidduchimDescriptor — tab strip order (Story 5.6, AC 1 / AC 2)", () => {
-  it("renders all ten canonical tabs, Files after Medical and External links after Diligence", async () => {
+describe("shidduchimDescriptor — tab strip order (Story 5.6, AC 1 / AC 2; Story 7.1 appends Discussions)", () => {
+  it("renders all eleven canonical tabs, Files after Medical, External links after Diligence, and Discussions last", async () => {
     // Act — the rendered strip, not the descriptor literal (Task 5's own
     // instruction): a parent_admin sees every tab, including the
     // parent_admin/self_manager-gated Medical tab.
@@ -183,7 +183,33 @@ describe("shidduchimDescriptor — tab strip order (Story 5.6, AC 1 / AC 2)", ()
       "Notes",
       "Tasks",
       "Activity",
+      "Discussions",
     ]);
+  });
+});
+
+describe("shidduchimDescriptor — the real Discussions tab (Story 7.1, AC 9)", () => {
+  it("shows the Discussions tab to every role, including a single with no visible suggestion (an empty tab is correct, not a leak)", async () => {
+    // Act
+    const { screen } = await renderShidduchShow("single");
+
+    // Assert — no visibleTo restriction (contract §2 rule 7): present for
+    // every role, unlike the five tabs Story 6.3 hid.
+    await expect
+      .element(screen.getByRole("tab", { name: "Discussions" }))
+      .toBeInTheDocument();
+  });
+
+  it("lets a parent_admin start a discussion and read it back", async () => {
+    // Act
+    const { screen } = await renderShidduchShow("parent_admin");
+    await screen.getByRole("tab", { name: "Discussions" }).click();
+    await screen.getByRole("button", { name: "Start a discussion" }).click();
+
+    // Assert — the panel mounts once a thread exists (no message yet).
+    await expect
+      .element(screen.getByText("No messages yet."))
+      .toBeInTheDocument();
   });
 });
 

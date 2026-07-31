@@ -22,6 +22,15 @@ export default (): Db => {
   // Files tab (Story 3.7) — no file is uploaded by default; FilesTab's own
   // upload/delete calls are the only writers.
   db.entity_files = [];
+  // Communication (Story 7.1) — no discussion exists by default; the
+  // Discussions tab's own createThread()/message-composer calls are the
+  // only writers. `connections` stays empty too: it has no client write
+  // path at all (AC-6), and Epic 8's consent workflow is the only future
+  // writer.
+  db.connections = [];
+  db.threads = [];
+  db.thread_participants = [];
+  db.messages = [];
   // Shidduchim pipeline domain (accounts, singles, shadchanim, shidduchim, ...)
   generateShidduchimDomain(db);
   // References domain (references, reference_links, interactions, reference

@@ -218,6 +218,7 @@ export const CANONICAL_TAB_SETS: Partial<Record<string, readonly TabKey[]>> = {
     "notes",
     "tasks",
     "activity",
+    "discussions",
   ],
   singles: [
     "overview",

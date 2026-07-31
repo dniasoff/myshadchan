@@ -1087,8 +1087,10 @@ create policy "Inbox items scoped to account" on public.inbox_items
 -- entity_files is account-scoped like the rest of the domain and, like tasks
 -- (Story 3.14), is NOT household-only: a shadchanus context must be able to
 -- attach files to its own shadchan/shidduch rows from day one (Epic 8.5).
--- Not FORCE ROW LEVEL SECURITY — no table in this repo has it (01_tables.sql
--- notes the gap; a single forced table would diverge from the other 22).
+-- Not FORCE ROW LEVEL SECURITY — no OTHER table in this repo has it (a
+-- single forced table among these 22 would have diverged for no reason).
+-- Story 7.1 is the first to adopt FORCE, on its own four new Communication
+-- tables below, with pg_roles.rolbypassrls evidence recorded there.
 --
 -- Story 6.3 (AC 1) adds the `single` role guard tasks already carries: a
 -- Story 3.7 upload is a diligence attachment, candid by construction, with
@@ -1105,4 +1107,115 @@ create policy "Entity files scoped to account" on public.entity_files
     with check (
         account_id = public.current_context_id()
         and public.current_member_role() <> 'single'
+    );
+
+-- =====================================================================
+-- MyShadchan — Communication (Epic 7: threads, AD-1, AD-3, AD-20, AD-22)
+-- =====================================================================
+--
+-- FORCE ROW LEVEL SECURITY (Story 7.1 Task 5) — decided WITH evidence, per
+-- the rule at 01_tables.sql / above: no OTHER table in this repo has it.
+-- Query run on the local stack before deciding:
+--
+--   select rolname, rolbypassrls from pg_roles
+--   where rolname in ('postgres', 'supabase_admin');
+--
+--     postgres        | t
+--     supabase_admin  | t
+--
+-- `postgres` owns every table in this schema and carries BYPASSRLS, which
+-- negates FORCE for anything running as postgres regardless (BYPASSRLS
+-- always wins over FORCE, per the Postgres RLS documentation) — so
+-- create_thread() (SECURITY DEFINER, owned by postgres, 02_functions.sql)
+-- is completely unaffected by FORCE either way; this is exactly the
+-- evidence Task 5 asked for before writing it. FORCE is shipped anyway: it
+-- costs nothing (no behavioural change for the one write path that exists
+-- today) and it is the AD-1-correct posture for four brand-new tables, all
+-- landing in the same diff, with no legacy caller anywhere relying on
+-- owner-bypass — the point at which "a single forced table would diverge"
+-- (the objection recorded above and in 12-2-reminder-delivery.md's Task 3)
+-- stops applying. 7.4 and 7.5 follow this decision rather than re-deciding
+-- it.
+alter table public.connections enable row level security;
+alter table public.connections force row level security;
+alter table public.threads enable row level security;
+alter table public.threads force row level security;
+alter table public.thread_participants enable row level security;
+alter table public.thread_participants force row level security;
+alter table public.messages enable row level security;
+alter table public.messages force row level security;
+
+-- Connections (AC-6): read-only to `authenticated` — a member of EITHER
+-- side may see the connection exists. No INSERT/UPDATE/DELETE policy at
+-- all: the consent workflow (Epic 8 Story 8.2) writes as service_role,
+-- which bypasses RLS.
+create policy "Connections visible to either side" on public.connections
+    for select to authenticated
+    using (
+        household_account_id = public.current_context_id()
+        or shadchanus_account_id = public.current_context_id()
+    );
+
+-- Threads (AC-1, AC-9, AC-11): SELECT delegates entirely to
+-- thread_is_readable() — the one authority every Epic 7 policy below calls,
+-- exactly as is_single_visible_state() is the one authority for its own
+-- axis. INSERT is defense-in-depth (Story 7.1 Dev Notes, "Why the INSERT
+-- policy still matters despite create_thread() being SECURITY DEFINER"):
+-- the app only ever calls create_thread(), which is unaffected by this
+-- policy. No UPDATE/DELETE policy for `authenticated`.
+create policy "Threads readable per thread_is_readable" on public.threads
+    for select to authenticated
+    using (public.thread_is_readable(id));
+
+create policy "Threads insertable account-scoped only" on public.threads
+    for insert to authenticated
+    with check (account_id = public.current_context_id() and connection_id is null);
+
+-- Thread participants (AC-2, AC-8, AC-9, AC-11): same read authority as
+-- threads above — a participant row is only ever as visible as its thread.
+-- INSERT requires the CALLER to already be a listed participant of the
+-- SAME thread: a same-account member can never add themselves to a
+-- conversation they are not in (AC-8) — without this exists() clause any
+-- same-account member could self-join any thread and Story 7.3's privacy
+-- would be one INSERT away from bypassed. The initial rows come from
+-- create_thread(), which is SECURITY DEFINER and unaffected. No
+-- UPDATE/DELETE policy for `authenticated` in this story (7.5 adds
+-- last_read_at writes through its own RPC).
+create policy "Thread participants readable per thread_is_readable" on public.thread_participants
+    for select to authenticated
+    using (public.thread_is_readable(thread_id));
+
+create policy "Thread participants insertable by an existing participant" on public.thread_participants
+    for insert to authenticated
+    with check (
+        account_id = public.current_context_id()
+        and connection_id is null
+        and exists (
+            select 1 from public.thread_participants tp
+            where tp.thread_id = thread_participants.thread_id
+              and tp.member_id = public.current_member_id()
+        )
+    );
+
+-- Messages (AC-4, AC-8, AC-9, AC-11): same read authority as threads above.
+-- INSERT is participant-gated regardless of the thread's visibility (Story
+-- 7.1 Dev Notes, "Why posting is participant-gated even on open threads")
+-- — the SAME exists() shape as thread_participants' own INSERT policy
+-- above, one authority for "is the caller in this conversation", not two.
+-- No UPDATE/DELETE policy for `authenticated`: messages are append-only
+-- (AC-4) — no Epic 7 AC asks for editing or deleting a sent message.
+create policy "Messages readable per thread_is_readable" on public.messages
+    for select to authenticated
+    using (public.thread_is_readable(thread_id));
+
+create policy "Messages insertable by an existing participant" on public.messages
+    for insert to authenticated
+    with check (
+        account_id = public.current_context_id()
+        and connection_id is null
+        and exists (
+            select 1 from public.thread_participants tp
+            where tp.thread_id = messages.thread_id
+              and tp.member_id = public.current_member_id()
+        )
     );

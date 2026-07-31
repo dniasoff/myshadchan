@@ -910,3 +910,64 @@ revoke all on table public.entity_files_summary from anon, authenticated;
 grant select on table public.entity_files_summary to authenticated;
 grant all on table public.entity_files_summary to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Communication (Epic 7: threads). connections mirrors the
+-- subscription/ai_usage precedent above exactly — SELECT-only for
+-- authenticated, no client write path at all; every write is service_role
+-- (Epic 8's consent workflow).
+-- ---------------------------------------------------------------------------
+revoke all on table public.connections from anon, authenticated;
+grant select on table public.connections to authenticated;
+grant all on table public.connections to service_role;
+
+-- No `authenticated` sequence grant — `authenticated` cannot insert into
+-- connections at all (no INSERT policy, no INSERT grant above).
+revoke all on sequence public.connections_id_seq from anon, authenticated;
+grant all on sequence public.connections_id_seq to service_role;
+
+-- threads/thread_participants/messages: `authenticated` gets SELECT and
+-- INSERT only — no UPDATE, no DELETE, matching the RLS policies above
+-- everywhere (messages are append-only, AC-4; a thread/participant row is
+-- never edited or removed by a client). The `revoke all` strips the
+-- TRUNCATE/REFERENCES/TRIGGER grant Postgres's default privileges hand
+-- `authenticated` on every new table `postgres` creates (verified on the
+-- local stack) — TRUNCATE bypasses RLS, so leaving it ungranted is not
+-- optional.
+revoke all on table public.threads from anon, authenticated;
+grant select, insert on table public.threads to authenticated;
+grant all on table public.threads to service_role;
+
+revoke all on table public.thread_participants from anon, authenticated;
+grant select, insert on table public.thread_participants to authenticated;
+grant all on table public.thread_participants to service_role;
+
+revoke all on table public.messages from anon, authenticated;
+grant select, insert on table public.messages to authenticated;
+grant all on table public.messages to service_role;
+
+-- authenticated inserts its own threads/participants/messages, so it needs
+-- these three identity sequences (unlike connections' sequence above).
+revoke all on sequence public.threads_id_seq from anon;
+grant usage, select on sequence public.threads_id_seq to authenticated;
+grant all on sequence public.threads_id_seq to service_role;
+
+revoke all on sequence public.thread_participants_id_seq from anon;
+grant usage, select on sequence public.thread_participants_id_seq to authenticated;
+grant all on sequence public.thread_participants_id_seq to service_role;
+
+revoke all on sequence public.messages_id_seq from anon;
+grant usage, select on sequence public.messages_id_seq to authenticated;
+grant all on sequence public.messages_id_seq to service_role;
+
+-- thread_is_readable()/create_thread() are SECURITY DEFINER, so anon must
+-- never execute either. enforce_connection_kinds() needs no grant — it is
+-- invoked only by the validate_connections_kinds trigger, and Postgres
+-- never requires EXECUTE on a trigger function for the triggering role.
+revoke all on function public.thread_is_readable(bigint) from public, anon;
+grant execute on function public.thread_is_readable(bigint) to authenticated;
+grant execute on function public.thread_is_readable(bigint) to service_role;
+
+revoke all on function public.create_thread(text, bigint, bigint[], text) from public, anon;
+grant execute on function public.create_thread(text, bigint, bigint[], text) to authenticated;
+grant execute on function public.create_thread(text, bigint, bigint[], text) to service_role;
+

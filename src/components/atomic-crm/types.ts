@@ -867,3 +867,94 @@ export type GlobalSearchResult = {
   label_he?: string | null;
   subtitle?: string | null;
 };
+
+// =====================================================================
+// MyShadchan — Communication (Epic 7: threads, AD-1, AD-20, AD-22)
+// =====================================================================
+
+/**
+ * Story 7.1 (AC-1): the only two subject shapes a thread admits today. A
+ * `relationship` thread is a general conversation not tied to one shidduch
+ * (`subject_id` is null); a `shidduch` thread always names one.
+ */
+export type ThreadSubjectType = "shidduch" | "relationship";
+
+/**
+ * Story 7.1 (AC-3): `'private'` is fully modelled by this story's schema —
+ * its ENFORCEMENT (a participant-only read branch) is Story 7.3's job. Do
+ * not infer that `'private'` is already private; see the story's own Dev
+ * Notes, "What this story does not do".
+ */
+export type ThreadVisibility = "open" | "private";
+
+/**
+ * A connection (AD-20): a THIRD scope, owned by neither the household nor
+ * the shadchanus account — the FK target `Thread.connection_id` points at
+ * when a thread is not account-scoped. Read-only to the SPA in this story;
+ * the consent workflow (propose/accept/end) is Epic 8.
+ */
+export type Connection = {
+  household_account_id: Identifier;
+  shadchanus_account_id: Identifier;
+  status: "accepted" | "ended";
+  ended_at?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
+ * Story 7.1 (AC-1, AC-3, AC-5): a structured, subject-scoped conversation.
+ * Carries BOTH `account_id` and `connection_id` (exactly one non-null, AD-1)
+ * from the moment the schema exists, even though the connection axis is
+ * unreachable to the SPA until Story 7.4 — see `CreateThreadInput` below,
+ * which has no `connection_id` parameter for the same reason.
+ */
+export type Thread = {
+  account_id?: Identifier | null;
+  connection_id?: Identifier | null;
+  subject_type: ThreadSubjectType;
+  subject_id?: Identifier | null;
+  visibility: ThreadVisibility;
+  created_by_member_id?: Identifier | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
+ * Story 7.1 (AC-2): who is in a thread's conversation. Never derived from
+ * "everyone in the scope" — every thread has at least one participant row
+ * (its creator) from the moment it is created (`create_thread()`).
+ */
+export type ThreadParticipant = {
+  account_id?: Identifier | null;
+  connection_id?: Identifier | null;
+  thread_id: Identifier;
+  member_id: Identifier;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
+ * Story 7.1 (AC-4): a structured message row, never appended to the generic
+ * `interactions` timeline. Append-only — there is no UPDATE/DELETE RLS
+ * policy or grant for `authenticated` (05_policies.sql / 06_grants.sql), so
+ * the dataProvider never exposes an edit or delete path for one.
+ */
+export type Message = {
+  account_id?: Identifier | null;
+  connection_id?: Identifier | null;
+  thread_id: Identifier;
+  sender_member_id?: Identifier | null;
+  body: string;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
+ * Input accepted by `createThread()` — mirrors the `create_thread` RPC
+ * (AD-4's "one creation path" precedent). Deliberately has NO
+ * `connection_id`/`p_connection_id`: every thread this story's RPC creates
+ * is account-scoped; Story 7.4 adds the connection-scoped overload.
+ */
+export type CreateThreadInput = {
+  subject_type: ThreadSubjectType;
+  subject_id?: Identifier | null;
+  participant_member_ids?: Identifier[];
+  visibility?: ThreadVisibility;
+};

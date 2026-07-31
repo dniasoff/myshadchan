@@ -48,6 +48,18 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/threads/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/threads/ThreadPanel.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/threads/ThreadList.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/tasks/tasksPredicate.ts",
           "type": "registry:component"
         },
@@ -241,6 +253,10 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/ShidduchFactsCard.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchDiscussionsTab.tsx",
           "type": "registry:component"
         },
         {
@@ -677,6 +693,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/internal/transformContainsFilter.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/threads.ts",
           "type": "registry:component"
         },
         {

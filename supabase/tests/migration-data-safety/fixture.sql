@@ -149,13 +149,30 @@ $$;
 -- rather than as a value changed, and two byte-identical rows are
 -- indistinguishable — which is why `multiplicity` is recorded and asserted
 -- rather than assumed to be 1.
+--
+-- Story 7.1: a no-op, NOT an error, when `p_table` does not exist yet.
+-- `primary_key_columns()` casts the name to `::regclass`, which raises
+-- immediately on a table this fixture's OWN pending migration has not
+-- created yet (see the `to_regclass` guard around the four Communication-
+-- domain inserts above for the full reasoning) — this is that same
+-- accommodation, one level down, so `capture('connections')` etc. can be
+-- called unconditionally in the list at the foot of this file rather than
+-- each needing its own `if` guard.
 create function migration_guard.capture(p_table text) returns void
 language plpgsql
 as $$
 declare
-    v_key_columns text[] := migration_guard.primary_key_columns(p_table);
+    v_key_columns text[];
     v_key_expr text;
 begin
+    if to_regclass('public.' || p_table) is null then
+        raise notice 'migration data-safety guard: public.% does not exist yet '
+                     '(created by a not-yet-deployed migration) — skipping.', p_table;
+        return;
+    end if;
+
+    v_key_columns := migration_guard.primary_key_columns(p_table);
+
     if v_key_columns is null then
         raise notice 'migration data-safety guard: public.% has no primary key; '
                      'snapshotting it by whole-row digest (weaker: a value rewrite '
@@ -285,6 +302,22 @@ values (
 -- same transaction that writes them, so whatever they resolve to is what
 -- assert.sql compares against. `invited_by` points at the parent_admin
 -- membership above, exactly as create_invite() writes it.
+--
+-- Story 7.1 fix: `invites_role_target_check` is `NOT VALID` but, per its own
+-- comment in 01_tables.sql, still enforced for every NEW row from the moment
+-- it was added — only rows that ALREADY EXISTED at that instant are
+-- grandfathered. The three `role = 'single'` rows below (9000003/9000006/
+-- 9000009, all with `target_single_id` omitted) are exactly that grandfathered
+-- shape, which now that Story 6.1's migration is permanently part of the
+-- baseline this fixture resets to, can no longer be produced by a plain
+-- INSERT — Postgres has no "insert as if this constraint didn't exist yet"
+-- mode, so the constraint is dropped and immediately re-added `NOT VALID`
+-- around just this one statement, genuinely reproducing "a row older than
+-- the constraint" rather than merely working around it. Confirmed broken
+-- without this: a plain INSERT here now raises `23514` on 9000003 before
+-- Story 7.1 ever touches this file.
+alter table public.invites drop constraint invites_role_target_check;
+
 insert into public.invites (
     id, account_id, email, role, status, invited_by, accepted_at
 )
@@ -298,6 +331,14 @@ values
     (9000007, 9000001, 'guard.invite.parent.revoked@example.test',  'parent_admin', 'revoked',  9000001, null),
     (9000008, 9000001, 'guard.invite.helper.revoked@example.test',  'helper',       'revoked',  9000001, null),
     (9000009, 9000001, 'guard.invite.single.revoked@example.test',  'single',       'revoked',  9000001, null);
+
+-- Re-add exactly as 01_tables.sql declares it — NOT VALID, never validated —
+-- so the fixture's schema matches the real one for the rest of this run
+-- (`assert.sql` re-reads the same schema after the pending migrations apply).
+alter table public.invites
+    add constraint invites_role_target_check check (
+        (role = 'single') = (target_single_id is not null)
+    ) not valid;
 
 -- The five shapes that matter for `father_en`/`father_he`/`mother_en`/
 -- `mother_he` (Story 5.2 split `parents_en`/`parents_he` into these four and
@@ -437,6 +478,60 @@ select
 from public.members m
 where m.user_id = '00000000-0000-4000-8000-000000009001';
 
+-- Story 7.1 (Epic 7: threads). A shadchanus account, an accepted connection
+-- to the household above, and one thread/participant/message PER SCOPE AXIS
+-- on the SAME subject shidduch (9000001) — the shape Story 7.5's
+-- thread_participants ALTER and Epic 8's connections ALTER both need this
+-- fixture to already carry, so neither repeats the "guard was structurally
+-- blind to a table it does not seed" mistake invites was for two epics.
+--
+-- Guarded by `to_regclass`, unlike every other insert in this file: THIS
+-- story's own migration is what creates `connections`/`threads`/
+-- `thread_participants`/`messages`, and this fixture runs against the
+-- database reset to the LAST DEPLOYED migration — i.e. BEFORE this story's
+-- migration has ever applied. A plain (unguarded) insert here would raise
+-- "relation does not exist" the very first time this guard runs against
+-- Story 7.1's own pending migration, which is the opposite of the intent.
+-- The four tables genuinely cannot hold pre-existing production data before
+-- the migration that creates them, so there is nothing for THIS story's own
+-- migration to destroy in them — the guard is trivially safe for it. From
+-- the moment this migration is deployed (part of every FUTURE baseline),
+-- `to_regclass` resolves and the block below seeds and captures exactly like
+-- every other table in this file, closing the blind spot immediately rather
+-- than waiting for a later story to remember it (`subscription`/`ai_usage`
+-- were retro-fitted into this fixture two stories after their own table
+-- existed — this closes the same gap in the SAME diff instead).
+do $$
+begin
+  if to_regclass('public.connections') is not null then
+    execute $seed$
+      insert into public.accounts (id, name, kind, transparency_level, demo)
+      values (9000002, 'Migration Guard Shadchanus', 'shadchanus', 'full', false);
+
+      insert into public.connections (id, household_account_id, shadchanus_account_id, status)
+      values (9000001, 9000001, 9000002, 'accepted');
+
+      insert into public.threads (id, account_id, connection_id, subject_type, subject_id, visibility, created_by_member_id)
+      values (9000001, 9000001, null, 'shidduch', 9000001, 'open', 9000001);
+
+      insert into public.thread_participants (id, account_id, connection_id, thread_id, member_id)
+      values (9000001, 9000001, null, 9000001, 9000001);
+
+      insert into public.messages (id, account_id, connection_id, thread_id, sender_member_id, body)
+      values (9000001, 9000001, null, 9000001, 9000001, 'Any updates on the seminary reference?');
+
+      insert into public.threads (id, account_id, connection_id, subject_type, subject_id, visibility, created_by_member_id)
+      values (9000002, null, 9000001, 'shidduch', 9000001, 'open', null);
+
+      insert into public.thread_participants (id, account_id, connection_id, thread_id, member_id)
+      values (9000002, null, 9000001, 9000002, 9000001);
+
+      insert into public.messages (id, account_id, connection_id, thread_id, sender_member_id, body)
+      values (9000002, null, 9000001, 9000002, null, 'The shadchan checking in on this family.');
+    $seed$;
+  end if;
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- Snapshot. `identity_signals` is captured last and on purpose: nothing
 -- inserts it directly — the `sync_shidduch_signals` trigger derives it from
@@ -507,5 +602,9 @@ select migration_guard.capture('ai_usage');
 select migration_guard.capture('interactions');
 select migration_guard.capture('tasks');
 select migration_guard.capture('identity_signals');
+select migration_guard.capture('connections');
+select migration_guard.capture('threads');
+select migration_guard.capture('thread_participants');
+select migration_guard.capture('messages');
 
 commit;

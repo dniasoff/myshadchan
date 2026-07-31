@@ -803,6 +803,30 @@ export const englishCrmMessages = {
         outstanding: "%{smart_count} conversations have not happened yet.",
       },
     },
+    // Story 7.1 — the Discussions tab (ThreadList/ThreadPanel,
+    // shidduchim/ShidduchDiscussionsTab). The tab's own LABEL is
+    // `crm.entity360.tab.discussions` (already present); this block is the
+    // tab's CONTENT strings, mirroring `shidduchim`/`references` above as
+    // their own top-level namespace rather than nesting under `entity360`,
+    // since ThreadList/ThreadPanel are a standalone domain (`threads/`), not
+    // a universal tab component.
+    threads: {
+      list: {
+        empty: "No discussions yet.",
+        error: "Could not load the discussions.",
+        start: "Start a discussion",
+        startError: "Failed to start the discussion",
+        rowOpen: "Open",
+        rowPrivate: "Private",
+      },
+      panel: {
+        empty: "No messages yet.",
+        error: "Could not load the messages.",
+        placeholder: "Write a message…",
+        send: "Send",
+        sendError: "Failed to send the message",
+      },
+    },
     // RULING 7 — the account-wide "not yet spoken to" worklist the reference
     // book used to carry as its `contacted_count@eq: 0` filter, rehomed onto
     // the Reminders hub (`reminders/OutstandingCallsSection.tsx`).

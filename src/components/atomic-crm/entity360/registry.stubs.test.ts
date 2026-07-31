@@ -18,8 +18,9 @@ import type { TabKey } from "./tabKeys";
  * `shidduchim` is Story 5.1's real descriptor (Story 5.3 moved `resume`, 5.4
  * moved `photo`, 5.5 moved `medical`, 5.6 moved `files` and
  * `external-links` — each from `pendingTabs` into `tabs`, in canonical
- * position): the bare AD-24 path, its full ten-key `tabs`, and an empty
- * `pendingTabs` — Story 5.6 is the last story to move a `shidduchim` key.
+ * position; Story 7.1 appended an eleventh, `discussions`, straight into
+ * `tabs` with no `pendingTabs` interim): the bare AD-24 path, its full
+ * eleven-key `tabs`, and an empty `pendingTabs`.
  * `singles` is Story 5.8's real descriptor, migrated the same way in one
  * diff: the bare AD-24 path, its full eight-key `tabs`, and an empty
  * `pendingTabs`. `shadchanim` is Story 5.9's real descriptor, migrated the
@@ -62,6 +63,7 @@ const CASES: StubCase[] = [
       "notes",
       "tasks",
       "activity",
+      "discussions",
     ],
     pendingTabs: [],
   },

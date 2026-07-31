@@ -1,6 +1,7 @@
 import type {
   Account,
   AccountMember,
+  Connection,
   DateRecord,
   EntityFile,
   InboxItem,
@@ -8,6 +9,7 @@ import type {
   Invite,
   MedicalNote,
   Member,
+  Message,
   PipelineTransition,
   Redt,
   Reference,
@@ -20,6 +22,8 @@ import type {
   ShidduchSchool,
   Single,
   Task,
+  Thread,
+  ThreadParticipant,
 } from "../../../types";
 import type { ConfigurationContextValue } from "../../../root/ConfigurationContext";
 
@@ -65,4 +69,15 @@ export interface Db {
   // UI's own collection; seeded empty, written only through
   // createInvite()/revokeInvite() (never a raw dataProvider.create/update).
   invites: Invite[];
+  // Communication (Story 7.1) — seeded empty; the demo build must not crash
+  // on the Discussions tab. `threads`/`thread_participants` are written only
+  // through createThread() (never a raw dataProvider.create), mirroring
+  // create_thread() being the sole DB creation path; `messages` is plain
+  // CRUD through dataProvider.create/getList (no custom method — a message
+  // has no storage object or soft-hide to broker). `connections` has NO
+  // client write path at all (AC-6), matching invites/entity_files above.
+  connections: Connection[];
+  threads: Thread[];
+  thread_participants: ThreadParticipant[];
+  messages: Message[];
 }

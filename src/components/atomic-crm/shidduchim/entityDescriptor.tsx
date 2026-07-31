@@ -4,6 +4,7 @@ import { PhotoTab } from "../resumes/PhotoTab";
 import { ResumeTab } from "../resumes/ResumeTab";
 import { ExternalLinksTab } from "./ExternalLinksTab";
 import { MedicalTab } from "./MedicalTab";
+import { ShidduchDiscussionsTab } from "./ShidduchDiscussionsTab";
 import { ShidduchOverviewTab } from "./ShidduchOverviewTab";
 import { ShidduchRightRail } from "./ShidduchRightRail";
 import {
@@ -96,6 +97,16 @@ import type { ShidduchSummary } from "../types";
  * `overview`, `resume`, `photo` and `shidduchim` — `shidduchim` has no tab
  * here, `tasks` already restricted — stay unrestricted: they are the
  * dignity floor Story 6.2 built (AD-3).
+ *
+ * Story 7.1 appends `discussions`, in canonical position (the last row of
+ * `CANONICAL_TAB_SETS.shidduchim`, `entity360/ad24Conformance.ts`), the same
+ * diff that builds `ShidduchDiscussionsTab`/`ThreadList`/`ThreadPanel`.
+ * Declares **no** `visibleTo`: unlike the five tabs Story 6.3 hid, this
+ * table is NOT permanently empty for a `single` — AC-9 gives a `single`
+ * participant real, readable threads on their own visible suggestion (the
+ * composed dignity floor), so an absent `visibleTo` (visible to every role)
+ * is correct, and `thread_is_readable()` at the database is what actually
+ * narrows the rows a `single` sees inside it.
  */
 export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
   name: "shidduchim",
@@ -157,6 +168,8 @@ export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
       visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
       render: () => <ShidduchActivityTab />,
     },
+    // Story 7.1: no visibleTo — see this descriptor's own header comment.
+    { key: "discussions", render: () => <ShidduchDiscussionsTab /> },
   ],
   pendingTabs: [],
 };

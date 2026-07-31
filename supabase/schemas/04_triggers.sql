@@ -297,3 +297,40 @@ create or replace trigger validate_inbox_items_household_scope
 create or replace trigger enforce_membership_role_matches_context_trigger
     before insert or update on public.account_members
     for each row execute function public.enforce_membership_role_matches_context();
+
+-- =====================================================================
+-- MyShadchan — Communication (Epic 7: threads)
+-- =====================================================================
+
+-- Story 7.1 (AC-5, AC-6): connections' one trigger. No ordering hazard: no
+-- other BEFORE trigger exists on this table today, but named `validate_*`
+-- (not `set_*`) so it would sort after one, per the alphabetical
+-- BEFORE-trigger-order warning above.
+create or replace trigger validate_connections_kinds
+    before insert or update on public.connections
+    for each row execute function public.enforce_connection_kinds();
+
+-- Story 7.1 (AC-1, AC-3, AC-7): server-set scope/creator on threads. No
+-- ordering hazard: the only BEFORE INSERT trigger on this table.
+create or replace trigger set_threads_defaults
+    before insert on public.threads
+    for each row execute function public.set_thread_defaults();
+
+-- Story 7.1 (AC-2, AC-5): copies both scope columns from the parent thread.
+-- No ordering hazard: the only BEFORE INSERT trigger on this table.
+create or replace trigger set_thread_participants_defaults
+    before insert on public.thread_participants
+    for each row execute function public.set_thread_participant_defaults();
+
+-- Story 7.1 (AC-4, AC-5): same parent-copy shape, plus server-stamps
+-- sender_member_id. No ordering hazard: the only BEFORE INSERT trigger on
+-- this table.
+create or replace trigger set_messages_defaults
+    before insert on public.messages
+    for each row execute function public.set_message_defaults();
+
+-- Story 7.1 (AC-10): NO new trigger for the polymorphic cascade —
+-- purge_polymorphic_dependents() (02_functions.sql) is already attached to
+-- public.shidduchim as purge_shidduch_dependents above, and this story
+-- extends that shared function with a fifth delete (threads, both scope
+-- axes) rather than duplicating the wiring.
