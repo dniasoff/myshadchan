@@ -925,16 +925,28 @@ grant all on table public.connections to service_role;
 revoke all on sequence public.connections_id_seq from anon, authenticated;
 grant all on sequence public.connections_id_seq to service_role;
 
--- threads/thread_participants/messages: `authenticated` gets SELECT and
--- INSERT only — no UPDATE, no DELETE, matching the RLS policies above
--- everywhere (messages are append-only, AC-4; a thread/participant row is
--- never edited or removed by a client). The `revoke all` strips the
--- TRUNCATE/REFERENCES/TRIGGER grant Postgres's default privileges hand
--- `authenticated` on every new table `postgres` creates (verified on the
--- local stack) — TRUNCATE bypasses RLS, so leaving it ungranted is not
--- optional.
+-- threads/thread_participants/messages: no UPDATE, no DELETE anywhere,
+-- matching the RLS policies above (messages are append-only, AC-4; a
+-- thread/participant row is never edited or removed by a client). The
+-- `revoke all` strips the TRUNCATE/REFERENCES/TRIGGER grant Postgres's
+-- default privileges hand `authenticated` on every new table `postgres`
+-- creates (verified on the local stack) — TRUNCATE bypasses RLS, so
+-- leaving it ungranted is not optional.
+--
+-- `threads` gets SELECT only — no INSERT grant at all. The review fix for
+-- Story 7.1's F2/F4: this story originally shipped `insert` here too, with
+-- an RLS `with check` as the only defense against a direct
+-- `dataProvider.create("threads", …)`. That defense didn't enforce AC-1's
+-- subject-reachability rule and was independently unusable for a real
+-- PostgREST `POST … return=representation` (05_policies.sql has the full
+-- account). Revoking the grant closes both at the ACL layer, which no
+-- policy can be bypassed under: the sole writer is create_thread()
+-- (SECURITY DEFINER, owned by `postgres`, needing no grant on its own
+-- table) or service_role. thread_participants/messages keep INSERT — the
+-- SPA posts to both directly (Task 8: "Plain dataProvider.create(…) needs
+-- no wrapper") and their own INSERT policies are the enforcement layer.
 revoke all on table public.threads from anon, authenticated;
-grant select, insert on table public.threads to authenticated;
+grant select on table public.threads to authenticated;
 grant all on table public.threads to service_role;
 
 revoke all on table public.thread_participants from anon, authenticated;
@@ -945,10 +957,13 @@ revoke all on table public.messages from anon, authenticated;
 grant select, insert on table public.messages to authenticated;
 grant all on table public.messages to service_role;
 
--- authenticated inserts its own threads/participants/messages, so it needs
--- these three identity sequences (unlike connections' sequence above).
-revoke all on sequence public.threads_id_seq from anon;
-grant usage, select on sequence public.threads_id_seq to authenticated;
+-- No `authenticated` sequence grant on threads_id_seq — `authenticated`
+-- cannot insert into threads at all (mirrors connections_id_seq above,
+-- same reasoning: F2's fix removed the only path that would have consumed
+-- a value from this sequence as `authenticated`). thread_participants and
+-- messages are still inserted directly by `authenticated`, so they keep
+-- their sequence grants.
+revoke all on sequence public.threads_id_seq from anon, authenticated;
 grant all on sequence public.threads_id_seq to service_role;
 
 revoke all on sequence public.thread_participants_id_seq from anon;

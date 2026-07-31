@@ -281,6 +281,62 @@ exception when others then
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- Review fix F2/F4: threads has NO INSERT grant for `authenticated` at all
+-- (06_grants.sql) — create_thread() is the sole creation path. A direct
+-- dataProvider.create("threads", …) must be denied at the ACL layer
+-- (42501, "permission denied for table threads"), not merely by RLS —
+-- which is what closes AC-1's subject-reachability gap (the old `with
+-- check` validated only the scope axis, never that subject_id actually
+-- named a reachable row) and F4's INSERT…RETURNING trap in the same stroke.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_name constant text := 'F2: a direct threads INSERT naming ANOTHER account''s shidduch as subject is denied at the grant layer, not merely RLS';
+  v_account bigint; v_other_shidduch bigint;
+begin
+  select value into v_account from ids where name = 'sibling_fixture_account_id';
+  select value into v_other_shidduch from ids where name = 'tenant_b_shidduch_id';
+  insert into public.threads (account_id, subject_type, subject_id, visibility)
+  values (v_account, 'shidduch', v_other_shidduch, 'open');
+  insert into results values (v_name, false, 'insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', 'permission denied for table threads', sqlstate, sqlerrm);
+end $$;
+
+do $$
+declare
+  v_name constant text := 'F2: a direct threads INSERT naming a NONEXISTENT subject_id is denied at the grant layer';
+  v_account bigint;
+begin
+  select value into v_account from ids where name = 'sibling_fixture_account_id';
+  insert into public.threads (account_id, subject_type, subject_id, visibility)
+  values (v_account, 'shidduch', 999999999, 'open');
+  insert into results values (v_name, false, 'insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', 'permission denied for table threads', sqlstate, sqlerrm);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Review fix F3: the thread_participants INSERT policy validates the
+-- CALLER's own participation and account_id, but originally never checked
+-- whose account the ADDED member_id belongs to. The parent (already a
+-- participant of thread1) attempts to add tenant B's member — must be
+-- denied by RLS, distinct from AC-8's self-join denial above.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_name constant text := 'F3: an existing participant cannot add a member of a DIFFERENT account to their own thread';
+  v_thread bigint; v_other_member bigint;
+begin
+  select value into v_thread from ids where name = 'thread1';
+  select value into v_other_member from ids where name = 'tenant_b_member_id';
+  insert into public.thread_participants (thread_id, member_id) values (v_thread, v_other_member);
+  insert into results values (v_name, false, 'insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', 'new row violates row-level security policy for table "thread_participants"', sqlstate, sqlerrm);
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Act as the helper — a same-account member, NOT single-role-restricted (so
 -- she can read thread1 and its parent shidduch without tripping AC-9's
 -- dignity floor), who is a participant of NEITHER thread above. AC-8:
@@ -336,6 +392,33 @@ select 'control: an existing participant CAN post — sender_member_id/account_i
        and m.connection_id is null
        and m.body = 'Hi from Leah'
 from public.messages m where m.id = :leah_message_id;
+
+-- ---------------------------------------------------------------------------
+-- Review fix F1: sender_member_id is UNCONDITIONALLY server-stamped, not
+-- merely defaulted when omitted. Leah supplies a forged sender_member_id on
+-- both probes; the trigger must overwrite it with HER OWN resolved member
+-- id regardless of what the client sent — proving a client-supplied value
+-- is never accepted, not just that an omitted one is filled in.
+-- ---------------------------------------------------------------------------
+insert into public.messages (thread_id, sender_member_id, body)
+values (:thread_with_participant, :sibling_fixture_parent_member_id, 'forged same-account sender')
+returning id as leah_forged_same_account_message \gset
+insert into ids values ('leah_forged_same_account_message', :leah_forged_same_account_message);
+
+insert into results (name, passed)
+select 'F1: a client-supplied sender_member_id naming ANOTHER member of the SAME account is overwritten with the caller''s own id',
+       sender_member_id = :sibling_fixture_leah_member_id
+from public.messages where id = :leah_forged_same_account_message;
+
+insert into public.messages (thread_id, sender_member_id, body)
+values (:thread_with_participant, :tenant_b_member_id, 'forged cross-account sender')
+returning id as leah_forged_cross_account_message \gset
+insert into ids values ('leah_forged_cross_account_message', :leah_forged_cross_account_message);
+
+insert into results (name, passed)
+select 'F1: a client-supplied sender_member_id naming a member of a COMPLETELY DIFFERENT account is overwritten with the caller''s own id',
+       sender_member_id = :sibling_fixture_leah_member_id
+from public.messages where id = :leah_forged_cross_account_message;
 
 do $$
 declare

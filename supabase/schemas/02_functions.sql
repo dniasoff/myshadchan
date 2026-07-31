@@ -3471,14 +3471,23 @@ $$;
 -- Story 7.1 (AC-5, AC-7): server-sets threads.account_id from the caller's
 -- active context ONLY when BOTH scope columns are null — never overwrites
 -- a non-null value (a connection-scoped row, seeded by service_role until
--- Story 7.4, is never touched) and never sets both. Also defaults
--- created_by_member_id when the caller omitted it; create_thread() always
--- supplies both, so this only matters for a direct
--- dataProvider.create("threads", …), which the INSERT policy
--- (05_policies.sql) additionally restricts to
--- account_id = current_context_id() regardless. Reuses current_context_id()/
--- current_member_id() — never a re-resolved inline query, per this story's
+-- Story 7.4, is never touched) and never sets both. Reuses
+-- current_context_id() — never a re-resolved inline query, per this story's
 -- Dev Notes.
+--
+-- created_by_member_id is UNCONDITIONALLY overwritten with
+-- current_member_id() — the review fix for Story 7.1's F1, exactly like
+-- set_entity_files_uploaded_by() above (Story 3.7's F6, the identical bug
+-- shape). The original IF-NULL default was a decoy: `authenticated` holds a
+-- whole-table INSERT grant on threads (06_grants.sql, prior to this fix),
+-- and neither the INSERT policy nor any constraint touched
+-- created_by_member_id, so a client-supplied value was silently ACCEPTED,
+-- not merely redundant with what the trigger would have set — proved live
+-- by inserting a row attributed to a member of a completely different
+-- account. create_thread() (02_functions.sql below) still passes its own
+-- resolved member id explicitly; this trigger now recomputes the identical
+-- value itself rather than trusting the caller's insert list, so the two
+-- can never diverge.
 CREATE OR REPLACE FUNCTION "public"."set_thread_defaults"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     SET "search_path" TO ''
@@ -3487,9 +3496,7 @@ begin
   if new.account_id is null and new.connection_id is null then
     new.account_id := public.current_context_id();
   end if;
-  if new.created_by_member_id is null then
-    new.created_by_member_id := public.current_member_id();
-  end if;
+  new.created_by_member_id := public.current_member_id();
   return new;
 end;
 $$;
@@ -3520,10 +3527,18 @@ $$;
 
 -- Story 7.1 (AC-4, AC-5): same parent-copy shape as
 -- set_thread_participant_defaults() above, plus server-stamps
--- sender_member_id — an IF-NULL default (mirrors
--- set_entity_files_uploaded_by()'s shape, not
--- set_interaction_actor_member_id()'s unconditional overwrite), since
--- create_thread() never inserts a message and the SPA always omits it.
+-- sender_member_id — UNCONDITIONALLY, exactly like
+-- set_interaction_actor_member_id()'s shape, NOT the IF-NULL shape this
+-- function originally shipped with. The review fix for Story 7.1's F1:
+-- `authenticated` holds a whole-table INSERT grant on messages, and neither
+-- the INSERT policy nor any constraint touched sender_member_id, so a
+-- listed participant of a thread could post attributing the message to a
+-- DIFFERENT member — even one of a completely different account — and the
+-- row would persist with the forged sender_member_id. Proved live on both
+-- axes before this fix. The FakeRest mirror
+-- (providers/fakerest/internal/threads.ts) already stamped the sender
+-- unconditionally; this closes the AD-10 parity gap between the two
+-- providers, not just the security hole.
 CREATE OR REPLACE FUNCTION "public"."set_message_defaults"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     SET "search_path" TO ''
@@ -3538,9 +3553,7 @@ begin
     new.account_id := v_account_id;
     new.connection_id := v_connection_id;
   end if;
-  if new.sender_member_id is null then
-    new.sender_member_id := public.current_member_id();
-  end if;
+  new.sender_member_id := public.current_member_id();
   return new;
 end;
 $$;
@@ -3561,6 +3574,21 @@ $$;
 -- (e.g. the pipeline state alone) is a leak in any household with two
 -- singles or one using 'private_parent' visibility — this is the composed
 -- dignity floor, not a re-derivation of it.
+--
+-- DEPLOY-COUPLING NOTE (review finding F1.5, widened): this function does
+-- NOT branch on `visibility` at all (by design — see the header comment
+-- and this story's Dev Notes, "What this story does not do"), so a
+-- `private` thread is readable by anyone `thread_is_readable()` would admit
+-- for an `open` one. This was documented for the "same-account, non-
+-- participant helper" case; it equally means a `single` participant reads
+-- the FULL body of a `private` thread on their OWN shidduch — the
+-- AC-9 branch above only filters by shidduch-visibility/pipeline-state/
+-- ownership, it does not additionally require `visibility = 'open'`. No UI
+-- path creates a `private` thread yet (ThreadList.tsx always calls
+-- create_thread() with no p_visibility), which limits exposure today, but
+-- this sub-case must be called out explicitly alongside the helper case in
+-- the "7.1-7.3 deploy together, or `private` is a lie" coupling: Story 7.3
+-- must close BOTH readers, not just the same-account one.
 CREATE OR REPLACE FUNCTION "public"."thread_is_readable"("p_thread_id" bigint) RETURNS boolean
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO ''

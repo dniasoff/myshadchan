@@ -1159,17 +1159,27 @@ create policy "Connections visible to either side" on public.connections
 -- Threads (AC-1, AC-9, AC-11): SELECT delegates entirely to
 -- thread_is_readable() — the one authority every Epic 7 policy below calls,
 -- exactly as is_single_visible_state() is the one authority for its own
--- axis. INSERT is defense-in-depth (Story 7.1 Dev Notes, "Why the INSERT
--- policy still matters despite create_thread() being SECURITY DEFINER"):
--- the app only ever calls create_thread(), which is unaffected by this
--- policy. No UPDATE/DELETE policy for `authenticated`.
+-- axis. No INSERT policy and no INSERT grant for `authenticated`
+-- (06_grants.sql) — the review fix for Story 7.1's F2/F4, replacing the
+-- "defense-in-depth" INSERT `with check` this story originally shipped.
+-- That policy validated the scope axis but NOT AC-1's "subject reachable
+-- from the thread's own scope" — proved live: an authenticated caller
+-- inserted a thread naming ANOTHER account's shidduch as its subject, and
+-- one naming a subject_id that does not exist at all, both of which
+-- purge_polymorphic_dependents()'s AC-10 delete (keyed on subject_id) can
+-- never clean up, since the delete only fires when the NAMED subject is
+-- itself deleted. Separately, that policy was already unusable for the
+-- real PostgREST client shape (`POST … Prefer: return=representation`,
+-- i.e. `ra-data-postgrest`'s create()): thread_is_readable()'s own SELECT
+-- re-query cannot see the row an INSERT…RETURNING is still inserting, so
+-- every such call was denied regardless of the row's validity. threads
+-- now matches the `connections` bare pattern exactly (Task 1): the ONLY
+-- writer is create_thread() (SECURITY DEFINER, owned by `postgres`, which
+-- needs no grant on its own table) or service_role. No UPDATE/DELETE
+-- policy for `authenticated` either.
 create policy "Threads readable per thread_is_readable" on public.threads
     for select to authenticated
     using (public.thread_is_readable(id));
-
-create policy "Threads insertable account-scoped only" on public.threads
-    for insert to authenticated
-    with check (account_id = public.current_context_id() and connection_id is null);
 
 -- Thread participants (AC-2, AC-8, AC-9, AC-11): same read authority as
 -- threads above — a participant row is only ever as visible as its thread.
@@ -1181,6 +1191,18 @@ create policy "Threads insertable account-scoped only" on public.threads
 -- create_thread(), which is SECURITY DEFINER and unaffected. No
 -- UPDATE/DELETE policy for `authenticated` in this story (7.5 adds
 -- last_read_at writes through its own RPC).
+--
+-- The second exists() clause is the review fix for Story 7.1's F3:
+-- create_thread() validates every participant id is an ACTIVE member of
+-- current_context_id(), but this direct-insert policy originally checked
+-- only the CALLER's own participation and the row's account_id — never
+-- whose account the ADDED member_id actually belongs to. Proved live: an
+-- existing participant added a member of a completely different account to
+-- their own thread, and the row persisted (thread_participants_member_id_
+-- fkey accepts any account_members.id, cross-account or not). No read leak
+-- resulted (thread_is_readable() still gates on the READER's own context),
+-- but Story 7.5 keys notification delivery off this exact table, and the
+-- gap contradicted AC-2/AC-11's intent regardless.
 create policy "Thread participants readable per thread_is_readable" on public.thread_participants
     for select to authenticated
     using (public.thread_is_readable(thread_id));
@@ -1194,6 +1216,12 @@ create policy "Thread participants insertable by an existing participant" on pub
             select 1 from public.thread_participants tp
             where tp.thread_id = thread_participants.thread_id
               and tp.member_id = public.current_member_id()
+        )
+        and exists (
+            select 1 from public.account_members am
+            where am.id = thread_participants.member_id
+              and am.account_id = public.current_context_id()
+              and am.status = 'active'
         )
     );
 

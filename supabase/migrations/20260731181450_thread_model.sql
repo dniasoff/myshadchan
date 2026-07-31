@@ -320,9 +320,7 @@ begin
     new.account_id := v_account_id;
     new.connection_id := v_connection_id;
   end if;
-  if new.sender_member_id is null then
-    new.sender_member_id := public.current_member_id();
-  end if;
+  new.sender_member_id := public.current_member_id();
   return new;
 end;
 $function$
@@ -337,9 +335,7 @@ begin
   if new.account_id is null and new.connection_id is null then
     new.account_id := public.current_context_id();
   end if;
-  if new.created_by_member_id is null then
-    new.created_by_member_id := public.current_member_id();
-  end if;
+  new.created_by_member_id := public.current_member_id();
   return new;
 end;
 $function$
@@ -483,8 +479,10 @@ revoke all on table "public"."thread_participants" from "anon", "authenticated";
 grant select, insert on table "public"."thread_participants" to "authenticated";
 grant all on table "public"."thread_participants" to "service_role";
 
+-- Review fix (Story 7.1 F2/F4): no INSERT grant on threads for
+-- `authenticated` — see the policy drop below.
 revoke all on table "public"."threads" from "anon", "authenticated";
-grant select, insert on table "public"."threads" to "authenticated";
+grant select on table "public"."threads" to "authenticated";
 grant all on table "public"."threads" to "service_role";
 
 -- Hand-added: `db diff` emitted no sequence DDL at all for the four new
@@ -494,8 +492,10 @@ grant all on table "public"."threads" to "service_role";
 revoke all on sequence "public"."connections_id_seq" from "anon", "authenticated";
 grant all on sequence "public"."connections_id_seq" to "service_role";
 
-revoke all on sequence "public"."threads_id_seq" from "anon";
-grant usage, select on sequence "public"."threads_id_seq" to "authenticated";
+-- Review fix (Story 7.1 F2): no `authenticated` grant on threads_id_seq
+-- either, mirroring connections_id_seq above — `authenticated` cannot
+-- insert into threads at all as of this fix.
+revoke all on sequence "public"."threads_id_seq" from "anon", "authenticated";
 grant all on sequence "public"."threads_id_seq" to "service_role";
 
 revoke all on sequence "public"."thread_participants_id_seq" from "anon";
@@ -554,7 +554,9 @@ using (public.thread_is_readable(thread_id));
   to authenticated
 with check (((account_id = public.current_context_id()) AND (connection_id IS NULL) AND (EXISTS ( SELECT 1
    FROM public.thread_participants tp
-  WHERE ((tp.thread_id = thread_participants.thread_id) AND (tp.member_id = public.current_member_id()))))));
+  WHERE ((tp.thread_id = thread_participants.thread_id) AND (tp.member_id = public.current_member_id())))) AND (EXISTS ( SELECT 1
+   FROM public.account_members am
+  WHERE ((am.id = thread_participants.member_id) AND (am.account_id = public.current_context_id()) AND (am.status = 'active'::text))))));
 
 
 
@@ -567,13 +569,12 @@ using (public.thread_is_readable(thread_id));
 
 
 
-  create policy "Threads insertable account-scoped only"
-  on "public"."threads"
-  as permissive
-  for insert
-  to authenticated
-with check (((account_id = public.current_context_id()) AND (connection_id IS NULL)));
-
+-- Review fix (Story 7.1 F2/F4): "Threads insertable account-scoped only"
+-- dropped entirely — no INSERT policy and no INSERT grant (above) for
+-- `authenticated` on threads, matching the `connections` bare pattern. See
+-- 05_policies.sql for the full account of what this policy failed to
+-- enforce (AC-1 subject reachability) and why it was already unusable for
+-- a real PostgREST INSERT...RETURNING.
 
 
   create policy "Threads readable per thread_is_readable"

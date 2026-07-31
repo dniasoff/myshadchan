@@ -25,6 +25,26 @@ import { formatTimelineDate } from "../entity360/tabs/interactionLabels";
  * `sender_member_id`, and the participant-gated INSERT policy is what
  * actually enforces AC-8; a denied post surfaces through `useNotify()`
  * exactly like every other tab's write path in this codebase.
+ *
+ * Review note (F7): Task 8 describes this as "a participant-gated
+ * composer." `<Composer>` below renders unconditionally for every viewer
+ * who can read the thread, including a non-participant on an `open`
+ * thread — AC-8's gate is enforced SERVER-SIDE only, via the RLS `with
+ * check` above, with a denied attempt surfaced through `useNotify()`.
+ * Deliberately NOT hidden client-side: there is no existing primitive in
+ * this codebase for resolving "my own `account_members.id` in the active
+ * context" outside a database round trip (`current_member_id()`'s own
+ * body is that query) — `useGetIdentity()`/`getIdentity().id` resolves the
+ * global `members.id` row, a DIFFERENT id space entirely
+ * (`entity360/useViewerRole.ts`'s Dev Notes document exactly this trap for
+ * role resolution; the same trap applies to id resolution here). Every
+ * other write surface in this codebase relies on this same
+ * deny-then-notify pattern rather than a bespoke client-side ownership
+ * check, and building a NEW "who am I" mechanism just for this composer
+ * risks shipping a second, subtly-wrong identity resolver. If Story 7.5
+ * introduces a real "my membership row" concept (it already needs one for
+ * `last_read_at`), this composer should switch to pre-emptively disabling
+ * itself for a confirmed non-participant using that same mechanism.
  */
 export interface ThreadPanelProps {
   threadId: Identifier;
