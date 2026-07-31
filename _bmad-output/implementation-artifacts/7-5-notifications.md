@@ -1,6 +1,6 @@
 # Story 7.5: Notifications
 
-Status: ready-for-dev
+Status: ready-for-dev *(code); **delivery blocked on Epic 12 gate G1** — see Dependencies.*
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -8,361 +8,563 @@ Status: ready-for-dev
 
 As a user,
 I want to know when someone writes to me on a thread I'm party to,
-so that conversations move instead of going quiet in an app nobody thought to check
-(FR100).
+so that conversations move instead of going quiet in an app nobody thought to check (FR100).
 
 ## Position in Epic 7
 
-**5th of 5. Depends on 7.1–7.4** (the full thread model, including the connection
-axis — a notification must fan out correctly regardless of which scope a message's
-thread uses). This is the last story in the epic.
+**5th of 5. Depends on 7.1-7.4** — a notification must fan out correctly regardless of which
+scope axis a message's thread uses, so the connection axis (7.4) must be reachable first.
 
-### Scope note — this is genuinely new infrastructure, not a gap in an existing one
+## The delivery-infrastructure situation — read this before writing any Worker code
 
-Do not confuse this story with the reminders/tasks delivery mechanism referenced in
-AD-13 and `workers/cron/index.ts`'s comment ("E7 (Reminders) lands here"). **That "E7"
-is the old, pre-Amendment-A2 epic numbering** (reminders/tasks are already-built
-Phase-1 functionality, not re-storied under the current `epics.md`). This story's
-"Epic 7" is the new, post-A2 **Communication** epic — a different thing entirely. They
-happen to share a delivery *mechanism* (in-app + email + push, no SMS) and this story
-deliberately reuses what it can (the `workers/cron/` Worker, the
-`"in_app"|"email"|"push"` channel vocabulary) — but as of this writing, **neither
-reminders' nor anything else's actual email/push delivery is built yet**
-(`workers/cron/index.ts`'s `scheduled()` handler is a `console.warn` stub; no Resend
-*code* exists anywhere in the repo — though the `RESEND_API_KEY` secret plumbing
-already does, in `workers/cron/wrangler.toml`'s comment and `.github/workflows/
-deploy.yml` — and there is no push-subscription table and no VAPID key handling
-at all). This story is the first to build real outbound delivery, and
-whatever it builds becomes available for reminders to adopt later — that is a
-beneficial side effect, not this story's job to guarantee.
+An earlier revision of this story assumed it was the first to build outbound delivery. It is
+not, and the difference decides three of its tasks.
+
+### What is actually true in the tree today (`main` @ `11904a1`)
+
+- `workers/cron/index.ts` is **18 lines**. Its `scheduled()` handler is
+  `console.warn("[cron] sweep tick")` and nothing else. Its header comment says so.
+- **No file in this repository calls Resend.** `RESEND_API_KEY` is plumbed
+  (`workers/cron/wrangler.toml`'s secrets comment, `.github/workflows/deploy.yml`) — only
+  the code is missing.
+- **There is no push infrastructure at all**: no `push_subscriptions` table, no VAPID key
+  handling, no service-worker push listener. `vite-plugin-pwa` is configured
+  (`vite.config.ts:6,47`) and registers a service worker, but nothing subscribes.
+- **None of the seven Cloudflare Workers has ever been deployed.** `deploy.yml`'s
+  `deploy-workers` job is gated on `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`; those
+  secrets are absent, so every push to date has printed *"Cloudflare Workers deployment
+  skipped"*. The `crons = ["*/15 * * * *"]` trigger has never been registered with
+  Cloudflare. This is **Epic 12 gate G1**, and it is an ops action, not code.
+- **Reminders are delivered by nothing.** `tasks.delivery_channels` is written by
+  `reminders/ReminderCreateSheet.tsx` and read by no consumer anywhere.
+
+### The relationship with Story 12.2 — stated, not assumed
+
+`_bmad-output/implementation-artifacts/12-2-reminder-delivery.md` ("Reminder delivery",
+Epic 12, *Silent Production Defects*) was written to close exactly the reminders gap this
+story used to gesture at. It is **not** a competing implementation and this story must not
+duplicate it. The division:
+
+| Concern | Owner |
+|---|---|
+| `workers/shared/resend.ts` — the Resend transport | **Whichever lands first.** The second consumes it unchanged and adds no second wrapper. 12-2's declared signature is `sendEmail({ from, to, subject, text }) → { ok: true, id } \| { ok: false, error }` (a discriminated result, never a throw). If 12-2 landed first, adopt that signature verbatim; if this story lands first, ship exactly that signature so 12-2 needs no fork. |
+| `public.cron_heartbeat` + `record_cron_heartbeat()` + the Settings status row | **12-2.** One row per worker; both sweeps run inside the same `cron` Worker and the same tick, so this story records **no second heartbeat** and adds **no second Settings row**. |
+| Time-based "a reminder came due" queue (`task_notifications`) | **12-2.** |
+| Event-based "a message was inserted" queue (`message_notifications`) | **this story.** Different trigger condition, different table. |
+| Push: `push_subscriptions`, VAPID, the Web-Push sender, the client opt-in | **this story.** 12-2 explicitly defers all four here and instead *removes* the dead push checkbox from `ReminderCreateSheet.tsx`, while keeping `'push'` legal in `tasks_delivery_channels_check` so a later story can adopt this story's infrastructure for reminders without a data migration. **Adopting it for reminders is not this story's job** — building it is. |
+| Epic 12 gate **G1** (Cloudflare secrets, pinned Worker URLs, `RESEND_API_KEY` + `RESEND_FROM` with a verified sending domain) | **Epic 12, once.** Do not obtain the credentials a third time. This story inherits the gate: it can be built and unit-tested without it, and cannot be *delivered* until it is discharged. |
+
+**Two of 12-2's rulings override this story's earlier text and are adopted here:**
+
+1. **No "cron-Worker exemption".** An earlier revision of this story claimed AD-7 grants the
+   cron Worker an exemption from `forAccount()` for cross-tenant system work. 12-2's AC-7
+   examined AD-7's actual text and found no such exemption. The pattern instead is: **the
+   Worker issues no table query at all** — every read and write goes through
+   `service_role`-only `SECURITY DEFINER` RPCs, and the cross-tenant read lives inside
+   Postgres where the definer boundary already is. This story adopts that, and asserts it
+   the same way (a `?raw` source scan for any `.from(` in `workers/cron/**`).
+2. **No `force row level security`.** 12-2 states plainly that it is used nowhere in this
+   schema and should not be introduced by a delivery-queue story. Whatever 7.1 concluded for
+   the four thread tables (7.1 Task 5 makes that an evidence-backed decision, recorded in
+   its Completion Notes), **this story follows 7.1's outcome** and does not make a second,
+   independent call. If 7.1 shipped `force`, ship it here; if not, don't.
+
+### The AD-13 "E7" naming trap
+
+`workers/cron/index.ts`'s comment says *"E7 (Reminders) lands here — AD-13"*. That **"E7" is
+the pre-Amendment-A2 epic numbering** and means reminders. This story's "Epic 7" is the
+post-A2 **Communication** epic. They are different things that share a delivery vocabulary
+(in-app + email + push, no SMS) and one Worker. 12-2 is what actually lands the old E7 half;
+this story's Task 6 updates that comment so the next reader is not caught by it.
 
 ## Acceptance Criteria
 
 1. **In-app: unread state is derived, not queued.** `thread_participants` gains
-   `last_read_at`. A thread is "unread" for a participant when
-   `exists (select 1 from messages m where m.thread_id = tp.thread_id and
-   m.created_at > coalesce(tp.last_read_at, '-infinity'))`. `public.mark_thread_read(
-   p_thread_id bigint)` updates the caller's own `last_read_at` to `now()`.
+   `last_read_at timestamptz` (nullable — a participant who never opened the thread has
+   never read anything). A thread is "unread" for a participant when
+   `exists (select 1 from public.messages m where m.thread_id = tp.thread_id and m.created_at
+   > coalesce(tp.last_read_at, '-infinity'))`. `public.mark_thread_read(p_thread_id bigint)`
+   sets the caller's own `last_read_at` to `now()`.
 
-2. **Email is the guaranteed floor.** Every new message queues exactly one
-   `message_notifications` row per **other** thread participant with
-   `channel = 'email'`; a background sweep sends it via Resend and marks it `sent`
-   (or `failed`, with the error recorded, never silently dropped).
+2. **`mark_thread_read()` can only ever touch the caller's own row.** Its predicate is
+   `tp.member_id = public.current_member_id() and tp.thread_id = p_thread_id`, and it is the
+   only write path — `authenticated` gets no UPDATE grant on `thread_participants`.
+   **Falsifiable:** member B calls it on a thread member A is in; A's `last_read_at` is
+   unchanged and zero rows are affected (asserted by row count in the `db` project — a
+   0-row UPDATE through PostgREST returns `PGRST116`, indistinguishable from a policy error,
+   contract §13 rule 4).
 
-3. **Push is delivered only where installed.** A `channel = 'push'` row is queued for
-   a recipient **only if** they have at least one row in the new
-   `public.push_subscriptions` table; if they have none, no push row is queued and no
-   error results — satisfying "by push where installed" without a dead-letter for
-   users who never enabled it.
+3. **Email is the guaranteed floor.** Every new `messages` row queues exactly one
+   `public.message_notifications` row per **other** thread participant with
+   `channel = 'email'`; the sweep sends it and settles it `sent`, or `failed` with the
+   transport error recorded on the row. Nothing is dropped without a record.
 
-4. **No outbound SMS — structurally, not by omission.** `message_notifications.channel`
-   is constrained to `('email', 'push')` only; there is no code path, table value, or
-   Worker call anywhere in this story that can produce an SMS send.
+4. **A participant with no resolvable email is recorded, not skipped silently — and the two
+   cases are distinguished.** Adopting 12-2's F2 ruling: a participant whose
+   `account_members.user_id` is NULL (an invited-but-not-accepted membership — the column is
+   nullable, `01_tables.sql:201`) settles **`skipped`**, a deliberate state, not a failure. A
+   participant with a non-null `user_id` that resolves to no live `public.members` row, or to
+   one with `disabled = true`, settles **`failed`** with an explanatory `error`. Treating the
+   first case as `failed` would drive a permanent error state on a perfectly normal household.
 
-5. **A message's sender is never notified about their own message.** The fan-out never
-   queues a notification for `sender_member_id`.
+5. **Push is delivered only where installed.** A `channel = 'push'` row is queued for a
+   recipient **only if** they have at least one row in the new `public.push_subscriptions`;
+   if they have none, no push row is queued and no error results — "by push where installed"
+   without a dead letter for users who never enabled it.
 
-6. **Delivery survives a burst without duplicate sends.** The sweep processes each
-   `message_notifications` row exactly once (claims it — e.g. `status: 'pending' →
-   'sending'` in the same statement that selects it — before dispatching), so two
-   overlapping cron ticks cannot both email the same recipient for the same message.
+6. **No outbound SMS — structurally, not by omission.** `message_notifications.channel` is
+   constrained to `('email','push')`. There is no code path, table value or Worker call
+   anywhere in this story that can produce an SMS send. **Falsifiable:** an insert with
+   `channel = 'sms'` raises `23514`.
 
-7. **Verification — the toolchain is green**, plus the new
-   `supabase/tests/message_notifications.sql` suite: the fan-out trigger queues the
-   right rows for the right channels (including the "no subscription → no push row"
-   case and the "sender excluded" case, AC-3/AC-5); `mark_thread_read()` only ever
-   updates the caller's own participant row, never another's; and the mandatory
-   negative test for `push_subscriptions` (a genuinely new RLS-guarded table this
-   story introduces — `.claude/rules/security-triggers.md` applies): a second user's
-   client cannot read, update or delete member A's push subscription row.
+7. **A message's sender is never notified about their own message.** The fan-out excludes
+   `sender_member_id`, compared with **`is distinct from`, not `<>`** — `sender_member_id` is
+   nullable (7.1's `on delete set null`), and `member_id <> NULL` is never true, which would
+   silently queue *nothing* for any message whose sender member was deleted. **Falsifiable:**
+   a message whose `sender_member_id` is NULL still queues rows for every participant.
+
+8. **A notification inherits its message's scope, on either axis.** Every
+   `message_notifications` row carries the same `account_id`/`connection_id` as the message
+   that produced it, with the same XOR check the thread tables use. **This is enforced by the
+   fan-out trigger copying `new.account_id`/`new.connection_id`, which AD-1 names as an
+   accepted alternative to a composite FK** ("Polymorphic `interactions`/`tasks` enforce
+   target-scope integrity (composite `(account_id,id)` reference **or trigger**)"). The FK is
+   the plain `message_id → public.messages(id) on delete cascade`. **Do not add composite
+   unique keys to `messages` for this** — an earlier revision did, which meant an
+   `ALTER TABLE` adding two constraints to a data-bearing table for a queue no client can
+   read. **Falsifiable:** deleting a message deletes its notifications; a row with both scope
+   columns set raises `23514`.
+
+9. **Delivery survives a burst without duplicate sends.** The sweep claims rows —
+   `status: 'pending' → 'sending'` in the same statement that selects them, with
+   `for update skip locked` — before dispatching, inside a `service_role`-only
+   `SECURITY DEFINER` function, because PostgREST cannot express `for update skip locked`.
+   **Falsifiable:** two concurrent `claim_message_notifications()` calls against the same
+   pending set return disjoint id sets. Assert with two real sessions, not by inspecting the
+   function body.
+
+10. **The Worker never touches a tenant table** (12-2 AC-7, adopted). Every read and write
+    from `workers/cron/**` goes through `service_role`-only RPCs. **Falsifiable:** a `?raw`
+    source scan asserts no `.from(` appears in this story's Worker files. Prove the scan red
+    against a deliberately broken fixture before shipping it green (contract §13 rule 2).
+
+11. **`message_notifications` is unreachable from a browser.** RLS enabled, **no policy for
+    `authenticated` at all** — the stricter form of the `subscription`/`ai_usage` posture
+    (`05_policies.sql:1048-1063`), which withholds even SELECT because a delivery queue
+    carries recipient email addresses across every tenant. **Falsifiable:** an authenticated
+    PostgREST client reads zero rows.
+
+12. **A user manages only their own push subscriptions.** `push_subscriptions` RLS is keyed
+    on `auth.uid()` via the owning `account_members` row — deliberately **not**
+    `current_member_id()`, because registering a device is not a tenant-data read and must
+    work whichever context is active. **Mandatory negative test**
+    (`.claude/rules/security-triggers.md` — this story adds two RLS-guarded tables, a
+    migration and new grants): a second user's client cannot read, update or delete member
+    A's subscription row.
+
+13. **Verification — the toolchain is green.** `make typecheck`, `npm run lint`, `make test`,
+    `npm run test:unit:db`, `make check-migration-safety` all pass. The safety fixture is
+    extended to seed and capture `message_notifications` and `push_subscriptions` (7.1
+    already added the four thread tables), because this story alters `thread_participants`
+    and the guard is structurally blind to a table it does not capture.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Schema: read state and the delivery queue** (AC: 1, 2, 3, 4, 5)
-  - [ ] `supabase/schemas/01_tables.sql`: `alter table public.thread_participants add
-        column last_read_at timestamptz;` (nullable — unread by default, matching "a
-        participant who never opened the thread has never read anything").
-  - [ ] Add `public.message_notifications(id, account_id bigint, connection_id bigint,
-        message_id bigint not null, recipient_member_id bigint not null, channel text
-        not null, status text not null default 'pending', sent_at timestamptz, error
-        text, created_at timestamptz not null default now())`. `channel` check
-        `in ('email', 'push')` (AC-4 — structurally excludes SMS by never listing it as
-        a legal value, the same closed-enumeration style as
-        `is_child_visible_state`/`tasks_delivery_channels_check`). `status` check
-        `in ('pending', 'sending', 'sent', 'failed')` (the `sending` state exists
-        specifically for AC-6's claim-before-dispatch step).
-  - [ ] Dual-axis scope on `message_notifications` (account_id/connection_id, XOR
-        check), mirroring `messages`' own axis (a notification's scope always matches
-        its message's) — reuse the Story 7.4 composite-FK pattern:
-        `(account_id, message_id) references messages(account_id, id)` and
-        `(connection_id, message_id) references messages(connection_id, id)`, both
-        `on delete cascade`. **Prerequisite these FKs create:** `messages` has no
-        composite unique keys yet (nothing referenced it in 7.1/7.4) — add
-        `messages_account_id_id_key unique (account_id, id)` and
-        `messages_connection_id_id_key unique (connection_id, id)` in the same
-        migration.
-  - [ ] `message_notifications.recipient_member_id` FK → `account_members(id) on
-        delete cascade`; sweep index `message_notifications_pending_idx (status,
-        created_at)` (the claim query filters `status='pending'` ordered by
-        `created_at`).
-  - [ ] Add `public.push_subscriptions(id, member_id bigint not null, endpoint text
-        not null, p256dh text not null, auth text not null, created_at)`, unique
-        `(member_id, endpoint)`, FK `member_id → account_members(id) on delete
-        cascade`.
+- [ ] **Task 0 — Establish which of 12-2 / 7-5 landed first**
+  - [ ] Check for `workers/shared/resend.ts`, `public.task_notifications`,
+        `public.cron_heartbeat` and `public.record_cron_heartbeat()`. Record the answer in
+        the Completion Notes; Tasks 4, 5 and 6 branch on it. If 12-2 has landed,
+        `workers/shared/resend.ts` and the heartbeat are **consumed, never re-created**.
+  - [ ] Confirm 7.1's `force row level security` decision from its Completion Notes and
+        follow it (see "Two of 12-2's rulings", above).
 
-- [ ] **Task 2 — Fan-out trigger** (AC: 2, 3, 4, 5)
+- [ ] **Task 1 — Schema: read state, the queue, and push subscriptions** (AC: 1, 3-8, 11, 12)
+  - [ ] `supabase/schemas/01_tables.sql`: `alter table public.thread_participants add column
+        last_read_at timestamptz;` — and in the declared `create table` block, put it at the
+        **physical tail**, because `add column` appends (COLUMN-ORDER TRAP,
+        `01_tables.sql:1-60`). Adding a **nullable** column needs no backfill; it is
+        deliberately nullable so "never read" is representable.
+  - [ ] `public.message_notifications(id bigint generated by default as identity primary key,
+        created_at timestamptz not null default now(), account_id bigint, connection_id
+        bigint, message_id bigint not null, recipient_member_id bigint not null, channel text
+        not null, status text not null default 'pending', recipient_email text, attempts
+        integer not null default 0, sent_at timestamptz, error text)` with:
+        - `message_notifications_channel_check check (channel in ('email','push'))` (AC-6 —
+          the same closed-enumeration style as `tasks_delivery_channels_check`,
+          `01_tables.sql:105-107`);
+        - `message_notifications_status_check check (status in
+          ('pending','sending','sent','failed','skipped'))` — `sending` for AC-9's
+          claim-before-dispatch, `skipped` for AC-4's deliberate no-recipient case;
+        - `message_notifications_scope_check check ((account_id is not null) <>
+          (connection_id is not null))` (AC-8);
+        - a **unique key** `(message_id, recipient_member_id, channel)` — the fan-out is a
+          trigger and should be idempotent under any future re-run or retry, and the cost of
+          not having it is a duplicate email.
+  - [ ] FKs in the `alter table` block at the foot of the file (grep by constraint name, not
+        line — Epic 8 and Epic 12 are editing this file): `message_id →
+        public.messages(id) on delete cascade`; `recipient_member_id →
+        public.account_members(id) on delete cascade`; `account_id → public.accounts(id) on
+        delete cascade`; `connection_id → public.connections(id) on delete cascade`. **No
+        composite FK, and no new unique key on `messages`** — AC-8's rationale.
+  - [ ] Index `message_notifications_pending_idx (status, created_at)` — the claim query
+        filters `status='pending'` ordered by `created_at`.
+  - [ ] `public.push_subscriptions(id bigint generated by default as identity primary key,
+        created_at timestamptz not null default now(), member_id bigint not null, endpoint
+        text not null, p256dh text not null, auth text not null)`, unique
+        `(member_id, endpoint)`, FK `member_id → public.account_members(id) on delete
+        cascade`, index on `member_id`.
+
+- [ ] **Task 2 — Fan-out trigger** (AC: 3, 4, 5, 6, 7, 8)
   - [ ] `supabase/schemas/02_functions.sql`: `fan_out_message_notifications()`
-        (`after insert on messages`) — `SECURITY DEFINER SET search_path ''`. For each
-        `thread_participants` row on `new.thread_id` where `member_id is distinct
-        from new.sender_member_id` (**`is distinct from`, not `<>`** —
-        `sender_member_id` is nullable per 7.1's `on delete set null`, and
-        `member_id <> NULL` is never true, which would silently queue *nothing* for
-        any message whose sender member was deleted): insert one
-        `message_notifications` row with `channel = 'email'` unconditionally (AC-2);
-        insert a second row with `channel = 'push'` **only if** `exists (select 1
-        from push_subscriptions where member_id = <that participant>)` (AC-3). Copy
-        `account_id`/`connection_id` from `new` (whichever is non-null) onto every
-        inserted row.
-  - [ ] `04_triggers.sql`: wire it `after insert on messages`.
+        (`after insert on messages`), `SECURITY DEFINER SET search_path ''`, `pg_dump` form.
+        For each `thread_participants` row on `new.thread_id` where
+        `member_id is distinct from new.sender_member_id` (AC-7):
+        - resolve the recipient email inside Postgres — `account_members.user_id` →
+          `public.members` (joined on `members.user_id`, which is uniquely indexed,
+          `01_tables.sql:82`) → `members.email` where `members.disabled = false`. The `auth`
+          schema is not exposed through PostgREST and must not be reached from the Worker
+          (AC-10), so this resolution lives here.
+        - insert one `channel='email'` row with `status` per AC-4:
+          `'skipped'` when `account_members.user_id is null`; `'failed'` (with an
+          explanatory `error`) when it is non-null but resolves to no live/enabled member;
+          `'pending'` otherwise, with `recipient_email` set.
+        - insert a second `channel='push'` row **only if**
+          `exists (select 1 from public.push_subscriptions ps where ps.member_id = <that
+          participant>)` (AC-5).
+        - copy `new.account_id` and `new.connection_id` onto every inserted row (AC-8).
+        - `on conflict (message_id, recipient_member_id, channel) do nothing`.
+  - [ ] `04_triggers.sql`: wire it `after insert on public.messages`, named so it sorts after
+        7.1's `set_message_defaults` `before insert` trigger (different event, but keep the
+        naming convention the file documents).
 
-- [ ] **Task 3 — `mark_thread_read()` and RLS/grants** (AC: 1, 7)
-  - [ ] `public.mark_thread_read(p_thread_id bigint) returns public.thread_participants`
-        — `SECURITY DEFINER SET search_path ''`: `update thread_participants tp set
-        last_read_at = now() where tp.member_id = public.current_member_id() and
-        tp.thread_id = p_thread_id returning tp.*`. The `current_member_id()`
-        predicate (Epic 3 Story 3.5's resolver, same as the rest of Epic 7) is the
-        entire authorization check — it can only ever touch the participant row of
-        the caller's own membership in their active context, by construction (a
-        caller with no matching `thread_participants` row simply updates zero rows).
-  - [ ] `message_notifications` and `push_subscriptions`: `enable row level security`
-        + `force row level security`. `message_notifications` gets **no policy for
-        `authenticated` at all** (it's a pure backend delivery queue — the fan-out
-        trigger and the cron worker are the only writers/readers, both effectively
-        `service_role`/definer-privileged; a client has no legitimate reason to read
-        or write it). `push_subscriptions` gets `for all to authenticated using
-        (exists (select 1 from account_members am where am.id =
-        push_subscriptions.member_id and am.user_id = auth.uid()))` `with check`
-        (same expression) — a user manages
-        only their own subscriptions, across whichever of their own `account_members`
-        rows, regardless of which context is currently active (registering a device
-        for push isn't a tenant-data read; deliberately `auth.uid()`, not
-        `current_member_id()`, for exactly that reason).
-  - [ ] `06_grants.sql`: revoke `anon` on both new tables; grant `select, insert,
-        delete` on `push_subscriptions` to `authenticated` (no update — replace via
-        delete+insert, simpler); grant `all` on both to `service_role`. Sequences:
-        `push_subscriptions_id_seq` revoke `anon`, grant `authenticated` +
-        `service_role`; `message_notifications_id_seq` revoke `anon`, grant
-        `service_role` only (no `authenticated` write path exists). Function grants:
-        `mark_thread_read` to `authenticated`/`service_role` (revoke `public`,
-        `anon`); the fan-out trigger function needs no direct grant, only the table
-        trigger wired to it.
+- [ ] **Task 3 — RPCs, RLS and grants** (AC: 1, 2, 9, 10, 11, 12)
+  - [ ] `public.mark_thread_read(p_thread_id bigint) returns public.thread_participants` —
+        `SECURITY DEFINER SET search_path ''`. `update public.thread_participants tp set
+        last_read_at = now() where tp.member_id = public.current_member_id() and tp.thread_id
+        = p_thread_id returning tp.*`. The `current_member_id()` predicate is the entire
+        authorization check: by construction it can only touch the caller's own membership
+        row in their active context, and a caller with no matching participant row updates
+        zero rows (AC-2).
+  - [ ] `public.claim_message_notifications(p_limit integer) returns table(id bigint,
+        channel text, recipient_member_id bigint, recipient_email text, thread_id bigint,
+        message_body text, subject_type text, subject_id bigint)` — the claim-then-return
+        CTE from Dev Notes, `for update skip locked`, `status → 'sending'`,
+        `attempts = attempts + 1`, joined to `messages`/`threads` so the Worker needs no
+        second call and no table access (AC-9, AC-10).
+  - [ ] `public.settle_message_notification(p_id bigint, p_status text, p_error text default
+        null) returns void` — mirrors 12-2's `settle_task_notification`: rejects any
+        `p_status` outside `('sent','failed','skipped')`; updates **only** rows currently in
+        `'sending'`, so a late duplicate settle cannot resurrect a finished row; sets
+        `sent_at = now()` on `'sent'`. If `p_error` is recorded here it is the transport's
+        own error string on a row **no client can read** (AC-11) — unlike `cron_heartbeat`,
+        which 12-2 restricts to bounded codes precisely because it *is* client-readable.
+  - [ ] `public.delete_push_subscription_by_endpoint(p_endpoint text) returns void`,
+        `service_role` only — the sweep's self-healing path for a `410 Gone`/`404` from a
+        push service (Task 6). Without it the sweep would need `.from("push_subscriptions")`
+        and break AC-10.
+  - [ ] `05_policies.sql`: enable RLS on both new tables. `message_notifications` gets **no
+        policy for `authenticated`** (AC-11), with the justification comment in the shape of
+        the `subscription`/`ai_usage` block (`:1037-1047`). `push_subscriptions` gets
+        `for all to authenticated using (exists (select 1 from public.account_members am
+        where am.id = push_subscriptions.member_id and am.user_id = auth.uid()))` with the
+        identical `with check` (AC-12), plus the inline comment explaining the deliberate
+        `auth.uid()`.
+  - [ ] `06_grants.sql`: `revoke all on table public.message_notifications from anon,
+        authenticated;` `grant all … to service_role;` and the same for
+        `message_notifications_id_seq`. `revoke all on table public.push_subscriptions from
+        anon;` `grant select, insert, delete on … to authenticated;` (no update — replace via
+        delete+insert) `grant all … to service_role;` plus the sequence revoke/grant per the
+        `shidduchim_id_seq` convention (`06_grants.sql:203-205`). Function grants:
+        `mark_thread_read` → `authenticated, service_role`;
+        `claim_message_notifications` / `settle_message_notification` /
+        `delete_push_subscription_by_endpoint` → **`service_role` only**, revoked from
+        `public, anon, authenticated`. The trigger function needs no grant.
 
-- [ ] **Task 3a — Generate and apply the migration** (AC: 1, 2, 3)
+- [ ] **Task 3a — Generate, hand-check and rehearse the migration** (AC: 1, 3-8, 13)
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
-        message_notifications`. Hand-check: confirm `FORCE ROW LEVEL SECURITY` is
-        emitted for both `message_notifications` and `push_subscriptions`, and confirm
-        the dual-axis composite FKs on `message_notifications` are both present (same
-        risk as Story 7.4's Task 4b — `db diff` under-emitting a second multi-column
-        FK).
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. Never
-        `db reset`, never `db push`.
+        message_notifications`. Hand-check: the `alter table thread_participants add column`
+        is a plain `ALTER`, not a rewrite; both new tables' `enable row level security`
+        survived; the multi-column unique key `(message_id, recipient_member_id, channel)` is
+        present (a multi-column key is exactly what `db diff` has under-emitted before); and
+        no `drop view` appears (that is the column-order symptom — if it does, the
+        `last_read_at` declaration went in the wrong place).
+  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`, then
+        `db diff` twice more to prove convergence. Never `db reset` on a stack holding data;
+        never `db push`.
+  - [ ] Extend `supabase/tests/migration-data-safety/fixture.sql` (seed + `capture()`, list
+        at `:488-509`) for `message_notifications` and `push_subscriptions`, then
+        `make check-migration-safety`. Rehearse against a production-shaped, non-empty
+        database.
 
-- [ ] **Task 4 — Outbound email via Resend** (AC: 2, 6)
-  - [ ] New file `workers/shared/resend.ts`: a minimal `sendEmail({ to, subject,
-        html })` wrapper around `POST https://api.resend.com/emails` using the
-        `RESEND_API_KEY` secret — the secret plumbing already exists (listed in
-        `workers/cron/wrangler.toml`'s secrets comment; pushed to the cron Worker by
-        `.github/workflows/deploy.yml`); only the code is missing. Never in the
-        client bundle — matches the
-        existing "Security (Workers)" convention. Kept in `shared/` since outbound
-        email is a cross-cutting capability other Workers may need later — this story
-        is its first and only consumer today (YAGNI: no other caller is added).
-  - [ ] The claim step lives in Postgres: add
-        `public.claim_message_notifications(p_limit int) returns setof
-        public.message_notifications` — the claim-then-dispatch CTE from Dev Notes
-        (`for update skip locked`, which PostgREST cannot express as a plain query) —
-        with execute granted to `service_role` **only**. The Worker calls it via
-        `.rpc()` on the service-role `@supabase/supabase-js` client (the client the
-        Workers already use — there is no `pg` driver in this repo, and a raw
-        Postgres connection from a Worker would be a new dependency this story does
-        not need).
-  - [ ] New file `workers/cron/notifyMessages.ts`: the sweep. Calls
-        `claim_message_notifications()`; for `channel = 'email'`, resolve the
-        recipient's email — `account_members.user_id`, then
-        `client.auth.admin.getUserById()` on the service-role client (the `auth`
-        schema is **not** exposed through PostgREST, so a join to `auth.users` is not
-        available to supabase-js) — and the thread's subject for a subject line, call
-        `sendEmail()`, then set `status = 'sent', sent_at = now()` or `status =
-        'failed', error = …` on failure. Uses the service-role client directly
-        (**not** `forAccount()`): the sweep is genuinely cross-tenant system work,
-        the cron-Worker exemption AD-7 anticipates — `workers/cron/wrangler.toml`
-        already provisions `SUPABASE_SERVICE_ROLE_KEY` for exactly this.
-  - [ ] `workers/cron/index.ts`: replace the `console.warn` stub in `scheduled()` with
-        a call to the new module (`await notifyMessages(env)`); leave the reminders
-        sweep as a TODO exactly as it is today — this story does not implement it.
-        Tighten the **existing** `[triggers]` schedule in `workers/cron/wrangler.toml`
-        (today `crons = ["*/15 * * * *"]`, a provisional value) to `*/1 * * * *` — a
-        "you have a new message" email up to 15 minutes late is not timely; document
-        the cost tradeoff in the existing comment. This is a decision this story
-        makes, not leaves open.
+- [ ] **Task 4 — The Resend transport** (AC: 3)
+  - [ ] **If `workers/shared/resend.ts` already exists (12-2 landed first): consume it
+        unchanged.** Add no second wrapper, change no signature.
+  - [ ] Otherwise create it with 12-2's exact declared signature: `sendEmail({ from, to,
+        subject, text }) → Promise<{ ok: true; id: string } | { ok: false; error: string }>`
+        around `POST https://api.resend.com/emails` using `RESEND_API_KEY`. A discriminated
+        result, never a throw, so one bad address settles one row `failed` instead of losing
+        the batch. Never in the client bundle.
 
-- [ ] **Task 5 — Push delivery** (AC: 3, 6)
-  - [ ] New file `workers/cron/webPush.ts`: sends a Web Push message (RFC 8291/8292)
-        to a `push_subscriptions` row using VAPID. **Cloudflare Workers do not support
-        Node's `crypto` module that the `web-push` npm package depends on** — do not
-        add it as a dependency without first verifying compatibility under this
-        project's `nodejs_compat` flag; if it doesn't work, implement VAPID JWT signing
-        (ES256) directly with the Web Crypto API (`crypto.subtle.importKey` /
-        `crypto.subtle.sign`), which Workers fully support. `VAPID_PUBLIC_KEY` /
-        `VAPID_PRIVATE_KEY` as Wrangler secrets (never in the client bundle beyond the
-        public key, which the client needs to subscribe).
-  - [ ] For `channel = 'push'` rows the sweep claims: call `webPush.send()` for each of
-        the recipient's `push_subscriptions` rows; mark `sent`/`failed` accordingly. A
-        `410 Gone`/`404` response from the push service means the subscription is
-        dead — delete the `push_subscriptions` row so future messages stop trying it
-        (self-healing, avoids an ever-growing dead-subscription list).
+- [ ] **Task 5 — The message sweep** (AC: 3, 9, 10)
+  - [ ] New `workers/cron/sweepMessages.ts`, exporting `sweepMessages(env: CronEnv):
+        Promise<{ claimed: number; sent: number; failed: number }>`. Creates a
+        `service_role` `@supabase/supabase-js` client (the client the Workers already use —
+        there is no `pg` driver in this repo), calls
+        `.rpc("claim_message_notifications", { p_limit: 100 })`, dispatches each row, then
+        `.rpc("settle_message_notification", …)`. **No `.from(` anywhere in the file**
+        (AC-10). Mirror `workers/cron/sweepReminders.ts`'s shape if it exists.
+  - [ ] Email body: name the thread's subject and the sender, and link to the thread —
+        `<APP_ORIGIN>/#/shidduchim/<subject_id>/discussions` for a `shidduch` subject. The
+        app runs on ra-core's default `HashRouter`, so the `#` is load-bearing, not
+        decoration. Reuse 12-2's `APP_ORIGIN` `[vars]` entry in `workers/cron/wrangler.toml`
+        rather than adding a second one. A `subject_type='relationship'` thread has no URL
+        yet (7.1 adds no standalone route) — link to the app root and say so in a comment
+        rather than fabricating a path.
+  - [ ] **Never include message body text in the email.** A notification tells you there is a
+        message; the content lives behind the RLS boundary this epic spent three stories
+        building, and email is not inside it. This is a decision, stated so it is not
+        "improved" later.
 
-- [ ] **Task 6 — Client: subscribing to push** (AC: 3)
-  - [ ] New hook `src/components/atomic-crm/threads/usePushSubscription.ts`: on
-        explicit user opt-in (a button, not auto-run on every page load — permission
-        prompts that fire unprompted are bad UX and this repo's PWA scaffold
-        (`vite-plugin-pwa`) doesn't do this today), calls
+- [ ] **Task 6 — Push delivery, and the `scheduled()` handler** (AC: 5, 9, 10)
+  - [ ] New `workers/cron/webPush.ts`: sends a Web Push message (RFC 8291/8292) using VAPID.
+        **Cloudflare Workers do not provide the Node `crypto` module the `web-push` npm
+        package depends on** — do not add it as a dependency without first verifying it under
+        this project's `nodejs_compat` flag (`workers/cron/wrangler.toml`); if it does not
+        work, implement VAPID ES256 JWT signing directly with Web Crypto
+        (`crypto.subtle.importKey` / `crypto.subtle.sign`), which Workers fully support.
+        `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` as Wrangler secrets; only the public key
+        reaches the client, as `VITE_VAPID_PUBLIC_KEY`.
+  - [ ] For a claimed `channel='push'` row, send to each of the recipient's subscriptions. A
+        `410 Gone`/`404` means the subscription is dead — call
+        `delete_push_subscription_by_endpoint()` (never `.from(...)`, AC-10) so future
+        messages stop trying it.
+  - [ ] `workers/cron/index.ts`: **add** `await sweepMessages(env)` to `scheduled()`. If
+        12-2 landed first, add it inside its existing try/heartbeat wrapper and record **no
+        second heartbeat**; if this story lands first, leave the reminders sweep as the TODO
+        it is today and let 12-2 add the wrapper. Extend the local `CronEnv` interface with
+        `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` (the per-Worker extension pattern in
+        `workers/shared/env.ts` — do not widen `BaseEnv`). Correct the file's header comment,
+        which still says *"E7 (Reminders) lands here"* in the pre-A2 numbering.
+  - [ ] `workers/cron/wrangler.toml`: add the two VAPID secrets to the secrets comment.
+        **Leave `crons = ["*/15 * * * *"]` alone.** An earlier revision of this story
+        unilaterally tightened it to `*/1`; 12-2's health check defines "Sending" as
+        `last_ok_at` within **30 minutes = 2× the cron period**, so changing the period
+        without changing that threshold in the same diff silently breaks 12-2's AC-9, and
+        `wrangler.toml` is a file both stories write. **Open coordination item, with a
+        default:** ship at `*/15` and document the up-to-15-minute latency on both channels;
+        tightening it is a joint change made by whichever story lands second, restating the
+        threshold as 2× the new period. Do not make it a side effect of this story.
+
+- [ ] **Task 7 — Client: subscribing to push** (AC: 5, 12)
+  - [ ] New `src/components/atomic-crm/threads/usePushSubscription.ts`: on **explicit user
+        opt-in** (a button — never auto-run on page load; an unprompted permission prompt is
+        bad UX and gets the origin permanently blocked in Chrome), call
         `Notification.requestPermission()`, then `navigator.serviceWorker.ready` →
-        `registration.pushManager.subscribe({ userVisibleOnly: true,
-        applicationServerKey: VITE_VAPID_PUBLIC_KEY })`, then
-        `dataProvider.create("push_subscriptions", { endpoint, p256dh, auth })`
-        extracted from the subscription object.
-  - [ ] Surface the opt-in from `settings/CommunicationSection.tsx` (added by Story
-        7.2) — a natural home next to the default-thread-visibility control, avoiding
-        a third settings section for one toggle.
+        `registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey:
+        VITE_VAPID_PUBLIC_KEY })`, then `dataProvider.create("push_subscriptions", {
+        member_id, endpoint, p256dh, auth })` from the subscription's keys.
+  - [ ] Handle the three states explicitly, with copy for each: unsupported browser
+        (`!("PushManager" in window)` — every iOS browser before an installed PWA), permission
+        `denied` (the browser will not re-prompt; say so), and success.
+        `.claude/rules/coding-style.md` forbids swallowing these silently.
+  - [ ] Surface the opt-in from `settings/CommunicationSection.tsx` (created by **7.2**) —
+        a natural home beside the default-thread-visibility control, avoiding a third
+        settings section for one toggle. **This makes 7.2 and 7.5 wave-incompatible**; they
+        write the same file.
+  - [ ] `vite.config.ts` / the `vite-plugin-pwa` service worker: a `push` event listener that
+        shows the notification and a `notificationclick` handler that focuses/opens the
+        thread URL. Without this the subscription exists and nothing renders.
 
-- [ ] **Task 7 — In-app unread UI** (AC: 1)
-  - [ ] `threads/ThreadPanel.tsx` / `ThreadList.tsx` (from 7.1): call
-        `mark_thread_read()` when a thread is opened; show an unread indicator per
-        thread (per AC-1's derived definition) and, if a global surface exists by this
-        point (e.g. a nav badge), a total-unread count — scope this to what's
-        practically reachable; a dedicated notification bell/center is not requested
-        by any Epic 7 AC and is out of scope (YAGNI).
+- [ ] **Task 8 — In-app unread UI** (AC: 1)
+  - [ ] `threads/ThreadPanel.tsx` / `ThreadList.tsx` (7.1): call `markThreadRead()` when a
+        thread is opened; show a per-thread unread indicator per AC-1's derived definition.
+        A dedicated notification bell/centre is asked for by no Epic 7 AC and is out of scope
+        (YAGNI); a global unread badge is in scope only if a nav surface already exists to
+        hang it on — check, do not build one.
 
-- [ ] **Task 8 — Types and provider** (AC: 1, 2, 3)
-  - [ ] `types.ts`: `MessageNotificationChannel = "email" | "push"` (mirrors the
-        existing `TaskDeliveryChannel` in the same file — **do not** rename or
-        refactor `TaskDeliveryChannel` itself to be shared; that is a cross-epic
-        cleanup for the epic owner to schedule deliberately, not a silent side effect
-        here — see Dev Notes), `PushSubscription` type, `last_read_at?: string |
-        null;` on `ThreadParticipant`.
-  - [ ] `providers/supabase/dataProvider.ts`: `markThreadRead(threadId)` RPC wrapper.
-  - [ ] Mirror in `providers/fakerest/` — the fakerest emulation of `mark_thread_read`
-        and a no-op/logged fakerest "delivery" (FakeRest has no real backend to run a
-        cron sweep against; document that push/email delivery is inherently
-        untestable in the FakeRest demo build and that's expected, not a gap).
+- [ ] **Task 9 — Types and providers** (AC: 1, 3, 5)
+  - [ ] `types.ts`: `MessageNotificationChannel = "email" | "push"`, `PushSubscription`,
+        `MessageNotificationStatus`, and `last_read_at?: string | null;` on
+        `ThreadParticipant`. **Do not rename or refactor `TaskDeliveryChannel`**
+        (`types.ts:102`) into a shared `DeliveryChannel` — see Dev Notes.
+  - [ ] `providers/supabase/dataProvider.ts`: `markThreadRead(threadId)` RPC wrapper, same
+        shape as `createShidduchViaRpc` (`dataProvider.ts:85-100`).
+  - [ ] Mirror in `providers/fakerest/` (AD-10): the `mark_thread_read` emulation and derived
+        unread state. FakeRest has no backend to run a cron sweep against, so email and push
+        delivery are **inherently untestable in the demo build** — document that as expected,
+        not as a gap, and make the FakeRest opt-in a no-op that says so.
 
-- [ ] **Task 9 — Tests** (AC: 7)
-  - [ ] New `supabase/tests/message_notifications.sql` + `.test.ts` (separate file
-        from `threads_entity.sql` — a distinct concern, delivery rather than the
-        thread model itself, keeping both files under the ~400-line typical ceiling
-        per `.claude/rules/coding-style.md`). Cover: fan-out queues one `email` row
-        per other participant; a participant with a `push_subscriptions` row also
-        gets a `push` row, one without does not (AC-3); the sender is never queued
-        (AC-5); `mark_thread_read()` only touches the caller's own row; an
-        authenticated client reads **zero** `message_notifications` rows (the
-        no-policy posture, asserted rather than assumed); and the negative test — a
-        second user's client reads/updates/deletes zero rows of another user's
-        `push_subscriptions`.
-  - [ ] `workers/cron/notifyMessages.test.ts` / `workers/cron/webPush.test.ts` /
-        `workers/shared/resend.test.ts`:
-        mock the Resend/Web-Push HTTP calls, assert claim-then-dispatch ordering
-        (AC-6) and status transitions on success/failure.
-  - [ ] Vitest for `usePushSubscription`/the settings opt-in/the unread indicator
-        (AAA, ≥80% new lines).
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus
-        prettier on this story's changed files only.
+- [ ] **Task 10 — Tests** (AC: 2, 4-13)
+  - [ ] New `supabase/tests/message_notifications.sql` + `.test.ts` — a separate file from
+        `threads_entity.sql` (a distinct concern, and both stay under the ~400-line typical
+        ceiling per `.claude/rules/coding-style.md`). Cover: fan-out queues one `email` row
+        per other participant on **both** scope axes with the right scope columns (AC-8); a
+        participant with a `push_subscriptions` row also gets a `push` row and one without
+        does not (AC-5); the sender is never queued, including when `sender_member_id` is
+        NULL (AC-7); AC-4's `skipped` vs `failed` split, one assertion each;
+        `channel='sms'` raises `23514` (AC-6); deleting a message deletes its notifications
+        and a both-scope-columns row raises (AC-8); `mark_thread_read()` touches only the
+        caller's row, asserted by row count (AC-2); an authenticated client reads **zero**
+        `message_notifications` rows (AC-11, asserted rather than assumed); the AC-12
+        negative on `push_subscriptions` across read/update/delete; and AC-9's two concurrent
+        `claim_message_notifications()` sessions returning disjoint ids.
+  - [ ] **No `exception when others then … PASS` anywhere.** Match the specific SQLSTATE for
+        every denial, prove each denial by mutation, and separately prove an unrelated
+        failure still fails.
+  - [ ] `workers/cron/sweepMessages.test.ts`, `workers/cron/webPush.test.ts`, and
+        `workers/shared/resend.test.ts` (the last only if this story creates the file): mock
+        the HTTP calls; assert claim → dispatch → settle ordering (AC-9), the status
+        transitions on success and failure, the `410`-triggers-delete path, **and AC-10's
+        `?raw` scan for `.from(`** — shown red against a broken fixture first.
+  - [ ] Vitest (browser mode, `vitest-browser-react` + `TestMemoryRouter`) for
+        `usePushSubscription` (all three states), the settings opt-in and the unread
+        indicator. AAA, ≥80% of new lines, no `waitForTimeout`.
+  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus prettier
+        on this story's changed files only.
 
 ## Dev Notes
 
 ### Why in-app delivery needs no queue
 
-Modelling "in-app" as a `message_notifications` row (like email/push) would require an
-async delivery step for something that's really just a **read/unread comparison** —
-the message already exists the moment it's inserted; "in-app delivery" is nothing more
-than the UI showing it's unread until the participant opens the thread. Deriving it
-from `thread_participants.last_read_at` vs `messages.created_at` needs no background
-job, no failure mode, and can't drift from reality the way a queued-and-forgotten
-in-app row could. This mirrors how reminders' "in-app" delivery is just the reminder
-existing and appearing in the Reminders list — not a separate notification record
-either.
+Modelling "in-app" as a `message_notifications` row would require an async delivery step for
+what is really a **read/unread comparison** — the message exists the moment it is inserted;
+"in-app delivery" is nothing more than the UI showing it unread until the participant opens
+the thread. Deriving it from `thread_participants.last_read_at` vs `messages.created_at`
+needs no background job, has no failure mode, and cannot drift from reality the way a
+queued-and-forgotten in-app row could. This mirrors how reminders' in-app "delivery" is just
+the reminder appearing in the Reminders list — which, per 12-2, is the only reminder channel
+that has ever functioned, and it functions by accident.
 
 ### Do not refactor `TaskDeliveryChannel`
 
-`src/components/atomic-crm/types.ts` already defines `TaskDeliveryChannel = "in_app" |
-"email" | "push"` (consumed by the reminders feature, e.g.
-`reminders/ReminderCreateSheet.tsx`). This story's
-`MessageNotificationChannel = "email" | "push"` intentionally uses the identical two
-literal values for consistency, but is its own type — reminders and Epic 7 messaging
-are different features that happen to share a delivery vocabulary today. Unifying them
-into one shared `DeliveryChannel` type is a reasonable idea but is a deliberate,
-scheduled cross-epic refactor, not something to fold into this story unasked (it would
-change a type an already-built feature depends on, with its own review surface).
+`types.ts:102` already defines `TaskDeliveryChannel = "in_app" | "email" | "push"`, consumed
+by the reminders feature. This story's `MessageNotificationChannel = "email" | "push"`
+deliberately reuses the same two literals for consistency but is its own type. Unifying them
+into a shared `DeliveryChannel` is a reasonable idea and a **deliberate cross-epic refactor**
+with its own review surface — it changes a type an already-built, already-deployed feature
+depends on, and 12-2 is concurrently editing that feature's create sheet. Not a silent side
+effect of this story.
 
-### The claim-then-dispatch pattern (AC-6)
+### The claim-then-dispatch pattern (AC-9)
 
 ```sql
 with claimed as (
   update public.message_notifications
-  set status = 'sending'
+  set status = 'sending', attempts = attempts + 1
   where id in (
     select id from public.message_notifications
     where status = 'pending'
     order by created_at
-    limit 100
+    limit p_limit
     for update skip locked
   )
   returning *
 )
-select * from claimed;
+select ... from claimed join public.messages m on m.id = claimed.message_id
+                        join public.threads  t on t.id = m.thread_id;
 ```
-`FOR UPDATE SKIP LOCKED` is what makes this safe if the Worker's `scheduled()` handler
-ever overlaps itself (a slow previous run still executing when the next cron tick
-fires) — the second invocation simply skips rows the first has already locked, rather
-than double-sending. It ships as the `claim_message_notifications(p_limit)` function
-(Task 4) because PostgREST cannot express `FOR UPDATE SKIP LOCKED`; the Worker reaches
-it via `.rpc()` on the service-role supabase-js client — `message_notifications` has
-no `authenticated` policy at all, and the function's execute grant is `service_role`
-only.
+
+`FOR UPDATE SKIP LOCKED` is what makes this safe when the Worker's `scheduled()` handler
+overlaps itself — a slow run still executing when the next tick fires. The second invocation
+skips the rows the first has locked rather than double-sending. It ships as
+`claim_message_notifications(p_limit)` because PostgREST cannot express `for update skip
+locked`, and the Worker reaches it by `.rpc()` on the `service_role` client. The join is what
+lets the Worker satisfy AC-10 with a single call and no table access.
+
+### Why the email says so little
+
+AC-11 withholds even SELECT on the queue from `authenticated` because it carries recipient
+addresses across every tenant. The same reasoning applies one step further out: an email
+leaves the system entirely. 7.1-7.4 spend three stories making thread readership a database
+property; putting message bodies in an email hands that content to whoever controls a mailbox
+the app never authenticated. Task 5 therefore sends a "you have a new message on X" pointer
+and nothing more. It is a smaller feature and it is the right one.
 
 ### References
 
-- [Source: ARCHITECTURE-SPINE.md#AD-22] — "Delivery is in-app + email + push; no
-  outbound SMS, ever (AD-13)."
-- [Source: ARCHITECTURE-SPINE.md#AD-13] — the in-app+email+push, no-SMS delivery model
-  this story's channel vocabulary and worker placement deliberately mirror (a
-  different, already-built feature — see "Scope note" above for why this is not the
-  same Epic 7).
-- [Source: ARCHITECTURE-SPINE.md#AD-7] — Worker compute home; `forAccount()` exemption
-  for genuinely cross-tenant system work (the sweep).
-- [Source: _bmad-output/planning-artifacts/epics.md#Story-7.5-Notifications]
-- `workers/cron/index.ts` (current stub, replaced by Task 4) and
-  `workers/cron/wrangler.toml` (existing `*/15` schedule + secrets comment).
-- `src/components/atomic-crm/types.ts` (`TaskDeliveryChannel`, near `Task` — the
-  vocabulary this story mirrors but does not refactor).
-- `supabase/schemas/01_tables.sql:119-140` (`tasks.delivery_channels` — the closed
-  channel-enumeration precedent `message_notifications.channel`'s check constraint
-  follows).
-- `supabase/schemas/05_policies.sql:251-268` (`subscription`/`ai_usage` — the
-  "no policy for `authenticated`" precedent `message_notifications` follows more
-  strictly still, since even SELECT is withheld).
-- Story `7-4-any-pairing-private-thread.md` — the dual-axis composite-FK pattern this
-  story reuses verbatim for `message_notifications`.
+- [Source: `_bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-22`]
+  — "Delivery is in-app + email + push; no outbound SMS, ever (AD-13)."
+- [Source: same file `#AD-13`] — the in-app+email+push, no-SMS model this story's channel
+  vocabulary mirrors; it is the *reminders* delivery model, a different feature (see "The
+  AD-13 'E7' naming trap").
+- [Source: same file `#AD-1`] — "target-scope integrity (composite `(account_id,id)`
+  reference **or trigger**)", which is what AC-8 relies on.
+- [Source: same file `#AD-7`] — Worker compute home. **It grants no cron exemption from
+  `forAccount()`**; AC-10 satisfies it by issuing no table query at all (12-2 AC-7).
+- [Source: `_bmad-output/implementation-artifacts/12-2-reminder-delivery.md`] — the shared
+  `workers/shared/resend.ts` signature (its Task 4), the RPC-only Worker posture (its AC-7),
+  the `skipped` vs `failed` ruling (its F2), the heartbeat and Settings status row (its
+  AC-9), the "do not introduce `force row level security`" note (its Task 3), and Epic 12
+  gate **G1**.
+- [Source: `_bmad-output/planning-artifacts/epics.md#Epic-12`] — gate G1; and gap **S5**
+  ("AD-13 reminder delivery is never wired"), which is 12-2's, not this story's.
+- [Source: `_bmad-output/planning-artifacts/epics.md#Epic-7-Communication`, Story 7.5]
+- [Source: `_bmad-output/planning-artifacts/epic3-api-contract.md` §13 rules 2, 4, 5] — a
+  `?raw` guard must be proven red; zero-rows is asserted in the `db` project; ≥80% coverage.
+- `workers/cron/index.ts` (the 18-line stub, its stale "E7 (Reminders)" comment),
+  `workers/cron/wrangler.toml` (the `*/15` schedule and the secrets comment),
+  `workers/shared/env.ts` (the per-Worker `Env` extension pattern),
+  `.github/workflows/deploy.yml` (the `deploy-workers` job gated on the absent Cloudflare
+  secrets — gate G1).
+- `supabase/schemas/01_tables.sql:1-60` (COLUMN-ORDER TRAP), `:71-82` (`members`: `email`,
+  `user_id` unique, `disabled`), `:88-108` (`tasks`, `delivery_channels`, the closed-channel
+  precedent), `:197-221` (`account_members`, **nullable `user_id`** — AC-4's `skipped` case).
+- `supabase/schemas/05_policies.sql:1037-1063` (`subscription`/`ai_usage` — the no-policy
+  posture `message_notifications` follows more strictly still).
+- `supabase/schemas/06_grants.sql:203-205` (sequence convention), `:290-292` (function-grant
+  convention).
+- `supabase/tests/migration-data-safety/fixture.sql:488-509` (the capture list to extend).
+- `src/components/atomic-crm/types.ts:102` (`TaskDeliveryChannel`),
+  `providers/supabase/dataProvider.ts:85-100` (`createShidduchViaRpc`),
+  `vite.config.ts:6,47` (`vite-plugin-pwa`).
+- Stories `7-1-thread-model.md` (the tables and the dual axis) and
+  `7-4-any-pairing-private-thread.md` (the connection axis a notification must inherit).
 
-### Project Structure Notes
+## Dependencies
 
-- New backend files: `workers/shared/resend.ts`, `workers/cron/notifyMessages.ts`,
-  `workers/cron/webPush.ts` (each under the typical 200-400 line ceiling — three files
-  rather than one large `notifyMessages.ts`, per "grow the file count").
-- New frontend file: `threads/usePushSubscription.ts`.
-- No new top-level resource directory — `message_notifications`/`push_subscriptions`
-  are backend-only/self-service tables, not react-admin resources with their own list
-  pages.
+- **7.1-7.4** (blocking): the thread tables, both scope axes, and the participant model.
+- **Epic 12 gate G1** (blocking for *delivery*, not for code): Cloudflare secrets, pinned
+  Worker URLs, `RESEND_API_KEY` + `RESEND_FROM` with a verified sending domain. Until G1 is
+  discharged, no Worker runs in production and merging this story changes nothing there.
+  **Discharge it once, at the Epic 12 level — do not obtain the credentials a third time.**
+- **Story 12.2** (coordination, not blocking either way): shares
+  `workers/shared/resend.ts`, `workers/cron/index.ts`, `workers/cron/wrangler.toml` and
+  `.github/workflows/deploy.yml`. **Never the same wave.** Whichever lands first sets the
+  conventions for `workers/shared/`; the second extends and never forks.
+- **Story 7.2** (file conflict): `settings/CommunicationSection.tsx` is created there and
+  extended here. **Never the same wave.**
+- **Story 12.4** (Stripe billing) also edits `.github/workflows/deploy.yml`. **Never the same
+  wave.**
+
+## Declared file set
+
+**Schema / DB**
+`supabase/schemas/01_tables.sql`, `02_functions.sql`, `04_triggers.sql`, `05_policies.sql`,
+`06_grants.sql`, one new `supabase/migrations/<ts>_message_notifications.sql`,
+`supabase/tests/message_notifications.sql`, `supabase/tests/message_notifications.test.ts`,
+`supabase/tests/migration-data-safety/fixture.sql`.
+
+**Workers**
+`workers/cron/index.ts`, `workers/cron/wrangler.toml`, `workers/cron/sweepMessages.ts` (+
+test), `workers/cron/webPush.ts` (+ test), `workers/shared/resend.ts` (+ test) **only if
+12-2 has not landed**.
+
+**Types / providers / i18n**
+`src/components/atomic-crm/types.ts`,
+`providers/supabase/dataProvider.ts`, `providers/fakerest/dataProvider.ts`,
+`providers/commons/englishCrmMessages.ts`, `providers/commons/frenchCrmMessages.ts`.
+
+**UI / PWA**
+`src/components/atomic-crm/threads/usePushSubscription.ts` (+ test),
+`threads/ThreadPanel.tsx`, `threads/ThreadList.tsx`,
+`settings/CommunicationSection.tsx` (+ test), `vite.config.ts` (service-worker push
+handlers), `.env.example` / the Vercel env for `VITE_VAPID_PUBLIC_KEY`.
+
+**Generated**
+`registry.json` (pre-commit `make registry-gen`).
+
+No `TabKey`, `CANONICAL_TAB_SETS`, descriptor or route change — this story adds no tab and no
+resource.
 
 ## Dev Agent Record
 

@@ -7,418 +7,415 @@ Status: ready-for-dev
 ## Story
 
 As any user,
-I want a private conversation with any other legitimate party — including a shadchan
-I'm connected to — so that no conversation is structurally blocked just because the two
-parties sit in different contexts (FR94, FR98).
+I want a private conversation with any other legitimate party — including a shadchan I'm
+connected to — so that no conversation is structurally blocked just because the two parties
+sit in different contexts (FR94, FR98).
 
 ## Position in Epic 7
 
-**4th of 5. Depends on 7.1–7.3** (the full account-scoped thread model, default
-posture, and privacy enforcement). Precedes 7.5 (notifications must fan out correctly
-regardless of which scope axis a thread uses).
+**4th of 5. Depends on 7.1-7.3.** Precedes 7.5 (notifications must fan out correctly
+regardless of which axis a thread uses).
 
-**This story also does something epics.md does not explicitly assign to Epic 7: it
-creates the bare `public.connections` table.** That is flagged prominently below and
-in the final report — it is a decision this story makes to resolve a genuine ordering
-conflict in the plan, not scope quietly annexed from Epic 8.
+### What this story is, after the AD-20 restructure
 
-### The cross-epic conflict this story resolves, and the decision
+**The schema work that used to live here has moved into 7.1.** `public.connections`, the
+nullable `connection_id` column on `threads`/`thread_participants`/`messages`, their
+`<table>_scope_check` XOR constraints, the second composite unique key
+(`threads_connection_id_id_key`), the second composite FK on each child table, the
+connection indexes, and the both-axis `purge_polymorphic_dependents()` delete are **all
+shipped by 7.1**. An earlier revision had this story run `alter column account_id drop not
+null` plus four new constraints and two new FKs per table, over live production rows, on
+tables the `make check-migration-safety` fixture did not seed. That is the exact shape of
+the two near-misses this repo's guards exist for, and it bought nothing: the columns cost
+nothing in the migration that creates the tables. **Deleted, not retargeted.**
 
-AD-20 ("A connection is a third scope, owned by neither party") binds **both**
-Epic 7's FRs (94-99, via AD-22) **and** Epic 8's FRs (108-113). A connection-scoped
-thread — which this story's own AC requires for shadchan↔single — cannot exist without
-the `connections` table. But the epic list sequences **Epic 7 before Epic 8**, and
-Epic 8 Story 8.2 ("Consent-based connection") is where the *decision-log* (D17) and the
-epics.md FR-coverage map both place the `connections` table's ownership. Two ways to
-resolve this were considered:
+What is left is the whole of the *capability*, and it is a real story:
 
-- **(a) Sequence Epic 8's schema stories ahead of Epic 7.** Rejected — it would mean
-  silently reordering the epic list, which is not this document's authority to do, and
-  it would leave 7.4 unbuildable as written until someone else acts on that
-  reordering.
-- **(b) This story creates the bare `connections` table as shared scaffolding, and
-  Epic 8 builds the consent workflow on top of it.** **Chosen.** `connections` needs
-  to exist as a table+RLS the moment any story needs `connection_id` as a foreign
-  target (AD-1's rule that a table's scoping axis exists before anything can point at
-  it) — which is *this* story, given the pinned order. Epic 8 Story 8.2 does **not**
-  recreate the table; it `ALTER`s it (its own consent-workflow columns) and builds
-  the invite-based propose/accept flow and UI on top of what this story ships.
+- `create_thread()` gains `p_connection_id` and its validation;
+- `thread_is_readable()`'s "connection-scoped → false" line (7.1) becomes the real branch;
+- the three INSERT policies gain their connection disjunct;
+- the household-side subject resolution (a shadchan's active context holds no `shidduchim`);
+- cross-side participant validation;
+- the connection-scoped default-posture resolution 7.2 deferred;
+- and the four-pairing + negative proof this epic's AC actually names.
 
-**What this story explicitly does NOT build:** any way for a user to actually propose
-or accept a connection. `connections` in this story is **read-only to `authenticated`**
-(no INSERT/UPDATE/DELETE policy for `authenticated` at all — see Dev Notes "Why
-`connections` ships without a write path here"). Rows are created directly (service
-role / test fixtures) until Epic 8 ships the consent RPCs. This story's own AC is
-about the **thread** system correctly permitting a connection-scoped pairing once a
-connection exists — not about how the connection came to exist.
+**No migration in this story adds, drops, narrows or renames a column.** It is
+`CREATE OR REPLACE FUNCTION` plus `CREATE POLICY` replacements. Say so in the migration's
+header comment, because that is what makes it safe to apply without a production rehearsal
+of a data-bearing change (rehearse it anyway — see Task 5).
+
+### The surface honesty note — read before estimating
+
+This story has **no user-reachable UI**, and that is correct, not a gap:
+
+- `connections` is read-only to `authenticated` (7.1 AC-6). Nothing in Epic 7 lets a user
+  propose or accept a connection; that is **Epic 8 Story 8.2**'s invite-based consent flow
+  (AD-11/FR119). Rows exist only by `service_role` seed until then.
+- There is no Connection 360. The binding contract reserves the row
+  **Connection — `overview, discussions`** for **Epic 8** (§3 rule 5), and
+  `CANONICAL_TAB_SETS` (`entity360/ad24Conformance.ts:209-242`) has no `connections` entry
+  today. **Do not add one here.** Adding a row without a registered descriptor, or a
+  descriptor without a row, fails the AD-24 validator in opposite directions — and Epic 8
+  Story 8.5 owns that pairing.
+
+So this story is delivered as a **database capability with a proof**, and epics.md's
+"shadchan↔single is enabled by default, not gated off" is discharged at the boundary where
+"enabled" means anything: the database. Epic 8 makes it reachable. Flag this in the story's
+completion notes rather than inventing a surface, and do not let a reviewer read the absent
+UI as an unfinished story.
 
 ## Acceptance Criteria
 
-1. **The `connections` table exists and is correctly scoped.**
-   `public.connections(household_account_id, shadchanus_account_id, status)` exists
-   per AD-20, with `status ∈ ('accepted', 'ended')` — **no `'pending'`**: AD-20 says
-   "a connection exists only after acceptance", so a not-yet-accepted proposal is
-   never a `connections` row (per AD-11/FR119 the proposal state lives in the invite
-   mechanism, which Epic 8 builds). `FORCE ROW LEVEL SECURITY`; readable by a member
-   of **either** side; a trigger rejects a row where `household_account_id`'s account
-   isn't `kind='household'` or `shadchanus_account_id`'s account isn't
-   `kind='shadchanus'` (relies on Epic 2's `accounts.kind`). Uniqueness is **at most
-   one live connection per pair** (partial unique index on `status='accepted'`) — a
-   plain unique constraint would structurally forbid ever reconnecting after an end,
-   which no contract requires and AD-20's "either side may end it" makes senseless.
+1. **`create_thread()` accepts a connection.** A new `p_connection_id bigint default null`
+   parameter. When supplied: the caller's active context must be one side of that connection
+   with `status = 'accepted'`, or the call raises `42501`; the thread is created with
+   `connection_id` set and `account_id` null. Supplying **both** `p_connection_id` and
+   relying on the account default is not a thing — the axis is chosen by the parameter's
+   presence. **Falsifiable:** a caller whose active context is neither side raises; a caller
+   whose connection is `status='ended'` raises.
 
-2. **`connections` has no client write path.** No INSERT/UPDATE/DELETE RLS policy
-   exists for `authenticated` (mirrors `subscription`/`ai_usage`'s "read-only,
-   service-role writes" precedent) — see Dev Notes for why this is a hard requirement,
-   not a shortcut.
+2. **A connection-scoped shidduch subject resolves against the household side, not the
+   caller.** When `p_subject_type='shidduch'` **and** `p_connection_id` is supplied, the
+   subject-exists check resolves against the connection's `household_account_id`, **not**
+   `current_context_id()` — a shadchan's active context is their *shadchanus* account, which
+   by AD-2 may never contain a household domain row and therefore holds no `shidduchim` at
+   all. **Falsifiable:** a shadchan creates a connection-scoped thread about a real shidduch
+   of the connected household and it succeeds; about a shidduch of a *different* household
+   it raises. Under 7.1's account-only check the first of those two would have failed for
+   every shadchan caller.
 
-3. **Threads gain a second scope axis.** `threads`, `thread_participants` and
-   `messages` each gain a nullable `connection_id`, `account_id` becomes nullable, and
-   each table enforces "exactly one of `account_id`/`connection_id` is set" (AD-1). The
-   composite-FK machinery from 7.1 (`(account_id, id)`) is joined by a second
-   `(connection_id, id)` composite unique key + FK pair, using `MATCH SIMPLE`
-   semantics so exactly one FK is ever live per row (see Dev Notes).
+3. **Cross-side participants are legal, and only cross-side.** For a connection-scoped
+   thread, an id in `p_participant_member_ids` is accepted if it is an active
+   `account_members` row of **either** side of the connection; anything else raises, per
+   7.1's fail-fast rule. **Falsifiable:** a member of an unrelated third account raises.
 
-4. **`create_thread()` accepts a connection.** A new `p_connection_id` parameter: when
-   supplied, the caller's active context must be a member of one side of that
-   connection with `status = 'accepted'`, or the call raises; the thread is created
-   with `connection_id` set and `account_id` null. When a connection-scoped thread's
-   subject is a `shidduch`, the subject must belong to the connection's
-   `household_account_id` specifically (a shadchan's active context is the
-   *shadchanus* account, which never holds `shidduchim` rows — AD-2).
+4. **`thread_is_readable()` gains its third branch.** For a connection-scoped thread,
+   readability requires the caller's active context to be a member of that connection
+   (either side) with `status='accepted'`; if that passes, the **identical** open/private
+   resolution as the account branch applies — 7.1's dignity-floor gate for `open`, 7.3's
+   participants-only rule for `private` — written once and shared, not duplicated per
+   branch. The 7.1 line that returned `false` for any connection-scoped thread is replaced,
+   which makes this change a pure widening with nothing previously readable to un-leak.
 
-5. **`thread_is_readable()` gains a third branch**, structurally identical to the
-   account branch: for a connection-scoped thread, readability requires the caller's
-   active context to be a member of the connection (either side) with
-   `status = 'accepted'`, then applies the exact same open/private resolution as the
-   account branch (7.1/7.3's logic, not reimplemented).
+5. **The dignity floor does not stop applying because a shadchan is in the room.** An *open*
+   connection-scoped thread about a `shidduch` is still hidden from a household-side caller
+   with `current_member_role() = 'single'` unless the subject satisfies Epic 6's shipped
+   three-part test (`visibility='shared'` **and** `is_single_visible_state(pipeline_state)`
+   **and** the subject's `single_id` resolves to a `singles` row whose `member_id =
+   current_member_id()` — `05_policies.sql:352-367`). AD-22 rule 2 ("open never widens
+   AD-3") does not lapse across the connection axis. A `single`-role membership can only
+   exist on the household side (the role/kind trigger from Story 2.2), so no shadchanus-side
+   case arises. A *private* connection-scoped thread is participants-only, exactly as in 7.3
+   — including 7.3 AC-6's boundary: the single reads the thread, and still reads zero rows
+   from `shidduchim`/`resumes`/`interactions`/`entity_files` for that subject.
 
-6. **INSERT policies work for both axes, not just SELECT.** 7.1's `messages`/
-   `thread_participants`/`threads` `with check` clauses test
-   `account_id = current_context_id()`, which is unconditionally `false` for a
-   connection-scoped row (`account_id` is `NULL`). Every INSERT policy touched by this
-   story is rewritten to accept **either** axis — a connection-scoped message from a
-   valid connection member must actually be insertable, not silently rejected by a
-   check nobody updated (see Dev Notes "The INSERT-policy gap this story must close").
+6. **INSERT works on both axes, not just SELECT.** 7.1's `with check` clauses on
+   `threads`/`thread_participants`/`messages` all require `account_id =
+   current_context_id() and connection_id is null`, which is unconditionally false for a
+   connection-scoped row. Each is replaced with a two-disjunct form accepting **either**
+   axis, keeping 7.1's participant-membership `exists` clause on `messages` and
+   `thread_participants` unchanged. **The falsifying test is a real client-side INSERT, not
+   a service-role seed:** the shadchan side of the AC-8 connection posts a message through
+   `dataProvider.create("messages", …)` and it succeeds. Without this task, that INSERT is
+   rejected while `thread_is_readable()` reports the row as perfectly readable once it
+   exists — a half-migrated policy that passes any smoke test where an operator seeds the
+   row directly, and breaks on the first real user action.
 
-7. **Given any two parties — parent↔parent, parent↔single, parent↔shadchan,
-   single↔shadchan — a private thread between them is permitted and scoped to them,
-   and shadchan↔single is enabled by default, not gated off.** All four pairings are
-   asserted in `threads_entity.sql`: parent↔parent and parent↔single are
-   account-scoped private threads (7.1/7.3 machinery — asserted here so the epic AC
-   is proven in one place, reusing 7.3's fixtures where possible); parent↔shadchan
-   and single↔shadchan are connection-scoped, tested with a directly seeded
-   `accepted` connection (per AC-2, this story cannot test via a real propose/accept
-   UI flow — see Dev Notes).
+7. **Connection-scoped threads resolve their default posture from the household.** 7.2's
+   `coalesce(p_visibility, (select default_thread_visibility from accounts where id =
+   v_account_id))` yields NULL when `v_account_id` is NULL and would violate `visibility`'s
+   NOT NULL. Resolve from the connection's **`household_account_id`** — FR99 gives *families*
+   the default posture, and the household is the only family in the pair. **Falsifiable:**
+   household default `'private'` + `create_thread(p_connection_id => …)` with no
+   `p_visibility` yields a `'private'` thread; the shadchanus account's own setting has no
+   effect on it either way.
 
-8. **Verification — the negative test.** A shadchan whose shadchanus is **not** party
-   to a given connection gets zero rows from that connection's threads/messages, even
-   though they hold the `shadchan` role generally; a household member of a **different**
-   household than the one in the connection gets zero rows likewise.
+8. **All four pairings are proven, in one place.** parent↔parent, parent↔single,
+   parent↔shadchan, single↔shadchan. The first two are account-scoped private threads
+   (7.1/7.3 machinery, asserted here so the epic's AC is discharged in one file, reusing
+   7.3's fixtures where they already prove it); the last two are connection-scoped, tested
+   against a directly seeded `status='accepted'` connection — per 7.1 AC-6 there is no
+   client path to create one, and that is deliberate.
 
-9. **Verification — the toolchain is green**, including all of `threads_entity.sql`'s
-   prior (7.1-7.3) assertions still passing unchanged.
+9. **Verification — the negative test.** A shadchan whose shadchanus is **not** party to a
+   given connection reads zero rows from that connection's `threads`/`messages`/
+   `thread_participants`, even though they hold the `shadchan` role generally. A household
+   member of a **different** household reads zero rows likewise. A member of the *right*
+   household but of a connection whose `status='ended'` also reads zero rows — ending a
+   connection ends the reads, which no other assertion here covers. Each denial matched by
+   specific SQLSTATE or asserted by row count in the `db` project; **never
+   `exception when others then … PASS`**, and each denial proven by mutation with an
+   unrelated failure separately proven still failing.
 
-10. **A deleted shidduch takes its connection-scoped threads with it too.** 7.1's
-    purge delete on `threads` filters `account_id = old.account_id`, which can never
-    match a connection-scoped thread (`account_id` is NULL there). Deleting a
-    `shidduchim` row must also delete `subject_type='shidduch'` threads whose
-    `connection_id` belongs to a connection with `household_account_id =
-    old.account_id` and whose `subject_id = old.id` — otherwise a shadchan keeps a
-    conversation about a suggestion the family has deleted, pointing at a dangling
-    polymorphic subject.
+10. **The purge already covers both axes — assert it, do not re-implement it.** 7.1's
+    fifth delete inside `purge_polymorphic_dependents()` (`02_functions.sql:2466`) already
+    walks `connections.household_account_id` for connection-scoped threads. This story adds
+    the assertion that exercises it end to end: a connection-scoped
+    `subject_type='shidduch'` thread + message; delete the subject `shidduchim` row; the
+    thread, its messages and its participants are gone. If this test fails, fix 7.1's
+    function — do not add a second delete here.
+
+11. **Verification — the toolchain is green**, including every prior (7.1-7.3) assertion in
+    `threads_entity.sql` still passing unchanged. `make check-migration-safety` passes;
+    the fixture already seeds the four Epic 7 tables (7.1 Task 9) and this story adds a
+    seeded `connections` row on each axis if the existing seed does not already cover both.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — The bare `connections` table** (AC: 1, 2)
-  - [ ] `supabase/schemas/01_tables.sql`: `public.connections(id, household_account_id
-        bigint not null, shadchanus_account_id bigint not null, status text not null
-        default 'accepted', created_at, ended_at timestamptz)`, with
-        `connections_status_check check (status in ('accepted','ended'))` (AC-1 — a
-        row exists only once accepted) and a **partial** unique index:
-        `create unique index connections_live_pair_idx on public.connections
-        (household_account_id, shadchanus_account_id) where status = 'accepted';`
-        (at most one live connection per pair; an ended one stays as history and does
-        not block reconnection).
-  - [ ] FKs: `household_account_id`/`shadchanus_account_id` → `accounts(id) on delete
-        cascade`. Indexes `connections_household_account_id_idx` and
-        `connections_shadchanus_account_id_idx` (the standard per-FK index style of
-        `01_tables.sql`).
-  - [ ] `supabase/schemas/02_functions.sql`: `enforce_connection_kinds()`
-        (`before insert or update on connections`) — raises unless
-        `(select kind from accounts where id = new.household_account_id) =
-        'household'` and `(select kind from accounts where id =
-        new.shadchanus_account_id) = 'shadchanus'`. Wire in `04_triggers.sql`.
-  - [ ] `05_policies.sql`: `enable row level security` + `force row level security`;
-        **one policy only**: `for select to authenticated using
-        (household_account_id = current_context_id() or shadchanus_account_id =
-        current_context_id())`. Deliberately no `for insert`/`for update`/`for delete`
-        policy — see AC-2 and Dev Notes.
-  - [ ] `06_grants.sql`: `revoke all on table connections from anon;` `grant select on
-        table connections to authenticated;` `grant all on table connections to
-        service_role;` (mirrors `subscription`/`ai_usage`,
-        `06_grants.sql`'s read-only-to-authenticated pattern). Sequence
-        `connections_id_seq`: revoke from `anon`, grant to `service_role` only — no
-        `authenticated` grant, since `authenticated` cannot insert at all.
+- [ ] **Task 1 — A shared connection-membership predicate** (AC: 1, 4, 6)
+  - [ ] `supabase/schemas/02_functions.sql`:
+        `public.connection_is_active_for_caller(p_connection_id bigint) returns boolean` —
+        `STABLE SECURITY DEFINER SET search_path ''`, `pg_dump` form. Body:
+        `exists (select 1 from public.connections c where c.id = p_connection_id and
+        c.status = 'accepted' and (c.household_account_id = public.current_context_id() or
+        c.shadchanus_account_id = public.current_context_id()))`.
+  - [ ] Write it once and call it from `create_thread()`, `thread_is_readable()` and all
+        three INSERT policies. Three inline copies of the same `exists` is exactly the drift
+        surface 7.1/7.3 avoided by centralizing `thread_is_readable()`; do not reintroduce
+        it here. `06_grants.sql`: revoke from `public, anon`, grant execute to
+        `authenticated, service_role` (RLS policies evaluate as the querying role, so
+        `authenticated` needs it).
 
-- [ ] **Task 2 — Widen `threads`/`thread_participants`/`messages` to the dual axis**
-      (AC: 3, 10)
-  - [ ] `01_tables.sql`: `alter column account_id drop not null` on all three; add
-        `connection_id bigint` to all three; add the XOR check on each:
-        `constraint <table>_scope_check check ((account_id is not null and
-        connection_id is null) or (account_id is null and connection_id is not
-        null))`.
-  - [ ] Add `threads_connection_id_id_key unique (connection_id, id)` alongside 7.1's
-        `threads_account_id_id_key`. FK `threads_connection_id_fkey` →
-        `connections(id) on delete cascade`.
-  - [ ] For `thread_participants`/`messages`: add the second composite FK
-        `(connection_id, thread_id) references threads(connection_id, id)` alongside
-        7.1's `(account_id, thread_id) references threads(account_id, id)`. Because
-        Postgres FK `MATCH SIMPLE` skips the check when *any* referencing column is
-        null, an account-scoped row (connection_id null) is checked only by the first
-        FK and trivially passes the second; a connection-scoped row (account_id null)
-        is the reverse. This is the **first** dual-axis child table in the schema —
-        there is no existing FK pair to copy; verify it manually with two INSERTs
-        (one each axis) before relying on it in tests.
-  - [ ] Indexes for the new axis: `threads_connection_id_idx`,
-        `thread_participants_connection_id_idx`, `messages_connection_id_idx`
-        (partial `where connection_id is not null` is fine).
-  - [ ] Update `set_thread_defaults()`/`set_thread_participant_defaults()`/
-        `set_message_defaults()` (7.1): each must derive its *own* scope column from
-        whichever axis the parent row uses — e.g. `set_message_defaults()` copies
-        `account_id` **and** `connection_id` from the parent `threads` row (whichever
-        is non-null), not just `account_id`.
-  - [ ] Extend the `threads` delete inside `purge_polymorphic_dependents()` (added by
-        7.1) to also cover the connection axis (AC-10): alongside 7.1's
-        `account_id = old.account_id` delete, delete `subject_type = v_target_type
-        and subject_id = old.id` threads whose `connection_id` is a connection with
-        `household_account_id = old.account_id`. Still one function, still no new
-        trigger.
+- [ ] **Task 2 — `thread_is_readable()` v3** (AC: 4, 5, 9)
+  - [ ] `CREATE OR REPLACE FUNCTION "public"."thread_is_readable"(…)`. Restructure the body
+        into two parts, so the open/private decision is written **once**:
+        1. **Scope gate.** If `account_id is not null` → require
+           `account_id = public.current_context_id()`. Else (`connection_id is not null`) →
+           require `public.connection_is_active_for_caller(connection_id)`. This replaces
+           7.1's `connection_id is not null → return false` line.
+        2. **Visibility resolution**, identical for both axes: `private` → participant-only
+           (7.3); `open` → if `subject_type='shidduch'` and
+           `current_member_role() = 'single'`, apply Epic 6's three-part test on the subject
+           row (AC-5); otherwise true.
+  - [ ] Do not duplicate step 2 per branch. If the plpgsql shape makes that awkward, extract
+        step 2 into a small `public.thread_visibility_permits(p_thread_id bigint) returns
+        boolean` with the same definer/`search_path` hardening, and have
+        `thread_is_readable()` call it after the scope gate — one authority, two callers, no
+        copy.
 
-- [ ] **Task 3 — `create_thread()` v3 and the household-side subject check** (AC: 4)
-  - [ ] `CREATE OR REPLACE FUNCTION create_thread(…, p_connection_id bigint default
-        null)`: when `p_connection_id` is supplied, validate `exists (select 1 from
-        connections c where c.id = p_connection_id and c.status = 'accepted' and
-        (c.household_account_id = current_context_id() or
-        c.shadchanus_account_id = current_context_id()))` or raise; set
-        `connection_id := p_connection_id`, `account_id := null`. When
-        `p_subject_type = 'shidduch'` **and** `p_connection_id` is supplied, the
-        existing subject-exists check (7.1) must additionally resolve against the
-        connection's `household_account_id` (not `current_context_id()`, which for a
-        shadchan caller is their *shadchanus* account and never holds `shidduchim`
-        rows — AD-4: "the resulting suggestion is owned by the household").
-  - [ ] Participant validation: when connection-scoped, an id in
-        `p_participant_member_ids` is accepted if it belongs to **either** side of the
-        connection (household or shadchanus), not just the caller's own account
-        (still raising on anything else, per 7.1's fail-fast rule).
-  - [ ] Default-visibility resolution for the new axis: 7.2's
-        `coalesce(p_visibility, (select default_thread_visibility from accounts where
-        id = v_account_id))` yields NULL for a connection-scoped thread
-        (`v_account_id` is NULL) and would violate `visibility`'s NOT NULL. Resolve a
-        connection-scoped thread's default from the connection's
-        **`household_account_id`** — FR99 gives *families* the default posture, and
-        the household is the only family in the pair. Add a `threads_entity.sql`
-        assertion: household default `'private'` + `create_thread(p_connection_id …)`
-        with no `p_visibility` → a `'private'` thread.
+- [ ] **Task 3 — `create_thread()` v3** (AC: 1, 2, 3, 7)
+  - [ ] `CREATE OR REPLACE FUNCTION public.create_thread(p_subject_type text, p_subject_id
+        bigint default null, p_participant_member_ids bigint[] default '{}', p_visibility
+        text default null, p_connection_id bigint default null)`. **Appending a defaulted
+        parameter changes the function's identity for `db diff` purposes** — hand-check
+        whether the generated migration `DROP`s and re-creates it, and whether the old
+        4-argument signature survives as a second overload. If it does, drop the old
+        signature explicitly in the same migration and re-issue its grants; two overloads
+        differing only by a defaulted tail argument make every call ambiguous
+        (`42725`).
+  - [ ] When `p_connection_id` is supplied: require
+        `public.connection_is_active_for_caller(p_connection_id)` or raise `42501`; set
+        `connection_id := p_connection_id`, `account_id := null`.
+  - [ ] Subject resolution (AC-2): resolve `v_household_account_id := (select
+        household_account_id from public.connections where id = p_connection_id)` and check
+        `exists (select 1 from public.shidduchim where id = p_subject_id and account_id =
+        v_household_account_id)`. For the account axis, 7.1's `current_context_id()` check
+        is unchanged. AD-4 is the reason: "the resulting suggestion is owned by the
+        household; only the conversation about it is connection-scoped."
+  - [ ] Participant validation (AC-3): for a connection-scoped thread, accept an id whose
+        `account_members.account_id` is **either** `household_account_id` or
+        `shadchanus_account_id` and whose `status = 'active'`; raise otherwise. For the
+        account axis, 7.1's rule is unchanged.
+  - [ ] Default-posture resolution (AC-7): `coalesce(p_visibility, (select
+        a.default_thread_visibility from public.accounts a where a.id =
+        coalesce(v_account_id, v_household_account_id)))`. One expression, both axes.
+  - [ ] Every participant row inserted must carry the thread's axis — 7.1's
+        `set_thread_participant_defaults()` copies both scope columns from the parent, so
+        insert the participant rows with both left NULL and let the trigger do it. Do not
+        hand-set `account_id` in the RPC; that is how the two get out of step.
 
-- [ ] **Task 4 — `thread_is_readable()` v3** (AC: 5, 8)
-  - [ ] `CREATE OR REPLACE FUNCTION thread_is_readable`: branch first on which scope
-        column is set. If `account_id is not null`, run 7.1/7.3's existing logic
-        unchanged. If `connection_id is not null`: deny unless
-        `exists (select 1 from connections c where c.id = threads.connection_id and
-        c.status = 'accepted' and (c.household_account_id = current_context_id() or
-        c.shadchanus_account_id = current_context_id()))`; if that passes, apply the
-        **identical** open/private resolution as the account branch (extract the
-        open/private decision into a shared local step inside the function so it is
-        written once, not duplicated per branch). The shared step **includes 7.1's
-        dignity-floor gate**: an *open* connection-scoped thread about a `shidduch`
-        is still hidden from a household-side caller with
-        `current_member_role() = 'single'` when
-        `is_single_visible_state(pipeline_state)` is false — AD-22 rule 2 ("open
-        never widens AD-3") does not stop applying because a shadchan is in the
-        conversation. (A `single`-role membership can only exist on the household
-        side — Epic 2 Story 2.2's role/kind trigger — so no shadchanus-side case
-        arises.) A *private* connection-scoped thread is participants-only, exactly
-        as in 7.3.
+- [ ] **Task 4 — The three INSERT policies** (AC: 6)
+  - [ ] `supabase/schemas/05_policies.sql`. Replace each of 7.1's three `with check`
+        clauses with the two-disjunct form:
+        - `threads`: `((account_id = public.current_context_id() and connection_id is null)
+          or (connection_id is not null and
+          public.connection_is_active_for_caller(connection_id)))`.
+        - `thread_participants` and `messages`: the same scope disjunction **and** 7.1's
+          participant-membership `exists` clause, unchanged — a connection-scoped message
+          still requires the caller to be a listed participant of that thread. 7.1 AC-8 is
+          not relaxed by this axis.
+  - [ ] Replacing a policy is `drop policy` + `create policy`; both statements land in the
+        same migration and DDL is transactional, so there is no window where the table is
+        unprotected. Confirm by reading the generated migration — not by assuming `db diff`
+        produced a `create or replace`, which does not exist for policies.
+  - [ ] Do not touch the SELECT policies. They call `thread_is_readable()` and Task 2
+        extends every one of them for free.
 
-- [ ] **Task 4a — Fix the INSERT policies for the new axis** (AC: 6)
-  - [ ] Add a small helper predicate (inline in each policy, or a
-        `public.connection_is_active_for_caller(p_connection_id bigint) returns
-        boolean STABLE SECURITY DEFINER` if repeating it three times gets noisy):
-        `exists (select 1 from connections c where c.id = p_connection_id and
-        c.status = 'accepted' and (c.household_account_id = current_context_id() or
-        c.shadchanus_account_id = current_context_id()))`.
-  - [ ] `threads` INSERT: `with check ((account_id = current_context_id() and
-        connection_id is null) or (connection_id is not null and
-        connection_is_active_for_caller(connection_id)))`.
-  - [ ] `thread_participants` INSERT: same shape, `account_id`/`connection_id` read
-        off the row being inserted.
-  - [ ] `messages` INSERT: same shape **and** keep 7.1's participant-membership
-        `exists` clause unchanged — a connection-scoped message still requires the
-        caller to be a listed `thread_participants` member of that thread, exactly
-        like the account-scoped case (AC-6 of Story 7.1 is not relaxed by this axis).
-  - [ ] Add a positive test to `threads_entity.sql`: the shadchan side of the AC-7
-        connection actually posts a message via `dataProvider.create("messages", …)`
-        (not just via a service-role seed) and it succeeds — this is the assertion
-        that would have silently failed without this task.
-
-- [ ] **Task 4b — Generate and hand-check the migration** (AC: 1, 2, 3, 6)
+- [ ] **Task 5 — Generate, hand-check and rehearse the migration** (AC: 1, 2, 4, 6, 7)
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
-        connections_and_dual_scope`. Hand-check carefully — this is the most
-        consequential migration in the epic: (a) confirm `connections` gets
-        `ALTER TABLE … FORCE ROW LEVEL SECURITY;` explicitly (Story 7.1's Task 6
-        hand-check pattern);
-        (b) confirm the `alter column account_id drop not null` on all three widened
-        tables is present (an easy one for `db diff` to fold silently into a table
-        rewrite instead — verify the diff is a plain `ALTER COLUMN`, not a
-        drop/recreate that would lose data); (c) confirm **both** composite FKs per
-        widened child table are present, not just the account one — `db diff` has been
-        known to under-emit multi-column FKs when a similar single-column one already
-        exists; add any missing statement by hand.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. Never
-        `db reset`, never `db push`. Manually verify the dual-axis FK behavior with two
-        throwaway INSERTs (one `account_id`-scoped, one `connection_id`-scoped row on
-        `threads`) before trusting it in the test suite, per Task 2's own instruction.
+        connection_scoped_threads`. Hand-inspect: (a) all function bodies emitted (a
+        `plpgsql` body change with an unchanged signature is sometimes missed — write it in
+        by hand if absent); (b) the `create_thread` signature situation from Task 3;
+        (c) three `drop policy` + three `create policy` pairs; (d) **no** `ALTER TABLE`
+        anywhere — if the diff wants to alter a column, something in 7.1 did not land as
+        specified and this story must stop and report rather than absorb it.
+  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`, then
+        `db diff` twice more to prove convergence. Never `db reset` on a stack holding
+        data; never `db push`.
+  - [ ] `make check-migration-safety`, then rehearse against a **production-shaped,
+        non-empty** database. This migration adds no column, but it *replaces the policies
+        that decide who can write to three tables* — the rehearsal here is about a policy
+        that denies more than intended, which an empty database cannot show you.
 
-- [ ] **Task 5 — Types and provider** (AC: 4)
-  - [ ] `types.ts`: add `Connection` type (`household_account_id`,
-        `shadchanus_account_id`, `status`, `ended_at`); add `connection_id?:
-        Identifier | null;` to `Thread`/`ThreadParticipant`/`Message`; add
-        `connection_id?: Identifier;` to `CreateThreadInput`.
-  - [ ] `providers/supabase/dataProvider.ts`: extend `createThread()`'s RPC call with
+- [ ] **Task 6 — Types and providers** (AC: 1)
+  - [ ] `src/components/atomic-crm/types.ts`: add `connection_id?: Identifier | null;` to
+        `CreateThreadInput`. `Connection`, and `connection_id` on
+        `Thread`/`ThreadParticipant`/`Message`, already land in 7.1 — do not re-declare.
+  - [ ] `providers/supabase/dataProvider.ts`: extend `createThread()`'s RPC payload with
         `p_connection_id: input.connection_id ?? null`.
-  - [ ] Mirror in `providers/fakerest/` (AD-10) — including a `db.connections`
-        collection seeded (as `accepted`) for demo/dev purposes, since there is no
-        in-app way to create one yet.
+  - [ ] `providers/fakerest/`: mirror the connection branch of `createThread` and of the
+        readability rule (AD-10), and seed a `db.connections` row with `status='accepted'`
+        plus a shadchanus account in the demo generator, since there is no in-app way to
+        create one. The demo build is the only place a human will see a connection-scoped
+        thread before Epic 8.
 
-- [ ] **Task 6 — Tests** (AC: 6, 7, 8, 9, 10)
-  - [ ] Extend `supabase/tests/threads_entity.sql`: seed a household account, a
-        shadchanus account, and a `connections` row with `status='accepted'` directly
-        (service-role insert — the only way to create one before Epic 8); create a
-        `subject_type='relationship'` private thread scoped to that connection with
-        the household's single and the shadchan as participants; assert both sides
-        read it and its message (AC-7 single↔shadchan), and the same for a
-        parent↔shadchan connection-scoped private thread. Assert the account-scoped
-        half of AC-7 (parent↔parent, parent↔single private threads readable by
-        exactly their two participants) — one assertion each, reusing 7.3's fixtures
-        where they already prove it.
-  - [ ] Add the AC-8 negative tests: a second, unconnected shadchanus account reads
-        zero rows; a second, unrelated household reads zero rows.
-  - [ ] Add the AC-10 purge test: a connection-scoped `subject_type='shidduch'`
-        thread + message; delete the subject `shidduchim` row; assert the thread and
-        its messages/participants are gone.
-  - [ ] Re-run the full suite to confirm no 7.1–7.3 regressions (AC-9).
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus
-        prettier on this story's changed files only.
+- [ ] **Task 7 — Tests** (AC: 6, 8, 9, 10, 11)
+  - [ ] Extend `supabase/tests/threads_entity.sql`. Fixture: a household account, a
+        shadchanus account, an `accepted` `connections` row seeded as `service_role`, a
+        second unconnected shadchanus, a second unrelated household, and an `ended`
+        connection.
+  - [ ] AC-8: a `subject_type='relationship'` **private** connection-scoped thread with the
+        household's single and the shadchan as participants — both sides read it and its
+        message (single↔shadchan); the same for parent↔shadchan; plus the account-scoped
+        half (parent↔parent, parent↔single) reusing 7.3's fixtures.
+  - [ ] AC-6: the shadchan side posts a message through a real **client** INSERT (an
+        `authenticated` session, not `service_role`) and it succeeds. This is the assertion
+        that would silently pass without Task 4 and then break on first use.
+  - [ ] AC-2: a shadchan creates a connection-scoped thread on the household's shidduch
+        (succeeds) and on another household's (raises).
+  - [ ] AC-5: an open connection-scoped thread about a shidduch that fails any one of Epic
+        6's three clauses reads zero rows for the household's `single` — one assertion per
+        clause, so a gate that checks only `is_single_visible_state()` cannot pass.
+  - [ ] AC-7: household default `'private'`, connection-scoped `create_thread()` with no
+        `p_visibility` → `'private'`; flipping the *shadchanus* account's setting changes
+        nothing.
+  - [ ] AC-9's three negatives and AC-10's purge assertion.
+  - [ ] Prove the suite can fail: revert Task 4's `messages` policy to 7.1's form and
+        confirm AC-6 goes red; revert Task 2's scope gate to `return true` and confirm
+        AC-9 goes red. Then ship them green.
+  - [ ] Re-run the full suite for AC-11 (no 7.1-7.3 regressions).
+  - [ ] Vitest for the FakeRest connection branch (AAA, ≥80% of new lines). **No new
+        browser-mode component test** — this story adds no component.
+  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus prettier
+        on this story's changed files only.
 
 ## Dev Notes
 
-### Why `connections` ships without a write path here
+### Why `connections` has no client write path (and why that is this story's problem too)
 
-If this story added a plain `for all` RLS policy on `connections` (the pattern used
-for most domain tables), any authenticated household member could
-`dataProvider.create("connections", { household_account_id: mine, shadchanus_account_id:
-anyone's, status: "accepted" })` and self-grant a connection to **any** shadchan without
-their consent — a direct violation of FR109 ("no directory-driven or automatic
-linkage") and AD-20, in the very story that is supposed to be proving pairings are
-*permitted*, not that consent is *bypassable*. The `subscription`/`ai_usage` tables
-already establish the precedent in this schema for "read-only to `authenticated`,
-every write is `service_role`" (`05_policies.sql:251-268`) specifically to prevent a
-client from self-granting something that must only ever result from a server-verified
-event. `connections` needs the identical treatment until Epic 8 Story 8.2 adds the
-actual consent workflow (invite-based propose/accept plus an end RPC, per
-AD-11/FR119). **Epic 8 must not re-create this table, its kind-enforcement trigger
-or its RLS policy** — it `ALTER`s and extends what this story ships (extra columns
-like `proposed_by_account_id`/`ended_by_account_id` are 8.2's to add; this story's
-`status` vocabulary and live-pair partial unique index were chosen so that extension
-is purely additive).
+A plain `for all` RLS policy on `connections` — the pattern most domain tables use — would
+let any authenticated household member call `dataProvider.create("connections", {
+household_account_id: mine, shadchanus_account_id: anyone's, status: "accepted" })` and
+self-grant a connection to **any** shadchan without their consent: a direct violation of
+FR109 ("no directory-driven or automatic linkage") and of AD-20, in the very story meant to
+prove pairings are *permitted* rather than that consent is *bypassable*. 7.1 ships the
+`subscription`/`ai_usage` posture instead (read-only to `authenticated`, every write
+`service_role` — `05_policies.sql:1048-1063`, `06_grants.sql:847-858`). This story inherits
+that and must not loosen it to make its own tests easier: seed connections as `service_role`.
 
-### Why this story, not 8.1/8.2, creates the table
-
-AD-1's rule ("every table has FORCE ROW LEVEL SECURITY … each table's migration adds
-its RLS in the same migration") and this story's own AC-7 (a real,
-database-verified shadchan↔single private thread) cannot be satisfied by a forward
-reference to a table that doesn't exist yet. Given the epics.md pinned order places
-Epic 7 before Epic 8, the schema dependency has to be satisfied here. This is called
-out as a **flagged cross-epic decision** in the story header and will be repeated in
-the epic-writer's final report — it is exactly the kind of thing epics.md doesn't
-currently state as a dependency.
-
-### The INSERT-policy gap this story must close
-
-7.1's `with check` clauses on `threads`/`thread_participants`/`messages` all test
-`account_id = current_context_id()`. Widening the tables to allow `connection_id`
-instead (Task 2) without also widening these three `with check` clauses (Task 4a) would
-leave every connection-scoped INSERT rejected by RLS — `NULL = current_context_id()`
-is never true — while `thread_is_readable()` (Task 4) would report the row as
-perfectly readable once it existed. That combination (unreadable-to-insert,
-readable-once-inserted) is exactly the kind of half-migrated policy that passes a
-lazy manual smoke test (an operator seeds the row directly, as the tests here also
-do) but breaks the very first real user action. Task 4a exists specifically so this
-doesn't ship silently broken; the Task 4a positive test (a real client-side INSERT,
-not a service-role seed) is what actually catches it.
-
-### The dual-axis composite-FK trick, spelled out
-
-For a table `T` with both `account_id` and `connection_id` (mutually exclusive) that
-needs to reference a parent `P` with the same dual axis:
-
-```sql
-alter table public.P
-  add constraint p_account_id_id_key unique (account_id, id),
-  add constraint p_connection_id_id_key unique (connection_id, id);
-
-alter table public.T
-  add constraint t_p_id_fkey_account
-    foreign key (account_id, p_id) references public.P(account_id, id) on delete cascade,
-  add constraint t_p_id_fkey_connection
-    foreign key (connection_id, p_id) references public.P(connection_id, id) on delete cascade;
-```
-
-Postgres's default `MATCH SIMPLE` means a multi-column FK is satisfied trivially
-(not checked) if **any** of its own columns is NULL. So on an account-scoped row of
-`T` (`connection_id` is NULL), `t_p_id_fkey_connection` is not checked at all, and only
-`t_p_id_fkey_account` does real work; the reverse holds for a connection-scoped row.
-Both constraints must exist for the "exactly one axis is real" guarantee to actually
-be enforced by the database rather than merely assumed.
+**Epic 8 Story 8.2 `ALTER`s this table; it does not re-create it.** 7.1's `status`
+vocabulary (`accepted | ended`, no `pending` — AD-20 says a connection exists only after
+acceptance, and the proposal state lives in the invite mechanism per AD-11/FR119) and the
+partial live-pair unique index were chosen so 8.2's extension (`proposed_by_account_id`,
+`ended_by_account_id`, the propose/accept/end RPCs) is purely additive.
 
 ### The household-side subject check
 
-A shadchan's active context is always their **shadchanus** account (AD-2: "a
-shadchanus context may never contain household domain rows"). When a shadchan
-initiates or is added to a connection-scoped thread about a specific `shidduch`,
-`current_context_id()` cannot be used to validate the subject (it resolves to the
-shadchanus account, which holds no `shidduchim` rows at all) — the check must instead
-walk `connections.household_account_id` to find the household side, then verify the
-`shidduchim` row belongs to it. This mirrors AD-4's own statement that "the resulting
-suggestion is owned by the household; only the conversation about it is
-connection-scoped."
+A shadchan's active context is always their **shadchanus** account (AD-2: "a shadchanus
+context may never contain household domain rows", enforced by `enforce_household_scope()`).
+So `current_context_id()` cannot validate a `shidduch` subject for a shadchan caller — it
+resolves to an account that holds no `shidduchim` rows at all, and every such call would
+raise. The check must walk `connections.household_account_id` to find the household side and
+verify the row belongs to it. This mirrors AD-4: "the resulting suggestion is owned by the
+household; only the conversation about it is connection-scoped."
+
+Note what this does *not* do: it does not let a shadchan read the shidduch row. `shidduchim`
+RLS is `account_id = current_context_id()` and is untouched by Epic 7. A shadchan sees the
+conversation about a shidduch, and the thread's `subject_id`; the shidduch itself stays in
+the household. That is FR113 being structural rather than policed.
+
+### Why the `ended` case is called out separately
+
+`connection_is_active_for_caller()` requires `status = 'accepted'`, so ending a connection
+ends every read on its threads — including threads whose participants are unchanged. That is
+the intended reading of AD-20's "either side may end it", but it is the kind of behaviour
+that is only obviously correct once someone has asserted it (AC-9). The messages are not
+deleted; they become unreadable, and a future story that wants an export-on-end has a clean
+place to hang it.
+
+### What moved to 7.1, so nobody rebuilds it
+
+`connections` (table, kind trigger, SELECT policy, grants, partial unique index);
+`connection_id` on all three thread tables; the XOR `<table>_scope_check` constraints;
+`threads_connection_id_id_key`; the second composite FK per child table; the connection
+indexes; the scope-copying trigger functions; the both-axis delete inside
+`purge_polymorphic_dependents()`. If any of these is missing when this story is picked up,
+**stop and report** — do not add it here, because adding it here reintroduces exactly the
+production-narrowing migration this restructure removed.
 
 ### References
 
-- [Source: ARCHITECTURE-SPINE.md#AD-20] — the connection as a third scope; "a shadchan
-  therefore cannot address a household row at all — FR113 is structural."
-- [Source: ARCHITECTURE-SPINE.md#AD-1] — exactly one scoping axis per row; FORCE RLS.
-- [Source: ARCHITECTURE-SPINE.md#AD-2] — "a shadchanus context may never contain
-  household domain rows."
-- [Source: ARCHITECTURE-SPINE.md#AD-4] — suggestions redted through a connection still
-  belong to the household.
-- [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/decisions-log.md#D17]
-  — groups "Shadchan context + connections + messaging" as one delivery slice, which
-  is the root of the cross-epic ordering tension this story resolves.
-- [Source: _bmad-output/planning-artifacts/epics.md#Epic-8-Shadchan-Context] — Story
-  8.2 "Consent-based connection" is where the propose/accept RPCs belong, on top of
-  this story's table.
-- `supabase/schemas/05_policies.sql:251-268` (`subscription`/`ai_usage` — the
-  read-only-to-authenticated precedent).
-- `supabase/schemas/01_tables.sql:654-666` (existing single-axis composite-FK
-  precedent, extended here to the dual-axis case).
-- Story `7-1-thread-model.md` — the functions and tables this story widens.
+- [Source: `_bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-20`]
+  — the connection as a third scope; "a shadchan therefore cannot address a household row at
+  all — FR113 is structural."
+- [Source: same file `#AD-1`] — exactly one scoping axis per row.
+- [Source: same file `#AD-2`] — "a shadchanus context may never contain household domain
+  rows."
+- [Source: same file `#AD-4`] — a shidduch redted through a connection still belongs to the
+  household.
+- [Source: same file `#AD-22`] — resolution rules 1-3.
+- [Source: `_bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/decisions-log.md#D17`]
+  — groups "Shadchan context + connections + messaging" as one delivery slice, the root of
+  the cross-epic ordering tension 7.1 resolves by creating the bare table.
+- [Source: `_bmad-output/planning-artifacts/epics.md#Epic-8-Shadchan-Context`] — Story 8.2
+  owns the propose/accept RPCs, on top of 7.1's table.
+- [Source: `_bmad-output/planning-artifacts/epic3-api-contract.md` §3 rule 5] — the
+  **Connection** tab row (`overview, discussions`) is **Epic 8's** to add to
+  `CANONICAL_TAB_SETS`, together with its descriptor. Not this story's.
+- `supabase/schemas/02_functions.sql:249`/`:290`/`:316` (context/member/role resolvers),
+  `:1484` (`is_single_visible_state`), `:2466` (`purge_polymorphic_dependents`).
+- `supabase/schemas/05_policies.sql:352-367` (Epic 6's three-part single gate, applied
+  unchanged across the connection axis by AC-5), `:1048-1063` (`subscription`/`ai_usage`
+  read-only precedent).
+- `supabase/schemas/06_grants.sql:290-292` (function-grant convention), `:847-858`
+  (read-only-to-`authenticated` table + sequence pattern).
+- `src/components/atomic-crm/entity360/ad24Conformance.ts:209-242` (`CANONICAL_TAB_SETS` —
+  no `connections` row today, and this story adds none).
+- Story `7-1-thread-model.md` — every table, column, constraint and FK this story consumes.
 
-### Project Structure Notes
+## Dependencies
 
-- No new directories; all changes land in the existing `supabase/schemas/*` files and
-  `threads/`/`types.ts`/provider files from 7.1.
+- **7.1** (blocking, structural): `connections`, `connection_id`, both composite FK sets,
+  the XOR checks, the scope-copying triggers, the both-axis purge delete.
+- **7.2** (blocking): the `default_thread_visibility` column AC-7 reads.
+- **7.3** (blocking): the private branch AC-4's shared resolution reuses.
+- **Blocks 7.5**, whose fan-out must copy the right scope column onto every notification.
+- **Epic 8 Story 8.2** must `ALTER` `connections`, never re-create it. **Epic 8 Story 8.5**
+  owns the Connection 360 and the `CANONICAL_TAB_SETS.connections` row.
+- **Wave:** writes `02_functions.sql`, `05_policies.sql`, `06_grants.sql`, `types.ts`, both
+  dataProviders and `threads_entity.sql` — **never the same wave as 7.1, 7.2, 7.3 or 7.5**.
+
+## Declared file set
+
+**Schema / DB**
+`supabase/schemas/02_functions.sql`, `05_policies.sql`, `06_grants.sql`, one new
+`supabase/migrations/<ts>_connection_scoped_threads.sql`,
+`supabase/tests/threads_entity.sql` (extended),
+`supabase/tests/migration-data-safety/fixture.sql` (only if 7.1's seed does not already
+cover both axes).
+
+**Types / providers**
+`src/components/atomic-crm/types.ts`,
+`providers/supabase/dataProvider.ts`,
+`providers/fakerest/dataProvider.ts`,
+`providers/fakerest/dataGenerator/**` (the seeded shadchanus account + connection).
+
+**Generated**
+`registry.json` (pre-commit `make registry-gen`) — only if a source file under `src/` moves
+or is added.
+
+No `01_tables.sql` change, no column-order risk, no i18n change, no descriptor change, no
+`CANONICAL_TAB_SETS` change, no new component, no route change.
 
 ## Dev Agent Record
 

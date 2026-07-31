@@ -8,182 +8,297 @@ Status: ready-for-dev
 
 As any participant,
 I want to make a specific conversation private,
-so that sensitive matters stay between the people actually in it, enforced by the
-database rather than the UI (FR97, FR98).
+so that sensitive matters stay between the people actually in it, enforced by the database
+rather than the UI (FR97, FR98).
 
 ## Position in Epic 7
 
 **3rd of 5. Depends on 7.1** (`threads`, `thread_is_readable()`, `messages`,
-`thread_participants`) **and 7.2** (this story doesn't touch
-`default_thread_visibility`, but it must not regress it — a thread created with no
-explicit `p_visibility` must still resolve per 7.2's account default before this
-story's enforcement applies to it). Precedes 7.4 (connection scope reuses this story's
-`thread_is_readable()` body verbatim, just adding a third branch) and 7.5
-(notifications, unaffected by visibility).
+`thread_participants`, the participant-gated INSERT policies) **and 7.2** (this story does
+not touch `default_thread_visibility`, but must not regress it: a thread created with no
+explicit `p_visibility` still resolves per the account default before this story's
+enforcement applies to it). Precedes 7.4 (whose connection branch reuses this story's
+open/private resolution rather than reimplementing it) and 7.5 (notifications, unaffected by
+visibility).
 
-This is the story where "private" stops being an inert column value and starts being
-enforced. **Security-triggers.md is explicit: any diff touching RLS or a permission
-boundary requires a negative test — this story's whole point is a permission boundary,
-so its negative test (AC-4) is not optional.**
+This is the story where `private` stops being an inert column value and starts being
+enforced. `.claude/rules/security-triggers.md` is explicit: any diff touching RLS or a
+permission boundary requires a negative test. This story's whole point *is* a permission
+boundary, so AC-5 is not optional coverage — it is the deliverable.
+
+**Deploy coupling.** 7.1 creates `threads.visibility` with `'private'` legal but
+unenforced, and 7.1 also ships the Discussions tab. **7.1-7.3 deploy together**, or the
+product renders a privacy control that does nothing.
 
 ## Acceptance Criteria
 
-1. **A thread can be made private, at creation or later.** `create_thread()` already
-   accepts `p_visibility='private'` at creation (7.1). This story adds
-   `public.set_thread_visibility(p_thread_id bigint, p_visibility text)` so an existing
-   thread can be flipped **by agreement** (FR97) — any current `thread_participants`
-   member of that thread may call it, not only its creator (see Dev Notes "Why any
-   participant, not just the creator").
+1. **A thread can be made private, at creation or later.** `create_thread()` already accepts
+   `p_visibility='private'` at creation (7.1). This story adds
+   `public.set_thread_visibility(p_thread_id bigint, p_visibility text) returns
+   public.threads` so an existing thread can be flipped **by agreement** (FR97) — any
+   current `thread_participants` member of that thread may call it, not only its creator
+   (Dev Notes "Why any participant, not just the creator").
 
-2. **Private means participants only — full stop.** `thread_is_readable()` is extended
-   with a private branch: when `threads.visibility = 'private'`, the thread (and its
-   messages, and its own participant roster) is readable **only** by a caller who is a
-   listed `thread_participants` member of that thread — never by "any member of the
-   account" (AD-1's general account read) and never widened by role (`parent_admin`
-   included). This overrides AD-1's general account-scope read exactly as AD-22
-   resolution rule 1 specifies.
+2. **Private means participants only — full stop.** `thread_is_readable()` gains a private
+   branch: when `threads.visibility = 'private'`, the thread, its messages and its own
+   participant roster are readable **only** by a caller who is a listed
+   `thread_participants` member of that thread — never by "any member of the account"
+   (AD-1's general read) and never widened by role, `parent_admin` included. This overrides
+   AD-1's general account-scope read exactly as AD-22 resolution rule 1 specifies.
 
-3. **Non-participants see nothing — not even that the thread exists.** A same-account
-   member who is not a participant of a private thread gets **zero rows** from
-   `threads`, `messages` and `thread_participants` for that thread — not a
-   permission-denied error, not a redacted stub, an absent row (RLS row-filtering, not
-   a 403).
+3. **Non-participants see nothing — not even that the thread exists.** A same-account member
+   who is not a participant of a private thread gets **zero rows** from `threads`, `messages`
+   and `thread_participants` for that thread: RLS row-filtering, not a 403, not a redacted
+   stub. Asserted by row count in the `db` project via psql — "zero rows" is not observable
+   through PostgREST, where a 0-row read and a policy error are indistinguishable
+   (contract §13 rule 4).
 
-4. **Verification — the mandatory negative test.** `supabase/tests/threads_entity.sql`
-   gains: one account, three members (A = parent_admin, B = parent_admin/spouse,
-   C = helper); a thread between A and B only, explicitly made `'private'`; assert
-   C's client reads **zero** rows from `threads`, `messages` and `thread_participants`
-   for that thread, while A and B each read exactly the same one thread and its
-   message. Additionally assert C **cannot break in**: C's attempt to INSERT a
-   `thread_participants` row adding themselves to the private thread is rejected by
-   RLS (7.1's participant-gated INSERT policy — re-proven here because this is the
-   story whose promise it protects), and C's `set_thread_visibility()` call on that
-   thread raises. This is the story's defining test, not incidental coverage.
+4. **Privacy is a round trip, not a one-way latch.** Flipping an open thread to `private`
+   removes it from a non-participant's reads **immediately** (same session, no cache step),
+   and flipping it back to `open` restores them. **Falsifiable:** the same non-participant
+   session reads 1 → 0 → 1 across two `set_thread_visibility()` calls. A test that only
+   checks the private state passes against an implementation that hard-denies everything.
 
-5. **Open threads are unaffected.** Every 7.1/7.2 assertion in `threads_entity.sql`
-   (open-thread readability, the dignity-floor gate for a `single`, the account-default
-   resolution) still passes unchanged — this story adds a branch, it does not
-   restructure the open case.
+5. **Verification — the mandatory negative test.** `supabase/tests/threads_entity.sql`
+   gains: one account, three members (A = `parent_admin`, B = `parent_admin`, C = `helper`);
+   a thread between A and B only, explicitly `'private'`. Assert C reads **zero** rows from
+   `threads`, `messages` and `thread_participants` for it, while A and B each read exactly
+   that one thread and its message. Additionally assert C **cannot break in**: C's INSERT of
+   a `thread_participants` row adding themselves is rejected by 7.1's participant-gated
+   INSERT policy (re-proven here because this is the story whose promise it protects), and
+   C's `set_thread_visibility()` call on that thread **raises** with a specific SQLSTATE
+   that the test matches by code — never `exception when others then … PASS`, which is
+   green for a typo, a dropped function or a broken `search_path`. Prove the denial by
+   mutation, and separately prove an unrelated failure still fails.
 
-6. **Verification — the toolchain is green.** `make typecheck`, `npm run lint`,
-   `make test`, `npm run test:unit:db` all pass with zero new warnings.
+6. **The single's carve-out is scoped to the thread and is not a back door.** A `single`
+   deliberately added as a participant of a private thread about a shidduch they cannot
+   otherwise see (a sibling's, or one with `visibility='private_parent'`) **does** read that
+   thread and its messages — the participant list is the human decision, and re-applying the
+   dignity-floor gate on top would make adding them meaningless (Dev Notes "Why private does
+   not re-apply the single gate"). **Falsifiable, and this is the clause that keeps it from
+   becoming a leak:** in the same fixture, that single still reads **zero** rows from
+   `public.shidduchim`, `public.resumes`, `public.interactions` and `public.entity_files`
+   for that subject. Epic 6's row and field scoping is untouched; what the single gains is
+   the conversation they were invited into, and nothing else.
+
+7. **Open threads are unaffected.** Every 7.1/7.2 assertion in `threads_entity.sql` — open
+   readability, the three-part dignity-floor gate (7.1 AC-9), the account-default resolution
+   — still passes unchanged. This story adds a branch; it does not restructure the open case.
+
+8. **The connection axis stays closed until 7.4.** `set_thread_visibility()` refuses a
+   connection-scoped thread, because 7.1's `thread_is_readable()` returns false for one and
+   this RPC requires readability as well as participation. **Falsifiable:** a service-role-
+   seeded connection-scoped private thread cannot be flipped by any `authenticated` caller.
+   7.4 widens this by widening `thread_is_readable()`, and this RPC follows for free.
+
+9. **Verification — the toolchain is green.** `make typecheck`, `npm run lint`, `make test`,
+   `npm run test:unit:db` all pass with zero new warnings. `make check-migration-safety`
+   passes (this story's migration is function bodies only — no column is added, dropped or
+   narrowed).
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Extend `thread_is_readable()` with the private branch** (AC: 2, 3, 5)
+- [ ] **Task 1 — Extend `thread_is_readable()` with the private branch** (AC: 2, 3, 4, 6, 7)
   - [ ] `supabase/schemas/02_functions.sql`: `CREATE OR REPLACE FUNCTION
-        public.thread_is_readable` — after the existing account-match + dignity-floor
-        check (7.1's body, unchanged), add: if `visibility = 'private'`, return
-        `exists (select 1 from thread_participants tp where tp.thread_id =
-        p_thread_id and tp.member_id = public.current_member_id())` — and **nothing
-        else** (no dignity-floor re-check on top; see Dev Notes "Why private doesn't
-        re-apply the single gate"). If `visibility = 'open'`, keep 7.1's existing
-        logic unchanged.
-  - [ ] No RLS policy text changes anywhere — every policy from 7.1
-        (`threads`/`thread_participants`/`messages` SELECT) already calls
-        `thread_is_readable()`; extending the function extends every caller for free.
-        This is the payoff of centralizing it in 7.1 instead of inlining the logic
-        three times.
+        "public"."thread_is_readable"(…)` in exact `pg_dump` form (contract §8 rule 6, or
+        `db diff` produces a phantom diff). Keep 7.1's body order intact and insert one
+        step:
+        1. thread missing → false (7.1);
+        2. `connection_id is not null` → false (7.1; 7.4 replaces this line);
+        3. `account_id <> current_context_id()` → false (7.1);
+        4. **new:** `visibility = 'private'` → return
+           `exists (select 1 from public.thread_participants tp where tp.thread_id =
+           p_thread_id and tp.member_id = public.current_member_id())` and **nothing else**
+           — no dignity-floor re-check on top (AC-6, Dev Notes);
+        5. `visibility = 'open'` → 7.1's existing logic, including the three-part single
+           gate, unchanged.
+  - [ ] **No RLS policy text changes anywhere.** Every 7.1 SELECT policy on
+        `threads`/`thread_participants`/`messages` already calls `thread_is_readable()`;
+        extending the function extends every caller for free. This is the payoff of
+        centralizing it in 7.1 instead of inlining the logic three times.
+  - [ ] Keep the function `STABLE SECURITY DEFINER SET search_path ''`. Do not make it
+        `IMMUTABLE` (it reads tables) and do not drop `SET search_path ''` — a broken
+        `search_path` is one of the failure modes a bare `exception when others` handler
+        would hide, which is why AC-5 forbids one.
 
-- [ ] **Task 2 — `set_thread_visibility()` RPC** (AC: 1)
-  - [ ] `supabase/schemas/02_functions.sql`: `public.set_thread_visibility(p_thread_id
-        bigint, p_visibility text) returns public.threads` — `SECURITY DEFINER SET
-        search_path ''`. Validates `p_visibility in ('open','private')`; validates the
-        caller is a current `thread_participants` member of `p_thread_id`
-        (`tp.member_id = public.current_member_id()` — **not** merely a same-account
-        member: a non-participant cannot flip visibility on a thread they're not even
-        in, open or private); updates `threads.visibility`; returns the updated row.
-  - [ ] Grant `execute` to `authenticated`/`service_role` in `06_grants.sql`
-        (not `anon`). No table-level UPDATE grant on `threads` is added for
-        `authenticated` — this RPC remains the sole write path for `visibility`,
-        matching 7.1's "no UPDATE policy for authenticated" decision.
+- [ ] **Task 2 — `set_thread_visibility()` RPC** (AC: 1, 4, 8)
+  - [ ] `public.set_thread_visibility(p_thread_id bigint, p_visibility text) returns
+        public.threads` — `SECURITY DEFINER SET search_path ''`, `pg_dump` form. In order:
+        validate `p_visibility in ('open','private')` or raise `22023`
+        (`invalid_parameter_value`); require `public.thread_is_readable(p_thread_id)` (this
+        is what closes AC-8 with no connection-specific code); require the caller is a
+        current `thread_participants` member (`tp.member_id = public.current_member_id()`)
+        or raise `42501` (`insufficient_privilege`) — **not** merely a same-account member,
+        so a non-participant cannot flip visibility on a thread they are not in, open or
+        private; update `threads.visibility`; return the updated row.
+  - [ ] Use distinct, documented SQLSTATEs for the two refusals so AC-5's test can match a
+        code rather than a message, and so a future message reword does not silently turn
+        the assertion green.
+  - [ ] `06_grants.sql`: `revoke all on function public.set_thread_visibility(bigint, text)
+        from public, anon;` then `grant execute … to authenticated, service_role;`. **No
+        table-level UPDATE grant on `threads` for `authenticated`** — this RPC stays the
+        sole write path for `visibility`, matching 7.1's "no UPDATE grant, no UPDATE policy"
+        decision. If `authenticated` gained UPDATE on `threads`, this whole story would be
+        one `dataProvider.update` away from bypassed.
 
 - [ ] **Task 2a — Generate and apply the migration** (AC: 1, 2, 3)
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
-        thread_privacy_enforcement`. This migration is function-body-only
-        (`CREATE OR REPLACE FUNCTION` for `thread_is_readable` and the new
-        `set_thread_visibility`) — hand-check that `db diff` actually emitted both
-        `CREATE OR REPLACE FUNCTION` statements (a `plpgsql` body change is sometimes
-        missed if the signature is unchanged; if the generated migration is empty,
-        write the two statements by hand into it).
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. Never
-        `db reset`, never `db push`.
+        thread_privacy_enforcement`. This migration is function bodies only. Hand-check that
+        `db diff` emitted **both** `CREATE OR REPLACE FUNCTION` statements — a `plpgsql`
+        body change with an unchanged signature is sometimes missed. If the generated
+        migration is empty or partial, write the statements into it by hand.
+  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`, then
+        `db diff` twice more to prove convergence. Never `db reset` on a stack holding data;
+        never `db push`.
+  - [ ] `make check-migration-safety` (function-only, so this should be a clean pass — if it
+        is not, something else drifted).
 
 - [ ] **Task 3 — Types and provider** (AC: 1)
-  - [ ] `providers/supabase/dataProvider.ts`: add `setThreadVisibility(threadId:
-        Identifier, visibility: ThreadVisibility): Promise<Thread>` calling
-        `.rpc("set_thread_visibility", { p_thread_id: threadId, p_visibility:
-        visibility })`, same shape as `createShidduchViaRpc`.
-  - [ ] Mirror in `providers/fakerest/dataProvider.ts` (AD-10).
+  - [ ] `providers/supabase/dataProvider.ts`: `setThreadVisibility(threadId: Identifier,
+        visibility: ThreadVisibility): Promise<Thread>` calling
+        `.rpc("set_thread_visibility", { p_thread_id: threadId, p_visibility: visibility })`
+        — same shape as `createShidduchViaRpc` (`dataProvider.ts:85-100`).
+  - [ ] Mirror in `providers/fakerest/dataProvider.ts` (AD-10), including the FakeRest
+        equivalent of the participant check, so the demo build does not offer a control that
+        silently succeeds for everyone.
+  - [ ] No `types.ts` change — `ThreadVisibility` and `Thread` land in 7.1.
 
-- [ ] **Task 4 — UI: the privacy toggle** (AC: 1)
-  - [ ] In `threads/ThreadPanel.tsx` (from 7.1), add a lock/unlock control calling
-        `dataProvider.setThreadVisibility()`, visible only to current participants
-        (non-participants can't see the thread at all, so this is naturally
-        unreachable by anyone else). Copy through `i18nProvider`
-        (`crm.threads.visibility.*`).
+- [ ] **Task 4 — UI: the privacy control** (AC: 1)
+  - [ ] In `threads/ThreadPanel.tsx` (7.1), a lock/unlock control calling
+        `dataProvider.setThreadVisibility()`, rendered only for current participants — a
+        non-participant cannot see a private thread at all, and on an *open* thread a
+        non-participant must not be offered a control the RPC will refuse. Derive
+        participation from the thread's already-loaded participant list; do not add a
+        second round trip.
+  - [ ] The control must state the consequence in plain language, not just toggle an icon: a
+        private thread is invisible to the rest of the household, which is the point and is
+        not obvious from a padlock alone. Copy through the `i18nProvider` under
+        `crm.threads.visibility.*`, in **both** `englishCrmMessages.ts` and
+        `frenchCrmMessages.ts` (the French catalogue is genuinely translated).
+  - [ ] Invalidate the thread/message queries on success so AC-4's round trip is observable
+        without a reload.
 
-- [ ] **Task 5 — Tests** (AC: 4, 5, 6)
-  - [ ] Extend `supabase/tests/threads_entity.sql` with the AC-4 negative test
-        (three-member, one-account scenario above) and an AC-1 positive test
-        (`set_thread_visibility` by a non-creator participant succeeds; by a
-        non-participant same-account member fails).
-  - [ ] Re-run the full `threads_entity.sql` suite to confirm AC-5 (no 7.1/7.2
-        regressions).
-  - [ ] Vitest for the privacy toggle (AAA, ≥80% new lines).
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus
-        prettier on this story's changed files only.
+- [ ] **Task 5 — Tests** (AC: 4, 5, 6, 7, 8, 9)
+  - [ ] Extend `supabase/tests/threads_entity.sql` (7.1's file) with:
+        - the AC-5 three-member negative scenario, plus C's two break-in attempts, each
+          matched by **specific SQLSTATE**;
+        - the AC-4 round trip (1 → 0 → 1 for the same non-participant session);
+        - the AC-6 pair: the single participant reads the private thread **and** reads zero
+          rows from `shidduchim`/`resumes`/`interactions`/`entity_files` for that subject;
+        - the AC-8 refusal on a service-role-seeded connection-scoped thread;
+        - the AC-1 positives: `set_thread_visibility()` by a **non-creator** participant
+          succeeds; by a non-participant same-account member raises.
+  - [ ] Prove the suite can fail: mutate the private branch to `return true` and confirm
+        AC-5 and AC-3 go red before shipping them green. A guard that cannot fail is not
+        coverage (contract §13 rule 2).
+  - [ ] Re-run the whole `threads_entity.sql` suite for AC-7 (no 7.1/7.2 regressions).
+  - [ ] Vitest (browser mode, `vitest-browser-react` + `TestMemoryRouter`) for the privacy
+        control: shown to a participant, absent for a non-participant, and the success path
+        invalidates. AAA, ≥80% of new lines.
+  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus prettier
+        on this story's changed files only.
 
 ## Dev Notes
 
 ### Why any participant, not just the creator, can flip visibility
 
-FR97: "A thread may be made private **at creation or by agreement**." "By agreement"
-reads as any party to the conversation, not a creator-only privilege — a thread started
-open by one parent should be lockable by the other parent too, without the first
-parent's action. `set_thread_visibility()` therefore checks current
-`thread_participants` membership, not `created_by_member_id`.
+FR97: "A thread may be made private **at creation or by agreement**." "By agreement" reads as
+any party to the conversation, not a creator-only privilege — a thread started open by one
+parent should be lockable by the other parent without the first parent's action.
+`set_thread_visibility()` therefore checks current `thread_participants` membership, not
+`created_by_member_id`. The symmetric consequence is deliberate: any participant can also
+*unlock* it. That is what "by agreement" costs, and no AC in Epic 7 asks for a lock that only
+its setter can release.
 
-### Why private doesn't re-apply the single-visibility gate
+### Why private does not re-apply the single gate — and the boundary that keeps it honest
 
-AD-22 resolution rule 2 ("open never widens AD-3") is stated for the `open` branch
-only. For `private`, the participant list is itself an explicit human decision — if a
-single was deliberately added as a participant of a private thread about their own
-suggestion, that addition **is** the consent; there is no separate "but is this
-pipeline_state visible to a single" check layered on top. Re-applying the dignity-floor
-gate to private threads would create a strange asymmetry (a parent could privately
-discuss a suggestion *with* the single but the single's own client would still filter
-it based on pipeline_state) that no AC asks for and that undermines the point of adding
-someone to a private conversation on purpose. This is a deliberate design decision, not
-an oversight — stated here so it isn't "fixed" into inconsistency later.
+AD-22 resolution rule 2 ("open never widens AD-3") is stated for the `open` branch only. For
+`private`, the participant list is itself an explicit human decision: if a single was
+deliberately added to a private thread about a shidduch, that addition **is** the consent.
+Re-applying the dignity-floor gate would create a strange asymmetry — a parent could
+privately discuss a shidduch *with* the single while the single's own client filtered it
+out — that no AC asks for and that empties the act of adding someone on purpose.
+
+What makes this a decision rather than a hole is AC-6's second half. The carve-out is scoped
+to **the thread**: the single reads the conversation and nothing else. `shidduchim`,
+`resumes`, `interactions` and `entity_files` for that subject stay at zero rows under Epic
+6's shipped policies (`05_policies.sql:352-367` and the sibling three-clause policies at
+`:399`, `:464`, `:494`, `:604`, `:867`), which this story does not touch. Without that
+assertion, "private beats the dignity floor" would be one join away from a general bypass;
+with it, the blast radius is exactly the messages someone chose to include them in.
+
+State it in the UI, too: adding a participant to a private thread is a disclosure decision,
+and the composer's participant control is where a parent finds that out.
 
 ### Why extending one function is safer than editing three policies
 
-If Story 7.1 had inlined the open/private logic separately into the `threads`,
-`thread_participants` and `messages` policies, this story would need to edit three
-`CREATE POLICY` statements identically and could easily let them drift (e.g., messages
-staying readable on a thread whose `threads` policy already denies it). Because 7.1
-centralized the logic in `thread_is_readable()` — the same "one SQL function is the one
-authority" pattern as `is_single_visible_state()` (AD-3) — this story's entire
-enforcement change is a single `CREATE OR REPLACE FUNCTION`.
+If 7.1 had inlined the open/private logic into the `threads`, `thread_participants` and
+`messages` policies separately, this story would have to edit three `CREATE POLICY`
+statements identically and could easily let them drift — e.g. messages staying readable on a
+thread whose `threads` policy already denies it. Because 7.1 centralized it in
+`thread_is_readable()` — the same "one SQL function is the one authority" pattern as
+`is_single_visible_state()` (`02_functions.sql:1484`, AD-3) — this story's entire enforcement
+change is a single `CREATE OR REPLACE FUNCTION`. Keep it that way: a reviewer should be able
+to read the whole permission boundary in one function body.
 
 ### References
 
-- [Source: ARCHITECTURE-SPINE.md#AD-22] — resolution rule 1: "Private beats scope…
-  readership is its participants only… overrides the general connection-membership
-  read in AD-20 and the general account read in AD-1."
-- [Source: .claude/rules/security-triggers.md] — RLS-touching diffs require a negative
-  test; this story's AC-4 is that test.
-- [Source: _bmad-output/planning-artifacts/epics.md#Story-7.3-Per-discussion-privacy]
+- [Source: `_bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-22`]
+  — resolution rule 1: "Private beats scope… readership is its participants only… overrides
+  the general connection-membership read in AD-20 and the general account read in AD-1."
+- [Source: same file `#AD-3`] — the one-authority visibility function and the un-lowerable
+  floor this story composes with rather than re-deriving.
+- [Source: `.claude/rules/security-triggers.md`] — RLS-touching diffs require a negative
+  test; AC-5 is that test.
+- [Source: `_bmad-output/planning-artifacts/epics.md#Epic-7-Communication`, Story 7.3]
+- [Source: `_bmad-output/planning-artifacts/epic3-api-contract.md` §8 rule 6 (`pg_dump`
+  function form), §13 rules 2 and 4 (a guard must be proven red; zero-rows is asserted in the
+  `db` project)].
+- `supabase/schemas/02_functions.sql:1484` (`is_single_visible_state` — the one-authority
+  precedent this story's centralization pays off against), `:249`/`:290`/`:316`
+  (`current_context_id` / `current_member_id` / `current_member_role`).
+- `supabase/schemas/05_policies.sql:352-367` (Story 6.2's three-part single gate, unchanged
+  by this story and asserted still-holding by AC-6).
+- `supabase/schemas/06_grants.sql:290-292` (function-grant convention).
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts:85-100`
+  (`createShidduchViaRpc` — the RPC-wrapper shape).
 - Story `7-1-thread-model.md` — `thread_is_readable()`'s v1 body (extended here, not
-  replaced) and the `threads_entity.sql` test file this story extends.
-- `supabase/schemas/02_functions.sql:578-599` (`is_child_visible_state` — the "one
-  authority function" precedent this story's centralization pays off against).
+  replaced), the participant-gated INSERT policies, and `threads_entity.sql`.
 
-### Project Structure Notes
+## Dependencies
 
-- No new files beyond the UI toggle addition inside `threads/ThreadPanel.tsx`
-  (7.1's file) and the RPC/provider additions inside existing files.
+- **7.1** (blocking): `thread_is_readable()`, the three tables, the participant-gated INSERT
+  policies, `threads_entity.sql`.
+- **7.2** (blocking, ordering only): its account-default assertions live in the same SQL
+  suite and AC-7 requires them to still pass.
+- **Blocks 7.4**, which reuses this story's open/private resolution for the connection
+  branch rather than writing a second copy.
+- **Deploy coupling:** ships with 7.1 and 7.2.
+- **Wave:** touches `02_functions.sql`, `06_grants.sql`, `dataProvider.ts` (both providers),
+  both i18n catalogues and `threads/ThreadPanel.tsx` — **never the same wave as 7.1, 7.2 or
+  7.5**, all of which write the same files.
+
+## Declared file set
+
+**Schema / DB**
+`supabase/schemas/02_functions.sql`, `06_grants.sql`, one new
+`supabase/migrations/<ts>_thread_privacy_enforcement.sql`,
+`supabase/tests/threads_entity.sql` (extended).
+
+**Providers / i18n**
+`src/components/atomic-crm/providers/supabase/dataProvider.ts`,
+`providers/fakerest/dataProvider.ts`,
+`providers/commons/englishCrmMessages.ts`, `providers/commons/frenchCrmMessages.ts`.
+
+**UI**
+`src/components/atomic-crm/threads/ThreadPanel.tsx` and its `.test.tsx`.
+
+**Generated**
+`registry.json` (pre-commit `make registry-gen`).
+
+No `types.ts` change, no schema table change, no tab/descriptor change, no
+`CANONICAL_TAB_SETS` change, no `01_tables.sql` change — and therefore no column-order risk.
 
 ## Dev Agent Record
 
