@@ -55,6 +55,56 @@ grant all on results to public;
 grant all on ids to public;
 
 -- ---------------------------------------------------------------------------
+-- Denial assertions name the error they expect — the same helper, and the
+-- same reasoning, as single_row_scoping.sql and single_input.sql (see the
+-- comment at the head of the former for the demonstration).
+--
+-- `exception when others then insert into results values (…, true, sqlerrm)`
+-- records a PASS for ANY failure, so it cannot tell "the WITH CHECK refused
+-- me" from "the table was renamed", "a NOT NULL column was added" or "an
+-- unrelated statement earlier in this block threw". Four checks in this file
+-- still had that shape, and mutation proved all four vacuous: deleting
+-- `current_member_role() <> 'single'` from "Shadchanim scoped to account"'s
+-- WITH CHECK — the control the shadchanim check exists to catch — left the
+-- suite 59/59 green, because an unrelated failure was raising first and
+-- being absorbed. Each denial below now pins the SQLSTATE and the message
+-- the control actually produces, so a DIFFERENT failure fails the check
+-- instead of passing it.
+-- ---------------------------------------------------------------------------
+create function pg_temp.denied(
+  p_name text,
+  p_expected_sqlstate text,
+  p_expected_message_like text,
+  p_actual_sqlstate text,
+  p_actual_message text
+) returns void language plpgsql as $$
+begin
+  insert into results values (
+    p_name,
+    p_actual_sqlstate = p_expected_sqlstate
+      and p_actual_message like p_expected_message_like,
+    format('sqlstate %s %L (expected %s matching %L)',
+           p_actual_sqlstate, p_actual_message,
+           p_expected_sqlstate, p_expected_message_like)
+  );
+end;
+$$;
+
+-- Every denial in this file is a row-security violation (42501) on a named
+-- relation: `interactions` and `shadchanim` for the two table checks, and
+-- `objects` — storage.objects — for the two bucket checks.
+create function pg_temp.denied_row_security(
+  p_name text, p_relation text, p_actual_sqlstate text, p_actual_message text
+) returns void language plpgsql as $$
+begin
+  perform pg_temp.denied(
+    p_name, '42501',
+    format('new row violates row-level security policy for table "%s"', p_relation),
+    p_actual_sqlstate, p_actual_message);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Arrange (continued from the shared fixture, run as postgres/superuser).
 -- ---------------------------------------------------------------------------
 insert into ids values
@@ -380,18 +430,14 @@ end $$;
 -- EXISTS away and this check goes red; mutate only the conjunct and it does
 -- not. Do not "simplify" the policy on the strength of this check alone.
 do $$
+declare
+  v_name constant text := 'AC2/6.4-AC1: the single_input carve-out is NARROW — a single''s INSERT on a SIBLING''s suggestion is still denied by row-level security on public.interactions';
 begin
   insert into public.interactions (target_type, target_id, scope, kind, body)
   values ('shidduch', (select value::bigint from ids where name = 'rivka_visible_id'), 'shidduch', 'single_input', 'Leah writing on Rivka''s suggestion');
-  insert into results values (
-    'AC2/6.4-AC1: the single_input carve-out is NARROW — a single''s INSERT on a SIBLING''s suggestion is still denied',
-    false, 'insert unexpectedly succeeded'
-  );
+  insert into results values (v_name, false, 'insert unexpectedly succeeded');
 exception when others then
-  insert into results values (
-    'AC2/6.4-AC1: the single_input carve-out is NARROW — a single''s INSERT on a SIBLING''s suggestion is still denied',
-    true, sqlerrm
-  );
+  perform pg_temp.denied_row_security(v_name, 'interactions', sqlstate, sqlerrm);
 end $$;
 
 -- (iii) The carve-out WORKS — the positive half. This is the dignity floor
@@ -515,11 +561,13 @@ begin
 end $$;
 
 do $$
+declare
+  v_name constant text := 'AC3: single''s INSERT into shadchanim is denied by row-level security on public.shadchanim';
 begin
   insert into public.shadchanim (name) values ('Single''s Own Shadchan');
-  insert into results values ('AC3: single''s INSERT into shadchanim is denied (raises or is filtered)', false, 'insert unexpectedly succeeded');
+  insert into results values (v_name, false, 'insert unexpectedly succeeded');
 exception when others then
-  insert into results values ('AC3: single''s INSERT into shadchanim is denied (raises or is filtered)', true, sqlerrm);
+  perform pg_temp.denied_row_security(v_name, 'shadchanim', sqlstate, sqlerrm);
 end $$;
 
 -- shadchan_stats aggregate-leak assertion: the stats shadchan is attributed
@@ -762,6 +810,8 @@ select 'AC6/AC8 positive control: single STILL sees exactly one storage.objects 
 -- either prefix, nor delete an existing one.
 -- ---------------------------------------------------------------------------
 do $$
+declare
+  v_name constant text := 'AC6/AC8 (review should-fix): single''s INSERT into entity-files storage is denied by row-level security on storage.objects';
 begin
   insert into storage.objects (bucket_id, name, owner)
   values (
@@ -770,12 +820,14 @@ begin
       (select value from ids where name = 'leah_visible_id') || '/planted-by-single.pdf',
     '51810000-0000-0000-0000-000000000002'
   );
-  insert into results values ('AC6/AC8 (review should-fix): single''s INSERT into entity-files storage is denied (raises)', false, 'insert unexpectedly succeeded');
+  insert into results values (v_name, false, 'insert unexpectedly succeeded');
 exception when others then
-  insert into results values ('AC6/AC8 (review should-fix): single''s INSERT into entity-files storage is denied (raises)', true, sqlerrm);
+  perform pg_temp.denied_row_security(v_name, 'objects', sqlstate, sqlerrm);
 end $$;
 
 do $$
+declare
+  v_name constant text := 'AC6/AC8 (review should-fix): single''s INSERT into documents/resumes/ storage is denied by row-level security on storage.objects';
 begin
   insert into storage.objects (bucket_id, name, owner)
   values (
@@ -784,9 +836,9 @@ begin
       (select value from ids where name = 'leah_visible_id') || '/planted-by-single.pdf',
     '51810000-0000-0000-0000-000000000002'
   );
-  insert into results values ('AC6/AC8 (review should-fix): single''s INSERT into documents/resumes/ storage is denied (raises)', false, 'insert unexpectedly succeeded');
+  insert into results values (v_name, false, 'insert unexpectedly succeeded');
 exception when others then
-  insert into results values ('AC6/AC8 (review should-fix): single''s INSERT into documents/resumes/ storage is denied (raises)', true, sqlerrm);
+  perform pg_temp.denied_row_security(v_name, 'objects', sqlstate, sqlerrm);
 end $$;
 
 -- DELETE, with storage.allow_delete_query set so the statement-level guard

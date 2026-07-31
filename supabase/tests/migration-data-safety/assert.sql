@@ -21,6 +21,20 @@
 --
 -- Nothing here is specific to one migration. D is the only part that needs
 -- per-migration input, and it demands it: an undeclared drop fails.
+--
+-- HOW A SNAPSHOT ROW IS FOUND AGAIN. Through `to_jsonb(t) @> s.key_json`,
+-- where `key_json` is the table's primary key as `capture()` read it out of
+-- the catalog (see fixture.sql). This used to be `t.id = s.row_id`, which was
+-- not just a narrower join but a structural blind spot: a table without an
+-- `id` column could not be snapshotted at all, and `member_state` — the table
+-- one of the two near-miss migrations this guard exists for is named after —
+-- was one of them.
+--
+-- A consequence worth naming: if a pending migration drops or renames a
+-- PRIMARY KEY column, no live row contains the old key any more and every
+-- seeded row of that table reports as ROWS DELETED. That is loud and it is
+-- roughly the right answer — a key change is a data-migration event that has
+-- to be looked at — but the message will say "deleted" when it means "rekeyed".
 -- ===========================================================================
 
 do $$
@@ -30,12 +44,12 @@ declare
     v_col text;
     v_recover text;
     v_cmp text;
-    v_missing bigint[];
+    v_missing text[];
     v_now jsonb;
     v_snapshot_cols text[];
     v_live_cols text[];
     v_bad text;
-    v_bad_rows bigint[];
+    v_bad_rows text[];
     v_nonempty bigint;
     v_discard_reason text;
 begin
@@ -51,29 +65,37 @@ begin
             continue;
         end if;
 
-        -- B. Are all the seeded rows still there?
+        -- B. Are all the seeded rows still there? Counted rather than merely
+        -- existence-checked, so a keyless table that lost one of several
+        -- identical rows is caught too (`multiplicity`, see fixture.sql).
         execute format(
-            'select coalesce(array_agg(s.row_id order by s.row_id), ''{}''::bigint[])
+            'select coalesce(array_agg(s.row_key order by s.row_key), ''{}''::text[])
                from migration_guard.snapshot s
               where s.table_name = %L
-                and not exists (select 1 from public.%I t where t.id = s.row_id)',
+                and (select count(*) from public.%I t where to_jsonb(t) @> s.key_json)
+                    < s.multiplicity',
             v_table, v_table)
         into v_missing;
 
         if array_length(v_missing, 1) > 0 then
             v_failures := v_failures || format(
-                'ROWS DELETED: public.%I lost seeded row id(s) %s.',
+                'ROWS DELETED: public.%I lost seeded row(s) %s.',
                 v_table, array_to_string(v_missing, ', '));
         end if;
 
-        -- Pull every surviving seeded row back as jsonb, keyed by id, so the
-        -- per-column comparison below is plain SQL rather than more dynamic
-        -- SQL per column.
+        -- Pull every surviving seeded row back as jsonb, keyed by row_key, so
+        -- the per-column comparison below is plain SQL rather than more
+        -- dynamic SQL per column. `limit 1` because a keyless table's key can
+        -- match more than one live row; for a primary-keyed table it never
+        -- matches more than one anyway.
         execute format(
-            'select coalesce(jsonb_object_agg(t.id::text, to_jsonb(t)), ''{}''::jsonb)
-               from public.%I t
-              where t.id in (select s.row_id from migration_guard.snapshot s
-                              where s.table_name = %L)',
+            'select coalesce(jsonb_object_agg(s.row_key, m.j), ''{}''::jsonb)
+               from migration_guard.snapshot s
+               join lateral (
+                   select to_jsonb(t) as j from public.%I t
+                    where to_jsonb(t) @> s.key_json limit 1
+               ) m on true
+              where s.table_name = %L',
             v_table, v_table)
         into v_now;
 
@@ -105,15 +127,15 @@ begin
             end if;
 
             select string_agg(
-                       format('id %s: %L -> %L', s.row_id,
+                       format('%s: %L -> %L', s.row_key,
                               s.row_json ->> v_col,
-                              v_now -> s.row_id::text ->> v_col),
-                       '; ' order by s.row_id)
+                              v_now -> s.row_key ->> v_col),
+                       '; ' order by s.row_key)
               into v_bad
               from migration_guard.snapshot s
              where s.table_name = v_table
-               and v_now ? s.row_id::text
-               and (s.row_json ->> v_col) is distinct from (v_now -> s.row_id::text ->> v_col);
+               and v_now ? s.row_key
+               and (s.row_json ->> v_col) is distinct from (v_now -> s.row_key ->> v_col);
 
             if v_bad is not null then
                 v_failures := v_failures || format(
@@ -166,10 +188,14 @@ begin
                 continue;
             end if;
 
+            -- `t` stays the alias a `recover_query` may reference, exactly as
+            -- before; only how it is joined to the snapshot changed.
             execute format(
-                'select coalesce(array_agg(s.row_id order by s.row_id), ''{}''::bigint[])
+                'select coalesce(array_agg(s.row_key order by s.row_key), ''{}''::text[])
                    from migration_guard.snapshot s
-                   join public.%I t on t.id = s.row_id
+                   join lateral (
+                       select * from public.%I t0 where to_jsonb(t0) @> s.key_json limit 1
+                   ) t on true
                   where s.table_name = %L
                     and coalesce(btrim(s.row_json ->> %L), '''') <> ''''
                     and not exists (
@@ -183,7 +209,7 @@ begin
             if array_length(v_bad_rows, 1) > 0 then
                 v_failures := v_failures || format(
                     'BACKFILL LOST DATA: public.%I.%I was dropped and its declared destination (%s) '
-                    'cannot reproduce the old value on row id(s) %s.',
+                    'cannot reproduce the old value on row(s) %s.',
                     v_table, v_col, v_recover, array_to_string(v_bad_rows, ', '));
             end if;
         end loop;
@@ -196,7 +222,7 @@ begin
     end if;
 
     raise notice 'migration data-safety guard PASSED — % seeded row(s) across % table(s) survived intact.',
-        (select count(*) from migration_guard.snapshot),
+        (select coalesce(sum(s.multiplicity), 0) from migration_guard.snapshot s),
         (select count(distinct s.table_name) from migration_guard.snapshot s);
 end;
 $$;

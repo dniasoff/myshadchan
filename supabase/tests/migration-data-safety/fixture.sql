@@ -32,12 +32,42 @@ create schema migration_guard;
 -- generic: it records what existed without naming the columns, so it keeps
 -- working as the schema evolves and so `assert.sql` can detect a column
 -- disappearing rather than only checking columns someone remembered to list.
+--
+-- `key_json` is how a snapshot row is found again AFTER the migrations run.
+-- It used to be a bare `row_id bigint` reading `t.id`, which made the guard
+-- structurally blind to any table without an `id` column: `capture()` simply
+-- errored, so `member_state` and `pipeline_transitions` were never captured
+-- at all — and `member_state` is the table one of the two near-miss
+-- migrations this guard exists for was NAMED after. It is now the table's
+-- PRIMARY KEY, read out of the catalog by `capture()`, rendered as a jsonb
+-- object (`{"user_id": "…"}`, `{"from_state": "new", "to_state": "look_into"}`,
+-- `{"id": 9000001}`) and matched with `to_jsonb(t) @> key_json`.
+--
+-- WHY THE PRIMARY KEY RATHER THAN A WHOLE-ROW DIGEST. A digest is the obvious
+-- key-free alternative and it is the wrong default here: the guard's whole job
+-- is to compare a row ACROSS a schema change, and adding a column — the single
+-- most common migration there is — changes every digest. Every row would then
+-- read as deleted and the guard would be a false-alarm generator, which is how
+-- guards get switched off. A primary key is stable under exactly the changes
+-- the guard is supposed to see through, and every table this fixture seeds has
+-- one. The digest remains the FALLBACK below, for a genuinely keyless table,
+-- so `capture()` can never silently do nothing.
 create table migration_guard.snapshot (
     table_name text not null,
-    row_id bigint not null,
+    -- The key rendered as text, for failure messages and for the identity
+    -- index. Indexed through md5() because a keyless table's key is its whole
+    -- row, which can exceed btree's per-row size limit.
+    row_key text not null,
+    key_json jsonb not null,
     row_json jsonb not null,
-    primary key (table_name, row_id)
+    -- How many live rows this snapshot row stands for. Always 1 for a
+    -- primary-keyed table; >1 only for a keyless table with duplicate rows,
+    -- where it is what stops "3 identical rows became 1" reading as intact.
+    multiplicity integer not null default 1
 );
+
+create unique index snapshot_identity
+    on migration_guard.snapshot (table_name, md5(row_key));
 
 -- The author's declaration of intent for a column the pending migrations
 -- DROP. `assert.sql` treats an undeclared drop of a column that held data as
@@ -93,15 +123,63 @@ create table migration_guard.expected_rewrites (
     primary key (table_name, column_name)
 );
 
+-- The table's primary-key column names, in key order, straight out of the
+-- catalog. NULL when the table has no primary key.
+create function migration_guard.primary_key_columns(p_table text)
+returns text[]
+language sql
+stable
+as $$
+    select array_agg(a.attname order by k.ord)
+      from pg_constraint c
+      cross join lateral unnest(c.conkey) with ordinality as k(attnum, ord)
+      join pg_attribute a
+        on a.attrelid = c.conrelid and a.attnum = k.attnum
+     where c.conrelid = ('public.' || quote_ident(p_table))::regclass
+       and c.contype = 'p';
+$$;
+
+-- Snapshot a table. Keyed by its primary key where it has one, and by the
+-- whole row where it does not — never by a hard-coded `id`, which is what
+-- previously made this function throw on `member_state` and
+-- `pipeline_transitions` and so left both tables uncaptured.
+--
+-- The keyless fallback is honest about being weaker: containment on the whole
+-- row means a row whose value a migration REWRITES reads as one row deleted
+-- rather than as a value changed, and two byte-identical rows are
+-- indistinguishable — which is why `multiplicity` is recorded and asserted
+-- rather than assumed to be 1.
 create function migration_guard.capture(p_table text) returns void
 language plpgsql
 as $$
+declare
+    v_key_columns text[] := migration_guard.primary_key_columns(p_table);
+    v_key_expr text;
 begin
+    if v_key_columns is null then
+        raise notice 'migration data-safety guard: public.% has no primary key; '
+                     'snapshotting it by whole-row digest (weaker: a value rewrite '
+                     'will report as a deleted row).', p_table;
+        v_key_expr := 'to_jsonb(t)';
+    else
+        select 'jsonb_build_object(' ||
+               string_agg(format('%L, to_jsonb(t) -> %L', col, col), ', ') ||
+               ')'
+          into v_key_expr
+          from unnest(v_key_columns) as col;
+    end if;
+
     execute format(
-        'insert into migration_guard.snapshot (table_name, row_id, row_json)
-         select %L, t.id, to_jsonb(t) from public.%I t
-         on conflict (table_name, row_id) do update set row_json = excluded.row_json',
-        p_table, p_table);
+        'insert into migration_guard.snapshot
+             (table_name, row_key, key_json, row_json, multiplicity)
+         select %L, r.key_json::text, r.key_json, r.row_json, count(*)
+           from (select %s as key_json, to_jsonb(t) as row_json from public.%I t) r
+          group by r.key_json, r.row_json
+         on conflict (table_name, md5(row_key)) do update
+            set key_json = excluded.key_json,
+                row_json = excluded.row_json,
+                multiplicity = excluded.multiplicity',
+        p_table, v_key_expr, p_table);
 end;
 $$;
 
@@ -364,10 +442,54 @@ where m.user_id = '00000000-0000-4000-8000-000000009001';
 -- inserts it directly — the `sync_shidduch_signals` trigger derives it from
 -- the rows above. It is the SECOND-ORDER loss surface, the one that a
 -- migration can blank while every table it names still looks intact.
+--
+-- `member_state` and `pipeline_transitions` are the two the guard was
+-- structurally unable to reach until `capture()` learned to read a primary key
+-- (see its comment above), and they are the two it could least afford to miss:
+-- `20260729095558_backfill_member_state.sql` — one of the two near-misses this
+-- whole guard was built for — is named after the first. Both are captured the
+-- same way everything else is; neither needs its own seed:
+--
+--   * `member_state` is written by exactly one path, `activate_context_for()`,
+--     reached here through the `activate_first_context_trigger` on the two
+--     `account_members` inserts above. Seeding it by hand would be seeding a
+--     shape production cannot produce; letting the trigger write it is the
+--     production shape. A run that captured zero rows would mean that trigger
+--     stopped firing, which is itself the bug — so it is asserted, below.
+--   * `pipeline_transitions` is transitions-as-data (AD-4): its rows ARE the
+--     legal pipeline edges and they arrive with the migrations, not with a
+--     seed. Capturing them turns "a migration recreated the transition table
+--     and lost an edge" — silent, and fatal to transition_shidduch() — into a
+--     named failure.
 -- ---------------------------------------------------------------------------
+
+-- Anti-vacuity: a snapshot of an empty table asserts nothing, and both of
+-- these are populated by machinery (a trigger, a migration seed) rather than
+-- by this file, so "it was empty" is a real failure mode rather than a
+-- hypothetical one. Fail here, where the cause is obvious, rather than let the
+-- guard report a serene PASS over two tables it never saw a row of.
+do $$
+declare
+    v_member_state bigint := (select count(*) from public.member_state);
+    v_transitions bigint := (select count(*) from public.pipeline_transitions);
+begin
+    if v_member_state = 0 then
+        raise exception 'migration data-safety fixture: public.member_state is empty — '
+                        'activate_first_context_trigger did not write it for the seeded '
+                        'memberships, so the guard would snapshot nothing.';
+    end if;
+    if v_transitions = 0 then
+        raise exception 'migration data-safety fixture: public.pipeline_transitions is empty — '
+                        'the baseline migrations did not seed the legal pipeline edges, so the '
+                        'guard would snapshot nothing.';
+    end if;
+end;
+$$;
 select migration_guard.capture('accounts');
 select migration_guard.capture('account_members');
 select migration_guard.capture('members');
+select migration_guard.capture('member_state');
+select migration_guard.capture('pipeline_transitions');
 select migration_guard.capture('singles');
 select migration_guard.capture('shadchanim');
 select migration_guard.capture('invites');
