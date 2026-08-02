@@ -234,16 +234,20 @@ jobs:
         # (worker-audit, 2026-08-02):
         #   - share: the only worker with an R2 binding
         #     (workers/share/wrangler.toml). Its own toml says `bucket_name` is
-        #     "illustrative — create the actual bucket", and this environment
-        #     has no Cloudflare credentials to confirm `myshadchan-media`
-        #     exists. An R2 binding pointed at a bucket that doesn't exist
-        #     fails `wrangler deploy`, and with the default `fail-fast`
+        #     "illustrative — create the actual bucket". Checked directly
+        #     against the Cloudflare API during the 2026-08-02 token rotation
+        #     (`GET /accounts/{id}/r2/buckets`): error 10042 "Please enable R2
+        #     through the Cloudflare Dashboard" — R2 is not enabled on this
+        #     account at all, so the bucket cannot exist yet, confirmed rather
+        #     than assumed. An R2 binding pointed at a bucket that doesn't
+        #     exist fails `wrangler deploy`, and with the default `fail-fast`
         #     strategy that cancels every other worker in this matrix AND
         #     blocks `trigger-frontend` (which `needs: deploy-workers`) — a
         #     missing bucket would silently take production frontend deploys
-        #     offline. Re-add once `wrangler r2 bucket create myshadchan-media`
-        #     is confirmed run (or the binding is dropped) by someone with
-        #     Cloudflare dashboard/CLI access.
+        #     offline. Re-add once R2 is enabled on the account and
+        #     `wrangler r2 bucket create myshadchan-media` is confirmed run
+        #     (or the binding is dropped) by someone with Cloudflare
+        #     dashboard/CLI access.
         #   - billing: publishes an unauthenticated POST /webhook on a public
         #     workers.dev origin ahead of Story 12.4 (Stripe integration).
         #     There is no Stripe SDK, no signature verification, and no DB
