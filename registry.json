@@ -396,6 +396,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/settings/SingleListingSection.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/settings/ShadchanListingSection.tsx",
           "type": "registry:component"
         },
@@ -988,11 +992,23 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/listings/useListingUpsert.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/listings/WithdrawShadchanListingButton.tsx",
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/listings/PublishSingleListingSection.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/listings/PublishShadchanListingSection.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/ListingToggleField.tsx",
           "type": "registry:component"
         },
         {

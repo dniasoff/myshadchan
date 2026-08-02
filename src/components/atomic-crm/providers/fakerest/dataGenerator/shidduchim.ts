@@ -3,6 +3,7 @@ import type {
   AccountMember,
   Connection,
   DateRecord,
+  Listing,
   MedicalNote,
   Redt,
   Resume,
@@ -104,6 +105,34 @@ const singlesSeed: Single[] = [
     gender: "male",
     status: "active",
     created_at: "2026-01-01T00:00:00.000Z",
+  },
+];
+
+// Story 9.2 (Task 4): Rivky (single_id 1) carries one seeded, partially
+// opted-in listing — first name, age and community on, area/height/summary
+// left off — so the demo shows what a live single listing looks like
+// without pretending every field is always published (AC-1's opt-in
+// requirement applies here too). `published_by_member_id: 1` is Rivky's
+// household's own parent_admin (account_members seed below), the only
+// member in this demo authorized to publish for her under Task 1's RLS.
+const listingsSeed: Listing[] = [
+  {
+    id: 1,
+    account_id: ACCOUNT_ID,
+    listing_type: "single",
+    single_id: 1,
+    published_by_member_id: 1,
+    shadchan_name: null,
+    shadchan_area: null,
+    shadchan_contact_info: null,
+    single_first_name_en: "Rivky",
+    single_first_name_he: null,
+    single_age: 24,
+    single_height: null,
+    single_community: "Yeshivish",
+    single_location: null,
+    single_summary: null,
+    created_at: "2026-01-02T00:00:00.000Z",
   },
 ];
 
@@ -516,6 +545,11 @@ export const generateShidduchimDomain = (db: Db) => {
   db.connections = connections;
   db.account_members = account_members;
   db.singles = singlesSeed;
+  // Story 9.2 (Task 4): overwrites index.ts's own `db.listings = []` default
+  // with the one seeded single listing above — same "empty by default,
+  // overwritten here with the demo's own real row" shape index.ts's own
+  // comment documents for `db.connections`.
+  db.listings = listingsSeed;
   db.shadchanim = shadchanimSeed;
   db.shidduchim = shidduchim;
   db.resumes = [] as Resume[];

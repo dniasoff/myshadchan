@@ -6,15 +6,16 @@ import { describe, expect, it } from "vitest";
 import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 /**
- * Runs Story 9.1's database suite (publishing a shadchan listing) against
- * the local Supabase stack. What it proves — that `listings` is the sole
- * anon-readable relation and is safe to read by construction (AD-21), that
- * the CHECK constraint and partial unique index hold regardless of what any
- * client sends, and that a household can never publish a shadchan listing
- * from either angle (wrong kind, wrong role) — only exists inside Postgres
- * (RLS + grants + constraints) and cannot be exercised through a mock. The
- * SQL emits one JSON row per check; this file turns each into a named test
- * so a failure names the invariant that broke.
+ * Runs Stories 9.1 and 9.2's database suite (publishing a shadchan or a
+ * single's listing) against the local Supabase stack. What it proves — that
+ * `listings` is the sole anon-readable relation and is safe to read by
+ * construction (AD-21), that both branches' CHECK constraints and partial
+ * unique indexes hold regardless of what any client sends, that only a
+ * subject's manager may publish (FR103), and that a household can never
+ * publish a listing that is not theirs from any angle — only exists inside
+ * Postgres (RLS + grants + constraints) and cannot be exercised through a
+ * mock. The SQL emits one JSON row per check; this file turns each into a
+ * named test so a failure names the invariant that broke.
  *
  * Needs `make start` (or `supabase start`). If the database is unreachable
  * the suite reports a single skipped test rather than failing the whole run.
@@ -57,13 +58,13 @@ function runSuite(): { checks: Check[]; error?: string } {
 
 const { checks, error } = runSuite();
 
-describe("publish a shadchan listing (database)", () => {
+describe("publish a listing — shadchan (9.1) and single (9.2) branches (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   // A floor, not an exact count — new checks are welcome, silently
   // vanishing ones are not.
-  it("runs every AC-1 through AC-8 check group", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(25);
+  it("runs every 9.1 and 9.2 check group", () => {
+    expect(checks.length).toBeGreaterThanOrEqual(45);
   });
 
   for (const check of checks) {

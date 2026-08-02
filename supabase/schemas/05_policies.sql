@@ -1489,3 +1489,95 @@ create policy "Shadchan listings delete" on public.listings
               and am.role = 'shadchan'
         )
     );
+
+-- =====================================================================
+-- MyShadchan — Listings & Sharing (Epic 9 Story 9.2: publish a single's
+-- listing)
+-- =====================================================================
+
+-- The `single` branch only (AC-1, AC-2, AC-3, AC-6, AC-8). FR103: "manager"
+-- means exactly two roles against the target single's OWN household —
+-- `parent_admin` (any single in the household) and `self_manager` (only the
+-- single record that is themselves, via singles.member_id). A plain `single`
+-- role or a `helper` can never publish (they only ever withdraw, Story 9.3).
+-- No lock/consent predicate here — that column does not exist until Story
+-- 9.3, which drops and recreates this insert policy with the extra check;
+-- this is not an omission.
+--
+-- Deliberately a SEPARATE, named policy from "Shadchan listings insert"
+-- above (never edited by this story) — Postgres combines multiple
+-- permissive policies for the same command with OR (Dev Notes "Policy
+-- ownership map across 9.1-9.3").
+create policy "Single listings insert" on public.listings
+    for insert to authenticated
+    with check (
+        listing_type = 'single'
+        and account_id = public.current_context_id()
+        and single_id in (
+            select s.id from public.singles s
+            where s.account_id = public.current_context_id()
+        )
+        and exists (
+            select 1 from public.accounts a
+            where a.id = public.current_context_id() and a.kind = 'household'
+        )
+        and (
+            exists (
+                select 1 from public.account_members am
+                where am.account_id = public.current_context_id()
+                  and am.user_id = auth.uid()
+                  and am.role = 'parent_admin'
+            )
+            or exists (
+                select 1 from public.account_members am
+                join public.singles s on s.member_id = am.id
+                where am.account_id = public.current_context_id()
+                  and am.user_id = auth.uid()
+                  and am.role = 'self_manager'
+                  and s.id = listings.single_id
+            )
+        )
+    );
+
+-- Same authorization predicate as the insert policy above, but the `using`
+-- clause deliberately stays narrow (tenant + branch only): a caller who does
+-- not qualify as this single's manager still matches `using` (so the UPDATE
+-- reaches the row) and is then refused by `with check` on the resulting new
+-- row — an explicit RLS violation (42501), never a silent "0 rows" that
+-- could be mistaken for "no such row". A cross-account attempt still fails
+-- at `using` itself (account_id mismatch), so it never reaches `with check`
+-- at all.
+create policy "Single listings update" on public.listings
+    for update to authenticated
+    using (
+        account_id = public.current_context_id()
+        and listing_type = 'single'
+    )
+    with check (
+        listing_type = 'single'
+        and account_id = public.current_context_id()
+        and single_id in (
+            select s.id from public.singles s
+            where s.account_id = public.current_context_id()
+        )
+        and exists (
+            select 1 from public.accounts a
+            where a.id = public.current_context_id() and a.kind = 'household'
+        )
+        and (
+            exists (
+                select 1 from public.account_members am
+                where am.account_id = public.current_context_id()
+                  and am.user_id = auth.uid()
+                  and am.role = 'parent_admin'
+            )
+            or exists (
+                select 1 from public.account_members am
+                join public.singles s on s.member_id = am.id
+                where am.account_id = public.current_context_id()
+                  and am.user_id = auth.uid()
+                  and am.role = 'self_manager'
+                  and s.id = listings.single_id
+            )
+        )
+    );

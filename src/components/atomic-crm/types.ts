@@ -1139,3 +1139,26 @@ export type Listing = {
   single_summary?: string | null;
   created_at: string;
 } & Pick<RaRecord, "id">;
+
+/**
+ * The exact field set Story 9.2's "Publish a listing" form may offer a
+ * single's manager (Dev Notes "Field set decision" — deliberately narrower
+ * than every `single_*` column above: no last name, no raw `dob`, no
+ * shul/yeshiva, no father/mother, no marital status/children — each
+ * excluded field has its own stated reason there, not an oversight).
+ * `Pick`ed from `Listing` rather than redeclared, so the two can never
+ * drift apart on field name or type. The publish form binds to exactly this
+ * type, which is itself part of AC-4: a field this type does not name
+ * cannot be offered by the UI at all, "not present as options" rather than
+ * merely left unchecked.
+ */
+export type PublishableSingleListingFields = Pick<
+  Listing,
+  | "single_first_name_en"
+  | "single_first_name_he"
+  | "single_age"
+  | "single_height"
+  | "single_community"
+  | "single_location"
+  | "single_summary"
+>;

@@ -23,6 +23,7 @@ import { PrivacySection } from "./PrivacySection";
 import { ProfileSection } from "./ProfileSection";
 import { SectionLabel } from "./SectionLabel";
 import { ShadchanListingSection } from "./ShadchanListingSection";
+import { SingleListingSection } from "./SingleListingSection";
 
 /**
  * Desktop /settings — the sidebar/TopBar "Settings" destination. Mirrors the
@@ -62,6 +63,7 @@ export const SettingsPage = () => {
         <div className="space-y-6">
           <ProfileSection />
           <FamilySection />
+          <SingleListingSection />
           <PersonasSection />
           <InvitesSection />
           <PreferencesSection />

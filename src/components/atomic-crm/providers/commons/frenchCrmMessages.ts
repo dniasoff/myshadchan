@@ -392,6 +392,40 @@ export const frenchCrmMessages = {
         withdraw_success: "Votre annonce a été retirée.",
         withdraw_error: "Impossible de retirer votre annonce. Réessayez.",
       },
+      // Story 9.2 — voir la même note dans englishCrmMessages.ts.
+      single_listing: {
+        title: "Annonces des célibataires",
+        description:
+          "Publiez un profil restreint, avec consentement explicite, pour que les shadchanim puissent le trouver.",
+        empty: "Aucun célibataire dans ce foyer pour l'instant.",
+        publish_button: "Publier",
+        manage_button: "Gérer l'annonce",
+        dialog_title: "Publier une annonce pour %{name}",
+      },
+      // Story 9.2 — voir la même note dans englishCrmMessages.ts.
+      single_listing_form: {
+        first_name_en_label: "Prénom (anglais)",
+        first_name_en_placeholder: "Comment les shadchanim verront son prénom",
+        first_name_he_label: "Prénom (hébreu)",
+        first_name_he_placeholder: "שם פרטי",
+        age_label: "Âge",
+        age_placeholder: "ex. 24",
+        height_label: "Taille",
+        height_placeholder: "ex. 1,68 m",
+        community_label: "Communauté",
+        community_placeholder: "ex. Yeshivish, orthodoxe moderne",
+        location_label: "Lieu",
+        location_placeholder: "ex. Lakewood, NJ",
+        summary_label: "Résumé",
+        summary_placeholder:
+          "Tout ce que les champs fixes ci-dessus ne couvrent pas",
+        name_required_error:
+          "Activez un prénom en anglais ou en hébreu et saisissez-le avant de publier.",
+        publish_button: "Publier l'annonce",
+        update_button: "Mettre à jour l'annonce",
+        publish_success: "L'annonce est en ligne.",
+        publish_error: "Impossible de publier l'annonce. Réessayez.",
+      },
       reset_defaults: "Réinitialiser aux valeurs par défaut",
       save_error: "Échec de l'enregistrement de la configuration",
       saved: "Configuration enregistrée avec succès",

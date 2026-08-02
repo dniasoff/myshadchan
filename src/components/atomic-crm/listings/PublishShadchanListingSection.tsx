@@ -1,83 +1,15 @@
-import type { ChangeEvent, ReactElement } from "react";
+import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
 import { useNotify, useTranslate } from "ra-core";
 import type { Identifier } from "ra-core";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 
 import { SectionLabel } from "../settings/SectionLabel";
+import { ListingToggleField } from "./ListingToggleField";
 import { useShadchanListing } from "./useShadchanListing";
 import { WithdrawShadchanListingButton } from "./WithdrawShadchanListingButton";
-
-/** One opt-in row: a `Switch` gating whether the field is published at all,
- * plus its value control — shared by all three toggles (AC-1) so a fourth
- * one never needs its own markup. */
-function ListingToggleField({
-  id,
-  label,
-  checked,
-  onCheckedChange,
-  value,
-  onValueChange,
-  placeholder,
-  multiline = false,
-  disabled,
-}: {
-  id: string;
-  label: string;
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-  value: string;
-  onValueChange: (value: string) => void;
-  placeholder: string;
-  multiline?: boolean;
-  disabled: boolean;
-}): ReactElement {
-  const handleChange = (
-    event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-  ) => onValueChange(event.target.value);
-
-  return (
-    <div className="space-y-2 rounded-md border p-3">
-      <div className="flex items-center justify-between gap-3">
-        <Label htmlFor={id} className="font-normal">
-          {label}
-        </Label>
-        <Switch
-          id={id}
-          checked={checked}
-          onCheckedChange={onCheckedChange}
-          disabled={disabled}
-        />
-      </div>
-      {checked ? (
-        multiline ? (
-          <Textarea
-            aria-label={label}
-            value={value}
-            onChange={handleChange}
-            placeholder={placeholder}
-            rows={2}
-            disabled={disabled}
-          />
-        ) : (
-          <Input
-            aria-label={label}
-            value={value}
-            onChange={handleChange}
-            placeholder={placeholder}
-            disabled={disabled}
-          />
-        )
-      ) : null}
-    </div>
-  );
-}
 
 function PublishShadchanListingSkeleton(): ReactElement {
   const translate = useTranslate();

@@ -39,7 +39,10 @@ export default (): Db => {
   db.messages = [];
   // Story 9.1 — no shadchan listing is published by default (AC-1's
   // opt-in requirement applies here too); the "Publish my listing" settings
-  // panel's own create/update/delete calls are the only writers.
+  // panel's own create/update/delete calls are the only writers. Overwritten
+  // by generateShidduchimDomain() below with Story 9.2's own single seeded
+  // single-branch listing, the same "empty here, real row from
+  // generateShidduchimDomain()" shape `db.connections` uses just below.
   db.listings = [];
   // Shidduchim pipeline domain (accounts, singles, shadchanim, shidduchim, ...)
   generateShidduchimDomain(db);

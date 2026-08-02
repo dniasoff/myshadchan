@@ -1,6 +1,10 @@
+---
+baseline_commit: 3c1f25c
+---
+
 # Story 9.2: Publish a single's listing
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -97,8 +101,8 @@ is deliberate and is the reason 9.2 and 9.3 write different DELETE-vs-INSERT aut
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — RLS: the `single` branch of insert/update** (AC: 1, 2, 3, 6, 8)
-  - [ ] `"Single listings insert"` on `public.listings`, `for insert to authenticated with check
+- [x] **Task 1 — RLS: the `single` branch of insert/update** (AC: 1, 2, 3, 6, 8)
+  - [x] `"Single listings insert"` on `public.listings`, `for insert to authenticated with check
         (listing_type = 'single' and account_id = public.current_context_id() and single_id in
         (select s.id from public.singles s where s.account_id = public.current_context_id())
         and exists (select 1 from public.accounts a where a.id = public.current_context_id() and
@@ -112,43 +116,43 @@ is deliberate and is the reason 9.2 and 9.3 write different DELETE-vs-INSERT aut
               and am.role = 'self_manager' and s.id = listings.single_id
           )
         ))`.
-  - [ ] `"Single listings update"` — same predicate, `for update ... using (account_id =
+  - [x] `"Single listings update"` — same predicate, `for update ... using (account_id =
         public.current_context_id() and listing_type = 'single') with check (<same as insert>)`.
-  - [ ] **Do not add a lock/consent predicate here.** That column does not exist until 9.3 —
+  - [x] **Do not add a lock/consent predicate here.** That column does not exist until 9.3 —
         9.3 will `drop policy "Single listings insert"` and recreate it with the extra check.
         Say so in your PR description so the reviewer does not mistake the omission for a miss.
-  - [ ] **Do not touch** `"Listings readable by anon"`, `"Listings readable by owner"`, or any
+  - [x] **Do not touch** `"Listings readable by anon"`, `"Listings readable by owner"`, or any
         `Shadchan listings *` policy — all four already cover both branches or are 9.1's alone.
 
-- [ ] **Task 2 — Generate and hand-check the migration** (AC: all)
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f add_single_listing_policies`
-  - [ ] Confirm the diff contains **only** the two new `create policy` statements — if it also
+- [x] **Task 2 — Generate and hand-check the migration** (AC: all)
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f add_single_listing_policies`
+  - [x] Confirm the diff contains **only** the two new `create policy` statements — if it also
         touches the table definition or 9.1's policies, something drifted; stop and reconcile
         against 9.1 rather than accepting an unexpected diff.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. Never `db reset`,
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. Never `db reset`,
         never `db push`.
 
-- [ ] **Task 3 — Types** (AC: 1, 2, 4)
-  - [ ] `src/components/atomic-crm/types.ts`: extend the `Listing` type (added by 9.1) with a
+- [x] **Task 3 — Types** (AC: 1, 2, 4)
+  - [x] `src/components/atomic-crm/types.ts`: extend the `Listing` type (added by 9.1) with a
         `PublishableSingleListingFields` type restricted to exactly the field set in Dev Notes
         "Field set decision" — this is the type the publish form binds to, and its narrowness is
         itself part of AC-4 (a field that isn't in the type can't be offered by the form).
 
-- [ ] **Task 4 — Provider** (AC: 1, 6)
-  - [ ] `providers/supabase/dataProvider.ts`: no bespoke RPC (same reasoning as 9.1 Task 6) —
+- [x] **Task 4 — Provider** (AC: 1, 6)
+  - [x] `providers/supabase/dataProvider.ts`: no bespoke RPC (same reasoning as 9.1 Task 6) —
         plain `dataProvider.create` / `dataProvider.update` on the `listings` resource.
-  - [ ] `providers/fakerest/`: extend the `listings` base resource (created empty by 9.1) so
+  - [x] `providers/fakerest/`: extend the `listings` base resource (created empty by 9.1) so
         FakeRest demo singles can carry a seeded listing; mirror the existing
         `dataGenerator/shidduchim.ts` seeding pattern.
 
-- [ ] **Task 5 — Components** (AC: 1, 2, 3, 4, 5)
-  - [ ] `listings/PublishSingleListingSection.tsx` — the field-by-field form from AC-1, offering
+- [x] **Task 5 — Components** (AC: 1, 2, 3, 4, 5)
+  - [x] `listings/PublishSingleListingSection.tsx` — the field-by-field form from AC-1, offering
         exactly the fields in Dev Notes "Field set decision" and no others. Reuse the same
         create-vs-update decision logic pattern as 9.1's `PublishShadchanListingSection.tsx`
         (extract a shared `useListingUpsert(accountId, listingType, subjectId)` hook from 9.1's
         component now, rather than copy-pasting the upsert branch — this is exactly the kind of
         duplication `.claude/rules/coding-style.md` (DRY) flags).
-  - [ ] Where it is reached from: **not** a tab on the Single 360 — Epic 5 Story 5.8's tab list
+  - [x] Where it is reached from: **not** a tab on the Single 360 — Epic 5 Story 5.8's tab list
         (Overview, Resume, Photo, Files, Shidduchim, Notes, Tasks, Activity) does not include a
         "Listing" tab, and this story does not amend Epic 5's story. Reach it from Settings
         instead — a new `settings/SingleListingSection.tsx` listing each single in the household
@@ -156,26 +160,26 @@ is deliberate and is the reason 9.2 and 9.3 write different DELETE-vs-INSERT aut
         `settings/FamilySection.tsx`. Flag to the epic owner that a future UX pass may want this
         promoted onto the Single 360 once Epic 3's entity-descriptor `actions` field (Story 3.3)
         exists — not blocking for this story.
-  - [ ] The publish form offers **no photo control of any kind** — not a disabled toggle, not a
+  - [x] The publish form offers **no photo control of any kind** — not a disabled toggle, not a
         "coming soon" placeholder. A listing never carries a photo (Dev Notes "Field set
         decision", last row); a photo control here would imply otherwise and invite a future
         "just wire it up" regression.
-  - [ ] **Both i18n catalogues** — every field label, helper text and error message this form
+  - [x] **Both i18n catalogues** — every field label, helper text and error message this form
         adds gets a key in `providers/commons/englishCrmMessages.ts` **and**
         `providers/commons/frenchCrmMessages.ts` in the same diff (C7 — see Project Structure
         Notes).
 
-- [ ] **Task 6 — Tests** (AC: all)
-  - [ ] Extend `supabase/tests/listings.sql` (created by 9.1) with the `single`-branch checks:
+- [x] **Task 6 — Tests** (AC: all)
+  - [x] Extend `supabase/tests/listings.sql` (created by 9.1) with the `single`-branch checks:
         AC-2 (name-required CHECK), AC-3 (both negative sub-cases: helper/single role refused,
         self-manager publishing for a sibling refused), AC-6 (partial unique index prevents a
         duplicate), AC-7 (anon read), AC-8 (cross-account, both the read-as-owner and the
         write attempt). Do not create a second `.sql` file — one suite per table, as
         `references_entity.sql` demonstrates for a table with many behaviors.
-  - [ ] Frontend: a test for `PublishSingleListingSection.tsx` asserting the offered field list
+  - [x] Frontend: a test for `PublishSingleListingSection.tsx` asserting the offered field list
         matches Dev Notes exactly (a regression here is exactly AC-4's failure mode) and a test
         for the extracted `useListingUpsert` hook's create-vs-update branch.
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus
+  - [x] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus
         `npx prettier --check` on this story's changed files only.
 
 ## Dev Notes
@@ -276,12 +280,55 @@ coverage on new paths [Source: .claude/rules/testing.md].
 - [Source: .claude/rules/coding-style.md] — DRY / file-size conventions
 - [Source: AGENTS.md#Database-Management] — migration workflow
 
+## Change Log
+
+- 2026-08-03 — Implemented Story 9.2 end to end: the `single` branch's two RLS policies (Task 1), `PublishableSingleListingFields` type, the extracted shared `useListingUpsert` hook (with `useShadchanListing.ts` refactored onto it, DRY), the seven-field publish form (`PublishSingleListingSection.tsx`) and its Settings wiring (`SingleListingSection.tsx`), FakeRest parity (one seeded demo single listing), i18n in both catalogues, and the database + component test suites. Status → review.
+
 ## Dev Agent Record
 
 ### Agent Model Used
 
+Claude (Sonnet 5), dispatched as the `developer`/bmad-dev-story agent on `STACK_ID=1`, `STACK_OWNER=9-2`.
+
 ### Debug Log References
+
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f add_single_listing_policies` — generated `supabase/migrations/20260802231822_add_single_listing_policies.sql`; hand-checked and confirmed it contains **only** the two new `create policy` statements (Task 2's own requirement) — no table-definition or 9.1-policy drift.
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local` run twice after `migration up --local` — both reported "No schema changes found" (clean, convergent).
+- Ran `supabase/tests/listings.sql` directly via `psql` before wrapping it in the vitest runner, to iterate on the 9.2 arrange block in isolation: 51 checks total (36 pre-existing 9.1 checks + 15 new 9.2 checks), all green, including the AC-8 cross-account INSERT proving the RLS `with check`'s `single_id in (...)` sub-select raises 42501 (row-level security) BEFORE the composite FK's 23503 ever has a chance to fire — empirically confirming the ordering Dev Notes "Why the cross-account negative test still matters" assumes (Postgres evaluates `ExecWithCheckOptions` before an AFTER-ROW FK trigger can run).
+- `npm run test:unit:db` — 33 files / 1226 tests, all pass (`listings.test.ts` alone: 52 tests — the 51 SQL checks plus the file's own "runs every 9.1/9.2 check group" floor assertion, bumped from 25 to 45).
+- `make test STACK_ID=1` (a fresh, isolated Supabase stack, `STACK_OWNER=9-2`) — 260 files / 3120 tests, all pass against that stack's own database, independent confirmation the migration and RLS are correct on a from-scratch instance, not just the long-lived dev stack. Stack released afterward (`make stop-supabase-e2e STACK_ID=1`).
+- `make check-migration-safety STACK_ID=1` fails — reproduced and diagnosed, not newly discovered: the failure is in `supabase/tests/migration-data-safety/fixture.sql:533` (`connections` seed missing the NOT NULL `proposed_by_account_id` column Story 8.5 added), the exact pre-existing defect Story 9.1's own Dev Agent Record already proved unrelated to `listings` by checking out `ec81675`. This story never touches `fixture.sql` at all (`git diff HEAD -- supabase/tests/migration-data-safety/fixture.sql` is empty), and the failure occurs during the guard's OWN seed step — which runs against the last-deployed schema BEFORE any of this story's pending migrations are even applied — so it is structurally impossible for this story's diff to be the cause. Reported, not fixed, per `.claude/rules/parallel-ownership.md` ("out-of-scope work is reported, not taken") and 9.1's own precedent for the same finding.
+- Retired-name guard (`node scripts/check-retired-names.mjs`) initially flagged this story's own `PublishSingleListingSection.test.tsx` for the literal word "Children" inside a test's excluded-field-text array (a defensive AC-4 assertion mirroring the Dev Notes field-set table). Removed that one array entry rather than allowlisting the guard — "Marital status" already covers the same Dev Notes row, and the type-level narrowness of `PublishableSingleListingFields` proves the same claim structurally; all four CI guards (suppression ratchet, retired-name, route-convention, Tailwind v3-syntax) are green.
+- `make typecheck`, `make lint` (ESLint + `prettier --config ./.prettierrc.json --check`), `make build`, and `npx vitest run` (`make test`, unscoped) all pass. Bare `npx prettier --check .` (no `--config`) flags the same 16 pre-existing files 9.1's own Dev Agent Record already named (`.github/workflows/*.yml`, `doc/src/content/docs/**/*.mdx`, `.lintstagedrc`) — none touched by this story.
 
 ### Completion Notes List
 
+- All 8 ACs implemented and covered: AC-1/AC-2/AC-4/AC-6 primarily by `PublishSingleListingSection.test.tsx` (5 tests) and `useListingUpsert.test.tsx` (5 tests); AC-2/AC-3/AC-6/AC-7/AC-8 by `supabase/tests/listings.sql`'s new Story 9.2 block (15 checks); AC-3's UX-layer half (who even sees the action) by `SingleListingSection.test.tsx` (6 tests, including the self-manager-vs-sibling row gate).
+- The DRY extraction Task 5 asked for (`useListingUpsert(accountId, listingType, subjectId)`) is a genuine behavior-preserving refactor of `useShadchanListing.ts`, not a rename: `PublishShadchanListingSection.test.tsx` (9.1's own suite, unmodified) still passes byte-for-byte, which is the proof the shadchan branch's observable behavior did not change. The name-required validation stays in each branch's own component/wrapper (shadchan's in `useShadchanListing.ts`, single's in `PublishSingleListingSection.tsx`) rather than in the shared hook — the two CHECK constraints they mirror (`listings_shadchan_name_required` vs `listings_single_name_required`) are different rules, so the shared hook's own job stays exactly "create vs. update," nothing branch-specific.
+- Also extracted `ListingToggleField` (9.1's inline component) into its own `listings/ListingToggleField.tsx` so the seven-field single form did not duplicate the three-field shadchan form's toggle-row markup a second time — an `inputType` prop (`"number"` for Age) is the only addition; `PublishShadchanListingSection.tsx`'s own rendering and tests are unaffected.
+- AC-3's key negative case (a self-manager refused on a SIBLING, not merely "any non-manager") required seeding a household with the self-manager's own single (`member_id` pointing at their `account_members.id`) and a genuinely separate sibling single with no such link — both created directly via `insert into public.singles` as the household's parent_admin (no RPC needed; `enforce_membership_role_matches_context_trigger` only checks account `kind` vs. `role`, not any `singles` linkage, so a plain `single`-role and `helper`-role member could be seeded the same direct way `medical_notes.sql` already does).
+- FR103's frontend gate (`SingleListingSection.tsx`'s `canPublish`) uses `useCurrentMemberId()` (Story 7.3's existing "who am I in the `account_members.id` space" hook) to match a self-manager against their own `singles.member_id` — reused rather than re-derived, since it is exactly the id space `singles.member_id` and the RLS policy's own `EXISTS` clause both key on.
+- FakeRest parity (Task 4): `listingsSeed` in `dataGenerator/shidduchim.ts` gives the demo one partially opted-in single listing (Rivky — name, age, community on; area/height/summary off), overwriting `index.ts`'s own empty default the same way `db.connections` is already documented to be overwritten — no change was needed to `providers/fakerest/dataProvider.ts` itself, since its existing `create()` override already stamps `account_id` for the `listings` resource generically (not `shadchan`-specific).
+- `supabase/tests/migration-data-safety/fixture.sql`'s pre-existing gap (see Debug Log) is not owned by this story's File List and is not fixed here — it predates `listings` entirely and is Story 8.5's own NOT NULL columns colliding with a fixture that was never updated for them.
+
 ### File List
+
+- `supabase/schemas/05_policies.sql` — the two new `single`-branch policies (`Single listings insert`, `Single listings update`), appended after 9.1's five (Task 1); no existing policy edited.
+- `supabase/migrations/20260802231822_add_single_listing_policies.sql` — generated + hand-checked (contains only the two new `create policy` statements).
+- `src/components/atomic-crm/types.ts` — `PublishableSingleListingFields`, `Pick`ed from `Listing`.
+- `src/components/atomic-crm/listings/useListingUpsert.ts` — the shared create-vs-update hook extracted from `useShadchanListing.ts` (Task 5, DRY).
+- `src/components/atomic-crm/listings/useListingUpsert.test.tsx` — unit tests for the extracted hook's create-vs-update branch, subjectId handling, and withdraw().
+- `src/components/atomic-crm/listings/useShadchanListing.ts` — refactored to a thin wrapper over `useListingUpsert` (same external API; `PublishShadchanListingSection.tsx` untouched).
+- `src/components/atomic-crm/listings/ListingToggleField.tsx` — the shared toggle-row primitive extracted out of `PublishShadchanListingSection.tsx` (DRY), with an added `inputType` prop for the numeric Age field.
+- `src/components/atomic-crm/listings/PublishShadchanListingSection.tsx` — now imports `ListingToggleField` instead of defining it inline; no behavior change (its own test suite passes unmodified).
+- `src/components/atomic-crm/listings/PublishSingleListingSection.tsx` — the seven-field publish form (AC-1 through AC-6).
+- `src/components/atomic-crm/listings/PublishSingleListingSection.test.tsx` — unit tests (AC-1, AC-2, AC-4, AC-6).
+- `src/components/atomic-crm/settings/SingleListingSection.tsx` — the household-gated roster + per-row Publish/Manage-listing Dialog, wired to FR103's authority rule.
+- `src/components/atomic-crm/settings/SingleListingSection.test.tsx` — gating unit tests (kind gate, parent_admin, self_manager-vs-sibling, helper/single non-managing roles).
+- `src/components/atomic-crm/settings/SettingsPage.tsx` / `SettingsPageMobile.tsx` — mount `SingleListingSection` next to `FamilySection`.
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/shidduchim.ts` — `listingsSeed` (one seeded single listing for the demo) and its `db.listings` wiring.
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts` — comment update only (documents the `db.listings` override, no behavior change).
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` / `frenchCrmMessages.ts` — `crm.settings.single_listing.*` and `crm.settings.single_listing_form.*` keys.
+- `registry.json` — regenerated (`make registry-gen`) for the new `listings/`/`settings/` files.
+- `supabase/tests/listings.sql` — extended with Story 9.2's 15 new checks (AC-1, AC-2, AC-3 ×4, AC-6 ×3, AC-7, AC-8 ×4, plus supporting confirmations).
+- `supabase/tests/listings.test.ts` — header comment updated for both stories; the "floor" assertion raised from 25 to 45.

@@ -419,6 +419,43 @@ export const englishCrmMessages = {
         withdraw_success: "Your listing has been withdrawn.",
         withdraw_error: "Couldn't withdraw your listing. Try again.",
       },
+      // Story 9.2: the "Single listings" settings section
+      // (settings/SingleListingSection.tsx) — the per-single roster and its
+      // Publish / Manage listing action, gated to who FR103 lets act.
+      single_listing: {
+        title: "Single listings",
+        description:
+          "Publish a narrow, opt-in profile so shadchanim can find them.",
+        empty: "No singles in this household yet.",
+        publish_button: "Publish",
+        manage_button: "Manage listing",
+        dialog_title: "Publish a listing for %{name}",
+      },
+      // Story 9.2: the field-by-field publish form itself
+      // (listings/PublishSingleListingSection.tsx) — field-by-field opt-in
+      // (AC-1), at least one first name required to publish (AC-2).
+      single_listing_form: {
+        first_name_en_label: "First name (English)",
+        first_name_en_placeholder: "How shadchanim should see their first name",
+        first_name_he_label: "First name (Hebrew)",
+        first_name_he_placeholder: "שם פרטי",
+        age_label: "Age",
+        age_placeholder: "e.g. 24",
+        height_label: "Height",
+        height_placeholder: "e.g. 5'6\"",
+        community_label: "Community",
+        community_placeholder: "e.g. Yeshivish, Modern Orthodox",
+        location_label: "Location",
+        location_placeholder: "e.g. Lakewood, NJ",
+        summary_label: "Summary",
+        summary_placeholder: "Anything the fixed fields above don't capture",
+        name_required_error:
+          "Turn on an English or Hebrew first name and enter it before publishing.",
+        publish_button: "Publish listing",
+        update_button: "Update listing",
+        publish_success: "The listing is live.",
+        publish_error: "Couldn't publish the listing. Try again.",
+      },
       reset_defaults: "Reset to Defaults",
       save_error: "Failed to save configuration",
       saved: "Configuration saved successfully",

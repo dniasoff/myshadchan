@@ -1,15 +1,26 @@
 --
--- Publishing a shadchan listing (Epic 9 Story 9.1) — database test suite.
+-- Publishing a listing (Epic 9 Stories 9.1 and 9.2) — database test suite.
 --
--- Covers AC-1 through AC-8: field-by-field opt-in with a real `null` (not
--- an empty string) for anything left off, the CHECK constraint behind "name
--- required", the partial unique index behind "one live listing, not a
--- growing pile", the anon-readable snapshot itself (AD-21) and its
--- immediate disappearance on withdrawal, the two negative angles behind
--- "a household can never publish a shadchan listing", tenant isolation on
--- the authenticated-scoped policies, and the exact grant/RLS shape AC-8
--- demands — including the fork-era `members_id_seq` gap this story's
--- migration also closes.
+-- Story 9.1 (the `shadchan` branch) covers AC-1 through AC-8: field-by-field
+-- opt-in with a real `null` (not an empty string) for anything left off, the
+-- CHECK constraint behind "name required", the partial unique index behind
+-- "one live listing, not a growing pile", the anon-readable snapshot itself
+-- (AD-21) and its immediate disappearance on withdrawal, the two negative
+-- angles behind "a household can never publish a shadchan listing", tenant
+-- isolation on the authenticated-scoped policies, and the exact grant/RLS
+-- shape AC-8 demands — including the fork-era `members_id_seq` gap that
+-- story's migration also closes.
+--
+-- Story 9.2 (the `single` branch, appended below the 9.1 checks) covers its
+-- own AC-2/AC-3/AC-6/AC-7/AC-8: the name-required CHECK restated for two
+-- first-name columns instead of one, "only the manager may publish" from
+-- every angle FR103 distinguishes (helper, plain single, and a self-manager
+-- refused specifically on a SIBLING while a positive control proves the
+-- SAME self-manager publishing their own record still works), the partial
+-- unique index on `single_id`, anon readability, and a genuine cross-
+-- household negative test proving the refusal comes from RLS itself, not
+-- the composite FK (Dev Notes "Why the cross-account negative test still
+-- matters despite the composite FK").
 --
 -- Same conventions as every other suite here: one `begin; ... rollback;`
 -- transaction, a `results` table of named checks emitted as JSON,
@@ -525,6 +536,301 @@ from pg_class where oid = 'public.listings'::regclass;
 insert into results (name, passed)
 select 'AC-8: anon no longer holds any privilege on members_id_seq (fork-era gap closed)',
        not has_sequence_privilege('anon', 'public.members_id_seq', 'usage');
+
+-- =============================================================================
+-- Publishing a single's listing (Epic 9 Story 9.2) — the `single` branch of
+-- the same table and the two RLS policies (Task 1) this story adds on top
+-- of 9.1's `shadchan`-only ones.
+--
+-- Arrange (as postgres/superuser):
+--   Household PA — four members, one per role FR103 distinguishes:
+--     parent_admin (may publish for ANY single in PA), self_manager
+--     (may publish ONLY the single record that is themselves, single_self),
+--     helper and a plain single (neither may ever publish). Two singles:
+--     single_self (member_id = the self-manager's own account_members.id)
+--     and single_sibling (a second single in the SAME household, nobody's
+--     own record) — AC-3's "self-manager publishing for a sibling" needs
+--     exactly this shape.
+--   Household PB — a second, unrelated household's parent_admin, for
+--     AC-8's cross-account negative test against PA's single_sibling.
+-- =============================================================================
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('59220000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'listings-single-parent@test.local'),
+  ('59220000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'listings-single-selfmgr@test.local'),
+  ('59220000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'listings-single-helper@test.local'),
+  ('59220000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'listings-single-plain@test.local'),
+  ('59220000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'listings-single-crossb@test.local');
+
+insert into public.accounts (name, kind) values ('Listings Suite Household PA', 'household') returning id as account_pa \gset
+insert into public.accounts (name, kind) values ('Listings Suite Household PB', 'household') returning id as account_pb \gset
+
+insert into public.account_members (account_id, user_id, role) values
+  (:account_pa, '59220000-0000-0000-0000-000000000001', 'parent_admin')
+  returning id as member_pa_parent \gset
+insert into public.account_members (account_id, user_id, role) values
+  (:account_pa, '59220000-0000-0000-0000-000000000002', 'self_manager')
+  returning id as member_pa_self \gset
+insert into public.account_members (account_id, user_id, role) values
+  (:account_pa, '59220000-0000-0000-0000-000000000003', 'helper')
+  returning id as member_pa_helper \gset
+insert into public.account_members (account_id, user_id, role) values
+  (:account_pa, '59220000-0000-0000-0000-000000000004', 'single')
+  returning id as member_pa_single \gset
+insert into public.account_members (account_id, user_id, role) values
+  (:account_pb, '59220000-0000-0000-0000-000000000005', 'parent_admin')
+  returning id as member_pb_parent \gset
+
+insert into ids values
+  ('spa_account_pa', :account_pa), ('spa_account_pb', :account_pb),
+  ('spa_member_pa_parent', :member_pa_parent), ('spa_member_pa_self', :member_pa_self),
+  ('spa_member_pa_helper', :member_pa_helper), ('spa_member_pa_single', :member_pa_single),
+  ('spa_member_pb_parent', :member_pb_parent);
+
+-- Singles created as PA's own parent_admin (their sole active membership,
+-- so PA is auto-activated). single_self.member_id points straight at the
+-- self-manager's own account_members row.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into public.singles (first_name_en, member_id)
+values ('Listings Self-Managed Single', :member_pa_self)
+returning id as single_self \gset
+
+insert into public.singles (first_name_en) values ('Listings Sibling Single')
+returning id as single_sibling \gset
+
+reset role;
+insert into ids values ('spa_single_self', :single_self), ('spa_single_sibling', :single_sibling);
+
+-- -----------------------------------------------------------------------
+-- AC-2: a nameless single listing (neither script opted in) is refused by
+-- listings_single_name_required, not merely by the UI.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Story 9.2 AC-2: a single listing with BOTH first-name columns NULL is refused by listings_single_name_required';
+  v_single_sibling bigint;
+begin
+  select value into v_single_sibling from ids where name = 'spa_single_sibling';
+  insert into public.listings (listing_type, single_id) values ('single', v_single_sibling);
+  perform pg_temp.unexpected_raise(v_name, null, 'insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '23514', '%listings_single_name_required%', sqlstate, sqlerrm);
+end $$;
+
+reset role;
+
+-- -----------------------------------------------------------------------
+-- Positive path: PA's parent_admin publishes the SIBLING's listing (proves
+-- "any single in the household", not merely "my own"), then republishes
+-- (AC-6 — updates in place) and a raw second INSERT for the same single_id
+-- is refused by the partial unique index.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into public.listings (listing_type, single_id, single_first_name_en)
+values ('single', :single_sibling, 'Sibling One')
+returning id as listing_sibling \gset
+
+reset role;
+insert into ids values ('spa_listing_sibling', :listing_sibling);
+
+insert into results (name, passed, detail)
+select 'Story 9.2 AC-1: single_community stays NULL when never opted in',
+       single_community is null,
+       format('single_community = %L', single_community)
+from public.listings where id = :listing_sibling;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+update public.listings set single_community = 'Yeshivish' where id = :listing_sibling;
+
+reset role;
+
+insert into results (name, passed)
+select 'Story 9.2 AC-6: republishing (UPDATE) changes the SAME row in place',
+       single_community = 'Yeshivish'
+from public.listings where id = :listing_sibling;
+
+insert into results (name, passed, detail)
+select 'Story 9.2 AC-6: single_id stays unique among single-branch listings — still exactly one row for the sibling',
+       count(*) = 1,
+       format('rows: %s', count(*))
+from public.listings where single_id = :single_sibling and listing_type = 'single';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Story 9.2 AC-6: a second single-branch listings row for the SAME single is refused by listings_single_id_key';
+  v_single_sibling bigint;
+begin
+  select value into v_single_sibling from ids where name = 'spa_single_sibling';
+  insert into public.listings (listing_type, single_id, single_first_name_en)
+  values ('single', v_single_sibling, 'A Second Row');
+  perform pg_temp.unexpected_raise(v_name, null, 'insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '23505', '%listings_single_id_key%', sqlstate, sqlerrm);
+end $$;
+
+reset role;
+
+-- -----------------------------------------------------------------------
+-- AC-3: only the manager may publish. Both non-manager roles refused on
+-- the sibling; the self-manager refused on the sibling too (their
+-- authority is scoped to THEMSELVES, not the household), then a positive
+-- control proves the self-manager's own record still works — isolating
+-- the refusal above as a real authority boundary, not a blanket denial of
+-- every self-manager insert.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000003","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Story 9.2 AC-3: a helper cannot INSERT a single listing for anyone in the household';
+  v_single_sibling bigint;
+begin
+  select value into v_single_sibling from ids where name = 'spa_single_sibling';
+  insert into public.listings (listing_type, single_id, single_first_name_en)
+  values ('single', v_single_sibling, 'Helper Attempt');
+  perform pg_temp.unexpected_raise(v_name, null, 'insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
+end $$;
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000004","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Story 9.2 AC-3: a plain single (not self-managing) cannot INSERT a single listing for anyone in the household';
+  v_single_sibling bigint;
+begin
+  select value into v_single_sibling from ids where name = 'spa_single_sibling';
+  insert into public.listings (listing_type, single_id, single_first_name_en)
+  values ('single', v_single_sibling, 'Plain Single Attempt');
+  perform pg_temp.unexpected_raise(v_name, null, 'insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
+end $$;
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Story 9.2 AC-3: a self-manager cannot INSERT a single listing for a SIBLING — authority is scoped to themselves only';
+  v_single_sibling bigint;
+begin
+  select value into v_single_sibling from ids where name = 'spa_single_sibling';
+  insert into public.listings (listing_type, single_id, single_first_name_en)
+  values ('single', v_single_sibling, 'Self-Manager Attempt On Sibling');
+  perform pg_temp.unexpected_raise(v_name, null, 'insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
+end $$;
+
+-- Positive control, same session: the self-manager publishing THEIR OWN
+-- record succeeds — proves the refusal just above is FR103's authority
+-- boundary specifically, not a blanket refusal of every self-manager write.
+insert into public.listings (listing_type, single_id, single_first_name_en)
+values ('single', :single_self, 'Self-Managed Publisher')
+returning id as listing_self \gset
+
+reset role;
+insert into ids values ('spa_listing_self', :listing_self);
+
+insert into results (name, passed)
+select 'Story 9.2 AC-3 control: the self-manager CAN publish their OWN record (single_self) — the sibling refusal above is a real authority boundary, not a blanket denial',
+       single_first_name_en = 'Self-Managed Publisher'
+from public.listings where id = :listing_self;
+
+insert into results (name, passed, detail)
+select 'Story 9.2 AC-3: none of the three refused attempts left a row behind for the sibling beyond the one legitimate row already there',
+       count(*) = 1,
+       format('rows: %s', count(*))
+from public.listings where single_id = :single_sibling;
+
+-- -----------------------------------------------------------------------
+-- AC-7: the single-branch listing is anon-readable too — opted-in fields
+-- come back, opted-out fields stay null.
+-- -----------------------------------------------------------------------
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+
+insert into results (name, passed, detail)
+select 'Story 9.2 AC-7: an anon SELECT reaches the single-branch listing''s opted-in fields (name, community) and leaves height NULL',
+       count(*) filter (
+         where single_first_name_en = 'Sibling One'
+           and single_community = 'Yeshivish'
+           and single_height is null
+       ) = 1,
+       format('matching rows: %s', count(*))
+from public.listings where id = :listing_sibling;
+
+reset role;
+
+-- -----------------------------------------------------------------------
+-- AC-8: household PB's own parent_admin — a genuine cross-account caller —
+-- can never publish, update, or read-as-owner a listing belonging to a
+-- single in household PA. The refusal must come from RLS (42501) itself,
+-- not surface as the composite FK's constraint-violation instead (Dev
+-- Notes "Why the cross-account negative test still matters despite the
+-- composite FK").
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000005","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Story 9.2 AC-8: a DIFFERENT household''s parent_admin cannot INSERT a listing naming PA''s single — refused by RLS, not the composite FK';
+  v_single_sibling bigint;
+begin
+  select value into v_single_sibling from ids where name = 'spa_single_sibling';
+  insert into public.listings (listing_type, single_id, single_first_name_en)
+  values ('single', v_single_sibling, 'Cross-Account Hijack');
+  perform pg_temp.unexpected_raise(v_name, null, 'insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
+end $$;
+
+with attempt as (
+  update public.listings set single_community = 'Hijacked by PB'
+  where id = (select value from ids where name = 'spa_listing_sibling')
+  returning id
+)
+select count(*) as cnt from attempt \gset cross_update_
+
+insert into results (name, passed, detail)
+select 'Story 9.2 AC-8: a DIFFERENT household''s parent_admin''s UPDATE of PA''s single listing affects zero rows',
+       :cross_update_cnt = 0,
+       format('rows updated: %s', :cross_update_cnt);
+
+select count(*) as cnt from public.listings
+where id = (select value from ids where name = 'spa_listing_sibling') \gset cross_select_
+
+insert into results (name, passed, detail)
+select 'Story 9.2 AC-8: a DIFFERENT household''s parent_admin''s read-as-owner SELECT of PA''s single listing returns zero rows',
+       :cross_select_cnt = 0,
+       format('rows visible: %s', :cross_select_cnt);
+
+reset role;
+
+insert into results (name, passed)
+select 'Story 9.2 AC-8: PA''s single listing is untouched by every refused cross-account attempt',
+       single_community = 'Yeshivish'
+from public.listings where id = :listing_sibling;
 
 -- ---------------------------------------------------------------------------
 -- Emit the report as a single JSON array line, then undo everything.
