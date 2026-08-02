@@ -377,7 +377,7 @@ export const englishCrmMessages = {
       // connection_* namespace rather than two parallel ones.
       connection_title: "Connection",
       connection_household_description:
-        "Connect with your family's shadchan so they can see your children's suggestions and redt directly.",
+        "Connect with your family's shadchan so they can see your singles' shidduchim and redt directly.",
       connection_shadchan_description:
         "Connect with a family so you can see their shidduchim and redt directly.",
       connection_connect_shadchan: "Connect with a shadchan",
@@ -387,6 +387,13 @@ export const englishCrmMessages = {
       connection_end_error: "Couldn't end that connection. Try again.",
       connection_active_status: "Connected",
       connection_ended_status: "Connection ended",
+      // Review finding F8: revoke_connection_invite() and its dataProvider
+      // mirrors existed with no UI calling them — a leaked invite link had
+      // no shipped way to be killed before its 7-day expiry.
+      connection_invite_pending_label: "Invite link pending",
+      connection_invite_expires: "Expires %{when}",
+      connection_invite_cancel: "Cancel invite",
+      connection_invite_revoke_error: "Couldn't cancel that invite. Try again.",
       reset_defaults: "Reset to Defaults",
       save_error: "Failed to save configuration",
       saved: "Configuration saved successfully",

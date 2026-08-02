@@ -4281,22 +4281,38 @@ end;
 $$;
 
 -- Story 8.2 (AC-2, AC-6): withdraws an outstanding invite before it is
--- accepted. Caller must be an active member of the INVITING account — the
--- same scope the invite's own SELECT policy uses (05_policies.sql), so a
--- non-issuer sees "not found", never a distinct "not yours" error — mirrors
--- revoke_invite()'s own account-boundary shape (Story 2.8) above.
+-- accepted. Caller's ACTIVE CONTEXT must be the INVITING account — the same
+-- "active member of current_context_id()" idiom create_connection_invite()
+-- uses just above (the invite's own `inviter_account_id` is always set from
+-- that same value at creation), and the same scope the invite's own SELECT
+-- policy uses (05_policies.sql), so a non-issuer sees "not found", never a
+-- distinct "not yours" error — mirrors revoke_invite()'s own
+-- account-boundary shape (Story 2.8) above.
+--
+-- Review finding F5 (fix): this was "any active membership of
+-- inviter_account_id", which let a caller acting under a DIFFERENT active
+-- context revoke an invite belonging to an account they merely also hold a
+-- membership in — a permission check disagreeing with every sibling
+-- function's own idiom, and with the FakeRest mirror
+-- (fakerest/internal/connections.ts's revokeConnectionInvite(), which
+-- already required the caller's active context to match). Tightened to
+-- match both.
 CREATE OR REPLACE FUNCTION "public"."revoke_connection_invite"("p_invite_id" bigint) RETURNS void
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
   v_invite public.connection_invites;
+  v_actor_account_id bigint := public.current_context_id();
 begin
   select * into v_invite from public.connection_invites where id = p_invite_id;
 
-  if not found or not exists (
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_invite.inviter_account_id
+     or not exists (
     select 1 from public.account_members am
-    where am.account_id = v_invite.inviter_account_id and am.user_id = auth.uid() and am.status = 'active'
+    where am.account_id = v_actor_account_id and am.user_id = auth.uid() and am.status = 'active'
   ) then
     raise exception 'connection invite % not found', p_invite_id;
   end if;
@@ -4421,26 +4437,39 @@ $$;
 -- irreversible for THIS row (this story's Dev Notes, "What ending does and
 -- does not do") — a later reconnection is a new invite/accept cycle
 -- producing a new row, which connections_live_pair_idx (01_tables.sql)
--- permits once this one is ended. The membership check is deliberately an
--- ACTIVE MEMBERSHIP of either party, not "is one of them my current active
--- context" — the same "active member of <the account>" idiom every other
--- writer in this section uses — while `ended_by_account_id` records the
--- caller's actual current context, exactly as the story's own spec names
--- both independently.
+-- permits once this one is ended.
+--
+-- Review finding F4 (fix): the caller's ACTIVE CONTEXT must itself be one of
+-- the two parties, and `ended_by_account_id` stamps that SAME value — one
+-- check, one value, so the stamped id can never be a third account the
+-- caller merely happens to also hold a membership in under a different
+-- active context. The original shape checked "any active membership of
+-- either party" but stamped `current_context_id()` — two different notions
+-- of "who is acting" in one statement — and was proven to let a user whose
+-- active context is shadchanus S2 (while also an active member of household
+-- A) end the A<->S connection and have the row record
+-- `ended_by_account_id = S2`, an account with no relationship to the
+-- connection at all. This also brings the check back in line with every
+-- sibling writer's "active member of current_context_id()" idiom
+-- (create_connection_invite()/revoke_connection_invite() above) and with
+-- the FakeRest mirror (fakerest/internal/connections.ts's endConnection(),
+-- which already required this).
 CREATE OR REPLACE FUNCTION "public"."end_connection"("p_connection_id" bigint) RETURNS public.connections
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
   v_connection public.connections;
+  v_actor_account_id bigint := public.current_context_id();
 begin
   select * into v_connection from public.connections where id = p_connection_id;
 
-  if not found or not exists (
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id not in (v_connection.household_account_id, v_connection.shadchanus_account_id)
+     or not exists (
     select 1 from public.account_members am
-    where am.user_id = auth.uid()
-      and am.status = 'active'
-      and am.account_id in (v_connection.household_account_id, v_connection.shadchanus_account_id)
+    where am.account_id = v_actor_account_id and am.user_id = auth.uid() and am.status = 'active'
   ) then
     raise exception 'connection % not found', p_connection_id;
   end if;
@@ -4451,7 +4480,7 @@ begin
   end if;
 
   update public.connections
-  set status = 'ended', ended_at = now(), ended_by_account_id = public.current_context_id()
+  set status = 'ended', ended_at = now(), ended_by_account_id = v_actor_account_id
   where id = p_connection_id
   returning * into v_connection;
 

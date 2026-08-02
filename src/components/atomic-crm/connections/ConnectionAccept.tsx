@@ -61,13 +61,20 @@ export const ConnectionAccept = () => {
         await queryClient.invalidateQueries();
         navigate(activeKind === "shadchanus" ? "/connections" : "/shadchanim");
       })
-      .catch((error: unknown) => {
-        notify(
-          error instanceof Error
-            ? error.message
-            : "crm.connection_accept.error",
-          { type: "error" },
-        );
+      .catch(() => {
+        // Review finding F9: the raw Postgres error (e.g. the unique-
+        // constraint message re-inviting an already-connected pair
+        // produces) must never reach the user directly — it is not
+        // localized copy, and a stray `%` in it would break this same
+        // call's use of the message as an i18n key. Always show one
+        // generic, translated message instead, mirroring
+        // ConnectionSection.tsx's own catch blocks.
+        notify("crm.connection_accept.error", {
+          type: "error",
+          messageArgs: {
+            _: "Couldn't accept that invite. It may already be used or something changed — try the link again.",
+          },
+        });
         setIsAccepting(false);
       });
   };

@@ -176,12 +176,27 @@ end $$;
 -- neither row, so RLS would hide a wrongly-created connection/invite from
 -- it too — that coincidence would make "count(*) = 0" pass even if the
 -- rejection had a bug, which is not a real check. Reading as postgres (RLS
--- bypassed) is the only way this asserts the GLOBAL truth.
+-- bypassed) is the only way this asserts the truth for THIS fixture's
+-- accounts.
+--
+-- Review finding F2 (fix): this used to be an unscoped `count(*) from
+-- public.connections` — a truly global count, not merely "RLS bypassed for
+-- our own rows". Proven to fail this very assertion with one unrelated
+-- `connections` row present anywhere in the database (e.g. left behind by
+-- another test file, or a real row on a shared/dev database), which is
+-- exactly `.claude/rules/testing.md`'s "no test should depend on…shared
+-- state" isolation violation, and the empty-DB blind spot the project has
+-- already been bitten by once (AGENTS.md, `check-migration-safety`). Scoped
+-- to this fixture's own account ids, which is still read as postgres
+-- (RLS bypassed) so a wrongly-created row involving THESE accounts cannot
+-- hide behind household C's own RLS-invisible read.
 reset role;
 
 insert into results (name, passed)
 select 'AC-6(c): the rejected same-kind acceptance created no connections row', count(*) = 0
-from public.connections;
+from public.connections
+where household_account_id in (:household_a, :household_c)
+   or shadchanus_account_id in (:shadchanus_s, :shadchanus_s2);
 
 insert into results (name, passed)
 select 'AC-6(c): the invite is still pending after the rejected same-kind attempt', ci.status = 'pending'
@@ -252,9 +267,55 @@ from public.connections
 where household_account_id = :household_a and shadchanus_account_id = :shadchanus_s;
 
 -- ---------------------------------------------------------------------------
+-- Review finding F5 (regression test): merely holding an ACTIVE MEMBERSHIP
+-- of the inviting account is not enough to revoke its invite — the caller's
+-- ACTIVE CONTEXT must itself be that account, the same "active member of
+-- current_context_id()" idiom create_connection_invite() uses. Household A's
+-- own user (001) is given a SECOND active membership, in shadchanus S2 (a
+-- stranger to household A's invite), and switches its active context there
+-- — while remaining an active member of household A. Revoking household A's
+-- invite while ACTING AS shadchanus S2 must be refused.
+-- ---------------------------------------------------------------------------
+set local request.jwt.claims = '{"sub":"59200000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select public.create_connection_invite() as token_a_regression \gset
+select id as invite_a_regression from public.connection_invites
+where inviter_account_id = :household_a and status = 'pending'
+  and token_hash = encode(extensions.digest(:'token_a_regression', 'sha256'), 'hex') \gset
+insert into ids values ('invite_a_regression', :invite_a_regression);
+
+reset role;
+insert into public.account_members (account_id, user_id, role, status) values
+  (:shadchanus_s2, '59200000-0000-0000-0000-000000000001', 'shadchan', 'active');
+
+set local role authenticated;
+select public.set_active_context(:shadchanus_s2);
+
+do $$
+declare
+  v_name constant text := 'F5: an active member of the inviting account (household A) cannot revoke its invite while ACTING AS an unrelated account (shadchanus S2)';
+  v_invite_id bigint;
+begin
+  select value into v_invite_id from ids where name = 'invite_a_regression';
+  perform public.revoke_connection_invite(v_invite_id);
+  perform pg_temp.unexpected_raise(v_name, null, 'revoke unexpectedly succeeded while acting as an unrelated account');
+exception when others then
+  perform pg_temp.denied(v_name, 'P0001', '%not found%', sqlstate, sqlerrm);
+end $$;
+
+select public.set_active_context(:household_a);
+
+reset role;
+insert into results (name, passed)
+select 'F5: the invite is untouched by the refused acting-as-unrelated-account attempt (still pending)',
+       ci.status = 'pending'
+from public.connection_invites ci where ci.id = :invite_a_regression;
+
+-- ---------------------------------------------------------------------------
 -- AC-6(d): a revoked invite cannot be accepted. Household A issues a
 -- second invite and revokes it before anyone accepts.
 -- ---------------------------------------------------------------------------
+set local role authenticated;
 set local request.jwt.claims = '{"sub":"59200000-0000-0000-0000-000000000001","role":"authenticated"}';
 
 select public.create_connection_invite() as token_a_revoked \gset
@@ -344,6 +405,22 @@ select 'AC-6(a)/AC-5: a third-party household cannot read a connection it is not
 from public.connections where id = :connection_a_s;
 
 -- ---------------------------------------------------------------------------
+-- Review finding F1: the ONE RLS policy this story ships
+-- ("Connection invites visible to their issuer", 05_policies.sql) was never
+-- proven with a real negative test — widening it to `using (true)` left
+-- every other check in this suite green (a mutation-testing run found this;
+-- see the story's review). Still as household C: it is party to none of
+-- household A's invites (accepted, revoked, or the backdated-expired one
+-- above all have inviter_account_id = household A), so a non-issuer must
+-- read exactly zero of them, not merely the pending ones.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed)
+select 'F1: a non-issuer authenticated caller reads zero rows from connection_invites',
+       count(*) = 0
+from public.connection_invites
+where inviter_account_id = :household_a;
+
+-- ---------------------------------------------------------------------------
 -- AC-6(b): a member of shadchanus account S2 cannot call end_connection() on
 -- the A<->S connection.
 -- ---------------------------------------------------------------------------
@@ -424,7 +501,52 @@ select 'both the ended and the reconnected rows survive as history for the same 
 from public.connections
 where household_account_id = :household_a and shadchanus_account_id = :shadchanus_s;
 
--- Restore household A's claims for the grant-layer checks below.
+-- ---------------------------------------------------------------------------
+-- Review finding F4 (regression test): merely holding an ACTIVE MEMBERSHIP
+-- of a connection's party is not enough to end it — the caller's ACTIVE
+-- CONTEXT must itself be that party. Shadchan S's own user (003) is given a
+-- SECOND active membership, in household C (a stranger to the A<->S
+-- connection), and switches its active context there — while remaining an
+-- active member of shadchanus S. Ending the reconnected A<->S connection
+-- while ACTING AS household C must be refused: before the fix, "any active
+-- membership of either party" alone let this through and stamped
+-- `ended_by_account_id` with the ACTING context (household C) rather than
+-- either real party — proven live against this exact scenario in the
+-- story's review.
+-- ---------------------------------------------------------------------------
+reset role;
+insert into public.account_members (account_id, user_id, role, status) values
+  (:household_c, '59200000-0000-0000-0000-000000000003', 'parent_admin', 'active');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59200000-0000-0000-0000-000000000003","role":"authenticated"}';
+select public.set_active_context(:household_c);
+
+do $$
+declare
+  v_name constant text := 'F4: an active member of a party (shadchan S) cannot end it while ACTING AS an unrelated account (household C)';
+  v_connection_id bigint;
+begin
+  select value into v_connection_id from ids where name = 'connection_a_s_2';
+  perform public.end_connection(v_connection_id);
+  perform pg_temp.unexpected_raise(v_name, null, 'end_connection unexpectedly succeeded while acting as an unrelated account');
+exception when others then
+  perform pg_temp.denied(v_name, 'P0001', '%not found%', sqlstate, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'F4: the connection is untouched by the refused acting-as-unrelated-account attempt (still accepted, ended_by_account_id still null)',
+       c.status = 'accepted' and c.ended_by_account_id is null
+from public.connections c where c.id = :connection_a_s_2;
+
+-- Restore household A's claims (and ROLE — the F4 check above ended on
+-- `reset role`, and leaving that unset here would silently run every
+-- grant-layer check below as postgres/superuser instead of `authenticated`,
+-- which bypasses the very grants they exist to prove) for the grant-layer
+-- checks below.
+set local role authenticated;
 set local request.jwt.claims = '{"sub":"59200000-0000-0000-0000-000000000001","role":"authenticated"}';
 
 -- ---------------------------------------------------------------------------
@@ -587,10 +709,16 @@ insert into results (name, passed)
 select 'authenticated cannot advance the connection_invites sequence',
        not has_sequence_privilege('authenticated', 'public.connection_invites_id_seq', 'USAGE');
 
+-- Review finding F2 (fix): scoped to this fixture's own rows for the same
+-- isolation reason as the AC-6(c) check above — a table-wide `bool_and`
+-- makes this suite's pass/fail depend on every OTHER connections row in the
+-- database, not just the ones this script created.
 insert into results (name, passed)
 select 'a connections row''s ended flag is always internally consistent (connections_ended_consistency)',
        bool_and((status = 'ended') = (ended_at is not null))
-from public.connections;
+from public.connections
+where household_account_id in (:household_a, :household_c)
+   or shadchanus_account_id in (:shadchanus_s, :shadchanus_s2);
 
 \t on
 \a

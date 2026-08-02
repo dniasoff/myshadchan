@@ -24,7 +24,7 @@ import {
 import { pickActiveContext } from "../providers/commons/roleAuthority";
 import type { CrmDataProvider } from "../providers/types";
 import { useMyContexts } from "../root/useMyContexts";
-import type { Account, Connection, Shadchan } from "../types";
+import type { Account, Connection, ConnectionInvite } from "../types";
 import { SectionLabel } from "./SectionLabel";
 
 const GET_LIST_PARAMS = {
@@ -51,7 +51,7 @@ export const ConnectionSection = () => {
   if (!activeContext) return null;
 
   return activeContext.kind === "household" ? (
-    <HouseholdConnectionPanel />
+    <HouseholdConnectionPanel accountId={activeContext.account_id} />
   ) : (
     <ShadchanusConnectionPanel accountId={activeContext.account_id} />
   );
@@ -133,41 +133,135 @@ const GenerateInviteLink = ({
   );
 };
 
-/** Household side: connect to a shadchan, and see/end the shadchanim book
- * entries this story's consent workflow created (`shadchanim.connection_id`
- * — set only by `accept_connection_invite()`). Scoped implicitly to the
- * caller's own account by RLS — no explicit account id needed here. */
-const HouseholdConnectionPanel = () => {
+/**
+ * Outstanding (pending) connection invites the active context has issued —
+ * shared by both panels below. `useGetList` is scoped implicitly to the
+ * caller by `connection_invites`' own SELECT policy (`inviter_account_id =
+ * current_context_id()`), so no explicit account-id filter is needed here.
+ *
+ * Review finding F8 (fix): `revoke_connection_invite()` and both
+ * dataProvider mirrors existed from Task 3/5 but nothing in `src/` called
+ * them — a leaked invite link had no shipped way to be killed before its
+ * 7-day expiry. This is that surface.
+ */
+const PendingInvites = () => {
+  const translate = useTranslate();
+  const notify = useNotify();
+  const dataProvider = useDataProvider<CrmDataProvider>();
+  const [revokingId, setRevokingId] = useState<ConnectionInvite["id"] | null>(
+    null,
+  );
+
+  const {
+    data: invites,
+    isPending,
+    refetch,
+  } = useGetList<ConnectionInvite>("connection_invites", {
+    ...GET_LIST_PARAMS,
+    filter: { status: "pending" },
+  });
+
+  const handleRevoke = async (invite: ConnectionInvite) => {
+    setRevokingId(invite.id);
+    try {
+      await dataProvider.revokeConnectionInvite(invite.id);
+      await refetch();
+    } catch {
+      notify("crm.settings.connection_invite_revoke_error", {
+        type: "error",
+        messageArgs: { _: "Couldn't cancel that invite. Try again." },
+      });
+    } finally {
+      setRevokingId(null);
+    }
+  };
+
+  if (isPending || !invites || invites.length === 0) return null;
+
+  return (
+    <ItemGroup className="overflow-hidden rounded-lg border">
+      {invites.map((invite, index) => (
+        <div key={invite.id}>
+          {index > 0 ? <ItemSeparator /> : null}
+          <Item size="sm">
+            <ItemContent>
+              <ItemTitle className="font-normal">
+                {translate("crm.settings.connection_invite_pending_label", {
+                  _: "Invite link pending",
+                })}
+              </ItemTitle>
+              <ItemDescription>
+                {translate("crm.settings.connection_invite_expires", {
+                  _: "Expires %{when}",
+                  when: new Date(invite.expires_at).toLocaleDateString(),
+                })}
+              </ItemDescription>
+            </ItemContent>
+            <ItemActions>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={revokingId === invite.id}
+                onClick={() => handleRevoke(invite)}
+              >
+                {translate("crm.settings.connection_invite_cancel", {
+                  _: "Cancel invite",
+                })}
+              </Button>
+            </ItemActions>
+          </Item>
+        </div>
+      ))}
+    </ItemGroup>
+  );
+};
+
+/** Household side: connect to a shadchan, and see/end the household's own
+ * accepted connections. Reads `connections` directly, filtered to this
+ * account (mirroring `ShadchanusConnectionPanel` below) — NOT derived from
+ * the `shadchanim` book row `accept_connection_invite()` seeds.
+ *
+ * Review finding F3 (fix): deriving the connected list, and its only "End
+ * connection" button, from `shadchanim.connection_id` meant a household
+ * lost every path to end an accepted connection the moment it deleted that
+ * book row (`authenticated` still holds table-level DELETE on `shadchanim`,
+ * and `<Edit>` renders a DeleteButton by default) — the connection stayed
+ * `accepted` and fully visible to the shadchan side while this panel
+ * rendered nothing, which made AC-3 ("either side may end it") false for
+ * the household through every shipped surface. `connections` is the ground
+ * truth this story's own consent workflow writes to and RLS scopes to
+ * either party — reading it directly here can never be lost that way. */
+const HouseholdConnectionPanel = ({ accountId }: { accountId: Identifier }) => {
   const translate = useTranslate();
   const notify = useNotify();
   const dataProvider = useDataProvider<CrmDataProvider>();
   const [endingId, setEndingId] = useState<Connection["id"] | null>(null);
 
   const {
-    data: shadchanim,
+    data: connections,
     isPending,
-    refetch: refetchShadchanim,
-  } = useGetList<Shadchan>("shadchanim", GET_LIST_PARAMS);
+    refetch: refetchConnections,
+  } = useGetList<Connection>("connections", {
+    ...GET_LIST_PARAMS,
+    filter: { household_account_id: accountId },
+  });
 
-  const connected = (shadchanim ?? []).filter((s) => s.connection_id != null);
-  const connectionIds = connected.map((s) => s.connection_id!);
-
-  const { data: connections, refetch: refetchConnections } =
-    useGetMany<Connection>(
-      "connections",
-      { ids: connectionIds },
-      { enabled: connectionIds.length > 0 },
-    );
-  const connectionById = new Map(
-    (connections ?? []).map((c) => [String(c.id), c]),
+  const shadchanusIds = (connections ?? []).map((c) => c.shadchanus_account_id);
+  const { data: shadchanusAccounts } = useGetMany<Account>(
+    "accounts",
+    { ids: shadchanusIds },
+    { enabled: shadchanusIds.length > 0 },
+  );
+  const shadchanusById = new Map(
+    (shadchanusAccounts ?? []).map((a) => [String(a.id), a]),
   );
 
-  const handleEnd = async (shadchan: Shadchan) => {
-    if (shadchan.connection_id == null) return;
-    setEndingId(shadchan.connection_id);
+  const handleEnd = async (connection: Connection) => {
+    setEndingId(connection.id);
     try {
-      await dataProvider.endConnection(shadchan.connection_id);
-      await Promise.all([refetchShadchanim(), refetchConnections()]);
+      await dataProvider.endConnection(connection.id);
+      await refetchConnections();
     } catch {
       notify("crm.settings.connection_end_error", {
         type: "error",
@@ -186,7 +280,7 @@ const HouseholdConnectionPanel = () => {
       <div className="space-y-4 rounded-lg border p-4">
         <p className="text-sm text-muted-foreground">
           {translate("crm.settings.connection_household_description", {
-            _: "Connect with your family's shadchan so they can see your children's suggestions and redt directly.",
+            _: "Connect with your family's shadchan so they can see your singles' shidduchim and redt directly.",
           })}
         </p>
         <GenerateInviteLink
@@ -194,21 +288,22 @@ const HouseholdConnectionPanel = () => {
             _: "Connect with a shadchan",
           })}
         />
+        <PendingInvites />
 
-        {!isPending && connected.length > 0 ? (
+        {!isPending && connections && connections.length > 0 ? (
           <ItemGroup className="overflow-hidden rounded-lg border">
-            {connected.map((shadchan, index) => {
-              const connection = connectionById.get(
-                String(shadchan.connection_id),
+            {connections.map((connection, index) => {
+              const shadchan = shadchanusById.get(
+                String(connection.shadchanus_account_id),
               );
-              const isEnded = connection?.status === "ended";
+              const isEnded = connection.status === "ended";
               return (
-                <div key={shadchan.id}>
+                <div key={connection.id}>
                   {index > 0 ? <ItemSeparator /> : null}
                   <Item size="sm">
                     <ItemContent>
                       <ItemTitle className="font-normal">
-                        {shadchan.name}
+                        {shadchan?.name ?? connection.shadchanus_account_id}
                       </ItemTitle>
                       <ItemDescription>
                         {translate(
@@ -225,8 +320,8 @@ const HouseholdConnectionPanel = () => {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          disabled={endingId === shadchan.connection_id}
-                          onClick={() => handleEnd(shadchan)}
+                          disabled={endingId === connection.id}
+                          onClick={() => handleEnd(connection)}
                         >
                           {translate("crm.settings.connection_end_button", {
                             _: "End connection",
@@ -308,6 +403,7 @@ const ShadchanusConnectionPanel = ({
             _: "Connect with a family",
           })}
         />
+        <PendingInvites />
 
         {!isPending && connections && connections.length > 0 ? (
           <ItemGroup className="overflow-hidden rounded-lg border">

@@ -354,7 +354,7 @@ export const frenchCrmMessages = {
         "Impossible de révoquer cette invitation. Réessayez.",
       connection_title: "Connexion",
       connection_household_description:
-        "Connectez-vous avec le chadchan de votre famille pour qu'il puisse voir les propositions de vos enfants et les redt directement.",
+        "Connectez-vous avec le chadchan de votre famille pour qu'il puisse voir les shidduchim de vos célibataires et les redt directement.",
       connection_shadchan_description:
         "Connectez-vous avec une famille pour voir directement ses shidduchim et ses redt.",
       connection_connect_shadchan: "Se connecter avec un chadchan",
@@ -366,6 +366,11 @@ export const frenchCrmMessages = {
         "Impossible de mettre fin à cette connexion. Réessayez.",
       connection_active_status: "Connecté",
       connection_ended_status: "Connexion terminée",
+      connection_invite_pending_label: "Lien d'invitation en attente",
+      connection_invite_expires: "Expire le %{when}",
+      connection_invite_cancel: "Annuler l'invitation",
+      connection_invite_revoke_error:
+        "Impossible d'annuler cette invitation. Réessayez.",
       reset_defaults: "Réinitialiser aux valeurs par défaut",
       save_error: "Échec de l'enregistrement de la configuration",
       saved: "Configuration enregistrée avec succès",

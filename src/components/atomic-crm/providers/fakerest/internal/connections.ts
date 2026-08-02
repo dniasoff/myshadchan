@@ -24,6 +24,15 @@ import {
  * invite needs only an ALREADY-authenticated, opposite-kind active context —
  * no OTP/signup step FakeRest has never emulated — so the demo build can run
  * the real guard rails end to end.
+ *
+ * `endConnection()` and `revokeConnectionInvite()` require the caller's
+ * ACTIVE CONTEXT (`membership.account_id`, resolved from
+ * `getActiveAccountId()`) to be the party / the inviter — this was ahead of
+ * `02_functions.sql`'s own SQL for one review cycle (review finding F5),
+ * which briefly accepted ANY active membership of the party instead of
+ * requiring it be the caller's current one. The SQL now matches this file,
+ * not the other way around: see `end_connection()`'s and
+ * `revoke_connection_invite()`'s own comments in `02_functions.sql`.
  */
 
 const PAGE_ONE = { page: 1, perPage: 1 } as const;
