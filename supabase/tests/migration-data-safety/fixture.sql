@@ -580,6 +580,31 @@ begin
   end if;
 end $$;
 
+-- Story 9.1 (listings, review finding F5). Same `to_regclass` guard, same
+-- reasoning as the two blocks above: THIS story's own migration is what
+-- creates `listings`, so it holds nothing before it applies, and the guard
+-- is trivially safe for its own migration. From the next story's baseline
+-- onward this seeds and captures a live `shadchan`-branch row like every
+-- other table here — closing the blind spot in the same diff that adds the
+-- table, before 9.2 (single-branch policies) and 9.3 (the dignity-floor
+-- withdrawal lock) both alter this table's RLS against what would otherwise
+-- still be an empty one. Anchored on account 9000002 (the `shadchanus`
+-- account the connections block above already seeds) — `published_by_member_id`
+-- is left null (nullable, `on delete set null`) since no member row exists
+-- for that account yet and none of this story's constraints require one.
+-- 9.2 owns seeding its own `single`-branch row when it adds that branch's
+-- write policies, mirroring this same story-adds-its-own-seed convention
+-- rather than this block pre-empting it.
+do $$
+begin
+  if to_regclass('public.listings') is not null then
+    execute $seed$
+      insert into public.listings (id, account_id, listing_type, shadchan_name, shadchan_area, shadchan_contact_info)
+      values (9000001, 9000002, 'shadchan', 'Migration Guard Shadchan', 'Lakewood', '555-0100');
+    $seed$;
+  end if;
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- Snapshot. `identity_signals` is captured last and on purpose: nothing
 -- inserts it directly — the `sync_shidduch_signals` trigger derives it from
@@ -656,5 +681,6 @@ select migration_guard.capture('thread_participants');
 select migration_guard.capture('messages');
 select migration_guard.capture('message_notifications');
 select migration_guard.capture('push_subscriptions');
+select migration_guard.capture('listings');
 
 commit;

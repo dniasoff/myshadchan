@@ -41,7 +41,7 @@ const renderSection = async (context: MyContext) => {
     getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
   } as unknown as CrmDataProvider;
 
-  return render(
+  const screen = await render(
     <TestMemoryRouter initialEntries={["/settings"]}>
       <CoreAdminContext
         dataProvider={dataProvider}
@@ -52,26 +52,48 @@ const renderSection = async (context: MyContext) => {
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
+
+  return { screen, dataProvider };
 };
 
 describe("ShadchanListingSection", () => {
   it("renders nothing for a household active context", async () => {
     // Arrange / Act
-    const screen = await renderSection(householdContext);
+    const { screen, dataProvider } = await renderSection(householdContext);
 
-    // Assert
-    await expect
-      .element(screen.getByRole("button", { name: "Publish my listing" }))
-      .not.toBeInTheDocument();
+    // Assert — review finding F3: asserting `.not.toBeInTheDocument()` on the
+    // "Publish my listing" BUTTON is satisfied by the panel's own loading
+    // skeleton too (it has no button while `isPending`), so it stayed green
+    // even with the kind-gate deleted entirely. The panel's title text
+    // (`SectionLabel`) renders synchronously in BOTH the skeleton and the
+    // loaded form, on the very first commit — checked here without
+    // `.element()` polling, the same synchronous-container idiom
+    // `RepeatRecognitionPanel.test.tsx` uses, so a regression is caught
+    // immediately rather than only outside whatever window `.element()`
+    // happens to poll before the async fetch resolves. `getList` never
+    // being called is the more direct proof still: `useShadchanListing`
+    // calls it unconditionally whenever `PublishShadchanListingSection`
+    // mounts at all, so this is deterministic evidence the component
+    // subtree never mounted, not merely that it hadn't finished loading.
+    expect(screen.container.textContent ?? "").not.toContain(
+      "Publish my listing",
+    );
+    expect(dataProvider.getList).not.toHaveBeenCalled();
   });
 
   it("renders the publish panel for a shadchanus active context", async () => {
     // Arrange / Act
-    const screen = await renderSection(shadchanContext);
+    const { screen, dataProvider } = await renderSection(shadchanContext);
 
     // Assert
     await expect
       .element(screen.getByRole("button", { name: "Publish my listing" }))
       .toBeInTheDocument();
+    await expect
+      .poll(
+        () =>
+          (dataProvider.getList as ReturnType<typeof vi.fn>).mock.calls.length,
+      )
+      .toBeGreaterThan(0);
   });
 });

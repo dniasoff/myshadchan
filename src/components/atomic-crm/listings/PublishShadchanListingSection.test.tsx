@@ -198,6 +198,42 @@ describe("PublishShadchanListingSection — an existing listing", () => {
     expect(dataProvider.create).not.toHaveBeenCalled();
   });
 
+  it("AC-1 (review finding F7) — turning Area off and republishing sends shadchan_area: null, not the stale text", async () => {
+    // Arrange — an existing row with area already opted in, the privacy-
+    // relevant direction (un-publishing a field) that only the "publish with
+    // a field newly on" path had a test for before this one.
+    const existing = buildListing({ shadchan_area: "Lakewood" });
+    const { screen, dataProvider } = await renderSection({
+      listings: { data: [existing], total: 1 },
+    });
+    await expect
+      .element(screen.getByRole("switch", { name: "Area" }))
+      .toBeChecked();
+
+    // Act — turn Area off, then republish.
+    await screen.getByRole("switch", { name: "Area" }).click();
+    await screen.getByRole("button", { name: "Update listing" }).click();
+
+    // Assert — the update wipes the field to null rather than leaving
+    // whatever text last sat in the (now-hidden) input.
+    await expect
+      .poll(
+        () =>
+          (dataProvider.update as ReturnType<typeof vi.fn>).mock.calls.length,
+      )
+      .toBeGreaterThan(0);
+    expect(dataProvider.update).toHaveBeenCalledWith(
+      "listings",
+      expect.objectContaining({
+        id: existing.id,
+        data: expect.objectContaining({
+          shadchan_name: "Rivka the Shadchan",
+          shadchan_area: null,
+        }),
+      }),
+    );
+  });
+
   it("AC-5 — Withdraw calls delete with the listing's id", async () => {
     // Arrange
     const existing = buildListing();

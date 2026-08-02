@@ -1164,8 +1164,47 @@ grant execute on function public.redt_via_connection(bigint, text, text, jsonb) 
 -- `select` and NOTHING else, ever. `authenticated` gets full DML; the
 -- `shadchan`/`single` branch split is the policies' job (05_policies.sql),
 -- not the grant's.
-revoke all on table public.listings from anon;
-grant select on table public.listings to anon;
+--
+-- Review finding F1 (Story 9.1): `revoke all ... from anon` alone left
+-- `authenticated` holding whatever the schema's own
+-- `alter default privileges ... grant all on tables to authenticated`
+-- attaches to every new table — REFERENCES, TRIGGER, and, critically,
+-- TRUNCATE, which BYPASSES ROW LEVEL SECURITY exactly as the
+-- "TRUNCATE/MAINTAIN hardening" block above documents for ~20 other tables.
+-- `authenticated` must be named in the SAME `revoke all` as `anon`, matching
+-- that block's own idiom, or a single `truncate table listings;` from any
+-- signed-in session empties every shadchan's and single's listing across
+-- every tenant at once.
+--
+-- Review finding F6 (Story 9.1): `anon`'s SELECT is an ENUMERATED column
+-- list, not the whole table — the same reasoning, and the same mechanism,
+-- as `shidduchim.close_reason` below (`grant select (...)`  because a
+-- column-level REVOKE is a silent no-op once table-level SELECT is held).
+-- `account_id`, `single_id` and `published_by_member_id` are internal
+-- tenant/member identifiers, never opted-in listing content — FR101 promises
+-- "name, area, how to reach", not a household's or single's own primary
+-- key. Left off the anon grant, `?account_id=eq.N` / `?order=account_id.desc`
+-- can never enumerate or link records; a client that wants "this listing's
+-- id" already has it as `listings.id`. This has to be established on the
+-- shadchan branch this story ships, not retrofitted once 9.2 adds `single`
+-- rows, where the same `account_id` would otherwise let an anonymous caller
+-- link two singles of the same household.
+revoke all on table public.listings from anon, authenticated;
+grant select (
+    id,
+    created_at,
+    listing_type,
+    shadchan_name,
+    shadchan_area,
+    shadchan_contact_info,
+    single_first_name_en,
+    single_first_name_he,
+    single_age,
+    single_height,
+    single_community,
+    single_location,
+    single_summary
+  ) on table public.listings to anon;
 grant select, insert, update, delete on table public.listings to authenticated;
 grant all on table public.listings to service_role;
 
@@ -1173,6 +1212,17 @@ grant all on table public.listings to service_role;
 -- row data, but AD-1 revokes all table/sequence grants from `anon`
 -- unconditionally, and this table is the one place a slip here would sit
 -- right next to the table it IS allowed to read.
+--
+-- Review finding F4 (Story 9.1): `db diff` never emits sequence grants
+-- (AGENTS.md), and a `generated ... as identity` column's sequence does not
+-- inherit the same default-privilege ACL a plain `create sequence` gets —
+-- these three statements were declared here from the start but never made
+-- it into the migration. Hand-added to the follow-up migration alongside the
+-- F1/F6 grant fixes so the deployed database matches what this file
+-- declares; functionally harmless either way (identity columns don't
+-- consult the sequence ACL to generate a value, and `anon` already holds
+-- nothing on it), but a schema file asserting state the database does not
+-- have is exactly the kind of drift `db diff` cannot catch on its own.
 revoke all on sequence public.listings_id_seq from anon;
 grant usage, select on sequence public.listings_id_seq to authenticated;
 grant all on sequence public.listings_id_seq to service_role;

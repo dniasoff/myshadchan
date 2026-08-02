@@ -428,14 +428,52 @@ from public.listings where id = :listing_a2;
 -- ---------------------------------------------------------------------------
 -- AC-8: grants are exactly as narrow as AD-1 demands.
 -- ---------------------------------------------------------------------------
+
+-- Review finding F6: `anon`'s SELECT is an ENUMERATED column grant, not the
+-- whole table, so `has_table_privilege('anon', ..., 'select')` (the old
+-- check) now correctly reads FALSE — Postgres only reports the table-level
+-- privilege there, and `anon` never holds it. The real claim is column-shaped
+-- and two-sided, exactly like `public.shidduchim`'s close_reason guard in
+-- single_field_scoping.sql: every column except the three internal
+-- identifiers is readable, and those three are not — a column added to
+-- `listings` without a matching grant, or one of the three re-granted, fails
+-- here.
+do $$
+declare
+  v_missing text;
+  v_leaked text;
+begin
+  select string_agg(a.attname, ', ' order by a.attnum) into v_missing
+  from pg_attribute a
+  where a.attrelid = 'public.listings'::regclass
+    and a.attnum > 0 and not a.attisdropped
+    and a.attname not in ('account_id', 'single_id', 'published_by_member_id')
+    and not has_column_privilege('anon', a.attrelid, a.attname, 'SELECT');
+
+  select string_agg(col, ', ') into v_leaked
+  from unnest(array['account_id', 'single_id', 'published_by_member_id']) as col
+  where has_column_privilege('anon', 'public.listings'::regclass, col, 'SELECT');
+
+  insert into results (name, passed, detail)
+  values (
+    'AC-8/F6: anon''s column grant on listings covers every field EXCEPT account_id/single_id/published_by_member_id',
+    v_missing is null and v_leaked is null,
+    format('ungranted=%s leaked=%s', coalesce(v_missing, 'none'), coalesce(v_leaked, 'none'))
+  );
+end $$;
+
 insert into results (name, passed)
-select 'AC-8: anon holds SELECT on listings', has_table_privilege('anon', 'public.listings', 'select');
+select 'AC-8: anon holds NO table-level SELECT on listings (column-level only)',
+       not has_table_privilege('anon', 'public.listings', 'select');
 insert into results (name, passed)
 select 'AC-8: anon holds NO insert on listings', not has_table_privilege('anon', 'public.listings', 'insert');
 insert into results (name, passed)
 select 'AC-8: anon holds NO update on listings', not has_table_privilege('anon', 'public.listings', 'update');
 insert into results (name, passed)
 select 'AC-8: anon holds NO delete on listings', not has_table_privilege('anon', 'public.listings', 'delete');
+insert into results (name, passed)
+select 'AC-8/F1: anon holds NO truncate on listings (TRUNCATE bypasses RLS)',
+       not has_table_privilege('anon', 'public.listings', 'truncate');
 insert into results (name, passed)
 select 'AC-8: anon holds NO sequence privilege on listings_id_seq',
        not has_sequence_privilege('anon', 'public.listings_id_seq', 'usage')
@@ -447,6 +485,33 @@ select 'AC-8: authenticated holds select/insert/update/delete on listings',
        and has_table_privilege('authenticated', 'public.listings', 'insert')
        and has_table_privilege('authenticated', 'public.listings', 'update')
        and has_table_privilege('authenticated', 'public.listings', 'delete');
+
+-- Review finding F1/F2 (BLOCKING): the fork's default privileges attach
+-- REFERENCES/TRIGGER/TRUNCATE to `authenticated` on every new table, and the
+-- old suite only ever asserted the four DML verbs were PRESENT — it never
+-- asserted the other three were ABSENT, so `grant truncate on table
+-- public.listings to authenticated` (already true before this fix) left the
+-- suite green. TRUNCATE bypasses ROW LEVEL SECURITY: one statement from any
+-- authenticated session would empty every shadchan's and single's listing
+-- across every tenant at once. Mirrors invites.sql's own
+-- `not has_table_privilege(..., 'truncate')` idiom.
+insert into results (name, passed)
+select 'AC-8/F1/F2: authenticated holds NO truncate on listings (TRUNCATE bypasses RLS)',
+       not has_table_privilege('authenticated', 'public.listings', 'truncate');
+insert into results (name, passed)
+select 'AC-8/F1: authenticated holds NO references/trigger on listings (fork-era default-privilege leftovers)',
+       not has_table_privilege('authenticated', 'public.listings', 'references')
+       and not has_table_privilege('authenticated', 'public.listings', 'trigger');
+
+-- Review finding F4: the sequence grants 06_grants.sql has always declared
+-- (`usage, select` to `authenticated`) never reached the database because
+-- `db diff` does not emit sequence grants and the identity column's implicit
+-- sequence does not inherit them from the schema's default privileges either
+-- — this is the check that would have caught it.
+insert into results (name, passed)
+select 'AC-8/F4: authenticated holds usage+select on listings_id_seq',
+       has_sequence_privilege('authenticated', 'public.listings_id_seq', 'usage')
+       and has_sequence_privilege('authenticated', 'public.listings_id_seq', 'select');
 
 insert into results (name, passed)
 select 'AC-8: rowsecurity and forcerowsecurity are both true on public.listings',
