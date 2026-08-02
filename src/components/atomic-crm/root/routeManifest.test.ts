@@ -323,4 +323,13 @@ describe("contextKind (Story 8.1, AC-3)", () => {
     expect(connections).toBeDefined();
     expect(connections?.surface).toBe("both");
   });
+
+  it("sets contextKind: 'household' on the /share custom route (review F5)", () => {
+    // /share files a household-domain inbox_items row and navigates to the
+    // (already guarded) /inbox_items — it must be redirected before the
+    // create attempt too, not left reachable and merely bounced afterward.
+    const share = CUSTOM_ROUTES.find((route) => route.path === "/share");
+
+    expect(share?.contextKind).toBe("household");
+  });
 });

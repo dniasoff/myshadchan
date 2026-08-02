@@ -24,13 +24,15 @@ export interface RequireContextKindProps {
  * mid-session or a stale bookmark never shows "0 singles" instead of the
  * dashboard.
  *
- * Renders `children` (not a redirect) while `useMyContexts()` is still
- * pending or errored — `useActiveContextKind()` returns `undefined` in that
- * case — rather than redirecting away from every guarded route on every
- * cold load. AD-2 already empties the underlying data server-side, so a
- * brief render of the real screen before the guard resolves is a flicker
- * of an empty list, never a data leak (mirrors `root/OnboardingGate.tsx`'s
- * own "fail toward the shell" precedent).
+ * Renders `children` (not a redirect) whenever `useActiveContextKind()`
+ * returns `undefined` — `useMyContexts()` still pending/errored, OR loaded
+ * with no row carrying `is_active: true` (a real, server-reachable state:
+ * see `navItems.ts`'s `useActiveContextKind()` doc, Story 8.1 review F4) —
+ * rather than redirecting away from every guarded route whenever the active
+ * context can't be resolved. AD-2 already empties the underlying data
+ * server-side, so a brief render of the real screen before the guard
+ * resolves is a flicker of an empty list, never a data leak (mirrors
+ * `root/OnboardingGate.tsx`'s own "fail toward the shell" precedent).
  */
 export const RequireContextKind = ({
   kind,

@@ -177,8 +177,13 @@ describe("MobileNavigation — More menu contents (AC-5)", () => {
 
 describe("MobileNavigation — shadchanus context (Story 8.1, AC-1/AC-2/AC-7)", () => {
   it("renders Dashboard, Connections and Settings, and no household-only path", async () => {
-    // Arrange / Act
-    const screen = await renderMobileNavigation([shadchanus]);
+    // Arrange / Act — a single-context login always has that context active
+    // (review F4: useActiveContextKind() no longer falls back to
+    // contexts[0] when none is marked active, so a fixture must say so
+    // explicitly rather than relying on that removed fallback).
+    const screen = await renderMobileNavigation([
+      { ...shadchanus, is_active: true },
+    ]);
 
     // Assert — AC-7: no household-only `to` path anywhere in the DOM.
     const links = Array.from(document.querySelectorAll("a[href]")).map((link) =>
@@ -207,8 +212,11 @@ describe("MobileNavigation — shadchanus context (Story 8.1, AC-1/AC-2/AC-7)", 
 
   it("never renders the raised center create button", async () => {
     // Arrange / Act — no taskable target exists in a shadchanus account yet
-    // (Dev Notes: "Why no Tasks or Reminders").
-    const screen = await renderMobileNavigation([shadchanus]);
+    // (Dev Notes: "Why no Tasks or Reminders"). A single-context login
+    // always has that context active (review F4 — see the previous test).
+    const screen = await renderMobileNavigation([
+      { ...shadchanus, is_active: true },
+    ]);
 
     // Assert — the household bar's create button carries this aria-label
     // (translate("ra.action.create") -> ra-language-english's "Create").
@@ -238,8 +246,11 @@ describe("MobileNavigation — shadchanus context (Story 8.1, AC-1/AC-2/AC-7)", 
   });
 
   it("never lists Inbox, Tasks or Reminders in the More menu", async () => {
-    // Arrange / Act
-    const screen = await renderMobileNavigation([shadchanus]);
+    // Arrange / Act — a single-context login always has that context
+    // active (review F4 — see the first test in this describe block).
+    const screen = await renderMobileNavigation([
+      { ...shadchanus, is_active: true },
+    ]);
     await screen.getByRole("button", { name: "More" }).click();
 
     // Assert

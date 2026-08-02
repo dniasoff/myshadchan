@@ -10,6 +10,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { pickActiveContext } from "../providers/commons/roleAuthority";
 import { useMyContexts } from "../root/useMyContexts";
 import type { MyContext } from "../types";
 
@@ -136,22 +137,33 @@ export const SHADCHANUS_NAV: NavItem[] = [
 /**
  * The active context's `kind`, read over `useMyContexts()` (AD-19: server-held
  * state, never a URL param or local state). `undefined` while the query is
- * still pending or has errored — callers default to household behavior in
- * that case rather than flashing shadchanus chrome for a login that turns
- * out to be household-only.
+ * still pending or has errored, AND whenever no row carries
+ * `is_active: true` — callers (this hook's own `useActiveNav()` and
+ * `layout/RequireContextKind.tsx`) treat both the same way: default to
+ * household behavior / render children rather than flashing shadchanus
+ * chrome, or redirecting away, for a context the server does not consider
+ * active.
  *
- * Falls back to the first context's `kind` when none carries
- * `is_active: true` (mirrors `ContextSwitcher.tsx`'s own `?? contexts[0]`
- * fallback): `my_contexts()` always marks exactly one row active for a
- * login holding at least one context, so this only matters for the same
- * edge `ContextSwitcher` already tolerates.
+ * Review fix (Story 8.1, F4): delegates to `pickActiveContext()`
+ * (`providers/commons/roleAuthority.ts`) — the repo's one canonical
+ * active-context selector, already used by `useViewerRole()` and both
+ * authProviders' `canAccess` — instead of a fourth hand-rolled copy of "find
+ * the active row". The previous version fell back to `contexts[0]` when no
+ * row was active, copying `layout/ContextSwitcher.tsx`'s own `?? contexts[0]`
+ * fallback — but that fallback is documented there as a **display-only**
+ * choice ("only ever names a pill — it is not an authority decision"),
+ * never meant to feed a nav-set or route-guard decision. `my_contexts()`
+ * (`supabase/schemas/02_functions.sql`) can genuinely mark zero rows active
+ * (`current_context_id()` returns NULL whenever `member_state
+ * .active_account_id` no longer names a currently-active membership, e.g. a
+ * membership archived in the account that was active while the login still
+ * holds another) — in that state the server already fails closed (RLS
+ * returns nothing; `pickActiveRole()` returns `undefined`), and this hook
+ * must match it exactly rather than arbitrarily borrowing an unordered row.
  */
 export function useActiveContextKind(): ContextKind | undefined {
   const { data: contexts } = useMyContexts();
-  if (!contexts || contexts.length === 0) {
-    return undefined;
-  }
-  return (contexts.find((context) => context.is_active) ?? contexts[0]).kind;
+  return pickActiveContext(contexts)?.kind;
 }
 
 /**

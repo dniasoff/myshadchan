@@ -97,11 +97,17 @@ export const CUSTOM_ROUTES: CustomRouteEntry[] = [
     chrome: "shell",
     contextKind: "household",
   },
+  // Story 8.1 review fix (F5): files a household-domain `inbox_items` row
+  // and navigates to the (already guarded) `/inbox_items` — a shadchanus
+  // caller reaching this via a PWA share-target intent must be redirected
+  // before the create attempt, not after, the same way every other
+  // household-only surface is.
   {
     path: ShareTarget.path,
     Component: ShareTarget,
     surface: "both",
     chrome: "shell",
+    contextKind: "household",
   },
   // Story 8.1 (AC-4): a rendered placeholder, never a dead nav target —
   // Story 8.5 replaces this entry with the real descriptor-based resource.

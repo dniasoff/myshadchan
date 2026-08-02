@@ -170,6 +170,23 @@ describe("useActiveContextKind (Story 8.1, AC-2)", () => {
     // Assert
     expect(getKind()).toBeUndefined();
   });
+
+  it("returns undefined when contexts are loaded but none is marked active (review F4)", async () => {
+    // Arrange — a real state `my_contexts()` can produce
+    // (`current_context_id()` returns NULL when `member_state
+    // .active_account_id` no longer names a currently-active membership):
+    // this must fail closed, exactly like the server, never fall back to
+    // `contexts[0]` (that fallback belongs only to
+    // `ContextSwitcher.tsx`'s display pill, per `roleAuthority.ts`'s own
+    // written invariant — it is not an authority decision).
+    const { getKind } = await renderNavProbe([
+      { ...household, is_active: false },
+      { ...shadchanus, is_active: false },
+    ]);
+
+    // Assert
+    expect(getKind()).toBeUndefined();
+  });
 });
 
 describe("useActiveNav (Story 8.1, AC-2)", () => {
@@ -193,6 +210,17 @@ describe("useActiveNav (Story 8.1, AC-2)", () => {
     // Arrange / Act
     const { getNav } = await renderNavProbe([
       household,
+      { ...shadchanus, is_active: false },
+    ]);
+
+    // Assert
+    expect(getNav()).toBe(PRIMARY_NAV);
+  });
+
+  it("returns PRIMARY_NAV (the safe default) when no context is marked active (review F4)", async () => {
+    // Arrange / Act
+    const { getNav } = await renderNavProbe([
+      { ...household, is_active: false },
       { ...shadchanus, is_active: false },
     ]);
 

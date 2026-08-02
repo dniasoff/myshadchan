@@ -472,6 +472,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/root/adminRouteBuilders.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/root/OnboardingGate.tsx",
           "type": "registry:component"
         },

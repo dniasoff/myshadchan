@@ -1,13 +1,11 @@
-import type { ComponentType, ReactElement } from "react";
 import type {
   CoreAdminProps,
   AuthProvider,
   DashboardComponent,
   LayoutComponent,
 } from "ra-core";
-import { CustomRoutes, Resource } from "ra-core";
-import { isValidElement, createElement, useEffect, useMemo } from "react";
-import { Route } from "react-router";
+import { CustomRoutes } from "ra-core";
+import { useEffect, useMemo } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
@@ -17,11 +15,8 @@ import { AuthenticationError } from "@/components/admin/authentication-error";
 
 import { Dashboard } from "../dashboard/Dashboard";
 import { MobileDashboard } from "../dashboard/MobileDashboard";
-import { ShadchanDashboard } from "../dashboard/ShadchanDashboard";
 import { Layout } from "../layout/Layout";
 import { MobileLayout } from "../layout/MobileLayout";
-import { useActiveContextKind } from "../layout/navItems";
-import { RequireContextKind } from "../layout/RequireContextKind";
 import {
   getAuthProvider as defaultAuthProviderBuilder,
   getDataProvider as defaultDataProviderBuilder,
@@ -41,110 +36,14 @@ import {
 import { i18nProvider as defaulti18nProvider } from "../providers/commons/i18nProvider";
 import { LoginPage } from "../login/LoginPage.tsx";
 import { useIsMobile } from "@/hooks/use-mobile.ts";
-import type { CustomRouteEntry, ResourceEntry } from "./routeManifest";
 import { routesFor, resourcesFor } from "./routeManifest";
+import {
+  buildDashboardRoute,
+  renderCustomRoutes,
+  renderResources,
+} from "./adminRouteBuilders";
 
 const defaultStore = createCrmStore();
-
-/** The sole place `<Route>` elements are written — reused for every
- * surface/chrome combination by mapping over `routeManifest.ts`. Story 8.1
- * (AC-3): an entry carrying `contextKind` gets wrapped in
- * `<RequireContextKind>` here — the manifest never renders a raw
- * `<Route>` with ad-hoc guard logic of its own. */
-const renderCustomRoutes = (entries: CustomRouteEntry[]) =>
-  entries.map(({ path, Component, contextKind }) => (
-    <Route
-      path={path}
-      key={path}
-      element={
-        contextKind ? (
-          <RequireContextKind kind={contextKind} redirectTo="/">
-            <Component />
-          </RequireContextKind>
-        ) : (
-          <Component />
-        )
-      }
-    />
-  ));
-
-/** A `<Resource>` `list`/`edit`/`show`/`create` slot's value type
- * (`ra-core/src/types.ts`'s own `ComponentType<any> | ReactElement` union),
- * narrowed to non-`undefined` — exactly what `renderResources` below has in
- * hand once it has checked `definition.list` is set. */
-type ResourceSlotValue = NonNullable<ResourceEntry["definition"]["list"]>;
-
-/** Normalizes a `<Resource>` slot value to an element, mirroring
- * `ra-core/src/core/Resource.tsx`'s own private `getElement` — needed here
- * because `renderResources` below wraps the element in
- * `<RequireContextKind>` before handing it back to `<Resource>`. */
-function toElement(elementOrComponent: ResourceSlotValue): ReactElement {
-  return isValidElement(elementOrComponent)
-    ? elementOrComponent
-    : createElement(elementOrComponent as ComponentType);
-}
-
-/** The sole place `<Resource>` elements are written — reused for both
- * surfaces by mapping over `routeManifest.ts`. Story 8.1 (AC-3): a
- * `contextKind` entry gets its `list` slot wrapped in
- * `<RequireContextKind>` — every guarded resource in this manifest (Task 3)
- * registers `list` only, so this is the one slot that needs it; `edit` /
- * `show` / `create` stay untouched because none of those resources set
- * them at the `<Resource>` level (they route through `list`'s own
- * `buildEntityRoutes`/`children` instead). */
-const renderResources = (entries: ResourceEntry[]) =>
-  entries.map(({ name, definition, contextKind }) => (
-    <Resource
-      name={name}
-      key={name}
-      {...definition}
-      list={
-        contextKind && definition.list ? (
-          <RequireContextKind kind={contextKind} redirectTo="/">
-            {toElement(definition.list)}
-          </RequireContextKind>
-        ) : (
-          definition.list
-        )
-      }
-    />
-  ));
-
-/**
- * Story 8.1 (AC-5/Task 4): the dashboard-route picker — one factory,
- * instantiated once per surface below, rather than two ad-hoc branches
- * forked into `DesktopAdmin` and `MobileAdmin` separately. Renders
- * `ShadchanDashboard` when the active context is `shadchanus`, else the
- * household dashboard passed in (`Dashboard` on desktop, `MobileDashboard`
- * on mobile) — including while `useActiveContextKind()` is still resolving,
- * so a login mid-load never flashes the shadchanus empty state first.
- *
- * Defined at module scope and called once per surface (not inside
- * `DesktopAdmin`/`MobileAdmin`'s render body): `<Admin dashboard={...}>`
- * relies on the component's identity staying stable across renders
- * (`ra-core`'s `WithPermissions` remounts whenever `component` changes
- * identity), so this must not be re-created on every render.
- *
- * `HouseholdDashboard` is typed as a bare zero-props `ComponentType`, not
- * `DashboardComponent` (`ComponentType<{ permissions: any }>`) — `Dashboard`
- * and `MobileDashboard` take no props, and this function instantiates it
- * directly as JSX (`<HouseholdDashboard />`), which — unlike merely passing
- * a component through as a value — makes the TS JSX checker enforce
- * whatever prop type it's declared with here.
- */
-function buildDashboardRoute(
-  HouseholdDashboard: ComponentType,
-): DashboardComponent {
-  const DashboardRoute: DashboardComponent = () => {
-    const kind = useActiveContextKind();
-    return kind === "shadchanus" ? (
-      <ShadchanDashboard />
-    ) : (
-      <HouseholdDashboard />
-    );
-  };
-  return DashboardRoute;
-}
 
 const DesktopDashboardRoute = buildDashboardRoute(Dashboard);
 const MobileDashboardRoute = buildDashboardRoute(MobileDashboard);
