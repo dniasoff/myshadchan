@@ -3575,20 +3575,35 @@ $$;
 -- singles or one using 'private_parent' visibility — this is the composed
 -- dignity floor, not a re-derivation of it.
 --
--- DEPLOY-COUPLING NOTE (review finding F1.5, widened): this function does
--- NOT branch on `visibility` at all (by design — see the header comment
--- and this story's Dev Notes, "What this story does not do"), so a
--- `private` thread is readable by anyone `thread_is_readable()` would admit
--- for an `open` one. This was documented for the "same-account, non-
--- participant helper" case; it equally means a `single` participant reads
--- the FULL body of a `private` thread on their OWN shidduch — the
--- AC-9 branch above only filters by shidduch-visibility/pipeline-state/
--- ownership, it does not additionally require `visibility = 'open'`. No UI
--- path creates a `private` thread yet (ThreadList.tsx always calls
--- create_thread() with no p_visibility), which limits exposure today, but
--- this sub-case must be called out explicitly alongside the helper case in
--- the "7.1-7.3 deploy together, or `private` is a lie" coupling: Story 7.3
--- must close BOTH readers, not just the same-account one.
+-- DEPLOY-COUPLING NOTE (review finding F1.5, widened; re-widened by Story
+-- 7.2's own review, finding F1): this function does NOT branch on
+-- `visibility` at all (by design — see the header comment and this story's
+-- Dev Notes, "What this story does not do"), so a `private` thread is
+-- readable by anyone `thread_is_readable()` would admit for an `open` one.
+-- This was documented for the "same-account, non-participant helper" case;
+-- it equally means a `single` participant reads the FULL body of a
+-- `private` thread on their OWN shidduch — the AC-9 branch above only
+-- filters by shidduch-visibility/pipeline-state/ownership, it does not
+-- additionally require `visibility = 'open'`.
+--
+-- Story 7.2 added `accounts.default_thread_visibility` plus a Settings
+-- control for it (`settings/CommunicationSection.tsx`) — the first
+-- self-service path that could have turned the gap above into a live,
+-- one-click, user-triggerable false privacy promise: a household flips its
+-- default to `'private'`, believes the label ("only participants"), and
+-- this function silently does not honor it. Story 7.2's own review (F1)
+-- caught this before ship: `CommunicationSection.tsx` renders the
+-- "Private" choice DISABLED until Story 7.3 lands, so the claim below
+-- still holds truthfully — no UI path produces a `private` thread today.
+-- Neither `ThreadList.tsx` (always omits `p_visibility`) nor Settings (the
+-- only other reachable way to change what an omitted `p_visibility`
+-- resolves to) can create one. `create_thread(p_visibility => 'private')`
+-- remains reachable directly by RPC — unchanged since Story 7.1, and never
+-- claimed otherwise. Story 7.3 must close BOTH readers described above,
+-- not just the same-account one, before ANY UI is allowed to re-enable
+-- 'private' for real — and whoever does that must re-check
+-- `CommunicationSection.tsx`'s disabled state at the same time, not just
+-- this function.
 CREATE OR REPLACE FUNCTION "public"."thread_is_readable"("p_thread_id" bigint) RETURNS boolean
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
@@ -3655,6 +3670,18 @@ $$;
 -- BEFORE the coalesce, so an invalid explicit argument still raises rather
 -- than silently falling through to the account's — always-valid, per its
 -- own CHECK constraint — default).
+--
+-- FORWARD HAZARD for Story 7.4 (review finding F4, Story 7.2): the coalesce
+-- below resolves the default from `v_account_id := current_context_id()`,
+-- which is non-NULL even when the caller is acting in a connection scope.
+-- Unreachable today — this signature has no p_connection_id, every thread
+-- here is account-scoped (see the "no p_connection_id" note above). But
+-- when 7.4 adds that parameter, this exact expression must NOT keep
+-- resolving via the caller's OWN account for a connection-owned thread —
+-- doing so would silently apply one party's household posture to a thread
+-- AD-20 says belongs to NEITHER party (a connection is a third scope). 7.4
+-- must either read the connection's own posture or fail closed here, and
+-- must revisit this coalesce itself, not just add a branch beside it.
 CREATE OR REPLACE FUNCTION "public"."create_thread"(
     "p_subject_type" text,
     "p_subject_id" bigint DEFAULT NULL,

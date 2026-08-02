@@ -46,6 +46,18 @@ const CAN_SET_DEFAULT_VISIBILITY: MemberRole[] = [
  * one. Renders nothing while the role is still resolving (`isPending`) or
  * before the account row itself has loaded, for the same reason — never an
  * enabled control bound to data it does not have yet.
+ *
+ * Review finding F1 (Story 7.2): `thread_is_readable()` does not enforce
+ * `visibility` at all yet — that is Story 7.3's job (02_functions.sql's own
+ * DEPLOY-COUPLING NOTE). Before this fix, this control let ANY household
+ * self-serve into `'private'` and be told "only participants" while every
+ * same-account member (and a `single` on their own shidduch) could still
+ * read the full body. The "Private" choice is therefore DISABLED here
+ * until 7.3 ships enforcement — visible (so the future capability is
+ * discoverable) but never selectable — so this Settings control cannot
+ * make a promise the backend does not yet keep. "Open" remains the only
+ * value a household can actually choose; it also remains selectable FROM
+ * `'private'` (e.g. a row set some other way) so nothing gets stuck.
  */
 export const CommunicationSection = () => {
   const translate = useTranslate();
@@ -124,19 +136,28 @@ export const CommunicationSection = () => {
                 })}
               </Label>
             </div>
-            <div className="flex items-center gap-2">
-              <RadioGroupItem
-                value="private"
-                id="communication-visibility-private"
-              />
-              <Label
-                htmlFor="communication-visibility-private"
-                className="font-normal"
-              >
-                {translate("crm.settings.communication.visibility_private", {
-                  _: "Private — only participants",
-                })}
-              </Label>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <RadioGroupItem
+                  value="private"
+                  id="communication-visibility-private"
+                  disabled
+                />
+                <Label
+                  htmlFor="communication-visibility-private"
+                  className="font-normal text-muted-foreground"
+                >
+                  {translate("crm.settings.communication.visibility_private", {
+                    _: "Private — only participants",
+                  })}
+                </Label>
+              </div>
+              <ItemDescription className="pl-6">
+                {translate(
+                  "crm.settings.communication.visibility_private_disabled_hint",
+                  { _: "Not yet enforced — coming in a future release." },
+                )}
+              </ItemDescription>
             </div>
           </RadioGroup>
         </Item>

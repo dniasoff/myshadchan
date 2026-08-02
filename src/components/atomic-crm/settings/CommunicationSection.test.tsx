@@ -1,21 +1,63 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import { QueryClient } from "@tanstack/react-query";
 
+import type * as UseViewerRole from "../entity360/useViewerRole";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
-import type { Account, MyContext } from "../types";
+import type { Account, MemberRole, MyContext } from "../types";
 import { CommunicationSection } from "./CommunicationSection";
 
 /**
  * Story 7.2 (AC-5, AC-6c): the household's own default-visibility control.
- * Pins the four cases the story's Task 6 names — renders for a non-single
- * role, does not render for `single`, renders nothing while the role is
- * still resolving, and a change issues the expected
+ * Pins the cases the story's Task 6 names — renders for a non-single role,
+ * does not render for `single`, renders nothing while the role is still
+ * resolving, and a change issues the expected
  * `dataProvider.update("accounts", …)` call.
+ *
+ * Review finding F1: the "Private" choice is disabled until Story 7.3
+ * ships enforcement (see `CommunicationSection.tsx`'s header comment) — the
+ * selection test below now starts from `'private'` and switches to
+ * `'open'`, the one direction the control still allows, plus a dedicated
+ * test proving the disabled option is inert.
+ *
+ * Review finding F2: `useViewerRole` is mocked (module-level, with a
+ * passthrough default to the REAL implementation — same pattern as
+ * `shadchanim/ShadchanCardGrid.test.tsx`'s `useGetList` mock) so the
+ * "still resolving" case can be asserted with `isPending: true` WHILE the
+ * account is already cached and resolvable. Before this fix, the suite's
+ * only "still resolving" test passed `contexts: undefined`, which ALSO
+ * makes `activeContext` (and therefore the account fetch) unresolved — so
+ * deleting the `isRolePending` guard from `CommunicationSection.tsx` left
+ * every test green, because the later `if (!account) return null` silently
+ * covered for it. The new test below decouples the two: role pending,
+ * account already available — it fails red without the guard.
  */
+
+const { useViewerRoleMock, setRealUseViewerRole, resetUseViewerRoleMock } =
+  vi.hoisted(() => {
+    type ViewerRoleResult = { role: unknown; isPending: boolean };
+    let real: (() => ViewerRoleResult) | undefined;
+    const mock = vi.fn(() => real?.());
+    return {
+      useViewerRoleMock: mock,
+      setRealUseViewerRole: (fn: () => ViewerRoleResult) => {
+        real = fn;
+      },
+      resetUseViewerRoleMock: () => {
+        mock.mockReset();
+        mock.mockImplementation(() => real?.());
+      },
+    };
+  });
+
+vi.mock("../entity360/useViewerRole", async (importOriginal) => {
+  const actual = await importOriginal<typeof UseViewerRole>();
+  setRealUseViewerRole(actual.useViewerRole);
+  return { ...actual, useViewerRole: useViewerRoleMock };
+});
 
 const HOUSEHOLD_CONTEXT: MyContext = {
   account_id: 1,
@@ -107,7 +149,11 @@ const renderSection = async ({
 };
 
 describe("CommunicationSection", () => {
-  it("renders the open/private control for a parent_admin", async () => {
+  beforeEach(() => {
+    resetUseViewerRoleMock();
+  });
+
+  it("renders the open/private control for a parent_admin, with private disabled", async () => {
     // Arrange / Act
     const { screen } = await renderSection({
       contexts: [HOUSEHOLD_CONTEXT],
@@ -119,9 +165,9 @@ describe("CommunicationSection", () => {
     await expect
       .element(screen.getByRole("radio", { name: /Open/ }))
       .toBeChecked();
-    await expect
-      .element(screen.getByRole("radio", { name: /Private/ }))
-      .not.toBeChecked();
+    const privateRadio = screen.getByRole("radio", { name: /Private/ });
+    await expect.element(privateRadio).not.toBeChecked();
+    await expect.element(privateRadio).toBeDisabled();
   });
 
   it("does not render for a single-role member", async () => {
@@ -137,7 +183,7 @@ describe("CommunicationSection", () => {
     );
   });
 
-  it("renders nothing while the role is still resolving", async () => {
+  it("renders nothing while contexts have not resolved at all", async () => {
     // Arrange / Act
     const { screen } = await renderSection({ contexts: undefined });
 
@@ -147,24 +193,71 @@ describe("CommunicationSection", () => {
     );
   });
 
-  it("changing the selection calls dataProvider.update with the new visibility", async () => {
+  it("renders nothing while the role is pending, even though the account and contexts are already resolved (F2)", async () => {
+    // Arrange — decouple `isRolePending` from `activeContext`/`account`
+    // being unresolved: contexts and account are both cached and ready,
+    // only the mocked role resolution is still pending.
+    useViewerRoleMock.mockReturnValue({
+      role: "parent_admin" as MemberRole,
+      isPending: true,
+    });
+
+    // Act
+    const { screen } = await renderSection({
+      contexts: [HOUSEHOLD_CONTEXT],
+      account: buildAccount("open"),
+    });
+
+    // Assert
+    expect(screen.container.querySelector('[data-slot="item-group"]')).toBe(
+      null,
+    );
+  });
+
+  it("switching from private back to open calls dataProvider.update with the new visibility", async () => {
+    // Arrange — start from 'private' (the one direction the disabled
+    // "Private" radio still permits: away from it, never into it).
+    // `getOne` must also resolve to 'private' — `buildDataProvider`'s
+    // default resolves 'open', and `useGetOne`'s default-`staleTime`
+    // background refetch would otherwise silently overwrite the seeded
+    // cache before the click fires, making the two values match and the
+    // change a no-op.
+    const update = vi.fn().mockResolvedValue({ data: buildAccount("open") });
+    const getOne = vi.fn().mockResolvedValue({ data: buildAccount("private") });
+    const { screen } = await renderSection({
+      contexts: [HOUSEHOLD_CONTEXT],
+      account: buildAccount("private"),
+      dataProviderOverrides: { update, getOne },
+    });
+
+    // Act
+    await screen.getByRole("radio", { name: /Open/ }).click();
+
+    // Assert
+    expect(update).toHaveBeenCalledExactlyOnceWith("accounts", {
+      id: 1,
+      data: { default_thread_visibility: "open" },
+      previousData: { id: 1 },
+    });
+  });
+
+  it("clicking the disabled Private option never calls update (F1)", async () => {
     // Arrange
-    const update = vi.fn().mockResolvedValue({ data: buildAccount("private") });
+    const update = vi.fn().mockResolvedValue({ data: buildAccount("open") });
     const { screen } = await renderSection({
       contexts: [HOUSEHOLD_CONTEXT],
       account: buildAccount("open"),
       dataProviderOverrides: { update },
     });
 
-    // Act
-    await screen.getByRole("radio", { name: /Private/ }).click();
+    // Act — a disabled radio does not fire onValueChange; this proves it,
+    // rather than trusting the `disabled` attribute alone.
+    await screen.getByRole("radio", { name: /Private/ }).click({
+      force: true,
+    });
 
     // Assert
-    expect(update).toHaveBeenCalledExactlyOnceWith("accounts", {
-      id: 1,
-      data: { default_thread_visibility: "private" },
-      previousData: { id: 1 },
-    });
+    expect(update).not.toHaveBeenCalled();
   });
 
   it("a no-op change (same value) never calls update", async () => {

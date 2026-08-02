@@ -675,6 +675,38 @@ select 'Story 7.2 AC-1/AC-2: a freshly created account defaults to default_threa
        default_thread_visibility = 'open'
 from public.accounts where id = :story72_account_id;
 
+-- Review finding F3: AC-2 names its OWN falsifiable check — "immediately
+-- after `migration up` against the production-shaped fixture, `select
+-- count(*) from public.accounts where default_thread_visibility is
+-- distinct from 'open'` is 0" — which the row above does NOT exercise (a
+-- freshly-inserted row only proves the column DEFAULT, never the backfill
+-- of a row that predates the column). `make check-migration-safety`'s
+-- shared fixture/assert.sql pair cannot stand in for it either:
+-- assert.sql only compares SURVIVING columns against their pre-migration
+-- snapshot, so it is structurally blind to a column the migration ADDS —
+-- there is nothing in the snapshot to diff a new column against. This
+-- block rehearses the migration's own two statements, verbatim, on a
+-- scratch table seeded with rows that predate the column — not on the
+-- live `public.accounts` (dropping and re-adding ITS column mid-suite
+-- would also drop the column-level grant the migration hand-adds, which
+-- every AC-6(d) assertion below depends on).
+create temp table story72_pre_migration_accounts (id bigint primary key)
+  on commit drop;
+
+insert into story72_pre_migration_accounts (id) values (9001), (9002), (9003);
+
+alter table story72_pre_migration_accounts
+  add column "default_thread_visibility" text not null default 'open'::text;
+
+alter table story72_pre_migration_accounts
+  add constraint "story72_pre_migration_accounts_visibility_check"
+  check ((default_thread_visibility = any (array['open'::text, 'private'::text])));
+
+insert into results (name, passed)
+select 'Story 7.2 AC-2: ADD COLUMN … NOT NULL DEFAULT ''open'' backfills every pre-existing row (migration''s own statements rehearsed verbatim against 3 rows seeded BEFORE the column exists)',
+       count(*) filter (where default_thread_visibility is distinct from 'open') = 0
+from story72_pre_migration_accounts;
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000020","role":"authenticated"}';
 
