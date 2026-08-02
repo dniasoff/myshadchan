@@ -27,11 +27,13 @@ import { useCurrentMemberId } from "./useCurrentMemberId";
  * needs no queue" / Task 9's FakeRest note make the same call for
  * `mark_thread_read`).
  *
- * `VITE_VAPID_PUBLIC_KEY` is provided by whichever surface owns
- * `vite.config.ts` / `.env.example` (outside this story's declared file
- * set, per its Completion Notes) — until it is wired up, `subscribe()`
- * reports `error` with a message that names the missing configuration
- * rather than throwing an unhandled exception into the caller.
+ * `VITE_VAPID_PUBLIC_KEY`'s actual value is provisioned by whichever
+ * environment deploys the Epic-12 Cloudflare Workers (Epic-12 gate G1) —
+ * `vite.config.ts`'s production `define` block is the client-side half of
+ * that wiring and now forwards it (Story 7.5 review fix, F1). Until the
+ * key is actually set there, `subscribe()` reports `error` with a message
+ * that names the missing configuration rather than throwing an unhandled
+ * exception into the caller.
  */
 export type PushSubscriptionState =
   | "idle"
@@ -79,7 +81,57 @@ function urlBase64ToUint8Array(base64Url: string): Uint8Array {
   return bytes;
 }
 
-export function usePushSubscription(): UsePushSubscriptionResult {
+/**
+ * Story 7.5 review fix (F2): `navigator.serviceWorker.ready` simply never
+ * resolves when no service worker ends up registered for the page (a dev
+ * server with the PWA plugin's `autoUpdate` registration not yet run,
+ * private-browsing modes that refuse persistent SW registration, an
+ * enterprise policy blocking service workers, or a click landing before
+ * the very first registration completes) — with no timeout, `subscribe()`
+ * hung on it forever, leaving the button stuck on "Enabling…" with no
+ * explanation. This is the only await in `subscribe()` whose underlying
+ * promise is not already guaranteed to settle, so it is the only one that
+ * needs racing against a timeout for this hook's own docstring guarantee
+ * above ("`subscribe()` never resolves successfully without either
+ * reaching `subscribed` or setting one of them") to actually hold.
+ */
+export const SERVICE_WORKER_READY_TIMEOUT_MS = 10_000;
+
+function waitForServiceWorkerReady(
+  timeoutMs: number,
+): Promise<ServiceWorkerRegistration> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(
+          "Your browser did not finish setting up the notification service in time. Reload the page and try again.",
+        ),
+      );
+    }, timeoutMs);
+
+    navigator.serviceWorker.ready.then(
+      (registration) => {
+        clearTimeout(timer);
+        resolve(registration);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
+export interface UsePushSubscriptionOptions {
+  /** Override for tests only — production callers get the real default. */
+  readyTimeoutMs?: number;
+}
+
+export function usePushSubscription(
+  options: UsePushSubscriptionOptions = {},
+): UsePushSubscriptionResult {
+  const readyTimeoutMs =
+    options.readyTimeoutMs ?? SERVICE_WORKER_READY_TIMEOUT_MS;
   const [state, setState] = useState<PushSubscriptionState>(initialState);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [create] = useCreate();
@@ -135,7 +187,7 @@ export function usePushSubscription(): UsePushSubscriptionResult {
         return;
       }
 
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await waitForServiceWorkerReady(readyTimeoutMs);
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(applicationServerKey),

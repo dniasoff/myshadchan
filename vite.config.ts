@@ -80,6 +80,15 @@ export default defineConfig({
           "import.meta.env.VITE_ATTACHMENTS_BUCKET": JSON.stringify(
             process.env.VITE_ATTACHMENTS_BUCKET,
           ),
+          // Story 7.5 review fix (F1): without this, setting
+          // VITE_VAPID_PUBLIC_KEY in Vercel does nothing — this `define`
+          // block, not `.env.*` files, is the only channel by which a
+          // VITE_* value reaches the client in a deployed build (see the
+          // five entries above it). workers/cron/wrangler.toml documents
+          // the paired name on the Worker side (VAPID_PUBLIC_KEY).
+          "import.meta.env.VITE_VAPID_PUBLIC_KEY": JSON.stringify(
+            process.env.VITE_VAPID_PUBLIC_KEY,
+          ),
         }
       : undefined,
   base: "./",

@@ -37,6 +37,11 @@
     "e2e/**/*.ts",
     ".storybook/*.ts",
     "supabase/tests/**/*.ts",
+    // Story 7.5 review fix (F3): plain Node-environment tests (the "db" and
+    // "service-worker" Vitest projects, vitest.config.ts), same as
+    // supabase/tests above — was in no tsconfig's `include` at all, so
+    // `make typecheck` was silently blind to this directory.
+    "service-worker/**/*.ts",
     // Ambient module declarations only (vite/client) — .storybook/preview.ts
     // imports a .css file and needs the same asset-import typings src/ has.
     "src/vite-env.d.ts"

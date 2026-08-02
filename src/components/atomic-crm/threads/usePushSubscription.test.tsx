@@ -27,8 +27,10 @@ import { usePushSubscription } from "./usePushSubscription";
  * a mirror that does not exist yet.
  */
 
-function Harness() {
-  const { state, errorMessage, subscribe } = usePushSubscription();
+function Harness({ readyTimeoutMs }: { readyTimeoutMs?: number } = {}) {
+  const { state, errorMessage, subscribe } = usePushSubscription({
+    readyTimeoutMs,
+  });
   return (
     <div>
       <p>state: {state}</p>
@@ -49,14 +51,17 @@ const buildDataProvider = (
     ...overrides,
   }) as unknown as CrmDataProvider;
 
-const renderHarness = async (dataProvider: CrmDataProvider) => {
+const renderHarness = async (
+  dataProvider: CrmDataProvider,
+  readyTimeoutMs?: number,
+) => {
   const screen = await render(
     <TestMemoryRouter>
       <CoreAdminContext
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <Harness />
+        <Harness readyTimeoutMs={readyTimeoutMs} />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -166,6 +171,44 @@ describe("usePushSubscription — permission denied", () => {
     // Assert
     await expect.element(screen.getByText("state: denied")).toBeInTheDocument();
     expect(requestPermission).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("usePushSubscription — service worker never becomes ready (Story 7.5 review fix, F2)", () => {
+  afterEach(() => {
+    clearStub(window, "PushManager");
+    clearStub(window, "Notification");
+    clearStub(navigator, "serviceWorker");
+    vi.unstubAllEnvs();
+  });
+
+  it("settles into the error state instead of hanging on 'subscribing' forever", async () => {
+    // Arrange — a `ready` that never resolves, e.g. no service worker
+    // registered at all (dev server, private browsing, enterprise policy).
+    const requestPermission = vi.fn().mockResolvedValue("granted");
+    stubGlobal(window, "PushManager", class {});
+    stubGlobal(window, "Notification", {
+      permission: "default",
+      requestPermission,
+    });
+    stubGlobal(navigator, "serviceWorker", { ready: new Promise(() => {}) });
+    vi.stubEnv("VITE_VAPID_PUBLIC_KEY", "test-vapid-key");
+
+    // Act — a short override so this test does not wait out the real
+    // (10s) production default.
+    const { screen } = await renderHarness(buildDataProvider(), 20);
+    await screen
+      .getByRole("button", { name: "Enable push notifications" })
+      .click();
+    await expect
+      .element(screen.getByText("state: subscribing"))
+      .toBeInTheDocument();
+
+    // Assert — settles to `error` with an explanation, never stuck.
+    await expect.element(screen.getByText("state: error")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText(/did not finish setting up/))
+      .toBeInTheDocument();
   });
 });
 
