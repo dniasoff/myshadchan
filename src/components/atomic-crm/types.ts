@@ -911,9 +911,9 @@ export type Connection = {
 /**
  * Story 7.1 (AC-1, AC-3, AC-5): a structured, subject-scoped conversation.
  * Carries BOTH `account_id` and `connection_id` (exactly one non-null, AD-1)
- * from the moment the schema exists, even though the connection axis is
- * unreachable to the SPA until Story 7.4 — see `CreateThreadInput` below,
- * which has no `connection_id` parameter for the same reason.
+ * from the moment the schema exists. Story 7.4 opens the connection axis at
+ * the database layer (`create_thread()`'s `p_connection_id`) — see
+ * `CreateThreadInput` below — though no built UI reaches it yet.
  */
 export type Thread = {
   account_id?: Identifier | null;
@@ -955,13 +955,17 @@ export type Message = {
 
 /**
  * Input accepted by `createThread()` — mirrors the `create_thread` RPC
- * (AD-4's "one creation path" precedent). Deliberately has NO
- * `connection_id`/`p_connection_id`: every thread this story's RPC creates
- * is account-scoped; Story 7.4 adds the connection-scoped overload.
+ * (AD-4's "one creation path" precedent). Story 7.4 (AC-1) adds
+ * `connection_id`: when supplied, the thread is created connection-scoped
+ * (`account_id` null) instead of account-scoped — the axis is chosen by this
+ * field's presence, never both. No built UI sets it yet (Dev Notes, "The
+ * surface honesty note") — `connections` has no client write path
+ * (7.1 AC-6), so a real caller cannot reach one to pass here until Epic 8.
  */
 export type CreateThreadInput = {
   subject_type: ThreadSubjectType;
   subject_id?: Identifier | null;
   participant_member_ids?: Identifier[];
   visibility?: ThreadVisibility;
+  connection_id?: Identifier | null;
 };

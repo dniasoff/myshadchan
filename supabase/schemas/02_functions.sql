@@ -3558,15 +3558,56 @@ begin
 end;
 $$;
 
--- Story 7.1 (AC-1, AC-9)/Story 7.3 (AC-2, AC-3, AC-4, AC-6, AC-7): the ONE
--- authority every Epic 7 RLS policy calls — exactly as is_single_visible_
--- state() is the one authority for its own axis. Extending this ONE
--- function is why Story 7.3's entire enforcement change is a single `CREATE
--- OR REPLACE FUNCTION` rather than three edited policies that could drift
--- (Dev Notes, "Why extending one function is safer than editing three
--- policies"). The connection axis is STILL unreachable to `authenticated`
--- (fails closed, AC-11) until Story 7.4 opens it, so 7.4 remains a pure
--- widening with nothing to un-leak.
+-- Story 7.4 (AC-1, AC-4, AC-6): the ONE authority for "is the caller's
+-- ACTIVE context one of the two parties to this connection, and is the
+-- connection itself currently in force" — written once (Task 1) and called
+-- from create_thread(), thread_is_readable() and the two client-reachable
+-- INSERT policies (thread_participants, messages) below. Three inline
+-- copies of the same `exists` is exactly the drift surface 7.1/7.3 avoided
+-- by centralizing thread_is_readable() itself; this function is that same
+-- discipline applied to the connection axis.
+--
+-- STABLE SECURITY DEFINER for the same reason as current_context_id()/
+-- current_member_id() above: RLS policies call this directly (evaluated as
+-- `authenticated`, 06_grants.sql grants it there), and it must resolve
+-- current_context_id() itself rather than trust a caller-supplied account
+-- id.
+--
+-- `status = 'accepted'` names the live state explicitly rather than
+-- `<> 'ended'`: Story 7.1's `connections_status_check` allows only these two
+-- values today, so the two reads are equivalent now, but Epic 8 Story 8.2
+-- adds propose/accept metadata to this table WITHOUT ever adding a third
+-- live status (AD-20: a connection exists only after acceptance) — so this
+-- still reads correctly once that story lands.
+CREATE OR REPLACE FUNCTION "public"."connection_is_active_for_caller"("p_connection_id" bigint) RETURNS boolean
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  return exists (
+    select 1 from public.connections c
+    where c.id = p_connection_id
+      and c.status = 'accepted'
+      and (
+        c.household_account_id = public.current_context_id()
+        or c.shadchanus_account_id = public.current_context_id()
+      )
+  );
+end;
+$$;
+
+-- Story 7.4 (Task 2): the visibility decision, extracted out of
+-- thread_is_readable() so it is written ONCE and shared by both scope axes
+-- rather than duplicated per branch — exactly the shape Task 2 asks for.
+-- Deliberately carries NO scope gate of its own (no account/connection
+-- membership check): thread_is_readable() below always calls this AFTER its
+-- own scope gate has already passed, and this function trusts that. Because
+-- of that, it must NEVER be reachable directly by `authenticated` — see
+-- 06_grants.sql, which revokes it from every client role and grants it only
+-- to service_role, mirroring activate_context_for()'s posture above. A
+-- direct RPC to this function would let any signed-in caller probe an
+-- arbitrary thread id's open/private visibility without ever passing the
+-- scope check thread_is_readable() enforces.
 --
 -- AC-9: for a `single`, a `subject_type = 'shidduch'` thread is readable
 -- ONLY when the subject shidduch satisfies Story 6.2's shipped three-clause
@@ -3575,7 +3616,11 @@ $$;
 -- resolves to the caller's OWN singles row. Reusing one clause of that test
 -- (e.g. the pipeline state alone) is a leak in any household with two
 -- singles or one using 'private_parent' visibility — this is the composed
--- dignity floor, not a re-derivation of it.
+-- dignity floor, not a re-derivation of it. AC-5 requires this SAME test to
+-- keep applying, unchanged in shape, across the connection axis too — there
+-- is no shadchanus-side `single` case (a `single`-role membership can only
+-- exist on a household-kind account, Story 2.2's role/kind trigger), so
+-- this branch needs no axis-specific code at all to satisfy AC-5.
 --
 -- Story 7.3 (AC-2, AC-3): `visibility = 'private'` now closes BOTH readers
 -- Story 7.1/7.2's own review findings (F1.5, re-widened by 7.2's F1)
@@ -3594,7 +3639,7 @@ $$;
 -- `CommunicationSection.tsx` still disables the account-default "Private"
 -- radio as of this diff — re-enabling that UI is a follow-up outside this
 -- story's declared file set, not a gap in this function.
-CREATE OR REPLACE FUNCTION "public"."thread_is_readable"("p_thread_id" bigint) RETURNS boolean
+CREATE OR REPLACE FUNCTION "public"."thread_visibility_permits"("p_thread_id" bigint) RETURNS boolean
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -3603,20 +3648,6 @@ declare
 begin
   select * into v_thread from public.threads where id = p_thread_id;
   if not found then
-    return false;
-  end if;
-
-  -- The connection axis is unreachable to `authenticated` until Story 7.4
-  -- opens it — failing closed here means 7.4 is a pure widening with
-  -- nothing to un-leak.
-  if v_thread.connection_id is not null then
-    return false;
-  end if;
-
-  -- `is distinct from`, not `<>`: a NULL current_context_id() (no active
-  -- context) must deny, not silently fall through to `true` the way a
-  -- NULL-yielding `<>` comparison would inside an `if`.
-  if v_thread.account_id is distinct from public.current_context_id() then
     return false;
   end if;
 
@@ -3650,59 +3681,134 @@ begin
 end;
 $$;
 
--- Story 7.1 (AC-1, AC-2, AC-7): the SOLE creation path for a thread and its
--- initial participants together (mirrors create_shidduch()'s "one creation
--- path" precedent, AD-4) — the SPA never calls
--- dataProvider.create("threads", …) directly. SECURITY DEFINER so its
+-- Story 7.1 (AC-1, AC-9)/Story 7.3 (AC-2, AC-3, AC-4, AC-6, AC-7)/Story 7.4
+-- (AC-1, AC-4, AC-5, AC-9): the ONE authority every Epic 7 RLS policy calls
+-- — exactly as is_single_visible_state() is the one authority for its own
+-- axis. Extending this ONE function is why Story 7.3's entire enforcement
+-- change was a single `CREATE OR REPLACE FUNCTION` rather than three edited
+-- policies that could drift (Dev Notes, "Why extending one function is
+-- safer than editing three policies").
+--
+-- Story 7.4 v3 restructures the body into two parts, so the open/private
+-- decision stays written EXACTLY ONCE across both axes (Task 2):
+--   1. The SCOPE GATE below — is the caller even a party to this thread's
+--      own scope at all. Replaces the 7.1 line that returned `false`
+--      unconditionally for any connection-scoped thread; that line's
+--      removal is a PURE WIDENING (AC-4's own note) — nothing that was
+--      previously readable changes, because nothing on the connection axis
+--      was ever readable before this story.
+--   2. thread_visibility_permits() above — the identical open/private/
+--      dignity-floor resolution for whichever axis passed the gate.
+CREATE OR REPLACE FUNCTION "public"."thread_is_readable"("p_thread_id" bigint) RETURNS boolean
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_thread public.threads;
+begin
+  select * into v_thread from public.threads where id = p_thread_id;
+  if not found then
+    return false;
+  end if;
+
+  if v_thread.account_id is not null then
+    -- `is distinct from`, not `<>`: a NULL current_context_id() (no active
+    -- context) must deny, not silently fall through to `true` the way a
+    -- NULL-yielding `<>` comparison would inside an `if`.
+    if v_thread.account_id is distinct from public.current_context_id() then
+      return false;
+    end if;
+  else
+    -- Story 7.4 (AC-4, AC-9): the connection axis. Requires the caller's
+    -- active context to be a member of THIS connection, with
+    -- `status = 'accepted'` — ending a connection ends every read on its
+    -- threads, even for participants unchanged since before the end
+    -- (Dev Notes, "Why the ended case is called out separately").
+    if not public.connection_is_active_for_caller(v_thread.connection_id) then
+      return false;
+    end if;
+  end if;
+
+  return public.thread_visibility_permits(p_thread_id);
+end;
+$$;
+
+-- Story 7.1 (AC-1, AC-2, AC-7)/Story 7.4 (AC-1, AC-2, AC-3, AC-7): the SOLE
+-- creation path for a thread and its initial participants together (mirrors
+-- create_shidduch()'s "one creation path" precedent, AD-4) — the SPA never
+-- calls dataProvider.create("threads", …) directly. SECURITY DEFINER so its
 -- inserts are unaffected by the participant-gated INSERT policies
 -- (05_policies.sql) — `postgres` (the owner) carries BYPASSRLS, so this is
 -- unaffected by FORCE ROW LEVEL SECURITY either (Task 5's evidence).
 --
--- This story's signature has NO p_connection_id — that parameter and its
--- validation are Story 7.4's; every thread this function creates today is
--- account-scoped.
+-- Story 7.4 (Task 3) adds `p_connection_id`, appended as a fifth, defaulted
+-- parameter — a NEW signature for Postgres's own overload-resolution
+-- purposes, since functions are identified by name + parameter TYPES, never
+-- by name + defaults. The migration that ships this DROPs the old 4-argument
+-- signature explicitly (and re-issues its grants under the new signature) —
+-- leaving both would make every 4-argument call site ambiguous between "the
+-- old exact match" and "the new one with a default filled in", raising
+-- 42725 (`function is not unique`) on every existing caller. See this
+-- story's migration file for the DROP.
+--
+-- AD-20: a connection is chosen by the PARAMETER'S PRESENCE, not layered on
+-- top of the account default — supplying `p_connection_id` sets
+-- `connection_id` and leaves `account_id` null; omitting it is the
+-- unchanged 7.1/7.2 account-scoped path.
 --
 -- Story 7.2 (AC-3, AC-4): when p_visibility is omitted, the new thread's
--- visibility resolves from the caller's OWN account's
--- accounts.default_thread_visibility, not the literal 'open' this story
--- shipped with — a household's Settings control
--- (settings/CommunicationSection.tsx) changes what NEW threads get, never
--- retroactively rewriting existing ones. An explicit p_visibility always
--- wins over the account default (validated against p_visibility itself,
--- BEFORE the coalesce, so an invalid explicit argument still raises rather
--- than silently falling through to the account's — always-valid, per its
--- own CHECK constraint — default).
---
--- FORWARD HAZARD for Story 7.4 (review finding F4, Story 7.2): the coalesce
--- below resolves the default from `v_account_id := current_context_id()`,
--- which is non-NULL even when the caller is acting in a connection scope.
--- Unreachable today — this signature has no p_connection_id, every thread
--- here is account-scoped (see the "no p_connection_id" note above). But
--- when 7.4 adds that parameter, this exact expression must NOT keep
--- resolving via the caller's OWN account for a connection-owned thread —
--- doing so would silently apply one party's household posture to a thread
--- AD-20 says belongs to NEITHER party (a connection is a third scope). 7.4
--- must either read the connection's own posture or fail closed here, and
--- must revisit this coalesce itself, not just add a branch beside it.
+-- visibility resolves from the OWNING side's account's
+-- accounts.default_thread_visibility — the caller's own account on the
+-- account axis (unchanged), the connection's `household_account_id` on the
+-- connection axis (AC-7: FR99 gives FAMILIES the default posture, and the
+-- household is the only family in the pair; the shadchanus account's own
+-- setting is never consulted). An explicit p_visibility always wins over
+-- either default (validated against p_visibility itself, BEFORE the
+-- coalesce, so an invalid explicit argument still raises rather than
+-- silently falling through to a default — always valid, per its own CHECK
+-- constraint).
 CREATE OR REPLACE FUNCTION "public"."create_thread"(
     "p_subject_type" text,
     "p_subject_id" bigint DEFAULT NULL,
     "p_participant_member_ids" bigint[] DEFAULT '{}',
-    "p_visibility" text DEFAULT NULL
+    "p_visibility" text DEFAULT NULL,
+    "p_connection_id" bigint DEFAULT NULL
 ) RETURNS public.threads
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
   v_account_id bigint;
+  v_connection_id bigint;
+  v_household_account_id bigint;
+  v_shadchanus_account_id bigint;
   v_member_id bigint;
   v_visibility text;
   v_thread public.threads;
   v_participant_id bigint;
 begin
-  v_account_id := public.current_context_id();
-  if v_account_id is null then
-    raise exception 'no account context for create_thread (no account exists)';
+  if p_connection_id is not null then
+    -- AC-1: the caller's active context must be one side of THIS
+    -- connection, currently accepted — anything else raises 42501. This
+    -- also covers "no active context at all" for free: current_context_id()
+    -- is then NULL, which never equals either side, so
+    -- connection_is_active_for_caller() returns false.
+    if not public.connection_is_active_for_caller(p_connection_id) then
+      raise exception 'connection % is not active for the current context', p_connection_id
+        using errcode = '42501';
+    end if;
+    v_connection_id := p_connection_id;
+    v_account_id := null;
+    select c.household_account_id, c.shadchanus_account_id
+      into v_household_account_id, v_shadchanus_account_id
+      from public.connections c
+      where c.id = p_connection_id;
+  else
+    v_account_id := public.current_context_id();
+    if v_account_id is null then
+      raise exception 'no account context for create_thread (no account exists)';
+    end if;
+    v_connection_id := null;
   end if;
 
   v_member_id := public.current_member_id();
@@ -3716,9 +3822,16 @@ begin
   end if;
 
   -- Never cross the account boundary (AD-1): the subject shidduch must
-  -- belong to the caller's account, and must actually exist.
+  -- belong to the RELEVANT household — the caller's own account on the
+  -- account axis; the connection's HOUSEHOLD side on the connection axis
+  -- (AC-2/AD-4), never `current_context_id()` — a shadchan's active context
+  -- is always their shadchanus account, which by AD-2 may never contain a
+  -- household domain row and therefore holds no `shidduchim` at all. Under
+  -- an account-only check this would raise for every shadchan caller.
   if p_subject_type = 'shidduch' and not exists (
-    select 1 from public.shidduchim where id = p_subject_id and account_id = v_account_id
+    select 1 from public.shidduchim
+    where id = p_subject_id
+      and account_id = coalesce(v_household_account_id, v_account_id)
   ) then
     raise exception 'shidduch % not found in current account', p_subject_id;
   end if;
@@ -3730,13 +3843,16 @@ begin
 
   v_visibility := coalesce(
     p_visibility,
-    (select a.default_thread_visibility from public.accounts a where a.id = v_account_id)
+    (
+      select a.default_thread_visibility from public.accounts a
+      where a.id = coalesce(v_account_id, v_household_account_id)
+    )
   );
 
   insert into public.threads (
     account_id, connection_id, subject_type, subject_id, visibility, created_by_member_id
   ) values (
-    v_account_id, null,
+    v_account_id, v_connection_id,
     p_subject_type,
     case when p_subject_type = 'shidduch' then p_subject_id else null end,
     v_visibility, v_member_id
@@ -3744,25 +3860,44 @@ begin
   returning * into v_thread;
 
   -- The creator is always a participant, from the moment the thread exists
-  -- (AC-2).
-  insert into public.thread_participants (account_id, connection_id, thread_id, member_id)
-  values (v_account_id, null, v_thread.id, v_member_id);
+  -- (AC-2). Both scope columns left NULL on purpose (Task 3): NEVER hand-set
+  -- account_id/connection_id here — set_thread_participant_defaults()
+  -- (04_triggers.sql-wired) copies both from the parent thread, and doing it
+  -- twice, in two places, is how the two get out of step.
+  insert into public.thread_participants (thread_id, member_id)
+  values (v_thread.id, v_member_id);
 
-  -- One row per DISTINCT supplied id (AC-7). Fail fast on any id that is
-  -- not an active account_members row of the caller's own account — never
-  -- let a caller believe someone is in a conversation who silently was
-  -- not added (.claude/rules/coding-style.md). ON CONFLICT DO NOTHING
+  -- One row per DISTINCT supplied id (AC-3, AC-7). Fail fast on any id that
+  -- is not legal for this thread's axis — never let a caller believe
+  -- someone is in a conversation who silently was not added
+  -- (.claude/rules/coding-style.md). ON CONFLICT DO NOTHING
   -- (thread_participants_thread_id_member_id_key) absorbs a duplicate in
   -- the array, or the caller's own id repeated, without a second check.
+  --
+  -- AC-3: for a connection-scoped thread, an id is legal if it is an ACTIVE
+  -- account_members row of EITHER side of the connection — cross-side
+  -- participants are the whole point of this story. For the account axis,
+  -- 7.1's rule is unchanged: the caller's own account only.
   foreach v_participant_id in array coalesce(p_participant_member_ids, '{}') loop
-    if not exists (
-      select 1 from public.account_members
-      where id = v_participant_id and account_id = v_account_id and status = 'active'
-    ) then
-      raise exception 'member % not found in current account', v_participant_id;
+    if v_connection_id is not null then
+      if not exists (
+        select 1 from public.account_members
+        where id = v_participant_id
+          and status = 'active'
+          and account_id in (v_household_account_id, v_shadchanus_account_id)
+      ) then
+        raise exception 'member % not found in either side of this connection', v_participant_id;
+      end if;
+    else
+      if not exists (
+        select 1 from public.account_members
+        where id = v_participant_id and account_id = v_account_id and status = 'active'
+      ) then
+        raise exception 'member % not found in current account', v_participant_id;
+      end if;
     end if;
-    insert into public.thread_participants (account_id, connection_id, thread_id, member_id)
-    values (v_account_id, null, v_thread.id, v_participant_id)
+    insert into public.thread_participants (thread_id, member_id)
+    values (v_thread.id, v_participant_id)
     on conflict (thread_id, member_id) do nothing;
   end loop;
 
@@ -3795,17 +3930,22 @@ $$;
 --      thread the two are the same test by construction
 --      (thread_is_readable()'s own private branch), and because Task 2
 --      names them as ONE compound "may this caller touch this thread"
---      refusal, not three. Requiring `thread_is_readable()` FIRST is what
---      closes AC-8 with no connection-specific code at all: 7.1's function
---      already returns false for any connection-scoped thread
---      unconditionally, so a service-role-seeded connection thread is
+--      refusal, not three. Requiring `thread_is_readable()` FIRST closed
+--      AC-8 (Story 7.1) with no connection-specific code at all: that
+--      story's function returned false for EVERY connection-scoped thread
+--      unconditionally, so a service-role-seeded connection thread was
 --      refused here for free, even naming a real thread_participants row
---      for the caller — 7.4 widens `thread_is_readable()`, and this RPC
---      follows without its own edit. The SEPARATE participant check below
---      is still required on an `open` thread: `thread_is_readable()` alone
---      would admit any same-account member, and AC-8 says a non-participant
---      may not flip visibility on a thread they are not in, open or
---      private.
+--      for the caller. Story 7.4 widens `thread_is_readable()` to admit a
+--      real participant of an ACTIVE, accepted connection — this RPC
+--      follows that widening without its own edit, so the SAME caller can
+--      now flip a connection-scoped thread's visibility once the
+--      connection admits them (threads_entity.sql's own AC-8-era assertion
+--      is updated in place for this, not left asserting the pre-7.4
+--      unconditional denial). The SEPARATE participant check below is still
+--      required on an `open` thread: `thread_is_readable()` alone would
+--      admit any same-scope member, and AC-8 says a non-participant may not
+--      flip visibility on a thread they are not in, open or private —
+--      unchanged by which axis the thread sits on.
 CREATE OR REPLACE FUNCTION "public"."set_thread_visibility"("p_thread_id" bigint, "p_visibility" text) RETURNS public.threads
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''

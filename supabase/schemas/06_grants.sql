@@ -991,9 +991,35 @@ revoke all on function public.thread_is_readable(bigint) from public, anon;
 grant execute on function public.thread_is_readable(bigint) to authenticated;
 grant execute on function public.thread_is_readable(bigint) to service_role;
 
-revoke all on function public.create_thread(text, bigint, bigint[], text) from public, anon;
-grant execute on function public.create_thread(text, bigint, bigint[], text) to authenticated;
-grant execute on function public.create_thread(text, bigint, bigint[], text) to service_role;
+-- Story 7.4 (Task 1): connection_is_active_for_caller() is called DIRECTLY
+-- from RLS policies (the two INSERT policies above, evaluated as
+-- `authenticated`) as well as from create_thread() and thread_is_readable()
+-- — unlike thread_visibility_permits() below, this one needs the client
+-- grant.
+revoke all on function public.connection_is_active_for_caller(bigint) from public, anon;
+grant execute on function public.connection_is_active_for_caller(bigint) to authenticated;
+grant execute on function public.connection_is_active_for_caller(bigint) to service_role;
+
+-- Story 7.4 (Task 2): thread_visibility_permits() is an internal helper for
+-- thread_is_readable() ONLY — it has no scope gate of its own, so a direct
+-- RPC to it would let any signed-in caller probe an arbitrary thread id's
+-- open/private visibility without ever passing the scope check
+-- thread_is_readable() enforces. Revoked from every client role, exactly
+-- like activate_context_for() above: reachable only from its SECURITY
+-- DEFINER caller (which runs as the owning role, needing no grant of its
+-- own) and service_role.
+revoke all on function public.thread_visibility_permits(bigint) from public, anon, authenticated;
+grant execute on function public.thread_visibility_permits(bigint) to service_role;
+
+-- Story 7.4 (Task 3): create_thread() gains a fifth parameter
+-- (p_connection_id), which is a NEW signature for grant purposes too — the
+-- old 4-argument grant below is dropped by this story's migration (matching
+-- the DROP FUNCTION the schema change itself requires; see 02_functions.sql's
+-- own comment on the two-overload trap) and re-issued here under the new
+-- 5-argument signature.
+revoke all on function public.create_thread(text, bigint, bigint[], text, bigint) from public, anon;
+grant execute on function public.create_thread(text, bigint, bigint[], text, bigint) to authenticated;
+grant execute on function public.create_thread(text, bigint, bigint[], text, bigint) to service_role;
 
 -- Story 7.3: set_thread_visibility() is the SOLE write path for
 -- `threads.visibility` after creation — deliberately NO table-level UPDATE

@@ -122,11 +122,12 @@ const createShidduchViaRpc = async (
   return row as Shidduch;
 };
 
-// Story 7.1 (AC-1, AC-2, AC-7): the SOLE creation path for a thread and its
-// initial participants together (mirrors create_shidduch()'s "one creation
-// path" precedent above) — the SPA never calls dataProvider.create("threads",
-// …) directly. `p_connection_id` has no parameter here on purpose: every
-// thread this RPC creates is account-scoped until Story 7.4.
+// Story 7.1 (AC-1, AC-2, AC-7)/Story 7.4 (AC-1): the SOLE creation path for
+// a thread and its initial participants together (mirrors
+// create_shidduch()'s "one creation path" precedent above) — the SPA never
+// calls dataProvider.create("threads", …) directly. `p_connection_id` is
+// forwarded when supplied; no built UI sets `input.connection_id` yet (this
+// story ships the capability, not a surface — see the story's Dev Notes).
 const createThreadViaRpc = async (
   input: CreateThreadInput,
 ): Promise<Thread> => {
@@ -135,6 +136,7 @@ const createThreadViaRpc = async (
     p_subject_id: input.subject_id ?? null,
     p_participant_member_ids: input.participant_member_ids ?? [],
     p_visibility: input.visibility ?? null,
+    p_connection_id: input.connection_id ?? null,
   });
   if (error) {
     console.error("createThread.error", error);

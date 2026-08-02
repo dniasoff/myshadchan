@@ -995,11 +995,17 @@ from public.entity_files
 where target_type = 'shidduch' and target_id = :rivka_shidduch_id;
 
 -- ---------------------------------------------------------------------------
--- AC-8: the connection axis stays closed until 7.4. A service-role-seeded
--- connection-scoped PRIVATE thread, with A seeded directly as a REAL
--- thread_participants row on it — proving the refusal is
--- thread_is_readable()'s unconditional connection-axis denial (7.1), not
--- merely "not a participant" (A IS one here).
+-- Story 7.3 shipped this as "the connection axis stays closed until 7.4" —
+-- thread_is_readable()'s unconditional connection-axis denial (7.1) meant
+-- set_thread_visibility() refused this thread even for A, a REAL
+-- thread_participants row on it. Story 7.4 replaces that denial with a real
+-- scope gate (Task 2), and this thread's connection (test_connection_id) IS
+-- accepted with A on its household side — so this is now a POSITIVE
+-- assertion, not a refusal. This is the pure-widening case AC-4 names: the
+-- thread and its participant row are UNCHANGED from Story 7.3's own seed,
+-- only the axis around them opened. See Story 7.4's own threads_entity.sql
+-- section further down for the matching NEGATIVE (the same call, on a
+-- connection whose status is 'ended', still refuses).
 -- ---------------------------------------------------------------------------
 reset role;
 
@@ -1016,17 +1022,11 @@ insert into ids values
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
 
-do $$
-declare
-  v_name constant text := 'AC-8: set_thread_visibility() refuses a connection-scoped thread even for a caller holding a REAL thread_participants row on it';
-  v_thread bigint;
-begin
-  select value into v_thread from ids where name = 'connection_visibility_thread';
-  perform public.set_thread_visibility(v_thread, 'open');
-  insert into results values (v_name, false, 'call unexpectedly succeeded');
-exception when others then
-  perform pg_temp.denied(v_name, '42501', 'thread % not found or not readable in current context', sqlstate, sqlerrm);
-end $$;
+select (public.set_thread_visibility(:connection_visibility_thread, 'open')).visibility as connection_visibility_after_flip \gset
+
+insert into results (name, passed)
+select 'Story 7.4 (AC-4, pure widening): set_thread_visibility() now SUCCEEDS on a connection-scoped thread for a caller holding a REAL thread_participants row on an ACCEPTED connection — the exact call Story 7.3 proved denied before this story opened the axis',
+       :'connection_visibility_after_flip' = 'open';
 
 -- ---------------------------------------------------------------------------
 -- AC-1: "by agreement" means any current participant, not only the
@@ -1111,6 +1111,384 @@ begin
   insert into results values (v_name, false, 'update unexpectedly succeeded');
 exception when others then
   perform pg_temp.denied(v_name, '42501', 'permission denied for table threads', sqlstate, sqlerrm);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Story 7.4: any pairing may hold a private thread — the connection axis,
+-- opened. New fixture, on top of the sibling household / shadchanus_
+-- account_id / test_connection_id (accepted) already established above:
+--
+--   * shadchan_member_id — a REAL shadchan-role member on the
+--     ALREADY-connected shadchanus_account_id. 7.1/7.3 only ever seeded
+--     connection-scoped rows directly, as a service-role stand-in, because
+--     the axis was unreachable to a real session before this story; this is
+--     the first real "shadchan" caller in this file.
+--   * other_shadchanus_account_id / other_shadchan_member_id — a SECOND,
+--     wholly UNCONNECTED shadchanus. AC-9's "holds the shadchan role
+--     generally" negative needs a real shadchan provably NOT a party to
+--     test_connection_id — a household negative alone cannot prove that.
+--   * ended_connection_shadchanus_account_id / ended_connection_id — a
+--     THIRD shadchanus, paired to the sibling household through a
+--     connection seeded directly with status = 'ended'. AC-9's "ending a
+--     connection ends the reads" negative.
+--   * leah_new_state_shidduch_id — shared visibility, Leah's own single_id,
+--     but pipeline_state = 'new' (NOT single-visible). The three existing
+--     AC-9 shidduchim (leah/rivka/leah_private) each fail exactly one OTHER
+--     clause of Epic 6's three-part test; none fails the pipeline-state
+--     clause alone, which AC-5 requires as its OWN separate negative.
+-- ---------------------------------------------------------------------------
+reset role;
+
+insert into auth.users (id, instance_id, aud, role, email)
+values ('51810000-0000-0000-0000-000000000014', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'threads-shadchan@test.local');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:shadchanus_account_id, '51810000-0000-0000-0000-000000000014', 'shadchan', 'active')
+returning id as shadchan_member_id \gset
+
+insert into public.accounts (name, kind) values ('Threads Unconnected Shadchanus', 'shadchanus')
+returning id as other_shadchanus_account_id \gset
+
+insert into auth.users (id, instance_id, aud, role, email)
+values ('51810000-0000-0000-0000-000000000015', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'threads-other-shadchan@test.local');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:other_shadchanus_account_id, '51810000-0000-0000-0000-000000000015', 'shadchan', 'active')
+returning id as other_shadchan_member_id \gset
+
+insert into public.accounts (name, kind) values ('Threads Ended Connection Shadchanus', 'shadchanus')
+returning id as ended_connection_shadchanus_account_id \gset
+
+insert into public.connections (household_account_id, shadchanus_account_id, status, ended_at)
+values (:sibling_fixture_account_id, :ended_connection_shadchanus_account_id, 'ended', now())
+returning id as ended_connection_id \gset
+
+insert into public.shidduchim (account_id, single_id, name_en, pipeline_state, visibility)
+values (:sibling_fixture_account_id, :sibling_fixture_leah_single_id, 'Leah New-State Suggestion', 'new', 'shared')
+returning id as leah_new_state_shidduch_id \gset
+
+insert into ids values
+  ('shadchanus_account_id', :shadchanus_account_id),
+  ('shadchan_member_id', :shadchan_member_id),
+  ('other_shadchanus_account_id', :other_shadchanus_account_id),
+  ('other_shadchan_member_id', :other_shadchan_member_id),
+  ('ended_connection_shadchanus_account_id', :ended_connection_shadchanus_account_id),
+  ('ended_connection_id', :ended_connection_id),
+  ('leah_new_state_shidduch_id', :leah_new_state_shidduch_id);
+
+-- ---------------------------------------------------------------------------
+-- AC-1: the two falsifiable refusals, by SQLSTATE.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000015","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'AC-1: a caller whose active context is neither side of the connection raises 42501';
+  v_connection bigint;
+begin
+  select value into v_connection from ids where name = 'test_connection_id';
+  perform public.create_thread('relationship', null, array[]::bigint[], null, v_connection);
+  insert into results values (v_name, false, 'call unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', 'connection % is not active for the current context', sqlstate, sqlerrm);
+end $$;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'AC-1: a caller who IS the right household, but whose connection has status=''ended'', raises 42501';
+  v_connection bigint;
+begin
+  select value into v_connection from ids where name = 'ended_connection_id';
+  perform public.create_thread('relationship', null, array[]::bigint[], null, v_connection);
+  insert into results values (v_name, false, 'call unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', 'connection % is not active for the current context', sqlstate, sqlerrm);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- AC-3: cross-side participants are legal, and ONLY cross-side — a member of
+-- an UNRELATED third account raises, even on a connection-scoped thread the
+-- caller is otherwise entitled to create.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_name constant text := 'AC-3: adding a member of an UNRELATED third account as a participant on a connection-scoped thread raises — cross-side is legal, third-party is not';
+  v_connection bigint; v_unrelated_member bigint;
+begin
+  select value into v_connection from ids where name = 'test_connection_id';
+  select value into v_unrelated_member from ids where name = 'tenant_b_member_id';
+  perform public.create_thread('relationship', null, array[v_unrelated_member]::bigint[], null, v_connection);
+  insert into results values (v_name, false, 'call unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, 'P0001', 'member % not found in either side of this connection', sqlstate, sqlerrm);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- AC-8: the four-pairing proof, in one place. The household parent (already
+-- active, above) opens two PRIVATE connection-scoped threads over
+-- test_connection_id: one naming Leah (the household's single) and the
+-- shadchan as participants (single<->shadchan), one naming only the shadchan
+-- (parent<->shadchan). The account-scoped half (parent<->parent,
+-- parent<->single) is reused from Story 7.3's OWN fixtures below, not
+-- re-derived.
+-- ---------------------------------------------------------------------------
+select (public.create_thread('relationship', null, array[:sibling_fixture_leah_member_id, :shadchan_member_id]::bigint[], 'private', :test_connection_id)).id as ac8_single_shadchan_thread \gset
+insert into ids values ('ac8_single_shadchan_thread', :ac8_single_shadchan_thread);
+
+insert into public.messages (thread_id, body) values (:ac8_single_shadchan_thread, 'Connection thread: single<->shadchan, opened by the parent')
+returning id as ac8_single_shadchan_message \gset
+insert into ids values ('ac8_single_shadchan_message', :ac8_single_shadchan_message);
+
+select (public.create_thread('relationship', null, array[:shadchan_member_id]::bigint[], 'private', :test_connection_id)).id as ac8_parent_shadchan_thread \gset
+insert into ids values ('ac8_parent_shadchan_thread', :ac8_parent_shadchan_thread);
+
+insert into results (name, passed)
+select 'AC-8 control: the creator (household parent) reads both new connection-scoped private threads',
+       (select count(*) from public.threads where id in (:ac8_single_shadchan_thread, :ac8_parent_shadchan_thread)) = 2;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-8 (single<->shadchan pairing): Leah (the household''s single, added as participant) reads the connection-scoped private thread',
+       count(*) = 1 from public.threads where id = :ac8_single_shadchan_thread;
+
+insert into results (name, passed)
+select 'AC-8 (single<->shadchan pairing): Leah also reads its message',
+       count(*) = 1 from public.messages where id = :ac8_single_shadchan_message;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000014","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-8 (single<->shadchan pairing): the CONNECTED shadchan (active in the shadchanus account) reads the SAME connection-scoped private thread from the other side',
+       count(*) = 1 from public.threads where id = :ac8_single_shadchan_thread;
+
+insert into results (name, passed)
+select 'AC-8 (single<->shadchan pairing): the shadchan also reads its message',
+       count(*) = 1 from public.messages where id = :ac8_single_shadchan_message;
+
+insert into results (name, passed)
+select 'AC-8 (parent<->shadchan pairing): the shadchan reads the second connection-scoped private thread (with the household''s parent, not its single)',
+       count(*) = 1 from public.threads where id = :ac8_parent_shadchan_thread;
+
+-- AC-6: the shadchan side posts a message through a REAL client INSERT (this
+-- authenticated session, not service_role) — the exact falsifying test a
+-- half-migrated messages INSERT policy would still pass a service-role smoke
+-- test on, then break on the first real user action.
+insert into public.messages (thread_id, body) values (:ac8_single_shadchan_thread, 'A real client INSERT from the shadchan side (AC-6)')
+returning id as ac6_shadchan_client_message \gset
+insert into ids values ('ac6_shadchan_client_message', :ac6_shadchan_client_message);
+
+insert into results (name, passed)
+select 'AC-6: the shadchan''s real client-side INSERT into messages succeeds, and is server-stamped to their OWN membership + the thread''s connection scope',
+       sender_member_id = :shadchan_member_id
+       and account_id is null
+       and connection_id = :test_connection_id
+from public.messages where id = :ac6_shadchan_client_message;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-8 (parent<->shadchan pairing): the household parent (creator) reads the second connection-scoped private thread',
+       count(*) = 1 from public.threads where id = :ac8_parent_shadchan_thread;
+
+-- AC-8: the account-scoped half, reusing Story 7.3's OWN fixtures — proven
+-- there already (AC-5's control, AC-6's carve-out); re-asserted here, under
+-- an AC-8 name, so the epic's four-pairing AC is discharged in one file
+-- without re-deriving the account axis a second time.
+insert into results (name, passed)
+select 'AC-8 (parent<->parent pairing, account-scoped): reusing Story 7.3''s AC-5 private_ab_thread — A (the creator) still reads it',
+       count(*) = 1 from public.threads where id = :private_ab_thread;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000013","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-8 (parent<->parent pairing, account-scoped): B (never the creator) also reads the SAME private_ab_thread',
+       count(*) = 1 from public.threads where id = :private_ab_thread;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-8 (parent<->single pairing, account-scoped): reusing Story 7.3''s AC-6 thread_rivka_private — the single participant reads it',
+       count(*) = 1 from public.threads where id = :thread_rivka_private;
+
+-- ---------------------------------------------------------------------------
+-- AC-2: a shadchan creates a connection-scoped thread on the CONNECTED
+-- household's real shidduch (succeeds); the same shadchan naming a shidduch
+-- belonging to an UNRELATED household raises.
+-- ---------------------------------------------------------------------------
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000014","role":"authenticated"}';
+
+select (public.create_thread('shidduch', :leah_shidduch_id, array[]::bigint[], null, :test_connection_id)).id as ac2_shadchan_thread \gset
+insert into ids values ('ac2_shadchan_thread', :ac2_shadchan_thread);
+
+insert into results (name, passed)
+select 'AC-2: a shadchan creates a connection-scoped thread naming the CONNECTED household''s real shidduch — subject resolves against household_account_id, never current_context_id() (the shadchan''s OWN shadchanus account, which holds no shidduchim at all)',
+       t.connection_id = :test_connection_id and t.account_id is null and t.subject_id = :leah_shidduch_id
+from public.threads t where t.id = :ac2_shadchan_thread;
+
+do $$
+declare
+  v_name constant text := 'AC-2: the SAME shadchan naming a shidduch belonging to a DIFFERENT (unconnected) household raises — subject resolution is scoped to the CONNECTION''s own household';
+  v_connection bigint; v_other_shidduch bigint;
+begin
+  select value into v_connection from ids where name = 'test_connection_id';
+  select value into v_other_shidduch from ids where name = 'tenant_b_shidduch_id';
+  perform public.create_thread('shidduch', v_other_shidduch, array[]::bigint[], null, v_connection);
+  insert into results values (v_name, false, 'call unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, 'P0001', 'shidduch % not found in current account', sqlstate, sqlerrm);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- AC-5: the dignity floor does not stop applying because a shadchan is in
+-- the room. Four connection-scoped OPEN threads, each about a shidduch that
+-- satisfies all three of Epic 6's clauses except (at most) one; Leah is a
+-- participant of all four, exactly like AC-9's account-axis block.
+-- ---------------------------------------------------------------------------
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select (public.create_thread('shidduch', :leah_shidduch_id, array[:sibling_fixture_leah_member_id]::bigint[], 'open', :test_connection_id)).id as ac5_conn_thread_leah_open \gset
+select (public.create_thread('shidduch', :rivka_shidduch_id, array[:sibling_fixture_leah_member_id]::bigint[], 'open', :test_connection_id)).id as ac5_conn_thread_rivka_open \gset
+select (public.create_thread('shidduch', :leah_private_shidduch_id, array[:sibling_fixture_leah_member_id]::bigint[], 'open', :test_connection_id)).id as ac5_conn_thread_leah_private_parent \gset
+select (public.create_thread('shidduch', :leah_new_state_shidduch_id, array[:sibling_fixture_leah_member_id]::bigint[], 'open', :test_connection_id)).id as ac5_conn_thread_leah_new_state \gset
+insert into ids values
+  ('ac5_conn_thread_leah_open', :ac5_conn_thread_leah_open),
+  ('ac5_conn_thread_rivka_open', :ac5_conn_thread_rivka_open),
+  ('ac5_conn_thread_leah_private_parent', :ac5_conn_thread_leah_private_parent),
+  ('ac5_conn_thread_leah_new_state', :ac5_conn_thread_leah_new_state);
+
+insert into results (name, passed)
+select 'AC-5 control: the parent (creator) reads all four connection-scoped OPEN shidduch threads before Leah''s restricted view is tested',
+       (select count(*) from public.threads where id in (
+         :ac5_conn_thread_leah_open, :ac5_conn_thread_rivka_open,
+         :ac5_conn_thread_leah_private_parent, :ac5_conn_thread_leah_new_state
+       )) = 4;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-5 (positive): Leah reads the OPEN connection-scoped thread about her OWN shidduch — visibility=shared, single-visible state, her own single_id, all three clauses satisfied across the connection axis exactly as AC-9 proved for the account axis',
+       count(*) = 1 from public.threads where id = :ac5_conn_thread_leah_open;
+
+insert into results (name, passed)
+select 'AC-5 (fails clause: single_id): Leah reads ZERO rows for the connection-scoped thread about the SIBLING''s shidduch, despite the SAME shared visibility and single-visible state',
+       count(*) = 0 from public.threads where id = :ac5_conn_thread_rivka_open;
+
+insert into results (name, passed)
+select 'AC-5 (fails clause: visibility): Leah reads ZERO rows for the connection-scoped thread about her OWN shidduch when its visibility is private_parent, despite the SAME single-visible state and the SAME single_id',
+       count(*) = 0 from public.threads where id = :ac5_conn_thread_leah_private_parent;
+
+insert into results (name, passed)
+select 'AC-5 (fails clause: pipeline state): Leah reads ZERO rows for the connection-scoped thread about her OWN shidduch when its pipeline_state (''new'') is not single-visible, despite shared visibility and her own single_id',
+       count(*) = 0 from public.threads where id = :ac5_conn_thread_leah_new_state;
+
+-- ---------------------------------------------------------------------------
+-- AC-7: connection-scoped threads resolve their default posture from the
+-- connection's HOUSEHOLD side — never the shadchanus side, either way.
+-- ---------------------------------------------------------------------------
+reset role;
+update public.accounts set default_thread_visibility = 'private' where id = :sibling_fixture_account_id;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select (public.create_thread('relationship', null, array[]::bigint[], null, :test_connection_id)).id as ac7_thread_household_private \gset
+insert into ids values ('ac7_thread_household_private', :ac7_thread_household_private);
+
+insert into results (name, passed)
+select 'AC-7: household default ''private'' + a connection-scoped create_thread() with no p_visibility resolves from the connection''s HOUSEHOLD side',
+       visibility = 'private' from public.threads where id = :ac7_thread_household_private;
+
+reset role;
+update public.accounts set default_thread_visibility = 'open' where id = :shadchanus_account_id;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select (public.create_thread('relationship', null, array[]::bigint[], null, :test_connection_id)).id as ac7_thread_shadchanus_flip_has_no_effect \gset
+insert into ids values ('ac7_thread_shadchanus_flip_has_no_effect', :ac7_thread_shadchanus_flip_has_no_effect);
+
+insert into results (name, passed)
+select 'AC-7: flipping the SHADCHANUS account''s OWN default_thread_visibility to ''open'' has NO effect on a new connection-scoped thread on the same connection — it still resolves ''private'' from the household side',
+       visibility = 'private' from public.threads where id = :ac7_thread_shadchanus_flip_has_no_effect;
+
+reset role;
+update public.accounts set default_thread_visibility = 'open' where id = :sibling_fixture_account_id;
+update public.accounts set default_thread_visibility = 'open' where id = :shadchanus_account_id;
+
+-- ---------------------------------------------------------------------------
+-- AC-9: the three negatives. A shadchan whose OWN shadchanus is not party to
+-- this connection; a household member of a DIFFERENT household; a member of
+-- the RIGHT household once the connection has ended.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000015","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-9: a shadchan whose OWN shadchanus is NOT party to this connection reads ZERO rows from its threads, even though they hold the shadchan role generally',
+       count(*) = 0 from public.threads where id = :ac8_single_shadchan_thread;
+
+insert into results (name, passed)
+select 'AC-9: ...ZERO rows from its messages',
+       count(*) = 0 from public.messages where id = :ac8_single_shadchan_message;
+
+insert into results (name, passed)
+select 'AC-9: ...ZERO rows from its thread_participants',
+       count(*) = 0 from public.thread_participants where thread_id = :ac8_single_shadchan_thread;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000010","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-9: a household member of a DIFFERENT household reads ZERO rows from that connection''s threads likewise',
+       count(*) = 0 from public.threads where id = :ac8_single_shadchan_thread;
+
+reset role;
+
+insert into public.threads (connection_id, subject_type, subject_id, visibility)
+values (:ended_connection_id, 'relationship', null, 'open')
+returning id as ac9_ended_connection_thread \gset
+insert into public.thread_participants (connection_id, thread_id, member_id)
+values (:ended_connection_id, :ac9_ended_connection_thread, :sibling_fixture_parent_member_id)
+returning id as ac9_ended_connection_participant \gset
+insert into public.messages (connection_id, thread_id, body)
+values (:ended_connection_id, :ac9_ended_connection_thread, 'a note from before the connection ended')
+returning id as ac9_ended_connection_message \gset
+insert into ids values
+  ('ac9_ended_connection_thread', :ac9_ended_connection_thread),
+  ('ac9_ended_connection_participant', :ac9_ended_connection_participant),
+  ('ac9_ended_connection_message', :ac9_ended_connection_message);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-9: a member of the RIGHT household, with a REAL thread_participants row on it, reads ZERO rows once the connection''s status is ''ended'' — ending a connection ends the reads, no other assertion in this file covers it',
+       count(*) = 0 from public.threads where id = :ac9_ended_connection_thread;
+
+insert into results (name, passed)
+select 'AC-9: ...ZERO rows from its messages too',
+       count(*) = 0 from public.messages where id = :ac9_ended_connection_message;
+
+-- The negative half of the "pure widening" assertion earlier in this file
+-- (Story 7.3's former "connection axis stays closed" test, now positive for
+-- an ACCEPTED connection): the identical call, on the SAME kind of real
+-- participant row, still refuses once the connection is 'ended' —
+-- set_thread_visibility() requires thread_is_readable() first, and the
+-- ended connection's scope gate denies before the participant check is
+-- ever reached.
+do $$
+declare
+  v_name constant text := 'AC-9: set_thread_visibility() still refuses a connection-scoped thread once its connection has ended, even for a REAL thread_participants row on it';
+  v_thread bigint;
+begin
+  select value into v_thread from ids where name = 'ac9_ended_connection_thread';
+  perform public.set_thread_visibility(v_thread, 'private');
+  insert into results values (v_name, false, 'call unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', 'thread % not found or not readable in current context', sqlstate, sqlerrm);
 end $$;
 
 \t on

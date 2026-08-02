@@ -2,6 +2,7 @@ import type { DataProvider, Identifier } from "ra-core";
 
 import type {
   AccountMember,
+  Connection,
   CreateThreadInput,
   Message,
   Thread,
@@ -24,13 +25,78 @@ const PAGE_ONE = { page: 1, perPage: 1 } as const;
 const SORT_BY_ID = { field: "id", order: "ASC" } as const;
 
 /**
- * FakeRest mirror of `public.create_thread()` (Story 7.1). Account-scoped
- * only — the connection axis (`p_connection_id`) is Story 7.4's, mirroring
- * the real RPC's own scope until then. Every predicate below is copied from
- * the SQL function's own validation, in the same order: subject_type, the
- * subject's account membership, visibility, then one thread_participants
- * row per distinct supplied id, raising on the first one that is not an
- * active member of the caller's own account.
+ * FakeRest mirror of `public.connection_is_active_for_caller()` (Story 7.4,
+ * Task 1) — the one predicate `createThread`, `createMessage`,
+ * `createThreadParticipant` and `setThreadVisibility` below all share,
+ * mirroring the real SQL function being written once and called from every
+ * write path that needs it rather than re-derived per caller.
+ */
+async function isConnectionActiveForAccount(
+  baseDataProvider: DataProvider,
+  connectionId: Identifier,
+  accountId: Identifier,
+): Promise<boolean> {
+  const { data: connections } = await baseDataProvider.getList<Connection>(
+    "connections",
+    {
+      filter: { id: connectionId, status: "accepted" },
+      pagination: PAGE_ONE,
+      sort: SORT_BY_ID,
+    },
+  );
+  const connection = connections[0];
+  if (!connection) {
+    return false;
+  }
+  return (
+    String(connection.household_account_id) === String(accountId) ||
+    String(connection.shadchanus_account_id) === String(accountId)
+  );
+}
+
+/**
+ * FakeRest mirror of `thread_is_readable()`'s SCOPE GATE only (Story 7.4,
+ * Task 2) — not the full open/private/dignity-floor resolution. The write
+ * paths below (`createMessage`, `createThreadParticipant`,
+ * `setThreadVisibility`) approximate the real RPCs' readability requirement
+ * with "found in the caller's scope" plus their own participant check, the
+ * same narrow parity the account-only version already used before this axis
+ * existed (Task 6's own note: this is defense-in-depth parity, not a
+ * reimplementation of the full SQL authority).
+ */
+async function isThreadInCallersScope(
+  baseDataProvider: DataProvider,
+  thread: Thread,
+  membership: AccountMember,
+): Promise<boolean> {
+  if (thread.account_id != null) {
+    return String(thread.account_id) === String(membership.account_id);
+  }
+  if (thread.connection_id == null) {
+    return false;
+  }
+  return isConnectionActiveForAccount(
+    baseDataProvider,
+    thread.connection_id,
+    membership.account_id,
+  );
+}
+
+/**
+ * FakeRest mirror of `public.create_thread()` (Story 7.1, Story 7.4). Every
+ * predicate below is copied from the SQL function's own validation, in the
+ * same order: scope resolution, subject_type, the subject's household
+ * membership, visibility, then one thread_participants row per distinct
+ * supplied id, raising on the first one that is not legal for this thread's
+ * axis.
+ *
+ * Story 7.4 (AC-1, AC-2, AC-3, AC-7): when `input.connection_id` is
+ * supplied, the caller's active context must be one side of that connection
+ * (`isConnectionActiveForAccount` above) — the thread is created
+ * connection-scoped (`account_id` null) and the subject/participant/
+ * default-posture resolution all switch to the connection's HOUSEHOLD side,
+ * exactly like `create_thread()`'s own `v_household_account_id`. Omitting it
+ * is the unchanged 7.1 account-scoped path.
  */
 export async function createThread(
   baseDataProvider: DataProvider,
@@ -51,15 +117,47 @@ export async function createThread(
   if (!membership) {
     throw new Error("no active membership for create_thread");
   }
+
+  let accountId: Identifier | null = membership.account_id;
+  let connectionId: Identifier | null = null;
+  let householdAccountId: Identifier | null = null;
+  let shadchanusAccountId: Identifier | null = null;
+
+  if (input.connection_id != null) {
+    const isActive = await isConnectionActiveForAccount(
+      baseDataProvider,
+      input.connection_id,
+      membership.account_id,
+    );
+    if (!isActive) {
+      throw new Error(
+        `connection ${input.connection_id} is not active for the current context`,
+      );
+    }
+    const { data: connection } = await baseDataProvider.getOne<Connection>(
+      "connections",
+      { id: input.connection_id },
+    );
+    connectionId = input.connection_id;
+    accountId = null;
+    householdAccountId = connection.household_account_id;
+    shadchanusAccountId = connection.shadchanus_account_id;
+  }
+
   if (!THREAD_SUBJECT_TYPES.includes(input.subject_type)) {
     throw new Error(`invalid thread subject_type: ${input.subject_type}`);
   }
 
   // Never cross the account boundary (AD-1): the subject shidduch must
-  // belong to the caller's account, and must actually exist.
+  // belong to the RELEVANT household — the caller's own account on the
+  // account axis, the connection's household side on the connection axis
+  // (AC-2/AD-4) — and must actually exist.
   if (input.subject_type === "shidduch") {
     const { data: matches } = await baseDataProvider.getList("shidduchim", {
-      filter: { id: input.subject_id, account_id: membership.account_id },
+      filter: {
+        id: input.subject_id,
+        account_id: householdAccountId ?? accountId,
+      },
       pagination: PAGE_ONE,
       sort: SORT_BY_ID,
     });
@@ -78,8 +176,8 @@ export async function createThread(
   const now = new Date().toISOString();
   const { data: thread } = await baseDataProvider.create<Thread>("threads", {
     data: {
-      account_id: membership.account_id,
-      connection_id: null,
+      account_id: accountId,
+      connection_id: connectionId,
       subject_type: input.subject_type,
       subject_id: input.subject_type === "shidduch" ? input.subject_id : null,
       visibility,
@@ -99,24 +197,45 @@ export async function createThread(
 
   for (const memberId of participantIds) {
     if (String(memberId) !== String(membership.id)) {
-      const { data: candidates } =
-        await baseDataProvider.getList<AccountMember>("account_members", {
-          filter: {
-            id: memberId,
-            account_id: membership.account_id,
-            status: "active",
-          },
-          pagination: PAGE_ONE,
-          sort: SORT_BY_ID,
-        });
-      if (candidates.length === 0) {
-        throw new Error(`member ${memberId} not found in current account`);
+      if (connectionId != null) {
+        // AC-3: legal if it is an ACTIVE account_members row of EITHER side
+        // of the connection — cross-side participants are the whole point.
+        const { data: candidates } =
+          await baseDataProvider.getList<AccountMember>("account_members", {
+            filter: { id: memberId, status: "active" },
+            pagination: PAGE_ONE,
+            sort: SORT_BY_ID,
+          });
+        const candidate = candidates[0];
+        const isEitherSide =
+          candidate != null &&
+          (String(candidate.account_id) === String(householdAccountId) ||
+            String(candidate.account_id) === String(shadchanusAccountId));
+        if (!isEitherSide) {
+          throw new Error(
+            `member ${memberId} not found in either side of this connection`,
+          );
+        }
+      } else {
+        const { data: candidates } =
+          await baseDataProvider.getList<AccountMember>("account_members", {
+            filter: {
+              id: memberId,
+              account_id: accountId,
+              status: "active",
+            },
+            pagination: PAGE_ONE,
+            sort: SORT_BY_ID,
+          });
+        if (candidates.length === 0) {
+          throw new Error(`member ${memberId} not found in current account`);
+        }
       }
     }
     await baseDataProvider.create("thread_participants", {
       data: {
-        account_id: membership.account_id,
-        connection_id: null,
+        account_id: accountId,
+        connection_id: connectionId,
         thread_id: thread.id,
         member_id: memberId,
         created_at: now,
@@ -147,12 +266,15 @@ export async function isThreadParticipant(
 
 /**
  * FakeRest mirror of `set_message_defaults()` plus the messages INSERT
- * policy (Story 7.1, AC-4, AC-8). Used by `dataProvider.ts`'s `create()`
- * override so a raw `dataProvider.create("messages", …)` — the ThreadPanel
- * composer's own call shape — gets the same server-stamped
+ * policy (Story 7.1, AC-4, AC-8; Story 7.4, AC-6). Used by `dataProvider.ts`'s
+ * `create()` override so a raw `dataProvider.create("messages", …)` — the
+ * ThreadPanel composer's own call shape — gets the same server-stamped
  * account_id/connection_id/sender_member_id the real backend's trigger
  * copies from the parent thread, and the same participant gate, rather than
- * landing an unattributed, unscoped row or silently bypassing AC-8.
+ * landing an unattributed, unscoped row or silently bypassing AC-8. AC-6:
+ * this is the demo-build parity for the real falsifiable test — a
+ * connection-scoped thread's participant can post through this exact call
+ * shape once `isThreadInCallersScope` admits the axis.
  */
 export async function createMessage(
   baseDataProvider: DataProvider,
@@ -181,7 +303,10 @@ export async function createMessage(
   const { data: thread } = await baseDataProvider.getOne<Thread>("threads", {
     id: data.thread_id,
   });
-  if (!thread || String(thread.account_id) !== String(membership.account_id)) {
+  if (
+    !thread ||
+    !(await isThreadInCallersScope(baseDataProvider, thread, membership))
+  ) {
     throw new Error(`thread ${data.thread_id} not found in current account`);
   }
 
@@ -243,7 +368,10 @@ export async function createThreadParticipant(
   const { data: thread } = await baseDataProvider.getOne<Thread>("threads", {
     id: data.thread_id,
   });
-  if (!thread || String(thread.account_id) !== String(membership.account_id)) {
+  if (
+    !thread ||
+    !(await isThreadInCallersScope(baseDataProvider, thread, membership))
+  ) {
     throw new Error(`thread ${data.thread_id} not found in current account`);
   }
 
@@ -275,23 +403,21 @@ export async function createThreadParticipant(
 }
 
 /**
- * FakeRest mirror of `public.set_thread_visibility()` (Story 7.3, Task 3):
- * "the FakeRest equivalent of the participant check, so the demo build does
- * not offer a control that silently succeeds for everyone." Mirrors the
- * real RPC's two refusals, in the same order:
+ * FakeRest mirror of `public.set_thread_visibility()` (Story 7.3, Task 3;
+ * Story 7.4, Task 2): "the FakeRest equivalent of the participant check, so
+ * the demo build does not offer a control that silently succeeds for
+ * everyone." Mirrors the real RPC's two refusals, in the same order:
  *
  *   1. an invalid `visibility` value.
  *   2. the caller may not act on this thread — the real RPC folds
  *      `thread_is_readable()` and "the caller is a listed participant" into
  *      one requirement (02_functions.sql's own comment on
  *      `set_thread_visibility()` explains why: for a `private` thread the
- *      two are the same test by construction). FakeRest has no connection
- *      axis reachable yet (createThread() never sets connection_id — Story
- *      7.4's), so "found in the caller's own account" already stands in for
- *      the whole readability requirement; there is no separate connection
- *      branch to reproduce here.
+ *      two are the same test by construction). `isThreadInCallersScope`
+ *      above now covers both axes, so this stands in for the whole
+ *      readability requirement on either one.
  *
- * No visibility pre-check beyond "same account" mirrors the real RPC too:
+ * No visibility pre-check beyond scope mirrors the real RPC too:
  * thread_is_readable()'s OWN private branch is exactly the participant
  * check below, so a private thread's non-participant is caught by the
  * SAME `isThreadParticipant` call the open case uses — one check serves
@@ -327,7 +453,10 @@ export async function setThreadVisibility(
   const { data: thread } = await baseDataProvider.getOne<Thread>("threads", {
     id: threadId,
   });
-  if (!thread || String(thread.account_id) !== String(membership.account_id)) {
+  if (
+    !thread ||
+    !(await isThreadInCallersScope(baseDataProvider, thread, membership))
+  ) {
     throw new Error(`thread ${threadId} not found in current account`);
   }
 

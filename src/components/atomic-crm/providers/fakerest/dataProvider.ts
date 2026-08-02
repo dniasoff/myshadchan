@@ -11,6 +11,7 @@ import type {
   AddRedtInput,
   AddSchoolInput,
   AiEntitlementInfo,
+  Connection,
   CreateShidduchInput,
   CreateThreadInput,
   EntityFile,
@@ -904,19 +905,22 @@ export const createDataProvider = ({
     // primitive a future fileInboxItem() wraps. The board's create form calls
     // this directly; raw dataProvider.create("shidduchim") is never used by the UI.
     createShidduch: createShidduchImpl,
-    // Story 7.1 (AC-1, AC-2, AC-7) — FakeRest mirror of create_thread(). The
-    // SOLE creation path for a thread and its initial participants; see
-    // ./internal/threads.ts.
+    // Story 7.1 (AC-1, AC-2, AC-7)/Story 7.4 (AC-1, AC-7) — FakeRest mirror
+    // of create_thread(). The SOLE creation path for a thread and its
+    // initial participants; see ./internal/threads.ts.
     //
     // Story 7.2 (AC-3, AC-4): when the caller omits `visibility`, resolve it
-    // from the caller's OWN account's `default_thread_visibility` (AD-22;
-    // FR96/FR99) here, before delegating — the same resolution
-    // `create_thread()` does server-side (02_functions.sql), for AD-10
-    // parity in the demo build. An explicit `visibility` always wins and is
-    // forwarded unchanged. If identity or membership cannot be resolved,
-    // `resolvedInput` stays exactly `input` and `createThread()` below
-    // raises its own "requires a signed-in user" / "no active membership"
-    // error, same as before this story.
+    // from the OWNING side's `default_thread_visibility` (AD-22; FR96/FR99)
+    // here, before delegating — the same resolution `create_thread()` does
+    // server-side (02_functions.sql), for AD-10 parity in the demo build.
+    // Story 7.4 (AC-7): when `input.connection_id` is supplied, the owning
+    // side is the connection's HOUSEHOLD account, never the caller's own
+    // (shadchanus) account — FR99 gives families the default posture. An
+    // explicit `visibility` always wins and is forwarded unchanged. If
+    // identity, membership or (on the connection axis) the connection
+    // itself cannot be resolved, `resolvedInput` stays exactly `input` and
+    // `createThread()` below raises its own error, same as before this
+    // story.
     createThread: async (input: CreateThreadInput): Promise<Thread> => {
       let resolvedInput = input;
       if (input.visibility == null) {
@@ -929,14 +933,24 @@ export const createDataProvider = ({
             )
           : null;
         if (membership) {
-          const { data: account } = await baseDataProvider.getOne<Account>(
-            "accounts",
-            { id: membership.account_id },
-          );
-          resolvedInput = {
-            ...input,
-            visibility: account.default_thread_visibility,
-          };
+          let defaultSourceAccountId: Identifier | null = membership.account_id;
+          if (input.connection_id != null) {
+            const { data: connection } =
+              await baseDataProvider.getOne<Connection>("connections", {
+                id: input.connection_id,
+              });
+            defaultSourceAccountId = connection?.household_account_id ?? null;
+          }
+          if (defaultSourceAccountId != null) {
+            const { data: account } = await baseDataProvider.getOne<Account>(
+              "accounts",
+              { id: defaultSourceAccountId },
+            );
+            resolvedInput = {
+              ...input,
+              visibility: account.default_thread_visibility,
+            };
+          }
         }
       }
       return createThread(

@@ -24,9 +24,11 @@ export default (): Db => {
   db.entity_files = [];
   // Communication (Story 7.1) — no discussion exists by default; the
   // Discussions tab's own createThread()/message-composer calls are the
-  // only writers. `connections` stays empty too: it has no client write
-  // path at all (AC-6), and Epic 8's consent workflow is the only future
-  // writer.
+  // only writers. `connections` has no client write path at all (AC-6) —
+  // Epic 8's consent workflow is the only future writer — so it stays
+  // empty here and is overwritten by generateShidduchimDomain() below with
+  // the one seeded row Story 7.4 (Task 6) needs to exercise the connection
+  // axis in the demo build.
   db.connections = [];
   db.threads = [];
   db.thread_participants = [];

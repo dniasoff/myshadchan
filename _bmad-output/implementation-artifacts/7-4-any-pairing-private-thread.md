@@ -1,6 +1,10 @@
+---
+baseline_commit: 32fa979128ece8cf4cbfcb3c50b1307b46f8c373
+---
+
 # Story 7.4: Any pairing may hold a private thread
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -162,22 +166,22 @@ UI as an unfinished story.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — A shared connection-membership predicate** (AC: 1, 4, 6)
-  - [ ] `supabase/schemas/02_functions.sql`:
+- [x] **Task 1 — A shared connection-membership predicate** (AC: 1, 4, 6)
+  - [x] `supabase/schemas/02_functions.sql`:
         `public.connection_is_active_for_caller(p_connection_id bigint) returns boolean` —
         `STABLE SECURITY DEFINER SET search_path ''`, `pg_dump` form. Body:
         `exists (select 1 from public.connections c where c.id = p_connection_id and
         c.status = 'accepted' and (c.household_account_id = public.current_context_id() or
         c.shadchanus_account_id = public.current_context_id()))`.
-  - [ ] Write it once and call it from `create_thread()`, `thread_is_readable()` and all
+  - [x] Write it once and call it from `create_thread()`, `thread_is_readable()` and all
         three INSERT policies. Three inline copies of the same `exists` is exactly the drift
         surface 7.1/7.3 avoided by centralizing `thread_is_readable()`; do not reintroduce
         it here. `06_grants.sql`: revoke from `public, anon`, grant execute to
         `authenticated, service_role` (RLS policies evaluate as the querying role, so
         `authenticated` needs it).
 
-- [ ] **Task 2 — `thread_is_readable()` v3** (AC: 4, 5, 9)
-  - [ ] `CREATE OR REPLACE FUNCTION "public"."thread_is_readable"(…)`. Restructure the body
+- [x] **Task 2 — `thread_is_readable()` v3** (AC: 4, 5, 9)
+  - [x] `CREATE OR REPLACE FUNCTION "public"."thread_is_readable"(…)`. Restructure the body
         into two parts, so the open/private decision is written **once**:
         1. **Scope gate.** If `account_id is not null` → require
            `account_id = public.current_context_id()`. Else (`connection_id is not null`) →
@@ -187,14 +191,14 @@ UI as an unfinished story.
            (7.3); `open` → if `subject_type='shidduch'` and
            `current_member_role() = 'single'`, apply Epic 6's three-part test on the subject
            row (AC-5); otherwise true.
-  - [ ] Do not duplicate step 2 per branch. If the plpgsql shape makes that awkward, extract
+  - [x] Do not duplicate step 2 per branch. If the plpgsql shape makes that awkward, extract
         step 2 into a small `public.thread_visibility_permits(p_thread_id bigint) returns
         boolean` with the same definer/`search_path` hardening, and have
         `thread_is_readable()` call it after the scope gate — one authority, two callers, no
         copy.
 
-- [ ] **Task 3 — `create_thread()` v3** (AC: 1, 2, 3, 7)
-  - [ ] `CREATE OR REPLACE FUNCTION public.create_thread(p_subject_type text, p_subject_id
+- [x] **Task 3 — `create_thread()` v3** (AC: 1, 2, 3, 7)
+  - [x] `CREATE OR REPLACE FUNCTION public.create_thread(p_subject_type text, p_subject_id
         bigint default null, p_participant_member_ids bigint[] default '{}', p_visibility
         text default null, p_connection_id bigint default null)`. **Appending a defaulted
         parameter changes the function's identity for `db diff` purposes** — hand-check
@@ -203,29 +207,29 @@ UI as an unfinished story.
         signature explicitly in the same migration and re-issue its grants; two overloads
         differing only by a defaulted tail argument make every call ambiguous
         (`42725`).
-  - [ ] When `p_connection_id` is supplied: require
+  - [x] When `p_connection_id` is supplied: require
         `public.connection_is_active_for_caller(p_connection_id)` or raise `42501`; set
         `connection_id := p_connection_id`, `account_id := null`.
-  - [ ] Subject resolution (AC-2): resolve `v_household_account_id := (select
+  - [x] Subject resolution (AC-2): resolve `v_household_account_id := (select
         household_account_id from public.connections where id = p_connection_id)` and check
         `exists (select 1 from public.shidduchim where id = p_subject_id and account_id =
         v_household_account_id)`. For the account axis, 7.1's `current_context_id()` check
         is unchanged. AD-4 is the reason: "the resulting suggestion is owned by the
         household; only the conversation about it is connection-scoped."
-  - [ ] Participant validation (AC-3): for a connection-scoped thread, accept an id whose
+  - [x] Participant validation (AC-3): for a connection-scoped thread, accept an id whose
         `account_members.account_id` is **either** `household_account_id` or
         `shadchanus_account_id` and whose `status = 'active'`; raise otherwise. For the
         account axis, 7.1's rule is unchanged.
-  - [ ] Default-posture resolution (AC-7): `coalesce(p_visibility, (select
+  - [x] Default-posture resolution (AC-7): `coalesce(p_visibility, (select
         a.default_thread_visibility from public.accounts a where a.id =
         coalesce(v_account_id, v_household_account_id)))`. One expression, both axes.
-  - [ ] Every participant row inserted must carry the thread's axis — 7.1's
+  - [x] Every participant row inserted must carry the thread's axis — 7.1's
         `set_thread_participant_defaults()` copies both scope columns from the parent, so
         insert the participant rows with both left NULL and let the trigger do it. Do not
         hand-set `account_id` in the RPC; that is how the two get out of step.
 
-- [ ] **Task 4 — The three INSERT policies** (AC: 6)
-  - [ ] `supabase/schemas/05_policies.sql`. Replace each of 7.1's three `with check`
+- [x] **Task 4 — The three INSERT policies** (AC: 6)
+  - [x] `supabase/schemas/05_policies.sql`. Replace each of 7.1's three `with check`
         clauses with the two-disjunct form:
         - `threads`: `((account_id = public.current_context_id() and connection_id is null)
           or (connection_id is not null and
@@ -234,69 +238,69 @@ UI as an unfinished story.
           participant-membership `exists` clause, unchanged — a connection-scoped message
           still requires the caller to be a listed participant of that thread. 7.1 AC-8 is
           not relaxed by this axis.
-  - [ ] Replacing a policy is `drop policy` + `create policy`; both statements land in the
+  - [x] Replacing a policy is `drop policy` + `create policy`; both statements land in the
         same migration and DDL is transactional, so there is no window where the table is
         unprotected. Confirm by reading the generated migration — not by assuming `db diff`
         produced a `create or replace`, which does not exist for policies.
-  - [ ] Do not touch the SELECT policies. They call `thread_is_readable()` and Task 2
+  - [x] Do not touch the SELECT policies. They call `thread_is_readable()` and Task 2
         extends every one of them for free.
 
-- [ ] **Task 5 — Generate, hand-check and rehearse the migration** (AC: 1, 2, 4, 6, 7)
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
+- [x] **Task 5 — Generate, hand-check and rehearse the migration** (AC: 1, 2, 4, 6, 7)
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
         connection_scoped_threads`. Hand-inspect: (a) all function bodies emitted (a
         `plpgsql` body change with an unchanged signature is sometimes missed — write it in
         by hand if absent); (b) the `create_thread` signature situation from Task 3;
         (c) three `drop policy` + three `create policy` pairs; (d) **no** `ALTER TABLE`
         anywhere — if the diff wants to alter a column, something in 7.1 did not land as
         specified and this story must stop and report rather than absorb it.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`, then
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`, then
         `db diff` twice more to prove convergence. Never `db reset` on a stack holding
         data; never `db push`.
-  - [ ] `make check-migration-safety`, then rehearse against a **production-shaped,
+  - [x] `make check-migration-safety`, then rehearse against a **production-shaped,
         non-empty** database. This migration adds no column, but it *replaces the policies
         that decide who can write to three tables* — the rehearsal here is about a policy
         that denies more than intended, which an empty database cannot show you.
 
-- [ ] **Task 6 — Types and providers** (AC: 1)
-  - [ ] `src/components/atomic-crm/types.ts`: add `connection_id?: Identifier | null;` to
+- [x] **Task 6 — Types and providers** (AC: 1)
+  - [x] `src/components/atomic-crm/types.ts`: add `connection_id?: Identifier | null;` to
         `CreateThreadInput`. `Connection`, and `connection_id` on
         `Thread`/`ThreadParticipant`/`Message`, already land in 7.1 — do not re-declare.
-  - [ ] `providers/supabase/dataProvider.ts`: extend `createThread()`'s RPC payload with
+  - [x] `providers/supabase/dataProvider.ts`: extend `createThread()`'s RPC payload with
         `p_connection_id: input.connection_id ?? null`.
-  - [ ] `providers/fakerest/`: mirror the connection branch of `createThread` and of the
+  - [x] `providers/fakerest/`: mirror the connection branch of `createThread` and of the
         readability rule (AD-10), and seed a `db.connections` row with `status='accepted'`
         plus a shadchanus account in the demo generator, since there is no in-app way to
         create one. The demo build is the only place a human will see a connection-scoped
         thread before Epic 8.
 
-- [ ] **Task 7 — Tests** (AC: 6, 8, 9, 10, 11)
-  - [ ] Extend `supabase/tests/threads_entity.sql`. Fixture: a household account, a
+- [x] **Task 7 — Tests** (AC: 6, 8, 9, 10, 11)
+  - [x] Extend `supabase/tests/threads_entity.sql`. Fixture: a household account, a
         shadchanus account, an `accepted` `connections` row seeded as `service_role`, a
         second unconnected shadchanus, a second unrelated household, and an `ended`
         connection.
-  - [ ] AC-8: a `subject_type='relationship'` **private** connection-scoped thread with the
+  - [x] AC-8: a `subject_type='relationship'` **private** connection-scoped thread with the
         household's single and the shadchan as participants — both sides read it and its
         message (single↔shadchan); the same for parent↔shadchan; plus the account-scoped
         half (parent↔parent, parent↔single) reusing 7.3's fixtures.
-  - [ ] AC-6: the shadchan side posts a message through a real **client** INSERT (an
+  - [x] AC-6: the shadchan side posts a message through a real **client** INSERT (an
         `authenticated` session, not `service_role`) and it succeeds. This is the assertion
         that would silently pass without Task 4 and then break on first use.
-  - [ ] AC-2: a shadchan creates a connection-scoped thread on the household's shidduch
+  - [x] AC-2: a shadchan creates a connection-scoped thread on the household's shidduch
         (succeeds) and on another household's (raises).
-  - [ ] AC-5: an open connection-scoped thread about a shidduch that fails any one of Epic
+  - [x] AC-5: an open connection-scoped thread about a shidduch that fails any one of Epic
         6's three clauses reads zero rows for the household's `single` — one assertion per
         clause, so a gate that checks only `is_single_visible_state()` cannot pass.
-  - [ ] AC-7: household default `'private'`, connection-scoped `create_thread()` with no
+  - [x] AC-7: household default `'private'`, connection-scoped `create_thread()` with no
         `p_visibility` → `'private'`; flipping the *shadchanus* account's setting changes
         nothing.
-  - [ ] AC-9's three negatives and AC-10's purge assertion.
-  - [ ] Prove the suite can fail: revert Task 4's `messages` policy to 7.1's form and
+  - [x] AC-9's three negatives and AC-10's purge assertion.
+  - [x] Prove the suite can fail: revert Task 4's `messages` policy to 7.1's form and
         confirm AC-6 goes red; revert Task 2's scope gate to `return true` and confirm
         AC-9 goes red. Then ship them green.
-  - [ ] Re-run the full suite for AC-11 (no 7.1-7.3 regressions).
-  - [ ] Vitest for the FakeRest connection branch (AAA, ≥80% of new lines). **No new
+  - [x] Re-run the full suite for AC-11 (no 7.1-7.3 regressions).
+  - [x] Vitest for the FakeRest connection branch (AAA, ≥80% of new lines). **No new
         browser-mode component test** — this story adds no component.
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus prettier
+  - [x] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus prettier
         on this story's changed files only.
 
 ## Dev Notes
@@ -421,8 +425,54 @@ No `01_tables.sql` change, no column-order risk, no i18n change, no descriptor c
 
 ### Agent Model Used
 
+Claude (Sonnet 5), dispatched as the developer for STACK_ID=4 / STACK_OWNER=7-4.
+
 ### Debug Log References
+
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --workdir .supabase-e2e-4 --local -f connection_scoped_threads` — confirmed the generated diff auto-drops the old 4-arg `create_thread` overload (the exact 42725 trap Task 3 named), emits all four function bodies and both policy replacements, and contains **no** `ALTER TABLE`.
+- `db diff` re-run twice after `migration up` — both `"No schema changes found"`.
+- `make check-migration-safety STACK_ID=4` — PASSED (3 runs across the session, last one: 51 seeded rows / 22 tables survived intact).
+- Falsification proof (Task 7's own requirement, done by hand against the live stack 4 DB, then restored and re-verified clean via `db diff`):
+  - Reverted the `messages` INSERT policy to 7.1's single-axis form → the AC-6 client-INSERT assertion aborts the whole suite (real RLS denial, not a graceful `false`) — confirms the suite is not vacuous for AC-6.
+  - Reverted `thread_is_readable()`'s scope gate to skip straight to `thread_visibility_permits()` → 6 assertions go red (the 3 AC-9 negatives, the two set_thread_visibility ended-connection checks, and — as a bonus regression signal — the pre-existing AC-11 tenant-isolation checks, since the scope gate is what AC-11 also depends on).
+  - Restored both, re-ran `db diff` twice (clean) and the full db suite (98/98 threads_entity checks, 966/966 db suite) to confirm the fix, not just the break.
+- `npx vitest run` / `make test STACK_ID=4`: 228 files / 2639 tests green (STACK_ID=4 exported so DB suites target this story's own stack, never the shared dev stack on port 54322 that other agents in this session may be using).
 
 ### Completion Notes List
 
+- All 11 ACs implemented and proven in `supabase/tests/threads_entity.sql` (98 named checks, up from 85 before this story; two Story 7.3 assertions about the connection axis being permanently closed were rewritten in place to their correct post-widening behavior — see "Deviations" below).
+- **AC-10 needed no new code or test**: 7.1's `purge_polymorphic_dependents()` already walks `connections.household_account_id` for a connection-scoped thread, and 7.1's own AC-10 block (`threads_entity.sql:492-556`, unchanged) already seeds and proves a connection-scoped `subject_type='shidduch'` thread + message deleted end-to-end when the subject `shidduchim` row is deleted. Re-verified it still passes; did not duplicate it.
+- **No user-facing surface was added**, by design — the story's own "surface honesty note." `CreateThreadInput.connection_id` and the `create_thread()` RPC's `p_connection_id` are real, callable capabilities; no component in `src/components/atomic-crm/threads/**` was touched, and none needed to be. A future Epic 8 story wires a UI to it.
+- **Deviations from the story's literal Task 4 wording, both examined and intentional:**
+  1. The story's AC-6/Task 4 text refers to "7.1's **three** INSERT policies" (`threads`/`thread_participants`/`messages`). The shipped tree (post-7.1-review-fix, F2/F4) has only **two** — `threads` has no INSERT policy or grant at all for `authenticated`; `create_thread()` (SECURITY DEFINER) is its sole writer, and Task 3 already handles the connection axis inside that function. Confirmed via `06_grants.sql` (no INSERT grant on `threads`) and `05_policies.sql`'s own comment. Only `thread_participants` and `messages` needed the two-disjunct widening. This matches AC-6's actual falsifiable test (a `messages` INSERT), so nothing is under-covered.
+  2. `thread_participants`' direct-INSERT policy carries a SECOND `exists()` clause (the 7.1 "F3" review fix) validating that an ADDED participant belongs to the caller's OWN account. Per the story's explicit "unchanged" instruction for this clause, it was left as `account_id = current_context_id()` — meaning a cross-side addition through this specific defense-in-depth path (not `create_thread()`, which does correctly admit either side per AC-3) stays denied. No built UI reaches this path today, and no AC in this story tests it on the connection axis. Documented in `05_policies.sql`'s own comment as a scoped, deliberate gap for a future story to widen if a direct "add a participant" UI is ever built.
+- **Two Story 7.3 assertions were rewritten, not just extended**, because Story 7.4 is a real behavior change to code those assertions exercised: `threads_entity.sql`'s former "AC-8: the connection axis stays closed until 7.4" test (`set_thread_visibility()` on a service-role-seeded connection thread) now correctly SUCCEEDS for a real participant of an *accepted* connection — this is the "pure widening, nothing to un-leak" AC-4 describes, made concrete. Both the positive (accepted) and a new negative (the identical call once the connection is `ended`, added in Story 7.4's own section) are asserted; the suite would have gone red on this file's very first `make test:unit:db` run if left unchanged, which is the correct signal that the widening happened, not a regression.
+- Touched `src/components/atomic-crm/providers/fakerest/internal/threads.ts`, `.../dataGenerator/index.ts`, and added `src/components/atomic-crm/providers/fakerest/dataProvider.threadsConnectionAxis.test.ts` — none of these three paths are named literally in this story's own "Declared file set" (which lists only `providers/fakerest/dataProvider.ts` and `providers/fakerest/dataGenerator/**`). `internal/threads.ts` is where `createThread()`/`createMessage()`/`createThreadParticipant()`/`setThreadVisibility()` have lived since Story 7.1 (itself declared the same narrow way); `dataGenerator/index.ts` needed one comment fix once `dataGenerator/shidduchim.ts` started seeding `db.connections`; the new test file is the direct implementation of Task 7's explicit "Vitest for the FakeRest connection branch" instruction, which only exists in that module. Treated as within the intent of the declared `providers/fakerest/**` entries rather than stopping to ask, since the alternative (task 6/7 literally undoable) was worse than a narrow, explainable overage with no cross-agent collision risk (solo dispatch, not a parallel wave).
+- `src/components/atomic-crm/providers/fakerest/internal/threads.ts` grew from 347 to 480 lines (past the coding-style rule's ~400-line "typical" ceiling, well under its 800 hard max). Chose not to extract a further module for two new ~15-line predicate helpers plus the widened `createThread()` body, to avoid growing the "touched but undeclared" file surface noted above.
+- `make check-migration-safety`'s fixture (`supabase/tests/migration-data-safety/fixture.sql`) needed **no** change — 7.1's own seed already carries one thread on each scope axis over the same subject, discharging this story's "extend the fixture if it does not already cover both axes" instruction as a no-op.
+
 ### File List
+
+**Schema / DB**
+- `supabase/schemas/02_functions.sql` — modified (new `connection_is_active_for_caller()`, new `thread_visibility_permits()`, `thread_is_readable()` v3, `create_thread()` v3, updated stale comments on `set_thread_visibility()`)
+- `supabase/schemas/05_policies.sql` — modified (two INSERT policies widened to a two-disjunct scope check)
+- `supabase/schemas/06_grants.sql` — modified (grants for the two new functions; `create_thread()`'s grant re-issued under its new 5-arg signature)
+- `supabase/migrations/20260802035346_connection_scoped_threads.sql` — new
+- `supabase/tests/threads_entity.sql` — modified (rewrote two stale Story 7.3 assertions; appended a full Story 7.4 section: 8 new fixture rows, AC-1/2/3/5/6/7/8/9 assertions, 98 named checks total)
+- `supabase/tests/migration-data-safety/fixture.sql` — unchanged (already covers both axes; verified, not edited)
+
+**Types / providers**
+- `src/components/atomic-crm/types.ts` — modified (`CreateThreadInput.connection_id`; updated stale `Thread` doc comment)
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts` — modified (`createThreadViaRpc` forwards `p_connection_id`)
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts` — modified (`createThread` wrapper resolves the default-visibility source account from the connection's household side)
+- `src/components/atomic-crm/providers/fakerest/internal/threads.ts` — modified (connection-axis support in `createThread`, plus a shared `isConnectionActiveForAccount`/`isThreadInCallersScope` used by `createMessage`/`createThreadParticipant`/`setThreadVisibility`) — see Completion Notes re: declared-file-set overage
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/shidduchim.ts` — modified (seeded shadchanus account + accepted connection)
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts` — modified (comment fix only, reflecting the new seed)
+- `src/components/atomic-crm/providers/fakerest/dataProvider.threadsConnectionAxis.test.ts` — new (Vitest, AAA, connection-axis coverage for `createThread`/messages/thread_participants/`setThreadVisibility`)
+
+**Generated**
+- `registry.json` — verified unchanged (`make registry-gen` run; no diff, as expected — no shadcn component added or moved)
+
+## Change Log
+
+- 2026-08-02: Story 7.4 implemented — the connection axis opened. `connection_is_active_for_caller()` (new, shared authority); `thread_is_readable()` restructured into a scope gate + shared `thread_visibility_permits()`; `create_thread()` gained `p_connection_id` with household-side subject resolution, cross-side participant validation and household-side default-posture resolution (the old 4-arg signature dropped in the same migration to avoid a `42725` overload ambiguity); the `thread_participants`/`messages` INSERT policies widened to a two-disjunct scope check; `threads_entity.sql` extended with the four-pairing proof and the three AC-9 negatives (98 checks total, up from 85), including two Story 7.3 assertions rewritten to their correct post-widening behavior; FakeRest mirrors added for AD-10 parity plus a new Vitest file. All gates green: `make typecheck`, `make lint`, `npx vitest run` (228 files / 2639 tests, STACK_ID=4), `make build`, `npx prettier --check .` (no new issues), all four CI guards, `make test STACK_ID=4`, `supabase db diff --local` clean twice, `make check-migration-safety STACK_ID=4` PASSED.

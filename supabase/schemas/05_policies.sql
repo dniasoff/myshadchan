@@ -1207,11 +1207,28 @@ create policy "Thread participants readable per thread_is_readable" on public.th
     for select to authenticated
     using (public.thread_is_readable(thread_id));
 
+-- Story 7.4 (AC-6): the scope check widened from a single account-only
+-- clause to a two-disjunct form accepting EITHER axis — the account clause
+-- unchanged from 7.1, the connection clause delegating to
+-- connection_is_active_for_caller() (Task 1's one shared authority). The two
+-- exists() clauses below are UNCHANGED by this story: the "caller is already
+-- a participant" check works identically for both axes (it only compares
+-- thread_id/member_id, never account_id), and the "added member belongs to
+-- the caller's own account" check (the F3 review fix, above) still names
+-- `current_context_id()` literally — a cross-side addition through this
+-- direct-INSERT path (as opposed to create_thread()'s own initial-participant
+-- validation, which DOES admit either side per AC-3) remains denied. No
+-- built UI reaches this path at all (Dev Notes, "Why the INSERT policy still
+-- matters"), and no AC in this story exercises it on the connection axis, so
+-- widening it is left to whichever future story gives thread_participants a
+-- direct add-a-participant surface.
 create policy "Thread participants insertable by an existing participant" on public.thread_participants
     for insert to authenticated
     with check (
-        account_id = public.current_context_id()
-        and connection_id is null
+        (
+            (account_id = public.current_context_id() and connection_id is null)
+            or (connection_id is not null and public.connection_is_active_for_caller(connection_id))
+        )
         and exists (
             select 1 from public.thread_participants tp
             where tp.thread_id = thread_participants.thread_id
@@ -1236,11 +1253,24 @@ create policy "Messages readable per thread_is_readable" on public.messages
     for select to authenticated
     using (public.thread_is_readable(thread_id));
 
+-- Story 7.4 (AC-6): the same two-disjunct scope widening as
+-- thread_participants above, plus 7.1's participant-membership exists()
+-- clause UNCHANGED — a connection-scoped message still requires the caller
+-- to be a listed participant of that thread; this axis is not a relaxation
+-- of AC-8. This is the policy AC-6's own falsifiable test names directly: a
+-- real client-side INSERT through dataProvider.create("messages", …) by the
+-- shadchan side of an accepted connection must succeed once this ships —
+-- without it, the row is rejected here while thread_is_readable() (Task 2)
+-- already reports it as readable once it exists, the exact half-migrated
+-- shape that passes a service-role smoke test and breaks on the first real
+-- user action.
 create policy "Messages insertable by an existing participant" on public.messages
     for insert to authenticated
     with check (
-        account_id = public.current_context_id()
-        and connection_id is null
+        (
+            (account_id = public.current_context_id() and connection_id is null)
+            or (connection_id is not null and public.connection_is_active_for_caller(connection_id))
+        )
         and exists (
             select 1 from public.thread_participants tp
             where tp.thread_id = messages.thread_id

@@ -1,6 +1,7 @@
 import type {
   Account,
   AccountMember,
+  Connection,
   DateRecord,
   MedicalNote,
   Redt,
@@ -21,6 +22,19 @@ import type { Db } from "./types";
 // output exists (Epic-4).
 
 const ACCOUNT_ID = 1;
+
+// Story 7.4 (Task 6): a shadchanus account and an ACCEPTED connection to the
+// household above, seeded directly — `connections` has no client write path
+// at all (7.1 AC-6; Epic 8's consent workflow is the only future writer), so
+// this is the ONLY way the demo build can ever show a connection-scoped
+// thread before Epic 8 ships that workflow. No account_member links a demo
+// login to this account: nothing in Epic 7 builds a Connection 360 or a
+// context-switcher entry for it (this story's own "surface honesty" note —
+// see the story file's Dev Notes), so this seed exists purely so
+// `createThread()`/`thread_is_readable()`'s FakeRest mirrors have a real
+// connection to exercise, exactly like `dataProvider.createThread.test.ts`
+// and its Story 7.4 sibling do.
+const SHADCHANUS_ACCOUNT_ID = 2;
 
 const shadchanimSeed: Shadchan[] = [
   {
@@ -259,6 +273,29 @@ export const generateShidduchimDomain = (db: Db) => {
       default_thread_visibility: "open",
       created_at: "2026-01-01T00:00:00.000Z",
     },
+    // Story 7.4 (Task 6): see SHADCHANUS_ACCOUNT_ID's own comment above.
+    {
+      id: SHADCHANUS_ACCOUNT_ID,
+      name: "Golden Matches Shadchanus",
+      transparency_level: "shared",
+      kind: "shadchanus",
+      default_thread_visibility: "open",
+      created_at: "2026-01-01T00:00:00.000Z",
+    },
+  ];
+
+  // Story 7.4 (Task 6): the ONLY connections row in the demo build — see
+  // SHADCHANUS_ACCOUNT_ID's own comment for why it exists and why it has no
+  // login attached.
+  const connections: Connection[] = [
+    {
+      id: 1,
+      household_account_id: ACCOUNT_ID,
+      shadchanus_account_id: SHADCHANUS_ACCOUNT_ID,
+      status: "accepted",
+      ended_at: null,
+      created_at: "2026-01-01T00:00:00.000Z",
+    },
   ];
 
   // The default demo login ("Jane Doe", member id 0 — fakerest/authProvider.ts)
@@ -407,6 +444,7 @@ export const generateShidduchimDomain = (db: Db) => {
   });
 
   db.accounts = accounts;
+  db.connections = connections;
   db.account_members = account_members;
   db.singles = singlesSeed;
   db.shadchanim = shadchanimSeed;
