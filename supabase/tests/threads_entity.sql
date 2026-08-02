@@ -1062,6 +1062,57 @@ exception when others then
   perform pg_temp.denied(v_name, '42501', 'only a listed participant of this thread may change its visibility', sqlstate, sqlerrm);
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- Review fix F1 (Story 7.3): the 22023 refusal (Task 2's OTHER documented
+-- SQLSTATE, alongside the 42501 pair already proven above) had no dedicated
+-- guard — deleting that whole branch from the live function left this suite
+-- green. Matched by SQLSTATE, not message, same convention as every other
+-- `denied()` call in this file. Run under C (the same-account
+-- non-participant already active in this session, from the AC-1/AC-8 block
+-- above) ON PURPOSE: p_visibility validation is Task 2's FIRST check, before
+-- readability or participation, so even a non-participant must hit 22023
+-- here rather than 42501 — proving the checked order, not merely that SOME
+-- error comes back.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_name constant text := 'F1 (7.3): set_thread_visibility() with an invalid p_visibility RAISES 22023 (invalid_parameter_value), matched by SQLSTATE — checked FIRST, before readability/participation, so even a non-participant hits this refusal rather than 42501';
+  v_thread bigint;
+begin
+  select value into v_thread from ids where name = 'thread1';
+  perform public.set_thread_visibility(v_thread, 'not-a-real-visibility');
+  insert into results values (v_name, false, 'call unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '22023', 'invalid thread visibility: %', sqlstate, sqlerrm);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Review fix F2 (Story 7.3): "no table-level UPDATE grant on `threads` for
+-- `authenticated`" (06_grants.sql, and set_thread_visibility()'s own header
+-- comment in 02_functions.sql) is load-bearing — it is what keeps
+-- set_thread_visibility() the SOLE write path for `visibility` — but was
+-- previously asserted only in prose, never in a test. Story 7.1 set the
+-- precedent for exactly this shape (the "F2/F4" INSERT-grant checks above,
+-- `threads_entity.sql:283-317`); this closes the same gap for UPDATE. Run by
+-- A, an ACTUAL participant of a REAL thread (thread1) — proving the denial
+-- is the missing GRANT, not merely RLS or "this thread isn't yours": a
+-- future `grant update on table public.threads to authenticated` would
+-- sail through every other gate in this repo without this check.
+-- ---------------------------------------------------------------------------
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'F2 (7.3): a direct UPDATE of threads.visibility, even by a real participant of a real thread, is denied at the grant layer (42501, "permission denied for table threads") — authenticated holds no table-level UPDATE grant on threads at all';
+  v_thread bigint;
+begin
+  select value into v_thread from ids where name = 'thread1';
+  update public.threads set visibility = 'private' where id = v_thread;
+  insert into results values (v_name, false, 'update unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', 'permission denied for table threads', sqlstate, sqlerrm);
+end $$;
+
 \t on
 \a
 select coalesce(json_agg(json_build_object('name', name, 'passed', passed, 'detail', detail) order by name), '[]'::json)
