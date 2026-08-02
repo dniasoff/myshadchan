@@ -953,6 +953,28 @@ export const englishCrmMessages = {
         "It may have expired, already been used, or been revoked. Ask the person who sent it for a new one.",
       error: "Couldn't accept that invite. Try again.",
     },
+    // Story 8.3 (Task 4): the inbox source label for a shadchan-originated
+    // redt — the one new INBOX_SOURCE_META entry (inbox/inboxMeta.ts) routed
+    // through the i18nProvider; the other five sources stay plain literal
+    // text (see inboxMeta.ts's own comment).
+    inbox: {
+      source_shadchan: "Shadchan",
+    },
+    // Story 8.3 (Task 6): the shadchan-side compose dialog
+    // (connections/RedtComposeDialog.tsx) — sending a redt into a connected
+    // family's pipeline from inside the platform.
+    redt_compose: {
+      title: "Send a redt",
+      description:
+        "Describe the suggestion — the family confirms it on their side before it enters their pipeline.",
+      subject_label: "Subject (optional)",
+      subject_placeholder: "e.g. A suggestion for Rivky",
+      text_label: "The suggestion",
+      text_placeholder: "Who you have in mind, and why it's a fit…",
+      submit: "Send redt",
+      success: "Redt sent",
+      error: "Couldn't send that redt. Try again.",
+    },
   },
 } as const;
 

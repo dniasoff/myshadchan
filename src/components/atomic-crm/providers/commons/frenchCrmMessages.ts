@@ -833,5 +833,21 @@ export const frenchCrmMessages = {
         "Il a peut-être expiré, déjà été utilisé, ou été révoqué. Demandez un nouveau lien à la personne qui vous l'a envoyé.",
       error: "Impossible d'accepter cette invitation. Réessayez.",
     },
+    inbox: {
+      source_shadchan: "Shadchan",
+    },
+    redt_compose: {
+      title: "Envoyer un redt",
+      description:
+        "Décrivez la suggestion — la famille la confirme de son côté avant qu'elle n'entre dans son pipeline.",
+      subject_label: "Sujet (facultatif)",
+      subject_placeholder: "ex. Une suggestion pour Rivky",
+      text_label: "La suggestion",
+      text_placeholder:
+        "Qui vous avez en tête, et pourquoi c'est un bon profil…",
+      submit: "Envoyer le redt",
+      success: "Redt envoyé",
+      error: "Impossible d'envoyer ce redt. Réessayez.",
+    },
   },
 } satisfies CrmMessages;

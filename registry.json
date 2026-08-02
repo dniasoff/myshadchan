@@ -764,6 +764,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/redting.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/fakerest/internal/personas.ts",
           "type": "registry:component"
         },
@@ -1313,6 +1317,10 @@
         },
         {
           "path": "src/components/atomic-crm/dashboard/AttentionSection.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/connections/RedtComposeDialog.tsx",
           "type": "registry:component"
         },
         {

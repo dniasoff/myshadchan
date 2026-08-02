@@ -4487,3 +4487,130 @@ begin
   return v_connection;
 end;
 $$;
+
+-- =====================================================================
+-- MyShadchan — Shadchan Context (Epic 8 Story 8.3: in-platform redting)
+-- =====================================================================
+--
+-- AD-4 requires ONE createSuggestion() service as the sole INSERT path into
+-- shidduchim — already public.create_shidduch() above, which derives
+-- account_id from the CALLER'S OWN current_context_id(). A connected
+-- shadchan's active context is their own shadchanus account, never the
+-- household's, so this function does not extend create_shidduch() with a
+-- foreign target account (that would mean trusting a client-supplied
+-- account id, or duplicating create_shidduch()'s whole validation surface
+-- behind a role branch — exactly the divergent second path AD-4 forbids).
+--
+-- Resolution (story's Dev Notes, "The key design decision"): a shadchan's
+-- redt is inbound capture, like every other channel (AD-6: "every channel
+-- converges on one inbox_item"). It lands as an inbox_items row scoped to
+-- the CONNECTION'S HOUSEHOLD — a shadchan holds no table-level access to
+-- write there directly ("Inbox items scoped to account", 05_policies.sql,
+-- keys strictly on account_id = current_context_id()) — so this is a
+-- narrowly-scoped SECURITY DEFINER cross-account write, following the
+-- handle_new_user()/accept_connection_invite() precedent above. The
+-- household then resolves it through the SAME InboxResolveDialog ->
+-- create_shidduch() path any other channel goes through (Task 4,
+-- inbox/InboxResolveDialog.tsx) — AD-7's "all inbound, including
+-- shadchan-originated, enters via the confirm step", literally.
+--
+-- Story 8.3 (AC-1, AC-2, AC-3, AC-5): the membership check below
+-- deliberately checks for ANY active account_members row of
+-- shadchanus_account_id — NOT current_context_id()/
+-- connection_is_active_for_caller() — matching create_shidduch()'s own
+-- precedent of never role- or context-gating beyond plain account
+-- membership (any active member of a household may create a shidduch for
+-- it; any active member of a shadchanus account may act for it here). The
+-- NESTED create_thread() call below (Task 3) is the opposite: it inherits
+-- create_thread()'s own current_context_id()-based gate unchanged. In the
+-- ordinary flow — a shadchan composing this from inside their own
+-- shadchanus context (Story 8.5's Connection 360 entry point) — the two
+-- always agree; a caller acting under a DIFFERENT active context while
+-- still holding an active membership of the connection's shadchanus side
+-- is the one edge case where the inbox item is created but the thread
+-- mirror (AC-5) fails, surfacing as a real error rather than a silently
+-- dropped record.
+CREATE OR REPLACE FUNCTION "public"."redt_via_connection"(
+    "p_connection_id" bigint,
+    "p_subject" text,
+    "p_raw_text" text,
+    "p_attachments" jsonb DEFAULT NULL
+) RETURNS public.inbox_items
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_connection public.connections;
+  v_shadchan_name text;
+  v_row public.inbox_items;
+  v_thread public.threads;
+  v_household_member_ids bigint[];
+begin
+  select * into v_connection from public.connections
+    where id = p_connection_id and status = 'accepted';
+  if v_connection is null then
+    raise exception 'connection % is not an active connection', p_connection_id
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_connection.shadchanus_account_id
+      and am.user_id = auth.uid() and am.status = 'active'
+  ) then
+    raise exception 'caller is not an active member of this connection''s shadchanus context'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  select name into v_shadchan_name from public.accounts
+    where id = v_connection.shadchanus_account_id;
+
+  insert into public.inbox_items (
+    account_id, source, subject, raw_text, sender, attachments, status, connection_id
+  ) values (
+    v_connection.household_account_id, 'shadchan', p_subject, p_raw_text,
+    v_shadchan_name, p_attachments, 'unresolved', p_connection_id
+  )
+  returning * into v_row;
+
+  -- Task 3 (AC-5): mirror this redt into a connection-scoped thread (Epic 7
+  -- shape) so the shadchan retains their own durable record of what they
+  -- sent — never the inbox_items row itself (household-scoped, unreachable
+  -- to them per AD-20) and never the resulting shidduchim row's pipeline
+  -- state. create_thread() is the ONE thread-creation function (7.1's,
+  -- widened by 7.4 to accept p_connection_id) — never a second bespoke
+  -- insert into public.threads. It already inserts the calling shadchan
+  -- (via current_member_id()) as a participant, so p_participant_member_ids
+  -- only needs the household's ACTIVE account_members ids.
+  select array_agg(id) into v_household_member_ids
+  from public.account_members
+  where account_id = v_connection.household_account_id and status = 'active';
+
+  -- Plain assignment, not `select ... into v_thread`: the latter raises a
+  -- spurious "invalid input syntax for type bigint" against create_thread()'s
+  -- own composite return value on this Postgres version when the call uses
+  -- named-parameter (`:=`) syntax — reproduced in isolation against a
+  -- minimal fixture; assignment form is unaffected and is what every other
+  -- composite-returning call in this file already uses.
+  v_thread := public.create_thread(
+    p_subject_type := 'relationship',
+    p_connection_id := p_connection_id,
+    p_participant_member_ids := coalesce(v_household_member_ids, '{}')
+  );
+
+  -- There is no create_message()/send_message() RPC anywhere in the shipped
+  -- schema: public.messages grants INSERT directly to authenticated, gated
+  -- only by its own RLS ("Messages insertable by an existing participant",
+  -- 05_policies.sql) — so this is necessarily a direct insert, the only
+  -- path, mirroring the exact shape a client insert would use. Only
+  -- thread_id/body are set: set_message_defaults() (04_triggers.sql-wired
+  -- BEFORE INSERT) copies account_id/connection_id from the thread and
+  -- stamps sender_member_id from current_member_id() itself — setting them
+  -- again here would be a second place computing the same defaults
+  -- (.claude/rules/coding-style.md DRY).
+  insert into public.messages (thread_id, body)
+  values (v_thread.id, p_raw_text);
+
+  return v_row;
+end;
+$$;

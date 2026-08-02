@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { Identifier } from "ra-core";
 import { required } from "ra-core";
 import { AutocompleteInput } from "@/components/admin/autocomplete-input";
 import { DateInput } from "@/components/admin/date-input";
@@ -56,7 +57,23 @@ const FormSection = ({
   </section>
 );
 
-export const ShidduchInputs = () => {
+export const ShidduchInputs = ({
+  lockedShadchanId,
+}: {
+  /**
+   * Story 8.3 (AC-3): when set, the `shadchan_id` field is disabled — not
+   * merely defaulted — so the household cannot re-attribute a
+   * shadchan-sourced redt to a different book entry. A native
+   * `<fieldset disabled>` around the field, rather than an `AutocompleteInput`
+   * prop: `@/components/admin/autocomplete-input` (a mutable dependency this
+   * story does not own) plumbs no `disabled`/`readOnly` prop of its own
+   * today, and the browser's fieldset-disable cascade reaches the popover
+   * trigger button without needing one. The `m-0 min-w-0 border-0 p-0`
+   * classes neutralise `<fieldset>`'s default box/border so it reads exactly
+   * like the plain wrapper it replaces.
+   */
+  lockedShadchanId?: Identifier | null;
+} = {}) => {
   return (
     <div className="flex flex-col gap-4">
       <FormSection eyebrow="Who">
@@ -101,12 +118,21 @@ export const ShidduchInputs = () => {
             the mount-then-reflow flash (the hook returns `false` until its
             effect runs, so a phone painted three columns for one frame). */}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <ReferenceInput source="shadchan_id" reference="shadchanim">
-            <AutocompleteInput
-              label="Shadchan"
-              helperText="Optional — who suggested this match"
-            />
-          </ReferenceInput>
+          <fieldset
+            disabled={lockedShadchanId != null}
+            className="m-0 min-w-0 border-0 p-0"
+          >
+            <ReferenceInput source="shadchan_id" reference="shadchanim">
+              <AutocompleteInput
+                label="Shadchan"
+                helperText={
+                  lockedShadchanId != null
+                    ? "Sent by your connected shadchan — cannot be changed here"
+                    : "Optional — who suggested this match"
+                }
+              />
+            </ReferenceInput>
+          </fieldset>
           <DateInput
             source="redt_date"
             label="Redt date"

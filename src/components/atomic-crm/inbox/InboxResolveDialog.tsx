@@ -1,5 +1,13 @@
+import { Loader2 } from "lucide-react";
 import type { Identifier } from "ra-core";
-import { Form, useDataProvider, useNotify, useRefresh } from "ra-core";
+import {
+  Form,
+  useDataProvider,
+  useGetList,
+  useNotify,
+  useRefresh,
+  useTranslate,
+} from "ra-core";
 import { CancelButton } from "@/components/admin/cancel-button";
 import { SaveButton } from "@/components/admin/form";
 import { FormToolbar } from "@/components/admin/simple-form";
@@ -12,9 +20,17 @@ import {
 } from "@/components/ui/dialog";
 
 import type { CrmDataProvider } from "../providers/types";
-import type { CreateShidduchInput, InboxItem, PipelineState } from "../types";
+import type {
+  CreateShidduchInput,
+  InboxItem,
+  PipelineState,
+  Shadchan,
+} from "../types";
 import { ShidduchInputs } from "../shidduchim/ShidduchInputs";
 import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
+
+const PAGE_ONE = { page: 1, perPage: 1 } as const;
+const SORT_BY_ID = { field: "id", order: "ASC" } as const;
 
 /**
  * Resolve a captured inbox item into a shidduch (Epic 2). The raw capture is
@@ -37,8 +53,33 @@ export const InboxResolveDialog = ({
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const refresh = useRefresh();
+  const translate = useTranslate();
 
   const SourceIcon = INBOX_SOURCE_META[item.source].icon;
+  const sourceLabel = translate(`crm.inbox.source_${item.source}`, {
+    _: INBOX_SOURCE_META[item.source].label,
+  });
+
+  // Story 8.3 (AC-3): a shadchan-sourced item's shadchan_id is resolved from
+  // the CONNECTION, never left to the household to pick — the linked
+  // shadchanim row is the one Story 8.2's accept_connection_invite() seeded
+  // for this exact connection (shadchanim.connection_id is unique, so at
+  // most one row ever matches). Only queried for a shadchan-sourced item;
+  // every other source's dialog never runs this fetch at all.
+  const isShadchanSourced = item.source === "shadchan";
+  const { data: linkedShadchanim, isPending: isLoadingLinkedShadchan } =
+    useGetList<Shadchan>(
+      "shadchanim",
+      {
+        filter: { connection_id: item.connection_id },
+        pagination: PAGE_ONE,
+        sort: SORT_BY_ID,
+      },
+      { enabled: isShadchanSourced && item.connection_id != null },
+    );
+  const lockedShadchanId: Identifier | null = isShadchanSourced
+    ? (linkedShadchanim?.[0]?.id ?? null)
+    : null;
 
   const onSubmit = async (values: Record<string, unknown>) => {
     try {
@@ -61,7 +102,11 @@ export const InboxResolveDialog = ({
         marital_status: (values.marital_status as string) ?? null,
         existing_children_note:
           (values.existing_children_note as string) ?? null,
-        origin: "channel",
+        // Story 8.3 (AC-4): a shadchan-sourced item enters via
+        // create_shidduch() with origin: 'shadchan', never 'channel' or
+        // 'manual' — the pipeline still starts at 'new' (initial_state
+        // below), same as every other origin; there is no fast path.
+        origin: isShadchanSourced ? "shadchan" : "channel",
         initial_state: (values.initial_state as PipelineState) ?? "new",
         visibility: "shared",
         redt_date: (values.redt_date as string) ?? null,
@@ -129,7 +174,7 @@ export const InboxResolveDialog = ({
         <div className="rounded-2xl border border-border bg-secondary/60 p-4">
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             <SourceIcon className="size-3.5" aria-hidden="true" />
-            {INBOX_SOURCE_META[item.source].label}
+            {sourceLabel}
             {item.sender ? (
               <span className="normal-case">· {item.sender}</span>
             ) : null}
@@ -148,36 +193,47 @@ export const InboxResolveDialog = ({
           )}
         </div>
 
-        <Form
-          onSubmit={onSubmit}
-          mode="onBlur"
-          defaultValues={{
-            single_id: item.single_id ?? undefined,
-            shadchan_id: item.shadchan_id ?? undefined,
-            initial_state: "new",
-            redt_date: item.created_at?.split("T")[0],
-          }}
-        >
-          <ShidduchInputs />
-          <FormToolbar>
-            <div className="flex flex-row justify-between gap-2">
-              <button
-                type="button"
-                onClick={onDismiss}
-                className="inline-flex h-11 items-center rounded-xl px-4 text-sm font-medium text-muted-foreground hover:text-foreground"
-              >
-                Dismiss — not a redt
-              </button>
-              <div className="flex flex-row justify-end gap-2">
-                <CancelButton className="h-11" onClick={onClose} />
-                <SaveButton
-                  label="File as a suggestion"
-                  className={INBOX_PRIMARY_CTA_CLASS}
-                />
+        {isShadchanSourced && isLoadingLinkedShadchan ? (
+          // Story 8.3 (AC-3): never mount the form with the wrong default —
+          // wait for the connection's shadchan to resolve rather than
+          // rendering it unlocked-then-relocking (React Hook Form's
+          // defaultValues are captured once, at mount).
+          <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+            <Loader2 className="me-2 size-4 animate-spin" aria-hidden="true" />
+            Loading…
+          </div>
+        ) : (
+          <Form
+            onSubmit={onSubmit}
+            mode="onBlur"
+            defaultValues={{
+              single_id: item.single_id ?? undefined,
+              shadchan_id: lockedShadchanId ?? item.shadchan_id ?? undefined,
+              initial_state: "new",
+              redt_date: item.created_at?.split("T")[0],
+            }}
+          >
+            <ShidduchInputs lockedShadchanId={lockedShadchanId} />
+            <FormToolbar>
+              <div className="flex flex-row justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={onDismiss}
+                  className="inline-flex h-11 items-center rounded-xl px-4 text-sm font-medium text-muted-foreground hover:text-foreground"
+                >
+                  Dismiss — not a redt
+                </button>
+                <div className="flex flex-row justify-end gap-2">
+                  <CancelButton className="h-11" onClick={onClose} />
+                  <SaveButton
+                    label="File as a suggestion"
+                    className={INBOX_PRIMARY_CTA_CLASS}
+                  />
+                </div>
               </div>
-            </div>
-          </FormToolbar>
-        </Form>
+            </FormToolbar>
+          </Form>
+        )}
       </DialogContent>
     </Dialog>
   );

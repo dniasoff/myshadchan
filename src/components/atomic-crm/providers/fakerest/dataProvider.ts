@@ -17,6 +17,7 @@ import type {
   CreateThreadInput,
   EntityFile,
   EntityTargetType,
+  InboxItem,
   Invite,
   InvitableRole,
   InvitePreview,
@@ -30,6 +31,7 @@ import type {
   MyPersona,
   Persona,
   PipelineState,
+  RedtViaConnectionInput,
   ReferenceLink,
   ReferenceMatchCandidate,
   ReferenceMergePreview,
@@ -108,6 +110,7 @@ import {
   markThreadRead as markThreadReadImpl,
   setThreadVisibility as setThreadVisibilityImpl,
 } from "./internal/threads";
+import { redtViaConnection as redtViaConnectionImpl } from "./internal/redting";
 import {
   catchShidduch,
   computeShidduchCatchCount,
@@ -1270,6 +1273,14 @@ export const createDataProvider = ({
         getIdentity,
         () => activeAccountId,
         connectionId,
+      ),
+    // Story 8.3 (Task 5) -- FakeRest mirror of ./internal/redting.ts.
+    redtViaConnection: (input: RedtViaConnectionInput): Promise<InboxItem> =>
+      redtViaConnectionImpl(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId,
+        input,
       ),
     // ---------------------------------------------------------------------
     // Files tab (Story 3.7) -- FakeRest mirrors of

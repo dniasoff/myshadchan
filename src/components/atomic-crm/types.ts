@@ -445,8 +445,11 @@ export type CreateShidduchInput = {
   redt_date?: string | null;
 };
 
-/** Where a captured inbox item arrived from (Epic 2 capture funnel). */
-export type InboxSource = "whatsapp" | "sms" | "email" | "photo" | "upload";
+/** Where a captured inbox item arrived from (Epic 2 capture funnel). Story
+ * 8.3 adds `"shadchan"` — a redt sent in-platform by a connected shadchan via
+ * `redt_via_connection()`, never client-attributed. */
+export type InboxSource =
+  "whatsapp" | "sms" | "email" | "photo" | "upload" | "shadchan";
 /** Triage state of a captured item: needs confirmation, resolved, or dismissed. */
 export type InboxStatus = "unresolved" | "resolved" | "dismissed";
 
@@ -468,6 +471,21 @@ export type InboxItem = {
   single_id?: Identifier | null;
   shadchan_id?: Identifier | null;
   resolved_shidduchim_id?: Identifier | null;
+  /** Story 8.3: set only by `redt_via_connection()` — a provenance FK, NOT a
+   * second RLS scoping axis (inbox_items stays scoped by account_id alone).
+   * Null for every other source. */
+  connection_id?: Identifier | null;
+};
+
+/** Input accepted by redtViaConnection() — mirrors the redt_via_connection
+ * RPC (Story 8.3). A connected shadchan's redt is inbound capture (AD-6),
+ * scoped by connection: it lands as an unfiled `inbox_items` row on the
+ * connection's household, never a direct write into `shidduchim`. */
+export type RedtViaConnectionInput = {
+  connection_id: Identifier;
+  subject?: string | null;
+  raw_text: string;
+  attachments?: unknown | null;
 };
 
 /**

@@ -1149,3 +1149,10 @@ revoke all on function public.end_connection(bigint) from public, anon;
 grant execute on function public.end_connection(bigint) to authenticated;
 grant execute on function public.end_connection(bigint) to service_role;
 
+-- Story 8.3 (Task 2): sending a redt requires an authenticated, connected
+-- shadchan (AD-1) — never `anon`, matching every other cross-account
+-- SECURITY DEFINER writer in this file.
+revoke all on function public.redt_via_connection(bigint, text, text, jsonb) from public, anon;
+grant execute on function public.redt_via_connection(bigint, text, text, jsonb) to authenticated;
+grant execute on function public.redt_via_connection(bigint, text, text, jsonb) to service_role;
+

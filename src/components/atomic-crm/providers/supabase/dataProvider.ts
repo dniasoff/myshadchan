@@ -15,6 +15,7 @@ import type {
   CreateShidduchInput,
   CreateThreadInput,
   EntityFile,
+  InboxItem,
   Invite,
   InvitableRole,
   InvitePreview,
@@ -29,6 +30,7 @@ import type {
   Persona,
   PipelineState,
   RAFile,
+  RedtViaConnectionInput,
   ReferenceLink,
   ReferenceMatchCandidate,
   ReferenceMergePreview,
@@ -280,6 +282,29 @@ const endConnectionViaRpc = async (
   return row as Connection;
 };
 
+// Story 8.3 (AC-1, AC-2, AC-3, AC-5): a connected shadchan's redt — inbound
+// capture (AD-6), scoped by connection, never a direct write into the
+// household's inbox_items (05_policies.sql's "Inbox items scoped to
+// account" keys strictly on account_id = current_context_id(), never
+// satisfied by a shadchan whose active context is their own shadchanus
+// account). Same shape as createShidduchViaRpc above.
+const redtViaConnectionViaRpc = async (
+  input: RedtViaConnectionInput,
+): Promise<InboxItem> => {
+  const { data, error } = await getSupabaseClient().rpc("redt_via_connection", {
+    p_connection_id: input.connection_id,
+    p_subject: input.subject ?? null,
+    p_raw_text: input.raw_text,
+    p_attachments: input.attachments ?? null,
+  });
+  if (error) {
+    console.error("redtViaConnection.error", error);
+    throw new Error(error.message || "Failed to send that redt");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return row as InboxItem;
+};
+
 // Exported for `dataProviderReads.test.ts`: the read redirects below are now a
 // privilege requirement, not only an AD-10 convention, so the test exercises
 // what ships rather than a re-implementation of it.
@@ -387,6 +412,8 @@ export const getDataProviderWithCustomMethods = () => {
     previewConnectionInvite: previewConnectionInviteViaRpc,
     acceptConnectionInvite: acceptConnectionInviteViaRpc,
     endConnection: endConnectionViaRpc,
+    // Story 8.3 (Task 5) — see redtViaConnectionViaRpc above.
+    redtViaConnection: redtViaConnectionViaRpc,
     // Story 7.3 (Task 4): "who am I" in the ACTIVE context's
     // `account_members.id` space — the id `thread_participants.member_id`
     // is keyed on, and a DIFFERENT id space from `getIdentity().id`

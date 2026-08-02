@@ -539,7 +539,19 @@ create table public.inbox_items (
     single_id bigint,
     shadchan_id bigint,
     resolved_shidduchim_id bigint,
-    constraint inbox_items_source_check check (source in ('whatsapp', 'sms', 'email', 'photo', 'upload')),
+    -- Story 8.3 (Task 1): appended at the physical TAIL (COLUMN-ORDER TRAP,
+    -- header comment above) — this table already carries rows. Set only by
+    -- redt_via_connection() (02_functions.sql), a SECURITY DEFINER function
+    -- — a shadchan holds no table-level access to a household's inbox_items
+    -- at all ("Inbox items scoped to account" below keys strictly on
+    -- account_id = current_context_id()). A provenance foreign key, NOT a
+    -- second RLS scoping axis (AD-1's "exactly one axis" is about which
+    -- column RLS keys on, not about whether a row may carry an unrelated FK
+    -- for attribution) — inbox_items stays scoped by account_id alone,
+    -- exactly as shidduchim.shadchan_id already references another
+    -- account-scoped table without being a second scope.
+    connection_id bigint,
+    constraint inbox_items_source_check check (source in ('whatsapp', 'sms', 'email', 'photo', 'upload', 'shadchan')),
     constraint inbox_items_status_check check (status in ('unresolved', 'resolved', 'dismissed'))
 );
 
@@ -1137,6 +1149,14 @@ alter table public.shadchanim
 -- against.
 alter table public.shadchanim
     add constraint shadchanim_connection_id_fkey foreign key (connection_id) references public.connections(id);
+
+-- Story 8.3 (Task 1): the redt's provenance link (see inbox_items' own
+-- comment above). No ON DELETE action, matching shadchanim_connection_id_fkey
+-- just above — a connections row is never deleted (end_connection() only
+-- flips status/ended_at), so there is no real delete path this FK needs to
+-- defend against.
+alter table public.inbox_items
+    add constraint inbox_items_connection_id_fkey foreign key (connection_id) references public.connections(id);
 
 alter table public."references"
     add constraint references_account_id_fkey foreign key (account_id) references public.accounts(id) on delete cascade;
