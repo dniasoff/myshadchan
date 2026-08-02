@@ -23,6 +23,11 @@ export const LINKABLE_TARGET_TYPES: readonly TaskTargetType[] = [
   "shidduch",
   "reference",
   "shadchan",
+  // Story 8.5 (Task 8): 'connection' joins the widened ENTITY_TARGET_TYPES
+  // union (contract §8 rule 4) — a household or a shadchan can each hold a
+  // private task about their own shared connection (AC-9), the same
+  // own-account scoping every other target type already has here.
+  "connection",
 ];
 
 /** react-admin resource name backing each polymorphic target type. */
@@ -31,6 +36,7 @@ export const RESOURCE_FOR_TARGET: Record<TaskTargetType, string> = {
   reference: "references",
   shadchan: "shadchanim",
   single: "singles",
+  connection: "connections",
 };
 
 /** Calm, singular English label for each target type (used in pickers/cards). AD-23 vocabulary — never the retired placeholder word for a shidduch. */
@@ -39,6 +45,7 @@ export const TARGET_TYPE_LABEL: Record<TaskTargetType, string> = {
   reference: "Reference",
   shadchan: "Shadchan",
   single: "Single",
+  connection: "Connection",
 };
 
 /**
@@ -51,6 +58,7 @@ export const TARGET_TYPE_LABEL_PLURAL: Record<TaskTargetType, string> = {
   reference: "references",
   shadchan: "shadchanim",
   single: "singles",
+  connection: "connections",
 };
 
 /** Best-effort English label for a fetched entity record, whichever type it is. */
@@ -77,6 +85,16 @@ export const targetEntityLabel = (
           [record.first_name_en, record.last_name_en]
             .filter(Boolean)
             .join(" ") || "Single",
+      };
+    case "connection":
+      // A connection has no `name` column at all — only the household
+      // side's denormalized snapshot (`household_account_name`,
+      // `connections/entityDescriptorRegions.tsx`'s own identity-header
+      // comment explains why it exists). Falling through to the
+      // `shadchan`/default branch below would render "Shadchan" for a
+      // connection, which is wrong for both sides of it.
+      return {
+        label: (record.household_account_name as string) || "Connection",
       };
     case "shadchan":
     default:

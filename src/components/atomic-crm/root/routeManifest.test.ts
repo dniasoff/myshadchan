@@ -284,44 +284,54 @@ describe("findManifestViolations — record-flags-missing (Story 3.12 AC 7)", ()
   });
 });
 
-describe("contextKind (Story 8.1, AC-3)", () => {
-  const HOUSEHOLD_GUARDED_RESOURCE_NAMES = [
-    "shidduchim",
-    "singles",
-    "inbox_items",
-    "shadchanim",
-    "references",
-    "tasks",
-  ];
+describe("contextKind (Story 8.1, AC-3; Story 8.5, AC-8)", () => {
+  // Story 8.5 replaces 8.1's `/connections` placeholder custom-route entry
+  // with the real descriptor-based resource, guarded the opposite way
+  // (`shadchanus`, not `household`) — this map replaces the earlier
+  // household-only allow-list with the per-resource expectation Story 8.5
+  // needs, so a resource with no entry here still fails loudly rather than
+  // silently matching "undefined".
+  const RESOURCE_CONTEXT_KINDS: Record<
+    string,
+    "household" | "shadchanus" | undefined
+  > = {
+    shidduchim: "household",
+    singles: "household",
+    inbox_items: "household",
+    shadchanim: "household",
+    references: "household",
+    tasks: "household",
+    members: undefined,
+    connections: "shadchanus",
+  };
 
-  it("sets contextKind: 'household' on every guarded resource, and no others", () => {
+  it("sets the expected contextKind on every resource, and no others", () => {
     for (const resource of RESOURCES) {
-      const expected = HOUSEHOLD_GUARDED_RESOURCE_NAMES.includes(resource.name)
-        ? "household"
-        : undefined;
-      expect(resource.contextKind).toBe(expected);
+      expect(resource.contextKind).toBe(RESOURCE_CONTEXT_KINDS[resource.name]);
     }
   });
 
-  it("sets contextKind: 'household' on the reminders custom route, and leaves /connections unguarded", () => {
+  it("sets contextKind: 'household' on the reminders custom route", () => {
     const reminders = CUSTOM_ROUTES.find(
       (route) => route.path === "/reminders",
     );
-    const connections = CUSTOM_ROUTES.find(
-      (route) => route.path === "/connections",
-    );
 
     expect(reminders?.contextKind).toBe("household");
-    expect(connections?.contextKind).toBeUndefined();
   });
 
-  it("registers /connections as a real component route (AC-4)", () => {
-    const connections = CUSTOM_ROUTES.find(
+  it("registers connections as a real, shadchanus-guarded resource, not a custom route (Story 8.5 AC-1/AC-8 — replaces 8.1's placeholder)", () => {
+    const connectionsRoute = CUSTOM_ROUTES.find(
       (route) => route.path === "/connections",
     );
+    const connectionsResource = RESOURCES.find(
+      (resource) => resource.name === "connections",
+    );
 
-    expect(connections).toBeDefined();
-    expect(connections?.surface).toBe("both");
+    expect(connectionsRoute).toBeUndefined();
+    expect(connectionsResource).toBeDefined();
+    expect(connectionsResource?.surface).toBe("both");
+    expect(connectionsResource?.contextKind).toBe("shadchanus");
+    expect(connectionsResource?.definition.list).toBeDefined();
   });
 
   it("registers /connect/:token as a real component route, unguarded by context kind (Story 8.2)", () => {

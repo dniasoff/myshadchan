@@ -915,29 +915,25 @@ export const englishCrmMessages = {
       invalid_linkedin_url: "URL must be from linkedin.com",
     },
     // Story 8.1 (AC-5/AC-6): shared copy for the shadchanus-context shell —
-    // the eyebrow both `ShadchanDashboard` and `ConnectionsPlaceholder` show
-    // above their heading, so the two screens read as one context, not two
-    // unrelated placeholders.
+    // the eyebrow `ShadchanDashboard` shows above its heading.
     shadchanus_context: {
       eyebrow: "Shadchanus",
     },
-    // Story 8.1 (AC-5): the shadchanus-context landing screen. Honest about
-    // having nothing yet — no "0 connections" style copy, and no query
-    // against `connections`/Epic-7 `threads` (that's Story 8.5's).
+    // Story 8.1 (AC-5) shipped title/empty_title/empty_description — Story
+    // 8.5 (AC-7, Task 6) replaces the placeholder body but reuses this SAME
+    // empty state verbatim, and adds the populated-state copy (stats,
+    // recent-connections list) alongside it.
     shadchan_dashboard: {
       title: "Your shadchanus workspace",
       empty_title: "Nothing here yet",
       empty_description:
         "Once you connect with a family, their conversations will appear here.",
-    },
-    // Story 8.1 (AC-4): `/connections` must never 404 or render nothing —
-    // this is the calm placeholder Story 8.5 replaces with the real
-    // Connections list/360. Copy explains the release boundary rather than
-    // promising an invite action that doesn't exist yet.
-    connections_placeholder: {
-      empty_title: "Connections are coming soon",
-      empty_description:
-        "This release lays the groundwork — inviting and connecting with a family arrives in a future update.",
+      stats: {
+        connections: "Connections",
+        unread: "Unread conversations",
+      },
+      recent_title: "Recently active connections",
+      connectedSince: "Connected since %{date}",
     },
     // Story 8.2 (Task 6): the accept screen at /connect/:token, reached by
     // an ALREADY-authenticated user — see ConnectionAccept.tsx's own
@@ -974,6 +970,49 @@ export const englishCrmMessages = {
       submit: "Send redt",
       success: "Redt sent",
       error: "Couldn't send that redt. Try again.",
+    },
+    // Story 8.5 — the real `connections` resource (list, Connection 360
+    // regions/tabs, send-a-redt and end-connection actions).
+    connections: {
+      list: {
+        eyebrow: "Shadchanus",
+        subtitle: "Every family you're connected with, in one place.",
+        searchPlaceholder: "Search by family name",
+        emptyTitle: "No connections yet",
+        emptyDescription:
+          "Once a family connects with you, they'll appear here — send them an invite from Settings to get started.",
+        noMatches: "No connections match this search.",
+      },
+      header: {
+        connectedSince: "Connected since %{date}",
+      },
+      status: {
+        accepted: "Accepted",
+        ended: "Ended %{date}",
+        ended_short: "Ended",
+      },
+      stats: {
+        redtsSent: "Redts sent",
+      },
+      overview: {
+        proposedBy: "Proposed by",
+        proposedByHousehold: "The family",
+        proposedByShadchan: "You",
+        endedAt: "Ended",
+      },
+      sendRedt: {
+        button: "Send a redt",
+        disabledReason:
+          "This connection has ended — a redt can no longer be sent through it.",
+      },
+      end: {
+        button: "End connection",
+        confirmTitle: "End this connection?",
+        confirmDescription:
+          "This is immediate and cannot be undone. Its history stays visible, but a redt can no longer be sent through it.",
+        confirmButton: "End connection",
+        error: "Couldn't end that connection. Try again.",
+      },
     },
   },
 } as const;

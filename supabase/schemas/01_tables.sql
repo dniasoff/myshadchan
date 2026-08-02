@@ -99,8 +99,16 @@ create table public.tasks (
     delivery_channels text[] not null default array['in_app', 'email']::text[],
     target_id bigint not null,
     target_type text not null default 'shidduch',
+    -- Story 8.5 (Task 8, contract §8 rule 4): 'connection' joins the widened
+    -- ENTITY_TARGET_TYPES union — R1 (3.14) already lifted `tasks` out of
+    -- household-only scope, so a shadchan holding a task about one of their
+    -- connections needs no further trigger change, only this value. No
+    -- purge_polymorphic_dependents() trigger fires for it: that function runs
+    -- AFTER DELETE on a parent row, and public.connections rows are never
+    -- hard-deleted (end_connection() only flips status/ended_at, keeping the
+    -- row as history) — there is no DELETE event to hook a purge trigger to.
     constraint tasks_target_type_check check (
-        target_type in ('shadchan', 'shidduch', 'reference', 'single')
+        target_type in ('shadchan', 'shidduch', 'reference', 'single', 'connection')
     ),
     constraint tasks_delivery_channels_check check (
         delivery_channels <@ array['in_app', 'email', 'push']::text[]
@@ -706,8 +714,12 @@ create table public.interactions (
     -- owns the write path, its moderation policy and its UI). Nullable, no
     -- default: a live row simply never sets it.
     deleted_at timestamp with time zone,
+    -- Story 8.5 (Task 8, contract §8 rule 4): 'connection' joins the widened
+    -- ENTITY_TARGET_TYPES union — same no-purge-trigger reasoning as
+    -- tasks_target_type_check above (connections rows are never
+    -- hard-deleted).
     constraint interactions_target_type_check check (
-        target_type in ('reference', 'shidduch', 'shadchan', 'single')
+        target_type in ('reference', 'shidduch', 'shadchan', 'single', 'connection')
     ),
     constraint interactions_kind_check check (
         kind in ('note', 'call_logged', 'status_change', 'merge', 'link_created', 'link_removed', 'single_input')
@@ -726,11 +738,14 @@ create table public.interactions (
     -- shadchan to more still), so there is no shidduch whose visibility could
     -- ever gate the row. An interaction ABOUT a shidduch always has that
     -- shidduch as its parent, so it can never be account-scoped.
+    -- Story 8.5: 'connection' joins the 'account'-scope arm alongside
+    -- 'shadchan'/'single' — a connection has no shidduch parent either
+    -- (it is a third scope, AD-20), same reasoning as those two.
     constraint interactions_scope_link_check check (
         (scope = 'shidduch' and target_type = 'reference' and reference_link_id is not null)
         or (scope = 'shidduch' and target_type = 'shidduch' and reference_link_id is null)
         or (scope = 'account' and target_type = 'reference' and reference_link_id is null)
-        or (scope = 'account' and target_type in ('shadchan', 'single') and reference_link_id is null)
+        or (scope = 'account' and target_type in ('shadchan', 'single', 'connection') and reference_link_id is null)
     )
 );
 
@@ -844,8 +859,12 @@ create table public.entity_files (
     -- the value from day one.
     visibility text not null default 'shared',
     uploaded_by_member_id bigint,
+    -- Story 8.5 (Task 8, contract §8 rule 4): 'connection' joins for
+    -- TS/DB-union parity with ENTITY_TARGET_TYPES — legal here though no
+    -- story wires a connection Files tab, exactly as 'shadchan' was already
+    -- legal before shadchanim ever grew one.
     constraint entity_files_target_type_check check (
-        target_type in ('reference', 'shidduch', 'shadchan', 'single')
+        target_type in ('reference', 'shidduch', 'shadchan', 'single', 'connection')
     ),
     constraint entity_files_visibility_check check (
         visibility in ('shared', 'private_parent', 'private_single')
@@ -905,6 +924,21 @@ create table public.connections (
     proposed_by_account_id bigint not null,
     accepted_at timestamp with time zone,
     ended_by_account_id bigint,
+    -- Story 8.5 (AC-2) — appended at the physical TAIL, same COLUMN-ORDER
+    -- TRAP as 8.2's own columns above. A snapshot of the household side's
+    -- `accounts.name`, taken once by `accept_connection_invite()` at the
+    -- SAME moment it already snapshots the shadchanus side's name into
+    -- `shadchanim.name` (02_functions.sql) — the mirror-image of that
+    -- existing precedent, not a new mechanism. Necessary because
+    -- `public.accounts`' own RLS ("Accounts readable to their members",
+    -- 05_policies.sql) never lets a shadchanus caller read the household
+    -- account row directly (AD-20): there is no live join the Connection 360
+    -- identity header could use instead. This table already carries rows
+    -- (the migration-data-safety fixture's seed, plus 8.2/8.4's own SQL test
+    -- fixtures), so the migration adds it nullable, backfills every
+    -- pre-existing row from a join to `accounts`, THEN sets NOT NULL — the
+    -- same two-step shape `proposed_by_account_id` above already used.
+    household_account_name text not null,
     constraint connections_status_check check (status in ('accepted', 'ended')),
     -- Story 8.2 (AC-3, "What ending does and does not do"): the two columns
     -- that answer "is this row ended" must always agree — never one flipped

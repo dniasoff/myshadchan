@@ -86,6 +86,11 @@ export const ENTITY_TARGET_TYPES = [
   "single",
   "shadchan",
   "reference",
+  // Story 8.5 (contract §8 rule 4): the value Epic 8 was assigned. Backed by
+  // `tasks_target_type_check` / `interactions_target_type_check` /
+  // `entity_files_target_type_check` from the same migration (Task 8) — no
+  // ordering gap, unlike `single` above.
+  "connection",
 ] as const;
 
 export type EntityTargetType = (typeof ENTITY_TARGET_TYPES)[number];
@@ -944,6 +949,19 @@ export type Connection = {
    * Null until the connection is ended. */
   ended_by_account_id?: Identifier | null;
   created_at: string;
+  /**
+   * Story 8.5 (AC-2): the household side's account name, snapshotted once by
+   * `accept_connection_invite()` — the SAME denormalization precedent that
+   * function already applies in the other direction (`shadchanim.name`, for
+   * the household's own book entry). Necessary because `public.accounts`'
+   * own RLS ("Accounts readable to their members") never lets a shadchanus
+   * caller read the household account row directly (AD-20) — there is no
+   * live join this column could stand in for. Like `shadchanim.name`, this
+   * is a snapshot, not a synced mirror: a household renaming its account
+   * later does not propagate here (no trigger does that for `shadchanim.name`
+   * either — an accepted, documented trade-off, not an oversight).
+   */
+  household_account_name: string;
 } & Pick<RaRecord, "id">;
 
 /**

@@ -52,6 +52,11 @@ const buildConnection = (overrides: Partial<Connection> = {}): Connection => ({
   accepted_at: "2026-01-01T00:00:00Z",
   ended_by_account_id: null,
   created_at: "2026-01-01T00:00:00Z",
+  // Story 8.5 widens `Connection` with `household_account_name` (a
+  // required, non-null DB column) — added here purely to keep this
+  // pre-existing fixture compiling against the widened type; this file's
+  // own suite (Story 8.2) does not exercise the field itself.
+  household_account_name: "The Klein Family",
   ...overrides,
 });
 

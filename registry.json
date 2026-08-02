@@ -1320,11 +1320,43 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/connections/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/connections/entityDescriptorRegions.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/connections/entityDescriptor.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/connections/RedtComposeDialog.tsx",
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/connections/ConnectionsPlaceholder.tsx",
+          "path": "src/components/atomic-crm/connections/ConnectionSendRedtAction.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/connections/ConnectionRow.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/connections/ConnectionOverviewTab.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/connections/ConnectionList.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/connections/ConnectionEndAction.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/connections/ConnectionCard.tsx",
           "type": "registry:component"
         },
         {

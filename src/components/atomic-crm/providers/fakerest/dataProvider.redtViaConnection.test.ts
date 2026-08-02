@@ -105,6 +105,7 @@ function seedFixture(db: Db): void {
       accepted_at: "2026-01-01T00:00:00Z",
       ended_by_account_id: null,
       created_at: "2026-01-01T00:00:00Z",
+      household_account_name: "Test Household",
     },
     // S2's OWN, separate accepted connection to the same household — AC-6(c)
     // needs S2 to be genuinely connected to the household, just via a
@@ -119,6 +120,7 @@ function seedFixture(db: Db): void {
       accepted_at: "2026-01-01T00:00:00Z",
       ended_by_account_id: null,
       created_at: "2026-01-01T00:00:00Z",
+      household_account_name: "Test Household",
     },
   ];
   db.inbox_items = [];

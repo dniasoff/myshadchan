@@ -1,6 +1,10 @@
+---
+baseline_commit: 85ef381f731ec1c39fcdd14d3b25e208fce17fd1
+---
+
 # Story 8.5: The shadchan's own CRM
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -88,13 +92,13 @@ This story wires all three into a real descriptor-based CRM and **replaces both 
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Locate and reuse, don't rebuild** (informs all ACs)
-  - [ ] Read Epic 3's `Entity360` shell and descriptor contract (Story 3.1/3.3) and Epic 4's
+- [x] **Task 1 — Locate and reuse, don't rebuild** (informs all ACs)
+  - [x] Read Epic 3's `Entity360` shell and descriptor contract (Story 3.1/3.3) and Epic 4's
         `EntityList` (Story 4.1) before writing a single component — this story must produce
         **zero** bespoke layout code per AD-24. Use `LSP workspaceSymbol` / `documentSymbol` on
         an existing descriptor-based resource (e.g. whatever Epic 5 shipped for `shadchanim` or
         `references`) as the template to copy the *shape* of, not the content.
-  - [ ] Read `threads/ThreadList.tsx` and `threads/ThreadPanel.tsx` (Epic 7 Story 7.1, privacy
+  - [x] Read `threads/ThreadList.tsx` and `threads/ThreadPanel.tsx` (Epic 7 Story 7.1, privacy
         toggle from 7.3) before building Task 3 — reuse their rendering. `ThreadList`'s
         `useGetList("threads", { filter: { subject_type, subject_id } })` is **not** enough on
         its own: 8.3's `redt_via_connection()` creates connection-scoped threads with
@@ -104,23 +108,23 @@ This story wires all three into a real descriptor-based CRM and **replaces both 
         `subject_id`-only filter cannot tell them apart and would mix connection 1's threads
         into connection 2's tab. `ThreadListProps` needs widening (Task 3).
 
-- [ ] **Task 2 — `connections` resource and descriptor** (AC: 1, 2, 6)
-  - [ ] In the existing `src/components/atomic-crm/connections/` folder (Story 8.1 created it):
+- [x] **Task 2 — `connections` resource and descriptor** (AC: 1, 2, 6)
+  - [x] In the existing `src/components/atomic-crm/connections/` folder (Story 8.1 created it):
         `index.ts` (descriptor + resource registration, following the shape of an existing
         Epic-5 entity folder), `ConnectionList` (thin — descriptor-driven, per AD-24 "no entity
         contains bespoke layout code"), `ConnectionShow` (renders `Entity360` with this story's
         tabs).
-  - [ ] Register in `root/routeManifest.ts` with `contextKind: "shadchanus"` — the field
+  - [x] Register in `root/routeManifest.ts` with `contextKind: "shadchanus"` — the field
         Story 8.1 Task 3 added and `CRM.tsx` already wraps in `RequireContextKind`. Do **not**
         touch the manifest's `surface` field for this: `surface` means desktop/mobile/both
         (1.5), never context kind. Remove 8.1's `/connections` placeholder custom-route entry
         and `ConnectionsPlaceholder.tsx` in the same change (NFR-14: the replaced thing is
         deleted, not left beside its replacement). This closes the mirror direction 8.1 left
         open: a household-active session cannot reach `/connections`.
-  - [ ] `RecordLink` (Epic 3 Story 3.9) target for a connection → `/connections/{id}`.
+  - [x] `RecordLink` (Epic 3 Story 3.9) target for a connection → `/connections/{id}`.
 
-- [ ] **Task 3 — `discussions` tab** (AC: 3)
-  - [ ] Add the `connections` row — `overview, discussions, notes, tasks, activity` — to
+- [x] **Task 3 — `discussions` tab** (AC: 3)
+  - [x] Add the `connections` row — `overview, discussions, notes, tasks, activity` — to
         `CANONICAL_TAB_SETS` in `entity360/ad24Conformance.ts` **in this same diff**.
         Registering a `connections` descriptor against a table that has no row for it is
         itself a `tab-set-incomplete` violation [Source:
@@ -128,7 +132,7 @@ This story wires all three into a real descriptor-based CRM and **replaces both 
         "a descriptor whose `name` has no row … is not silently skipped"]. All five tabs ship
         in this story (`notes`/`tasks`/`activity` via Task 8's `ENTITY_TARGET_TYPES` widening),
         so the descriptor needs no `pendingTabs`.
-  - [ ] Add the `discussions` tab (key `discussions`, no `label` override — the label resolves
+  - [x] Add the `discussions` tab (key `discussions`, no `label` override — the label resolves
         through `useTabLabel` to "Discussions") to the `connections` descriptor's tab list.
         `threads/ThreadList.tsx` (`ThreadListProps`) needs a small widening, done here (it has
         no other consumer to break): add an optional `connectionId?: Identifier`, mutually
@@ -143,42 +147,42 @@ This story wires all three into a real descriptor-based CRM and **replaces both 
         exists for threads today — query the base `threads` resource directly, as
         `ThreadList` already does.
 
-- [ ] **Task 4 — Send-a-redt action** (AC: 4)
-  - [ ] Wire Story 8.3's `connections/RedtComposeDialog.tsx` as an action in the Connection
+- [x] **Task 4 — Send-a-redt action** (AC: 4)
+  - [x] Wire Story 8.3's `connections/RedtComposeDialog.tsx` as an action in the Connection
         360's right rail — launch it, do not duplicate it.
-  - [ ] Disable the action with an explanatory tooltip/message when `connection.status ===
+  - [x] Disable the action with an explanatory tooltip/message when `connection.status ===
         'ended'` (AC-5).
 
-- [ ] **Task 5 — End-connection action** (AC: 5)
-  - [ ] A confirm-and-call action wired to `dataProvider.endConnection()` (Story 8.2), refreshing
+- [x] **Task 5 — End-connection action** (AC: 5)
+  - [x] A confirm-and-call action wired to `dataProvider.endConnection()` (Story 8.2), refreshing
         the 360 on success so the identity header immediately shows `ended`.
 
-- [ ] **Task 6 — Shadchanus dashboard, for real** (AC: 7)
-  - [ ] Replace Story 8.1's `dashboard/ShadchanDashboard.tsx` placeholder body (keep the file and
+- [x] **Task 6 — Shadchanus dashboard, for real** (AC: 7)
+  - [x] Replace Story 8.1's `dashboard/ShadchanDashboard.tsx` placeholder body (keep the file and
         its route wiring — do not create a second dashboard component) with: a stat band —
         count of `status = 'accepted'` connections, and count of **unread** conversations using
         Story 7.5's unread definition (a thread with a message newer than the caller's
         `thread_participants.last_read_at`; 7.5 lands before this story, so the signal exists —
         do not invent a second recency heuristic) — and a short list of the most recently
         active connections (latest message first) as `RecordLink`s.
-  - [ ] Zero-connections state renders the same empty-state copy Story 8.1 shipped, not a new one
+  - [x] Zero-connections state renders the same empty-state copy Story 8.1 shipped, not a new one
         — reuse the i18n key.
 
-- [ ] **Task 7 — FakeRest parity** (AC: all)
-  - [ ] Extend the FakeRest data generator with a handful of demo connections + threads so the
+- [x] **Task 7 — FakeRest parity** (AC: all)
+  - [x] Extend the FakeRest data generator with a handful of demo connections + threads so the
         shadchanus context has something to look at in demo mode (`make start-demo`), per AD-10's
         "keep FakeRest in sync" and the general expectation that every persona's context is
         demoable.
 
-- [ ] **Task 8 — `'connection'` joins `ENTITY_TARGET_TYPES`** (AC: 9; contract §8 rule 4)
-  - [ ] `types.ts`: add `"connection"` to `ENTITY_TARGET_TYPES` (currently `["shidduch",
+- [x] **Task 8 — `'connection'` joins `ENTITY_TARGET_TYPES`** (AC: 9; contract §8 rule 4)
+  - [x] `types.ts`: add `"connection"` to `ENTITY_TARGET_TYPES` (currently `["shidduch",
         "single", "shadchan", "reference"]`). `TaskTargetType` widens with it (it is a type
         alias, no separate edit).
-  - [ ] `01_tables.sql`: add `'connection'` to `tasks_target_type_check`,
+  - [x] `01_tables.sql`: add `'connection'` to `tasks_target_type_check`,
         `interactions_target_type_check` and `entity_files_target_type_check` — contract §8
         rule 1 requires the three stay at parity; the migration touches all three in one diff,
         never just the one(s) a given UI surface happens to use.
-  - [ ] `05_policies.sql`: `tasks` and `entity_files` need **no** policy change — both are
+  - [x] `05_policies.sql`: `tasks` and `entity_files` need **no** policy change — both are
         plain `account_id = current_context_id()` scoping with no per-target-type existence
         check today, so the new value is already covered. `interactions`' SELECT/INSERT
         policies ("Interactions readable/insertable within account and parent visibility") DO
@@ -191,21 +195,21 @@ This story wires all three into a real descriptor-based CRM and **replaces both 
         legitimate). Also add `'connection'` to `interactions_scope_link_check`'s
         `scope = 'account'` arm, alongside `'shadchan'`/`'single'` — a connection has no
         shidduch parent, same reasoning as those two.
-  - [ ] `reminders/reminderEntity.ts`: add `connection` to `LINKABLE_TARGET_TYPES`,
+  - [x] `reminders/reminderEntity.ts`: add `connection` to `LINKABLE_TARGET_TYPES`,
         `RESOURCE_FOR_TARGET` (`connection: "connections"`), `TARGET_TYPE_LABEL` and
         `TARGET_TYPE_LABEL_PLURAL` — all four are `Record<TaskTargetType, string>` and fail
         `tsc` without an entry apiece.
-  - [ ] `reminders/useReminders.ts`: `ALL_TARGET_TYPES` gains `"connection"`; per the file's own
+  - [x] `reminders/useReminders.ts`: `ALL_TARGET_TYPES` gains `"connection"`; per the file's own
         comment, "a fourth [here: fifth] target type needs a fourth hook call, not just a
         fourth map entry" — add the fifth `useGetMany(RESOURCE_FOR_TARGET.connection, { ids:
         connectionIds }, { enabled: connectionIds.length > 0 })` alongside the existing four.
-  - [ ] No purge trigger is wired for `'connection'` on `purge_polymorphic_dependents()`
+  - [x] No purge trigger is wired for `'connection'` on `purge_polymorphic_dependents()`
         (contract §8 rule 3 would otherwise require one): that function runs `AFTER DELETE` on
         the parent row, and `public.connections` rows are never hard-deleted — `end_connection()`
         (Story 8.2) only flips `status`/`ended_at`, keeping the row as history. There is no
         DELETE event to hook into. State this explicitly in the migration comment, matching how
         8.3's Task 1 pre-empts an AD-1 reviewer flag for `inbox_items.connection_id`.
-  - [ ] New `supabase/tests/shadchan_connection_notes.sql` + `.test.ts` (same `results`/`ids`
+  - [x] New `supabase/tests/shadchan_connection_notes.sql` + `.test.ts` (same `results`/`ids`
         temp-table convention as `references_entity.sql`): (a) shadchan S1 can create and read
         a task/interaction with `target_type = 'connection'`, `target_id` = connection 1;
         (b) shadchan S2 (party to a different connection into the same household) reads 0 rows
@@ -215,21 +219,21 @@ This story wires all three into a real descriptor-based CRM and **replaces both 
         `target_type = 'connection'` interaction whose `target_id` is a connection the caller
         is not a party to is rejected by the new `exists(...)` branch, no row created.
 
-- [ ] **Task 9 — Tests** (AC: 1, 2, 3, 7, 8, 9)
-  - [ ] Descriptor/list/show tests following whatever pattern Epic 3/5's descriptor-based
+- [x] **Task 9 — Tests** (AC: 1, 2, 3, 7, 8, 9)
+  - [x] Descriptor/list/show tests following whatever pattern Epic 3/5's descriptor-based
         entities established (component tests: empty/loading/error, light+dark, 375px per
         UX-DR11 — reuse the existing visual-regression harness, do not add a new one).
-  - [ ] `dashboard/ShadchanDashboard.test.tsx` (extending Story 8.1's file): zero-connections
+  - [x] `dashboard/ShadchanDashboard.test.tsx` (extending Story 8.1's file): zero-connections
         empty state still passes; a populated-state render shows the stat band and `RecordLink`s.
-  - [ ] Route-guard negative test (AC-8): with a mocked `household` active context,
+  - [x] Route-guard negative test (AC-8): with a mocked `household` active context,
         `/connections` redirects and `ConnectionList` never renders — the mirror of Story 8.1's
         guard test, now against the real resource.
-  - [ ] Task 8's SQL suite (`supabase/tests/shadchan_connection_notes.sql` + `.test.ts`) closes
+  - [x] Task 8's SQL suite (`supabase/tests/shadchan_connection_notes.sql` + `.test.ts`) closes
         AC-9's falsifiability — see Task 8's four cases.
-  - [ ] All new copy through the `i18nProvider` (AD-18), keys in both
+  - [x] All new copy through the `i18nProvider` (AD-18), keys in both
         `providers/commons/englishCrmMessages.ts` and `frenchCrmMessages.ts` (Story 8.1 Dev
         Notes: the shipped second catalogue is French, not the Hebrew AD-18 names).
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db` (Task 8 needs
+  - [x] `make typecheck && npm run lint && make test && npm run test:unit:db` (Task 8 needs
         `make start`), plus scoped `prettier --check`.
 
 ## Dev Notes
@@ -303,8 +307,135 @@ generated by `db diff` for the target-type widening (no grants change: `tasks`/
 
 ### Agent Model Used
 
+Claude Opus 5 (bmad-dev-story workflow, dispatched via the agent harness)
+
 ### Debug Log References
+
+- FakeRest data-generator seeding a demo `discussions` thread (Task 7) initially broke three
+  UNRELATED tests (`ThreadList.test.tsx` ×2, `ShidduchDiscussionsTab.test.tsx` ×1) that call the
+  real `generateData()` and assert `toHaveLength(1)` against a fresh `createThread()` call —
+  `db.threads`/`thread_participants`/`messages` turned out to be the shared fixture base for
+  many unrelated component tests across the codebase, not demo-only state. Reverted that part of
+  Task 7 (kept the two demo connections + `household_account_name`; dropped the seeded thread) —
+  the Connection 360's discussions tab is still fully demoable by starting a discussion from the
+  UI itself, exactly like every other subject's discussions tab in the demo build.
+- Widening `ENTITY_TARGET_TYPES` to 5 values turned red three `entity360/` guard tests that
+  exist specifically to track this exact widening ahead of time
+  (`ad24Conformance.guard.test.ts`'s "'connection' (Epic 8's future value) is not yet present",
+  plus two `pendingDbWidenings.test.ts` fixtures hardcoded to 4 values). Updated both files —
+  outside this story's literal "own exactly" file list, but a direct, foreseeable, and
+  necessary consequence of Task 8's own explicit instruction, not scope creep.
+- Registering the real `connections` resource in `root/routeManifest.ts` (Task 2's own explicit
+  instruction) turned red `root/routeManifest.test.ts`'s Story-8.1-era assertions that
+  `/connections` is an unguarded `CUSTOM_ROUTES` entry, and `root/CRM.test.tsx` had no mirror-
+  direction (household-redirected-off-`/connections`) case at all. Updated both — again outside
+  the literal file grant, but the explicit, unavoidable substance of Task 2/AC-8.
+- `types.ts`'s new required `Connection.household_account_name` field broke one fixture outside
+  this story's file grant: `settings/ConnectionSection.test.tsx`'s `buildConnection()` helper.
+  Fixed with a one-line addition (a new field on an existing object), the only touch to that
+  file. `settings/ConnectionSection.tsx` itself (Story 8.2's own settings panel, still showing
+  connections by id with a direct unconfirmed "End connection" button) was left unmodified —
+  not in this story's declared scope or Project Structure Notes, though its own mentions of a
+  connection arguably now qualify for AC-6's `RecordLink` treatment; flagged here, not fixed.
+- `make check-suppressions.mjs`/`check-retired-names.mjs` (2 of the 4 CI guards) fail on `main`
+  as found, both against `src/components/atomic-crm/root/adminRouteBuilders.tsx` (a Story 8.1
+  file this story never touches) — confirmed pre-existing via `git stash` + re-run before making
+  any change. Reported, not fixed, matching Story 8.4's own precedent for the identical failures.
 
 ### Completion Notes List
 
+- All 9 ACs implemented: real `connections` resource (List via `EntityList`, Show via the
+  generic `EntityShow` — no bespoke `ConnectionShow.tsx` wrapper was created, since every other
+  migrated entity's `Show` slot is `EntityShow` directly and a thin re-export of it would itself
+  be the bespoke layout code AD-24 forbids; noted as a deliberate deviation from the story's
+  literal Project Structure Notes wording, not from its AD-24 substance); Connection 360 with
+  the canonical `overview, discussions, notes, tasks, activity` tab set; identity header +
+  redt-sent stat band (derived from connection-scoped `threads`, never `redts`/`inbox_items`);
+  right-rail Send-a-redt (launches Story 8.3's `RedtComposeDialog`, disabled with a reason once
+  ended) and End-connection (confirm dialog over Story 8.2's `endConnection()`); real shadchanus
+  dashboard (accepted-connection count, unread-conversation count via Story 7.5's own
+  `computeUnreadThreadIds`, most-recently-active connections list); `'connection'` joins
+  `ENTITY_TARGET_TYPES` and its three DB check constraints plus the `interactions` policy/
+  scope-link branches in one migration; `ThreadList` widened to an XOR `subjectType`/
+  `subjectId` | `connectionId` shape; reminders wiring (`LINKABLE_TARGET_TYPES`,
+  `RESOURCE_FOR_TARGET`, `TARGET_TYPE_LABEL(_PLURAL)`, `targetEntityLabel`'s own `connection`
+  case, `useReminders`' fifth `useGetMany`); Story 8.4's `pg_policies` guard amended (excludes
+  `interactions` from the "no policy mentions connection" text scan, mirroring `threads`' own
+  pre-existing exclusion, since `interactions` now legitimately carries an own-account-scoped
+  `connection` branch) — its full 53-check suite still passes.
+- AC-2's "connected household's account name" needed a new mechanism: `public.accounts`' own
+  RLS never lets a shadchanus caller read the household account row directly (AD-20), so there
+  was no live join available. Added `connections.household_account_name text not null`,
+  snapshotted once by `accept_connection_invite()` — the mirror-image of that same function's
+  existing `shadchanim.name` snapshot for the household side. Two-step migration (nullable add +
+  backfill from `accounts` + `set not null`), matching `proposed_by_account_id`'s own precedent;
+  fixed six pre-existing SQL test fixtures that insert `connections` rows directly.
+- Task 8's SQL suite (`shadchan_connection_notes.sql`, 13 checks) covers all four named cases,
+  each mutation-proven: temporarily widened the `interactions` SELECT policy in a scratch run
+  (not committed) and confirmed cases (a)'s readback and the denial in (d) both flip as expected,
+  then restored via `supabase db reset` and re-confirmed green.
+- `make typecheck`, `make lint` (ESLint + Prettier), `make build`, `npx vitest run` (254 files /
+  3025 tests, all projects), `npm run test:unit:db` (32 files / 1164 tests), `supabase db diff
+  --local` (clean, run 3×), `make check-migration-safety STACK_ID=2` (PASSED) all green. 2 of 4
+  CI guard scripts fail — both pre-existing on `main`, confirmed unrelated (see Debug Log
+  References).
+
 ### File List
+
+**New:**
+- `src/components/atomic-crm/connections/entityDescriptor.tsx`
+- `src/components/atomic-crm/connections/entityDescriptorRegions.tsx`
+- `src/components/atomic-crm/connections/entityDescriptor.test.tsx`
+- `src/components/atomic-crm/connections/ConnectionList.tsx`
+- `src/components/atomic-crm/connections/ConnectionList.test.tsx`
+- `src/components/atomic-crm/connections/ConnectionCard.tsx`
+- `src/components/atomic-crm/connections/ConnectionRow.tsx`
+- `src/components/atomic-crm/connections/ConnectionOverviewTab.tsx`
+- `src/components/atomic-crm/connections/ConnectionSendRedtAction.tsx`
+- `src/components/atomic-crm/connections/ConnectionEndAction.tsx`
+- `src/components/atomic-crm/connections/index.ts`
+- `supabase/migrations/20260802175028_connections_shadchan_crm.sql`
+- `supabase/tests/shadchan_connection_notes.sql`
+- `supabase/tests/shadchan_connection_notes.test.ts`
+
+**Deleted:**
+- `src/components/atomic-crm/connections/ConnectionsPlaceholder.tsx`
+- `src/components/atomic-crm/connections/ConnectionsPlaceholder.test.tsx`
+
+**Modified:**
+- `src/components/atomic-crm/dashboard/ShadchanDashboard.tsx`, `.test.tsx`
+- `src/components/atomic-crm/types.ts`
+- `src/components/atomic-crm/entity360/ad24Conformance.ts`
+- `src/components/atomic-crm/threads/ThreadList.tsx`, `.test.tsx`
+- `src/components/atomic-crm/reminders/reminderEntity.ts`, `.test.ts`
+- `src/components/atomic-crm/reminders/useReminders.ts`
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`, `frenchCrmMessages.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/shidduchim.ts`
+- `src/components/atomic-crm/providers/fakerest/internal/connections.ts`, `.test.ts`
+- `src/components/atomic-crm/providers/fakerest/internal/redting.test.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.redtViaConnection.test.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.threadsConnectionAxis.test.ts`
+- `supabase/schemas/01_tables.sql`, `02_functions.sql`, `05_policies.sql`
+- `supabase/tests/shadchan_privacy_boundary.sql` (8.4's guard amendment)
+- `supabase/tests/shadchan_redting.sql`, `message_notifications.sql`, `threads_entity.sql`
+  (fixture fixups for the new `household_account_name` column)
+
+**Modified, outside this story's literal file grant (see Debug Log References for why each was necessary):**
+- `src/components/atomic-crm/root/routeManifest.ts`, `.test.ts` (Task 2's own explicit instruction)
+- `src/components/atomic-crm/root/CRM.test.tsx` (AC-8's mirror-direction route-guard test)
+- `src/components/atomic-crm/entity360/ad24Conformance.guard.test.ts`, `pendingDbWidenings.test.ts`
+  (direct consequence of the required `ENTITY_TARGET_TYPES` widening)
+- `src/components/atomic-crm/settings/ConnectionSection.test.tsx` (one-line fixture fixup for
+  the new required `Connection` field)
+
+## Change Log
+
+- Implemented all 9 tasks / all 9 ACs: real descriptor-based `connections` resource (List/Show/
+  discussions/notes/tasks/activity, send-a-redt, end-connection), the real shadchanus dashboard,
+  `ENTITY_TARGET_TYPES` widened to `'connection'` across `tasks`/`interactions`/`entity_files`
+  plus reminders wiring, `ThreadList` widened to a connection-scoped XOR shape, and Story 8.4's
+  `pg_policies` guard amended for the newly-legitimate `interactions` `connection` branch. New
+  `connections.household_account_name` column (AC-2's identity-header requirement) snapshotted
+  by `accept_connection_invite()`, mirroring that function's existing `shadchanim.name` snapshot
+  for the other direction. New `shadchan_connection_notes.sql` SQL suite (13 mutation-proven
+  checks) closes AC-9's falsifiability. Status → review.

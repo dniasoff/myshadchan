@@ -333,13 +333,13 @@ describe("AD-24 conformance guard — target-type parity (AC 7)", () => {
     // fails to locate, the way a bare `continue` did before this fix.
     const renamedSql = `
       constraint tasks_tt_check check (
-          target_type in ('shadchan', 'shidduch', 'reference', 'single')
+          target_type in ('shadchan', 'shidduch', 'reference', 'single', 'connection')
       )
       constraint interactions_target_type_check check (
-          target_type in ('reference', 'shidduch', 'shadchan', 'single')
+          target_type in ('reference', 'shidduch', 'shadchan', 'single', 'connection')
       )
       constraint entity_files_target_type_check check (
-          target_type in ('reference', 'shidduch', 'shadchan', 'single')
+          target_type in ('reference', 'shidduch', 'shadchan', 'single', 'connection')
       )
     `;
 
@@ -350,11 +350,14 @@ describe("AD-24 conformance guard — target-type parity (AC 7)", () => {
     expect(offenders).toEqual(["tasks_target_type_check"]);
   });
 
-  it("'connection' (Epic 8's future value) is not yet present in ENTITY_TARGET_TYPES", () => {
-    // Assert — guards against silently widening ahead of Epic 8.
+  it("'connection' (Epic 8 Story 8.5's value) is present in ENTITY_TARGET_TYPES, landed in the same diff as its three DB constraints", () => {
+    // Assert — Story 8.5 (contract §8 rule 4) widened ENTITY_TARGET_TYPES
+    // and tasks_target_type_check/interactions_target_type_check/
+    // entity_files_target_type_check together, so PENDING_DB_WIDENINGS
+    // above stays empty rather than needing a new entry for it.
     expect(
       (ENTITY_TARGET_TYPES as readonly string[]).includes("connection"),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -511,6 +514,7 @@ describe("AD-24 conformance guard — the registered index component (AC 10c)", 
     // `indexSources` and make the rule below silently green. `tasks` is
     // absent because its definition is inline in root/routeManifest.ts.
     expect(Object.keys(resolvedIndexModules).sort()).toEqual([
+      "connections",
       "inbox_items",
       "members",
       "references",

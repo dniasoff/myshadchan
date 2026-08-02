@@ -92,8 +92,10 @@ returning id as shadchanus_account_id \gset
 -- for this story — fix them in place, do not fork the suite").
 -- household_account_id is an arbitrary-but-valid choice: this suite never
 -- exercises who proposed the connection, only that one exists.
-insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id)
-values (:household_account_id, :shadchanus_account_id, 'accepted', :household_account_id)
+-- Story 8.5 ALTERs connections to add `household_account_name text not
+-- null` — same "fix fixtures in place" precedent as above.
+insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id, household_account_name)
+values (:household_account_id, :shadchanus_account_id, 'accepted', :household_account_id, 'Notifications Test Household')
 returning id as connection_id \gset
 
 insert into public.account_members (account_id, user_id, role, status)

@@ -136,11 +136,14 @@ insert into ids values ('household_a_member_id', :household_a_member_id);
 -- invite/accept workflow is that story's suite's responsibility, not this
 -- one's; this suite exercises redt_via_connection() against already-accepted
 -- connections.
-insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id, accepted_at)
-values (:household_a, :shadchanus_s1, 'accepted', :household_a, now())
+-- Story 8.5 ALTERs connections to add `household_account_name text not
+-- null` — fixed in place, same "fix fixtures in place" precedent as
+-- 8.2's own proposed_by_account_id widening (see this file's header).
+insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id, accepted_at, household_account_name)
+values (:household_a, :shadchanus_s1, 'accepted', :household_a, now(), 'Redting Household A')
 returning id as connection_a_s1 \gset
-insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id, accepted_at)
-values (:household_a, :shadchanus_s2, 'accepted', :household_a, now())
+insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id, accepted_at, household_account_name)
+values (:household_a, :shadchanus_s2, 'accepted', :household_a, now(), 'Redting Household A')
 returning id as connection_a_s2 \gset
 
 insert into ids values ('connection_a_s1', :connection_a_s1), ('connection_a_s2', :connection_a_s2);

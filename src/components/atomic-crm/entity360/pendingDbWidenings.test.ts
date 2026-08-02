@@ -111,31 +111,31 @@ describe("extractTargetTypeCheckValues — shown red then green", () => {
     ).toBeUndefined();
   });
 
-  it("parses the real tasks_target_type_check values from 01_tables.sql (Story 3.8 widened it to all four ENTITY_TARGET_TYPES)", () => {
+  it("parses the real tasks_target_type_check values from 01_tables.sql (Story 8.5 widened it to all five ENTITY_TARGET_TYPES)", () => {
     // Act / Assert
     expect(
       extractTargetTypeCheckValues(TABLES_SQL, "tasks_target_type_check"),
-    ).toEqual(["shadchan", "shidduch", "reference", "single"]);
+    ).toEqual(["shadchan", "shidduch", "reference", "single", "connection"]);
   });
 
-  it("parses the real interactions_target_type_check values from 01_tables.sql (Story 3.5 widened it to all four ENTITY_TARGET_TYPES)", () => {
+  it("parses the real interactions_target_type_check values from 01_tables.sql (Story 8.5 widened it to all five ENTITY_TARGET_TYPES)", () => {
     // Act / Assert
     expect(
       extractTargetTypeCheckValues(
         TABLES_SQL,
         "interactions_target_type_check",
       ),
-    ).toEqual(["reference", "shidduch", "shadchan", "single"]);
+    ).toEqual(["reference", "shidduch", "shadchan", "single", "connection"]);
   });
 
-  it("parses the real entity_files_target_type_check values from 01_tables.sql (Story 3.7 created the table at full parity)", () => {
+  it("parses the real entity_files_target_type_check values from 01_tables.sql (Story 8.5 widened it to all five ENTITY_TARGET_TYPES)", () => {
     // Act / Assert
     expect(
       extractTargetTypeCheckValues(
         TABLES_SQL,
         "entity_files_target_type_check",
       ),
-    ).toEqual(["reference", "shidduch", "shadchan", "single"]);
+    ).toEqual(["reference", "shidduch", "shadchan", "single", "connection"]);
   });
 });
 
@@ -154,7 +154,7 @@ describe("isAtParityWithEntityTargetTypes — shown red then green", () => {
     ).toBe(false);
   });
 
-  it("is true for exactly the four ENTITY_TARGET_TYPES values, any order", () => {
+  it("is true for exactly the five ENTITY_TARGET_TYPES values, any order", () => {
     // Act / Assert
     expect(
       isAtParityWithEntityTargetTypes([
@@ -162,6 +162,7 @@ describe("isAtParityWithEntityTargetTypes — shown red then green", () => {
         "single",
         "shidduch",
         "shadchan",
+        "connection",
       ]),
     ).toBe(true);
   });
@@ -189,10 +190,10 @@ describe("PENDING_DB_WIDENINGS guard", () => {
     // that shipped without reaching parity.
     const syntheticSql = `
       constraint tasks_target_type_check check (
-          target_type in ('shadchan', 'shidduch', 'reference', 'single')
+          target_type in ('shadchan', 'shidduch', 'reference', 'single', 'connection')
       )
       constraint interactions_target_type_check check (
-          target_type in ('reference', 'shidduch', 'shadchan', 'single')
+          target_type in ('reference', 'shidduch', 'shadchan', 'single', 'connection')
       )
       constraint entity_files_target_type_check check (
           target_type in ('reference', 'shidduch')

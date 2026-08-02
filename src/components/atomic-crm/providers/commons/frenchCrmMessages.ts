@@ -818,11 +818,12 @@ export const frenchCrmMessages = {
       empty_title: "Rien pour l'instant",
       empty_description:
         "Une fois connecté(e) à une famille, ses conversations apparaîtront ici.",
-    },
-    connections_placeholder: {
-      empty_title: "Les connexions arrivent bientôt",
-      empty_description:
-        "Cette version pose les bases — inviter une famille et se connecter avec elle arrivera dans une prochaine mise à jour.",
+      stats: {
+        connections: "Connexions",
+        unread: "Conversations non lues",
+      },
+      recent_title: "Connexions récemment actives",
+      connectedSince: "Connecté(e) depuis le %{date}",
     },
     connection_accept: {
       title: "Se connecter avec %{name}",
@@ -848,6 +849,47 @@ export const frenchCrmMessages = {
       submit: "Envoyer le redt",
       success: "Redt envoyé",
       error: "Impossible d'envoyer ce redt. Réessayez.",
+    },
+    connections: {
+      list: {
+        eyebrow: "Shadchanous",
+        subtitle: "Toutes les familles connectées avec vous, au même endroit.",
+        searchPlaceholder: "Rechercher par nom de famille",
+        emptyTitle: "Aucune connexion pour l'instant",
+        emptyDescription:
+          "Une fois qu'une famille se connecte avec vous, elle apparaîtra ici — envoyez-lui une invitation depuis les paramètres pour commencer.",
+        noMatches: "Aucune connexion ne correspond à cette recherche.",
+      },
+      header: {
+        connectedSince: "Connecté(e) depuis le %{date}",
+      },
+      status: {
+        accepted: "Acceptée",
+        ended: "Terminée le %{date}",
+        ended_short: "Terminée",
+      },
+      stats: {
+        redtsSent: "Redts envoyés",
+      },
+      overview: {
+        proposedBy: "Proposée par",
+        proposedByHousehold: "La famille",
+        proposedByShadchan: "Vous",
+        endedAt: "Terminée",
+      },
+      sendRedt: {
+        button: "Envoyer un redt",
+        disabledReason:
+          "Cette connexion est terminée — un redt ne peut plus être envoyé par ce biais.",
+      },
+      end: {
+        button: "Terminer la connexion",
+        confirmTitle: "Terminer cette connexion ?",
+        confirmDescription:
+          "Cette action est immédiate et irréversible. Son historique reste visible, mais un redt ne peut plus être envoyé par ce biais.",
+        confirmButton: "Terminer la connexion",
+        error: "Impossible de terminer cette connexion. Réessayez.",
+      },
     },
   },
 } satisfies CrmMessages;

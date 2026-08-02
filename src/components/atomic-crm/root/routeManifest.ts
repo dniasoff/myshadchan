@@ -5,7 +5,7 @@ import { OAuthConsentPage } from "@/components/supabase/oauth-consent-page";
 
 import { BillingPage } from "../billing/BillingPage";
 import { ConnectionAccept } from "../connections/ConnectionAccept";
-import { ConnectionsPlaceholder } from "../connections/ConnectionsPlaceholder";
+import connections from "../connections";
 import inbox from "../inbox";
 import { ShareTarget } from "../inbox/ShareTarget";
 import type { ContextKind } from "../layout/navItems";
@@ -110,25 +110,14 @@ export const CUSTOM_ROUTES: CustomRouteEntry[] = [
     chrome: "shell",
     contextKind: "household",
   },
-  // Story 8.1 (AC-4): a rendered placeholder, never a dead nav target —
-  // Story 8.5 replaces this entry with the real descriptor-based resource.
-  // Deliberately no `contextKind` yet: 8.1 only guards the household-only
-  // side (AC-3's 7-entry list below); 8.5 is what sets `contextKind:
-  // "shadchanus"` on the real `connections` resource.
-  {
-    path: ConnectionsPlaceholder.path,
-    Component: ConnectionsPlaceholder,
-    surface: "both",
-    chrome: "shell",
-  },
   // Story 8.2 (Task 6): the accept half of the consent workflow. Reachable
   // regardless of the caller's active context kind — either side may be the
-  // acceptor, depending on who generated the invite (no `contextKind`,
-  // mirroring ConnectionsPlaceholder above). `chrome: "shell"`, not "bare"
-  // like `InviteAcceptance` — unlike that story's brand-new-user signup
-  // flow, accepting a connection requires an ALREADY-authenticated caller
-  // (Task 3's own grant note), so the ordinary authenticated app shell is
-  // the right chrome, not a pre-auth standalone page.
+  // acceptor, depending on who generated the invite (no `contextKind`).
+  // `chrome: "shell"`, not "bare" like `InviteAcceptance` — unlike that
+  // story's brand-new-user signup flow, accepting a connection requires an
+  // ALREADY-authenticated caller (Task 3's own grant note), so the ordinary
+  // authenticated app shell is the right chrome, not a pre-auth standalone
+  // page.
   {
     path: ConnectionAccept.path,
     Component: ConnectionAccept,
@@ -175,6 +164,17 @@ export const RESOURCES: ResourceEntry[] = [
     contextKind: "household",
   },
   { name: "members", surface: "desktop", definition: members },
+  // Story 8.5: replaces 8.1's `/connections` placeholder custom-route entry
+  // (removed above, in this same diff — NFR-14) with the real
+  // descriptor-based resource. `contextKind: "shadchanus"` is what closes
+  // the mirror direction 8.1 left open: a household-active session cannot
+  // reach `/connections` (AC-8).
+  {
+    name: "connections",
+    surface: "both",
+    definition: connections,
+    contextKind: "shadchanus",
+  },
 ];
 
 function appliesToSurface(

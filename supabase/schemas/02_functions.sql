@@ -4411,16 +4411,21 @@ begin
     v_shadchanus_account_id := v_acceptor_account_id;
   end if;
 
+  select name into v_shadchanus_name from public.accounts where id = v_shadchanus_account_id;
+
+  -- Story 8.5 (AC-2): the mirror-image snapshot of v_shadchanus_name above —
+  -- taken at the same moment, for the same reason (the household caller's
+  -- own RLS never lets a shadchanus caller read `accounts` back the other
+  -- way). See household_account_name's own comment in 01_tables.sql.
   insert into public.connections (
     household_account_id, shadchanus_account_id, status,
-    proposed_by_account_id, accepted_at
+    proposed_by_account_id, accepted_at, household_account_name
   ) values (
     v_household_account_id, v_shadchanus_account_id, 'accepted',
-    v_invite.inviter_account_id, now()
+    v_invite.inviter_account_id, now(),
+    (select name from public.accounts where id = v_household_account_id)
   )
   returning * into v_connection;
-
-  select name into v_shadchanus_name from public.accounts where id = v_shadchanus_account_id;
 
   insert into public.shadchanim (account_id, name, connection_id)
   values (v_household_account_id, v_shadchanus_name, v_connection.id);

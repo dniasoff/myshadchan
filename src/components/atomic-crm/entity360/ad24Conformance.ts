@@ -231,6 +231,14 @@ export const CANONICAL_TAB_SETS: Partial<Record<string, readonly TabKey[]>> = {
     "activity",
   ],
   shadchanim: ["overview", "shidduchim", "notes", "tasks", "activity"],
+  // Story 8.5 (AC-3, contract §3 rule 5): mirrors shadchanim's shape, not
+  // singles'/shidduchim's — no resume/photo, no files (entity_files still
+  // gains 'connection' as a legal target_type for TS/DB-union parity, Task
+  // 9 — legal and "has a tab" are two different questions, exactly as
+  // 'shadchan' is already legal though shadchanim has no Files tab).
+  // `discussions` (not `conversations`) is the thread panel — the closed
+  // TabKey union's one key for every Epic 7 threads/ThreadPanel.tsx surface.
+  connections: ["overview", "discussions", "notes", "tasks", "activity"],
   references: [
     "overview",
     "conversations",

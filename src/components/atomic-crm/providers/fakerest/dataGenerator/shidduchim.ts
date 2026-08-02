@@ -36,6 +36,13 @@ const ACCOUNT_ID = 1;
 // and its Story 7.4 sibling do.
 const SHADCHANUS_ACCOUNT_ID = 2;
 
+// Story 8.5 (Task 7): a second, connection-only household — no singles/
+// shidduchim of its own, exactly like SHADCHANUS_ACCOUNT_ID's own posture
+// above (it exists purely so the Connections list has more than one row to
+// show in demo mode). No account_member links a demo login to it either;
+// only its NAME is ever shown, denormalized onto the connection row below.
+const SECOND_HOUSEHOLD_ACCOUNT_ID = 3;
+
 const shadchanimSeed: Shadchan[] = [
   {
     id: 1,
@@ -282,11 +289,22 @@ export const generateShidduchimDomain = (db: Db) => {
       default_thread_visibility: "open",
       created_at: "2026-01-01T00:00:00.000Z",
     },
+    // Story 8.5 (Task 7): see SECOND_HOUSEHOLD_ACCOUNT_ID's own comment above.
+    {
+      id: SECOND_HOUSEHOLD_ACCOUNT_ID,
+      name: "Feldman Family",
+      transparency_level: "shared",
+      kind: "household",
+      default_thread_visibility: "open",
+      created_at: "2026-01-05T00:00:00.000Z",
+    },
   ];
 
-  // Story 7.4 (Task 6): the ONLY connections row in the demo build — see
-  // SHADCHANUS_ACCOUNT_ID's own comment for why it exists and why it has no
-  // login attached.
+  // Story 7.4 (Task 6) / Story 8.5 (Task 7): the demo build's connections —
+  // see SHADCHANUS_ACCOUNT_ID's own comment for why the seeded rows carry
+  // no login of their own on the shadchanus side. A second connection (to
+  // SECOND_HOUSEHOLD_ACCOUNT_ID) gives the Connections list ("a handful",
+  // Task 7) more than one row to show.
   const connections: Connection[] = [
     {
       id: 1,
@@ -300,20 +318,66 @@ export const generateShidduchimDomain = (db: Db) => {
       accepted_at: "2026-01-01T00:00:00.000Z",
       ended_by_account_id: null,
       created_at: "2026-01-01T00:00:00.000Z",
+      household_account_name: "Klein Family",
+    },
+    {
+      id: 2,
+      household_account_id: SECOND_HOUSEHOLD_ACCOUNT_ID,
+      shadchanus_account_id: SHADCHANUS_ACCOUNT_ID,
+      status: "accepted",
+      ended_at: null,
+      proposed_by_account_id: SECOND_HOUSEHOLD_ACCOUNT_ID,
+      accepted_at: "2026-01-05T00:00:00.000Z",
+      ended_by_account_id: null,
+      created_at: "2026-01-05T00:00:00.000Z",
+      household_account_name: "Feldman Family",
     },
   ];
+
+  // Story 8.5 (Task 7): NOT seeding a connection-scoped thread here, unlike
+  // the two connections above. `db.threads`/`thread_participants`/`messages`
+  // are the shared fixture base for many unrelated component tests across
+  // the codebase (any test that calls the real `generateData()` rather than
+  // building its own minimal `db`), which assert exact counts/ids against
+  // them (`ThreadList.test.tsx`, `ShidduchDiscussionsTab.test.tsx`, …) —
+  // proven live: adding one demo thread here made three unrelated
+  // `createThread()` assertions fail on `toHaveLength(1)`, now `2`. The
+  // existing "seeded empty" convention for these three tables
+  // (`dataGenerator/types.ts`'s own comment) stays as-is; the Connection
+  // 360's discussions tab is still fully demoable by starting a discussion
+  // from the UI itself (`ThreadList`'s own "Start a discussion" button),
+  // exactly like every other subject's discussions tab in the demo build.
 
   // The default demo login ("Jane Doe", member id 0 — fakerest/authProvider.ts)
   // holds the `parent` persona on the seeded Klein household. Without this,
   // `getMyPersonas()` (2.3 AC-8/AC-9) reports zero personas for the default
   // login and `OnboardingGate` would show the persona multi-select on every
   // `make start-demo` boot instead of the seeded board.
+  //
+  // Story 8.5 (Task 7): the SAME login also holds a `shadchan` membership on
+  // SHADCHANUS_ACCOUNT_ID, so the shadchanus context (dashboard,
+  // Connections list/360) is reachable in demo mode via the context
+  // switcher — without this, Story 7.4's own seeded connection had no login
+  // able to view either side of it at all. `activate_first_context_trigger`
+  // is a real-database mechanism this static seed does not run; FakeRest's
+  // own `getMyContexts()` mirror instead treats the FIRST membership row
+  // (by id) as active until `set_active_context()` is called
+  // (`internal/contexts.ts`), so this second row does not change which
+  // context the demo boots into.
   const account_members: AccountMember[] = [
     {
       id: 1,
       account_id: ACCOUNT_ID,
       user_id: "0",
       role: "parent_admin",
+      status: "active",
+      created_at: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      id: 2,
+      account_id: SHADCHANUS_ACCOUNT_ID,
+      user_id: "0",
+      role: "shadchan",
       status: "active",
       created_at: "2026-01-01T00:00:00.000Z",
     },

@@ -729,6 +729,30 @@ create policy "Interactions readable within account and parent visibility" on pu
                               and si.account_id = public.current_context_id()
                         )
                     )
+                    or (
+                        -- Story 8.5 (Task 8, AC-9): own-account scoping, same
+                        -- shape as shadchan/single above — the top-level
+                        -- `account_id = current_context_id()` already keys
+                        -- this row to the CALLER's own account; this exists()
+                        -- only confirms the caller is legitimately a party of
+                        -- the named connection (either side, no `status =
+                        -- 'accepted'` filter — annotating an ended
+                        -- connection's history is legitimate, Story 8.2 Dev
+                        -- Notes). Never widens visibility ACROSS accounts
+                        -- (AD-20): the other party reads their OWN
+                        -- interactions row about this same connection, never
+                        -- this one.
+                        target_type = 'connection'
+                        and exists (
+                            select 1
+                            from public.connections c
+                            where c.id = interactions.target_id
+                              and (
+                                c.household_account_id = public.current_context_id()
+                                or c.shadchanus_account_id = public.current_context_id()
+                              )
+                        )
+                    )
                 )
             )
             or (
@@ -791,6 +815,20 @@ create policy "Interactions insertable within account and parent visibility" on 
                             from public.singles si
                             where si.id = interactions.target_id
                               and si.account_id = public.current_context_id()
+                        )
+                    )
+                    or (
+                        -- Story 8.5 — see the mirror comment on the SELECT
+                        -- policy above; identical shape, own-account scoping.
+                        target_type = 'connection'
+                        and exists (
+                            select 1
+                            from public.connections c
+                            where c.id = interactions.target_id
+                              and (
+                                c.household_account_id = public.current_context_id()
+                                or c.shadchanus_account_id = public.current_context_id()
+                              )
                         )
                     )
                 )

@@ -247,6 +247,20 @@ export async function acceptConnectionInvite(
       ? membership.account_id
       : invite.inviter_account_id;
 
+  // Story 8.5 (AC-2): the household side's own name, snapshotted onto the
+  // connection row — the mirror-image of `shadchanusAccount.name` below,
+  // read once more here rather than reused because `acceptorAccount` is
+  // only the household's own row when THIS caller is the household side
+  // (see `household_account_name`'s own comment in types.ts).
+  const householdAccount =
+    acceptorAccount.kind === "household"
+      ? acceptorAccount
+      : (
+          await baseDataProvider.getOne<Account>("accounts", {
+            id: householdAccountId,
+          })
+        ).data;
+
   const now = new Date().toISOString();
   const { data: connection } = await baseDataProvider.create<Connection>(
     "connections",
@@ -260,6 +274,7 @@ export async function acceptConnectionInvite(
         accepted_at: now,
         ended_by_account_id: null,
         created_at: now,
+        household_account_name: householdAccount.name,
       },
     },
   );

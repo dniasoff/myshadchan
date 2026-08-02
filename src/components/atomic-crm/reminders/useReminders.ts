@@ -44,6 +44,10 @@ const ALL_TARGET_TYPES: TaskTargetType[] = [
   "reference",
   "shadchan",
   "single",
+  // Story 8.5 (Task 8): 'connection' joins the widened ENTITY_TARGET_TYPES
+  // union — see useLinkedEntityRecords below for the matching fifth
+  // useGetMany call this addition requires.
+  "connection",
 ];
 
 /** ids of open tasks grouped by target_type, deduplicated. */
@@ -64,9 +68,9 @@ const groupIdsByTargetType = (
 
 /**
  * One `useGetMany` per target type — the set of types is fixed
- * (`ALL_TARGET_TYPES`), so these four hooks always run in the same order.
- * Only fires a request when that type actually has ids to look up. A fourth
- * target type needs a fourth hook call here, not just a fourth map entry —
+ * (`ALL_TARGET_TYPES`), so these five hooks always run in the same order.
+ * Only fires a request when that type actually has ids to look up. A fifth
+ * target type needs a fifth hook call here, not just a fifth map entry —
  * `useGetMany` cannot be called in a loop over `ALL_TARGET_TYPES` without
  * breaking the rules of hooks (a variable number of hook calls).
  */
@@ -77,6 +81,7 @@ const useLinkedEntityRecords = (
   const referenceIds = idsByType.get("reference") ?? [];
   const shadchanIds = idsByType.get("shadchan") ?? [];
   const singleIds = idsByType.get("single") ?? [];
+  const connectionIds = idsByType.get("connection") ?? [];
 
   const shidduchim = useGetMany(
     RESOURCE_FOR_TARGET.shidduch,
@@ -98,6 +103,11 @@ const useLinkedEntityRecords = (
     { ids: singleIds },
     { enabled: singleIds.length > 0 },
   );
+  const connections = useGetMany(
+    RESOURCE_FOR_TARGET.connection,
+    { ids: connectionIds },
+    { enabled: connectionIds.length > 0 },
+  );
 
   return useMemo(() => {
     const byType: [TaskTargetType, Identifier[], typeof shidduchim][] = [
@@ -105,6 +115,7 @@ const useLinkedEntityRecords = (
       ["reference", referenceIds, references],
       ["shadchan", shadchanIds, shadchanim],
       ["single", singleIds, singles],
+      ["connection", connectionIds, connections],
     ];
     const lookup = new Map<string, Record<string, unknown>>();
     let isPending = false;
@@ -115,8 +126,8 @@ const useLinkedEntityRecords = (
       });
     });
     return { lookup, isPending };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the four query results are the only inputs; idsByType is derived from them.
-  }, [shidduchim, references, shadchanim, singles]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the five query results are the only inputs; idsByType is derived from them.
+  }, [shidduchim, references, shadchanim, singles, connections]);
 };
 
 /**

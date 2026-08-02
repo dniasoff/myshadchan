@@ -114,6 +114,7 @@ const connection = (overrides: Partial<Connection>): Connection =>
     accepted_at: "2026-01-01T00:00:00Z",
     ended_by_account_id: null,
     created_at: "2026-01-01T00:00:00Z",
+    household_account_name: "Test Household",
     ...overrides,
   }) as Connection;
 

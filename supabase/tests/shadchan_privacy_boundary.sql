@@ -222,11 +222,14 @@ insert into public.account_members (account_id, user_id, role, status) values
   (:shadchanus_s1, '59400000-0000-0000-0000-000000000002', 'shadchan', 'active'),
   (:shadchanus_s2, '59400000-0000-0000-0000-000000000003', 'shadchan', 'active');
 
-insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id, accepted_at)
-values (:household_a, :shadchanus_s1, 'accepted', :household_a, now())
+-- Story 8.5 ALTERs connections to add `household_account_name text not
+-- null` — fixed in place, same "fix fixtures in place" precedent as 8.2's
+-- own proposed_by_account_id widening.
+insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id, accepted_at, household_account_name)
+values (:household_a, :shadchanus_s1, 'accepted', :household_a, now(), 'Privacy Boundary Household A')
 returning id as connection_a_s1 \gset
-insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id, accepted_at)
-values (:household_a, :shadchanus_s2, 'accepted', :household_a, now())
+insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id, accepted_at, household_account_name)
+values (:household_a, :shadchanus_s2, 'accepted', :household_a, now(), 'Privacy Boundary Household A')
 returning id as connection_a_s2 \gset
 
 insert into ids values ('connection_a_s1', :connection_a_s1), ('connection_a_s2', :connection_a_s2);
@@ -771,9 +774,28 @@ reset role;
 -- ---------------------------------------------------------------------------
 -- Task 3 (AC-7): the pg_policies structural regression guard. A CI-runnable
 -- fact about the catalog, not inferred from one test run: no USING/WITH CHECK
--- expression on any of the seven named tables mentions "connection" anywhere.
+-- expression on any of the six named tables mentions "connection" anywhere.
 -- `threads` is deliberately absent — it legitimately carries the
 -- connection_id axis (AD-22).
+--
+-- Story 8.5 review-guard amendment: `interactions` is now deliberately
+-- absent too, for the same reason `threads` is — its SELECT/INSERT policies
+-- legitimately gained a `target_type = 'connection'` branch (Task 8,
+-- contract §8 rule 4, R1/contract §11 Ruling 1) referencing
+-- `public.connections` by name. That branch is own-account scoping, the
+-- same shape as the pre-existing `shadchan`/`single` branches right beside
+-- it — the top-level `account_id = current_context_id()` predicate this
+-- whole policy is ANDed onto already confines a caller to their OWN
+-- account's rows; the new `exists(...)` only confirms the named connection
+-- is legitimately theirs, never a second account's. It is not the
+-- cross-account leak shape this guard exists to catch (AD-20's "no accepted
+-- connection ever widens visibility into the OTHER party's private data"),
+-- so text-matching "connection" on this table's policies would now flag a
+-- reviewed, intentional widening as a regression on every future run.
+-- AC-1's own runtime mutation-proof above is unaffected by this exclusion —
+-- it still proves, on every run, that a connected shadchan reads ZERO of
+-- household A's private notes, regardless of what this table's policy text
+-- contains.
 -- ---------------------------------------------------------------------------
 create function pg_temp.privacy_boundary_clean() returns boolean
     language sql as $$
@@ -786,15 +808,15 @@ create function pg_temp.privacy_boundary_clean() returns boolean
   )
   from pg_policies
   where schemaname = 'public'
-    and tablename in ('interactions', 'reference_links', 'date_records', 'singles', 'shidduchim', 'resumes', 'redts');
+    and tablename in ('reference_links', 'date_records', 'singles', 'shidduchim', 'resumes', 'redts');
 $$;
 
 insert into results (name, passed)
-select 'AC-7: no USING/WITH CHECK clause on interactions, reference_links, date_records, singles, shidduchim, resumes or redts mentions "connection" anywhere — the structural regression guard AD-20 requires',
+select 'AC-7: no USING/WITH CHECK clause on reference_links, date_records, singles, shidduchim, resumes or redts mentions "connection" anywhere — the structural regression guard AD-20 requires (interactions excluded as of Story 8.5, see comment above)',
        pg_temp.privacy_boundary_clean();
 
 -- Mutation-proof of the guard itself: install an ADDITIONAL policy that DOES
--- mention "connection" on one of the seven tables (redts — its own real
+-- mention "connection" on one of the six tables (redts — its own real
 -- policy is untouched by this probe: capture_and_widen_policy's earlier
 -- calls above always restore it before moving on, so this ADD-then-DROP
 -- cannot interact with them) and prove the guard flips.
@@ -803,7 +825,7 @@ create policy "MUTATION PROBE: temp connection read (dropped below)" on public.r
     using (exists (select 1 from public.connections));
 
 insert into results (name, passed)
-select 'AC-7 MUTATION-PROOF: a policy naming "connection" on one of the seven tables flips the guard to NOT clean — the ''clean'' result above is a real, falsifiable structural fact, not a vacuous pass',
+select 'AC-7 MUTATION-PROOF: a policy naming "connection" on one of the six tables flips the guard to NOT clean — the ''clean'' result above is a real, falsifiable structural fact, not a vacuous pass',
        not pg_temp.privacy_boundary_clean();
 
 drop policy "MUTATION PROBE: temp connection read (dropped below)" on public.redts;

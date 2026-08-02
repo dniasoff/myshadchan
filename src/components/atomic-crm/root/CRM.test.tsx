@@ -335,6 +335,34 @@ describe("CRM route wiring — real manifest (Story 8.1 review F1/AC-7), redirec
       expect(getPathname()).toBe("/");
     },
   );
+
+  // Story 8.5 (AC-8): the mirror direction of every case above — 8.1 left
+  // `/connections` unguarded (a rendered placeholder, no `contextKind`
+  // yet); this story's real `connections` resource sets
+  // `contextKind: "shadchanus"`, so a household-active session must now be
+  // redirected off it the same way a shadchanus session is redirected off
+  // every household-only resource above. Runs against the real manifest —
+  // the actual `ConnectionList` component never mounts if the guard is
+  // wired correctly.
+  it("redirects /connections to / when the active context is household", async () => {
+    // Act — the real routeManifest.ts "connections" entry, exactly as
+    // root/CRM.tsx's DesktopAdmin registers it. The guard fires before the
+    // real ConnectionList ever mounts (this harness's stub dataProvider
+    // only implements getMyContexts, so a real render would crash — the
+    // reachable/positive direction, with a real working dataProvider, is
+    // proven instead in connections/entityDescriptor.test.tsx and
+    // connections/ConnectionList.test.tsx).
+    const { screen, getPathname } = await renderRoutes(
+      [household],
+      routesFor("desktop", "shell"),
+      resourcesFor("desktop"),
+      ["/connections"],
+    );
+
+    // Assert
+    await expect.element(screen.getByText(HOME)).toBeInTheDocument();
+    expect(getPathname()).toBe("/");
+  });
 });
 
 describe("buildDashboardRoute (Story 8.1 review F3, AC-5)", () => {

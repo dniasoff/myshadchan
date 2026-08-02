@@ -144,8 +144,11 @@ returning id as shadchanus_account_id \gset
 -- story — fix them in place, do not fork the suite"). The household side is
 -- an arbitrary-but-valid choice: this suite never exercises who proposed
 -- the connection, only that one exists.
-insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id)
-values (:sibling_fixture_account_id, :shadchanus_account_id, 'accepted', :sibling_fixture_account_id)
+-- Story 8.5 ALTERs connections to add `household_account_name text not
+-- null` — same fix-in-place precedent, matching dbSuiteHelpers.ts'
+-- SIBLING_FIXTURE.accountName.
+insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id, household_account_name)
+values (:sibling_fixture_account_id, :shadchanus_account_id, 'accepted', :sibling_fixture_account_id, 'Sibling Fixture Household')
 returning id as test_connection_id \gset
 
 insert into ids values
@@ -1167,9 +1170,9 @@ insert into public.accounts (name, kind) values ('Threads Ended Connection Shadc
 returning id as ended_connection_shadchanus_account_id \gset
 
 -- Story 8.2: same proposed_by_account_id backfill note as this file's other
--- connections insert above.
-insert into public.connections (household_account_id, shadchanus_account_id, status, ended_at, proposed_by_account_id)
-values (:sibling_fixture_account_id, :ended_connection_shadchanus_account_id, 'ended', now(), :sibling_fixture_account_id)
+-- connections insert above. Story 8.5: same household_account_name note too.
+insert into public.connections (household_account_id, shadchanus_account_id, status, ended_at, proposed_by_account_id, household_account_name)
+values (:sibling_fixture_account_id, :ended_connection_shadchanus_account_id, 'ended', now(), :sibling_fixture_account_id, 'Sibling Fixture Household')
 returning id as ended_connection_id \gset
 
 insert into public.shidduchim (account_id, single_id, name_en, pipeline_state, visibility)

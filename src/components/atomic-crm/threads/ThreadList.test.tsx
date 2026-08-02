@@ -272,6 +272,144 @@ describe("ThreadList — unread indicator (Story 7.5, AC-1)", () => {
   });
 });
 
+describe("ThreadList — connection-scoped (Story 8.5, Task 3)", () => {
+  const HOUSEHOLD_ACCOUNT_ID = 1;
+  const SHADCHANUS_ACCOUNT_ID = 9;
+  const CONNECTION_A_ID = 501;
+  const CONNECTION_B_ID = 502;
+
+  const seedTwoConnections = (db: ReturnType<typeof generateData>) => {
+    db.accounts = [
+      ...db.accounts.filter((a) => a.id !== SHADCHANUS_ACCOUNT_ID),
+      {
+        id: SHADCHANUS_ACCOUNT_ID,
+        name: "Golden Matches Shadchanus",
+        transparency_level: "shared",
+        kind: "shadchanus",
+        default_thread_visibility: "open",
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    db.account_members = [
+      {
+        id: CALLER_MEMBER_ID,
+        account_id: SHADCHANUS_ACCOUNT_ID,
+        user_id: "0",
+        role: "shadchan",
+        status: "active",
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    db.connections = [
+      {
+        id: CONNECTION_A_ID,
+        household_account_id: HOUSEHOLD_ACCOUNT_ID,
+        shadchanus_account_id: SHADCHANUS_ACCOUNT_ID,
+        status: "accepted",
+        ended_at: null,
+        proposed_by_account_id: HOUSEHOLD_ACCOUNT_ID,
+        accepted_at: "2026-01-01T00:00:00Z",
+        ended_by_account_id: null,
+        created_at: "2026-01-01T00:00:00Z",
+        household_account_name: "Connection A Household",
+      },
+      {
+        id: CONNECTION_B_ID,
+        household_account_id: HOUSEHOLD_ACCOUNT_ID,
+        shadchanus_account_id: SHADCHANUS_ACCOUNT_ID,
+        status: "accepted",
+        ended_at: null,
+        proposed_by_account_id: HOUSEHOLD_ACCOUNT_ID,
+        accepted_at: "2026-01-01T00:00:00Z",
+        ended_by_account_id: null,
+        created_at: "2026-01-02T00:00:00Z",
+        household_account_name: "Connection B Household",
+      },
+    ];
+  };
+
+  const renderConnectionList = async (
+    connectionId: number,
+    configureDb: (db: ReturnType<typeof generateData>) => void = () => {},
+  ) => {
+    const db = generateData();
+    seedTwoConnections(db);
+    configureDb(db);
+    const dataProvider = createDataProvider({ db, latency: 0, silent: true });
+
+    const screen = await render(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <ThreadList connectionId={connectionId} />
+          <Notification />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    return { screen, dataProvider };
+  };
+
+  it("lists only THIS connection's thread, never a sibling connection's — a subject_id-only filter could not tell them apart (both are subject_type='relationship', subject_id=null)", async () => {
+    // Act
+    const { screen } = await renderConnectionList(CONNECTION_A_ID, (db) => {
+      db.threads = [
+        {
+          id: 1,
+          account_id: null,
+          connection_id: CONNECTION_A_ID,
+          subject_type: "relationship",
+          subject_id: null,
+          visibility: "open",
+          created_by_member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-03T00:00:00Z",
+        },
+        {
+          id: 2,
+          account_id: null,
+          connection_id: CONNECTION_B_ID,
+          subject_type: "relationship",
+          subject_id: null,
+          visibility: "open",
+          created_by_member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-04T00:00:00Z",
+        },
+      ];
+    });
+
+    // Assert — exactly one row rendered (connection A's), never connection
+    // B's, even though both share the identical (subject_type, subject_id).
+    await expect.element(screen.getByText("Open")).toBeInTheDocument();
+    expect(screen.getByText("Open").elements()).toHaveLength(1);
+  });
+
+  it("createThread() for a connectionId creates a relationship thread scoped to THAT connection, never account-scoped", async () => {
+    // Act
+    const { screen, dataProvider } =
+      await renderConnectionList(CONNECTION_A_ID);
+    await screen.getByRole("button", { name: "Start a discussion" }).click();
+
+    // Assert
+    await expect
+      .element(screen.getByText("No messages yet."))
+      .toBeInTheDocument();
+    const { data: threads } = await dataProvider.getList("threads", {
+      filter: {},
+      pagination: { page: 1, perPage: 10 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(threads).toHaveLength(1);
+    expect(threads[0]).toMatchObject({
+      account_id: null,
+      connection_id: CONNECTION_A_ID,
+      subject_type: "relationship",
+      subject_id: null,
+    });
+  });
+});
+
 describe("ThreadList — starting a discussion (AC-1, AC-2, AC-7)", () => {
   it("createThread() (never a raw create) makes a thread scoped to this subject, with the caller as its only participant", async () => {
     // Act

@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import type { CrmDataProvider } from "../providers/types";
 import type {
+  CreateThreadInput,
   Message,
   Thread,
   ThreadParticipant,
@@ -26,16 +27,32 @@ import { useCurrentMemberId } from "./useCurrentMemberId";
 
 /**
  * Story 7.1 (AC-1, AC-2, AC-7) — threads for one subject. Reusable across
- * both `ThreadSubjectType`s, though only `shidduchim/ShidduchDiscussionsTab`
- * wires it in this story (a `relationship` thread has no surface yet — see
- * this story's Task 8, "do not build a bespoke tab shell"). Lists every
- * thread the caller's `thread_is_readable()` admits and renders the
- * selected one's `ThreadPanel` alongside it.
+ * both `ThreadSubjectType`s, and — since Story 8.5 (Task 3) — across the
+ * connection axis too. Lists every thread the caller's `thread_is_readable()`
+ * admits and renders the selected one's `ThreadPanel` alongside it.
+ *
+ * Story 8.5 widens this to an XOR shape (mirroring `threads`' own
+ * account_id/connection_id XOR, AD-1): either a subject
+ * (`subjectType`/`subjectId`, `shidduchim/ShidduchDiscussionsTab`'s shape)
+ * or a `connectionId` (the Connection 360's `discussions` tab,
+ * `connections/entityDescriptorRegions.tsx`'s `ConnectionDiscussionsTab`) —
+ * never both. A `subject_id`-only filter cannot distinguish two different
+ * connections' redt threads: `redt_via_connection()` always creates
+ * `subject_type = 'relationship', subject_id = null`, so a shadchan with two
+ * connections would have two such threads sharing the identical
+ * `(subject_type, subject_id)` pair, differing only in `connection_id`.
  */
-export interface ThreadListProps {
-  subjectType: ThreadSubjectType;
-  subjectId: Identifier;
-}
+export type ThreadListProps =
+  | {
+      subjectType: ThreadSubjectType;
+      subjectId: Identifier;
+      connectionId?: undefined;
+    }
+  | {
+      connectionId: Identifier;
+      subjectType?: undefined;
+      subjectId?: undefined;
+    };
 
 function ThreadListSkeleton(): ReactElement {
   return (
@@ -114,10 +131,36 @@ function ThreadRow({
   );
 }
 
-export function ThreadList({
-  subjectType,
-  subjectId,
-}: ThreadListProps): ReactNode {
+/**
+ * The `useGetList("threads", …)` filter for either branch of the XOR shape
+ * above. A plain function (not inlined) so TS narrows `props` by direct
+ * property access on the parameter itself — the reliable form of
+ * discriminated-union narrowing, rather than depending on aliasing a
+ * destructured local.
+ */
+function threadListFilter(
+  props: ThreadListProps,
+):
+  | { connection_id: Identifier }
+  | { subject_type: ThreadSubjectType; subject_id: Identifier } {
+  if (props.connectionId != null) {
+    return { connection_id: props.connectionId };
+  }
+  return { subject_type: props.subjectType, subject_id: props.subjectId };
+}
+
+/** The `createThread()` input for either branch — a connection-scoped
+ * "Start a discussion" always creates a `relationship` thread with no
+ * subject_id, the same shape `redt_via_connection()` itself creates
+ * (`threads_subject_id_check`'s pairing). */
+function threadListCreateInput(props: ThreadListProps): CreateThreadInput {
+  if (props.connectionId != null) {
+    return { subject_type: "relationship", connection_id: props.connectionId };
+  }
+  return { subject_type: props.subjectType, subject_id: props.subjectId };
+}
+
+export function ThreadList(props: ThreadListProps): ReactNode {
   const translate = useTranslate();
   const notify = useNotify();
   const refresh = useRefresh();
@@ -126,7 +169,7 @@ export function ThreadList({
   const [isStarting, setIsStarting] = useState(false);
 
   const { data, error, isPending } = useGetList<Thread>("threads", {
-    filter: { subject_type: subjectType, subject_id: subjectId },
+    filter: threadListFilter(props),
     sort: { field: "created_at", order: "DESC" },
     pagination: { page: 1, perPage: 20 },
   });
@@ -178,10 +221,9 @@ export function ThreadList({
   const handleStart = async () => {
     setIsStarting(true);
     try {
-      const thread = await dataProvider.createThread({
-        subject_type: subjectType,
-        subject_id: subjectId,
-      });
+      const thread = await dataProvider.createThread(
+        threadListCreateInput(props),
+      );
       setSelectedId(thread.id);
       refresh();
     } catch (startError) {

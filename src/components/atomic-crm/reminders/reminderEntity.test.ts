@@ -11,11 +11,13 @@ import {
 /**
  * AC 5 — the two live AD-23 violations (the retired placeholder word for a
  * shidduch) are fixed, `single` is added everywhere the widened
- * `TaskTargetType` union now requires it,
- * and `LINKABLE_TARGET_TYPES` deliberately stays at three (Story 3.8 adds
- * `single` there in the same diff as the `tasks_target_type_check` widening
- * — this file's own `LINKABLE_TARGET_TYPES` test below is MEANT to be
- * edited by that story, not treated as a permanent invariant).
+ * `TaskTargetType` union now requires it. `LINKABLE_TARGET_TYPES` itself
+ * still excludes `single` (a separate, pre-existing gap Story 3.8 owns —
+ * unrelated to Story 8.5's own `connection` addition here).
+ *
+ * Story 8.5 (Task 8, contract §8 rule 4): `connection` joins
+ * `LINKABLE_TARGET_TYPES` and all three `Record<TaskTargetType, string>`
+ * maps below, plus `targetEntityLabel`'s own `connection` case.
  */
 
 describe("TARGET_TYPE_LABEL — AD-23 vocabulary", () => {
@@ -24,13 +26,14 @@ describe("TARGET_TYPE_LABEL — AD-23 vocabulary", () => {
     expect(TARGET_TYPE_LABEL.shidduch).toBe("Shidduch");
   });
 
-  it("has a label for every TaskTargetType, including single", () => {
+  it("has a label for every TaskTargetType, including single and connection", () => {
     // Assert
     expect(TARGET_TYPE_LABEL).toEqual({
       shidduch: "Shidduch",
       reference: "Reference",
       shadchan: "Shadchan",
       single: "Single",
+      connection: "Connection",
     });
   });
 });
@@ -48,18 +51,20 @@ describe("TARGET_TYPE_LABEL_PLURAL — avoids the naive '+ s' AD-23 regression",
       reference: "references",
       shadchan: "shadchanim",
       single: "singles",
+      connection: "connections",
     });
   });
 });
 
 describe("RESOURCE_FOR_TARGET", () => {
-  it("maps every TaskTargetType to its backing resource, including single -> singles", () => {
+  it("maps every TaskTargetType to its backing resource, including single -> singles and connection -> connections", () => {
     // Assert
     expect(RESOURCE_FOR_TARGET).toEqual({
       shidduch: "shidduchim",
       reference: "references",
       shadchan: "shadchanim",
       single: "singles",
+      connection: "connections",
     });
   });
 });
@@ -115,14 +120,45 @@ describe("targetEntityLabel", () => {
     // Assert
     expect(result.label).toBe("Shadchan");
   });
+
+  it("uses household_account_name for a connection record (Story 8.5) — never falls through to the shadchan/default branch", () => {
+    // Act
+    const result = targetEntityLabel("connection", {
+      household_account_name: "The Klein Family",
+    });
+
+    // Assert
+    expect(result.label).toBe("The Klein Family");
+  });
+
+  it("falls back to 'Connection' (not 'Shadchan') for a connection record with no household_account_name", () => {
+    // Act
+    const result = targetEntityLabel("connection", {});
+
+    // Assert
+    expect(result.label).toBe("Connection");
+  });
+
+  it("falls back to 'Connection' when no record has loaded yet", () => {
+    // Act
+    const result = targetEntityLabel("connection", undefined);
+
+    // Assert
+    expect(result.label).toBe("Connection");
+  });
 });
 
-describe("LINKABLE_TARGET_TYPES — meant to be edited by Story 3.8, not this story", () => {
-  it("has exactly three entries and does not offer 'single' yet", () => {
+describe("LINKABLE_TARGET_TYPES", () => {
+  it("has exactly four entries and does not offer 'single' yet (Story 3.8's own gap, unrelated to Story 8.5)", () => {
     // Assert — tasks_target_type_check (01_tables.sql) does not accept
-    // 'single' until Story 3.8 widens it; offering it here first would let
-    // this picker submit an insert Postgres rejects.
-    expect(LINKABLE_TARGET_TYPES).toHaveLength(3);
+    // 'single' until Story 3.8 widens LINKABLE_TARGET_TYPES itself; offering
+    // it here first would let this picker submit an insert Postgres rejects.
+    expect(LINKABLE_TARGET_TYPES).toHaveLength(4);
     expect(LINKABLE_TARGET_TYPES).not.toContain("single");
+  });
+
+  it("includes 'connection' (Story 8.5, Task 8)", () => {
+    // Assert
+    expect(LINKABLE_TARGET_TYPES).toContain("connection");
   });
 });
