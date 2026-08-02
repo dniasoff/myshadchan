@@ -1294,6 +1294,32 @@ insert into results (name, passed)
 select 'AC-8 (parent<->shadchan pairing): the household parent (creator) reads the second connection-scoped private thread',
        count(*) = 1 from public.threads where id = :ac8_parent_shadchan_thread;
 
+-- ---------------------------------------------------------------------------
+-- F2 (review fix, Story 7.4): AC-6 widens the thread_participants INSERT
+-- policy to the same two-disjunct scope check as messages (05_policies.sql),
+-- but every prior assertion exercised it only through create_thread(), which
+-- is SECURITY DEFINER and bypasses RLS entirely — reverting the policy back
+-- to 7.1's single-axis form left the suite 98/98 green. This is a REAL
+-- client-side direct INSERT into thread_participants on the connection axis
+-- (still authenticated, still this session, not service_role), mirroring
+-- AC-6's own messages proof above so the same half-migrated-policy failure
+-- mode is covered on this table too. The household parent (already a
+-- participant of ac8_parent_shadchan_thread) adds Leah, a member of his OWN
+-- household — satisfying the unchanged 7.1 "F3" clause that the added member
+-- belongs to the caller's own account (Deviation #2: this policy does not
+-- admit a CROSS-side add, only same-account, so Leah rather than the
+-- shadchan is the correct fixture here).
+-- ---------------------------------------------------------------------------
+insert into public.thread_participants (thread_id, member_id)
+values (:ac8_parent_shadchan_thread, :sibling_fixture_leah_member_id)
+returning id as f2_participant_direct_insert \gset
+insert into ids values ('f2_participant_direct_insert', :f2_participant_direct_insert);
+
+insert into results (name, passed)
+select 'AC-6 (F2 review fix): a REAL client-side direct INSERT into thread_participants on the connection axis succeeds and is server-stamped to the thread''s connection scope, not create_thread() (SECURITY DEFINER, which would still succeed even with this INSERT policy reverted to 7.1''s account-only form)',
+       account_id is null and connection_id = :test_connection_id
+from public.thread_participants where id = :f2_participant_direct_insert;
+
 -- AC-8: the account-scoped half, reusing Story 7.3's OWN fixtures — proven
 -- there already (AC-5's control, AC-6's carve-out); re-asserted here, under
 -- an AC-8 name, so the epic's four-pairing AC is discharged in one file
@@ -1420,11 +1446,48 @@ update public.accounts set default_thread_visibility = 'open' where id = :siblin
 update public.accounts set default_thread_visibility = 'open' where id = :shadchanus_account_id;
 
 -- ---------------------------------------------------------------------------
+-- F1 (review fix, Story 7.4): the negatives below originally targeted ONLY
+-- ac8_single_shadchan_thread, which is PRIVATE — thread_visibility_permits()'s
+-- participant-list check denies a non-participant caller regardless of
+-- whether connection_is_active_for_caller()'s own party-identity disjunct
+-- (`household_account_id = current_context_id() or shadchanus_account_id =
+-- current_context_id()`) ever runs correctly. Proved by mutation: dropping
+-- ONLY that disjunct (keeping `status = 'accepted'`) left every negative
+-- below green — the single red check was AC-1's create_thread() refusal, a
+-- WRITE path, leaving the READ-side identity check unproven. This OPEN,
+-- relationship-type connection-scoped thread has no private participant gate
+-- to hide behind: thread_visibility_permits() returns true unconditionally
+-- once the scope gate passes (not a shidduch subject, so the single dignity
+-- floor never engages either) — so a negative re-run against it below can
+-- ONLY pass because connection_is_active_for_caller() denies on the caller's
+-- own identity, not on privacy.
+-- ---------------------------------------------------------------------------
+insert into public.threads (connection_id, subject_type, subject_id, visibility)
+values (:test_connection_id, 'relationship', null, 'open')
+returning id as ac9_open_scope_gate_thread \gset
+insert into public.thread_participants (connection_id, thread_id, member_id)
+values (:test_connection_id, :ac9_open_scope_gate_thread, :sibling_fixture_parent_member_id)
+returning id as ac9_open_scope_gate_participant \gset
+insert into public.messages (connection_id, thread_id, body)
+values (:test_connection_id, :ac9_open_scope_gate_thread, 'F1: open connection thread with no private gate, to isolate the scope gate''s own identity check')
+returning id as ac9_open_scope_gate_message \gset
+insert into ids values
+  ('ac9_open_scope_gate_thread', :ac9_open_scope_gate_thread),
+  ('ac9_open_scope_gate_participant', :ac9_open_scope_gate_participant),
+  ('ac9_open_scope_gate_message', :ac9_open_scope_gate_message);
+
+-- ---------------------------------------------------------------------------
 -- AC-9: the three negatives. A shadchan whose OWN shadchanus is not party to
 -- this connection; a household member of a DIFFERENT household; a member of
 -- the RIGHT household once the connection has ended.
 -- ---------------------------------------------------------------------------
 set local role authenticated;
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-9 (F1) control: the household parent (a real participant) reads the OPEN scope-gate thread before the identity-check negatives below are tested',
+       count(*) = 1 from public.threads where id = :ac9_open_scope_gate_thread;
+
 set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000015","role":"authenticated"}';
 
 insert into results (name, passed)
@@ -1439,11 +1502,27 @@ insert into results (name, passed)
 select 'AC-9: ...ZERO rows from its thread_participants',
        count(*) = 0 from public.thread_participants where thread_id = :ac8_single_shadchan_thread;
 
+insert into results (name, passed)
+select 'AC-9 (F1 review fix): the SAME unconnected shadchan reads ZERO rows from an OPEN connection-scoped thread that has no private participant gate — this can only be connection_is_active_for_caller()''s own party-identity check, not thread_visibility_permits()''s private branch',
+       count(*) = 0 from public.threads where id = :ac9_open_scope_gate_thread;
+
+insert into results (name, passed)
+select 'AC-9 (F1 review fix): ...ZERO rows from the OPEN thread''s messages',
+       count(*) = 0 from public.messages where id = :ac9_open_scope_gate_message;
+
+insert into results (name, passed)
+select 'AC-9 (F1 review fix): ...ZERO rows from the OPEN thread''s thread_participants',
+       count(*) = 0 from public.thread_participants where thread_id = :ac9_open_scope_gate_thread;
+
 set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000010","role":"authenticated"}';
 
 insert into results (name, passed)
 select 'AC-9: a household member of a DIFFERENT household reads ZERO rows from that connection''s threads likewise',
        count(*) = 0 from public.threads where id = :ac8_single_shadchan_thread;
+
+insert into results (name, passed)
+select 'AC-9 (F1 review fix): the SAME different-household member reads ZERO rows from the SAME OPEN connection-scoped thread likewise — the identity check, not the private participant gate',
+       count(*) = 0 from public.threads where id = :ac9_open_scope_gate_thread;
 
 reset role;
 
