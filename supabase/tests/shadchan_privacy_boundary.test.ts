@@ -62,11 +62,18 @@ describe("the shadchan's privacy boundary (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   // A floor, not an exact count — new checks are welcome, silently
-  // vanishing ones are not. This suite's sanity/existence/AC/mutation-proof
-  // groups add up to 29 as of this story; anything materially fewer means a
-  // whole group silently stopped emitting.
-  it("runs every sanity, existence-control, AC-1 through AC-7, and mutation-proof check", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(25);
+  // vanishing ones are not. Review fix (F6): the floor used to sit 4 below
+  // the suite's own actual count (25 vs 29 emitted), which was loose enough
+  // to lose an entire group — both AC-4 checks, the AC-6 positive and the
+  // AC-5 summary check together — without this assertion ever going red.
+  // The floor is now set to the suite's exact current count (53, after the
+  // F1/F2 review-fix additions: shidduchim/resumes/redts fixture rows,
+  // existence controls, runtime denials and mutation-proofs; the F2
+  // contract-shape block; and the relrowsecurity/policy-presence guards
+  // near AC-7), so any future silent drop is caught immediately rather than
+  // hiding inside slack.
+  it("runs every sanity, existence-control, AC-1 through AC-7, F1/F2 review-fix, and mutation-proof check", () => {
+    expect(checks.length).toBeGreaterThanOrEqual(53);
   });
 
   for (const check of checks) {
