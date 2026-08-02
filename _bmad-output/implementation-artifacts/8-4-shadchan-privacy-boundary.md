@@ -1,6 +1,10 @@
+---
+baseline_commit: 96e8971f3ada5ac1cf0558b88360601d15ded533
+---
+
 # Story 8.4: The shadchan's privacy boundary
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -60,15 +64,15 @@ add one CI check that keeps a future policy from accidentally widening it.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Fixture: two households, two shadchanim, one shared household** (AC: 1–6)
-  - [ ] In the new test file (Task 2), arrange: household A with a single, a private note on one
+- [x] **Task 1 — Fixture: two households, two shadchanim, one shared household** (AC: 1–6)
+  - [x] In the new test file (Task 2), arrange: household A with a single, a private note on one
         of A's suggestions, a reference link with `what_they_said` filled in, a `date_records`
         row, and two accepted connections — A↔shadchan-S1 and A↔shadchan-S2. Use S1 to send one
         redt via `redt_via_connection()` (Story 8.3), producing one connection-scoped thread on
         connection 1.
 
-- [ ] **Task 2 — Negative-test suite** (AC: 1–6)
-  - [ ] New `supabase/tests/shadchan_privacy_boundary.sql` + `.test.ts`, same `results`/`ids`
+- [x] **Task 2 — Negative-test suite** (AC: 1–6)
+  - [x] New `supabase/tests/shadchan_privacy_boundary.sql` + `.test.ts`, same `results`/`ids`
         temp-table convention as `supabase/tests/references_entity.sql`. One assertion per AC:
         - AC-1: S1's client, `select` on `interactions` filtered to A's account → 0 rows.
         - AC-2: S1's client, `select what_they_said, conversation_log from reference_links` in
@@ -80,31 +84,58 @@ add one CI check that keeps a future policy from accidentally widening it.
         - AC-5: S1's client, `select` on `singles` and `singles_summary` in A's account → 0 rows.
         - AC-6 (positive): S1's client **can** read the thread on connection 1 it created via
           Story 8.3; S2's client cannot.
-  - [ ] Each assertion runs as the shadchan's own authenticated identity, exactly the way
+  - [x] Each assertion runs as the shadchan's own authenticated identity, exactly the way
         `references_entity.sql` switches identity mid-script: `set local role authenticated;
         set local request.jwt.claims = '{"sub":"<user uuid>","role":"authenticated"}';` —
         reuse that mechanism, do not invent a second one.
+  - [x] Went beyond the literal per-AC list where falsifiability required it (per this story's
+        own dispatch directive: "a privacy suite that passes against a broken policy is worse
+        than none"): context-resolution sanity checks (each denied caller's own session really
+        resolves to the account the fixture put there — "prove an unrelated failure still
+        fails"), existence + positive controls before every denial (the household itself can
+        read the real row — a denial test is also green when the fixture row was never
+        created), and a full mutation-proof pass (see below) for every negative AC.
 
-- [ ] **Task 3 — The `pg_policies` structural check** (AC: 7)
-  - [ ] Add to the same test file (or a small dedicated one,
-        `supabase/tests/shadchan_privacy_boundary.sql`, section 2): a query against
-        `pg_policies` for `tablename in ('interactions', 'reference_links', 'date_records',
-        'singles', 'shidduchim', 'resumes', 'redts')`, asserting `qual not ilike '%connection%'
-        and (with_check is null or with_check not ilike '%connection%')` for every row. This is
-        a cheap, durable regression guard: it fails loudly the day someone "helpfully" adds a
+- [x] **Task 3 — The `pg_policies` structural check** (AC: 7)
+  - [x] Added to `supabase/tests/shadchan_privacy_boundary.sql`: a query against `pg_policies`
+        for `tablename in ('interactions', 'reference_links', 'date_records', 'singles',
+        'shidduchim', 'resumes', 'redts')`, asserting `qual not ilike '%connection%' and
+        (with_check is null or with_check not ilike '%connection%')` for every row. This is a
+        cheap, durable regression guard: it fails loudly the day someone "helpfully" adds a
         connection-based read to one of these tables to make some future feature easier, which
         is exactly the mistake AD-20 exists to prevent.
 
-- [ ] **Task 4 — Audit, not implementation** (AC: all)
-  - [ ] Read every RLS policy on the seven tables in Task 3's list (`05_policies.sql`) once,
+- [x] **Task 4 — Audit, not implementation** (AC: all)
+  - [x] Read every RLS policy on the seven tables in Task 3's list (`05_policies.sql`) once,
         confirming each `USING`/`WITH CHECK` is `account_id = current_context_id()` — either
         alone (`reference_links`, `date_records`, `redts`, `singles`, `shidduchim`, `resumes`
         each carry their own `account_id` and are scoped by it directly) or combined with a
         visibility walk that stays inside the account (`interactions`' policy additionally
-        joins `reference_links` → `shidduchim` for parent visibility). If any policy already
-        deviates, that is a **finding to report**, not a silent fix folded into this story —
-        flag it and stop rather than quietly rewriting someone else's RLS as a side effect of
-        a verification story.
+        joins `reference_links` → `shidduchim` for parent visibility). **No deviation found** —
+        every one of the seven policies is exactly the shape Dev Notes predicted; nothing to
+        report, nothing fixed as a side effect of this verification story.
+
+- [x] **Task 5 — Mutation-proof every negative assertion, and the structural guard itself**
+      (added during dev, per the dispatch directive's falsifiability requirement — not a
+      separate AC, a method applied to AC-1 through AC-7)
+  - [x] For each of AC-1 (interactions), AC-2 (reference_links), AC-3 (date_records) and AC-5
+        (singles): captured the REAL policy verbatim from `pg_policy`
+        (`pg_get_expr(polqual/polwithcheck, polrelid)` — never re-typed, mirroring
+        `interactions_targets.sql`'s own precedent), swapped in a version that ALSO admits a
+        connection-based read (`exists (select 1 from connections where household_account_id =
+        account_id and shadchanus_account_id = current_context_id() and status = 'accepted')`
+        — the exact shape AD-20 forbids and Task 3's guard exists to catch), proved the denial
+        FLIPS to a leak under the mutated policy, restored the real policy verbatim, and proved
+        the denial is back. Same technique for AC-4/AC-6 against `threads`' own SELECT policy,
+        with a narrower and more realistic defect (admits ANY accepted connection rather than
+        THIS thread's own `connection_id`) — Epic 7's own suite already mutation-tests
+        `thread_is_readable()`'s internals; this proves only the integration AC-4 asserts.
+  - [x] Mutation-proved Task 3's own catalog guard: installed a temporary policy naming
+        "connection" on `redts` (untouched by every other check), proved the guard flips to
+        NOT-clean, dropped the probe, proved it returns to clean.
+  - [x] No assertion in this file uses `exception when others` — every check is a plain
+        RLS-filtered SELECT (rows disappear silently, nothing raises), so the "denial handler
+        that swallows an unrelated failure" hazard does not apply to this file's shape.
 
 ## Dev Notes
 
@@ -156,8 +187,67 @@ New: `supabase/tests/shadchan_privacy_boundary.sql` + `.test.ts` only. No other 
 
 ### Agent Model Used
 
+Claude (bmad-dev-story workflow, dispatched via the agent harness)
+
 ### Debug Log References
+
+- Ran the new suite directly with `psql` against local stack 2 (`STACK_ID=2`) during
+  development to catch a SQL bug before wiring the vitest runner: an aggregate-mixing error in
+  the AC-2 mutation-proof assertion (`count(*)` alongside a bare `what_they_said` reference with
+  no `GROUP BY`) — fixed by wrapping the column check in `bool_and(...)`. Re-ran 3x in a row to
+  confirm the suite is fully idempotent (rollback-based; no state or policy drift survives a
+  run) and confirmed via `pg_policies` that every one of the seven tables' real policies are
+  back to their `05_policies.sql`-declared shape after a run.
+- `make check-migration-safety` required starting stack 0's e2e Supabase separately (this
+  story's own `STACK_ID=2` doesn't host it); started, ran, stopped it — PASSED against the 4
+  pending migrations already on `main` before this story (none of them mine; this story adds no
+  migration).
+- Two of the four CI guard scripts (`check-suppressions.mjs`, `check-retired-names.mjs`) fail on
+  `main` as found, both against files this story does not touch
+  (`src/components/atomic-crm/root/adminRouteBuilders.tsx` and the
+  `src/components/atomic-crm` eslint-disable budget) — confirmed pre-existing via `git status`/
+  `git log` before making any change, out of this story's declared scope
+  (`supabase/tests/shadchan_privacy_boundary.{sql,test.ts}` only). Reported, not fixed.
 
 ### Completion Notes List
 
+- Implemented the full negative-test suite plus the falsifiability apparatus the dispatch
+  prompt requires on top of the story's literal task list: context-resolution sanity, existence
+  + positive controls, and a mutation-proof round trip (capture real policy → widen with a
+  connection-based leak clause → prove the denial flips → restore verbatim → prove the denial
+  returns) for every one of AC-1 through AC-5 plus AC-4's threads case, and for Task 3's own
+  `pg_policies` catalog guard (a temporary probe policy naming "connection" on `redts`).
+- Task 4's audit found **no deviation**: all seven tables in Task 3's list are scoped by
+  `account_id = current_context_id()` alone or (interactions only) that floor ANDed with an
+  intra-account visibility walk — never a connection predicate. Nothing to report beyond what
+  Dev Notes already predicted.
+- All 29 assertions pass; suite re-run 3x for idempotency, and separately through the real
+  vitest runner (30 tests — one floor-count test plus 29 named checks).
+- `make test STACK_ID=2` (2958/2958), `npx vitest run` against the already-running dev stack
+  (2958/2958 — same total, confirming the suite is stack-portable, not stack-2-specific),
+  `make typecheck`, `make lint` (includes prettier), `make build`, `supabase db diff --local`
+  (clean, run twice), and `make check-migration-safety` (PASSED) all green. Two of the four CI
+  guard scripts fail — both pre-existing on `main`, unrelated to this story's two files (see
+  Debug Log References).
+- No schema, migration, or application code touched — pure verification, exactly as scoped.
+
 ### File List
+
+- `supabase/tests/shadchan_privacy_boundary.sql` (new)
+- `supabase/tests/shadchan_privacy_boundary.test.ts` (new)
+
+## Change Log
+
+- Implemented all 4 tasks / all 7 ACs as pure verification — no schema, migration, or app code.
+  New `supabase/tests/shadchan_privacy_boundary.sql` (29 checks) + `.test.ts`. Fixture: household
+  A (single, a private note on a suggestion, a candid reference_link, a date_records row) with
+  two accepted connections to shadchanim S1/S2; S1 sends a real redt via Story 8.3's
+  `redt_via_connection()` to produce the one connection-scoped thread AC-4/AC-6 test. AC-1
+  through AC-5 each proven unreachable to the connected shadchan; AC-6 proven both positive (S1
+  reads its own thread) and negative (S2 cannot, reused from AC-4); AC-7 is a `pg_policies`
+  catalog guard across the seven FR113-named tables. Task 4's audit found no policy deviation.
+  Every negative assertion is mutation-proven in-suite (capture the real policy from `pg_policy`,
+  widen it with a connection-based leak clause, prove the leak, restore verbatim, prove the
+  denial returns) — including the AC-7 guard's own falsifiability, proven against a temporary
+  probe policy on `redts`. Plus context-resolution sanity and existence/positive controls
+  throughout, per the dispatch directive's falsifiability requirement. Status → review.
