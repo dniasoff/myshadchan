@@ -230,9 +230,30 @@ jobs:
         # live against a schema that failed to apply.
         needs: deploy-supabase
 
+        # `share` and `billing` are deliberately withheld from this matrix
+        # (worker-audit, 2026-08-02):
+        #   - share: the only worker with an R2 binding
+        #     (workers/share/wrangler.toml). Its own toml says `bucket_name` is
+        #     "illustrative — create the actual bucket", and this environment
+        #     has no Cloudflare credentials to confirm `myshadchan-media`
+        #     exists. An R2 binding pointed at a bucket that doesn't exist
+        #     fails `wrangler deploy`, and with the default `fail-fast`
+        #     strategy that cancels every other worker in this matrix AND
+        #     blocks `trigger-frontend` (which `needs: deploy-workers`) — a
+        #     missing bucket would silently take production frontend deploys
+        #     offline. Re-add once `wrangler r2 bucket create myshadchan-media`
+        #     is confirmed run (or the binding is dropped) by someone with
+        #     Cloudflare dashboard/CLI access.
+        #   - billing: publishes an unauthenticated POST /webhook on a public
+        #     workers.dev origin ahead of Story 12.4 (Stripe integration).
+        #     There is no Stripe SDK, no signature verification, and no DB
+        #     write yet — a real Stripe webhook would retry against a 501 for
+        #     days and then disable the endpoint. Re-add when 12.4 lands a
+        #     real handler and STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET are
+        #     provisioned.
         strategy:
             matrix:
-                worker: [ingest, parse, match, ai, share, cron, billing]
+                worker: [ingest, parse, match, ai, cron]
 
         env:
             CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

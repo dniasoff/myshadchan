@@ -3,10 +3,17 @@ main = "index.ts"
 compatibility_date = "2026-07-21"
 compatibility_flags = ["nodejs_compat"]
 
-# Provisional schedule (AD-13, "sweeps due/overdue") — tune once the reminders
-# epic (E7) defines real delivery windows.
-[triggers]
-crons = ["*/15 * * * *"]
+# [triggers] deliberately withheld (worker-audit, 2026-08-02): the schedule
+# below registers on `wrangler deploy` and starts firing within 15 minutes.
+# Story 12-2-reminder-delivery.md (Task 4/5: workers/shared/resend.ts,
+# workers/cron/sweepReminders.ts) owns the sweep mechanism and is unbuilt —
+# its AC-4 backfill must land BEFORE this trigger goes live, or the first
+# scheduled tick sweeps the 8 already-overdue tasks with no suppression in
+# place. Re-add as part of 12.2's wave, after the AC-4 backfill migration
+# ships. Provisional schedule for reference (AD-13, "sweeps due/overdue"):
+#
+# [triggers]
+# crons = ["*/15 * * * *"]
 
 # Secrets (set via `wrangler secret put <NAME> --config workers/cron/wrangler.toml`,
 # or the CI job in .github/workflows/deploy.yml): SUPABASE_URL,
