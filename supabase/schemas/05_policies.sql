@@ -1324,3 +1324,31 @@ create policy "Push subscriptions manageable by their own member" on public.push
               and am.user_id = auth.uid()
         )
     );
+
+-- =====================================================================
+-- MyShadchan — Shadchan Context (Epic 8 Story 8.2: consent-based connection)
+-- =====================================================================
+--
+-- FORCE ROW LEVEL SECURITY — Story 7.1's decision (its own FORCE block
+-- above), not re-decided here: `postgres`/`supabase_admin` both carry
+-- BYPASSRLS on this stack, so FORCE changes no behaviour for any SECURITY
+-- DEFINER function in this section (every one of them owned by `postgres`)
+-- — shipped anyway, same reasoning as every other Epic 7/8 table: a
+-- brand-new table, no legacy caller anywhere relying on owner-bypass.
+alter table public.connection_invites enable row level security;
+alter table public.connection_invites force row level security;
+
+-- connection_invites (AC-2, AC-6): ONE select policy — the issuer manages
+-- their own outstanding invites, exactly the scope create_connection_invite()/
+-- revoke_connection_invite() operate under. No insert/update/delete policy
+-- and no DML grant to `authenticated` at all (06_grants.sql): every write
+-- goes through this story's SECURITY DEFINER functions, so a client can
+-- never hand-craft an invite row with a chosen `expires_at` or `token_hash`
+-- — the same no-client-write posture 7.4 set for `connections`. The
+-- acceptor has NO select path here (AD-9's spirit: they authenticate via the
+-- token in the URL, never via a table read) — preview_connection_invite()
+-- is their one purpose-built read, SECURITY DEFINER, so it needs no policy
+-- of its own to serve them.
+create policy "Connection invites visible to their issuer" on public.connection_invites
+    for select to authenticated
+    using (inviter_account_id = public.current_context_id());

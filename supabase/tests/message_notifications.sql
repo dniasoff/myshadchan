@@ -85,8 +85,15 @@ returning id as household_account_id \gset
 insert into public.accounts (name, kind) values ('Notifications Test Shadchanus', 'shadchanus')
 returning id as shadchanus_account_id \gset
 
-insert into public.connections (household_account_id, shadchanus_account_id, status)
-values (:household_account_id, :shadchanus_account_id, 'accepted')
+-- Story 8.2 ALTERs connections to add `proposed_by_account_id bigint not
+-- null` — this fixture predates that story, so its own insert here is
+-- updated in place (that story's own text: "if any of its fixture inserts
+-- omit the new proposed_by_account_id, updating those inserts is in-scope
+-- for this story — fix them in place, do not fork the suite").
+-- household_account_id is an arbitrary-but-valid choice: this suite never
+-- exercises who proposed the connection, only that one exists.
+insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id)
+values (:household_account_id, :shadchanus_account_id, 'accepted', :household_account_id)
 returning id as connection_id \gset
 
 insert into public.account_members (account_id, user_id, role, status)

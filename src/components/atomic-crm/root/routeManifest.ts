@@ -4,6 +4,7 @@ import type { ResourceProps } from "ra-core";
 import { OAuthConsentPage } from "@/components/supabase/oauth-consent-page";
 
 import { BillingPage } from "../billing/BillingPage";
+import { ConnectionAccept } from "../connections/ConnectionAccept";
 import { ConnectionsPlaceholder } from "../connections/ConnectionsPlaceholder";
 import inbox from "../inbox";
 import { ShareTarget } from "../inbox/ShareTarget";
@@ -117,6 +118,20 @@ export const CUSTOM_ROUTES: CustomRouteEntry[] = [
   {
     path: ConnectionsPlaceholder.path,
     Component: ConnectionsPlaceholder,
+    surface: "both",
+    chrome: "shell",
+  },
+  // Story 8.2 (Task 6): the accept half of the consent workflow. Reachable
+  // regardless of the caller's active context kind — either side may be the
+  // acceptor, depending on who generated the invite (no `contextKind`,
+  // mirroring ConnectionsPlaceholder above). `chrome: "shell"`, not "bare"
+  // like `InviteAcceptance` — unlike that story's brand-new-user signup
+  // flow, accepting a connection requires an ALREADY-authenticated caller
+  // (Task 3's own grant note), so the ordinary authenticated app shell is
+  // the right chrome, not a pre-auth standalone page.
+  {
+    path: ConnectionAccept.path,
+    Component: ConnectionAccept,
     surface: "both",
     chrome: "shell",
   },

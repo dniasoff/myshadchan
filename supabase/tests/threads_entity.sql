@@ -137,8 +137,15 @@ returning id as tenant_b_shidduch_id \gset
 insert into public.accounts (name, kind) values ('Threads Test Shadchanus', 'shadchanus')
 returning id as shadchanus_account_id \gset
 
-insert into public.connections (household_account_id, shadchanus_account_id, status)
-values (:sibling_fixture_account_id, :shadchanus_account_id, 'accepted')
+-- Story 8.2 ALTERs connections to add `proposed_by_account_id bigint not
+-- null` — this fixture predates that story, so its inserts here are updated
+-- in place (that story's own text: "if any of its fixture inserts omit the
+-- new proposed_by_account_id, updating those inserts is in-scope for this
+-- story — fix them in place, do not fork the suite"). The household side is
+-- an arbitrary-but-valid choice: this suite never exercises who proposed
+-- the connection, only that one exists.
+insert into public.connections (household_account_id, shadchanus_account_id, status, proposed_by_account_id)
+values (:sibling_fixture_account_id, :shadchanus_account_id, 'accepted', :sibling_fixture_account_id)
 returning id as test_connection_id \gset
 
 insert into ids values
@@ -1159,8 +1166,10 @@ returning id as other_shadchan_member_id \gset
 insert into public.accounts (name, kind) values ('Threads Ended Connection Shadchanus', 'shadchanus')
 returning id as ended_connection_shadchanus_account_id \gset
 
-insert into public.connections (household_account_id, shadchanus_account_id, status, ended_at)
-values (:sibling_fixture_account_id, :ended_connection_shadchanus_account_id, 'ended', now())
+-- Story 8.2: same proposed_by_account_id backfill note as this file's other
+-- connections insert above.
+insert into public.connections (household_account_id, shadchanus_account_id, status, ended_at, proposed_by_account_id)
+values (:sibling_fixture_account_id, :ended_connection_shadchanus_account_id, 'ended', now(), :sibling_fixture_account_id)
 returning id as ended_connection_id \gset
 
 insert into public.shidduchim (account_id, single_id, name_en, pipeline_state, visibility)

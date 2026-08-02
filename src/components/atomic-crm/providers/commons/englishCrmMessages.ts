@@ -371,6 +371,22 @@ export const englishCrmMessages = {
       invites_status_expired: "Expired",
       invites_revoke: "Revoke",
       invites_revoke_error: "Couldn't revoke that invite. Try again.",
+      // Story 8.2: the consent-based connection workflow's Settings section
+      // (ConnectionSection.tsx) — branches on the active context's kind, so
+      // both the household and shadchan copy live under the same
+      // connection_* namespace rather than two parallel ones.
+      connection_title: "Connection",
+      connection_household_description:
+        "Connect with your family's shadchan so they can see your children's suggestions and redt directly.",
+      connection_shadchan_description:
+        "Connect with a family so you can see their shidduchim and redt directly.",
+      connection_connect_shadchan: "Connect with a shadchan",
+      connection_connect_family: "Connect with a family",
+      connection_generate_error: "Couldn't create that invite link. Try again.",
+      connection_end_button: "End connection",
+      connection_end_error: "Couldn't end that connection. Try again.",
+      connection_active_status: "Connected",
+      connection_ended_status: "Connection ended",
       reset_defaults: "Reset to Defaults",
       save_error: "Failed to save configuration",
       saved: "Configuration saved successfully",
@@ -915,6 +931,20 @@ export const englishCrmMessages = {
       empty_title: "Connections are coming soon",
       empty_description:
         "This release lays the groundwork — inviting and connecting with a family arrives in a future update.",
+    },
+    // Story 8.2 (Task 6): the accept screen at /connect/:token, reached by
+    // an ALREADY-authenticated user — see ConnectionAccept.tsx's own
+    // header comment for why this differs from login/InviteAcceptance's
+    // four distinct unavailable-invite messages (preview_connection_invite()
+    // folds every non-open state into one empty result).
+    connection_accept: {
+      title: "Connect with %{name}",
+      description: "%{name} would like to connect with you on MyShadchan.",
+      accept_button: "Accept",
+      invalid_title: "This invite link isn't valid",
+      invalid_description:
+        "It may have expired, already been used, or been revoked. Ask the person who sent it for a new one.",
+      error: "Couldn't accept that invite. Try again.",
     },
   },
 } as const;

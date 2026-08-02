@@ -27,6 +27,10 @@
       "description": "Bare fossil resource/column names from the Atomic CRM fork (contacts, companies, deals, tags, ...). Lifted verbatim from Story 1.1's AC-14 word-boundary grep.",
       "regex": "\\b(?:contacts|contact_notes|contact_id|contact_ids|companies|company_id|company_name|companies_summary|contacts_summary|nb_contacts|deals|deal_notes|deal_id|nb_deals|tags|favicons_excluded_domains|merge_contacts|activity_log|position_at_company)\\b",
       "flags": "",
+      "exempt": ["location, contacts, responsiveness"],
+      "exemptReasons": {
+        "location, contacts, responsiveness": "public.shadchanim.contacts is a genuine MyShadchan column (a shadchan's own phone/email, jsonb, 01_tables.sql — that file carries the same word and is already in exactFileAllowlist above) — not the fork's retired contacts table. Story 8.2's column-list grant on 06_grants.sql has to spell the column by name; the phrase is specific to that grant's own column list so it cannot mask an unrelated fossil sharing a line with it."
+      },
       "exampleFragments": ["compan", "ies"]
     },
     {

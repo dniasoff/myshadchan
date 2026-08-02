@@ -12,6 +12,7 @@ import type {
   AddSchoolInput,
   AiEntitlementInfo,
   Connection,
+  ConnectionInvitePreview,
   CreateShidduchInput,
   CreateThreadInput,
   EntityFile,
@@ -93,6 +94,13 @@ import { addPersona, getMyPersonas } from "./internal/personas";
 import { removePersona } from "./internal/removePersona";
 import { getMyContexts, switchActiveContext } from "./internal/contexts";
 import { createInvite, revokeInvite } from "./internal/invites";
+import {
+  acceptConnectionInvite,
+  createConnectionInvite,
+  endConnection,
+  previewConnectionInvite,
+  revokeConnectionInvite,
+} from "./internal/connections";
 import {
   createMessage,
   createThread,
@@ -1225,6 +1233,44 @@ export const createDataProvider = ({
       ),
     revokeInvite: (id: Identifier): Promise<void> =>
       revokeInvite(baseDataProvider, getIdentity, () => activeAccountId, id),
+    // ---------------------------------------------------------------------
+    // Consent-based connection (Story 8.2) -- FakeRest mirrors of
+    // ./internal/connections.ts, unlike getInvitePreview/acceptInvite above:
+    // this flow needs only an already-authenticated, opposite-kind active
+    // context, not the OTP/signup step FakeRest has never emulated, so it
+    // is fully exercised here rather than stubbed.
+    // ---------------------------------------------------------------------
+    createConnectionInvite: (): Promise<string> =>
+      createConnectionInvite(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId,
+      ),
+    revokeConnectionInvite: (id: Identifier): Promise<void> =>
+      revokeConnectionInvite(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId,
+        id,
+      ),
+    previewConnectionInvite: (
+      token: string,
+    ): Promise<ConnectionInvitePreview | null> =>
+      previewConnectionInvite(baseDataProvider, getIdentity, token),
+    acceptConnectionInvite: (token: string): Promise<Connection> =>
+      acceptConnectionInvite(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId,
+        token,
+      ),
+    endConnection: (connectionId: Identifier): Promise<Connection> =>
+      endConnection(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId,
+        connectionId,
+      ),
     // ---------------------------------------------------------------------
     // Files tab (Story 3.7) -- FakeRest mirrors of
     // providers/supabase/entityFiles.ts, backed by ./internal/entityFiles.ts.

@@ -294,6 +294,11 @@ export const generateShidduchimDomain = (db: Db) => {
       shadchanus_account_id: SHADCHANUS_ACCOUNT_ID,
       status: "accepted",
       ended_at: null,
+      // Story 8.2: an arbitrary-but-valid choice — the demo build never
+      // exercises who proposed this seeded connection, only that it exists.
+      proposed_by_account_id: ACCOUNT_ID,
+      accepted_at: "2026-01-01T00:00:00.000Z",
+      ended_by_account_id: null,
       created_at: "2026-01-01T00:00:00.000Z",
     },
   ];

@@ -102,6 +102,9 @@ function seedConnectionFixture(db: Db): void {
       shadchanus_account_id: SHADCHANUS_ACCOUNT_ID,
       status: "accepted",
       ended_at: null,
+      proposed_by_account_id: HOUSEHOLD_ACCOUNT_ID,
+      accepted_at: "2026-01-01T00:00:00Z",
+      ended_by_account_id: null,
       created_at: "2026-01-01T00:00:00Z",
     },
   ];

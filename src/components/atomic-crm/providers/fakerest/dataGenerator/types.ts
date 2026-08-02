@@ -2,6 +2,7 @@ import type {
   Account,
   AccountMember,
   Connection,
+  ConnectionInvite,
   DateRecord,
   EntityFile,
   InboxItem,
@@ -77,6 +78,10 @@ export interface Db {
   // has no storage object or soft-hide to broker). `connections` has NO
   // client write path at all (AC-6), matching invites/entity_files above.
   connections: Connection[];
+  // Story 8.2 — seeded empty; every real row is written only through
+  // createConnectionInvite()/revokeConnectionInvite() (never a raw
+  // dataProvider.create/update), same as invites above.
+  connection_invites: ConnectionInvite[];
   threads: Thread[];
   thread_participants: ThreadParticipant[];
   messages: Message[];

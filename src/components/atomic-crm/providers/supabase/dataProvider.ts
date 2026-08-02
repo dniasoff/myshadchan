@@ -10,6 +10,8 @@ import type {
   AddRedtInput,
   AddSchoolInput,
   AiEntitlementInfo,
+  Connection,
+  ConnectionInvitePreview,
   CreateShidduchInput,
   CreateThreadInput,
   EntityFile,
@@ -201,6 +203,83 @@ const markThreadReadViaRpc = async (
   return (row ?? null) as ThreadParticipant | null;
 };
 
+// Story 8.2 (AC-1, AC-2): the five consent-workflow RPC wrappers — same
+// shape as createShidduchViaRpc/createThreadViaRpc above (destructure
+// `{ data, error }`, log+throw on error). Every write on connections/
+// connection_invites goes through one of these SECURITY DEFINER functions
+// (02_functions.sql); the client has no other path (06_grants.sql).
+const createConnectionInviteViaRpc = async (): Promise<string> => {
+  const { data, error } = await getSupabaseClient().rpc(
+    "create_connection_invite",
+  );
+  if (error) {
+    console.error("createConnectionInvite.error", error);
+    throw new Error(error.message || "Failed to create that invite link");
+  }
+  return data as string;
+};
+
+const revokeConnectionInviteViaRpc = async (
+  inviteId: Identifier,
+): Promise<void> => {
+  const { error } = await getSupabaseClient().rpc("revoke_connection_invite", {
+    p_invite_id: inviteId,
+  });
+  if (error) {
+    console.error("revokeConnectionInvite.error", error);
+    throw new Error(error.message || "Failed to revoke that invite");
+  }
+};
+
+// Read-only (Task 3): the acceptor has no SELECT path to connection_invites,
+// so this is the one purpose-built read letting the accept screen show who
+// is inviting before the user commits. Resolves to null for an unknown,
+// expired or already-consumed token — never an error — mirroring
+// getInvitePreview's own null-for-not-found shape above.
+const previewConnectionInviteViaRpc = async (
+  token: string,
+): Promise<ConnectionInvitePreview | null> => {
+  const { data, error } = await getSupabaseClient().rpc(
+    "preview_connection_invite",
+    { p_token: token },
+  );
+  if (error) {
+    console.error("previewConnectionInvite.error", error);
+    throw new Error("Failed to look up this invite");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return (row ?? null) as ConnectionInvitePreview | null;
+};
+
+const acceptConnectionInviteViaRpc = async (
+  token: string,
+): Promise<Connection> => {
+  const { data, error } = await getSupabaseClient().rpc(
+    "accept_connection_invite",
+    { p_token: token },
+  );
+  if (error) {
+    console.error("acceptConnectionInvite.error", error);
+    throw new Error(error.message || "Failed to accept that invite");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return row as Connection;
+};
+
+const endConnectionViaRpc = async (
+  connectionId: Identifier,
+): Promise<Connection> => {
+  const { data, error } = await getSupabaseClient().rpc("end_connection", {
+    p_connection_id: connectionId,
+  });
+  if (error) {
+    console.error("endConnection.error", error);
+    throw new Error(error.message || "Failed to end that connection");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return row as Connection;
+};
+
 // Exported for `dataProviderReads.test.ts`: the read redirects below are now a
 // privilege requirement, not only an AD-10 convention, so the test exercises
 // what ships rather than a re-implementation of it.
@@ -302,6 +381,12 @@ export const getDataProviderWithCustomMethods = () => {
     setThreadVisibility: setThreadVisibilityViaRpc,
     // Story 7.5 (AC-1, AC-2) — see markThreadReadViaRpc above.
     markThreadRead: markThreadReadViaRpc,
+    // Story 8.2 (AC-1, AC-2, AC-3) — see the five wrappers above.
+    createConnectionInvite: createConnectionInviteViaRpc,
+    revokeConnectionInvite: revokeConnectionInviteViaRpc,
+    previewConnectionInvite: previewConnectionInviteViaRpc,
+    acceptConnectionInvite: acceptConnectionInviteViaRpc,
+    endConnection: endConnectionViaRpc,
     // Story 7.3 (Task 4): "who am I" in the ACTIVE context's
     // `account_members.id` space — the id `thread_participants.member_id`
     // is keyed on, and a DIFFERENT id space from `getIdentity().id`

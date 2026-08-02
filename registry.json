@@ -436,6 +436,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/settings/ConnectionSection.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/settings/CommunicationSection.tsx",
           "type": "registry:component"
         },
@@ -777,6 +781,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/internal/contexts.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/connections.ts",
           "type": "registry:component"
         },
         {
@@ -1309,6 +1317,10 @@
         },
         {
           "path": "src/components/atomic-crm/connections/ConnectionsPlaceholder.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/connections/ConnectionAccept.tsx",
           "type": "registry:component"
         },
         {

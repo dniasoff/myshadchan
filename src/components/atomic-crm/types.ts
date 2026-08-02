@@ -245,6 +245,12 @@ export type Shadchan = {
   location?: string | null;
   contacts?: unknown;
   responsiveness?: string | null;
+  /** Story 8.2 (AC-1): set only by `accept_connection_invite()`, never
+   * client-writable (06_grants.sql narrows this table's insert/update
+   * grants to a column list that omits it) — links this book entry to the
+   * `connections` row the household's consent created. Null for a
+   * hand-entered shadchan the household has never connected with. */
+  connection_id?: Identifier | null;
   created_at: string;
 } & Pick<RaRecord, "id">;
 
@@ -897,16 +903,65 @@ export type ThreadVisibility = "open" | "private";
 /**
  * A connection (AD-20): a THIRD scope, owned by neither the household nor
  * the shadchanus account — the FK target `Thread.connection_id` points at
- * when a thread is not account-scoped. Read-only to the SPA in this story;
- * the consent workflow (propose/accept/end) is Epic 8.
+ * when a thread is not account-scoped.
+ *
+ * Story 8.2 adds `proposed_by_account_id`/`accepted_at`/`ended_by_account_id`
+ * — the consent workflow's own audit columns, ALTERed onto 7.4's table
+ * (never re-declared). The row itself is still written only by this story's
+ * `SECURITY DEFINER` functions (`accept_connection_invite()`,
+ * `end_connection()`) — there is still no client INSERT/UPDATE grant on
+ * `connections` (06_grants.sql).
  */
 export type Connection = {
   household_account_id: Identifier;
   shadchanus_account_id: Identifier;
   status: "accepted" | "ended";
   ended_at?: string | null;
+  /** Which account's invite was accepted to create this row — always one of
+   * the two ids above. Never client-writable; set once, at creation, by
+   * `accept_connection_invite()`. */
+  proposed_by_account_id: Identifier;
+  accepted_at?: string | null;
+  /** Set by `end_connection()` — which account's active member ended it.
+   * Null until the connection is ended. */
+  ended_by_account_id?: Identifier | null;
   created_at: string;
 } & Pick<RaRecord, "id">;
+
+/**
+ * Story 8.2 (AC-1, AC-2, FR109/AD-11): a proposed-not-yet-accepted
+ * connection — a sibling table to Epic 2's household-membership `invites`,
+ * not a shared row in it (see the story's Dev Notes, "Why a sibling table,
+ * not a shared one"). `token_hash` is a SHA-256 hex digest — the raw token
+ * is returned once, from `create_connection_invite()`, and never persisted
+ * in plaintext; this type exists for shape-completeness (e.g. the issuer's
+ * own read of their outstanding invites) and no UI ever renders this field.
+ */
+export type ConnectionInvite = {
+  inviter_account_id: Identifier;
+  inviter_kind: "household" | "shadchanus";
+  token_hash: string;
+  status: "pending" | "accepted" | "revoked" | "expired";
+  expires_at: string;
+  accepted_by_account_id?: Identifier | null;
+  accepted_at?: string | null;
+  revoked_at?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
+ * `public.preview_connection_invite()`'s return shape (Story 8.2, Task 3):
+ * the one purpose-built read letting the accept screen show "You've been
+ * invited by The Klein Family" before the acceptor commits. Never the
+ * token, the row's id, or either account's other data — mirrors
+ * `InvitePreview`'s same narrow shape for the membership-invite flow.
+ */
+export type ConnectionInvitePreview = {
+  inviter_name: string;
+  inviter_kind: "household" | "shadchanus";
+  status: "pending" | "accepted" | "revoked" | "expired";
+  expires_at: string;
+};
 
 /**
  * Story 7.1 (AC-1, AC-3, AC-5): a structured, subject-scoped conversation.

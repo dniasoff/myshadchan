@@ -4223,3 +4223,238 @@ begin
   delete from public.push_subscriptions where endpoint = p_endpoint;
 end;
 $$;
+
+-- =====================================================================
+-- MyShadchan — Shadchan Context (Epic 8 Story 8.2: consent-based connection)
+-- =====================================================================
+--
+-- 7.4 shipped `connections` read-only to `authenticated` — no INSERT/UPDATE
+-- grant, no write policy — precisely so a client cannot self-grant a
+-- connection (that story's own Dev Notes walk the attack). This story keeps
+-- that posture and extends it to `connection_invites`: a SECURITY INVOKER
+-- function cannot write either table (refused at the grant, before RLS is
+-- even consulted), so every writer below is SECURITY DEFINER with an
+-- explicit active-membership check, following the handle_new_user()/
+-- accept_invite() precedent above. accept_connection_invite() additionally
+-- writes a shadchanim row into the HOUSEHOLD's account while the acceptor
+-- may be the shadchan — a cross-account write only a definer function can
+-- make.
+
+-- Story 8.2 (AC-1, AC-2): starts the consent workflow. Caller must be an
+-- active member of their own current context — either kind: a shadchanus
+-- account invites a household exactly the same way a household invites a
+-- shadchan. Returns the RAW token once; only its SHA-256 digest is ever
+-- stored (01_tables.sql's own comment on connection_invites explains why —
+-- unlike Story 2.7's stored-raw-uuid invites.token, a connection invite
+-- crosses the tenant boundary, so a read of this table must never yield a
+-- usable token).
+CREATE OR REPLACE FUNCTION "public"."create_connection_invite"() RETURNS text
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_kind text;
+  v_token text;
+begin
+  if v_account_id is null or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_account_id and am.user_id = auth.uid() and am.status = 'active'
+  ) then
+    raise exception 'create_connection_invite requires an active membership of the current context'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  select kind into v_kind from public.accounts where id = v_account_id;
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
+
+  insert into public.connection_invites (
+    inviter_account_id, inviter_kind, token_hash, expires_at
+  ) values (
+    v_account_id, v_kind,
+    encode(extensions.digest(v_token, 'sha256'), 'hex'),
+    now() + interval '7 days'
+  );
+
+  return v_token;
+end;
+$$;
+
+-- Story 8.2 (AC-2, AC-6): withdraws an outstanding invite before it is
+-- accepted. Caller must be an active member of the INVITING account — the
+-- same scope the invite's own SELECT policy uses (05_policies.sql), so a
+-- non-issuer sees "not found", never a distinct "not yours" error — mirrors
+-- revoke_invite()'s own account-boundary shape (Story 2.8) above.
+CREATE OR REPLACE FUNCTION "public"."revoke_connection_invite"("p_invite_id" bigint) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_invite public.connection_invites;
+begin
+  select * into v_invite from public.connection_invites where id = p_invite_id;
+
+  if not found or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_invite.inviter_account_id and am.user_id = auth.uid() and am.status = 'active'
+  ) then
+    raise exception 'connection invite % not found', p_invite_id;
+  end if;
+
+  if v_invite.status <> 'pending' then
+    raise exception 'connection invite % is not pending (status %)', p_invite_id, v_invite.status
+      using errcode = 'check_violation';
+  end if;
+
+  update public.connection_invites
+  set status = 'revoked', revoked_at = now()
+  where id = p_invite_id;
+end;
+$$;
+
+-- Story 8.2 (Task 3): the acceptor has no SELECT path to connection_invites
+-- at all (05_policies.sql scopes reads to the issuer only), so this is the
+-- one purpose-built read letting the accept screen show "You've been
+-- invited by The Klein Family" before the user commits. Returns an EMPTY
+-- SET — never an error, never a row — for an unknown, expired or
+-- already-consumed token: mirrors get_invite_preview()'s enumeration-safety
+-- intent (2.7), but stricter — even "found but unusable" folds into "not
+-- open" rather than surfacing a computed status a caller could probe with.
+-- Requires only an authenticated caller (the grant, 06_grants.sql) — no
+-- active-membership check of its own, since the accept step right after
+-- this one is what actually needs one.
+CREATE OR REPLACE FUNCTION "public"."preview_connection_invite"("p_token" text) RETURNS TABLE("inviter_name" text, "inviter_kind" text, "status" text, "expires_at" timestamp with time zone)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select a.name, ci.inviter_kind, ci.status, ci.expires_at
+  from public.connection_invites ci
+  join public.accounts a on a.id = ci.inviter_account_id
+  where ci.token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex')
+    and ci.status = 'pending'
+    and ci.expires_at > now();
+$$;
+
+-- Story 8.2 (AC-1, AC-3, AC-4, AC-6): the one place a `connections` row is
+-- ever created. Steps mirror the story's own numbered spec exactly:
+--   1. resolve + lock the invite (must be pending, unexpired) — the row
+--      lock plus the re-checked status on the UPDATE at the bottom closes
+--      the double-accept race (AC-6 idempotency), the same shape
+--      accept_invite()'s own comment (above) explains for 2.7's invites.
+--   2. the caller's active context must be the OPPOSITE kind (AC-4) — a
+--      household can only ever connect to a shadchanus context, never
+--      another household (or vice versa).
+--   3. resolve which id is which side.
+--   4. insert the connections row.
+--   5. insert the household's own book entry — what makes the shadchan
+--      appear in Shadchan 360 (Story 5.9) from the moment of connecting.
+--   6. burn the invite.
+CREATE OR REPLACE FUNCTION "public"."accept_connection_invite"("p_token" text) RETURNS public.connections
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_invite public.connection_invites;
+  v_acceptor_account_id bigint := public.current_context_id();
+  v_acceptor_kind text;
+  v_household_account_id bigint;
+  v_shadchanus_account_id bigint;
+  v_shadchanus_name text;
+  v_connection public.connections;
+begin
+  select * into v_invite
+  from public.connection_invites
+  where token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex')
+  for update;
+
+  if not found or v_invite.status <> 'pending' or v_invite.expires_at <= now() then
+    raise exception 'This connection invite is invalid, expired, or has already been used.'
+      using errcode = 'check_violation';
+  end if;
+
+  if v_acceptor_account_id is null or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_acceptor_account_id and am.user_id = auth.uid() and am.status = 'active'
+  ) then
+    raise exception 'accept_connection_invite requires an active membership of the current context'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  select kind into v_acceptor_kind from public.accounts where id = v_acceptor_account_id;
+
+  if v_acceptor_kind = v_invite.inviter_kind then
+    raise exception 'a connection links a household and a shadchanus context, not two of the same kind'
+      using errcode = 'check_violation';
+  end if;
+
+  if v_acceptor_kind = 'household' then
+    v_household_account_id := v_acceptor_account_id;
+    v_shadchanus_account_id := v_invite.inviter_account_id;
+  else
+    v_household_account_id := v_invite.inviter_account_id;
+    v_shadchanus_account_id := v_acceptor_account_id;
+  end if;
+
+  insert into public.connections (
+    household_account_id, shadchanus_account_id, status,
+    proposed_by_account_id, accepted_at
+  ) values (
+    v_household_account_id, v_shadchanus_account_id, 'accepted',
+    v_invite.inviter_account_id, now()
+  )
+  returning * into v_connection;
+
+  select name into v_shadchanus_name from public.accounts where id = v_shadchanus_account_id;
+
+  insert into public.shadchanim (account_id, name, connection_id)
+  values (v_household_account_id, v_shadchanus_name, v_connection.id);
+
+  update public.connection_invites
+  set status = 'accepted', accepted_by_account_id = v_acceptor_account_id, accepted_at = now()
+  where id = v_invite.id;
+
+  return v_connection;
+end;
+$$;
+
+-- Story 8.2 (AC-3): either party ends an accepted connection. Immediate and
+-- irreversible for THIS row (this story's Dev Notes, "What ending does and
+-- does not do") — a later reconnection is a new invite/accept cycle
+-- producing a new row, which connections_live_pair_idx (01_tables.sql)
+-- permits once this one is ended. The membership check is deliberately an
+-- ACTIVE MEMBERSHIP of either party, not "is one of them my current active
+-- context" — the same "active member of <the account>" idiom every other
+-- writer in this section uses — while `ended_by_account_id` records the
+-- caller's actual current context, exactly as the story's own spec names
+-- both independently.
+CREATE OR REPLACE FUNCTION "public"."end_connection"("p_connection_id" bigint) RETURNS public.connections
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_connection public.connections;
+begin
+  select * into v_connection from public.connections where id = p_connection_id;
+
+  if not found or not exists (
+    select 1 from public.account_members am
+    where am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.account_id in (v_connection.household_account_id, v_connection.shadchanus_account_id)
+  ) then
+    raise exception 'connection % not found', p_connection_id;
+  end if;
+
+  if v_connection.status = 'ended' then
+    raise exception 'connection % has already ended', p_connection_id
+      using errcode = 'check_violation';
+  end if;
+
+  update public.connections
+  set status = 'ended', ended_at = now(), ended_by_account_id = public.current_context_id()
+  where id = p_connection_id
+  returning * into v_connection;
+
+  return v_connection;
+end;
+$$;

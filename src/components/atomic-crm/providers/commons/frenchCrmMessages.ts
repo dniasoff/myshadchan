@@ -352,6 +352,20 @@ export const frenchCrmMessages = {
       invites_revoke: "Révoquer",
       invites_revoke_error:
         "Impossible de révoquer cette invitation. Réessayez.",
+      connection_title: "Connexion",
+      connection_household_description:
+        "Connectez-vous avec le chadchan de votre famille pour qu'il puisse voir les propositions de vos enfants et les redt directement.",
+      connection_shadchan_description:
+        "Connectez-vous avec une famille pour voir directement ses shidduchim et ses redt.",
+      connection_connect_shadchan: "Se connecter avec un chadchan",
+      connection_connect_family: "Se connecter avec une famille",
+      connection_generate_error:
+        "Impossible de créer ce lien d'invitation. Réessayez.",
+      connection_end_button: "Mettre fin à la connexion",
+      connection_end_error:
+        "Impossible de mettre fin à cette connexion. Réessayez.",
+      connection_active_status: "Connecté",
+      connection_ended_status: "Connexion terminée",
       reset_defaults: "Réinitialiser aux valeurs par défaut",
       save_error: "Échec de l'enregistrement de la configuration",
       saved: "Configuration enregistrée avec succès",
@@ -804,6 +818,15 @@ export const frenchCrmMessages = {
       empty_title: "Les connexions arrivent bientôt",
       empty_description:
         "Cette version pose les bases — inviter une famille et se connecter avec elle arrivera dans une prochaine mise à jour.",
+    },
+    connection_accept: {
+      title: "Se connecter avec %{name}",
+      description: "%{name} souhaite se connecter avec vous sur MyShadchan.",
+      accept_button: "Accepter",
+      invalid_title: "Ce lien d'invitation n'est pas valide",
+      invalid_description:
+        "Il a peut-être expiré, déjà été utilisé, ou été révoqué. Demandez un nouveau lien à la personne qui vous l'a envoyé.",
+      error: "Impossible d'accepter cette invitation. Réessayez.",
     },
   },
 } satisfies CrmMessages;

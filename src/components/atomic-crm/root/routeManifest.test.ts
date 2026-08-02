@@ -324,6 +324,19 @@ describe("contextKind (Story 8.1, AC-3)", () => {
     expect(connections?.surface).toBe("both");
   });
 
+  it("registers /connect/:token as a real component route, unguarded by context kind (Story 8.2)", () => {
+    // Either side may be the acceptor, depending on who generated the
+    // invite — so unlike /reminders/inbox_items above, this route carries
+    // no contextKind (mirrors /connections' own unguarded posture).
+    const connectAccept = CUSTOM_ROUTES.find(
+      (route) => route.path === "/connect/:token",
+    );
+
+    expect(connectAccept).toBeDefined();
+    expect(connectAccept?.surface).toBe("both");
+    expect(connectAccept?.contextKind).toBeUndefined();
+  });
+
   it("sets contextKind: 'household' on the /share custom route (review F5)", () => {
     // /share files a household-domain inbox_items row and navigates to the
     // (already guarded) /inbox_items — it must be redirected before the

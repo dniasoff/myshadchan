@@ -30,6 +30,10 @@ export default (): Db => {
   // the one seeded row Story 7.4 (Task 6) needs to exercise the connection
   // axis in the demo build.
   db.connections = [];
+  // Story 8.2 — no invite is outstanding by default; the Settings
+  // "Connect with a shadchan"/"Connect with a family" actions' own
+  // createConnectionInvite()/revokeConnectionInvite() are the only writers.
+  db.connection_invites = [];
   db.threads = [];
   db.thread_participants = [];
   db.messages = [];

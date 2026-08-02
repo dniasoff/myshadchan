@@ -1086,3 +1086,66 @@ grant execute on function public.settle_message_notification(bigint, text, text)
 revoke all on function public.delete_push_subscription_by_endpoint(text) from public, anon, authenticated;
 grant execute on function public.delete_push_subscription_by_endpoint(text) to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Shadchan Context (Epic 8 Story 8.2: consent-based connection)
+-- ---------------------------------------------------------------------------
+
+-- connection_invites: SELECT-only for authenticated (scoped further by
+-- 05_policies.sql's own select policy to the issuer's own rows) — no DML
+-- grant at all, matching connections' own no-client-write posture (7.4).
+-- Every write goes through this story's SECURITY DEFINER functions below.
+revoke all on table public.connection_invites from anon, authenticated;
+grant select on table public.connection_invites to authenticated;
+grant all on table public.connection_invites to service_role;
+
+-- No `authenticated` sequence grant — `authenticated` cannot insert into
+-- connection_invites at all (no INSERT policy, no INSERT grant above),
+-- mirrors connections_id_seq/threads_id_seq above.
+revoke all on sequence public.connection_invites_id_seq from anon, authenticated;
+grant all on sequence public.connection_invites_id_seq to service_role;
+
+-- shadchanim.connection_id is set ONLY by accept_connection_invite()
+-- (SECURITY DEFINER) — never client-writable. A bare table-level grant
+-- would let a household self-link a shadchanim row to an arbitrary
+-- `connections` id it can already READ (7.4's select policy lets either
+-- party read a connection), forging a "connected" badge without ever going
+-- through consent. Column-list grants, the same idiom this file already
+-- uses for `interactions`/`accounts` above (`grant update (body, metadata,
+-- deleted_at) on public.interactions`, `grant update (name,
+-- transparency_level, data_region, default_thread_visibility) on
+-- public.accounts`): revoke the table-level INSERT/UPDATE the earlier
+-- "Shadchanim scoped to account" grant block issued, then re-grant on every
+-- column except connection_id. `id`/`created_at` need no INSERT grant —
+-- both have defaults, so omitting them from the column list is exactly
+-- right, not an oversight.
+revoke insert, update on table public.shadchanim from authenticated;
+grant insert (account_id, name, name_he, location, contacts, responsiveness)
+  on public.shadchanim to authenticated;
+grant update (name, name_he, location, contacts, responsiveness)
+  on public.shadchanim to authenticated;
+
+-- The five consent-workflow functions (Task 3). `authenticated` only —
+-- never `anon` (AD-1: the only anon-readable relation is Epic 9's future
+-- `listings`). Accepting requires already being logged in with the
+-- opposite-kind context active; there is no anonymous acceptance path in
+-- this phase.
+revoke all on function public.create_connection_invite() from public, anon;
+grant execute on function public.create_connection_invite() to authenticated;
+grant execute on function public.create_connection_invite() to service_role;
+
+revoke all on function public.revoke_connection_invite(bigint) from public, anon;
+grant execute on function public.revoke_connection_invite(bigint) to authenticated;
+grant execute on function public.revoke_connection_invite(bigint) to service_role;
+
+revoke all on function public.preview_connection_invite(text) from public, anon;
+grant execute on function public.preview_connection_invite(text) to authenticated;
+grant execute on function public.preview_connection_invite(text) to service_role;
+
+revoke all on function public.accept_connection_invite(text) from public, anon;
+grant execute on function public.accept_connection_invite(text) to authenticated;
+grant execute on function public.accept_connection_invite(text) to service_role;
+
+revoke all on function public.end_connection(bigint) from public, anon;
+grant execute on function public.end_connection(bigint) to authenticated;
+grant execute on function public.end_connection(bigint) to service_role;
+
