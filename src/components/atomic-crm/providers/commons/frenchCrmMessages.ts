@@ -292,6 +292,19 @@ export const frenchCrmMessages = {
       notes: {
         statuses: "Statuts",
       },
+      // Story 7.2: la posture par défaut du foyer pour la `visibility` d'une
+      // NOUVELLE conversation quand `create_thread()` est appelé sans
+      // argument explicite (AD-22 ; FR96/FR99) —
+      // settings/CommunicationSection.tsx.
+      communication: {
+        title: "Communication",
+        default_visibility: "Nouvelles conversations",
+        default_visibility_hint:
+          "Qui peut voir une nouvelle conversation par défaut",
+        visibility_open: "Ouvert — tout le foyer",
+        visibility_private: "Privé — uniquement les participants",
+        save_error: "Impossible d'enregistrer cela. Réessayez.",
+      },
       personas_title: "Profils",
       persona_add_error: "Impossible de configurer cela. Réessayez.",
       persona_remove_error_ask_admin:

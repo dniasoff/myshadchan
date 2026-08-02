@@ -256,6 +256,7 @@ export const generateShidduchimDomain = (db: Db) => {
       name: "Klein Family",
       transparency_level: "shared",
       kind: "household",
+      default_thread_visibility: "open",
       created_at: "2026-01-01T00:00:00.000Z",
     },
   ];

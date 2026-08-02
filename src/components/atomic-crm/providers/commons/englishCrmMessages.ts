@@ -302,6 +302,17 @@ export const englishCrmMessages = {
       notes: {
         statuses: "Statuses",
       },
+      // Story 7.2: the household's own default posture for a NEW thread's
+      // `visibility` when `create_thread()` is called without an explicit
+      // argument (AD-22; FR96/FR99) — settings/CommunicationSection.tsx.
+      communication: {
+        title: "Communication",
+        default_visibility: "New conversations",
+        default_visibility_hint: "Who can see a new conversation by default",
+        visibility_open: "Open — everyone in the household",
+        visibility_private: "Private — only participants",
+        save_error: "Couldn't save that. Try again.",
+      },
       // Story 2.5: the "add or remove a persona at any time" section.
       // persona_add_error is the generic add_persona() failure; the
       // persona_remove_error_* keys map 1:1 to remove_persona()'s specific

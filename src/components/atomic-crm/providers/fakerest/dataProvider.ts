@@ -6,6 +6,7 @@ import {
 import fakeRestDataProvider from "ra-data-fakerest";
 
 import type {
+  Account,
   AccountMember,
   AddRedtInput,
   AddSchoolInput,
@@ -904,8 +905,45 @@ export const createDataProvider = ({
     // Story 7.1 (AC-1, AC-2, AC-7) — FakeRest mirror of create_thread(). The
     // SOLE creation path for a thread and its initial participants; see
     // ./internal/threads.ts.
-    createThread: (input: CreateThreadInput): Promise<Thread> =>
-      createThread(baseDataProvider, getIdentity, () => activeAccountId, input),
+    //
+    // Story 7.2 (AC-3, AC-4): when the caller omits `visibility`, resolve it
+    // from the caller's OWN account's `default_thread_visibility` (AD-22;
+    // FR96/FR99) here, before delegating — the same resolution
+    // `create_thread()` does server-side (02_functions.sql), for AD-10
+    // parity in the demo build. An explicit `visibility` always wins and is
+    // forwarded unchanged. If identity or membership cannot be resolved,
+    // `resolvedInput` stays exactly `input` and `createThread()` below
+    // raises its own "requires a signed-in user" / "no active membership"
+    // error, same as before this story.
+    createThread: async (input: CreateThreadInput): Promise<Thread> => {
+      let resolvedInput = input;
+      if (input.visibility == null) {
+        const identity = await getIdentity();
+        const membership = identity
+          ? await resolveContextMembership(
+              baseDataProvider,
+              String(identity.id),
+              activeAccountId,
+            )
+          : null;
+        if (membership) {
+          const { data: account } = await baseDataProvider.getOne<Account>(
+            "accounts",
+            { id: membership.account_id },
+          );
+          resolvedInput = {
+            ...input,
+            visibility: account.default_thread_visibility,
+          };
+        }
+      }
+      return createThread(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId,
+        resolvedInput,
+      );
+    },
     // The SOLE writer of pipeline_state (AD-4 invariant 2) — FakeRest mirror of
     // transition_shidduch. Enforces the transitions-as-data graph with the same
     // optimistic-concurrency check as Postgres.

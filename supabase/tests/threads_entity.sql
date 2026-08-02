@@ -628,6 +628,151 @@ insert into results (name, passed)
 select 'AC-11 control: the SAME login, after switching active context to B, DOES read tenant B''s thread — proves filtering by the ACTIVE context, not by "is this user a member of the row''s account"',
        count(*) = 1 from public.threads where id = :tenant_b_thread;
 
+-- ---------------------------------------------------------------------------
+-- Story 7.2 (AC-1 through AC-6): accounts.default_thread_visibility — the
+-- household's own default posture for create_thread()'s resolution when
+-- p_visibility is omitted. A dedicated account + two members (a
+-- parent_admin and a single), independent of the sibling-household fixture
+-- above, so flipping THIS account's default and mutating its grant-covered
+-- column cannot interact with any assertion already run against
+-- sibling_fixture_account_id.
+-- ---------------------------------------------------------------------------
+reset role;
+
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('51810000-0000-0000-0000-000000000020', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'story72-parent@test.local'),
+  ('51810000-0000-0000-0000-000000000021', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'story72-single@test.local');
+
+insert into public.accounts (name, kind) values ('Story 7.2 Household', 'household')
+returning id as story72_account_id \gset
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:story72_account_id, '51810000-0000-0000-0000-000000000020', 'parent_admin', 'active')
+returning id as story72_parent_member_id \gset
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:story72_account_id, '51810000-0000-0000-0000-000000000021', 'single', 'active')
+returning id as story72_single_member_id \gset
+
+insert into public.singles (account_id, first_name_en, gender, member_id)
+values (:story72_account_id, 'Story72 Single', 'female', :story72_single_member_id)
+returning id as story72_single_id \gset
+
+insert into public.shidduchim (account_id, single_id, name_en, pipeline_state)
+values (:story72_account_id, :story72_single_id, 'Story 7.2 Suggestion', 'look_into')
+returning id as story72_shidduch_id \gset
+
+insert into ids values
+  ('story72_account_id', :story72_account_id),
+  ('story72_parent_member_id', :story72_parent_member_id),
+  ('story72_single_member_id', :story72_single_member_id),
+  ('story72_shidduch_id', :story72_shidduch_id);
+
+-- AC-1/AC-2: a fresh account defaults to 'open' — the column default itself,
+-- not something create_thread() backfills.
+insert into results (name, passed)
+select 'Story 7.2 AC-1/AC-2: a freshly created account defaults to default_thread_visibility = ''open''',
+       default_thread_visibility = 'open'
+from public.accounts where id = :story72_account_id;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000020","role":"authenticated"}';
+
+select (public.create_thread('shidduch', :story72_shidduch_id, array[]::bigint[], null)).id as story72_thread_default_open \gset
+insert into ids values ('story72_thread_default_open', :story72_thread_default_open);
+
+insert into results (name, passed)
+select 'Story 7.2 AC-3 (a): create_thread() with p_visibility omitted resolves to the account''s ''open'' default',
+       visibility = 'open'
+from public.threads where id = :story72_thread_default_open;
+
+-- Flip the account's default to 'private' — a SETTING, not a migration: must
+-- not rewrite the thread just created above under the OLD default.
+reset role;
+update public.accounts set default_thread_visibility = 'private' where id = :story72_account_id;
+
+insert into results (name, passed)
+select 'Story 7.2: flipping the account''s default does NOT retroactively rewrite a thread created under the OLD default',
+       visibility = 'open'
+from public.threads where id = :story72_thread_default_open;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000020","role":"authenticated"}';
+
+select (public.create_thread('shidduch', :story72_shidduch_id, array[]::bigint[], null)).id as story72_thread_default_private \gset
+insert into ids values ('story72_thread_default_private', :story72_thread_default_private);
+
+insert into results (name, passed)
+select 'Story 7.2 AC-3 (b): after flipping the account to ''private'', create_thread() with p_visibility omitted now resolves to ''private''',
+       visibility = 'private'
+from public.threads where id = :story72_thread_default_private;
+
+-- AC-4: an explicit p_visibility always wins — asserted on BOTH settings.
+select (public.create_thread('shidduch', :story72_shidduch_id, array[]::bigint[], 'open')).id as story72_thread_explicit_open \gset
+insert into ids values ('story72_thread_explicit_open', :story72_thread_explicit_open);
+
+insert into results (name, passed)
+select 'Story 7.2 AC-4 (c, setting 1): an explicit p_visibility=>''open'' wins over a ''private'' account default',
+       visibility = 'open'
+from public.threads where id = :story72_thread_explicit_open;
+
+reset role;
+update public.accounts set default_thread_visibility = 'open' where id = :story72_account_id;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000020","role":"authenticated"}';
+
+select (public.create_thread('shidduch', :story72_shidduch_id, array[]::bigint[], 'private')).id as story72_thread_explicit_private \gset
+insert into ids values ('story72_thread_explicit_private', :story72_thread_explicit_private);
+
+insert into results (name, passed)
+select 'Story 7.2 AC-4 (c, setting 2): an explicit p_visibility=>''private'' wins over an ''open'' account default',
+       visibility = 'private'
+from public.threads where id = :story72_thread_explicit_private;
+
+do $$
+declare
+  v_name constant text := 'Story 7.2: create_thread() still raises 23514 for an invalid EXPLICIT p_visibility rather than silently falling back to the account default';
+  v_shidduch bigint;
+begin
+  select value into v_shidduch from ids where name = 'story72_shidduch_id';
+  perform public.create_thread('shidduch', v_shidduch, array[]::bigint[], 'not-a-real-visibility');
+  insert into results values (v_name, false, 'call unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '23514', 'invalid thread visibility: %', sqlstate, sqlerrm);
+end $$;
+
+-- AC-6(d): the grant/RLS boundary on the SETTING itself (accounts.
+-- default_thread_visibility), not on create_thread(). A single-role
+-- member's UPDATE affects ZERO rows; the positive control (same statement,
+-- same row, parent_admin) affects exactly ONE. Without the control this
+-- assertion would be satisfied just as well by "nobody can write" — the
+-- exact state a missing column-level grant produced before this story's
+-- migration was hand-repaired (see the migration file's own header
+-- comment) — which is why the control is not optional.
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000021","role":"authenticated"}';
+
+with attempt as (
+  update public.accounts set default_thread_visibility = 'private'
+  where id = :story72_account_id
+  returning 1
+)
+insert into results (name, passed)
+select 'Story 7.2 AC-6(d): a single-role member''s UPDATE of default_thread_visibility affects ZERO rows',
+       count(*) = 0
+from attempt;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000020","role":"authenticated"}';
+
+with attempt as (
+  update public.accounts set default_thread_visibility = 'private'
+  where id = :story72_account_id
+  returning 1
+)
+insert into results (name, passed)
+select 'Story 7.2 AC-6(d) control: a parent_admin''s UPDATE of the SAME column, on the SAME row, affects exactly ONE row',
+       count(*) = 1
+from attempt;
+
 \t on
 \a
 select coalesce(json_agg(json_build_object('name', name, 'passed', passed, 'detail', detail) order by name), '[]'::json)

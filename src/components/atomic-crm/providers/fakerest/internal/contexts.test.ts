@@ -61,6 +61,7 @@ const account = (overrides: Partial<Account>): Account =>
     name: "The Klein Family",
     transparency_level: "shared",
     kind: "household",
+    default_thread_visibility: "open",
     created_at: "2026-01-01T00:00:00Z",
     ...overrides,
   }) as Account;

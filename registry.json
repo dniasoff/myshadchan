@@ -424,6 +424,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/settings/CommunicationSection.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/root/useMyPersonas.ts",
           "type": "registry:component"
         },

@@ -189,7 +189,22 @@ create table public.accounts (
     -- (02_functions.sql) is what makes the household/shadchanus split more than
     -- a label: a shadchanus-kind account can never hold a household domain row.
     kind text not null default 'household',
-    constraint accounts_kind_check check (kind in ('household', 'shadchanus'))
+    -- Story 7.2 (AC-1, AC-2): a household's own default posture for a new
+    -- thread's visibility (AD-22; FR96/FR99) — resolved by create_thread()
+    -- when p_visibility is omitted (02_functions.sql), never a ceiling or a
+    -- floor on an explicit argument. A GENUINELY NEW column, not a reuse of
+    -- `transparency_level` above: that column is a different, still-dormant
+    -- AD-3 concern with a three-value vocabulary (ShidduchVisibility) that
+    -- does not match a thread's two (Dev Notes, "Do not reuse
+    -- transparency_level"). Appended at the physical TAIL, after `kind` —
+    -- see the COLUMN-ORDER TRAP note at the top of this file; declaring it
+    -- anywhere else would put this file out of step with pg_attribute and
+    -- make `db diff` emit a permanent, non-convergent set of view drops.
+    default_thread_visibility text not null default 'open',
+    constraint accounts_kind_check check (kind in ('household', 'shadchanus')),
+    constraint accounts_default_thread_visibility_check check (
+        default_thread_visibility in ('open', 'private')
+    )
 );
 
 -- One membership+role model (AD-2). The `shadchan` role is reserved in

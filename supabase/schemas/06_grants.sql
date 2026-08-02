@@ -822,17 +822,26 @@ grant execute on function public.rehome_reference_interactions(bigint, bigint) t
 -- hardening block) covers every column, and a column-level revoke cannot
 -- subtract from a table-level grant. So revoke table-level UPDATE and re-grant
 -- UPDATE only on the mutable business columns — exactly the idiom used for
--- `interactions` above. Today the client updates only `name` (login/
--- FirstRunSetup.tsx); transparency_level/data_region are the account-config
--- columns a settings screen would edit. `demo` is deliberately omitted: it is
--- server-owned, written only by the seed_demo/clear_demo edge functions via
--- the service_role client, which bypasses these grants. id/created_at are
--- immutable. The five billing columns are thus unreachable by any client.
+-- `interactions` above. Today the client updates `name` (login/
+-- FirstRunSetup.tsx) and `default_thread_visibility` (Story 7.2,
+-- settings/CommunicationSection.tsx); transparency_level/data_region are the
+-- account-config columns a settings screen would edit. `demo` is
+-- deliberately omitted: it is server-owned, written only by the
+-- seed_demo/clear_demo edge functions via the service_role client, which
+-- bypasses these grants. id/created_at are immutable. The five billing
+-- columns are thus unreachable by any client.
+--
+-- Story 7.2 (AC-5): no new role-gating here — the shipped
+-- "Accounts writable by non-single members" RLS policy (05_policies.sql)
+-- already denies every `accounts` write to the `single` role, and every
+-- other role is already updatable via this same grant (Dev Notes, "Who may
+-- change the default posture").
 --
 -- anon already has ALL privileges revoked on accounts (above), so it holds no
 -- UPDATE to narrow.
 revoke update on table public.accounts from authenticated;
-grant update (name, transparency_level, data_region) on public.accounts to authenticated;
+grant update (name, transparency_level, data_region, default_thread_visibility)
+  on public.accounts to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Billing / AI entitlement (E4). subscription and ai_usage are the paid-tier

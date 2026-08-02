@@ -3643,8 +3643,18 @@ $$;
 --
 -- This story's signature has NO p_connection_id — that parameter and its
 -- validation are Story 7.4's; every thread this function creates today is
--- account-scoped, and `coalesce(p_visibility, 'open')` is the one
--- expression Story 7.2 changes, nothing else.
+-- account-scoped.
+--
+-- Story 7.2 (AC-3, AC-4): when p_visibility is omitted, the new thread's
+-- visibility resolves from the caller's OWN account's
+-- accounts.default_thread_visibility, not the literal 'open' this story
+-- shipped with — a household's Settings control
+-- (settings/CommunicationSection.tsx) changes what NEW threads get, never
+-- retroactively rewriting existing ones. An explicit p_visibility always
+-- wins over the account default (validated against p_visibility itself,
+-- BEFORE the coalesce, so an invalid explicit argument still raises rather
+-- than silently falling through to the account's — always-valid, per its
+-- own CHECK constraint — default).
 CREATE OR REPLACE FUNCTION "public"."create_thread"(
     "p_subject_type" text,
     "p_subject_id" bigint DEFAULT NULL,
@@ -3684,11 +3694,15 @@ begin
     raise exception 'shidduch % not found in current account', p_subject_id;
   end if;
 
-  v_visibility := coalesce(p_visibility, 'open');
-  if v_visibility not in ('open', 'private') then
-    raise exception 'invalid thread visibility: %', v_visibility
+  if p_visibility is not null and p_visibility not in ('open', 'private') then
+    raise exception 'invalid thread visibility: %', p_visibility
       using errcode = 'check_violation';
   end if;
+
+  v_visibility := coalesce(
+    p_visibility,
+    (select a.default_thread_visibility from public.accounts a where a.id = v_account_id)
+  );
 
   insert into public.threads (
     account_id, connection_id, subject_type, subject_id, visibility, created_by_member_id

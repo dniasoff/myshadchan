@@ -165,6 +165,13 @@ export type Account = {
    * `01_tables.sql`, backfilled by 2.2's migration — every row in the tree
    * has one. */
   kind: "household" | "shadchanus";
+  /** Story 7.2 (AC-1, AC-2): the household's own default for a new thread's
+   * `visibility` when `create_thread()` is called without an explicit
+   * `p_visibility` (AD-22; FR96/FR99) — `not null default 'open'` in
+   * `01_tables.sql`, backfilled for every pre-existing row by the same
+   * migration. A genuinely new field, not a reuse of `transparency_level`
+   * above (see that story's Dev Notes, "Do not reuse transparency_level"). */
+  default_thread_visibility: ThreadVisibility;
   created_at: string;
   demo?: boolean;
 } & Pick<RaRecord, "id">;

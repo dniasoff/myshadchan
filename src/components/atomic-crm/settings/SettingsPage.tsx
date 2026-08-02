@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/item";
 
 import { BillingPage } from "../billing/BillingPage";
+import { CommunicationSection } from "./CommunicationSection";
 import { FamilySection } from "./FamilySection";
 import { InvitesSection } from "./InvitesSection";
 import { PersonasSection } from "./PersonasSection";
@@ -65,6 +66,7 @@ export const SettingsPage = () => {
         </div>
 
         <div className="space-y-6">
+          <CommunicationSection />
           <PrivacySection />
 
           <div>
