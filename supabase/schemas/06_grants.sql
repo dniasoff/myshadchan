@@ -995,3 +995,13 @@ revoke all on function public.create_thread(text, bigint, bigint[], text) from p
 grant execute on function public.create_thread(text, bigint, bigint[], text) to authenticated;
 grant execute on function public.create_thread(text, bigint, bigint[], text) to service_role;
 
+-- Story 7.3: set_thread_visibility() is the SOLE write path for
+-- `threads.visibility` after creation — deliberately NO table-level UPDATE
+-- grant on `threads` for `authenticated` anywhere in this file (matches the
+-- "SELECT only, no INSERT" posture above). If `authenticated` ever gained
+-- UPDATE on `threads`, this RPC's own participant/readability checks would
+-- be one `dataProvider.update("threads", …)` away from bypassed.
+revoke all on function public.set_thread_visibility(bigint, text) from public, anon;
+grant execute on function public.set_thread_visibility(bigint, text) to authenticated;
+grant execute on function public.set_thread_visibility(bigint, text) to service_role;
+

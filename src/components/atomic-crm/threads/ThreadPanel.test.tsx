@@ -1,13 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
-import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+import { CoreAdminContext, TestMemoryRouter, useGetOne } from "ra-core";
 
 import { Notification } from "@/components/admin/notification";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import { createDataProvider } from "../providers/fakerest/dataProvider";
 import generateData from "../providers/fakerest/dataGenerator";
+import type { Thread } from "../types";
 import { ThreadPanel } from "./ThreadPanel";
+
+/**
+ * Story 7.3: production wires `ThreadPanel` to a `Thread` record supplied
+ * by `ThreadList`'s OWN `useGetList("threads", …)` — a live query, not a
+ * static object — so invalidating queries on success (Task 4) re-renders
+ * the panel with the UPDATED `visibility`. A test that hands `ThreadPanel`
+ * a plain, one-off object would never observe that: nothing re-fetches it.
+ * This harness reproduces the live-prop wiring with its own
+ * `useGetOne("threads", …)`, without pulling in the whole `ThreadList`.
+ */
+function ThreadPanelHarness({ threadId }: { threadId: number }) {
+  const { data: thread, isPending } = useGetOne<Thread>("threads", {
+    id: threadId,
+  });
+  if (isPending || !thread) return null;
+  return <ThreadPanel thread={thread} />;
+}
 
 // authProvider.getIdentity() resolves the DEFAULT_USER seed (members id 0,
 // i.e. account_members.user_id "0") unless a real login() call overrides
@@ -84,7 +102,7 @@ const renderPanel = async (
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <ThreadPanel threadId={1} />
+        <ThreadPanelHarness threadId={1} />
         <Notification />
       </CoreAdminContext>
     </TestMemoryRouter>,
@@ -209,5 +227,82 @@ describe("ThreadPanel — the composer (AC-4, AC-8)", () => {
     await expect
       .element(screen.getByRole("button", { name: "Send" }))
       .toBeDisabled();
+  });
+});
+
+describe("ThreadPanel — the privacy control (Story 7.3, Task 4)", () => {
+  it("is shown to a listed participant, on an open thread", async () => {
+    // Arrange — the caller IS the thread's listed participant.
+    const { screen } = await renderPanel((db) => seedThreadWithParticipant(db));
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "Make private" }))
+      .toBeInTheDocument();
+  });
+
+  it("is absent for a same-account NON-participant, on an open thread", async () => {
+    // Arrange — the thread's only participant is member 999, never the
+    // signed-in caller — same shape the composer's own AC-8 test uses.
+    const { screen } = await renderPanel((db) =>
+      seedThreadWithParticipant(db, 999),
+    );
+
+    // Assert — the thread itself is still readable (it is `open`), but no
+    // control is offered: `set_thread_visibility()` would refuse it.
+    await expect
+      .element(screen.getByText("No messages yet."))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Make private" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Make open" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("flipping to private updates the control without a page reload, and back again", async () => {
+    // Arrange
+    const { screen, dataProvider } = await renderPanel((db) =>
+      seedThreadWithParticipant(db),
+    );
+
+    // Act — lock it.
+    await screen.getByRole("button", { name: "Make private" }).click();
+
+    // Assert — the control now offers the OPPOSITE action, and the
+    // consequence copy changes with it (AC-4's round trip, observed
+    // through the DOM, no reload).
+    await expect
+      .element(screen.getByRole("button", { name: "Make open" }))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "Everyone in the household who can already see this discussion's topic will be able to read it.",
+        ),
+      )
+      .toBeInTheDocument();
+    const { data: afterLock } = await dataProvider.getList("threads", {
+      filter: { id: 1 },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(afterLock[0].visibility).toBe("private");
+
+    // Act — unlock it again (AC-4: 1 -> 0 -> 1 is the falsifiable shape;
+    // here, open -> private -> open for the SAME participant session).
+    await screen.getByRole("button", { name: "Make open" }).click();
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "Make private" }))
+      .toBeInTheDocument();
+    const { data: afterUnlock } = await dataProvider.getList("threads", {
+      filter: { id: 1 },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(afterUnlock[0].visibility).toBe("open");
   });
 });

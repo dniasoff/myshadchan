@@ -48,6 +48,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/threads/useCurrentMemberId.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/threads/index.ts",
           "type": "registry:component"
         },

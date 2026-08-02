@@ -748,6 +748,17 @@ export const frenchCrmMessages = {
         send: "Envoyer",
         sendError: "Échec de l'envoi du message",
       },
+      // Story 7.3 — voir la même note dans englishCrmMessages.ts.
+      visibility: {
+        lock: "Rendre privée",
+        lockDescription:
+          "Seules les personnes de cette discussion pourront la voir — invisible pour le reste du foyer.",
+        unlock: "Rendre ouverte",
+        unlockDescription:
+          "Toute personne du foyer pouvant déjà voir le sujet de cette discussion pourra la lire.",
+        updateError:
+          "Échec de la mise à jour de la confidentialité de cette discussion",
+      },
     },
     reminders: {
       outstandingCalls: {

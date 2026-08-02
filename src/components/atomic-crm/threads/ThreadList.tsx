@@ -112,6 +112,12 @@ export function ThreadList({
   });
 
   const activeId = selectedId ?? data?.[0]?.id ?? null;
+  // Story 7.3 (Task 4): the FULL thread record, not just its id — ThreadPanel
+  // needs `visibility` to render its lock control, and this list already
+  // has it loaded (no second `getOne("threads", …)` round trip inside the
+  // panel).
+  const activeThread =
+    data?.find((thread) => String(thread.id) === String(activeId)) ?? null;
 
   const handleStart = async () => {
     setIsStarting(true);
@@ -167,7 +173,7 @@ export function ThreadList({
         )}
       </div>
       <div className="min-w-0 flex-1">
-        {activeId != null ? <ThreadPanel threadId={activeId} /> : null}
+        {activeThread != null ? <ThreadPanel thread={activeThread} /> : null}
       </div>
     </div>
   );

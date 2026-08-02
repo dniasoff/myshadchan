@@ -36,6 +36,7 @@ import type {
   ShidduchCatch,
   ShidduchSchool,
   Thread,
+  ThreadVisibility,
 } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
@@ -143,6 +144,33 @@ const createThreadViaRpc = async (
   return row as Thread;
 };
 
+// Story 7.3 (AC-1, AC-4, AC-8): flips an EXISTING thread's visibility "by
+// agreement" (FR97) — any current thread_participants member, not only its
+// creator (Dev Notes, "Why any participant, not just the creator, can flip
+// visibility"). The RPC itself is the enforcement (readability +
+// participation, two distinct SQLSTATEs); this wrapper only shapes the call,
+// exactly like createThreadViaRpc above.
+const setThreadVisibilityViaRpc = async (
+  threadId: Identifier,
+  visibility: ThreadVisibility,
+): Promise<Thread> => {
+  const { data, error } = await getSupabaseClient().rpc(
+    "set_thread_visibility",
+    {
+      p_thread_id: threadId,
+      p_visibility: visibility,
+    },
+  );
+  if (error) {
+    console.error("setThreadVisibility.error", error);
+    throw new Error(
+      error.message || "Failed to update this discussion's privacy",
+    );
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return row as Thread;
+};
+
 // Exported for `dataProviderReads.test.ts`: the read redirects below are now a
 // privilege requirement, not only an AD-10 convention, so the test exercises
 // what ships rather than a re-implementation of it.
@@ -240,6 +268,28 @@ export const getDataProviderWithCustomMethods = () => {
     // and the triggers (set_message_defaults, set_thread_participant_
     // defaults) do the rest.
     createThread: createThreadViaRpc,
+    // Story 7.3 (AC-1) — see setThreadVisibilityViaRpc above.
+    setThreadVisibility: setThreadVisibilityViaRpc,
+    // Story 7.3 (Task 4): "who am I" in the ACTIVE context's
+    // `account_members.id` space — the id `thread_participants.member_id`
+    // is keyed on, and a DIFFERENT id space from `getIdentity().id`
+    // (`members.id`, ThreadPanel.tsx's own comment documents this trap for
+    // the composer). No existing primitive resolves this without a round
+    // trip; current_member_id() is exactly what the private branch of
+    // thread_is_readable() and set_thread_visibility() already call
+    // server-side, exposed here for the ONE client-side use that needs it:
+    // deriving whether the caller is a participant from the thread's
+    // already-loaded participant list, without re-deriving identity per
+    // thread (ThreadPanel.tsx caches this query).
+    async getCurrentMemberId(): Promise<Identifier | null> {
+      const { data, error } =
+        await getSupabaseClient().rpc("current_member_id");
+      if (error) {
+        console.error("current_member_id.error", error);
+        return null;
+      }
+      return (data ?? null) as Identifier | null;
+    },
     // The SOLE writer of pipeline_state (AD-4 invariant 2). Calls the
     // transition_shidduch RPC, which enforces the transitions-as-data graph.
     async transitionShidduch(

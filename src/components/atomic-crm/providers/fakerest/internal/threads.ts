@@ -129,8 +129,10 @@ export async function createThread(
 
 /** Shared "is this caller listed on this thread" check — the FakeRest
  * mirror of the `exists (select 1 from thread_participants …)` clause
- * inside both the messages and thread_participants INSERT policies. */
-async function isThreadParticipant(
+ * inside both the messages and thread_participants INSERT policies.
+ * Exported: `setThreadVisibility` below (Story 7.3) reuses it rather than
+ * re-deriving the same predicate a third way. */
+export async function isThreadParticipant(
   baseDataProvider: DataProvider,
   threadId: Identifier,
   memberId: Identifier,
@@ -270,4 +272,75 @@ export async function createThreadParticipant(
       },
     });
   return participant;
+}
+
+/**
+ * FakeRest mirror of `public.set_thread_visibility()` (Story 7.3, Task 3):
+ * "the FakeRest equivalent of the participant check, so the demo build does
+ * not offer a control that silently succeeds for everyone." Mirrors the
+ * real RPC's two refusals, in the same order:
+ *
+ *   1. an invalid `visibility` value.
+ *   2. the caller may not act on this thread — the real RPC folds
+ *      `thread_is_readable()` and "the caller is a listed participant" into
+ *      one requirement (02_functions.sql's own comment on
+ *      `set_thread_visibility()` explains why: for a `private` thread the
+ *      two are the same test by construction). FakeRest has no connection
+ *      axis reachable yet (createThread() never sets connection_id — Story
+ *      7.4's), so "found in the caller's own account" already stands in for
+ *      the whole readability requirement; there is no separate connection
+ *      branch to reproduce here.
+ *
+ * No visibility pre-check beyond "same account" mirrors the real RPC too:
+ * thread_is_readable()'s OWN private branch is exactly the participant
+ * check below, so a private thread's non-participant is caught by the
+ * SAME `isThreadParticipant` call the open case uses — one check serves
+ * both, just like the SQL.
+ */
+export async function setThreadVisibility(
+  baseDataProvider: DataProvider,
+  getIdentity: GetIdentity,
+  getActiveAccountId: () => Identifier | null,
+  threadId: Identifier,
+  visibility: ThreadVisibility,
+): Promise<Thread> {
+  if (!THREAD_VISIBILITIES.includes(visibility)) {
+    throw new Error(`invalid thread visibility: ${visibility}`);
+  }
+
+  const identity = await getIdentity();
+  if (identity == null) {
+    throw new Error(
+      "changing a discussion's privacy requires a signed-in user",
+    );
+  }
+  const userId = String(identity.id);
+  const membership = await resolveContextMembership(
+    baseDataProvider,
+    userId,
+    getActiveAccountId(),
+  );
+  if (!membership) {
+    throw new Error("no active membership to change this discussion's privacy");
+  }
+
+  const { data: thread } = await baseDataProvider.getOne<Thread>("threads", {
+    id: threadId,
+  });
+  if (!thread || String(thread.account_id) !== String(membership.account_id)) {
+    throw new Error(`thread ${threadId} not found in current account`);
+  }
+
+  if (!(await isThreadParticipant(baseDataProvider, threadId, membership.id))) {
+    throw new Error(
+      "only a listed participant of this thread may change its visibility",
+    );
+  }
+
+  const { data: updated } = await baseDataProvider.update<Thread>("threads", {
+    id: threadId,
+    data: { visibility },
+    previousData: thread,
+  });
+  return updated;
 }

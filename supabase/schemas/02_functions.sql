@@ -3558,13 +3558,15 @@ begin
 end;
 $$;
 
--- Story 7.1 (AC-1, AC-9): the ONE authority every Epic 7 RLS policy calls —
--- exactly as is_single_visible_state() is the one authority for its own
--- axis. v1 (this story): the connection axis is unreachable to
--- `authenticated` (fails closed, AC-11) until Story 7.4 opens it, so 7.4 is
--- a pure widening with nothing to un-leak. Does NOT branch on `visibility`
--- — that is Story 7.3's job, and doing it here would mean it gets done
--- twice or reviewed once (Dev Notes, "What this story does not do").
+-- Story 7.1 (AC-1, AC-9)/Story 7.3 (AC-2, AC-3, AC-4, AC-6, AC-7): the ONE
+-- authority every Epic 7 RLS policy calls — exactly as is_single_visible_
+-- state() is the one authority for its own axis. Extending this ONE
+-- function is why Story 7.3's entire enforcement change is a single `CREATE
+-- OR REPLACE FUNCTION` rather than three edited policies that could drift
+-- (Dev Notes, "Why extending one function is safer than editing three
+-- policies"). The connection axis is STILL unreachable to `authenticated`
+-- (fails closed, AC-11) until Story 7.4 opens it, so 7.4 remains a pure
+-- widening with nothing to un-leak.
 --
 -- AC-9: for a `single`, a `subject_type = 'shidduch'` thread is readable
 -- ONLY when the subject shidduch satisfies Story 6.2's shipped three-clause
@@ -3575,35 +3577,23 @@ $$;
 -- singles or one using 'private_parent' visibility — this is the composed
 -- dignity floor, not a re-derivation of it.
 --
--- DEPLOY-COUPLING NOTE (review finding F1.5, widened; re-widened by Story
--- 7.2's own review, finding F1): this function does NOT branch on
--- `visibility` at all (by design — see the header comment and this story's
--- Dev Notes, "What this story does not do"), so a `private` thread is
--- readable by anyone `thread_is_readable()` would admit for an `open` one.
--- This was documented for the "same-account, non-participant helper" case;
--- it equally means a `single` participant reads the FULL body of a
--- `private` thread on their OWN shidduch — the AC-9 branch above only
--- filters by shidduch-visibility/pipeline-state/ownership, it does not
--- additionally require `visibility = 'open'`.
---
--- Story 7.2 added `accounts.default_thread_visibility` plus a Settings
--- control for it (`settings/CommunicationSection.tsx`) — the first
--- self-service path that could have turned the gap above into a live,
--- one-click, user-triggerable false privacy promise: a household flips its
--- default to `'private'`, believes the label ("only participants"), and
--- this function silently does not honor it. Story 7.2's own review (F1)
--- caught this before ship: `CommunicationSection.tsx` renders the
--- "Private" choice DISABLED until Story 7.3 lands, so the claim below
--- still holds truthfully — no UI path produces a `private` thread today.
--- Neither `ThreadList.tsx` (always omits `p_visibility`) nor Settings (the
--- only other reachable way to change what an omitted `p_visibility`
--- resolves to) can create one. `create_thread(p_visibility => 'private')`
--- remains reachable directly by RPC — unchanged since Story 7.1, and never
--- claimed otherwise. Story 7.3 must close BOTH readers described above,
--- not just the same-account one, before ANY UI is allowed to re-enable
--- 'private' for real — and whoever does that must re-check
--- `CommunicationSection.tsx`'s disabled state at the same time, not just
--- this function.
+-- Story 7.3 (AC-2, AC-3): `visibility = 'private'` now closes BOTH readers
+-- Story 7.1/7.2's own review findings (F1.5, re-widened by 7.2's F1)
+-- flagged as open: a same-account non-participant (e.g. a `helper`) and a
+-- `single` participant reading a private thread as if it were open. The
+-- private branch below is evaluated BEFORE the single's dignity-floor
+-- branch and, when it fires, is the WHOLE answer — never re-narrowed by
+-- role, `parent_admin` included (AD-22 resolution rule 1: private beats
+-- scope, overriding AD-1's general account read outright). It deliberately
+-- does NOT also require the AC-9 shidduch-visibility test: a single
+-- deliberately added to a private thread about a shidduch they could not
+-- otherwise see reads it anyway, because the participant list IS the human
+-- consent decision (Dev Notes, "Why private does not re-apply the single
+-- gate" — and see that section's own scoping proof, AC-6, for why this is
+-- not a back door: the carve-out is the thread and nothing else).
+-- `CommunicationSection.tsx` still disables the account-default "Private"
+-- radio as of this diff — re-enabling that UI is a follow-up outside this
+-- story's declared file set, not a gap in this function.
 CREATE OR REPLACE FUNCTION "public"."thread_is_readable"("p_thread_id" bigint) RETURNS boolean
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
@@ -3628,6 +3618,18 @@ begin
   -- NULL-yielding `<>` comparison would inside an `if`.
   if v_thread.account_id is distinct from public.current_context_id() then
     return false;
+  end if;
+
+  -- Story 7.3 (AC-2, AC-3, AC-6): private beats scope AND beats the
+  -- dignity-floor branch below — this IS the whole answer for a private
+  -- thread, nothing else narrows or widens it.
+  if v_thread.visibility = 'private' then
+    return exists (
+      select 1
+      from public.thread_participants tp
+      where tp.thread_id = p_thread_id
+        and tp.member_id = public.current_member_id()
+    );
   end if;
 
   if v_thread.subject_type = 'shidduch' and public.current_member_role() = 'single' then
@@ -3763,6 +3765,77 @@ begin
     values (v_account_id, null, v_thread.id, v_participant_id)
     on conflict (thread_id, member_id) do nothing;
   end loop;
+
+  return v_thread;
+end;
+$$;
+
+-- Story 7.3 (AC-1, AC-4, AC-8): the ONLY write path for `threads.visibility`
+-- after creation — `authenticated` holds no table-level UPDATE grant on
+-- `threads` at all (06_grants.sql), matching 7.1's "no UPDATE grant, no
+-- UPDATE policy" decision for the table. If that ever changed, this whole
+-- story would be one `dataProvider.update("threads", …)` away from
+-- bypassed.
+--
+-- "By agreement" (FR97) means ANY current thread_participants member, not
+-- only the thread's creator — checked below against
+-- `public.current_member_id()`, never `created_by_member_id` (Dev Notes,
+-- "Why any participant, not just the creator, can flip visibility"). The
+-- symmetric consequence is deliberate: whoever can lock it can also unlock
+-- it.
+--
+-- Two refusals, two distinct SQLSTATEs, checked in order:
+--   1. `p_visibility` is not one of the two legal values -> 22023
+--      (invalid_parameter_value). Checked FIRST so a garbage argument never
+--      even reaches the readability/participation checks.
+--   2. the caller may not act on this thread at all -> 42501
+--      (insufficient_privilege). This single code covers BOTH remaining
+--      requirements — `thread_is_readable(p_thread_id)` and "the caller is
+--      a listed thread_participants member" — because for a `private`
+--      thread the two are the same test by construction
+--      (thread_is_readable()'s own private branch), and because Task 2
+--      names them as ONE compound "may this caller touch this thread"
+--      refusal, not three. Requiring `thread_is_readable()` FIRST is what
+--      closes AC-8 with no connection-specific code at all: 7.1's function
+--      already returns false for any connection-scoped thread
+--      unconditionally, so a service-role-seeded connection thread is
+--      refused here for free, even naming a real thread_participants row
+--      for the caller — 7.4 widens `thread_is_readable()`, and this RPC
+--      follows without its own edit. The SEPARATE participant check below
+--      is still required on an `open` thread: `thread_is_readable()` alone
+--      would admit any same-account member, and AC-8 says a non-participant
+--      may not flip visibility on a thread they are not in, open or
+--      private.
+CREATE OR REPLACE FUNCTION "public"."set_thread_visibility"("p_thread_id" bigint, "p_visibility" text) RETURNS public.threads
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_thread public.threads;
+begin
+  if p_visibility not in ('open', 'private') then
+    raise exception 'invalid thread visibility: %', p_visibility
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  if not public.thread_is_readable(p_thread_id) then
+    raise exception 'thread % not found or not readable in current context', p_thread_id
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if not exists (
+    select 1 from public.thread_participants tp
+    where tp.thread_id = p_thread_id
+      and tp.member_id = public.current_member_id()
+  ) then
+    raise exception 'only a listed participant of this thread may change its visibility'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  update public.threads
+  set visibility = p_visibility
+  where id = p_thread_id
+  returning * into v_thread;
 
   return v_thread;
 end;

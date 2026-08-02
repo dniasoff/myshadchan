@@ -37,6 +37,7 @@ import type {
   ShidduchCatch,
   ShidduchSchool,
   Thread,
+  ThreadVisibility,
 } from "../../types";
 import { ENTITY_TARGET_TYPES } from "../../types";
 import {
@@ -94,6 +95,7 @@ import {
   createMessage,
   createThread,
   createThreadParticipant,
+  setThreadVisibility as setThreadVisibilityImpl,
 } from "./internal/threads";
 import {
   catchShidduch,
@@ -943,6 +945,29 @@ export const createDataProvider = ({
         () => activeAccountId,
         resolvedInput,
       );
+    },
+    // Story 7.3 (AC-1, Task 3) — FakeRest mirror of set_thread_visibility();
+    // see ./internal/threads.ts for the two refusals this reproduces.
+    setThreadVisibility: (
+      threadId: Identifier,
+      visibility: ThreadVisibility,
+    ): Promise<Thread> =>
+      setThreadVisibilityImpl(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId,
+        threadId,
+        visibility,
+      ),
+    // Story 7.3 (Task 4) — FakeRest mirror of current_member_id(): "who am
+    // I" in the account_members.id space, the same resolver
+    // resolveCallerMembership() above already uses for sender_member_id
+    // stamping and can_moderate. Exposed here for ThreadPanel.tsx's own
+    // participation check (see supabase/dataProvider.ts's identical
+    // getCurrentMemberId for why this id space, not getIdentity().id).
+    async getCurrentMemberId(): Promise<Identifier | null> {
+      const caller = await resolveCallerMembership();
+      return caller?.membership?.id ?? null;
     },
     // The SOLE writer of pipeline_state (AD-4 invariant 2) — FakeRest mirror of
     // transition_shidduch. Enforces the transitions-as-data graph with the same

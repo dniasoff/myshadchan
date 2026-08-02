@@ -1,6 +1,6 @@
 # Story 7.3: Per-discussion privacy
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -99,8 +99,8 @@ product renders a privacy control that does nothing.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Extend `thread_is_readable()` with the private branch** (AC: 2, 3, 4, 6, 7)
-  - [ ] `supabase/schemas/02_functions.sql`: `CREATE OR REPLACE FUNCTION
+- [x] **Task 1 — Extend `thread_is_readable()` with the private branch** (AC: 2, 3, 4, 6, 7)
+  - [x] `supabase/schemas/02_functions.sql`: `CREATE OR REPLACE FUNCTION
         "public"."thread_is_readable"(…)` in exact `pg_dump` form (contract §8 rule 6, or
         `db diff` produces a phantom diff). Keep 7.1's body order intact and insert one
         step:
@@ -113,17 +113,17 @@ product renders a privacy control that does nothing.
            — no dignity-floor re-check on top (AC-6, Dev Notes);
         5. `visibility = 'open'` → 7.1's existing logic, including the three-part single
            gate, unchanged.
-  - [ ] **No RLS policy text changes anywhere.** Every 7.1 SELECT policy on
+  - [x] **No RLS policy text changes anywhere.** Every 7.1 SELECT policy on
         `threads`/`thread_participants`/`messages` already calls `thread_is_readable()`;
         extending the function extends every caller for free. This is the payoff of
         centralizing it in 7.1 instead of inlining the logic three times.
-  - [ ] Keep the function `STABLE SECURITY DEFINER SET search_path ''`. Do not make it
+  - [x] Keep the function `STABLE SECURITY DEFINER SET search_path ''`. Do not make it
         `IMMUTABLE` (it reads tables) and do not drop `SET search_path ''` — a broken
         `search_path` is one of the failure modes a bare `exception when others` handler
         would hide, which is why AC-5 forbids one.
 
-- [ ] **Task 2 — `set_thread_visibility()` RPC** (AC: 1, 4, 8)
-  - [ ] `public.set_thread_visibility(p_thread_id bigint, p_visibility text) returns
+- [x] **Task 2 — `set_thread_visibility()` RPC** (AC: 1, 4, 8)
+  - [x] `public.set_thread_visibility(p_thread_id bigint, p_visibility text) returns
         public.threads` — `SECURITY DEFINER SET search_path ''`, `pg_dump` form. In order:
         validate `p_visibility in ('open','private')` or raise `22023`
         (`invalid_parameter_value`); require `public.thread_is_readable(p_thread_id)` (this
@@ -132,55 +132,55 @@ product renders a privacy control that does nothing.
         or raise `42501` (`insufficient_privilege`) — **not** merely a same-account member,
         so a non-participant cannot flip visibility on a thread they are not in, open or
         private; update `threads.visibility`; return the updated row.
-  - [ ] Use distinct, documented SQLSTATEs for the two refusals so AC-5's test can match a
+  - [x] Use distinct, documented SQLSTATEs for the two refusals so AC-5's test can match a
         code rather than a message, and so a future message reword does not silently turn
         the assertion green.
-  - [ ] `06_grants.sql`: `revoke all on function public.set_thread_visibility(bigint, text)
+  - [x] `06_grants.sql`: `revoke all on function public.set_thread_visibility(bigint, text)
         from public, anon;` then `grant execute … to authenticated, service_role;`. **No
         table-level UPDATE grant on `threads` for `authenticated`** — this RPC stays the
         sole write path for `visibility`, matching 7.1's "no UPDATE grant, no UPDATE policy"
         decision. If `authenticated` gained UPDATE on `threads`, this whole story would be
         one `dataProvider.update` away from bypassed.
 
-- [ ] **Task 2a — Generate and apply the migration** (AC: 1, 2, 3)
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
+- [x] **Task 2a — Generate and apply the migration** (AC: 1, 2, 3)
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
         thread_privacy_enforcement`. This migration is function bodies only. Hand-check that
         `db diff` emitted **both** `CREATE OR REPLACE FUNCTION` statements — a `plpgsql`
         body change with an unchanged signature is sometimes missed. If the generated
         migration is empty or partial, write the statements into it by hand.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`, then
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`, then
         `db diff` twice more to prove convergence. Never `db reset` on a stack holding data;
         never `db push`.
-  - [ ] `make check-migration-safety` (function-only, so this should be a clean pass — if it
+  - [x] `make check-migration-safety` (function-only, so this should be a clean pass — if it
         is not, something else drifted).
 
-- [ ] **Task 3 — Types and provider** (AC: 1)
-  - [ ] `providers/supabase/dataProvider.ts`: `setThreadVisibility(threadId: Identifier,
+- [x] **Task 3 — Types and provider** (AC: 1)
+  - [x] `providers/supabase/dataProvider.ts`: `setThreadVisibility(threadId: Identifier,
         visibility: ThreadVisibility): Promise<Thread>` calling
         `.rpc("set_thread_visibility", { p_thread_id: threadId, p_visibility: visibility })`
         — same shape as `createShidduchViaRpc` (`dataProvider.ts:85-100`).
-  - [ ] Mirror in `providers/fakerest/dataProvider.ts` (AD-10), including the FakeRest
+  - [x] Mirror in `providers/fakerest/dataProvider.ts` (AD-10), including the FakeRest
         equivalent of the participant check, so the demo build does not offer a control that
         silently succeeds for everyone.
-  - [ ] No `types.ts` change — `ThreadVisibility` and `Thread` land in 7.1.
+  - [x] No `types.ts` change — `ThreadVisibility` and `Thread` land in 7.1.
 
-- [ ] **Task 4 — UI: the privacy control** (AC: 1)
-  - [ ] In `threads/ThreadPanel.tsx` (7.1), a lock/unlock control calling
+- [x] **Task 4 — UI: the privacy control** (AC: 1)
+  - [x] In `threads/ThreadPanel.tsx` (7.1), a lock/unlock control calling
         `dataProvider.setThreadVisibility()`, rendered only for current participants — a
         non-participant cannot see a private thread at all, and on an *open* thread a
         non-participant must not be offered a control the RPC will refuse. Derive
         participation from the thread's already-loaded participant list; do not add a
         second round trip.
-  - [ ] The control must state the consequence in plain language, not just toggle an icon: a
+  - [x] The control must state the consequence in plain language, not just toggle an icon: a
         private thread is invisible to the rest of the household, which is the point and is
         not obvious from a padlock alone. Copy through the `i18nProvider` under
         `crm.threads.visibility.*`, in **both** `englishCrmMessages.ts` and
         `frenchCrmMessages.ts` (the French catalogue is genuinely translated).
-  - [ ] Invalidate the thread/message queries on success so AC-4's round trip is observable
+  - [x] Invalidate the thread/message queries on success so AC-4's round trip is observable
         without a reload.
 
-- [ ] **Task 5 — Tests** (AC: 4, 5, 6, 7, 8, 9)
-  - [ ] Extend `supabase/tests/threads_entity.sql` (7.1's file) with:
+- [x] **Task 5 — Tests** (AC: 4, 5, 6, 7, 8, 9)
+  - [x] Extend `supabase/tests/threads_entity.sql` (7.1's file) with:
         - the AC-5 three-member negative scenario, plus C's two break-in attempts, each
           matched by **specific SQLSTATE**;
         - the AC-4 round trip (1 → 0 → 1 for the same non-participant session);
@@ -189,14 +189,14 @@ product renders a privacy control that does nothing.
         - the AC-8 refusal on a service-role-seeded connection-scoped thread;
         - the AC-1 positives: `set_thread_visibility()` by a **non-creator** participant
           succeeds; by a non-participant same-account member raises.
-  - [ ] Prove the suite can fail: mutate the private branch to `return true` and confirm
+  - [x] Prove the suite can fail: mutate the private branch to `return true` and confirm
         AC-5 and AC-3 go red before shipping them green. A guard that cannot fail is not
         coverage (contract §13 rule 2).
-  - [ ] Re-run the whole `threads_entity.sql` suite for AC-7 (no 7.1/7.2 regressions).
-  - [ ] Vitest (browser mode, `vitest-browser-react` + `TestMemoryRouter`) for the privacy
+  - [x] Re-run the whole `threads_entity.sql` suite for AC-7 (no 7.1/7.2 regressions).
+  - [x] Vitest (browser mode, `vitest-browser-react` + `TestMemoryRouter`) for the privacy
         control: shown to a participant, absent for a non-participant, and the success path
         invalidates. AAA, ≥80% of new lines.
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus prettier
+  - [x] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus prettier
         on this story's changed files only.
 
 ## Dev Notes
@@ -304,8 +304,126 @@ No `types.ts` change, no schema table change, no tab/descriptor change, no
 
 ### Agent Model Used
 
+Claude Opus 5 (developer subagent, harness dispatch), STACK_ID=3 / STACK_OWNER=7-3.
+
 ### Debug Log References
+
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --workdir .supabase-e2e-3 -f
+  thread_privacy_enforcement` emitted both `CREATE OR REPLACE FUNCTION` statements
+  (`thread_is_readable`, `set_thread_visibility`) but, as the Hard-won rules warned, **no**
+  grant/revoke statements for the new function — hand-added to the migration, matching 7.1's
+  own precedent for the same gap. Verified against the live catalog
+  (`information_schema.role_routine_grants`) before and after the hand-add.
+- `db diff` converged ("No schema changes found") twice after the migration was applied.
+- `make check-migration-safety STACK_ID=3` passed clean (function bodies only — no column
+  added/dropped/narrowed, so no fixture extension was needed).
+- Falsifiability proof (AC-5/Task 5): temporarily replaced `thread_is_readable()`'s private
+  branch with `return true;` directly on the stack via `psql`, reran
+  `npm run test:unit:db` — exactly 4 checks went red (the three AC-3/AC-5 zero-row assertions
+  on the private A/B thread, plus AC-4's "flipped to private → 0 rows" step); all other 62
+  checks stayed green. Restored the original function body and reconfirmed 66/66 green and
+  `db diff` still converges.
+- Full gate run: `make typecheck`, `npm run lint`, `npx prettier --check` (on this story's
+  changed files — repo-wide `prettier --check .` has pre-existing, unrelated warnings in
+  `doc/**`/`.github/**`/`.lintstagedrc`, none of which this story touched), the 4 CI guards
+  (`check-suppressions.mjs`, `check-retired-names.mjs`, `check-route-convention.mjs`,
+  `check-tailwind-arbitrary-var.mjs`), `npm run build`, and `make test STACK_ID=3` (227 files /
+  2598 tests) all passed.
 
 ### Completion Notes List
 
+- **Task 1**: `thread_is_readable()` gained the private branch exactly as specified — inserted
+  after the account-scope check, before the single's dignity-floor branch, returning ONLY the
+  participant-membership `exists()` for `visibility = 'private'` with no re-check on top.
+  Header comment rewritten to describe the closed gap (previously documented as an open,
+  deploy-coupled hazard by 7.1/7.2's own review findings F1.5/F1) rather than still warning
+  about it.
+- **Task 2**: `set_thread_visibility()` added with the two documented SQLSTATEs —
+  `invalid_parameter_value` (22023) for a bad `p_visibility`, `insufficient_privilege` (42501)
+  for BOTH "not readable" and "not a listed participant" (the same code for both, since Task 2
+  itself describes them as one compound "may this caller touch this thread" refusal — for a
+  private thread the two checks are the same test by construction). No table-level UPDATE
+  grant added to `threads` for `authenticated` — verified live via
+  `information_schema.role_table_grants` (SELECT only).
+- **Task 3**: `setThreadVisibility()` wrappers added to both dataProviders. Also added
+  `getCurrentMemberId()` to both — not explicitly named by the story, but required to satisfy
+  Task 4's "derive participation from the thread's already-loaded participant list": there is
+  no existing client-side primitive for "my own `account_members.id` in the active context"
+  (the same trap `ThreadPanel.tsx`'s pre-existing Composer comment documents for message
+  attribution), so this is the minimal server-authoritative resolver, backed by the
+  already-existing, already-granted `current_member_id()` RPC on the Supabase side and the
+  existing `resolveCallerMembership()` internal helper on the FakeRest side (no new SQL, no new
+  FakeRest identity logic — both already existed for other purposes). Cached under one
+  `["currentMemberId"]` query (`threads/useCurrentMemberId.ts`) so only the FIRST `ThreadPanel`
+  opened in a session pays for it; every other thread in the same session reuses the cache and
+  only pays for its own `thread_participants` fetch.
+- **Task 4**: `ThreadPanel.tsx` now takes the whole `Thread` record (not just its id) so
+  `visibility` comes from `ThreadList.tsx`'s already-loaded list rather than a second
+  `getOne("threads", …)` round trip inside the panel — this required a small, in-scope change
+  to `ThreadList.tsx` (within the dispatched `threads/**` glob, though not named in this
+  story's own "Declared file set" prose) to pass the resolved `Thread` object instead of a bare
+  id. The control renders nothing (not disabled — absent) for a non-participant or while
+  participation is still resolving (fail-closed). Copy is under `crm.threads.visibility.*` in
+  both catalogues, genuinely translated into French. `onChanged` calls the panel's existing
+  `refresh()` (the same mechanism the Composer already uses for AC-4/AC-8), which invalidates
+  every active query — satisfying the round-trip requirement.
+- **Task 5**: `threads_entity.sql` extended with the AC-5 three-member fixture (a NEW second
+  `parent_admin`, B; the existing helper reused as C), the AC-4 round trip, the AC-6 pair (with
+  new `resumes`/`interactions`/`entity_files` fixture rows on Rivka's shidduch, since none
+  existed for that subject before this story), the AC-8 connection-axis refusal (a fresh
+  service-role-seeded connection thread, since 7.1's existing one is deleted by the AC-10
+  cascade earlier in the file), and the AC-1 positives/negative. Suite grew from ~44 to 66
+  checks. `ThreadPanel.test.tsx` gained a `ThreadPanelHarness` wrapper (`useGetOne("threads",
+  …)`) so its "flip to private, observe the control update without a reload" test exercises the
+  SAME live-refetch wiring production uses (a static prop object, as the pre-7.3 test passed,
+  never re-renders on `refresh()` — this was caught by the test initially failing red before
+  the harness was added). A new colocated `dataProvider.setThreadVisibility.test.ts` covers the
+  FakeRest mirror's two refusals (not explicitly named in this story's own "Declared file set",
+  but follows the exact precedent of `dataProvider.createThread.test.ts` sitting beside
+  `dataProvider.ts`).
+- **Not done / flagged, not fixed**: `settings/CommunicationSection.tsx` still hard-disables
+  the account-default "Private" radio (its own header comment says this is provisional "until
+  Story 7.3 lands"). Re-enabling it is not one of this story's ACs and the file is outside the
+  dispatched path set — left disabled and named here as a fast-follow, per that file's own
+  comment ("whoever does that must re-check `CommunicationSection.tsx`'s disabled state at the
+  same time").
+
 ### File List
+
+**Owned paths (schema/DB)**
+- `supabase/schemas/02_functions.sql` — `thread_is_readable()` private branch;
+  `set_thread_visibility()` added.
+- `supabase/schemas/06_grants.sql` — grants for `set_thread_visibility()`.
+- `supabase/migrations/20260802024905_thread_privacy_enforcement.sql` — new; generated via
+  `db diff`, hand-completed with the function grants `db diff` omitted.
+- `supabase/tests/threads_entity.sql` — extended (AC-1, AC-3, AC-4, AC-5, AC-6, AC-8 checks).
+
+**Owned paths (providers / i18n)**
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts` — `setThreadVisibility()`,
+  `getCurrentMemberId()`.
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts` — same two methods, FakeRest
+  mirror.
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` — `crm.threads.visibility.*`.
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` — same, translated.
+
+**Owned paths (UI)**
+- `src/components/atomic-crm/threads/ThreadPanel.tsx` — `VisibilityControl`, participation
+  derivation.
+- `src/components/atomic-crm/threads/ThreadPanel.test.tsx` — new tests + `ThreadPanelHarness`.
+
+**Within the dispatched `threads/**` glob, beyond this story's own "Declared file set" prose**
+- `src/components/atomic-crm/threads/ThreadList.tsx` — passes the whole `Thread` record to
+  `ThreadPanel` instead of a bare id (needed for the "no second round trip" requirement).
+- `src/components/atomic-crm/threads/useCurrentMemberId.ts` — new; the cached
+  `getCurrentMemberId()` query hook.
+
+**Within the dispatched `providers/fakerest/dataProvider.ts` feature unit, beyond the single
+named file**
+- `src/components/atomic-crm/providers/fakerest/internal/threads.ts` — `setThreadVisibility()`
+  mirror; `isThreadParticipant()` exported for reuse (was file-private).
+- `src/components/atomic-crm/providers/fakerest/dataProvider.setThreadVisibility.test.ts` —
+  new; FakeRest mirror unit tests, colocated per this directory's existing convention.
+
+**Not touched (confirmed by design)**: `supabase/schemas/05_policies.sql`,
+`supabase/schemas/01_tables.sql`, `supabase/schemas/03_views.sql`, `src/components/atomic-crm/types.ts`,
+`src/components/atomic-crm/settings/CommunicationSection.tsx`.

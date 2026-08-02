@@ -805,6 +805,263 @@ select 'Story 7.2 AC-6(d) control: a parent_admin''s UPDATE of the SAME column, 
        count(*) = 1
 from attempt;
 
+-- ---------------------------------------------------------------------------
+-- Story 7.3: per-discussion privacy. thread_is_readable()'s new `private`
+-- branch (AC-2, AC-3, AC-6, AC-7) and set_thread_visibility() (AC-1, AC-4,
+-- AC-5, AC-8). A SECOND parent_admin (B) joins the sibling household —
+-- AC-5's fixture needs "A = parent_admin, B = parent_admin, C = helper";
+-- the helper seeded above (AC-8's `helper_member_id`) plays C, so this adds
+-- only B.
+-- ---------------------------------------------------------------------------
+reset role;
+
+insert into auth.users (id, instance_id, aud, role, email)
+values ('51810000-0000-0000-0000-000000000013', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'threads-second-parent@test.local');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:sibling_fixture_account_id, '51810000-0000-0000-0000-000000000013', 'parent_admin', 'active')
+returning id as second_parent_member_id \gset
+insert into ids values ('second_parent_member_id', :second_parent_member_id);
+
+-- AC-6's own fixture data: resumes/interactions/entity_files for Rivka's
+-- shidduch, so "the single reads zero rows for that subject" denies a REAL
+-- row, not an already-empty table.
+insert into public.resumes (account_id, shidduchim_id)
+values (:sibling_fixture_account_id, :rivka_shidduch_id)
+returning id as rivka_resume_id \gset
+insert into public.interactions (account_id, target_type, target_id, scope, kind, body)
+values (:sibling_fixture_account_id, 'shidduch', :rivka_shidduch_id, 'shidduch', 'note', 'Rivka candid note (Story 7.3 AC-6 fixture)')
+returning id as rivka_interaction_id \gset
+insert into public.entity_files (account_id, target_type, target_id, storage_path, file_name, mime_type, size_bytes)
+values (
+  :sibling_fixture_account_id, 'shidduch', :rivka_shidduch_id,
+  :'sibling_fixture_account_id' || '/shidduch/' || :'rivka_shidduch_id' || '/ac6.pdf',
+  'ac6.pdf', 'application/pdf', 512
+)
+returning id as rivka_entity_file_id \gset
+insert into ids values
+  ('rivka_resume_id', :rivka_resume_id),
+  ('rivka_interaction_id', :rivka_interaction_id),
+  ('rivka_entity_file_id', :rivka_entity_file_id);
+
+-- ---------------------------------------------------------------------------
+-- AC-5 (the mandatory negative test): A creates a PRIVATE thread naming ONLY
+-- B as a co-participant. C (the same-account helper) must read ZERO rows
+-- from threads/messages/thread_participants for it, and cannot break in.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select (public.create_thread('relationship', null, array[:second_parent_member_id]::bigint[], 'private')).id as private_ab_thread \gset
+insert into ids values ('private_ab_thread', :private_ab_thread);
+
+insert into public.messages (thread_id, body) values (:private_ab_thread, 'Private note between A and B')
+returning id as private_ab_message \gset
+insert into ids values ('private_ab_message', :private_ab_message);
+
+insert into results (name, passed)
+select 'AC-5 control: A (the creator/participant) reads exactly the one private thread and its message',
+       (select count(*) from public.threads where id = :private_ab_thread) = 1
+       and (select count(*) from public.messages where id = :private_ab_message) = 1;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000013","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-5 control: B (added as a participant, never the creator) reads exactly the one private thread and its message',
+       (select count(*) from public.threads where id = :private_ab_thread) = 1
+       and (select count(*) from public.messages where id = :private_ab_message) = 1;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000012","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-3/AC-5: C (same-account helper, NOT a participant) reads ZERO rows from threads for the private A/B thread — row-filtered, not a 403',
+       count(*) = 0 from public.threads where id = :private_ab_thread;
+
+insert into results (name, passed)
+select 'AC-3/AC-5: C reads ZERO rows from messages for the private A/B thread',
+       count(*) = 0 from public.messages where id = :private_ab_message;
+
+insert into results (name, passed)
+select 'AC-3/AC-5: C reads ZERO rows from thread_participants for the private A/B thread — not even that it exists',
+       count(*) = 0 from public.thread_participants where thread_id = :private_ab_thread;
+
+do $$
+declare
+  v_name constant text := 'AC-5: C cannot break in — C''s own INSERT of a thread_participants row on the private A/B thread is rejected (7.1''s participant-gated INSERT policy, re-proven here)';
+  v_thread bigint; v_helper bigint;
+begin
+  select value into v_thread from ids where name = 'private_ab_thread';
+  select value into v_helper from ids where name = 'helper_member_id';
+  insert into public.thread_participants (thread_id, member_id) values (v_thread, v_helper);
+  insert into results values (v_name, false, 'insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', 'new row violates row-level security policy for table "thread_participants"', sqlstate, sqlerrm);
+end $$;
+
+do $$
+declare
+  v_name constant text := 'AC-5: C''s set_thread_visibility() call on the private A/B thread RAISES, matched by SQLSTATE 42501 (insufficient_privilege) not message text';
+  v_thread bigint;
+begin
+  select value into v_thread from ids where name = 'private_ab_thread';
+  perform public.set_thread_visibility(v_thread, 'open');
+  insert into results values (v_name, false, 'call unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', '%', sqlstate, sqlerrm);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- AC-4: privacy is a round trip, not a one-way latch. The SAME
+-- non-participant session (C, the helper) reads 1 -> 0 -> 1 across two
+-- set_thread_visibility() calls — an implementation that hard-denies
+-- everything on a private thread would only ever show 0 here.
+-- ---------------------------------------------------------------------------
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select (public.create_thread('relationship', null, array[]::bigint[], 'open')).id as round_trip_thread \gset
+insert into ids values ('round_trip_thread', :round_trip_thread);
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000012","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-4 (1 of 3): the non-participant session reads the OPEN thread — 1 row',
+       count(*) = 1 from public.threads where id = :round_trip_thread;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+select public.set_thread_visibility(:round_trip_thread, 'private');
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000012","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-4 (2 of 3): the SAME non-participant session, SAME thread, now flipped to private — 0 rows, immediately, same session, no cache step',
+       count(*) = 0 from public.threads where id = :round_trip_thread;
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+select public.set_thread_visibility(:round_trip_thread, 'open');
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000012","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-4 (3 of 3): flipped back to open — 1 row again, proving this is a round trip, not a one-way latch',
+       count(*) = 1 from public.threads where id = :round_trip_thread;
+
+-- ---------------------------------------------------------------------------
+-- AC-6: the single's carve-out is scoped to the thread, not a back door.
+-- Leah (single) is deliberately added to a PRIVATE thread on Rivka's
+-- shidduch — a subject AC-9 already proved she cannot otherwise see. She
+-- DOES read the private thread and its message (private beats the
+-- dignity-floor branch on purpose — Dev Notes, "Why private does not
+-- re-apply the single gate"); she still reads ZERO rows of
+-- shidduchim/resumes/interactions/entity_files for that SAME subject — the
+-- falsifiable clause that keeps this from being a general bypass.
+-- ---------------------------------------------------------------------------
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select (public.create_thread('shidduch', :rivka_shidduch_id, array[:sibling_fixture_leah_member_id]::bigint[], 'private')).id as thread_rivka_private \gset
+insert into ids values ('thread_rivka_private', :thread_rivka_private);
+
+insert into public.messages (thread_id, body) values (:thread_rivka_private, 'A private message about the sibling''s (Rivka''s) shidduch')
+returning id as rivka_private_message_id \gset
+insert into ids values ('rivka_private_message_id', :rivka_private_message_id);
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'AC-6: a single deliberately added to a PRIVATE thread on a subject she could not otherwise see DOES read the thread — the participant list is the consent, not re-derived from the dignity floor',
+       count(*) = 1 from public.threads where id = :thread_rivka_private;
+
+insert into results (name, passed)
+select 'AC-6: the single also reads the message on that private thread',
+       count(*) = 1 from public.messages where id = :rivka_private_message_id;
+
+insert into results (name, passed)
+select 'AC-6 (falsifiable): the SAME single still reads ZERO rows from public.shidduchim for that subject — the carve-out is the thread, nothing else',
+       count(*) = 0 from public.shidduchim where id = :rivka_shidduch_id;
+
+insert into results (name, passed)
+select 'AC-6 (falsifiable): ZERO rows from public.resumes for that subject',
+       count(*) = 0 from public.resumes where shidduchim_id = :rivka_shidduch_id;
+
+insert into results (name, passed)
+select 'AC-6 (falsifiable): ZERO rows from public.interactions for that subject',
+       count(*) = 0
+from public.interactions
+where target_type = 'shidduch' and target_id = :rivka_shidduch_id;
+
+insert into results (name, passed)
+select 'AC-6 (falsifiable): ZERO rows from public.entity_files for that subject',
+       count(*) = 0
+from public.entity_files
+where target_type = 'shidduch' and target_id = :rivka_shidduch_id;
+
+-- ---------------------------------------------------------------------------
+-- AC-8: the connection axis stays closed until 7.4. A service-role-seeded
+-- connection-scoped PRIVATE thread, with A seeded directly as a REAL
+-- thread_participants row on it — proving the refusal is
+-- thread_is_readable()'s unconditional connection-axis denial (7.1), not
+-- merely "not a participant" (A IS one here).
+-- ---------------------------------------------------------------------------
+reset role;
+
+insert into public.threads (connection_id, subject_type, subject_id, visibility)
+values (:test_connection_id, 'relationship', null, 'private')
+returning id as connection_visibility_thread \gset
+insert into public.thread_participants (connection_id, thread_id, member_id)
+values (:test_connection_id, :connection_visibility_thread, :sibling_fixture_parent_member_id)
+returning id as connection_visibility_participant \gset
+insert into ids values
+  ('connection_visibility_thread', :connection_visibility_thread),
+  ('connection_visibility_participant', :connection_visibility_participant);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'AC-8: set_thread_visibility() refuses a connection-scoped thread even for a caller holding a REAL thread_participants row on it';
+  v_thread bigint;
+begin
+  select value into v_thread from ids where name = 'connection_visibility_thread';
+  perform public.set_thread_visibility(v_thread, 'open');
+  insert into results values (v_name, false, 'call unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', 'thread % not found or not readable in current context', sqlstate, sqlerrm);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- AC-1: "by agreement" means any current participant, not only the
+-- creator — proven with a NON-creator (Leah, added by A). The symmetric
+-- negative on the SAME open thread's non-participant case reuses `thread1`
+-- and the helper already established as "can read, is not a participant"
+-- (AC-8 control, above).
+-- ---------------------------------------------------------------------------
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select (public.create_thread('relationship', null, array[:sibling_fixture_leah_member_id]::bigint[], 'open')).id as ac1_thread \gset
+insert into ids values ('ac1_thread', :ac1_thread);
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+select (public.set_thread_visibility(:ac1_thread, 'private')).visibility as ac1_visibility_after_leah \gset
+
+insert into results (name, passed)
+select 'AC-1: a non-creator participant (Leah, added by A, never the creator) can flip an open thread to private — "by agreement" is not creator-only',
+       :'ac1_visibility_after_leah' = 'private';
+
+set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000012","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'AC-1/AC-8: a same-account member who is NOT a participant of an OPEN thread cannot flip its visibility, even though she can read it';
+  v_thread bigint;
+begin
+  select value into v_thread from ids where name = 'thread1';
+  perform public.set_thread_visibility(v_thread, 'private');
+  insert into results values (v_name, false, 'call unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', 'only a listed participant of this thread may change its visibility', sqlstate, sqlerrm);
+end $$;
+
 \t on
 \a
 select coalesce(json_agg(json_build_object('name', name, 'passed', passed, 'detail', detail) order by name), '[]'::json)

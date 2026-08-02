@@ -837,6 +837,19 @@ export const englishCrmMessages = {
         send: "Send",
         sendError: "Failed to send the message",
       },
+      // Story 7.3 — the lock/unlock control, participants only. The button
+      // label states the CONSEQUENCE, not just the mechanism: a padlock icon
+      // alone does not say "invisible to the rest of the household," which
+      // is the point (Task 4).
+      visibility: {
+        lock: "Make private",
+        lockDescription:
+          "Only the people in this discussion will be able to see it — invisible to the rest of the household.",
+        unlock: "Make open",
+        unlockDescription:
+          "Everyone in the household who can already see this discussion's topic will be able to read it.",
+        updateError: "Failed to update this discussion's privacy",
+      },
     },
     // RULING 7 — the account-wide "not yet spoken to" worklist the reference
     // book used to carry as its `contacted_count@eq: 0` filter, rehomed onto
