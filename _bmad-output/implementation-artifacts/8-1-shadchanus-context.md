@@ -95,9 +95,13 @@ Epic 1's. This story ships the empty container; 8.2–8.5 populate it:
   - [ ] `layout/navItems.ts`: add `SHADCHANUS_NAV: NavItem[]` next to `PRIMARY_NAV`, reusing
         the same `NavItem` interface (`to`, `labelKey`, `labelDefault`, `icon`, `tourId`).
         3 entries: Dashboard (`/`), Connections (`/connections`), Settings (`/settings`).
-        New i18n key `crm.navigation.connections`, English default `"Connections"`
-        (second-catalogue parity — Hebrew per AD-18 — is a cross-cutting audit, not this
-        story's job; the key falls back to `labelDefault`).
+        New i18n key `crm.navigation.connections`, English default `"Connections"`, added to
+        **both** `providers/commons/englishCrmMessages.ts` and `frenchCrmMessages.ts` — the
+        two catalogues the shipped `i18nProvider.ts` actually merges (French is the live
+        second locale; AD-18's own text names Hebrew, but the repo has shipped English+French
+        since Epic 2 — Story 2.3 Dev Notes already flagged this AD-18-vs-reality drift as
+        open and unowned, and it is not this story's job to resolve it. "Second-catalogue
+        parity" below always means French).
   - [ ] Add `useActiveNav()` in `navItems.ts` itself (one place knows the mapping), reading
         `useMyContexts()`; switch `Sidebar.tsx` and `MobileNavigation.tsx` to it.
 
@@ -121,7 +125,8 @@ Epic 1's. This story ships the empty container; 8.2–8.5 populate it:
         `/connections` custom route (AC-4). New folder `connections/` starts here; 8.5
         fills it.
   - [ ] All copy through the `i18nProvider` (AD-18) — no hardcoded string outside a
-        translation key.
+        translation key, added to both `englishCrmMessages.ts` and `frenchCrmMessages.ts`
+        (the shipped second catalogue — see Task 2's note; not Hebrew).
 
 - [ ] **Task 5 — Tests** (AC: 7)
   - [ ] Extend the existing `layout/navItems.test.ts`: `SHADCHANUS_NAV` contains none of the
@@ -152,13 +157,24 @@ screen is the only way the nav item can exist from day one.
 
 ### Why no Tasks or Reminders in `SHADCHANUS_NAV`
 
-`tasks.target_type` (post-Epic-3 widening) allows only household-book targets — `shadchan`,
-`shidduch`, `reference`, `single` — and a shadchanus account holds no rows of any of them
-(AD-2). A Tasks or Reminders screen in a shadchanus context would render empty forever and
-its create flow would offer zero valid targets: exactly the "screen that means nothing in my
-context" this story exists to prevent. When a story adds a `connection` task target (none in
-Epic 8 does), these two items join the set; flagged in the story-writing report as an
-unowned product gap.
+At the time this story runs, `tasks.target_type` (post-Epic-3 widening) allows only
+household-book targets — `shadchan`, `shidduch`, `reference`, `single` — and a shadchanus
+account holds no rows of any of them (AD-2). A Tasks or Reminders screen in a shadchanus
+context would render empty forever and its create flow would offer zero valid targets:
+exactly the "screen that means nothing in my context" this story exists to prevent.
+
+This is not left open: Story 8.5 adds `'connection'` to `ENTITY_TARGET_TYPES` (contract §8
+rule 4, "'connection' is Epic 8's value to add \[8.2/8.5]") so a shadchan CAN hold a task or
+a note about a specific connection by the time Epic 8 closes — that is what makes "the
+shadchan's own CRM" (8.5's title) literally true, and what Story 3.14/R1's lift of
+`enforce_household_scope()` from `tasks`/`interactions` was FOR (contract §11 Ruling 1:
+"while Epic 8.5 ... is built entirely on them"). That does **not** change this story's AC-1:
+a connection-scoped task/note is reached from the Connection 360's own Tasks/Notes tabs
+(8.5 Task 8, mirroring Ruling 2 — "every entity's 360 gets a full tasks tab" — and the
+`references` precedent, which also gets no global nav entry), never from a global
+all-my-tasks list. `SHADCHANUS_NAV` staying at exactly Dashboard/Connections/Settings is
+therefore still correct once 8.5 lands; only the reason "there is nothing to ever list here"
+changes to "the list lives on the record, not in primary nav."
 
 ### Current-state grounding
 
@@ -203,7 +219,10 @@ names, no shared mutable state). No SQL test file — no schema change in this s
 New: `layout/RequireContextKind.tsx` (+ `.test.tsx`), `dashboard/ShadchanDashboard.tsx`
 (+ `.test.tsx`), `connections/ConnectionsPlaceholder.tsx` (+ `.test.tsx`). Modified:
 `layout/navItems.ts` (+ existing `.test.ts`), `layout/Sidebar.tsx`,
-`layout/MobileNavigation.tsx`, `root/routeManifest.ts`, `root/CRM.tsx`.
+`layout/MobileNavigation.tsx`, `root/routeManifest.ts`, `root/CRM.tsx`,
+`providers/commons/englishCrmMessages.ts`, `providers/commons/frenchCrmMessages.ts` (the
+new `crm.navigation.connections` key and this story's placeholder/dashboard copy, in both
+catalogues — AD-18).
 
 ## Dev Agent Record
 

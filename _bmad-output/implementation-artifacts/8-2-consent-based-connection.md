@@ -233,6 +233,11 @@ RLS is even consulted.
         **Story 8.5's** — this task only needs the flow to work.
   - [ ] An "End connection" action wherever the connection is visible (minimal — a button
         calling `endConnection()`), refined visually by Story 8.5.
+  - [ ] All new copy (the two "Connect with…" actions, the accept screen, the "End connection"
+        confirm) through the `i18nProvider` (AD-18), keys added to **both**
+        `providers/commons/englishCrmMessages.ts` and `frenchCrmMessages.ts` — the shipped
+        second catalogue is French, not Hebrew (Story 8.1 Dev Notes, "Why no Tasks or
+        Reminders", carries the same AD-18-vs-reality note; not repeated in full here).
 
 - [ ] **Task 7 — Negative-test suite** (AC: 6)
   - [ ] New `supabase/tests/shadchan_connections.sql` + `.test.ts`, following the
@@ -253,10 +258,15 @@ RLS is even consulted.
 
 FR119 / AD-11 make invites "the one mechanism" at the **product** level — generate a token,
 share the link out-of-band, the other party accepts — and this story keeps that shape. It does
-not reuse Epic 2's `invites` table rows: Story 2.8's own text anticipates exactly this split
-("Epic 8 will need its own schema addition ... most likely either a `connection_invites` table
-or a `target_kind` discriminator on `invites`"), and the two flows differ in a load-bearing
-way — a membership invite grants a role to a person inside the inviter's **own** account,
+not reuse Epic 2's `invites` table rows: Story 2.8's own "Scope boundary" section explicitly
+declines to build the parent↔shadchan connection and states "the connection flows are its
+Story 8.2; the `connections` table itself is introduced earlier, by Epic 7's Story 7.4 ...
+what this story delivers is the **pattern** those stories extend: a token-based,
+consent-required, revocable-before-acceptance invite row" [Source:
+_bmad-output/implementation-artifacts/2-8-invites-as-the-one-membership-mechanism.md —
+"Scope boundary — what this story does not build"]. It names the pattern to extend, not the
+table to reuse — the two flows differ in a load-bearing way — a membership invite grants a
+role to a person inside the inviter's **own** account,
 while a connection invite links **two already-existing, opposite-kind accounts** with neither
 becoming a member of the other. A polymorphic merge would force 2.7's columns (`email`,
 `role`) to be nullable-and-meaningless for connections. Sibling table chosen; decision stated
@@ -321,7 +331,10 @@ New: `supabase/tests/shadchan_connections.sql` + `.test.ts`. Schema edits across
 `01_tables.sql`, `02_functions.sql`, `05_policies.sql`, `06_grants.sql` (additive to existing
 files, consistent with prior epics). No new `src/` folder work beyond what 8.1 started;
 Task 6's minimal UI lives in Settings / the Shadchanim list / the `/connect/:token` accept
-route until 8.5 formalises it.
+route until 8.5 formalises it. Also touched: `types.ts` (`Connection`, `ConnectionInvite`),
+`providers/supabase/dataProvider.ts` + `providers/fakerest/` (Task 5), and
+`providers/commons/englishCrmMessages.ts` / `frenchCrmMessages.ts` (Task 6 copy).
+`root/routeManifest.ts` gains the `/connect/:token` custom-route entry.
 
 ## Dev Agent Record
 

@@ -145,20 +145,35 @@ reading of AD-7: "all inbound, including shadchan-originated, enters via the con
 
 - [ ] **Task 3 — Thread mirroring** (AC: 5)
   - [ ] Epic 7 has necessarily landed by this story's turn (pinned order; 8.2 already builds on
-        7.4's `connections` table). Inside `redt_via_connection()`'s transaction, create one
-        connection-scoped thread (`connection_id := p_connection_id`, `account_id` null — 7.4's
-        XOR scope check), participants = the calling shadchan's membership + the household's
-        active members (the cross-context participant shape 7.4 established), and an initial
-        message with body = `p_raw_text`. Route this through Epic 7's one thread-creation
-        function (7.1's, as widened by 7.4) rather than a second bespoke INSERT — check its
-        signature first; only fall back to direct inserts inside this `SECURITY DEFINER` body
-        if that function cannot be called server-side, and say so in a code comment. Without
-        the mirror, AC-5 fails: the shadchan would have zero record of their own redt.
+        7.4's `connections` table). Inside `redt_via_connection()`'s transaction:
+        1. Create the thread via `public.create_thread(p_subject_type := 'relationship',
+           p_connection_id := p_connection_id, p_participant_member_ids := <household's active
+           member ids>)` (`02_functions.sql`) — the ONE thread-creation function (7.1's, widened
+           by 7.4 to accept `p_connection_id`), never a second bespoke `insert into
+           public.threads`. It is `SECURITY DEFINER` and plain `plpgsql`-callable from inside
+           this function's own body (`select public.create_thread(...) into v_thread`); it
+           already inserts the creator (the calling shadchan, via `current_member_id()`) as a
+           participant, so `p_participant_member_ids` only needs the household's ACTIVE
+           `account_members` ids (`select id from public.account_members where account_id =
+           v_connection.household_account_id and status = 'active'`) — that satisfies AC-5's
+           "own durable record" for the shadchan and gives the household side the same thread
+           from the start (open by default, per 7.2's `default_thread_visibility`).
+        2. There is no `create_message()`/`send_message()` RPC anywhere in the shipped schema —
+           `public.messages` grants `insert` directly to `authenticated`, gated only by its own
+           RLS ("Messages insertable by an existing participant", `05_policies.sql`), so the
+           initial message (`thread_id := v_thread.id, connection_id := p_connection_id,
+           account_id := null, sender_member_id := current_member_id(), body := p_raw_text`) is
+           necessarily a **direct** `insert into public.messages`, mirroring the exact shape a
+           client insert would use — not a fallback path, the only path. Say so in a code
+           comment so a reviewer does not go looking for a message-creation function to reuse.
+        Without the mirror, AC-5 fails: the shadchan would have zero record of their own redt.
 
 - [ ] **Task 4 — Household-side resolve flow** (AC: 3, 4)
   - [ ] `inbox/inboxMeta.ts`: add a `shadchan` entry to `INBOX_SOURCE_META` (icon + label —
         reuse an existing Lucide icon already imported elsewhere for a person/handshake concept,
-        do not add a new icon dependency for one entry).
+        do not add a new icon dependency for one entry). The label goes through the
+        `i18nProvider` (AD-18), key added to both `providers/commons/englishCrmMessages.ts` and
+        `frenchCrmMessages.ts` — the shipped second catalogue is French (Story 8.1 Dev Notes).
   - [ ] `inbox/InboxResolveDialog.tsx`: the `origin` passed into `CreateShidduchInput` (hardcoded
         `"channel"` in the `onSubmit` handler today) becomes
         `item.source === "shadchan" ? "shadchan" : "channel"`. `shidduchim`'s existing
@@ -191,7 +206,9 @@ reading of AD-7: "all inbound, including shadchan-originated, enters via the con
         8.1): a form with `subject` and `raw_text` fields plus optional attachment upload,
         calling `dataProvider.redtViaConnection({ connectionId, subject, rawText,
         attachments })` on submit. **This story owns the dialog component; Story 8.5 owns where
-        it is launched from** (a button on the Connection 360).
+        it is launched from** (a button on the Connection 360). All labels/placeholders/errors
+        through the `i18nProvider` (AD-18), keys in both `englishCrmMessages.ts` and
+        `frenchCrmMessages.ts`.
 
 - [ ] **Task 7 — Negative-test suite** (AC: 6)
   - [ ] New `supabase/tests/shadchan_redting.sql` + `.test.ts`, same `results`/`ids` temp-table
@@ -275,9 +292,11 @@ the locked `shadchan_id` field when `source === 'shadchan'`, and the compose dia
 
 ### Project Structure Notes
 
-New: `supabase/tests/shadchan_redting.sql` + `.test.ts`, `connections/RedtComposeDialog.tsx`.
-Modified: `inbox/inboxMeta.ts`, `inbox/InboxResolveDialog.tsx`, `shidduchim/ShidduchInputs.tsx`
-(new prop), `types.ts`, both dataProviders.
+New: `supabase/tests/shadchan_redting.sql` + `.test.ts`, `connections/RedtComposeDialog.tsx`
+(+ `.test.tsx`). Modified: `inbox/inboxMeta.ts`, `inbox/InboxResolveDialog.tsx`,
+`shidduchim/ShidduchInputs.tsx` (new prop), `types.ts`, both dataProviders,
+`providers/commons/englishCrmMessages.ts` / `frenchCrmMessages.ts` (new inbox-source label +
+compose-dialog copy).
 
 ## Dev Agent Record
 
