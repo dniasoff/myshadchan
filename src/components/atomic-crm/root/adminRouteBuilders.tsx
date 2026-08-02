@@ -103,7 +103,7 @@ function toElement(elementOrComponent: ResourceSlotValue): ReactElement {
  * covers all of them), only `buildCreateRoutes`'s, which the rule does not
  * mention.
  */
-function guardChildRoutes(
+function guardDescendantRoutes(
   node: ReactNode,
   kind: ContextKind,
   redirectTo: string,
@@ -112,13 +112,13 @@ function guardChildRoutes(
     if (!isValidElement(child)) return child;
 
     if (child.type === Fragment) {
-      const { children: fragmentChildren } = child.props as {
+      const { children: fragmentContents } = child.props as {
         children?: ReactNode;
       };
       return cloneElement(
         child,
         undefined,
-        guardChildRoutes(fragmentChildren, kind, redirectTo),
+        guardDescendantRoutes(fragmentContents, kind, redirectTo),
       );
     }
 
@@ -161,7 +161,7 @@ export const renderResources = (entries: ResourceEntry[]) =>
       }
       children={
         contextKind
-          ? guardChildRoutes(definition.children, contextKind, "/")
+          ? guardDescendantRoutes(definition.children, contextKind, "/")
           : definition.children
       }
     />

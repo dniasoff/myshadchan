@@ -69,6 +69,28 @@ const EXEMPT_BEARING_PATTERN_IDS = config.patterns
   .filter((p) => p.exempt?.length)
   .map((p) => p.id);
 
+/**
+ * A pattern's FILE-SCOPED (`{ file, term }`) exempt entries that match the
+ * pattern themselves — read from retired-names.json at runtime for the same
+ * reason selfMatchingExemptsFor() is: this file lives under scripts/, which
+ * the real guard scans, so it may never spell a retired term out.
+ */
+function selfMatchingFileScopedExemptsFor(id) {
+  const pattern = patternById(id);
+  const compiled = new RegExp(pattern.regex, pattern.flags ?? "");
+  const entries = (pattern.exempt ?? []).filter(
+    (entry) => typeof entry === "object" && compiled.test(entry.term),
+  );
+  if (entries.length === 0)
+    throw new Error(`No self-matching file-scoped exempt entry for ${id}`);
+  return entries;
+}
+
+/** The pattern ids carrying at least one file-scoped exempt entry. */
+const FILE_SCOPED_EXEMPT_PATTERN_IDS = config.patterns
+  .filter((p) => (p.exempt ?? []).some((entry) => typeof entry === "object"))
+  .map((p) => p.id);
+
 let tempRoot;
 
 beforeEach(async () => {
@@ -202,6 +224,58 @@ describe("runRetiredNameCheck", () => {
         );
 
         expect(runRetiredNameCheck(tempRoot, config)).toEqual([]);
+      },
+    );
+  });
+
+  // Story 8.1 review fix (9cf8e13) collided with this pattern via two real,
+  // unrelated third-party identifiers quoted in adminRouteBuilders.tsx (one
+  // bare import from "react", one named in a doc comment from
+  // "react-router") — nothing to do with the retired resource this pattern
+  // exists to catch. Deliberately not spelled out contiguously here: this
+  // file lives under scripts/, which the real guard scans (see the file
+  // header), and both terms are read from config below instead. A GLOBAL
+  // exempt term would have blinded this pattern to a genuine future fossil
+  // sharing the same substring anywhere in the repo; file-scoping — the
+  // same "keyed by file + fragment" shape check-tailwind-arbitrary-var.mjs
+  // already uses — narrows the exemption to the one file that needs it.
+  describe("file-scoped exemptions ({ file, term })", () => {
+    it.each(FILE_SCOPED_EXEMPT_PATTERN_IDS)(
+      "exempts a file-scoped term inside its own file but nowhere else (%s)",
+      async (patternId) => {
+        for (const { file, term } of selfMatchingFileScopedExemptsFor(
+          patternId,
+        )) {
+          await writeFixture(file, `${term}\n`);
+          const inOwnFile = runRetiredNameCheck(tempRoot, config);
+          expect(inOwnFile.some((v) => v.startsWith(`${file}:`))).toBe(false);
+
+          await writeFixture("src/elsewhere.ts", `${term}\n`);
+          const elsewhere = runRetiredNameCheck(tempRoot, config);
+          expect(elsewhere.some((v) => v.startsWith("src/elsewhere.ts:"))).toBe(
+            true,
+          );
+        }
+      },
+    );
+
+    it.each(FILE_SCOPED_EXEMPT_PATTERN_IDS)(
+      "still reports a fossil sharing a line with a file-scoped exempt term, in its own file (%s)",
+      async (patternId) => {
+        const fossil = exampleFor(patternId);
+
+        for (const { file, term } of selfMatchingFileScopedExemptsFor(
+          patternId,
+        )) {
+          await writeFixture(
+            file,
+            `// ${term} — and, on the very same line: ${fossil}\n`,
+          );
+
+          const violations = runRetiredNameCheck(tempRoot, config);
+
+          expect(violations).toEqual([`${file}:1: matches "${patternId}"`]);
+        }
       },
     );
   });

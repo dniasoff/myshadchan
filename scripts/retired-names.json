@@ -103,8 +103,20 @@
         "Children.only",
         "Children.map",
         "Children.count",
-        "Children.forEach"
+        "Children.forEach",
+        {
+          "file": "src/components/atomic-crm/root/adminRouteBuilders.tsx",
+          "term": "Children"
+        },
+        {
+          "file": "src/components/atomic-crm/root/adminRouteBuilders.tsx",
+          "term": "createRoutesFromChildren"
+        }
       ],
+      "exemptReasons": {
+        "Children": "adminRouteBuilders.tsx imports React's own Children API bare (`import { Children } from \"react\"`), not namespaced as `React.Children` like the rest of this list already assumes — same real API, different import style. Kept file-scoped rather than added to the global list above: blanking a bare word that short everywhere would blind this pattern to a genuine future fossil compound containing the same letters (e.g. a hypothetical ChildrenList/useChildren), which the global entries above (all dotted or compound forms) don't risk.",
+        "createRoutesFromChildren": "adminRouteBuilders.tsx's own doc comment names react-router's real internal function createRoutesFromChildren (in node_modules/react-router) to explain an invariant it throws — a third-party identifier quoted for documentation, not a MyShadchan identifier. File-scoped for the same reason as Children above: naming the one file that quotes it costs nothing, and there is no reason to risk a global exemption for a fragment this specific."
+      },
       "exampleFragments": ["selecte", "d", "Child", "Id"]
     },
     {

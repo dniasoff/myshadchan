@@ -10,6 +10,9 @@ import {
   buildConditionalSkip,
   buildCiGuardedSkip,
   buildDisableComment,
+  buildProseMention,
+  buildTrailingDirective,
+  buildNestedCommentMention,
 } from "./check-suppressions.mjs";
 
 // This guard's own proof-that-it-bites artifact (Story 1.6 AC-10). Every
@@ -65,6 +68,54 @@ describe("runSuppressionCheck — lint-suppression budgets", () => {
     await writeFixture("src/lib/clean.ts", "export const x = 1;\n");
 
     expect(runSuppressionCheck(tempRoot)).toEqual([]);
+  });
+
+  // Story 8.1's review-fix commit tripped this exact bug: a docstring
+  // explaining why an inline directive was NOT added ("check-suppressions.mjs
+  // ... is already fully spent (3/3), so an inline `eslint-disable` here was
+  // not an option") pushed atomic-crm's count from 3 to 4 against a budget of
+  // 3 — a scanner unable to tell code from prose about code. These prove the
+  // fix without re-raising the budget, per the guard's own header.
+  describe("directive-vs-prose distinction", () => {
+    it("does not count a prose mention of the needle in a block-comment continuation line", async () => {
+      const budget = ESLINT_DISABLE_BUDGETS["src/lib"];
+      const real = Array.from({ length: budget }, (_, i) =>
+        buildDisableComment(`no-explicit-any -- fixture ${i}`),
+      );
+      const lines = [
+        ...real,
+        buildProseMention("extraction was the only fix"),
+      ].join("\n");
+      await writeFixture("src/lib/example.ts", lines);
+
+      expect(runSuppressionCheck(tempRoot)).toEqual([]);
+    });
+
+    it("still counts a real directive that trails other code on the line", async () => {
+      const budget = ESLINT_DISABLE_BUDGETS["src/lib"];
+      const lines = Array.from({ length: budget + 1 }, (_, i) =>
+        buildTrailingDirective(`no-explicit-any -- fixture ${i}`),
+      ).join("\n");
+      await writeFixture("src/lib/example.ts", lines);
+
+      const failures = runSuppressionCheck(tempRoot);
+
+      expect(failures.some((f) => f.includes("src/lib"))).toBe(true);
+    });
+
+    it("does not count a directive-shaped fragment inside an already-open comment", async () => {
+      const budget = ESLINT_DISABLE_BUDGETS["src/lib"];
+      const real = Array.from({ length: budget }, (_, i) =>
+        buildDisableComment(`no-explicit-any -- fixture ${i}`),
+      );
+      const lines = [
+        ...real,
+        buildNestedCommentMention("no-explicit-any -- not-yet-enabled rule"),
+      ].join("\n");
+      await writeFixture("src/lib/example.ts", lines);
+
+      expect(runSuppressionCheck(tempRoot)).toEqual([]);
+    });
   });
 });
 

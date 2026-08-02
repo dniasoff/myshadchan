@@ -31,6 +31,25 @@ function isAllowlisted(relPath, config) {
 }
 
 /**
+ * Whether an `exempt` entry applies to the file currently being scanned. A
+ * plain string exempts its term everywhere (the original, global model); an
+ * `{ file, term }` object narrows the exemption to one exact repo-relative
+ * path — the same "keyed by file + fragment, not file:line" shape
+ * `check-tailwind-arbitrary-var.mjs`'s `KNOWN_FROZEN_VIOLATIONS` already
+ * uses. File+fragment survives an unrelated edit shifting line numbers
+ * (a file:line key would silently stop matching and turn the build red for
+ * someone who didn't cause it); it stops applying only when the fragment
+ * itself is edited or removed, which is exactly when it should.
+ */
+function isApplicableExempt(entry, relPath) {
+  return typeof entry === "string" ? true : entry.file === relPath;
+}
+
+function termOf(entry) {
+  return typeof entry === "string" ? entry : entry.term;
+}
+
+/**
  * Blanks every exempt term out of `line`, so a pattern can be re-tested
  * against only the text its exemptions do NOT account for.
  *
@@ -40,7 +59,7 @@ function isAllowlisted(relPath, config) {
  * term was therefore masked — `<Slot asChild /> // <fossil>` passed. The
  * exemptions are per-term, not per-line; this makes the code say so.
  *
- * Three properties this function has to hold, each load-bearing:
+ * Four properties this function has to hold, each load-bearing:
  *
  *  - **Blank to a space, never to the empty string.** Deleting a term
  *    splices the characters either side of it together, which can
@@ -57,10 +76,17 @@ function isAllowlisted(relPath, config) {
  *    case-insensitive patterns. Matching case-insensitively here would
  *    exempt *more* than the previous rule did, and this change is only ever
  *    allowed to exempt less.
+ *  - **File-scoped entries only apply to their own file.** `isApplicableExempt`
+ *    filters the list against `relPath` before any blanking happens, so a
+ *    fragment exempted for one file is still a live match everywhere else.
  */
-function stripExemptTerms(line, exempt) {
+function stripExemptTerms(line, exempt, relPath) {
   if (!exempt || exempt.length === 0) return line;
-  return [...exempt]
+  const applicable = exempt.filter((entry) =>
+    isApplicableExempt(entry, relPath),
+  );
+  return applicable
+    .map(termOf)
     .sort((a, b) => b.length - a.length)
     .reduce((text, term) => (term ? text.split(term).join(" ") : text), line);
 }
@@ -92,7 +118,11 @@ export function runRetiredNameCheck(scanRoot, config = loadConfig()) {
         // Then re-test only what the exemptions do not cover. An exemption
         // excuses its own term, not everything that happens to share a line
         // with it.
-        if (!pattern.compiled.test(stripExemptTerms(line, pattern.exempt)))
+        if (
+          !pattern.compiled.test(
+            stripExemptTerms(line, pattern.exempt, relPath),
+          )
+        )
           continue;
         violations.push(`${relPath}:${index + 1}: matches "${pattern.id}"`);
       }

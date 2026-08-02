@@ -28,8 +28,18 @@ const CODE_EXTENSIONS = [".ts", ".tsx", ".mjs", ".js"];
 // 6 no-console line-suppressions this ratchet would otherwise have to carry
 // forever). A tree with no entry defaults to budget 0 — a suppression
 // appearing somewhere new fails the gate instead of going unnoticed.
+//
+// "src/components/admin" dropped from 54 to 53 (Epic 8 close-out,
+// 2026-08-02) when `isDirectiveComment` below started requiring the needle
+// to open its own comment: date-time-input.tsx:328's line was never a real
+// directive (a `// TODO: uncomment once we enable ... // eslint-disable-
+// next-line ...` comment whose SECOND "//" only looks like a directive —
+// the whole line is already one comment from its first "//", so ESLint
+// itself never parses that inner text as a directive). Lowered rather than
+// left at 54 so the budget still reflects the exact real count, per the
+// same reasoning as TS_SUPPRESSION_BUDGETS below.
 export const ESLINT_DISABLE_BUDGETS = {
-  "src/components/admin": 54,
+  "src/components/admin": 53,
   "src/components/atomic-crm": 3,
   "src/hooks": 8,
   e2e: 1,
@@ -38,20 +48,30 @@ export const ESLINT_DISABLE_BUDGETS = {
   ".claude/skills": 2,
 };
 
-// Epic 3's entity360/ budget of 15 is deliberate and audited (2026-07-29):
-// all 13 real directives are expect-error NEGATIVE TYPE TESTS asserting a
-// wrong shape does not compile (EntityDescriptor missing `label`, a retired
-// TabKey, a className/variant prop on Entity360, onClick on RecordLink, ...),
-// plus 2 lines that merely NAME the directive in prose (a describe title and
-// a docblock), counted because this ratchet matches by line content. Not one
-// is an ignore- or nocheck-style suppression papering over a real error. An
-// expect-error is self-policing in a way those are not: an UNUSED directive
-// is itself a tsc error, so each of the 13 fails `make typecheck` the moment
-// the type it pins stops rejecting the bad shape — they cannot rot silently.
-// Set to the exact surviving count so a 16th requires a deliberate decision.
+// Epic 3's entity360/ budget was 15 through 2026-07-29's audit: 13 real
+// directives are expect-error NEGATIVE TYPE TESTS asserting a wrong shape
+// does not compile (EntityDescriptor missing `label`, a retired TabKey, a
+// className/variant prop on Entity360, onClick on RecordLink, ...), plus 2
+// lines that merely NAME the directive in prose (a describe title and a
+// docblock) — at the time counted anyway because this ratchet matched by
+// raw line content, unable to tell code from prose about code. Not one of
+// the 13 is an ignore- or nocheck-style suppression papering over a real
+// error. An expect-error is self-policing in a way those are not: an UNUSED
+// directive is itself a tsc error, so each of the 13 fails `make typecheck`
+// the moment the type it pins stops rejecting the bad shape — they cannot
+// rot silently.
+//
+// Lowered to 13 (Epic 8 close-out, 2026-08-02): `isDirectiveComment` below
+// now requires the needle to be the first content of a comment that opens
+// on that same line, which structurally excludes both prose mentions (a
+// JSDoc continuation line has no comment-opening token of its own; a
+// `describe("...")` title is a string literal, not a comment at all) —
+// the fix check-suppressions.mjs's own header already asked for instead of
+// a permanently inflated budget. Set to the exact surviving count so a
+// 14th requires a deliberate decision.
 export const TS_SUPPRESSION_BUDGETS = {
   "src/components/admin": 5,
-  "src/components/atomic-crm": 15,
+  "src/components/atomic-crm": 13,
   "src/lib": 1,
 };
 
@@ -127,8 +147,43 @@ function hasSanctionedCiThrowGuard(lines, skipLineIndex) {
   return false;
 }
 
+// A line only functions as a real suppression directive if the needle is
+// the very first content of a comment that itself OPENS on that line —
+// mirroring how ESLint/TypeScript actually parse directive comments: the
+// comment node's own text, trimmed, must start with the directive. Text
+// merely mentioning the needle elsewhere never counts:
+//
+//  - a continuation line of an already-open block comment (JSDoc's leading
+//    ` * ...` style, e.g. a docstring explaining why a directive was NOT
+//    added) has no comment-opening token of its own on that line at all;
+//  - a needle inside a string literal (e.g. a `describe("...eslint-disable
+//    ...")` title) has no comment-opening token on the line either;
+//  - a needle embedded after other prose inside an ALREADY-open `//`
+//    comment (a second "//" later on the same line, e.g. a TODO
+//    referencing a disable to add "once we enable X") is preceded by the
+//    line's *first* "//", not by its own — so it is never the first thing
+//    after the comment actually opens.
+//
+// A genuine directive can still trail other code on the same line (a
+// ternary branch's own `// eslint-disable-next-line ...`) — this only
+// requires the needle be the first thing *inside its own, freshly-opened*
+// comment, not the first thing on the line.
+function isDirectiveComment(line, needle) {
+  const slashIdx = line.indexOf("//");
+  const blockIdx = line.indexOf("/*");
+  const openerIdx =
+    slashIdx === -1
+      ? blockIdx
+      : blockIdx === -1
+        ? slashIdx
+        : Math.min(slashIdx, blockIdx);
+  if (openerIdx === -1) return false;
+  const afterOpener = line.slice(openerIdx + 2).replace(/^\s+/, "");
+  return afterOpener.startsWith(needle);
+}
+
 function countOccurrences(lines, needle) {
-  return lines.filter((line) => line.includes(needle)).length;
+  return lines.filter((line) => isDirectiveComment(line, needle)).length;
 }
 
 // --- Fixture builders for this guard's own unit test -----------------------
@@ -172,6 +227,39 @@ export function buildCiGuardedSkip(prefix, suffix, reason) {
 /** Builds a realistic disable-comment line for the suppression-census tests. */
 export function buildDisableComment(rule) {
   return `// ${ESLINT_DISABLE_NEEDLE}-next-line ${rule}`;
+}
+
+/**
+ * A prose MENTION of the disable needle inside a block-comment continuation
+ * line (` * ...`) — the exact shape of the false positive Story 8.1's
+ * review-fix commit introduced in adminRouteBuilders.tsx (a docstring
+ * explaining that an inline directive was deliberately NOT added). Never a
+ * real directive: the line has no comment-opening token of its own, so
+ * ESLint would never parse it as one either.
+ */
+export function buildProseMention(reason) {
+  return ` * ${reason}, an inline ${ESLINT_DISABLE_NEEDLE} here was not an option.`;
+}
+
+/**
+ * A real directive that trails other code on the line (a ternary branch's
+ * own comment) rather than opening at column 0. Proves the ratchet still
+ * counts a genuine directive that isn't the first token on the LINE, only
+ * requiring it be the first thing inside its own, freshly-opened comment.
+ */
+export function buildTrailingDirective(rule) {
+  return `  ? ${"//"} ${ESLINT_DISABLE_NEEDLE}-next-line ${rule}`;
+}
+
+/**
+ * A directive-shaped fragment embedded inside an ALREADY-open `//` comment
+ * — a second "//" appearing later on the same line, e.g. a TODO describing
+ * a directive to add once some future condition holds. Never functions as
+ * a real directive: the whole line, from its first "//", is one comment
+ * already, so this text is never the first thing after a comment opens.
+ */
+export function buildNestedCommentMention(rule) {
+  return `  // TODO: later ${"//"} ${ESLINT_DISABLE_NEEDLE}-next-line ${rule}`;
 }
 
 /**

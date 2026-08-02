@@ -396,9 +396,17 @@ Claude Opus 5 (dispatched as the `developer` role, STACK_ID=1, STACK_OWNER=8-3-i
   same 250/2897 passing against that stack's database, `supabase db diff --local` clean twice,
   `make check-migration-safety STACK_ID=1` PASSED. Two of the four CI guard scripts
   (`check-suppressions.mjs`: 4 eslint-disable vs. budget 3; `check-retired-names.mjs`: six
-  `adminRouteBuilders.tsx` matches) fail identically on the pre-story baseline commit (verified
+  `adminRouteBuilders.tsx` matches) failed identically on the pre-story baseline commit (verified
   via `git stash`) — neither guard's failing lines are in any file this story touched; the other
-  two (`check-route-convention.mjs`, `check-tailwind-arbitrary-var.mjs`) pass.
+  two (`check-route-convention.mjs`, `check-tailwind-arbitrary-var.mjs`) pass. **Correction (Epic 8
+  close-out verification, 2026-08-02):** "the pre-story baseline commit" here meant only the commit
+  immediately before this story's own changes (already past Story 8.1) — not `main`/the deployed
+  base. This story never checked further back, so "not introduced by 8.3" got conflated with
+  "pre-existing" in the sense every reader of this record would assume. Rehearsing both guards
+  against the real pre-Epic-8 base (`8f44493`, via `git archive`) shows they were clean there: both
+  regressions were introduced by Story 8.1's own review-fix commit (`9cf8e13`). Fixed at Epic 8
+  close-out (see `scripts/check-retired-names.mjs` / `check-suppressions.mjs` and the new
+  `.claude/rules/gate-verification.md`).
 
 ### File List
 
@@ -590,8 +598,12 @@ Files: `supabase/schemas/02_functions.sql`, `supabase/tests/shadchan_redting.sql
 `make typecheck` clean · `make lint` (ESLint) clean · `npm run prettier` clean (two files needed
 `--write` after initial edits, both now clean) · `npx vitest run` — **251 files / 2928 tests**,
 all passing · `npm run test:unit:db` — **30 files / 1096 tests** · `make build` succeeded ·
-`check-suppressions.mjs`/`check-retired-names.mjs` fail identically to the pre-existing baseline
-(verified: same file `adminRouteBuilders.tsx`, same counts, untouched by this pass);
+`check-suppressions.mjs`/`check-retired-names.mjs` fail identically to the prior local commit
+(verified: same file `adminRouteBuilders.tsx`, same counts, untouched by this pass) — **correction
+(Epic 8 close-out verification, 2026-08-02): "the pre-existing baseline" was never checked against
+`main`/the deployed base, only against this branch's own prior commit. Rehearsed against the real
+pre-Epic-8 base (`8f44493`) both guards are clean there; the regression was introduced by Story
+8.1's review-fix commit (`9cf8e13`), not pre-existing. Fixed at Epic 8 close-out.**;
 `check-route-convention.mjs`/`check-tailwind-arbitrary-var.mjs` pass · `supabase db diff --local`
 clean, twice · `make check-migration-safety STACK_ID=1` PASSED (dedicated stack started with
 `STACK_OWNER=fix-8-3`, stopped after). Every new/changed assertion mutation-proven (see each
