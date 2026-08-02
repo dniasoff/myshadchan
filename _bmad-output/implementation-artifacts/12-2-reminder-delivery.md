@@ -1,6 +1,9 @@
 # Story 12.2: Reminder delivery
 
-Status: ready-for-dev *(code); delivery blocked on Epic 12 gate **G1** — see below.*
+Status: ready-for-dev *(code); delivery blocked on Epic 12 gate **G1**, now
+**partially discharged (2026-08-02)** — the Cloudflare-auth/deploy half is done
+(`deploy-workers` no longer skips; see Dependencies → D1), the Resend-domain half
+(`RESEND_FROM` + a verified sending domain) is still open — see below.*
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -114,12 +117,14 @@ Four independent facts, each verified by reading the file:
    pushes it to the cron Worker and `:151-154` to Supabase Edge Functions — but no file
    in this repository calls Resend. The only `resend` matches in `src/` are the
    sign-in-code *"Resend code"* button, an unrelated feature.
-4. **The Worker that would host the sweep has never been deployed.** The
-   `deploy-workers` job (`.github/workflows/deploy.yml:222-288`) is gated on
-   `IS_CLOUDFLARE_CONFIGURED = CLOUDFLARE_API_TOKEN && CLOUDFLARE_ACCOUNT_ID`. Those
-   secrets are absent, so every push takes the `:285-288` branch and writes *"Cloudflare
-   Workers deployment skipped"* to the run summary. None of the seven Workers exists in
-   production. Even the `crons = ["*/15 * * * *"]` trigger
+4. **The Worker that would host the sweep has never been deployed.** *(True as of
+   2026-07-30; see the 2026-08-02 update under Dependencies → D1 — the Worker now
+   exists in production, health-check only, with the cron schedule still deliberately
+   unregistered.)* The `deploy-workers` job (`.github/workflows/deploy.yml:222-288`) is
+   gated on `IS_CLOUDFLARE_CONFIGURED = CLOUDFLARE_API_TOKEN && CLOUDFLARE_ACCOUNT_ID`.
+   Those secrets are absent, so every push takes the `:285-288` branch and writes
+   *"Cloudflare Workers deployment skipped"* to the run summary. None of the seven
+   Workers exists in production. Even the `crons = ["*/15 * * * *"]` trigger
    (`workers/cron/wrangler.toml:8-9`) has never been registered with Cloudflare.
 
 **Verdict: reminder email delivery has never worked, in any environment, on any day of
@@ -738,6 +743,36 @@ close-out is the epic owner's edit, not this story's.
   account, without which every send returns a 403 and every row settles `failed`.
   Whoever schedules this story owns obtaining them. See Dev Notes → "Why the sweep stays
   on Cloudflare".
+
+  **D1 / gate G1 status — UPDATE 2026-08-02, partially discharged.** The narrow trigger
+  named in `epics.md`'s gate G1 — *`deploy-workers` stops printing "Cloudflare Workers
+  deployment skipped"* — is now **satisfied**. Root causes fixed, in order: (1) the
+  `CLOUDFLARE_API_TOKEN` secret had been a Global API Key, which `wrangler` sends as a
+  Bearer token and Cloudflare rejects (`9109`) — replaced with a scoped token
+  (`myshadchan-gha-deploy-2026-08-02`, Workers Scripts Write + R2 Write, this account
+  only); (2) the account had no `workers.dev` subdomain registered, so nothing could
+  publish — `myshadchan.workers.dev` is now registered. First-ever green
+  `deploy-workers` run: **30743735202** (re-run of the `main` push that already carried
+  the code fixes), all five gated-in legs (`ingest`, `parse`, `match`, `ai`, `cron`)
+  uploaded and live at `https://myshadchan-<worker>.myshadchan.workers.dev/health`,
+  each answering only `{"success":true,"data":{"worker":"<name>","status":"ok"}}` with
+  the required security headers, no env/version/stack-trace leak. `cron` deployed
+  **without** its schedule — `[triggers]` stayed commented out in
+  `workers/cron/wrangler.toml` exactly as designed, confirmed both in the deploy log
+  ("Deployed myshadchan-cron triggers" refers to route/binding registration, not a cron
+  schedule — none is declared) and by re-reading the file post-deploy. **This story
+  still owns re-enabling that trigger, together with its own AC-4 overdue-backlog
+  backfill** — this deploy changes nothing about that ownership.
+
+  **Still open, and this story is not yet clear to *deliver* on that basis alone:**
+  `RESEND_FROM` is absent from the repository's GitHub Actions secrets (checked
+  2026-08-02 via `gh api repos/.../actions/secrets`; only `RESEND_API_KEY` is present,
+  as it already was), no Resend sending domain has been confirmed verified, no Worker
+  has a pinned per-Worker URL (all five are on the `workers.dev` default epics.md's G1
+  text calls out as the thing to move off of, not a final state) or a declared route,
+  and none has CORS configured. None of this is code this story is missing — it is the
+  remainder of D1/G1 — but it means "the Workers deploy" and "this story can deliver
+  email" are now two different open questions, not one.
 - **D2 — Story 7.5 (Epic 7) shares `workers/shared/resend.ts`, `workers/cron/index.ts`,
   `workers/cron/wrangler.toml` and `types.ts`.** Either order works; the same wave does
   not. Task 4 states the hand-off in both directions.
