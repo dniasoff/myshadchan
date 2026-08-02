@@ -840,6 +840,24 @@ export const createDataProvider = ({
         );
         return { data: participant } as any;
       }
+      // Story 9.1: mirrors set_account_id_default() (02_functions.sql) —
+      // PublishShadchanListingSection.tsx never sends account_id itself
+      // (same "the client never has to trust a client-sent account_id"
+      // posture as medical_notes/shidduchim_external_links above), so
+      // FakeRest has to stamp it the same way the real BEFORE INSERT
+      // trigger does, or every listing this demo creates would come back
+      // with no account_id at all and the panel's own
+      // `getList("listings", { filter: { account_id } })` re-read would
+      // never find it.
+      if (resource === "listings" && params.data?.account_id == null) {
+        return baseDataProvider.create(resource, {
+          ...params,
+          data: {
+            ...params.data,
+            account_id: await resolveCurrentAccountId(),
+          },
+        });
+      }
       return baseDataProvider.create(resource, params);
     },
     async update(resource: string, params: any) {

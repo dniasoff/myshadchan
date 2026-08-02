@@ -394,6 +394,31 @@ export const englishCrmMessages = {
       connection_invite_expires: "Expires %{when}",
       connection_invite_cancel: "Cancel invite",
       connection_invite_revoke_error: "Couldn't cancel that invite. Try again.",
+      // Story 9.1: the "Publish my listing" settings panel
+      // (listings/PublishShadchanListingSection.tsx) — field-by-field
+      // opt-in (AC-1), name required to publish (AC-2), and withdrawal
+      // (AC-5).
+      listing: {
+        title: "Publish my listing",
+        description:
+          "Choose what families can find about you, field by field. Nothing is shown until you turn it on.",
+        name_label: "Name",
+        name_placeholder: "How families should see your name",
+        area_label: "Area",
+        area_placeholder: "e.g. Lakewood and nearby",
+        contact_label: "How to reach me",
+        contact_placeholder:
+          "Phone, email, or however you prefer to be reached",
+        name_required_error:
+          'Turn on "Name" and enter a name before publishing.',
+        publish_button: "Publish my listing",
+        update_button: "Update listing",
+        publish_success: "Your listing is live.",
+        publish_error: "Couldn't publish your listing. Try again.",
+        withdraw_button: "Withdraw listing",
+        withdraw_success: "Your listing has been withdrawn.",
+        withdraw_error: "Couldn't withdraw your listing. Try again.",
+      },
       reset_defaults: "Reset to Defaults",
       save_error: "Failed to save configuration",
       saved: "Configuration saved successfully",

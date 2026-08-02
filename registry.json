@@ -396,6 +396,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/settings/ShadchanListingSection.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/settings/SettingsPageMobile.tsx",
           "type": "registry:component"
         },
@@ -977,6 +981,18 @@
         },
         {
           "path": "src/components/atomic-crm/login/AgeAffirmation.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/useShadchanListing.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/WithdrawShadchanListingButton.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/PublishShadchanListingSection.tsx",
           "type": "registry:component"
         },
         {

@@ -1390,3 +1390,102 @@ alter table public.connection_invites force row level security;
 create policy "Connection invites visible to their issuer" on public.connection_invites
     for select to authenticated
     using (inviter_account_id = public.current_context_id());
+
+-- =====================================================================
+-- MyShadchan — Listings & Sharing (Epic 9 Story 9.1: publish a shadchan
+-- listing)
+-- =====================================================================
+
+-- FORCE ROW LEVEL SECURITY — Story 7.1's decision (its own FORCE block
+-- above), not re-decided here: `postgres`/`supabase_admin` both carry
+-- BYPASSRLS on this stack, so FORCE changes no behaviour for any owner-run
+-- path here — shipped anyway, and matters MORE for this table than any
+-- prior one: `listings` also carries a deliberate blanket `anon` grant
+-- (AD-21), and AD-1 requires FORCE on every table without exception.
+alter table public.listings enable row level security;
+alter table public.listings force row level security;
+
+-- "Listings readable by anon" (AC-4, AC-5) — deliberate `using (true)`, the
+-- entire point of AD-21: a row's existence IS what "published" means, so
+-- every column in every row is safe for `anon` to read by construction (no
+-- private column exists on this table at all, and none may ever be added —
+-- see this story's Dev Notes "Security / RLS").
+create policy "Listings readable by anon" on public.listings
+    for select to anon
+    using (true);
+
+-- "Listings readable by owner" (shared by both branches — this story owns
+-- it so 9.2 does not duplicate it): lets a shadchan, or 9.2's household
+-- manager, see their own listing regardless of listing_type.
+create policy "Listings readable by owner" on public.listings
+    for select to authenticated
+    using (account_id = public.current_context_id());
+
+-- The `shadchan` branch only (AC-1, AC-2, AC-6, AC-7). Story 9.2 adds
+-- separate, named `single`-branch policies for insert/update; Story 9.3
+-- replaces the single-branch delete policy with the dignity-floor lock —
+-- neither ever edits these three (Dev Notes "Policy ownership map").
+create policy "Shadchan listings insert" on public.listings
+    for insert to authenticated
+    with check (
+        listing_type = 'shadchan'
+        and account_id = public.current_context_id()
+        and exists (
+            select 1 from public.accounts a
+            where a.id = public.current_context_id() and a.kind = 'shadchanus'
+        )
+        and exists (
+            select 1 from public.account_members am
+            where am.account_id = public.current_context_id()
+              and am.user_id = auth.uid()
+              and am.role = 'shadchan'
+        )
+    );
+
+create policy "Shadchan listings update" on public.listings
+    for update to authenticated
+    using (
+        listing_type = 'shadchan'
+        and account_id = public.current_context_id()
+        and exists (
+            select 1 from public.accounts a
+            where a.id = public.current_context_id() and a.kind = 'shadchanus'
+        )
+        and exists (
+            select 1 from public.account_members am
+            where am.account_id = public.current_context_id()
+              and am.user_id = auth.uid()
+              and am.role = 'shadchan'
+        )
+    )
+    with check (
+        listing_type = 'shadchan'
+        and account_id = public.current_context_id()
+        and exists (
+            select 1 from public.accounts a
+            where a.id = public.current_context_id() and a.kind = 'shadchanus'
+        )
+        and exists (
+            select 1 from public.account_members am
+            where am.account_id = public.current_context_id()
+              and am.user_id = auth.uid()
+              and am.role = 'shadchan'
+        )
+    );
+
+create policy "Shadchan listings delete" on public.listings
+    for delete to authenticated
+    using (
+        listing_type = 'shadchan'
+        and account_id = public.current_context_id()
+        and exists (
+            select 1 from public.accounts a
+            where a.id = public.current_context_id() and a.kind = 'shadchanus'
+        )
+        and exists (
+            select 1 from public.account_members am
+            where am.account_id = public.current_context_id()
+              and am.user_id = auth.uid()
+              and am.role = 'shadchan'
+        )
+    );

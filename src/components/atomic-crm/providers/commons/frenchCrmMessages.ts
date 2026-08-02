@@ -371,6 +371,27 @@ export const frenchCrmMessages = {
       connection_invite_cancel: "Annuler l'invitation",
       connection_invite_revoke_error:
         "Impossible d'annuler cette invitation. Réessayez.",
+      listing: {
+        title: "Publier mon annonce",
+        description:
+          "Choisissez ce que les familles peuvent trouver à votre sujet, champ par champ. Rien n'est affiché tant que vous ne l'activez pas.",
+        name_label: "Nom",
+        name_placeholder: "Comment les familles verront votre nom",
+        area_label: "Zone",
+        area_placeholder: "ex. Lakewood et les environs",
+        contact_label: "Comment me joindre",
+        contact_placeholder:
+          "Téléphone, e-mail, ou la façon dont vous préférez être contacté",
+        name_required_error:
+          "Activez « Nom » et saisissez un nom avant de publier.",
+        publish_button: "Publier mon annonce",
+        update_button: "Mettre à jour l'annonce",
+        publish_success: "Votre annonce est en ligne.",
+        publish_error: "Impossible de publier votre annonce. Réessayez.",
+        withdraw_button: "Retirer l'annonce",
+        withdraw_success: "Votre annonce a été retirée.",
+        withdraw_error: "Impossible de retirer votre annonce. Réessayez.",
+      },
       reset_defaults: "Réinitialiser aux valeurs par défaut",
       save_error: "Échec de l'enregistrement de la configuration",
       saved: "Configuration enregistrée avec succès",

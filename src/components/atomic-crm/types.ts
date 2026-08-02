@@ -1108,3 +1108,34 @@ export type PushSubscription = {
   auth: string;
   created_at: string;
 } & Pick<RaRecord, "id">;
+
+/** `listing_type` — Story 9.1 ships the `shadchan` branch only; `single`
+ * (Story 9.2) reuses the same table (AD-21's sole anon-readable relation). */
+export type ListingType = "shadchan" | "single";
+
+/**
+ * One row of `public.listings` (Story 9.1) — the sole anon-readable
+ * relation in the product (AD-21). Every field below is opt-in: `null`
+ * means the publisher never turned it on, not an empty string. This story
+ * only ever writes the `shadchan_*` fields; the `single_*` fields exist in
+ * the shape from this first migration but stay `null` for a `shadchan` row
+ * and are Story 9.2's to populate. No photo field exists on either branch —
+ * see 9.1's Dev Notes "No photo on a listing".
+ */
+export type Listing = {
+  account_id: Identifier;
+  listing_type: ListingType;
+  single_id?: Identifier | null;
+  published_by_member_id?: Identifier | null;
+  shadchan_name?: string | null;
+  shadchan_area?: string | null;
+  shadchan_contact_info?: string | null;
+  single_first_name_en?: string | null;
+  single_first_name_he?: string | null;
+  single_age?: number | null;
+  single_height?: string | null;
+  single_community?: string | null;
+  single_location?: string | null;
+  single_summary?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;

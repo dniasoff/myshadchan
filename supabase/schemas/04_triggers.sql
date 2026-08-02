@@ -352,3 +352,15 @@ create or replace trigger fan_out_message_notifications_trigger
 -- public.shidduchim as purge_shidduch_dependents above, and this story
 -- extends that shared function with a fifth delete (threads, both scope
 -- axes) rather than duplicating the wiring.
+
+-- =====================================================================
+-- MyShadchan — Listings & Sharing (Epic 9 Story 9.1: publish a shadchan
+-- listing)
+-- =====================================================================
+
+-- Server-set account_id on insert (AD-1) — the same reusable
+-- set_account_id_default() every other shidduchim-domain table's own
+-- set_<table>_account_id trigger calls above, not a new per-table function.
+create or replace trigger set_listings_account_id
+    before insert on public.listings
+    for each row execute function public.set_account_id_default();

@@ -8,6 +8,7 @@ import type {
   InboxItem,
   Interaction,
   Invite,
+  Listing,
   MedicalNote,
   Member,
   Message,
@@ -85,4 +86,11 @@ export interface Db {
   threads: Thread[];
   thread_participants: ThreadParticipant[];
   messages: Message[];
+  // Story 9.1 — seeded empty; the demo build must not crash on the
+  // "Publish my listing" settings panel. Written only through
+  // PublishShadchanListingSection.tsx's own create/update calls and
+  // WithdrawShadchanListingButton.tsx's delete (never seeded with a
+  // pre-published row, matching the "opt-in, nothing published by default"
+  // requirement AC-1 makes for the real database too).
+  listings: Listing[];
 }

@@ -23,6 +23,7 @@ import { PreferencesSection } from "./PreferencesSection";
 import { PrivacySection } from "./PrivacySection";
 import { ProfileSection } from "./ProfileSection";
 import { SectionLabel } from "./SectionLabel";
+import { ShadchanListingSection } from "./ShadchanListingSection";
 
 /**
  * Mobile /settings — account, family, preferences, privacy (design-artifacts
@@ -62,6 +63,7 @@ export const SettingsPageMobile = () => {
           <PreferencesSection />
           <CommunicationSection />
           <ConnectionSection />
+          <ShadchanListingSection />
           <PrivacySection />
           <BillingSection />
         </div>

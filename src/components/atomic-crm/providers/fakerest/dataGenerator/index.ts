@@ -37,6 +37,10 @@ export default (): Db => {
   db.threads = [];
   db.thread_participants = [];
   db.messages = [];
+  // Story 9.1 — no shadchan listing is published by default (AC-1's
+  // opt-in requirement applies here too); the "Publish my listing" settings
+  // panel's own create/update/delete calls are the only writers.
+  db.listings = [];
   // Shidduchim pipeline domain (accounts, singles, shadchanim, shidduchim, ...)
   generateShidduchimDomain(db);
   // References domain (references, reference_links, interactions, reference

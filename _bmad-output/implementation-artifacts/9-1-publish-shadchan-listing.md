@@ -1,6 +1,10 @@
+---
+baseline_commit: ec81675
+---
+
 # Story 9.1: Publish a shadchan listing
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -100,8 +104,8 @@ through `listings`.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Schema: create the `listings` table** (AC: 1, 2, 3, 6)
-  - [ ] Append to `supabase/schemas/01_tables.sql`, in the shidduchim-domain section (after
+- [x] **Task 1 — Schema: create the `listings` table** (AC: 1, 2, 3, 6)
+  - [x] Append to `supabase/schemas/01_tables.sql`, in the shidduchim-domain section (after
         whatever the last table Epics 2–8 have added by then is — do not guess a line number,
         the file will have grown by seven epics' worth of migrations before this story starts).
         Full shape below; the `single_*` columns exist now even though only 9.2 ever writes
@@ -147,7 +151,7 @@ through `listings`.
             )
         );
         ```
-  - [ ] Foreign keys, both the domain's standard ones:
+  - [x] Foreign keys, both the domain's standard ones:
         ```sql
         alter table public.listings
             add constraint listings_account_id_fkey
@@ -170,7 +174,7 @@ through `listings`.
         same comment block warns about, and guaranteeing AD-15's per-single purge takes any live
         listing down with its subject. Enabled by `singles_account_id_id_key` (post-1.3 name of
         `children_account_id_id_key`).
-  - [ ] Indexes: `create index listings_account_id_idx on public.listings using btree
+  - [x] Indexes: `create index listings_account_id_idx on public.listings using btree
         (account_id);` plus the two **partial unique indexes** that make "one live listing per
         subject" real:
         ```sql
@@ -182,7 +186,7 @@ through `listings`.
         Both indexes are created now (by this story) even though only the first is exercised
         until 9.2 — creating them together keeps the "exactly one live listing per subject"
         invariant declared in one place instead of two migrations disagreeing about it.
-  - [ ] Trigger: reuse the existing generic `public.set_account_id_default()` (see
+  - [x] Trigger: reuse the existing generic `public.set_account_id_default()` (see
         `02_functions.sql`, currently `new.account_id := public.current_account_id();` — by
         this story it reads `current_context_id()`, per AD-19/Epic 2). **Do not write a new
         per-table function** — `04_triggers.sql` already has this exact one-liner pattern for
@@ -194,38 +198,38 @@ through `listings`.
             for each row execute function public.set_account_id_default();
         ```
 
-- [ ] **Task 2 — RLS policies for the `shadchan` branch only** (AC: 1, 2, 6, 7, 8)
-  - [ ] `alter table public.listings enable row level security;` **and** `alter table
+- [x] **Task 2 — RLS policies for the `shadchan` branch only** (AC: 1, 2, 6, 7, 8)
+  - [x] `alter table public.listings enable row level security;` **and** `alter table
         public.listings force row level security;` — AD-1 requires `FORCE` on every table,
         including one that also carries a deliberate `anon` grant. As of this story-writing pass
         no schema file declares `FORCE` on any table (`grep -rn "force row level security"
         supabase/schemas/` returns nothing), so there is no in-repo precedent proving the diff
         tool carries it — declare it in the schema and hand-verify the migration (Task 4).
-  - [ ] `"Listings readable by anon"` — `for select to anon using (true)`. This is deliberate
+  - [x] `"Listings readable by anon"` — `for select to anon using (true)`. This is deliberate
         and is the **entire point of AD-21**: a row's existence is what "published" means, so
         every column in every row is safe for `anon` to read by construction (no private column
         exists in this table at all).
-  - [ ] `"Listings readable by owner"` — `for select to authenticated using (account_id =
+  - [x] `"Listings readable by owner"` — `for select to authenticated using (account_id =
         public.current_context_id())`. Lets a shadchan see (and 9.2's manager see) their own
         listing regardless of type — this policy is **shared** by both branches; write it once,
         here, so 9.2 does not duplicate it.
-  - [ ] `"Shadchan listings insert"` — `for insert to authenticated with check (listing_type =
+  - [x] `"Shadchan listings insert"` — `for insert to authenticated with check (listing_type =
         'shadchan' and account_id = public.current_context_id() and exists (select 1 from
         public.accounts a where a.id = public.current_context_id() and a.kind = 'shadchanus')
         and exists (select 1 from public.account_members am where am.account_id =
         public.current_context_id() and am.user_id = auth.uid() and am.role = 'shadchan'))`.
-  - [ ] `"Shadchan listings update"` — same predicate, `for update ... using (...) with check
+  - [x] `"Shadchan listings update"` — same predicate, `for update ... using (...) with check
         (...)`, so an existing listing can be edited in place (AC-3).
-  - [ ] `"Shadchan listings delete"` — same predicate, `for delete ... using (...)`.
-  - [ ] **Do not write any policy that mentions `listing_type = 'single'`.** That is 9.2's insert
+  - [x] `"Shadchan listings delete"` — same predicate, `for delete ... using (...)`.
+  - [x] **Do not write any policy that mentions `listing_type = 'single'`.** That is 9.2's insert
         and update policies and 9.3's delete policy — see Dev Notes "Policy ownership map".
 
-- [ ] **Task 3 — Grants** (AC: 8)
-  - [ ] `revoke all on table public.listings from anon;` then `grant select on table
+- [x] **Task 3 — Grants** (AC: 8)
+  - [x] `revoke all on table public.listings from anon;` then `grant select on table
         public.listings to anon;` — `select` only, nothing else, ever.
-  - [ ] `grant select, insert, update, delete on table public.listings to authenticated;`
+  - [x] `grant select, insert, update, delete on table public.listings to authenticated;`
         `grant all on table public.listings to service_role;`
-  - [ ] `revoke all on sequence public.listings_id_seq from anon;` `grant usage, select on
+  - [x] `revoke all on sequence public.listings_id_seq from anon;` `grant usage, select on
         sequence public.listings_id_seq to authenticated;` `grant all on sequence
         public.listings_id_seq to service_role;` — the sequence must **never** be reachable by
         `anon` (AD-1 revokes all table/sequence grants from `anon`); double-check the fork's
@@ -234,7 +238,7 @@ through `listings`.
         AD-1", not by Epic 1) does not silently hand this new sequence to `anon` — if that block
         still applies when this story lands, add the explicit `revoke` regardless of whether it
         has been dropped yet.
-  - [ ] **Close a narrower, pre-existing instance of the same AD-1 gap while this file is open**
+  - [x] **Close a narrower, pre-existing instance of the same AD-1 gap while this file is open**
         (found by the Epic 9 pre-flight, 2026-08-02): `06_grants.sql:46` still runs `grant all on
         sequence public.members_id_seq to anon;` and nothing ever revokes it — a fork-era
         leftover the Epic 2 AD-1 sweep missed. (`06_grants.sql:50` grants `tasks_id_seq` to
@@ -251,53 +255,53 @@ through `listings`.
         tracked as `epics.md`'s Unowned-work item **S2**) is explicitly **not** folded in here —
         different order of magnitude, different owner; only this one-line sequence revoke is.
 
-- [ ] **Task 4 — Generate and hand-check the migration** (AC: all)
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f add_listings`
+- [x] **Task 4 — Generate and hand-check the migration** (AC: all)
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f add_listings`
         (`.claude/rules` / memory: every `npx supabase` call needs the `DBUS_SESSION_BUS_ADDRESS`
         prefix or it hangs on the keyring).
-  - [ ] Hand-check per AGENTS.md and this repo's known `db diff` gaps: confirm the two partial
+  - [x] Hand-check per AGENTS.md and this repo's known `db diff` gaps: confirm the two partial
         unique indexes, the composite FK, and both CHECK constraints are emitted; confirm
         `FORCE ROW LEVEL SECURITY` survived into the migration — if the diff dropped it, add it
         by hand, exactly as this repo already hand-fixes diff omissions for grants and
         `security_invoker`.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. **Never `db
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. **Never `db
         reset` and never `db push`.**
 
-- [ ] **Task 5 — Types** (AC: 1, 2)
-  - [ ] `src/components/atomic-crm/types.ts`: add a `Listing` type mirroring the table shape
+- [x] **Task 5 — Types** (AC: 1, 2)
+  - [x] `src/components/atomic-crm/types.ts`: add a `Listing` type mirroring the table shape
         (all `single_*` fields present but this story only ever populates the `shadchan_*`
         ones), and a `ListingType = "shadchan" | "single"` union.
 
-- [ ] **Task 6 — Provider** (AC: 1, 3, 8)
-  - [ ] `providers/supabase/dataProvider.ts`: no bespoke RPC is needed — `listings` is plain
+- [x] **Task 6 — Provider** (AC: 1, 3, 8)
+  - [x] `providers/supabase/dataProvider.ts`: no bespoke RPC is needed — `listings` is plain
         `dataProvider.create` / `dataProvider.update` / `dataProvider.getList` /
         `dataProvider.delete` through the standard PostgREST seam (AD-10). Do **not** add a
         `publishShadchanListing` custom method; RLS is the authorization boundary (per
         `epics.md` Additional Requirements: "Supabase RLS is the enforcement layer; the app
         never enforces visibility alone") and the write shape is a plain row, not an atomic
         multi-table operation the way `create_shidduch()` is.
-  - [ ] `providers/fakerest/dataProvider.ts` + `dataGenerator/`: add a `listings` base resource
+  - [x] `providers/fakerest/dataProvider.ts` + `dataGenerator/`: add a `listings` base resource
         (empty array to start; 9.2 and later stories add generated rows). Mirror the
         `shidduchim`/`references` FakeRest wiring pattern already in the file (AD-10: "every
         new resource/method is mirrored in the FakeRest provider").
 
-- [ ] **Task 7 — Components** (AC: 1, 2, 3)
-  - [ ] New directory `src/components/atomic-crm/listings/` (new resource folder, following the
+- [x] **Task 7 — Components** (AC: 1, 2, 3)
+  - [x] New directory `src/components/atomic-crm/listings/` (new resource folder, following the
         existing lowercase-plural convention of `shidduchim/`, `shadchanim/`, `references/`).
         `listings` is **not** registered as a full `<Resource>` in `routeManifest.ts` — there is
         no authenticated list/show/edit surface to build; it is reached only through (a) a
         small settings panel (this story) and (b) the public search page (9.4). Flag to the epic
         owner if a future story wants a full admin list of "my listings" — nothing here forecloses
         adding one later.
-  - [ ] `listings/PublishShadchanListingSection.tsx` — the three-toggle form described in AC-1/2,
+  - [x] `listings/PublishShadchanListingSection.tsx` — the three-toggle form described in AC-1/2,
         rendered from Settings when the active context's `kind === "shadchanus"`. Reads any
         existing listing via `dataProvider.getList("listings", { filter: { account_id:
         <active context> } })`, then `dataProvider.create` or `dataProvider.update` depending on
         whether a row already exists (AC-3 — the "upsert" is client-orchestrated because
         PostgREST's generic `create` does not expose `ON CONFLICT`).
-  - [ ] `listings/WithdrawShadchanListingButton.tsx` — calls `dataProvider.delete("listings", {
+  - [x] `listings/WithdrawShadchanListingButton.tsx` — calls `dataProvider.delete("listings", {
         id })`; on success the row and the anon-visible listing are gone (AC-5).
-  - [ ] Wire the section into `settings/` (e.g. a new `settings/ShadchanListingSection.tsx` shown
+  - [x] Wire the section into `settings/` (e.g. a new `settings/ShadchanListingSection.tsx` shown
         conditionally, alongside the existing `FamilySection.tsx` / `PrivacySection.tsx`
         pattern). Epic 2 Story 2.4 has landed: `useMyContexts()` (`root/useMyContexts.ts:12-18`)
         already returns each membership's `kind`, and `layout/ContextSwitcher.tsx:27-38` already
@@ -305,7 +309,7 @@ through `listings`.
         (`useMyContexts().data?.find(c => c.is_active)?.kind === "shadchanus"`) rather than
         inventing a second mechanism. This bullet used to hedge on 2.4 landing; it has, so treat
         this as settled, not as a blocking prerequisite to re-check.
-  - [ ] **Both i18n catalogues.** Every user-facing string this story adds (the three toggle
+  - [x] **Both i18n catalogues.** Every user-facing string this story adds (the three toggle
         labels, the publish/withdraw button copy, any client-side validation message for AC-2)
         gets a key in **both** `providers/commons/englishCrmMessages.ts` and
         `providers/commons/frenchCrmMessages.ts` in the same diff —
@@ -316,8 +320,8 @@ through `listings`.
         page (inside `<Admin>`), so the ordinary `useTranslate()` seam applies — contrast 9.4's
         and 9.5's unauthenticated pages, which cannot use that seam (see their own Dev Notes).
 
-- [ ] **Task 8 — Tests** (AC: all)
-  - [ ] `supabase/tests/listings.sql` + `listings.test.ts` — new database suite, structured
+- [x] **Task 8 — Tests** (AC: all)
+  - [x] `supabase/tests/listings.sql` + `listings.test.ts` — new database suite, structured
         exactly like `supabase/tests/billing_entitlement.sql` (temp `results` table, `set local
         role authenticated; set local request.jwt.claims = '{"sub":"...","role":"authenticated"}'`
         per actor, JSON report, `rollback` at the end — do not invent a different test harness).
@@ -333,9 +337,9 @@ through `listings`.
         grant-assertion patterns to mirror are the deleted
         `supabase/tests/child_portal.sql`'s (its "anon reaches ONLY get_child_portal" section) —
         the file is removed by Story 1.4 before this story starts, so read it from git history.
-  - [ ] `providers/fakerest/dataProvider.summaryStats.test.ts`-style unit test or a new focused
+  - [x] `providers/fakerest/dataProvider.summaryStats.test.ts`-style unit test or a new focused
         test file for the settings-panel upsert logic (create vs. update branch).
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db` (needs
+  - [x] `make typecheck && npm run lint && make test && npm run test:unit:db` (needs
         `make start`), plus `npx prettier --config ./.prettierrc.json --check` over this story's
         changed files only.
 
@@ -507,12 +511,52 @@ exactly as story 1.3 had to for the same reason.
 - [Source: .claude/rules/security-triggers.md] — RLS-touching diffs require security review + negative tests
 - [Source: AGENTS.md#Database-Management] — schema-first workflow
 
+## Change Log
+
+- 2026-08-03 — Implemented Story 9.1 end to end: `listings` table (both branches' full column shape), RLS/grants for the `shadchan` branch, the "Publish my listing" settings panel, FakeRest parity, i18n, and the database + component test suites. Status → review.
+
 ## Dev Agent Record
 
 ### Agent Model Used
 
+Claude (Sonnet 5), dispatched as the `developer`/bmad-dev-story agent on `STACK_ID=1`, `STACK_OWNER=9-1`.
+
 ### Debug Log References
+
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f add_listings` — generated `supabase/migrations/20260802215621_add_listings.sql`; hand-checked and hand-added `force row level security` and the `members_id_seq` revoke (both known `db diff` omissions — see Dev Notes "Migration workflow for this repo").
+- `npx supabase db diff --local` run twice more after `migration up --local` — both reported "No schema changes found" (clean, convergent).
+- Empirical `psql` verification of AC-8 directly against the migrated database (`relrowsecurity`/`relforcerowsecurity`, `has_table_privilege`/`has_sequence_privilege` for `anon`/`authenticated`, and the five `pg_policy` rows) — all matched the intended shape before the automated suite was even written.
+- `make check-migration-safety STACK_ID=1` fails today — proven **pre-existing and unrelated to this story** by checking out the base commit (`ec81675`, this story's own `baseline_commit`, with every change from this story stashed out) and re-running with `BASE_REF=96e8971` to force the fixture-seed step to actually execute: it fails identically, on the same line, with the same error (`supabase/tests/migration-data-safety/fixture.sql:533` — `insert into public.connections (...)` omits the NOT NULL `proposed_by_account_id` column `01_tables.sql:932` requires). This is a latent bug in the shared migration-data-safety fixture, not owned by this story's declared file set — reported, not fixed, per `.claude/rules/parallel-ownership.md` ("out-of-scope work is reported, not taken"). This story's own migration was independently validated by every other means above.
 
 ### Completion Notes List
 
+- All 8 ACs implemented and covered by `supabase/tests/listings.sql` (30 checks, run via `supabase/tests/listings.test.ts`) plus `src/components/atomic-crm/listings/PublishShadchanListingSection.test.tsx` (5 tests) and `src/components/atomic-crm/settings/ShadchanListingSection.test.tsx` (2 tests) for the client-side half no database suite can exercise.
+- AC-6's "both angles" negative test required constructing an otherwise-unreachable database state (a `shadchanus`-kind account whose member's role is not `shadchan`) by transiently disabling `enforce_membership_role_matches_context_trigger` for one seed insert — the same isolate-one-clause technique already used in `context_rls_hardening.sql`. Without it, every real household member fails BOTH the kind and role clauses simultaneously, so "wrong role" could never be proven as a distinct guard from "wrong kind."
+- Closed the narrower, pre-existing AD-1 gap named in Dev Notes: `06_grants.sql`'s fork-era `grant all on sequence public.members_id_seq to anon;` (line 46) is now revoked, in the same migration, with its own `has_sequence_privilege` assertion in the test suite.
+- FakeRest parity required one small addition beyond "add an empty `listings: []` array": `providers/fakerest/dataProvider.ts`'s `create()` override now stamps `account_id` from `resolveCurrentAccountId()` for the `listings` resource specifically, mirroring `set_account_id_default()`/`set_listings_account_id` — the client component deliberately never sends `account_id` itself (same "never trust a client-sent account_id" posture as `medical_notes`/`shidduchim_external_links`), so without this the FakeRest demo's own `getList("listings", { filter: { account_id } })` re-read would never find what it just created.
+- `db diff` reproduced the two known omissions this repo's Dev Notes predicted: `FORCE ROW LEVEL SECURITY` and the pre-existing-object grant/ACL change (`members_id_seq`) — both hand-added to the generated migration, exactly as `01_tables.sql`'s COLUMN-ORDER TRAP header and AGENTS.md describe for `security_invoker`/grants.
+- `make check-migration-safety` is red for a reason proven pre-existing and unrelated to `listings` — see Debug Log References. Every other gate in the done-criteria list is green.
+- `npx prettier --check .` (bare, no `--config`) flags 16 pre-existing files outside this story's scope (`.github/workflows/*.yml`, `doc/src/content/docs/**/*.mdx`, `.lintstagedrc`) — none touched by this story. `make lint`'s own `prettier --config ./.prettierrc.json --check` (the project's canonical invocation, matching CI's `npm run prettier`) is clean.
+- The database suite (`supabase/tests/listings.sql`) is not part of `make test` — it runs only under `npm run test:unit:db`, exactly as this story's own Dev Notes flag ("Testing standards").
+
 ### File List
+
+- `supabase/schemas/01_tables.sql` — `listings` table, composite/plain FKs, partial unique indexes, `account_id` btree index.
+- `supabase/schemas/04_triggers.sql` — `set_listings_account_id` trigger.
+- `supabase/schemas/05_policies.sql` — RLS enable/force + 5 policies (`Listings readable by anon`, `Listings readable by owner`, `Shadchan listings insert/update/delete`).
+- `supabase/schemas/06_grants.sql` — `listings`/`listings_id_seq` grants; closes the pre-existing `members_id_seq` → `anon` gap (Task 3's "closing a narrower AD-1 gap").
+- `supabase/migrations/20260802215621_add_listings.sql` — generated + hand-checked (FORCE RLS, `members_id_seq` revoke added by hand).
+- `src/components/atomic-crm/types.ts` — `Listing`, `ListingType`.
+- `src/components/atomic-crm/listings/useShadchanListing.ts` — data-fetch/upsert hook.
+- `src/components/atomic-crm/listings/PublishShadchanListingSection.tsx` — the three-toggle form.
+- `src/components/atomic-crm/listings/PublishShadchanListingSection.test.tsx` — unit tests (AC-1, AC-2, AC-3, AC-5).
+- `src/components/atomic-crm/listings/WithdrawShadchanListingButton.tsx` — withdraw action.
+- `src/components/atomic-crm/settings/ShadchanListingSection.tsx` — active-context gate wiring the panel into Settings.
+- `src/components/atomic-crm/settings/ShadchanListingSection.test.tsx` — gating unit tests.
+- `src/components/atomic-crm/settings/SettingsPage.tsx` / `SettingsPageMobile.tsx` — mount `ShadchanListingSection`.
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/types.ts` / `index.ts` — `listings: Listing[]` base resource, seeded empty.
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts` — `create()` override stamps `account_id` for `listings` (FakeRest mirror of `set_account_id_default()`).
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` / `frenchCrmMessages.ts` — `crm.settings.listing.*` keys.
+- `registry.json` — regenerated (`make registry-gen`) for the new `listings/` directory.
+- `supabase/tests/listings.sql` — database test suite (30 checks, AC-1 through AC-8).
+- `supabase/tests/listings.test.ts` — vitest runner for the above.

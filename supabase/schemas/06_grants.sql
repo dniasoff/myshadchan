@@ -1156,3 +1156,42 @@ revoke all on function public.redt_via_connection(bigint, text, text, jsonb) fro
 grant execute on function public.redt_via_connection(bigint, text, text, jsonb) to authenticated;
 grant execute on function public.redt_via_connection(bigint, text, text, jsonb) to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Listings & Sharing (Epic 9 Story 9.1: publish a shadchan listing)
+-- ---------------------------------------------------------------------------
+
+-- AC-8: `listings` is the sole anon-readable relation (AD-21) — `anon` gets
+-- `select` and NOTHING else, ever. `authenticated` gets full DML; the
+-- `shadchan`/`single` branch split is the policies' job (05_policies.sql),
+-- not the grant's.
+revoke all on table public.listings from anon;
+grant select on table public.listings to anon;
+grant select, insert, update, delete on table public.listings to authenticated;
+grant all on table public.listings to service_role;
+
+-- The sequence must NEVER be reachable by `anon` — a sequence grant leaks no
+-- row data, but AD-1 revokes all table/sequence grants from `anon`
+-- unconditionally, and this table is the one place a slip here would sit
+-- right next to the table it IS allowed to read.
+revoke all on sequence public.listings_id_seq from anon;
+grant usage, select on sequence public.listings_id_seq to authenticated;
+grant all on sequence public.listings_id_seq to service_role;
+
+-- Closing a narrower, PRE-EXISTING instance of the same AD-1 gap while this
+-- file is open (found by the Epic 9 pre-flight, 2026-08-02): line 46 above
+-- still runs `grant all on sequence public.members_id_seq to anon;` with no
+-- revoke anywhere in this file — a fork-era leftover the Epic 2 AD-1 sweep
+-- missed. (Line 50's `tasks_id_seq` grant to `anon` looks like a second
+-- instance, but it is already revoked above, ahead of the
+-- interactions/tasks grant block — by the time this file finishes applying,
+-- `anon` holds nothing on `tasks_id_seq`, so `members_id_seq` is the only
+-- one still actually exposed; it is not "fixed" a second time here.) This
+-- is not Epic 9's own defect and predates `listings` entirely, but Epic 9 is
+-- the first epic where `anon` becomes a live, reachable production role —
+-- shipping the first public surface next to a known, named,
+-- one-line-fixable `anon` leak is worse than closing it in passing. The
+-- much larger, repo-wide FORCE ROW LEVEL SECURITY retrofit (epics.md's
+-- Unowned-work item S2, ~33 pre-existing tables) is deliberately NOT folded
+-- in here — different order of magnitude, different owner.
+revoke all on sequence public.members_id_seq from anon;
+
