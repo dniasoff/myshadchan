@@ -403,6 +403,12 @@ export const englishCrmMessages = {
     language: "Language",
     navigation: {
       label: "CRM navigation",
+      // Story 8.1 (AC-1/Task 2): the one SHADCHANUS_NAV entry with no
+      // household-nav precedent to fall back on — PRIMARY_NAV's own labels
+      // (inbox, shidduchim, tasks, reminders) rely on labelDefault via
+      // i18nProvider's allowMissing, so this is deliberately the first real
+      // catalogue entry under `navigation`.
+      connections: "Connections",
     },
     // Story 4.5: the one search overlay reachable from every screen
     // (TopBar's icon, Cmd/Ctrl+K, and MobileNavigation's "More" menu item —
@@ -884,6 +890,31 @@ export const englishCrmMessages = {
     validation: {
       invalid_url: "Must be a valid URL",
       invalid_linkedin_url: "URL must be from linkedin.com",
+    },
+    // Story 8.1 (AC-5/AC-6): shared copy for the shadchanus-context shell —
+    // the eyebrow both `ShadchanDashboard` and `ConnectionsPlaceholder` show
+    // above their heading, so the two screens read as one context, not two
+    // unrelated placeholders.
+    shadchanus_context: {
+      eyebrow: "Shadchanus",
+    },
+    // Story 8.1 (AC-5): the shadchanus-context landing screen. Honest about
+    // having nothing yet — no "0 connections" style copy, and no query
+    // against `connections`/Epic-7 `threads` (that's Story 8.5's).
+    shadchan_dashboard: {
+      title: "Your shadchanus workspace",
+      empty_title: "Nothing here yet",
+      empty_description:
+        "Once you connect with a family, their conversations will appear here.",
+    },
+    // Story 8.1 (AC-4): `/connections` must never 404 or render nothing —
+    // this is the calm placeholder Story 8.5 replaces with the real
+    // Connections list/360. Copy explains the release boundary rather than
+    // promising an invite action that doesn't exist yet.
+    connections_placeholder: {
+      empty_title: "Connections are coming soon",
+      empty_description:
+        "This release lays the groundwork — inviting and connecting with a family arrives in a future update.",
     },
   },
 } as const;

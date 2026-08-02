@@ -1,5 +1,6 @@
 import {
   BellRing,
+  Handshake,
   Inbox,
   KanbanSquare,
   LayoutDashboard,
@@ -8,6 +9,9 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
+
+import { useMyContexts } from "../root/useMyContexts";
+import type { MyContext } from "../types";
 
 /**
  * One nav item shared by the desktop Sidebar and the mobile bottom nav, so
@@ -84,3 +88,80 @@ export const PRIMARY_NAV: NavItem[] = [
     tourId: "settings",
   },
 ];
+
+/**
+ * The active context's `kind` — `"household"` or `"shadchanus"`
+ * (`root/types.ts`'s `MyContext`). Re-exported so `layout/RequireContextKind.tsx`
+ * and `root/routeManifest.ts`'s `contextKind` field share the exact same
+ * type as `useMyContexts()` returns — never a second, hand-written literal
+ * union that could drift from it.
+ */
+export type ContextKind = MyContext["kind"];
+
+/**
+ * The shadchanus-context nav set (Story 8.1, AC-1): Dashboard, Connections,
+ * Settings — in that order, and nothing else. Deliberately excludes every
+ * household-domain destination (Inbox, Shidduchim, Shadchanim — AD-2: a
+ * shadchanus account never holds those rows) AND Tasks/Reminders (no
+ * taskable target exists in a shadchanus account yet — see the story's Dev
+ * Notes "Why no Tasks or Reminders"). "Conversations" is deliberately not
+ * here either — UX-DR8/UX-DR10: a connection's threads are reached from the
+ * Connection 360 (Story 8.5), never from primary nav, the same way
+ * `references` never got a `PRIMARY_NAV` slot (RULING 7).
+ */
+export const SHADCHANUS_NAV: NavItem[] = [
+  {
+    to: "/",
+    labelKey: "ra.page.dashboard",
+    labelDefault: "Dashboard",
+    icon: LayoutDashboard,
+    tourId: "dashboard",
+  },
+  {
+    to: "/connections",
+    labelKey: "crm.navigation.connections",
+    labelDefault: "Connections",
+    icon: Handshake,
+    tourId: "connections",
+  },
+  {
+    to: "/settings",
+    labelKey: "crm.settings.title",
+    labelDefault: "Settings",
+    icon: Settings,
+    tourId: "settings",
+  },
+];
+
+/**
+ * The active context's `kind`, read over `useMyContexts()` (AD-19: server-held
+ * state, never a URL param or local state). `undefined` while the query is
+ * still pending or has errored — callers default to household behavior in
+ * that case rather than flashing shadchanus chrome for a login that turns
+ * out to be household-only.
+ *
+ * Falls back to the first context's `kind` when none carries
+ * `is_active: true` (mirrors `ContextSwitcher.tsx`'s own `?? contexts[0]`
+ * fallback): `my_contexts()` always marks exactly one row active for a
+ * login holding at least one context, so this only matters for the same
+ * edge `ContextSwitcher` already tolerates.
+ */
+export function useActiveContextKind(): ContextKind | undefined {
+  const { data: contexts } = useMyContexts();
+  if (!contexts || contexts.length === 0) {
+    return undefined;
+  }
+  return (contexts.find((context) => context.is_active) ?? contexts[0]).kind;
+}
+
+/**
+ * AC-2: the nav set the user sees follows the active context, not a
+ * hardcoded list. The one place that maps context kind -> nav array — both
+ * `Sidebar.tsx` (desktop) and `MobileNavigation.tsx` (mobile) call this
+ * instead of importing `PRIMARY_NAV` directly, so the two surfaces can never
+ * drift on which array a given context kind gets.
+ */
+export function useActiveNav(): NavItem[] {
+  const kind = useActiveContextKind();
+  return kind === "shadchanus" ? SHADCHANUS_NAV : PRIMARY_NAV;
+}

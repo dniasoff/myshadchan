@@ -4,8 +4,10 @@ import type { ResourceProps } from "ra-core";
 import { OAuthConsentPage } from "@/components/supabase/oauth-consent-page";
 
 import { BillingPage } from "../billing/BillingPage";
+import { ConnectionsPlaceholder } from "../connections/ConnectionsPlaceholder";
 import inbox from "../inbox";
 import { ShareTarget } from "../inbox/ShareTarget";
+import type { ContextKind } from "../layout/navItems";
 import { InviteAcceptance } from "../login/InviteAcceptance";
 import references from "../references";
 import { RemindersPage } from "../reminders/RemindersPage";
@@ -34,12 +36,25 @@ export interface CustomRouteEntry {
   surface: Surface;
   /** "bare" = rendered outside the app shell (`<CustomRoutes noLayout>`); "shell" = inside it. */
   chrome: "shell" | "bare";
+  /**
+   * Story 8.1 (AC-3): which active-context kind this route requires — read
+   * by `root/CRM.tsx`'s `renderCustomRoutes`, which wraps the entry's
+   * `Component` in `<RequireContextKind>` when set. Omitted entirely for a
+   * route reachable regardless of context kind (most of them). Distinct
+   * from `surface` (desktop/mobile/both) — that field is already taken by
+   * the 1.5 manifest for a different axis.
+   */
+  contextKind?: ContextKind;
 }
 
 export interface ResourceEntry {
   name: string;
   surface: Surface;
   definition: Omit<ResourceProps, "name">;
+  /** Story 8.1 (AC-3): see `CustomRouteEntry.contextKind` — same field,
+   * same wrapping mechanism, applied to `<Resource>`'s `list` slot by
+   * `root/CRM.tsx`'s `renderResources` instead of a `<Route>` element. */
+  contextKind?: ContextKind;
 }
 
 export const CUSTOM_ROUTES: CustomRouteEntry[] = [
@@ -80,6 +95,7 @@ export const CUSTOM_ROUTES: CustomRouteEntry[] = [
     Component: RemindersPage,
     surface: "both",
     chrome: "shell",
+    contextKind: "household",
   },
   {
     path: ShareTarget.path,
@@ -87,15 +103,56 @@ export const CUSTOM_ROUTES: CustomRouteEntry[] = [
     surface: "both",
     chrome: "shell",
   },
+  // Story 8.1 (AC-4): a rendered placeholder, never a dead nav target —
+  // Story 8.5 replaces this entry with the real descriptor-based resource.
+  // Deliberately no `contextKind` yet: 8.1 only guards the household-only
+  // side (AC-3's 7-entry list below); 8.5 is what sets `contextKind:
+  // "shadchanus"` on the real `connections` resource.
+  {
+    path: ConnectionsPlaceholder.path,
+    Component: ConnectionsPlaceholder,
+    surface: "both",
+    chrome: "shell",
+  },
 ];
 
 export const RESOURCES: ResourceEntry[] = [
-  { name: "shidduchim", surface: "both", definition: shidduchim },
-  { name: "singles", surface: "both", definition: singles },
-  { name: "inbox_items", surface: "both", definition: inbox },
-  { name: "shadchanim", surface: "both", definition: shadchanim },
-  { name: "references", surface: "both", definition: references },
-  { name: "tasks", surface: "both", definition: { list: TasksListPage } },
+  {
+    name: "shidduchim",
+    surface: "both",
+    definition: shidduchim,
+    contextKind: "household",
+  },
+  {
+    name: "singles",
+    surface: "both",
+    definition: singles,
+    contextKind: "household",
+  },
+  {
+    name: "inbox_items",
+    surface: "both",
+    definition: inbox,
+    contextKind: "household",
+  },
+  {
+    name: "shadchanim",
+    surface: "both",
+    definition: shadchanim,
+    contextKind: "household",
+  },
+  {
+    name: "references",
+    surface: "both",
+    definition: references,
+    contextKind: "household",
+  },
+  {
+    name: "tasks",
+    surface: "both",
+    definition: { list: TasksListPage },
+    contextKind: "household",
+  },
   { name: "members", surface: "desktop", definition: members },
 ];
 

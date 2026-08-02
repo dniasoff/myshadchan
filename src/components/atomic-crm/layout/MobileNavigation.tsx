@@ -1,14 +1,10 @@
 import {
-  BellRing,
   Check,
   Home,
-  Inbox,
-  ListChecks,
   Moon,
   MoreHorizontal,
   Plus,
   Search,
-  Settings,
   Sun,
   type LucideIcon,
 } from "lucide-react";
@@ -29,23 +25,45 @@ import { cn } from "@/lib/utils";
 import { buildNewPath } from "../entity360/entityPaths";
 import { useGlobalSearchDialog } from "../misc/useGlobalSearch";
 import { ContextMenuItems } from "./ContextSwitcher";
-import { PRIMARY_NAV } from "./navItems";
+import {
+  PRIMARY_NAV,
+  SHADCHANUS_NAV,
+  useActiveNav,
+  type NavItem,
+} from "./navItems";
 
-const findNavItem = (to: string) => {
-  const item = PRIMARY_NAV.find((navItem) => navItem.to === to);
+const findNavItem = (nav: NavItem[], to: string): NavItem => {
+  const item = nav.find((navItem) => navItem.to === to);
   if (!item) throw new Error(`Nav item not found: ${to}`);
   return item;
 };
 
-const pipelineItem = findNavItem("/shidduchim");
-const shadchanimItem = findNavItem("/shadchanim");
-const inboxItem = findNavItem("/inbox_items");
-const tasksItem = findNavItem("/tasks");
-const remindersItem = findNavItem("/reminders");
-const settingsItem = findNavItem("/settings");
+const pipelineItem = findNavItem(PRIMARY_NAV, "/shidduchim");
+const shadchanimItem = findNavItem(PRIMARY_NAV, "/shadchanim");
+const inboxItem = findNavItem(PRIMARY_NAV, "/inbox_items");
+const tasksItem = findNavItem(PRIMARY_NAV, "/tasks");
+const remindersItem = findNavItem(PRIMARY_NAV, "/reminders");
+const settingsItem = findNavItem(PRIMARY_NAV, "/settings");
+const connectionsItem = findNavItem(SHADCHANUS_NAV, "/connections");
 
 /**
- * Mobile bottom nav (foundation-plan §3): 5-slot glass bar — Home,
+ * Mobile bottom nav (Story 8.1, AC-2): the top-level export follows the
+ * active context via `useActiveNav()` — never a hardcoded `PRIMARY_NAV`
+ * import — and dispatches to whichever surface-specific bar matches. Each
+ * bar calls its own hooks internally (Rules of Hooks: this dispatcher must
+ * not call `useLocation()`/`useTranslate()` conditionally on their behalf).
+ */
+export const MobileNavigation = () => {
+  const nav = useActiveNav();
+  return nav === SHADCHANUS_NAV ? (
+    <ShadchanusMobileNavigation />
+  ) : (
+    <HouseholdMobileNavigation />
+  );
+};
+
+/**
+ * The household bottom nav (foundation-plan §3): 5-slot glass bar — Home,
  * Shidduchim, a raised center capture button, Shadchanim, and a "More" menu
  * holding Inbox / Tasks / Reminders / Settings, then the context switcher
  * (Story 4.4 NFR-14 — re-homed from an interim `SettingsPageMobile` mount),
@@ -53,7 +71,7 @@ const settingsItem = findNavItem("/settings");
  * truth shared with the desktop Sidebar). RULING 7: references has no entry
  * here — no nav slot, no "More" item.
  */
-export const MobileNavigation = () => {
+const HouseholdMobileNavigation = () => {
   const location = useLocation();
   const translate = useTranslate();
 
@@ -111,7 +129,72 @@ export const MobileNavigation = () => {
         isActive={currentPath === shadchanimItem.to}
         tourId={shadchanimItem.tourId}
       />
-      <MoreButton isActive={currentPath === "more"} />
+      <MoreButton
+        isActive={currentPath === "more"}
+        quickLinks={[inboxItem, tasksItem, remindersItem, settingsItem]}
+      />
+    </nav>
+  );
+};
+
+/**
+ * The shadchanus bottom nav (Story 8.1, AC-1/AC-2): a plain 4-slot bar —
+ * Dashboard, Connections, Settings, then "More" (context switcher + theme
+ * only — no household quick links, and no raised center create button:
+ * there is no taskable target in a shadchanus account yet, see the story's
+ * Dev Notes "Why no Tasks or Reminders"). Context switching and the theme
+ * toggle stay reachable here rather than disappearing for a shadchan who
+ * also holds a household context — `SettingsPageMobile.tsx`'s own comment
+ * records that this "More" menu is mobile's only entry point for both
+ * (Story 4.4 NFR-14).
+ */
+const ShadchanusMobileNavigation = () => {
+  const location = useLocation();
+  const translate = useTranslate();
+
+  let currentPath: string | false = false;
+  if (matchPath("/", location.pathname)) {
+    currentPath = "/";
+  } else if (matchPath(`${connectionsItem.to}/*`, location.pathname)) {
+    currentPath = connectionsItem.to;
+  } else if (matchPath(settingsItem.to, location.pathname)) {
+    currentPath = settingsItem.to;
+  }
+
+  return (
+    <nav
+      aria-label={translate("crm.navigation.label")}
+      className="fixed inset-x-0 bottom-0 z-50 flex min-h-(--mobile-nav-h)
+        items-stretch justify-around border-t border-(--glass-border)
+        bg-(--glass-bg) pb-[env(safe-area-inset-bottom)] shadow-lg
+        backdrop-blur-[var(--glass-blur)]"
+    >
+      <NavigationButton
+        href="/"
+        Icon={Home}
+        label={translate("ra.page.dashboard")}
+        isActive={currentPath === "/"}
+        tourId="dashboard"
+      />
+      <NavigationButton
+        href={connectionsItem.to}
+        Icon={connectionsItem.icon}
+        label={translate(connectionsItem.labelKey, {
+          _: connectionsItem.labelDefault,
+        })}
+        isActive={currentPath === connectionsItem.to}
+        tourId={connectionsItem.tourId}
+      />
+      <NavigationButton
+        href={settingsItem.to}
+        Icon={settingsItem.icon}
+        label={translate(settingsItem.labelKey, {
+          _: settingsItem.labelDefault,
+        })}
+        isActive={currentPath === settingsItem.to}
+        tourId={settingsItem.tourId}
+      />
+      <MoreButton isActive={false} quickLinks={[]} />
     </nav>
   );
 };
@@ -191,7 +274,20 @@ const CreateButton = () => {
   );
 };
 
-const MoreButton = ({ isActive }: { isActive: boolean }) => {
+/**
+ * Story 8.1 (AC-1): `quickLinks` is the household bar's Inbox/Tasks/
+ * Reminders/Settings row — parametrized rather than hardcoded so the
+ * shadchanus bar can reuse this exact dropdown for its generic contents
+ * (context switcher + theme) with an empty quick-link list, instead of a
+ * second hand-rolled "More" menu that could drift from this one.
+ */
+const MoreButton = ({
+  isActive,
+  quickLinks,
+}: {
+  isActive: boolean;
+  quickLinks: NavItem[];
+}) => {
   const translate = useTranslate();
   // Story 4.5 (AC-1): mobile has no keyboard shortcut, so this dropdown item
   // is the only trigger for the shell's single GlobalSearch dialog.
@@ -220,50 +316,21 @@ const MoreButton = ({ isActive }: { isActive: boolean }) => {
           <Search className="size-4" aria-hidden="true" />
           {translate("crm.global_search.trigger_label", { _: "Search" })}
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link
-            to={inboxItem.to}
-            data-tour={`nav-${inboxItem.tourId}`}
-            className="flex items-center gap-2"
-          >
-            <Inbox className="size-4" aria-hidden="true" />
-            {translate(inboxItem.labelKey, { _: inboxItem.labelDefault })}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link
-            to={tasksItem.to}
-            data-tour={`nav-${tasksItem.tourId}`}
-            className="flex items-center gap-2"
-          >
-            <ListChecks className="size-4" aria-hidden="true" />
-            {translate(tasksItem.labelKey, { _: tasksItem.labelDefault })}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link
-            to={remindersItem.to}
-            data-tour={`nav-${remindersItem.tourId}`}
-            className="flex items-center gap-2"
-          >
-            <BellRing className="size-4" aria-hidden="true" />
-            {translate(remindersItem.labelKey, {
-              _: remindersItem.labelDefault,
-            })}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link
-            to={settingsItem.to}
-            data-tour={`nav-${settingsItem.tourId}`}
-            className="flex items-center gap-2"
-          >
-            <Settings className="size-4" aria-hidden="true" />
-            {translate(settingsItem.labelKey, {
-              _: settingsItem.labelDefault,
-            })}
-          </Link>
-        </DropdownMenuItem>
+        {quickLinks.map((item) => {
+          const Icon = item.icon;
+          return (
+            <DropdownMenuItem key={item.to} asChild>
+              <Link
+                to={item.to}
+                data-tour={`nav-${item.tourId}`}
+                className="flex items-center gap-2"
+              >
+                <Icon className="size-4" aria-hidden="true" />
+                {translate(item.labelKey, { _: item.labelDefault })}
+              </Link>
+            </DropdownMenuItem>
+          );
+        })}
         <DropdownMenuSeparator />
         <ContextMenuItems withSectionLabel />
         <ThemeMenuItems />

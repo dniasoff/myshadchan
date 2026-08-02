@@ -4,15 +4,18 @@ import { Link, useMatch } from "react-router";
 import { cn } from "@/lib/utils";
 
 import { useConfigurationContext } from "../root/ConfigurationContext";
-import { PRIMARY_NAV, type NavItem } from "./navItems";
+import { useActiveNav, type NavItem } from "./navItems";
 
 /**
  * The desktop left sidebar (foundation-plan §1) — fixed, glass chrome
- * (design-language §1.2/§5.2), the 6 foundation destinations only.
+ * (design-language §1.2/§5.2). Story 8.1 (AC-2): renders whichever nav set
+ * `useActiveNav()` resolves for the active context — `PRIMARY_NAV`
+ * (household) or `SHADCHANUS_NAV` (shadchanus) — never a hardcoded array.
  * Desktop-only: never mounted on mobile (see MobileLayout/MobileNavigation).
  */
 export const Sidebar = () => {
   const { darkModeLogo, lightModeLogo, title } = useConfigurationContext();
+  const navItems = useActiveNav();
 
   return (
     <aside
@@ -35,7 +38,7 @@ export const Sidebar = () => {
         aria-label={title}
         className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-4"
       >
-        {PRIMARY_NAV.map((item) => (
+        {navItems.map((item) => (
           <SidebarLink key={item.to} item={item} />
         ))}
       </nav>

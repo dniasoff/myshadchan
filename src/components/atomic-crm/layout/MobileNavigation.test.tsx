@@ -175,6 +175,82 @@ describe("MobileNavigation — More menu contents (AC-5)", () => {
   });
 });
 
+describe("MobileNavigation — shadchanus context (Story 8.1, AC-1/AC-2/AC-7)", () => {
+  it("renders Dashboard, Connections and Settings, and no household-only path", async () => {
+    // Arrange / Act
+    const screen = await renderMobileNavigation([shadchanus]);
+
+    // Assert — AC-7: no household-only `to` path anywhere in the DOM.
+    const links = Array.from(document.querySelectorAll("a[href]")).map((link) =>
+      link.getAttribute("href"),
+    );
+    for (const guardedPath of [
+      "/shidduchim",
+      "/singles",
+      "/shadchanim",
+      "/references",
+      "/inbox_items",
+      "/tasks",
+      "/reminders",
+    ]) {
+      expect(links).not.toContain(guardedPath);
+    }
+
+    // The shadchanus nav's own destinations are present.
+    expect(links).toContain("/connections");
+    expect(links).toContain("/settings");
+
+    await expect
+      .element(screen.getByRole("link", { name: /connections/i }))
+      .toBeInTheDocument();
+  });
+
+  it("never renders the raised center create button", async () => {
+    // Arrange / Act — no taskable target exists in a shadchanus account yet
+    // (Dev Notes: "Why no Tasks or Reminders").
+    const screen = await renderMobileNavigation([shadchanus]);
+
+    // Assert — the household bar's create button carries this aria-label
+    // (translate("ra.action.create") -> ra-language-english's "Create").
+    await expect
+      .element(screen.getByRole("button", { name: "Create" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("still exposes the context switcher and theme toggle through the More menu", async () => {
+    // Arrange / Act — a shadchan who also holds a household context must
+    // not lose mobile's only entry point for switching (Story 4.4 NFR-14).
+    // The shadchanus context must be the ACTIVE one here so the shadchanus
+    // bar (not the household one) is what's rendered.
+    const screen = await renderMobileNavigation([
+      { ...household, is_active: false },
+      { ...shadchanus, is_active: true },
+    ]);
+    await screen.getByRole("button", { name: "More" }).click();
+
+    // Assert
+    await expect
+      .element(screen.getByText("The Klein Family · Household"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("menuitem", { name: /light/i }))
+      .toBeInTheDocument();
+  });
+
+  it("never lists Inbox, Tasks or Reminders in the More menu", async () => {
+    // Arrange / Act
+    const screen = await renderMobileNavigation([shadchanus]);
+    await screen.getByRole("button", { name: "More" }).click();
+
+    // Assert
+    for (const label of ["Inbox", "Tasks", "Reminders"]) {
+      await expect
+        .element(screen.getByRole("menuitem", { name: label }))
+        .not.toBeInTheDocument();
+    }
+  });
+});
+
 describe("MobileNavigation — 'more' active-path matching (AC-5)", () => {
   it("highlights More when the current route is /inbox_items", async () => {
     // Arrange / Act

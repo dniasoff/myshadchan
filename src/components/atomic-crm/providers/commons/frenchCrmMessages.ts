@@ -385,6 +385,7 @@ export const frenchCrmMessages = {
     language: "Langue",
     navigation: {
       label: "Navigation CRM",
+      connections: "Connexions",
     },
     global_search: {
       trigger_label: "Rechercher",
@@ -789,6 +790,20 @@ export const frenchCrmMessages = {
     validation: {
       invalid_url: "Doit être une URL valide",
       invalid_linkedin_url: "L'URL doit provenir de linkedin.com",
+    },
+    shadchanus_context: {
+      eyebrow: "Shadchanous",
+    },
+    shadchan_dashboard: {
+      title: "Votre espace shadchanous",
+      empty_title: "Rien pour l'instant",
+      empty_description:
+        "Une fois connecté(e) à une famille, ses conversations apparaîtront ici.",
+    },
+    connections_placeholder: {
+      empty_title: "Les connexions arrivent bientôt",
+      empty_description:
+        "Cette version pose les bases — inviter une famille et se connecter avec elle arrivera dans une prochaine mise à jour.",
     },
   },
 } satisfies CrmMessages;

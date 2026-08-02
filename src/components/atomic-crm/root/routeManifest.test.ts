@@ -1,6 +1,6 @@
 import { createElement, type ComponentType } from "react";
 
-import { PRIMARY_NAV } from "../layout/navItems";
+import { PRIMARY_NAV, SHADCHANUS_NAV } from "../layout/navItems";
 import type { CustomRouteEntry, ResourceEntry } from "./routeManifest";
 import {
   CUSTOM_ROUTES,
@@ -34,6 +34,24 @@ describe("findManifestViolations", () => {
   it("returns no violations for the real manifest", () => {
     // Arrange
     const navTargets = PRIMARY_NAV.map((item) => item.to);
+
+    // Act
+    const violations = findManifestViolations(
+      CUSTOM_ROUTES,
+      RESOURCES,
+      navTargets,
+      RECORD_FLAG_EXEMPTIONS,
+    );
+
+    // Assert
+    expect(violations).toEqual([]);
+  });
+
+  it("returns no violations for the real manifest fed SHADCHANUS_NAV targets (Story 8.1, Task 5)", () => {
+    // Arrange — the validator must hold for both nav sets: /connections
+    // (Story 8.1's new placeholder route) must resolve just like every
+    // PRIMARY_NAV target does above.
+    const navTargets = SHADCHANUS_NAV.map((item) => item.to);
 
     // Act
     const violations = findManifestViolations(
@@ -263,5 +281,46 @@ describe("findManifestViolations — record-flags-missing (Story 3.12 AC 7)", ()
     expect(
       violations.filter((v) => v.code === "record-flags-missing"),
     ).toHaveLength(0);
+  });
+});
+
+describe("contextKind (Story 8.1, AC-3)", () => {
+  const HOUSEHOLD_GUARDED_RESOURCE_NAMES = [
+    "shidduchim",
+    "singles",
+    "inbox_items",
+    "shadchanim",
+    "references",
+    "tasks",
+  ];
+
+  it("sets contextKind: 'household' on every guarded resource, and no others", () => {
+    for (const resource of RESOURCES) {
+      const expected = HOUSEHOLD_GUARDED_RESOURCE_NAMES.includes(resource.name)
+        ? "household"
+        : undefined;
+      expect(resource.contextKind).toBe(expected);
+    }
+  });
+
+  it("sets contextKind: 'household' on the reminders custom route, and leaves /connections unguarded", () => {
+    const reminders = CUSTOM_ROUTES.find(
+      (route) => route.path === "/reminders",
+    );
+    const connections = CUSTOM_ROUTES.find(
+      (route) => route.path === "/connections",
+    );
+
+    expect(reminders?.contextKind).toBe("household");
+    expect(connections?.contextKind).toBeUndefined();
+  });
+
+  it("registers /connections as a real component route (AC-4)", () => {
+    const connections = CUSTOM_ROUTES.find(
+      (route) => route.path === "/connections",
+    );
+
+    expect(connections).toBeDefined();
+    expect(connections?.surface).toBe("both");
   });
 });

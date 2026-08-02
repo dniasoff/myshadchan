@@ -980,6 +980,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/layout/RequireContextKind.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/layout/MobileNavigation.tsx",
           "type": "registry:component"
         },
@@ -1268,6 +1272,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/dashboard/ShadchanDashboard.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/dashboard/RecentSuggestions.tsx",
           "type": "registry:component"
         },
@@ -1293,6 +1301,10 @@
         },
         {
           "path": "src/components/atomic-crm/dashboard/AttentionSection.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/connections/ConnectionsPlaceholder.tsx",
           "type": "registry:component"
         },
         {
