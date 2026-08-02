@@ -251,7 +251,22 @@ jobs:
         #     days and then disable the endpoint. Re-add when 12.4 lands a
         #     real handler and STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET are
         #     provisioned.
+        #
+        # `fail-fast: false` (run 30742647288, 2026-08-02): CLOUDFLARE_API_TOKEN
+        # was added as a repo secret but the token itself was rejected —
+        # `wrangler deploy` failed every leg identically with "Authentication
+        # error [code: 10000]" / "Invalid access token [code: 9109]" from the
+        # Cloudflare API, not a per-worker problem. With the default fail-fast,
+        # the first leg to fail ("match") cancelled the other four before they
+        # even ran, so the run showed one real error and four ambiguous
+        # "canceled" annotations — worse for diagnosing an account-wide auth
+        # problem, since a reader can't tell "canceled" apart from "would have
+        # succeeded". Disabling fail-fast lets all five legs attempt and report
+        # their own copy of the real wrangler error, and — combined with the
+        # `trigger-frontend` change below — a Cloudflare auth failure no longer
+        # cancels work that doesn't depend on it.
         strategy:
+            fail-fast: false
             matrix:
                 worker: [ingest, parse, match, ai, cron]
 
@@ -282,6 +297,20 @@ jobs:
               name: 🚀 wrangler deploy
               working-directory: workers/${{ matrix.worker }}
               run: npx wrangler deploy
+
+            # The secrets/skip steps below only fire on the missing-secret
+            # path (`!env.IS_CLOUDFLARE_CONFIGURED`). A *present but rejected*
+            # token — the failure mode from run 30742647288 — falls through to
+            # here instead: the step above already failed the job (so it shows
+            # red, not silently green), but its wrangler error lives in a
+            # collapsed log group a reader has to open. This puts the same
+            # fact where the missing-secret case already puts it: the job
+            # summary, so "workers didn't deploy" is visible without digging.
+            - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && failure() }}
+              name: 🚨 Cloudflare Workers deployment FAILED
+              run: |
+                  echo "::error::wrangler deploy failed for ${{ matrix.worker }} — CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are set but were rejected by the Cloudflare API (see the wrangler deploy step above for the exact error)."
+                  echo ':rotating_light: **Cloudflare Workers deployment FAILED (`${{ matrix.worker }}`).** `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` are present but were rejected — see the `wrangler deploy` step above for the exact error (commonly an invalid, expired, or under-scoped token). This worker was **NOT** deployed. `trigger-frontend` still runs once `deploy-supabase` succeeds — a Cloudflare problem does not block the frontend.' >> "$GITHUB_STEP_SUMMARY"
 
             - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY }}
               name: 🔑 Push base secrets (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -334,9 +363,31 @@ jobs:
     # preview, so PR previews are unaffected — matching is per-branch-name, and a
     # PR deploys its head branch, never `main`.
     #
-    # `needs:` both backend jobs, so the frontend is strictly last: a failed
-    # migration OR a failed worker deploy leaves production on the last good
-    # build. That is the entire point — the hook not firing IS the safe outcome.
+    # `needs:` both backend jobs, so the frontend is strictly last-to-START:
+    # it does not fire until deploy-workers has finished (success or failure),
+    # preserving "workers land before the frontend that may call them, when
+    # they land at all". But `needs` alone would also make a *failed*
+    # deploy-workers skip this job — and Cloudflare and Vercel are independent
+    # providers, so a Cloudflare-side problem has no business blocking a
+    # Supabase-and-Vercel deploy. Run 30742647288 (2026-08-02) proved the cost
+    # of not separating them: an invalid CLOUDFLARE_API_TOKEN failed every
+    # `deploy-workers` leg and this job was skipped outright — production
+    # migrations had landed but the frontend never rebuilt, for a reason
+    # entirely unrelated to Supabase or Vercel.
+    #
+    # `if: always() && needs.deploy-supabase.result == 'success'` fixes that:
+    # deploy-workers' result is deliberately absent from the condition, so
+    # this job runs whenever migrations succeeded, whether the Cloudflare leg
+    # succeeded, failed, or (if `share`'s bucket gate above ever produces one)
+    # was skipped. A failed migration still blocks it — that ordering
+    # guarantee is the one that actually matters, because a frontend built
+    # against a schema that failed to migrate is the outage this workflow
+    # exists to prevent. A failed Cloudflare deploy is not that: the five
+    # workers gated in are inert health-checks the frontend does not depend on
+    # to render or to serve auth/CRUD, so shipping the frontend without them
+    # is safe, and leaving them undeployed is exactly as loud as it was inside
+    # `deploy-workers` (job stays red; see the 🚨 step there) — this job does
+    # not paper over it, it just declines to let it cascade.
     #
     # GUARD: if VERCEL_DEPLOY_HOOK_URL is ever absent (secret rotated away,
     # restored-from-backup repo) this job does NOT fail the run — it warns
@@ -361,6 +412,12 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [deploy-supabase, deploy-workers]
+        # See the comment block above: deliberately keys on deploy-supabase's
+        # result only. `always()` lifts the default "every `needs:` job must
+        # have succeeded" gate so a failed/skipped deploy-workers doesn't
+        # skip this job too — deploy-supabase's own result still must be
+        # 'success', so a failed migration still blocks the frontend deploy.
+        if: ${{ always() && needs.deploy-supabase.result == 'success' }}
 
         env:
             VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
