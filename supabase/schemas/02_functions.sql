@@ -3980,3 +3980,229 @@ begin
   return v_thread;
 end;
 $$;
+
+-- =====================================================================
+-- MyShadchan — Communication (Epic 7 Story 7.5: notification delivery)
+-- =====================================================================
+--
+-- Story 7.5 (AC-3, AC-4, AC-5, AC-6, AC-7, AC-8): fires AFTER INSERT on
+-- messages (04_triggers.sql) and queues one message_notifications row per
+-- OTHER thread participant per deliverable channel. SECURITY DEFINER because
+-- an ordinary message INSERT runs as `authenticated` (05_policies.sql's
+-- "Messages insertable by an existing participant" policy), which holds no
+-- grant on message_notifications at all (AC-11) and no read access to every
+-- OTHER participant's account_members/members rows this resolution needs.
+--
+-- `is distinct from`, not `<>` (AC-7): sender_member_id is nullable
+-- (messages_sender_member_id_fkey is ON DELETE SET NULL), and
+-- `member_id <> NULL` is never true for any row, which would silently queue
+-- NOTHING for a message whose sender member has since been deleted.
+--
+-- Email resolution happens HERE, not in the Worker (AC-10): the `auth` schema
+-- is not exposed through PostgREST, so the account_members.user_id ->
+-- auth.uid() linkage can only be walked from inside Postgres. The join
+-- target is public.members (NOT auth.users) via members.user_id, which is
+-- uniquely indexed (uq__members__user_id, 01_tables.sql).
+--
+-- AC-4's skipped/failed split (adopting Story 12.2's F2 ruling): a NULL
+-- account_members.user_id is an invited-but-not-accepted membership —
+-- deliberate, `skipped`, never a failure. A non-null user_id that resolves to
+-- no live public.members row, or to a disabled one, settles `failed` with an
+-- explanatory error. Treating the first case as `failed` would drive a
+-- permanent error state on a perfectly normal household.
+--
+-- AC-5: a push row is queued only when the recipient holds at least one
+-- push_subscriptions row — no dead letter for a member who never opted in.
+--
+-- `on conflict (message_id, recipient_member_id, channel) do nothing` on
+-- every insert makes the whole fan-out idempotent under any future re-run or
+-- retry of this trigger.
+CREATE OR REPLACE FUNCTION "public"."fan_out_message_notifications"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_participant record;
+  v_user_id uuid;
+  v_email text;
+  v_disabled boolean;
+begin
+  for v_participant in
+    select tp.member_id
+    from public.thread_participants tp
+    where tp.thread_id = new.thread_id
+      and tp.member_id is distinct from new.sender_member_id
+  loop
+    select am.user_id into v_user_id
+    from public.account_members am
+    where am.id = v_participant.member_id;
+
+    if v_user_id is null then
+      insert into public.message_notifications (
+        account_id, connection_id, message_id, recipient_member_id, channel, status, error
+      )
+      values (
+        new.account_id, new.connection_id, new.id, v_participant.member_id, 'email', 'skipped',
+        'recipient membership has no accepted login (account_members.user_id is null)'
+      )
+      on conflict (message_id, recipient_member_id, channel) do nothing;
+    else
+      select m.email::text, m.disabled into v_email, v_disabled
+      from public.members m
+      where m.user_id = v_user_id;
+
+      if v_email is null or v_disabled then
+        insert into public.message_notifications (
+          account_id, connection_id, message_id, recipient_member_id, channel, status, error
+        )
+        values (
+          new.account_id, new.connection_id, new.id, v_participant.member_id, 'email', 'failed',
+          case
+            when v_email is null then 'no public.members row for this login'
+            else 'recipient member is disabled'
+          end
+        )
+        on conflict (message_id, recipient_member_id, channel) do nothing;
+      else
+        insert into public.message_notifications (
+          account_id, connection_id, message_id, recipient_member_id, channel, status, recipient_email
+        )
+        values (
+          new.account_id, new.connection_id, new.id, v_participant.member_id, 'email', 'pending', v_email
+        )
+        on conflict (message_id, recipient_member_id, channel) do nothing;
+      end if;
+    end if;
+
+    if exists (
+      select 1 from public.push_subscriptions ps
+      where ps.member_id = v_participant.member_id
+    ) then
+      insert into public.message_notifications (
+        account_id, connection_id, message_id, recipient_member_id, channel, status
+      )
+      values (
+        new.account_id, new.connection_id, new.id, v_participant.member_id, 'push', 'pending'
+      )
+      on conflict (message_id, recipient_member_id, channel) do nothing;
+    end if;
+  end loop;
+
+  return new;
+end;
+$$;
+
+-- Story 7.5 (AC-1, AC-2): the ONLY write path for
+-- thread_participants.last_read_at — `authenticated` holds no UPDATE grant
+-- on thread_participants at all (06_grants.sql). The `current_member_id()`
+-- predicate IS the entire authorization check: by construction it can only
+-- ever match the CALLER's own membership row in their currently active
+-- context, so a caller with no matching participant row (someone else's
+-- thread, or a thread they are not in) updates zero rows rather than
+-- raising — AC-2's falsifiable check asserts this by row count, not by a
+-- raised error.
+CREATE OR REPLACE FUNCTION "public"."mark_thread_read"("p_thread_id" bigint) RETURNS public.thread_participants
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_participant public.thread_participants;
+begin
+  update public.thread_participants tp
+  set last_read_at = now()
+  where tp.member_id = public.current_member_id()
+    and tp.thread_id = p_thread_id
+  returning tp.* into v_participant;
+
+  return v_participant;
+end;
+$$;
+
+-- Story 7.5 (AC-9, AC-10): the claim-then-return step of the claim/dispatch/
+-- settle pattern (Dev Notes, "The claim-then-dispatch pattern" — the CTE
+-- below is that pattern verbatim, schema-qualified for `search_path ''`).
+-- Ships as a function, not a view, because PostgREST cannot express `for
+-- update skip locked` — the one thing that makes two overlapping sweeps (the
+-- Worker's `scheduled()` handler firing again before a slow run finishes)
+-- claim disjoint rows instead of double-sending. The join to
+-- messages/threads is what lets the Worker satisfy AC-10 (no `.from(...)`
+-- anywhere in its files) with this single RPC call and no second lookup.
+CREATE OR REPLACE FUNCTION "public"."claim_message_notifications"("p_limit" integer) RETURNS TABLE("id" bigint, "channel" text, "recipient_member_id" bigint, "recipient_email" text, "thread_id" bigint, "message_body" text, "subject_type" text, "subject_id" bigint)
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  -- Every OUT column above (id, channel, ...) is an implicitly declared
+  -- plpgsql variable in scope for the whole function body, so a BARE `id`
+  -- inside the query below is ambiguous with the OUT parameter of the same
+  -- name — table aliases on every reference (mn/mn2), not just on the final
+  -- projection, are required here, not stylistic.
+  return query
+  with claimed as (
+    update public.message_notifications mn
+    set status = 'sending', attempts = attempts + 1
+    where mn.id in (
+      select mn2.id from public.message_notifications mn2
+      where mn2.status = 'pending'
+      order by mn2.created_at
+      limit p_limit
+      for update skip locked
+    )
+    returning mn.*
+  )
+  select
+    claimed.id,
+    claimed.channel,
+    claimed.recipient_member_id,
+    claimed.recipient_email,
+    m.thread_id,
+    m.body,
+    t.subject_type,
+    t.subject_id
+  from claimed
+  join public.messages m on m.id = claimed.message_id
+  join public.threads t on t.id = m.thread_id;
+end;
+$$;
+
+-- Story 7.5 (AC-9): mirrors Story 12.2's settle_task_notification() shape.
+-- Rejects any status outside the three terminal states a settle call may
+-- report; updates ONLY rows currently `sending`, so a late duplicate settle
+-- (the Worker retrying after a timeout whose original call actually
+-- succeeded) can never resurrect an already-finished row. `p_error`, when
+-- given, is the transport's own raw error string — unlike Story 12.2's
+-- cron_heartbeat.last_error, this column is on a row NO client can ever read
+-- (AC-11), so it carries no bounded-code requirement.
+CREATE OR REPLACE FUNCTION "public"."settle_message_notification"("p_id" bigint, "p_status" text, "p_error" text DEFAULT NULL::text) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if p_status not in ('sent', 'failed', 'skipped') then
+    raise exception 'invalid message_notification status: %', p_status
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  update public.message_notifications
+  set status = p_status,
+      error = p_error,
+      sent_at = case when p_status = 'sent' then now() else sent_at end
+  where id = p_id
+    and status = 'sending';
+end;
+$$;
+
+-- Story 7.5 (AC-10, Task 6): the sweep's self-healing path for a `410 Gone`/
+-- `404` response from a push service — without this the Worker would need a
+-- direct `.from("push_subscriptions")` delete, which AC-10 forbids.
+-- service_role only: a client deletes its OWN subscription through the
+-- ordinary push_subscriptions RLS policy instead (AC-12), never by endpoint
+-- alone.
+CREATE OR REPLACE FUNCTION "public"."delete_push_subscription_by_endpoint"("p_endpoint" text) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  delete from public.push_subscriptions where endpoint = p_endpoint;
+end;
+$$;

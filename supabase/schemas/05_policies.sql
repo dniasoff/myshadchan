@@ -1277,3 +1277,50 @@ create policy "Messages insertable by an existing participant" on public.message
               and tp.member_id = public.current_member_id()
         )
     );
+
+-- =====================================================================
+-- MyShadchan — Communication (Epic 7 Story 7.5: notification delivery)
+-- =====================================================================
+--
+-- FORCE ROW LEVEL SECURITY — this story follows Story 7.1's decision above
+-- rather than re-deciding it (Task 0): `postgres` and `supabase_admin` both
+-- carry BYPASSRLS on this stack (evidence recorded at 7.1's FORCE block
+-- above), so FORCE changes no behaviour for any SECURITY DEFINER function
+-- here (every one of them owned by `postgres`) — it is shipped anyway, for
+-- the identical reason 7.1 shipped it: two brand-new tables, landing in the
+-- same diff, with no legacy caller anywhere relying on owner-bypass.
+alter table public.message_notifications enable row level security;
+alter table public.message_notifications force row level security;
+alter table public.push_subscriptions enable row level security;
+alter table public.push_subscriptions force row level security;
+
+-- message_notifications (AC-11): NO policy for `authenticated` at all — the
+-- stricter form of the subscription/ai_usage no-write posture above, which
+-- withholds even SELECT because this queue carries recipient email addresses
+-- across every tenant. With RLS enabled and no policy, `authenticated` reads,
+-- writes and deletes zero rows regardless of any table grant; 06_grants.sql
+-- also withholds the grant outright, so neither layer alone regressing would
+-- expose this table on its own.
+
+-- push_subscriptions (AC-12): keyed on auth.uid() via the owning
+-- account_members row — deliberately NOT current_member_id(). Registering a
+-- device is not a tenant-data read: it must succeed whichever context
+-- (household or shadchanus) happens to be active, and current_member_id()
+-- only ever resolves the caller's CURRENTLY ACTIVE one. A member manages only
+-- their own subscription rows, across every account they belong to.
+create policy "Push subscriptions manageable by their own member" on public.push_subscriptions
+    for all to authenticated
+    using (
+        exists (
+            select 1 from public.account_members am
+            where am.id = push_subscriptions.member_id
+              and am.user_id = auth.uid()
+        )
+    )
+    with check (
+        exists (
+            select 1 from public.account_members am
+            where am.id = push_subscriptions.member_id
+              and am.user_id = auth.uid()
+        )
+    );

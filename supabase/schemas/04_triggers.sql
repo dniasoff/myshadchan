@@ -329,6 +329,14 @@ create or replace trigger set_messages_defaults
     before insert on public.messages
     for each row execute function public.set_message_defaults();
 
+-- Story 7.5 (AC-3, AC-4, AC-5, AC-6, AC-7, AC-8): fans a new message out into
+-- message_notifications. AFTER INSERT, a different firing event from
+-- set_messages_defaults' BEFORE INSERT above, so there is no ordering
+-- interaction between the two triggers on this table.
+create or replace trigger fan_out_message_notifications_trigger
+    after insert on public.messages
+    for each row execute function public.fan_out_message_notifications();
+
 -- Story 7.1 (AC-10): NO new trigger for the polymorphic cascade —
 -- purge_polymorphic_dependents() (02_functions.sql) is already attached to
 -- public.shidduchim as purge_shidduch_dependents above, and this story

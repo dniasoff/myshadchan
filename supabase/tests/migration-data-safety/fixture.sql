@@ -532,6 +532,29 @@ begin
   end if;
 end $$;
 
+-- Story 7.5 (message_notifications, push_subscriptions). Same `to_regclass`
+-- guard, same reasoning as the block above: THIS story's own migration is
+-- what creates both tables, so they hold nothing before it applies, and the
+-- guard is trivially safe for its own migration. From the next story's
+-- baseline onward this seeds and captures them like every other table here —
+-- closing the blind spot in the same diff that adds them, not two stories
+-- later (thread_participants.last_read_at needs no seed of its own: it is a
+-- nullable column added to an ALREADY-seeded table above, so the existing
+-- thread_participants rows already exercise the "no backfill needed"
+-- ADD COLUMN safely).
+do $$
+begin
+  if to_regclass('public.message_notifications') is not null then
+    execute $seed$
+      insert into public.message_notifications (id, account_id, connection_id, message_id, recipient_member_id, channel, status, recipient_email)
+      values (9000001, 9000001, null, 9000001, 9000001, 'email', 'pending', 'guard.parent@example.test');
+
+      insert into public.push_subscriptions (id, member_id, endpoint, p256dh, auth)
+      values (9000001, 9000001, 'https://push.example.test/migration-guard', 'p256dh-key', 'auth-key');
+    $seed$;
+  end if;
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- Snapshot. `identity_signals` is captured last and on purpose: nothing
 -- inserts it directly — the `sync_shidduch_signals` trigger derives it from
@@ -606,5 +629,7 @@ select migration_guard.capture('connections');
 select migration_guard.capture('threads');
 select migration_guard.capture('thread_participants');
 select migration_guard.capture('messages');
+select migration_guard.capture('message_notifications');
+select migration_guard.capture('push_subscriptions');
 
 commit;

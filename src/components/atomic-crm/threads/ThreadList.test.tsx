@@ -126,6 +126,79 @@ describe("ThreadList — reading threads for a subject", () => {
   });
 });
 
+describe("ThreadList — unread indicator (Story 7.5, AC-1)", () => {
+  const seedThreadWithMessage = (
+    db: ReturnType<typeof generateData>,
+    lastReadAt: string | null,
+  ) => {
+    db.threads = [
+      {
+        id: 1,
+        account_id: 1,
+        connection_id: null,
+        subject_type: "shidduch",
+        subject_id: 1,
+        visibility: "open",
+        created_by_member_id: CALLER_MEMBER_ID,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    db.thread_participants = [
+      {
+        id: 1,
+        account_id: 1,
+        connection_id: null,
+        thread_id: 1,
+        member_id: CALLER_MEMBER_ID,
+        created_at: "2026-01-01T00:00:00Z",
+        last_read_at: lastReadAt,
+      },
+    ];
+    db.messages = [
+      {
+        id: 1,
+        account_id: 1,
+        connection_id: null,
+        thread_id: 1,
+        sender_member_id: null,
+        body: "A message arrived",
+        created_at: "2026-01-02T00:00:00Z",
+      },
+    ];
+  };
+
+  it("marks a thread unread when the caller has never opened it (last_read_at null)", async () => {
+    // Act
+    const { screen } = await renderList((db) =>
+      seedThreadWithMessage(db, null),
+    );
+
+    // Assert
+    await expect.element(screen.getByText("Unread")).toBeInTheDocument();
+  });
+
+  it("marks a thread unread when a message postdates the caller's own last_read_at", async () => {
+    // Act
+    const { screen } = await renderList((db) =>
+      seedThreadWithMessage(db, "2026-01-01T12:00:00Z"),
+    );
+
+    // Assert — the message (2026-01-02) is newer than last_read_at (2026-01-01).
+    await expect.element(screen.getByText("Unread")).toBeInTheDocument();
+  });
+
+  it("does not mark a thread unread once the caller's last_read_at is after every message", async () => {
+    // Act
+    const { screen } = await renderList((db) =>
+      seedThreadWithMessage(db, "2026-01-03T00:00:00Z"),
+    );
+
+    // Assert
+    await expect.element(screen.getByText("Open")).toBeInTheDocument();
+    expect(screen.getByText("Unread").query()).toBeNull();
+  });
+});
+
 describe("ThreadList — starting a discussion (AC-1, AC-2, AC-7)", () => {
   it("createThread() (never a raw create) makes a thread scoped to this subject, with the caller as its only participant", async () => {
     // Act

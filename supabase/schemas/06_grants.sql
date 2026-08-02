@@ -1031,3 +1031,58 @@ revoke all on function public.set_thread_visibility(bigint, text) from public, a
 grant execute on function public.set_thread_visibility(bigint, text) to authenticated;
 grant execute on function public.set_thread_visibility(bigint, text) to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Communication (Epic 7 Story 7.5: notification delivery)
+-- ---------------------------------------------------------------------------
+-- message_notifications (AC-11): unreachable from a browser. No grant at all
+-- for anon/authenticated — belt-and-braces alongside the "no policy" RLS
+-- posture (05_policies.sql): either layer alone already denies every client
+-- access, so neither can regress silently on its own.
+revoke all on table public.message_notifications from anon, authenticated;
+grant all on table public.message_notifications to service_role;
+revoke all on sequence public.message_notifications_id_seq from anon, authenticated;
+grant all on sequence public.message_notifications_id_seq to service_role;
+
+-- push_subscriptions (AC-12): a member manages their own rows directly — no
+-- UPDATE grant, because a changed key is a new subscription (replace via
+-- delete + insert, Task 3), never an edit of an existing one.
+--
+-- `revoke all ... from anon, authenticated` (not just `anon`, which is all
+-- the story's own Task 3 text names): Postgres's default privileges hand
+-- `authenticated` TRUNCATE/REFERENCES/TRIGGER on every new table `postgres`
+-- creates (verified on the local stack, same fact `thread_participants`'s own
+-- grant block above documents) — TRUNCATE bypasses RLS entirely, force or
+-- no force, so leaving it ungranted is not optional on a table AC-12 exists
+-- specifically to lock to one member's own rows.
+revoke all on table public.push_subscriptions from anon, authenticated;
+grant select, insert, delete on table public.push_subscriptions to authenticated;
+grant all on table public.push_subscriptions to service_role;
+revoke all on sequence public.push_subscriptions_id_seq from anon;
+grant usage, select on sequence public.push_subscriptions_id_seq to authenticated;
+grant all on sequence public.push_subscriptions_id_seq to service_role;
+
+-- mark_thread_read() (AC-1, AC-2): the sole write path for
+-- thread_participants.last_read_at — `authenticated` holds no UPDATE grant on
+-- the table itself (unchanged above), so this SECURITY DEFINER function,
+-- gated entirely by its own current_member_id() predicate, is the only way a
+-- client can ever move it.
+revoke all on function public.mark_thread_read(bigint) from public, anon;
+grant execute on function public.mark_thread_read(bigint) to authenticated;
+grant execute on function public.mark_thread_read(bigint) to service_role;
+
+-- claim_message_notifications()/settle_message_notification()/
+-- delete_push_subscription_by_endpoint() (AC-9, AC-10): service_role only —
+-- the sweep Worker's entire interface to this domain, never called from a
+-- browser. fan_out_message_notifications() needs no grant: it runs only as
+-- the AFTER INSERT trigger on messages, and Postgres never requires EXECUTE
+-- on a trigger function for the triggering role (same reasoning as
+-- enforce_connection_kinds() above).
+revoke all on function public.claim_message_notifications(integer) from public, anon, authenticated;
+grant execute on function public.claim_message_notifications(integer) to service_role;
+
+revoke all on function public.settle_message_notification(bigint, text, text) from public, anon, authenticated;
+grant execute on function public.settle_message_notification(bigint, text, text) to service_role;
+
+revoke all on function public.delete_push_subscription_by_endpoint(text) from public, anon, authenticated;
+grant execute on function public.delete_push_subscription_by_endpoint(text) to service_role;
+

@@ -13,9 +13,16 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import type { CrmDataProvider } from "../providers/types";
-import type { Thread, ThreadSubjectType } from "../types";
+import type {
+  Message,
+  Thread,
+  ThreadParticipant,
+  ThreadSubjectType,
+} from "../types";
 import { formatTimelineDate } from "../entity360/tabs/interactionLabels";
+import { computeUnreadThreadIds } from "./computeUnreadThreadIds";
 import { ThreadPanel } from "./ThreadPanel";
+import { useCurrentMemberId } from "./useCurrentMemberId";
 
 /**
  * Story 7.1 (AC-1, AC-2, AC-7) — threads for one subject. Reusable across
@@ -62,10 +69,12 @@ function ThreadListError(): ReactElement {
 function ThreadRow({
   thread,
   isSelected,
+  isUnread,
   onSelect,
 }: {
   thread: Thread;
   isSelected: boolean;
+  isUnread: boolean;
   onSelect: () => void;
 }): ReactElement {
   const translate = useTranslate();
@@ -81,7 +90,13 @@ function ThreadRow({
             : "border-border hover:bg-accent/50"
         }`}
       >
-        <span className="font-medium">
+        {isUnread ? (
+          <span
+            className="me-2 inline-block size-2 rounded-full bg-primary align-middle"
+            aria-hidden="true"
+          />
+        ) : null}
+        <span className={isUnread ? "font-semibold" : "font-medium"}>
           {thread.visibility === "private"
             ? translate("crm.threads.list.rowPrivate", { _: "Private" })
             : translate("crm.threads.list.rowOpen", { _: "Open" })}
@@ -89,6 +104,11 @@ function ThreadRow({
         <span className="ms-2 text-xs text-muted-foreground">
           {formatTimelineDate(thread.created_at)}
         </span>
+        {isUnread ? (
+          <span className="sr-only">
+            {translate("crm.threads.list.unread", { _: "Unread" })}
+          </span>
+        ) : null}
       </button>
     </li>
   );
@@ -110,6 +130,42 @@ export function ThreadList({
     sort: { field: "created_at", order: "DESC" },
     pagination: { page: 1, perPage: 20 },
   });
+
+  // Story 7.5 (AC-1): the two extra reads the unread indicator needs — the
+  // caller's OWN thread_participants rows (for last_read_at) and this
+  // subject's messages (for each thread's latest created_at) — fired only
+  // once the thread ids are known, and skipped entirely while the list is
+  // empty rather than issuing an "id@in ()" request that matches nothing.
+  const threadIds = (data ?? []).map((thread) => thread.id);
+  const { data: currentMemberId } = useCurrentMemberId();
+
+  const { data: myParticipation } = useGetList<ThreadParticipant>(
+    "thread_participants",
+    {
+      filter: {
+        member_id: currentMemberId,
+        "thread_id@in": `(${threadIds.join(",")})`,
+      },
+      pagination: { page: 1, perPage: threadIds.length || 1 },
+    },
+    { enabled: threadIds.length > 0 && currentMemberId != null },
+  );
+
+  const { data: recentMessages } = useGetList<Message>(
+    "messages",
+    {
+      filter: { "thread_id@in": `(${threadIds.join(",")})` },
+      sort: { field: "created_at", order: "DESC" },
+      pagination: { page: 1, perPage: 200 },
+    },
+    { enabled: threadIds.length > 0 },
+  );
+
+  const unreadThreadIds = computeUnreadThreadIds(
+    data ?? [],
+    myParticipation ?? [],
+    recentMessages ?? [],
+  );
 
   const activeId = selectedId ?? data?.[0]?.id ?? null;
   // Story 7.3 (Task 4): the FULL thread record, not just its id — ThreadPanel
@@ -166,6 +222,7 @@ export function ThreadList({
                 key={String(thread.id)}
                 thread={thread}
                 isSelected={String(thread.id) === String(activeId)}
+                isUnread={unreadThreadIds.has(thread.id)}
                 onSelect={() => setSelectedId(thread.id)}
               />
             ))}

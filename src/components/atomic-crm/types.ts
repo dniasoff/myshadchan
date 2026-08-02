@@ -929,6 +929,12 @@ export type Thread = {
  * Story 7.1 (AC-2): who is in a thread's conversation. Never derived from
  * "everyone in the scope" — every thread has at least one participant row
  * (its creator) from the moment it is created (`create_thread()`).
+ *
+ * Story 7.5 (AC-1) adds `last_read_at`: null means "never opened this
+ * thread" — the honest default a participant who has never read anything
+ * gets, never epoch zero. Unread state is DERIVED from comparing this
+ * against `Message.created_at` (Dev Notes, "Why in-app delivery needs no
+ * queue") — there is no separate "unread" flag anywhere.
  */
 export type ThreadParticipant = {
   account_id?: Identifier | null;
@@ -936,6 +942,7 @@ export type ThreadParticipant = {
   thread_id: Identifier;
   member_id: Identifier;
   created_at: string;
+  last_read_at?: string | null;
 } & Pick<RaRecord, "id">;
 
 /**
@@ -969,3 +976,44 @@ export type CreateThreadInput = {
   visibility?: ThreadVisibility;
   connection_id?: Identifier | null;
 };
+
+// =====================================================================
+// Notification delivery (Story 7.5)
+// =====================================================================
+
+/**
+ * The two channels `message_notifications.channel` admits (AC-6) — no
+ * outbound SMS, structurally, not by omission. Deliberately reuses the same
+ * two string literals `TaskDeliveryChannel` (`:102` above) already uses for
+ * `email`/`push`, for vocabulary consistency across the two delivery
+ * features — but this is its OWN type. Do not fold the two into a shared
+ * `DeliveryChannel` as a side effect of this story: `TaskDeliveryChannel`
+ * belongs to the already-shipped reminders feature (Story 12.2 concurrently
+ * edits its create sheet), and unifying the types is a deliberate, separate
+ * cross-epic refactor with its own review surface (Dev Notes, "Do not
+ * refactor `TaskDeliveryChannel`").
+ */
+export type MessageNotificationChannel = "email" | "push";
+
+/**
+ * `message_notifications.status` (AC-9, AC-4): `sending` is the
+ * claim-before-dispatch state `claim_message_notifications()` moves a row
+ * into; `skipped` is AC-4's deliberate no-login-yet case, never a failure.
+ */
+export type MessageNotificationStatus =
+  "pending" | "sending" | "sent" | "failed" | "skipped";
+
+/**
+ * A device registered for Web Push (Story 7.5, AC-5, AC-12). Read/write only
+ * through `push_subscriptions`' own RLS policy, keyed on `auth.uid()` — see
+ * that policy's comment (05_policies.sql) for why NOT `current_member_id()`.
+ * `p256dh`/`auth` are the two keys `PushSubscription.toJSON()`
+ * (the browser API, not this type) returns alongside `endpoint`.
+ */
+export type PushSubscription = {
+  member_id: Identifier;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  created_at: string;
+} & Pick<RaRecord, "id">;

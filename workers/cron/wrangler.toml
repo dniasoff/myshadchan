@@ -10,4 +10,6 @@ crons = ["*/15 * * * *"]
 
 # Secrets (set via `wrangler secret put <NAME> --config workers/cron/wrangler.toml`,
 # or the CI job in .github/workflows/deploy.yml): SUPABASE_URL,
-# SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY (email delivery floor).
+# SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY (email delivery floor),
+# VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY (Story 7.5, web push — only the
+# public key also reaches the client, as VITE_VAPID_PUBLIC_KEY).
