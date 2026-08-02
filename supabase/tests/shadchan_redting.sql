@@ -22,6 +22,22 @@
 -- \gset (mirrors shadchan_connections.sql/threads_entity.sql's own
 -- convention).
 --
+-- Review-fix regressions added after the adversarial review (stranded when
+-- the original fix agent hit a quota stop before it ran):
+--   Finding 3 — a positive RLS control ("household A CAN read its own row")
+--     alongside AC-6(d)'s existing negative one.
+--   Finding 4 — a caller who ALSO holds an active membership of the
+--     connection's shadchanus account, but is ACTING AS the household, is
+--     refused; the same caller acting AS the shadchan succeeds with
+--     consistent attribution (sender / thread creator / message sender all
+--     agree).
+--   Finding 5 — every malformed input (missing/oversized raw_text, oversized
+--     subject, malformed/oversized attachments) is rejected before any
+--     insert, and a well-formed one is still accepted.
+--   Non-blocking observation (judged real): a direct INSERT bypassing
+--     redt_via_connection() cannot create a source='shadchan' row with a
+--     NULL connection_id (01_tables.sql's new CHECK constraint).
+--
 -- Run via: npm run test:unit:db  (needs the local stack up).
 --
 
@@ -207,11 +223,228 @@ select 'AC-5: the shadchan never gets a connection_id/account_id row scoped to t
 from public.threads t where t.id = :redt_thread_id;
 
 -- ---------------------------------------------------------------------------
+-- Review fix regression (Finding 5): every client-supplied field is
+-- validated BEFORE any insert. Run as S1 — a genuinely valid caller for
+-- connection_a_s1 — so the ONLY thing ever wrong is the input.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59300000-0000-0000-0000-000000000003","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Finding 5: a null raw_text is rejected up front (never reaches messages.body''s own NOT NULL)';
+  v_connection_a_s1 bigint;
+begin
+  select value into v_connection_a_s1 from ids where name = 'connection_a_s1';
+  perform public.redt_via_connection(v_connection_a_s1, 'No text at all', null);
+  perform pg_temp.unexpected_raise(v_name, null, 'redt_via_connection unexpectedly succeeded with a null raw_text');
+exception when others then
+  perform pg_temp.denied(v_name, '23514', '%redt text is required%', sqlstate, sqlerrm);
+end $$;
+
+do $$
+declare
+  v_name constant text := 'Finding 5: a whitespace-only raw_text is rejected the same as null';
+  v_connection_a_s1 bigint;
+begin
+  select value into v_connection_a_s1 from ids where name = 'connection_a_s1';
+  perform public.redt_via_connection(v_connection_a_s1, null, '   ');
+  perform pg_temp.unexpected_raise(v_name, null, 'redt_via_connection unexpectedly succeeded with a whitespace-only raw_text');
+exception when others then
+  perform pg_temp.denied(v_name, '23514', '%redt text is required%', sqlstate, sqlerrm);
+end $$;
+
+do $$
+declare
+  v_name constant text := 'Finding 5: raw_text over 20000 characters is rejected';
+  v_connection_a_s1 bigint;
+begin
+  select value into v_connection_a_s1 from ids where name = 'connection_a_s1';
+  perform public.redt_via_connection(v_connection_a_s1, null, repeat('a', 20001));
+  perform pg_temp.unexpected_raise(v_name, null, 'redt_via_connection unexpectedly succeeded with an oversized raw_text');
+exception when others then
+  perform pg_temp.denied(v_name, '23514', '%redt text is too long%', sqlstate, sqlerrm);
+end $$;
+
+do $$
+declare
+  v_name constant text := 'Finding 5: subject over 500 characters is rejected';
+  v_connection_a_s1 bigint;
+begin
+  select value into v_connection_a_s1 from ids where name = 'connection_a_s1';
+  perform public.redt_via_connection(v_connection_a_s1, repeat('s', 501), 'valid text');
+  perform pg_temp.unexpected_raise(v_name, null, 'redt_via_connection unexpectedly succeeded with an oversized subject');
+exception when others then
+  perform pg_temp.denied(v_name, '23514', '%redt subject is too long%', sqlstate, sqlerrm);
+end $$;
+
+do $$
+declare
+  v_name constant text := 'Finding 5: a non-array attachments payload is rejected';
+  v_connection_a_s1 bigint;
+begin
+  select value into v_connection_a_s1 from ids where name = 'connection_a_s1';
+  perform public.redt_via_connection(v_connection_a_s1, null, 'valid text', '{"not":"an array"}'::jsonb);
+  perform pg_temp.unexpected_raise(v_name, null, 'redt_via_connection unexpectedly succeeded with a non-array attachments payload');
+exception when others then
+  perform pg_temp.denied(v_name, '23514', '%attachments must be a JSON array%', sqlstate, sqlerrm);
+end $$;
+
+do $$
+declare
+  v_name constant text := 'Finding 5: an oversized attachments array is rejected';
+  v_connection_a_s1 bigint;
+  v_huge jsonb;
+begin
+  select value into v_connection_a_s1 from ids where name = 'connection_a_s1';
+  select jsonb_agg(jsonb_build_object('name', repeat('x', 100), 'src', 'https://example.test/f'))
+    into v_huge from generate_series(1, 300);
+  perform public.redt_via_connection(v_connection_a_s1, null, 'valid text', v_huge);
+  perform pg_temp.unexpected_raise(v_name, null, 'redt_via_connection unexpectedly succeeded with an oversized attachments payload');
+exception when others then
+  perform pg_temp.denied(v_name, '23514', '%attachments must be a JSON array%', sqlstate, sqlerrm);
+end $$;
+
+-- Assertions run as superuser (not as S1): S1's own active context is
+-- shadchanus_s1, and inbox_items RLS scopes strictly to
+-- account_id = current_context_id() — reading household_a's rows under
+-- S1's own role would return zero rows (not a failure — an EMPTY result
+-- set), which would make an `insert into results select … from …` insert
+-- NOTHING at all rather than a false result, silently dropping the check.
+reset role;
+
+insert into results (name, passed)
+select 'Finding 5: none of the six rejected malformed calls above created a second inbox_items row in household A',
+       count(*) = 1
+from public.inbox_items where account_id = :household_a and source = 'shadchan';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59300000-0000-0000-0000-000000000003","role":"authenticated"}';
+
+select (public.redt_via_connection(
+  :connection_a_s1, 'Valid redt with attachments', 'Text with a well-shaped attachments array',
+  '[{"name":"resume.pdf","src":"https://example.test/resume.pdf"}]'::jsonb
+)).id as valid_attachments_item_id \gset
+insert into ids values ('valid_attachments_item_id', :valid_attachments_item_id);
+
+select (public.redt_via_connection(
+  :connection_a_s1, null, repeat('b', 20000)
+)).id as boundary_length_item_id \gset
+insert into ids values ('boundary_length_item_id', :boundary_length_item_id);
+
+reset role;
+
+insert into results (name, passed)
+select 'Finding 5: a small, well-shaped attachments array IS accepted — validation is not all-or-nothing',
+       i.attachments = '[{"name":"resume.pdf","src":"https://example.test/resume.pdf"}]'::jsonb
+from public.inbox_items i where i.id = :valid_attachments_item_id;
+
+insert into results (name, passed)
+select 'Finding 5: raw_text at exactly the 20000-character boundary is accepted — only OVER the limit is rejected',
+       length(i.raw_text) = 20000
+from public.inbox_items i where i.id = :boundary_length_item_id;
+
+-- ---------------------------------------------------------------------------
+-- Review fix regression (Finding 4): merely holding an ACTIVE MEMBERSHIP of
+-- the connection's shadchanus account is not enough — the caller's ACTIVE
+-- CONTEXT must itself be that account (the same "acting as" idiom Story
+-- 8.2's own F4/F5 review fix already established for end_connection()/
+-- revoke_connection_invite()). Household A's own user (...0001) is given a
+-- SECOND active membership, in shadchanus S1 itself — the very account
+-- connection_a_s1 belongs to — while remaining an active member of
+-- household A and keeping household A as the active context.
+--
+-- Before this fix, this exact combination silently passed BOTH this
+-- function's own gate (an active shadchanus-account membership row exists
+-- somewhere for this user) AND the nested create_thread() gate (household A
+-- is independently a legal party of this SAME connection), landing the
+-- inbox item's sender = "the shadchan" while the mirror thread's
+-- created_by_member_id and the message's sender_member_id both resolved to
+-- the HOUSEHOLD membership — two records disagreeing about who sent it.
+-- ---------------------------------------------------------------------------
+insert into public.account_members (account_id, user_id, role, status) values
+  (:shadchanus_s1, '59300000-0000-0000-0000-000000000001', 'shadchan', 'active');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59300000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Finding 4: a caller who ALSO holds an active membership of the shadchanus account, but is ACTING AS household A, cannot redt through connection_a_s1';
+  v_connection_a_s1 bigint;
+begin
+  select value into v_connection_a_s1 from ids where name = 'connection_a_s1';
+  perform public.redt_via_connection(v_connection_a_s1, 'Acting as household, not shadchan', 'This must never land (Finding 4).');
+  perform pg_temp.unexpected_raise(v_name, null, 'redt_via_connection unexpectedly succeeded while acting as the wrong side of the connection');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', '%not an active member of this connection''s shadchanus context%', sqlstate, sqlerrm);
+end $$;
+
+insert into results (name, passed)
+select 'Finding 4: the refused acting-as-household-while-also-a-shadchan-member attempt created no divergent inbox_items row',
+       count(*) = 0
+from public.inbox_items where raw_text = 'This must never land (Finding 4).';
+
+-- Switching this SAME user's active context to shadchanus S1 — now ACTING
+-- AS the shadchan — the identical connection id succeeds, and every field
+-- naming "who acted" (sender, thread creator, message sender) agrees: all
+-- resolve to the shadchanus S1 side, never the household one, because the
+-- gate and the mirror now share the one condition by construction.
+select public.set_active_context(:shadchanus_s1);
+
+select id as dual_membership_shadchan_member_id from public.account_members
+where account_id = :shadchanus_s1 and user_id = '59300000-0000-0000-0000-000000000001' \gset
+insert into ids values ('dual_membership_shadchan_member_id', :dual_membership_shadchan_member_id);
+
+select coalesce(max(id), 0) as thread_id_before_dual from public.threads
+where connection_id = :connection_a_s1 and subject_type = 'relationship' \gset
+insert into ids values ('thread_id_before_dual', :thread_id_before_dual);
+
+select (public.redt_via_connection(
+  :connection_a_s1, 'Acting as the shadchan now', 'Consistent attribution check.'
+)).id as dual_redt_item_id \gset
+insert into ids values ('dual_redt_item_id', :dual_redt_item_id);
+
+select public.set_active_context(:household_a);
+reset role;
+
+insert into results (name, passed)
+select 'Finding 4: once ACTING AS the shadchanus side, the same dual-membership caller CAN redt, and the inbox item''s sender names the shadchan, not the household',
+       i.sender = 'Redting Shadchanus S1' and i.account_id = :household_a
+from public.inbox_items i where i.id = :dual_redt_item_id;
+
+select id as dual_redt_thread_id from public.threads
+where connection_id = :connection_a_s1 and subject_type = 'relationship'
+  and id > (select value from ids where name = 'thread_id_before_dual')
+order by id asc limit 1 \gset
+insert into ids values ('dual_redt_thread_id', :dual_redt_thread_id);
+
+insert into results (name, passed)
+select 'Finding 4: the mirror thread''s created_by_member_id is the SHADCHANUS membership, never the household one this same person also holds',
+       t.created_by_member_id = (select value from ids where name = 'dual_membership_shadchan_member_id')
+from public.threads t where t.id = :dual_redt_thread_id;
+
+insert into results (name, passed)
+select 'Finding 4: the mirror message''s sender_member_id agrees with the thread and the inbox item''s sender name — attribution cannot diverge',
+       m.sender_member_id = (select value from ids where name = 'dual_membership_shadchan_member_id')
+from public.messages m where m.thread_id = :dual_redt_thread_id;
+
+-- ---------------------------------------------------------------------------
 -- AC-6(c): shadchan S2 IS connected to household A (via connection_a_s2,
 -- its OWN accepted connection) — but cannot reuse S1's connection id even
 -- so, because the caller must be an active member of THAT connection's own
 -- shadchanus_account_id.
+--
+-- The "before" count is captured rather than hardcoded: the review-fix
+-- regressions above (Finding 4, Finding 5) legitimately land several more
+-- source='shadchan' rows in household A before this point runs, and a
+-- hardcoded expectation would silently stop meaning anything the next time
+-- an earlier test's row count changes.
 -- ---------------------------------------------------------------------------
+select count(*) as shadchan_items_before_s2_attempt from public.inbox_items
+where account_id = :household_a and source = 'shadchan' \gset
+insert into ids values ('shadchan_items_before_s2_attempt', :shadchan_items_before_s2_attempt);
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"59300000-0000-0000-0000-000000000004","role":"authenticated"}';
 
@@ -231,7 +464,7 @@ reset role;
 
 insert into results (name, passed)
 select 'AC-6(c): S2''s rejected attempt created no second inbox_items row in household A',
-       count(*) = 1
+       count(*) = :shadchan_items_before_s2_attempt
 from public.inbox_items where account_id = :household_a and source = 'shadchan';
 
 -- ---------------------------------------------------------------------------
@@ -256,6 +489,23 @@ insert into results (name, passed)
 select 'AC-6(a): the rejected attempt created no inbox_items row anywhere for this raw_text',
        count(*) = 0
 from public.inbox_items where raw_text = 'This should never land.';
+
+-- ---------------------------------------------------------------------------
+-- Review fix regression (Finding 3): the suite's only cross-tenant
+-- assertion was one-sided — it could tell "denies everyone" apart from
+-- "correctly scoped" for nobody, because nothing ever asserted the OWNING
+-- household CAN read its own row. This positive control runs first, right
+-- beside AC-6(d)'s existing negative one.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59300000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into results (name, passed)
+select 'Finding 3 (positive control): household A itself CAN read exactly its own redt row through RLS',
+       count(*) = 1
+from public.inbox_items where id = :redt_item_id;
+
+reset role;
 
 -- ---------------------------------------------------------------------------
 -- AC-6(d): the created inbox_items row is invisible to a household other
@@ -318,6 +568,40 @@ insert into results (name, passed)
 select 'AC-6(b): the refused post-end attempt created no new inbox_items row',
        count(*) = 0
 from public.inbox_items where raw_text = 'After the connection ended';
+
+-- ---------------------------------------------------------------------------
+-- Review fix (non-blocking observation, judged real): the widened source
+-- CHECK permits source='shadchan' with a NULL connection_id — unreachable
+-- through redt_via_connection() (always sets both together) but directly
+-- reachable via a raw INSERT, since `authenticated` holds a plain
+-- table-level INSERT grant on inbox_items (06_grants.sql), gated only by
+-- account scope. 01_tables.sql's new
+-- inbox_items_shadchan_source_requires_connection CHECK closes it at the
+-- data layer. Proven as household A — the same role/grant a real household
+-- member writes under, never a superuser bypass.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59300000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Review fix: source=''shadchan'' with a NULL connection_id is rejected at the table level, even via a direct INSERT bypassing redt_via_connection()';
+  v_household_a bigint;
+begin
+  select value into v_household_a from ids where name = 'household_a';
+  insert into public.inbox_items (account_id, source, raw_text, connection_id)
+  values (v_household_a, 'shadchan', 'direct insert attempt', null);
+  perform pg_temp.unexpected_raise(v_name, null, 'the direct insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '23514', '%inbox_items_shadchan_source_requires_connection%', sqlstate, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed)
+select 'Review fix: the rejected direct insert created no row',
+       count(*) = 0
+from public.inbox_items where raw_text = 'direct insert attempt';
 
 -- ---------------------------------------------------------------------------
 -- Structural guarantees the story must not regress.

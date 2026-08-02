@@ -59,20 +59,42 @@ const FormSection = ({
 
 export const ShidduchInputs = ({
   lockedShadchanId,
+  isShadchanLocked = lockedShadchanId != null,
 }: {
   /**
-   * Story 8.3 (AC-3): when set, the `shadchan_id` field is disabled — not
-   * merely defaulted — so the household cannot re-attribute a
-   * shadchan-sourced redt to a different book entry. A native
-   * `<fieldset disabled>` around the field, rather than an `AutocompleteInput`
-   * prop: `@/components/admin/autocomplete-input` (a mutable dependency this
-   * story does not own) plumbs no `disabled`/`readOnly` prop of its own
-   * today, and the browser's fieldset-disable cascade reaches the popover
-   * trigger button without needing one. The `m-0 min-w-0 border-0 p-0`
-   * classes neutralise `<fieldset>`'s default box/border so it reads exactly
-   * like the plain wrapper it replaces.
+   * Story 8.3 (AC-3): the value to lock the `shadchan_id` field to, when
+   * known.
    */
   lockedShadchanId?: Identifier | null;
+  /**
+   * Story 8.3 review fix (Finding 2): whether the `shadchan_id` field must
+   * be LOCKED at all — a separate question from whether we know a value to
+   * lock it TO. The two used to be conflated (disabled iff
+   * `lockedShadchanId != null`): when `InboxResolveDialog.tsx`'s linked-
+   * shadchanim lookup came back empty (the connection's book row deleted,
+   * or not yet created), the field fell open — unlocked and freely
+   * editable — for exactly the shadchan-sourced item AC-3 says must never
+   * be re-attributable. Proven over real JWTs: household A can
+   * `DELETE /shadchanim?connection_id=eq.N` (the table's own
+   * `FOR ALL`-scoped policy places no restriction on it) while the
+   * shadchan-sourced inbox item keeps its `connection_id` — nothing
+   * recreates the row, and the lock silently disappeared.
+   *
+   * Callers now pass this explicitly instead of relying on the ID's
+   * nullability: `InboxResolveDialog.tsx` locks on `item.source ===
+   * "shadchan"` alone, so a missing linked row still leaves the field
+   * disabled (empty and un-attributable, never open to picking a
+   * different book entry) — fails CLOSED, not open. A native
+   * `<fieldset disabled>` around the field, rather than an
+   * `AutocompleteInput` prop: `@/components/admin/autocomplete-input` (a
+   * mutable dependency this story does not own) plumbs no
+   * `disabled`/`readOnly` prop of its own today, and the browser's
+   * fieldset-disable cascade reaches the popover trigger button without
+   * needing one. The `m-0 min-w-0 border-0 p-0` classes neutralise
+   * `<fieldset>`'s default box/border so it reads exactly like the plain
+   * wrapper it replaces.
+   */
+  isShadchanLocked?: boolean;
 } = {}) => {
   return (
     <div className="flex flex-col gap-4">
@@ -119,15 +141,17 @@ export const ShidduchInputs = ({
             effect runs, so a phone painted three columns for one frame). */}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <fieldset
-            disabled={lockedShadchanId != null}
+            disabled={isShadchanLocked}
             className="m-0 min-w-0 border-0 p-0"
           >
             <ReferenceInput source="shadchan_id" reference="shadchanim">
               <AutocompleteInput
                 label="Shadchan"
                 helperText={
-                  lockedShadchanId != null
-                    ? "Sent by your connected shadchan — cannot be changed here"
+                  isShadchanLocked
+                    ? lockedShadchanId != null
+                      ? "Sent by your connected shadchan — cannot be changed here"
+                      : "Sent by your connected shadchan, but their book entry could not be found — this can be resolved without a shadchan credited"
                     : "Optional — who suggested this match"
                 }
               />

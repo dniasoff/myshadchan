@@ -552,7 +552,24 @@ create table public.inbox_items (
     -- account-scoped table without being a second scope.
     connection_id bigint,
     constraint inbox_items_source_check check (source in ('whatsapp', 'sms', 'email', 'photo', 'upload', 'shadchan')),
-    constraint inbox_items_status_check check (status in ('unresolved', 'resolved', 'dismissed'))
+    constraint inbox_items_status_check check (status in ('unresolved', 'resolved', 'dismissed')),
+    -- Story 8.3 review fix (non-blocking observation, judged real): the
+    -- widened source check above permits `source = 'shadchan'` with a NULL
+    -- connection_id — unreachable through redt_via_connection() (always
+    -- sets both together) but directly reachable via a raw
+    -- `POST /inbox_items` (authenticated holds a plain table-level INSERT
+    -- grant here, 06_grants.sql, gated only by account scope — nothing
+    -- restricts source/connection_id shape). Measured effect:
+    -- InboxResolveDialog.tsx's linked-shadchan lookup is `enabled:
+    -- isShadchanSourced && item.connection_id != null` — false for such a
+    -- row, so the query never runs and TanStack Query v5 leaves a disabled,
+    -- uncached query's `isPending` permanently true, which renders the
+    -- dialog's "Loading…" branch forever (the Dismiss button lives inside
+    -- the Form the loading branch replaces, so the item is not even
+    -- dismissable). Closed at the data layer rather than the UI: a
+    -- shadchan-sourced item must always carry its provenance.
+    constraint inbox_items_shadchan_source_requires_connection
+        check (source <> 'shadchan' or connection_id is not null)
 );
 
 -- Join references <-> shidduchim/resumes. Carries candid diligence content

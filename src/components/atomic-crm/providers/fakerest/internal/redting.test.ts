@@ -199,4 +199,200 @@ describe("redtViaConnection", () => {
     );
     expect(db.inbox_items).toHaveLength(0);
   });
+
+  it("Finding 4 (review fix): rejects a caller who holds an active membership of the shadchanus account but whose ACTIVE CONTEXT is a different account", async () => {
+    // Arrange — user "1" holds active memberships of BOTH household 1 and
+    // shadchanus 2, but their ACTIVE CONTEXT (getActiveAccountId) is the
+    // household — the exact combination that, before this fix, passed the
+    // old "any active membership" check and produced a divergent
+    // attribution (see 02_functions.sql's matching comment).
+    const db = emptyDb();
+    db.accounts.push(account({ id: 1, kind: "household" }));
+    db.accounts.push(
+      account({ id: 2, kind: "shadchanus", name: "Rivka the Shadchan" }),
+    );
+    db.account_members.push(
+      accountMember({
+        id: 10,
+        account_id: 1,
+        user_id: "1",
+        role: "parent_admin",
+      }),
+    );
+    db.account_members.push(
+      accountMember({ id: 11, account_id: 2, user_id: "1", role: "shadchan" }),
+    );
+    db.connections.push(
+      connection({
+        id: 1,
+        household_account_id: 1,
+        shadchanus_account_id: 2,
+        status: "accepted",
+      }),
+    );
+    const provider = buildProvider(db);
+
+    // Act / Assert — active context is 1 (household), not 2 (shadchanus).
+    await expect(
+      redtViaConnection(provider, identityFor("1"), () => 1, {
+        connection_id: 1,
+        subject: null,
+        raw_text: "hello",
+        attachments: null,
+      }),
+    ).rejects.toThrow(
+      "caller is not an active member of this connection's shadchanus context",
+    );
+    expect(db.inbox_items).toHaveLength(0);
+  });
+
+  it("Finding 5 (review fix): rejects a null raw_text before creating anything", async () => {
+    // Arrange
+    const db = emptyDb();
+    db.accounts.push(account({ id: 1, kind: "household" }));
+    db.accounts.push(account({ id: 2, kind: "shadchanus" }));
+    db.account_members.push(
+      accountMember({ id: 2, account_id: 2, user_id: "1", role: "shadchan" }),
+    );
+    db.connections.push(
+      connection({
+        id: 1,
+        household_account_id: 1,
+        shadchanus_account_id: 2,
+        status: "accepted",
+      }),
+    );
+    const provider = buildProvider(db);
+
+    // Act / Assert
+    await expect(
+      redtViaConnection(provider, identityFor("1"), () => 2, {
+        connection_id: 1,
+        subject: null,
+        raw_text: null as unknown as string,
+        attachments: null,
+      }),
+    ).rejects.toThrow("redt text is required");
+    expect(db.inbox_items).toHaveLength(0);
+  });
+
+  it("Finding 5 (review fix): rejects a whitespace-only raw_text the same as null", async () => {
+    // Arrange
+    const db = emptyDb();
+    db.accounts.push(account({ id: 1, kind: "household" }));
+    db.accounts.push(account({ id: 2, kind: "shadchanus" }));
+    db.account_members.push(
+      accountMember({ id: 2, account_id: 2, user_id: "1", role: "shadchan" }),
+    );
+    db.connections.push(
+      connection({
+        id: 1,
+        household_account_id: 1,
+        shadchanus_account_id: 2,
+        status: "accepted",
+      }),
+    );
+    const provider = buildProvider(db);
+
+    // Act / Assert
+    await expect(
+      redtViaConnection(provider, identityFor("1"), () => 2, {
+        connection_id: 1,
+        subject: null,
+        raw_text: "   ",
+        attachments: null,
+      }),
+    ).rejects.toThrow("redt text is required");
+    expect(db.inbox_items).toHaveLength(0);
+  });
+
+  it("Finding 5 (review fix): rejects an oversized raw_text", async () => {
+    // Arrange
+    const db = emptyDb();
+    db.accounts.push(account({ id: 1, kind: "household" }));
+    db.accounts.push(account({ id: 2, kind: "shadchanus" }));
+    db.account_members.push(
+      accountMember({ id: 2, account_id: 2, user_id: "1", role: "shadchan" }),
+    );
+    db.connections.push(
+      connection({
+        id: 1,
+        household_account_id: 1,
+        shadchanus_account_id: 2,
+        status: "accepted",
+      }),
+    );
+    const provider = buildProvider(db);
+
+    // Act / Assert
+    await expect(
+      redtViaConnection(provider, identityFor("1"), () => 2, {
+        connection_id: 1,
+        subject: null,
+        raw_text: "a".repeat(20_001),
+        attachments: null,
+      }),
+    ).rejects.toThrow("redt text is too long (20001 characters, limit 20000)");
+    expect(db.inbox_items).toHaveLength(0);
+  });
+
+  it("Finding 5 (review fix): rejects an oversized subject", async () => {
+    // Arrange
+    const db = emptyDb();
+    db.accounts.push(account({ id: 1, kind: "household" }));
+    db.accounts.push(account({ id: 2, kind: "shadchanus" }));
+    db.account_members.push(
+      accountMember({ id: 2, account_id: 2, user_id: "1", role: "shadchan" }),
+    );
+    db.connections.push(
+      connection({
+        id: 1,
+        household_account_id: 1,
+        shadchanus_account_id: 2,
+        status: "accepted",
+      }),
+    );
+    const provider = buildProvider(db);
+
+    // Act / Assert
+    await expect(
+      redtViaConnection(provider, identityFor("1"), () => 2, {
+        connection_id: 1,
+        subject: "s".repeat(501),
+        raw_text: "hello",
+        attachments: null,
+      }),
+    ).rejects.toThrow("redt subject is too long (501 characters, limit 500)");
+    expect(db.inbox_items).toHaveLength(0);
+  });
+
+  it("Finding 5 (review fix): rejects a non-array attachments payload", async () => {
+    // Arrange
+    const db = emptyDb();
+    db.accounts.push(account({ id: 1, kind: "household" }));
+    db.accounts.push(account({ id: 2, kind: "shadchanus" }));
+    db.account_members.push(
+      accountMember({ id: 2, account_id: 2, user_id: "1", role: "shadchan" }),
+    );
+    db.connections.push(
+      connection({
+        id: 1,
+        household_account_id: 1,
+        shadchanus_account_id: 2,
+        status: "accepted",
+      }),
+    );
+    const provider = buildProvider(db);
+
+    // Act / Assert
+    await expect(
+      redtViaConnection(provider, identityFor("1"), () => 2, {
+        connection_id: 1,
+        subject: null,
+        raw_text: "hello",
+        attachments: { not: "an array" },
+      }),
+    ).rejects.toThrow("redt attachments must be a JSON array");
+    expect(db.inbox_items).toHaveLength(0);
+  });
 });

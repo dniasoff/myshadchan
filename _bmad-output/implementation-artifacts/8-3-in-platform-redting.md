@@ -426,6 +426,182 @@ Claude Opus 5 (dispatched as the `developer` role, STACK_ID=1, STACK_OWNER=8-3-i
 - `src/components/atomic-crm/providers/fakerest/internal/redting.test.ts`
 - `src/components/atomic-crm/providers/fakerest/dataProvider.redtViaConnection.test.ts`
 
+**Modified (review fixes pass):**
+- `supabase/schemas/01_tables.sql` (new CHECK constraint)
+- `supabase/schemas/02_functions.sql` (Findings 4 & 5)
+- `supabase/tests/shadchan_redting.sql` (Findings 3, 4, 5 + CHECK constraint regression; 20 → 37
+  checks)
+- `src/components/atomic-crm/shidduchim/ShidduchInputs.tsx` (Finding 2)
+- `src/components/atomic-crm/inbox/InboxResolveDialog.tsx` (Finding 2)
+- `src/components/atomic-crm/providers/fakerest/internal/redting.ts` (Findings 4 & 5 parity)
+- `src/components/atomic-crm/providers/fakerest/internal/redting.test.ts` (new coverage)
+- `src/components/atomic-crm/providers/fakerest/dataProvider.redtViaConnection.test.ts` (new
+  coverage)
+
+**New (review fixes pass):**
+- `supabase/migrations/20260802160828_shadchan_redting_review_fixes.sql`
+- `src/components/atomic-crm/inbox/InboxResolveDialog.test.tsx`
+
+## Review Fixes (post-review, applied after the original fix agent was stopped by a quota limit)
+
+The adversarial review of commits `2b21289`/`e20e063` returned `VERDICT: NEEDS-FIX` (5 numbered
+findings + non-blocking observations). The fix agent dispatched to address it was killed by a
+quota stop before running, leaving the story committed and marked `review` with the findings
+unaddressed. This pass applies them. Full review text:
+`journal.jsonl` (workflow `wf_3e4f2692-1a4`), the last result containing `VERDICT` for Story 8.3.
+
+### Finding 1 — AC-3/AC-4 had zero automated coverage — FIXED
+
+New `src/components/atomic-crm/inbox/InboxResolveDialog.test.tsx` (5 tests): origin selection
+(`channel` vs `shadchan`), the locked `shadchan_id` field when a linked `shadchanim` row exists,
+and Finding 2's fail-closed regression (below). Mutation-proven: forcing `origin` to always
+`"channel"` turned exactly the 2 origin-dependent tests red, the other 3 stayed green.
+
+### Finding 2 — AC-3's lock failed OPEN when the linked shadchanim row was missing — FIXED
+
+`ShidduchInputs` conflated "do we know a value to lock to" with "must this field be locked at
+all" (`disabled={lockedShadchanId != null}`). Split into two props: `lockedShadchanId` (the value,
+possibly null) and `isShadchanLocked` (whether to lock, defaulting to `lockedShadchanId != null`
+for the one other caller, `ShidduchCreate.tsx`, which never locks). `InboxResolveDialog.tsx` now
+passes `isShadchanLocked={isShadchanSourced}` — the fieldset disables on `item.source ===
+"shadchan"` alone, so a missing linked row leaves the field disabled and empty (resolvable without
+a shadchan credited), never open to picking a different book entry. Distinct helper text
+distinguishes the two locked states. Mutation-proven: reverting the fieldset's `disabled` prop
+back to `lockedShadchanId != null` turned exactly the new "row not found" regression test red; the
+other 4 `InboxResolveDialog` tests stayed green.
+
+Files: `src/components/atomic-crm/shidduchim/ShidduchInputs.tsx`,
+`src/components/atomic-crm/inbox/InboxResolveDialog.tsx`.
+
+### Finding 3 — the suite's only cross-tenant assertion was one-sided — FIXED
+
+Added a positive control to `supabase/tests/shadchan_redting.sql`: "household A itself CAN read
+exactly its own redt row through RLS", run immediately before AC-6(d)'s existing negative check.
+Mutation-proven: setting the `"Inbox items scoped to account"` policy to `using (false) with check
+(false)` turns the new positive control red (all other 36 checks unaffected except one collateral
+red in the CHECK-constraint test below, an expected side effect of a blanket deny-all policy, not
+evidence against this specific check).
+
+### Finding 4 — the redt and its mirror thread could disagree on who sent it — FIXED
+
+`redt_via_connection()`'s own membership gate checked for ANY active `account_members` row of
+`shadchanus_account_id`; the nested `create_thread()` call gates on `current_context_id()`
+matching either side of the connection. A caller holding active memberships of BOTH a household
+and the connection's shadchanus account, acting in the HOUSEHOLD context, passed both gates —
+landing an inbox item attributed to the shadchan (by name) while the mirror thread's
+`created_by_member_id` and the message's `sender_member_id` resolved to the household's own
+membership. The function's own comment also claimed the divergent case left the inbox item created
+with only the thread mirror failing; measured, a `RAISE` with no enclosing exception handler
+aborts the whole statement, so nothing is created and the caller sees `create_thread()`'s error
+text, not a message naming this function's own rule.
+
+**Fix**: the membership check now rejects unless `current_context_id()` equals
+`v_connection.shadchanus_account_id` (`raise exception ... if current_context_id() is distinct
+from v_connection.shadchanus_account_id`) — the caller must be ACTING AS the shadchanus account,
+the same condition `create_thread()`'s nested call already
+requires. This makes the two gates the SAME condition by construction: the divergence is now
+structurally impossible, not merely untested, and the stale comment is rewritten to say so. Same
+fix mirrored in FakeRest (`resolveContextMembership` replaces `activeMembershipsFor`), matching the
+precedent Story 8.2's own F4/F5 review fix already established for `end_connection()`/
+`revoke_connection_invite()` — "active context, not merely active membership" is now this
+codebase's one idiom for every connection-scoped writer.
+
+Mutation-proven three times: (1) SQL — reverting to the old `EXISTS` check turned exactly the 2
+new dual-membership regression checks red, all 35 others green; (2) FakeRest unit —
+`internal/redting.test.ts`'s new rejection test went red, 9 others green; (3) FakeRest integration
+— `dataProvider.redtViaConnection.test.ts`'s new attribution-consistency test went red (both the
+initial rejection assertion AND, separately, the later attribution reads), 7 others green.
+
+Files: `supabase/schemas/02_functions.sql`, `supabase/tests/shadchan_redting.sql`,
+`src/components/atomic-crm/providers/fakerest/internal/redting.ts`,
+`src/components/atomic-crm/providers/fakerest/internal/redting.test.ts`,
+`src/components/atomic-crm/providers/fakerest/dataProvider.redtViaConnection.test.ts`. Migration:
+`supabase/migrations/20260802160828_shadchan_redting_review_fixes.sql`.
+
+### Finding 5 — no input validation on the RPC — FIXED
+
+`redt_via_connection(c, null, null)` inserted nothing useful but died on `messages.body`'s raw
+`23502` NOT NULL violation, surfaced verbatim to the user; a 500,000-character `p_raw_text` was
+accepted unbounded; arbitrary client jsonb landed in `inbox_items.attachments` verbatim. Added,
+in order, before any insert: `p_raw_text` required (non-null, non-blank after trim) and capped at
+20,000 characters (matching `log_reference_call()`'s own precedent in the same file); `p_subject`
+capped at 500 characters; `p_attachments` must be `null` or a JSON array no larger than 20,000
+serialized characters. Every violation raises `errcode = 'check_violation'` with a message naming
+the actual rule. Mirrored in FakeRest for AD-10 parity (same limits, same order).
+
+Mutation-proven: stripping the SQL validation block turned exactly the 7 Finding-5 checks red (6
+rejections + the "created nothing" aggregate), all 30 others green — and surfaced a real, useful
+side-fact: `messages_body_not_blank_check` already catches a whitespace-only body downstream (with
+a confusing message, and only for whitespace, never null, never oversized, never malformed
+attachments), which is exactly the class of inconsistent, late failure this fix removes. Stripping
+the FakeRest validation block turned exactly the 6 Finding-5-sensitive tests red across both
+FakeRest test files, all 12 others green.
+
+Files: `supabase/schemas/02_functions.sql`, `supabase/tests/shadchan_redting.sql`,
+`src/components/atomic-crm/providers/fakerest/internal/redting.ts`,
+`src/components/atomic-crm/providers/fakerest/internal/redting.test.ts`,
+`src/components/atomic-crm/providers/fakerest/dataProvider.redtViaConnection.test.ts`.
+
+### Non-blocking observations — judged
+
+- **`source='shadchan'` with a NULL `connection_id` renders an inbox item permanently
+  unresolvable — FIXED.** Real and cheap to close at the right layer: added
+  `inbox_items_shadchan_source_requires_connection` CHECK constraint
+  (`source <> 'shadchan' or connection_id is not null`) to `01_tables.sql`. Unreachable through
+  `redt_via_connection()` (always sets both together) but was directly reachable via a raw
+  `POST /inbox_items` (`authenticated` holds a plain table-level INSERT grant, gated only by
+  account scope). Proven with a new `supabase/tests/shadchan_redting.sql` check, mutation-proven by
+  dropping the constraint (turned exactly that check red, all 36 others green, then restored).
+  Safe to add now: the feature has never deployed, so no pre-existing row can violate it — verified
+  by inspection, not merely assumed, since `check-migration-safety`'s fixture still does not seed
+  `inbox_items` (a pre-existing gap, unrelated to this story, already flagged by the original
+  developer's Completion Notes).
+- **`RedtComposeDialog` is imported nowhere — NOT a defect, tracked as-is.** Scope-legal: the
+  story's own Task 6 text and Dev Notes say Story 8.5 owns the launch point (the Connection 360's
+  "Send a redt" button). No action needed here; **Story 8.5 must wire it** or this component stays
+  dead code indefinitely.
+- **Every redt creates a NEW thread with no uniqueness constraint on
+  `(connection_id, subject_type)` — NOT fixed here; recorded for 8.4/8.5.** Confirmed real (3
+  redts through the same connection create 3 separate `relationship` threads; AC-5's `count(*) = 1`
+  assertion only ever exercises a single redt). Deliberately not fixed in this pass: closing it
+  means deciding whether repeat redts should reuse one running thread per connection (a "find or
+  create" change to `redt_via_connection()`'s Task 3) or whether Story 8.5's Connection 360 is
+  expected to render a list of threads per connection — a product/UX decision this fix pass has no
+  mandate to make unilaterally, and the wrong guess here is a second migration once 8.5 lands.
+  **Story 8.5 (and 8.4's negative-test pass) should resolve this before or while building the
+  Connection 360's thread view.**
+- **FakeRest's mirror is not atomic (`create` inbox_items → `createThread` → `createMessage`) —
+  NOT fixed; recorded.** In the divergent-failure case the real SQL rolls everything back in one
+  transaction; FakeRest would leave an orphaned `inbox_items` row if a later step threw. Demo-only
+  (AD-10 parity gap on failure paths, not on the happy path or on any of this pass's validation,
+  which now runs entirely before FakeRest's first `create` call, closing the practical exposure for
+  every case this pass's own tests cover). Genuinely fixing it would mean either a rollback-capable
+  FakeRest harness (a change far outside this story's scope) or restructuring the call order so
+  every downstream failure becomes impossible before the first write — not worth the diff for a
+  demo-mode-only, already-narrowed gap.
+- **AC-5's "durable record" is revoked from the shadchan the instant the household ends the
+  connection — NOT a defect, but the story's own AC-5 text should be read narrowly.** Confirmed by
+  the review as correct per AD-20/Epic 7 (ending a connection revokes both sides' access
+  immediately, by design). No code change; noted here so a future reader does not "fix" AC-5's
+  literal wording against the architecture it must obey.
+
+### Verification — full gate, this pass
+
+`make typecheck` clean · `make lint` (ESLint) clean · `npm run prettier` clean (two files needed
+`--write` after initial edits, both now clean) · `npx vitest run` — **251 files / 2928 tests**,
+all passing · `npm run test:unit:db` — **30 files / 1096 tests** · `make build` succeeded ·
+`check-suppressions.mjs`/`check-retired-names.mjs` fail identically to the pre-existing baseline
+(verified: same file `adminRouteBuilders.tsx`, same counts, untouched by this pass);
+`check-route-convention.mjs`/`check-tailwind-arbitrary-var.mjs` pass · `supabase db diff --local`
+clean, twice · `make check-migration-safety STACK_ID=1` PASSED (dedicated stack started with
+`STACK_OWNER=fix-8-3`, stopped after). Every new/changed assertion mutation-proven (see each
+finding above) plus one unrelated-failure control (dropping `redt_via_connection` entirely aborts
+the whole SQL suite with a loud Postgres error, confirming the harness does not silently pass).
+
+New migration: `supabase/migrations/20260802160828_shadchan_redting_review_fixes.sql` (function
+body replacement + one new CHECK constraint — no grant changes, since `redt_via_connection()`'s
+signature is unchanged).
+
 ## Change Log
 
 - Implemented all 7 tasks / all 6 ACs. `redt_via_connection()` (SECURITY DEFINER) lands a
@@ -435,3 +611,10 @@ Claude Opus 5 (dispatched as the `developer` role, STACK_ID=1, STACK_OWNER=8-3-i
   `origin: 'shadchan'` and a locked `shadchan_id`. Shadchan side gets `RedtComposeDialog.tsx`
   (Story 8.5 wires the launch point). Full Supabase + FakeRest dataProvider parity. SQL negative-
   test suite (20 checks) proves AC-6(a)-(d), one denial proven by mutation. Status → review.
+- 2026-08-02 (review fixes): applied the adversarial review's 5 findings after the original fix
+  agent was stopped by a quota limit before running — see "Review Fixes" above for what changed,
+  the mutation proof for each, and the non-blocking items recorded (not fixed) for 8.4/8.5. SQL
+  suite grew from 20 to 37 checks; new `InboxResolveDialog.test.tsx` (5 tests); FakeRest gained 8
+  new tests across `internal/redting.test.ts` and `dataProvider.redtViaConnection.test.ts`. One new
+  migration (`20260802160828_shadchan_redting_review_fixes.sql`), one new CHECK constraint. Status
+  stays `review` pending a fresh adversarial pass.

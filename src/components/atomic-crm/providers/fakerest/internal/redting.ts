@@ -6,30 +6,39 @@ import type {
   InboxItem,
   RedtViaConnectionInput,
 } from "../../../types";
-import { activeMembershipsFor, type GetIdentity } from "./accountMemberships";
+import {
+  resolveContextMembership,
+  type GetIdentity,
+} from "./accountMemberships";
 import { createMessage, createThread } from "./threads";
 
 const PAGE_ONE = { page: 1, perPage: 1 } as const;
 const PAGE_ALL = { page: 1, perPage: 10_000 } as const;
 const SORT_BY_ID = { field: "id", order: "ASC" } as const;
+const RAW_TEXT_MAX_LENGTH = 20_000;
+const SUBJECT_MAX_LENGTH = 500;
+const ATTACHMENTS_MAX_LENGTH = 20_000;
 
 /**
- * FakeRest mirror of `public.redt_via_connection()` (Story 8.3). Every
- * predicate below is copied from the SQL function's own validation, in the
- * same order — the same convention `./connections.ts`/`./threads.ts` already
- * establish for their own SQL counterparts.
+ * FakeRest mirror of `public.redt_via_connection()` (Story 8.3, review-fix
+ * revised). Every predicate below is copied from the SQL function's own
+ * validation, in the same order — the same convention `./connections.ts`/
+ * `./threads.ts` already establish for their own SQL counterparts.
  *
- * The membership check below deliberately checks for ANY active
- * `account_members` row of `shadchanus_account_id` — via `activeMembershipsFor`,
- * NOT `resolveContextMembership` (which is bound to the caller's CURRENT
- * ACTIVE CONTEXT). This mirrors `redt_via_connection()`'s own
- * `account_members` existence check exactly: any active member of the
- * shadchanus account may act for it, matching `create_shidduch()`'s own
- * precedent of never role- or context-gating beyond plain account
- * membership. The NESTED `createThread()` call below is the opposite — it
- * keeps ITS OWN `resolveContextMembership`-based gate unchanged, exactly
- * like the real `create_thread()` still requires `current_context_id()` to
- * be one side of the connection.
+ * Review fix (Finding 4): the membership check now goes through
+ * `resolveContextMembership` — the caller's ACTIVE CONTEXT must equal
+ * `shadchanus_account_id`, not merely "any active `account_members` row of
+ * it" (this file's own `activeMembershipsFor`, used before this fix). That
+ * older check could diverge from the NESTED `createThread()` call's own
+ * `resolveContextMembership`-based gate for a caller who also held an
+ * active household membership: this function's old gate would pass while
+ * `createThread()` independently passed too (the household being the
+ * other legal party of the same connection), landing an inbox item
+ * attributed to the shadchan while the mirror thread/message resolved to
+ * the household's own membership — see `02_functions.sql`'s matching
+ * comment for the SQL side of this same fix. Using the SAME resolver here
+ * that `createThread()` already uses makes the two gates the one condition
+ * by construction, exactly like the SQL fix.
  */
 export async function redtViaConnection(
   baseDataProvider: DataProvider,
@@ -58,14 +67,46 @@ export async function redtViaConnection(
     );
   }
 
-  const memberships = await activeMembershipsFor(baseDataProvider, userId);
-  const isActiveShadchanusMember = memberships.some(
-    (m) => String(m.account_id) === String(connection.shadchanus_account_id),
+  const membership = await resolveContextMembership(
+    baseDataProvider,
+    userId,
+    getActiveAccountId(),
   );
-  if (!isActiveShadchanusMember) {
+  if (
+    !membership ||
+    String(membership.account_id) !== String(connection.shadchanus_account_id)
+  ) {
     throw new Error(
       "caller is not an active member of this connection's shadchanus context",
     );
+  }
+
+  // Review fix (Finding 5): validate every client-supplied field BEFORE any
+  // create — mirrors 02_functions.sql's own validation block exactly (same
+  // required/length/shape rules, same order), so the demo build cannot
+  // accept an input the production RPC would reject.
+  if (input.raw_text == null || input.raw_text.trim().length === 0) {
+    throw new Error("redt text is required");
+  }
+  if (input.raw_text.length > RAW_TEXT_MAX_LENGTH) {
+    throw new Error(
+      `redt text is too long (${input.raw_text.length} characters, limit ${RAW_TEXT_MAX_LENGTH})`,
+    );
+  }
+  if (input.subject != null && input.subject.length > SUBJECT_MAX_LENGTH) {
+    throw new Error(
+      `redt subject is too long (${input.subject.length} characters, limit ${SUBJECT_MAX_LENGTH})`,
+    );
+  }
+  if (input.attachments != null) {
+    const isWellShapedArray =
+      Array.isArray(input.attachments) &&
+      JSON.stringify(input.attachments).length <= ATTACHMENTS_MAX_LENGTH;
+    if (!isWellShapedArray) {
+      throw new Error(
+        `redt attachments must be a JSON array no larger than ${ATTACHMENTS_MAX_LENGTH} characters`,
+      );
+    }
   }
 
   const { data: shadchanusAccount } = await baseDataProvider.getOne(

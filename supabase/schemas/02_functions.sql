@@ -4514,22 +4514,61 @@ $$;
 -- inbox/InboxResolveDialog.tsx) — AD-7's "all inbound, including
 -- shadchan-originated, enters via the confirm step", literally.
 --
--- Story 8.3 (AC-1, AC-2, AC-3, AC-5): the membership check below
--- deliberately checks for ANY active account_members row of
--- shadchanus_account_id — NOT current_context_id()/
--- connection_is_active_for_caller() — matching create_shidduch()'s own
--- precedent of never role- or context-gating beyond plain account
--- membership (any active member of a household may create a shidduch for
--- it; any active member of a shadchanus account may act for it here). The
--- NESTED create_thread() call below (Task 3) is the opposite: it inherits
--- create_thread()'s own current_context_id()-based gate unchanged. In the
--- ordinary flow — a shadchan composing this from inside their own
--- shadchanus context (Story 8.5's Connection 360 entry point) — the two
--- always agree; a caller acting under a DIFFERENT active context while
--- still holding an active membership of the connection's shadchanus side
--- is the one edge case where the inbox item is created but the thread
--- mirror (AC-5) fails, surfacing as a real error rather than a silently
--- dropped record.
+-- Story 8.3 review fix (Finding 4): the membership check below requires
+-- current_context_id() to EQUAL shadchanus_account_id — the caller must be
+-- ACTING AS the connection's shadchanus account, not merely hold some
+-- active account_members row in it while acting under a different context.
+--
+-- The original check was "ANY active account_members row of
+-- shadchanus_account_id", reasoned by analogy to create_shidduch()'s own
+-- precedent of "never role- or context-gating beyond plain account
+-- membership". That analogy does not hold: create_shidduch() has no
+-- foreign-target-account parameter to gate at all — it always writes into
+-- the CALLER'S OWN current_context_id(), so there was never a second
+-- membership row it could have checked instead. There is no precedent here
+-- to follow beyond this function's own NESTED create_thread() call three
+-- statements below, which gates on current_context_id() via
+-- connection_is_active_for_caller() — and that IS the right precedent,
+-- because it is checking the exact same fact ("is the caller acting for
+-- this connection's shadchanus side").
+--
+-- Under the old, looser check, a caller holding active memberships in BOTH
+-- a household and a shadchanus account, acting in the HOUSEHOLD context,
+-- could pass THIS function's gate (an active shadchanus-account membership
+-- row exists somewhere for them) while create_thread()'s independent gate
+-- also passed — because the household side happens to be the other legal
+-- party to this SAME connection. The result, measured: the inbox item's
+-- `sender` (an accounts.name lookup, unconditional on context) named the
+-- shadchan, while the mirror thread's created_by_member_id and the
+-- message's sender_member_id (both derived from current_member_id(), i.e.
+-- current_context_id()) resolved to the HOUSEHOLD membership — two records
+-- the household and the shadchan both read, disagreeing about who sent it.
+-- Requiring current_context_id() equality here makes this function's gate
+-- and create_thread()'s gate THE SAME CONDITION by construction: the
+-- divergence above is now structurally impossible, not merely untested,
+-- and every field derived from "who is acting" (sender name, thread
+-- creator, message sender) is guaranteed to describe the one account whose
+-- context this call actually ran under.
+--
+-- The prior version of this comment also claimed that a caller who passed
+-- this function's old, looser gate under a THIRD, unrelated active context
+-- would leave "the inbox item created but only the thread mirror failing".
+-- Measured false: a PL/pgSQL RAISE with no enclosing EXCEPTION handler
+-- aborts the whole top-level statement, so the entire call — including the
+-- earlier insert — rolls back; the caller saw create_thread()'s own error
+-- text, not a message naming this function's rule. That scenario is also
+-- now unreachable by construction: the check below fails first, before any
+-- insert runs, whenever the caller is not acting in this connection's
+-- shadchanus context.
+--
+-- Story 8.3 review fix (Finding 5): every client-supplied field is
+-- validated immediately below, BEFORE any insert — a malformed call must
+-- create nothing and get a message naming the actual violated rule, never
+-- a downstream NOT NULL/constraint error from a table (`messages.body`, in
+-- particular) this function's own caller never sees the shape of.
+-- `.claude/rules/coding-style.md`: validate input, fail fast, clear
+-- messages. Length caps mirror log_reference_call()'s own 20000-character
+-- precedent above.
 CREATE OR REPLACE FUNCTION "public"."redt_via_connection"(
     "p_connection_id" bigint,
     "p_subject" text,
@@ -4553,13 +4592,41 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
-  if not exists (
-    select 1 from public.account_members am
-    where am.account_id = v_connection.shadchanus_account_id
-      and am.user_id = auth.uid() and am.status = 'active'
-  ) then
+  if public.current_context_id() is distinct from v_connection.shadchanus_account_id then
     raise exception 'caller is not an active member of this connection''s shadchanus context'
       using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Finding 5: p_raw_text becomes messages.body (NOT NULL) further down —
+  -- reject it here, up front, with a message naming THIS rule rather than
+  -- letting the caller hit that table's own constraint error later.
+  if p_raw_text is null or length(trim(p_raw_text)) = 0 then
+    raise exception 'redt text is required' using errcode = 'check_violation';
+  end if;
+
+  if length(p_raw_text) > 20000 then
+    raise exception 'redt text is too long (% characters, limit 20000)', length(p_raw_text)
+      using errcode = 'check_violation';
+  end if;
+
+  if p_subject is not null and length(p_subject) > 500 then
+    raise exception 'redt subject is too long (% characters, limit 500)', length(p_subject)
+      using errcode = 'check_violation';
+  end if;
+
+  -- Every legitimate writer (the Postmark inbound webhook, extractAndUpload
+  -- Attachments.ts) always produces an array or null; a scalar or object
+  -- here can only come from a direct RPC call bypassing every shipped UI
+  -- (RedtComposeDialog.tsx never sends anything but null — see its own
+  -- header comment). Size-capped for the same reason p_raw_text is: an
+  -- unbounded client jsonb value would otherwise grow the household's row
+  -- without limit.
+  if p_attachments is not null and (
+    jsonb_typeof(p_attachments) is distinct from 'array'
+    or length(p_attachments::text) > 20000
+  ) then
+    raise exception 'redt attachments must be a JSON array no larger than 20000 characters'
+      using errcode = 'check_violation';
   end if;
 
   select name into v_shadchan_name from public.accounts

@@ -213,7 +213,10 @@ export const InboxResolveDialog = ({
               redt_date: item.created_at?.split("T")[0],
             }}
           >
-            <ShidduchInputs lockedShadchanId={lockedShadchanId} />
+            <ShidduchInputs
+              lockedShadchanId={lockedShadchanId}
+              isShadchanLocked={isShadchanSourced}
+            />
             <FormToolbar>
               <div className="flex flex-row justify-between gap-2">
                 <button

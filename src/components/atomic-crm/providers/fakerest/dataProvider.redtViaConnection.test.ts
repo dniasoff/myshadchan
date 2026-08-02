@@ -287,4 +287,121 @@ describe("FakeRest redtViaConnection() (Story 8.3)", () => {
     });
     expect(total).toBe(0);
   });
+
+  it("Finding 4 (review fix): a caller who ALSO holds an active membership of the shadchanus account, but is ACTING AS household A, is rejected — and the same caller ACTING AS the shadchan succeeds with consistent attribution", async () => {
+    // Arrange — the household's own parent (user "0") is additionally given
+    // an active membership of shadchanus S1 (id 4), while remaining an
+    // active member of the household and keeping the household as the
+    // active context (their first, and so far only, activated context).
+    const DUAL_MEMBERSHIP_MEMBER_ID = 4;
+    const db = generateData();
+    seedFixture(db);
+    db.account_members.push({
+      id: DUAL_MEMBERSHIP_MEMBER_ID,
+      account_id: SHADCHANUS_S1_ACCOUNT_ID,
+      user_id: "0",
+      role: "shadchan",
+      status: "active",
+      created_at: "2026-01-01T00:00:00Z",
+    });
+    const dataProvider = makeProvider(db, asParent);
+
+    // Act / Assert — acting as the household, this must be refused even
+    // though this exact user also holds an active membership of S1.
+    await expect(
+      dataProvider.redtViaConnection({
+        connection_id: CONNECTION_A_S1,
+        subject: null,
+        raw_text: "acting as household, not shadchan",
+        attachments: null,
+      }),
+    ).rejects.toThrow(
+      /not an active member of this connection's shadchanus context/,
+    );
+    const { total: divergentAttempts } = await dataProvider.getList(
+      "inbox_items",
+      {
+        pagination: { page: 1, perPage: 10 },
+        sort: SORT_BY_ID,
+        filter: { raw_text: "acting as household, not shadchan" },
+      },
+    );
+    expect(divergentAttempts).toBe(0);
+
+    // Act — switching this SAME user's active context to shadchanus S1 (now
+    // ACTING AS the shadchan) lets the identical connection id succeed, and
+    // every field naming "who acted" agrees with that context.
+    await dataProvider.switchActiveContext(SHADCHANUS_S1_ACCOUNT_ID);
+    const item = await dataProvider.redtViaConnection({
+      connection_id: CONNECTION_A_S1,
+      subject: null,
+      raw_text: "acting as the shadchan now",
+      attachments: null,
+    });
+
+    // Assert
+    expect(item.sender).toBe("Redting Shadchanus S1");
+    expect(item.account_id).toBe(HOUSEHOLD_ACCOUNT_ID);
+    const { data: threads } = await dataProvider.getList("threads", {
+      pagination: { page: 1, perPage: 10 },
+      sort: SORT_BY_ID,
+      filter: { connection_id: CONNECTION_A_S1, subject_type: "relationship" },
+    });
+    const dualMembershipThread = threads.find(
+      (t) => t.created_by_member_id === DUAL_MEMBERSHIP_MEMBER_ID,
+    );
+    expect(dualMembershipThread).toBeDefined();
+    const { data: messages } = await dataProvider.getList("messages", {
+      pagination: { page: 1, perPage: 10 },
+      sort: SORT_BY_ID,
+      filter: { thread_id: dualMembershipThread!.id },
+    });
+    expect(messages[0]).toMatchObject({
+      body: "acting as the shadchan now",
+      sender_member_id: DUAL_MEMBERSHIP_MEMBER_ID,
+    });
+  });
+
+  it("Finding 5 (review fix): a small, well-shaped attachments array is accepted", async () => {
+    // Arrange
+    const db = generateData();
+    seedFixture(db);
+    const dataProvider = makeProvider(db, asShadchanS1);
+
+    // Act
+    const item = await dataProvider.redtViaConnection({
+      connection_id: CONNECTION_A_S1,
+      subject: null,
+      raw_text: "Dovid Berkowitz, BMG",
+      attachments: [{ name: "resume.pdf", src: "https://example.test/r.pdf" }],
+    });
+
+    // Assert — validation is not all-or-nothing.
+    expect(item.attachments).toEqual([
+      { name: "resume.pdf", src: "https://example.test/r.pdf" },
+    ]);
+  });
+
+  it("Finding 5 (review fix): rejects a non-array attachments payload and creates nothing", async () => {
+    // Arrange
+    const db = generateData();
+    seedFixture(db);
+    const dataProvider = makeProvider(db, asShadchanS1);
+
+    // Act / Assert
+    await expect(
+      dataProvider.redtViaConnection({
+        connection_id: CONNECTION_A_S1,
+        subject: null,
+        raw_text: "should never land",
+        attachments: { not: "an array" },
+      }),
+    ).rejects.toThrow(/attachments must be a JSON array/);
+    const { total } = await dataProvider.getList("inbox_items", {
+      pagination: { page: 1, perPage: 10 },
+      sort: SORT_BY_ID,
+      filter: { raw_text: "should never land" },
+    });
+    expect(total).toBe(0);
+  });
 });
