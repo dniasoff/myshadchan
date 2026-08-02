@@ -36,6 +36,7 @@ import type {
   ShidduchCatch,
   ShidduchSchool,
   Thread,
+  ThreadParticipant,
   ThreadVisibility,
 } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
@@ -173,6 +174,33 @@ const setThreadVisibilityViaRpc = async (
   return row as Thread;
 };
 
+// Story 7.5 (AC-1, AC-2): the SOLE write path for the caller's own
+// `thread_participants.last_read_at` — marks a thread read the moment the
+// caller opens it (ThreadPanel.tsx). The RPC's own predicate
+// (`tp.member_id = current_member_id() and tp.thread_id = p_thread_id`) IS
+// the authorization check: a caller with no matching participant row simply
+// updates zero rows rather than raising, so this wrapper never needs a
+// client-side participation guard of its own — same shape as
+// setThreadVisibilityViaRpc above. Return type is nullable, unlike that
+// sibling: `mark_thread_read()`'s SQL (`RETURNS public.thread_participants`,
+// not SETOF) resolves to a NULL composite — PostgREST serializes that to a
+// bare JSON `null` — on the zero-rows-affected case AC-2 requires, and the
+// caller (ThreadPanel.tsx) never reads the resolved value, only whether the
+// call settled.
+const markThreadReadViaRpc = async (
+  threadId: Identifier,
+): Promise<ThreadParticipant | null> => {
+  const { data, error } = await getSupabaseClient().rpc("mark_thread_read", {
+    p_thread_id: threadId,
+  });
+  if (error) {
+    console.error("markThreadRead.error", error);
+    throw new Error(error.message || "Failed to mark this discussion read");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return (row ?? null) as ThreadParticipant | null;
+};
+
 // Exported for `dataProviderReads.test.ts`: the read redirects below are now a
 // privilege requirement, not only an AD-10 convention, so the test exercises
 // what ships rather than a re-implementation of it.
@@ -272,6 +300,8 @@ export const getDataProviderWithCustomMethods = () => {
     createThread: createThreadViaRpc,
     // Story 7.3 (AC-1) — see setThreadVisibilityViaRpc above.
     setThreadVisibility: setThreadVisibilityViaRpc,
+    // Story 7.5 (AC-1, AC-2) — see markThreadReadViaRpc above.
+    markThreadRead: markThreadReadViaRpc,
     // Story 7.3 (Task 4): "who am I" in the ACTIVE context's
     // `account_members.id` space — the id `thread_participants.member_id`
     // is keyed on, and a DIFFERENT id space from `getIdentity().id`

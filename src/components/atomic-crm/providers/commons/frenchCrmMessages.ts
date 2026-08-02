@@ -304,6 +304,22 @@ export const frenchCrmMessages = {
         visibility_open: "Ouvert — tout le foyer",
         visibility_private: "Privé — uniquement les participants",
         save_error: "Impossible d'enregistrer cela. Réessayez.",
+        // Story 7.5 — voir la même note dans englishCrmMessages.ts.
+        push: {
+          title: "Notifications push",
+          description:
+            "Recevez une notification sur cet appareil quand quelqu'un envoie un message dans une discussion à laquelle vous participez.",
+          delivery_notice:
+            "Ceci active seulement le côté de cet appareil. La livraison n'est pas encore active — vous ne recevrez donc rien réellement tant qu'elle ne sera pas activée.",
+          enable: "Activer sur cet appareil",
+          enabling: "Activation…",
+          enabled: "Activé sur cet appareil",
+          unsupported:
+            "Ce navigateur ne prend pas en charge les notifications push (courant sur iOS sauf si l'application est installée sur l'écran d'accueil).",
+          demo: "Non disponible dans cette démo — il n'y a pas de livraison à activer derrière.",
+          denied_hint:
+            "Les notifications sont bloquées pour ce site. Autorisez-les depuis les paramètres du site de votre navigateur, puis réessayez.",
+        },
       },
       personas_title: "Profils",
       persona_add_error: "Impossible de configurer cela. Réessayez.",
@@ -747,6 +763,8 @@ export const frenchCrmMessages = {
         placeholder: "Écrire un message…",
         send: "Envoyer",
         sendError: "Échec de l'envoi du message",
+        // Story 7.5 — voir la même note dans englishCrmMessages.ts.
+        markReadError: "Échec du marquage de cette discussion comme lue",
       },
       // Story 7.3 — voir la même note dans englishCrmMessages.ts.
       visibility: {

@@ -1,9 +1,14 @@
 # Story 7.5: Notifications
 
-Status: in-progress *(DB/schema/queue layer complete, reviewed-ready; Worker
-dispatch and client wiring partially blocked — see Dev Agent Record,
-"Out-of-scope, reported and stopped". Delivery separately blocked on Epic 12
-gate G1 — see Dependencies.)*
+Status: in-progress *(DB/schema/queue layer complete, reviewed-ready. In-app
+unread (`markThreadRead`), the private-default posture control, and the push
+opt-in UI + service-worker listeners are now wired end-to-end — see Dev
+Agent Record, "Gaps closed in this dispatch (session 2)". The SEND half of
+delivery — the Resend transport, the message sweep, and the cron
+`scheduled()` wiring — remains unbuilt, deliberately: it is blocked on Epic
+12 gate G1 (Cloudflare secrets never provisioned) and owned by story 12-2's
+delivery mechanism, not duplicated here — see Dependencies and "What
+remains, and what unblocks it" below.)*
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -358,7 +363,7 @@ this story's Task 6 updates that comment so the next reader is not caught by it.
         tightening it is a joint change made by whichever story lands second, restating the
         threshold as 2× the new period. Do not make it a side effect of this story.
 
-- [ ] **Task 7 — Client: subscribing to push** (AC: 5, 12)
+- [x] **Task 7 — Client: subscribing to push** (AC: 5, 12)
   - [x] New `src/components/atomic-crm/threads/usePushSubscription.ts`: on **explicit user
         opt-in** (a button — never auto-run on page load; an unprompted permission prompt is
         bad UX and gets the origin permanently blocked in Chrome), call
@@ -370,32 +375,51 @@ this story's Task 6 updates that comment so the next reader is not caught by it.
         (`!("PushManager" in window)` — every iOS browser before an installed PWA), permission
         `denied` (the browser will not re-prompt; say so), and success.
         `.claude/rules/coding-style.md` forbids swallowing these silently.
-  - [ ] Surface the opt-in from `settings/CommunicationSection.tsx` (created by **7.2**) —
+  - [x] Surface the opt-in from `settings/CommunicationSection.tsx` (created by **7.2**) —
         a natural home beside the default-thread-visibility control, avoiding a third
-        settings section for one toggle. **This makes 7.2 and 7.5 wave-incompatible**; they
-        write the same file.
-  - [ ] `vite.config.ts` / the `vite-plugin-pwa` service worker: a `push` event listener that
+        settings section for one toggle. **Done in session 2**, after 7.2/7.3 both landed (no
+        longer wave-incompatible): a new `PushNotificationsItem` renders unconditionally (not
+        gated behind `CAN_SET_DEFAULT_VISIBILITY` — push is device-level, a `single` can opt
+        in too), with a **fixed honesty disclaimer** ("Delivery is not live yet…") shown
+        regardless of subscription state, so "Enabled on this device" never implies live
+        delivery — the explicit choice this dispatch's brief asked to be named. See
+        `CommunicationSection.push.test.tsx` for the red-then-green proof.
+  - [x] `vite.config.ts` / the `vite-plugin-pwa` service worker: a `push` event listener that
         shows the notification and a `notificationclick` handler that focuses/opens the
-        thread URL. Without this the subscription exists and nothing renders.
+        thread URL. **Done in session 2** as `public/push-sw.js`, injected into the
+        generated `generateSW`-strategy service worker via `workbox.importScripts` (the
+        documented mechanism for adding a listener without switching the whole PWA to
+        `injectManifest`). Opens the **app root**, not a per-thread URL: `webPush.ts` sends an
+        **empty-payload** push (its own design decision, below), so there is no thread id to
+        deep-link to — the in-app unread indicator (AC-1) takes it from there. Proven by
+        `public/push-sw.test.ts` (a new dedicated `vitest.config.ts` "public" Node project —
+        Vite refuses to import a `.js` file living under `public/` into the module graph even
+        with `?raw`, and the browser "app" project has no Node `fs`).
 
-- [ ] **Task 8 — In-app unread UI** (AC: 1)
-  - [ ] `threads/ThreadPanel.tsx` / `ThreadList.tsx` (7.1): call `markThreadRead()` when a
+- [x] **Task 8 — In-app unread UI** (AC: 1)
+  - [x] `threads/ThreadPanel.tsx` / `ThreadList.tsx` (7.1): call `markThreadRead()` when a
         thread is opened; show a per-thread unread indicator per AC-1's derived definition.
-        A dedicated notification bell/centre is asked for by no Epic 7 AC and is out of scope
-        (YAGNI); a global unread badge is in scope only if a nav surface already exists to
-        hang it on — check, do not build one.
+        **`markThreadRead()` wiring done in session 2** — see Dev Agent Record, "Gap 1:
+        `markThreadRead` was wired nowhere". The unread indicator itself (`ThreadList.tsx`,
+        `computeUnreadThreadIds.ts`) was already done. A dedicated notification bell/centre is
+        asked for by no Epic 7 AC and is out of scope (YAGNI); a global unread badge is in
+        scope only if a nav surface already exists to hang it on — none does, so none was
+        built.
 
-- [ ] **Task 9 — Types and providers** (AC: 1, 3, 5)
+- [x] **Task 9 — Types and providers** (AC: 1, 3, 5)
   - [x] `types.ts`: `MessageNotificationChannel = "email" | "push"`, `PushSubscription`,
         `MessageNotificationStatus`, and `last_read_at?: string | null;` on
         `ThreadParticipant`. **Do not rename or refactor `TaskDeliveryChannel`**
         (`types.ts:102`) into a shared `DeliveryChannel` — see Dev Notes.
-  - [ ] `providers/supabase/dataProvider.ts`: `markThreadRead(threadId)` RPC wrapper, same
-        shape as `createShidduchViaRpc` (`dataProvider.ts:85-100`).
-  - [ ] Mirror in `providers/fakerest/` (AD-10): the `mark_thread_read` emulation and derived
-        unread state. FakeRest has no backend to run a cron sweep against, so email and push
-        delivery are **inherently untestable in the demo build** — document that as expected,
-        not as a gap, and make the FakeRest opt-in a no-op that says so.
+  - [x] `providers/supabase/dataProvider.ts`: `markThreadRead(threadId)` RPC wrapper, same
+        shape as `createShidduchViaRpc` (`dataProvider.ts:85-100`). **Done in session 2**
+        (`markThreadReadViaRpc`).
+  - [x] Mirror in `providers/fakerest/` (AD-10): the `mark_thread_read` emulation and derived
+        unread state. **Done in session 2** (`internal/threads.ts`'s `markThreadRead()` +
+        `dataProvider.ts`'s wrapper). FakeRest has no backend to run a cron sweep against, so
+        email and push delivery are **inherently untestable in the demo build** — already
+        documented as expected (not a gap) by `usePushSubscription.ts`'s own `demo` state,
+        which is a no-op that says so.
 
 - [ ] **Task 10 — Tests** (AC: 2, 4-13)
   - [x] New `supabase/tests/message_notifications.sql` + `.test.ts` — a separate file from
@@ -414,14 +438,19 @@ this story's Task 6 updates that comment so the next reader is not caught by it.
   - [x] **No `exception when others then … PASS` anywhere.** Match the specific SQLSTATE for
         every denial, prove each denial by mutation, and separately prove an unrelated
         failure still fails.
-  - [ ] `workers/cron/sweepMessages.test.ts`, `workers/cron/webPush.test.ts`, and
-        `workers/shared/resend.test.ts` (the last only if this story creates the file): mock
-        the HTTP calls; assert claim → dispatch → settle ordering (AC-9), the status
-        transitions on success and failure, the `410`-triggers-delete path, **and AC-10's
-        `?raw` scan for `.from(`** — shown red against a broken fixture first.
-  - [ ] Vitest (browser mode, `vitest-browser-react` + `TestMemoryRouter`) for
-        `usePushSubscription` (all three states), the settings opt-in and the unread
-        indicator. AAA, ≥80% of new lines, no `waitForTimeout`.
+  - [ ] `workers/cron/sweepMessages.test.ts` and `workers/shared/resend.test.ts`: still
+        blocked — their subjects (`sweepMessages.ts`, `resend.ts`) are deliberately unbuilt
+        (see "What remains, and what unblocks it"). `workers/cron/webPush.test.ts` was already
+        done (session 1) and stays green. `public/push-sw.test.ts` (new, session 2) covers
+        the service-worker half of Task 6/7 with the same red-then-green discipline (see Dev
+        Agent Record).
+  - [x] Vitest (browser mode, `vitest-browser-react` + `TestMemoryRouter`) for
+        `usePushSubscription` (all three states — session 1), the settings opt-in
+        (`CommunicationSection.push.test.tsx`, new, session 2) and the unread indicator
+        (`ThreadList.test.tsx`'s three pre-existing pure-fixture cases, session 1, **plus** a
+        new session-2 case proving the actual open → `markThreadRead()` → indicator-clears
+        round trip — see Dev Agent Record, "Gap 1"). AAA, ≥80% of new lines, no
+        `waitForTimeout`.
   - [x] `make typecheck && npm run lint && make test && npm run test:unit:db`, plus prettier
         on this story's changed files only.
 
@@ -539,6 +568,27 @@ and nothing more. It is a smaller feature and it is the right one.
 - **Story 12.4** (Stripe billing) also edits `.github/workflows/deploy.yml`. **Never the same
   wave.**
 
+## What remains, and what unblocks it (session 2)
+
+Everything reachable without Cloudflare/Resend credentials is now built and wired (Task 0-3,
+3a, 7, 8, 9 all `[x]`; Task 10's DB/browser suites `[x]`). What remains is exactly the SEND
+half of delivery, and it is unbuilt **on purpose**, not by oversight:
+
+| Remaining | Owner | What unblocks it |
+|---|---|---|
+| `workers/shared/resend.ts` (Task 4) | Whichever of this story / **12-2** lands its Worker code first — 12-2's declared signature (`sendEmail({ from, to, subject, text }) → { ok: true, id } \| { ok: false, error }`) is adopted verbatim by the second. | No credential gate by itself (it can be unit-tested with a mocked `fetch`) — but shipping it with nothing to call it is dead code, so it should land together with Task 5. |
+| `workers/cron/sweepMessages.ts` (Task 5) | This story, once Task 4 exists (needs the transport to call). `workers/cron/webPush.ts` (session 1) is already built and tested, ready for this file to call for the push half. | Needs Task 4, not G1 — can be built and unit-tested (mocked HTTP) without credentials, same as session 1's `webPush.ts` was. |
+| `workers/cron/index.ts`'s `scheduled()` wiring (`await sweepMessages(env)`) (Task 6) | This story, once Task 5 exists. | Needs Task 5. |
+| **Actual delivery** (email arriving, push arriving) | Epic 12, once, at the gate-G1 level. | `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` (workers have never deployed — every push to `main` has printed "Cloudflare Workers deployment skipped") + `RESEND_API_KEY`/`RESEND_FROM` with a verified sending domain + the VAPID secrets (already documented in `wrangler.toml`'s comment, session 1). This is an ops action on a project-owner-held account, not a code task, and this dispatch's brief explicitly named it out of scope: building Task 4/5/6 now, with `story 12-2-reminder-delivery.md` already owning the delivery mechanism for the sibling (reminders) queue, risks exactly the "two mechanisms for the same problem" failure this project has hit before, this time inside a single story rather than across two. |
+| The `message_notifications` backlog, once G1 IS discharged | Whoever discharges G1 | The one-line `update … set status = 'skipped' where status = 'pending'` runbook step named above in "Operational risk call" — run once, before the cron trigger's first real tick. |
+
+**Status, honestly:** in-app delivery (AC-1, AC-2) is complete and live. The default-visibility
+posture (AC covered by 7.2/7.3, this story's Gap 2) is complete and live. Push registration
+(AC-5, AC-12, the device side) is complete and live, but delivers nothing yet. Email queuing
+(AC-3 through AC-8, the QUEUE half) is complete and live; the SEND half of AC-3 is not built.
+Nothing in this story is silently broken or partially wired without a name attached to the gap
+— every remaining item above has an owner and an unblock condition.
+
 ## Declared file set
 
 **Schema / DB**
@@ -573,10 +623,14 @@ resource.
 
 ### Agent Model Used
 
-Claude (bmad-dev-story dispatch), Sonnet 5.
+Claude (bmad-dev-story dispatch), Sonnet 5. Session 1 built the DB/queue layer
+and the pieces reachable inside its declared path set; session 2 (this pass)
+closed the three gaps Epic 7's verification found and left named — see "Gaps
+closed in this dispatch (session 2)" below.
 
 ### Debug Log References
 
+**Session 1** (`STACK_ID=5`):
 - `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --workdir .supabase-e2e-5 --local`
   run to convergence ("No schema changes found") twice after a full
   `db reset`, on `STACK_ID=5`.
@@ -601,6 +655,56 @@ Claude (bmad-dev-story dispatch), Sonnet 5.
   made both sessions claim the same row and the test failed red
   (`expected 181 not to be 181`); restoring the clause turned it green again,
   stable across 3 repeat runs.
+
+**Session 2** (`STACK_ID=1`, no schema touched — no new migration this
+session):
+- Gap 1, 2, 3 each proven red against the pre-fix tree first (`git stash push`
+  on only the implementation files, keeping the new/changed test), then green
+  after restoring — see each gap's own writeup above for the exact failure
+  output.
+- `npm run typecheck` — caught and fixed one real gap of its own: the
+  FakeRest `markThreadRead()` mirror legitimately returns `null` (AC-2's
+  zero-rows-affected case), which the `CrmDataProvider` interface (derived
+  from the Supabase wrapper's return type) did not allow — widened
+  `markThreadReadViaRpc`'s return type to `ThreadParticipant | null` in both
+  places rather than lying with a type assertion. Green after the fix.
+- `npm run lint` (0 warnings) — one dead `eslint-disable` comment removed
+  (`@typescript-eslint/no-implied-eval` is not part of this repo's active
+  ruleset, so the directive suppressed nothing and
+  `reportUnusedDisableDirectives: "error"` caught it). Green after the fix.
+- `npm run prettier` — 4 files reformatted
+  (`providers/fakerest/dataProvider.ts`, `providers/fakerest/internal/
+  threads.ts`, `settings/CommunicationSection.push.test.tsx`,
+  `settings/CommunicationSection.tsx`). Green after.
+- `npm run build` — caught a real bug of its own: `public/push-sw.test.ts`
+  (its first location) got copied verbatim into `dist/push-sw.test.ts` by
+  Vite's `publicDir` handling, then reappeared as a stray failing suite
+  under `STACK_ID=1 npx vitest run` (`Module "node:fs" has been
+  externalized for browser compatibility`) because `dist/**` was not
+  excluded from the "app" project. Fixed by moving the test to a new
+  `service-worker/` directory (reading `../public/push-sw.js` by relative
+  path) and adding a dedicated `"service-worker"` Vitest project
+  (`environment: "node"`), plus excluding `public/**`, `service-worker/**`
+  and `dist/**` from "app". Reproduced clean afterward: `dist/push-sw.js`
+  ships, `dist/push-sw.test.ts` does not, and a full `vitest run` no longer
+  discovers it.
+- `STACK_ID=1 npx vitest run` (all projects, post-fix): 236 files / 2717
+  tests passed.
+- `make test STACK_ID=1`: 236 files / 2717 tests passed (same run, via the
+  Makefile target this dispatch was asked to use).
+- `STACK_ID=1 npx vitest run --project db`: 28 files / 1010 tests passed —
+  confirms the "db" project genuinely ran against the live stack (not
+  silently skipped), including `message_notifications.test.ts`'s own
+  two-session concurrency proof from session 1.
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --workdir
+  .supabase-e2e-1 --local` — "No schema changes found," run twice
+  (expected: this session added no migration).
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null make check-migration-safety
+  STACK_ID=1` — "migration data-safety guard PASSED" (re-confirms session
+  1's own migration; nothing new to rehearse).
+- The four CI guards, run individually — all OK.
+- `make commit MSG="…" PATHS="…"` used for the resulting commit; stack 1
+  stopped afterward (`make stop-supabase-e2e STACK_ID=1`).
 
 ### Completion Notes List
 
@@ -732,6 +836,178 @@ all) — stronger, and the falsifiable test asserts the SQLSTATE rather than
 an empty array, per contract §13 rule 4's "asserted... in the db project"
 guidance.
 
+### Gaps closed in this dispatch (session 2)
+
+Epic 7's verification pass found three gaps left open by session 1's scope
+boundary, all inside this dispatch's own declared path set this time
+(`providers/supabase/dataProvider.ts`, `providers/fakerest/**`,
+`settings/CommunicationSection.tsx`, `vite.config.ts` — every file session 1
+named as "not touched, outside scope"). Delivery itself (Task 4/5, and
+Task 6's `scheduled()` wiring) was explicitly left alone — see "What
+remains, and what unblocks it" below for why.
+
+**Gap 1: `markThreadRead` was wired nowhere.** The RPC (`mark_thread_read()`)
+was proven correct server-side in session 1; `supabase/tests/
+message_notifications.sql`'s own AC-2 assertions still pass unchanged. But
+zero call sites existed in `src/` — a thread could never actually be marked
+read, so AC-1's unread indicator could only ever turn ON, never off, once a
+thread had a message.
+
+- Added `markThreadReadViaRpc` to `providers/supabase/dataProvider.ts`
+  (`getSupabaseClient().rpc("mark_thread_read", …)`, same wrapper shape as
+  `setThreadVisibilityViaRpc`) and a FakeRest mirror
+  (`providers/fakerest/internal/threads.ts`'s `markThreadRead()` — reads the
+  caller's own `thread_participants` row via `resolveContextMembership()`,
+  updates `last_read_at`, resolves `null` rather than throwing when the
+  caller has no participant row on that thread, mirroring the real RPC's
+  "zero rows affected" shape for AC-2).
+- Wired into `threads/ThreadPanel.tsx`: a `useEffect` keyed on `threadId`
+  calls `dataProvider.markThreadRead(threadId)` the moment the panel mounts
+  (mounting IS "opening" — `ShidduchDiscussionsTab` is the sole `ThreadList`
+  consumer in the app today, so `ThreadPanel` has exactly one reachable call
+  site), then `refresh()` (already imported for `onSent`/`onChanged`)
+  invalidates every active query so `ThreadList`'s own unread-derivation
+  reads resync without a page reload. A failure surfaces through the same
+  deny-then-notify pattern the Composer/VisibilityControl in that file
+  already use, not a silent swallow.
+- **Red-then-green proof**: `threads/ThreadList.test.tsx` gained a new case
+  ("selecting the unread thread's row marks it read and the indicator
+  clears without a reload") that opens a genuinely-unread thread and asserts
+  the round trip — the exact gap the task named ("the existing tests would
+  not have caught this"). Run against the pre-fix tree (`git stash` on the
+  five implementation files, keeping only the new test): **FAIL** — timeout
+  waiting for the indicator to clear, because `dataProvider.markThreadRead`
+  was never called. Restored: **PASS**, stable.
+  - This surfaced a real pre-existing test-design flaw in the SAME describe
+    block while wiring the fix in: with `markThreadRead` now live, the two
+    older "marks a thread unread…" tests broke, because their single-thread
+    fixture relied on the previously-inert auto-selected thread staying
+    unread forever — it no longer does, since opening it (which auto-select
+    now does) marks it read. Fixed by giving the fixture a second, more
+    recent "decoy" thread that the list auto-selects instead, so thread 1
+    (the one under test) stays genuinely un-opened. This is a fixture
+    correction forced by the fix being correct, not scope creep.
+
+**Gap 2: `CommunicationSection.tsx`'s "Private" radio was still hard-`disabled`**,
+with a comment citing 7.3 as not yet shipped. 7.3 shipped in session 1 and
+its own falsifiable tests prove `thread_is_readable()`'s private branch live
+(`02_functions.sql`).
+
+- Re-enabled the radio; deleted the stale "Not yet enforced" comment and
+  hint copy.
+- `CommunicationSection.test.tsx`'s mocked-provider tests were rebalanced:
+  the old "clicking the disabled Private option never calls update (F1)"
+  test (which no longer applies — nothing is disabled) was replaced with
+  its mirror, "switching from open to private calls dataProvider.update
+  with 'private'" — the direction that was blocked before this fix.
+- **Verified end to end, not just "un-greyed"**: a new file,
+  `settings/CommunicationSection.endToEnd.test.tsx`, wires the control to
+  the REAL FakeRest dataProvider (not a mock) and follows ONE write all the
+  way through — click "Private" in the real UI → `accounts.
+  default_thread_visibility` persists `'private'` through a real round
+  trip → `dataProvider.createThread({ subject_type: "relationship" })`
+  (no explicit `visibility`, the same call shape `ThreadList.tsx`'s "Start a
+  discussion" button uses) resolves to `'private'`. Run against the
+  pre-fix `disabled` radio: **FAIL** (`locator.click: Timeout … element is
+  not enabled`). Restored: **PASS**.
+
+**Gap 3: the push opt-in had no entry point**, and the service worker had no
+`push`/`notificationclick` listener — `usePushSubscription.ts` (session 1)
+was built and unit-tested but unreachable from the app.
+
+- `settings/CommunicationSection.tsx` gained a new `PushNotificationsItem`.
+  Deliberately **not** gated behind `CAN_SET_DEFAULT_VISIBILITY`/
+  `useViewerRole()` the way the default-posture radio is — push is a
+  device-level setting keyed to the caller's own membership
+  (`push_subscriptions.member_id`), so a `single` (who cannot set the
+  household default) can still opt their own device in. This required
+  restructuring the component: the outer `<div>`/`SectionLabel`/`ItemGroup`
+  now renders unconditionally, with only the default-visibility `Item`
+  inside it conditional — previously the WHOLE section, including its
+  heading, returned `null` for a `single`. `CommunicationSection.test.tsx`'s
+  three tests that asserted "renders nothing" for that case were rewritten
+  to assert "the default-visibility control is absent, the push opt-in
+  still renders."
+  - **Honesty choice, made explicitly per this dispatch's brief**: none of
+    the seven Cloudflare Workers has ever deployed (gate G1), so a fully
+    `subscribed` device still receives nothing. A **fixed disclaimer**
+    ("This only turns on this device's side. Delivery is not live yet…")
+    renders under the button regardless of `state`, so "Enabled on this
+    device" never reads as "notifications are live."
+  - The four hook states get explicit copy: `unsupported`/`demo` disable
+    the button and explain why proactively (the hook only populates its own
+    `errorMessage` from *inside* `subscribe()`, so a disabled button that
+    can never be clicked would otherwise show no reason at all); `denied`
+    also explains itself proactively (the browser will not re-prompt, no
+    reason to make the caller click just to learn that); `error`/`idle`
+    leave the button enabled so a transient failure can be retried.
+- `public/push-sw.js` (new): `push` shows a fixed, generic notification
+  (`webPush.ts` sends an **empty payload** — see session 1's "webPush.ts
+  design decision" — so there is nothing to parse); `notificationclick`
+  focuses an already-open app window or opens the root. Injected into
+  `vite-plugin-pwa`'s `generateSW`-strategy output via `workbox.
+  importScripts` (`vite.config.ts`) — workbox-build's own documented
+  mechanism for adding "some additional code, such as a push event
+  listener" without switching the whole PWA to `injectManifest`. Verified
+  against a real `vite build`: the generated `dist/sw.js` opens with
+  `importScripts("push-sw.js")`, and `dist/push-sw.js` exists.
+- **Red-then-green proof, both halves**:
+  - `settings/CommunicationSection.push.test.tsx` (new): four cases —
+    the disclaimer always renders; clicking "Enable" subscribes and calls
+    `dataProvider.create("push_subscriptions", …)`; the button is disabled
+    with an explanation when `PushManager` is absent; the "blocked, will not
+    re-prompt" copy shows proactively when permission is already `denied`.
+    Run against the pre-fix `CommunicationSection.tsx` (no
+    `PushNotificationsItem`): all four **FAIL** (button not found at all).
+    Restored: **PASS**.
+  - `public/push-sw.test.ts` (new — see "New Vitest project", below):
+    loads the raw script with Node `fs` + `new Function("self", …)` against
+    a fake `self`, asserting both listeners register, `push` calls
+    `showNotification` with the fixed copy, and `notificationclick` focuses
+    an open client or falls back to `openWindow("/")`.
+  - `New Vitest project.` `public/push-sw.js` cannot be imported as a
+    module from a test — Vite explicitly refuses to import a `.js` file
+    living under `public/` into the module graph (even with `?raw`; only a
+    non-JS/CSS asset or a `?url` reference is allowed there), and the "app"
+    project (where a `?raw`-based guard test would otherwise run) is a real
+    browser with no Node `fs` either. `vitest.config.ts` gained a small,
+    dedicated `"public"` project (`environment: "node"`, `include:
+    ["public/**/*.test.ts"]`), and `public/**` was added to "app"'s
+    `exclude` so the same file is not picked up twice.
+
+**Operational risk call: `message_notifications` growing unboundedly, with
+no drain.** Real, and worth naming plainly rather than assuming it is
+someone else's problem later. The fan-out trigger (session 1) queues a row
+on every `messages` insert for every other participant, on every channel
+that applies; nothing in this tree has ever claimed or settled one (the
+Worker has never deployed). Two distinct consequences, not one:
+
+1. **Storage growth.** Unbounded, but slow — this is a small
+   matchmaking CRM's message volume, not a high-throughput system, so this
+   alone is a "watch it, don't panic" risk, not an urgent one.
+2. **The sharper risk: a delivery flood on first deploy.** The moment Epic
+   12 gate G1 is discharged and the sweep starts running, it will find
+   every `'pending'` row ever queued — potentially months of accumulated
+   "you have a message" emails/pushes — and attempt to send them all in a
+   burst, for messages long since read or irrelevant. That is a real,
+   user-visible incident waiting in the queue today, not a hypothetical.
+
+**Smallest mitigation** (a runbook step, not code — building `sweepMessages.ts`
+is explicitly out of scope for this dispatch, and inventing a second drain
+mechanism here would be exactly the "incompatible mechanism" failure this
+project has hit before): **before the cron trigger is ever enabled for the
+first time**, whoever discharges gate G1 should run one `update public.
+message_notifications set status = 'skipped' where status = 'pending'`
+against the accumulated backlog, so the sweep's first real tick starts
+clean rather than blasting a historical backlog. This is a one-line,
+one-time operational step — not a schema change, not a new function, and it
+uses a `status` value (`'skipped'`) the schema already defines for exactly
+"deliberately not sent." Longer-term, whichever story eventually builds
+`sweepMessages.ts` should consider a retention policy (e.g. delete
+`sent`/`skipped`/`failed` rows past some age) so the table does not grow
+forever even once it IS being drained — named here as a follow-up, not
+built.
+
 ### File List
 
 **Schema / DB (owned)**
@@ -771,7 +1047,7 @@ guidance.
   `MessageNotificationStatus`, `PushSubscription`,
   `ThreadParticipant.last_read_at`.
 
-**UI (owned, `threads/**`)**
+**UI (owned, `threads/**`)** — session 1 unless noted
 - `src/components/atomic-crm/threads/usePushSubscription.ts` (new).
 - `src/components/atomic-crm/threads/usePushSubscription.test.tsx` (new).
 - `src/components/atomic-crm/threads/computeUnreadThreadIds.ts` (new) — pure
@@ -780,12 +1056,48 @@ guidance.
 - `src/components/atomic-crm/threads/computeUnreadThreadIds.test.ts` (new).
 - `src/components/atomic-crm/threads/ThreadList.tsx` — the unread indicator
   wiring (two extra `useGetList` reads, `ThreadRow`'s dot + `sr-only` label).
-- `src/components/atomic-crm/threads/ThreadList.test.tsx` — three new unread-
-  indicator cases.
+- `src/components/atomic-crm/threads/ThreadList.test.tsx` — three unread-
+  indicator cases (session 1) **+ session 2's** open→mark-read→clears
+  round-trip case, and the "decoy thread" fixture fix it forced (Gap 1).
+- `src/components/atomic-crm/threads/ThreadPanel.tsx` (session 2) — the
+  `markThreadRead()` `useEffect` (Gap 1).
 
-**Not touched — outside this dispatch's declared path set (see Completion
-Notes, "Scope boundary")**
+**Providers (session 2, previously "not touched — out of scope")**
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts` —
+  `markThreadReadViaRpc` + its wiring into the returned provider (Gap 1).
+- `src/components/atomic-crm/providers/fakerest/internal/threads.ts` —
+  `markThreadRead()` mirror (Gap 1).
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts` — wires
+  the mirror above into `markThreadRead` (Gap 1).
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` /
+  `frenchCrmMessages.ts` — `crm.threads.panel.markReadError` (Gap 1) and
+  `crm.settings.communication.push.*` (Gap 3).
+
+**Settings (session 2, previously "not touched — out of scope")**
+- `src/components/atomic-crm/settings/CommunicationSection.tsx` — Private
+  radio re-enabled (Gap 2); `PushNotificationsItem` added, and the
+  component restructured so the section container renders unconditionally
+  (Gap 3).
+- `src/components/atomic-crm/settings/CommunicationSection.test.tsx` —
+  rebalanced for both gaps (F1's disabled-option test replaced with its
+  enabled mirror; the three "renders nothing" tests now assert "the
+  default-visibility control is absent, the push opt-in still renders").
+- `src/components/atomic-crm/settings/CommunicationSection.endToEnd.test.tsx`
+  (new, session 2) — Gap 2's real-dataProvider, click-to-created-thread
+  proof.
+- `src/components/atomic-crm/settings/CommunicationSection.push.test.tsx`
+  (new, session 2) — Gap 3's four opt-in cases.
+
+**PWA (session 2, previously "not touched — out of scope")**
+- `public/push-sw.js` (new) — the `push`/`notificationclick` listeners
+  (Gap 3).
+- `public/push-sw.test.ts` (new) — Gap 3's service-worker proof.
+- `vite.config.ts` — `workbox.importScripts: ["push-sw.js"]` (Gap 3).
+- `vitest.config.ts` — new `"public"` Vitest project (Node environment) for
+  `public/**/*.test.ts`; `public/**` added to the "app" project's `exclude`
+  (Gap 3's "New Vitest project" note, above).
+
+**Still not touched — deliberately, per this dispatch's brief (see "What
+remains, and what unblocks it")**
 `workers/shared/resend.ts` (+ test), `workers/cron/sweepMessages.ts`
-(+ test), `providers/supabase/dataProvider.ts`, `providers/fakerest/**`,
-`providers/commons/*CrmMessages.ts`, `settings/CommunicationSection.tsx`
-(+ test), `vite.config.ts`, `.env.example`.
+(+ test), `workers/cron/index.ts`'s `scheduled()` body, `.env.example`.

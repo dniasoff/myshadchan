@@ -473,3 +473,54 @@ export async function setThreadVisibility(
   });
   return updated;
 }
+
+/**
+ * FakeRest mirror of `public.mark_thread_read()` (Story 7.5, AC-1, AC-2):
+ * sets the CALLER'S OWN `thread_participants` row's `last_read_at` to now,
+ * and touches no one else's — the demo-build analogue of the RPC's
+ * `tp.member_id = current_member_id()` predicate, which is that function's
+ * entire authorization check. A caller who has no participant row on this
+ * thread at all resolves to `null` (nothing to update) rather than raising —
+ * mirroring the real RPC's "zero rows affected, not an error" shape (AC-2).
+ */
+export async function markThreadRead(
+  baseDataProvider: DataProvider,
+  getIdentity: GetIdentity,
+  getActiveAccountId: () => Identifier | null,
+  threadId: Identifier,
+): Promise<ThreadParticipant | null> {
+  const identity = await getIdentity();
+  if (identity == null) {
+    throw new Error("marking a discussion read requires a signed-in user");
+  }
+  const userId = String(identity.id);
+  const membership = await resolveContextMembership(
+    baseDataProvider,
+    userId,
+    getActiveAccountId(),
+  );
+  if (!membership) {
+    throw new Error("no active membership to mark a discussion read");
+  }
+
+  const { data: participants } =
+    await baseDataProvider.getList<ThreadParticipant>("thread_participants", {
+      filter: { thread_id: threadId, member_id: membership.id },
+      pagination: PAGE_ONE,
+      sort: SORT_BY_ID,
+    });
+  const participant = participants[0];
+  if (!participant) {
+    return null;
+  }
+
+  const { data: updated } = await baseDataProvider.update<ThreadParticipant>(
+    "thread_participants",
+    {
+      id: participant.id,
+      data: { last_read_at: new Date().toISOString() },
+      previousData: participant,
+    },
+  );
+  return updated;
+}

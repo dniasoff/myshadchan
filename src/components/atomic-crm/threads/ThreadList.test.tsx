@@ -127,6 +127,18 @@ describe("ThreadList — reading threads for a subject", () => {
 });
 
 describe("ThreadList — unread indicator (Story 7.5, AC-1)", () => {
+  // Story 7.5 (AC-1, AC-2): thread 1 is the one under test; thread 2 is a
+  // DECOY, dated more recently so `ThreadList` auto-selects IT into the
+  // panel instead (`activeId = selectedId ?? data?.[0]?.id`, sorted DESC —
+  // see `ThreadList.tsx`). Opening a thread now marks it read
+  // (`ThreadPanel.tsx`'s own `markThreadRead()` effect), so thread 1 must
+  // stay UN-opened for its "Unread" indicator to be observable at all —
+  // without the decoy, the single auto-selected thread would mark itself
+  // read within the same render pass these three tests inspect. Thread 2
+  // carries no message, so it is never itself flagged unread regardless of
+  // its own `last_read_at` (`computeUnreadThreadIds`'s `if (!latestMessage)
+  // continue`) — it exists purely to redirect the auto-select, not to be
+  // asserted on.
   const seedThreadWithMessage = (
     db: ReturnType<typeof generateData>,
     lastReadAt: string | null,
@@ -142,6 +154,16 @@ describe("ThreadList — unread indicator (Story 7.5, AC-1)", () => {
         created_by_member_id: CALLER_MEMBER_ID,
         created_at: "2026-01-01T00:00:00Z",
       },
+      {
+        id: 2,
+        account_id: 1,
+        connection_id: null,
+        subject_type: "shidduch",
+        subject_id: 1,
+        visibility: "open",
+        created_by_member_id: CALLER_MEMBER_ID,
+        created_at: "2026-01-05T00:00:00Z",
+      },
     ];
     db.thread_participants = [
       {
@@ -152,6 +174,15 @@ describe("ThreadList — unread indicator (Story 7.5, AC-1)", () => {
         member_id: CALLER_MEMBER_ID,
         created_at: "2026-01-01T00:00:00Z",
         last_read_at: lastReadAt,
+      },
+      {
+        id: 2,
+        account_id: 1,
+        connection_id: null,
+        thread_id: 2,
+        member_id: CALLER_MEMBER_ID,
+        created_at: "2026-01-05T00:00:00Z",
+        last_read_at: null,
       },
     ];
     db.messages = [
@@ -193,9 +224,51 @@ describe("ThreadList — unread indicator (Story 7.5, AC-1)", () => {
       seedThreadWithMessage(db, "2026-01-03T00:00:00Z"),
     );
 
-    // Assert
-    await expect.element(screen.getByText("Open")).toBeInTheDocument();
+    // Assert — both rows render their "Open" visibility label (the decoy
+    // thread 2 has one too), so this is no longer a unique match; `.first()`
+    // only needs to prove the list actually rendered rows at all.
+    await expect.element(screen.getByText("Open").first()).toBeInTheDocument();
     expect(screen.getByText("Unread").query()).toBeNull();
+  });
+
+  // Review finding: the three tests above only exercise the PURE
+  // `computeUnreadThreadIds` function against a pre-set `last_read_at`
+  // fixture — none of them ever open a thread and observe the indicator
+  // react to it. `markThreadRead()` (`ThreadPanel.tsx`) was wired nowhere in
+  // `src/` before this test existed: proven red against that unwired code
+  // (thread 1's row selected and its panel mounted, but
+  // `dataProvider.markThreadRead` was never called, so the seeded
+  // `last_read_at: null` row never changed and "Unread" never left the DOM
+  // within this test's retry window).
+  it("selecting the unread thread's row marks it read and the indicator clears without a reload", async () => {
+    // Arrange — thread 2 (the decoy) auto-selects; thread 1 stays un-opened
+    // and starts unread.
+    const { screen, dataProvider } = await renderList((db) =>
+      seedThreadWithMessage(db, null),
+    );
+    await expect.element(screen.getByText("Unread")).toBeInTheDocument();
+
+    // Act — a real user action opens thread 1: click ITS row specifically,
+    // found by its accessible name (only the UNREAD row's name includes the
+    // sr-only "Unread" text — thread 2's row is also labelled "Open" but
+    // carries no "Unread", so this query cannot land on the decoy).
+    await screen.getByRole("button", { name: /Unread/ }).click();
+
+    // Assert — markThreadRead() + refresh() resolve on their own; the
+    // indicator disappears with no manual re-render trigger.
+    await expect.element(screen.getByText("Unread")).not.toBeInTheDocument();
+
+    // Assert — the underlying row actually moved, through the real
+    // dataProvider round trip, not just a client-side optimistic flicker.
+    const { data: participants } = await dataProvider.getList(
+      "thread_participants",
+      {
+        filter: { thread_id: 1, member_id: CALLER_MEMBER_ID },
+        pagination: { page: 1, perPage: 1 },
+        sort: { field: "id", order: "ASC" },
+      },
+    );
+    expect(participants[0].last_read_at).not.toBeNull();
   });
 });
 

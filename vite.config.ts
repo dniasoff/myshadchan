@@ -49,6 +49,15 @@ export default defineConfig({
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff,woff2}"],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MiB
+        // Story 7.5 (Task 6, Task 7): injects public/push-sw.js's `push` /
+        // `notificationclick` listeners into the generated service worker
+        // via importScripts() — workbox-build's own documented mechanism
+        // for adding a push listener without switching this whole PWA to
+        // the `injectManifest` strategy. Path is relative to the built
+        // service worker's own location (the dist root, same as
+        // manifest.json/favicon.ico below), which is where Vite's public/
+        // dir copy already places it.
+        importScripts: ["push-sw.js"],
       },
       manifest: false, // Use existing manifest.json from public/
     }),

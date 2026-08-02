@@ -38,6 +38,7 @@ import type {
   ShidduchCatch,
   ShidduchSchool,
   Thread,
+  ThreadParticipant,
   ThreadVisibility,
 } from "../../types";
 import { ENTITY_TARGET_TYPES } from "../../types";
@@ -96,6 +97,7 @@ import {
   createMessage,
   createThread,
   createThreadParticipant,
+  markThreadRead as markThreadReadImpl,
   setThreadVisibility as setThreadVisibilityImpl,
 } from "./internal/threads";
 import {
@@ -983,6 +985,15 @@ export const createDataProvider = ({
       const caller = await resolveCallerMembership();
       return caller?.membership?.id ?? null;
     },
+    // Story 7.5 (AC-1, AC-2) — FakeRest mirror of mark_thread_read(); see
+    // ./internal/threads.ts.
+    markThreadRead: (threadId: Identifier): Promise<ThreadParticipant | null> =>
+      markThreadReadImpl(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId,
+        threadId,
+      ),
     // The SOLE writer of pipeline_state (AD-4 invariant 2) — FakeRest mirror of
     // transition_shidduch. Enforces the transitions-as-data graph with the same
     // optimistic-concurrency check as Postgres.

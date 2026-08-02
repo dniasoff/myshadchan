@@ -17,11 +17,15 @@ import { CommunicationSection } from "./CommunicationSection";
  * resolving, and a change issues the expected
  * `dataProvider.update("accounts", …)` call.
  *
- * Review finding F1: the "Private" choice is disabled until Story 7.3
- * ships enforcement (see `CommunicationSection.tsx`'s header comment) — the
- * selection test below now starts from `'private'` and switches to
- * `'open'`, the one direction the control still allows, plus a dedicated
- * test proving the disabled option is inert.
+ * Review finding F1 (Story 7.2, resolved by Story 7.5): the "Private"
+ * choice used to be disabled pending Story 7.3's enforcement; 7.3 shipped
+ * and this file's own end-to-end sibling
+ * (`CommunicationSection.endToEnd.test.tsx`) proves the setting actually
+ * takes effect on a real dataProvider, not just that the control is
+ * selectable. Both radios are exercised in both directions below (open ->
+ * private, private -> open) against a MOCKED dataProvider — this file only
+ * proves the control calls `dataProvider.update(...)` with the right
+ * arguments.
  *
  * Review finding F2: `useViewerRole` is mocked (module-level, with a
  * passthrough default to the REAL implementation — same pattern as
@@ -95,6 +99,12 @@ const buildDataProvider = (
   ({
     getOne: vi.fn().mockResolvedValue({ data: buildAccount() }),
     update: vi.fn().mockResolvedValue({ data: buildAccount() }),
+    // Story 7.5: PushNotificationsItem's usePushSubscription() always
+    // resolves `useCurrentMemberId()` on mount now — an unstubbed call
+    // would throw "Unknown dataProvider function" through
+    // useDataProvider()'s own proxy on every test in this file, whether or
+    // not that test cares about push at all.
+    getCurrentMemberId: vi.fn().mockResolvedValue(1),
     ...overrides,
   }) as unknown as CrmDataProvider;
 
@@ -153,7 +163,7 @@ describe("CommunicationSection", () => {
     resetUseViewerRoleMock();
   });
 
-  it("renders the open/private control for a parent_admin, with private disabled", async () => {
+  it("renders the open/private control for a parent_admin, both options selectable (7.3 enforcement is live)", async () => {
     // Arrange / Act
     const { screen } = await renderSection({
       contexts: [HOUSEHOLD_CONTEXT],
@@ -167,10 +177,15 @@ describe("CommunicationSection", () => {
       .toBeChecked();
     const privateRadio = screen.getByRole("radio", { name: /Private/ });
     await expect.element(privateRadio).not.toBeChecked();
-    await expect.element(privateRadio).toBeDisabled();
+    await expect.element(privateRadio).not.toBeDisabled();
   });
 
-  it("does not render for a single-role member", async () => {
+  // Story 7.5: the default-visibility control still hides for `single`
+  // (every `accounts` write is denied to that role at RLS) — but the
+  // section itself, and the push opt-in inside it, no longer disappear
+  // with it: push is a device-level setting, not a household-wide one (see
+  // `CommunicationSection.tsx`'s own header comment).
+  it("hides the default-visibility control for a single-role member, but still renders the push opt-in", async () => {
     // Arrange / Act
     const { screen } = await renderSection({
       contexts: [SINGLE_CONTEXT],
@@ -178,22 +193,24 @@ describe("CommunicationSection", () => {
     });
 
     // Assert
-    expect(screen.container.querySelector('[data-slot="item-group"]')).toBe(
-      null,
-    );
+    expect(screen.getByText("New conversations").query()).toBeNull();
+    await expect
+      .element(screen.getByText("Push notifications"))
+      .toBeInTheDocument();
   });
 
-  it("renders nothing while contexts have not resolved at all", async () => {
+  it("hides the default-visibility control while contexts have not resolved at all, but still renders the push opt-in", async () => {
     // Arrange / Act
     const { screen } = await renderSection({ contexts: undefined });
 
     // Assert
-    expect(screen.container.querySelector('[data-slot="item-group"]')).toBe(
-      null,
-    );
+    expect(screen.getByText("New conversations").query()).toBeNull();
+    await expect
+      .element(screen.getByText("Push notifications"))
+      .toBeInTheDocument();
   });
 
-  it("renders nothing while the role is pending, even though the account and contexts are already resolved (F2)", async () => {
+  it("hides the default-visibility control while the role is pending, even though the account and contexts are already resolved (F2)", async () => {
     // Arrange — decouple `isRolePending` from `activeContext`/`account`
     // being unresolved: contexts and account are both cached and ready,
     // only the mocked role resolution is still pending.
@@ -209,19 +226,18 @@ describe("CommunicationSection", () => {
     });
 
     // Assert
-    expect(screen.container.querySelector('[data-slot="item-group"]')).toBe(
-      null,
-    );
+    expect(screen.getByText("New conversations").query()).toBeNull();
+    await expect
+      .element(screen.getByText("Push notifications"))
+      .toBeInTheDocument();
   });
 
   it("switching from private back to open calls dataProvider.update with the new visibility", async () => {
-    // Arrange — start from 'private' (the one direction the disabled
-    // "Private" radio still permits: away from it, never into it).
-    // `getOne` must also resolve to 'private' — `buildDataProvider`'s
-    // default resolves 'open', and `useGetOne`'s default-`staleTime`
-    // background refetch would otherwise silently overwrite the seeded
-    // cache before the click fires, making the two values match and the
-    // change a no-op.
+    // Arrange — start from 'private'. `getOne` must also resolve to
+    // 'private' — `buildDataProvider`'s default resolves 'open', and
+    // `useGetOne`'s default-`staleTime` background refetch would otherwise
+    // silently overwrite the seeded cache before the click fires, making
+    // the two values match and the change a no-op.
     const update = vi.fn().mockResolvedValue({ data: buildAccount("open") });
     const getOne = vi.fn().mockResolvedValue({ data: buildAccount("private") });
     const { screen } = await renderSection({
@@ -241,23 +257,30 @@ describe("CommunicationSection", () => {
     });
   });
 
-  it("clicking the disabled Private option never calls update (F1)", async () => {
+  // Story 7.5 — review finding F1 (Story 7.2) is resolved: Story 7.3 shipped
+  // `thread_is_readable()`'s private-branch enforcement, so this control no
+  // longer has to withhold the choice it cannot yet back up. Replaces the
+  // old "clicking the disabled Private option never calls update (F1)" test
+  // with the mirror-image proof: clicking Private (now enabled) DOES call
+  // update with 'private' — the direction that was blocked before this fix.
+  it("switching from open to private calls dataProvider.update with 'private'", async () => {
     // Arrange
-    const update = vi.fn().mockResolvedValue({ data: buildAccount("open") });
+    const update = vi.fn().mockResolvedValue({ data: buildAccount("private") });
     const { screen } = await renderSection({
       contexts: [HOUSEHOLD_CONTEXT],
       account: buildAccount("open"),
       dataProviderOverrides: { update },
     });
 
-    // Act — a disabled radio does not fire onValueChange; this proves it,
-    // rather than trusting the `disabled` attribute alone.
-    await screen.getByRole("radio", { name: /Private/ }).click({
-      force: true,
-    });
+    // Act
+    await screen.getByRole("radio", { name: /Private/ }).click();
 
     // Assert
-    expect(update).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledExactlyOnceWith("accounts", {
+      id: 1,
+      data: { default_thread_visibility: "private" },
+      previousData: { id: 1 },
+    });
   });
 
   it("a no-op change (same value) never calls update", async () => {

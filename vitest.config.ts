@@ -122,6 +122,21 @@ export default defineConfig({
             // Node-only tests for the repo's own tooling; run under the
             // "scripts" project below instead of the browser runner.
             "scripts/**",
+            // Story 7.5: push-sw.js's own test reads it with Node `fs`
+            // (Vite refuses to import a .js file FROM public/ into the
+            // module graph, even with ?raw — "app" is a real-browser
+            // project with no Node fs anyway) — runs under the
+            // "service-worker" project below instead. No test file may
+            // live INSIDE public/ itself: everything there is copied
+            // verbatim into dist/ on build, which shipped one straight
+            // into the production bundle the first time this was tried,
+            // and made it reappear as a stray failing suite under dist/**
+            // on the next `vitest run`.
+            "public/**",
+            "service-worker/**",
+            // A `make build` run locally between test runs must never leak
+            // its output back into test discovery.
+            "dist/**",
           ],
           server: {
             deps: {
@@ -198,6 +213,26 @@ export default defineConfig({
           name: "scripts",
           environment: "node",
           include: ["scripts/**/*.test.mjs"],
+          exclude: ["**/node_modules/**"],
+        },
+      },
+      {
+        // Story 7.5 (Task 6, Task 7): public/push-sw.js is a plain
+        // ServiceWorkerGlobalScope script served as a static asset — Vite
+        // refuses to import a .js file living under public/ into the module
+        // graph even with ?raw (only a non-JS/CSS asset or a `?url`
+        // reference is allowed there), so its own test reads the source
+        // with Node's `fs` instead of an import, same as "workers"/"scripts"
+        // above need a real Node environment for their own reasons. The
+        // TEST itself lives in the sibling service-worker/ directory, not
+        // public/ — everything under public/ is copied verbatim into
+        // dist/ on build, and a .test.ts file placed there would ship into
+        // the production bundle.
+        test: {
+          name: "service-worker",
+          globals: true,
+          environment: "node",
+          include: ["service-worker/**/*.test.ts"],
           exclude: ["**/node_modules/**"],
         },
       },

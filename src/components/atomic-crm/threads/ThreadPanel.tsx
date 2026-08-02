@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ChangeEvent, ReactElement, ReactNode } from "react";
 import { Lock, Unlock } from "lucide-react";
 import {
@@ -59,6 +59,22 @@ import { useCurrentMemberId } from "./useCurrentMemberId";
  * (`thread_participants`) and the caller's own member id
  * (`useCurrentMemberId`, cached across every panel in the session) are
  * fetched fresh.
+ *
+ * Story 7.5 (AC-1, AC-2): mounting this panel IS "opening" the thread —
+ * `dataProvider.markThreadRead(threadId)` fires once per `threadId` (see the
+ * `useEffect` in `ThreadPanel` below), then `refresh()` invalidates every
+ * active query so `ThreadList`'s own unread-derivation reads
+ * (`thread_participants`/`messages`) resync and its indicator clears without
+ * a page reload. This is the ONLY call site: `ShidduchDiscussionsTab` is the
+ * sole `ThreadList` consumer in the app today, and `ThreadPanel` is
+ * unreachable any other way, so there is nowhere else to wire it. The RPC's
+ * own predicate (`tp.member_id = current_member_id()`) is the entire
+ * authorization check — a caller with no participant row on this thread
+ * simply updates zero rows, so this effect needs no client-side
+ * participation guard of its own, mirroring the Composer's own reasoning
+ * above. A failure surfaces through the same deny-then-notify pattern the
+ * Composer/VisibilityControl already use — swallowing it would leave a
+ * thread silently, permanently unread (`.claude/rules/coding-style.md`).
  */
 export interface ThreadPanelProps {
   thread: Thread;
@@ -259,6 +275,38 @@ function VisibilityControl({
 export function ThreadPanel({ thread }: ThreadPanelProps): ReactNode {
   const threadId = thread.id;
   const refresh = useRefresh();
+  const dataProvider = useDataProvider<CrmDataProvider>();
+  const notify = useNotify();
+  const translate = useTranslate();
+
+  // Story 7.5 (AC-1, AC-2) — see this file's header comment. Runs once per
+  // `threadId`, not on every render: `refresh()` invalidates every active
+  // query (including this panel's own `useGetList` calls below), but none
+  // of those re-runs this effect, because `threadId` itself never changes
+  // as a result of them.
+  useEffect(() => {
+    let cancelled = false;
+    dataProvider
+      .markThreadRead(threadId)
+      .then(() => {
+        if (!cancelled) refresh();
+      })
+      .catch((markReadError: unknown) => {
+        if (cancelled) return;
+        notify(
+          markReadError instanceof Error
+            ? markReadError.message
+            : translate("crm.threads.panel.markReadError", {
+                _: "Failed to mark this discussion read",
+              }),
+          { type: "error" },
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [threadId, dataProvider, refresh, notify, translate]);
+
   const { data, error, isPending } = useGetList<Message>("messages", {
     filter: { thread_id: threadId },
     sort: { field: "created_at", order: "ASC" },

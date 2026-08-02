@@ -312,6 +312,23 @@ export const englishCrmMessages = {
         visibility_open: "Open — everyone in the household",
         visibility_private: "Private — only participants",
         save_error: "Couldn't save that. Try again.",
+        // Story 7.5 (Task 7) — the push opt-in's own copy.
+        // settings/CommunicationSection.tsx's PushNotificationsItem.
+        push: {
+          title: "Push notifications",
+          description:
+            "Get a notification on this device when someone sends a message in a discussion you're part of.",
+          delivery_notice:
+            "This only turns on this device's side. Delivery is not live yet, so you will not actually receive anything until it is switched on.",
+          enable: "Enable on this device",
+          enabling: "Enabling…",
+          enabled: "Enabled on this device",
+          unsupported:
+            "This browser does not support push notifications (common on iOS unless the app is installed as a Home Screen app).",
+          demo: "Not available in this demo — there is no delivery behind it to enable.",
+          denied_hint:
+            "Notifications are blocked for this site. Allow them from your browser's site settings, then try again.",
+        },
       },
       // Story 2.5: the "add or remove a persona at any time" section.
       // persona_add_error is the generic add_persona() failure; the
@@ -836,6 +853,8 @@ export const englishCrmMessages = {
         placeholder: "Write a message…",
         send: "Send",
         sendError: "Failed to send the message",
+        // Story 7.5 (AC-1, AC-2) — markThreadRead()'s own failure copy.
+        markReadError: "Failed to mark this discussion read",
       },
       // Story 7.3 — the lock/unlock control, participants only. The button
       // label states the CONSEQUENCE, not just the mechanism: a padlock icon
