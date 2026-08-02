@@ -103,8 +103,19 @@ alter table "public"."push_subscriptions" validate constraint "push_subscription
 
 set check_function_bodies = off;
 
+-- Review fix (Story 7.5 F4): `push_subscriptions jsonb` added to the return
+-- shape, which Postgres cannot do via a bare CREATE OR REPLACE (the OUT
+-- column list changed) — `db diff` correctly emitted a `drop function`
+-- ahead of the recreate, hand-merged here into this migration rather than
+-- shipped as a second one, since this migration has never been deployed.
+-- See 02_functions.sql's own comment on this function for why the column
+-- exists: without it a claimed `channel = 'push'` row carried no
+-- subscription to send to, and AC-10 forbids the Worker reading
+-- `push_subscriptions` itself to get one.
+drop function if exists "public"."claim_message_notifications"(p_limit integer);
+
 CREATE OR REPLACE FUNCTION public.claim_message_notifications(p_limit integer)
- RETURNS TABLE(id bigint, channel text, recipient_member_id bigint, recipient_email text, thread_id bigint, message_body text, subject_type text, subject_id bigint)
+ RETURNS TABLE(id bigint, channel text, recipient_member_id bigint, recipient_email text, thread_id bigint, message_body text, subject_type text, subject_id bigint, push_subscriptions jsonb)
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO ''
@@ -136,7 +147,12 @@ begin
     m.thread_id,
     m.body,
     t.subject_type,
-    t.subject_id
+    t.subject_id,
+    case when claimed.channel = 'push' then (
+      select jsonb_agg(jsonb_build_object('endpoint', ps.endpoint, 'p256dh', ps.p256dh, 'auth', ps.auth))
+      from public.push_subscriptions ps
+      where ps.member_id = claimed.recipient_member_id
+    ) else null end
   from claimed
   join public.messages m on m.id = claimed.message_id
   join public.threads t on t.id = m.thread_id;
@@ -326,6 +342,18 @@ grant truncate on table "public"."message_notifications" to "service_role";
 
 grant update on table "public"."message_notifications" to "service_role";
 
+-- Review fix (Story 7.5 F2): `db diff` never re-emits sequence grants either
+-- (the same class of blind spot as the view security_invoker/grants gap and
+-- the default-privilege REVOKEs above), and this migration shipped without
+-- them — reproduced live: `authenticated` held `USAGE`+`UPDATE` on
+-- `message_notifications_id_seq` (nextval/setval) even though it holds no
+-- grant at all on the table itself (AC-11), and `service_role` never
+-- received the sequence grant 06_grants.sql promises. Mirrors 7.1's own
+-- precedent for `threads_id_seq`/`connections_id_seq`
+-- (`20260731181450_thread_model.sql`).
+revoke all on sequence "public"."message_notifications_id_seq" from "anon", "authenticated";
+grant all on sequence "public"."message_notifications_id_seq" to "service_role";
+
 -- Hand-added: see the message_notifications REVOKE block above — the same
 -- default-privilege residue, on the same brand-new-table pattern.
 revoke references on table "public"."push_subscriptions" from "authenticated";
@@ -351,6 +379,14 @@ grant trigger on table "public"."push_subscriptions" to "service_role";
 grant truncate on table "public"."push_subscriptions" to "service_role";
 
 grant update on table "public"."push_subscriptions" to "service_role";
+
+-- Review fix (Story 7.5 F2): see the message_notifications sequence-grant
+-- block above — the same missing-sequence-grant gap, on the same
+-- brand-new-table pattern. `authenticated` keeps USAGE+SELECT (it can insert
+-- its own subscriptions, AC-12), never UPDATE.
+revoke all on sequence "public"."push_subscriptions_id_seq" from "anon";
+grant usage, select on sequence "public"."push_subscriptions_id_seq" to "authenticated";
+grant all on sequence "public"."push_subscriptions_id_seq" to "service_role";
 
 
   create policy "Push subscriptions manageable by their own member"

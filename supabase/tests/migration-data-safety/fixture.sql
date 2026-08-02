@@ -542,12 +542,37 @@ end $$;
 -- nullable column added to an ALREADY-seeded table above, so the existing
 -- thread_participants rows already exercise the "no backfill needed"
 -- ADD COLUMN safely).
+--
+-- Review fix (Story 7.5 F1): once `message_notifications` exists, this
+-- block runs in the SAME session as the connections/threads/messages block
+-- above, and by then `fan_out_message_notifications_trigger` also exists
+-- (created by the same migration). Both messages seeded above have their
+-- `sender_member_id` overridden to NULL by `set_message_defaults()` (it
+-- reads `current_member_id()` unconditionally, and this script runs as
+-- `postgres` with no JWT), so each message's sole participant (member
+-- 9000001) is "distinct from" a NULL sender and the trigger itself queues
+-- an `('email', ...)` row keyed `(message_id, 9000001, 'email')` for BOTH
+-- message 9000001 and message 9000002 — before this block ever runs. An
+-- explicit `channel = 'email'` insert here for either message therefore
+-- collides on `message_notifications_dedupe_key` (reproduced: `duplicate
+-- key value violates unique constraint "message_notifications_dedupe_key"`,
+-- `(9000001, 9000001, email)`), and does so every time this fixture runs
+-- from a baseline where the fan-out trigger already exists — not merely a
+-- one-off collision, self-inflicted on every future rehearsal. `channel =
+-- 'push'` cannot collide with the trigger's own fan-out here: the trigger
+-- only queues a `push` row when a `push_subscriptions` row already exists
+-- for that recipient at message-insert time, and `push_subscriptions` is
+-- still empty until the seed just below runs (strictly after the messages
+-- above, in this same script). The trigger's own auto-queued `email` rows
+-- are not lost coverage — they are genuine production-shaped rows in this
+-- table by the time `capture()` runs below, and get captured and protected
+-- like any other row here.
 do $$
 begin
   if to_regclass('public.message_notifications') is not null then
     execute $seed$
-      insert into public.message_notifications (id, account_id, connection_id, message_id, recipient_member_id, channel, status, recipient_email)
-      values (9000001, 9000001, null, 9000001, 9000001, 'email', 'pending', 'guard.parent@example.test');
+      insert into public.message_notifications (id, account_id, connection_id, message_id, recipient_member_id, channel, status)
+      values (9000001, 9000001, null, 9000001, 9000001, 'push', 'pending');
 
       insert into public.push_subscriptions (id, member_id, endpoint, p256dh, auth)
       values (9000001, 9000001, 'https://push.example.test/migration-guard', 'p256dh-key', 'auth-key');

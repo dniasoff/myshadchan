@@ -4127,7 +4127,19 @@ $$;
 -- claim disjoint rows instead of double-sending. The join to
 -- messages/threads is what lets the Worker satisfy AC-10 (no `.from(...)`
 -- anywhere in its files) with this single RPC call and no second lookup.
-CREATE OR REPLACE FUNCTION "public"."claim_message_notifications"("p_limit" integer) RETURNS TABLE("id" bigint, "channel" text, "recipient_member_id" bigint, "recipient_email" text, "thread_id" bigint, "message_body" text, "subject_type" text, "subject_id" bigint)
+--
+-- Review fix (Story 7.5 F4): `push_subscriptions` is a per-row correlated
+-- `jsonb_agg` of the recipient's own rows, populated only for
+-- `channel = 'push'`. Before
+-- this fix the function returned no subscription data at all for a push
+-- row — AC-10 forbids a Worker `.from("push_subscriptions")` read, and
+-- nothing else supplied one, so `sendWebPush()` could never be given a
+-- subscription to send to; the read side of push delivery did not exist.
+-- NULL (not an empty array) both for an `email` row and for a `push` row
+-- whose subscriptions have since all been removed — either way there is
+-- nothing to send, and the Worker's dispatch logic (outside this file's
+-- ownership) settles that how it chooses.
+CREATE OR REPLACE FUNCTION "public"."claim_message_notifications"("p_limit" integer) RETURNS TABLE("id" bigint, "channel" text, "recipient_member_id" bigint, "recipient_email" text, "thread_id" bigint, "message_body" text, "subject_type" text, "subject_id" bigint, "push_subscriptions" jsonb)
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -4158,7 +4170,12 @@ begin
     m.thread_id,
     m.body,
     t.subject_type,
-    t.subject_id
+    t.subject_id,
+    case when claimed.channel = 'push' then (
+      select jsonb_agg(jsonb_build_object('endpoint', ps.endpoint, 'p256dh', ps.p256dh, 'auth', ps.auth))
+      from public.push_subscriptions ps
+      where ps.member_id = claimed.recipient_member_id
+    ) else null end
   from claimed
   join public.messages m on m.id = claimed.message_id
   join public.threads t on t.id = m.thread_id;

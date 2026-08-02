@@ -373,6 +373,46 @@ join public.threads t on t.id = m.thread_id
 where mn.id = :claim1_id;
 
 -- ---------------------------------------------------------------------------
+-- Review fix (Story 7.5 F4): claim_message_notifications() carries the
+-- recipient's push_subscriptions payload for a `push` row and none for an
+-- `email` row. Before this fix the function returned no subscription data
+-- at all, so a claimed push row could never actually be sent to — AC-10
+-- forbids the Worker reading push_subscriptions itself to get one. Drains
+-- every remaining pending row (message2's five plus message3's two — well
+-- under the p_limit ceiling), so this must run before settle's tests below
+-- start consuming specific rows by id.
+-- ---------------------------------------------------------------------------
+insert into results (name, passed, detail)
+select 'claim_message_notifications(): a push row carries its recipient''s push_subscriptions payload; an email row carries none',
+       bool_and(
+         case when c.channel = 'push'
+           then c.push_subscriptions is not null
+                and jsonb_array_length(c.push_subscriptions) = 1
+                and c.push_subscriptions @> jsonb_build_array(
+                  jsonb_build_object(
+                    'endpoint', 'https://push.example.test/ep-1',
+                    'p256dh', 'p256dh-key',
+                    'auth', 'auth-key'
+                  )
+                )
+           else c.push_subscriptions is null
+         end
+       ),
+       string_agg(format('id=%s channel=%s push_subscriptions=%s', c.id, c.channel, c.push_subscriptions), '; ')
+from public.claim_message_notifications(20) c;
+
+-- Sanity: the aggregate above is not vacuously true because zero rows were
+-- claimed, and at least one of each channel was actually exercised.
+insert into results (name, passed, detail)
+select 'claim_message_notifications(): the push-payload check above exercised both a push row and an email row',
+       count(*) filter (where mn.channel = 'push') >= 1 and count(*) filter (where mn.channel = 'email') >= 1,
+       format('push=%s email=%s',
+              count(*) filter (where mn.channel = 'push'),
+              count(*) filter (where mn.channel = 'email'))
+from public.message_notifications mn
+where mn.status = 'sending' and mn.id <> :claim1_id;
+
+-- ---------------------------------------------------------------------------
 -- AC-9: settle_message_notification()'s status/transition guards.
 -- ---------------------------------------------------------------------------
 do $$

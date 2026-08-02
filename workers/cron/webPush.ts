@@ -43,8 +43,8 @@ export interface SendWebPushResult {
   /**
    * True on 404/410 — the push service is telling us the subscription is
    * dead. The caller (sweepMessages.ts) is the one that acts on this by
-   * calling `delete_push_subscription_by_endpoint()`, never a `.from(...)`
-   * call from this file (AC-10).
+   * calling `delete_push_subscription_by_endpoint()` — this file never
+   * issues a table call of its own (AC-10).
    */
   expired: boolean;
 }
