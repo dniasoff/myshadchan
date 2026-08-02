@@ -1,6 +1,6 @@
 # Story 8.3: In-platform redting through a connection
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -72,10 +72,10 @@ reading of AD-7: "all inbound, including shadchan-originated, enters via the con
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Schema** (AC: 1, 2, 5)
-  - [ ] `supabase/schemas/01_tables.sql`: extend `inbox_items.source`'s check constraint to add
+- [x] **Task 1 — Schema** (AC: 1, 2, 5)
+  - [x] `supabase/schemas/01_tables.sql`: extend `inbox_items.source`'s check constraint to add
         `'shadchan'` (today: `('whatsapp', 'sms', 'email', 'photo', 'upload')`).
-  - [ ] Add `connection_id bigint references public.connections(id)` to `inbox_items` (nullable).
+  - [x] Add `connection_id bigint references public.connections(id)` to `inbox_items` (nullable).
         **This is a provenance foreign key, not a second RLS scoping axis** — `inbox_items`
         remains scoped by `account_id` alone (AD-1's "exactly one axis" is about which column
         RLS keys on, not about whether a row may carry an unrelated FK for attribution, exactly
@@ -83,8 +83,8 @@ reading of AD-7: "all inbound, including shadchan-originated, enters via the con
         being a second scope). State this explicitly in the migration comment to pre-empt a
         reviewer flagging an AD-1 violation.
 
-- [ ] **Task 2 — `redt_via_connection()`** (AC: 1, 2, 3, 5)
-  - [ ] Add, `SECURITY DEFINER`, `SET search_path = ''`, following the `handle_new_user()`
+- [x] **Task 2 — `redt_via_connection()`** (AC: 1, 2, 3, 5)
+  - [x] Add, `SECURITY DEFINER`, `SET search_path = ''`, following the `handle_new_user()`
         precedent cited in Story 8.2 Dev Notes for the cross-account write:
     ```sql
     create or replace function public.redt_via_connection(
@@ -139,12 +139,12 @@ reading of AD-7: "all inbound, including shadchan-originated, enters via the con
     membership either (see `supabase/schemas/02_functions.sql`, `create_shidduch`); any active
     member of the shadchanus account may act for it, consistent with how any active member of a
     household may currently create a shidduch for it.
-  - [ ] `grant execute on function public.redt_via_connection to authenticated;` in
+  - [x] `grant execute on function public.redt_via_connection to authenticated;` in
         `06_grants.sql`, matching the existing grant pattern for `create_shidduch`. **Never**
         grant to `anon` — sending a redt requires an authenticated, connected shadchan (AD-1).
 
-- [ ] **Task 3 — Thread mirroring** (AC: 5)
-  - [ ] Epic 7 has necessarily landed by this story's turn (pinned order; 8.2 already builds on
+- [x] **Task 3 — Thread mirroring** (AC: 5)
+  - [x] Epic 7 has necessarily landed by this story's turn (pinned order; 8.2 already builds on
         7.4's `connections` table). Inside `redt_via_connection()`'s transaction:
         1. Create the thread via `public.create_thread(p_subject_type := 'relationship',
            p_connection_id := p_connection_id, p_participant_member_ids := <household's active
@@ -168,50 +168,51 @@ reading of AD-7: "all inbound, including shadchan-originated, enters via the con
            comment so a reviewer does not go looking for a message-creation function to reuse.
         Without the mirror, AC-5 fails: the shadchan would have zero record of their own redt.
 
-- [ ] **Task 4 — Household-side resolve flow** (AC: 3, 4)
-  - [ ] `inbox/inboxMeta.ts`: add a `shadchan` entry to `INBOX_SOURCE_META` (icon + label —
+- [x] **Task 4 — Household-side resolve flow** (AC: 3, 4)
+  - [x] `inbox/inboxMeta.ts`: add a `shadchan` entry to `INBOX_SOURCE_META` (icon + label —
         reuse an existing Lucide icon already imported elsewhere for a person/handshake concept,
         do not add a new icon dependency for one entry). The label goes through the
         `i18nProvider` (AD-18), key added to both `providers/commons/englishCrmMessages.ts` and
         `frenchCrmMessages.ts` — the shipped second catalogue is French (Story 8.1 Dev Notes).
-  - [ ] `inbox/InboxResolveDialog.tsx`: the `origin` passed into `CreateShidduchInput` (hardcoded
+  - [x] `inbox/InboxResolveDialog.tsx`: the `origin` passed into `CreateShidduchInput` (hardcoded
         `"channel"` in the `onSubmit` handler today) becomes
         `item.source === "shadchan" ? "shadchan" : "channel"`. `shidduchim`'s existing
         `origin` check constraint already allows `'shadchan'` — no schema change for AC-4.
-  - [ ] When `item.source === "shadchan"`: resolve the linked `shadchanim` row via
+  - [x] When `item.source === "shadchan"`: resolve the linked `shadchanim` row via
         `shadchanim.connection_id = item.connection_id` and pass it as the form's initial
         `shadchan_id`, **disabled** (not just defaulted) in `ShidduchInputs` for this case — the
         household must not be able to re-attribute a shadchan-sourced redt to a different book
         entry. `ShidduchInputs` needs a new optional prop (e.g. `lockedShadchanId`) — check its
         current prop shape before adding one; do not duplicate the component for this one
         difference.
-  - [ ] `item.sender` (already rendered somewhere in the resolve dialog / inbox list per existing
+  - [x] `item.sender` (already rendered somewhere in the resolve dialog / inbox list per existing
         `INBOX_SOURCE_META` usage) needs no new plumbing — Task 2 already populates it with the
         shadchan's account name.
 
-- [ ] **Task 5 — Types and dataProvider** (AC: 2, 3)
-  - [ ] `types.ts`: `InboxItem.source` union gains `"shadchan"`; add `InboxItem.connection_id?:
+- [x] **Task 5 — Types and dataProvider** (AC: 2, 3)
+  - [x] `types.ts`: `InboxItem.source` union gains `"shadchan"`; add `InboxItem.connection_id?:
         Identifier`.
-  - [ ] `providers/supabase/dataProvider.ts`: add `redtViaConnection(input)` to the
+  - [x] `providers/supabase/dataProvider.ts`: add `redtViaConnection(input)` to the
         custom-methods overlay, mirroring `createShidduchViaRpc` (same file) exactly
         (destructure `{ data, error }` from
         `getSupabaseClient().rpc("redt_via_connection", {...})`, log+throw on error).
-  - [ ] Mirror in `providers/fakerest/` (AD-10): extend the FakeRest `inbox_items` emulation and
+  - [x] Mirror in `providers/fakerest/` (AD-10): extend the FakeRest `inbox_items` emulation and
         add a `redtViaConnection` fake that validates the same connection-status/membership
         rules in-memory (do not silently accept any input in demo mode — the guard rails are
         part of what a reviewer/demo user should be able to see fail correctly).
 
-- [ ] **Task 6 — Shadchan-side compose UI** (AC: 1, 2, 3)
-  - [ ] Add `connections/RedtComposeDialog.tsx` (the `connections/` folder exists since Story
+- [x] **Task 6 — Shadchan-side compose UI** (AC: 1, 2, 3)
+  - [x] Add `connections/RedtComposeDialog.tsx` (the `connections/` folder exists since Story
         8.1): a form with `subject` and `raw_text` fields plus optional attachment upload,
         calling `dataProvider.redtViaConnection({ connectionId, subject, rawText,
         attachments })` on submit. **This story owns the dialog component; Story 8.5 owns where
         it is launched from** (a button on the Connection 360). All labels/placeholders/errors
         through the `i18nProvider` (AD-18), keys in both `englishCrmMessages.ts` and
         `frenchCrmMessages.ts`.
+        **Deviation**: no working attachment-upload control is wired — see Completion Notes.
 
-- [ ] **Task 7 — Negative-test suite** (AC: 6)
-  - [ ] New `supabase/tests/shadchan_redting.sql` + `.test.ts`, same `results`/`ids` temp-table
+- [x] **Task 7 — Negative-test suite** (AC: 6)
+  - [x] New `supabase/tests/shadchan_redting.sql` + `.test.ts`, same `results`/`ids` temp-table
         convention as `supabase/tests/references_entity.sql`. Cover: (a) no accepted connection
         ⇒ rejected, no row; (b) ended connection ⇒ rejected; (c) S2 cannot use S1's
         `connection_id`; (d) the created `inbox_items` row is invisible to household C reading
@@ -219,7 +220,7 @@ reading of AD-7: "all inbound, including shadchan-originated, enters via the con
         suite exists at Epic 8's point in the sequence; Epic 10 adds the general one later),
         with a `source = 'shadchan'` row present, to prove the new column/value doesn't loosen
         anything.
-  - [ ] `make typecheck && npm run lint && make test && npm run test:unit:db` (needs
+  - [x] `make typecheck && npm run lint && make test && npm run test:unit:db` (needs
         `make start`), plus scoped `prettier --check` on this story's changed files.
 
 ## Dev Notes
@@ -302,8 +303,135 @@ compose-dialog copy).
 
 ### Agent Model Used
 
+Claude Opus 5 (dispatched as the `developer` role, STACK_ID=1, STACK_OWNER=8-3-in-platform-redting).
+
 ### Debug Log References
+
+- `redt_via_connection()`'s Task 3 code block as given (`select public.create_thread(...) into
+  v_thread;`) reproducibly raised `invalid input syntax for type bigint` against
+  `create_thread()`'s own composite return value, isolated with a throwaway `pg_temp` function
+  against a minimal fixture (a real household + shadchanus + accepted connection). `create_thread()`
+  itself always succeeded (its row is visible, serialized, inside the error text) — the failure is
+  specifically in assigning a composite-returning **named-parameter** call via `select … into` on
+  this Postgres version. Fix: plain PL/pgSQL assignment (`v_thread := public.create_thread(...);`),
+  confirmed working in the same isolated repro and in the full function. Documented inline at the
+  call site so a future reader does not "fix" it back to `select … into`.
+- Confirmed the negative-test suite is load-bearing, not decorative: mutated the AC-1 membership
+  check (`if not exists (...)` → `if false`) via a throwaway migration, re-ran
+  `shadchan_redting.sql` — exactly one check failed (AC-6(c), the one that names this exact
+  invariant) — then reverted the mutation and the throwaway migration and reset the local DB.
+- `supabase db diff --local` did not re-emit `redt_via_connection`'s grant/revoke statements for
+  the brand-new function (matching this repo's known gap for views' `security_invoker`/grants —
+  see the generated migration's own comment) — hand-added, then verified `db diff --local` clean
+  twice more.
+- The FakeRest integration test (`dataProvider.redtViaConnection.test.ts`) initially asserted
+  against the seed `db` object directly after constructing the provider; `ra-data-fakerest` does
+  not keep that reference live once `createDataProvider()` runs, so post-construction reads/writes
+  against the raw `db` silently went stale (mirrors the existing convention in
+  `dataProvider.threadsConnectionAxis.test.ts`, which reads/writes exclusively through the
+  `dataProvider` itself for this reason). Rewrote every post-condition assertion to go through
+  `dataProvider.getList`/`getOne`/`endConnection`.
 
 ### Completion Notes List
 
+- All 6 ACs implemented and covered by the new `supabase/tests/shadchan_redting.sql` suite (20
+  checks, all passing) plus FakeRest parity tests
+  (`providers/fakerest/dataProvider.redtViaConnection.test.ts`,
+  `providers/fakerest/internal/redting.test.ts`) and component tests
+  (`connections/RedtComposeDialog.test.tsx`).
+- **Deviation from Task 1's literal text**: `connection_id`'s `references public.connections(id)`
+  could not be declared inline on `inbox_items`' `CREATE TABLE` — `connections` is declared
+  *later* in `01_tables.sql` (line ~860 vs. `inbox_items`' ~529), so an inline FK would fail at
+  schema-load time. Followed the file's own existing precedent
+  (`shadchanim_connection_id_fkey`, same file): the column is declared plain `bigint` in the
+  `CREATE TABLE`, and the FK is added via a deferred `alter table … add constraint …` placed
+  immediately after `connections` exists (right next to `shadchanim_connection_id_fkey`, since
+  both are connection-derived provenance FKs). Functionally identical outcome, same NOT NULL/
+  cascade posture the story asked for (none — a `connections` row is never deleted).
+- **Deviation from Task 6's literal text**: `RedtComposeDialog.tsx` does **not** wire a working
+  attachment-upload control, though the RPC/dataProvider method both accept `attachments` end to
+  end. Investigated the `attachments` storage bucket's RLS (`07_storage.sql`, outside this
+  story's declared file set): every policy scopes strictly to `current_context_id()` (the
+  *uploader's own* active account), with no connection-axis carve-out — an object a shadchan
+  uploaded under their own account id would be permanently unreadable by the household reading
+  under theirs. Shipping an upload control against that policy would produce links that silently
+  never resolve for the recipient, which is worse than omitting the control. The dialog always
+  sends `attachments: null`; the capability is real (RPC parameter, dataProvider parameter, both
+  mirrors) so wiring a real upload UI later is additive, not a schema change. Flagged for the
+  epic owner / Story 8.4-8.5: closing this needs a `07_storage.sql` policy change (connection-
+  scoped read) that is out of this story's scope.
+- `ShidduchInputs`'s `lockedShadchanId` lock is a native `<fieldset disabled>` around the
+  existing `ReferenceInput`/`AutocompleteInput` pair, not a new prop on `AutocompleteInput`
+  itself: `@/components/admin/autocomplete-input` (a mutable dependency this story does not own)
+  plumbs no `disabled`/`readOnly` prop through to its popover trigger today, and the native
+  fieldset-disable cascade reaches that trigger without needing one.
+- `InboxResolveDialog.tsx`'s locked-shadchan lookup (`useGetList("shadchanim", {filter:
+  {connection_id: item.connection_id}}, {enabled: ...})`) gates the `<Form>` mount behind its own
+  `isPending` — React Hook Form's `defaultValues` are captured once, at mount, so rendering the
+  form before the async lookup resolves would either show it briefly unlocked or need a second
+  `setValue`/reset call; waiting is simpler and matches AC-3's "cannot be changed here" literally
+  from the first paint.
+- `INBOX_SOURCE_META`'s existing five entries stayed plain literal strings (their pre-existing,
+  never-localized shape) rather than being converted to i18n keys — `InboxList.tsx` (outside this
+  story's declared file set) renders `meta.label` verbatim with no `translate()` call, so turning
+  the map's values into i18n *keys* would have shown a raw key string there. Instead
+  `InboxResolveDialog.tsx` (a file this story owns) calls
+  `translate(\`crm.inbox.source_${item.source}\`, { _: meta.label })` for every source, so the new
+  `shadchan` entry gets real English/French catalogue copy while the other five keep rendering
+  their unchanged literal text everywhere, including in French (no regression, no scope creep
+  into `InboxList.tsx`).
+- Could not extend `supabase/tests/migration-data-safety/fixture.sql` to seed an `inbox_items`
+  row (outside this story's declared file set — `supabase/tests/shadchan_redting.sql`/`.test.ts`
+  are the only `supabase/tests/` paths owned here). Not believed to be load-bearing: the
+  migration only ADDS a nullable column and WIDENS a check constraint (adds an allowed value) —
+  neither drops, narrows nor renames anything, so no pre-existing row of any shape can be broken
+  by it, unlike the `invites` fixture-blindness precedent (a narrowing change the fixture missed).
+  `make check-migration-safety` passed. Flagging for the epic owner in case a future story wants
+  the fixture widened anyway, defense-in-depth.
+- Real gate output (see agent's final report to the orchestrator for full transcripts):
+  `make typecheck` clean, `make lint` clean (ESLint + Prettier), `npx vitest run` — 250 files /
+  2897 tests passed (includes the new suites), `make build` succeeded, `npx prettier --check .`
+  clean on every file this story touched (16 pre-existing, unrelated warnings on doc/workflow
+  files confirmed present on the pre-story baseline via `git stash`), `make test STACK_ID=1` —
+  same 250/2897 passing against that stack's database, `supabase db diff --local` clean twice,
+  `make check-migration-safety STACK_ID=1` PASSED. Two of the four CI guard scripts
+  (`check-suppressions.mjs`: 4 eslint-disable vs. budget 3; `check-retired-names.mjs`: six
+  `adminRouteBuilders.tsx` matches) fail identically on the pre-story baseline commit (verified
+  via `git stash`) — neither guard's failing lines are in any file this story touched; the other
+  two (`check-route-convention.mjs`, `check-tailwind-arbitrary-var.mjs`) pass.
+
 ### File List
+
+**Modified:**
+- `supabase/schemas/01_tables.sql`
+- `supabase/schemas/02_functions.sql`
+- `supabase/schemas/06_grants.sql`
+- `src/components/atomic-crm/inbox/inboxMeta.ts`
+- `src/components/atomic-crm/inbox/InboxResolveDialog.tsx`
+- `src/components/atomic-crm/shidduchim/ShidduchInputs.tsx`
+- `src/components/atomic-crm/types.ts`
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts`
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts`
+- `registry.json`
+
+**New:**
+- `supabase/migrations/20260802144600_shadchan_redting.sql`
+- `supabase/tests/shadchan_redting.sql`
+- `supabase/tests/shadchan_redting.test.ts`
+- `src/components/atomic-crm/connections/RedtComposeDialog.tsx`
+- `src/components/atomic-crm/connections/RedtComposeDialog.test.tsx`
+- `src/components/atomic-crm/providers/fakerest/internal/redting.ts`
+- `src/components/atomic-crm/providers/fakerest/internal/redting.test.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.redtViaConnection.test.ts`
+
+## Change Log
+
+- Implemented all 7 tasks / all 6 ACs. `redt_via_connection()` (SECURITY DEFINER) lands a
+  connected shadchan's redt as an unfiled `inbox_items` row on the connection's household and
+  mirrors it into a connection-scoped `threads`/`messages` record via `create_thread()`. Household
+  side resolves through the existing `InboxResolveDialog` → `create_shidduch()` confirm step with
+  `origin: 'shadchan'` and a locked `shadchan_id`. Shadchan side gets `RedtComposeDialog.tsx`
+  (Story 8.5 wires the launch point). Full Supabase + FakeRest dataProvider parity. SQL negative-
+  test suite (20 checks) proves AC-6(a)-(d), one denial proven by mutation. Status → review.
