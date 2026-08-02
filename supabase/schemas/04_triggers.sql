@@ -310,6 +310,16 @@ create or replace trigger validate_connections_kinds
     before insert or update on public.connections
     for each row execute function public.enforce_connection_kinds();
 
+-- Story 8.5 review fix (F2 — BLOCKING, contract §8 rule 3): see
+-- purge_connection_dependents()'s own comment (02_functions.sql) for why
+-- connections needs its own purge trigger, not a branch of
+-- purge_polymorphic_dependents(). BEFORE DELETE, same firing point as every
+-- other purge_* trigger in this file, so the dependent rows are gone before
+-- the cascade removes the connections row itself.
+create or replace trigger purge_connection_dependents_trigger
+    before delete on public.connections
+    for each row execute function public.purge_connection_dependents();
+
 -- Story 7.1 (AC-1, AC-3, AC-7): server-set scope/creator on threads. No
 -- ordering hazard: the only BEFORE INSERT trigger on this table.
 create or replace trigger set_threads_defaults

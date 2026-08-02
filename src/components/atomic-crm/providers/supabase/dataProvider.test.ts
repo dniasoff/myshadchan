@@ -212,3 +212,43 @@ describe("shidduchim search column list (Story 5.2 AC-3)", () => {
     ).toBe(false);
   });
 });
+
+describe("connections search wiring (Story 8-5 review fix, F1 — BLOCKING)", () => {
+  it("keys the connections search hook to 'connections' and searches household_account_name", async () => {
+    // Arrange
+    const beforeGetList = findBeforeGetList("connections");
+
+    // Act
+    const result = await beforeGetList(buildParams({ q: "Klein" }));
+
+    // Assert — this is the exact hook missing before the fix: without it,
+    // `ra-supabase-core` sends `?q=eq.Klein` and PostgREST 400s with 42703
+    // ("column connections.q does not exist"), since `connections` has no
+    // `q` column.
+    expect(result.filter["@or"]).toEqual({
+      "household_account_name@ilike": "Klein",
+    });
+    expect(result.filter.q).toBeUndefined();
+    expect(
+      lifeCycleCallbacks.some(
+        (callback: ResourceCallbacks) =>
+          callback.resource === "connections_summary",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not 400 on a comma-bearing search term (F1 — PGRST100)", async () => {
+    // Arrange
+    const beforeGetList = findBeforeGetList("connections");
+
+    // Act
+    const result = await beforeGetList(buildParams({ q: "Klein, Cohen" }));
+
+    // Assert
+    Object.values(result.filter["@or"] as Record<string, string>).forEach(
+      (value) => {
+        expect(value).not.toContain(",");
+      },
+    );
+  });
+});

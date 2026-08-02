@@ -774,45 +774,105 @@ reset role;
 -- ---------------------------------------------------------------------------
 -- Task 3 (AC-7): the pg_policies structural regression guard. A CI-runnable
 -- fact about the catalog, not inferred from one test run: no USING/WITH CHECK
--- expression on any of the six named tables mentions "connection" anywhere.
+-- expression on any of the six originally-named tables mentions "connection"
+-- anywhere, and (review fix F6) `interactions` — a seventh, added later —
+-- mentions it only inside one pinned, reviewed branch on two named policies.
 -- `threads` is deliberately absent — it legitimately carries the
--- connection_id axis (AD-22).
+-- connection_id axis (AD-22) throughout, unlike `interactions`.
 --
--- Story 8.5 review-guard amendment: `interactions` is now deliberately
--- absent too, for the same reason `threads` is — its SELECT/INSERT policies
--- legitimately gained a `target_type = 'connection'` branch (Task 8,
--- contract §8 rule 4, R1/contract §11 Ruling 1) referencing
--- `public.connections` by name. That branch is own-account scoping, the
--- same shape as the pre-existing `shadchan`/`single` branches right beside
--- it — the top-level `account_id = current_context_id()` predicate this
--- whole policy is ANDed onto already confines a caller to their OWN
--- account's rows; the new `exists(...)` only confirms the named connection
--- is legitimately theirs, never a second account's. It is not the
--- cross-account leak shape this guard exists to catch (AD-20's "no accepted
--- connection ever widens visibility into the OTHER party's private data"),
--- so text-matching "connection" on this table's policies would now flag a
--- reviewed, intentional widening as a regression on every future run.
--- AC-1's own runtime mutation-proof above is unaffected by this exclusion —
--- it still proves, on every run, that a connected shadchan reads ZERO of
--- household A's private notes, regardless of what this table's policy text
--- contains.
+-- Story 8.5 review-guard amendment, later corrected by review fix F6:
+-- `interactions` legitimately gained a `target_type = 'connection'` branch on
+-- exactly two policies (Task 8, contract §8 rule 4, R1/contract §11 Ruling
+-- 1) — "Interactions readable within account and parent visibility" (SELECT)
+-- and "Interactions insertable within account and parent visibility"
+-- (INSERT) — referencing `public.connections` by name. That branch is
+-- own-account scoping, the same shape as the pre-existing `shadchan`/
+-- `single` branches right beside it: the top-level `account_id =
+-- current_context_id()` predicate this whole policy is ANDed onto already
+-- confines a caller to their OWN account's rows, and the `exists(...)` only
+-- confirms the named connection is legitimately theirs (`household_
+-- account_id` OR `shadchanus_account_id` = the caller), never a second
+-- account's.
+--
+-- F1's original fix for this table (see the finding below) DROPPED
+-- `interactions` from the scanned table list wholesale, on the reasoning
+-- that its one legitimate branch would otherwise flag as a false positive.
+-- That over-corrected: `threads` is excluded for the same textual reason but
+-- is NOT the same case — `threads` is connection-scoped BY DESIGN throughout
+-- (AD-22), so nothing meaningful is lost by never scanning it, while
+-- `interactions` is NOT connection-scoped by design anywhere else. Dropping
+-- the whole table left every OTHER policy on it (`Interactions updatable by
+-- author or owning role`, and any FUTURE policy this table ever grows)
+-- structurally unguarded — a genuinely cross-account "connection" clause
+-- landing on any of them would pass this guard silently, exactly the
+-- regression AD-20 needs caught.
+--
+-- The fix pins the ONE reviewed branch instead of excluding the whole
+-- table: `interactions` stays in the scanned set; for its two named
+-- policies only, the exact known-good branch text (whitespace-normalized,
+-- so catalog pretty-printing cannot dodge the match) is stripped before the
+-- "mentions connection" check runs. Any OTHER "connection" text on those two
+-- policies — including a widening of this same branch that drops the
+-- ownership predicate — survives the strip and flips the guard, because it
+-- no longer matches the pinned pattern byte-for-byte. Every other policy on
+-- `interactions` (and every other tracked table) is still held to the
+-- original, unconditional "mentions connection nowhere" bar.
 -- ---------------------------------------------------------------------------
+create function pg_temp.strip_pinned_interactions_connection_branch(p_expr text) returns text
+    language sql as $$
+  select regexp_replace(
+    regexp_replace(coalesce(p_expr, ''), '\s+', ' ', 'g'),
+    '\(target_type = ''connection''::text\) AND \(EXISTS \( SELECT 1 FROM connections c WHERE \(\(c\.id = interactions\.target_id\) AND \(\(c\.household_account_id = current_context_id\(\)\) OR \(c\.shadchanus_account_id = current_context_id\(\)\)\)\)\)\)',
+    '',
+    'g'
+  );
+$$;
+
 create function pg_temp.privacy_boundary_clean() returns boolean
     language sql as $$
   select coalesce(
     bool_and(
-      (qual is null or qual not ilike '%connection%')
-      and (with_check is null or with_check not ilike '%connection%')
+      case
+        when tablename = 'interactions'
+          and policyname in (
+            'Interactions readable within account and parent visibility',
+            'Interactions insertable within account and parent visibility'
+          )
+        then
+          pg_temp.strip_pinned_interactions_connection_branch(qual) not ilike '%connection%'
+          and pg_temp.strip_pinned_interactions_connection_branch(with_check) not ilike '%connection%'
+        else
+          (qual is null or qual not ilike '%connection%')
+          and (with_check is null or with_check not ilike '%connection%')
+      end
     ),
     false
   )
   from pg_policies
   where schemaname = 'public'
-    and tablename in ('reference_links', 'date_records', 'singles', 'shidduchim', 'resumes', 'redts');
+    and tablename in ('reference_links', 'date_records', 'singles', 'shidduchim', 'resumes', 'redts', 'interactions');
 $$;
 
 insert into results (name, passed)
-select 'AC-7: no USING/WITH CHECK clause on reference_links, date_records, singles, shidduchim, resumes or redts mentions "connection" anywhere — the structural regression guard AD-20 requires (interactions excluded as of Story 8.5, see comment above)',
+select 'AC-7: no USING/WITH CHECK clause on reference_links, date_records, singles, shidduchim, resumes, redts or interactions mentions "connection" anywhere it is not the one pinned, reviewed branch (review fix F6) — the structural regression guard AD-20 requires',
+       pg_temp.privacy_boundary_clean();
+
+-- Mutation-proof of F6's own pin: a SECOND, DIFFERENT "connection" mention on
+-- one of `interactions`' two pinned policies — not the reviewed branch, so it
+-- survives the strip — must flip the guard. Proves the pin does not degrade
+-- into "interactions is exempt again" by accident.
+create policy "MUTATION PROBE: temp second connection mention (dropped below)" on public.interactions
+    for update to authenticated
+    using (exists (select 1 from public.connections));
+
+insert into results (name, passed)
+select 'AC-7 MUTATION-PROOF (F6): an UNPINNED "connection" mention on interactions (a different policy than the two reviewed ones) flips the guard to NOT clean',
+       not pg_temp.privacy_boundary_clean();
+
+drop policy "MUTATION PROBE: temp second connection mention (dropped below)" on public.interactions;
+
+insert into results (name, passed)
+select 'AC-7 MUTATION-PROOF restore (F6): dropping the second probe policy returns the guard to clean',
        pg_temp.privacy_boundary_clean();
 
 -- Mutation-proof of the guard itself: install an ADDITIONAL policy that DOES

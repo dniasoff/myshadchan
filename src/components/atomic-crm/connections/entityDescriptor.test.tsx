@@ -196,6 +196,96 @@ describe("connectionsDescriptor — identity header and stat band (Story 8.5, AC
     const tile = label.element().parentElement;
     expect(tile?.textContent).toBe("Redts sent1");
   });
+
+  it("counts the exact total, not just the fetched page (review fix, M1 — reads `total`, not `data.length`)", async () => {
+    // Arrange — the stat band requests `perPage: 1` (it never needs the
+    // rows themselves, only a count), so `data.length` would silently read
+    // 1 regardless of how many redts were actually sent. Two threads here
+    // must still render "2", proving the count comes from the query's own
+    // `total` (PostgREST's exact Content-Range count), not the capped page.
+    const { screen } = await renderConnectionShow(1, (db) => {
+      db.threads = [
+        {
+          id: 501,
+          account_id: null,
+          connection_id: 1,
+          subject_type: "relationship",
+          subject_id: null,
+          visibility: "open",
+          created_by_member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-02T00:00:00Z",
+        },
+        {
+          id: 502,
+          account_id: null,
+          connection_id: 1,
+          subject_type: "relationship",
+          subject_id: null,
+          visibility: "open",
+          created_by_member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-03T00:00:00Z",
+        },
+      ];
+    });
+
+    // Assert
+    const label = screen.getByText("Redts sent", { exact: true });
+    await expect.element(label).toBeInTheDocument();
+    const tile = label.element().parentElement;
+    expect(tile?.textContent).toBe("Redts sent2");
+  });
+
+  it("never counts a DIFFERENT connection's relationship threads (review fix, F5 — AD-20 cross-connection confusion)", async () => {
+    // Arrange — a single-connection fixture cannot tell "this connection's
+    // threads" apart from "every connection's threads": both read 1. This
+    // fixture adds a SECOND connection with its own redt thread, so a stat
+    // band that dropped `connection_id` from its filter would read 2, not 1.
+    const { screen } = await renderConnectionShow(1, (db) => {
+      db.connections = [
+        ...db.connections,
+        {
+          id: 2,
+          household_account_id: 2,
+          shadchanus_account_id: SHADCHANUS_ACCOUNT_ID,
+          status: "accepted",
+          ended_at: null,
+          proposed_by_account_id: 2,
+          accepted_at: "2026-01-01T00:00:00Z",
+          ended_by_account_id: null,
+          created_at: "2026-01-01T00:00:00Z",
+          household_account_name: "A Different Household",
+        },
+      ];
+      db.threads = [
+        {
+          id: 501,
+          account_id: null,
+          connection_id: 1,
+          subject_type: "relationship",
+          subject_id: null,
+          visibility: "open",
+          created_by_member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-02T00:00:00Z",
+        },
+        {
+          id: 502,
+          account_id: null,
+          connection_id: 2,
+          subject_type: "relationship",
+          subject_id: null,
+          visibility: "open",
+          created_by_member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-02T00:00:00Z",
+        },
+      ];
+    });
+
+    // Assert — connection 1's own page still reads exactly 1, never 2.
+    const label = screen.getByText("Redts sent", { exact: true });
+    await expect.element(label).toBeInTheDocument();
+    const tile = label.element().parentElement;
+    expect(tile?.textContent).toBe("Redts sent1");
+  });
 });
 
 describe("connectionsDescriptor — right rail actions (Story 8.5, AC-4/AC-5)", () => {

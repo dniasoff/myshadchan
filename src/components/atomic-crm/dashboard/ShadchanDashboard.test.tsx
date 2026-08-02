@@ -131,6 +131,27 @@ describe("ShadchanDashboard — populated state (Story 8.5, AC-7)", () => {
     expect(statLink.element().getAttribute("href")).toBe("/connections");
   });
 
+  it("counts the exact accepted total past the 200-row page cap (review fix, M1 — reads `total`, not the capped array length)", async () => {
+    // Arrange — 201 accepted connections: one more than the query's own
+    // `perPage: 200`, so `acceptedConnections.length` (the fetched page)
+    // would silently read 200 while the query's own `total` (PostgREST's
+    // exact Content-Range count) reads 201.
+    const { screen } = await renderDashboard((db) => {
+      db.connections = Array.from({ length: 201 }, (_, index) =>
+        buildConnection({
+          id: index + 1,
+          household_account_name: `Household ${index + 1}`,
+        }),
+      );
+    });
+
+    // Assert
+    const label = screen.getByText("Connections", { exact: true });
+    await expect.element(label).toBeInTheDocument();
+    const tile = label.element().parentElement;
+    expect(tile?.textContent).toBe("Connections201");
+  });
+
   it("does not count an ENDED connection toward the accepted total or the recent list", async () => {
     // Arrange
     const { screen } = await renderDashboard((db) => {
@@ -226,16 +247,45 @@ describe("ShadchanDashboard — populated state (Story 8.5, AC-7)", () => {
   });
 
   it("counts an unread conversation once per connection, using Story 7.5's own unread definition", async () => {
-    // Arrange — the caller has never read this thread's message.
+    // Arrange (review fix, F4 — not falsifiable before): a single
+    // connection/thread/message fixture cannot tell `unreadConnectionIds.size`
+    // apart from `allThreads.length` or `unreadThreadIds.size` — all three
+    // equal 1. This fixture gives connection 1 TWO unread threads (so
+    // per-thread and per-connection counting diverge) and connection 2 one
+    // thread the caller has already read past (so "ignoring read state
+    // entirely" diverges too). The correct count is 1 (one connection has
+    // unread activity); `allThreads.length` would read 3, and
+    // `unreadThreadIds.size` (per thread, not per connection) would read 2.
     const { screen } = await renderDashboard((db) => {
       db.connections = [
         buildConnection({ id: 1, household_account_name: "Klein Family" }),
+        buildConnection({ id: 2, household_account_name: "Feldman Family" }),
       ];
       db.threads = [
         {
           id: 1,
           account_id: null,
           connection_id: 1,
+          subject_type: "relationship",
+          subject_id: null,
+          visibility: "open",
+          created_by_member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+        {
+          id: 2,
+          account_id: null,
+          connection_id: 1,
+          subject_type: "relationship",
+          subject_id: null,
+          visibility: "open",
+          created_by_member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+        {
+          id: 3,
+          account_id: null,
+          connection_id: 2,
           subject_type: "relationship",
           subject_id: null,
           visibility: "open",
@@ -253,6 +303,25 @@ describe("ShadchanDashboard — populated state (Story 8.5, AC-7)", () => {
           created_at: "2026-01-01T00:00:00Z",
           last_read_at: null,
         },
+        {
+          id: 2,
+          account_id: null,
+          connection_id: 1,
+          thread_id: 2,
+          member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-01T00:00:00Z",
+          last_read_at: null,
+        },
+        {
+          id: 3,
+          account_id: null,
+          connection_id: 2,
+          thread_id: 3,
+          member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-01T00:00:00Z",
+          // Read AFTER the message below — thread 3 is NOT unread.
+          last_read_at: "2026-01-05T00:00:00Z",
+        },
       ];
       db.messages = [
         {
@@ -263,6 +332,24 @@ describe("ShadchanDashboard — populated state (Story 8.5, AC-7)", () => {
           sender_member_id: null,
           body: "Any updates?",
           created_at: "2026-01-02T00:00:00Z",
+        },
+        {
+          id: 2,
+          account_id: null,
+          connection_id: 1,
+          thread_id: 2,
+          sender_member_id: null,
+          body: "A second unread thread on the same connection",
+          created_at: "2026-01-03T00:00:00Z",
+        },
+        {
+          id: 3,
+          account_id: null,
+          connection_id: 2,
+          thread_id: 3,
+          sender_member_id: null,
+          body: "Already read",
+          created_at: "2026-01-01T12:00:00Z",
         },
       ];
     });

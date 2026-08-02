@@ -94,9 +94,15 @@ export const ConnectionIdentityHeader = ({
  */
 export const ConnectionStatBand = ({ record }: { record: Connection }) => {
   const translate = useTranslate();
-  const { data, isPending } = useGetList("threads", {
+  // Review fix (M1): reads the query's own `total` (PostgREST's exact
+  // Content-Range count) rather than `data.length` at a capped `perPage` —
+  // `PrivacySection.tsx`'s own `useGetList(..., { perPage: 1 })` precedent
+  // for a pure count. `data` itself is never used here, so `perPage: 1`
+  // fetches the minimum the API allows rather than up to 200 rows this
+  // component would otherwise discard.
+  const { total, isPending } = useGetList("threads", {
     filter: { connection_id: record.id, subject_type: "relationship" },
-    pagination: { page: 1, perPage: 200 },
+    pagination: { page: 1, perPage: 1 },
     sort: { field: "id", order: "ASC" },
   });
 
@@ -106,7 +112,7 @@ export const ConnectionStatBand = ({ record }: { record: Connection }) => {
         label={translate("crm.connections.stats.redtsSent", {
           _: "Redts sent",
         })}
-        value={isPending ? 0 : (data?.length ?? 0)}
+        value={isPending ? 0 : (total ?? 0)}
         icon={Send}
       />
     </div>

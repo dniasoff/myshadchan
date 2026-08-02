@@ -66,14 +66,16 @@ describe("the shadchan's privacy boundary (database)", () => {
   // the suite's own actual count (25 vs 29 emitted), which was loose enough
   // to lose an entire group — both AC-4 checks, the AC-6 positive and the
   // AC-5 summary check together — without this assertion ever going red.
-  // The floor is now set to the suite's exact current count (53, after the
+  // The floor is now set to the suite's exact current count (55, after the
   // F1/F2 review-fix additions: shidduchim/resumes/redts fixture rows,
   // existence controls, runtime denials and mutation-proofs; the F2
-  // contract-shape block; and the relrowsecurity/policy-presence guards
-  // near AC-7), so any future silent drop is caught immediately rather than
-  // hiding inside slack.
-  it("runs every sanity, existence-control, AC-1 through AC-7, F1/F2 review-fix, and mutation-proof check", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(53);
+  // contract-shape block; the relrowsecurity/policy-presence guards near
+  // AC-7; and (story 8-5 review fix F6) the two extra checks the
+  // pinned-branch guard rewrite added — its own mutation-proof and restore),
+  // so any future silent drop is caught immediately rather than hiding
+  // inside slack.
+  it("runs every sanity, existence-control, AC-1 through AC-7, F1/F2/F6 review-fix, and mutation-proof check", () => {
+    expect(checks.length).toBeGreaterThanOrEqual(55);
   });
 
   for (const check of checks) {

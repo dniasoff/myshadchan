@@ -3468,6 +3468,66 @@ begin
 end;
 $$;
 
+-- Story 8.5 review fix (F2 — BLOCKING, contract §8 rule 3): the purge
+-- trigger the original Task 8 comment (01_tables.sql) argued connections
+-- could never need, on the premise that "connections rows are never
+-- hard-deleted". That premise is false: connections_household_account_id_fkey
+-- / connections_shadchanus_account_id_fkey (01_tables.sql) are both ON
+-- DELETE CASCADE, and "Accounts writable by non-single members"
+-- (05_policies.sql) is a FOR ALL policy granting DELETE on accounts to
+-- authenticated — so an ordinary household (or shadchanus) member deleting
+-- their OWN account hard-deletes every connections row it is a party to,
+-- with no service-role or admin action involved. Proven live: deleting a
+-- household's account cascades its connections row away while the
+-- shadchan's OWN target_type='connection' tasks/interactions (account-scoped
+-- to the shadchan's account, not the deleted one — 05_policies.sql) survive,
+-- now pointing at a target_id no row will ever satisfy again. That is
+-- exactly the dangling-reference class purge_polymorphic_dependents() exists
+-- to prevent.
+--
+-- Not a sixth TG_ARGV[0] branch of purge_polymorphic_dependents() itself:
+-- that function's every other caller (references/singles/shadchanim/
+-- shidduchim) deletes by `account_id = old.account_id and target_type =
+-- ... and target_id = old.id` because each row has exactly one owning
+-- account. `public.connections` has no account_id column at all — it names
+-- its two sides `household_account_id`/`shadchanus_account_id` — and either
+-- side may independently hold its OWN private task/interaction about the
+-- SAME connection (05_policies.sql's own-account-scoped `connection`
+-- branch), so there is no single `old.<column>` to filter by. Purging by
+-- `target_id` alone is correct and sufficient here: a connection's id is
+-- unique across the whole table, so `target_type = 'connection' and
+-- target_id = old.id` can only ever match rows about THIS connection,
+-- whichever side holds them — no account_id predicate is needed to avoid
+-- over-deleting.
+--
+-- entity_files is purged too, for parity with the other three
+-- ENTITY_TARGET_TYPES purge callers (contract §8 rule 1) even though no
+-- story wires a connection Files tab today (01_tables.sql's own comment on
+-- entity_files_target_type_check) — the CHECK constraint makes the row
+-- legal via any API client, not only the SPA's UI. Storage-object cleanup
+-- for a connection-targeted file is NOT attempted here, matching the
+-- existing, named limitation on every other purge_* path deleted outside
+-- the SPA's own dataProvider (that file's own comment, "AC 7c"): this
+-- trigger only ever fires via a cascaded accounts delete, a path the SPA's
+-- entity_files cleanup hook (providers/supabase/dataProvider.ts) never sees.
+CREATE OR REPLACE FUNCTION "public"."purge_connection_dependents"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  delete from public.interactions
+  where target_type = 'connection' and target_id = old.id;
+
+  delete from public.tasks
+  where target_type = 'connection' and target_id = old.id;
+
+  delete from public.entity_files
+  where target_type = 'connection' and target_id = old.id;
+
+  return old;
+end;
+$$;
+
 -- Story 7.1 (AC-5, AC-7): server-sets threads.account_id from the caller's
 -- active context ONLY when BOTH scope columns are null — never overwrites
 -- a non-null value (a connection-scoped row, seeded by service_role until

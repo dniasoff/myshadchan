@@ -62,9 +62,11 @@ describe("a shadchan's own task/interaction against a connection (database)", ()
   if (bailIfDbUnreachable(error)) return;
 
   // A floor, not an exact count — new checks are welcome, silently vanishing
-  // ones are not (shadchan_privacy_boundary.test.ts's own convention).
-  it("runs every sanity, (a)/(b)/(c)/(d) check", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(13);
+  // ones are not (shadchan_privacy_boundary.test.ts's own convention). Raised
+  // from 13 to 20 by the review fix that added the task half of (d) (F3) and
+  // the whole of (e) (F2, the connections purge trigger).
+  it("runs every sanity, (a)/(b)/(c)/(d)/(e) check", () => {
+    expect(checks.length).toBeGreaterThanOrEqual(20);
   });
 
   for (const check of checks) {

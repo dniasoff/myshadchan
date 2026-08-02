@@ -102,11 +102,14 @@ create table public.tasks (
     -- Story 8.5 (Task 8, contract §8 rule 4): 'connection' joins the widened
     -- ENTITY_TARGET_TYPES union — R1 (3.14) already lifted `tasks` out of
     -- household-only scope, so a shadchan holding a task about one of their
-    -- connections needs no further trigger change, only this value. No
-    -- purge_polymorphic_dependents() trigger fires for it: that function runs
-    -- AFTER DELETE on a parent row, and public.connections rows are never
-    -- hard-deleted (end_connection() only flips status/ended_at, keeping the
-    -- row as history) — there is no DELETE event to hook a purge trigger to.
+    -- connections needs no further trigger change, only this value. Review
+    -- fix (F2): the comment here used to claim connections rows are never
+    -- hard-deleted, so no purge trigger was needed — false (accounts' own
+    -- FOR ALL delete policy plus connections' two ON DELETE CASCADE parent
+    -- FKs mean deleting either party's account hard-deletes the connections
+    -- row). purge_connection_dependents() (02_functions.sql), before delete
+    -- on public.connections (04_triggers.sql), purges the tasks this value
+    -- would otherwise orphan.
     constraint tasks_target_type_check check (
         target_type in ('shadchan', 'shidduch', 'reference', 'single', 'connection')
     ),
@@ -715,9 +718,10 @@ create table public.interactions (
     -- default: a live row simply never sets it.
     deleted_at timestamp with time zone,
     -- Story 8.5 (Task 8, contract §8 rule 4): 'connection' joins the widened
-    -- ENTITY_TARGET_TYPES union — same no-purge-trigger reasoning as
-    -- tasks_target_type_check above (connections rows are never
-    -- hard-deleted).
+    -- ENTITY_TARGET_TYPES union. Review fix (F2): see
+    -- tasks_target_type_check's comment above — connections rows CAN be
+    -- hard-deleted (an accounts cascade), and purge_connection_dependents()
+    -- now purges the interactions this value would otherwise orphan.
     constraint interactions_target_type_check check (
         target_type in ('reference', 'shidduch', 'shadchan', 'single', 'connection')
     ),
@@ -862,7 +866,11 @@ create table public.entity_files (
     -- Story 8.5 (Task 8, contract §8 rule 4): 'connection' joins for
     -- TS/DB-union parity with ENTITY_TARGET_TYPES — legal here though no
     -- story wires a connection Files tab, exactly as 'shadchan' was already
-    -- legal before shadchanim ever grew one.
+    -- legal before shadchanim ever grew one. Review fix (F2):
+    -- purge_connection_dependents() (02_functions.sql) purges a
+    -- connection-targeted entity_files CATALOG row too, for parity with the
+    -- other three purge_* callers — see tasks_target_type_check's comment
+    -- above for why connections rows are not, in fact, un-deletable.
     constraint entity_files_target_type_check check (
         target_type in ('reference', 'shidduch', 'shadchan', 'single', 'connection')
     ),

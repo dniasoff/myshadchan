@@ -73,16 +73,30 @@ function sortByLatestActivity(
  * from — rather than inventing a second recency heuristic, scoped across
  * every connection-scoped thread the caller can read (RLS already confines
  * that to their own connections), not one connection at a time.
+ *
+ * Review fix (M1): the "Connections" stat reads the `connections` query's
+ * own `total` (PostgREST's exact Content-Range count) rather than
+ * `acceptedConnections.length`, so it stays correct past the 200-row
+ * `perPage` cap — `acceptedConnections` (the capped array) is kept only for
+ * the empty-state check and the "recently active" slice, which need actual
+ * records, not a count. The unread-conversation count and the recent-list
+ * ordering still derive from the capped `threads`/`messages` arrays (a
+ * per-thread computation `total` cannot substitute for) — a known,
+ * documented limit at extreme scale (200+ active threads or 500+ messages
+ * across a shadchan's connections), not fixed in this pass.
  */
 export const ShadchanDashboard = () => {
   const translate = useTranslate();
 
-  const { data: connections, isPending: connectionsPending } =
-    useGetList<Connection>("connections", {
-      filter: { status: "accepted" },
-      pagination: { page: 1, perPage: 200 },
-      sort: { field: "created_at", order: "DESC" },
-    });
+  const {
+    data: connections,
+    total: connectionsTotal,
+    isPending: connectionsPending,
+  } = useGetList<Connection>("connections", {
+    filter: { status: "accepted" },
+    pagination: { page: 1, perPage: 200 },
+    sort: { field: "created_at", order: "DESC" },
+  });
 
   const { data: threads, isPending: threadsPending } = useGetList<Thread>(
     "threads",
@@ -179,7 +193,7 @@ export const ShadchanDashboard = () => {
               label={translate("crm.shadchan_dashboard.stats.connections", {
                 _: "Connections",
               })}
-              value={acceptedConnections.length}
+              value={connectionsTotal ?? acceptedConnections.length}
               icon={Handshake}
               to="/connections"
             />

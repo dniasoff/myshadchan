@@ -4,7 +4,7 @@
 --
 -- Task 8 widens ENTITY_TARGET_TYPES with 'connection' and adds the matching
 -- `interactions` policy branch (05_policies.sql); this file proves the four
--- cases the story names explicitly:
+-- cases the story names explicitly, plus a fifth added by review fix F2:
 --   (a) shadchan S1 can create and read a task/interaction with
 --       target_type = 'connection', target_id = connection A<->S1.
 --   (b) shadchan S2 — party to a DIFFERENT connection into the SAME
@@ -13,15 +13,27 @@
 --       interaction/task (account-scoped to S1's shadchanus account, not
 --       A's — the same AD-20 guarantee shadchan_privacy_boundary.sql proves
 --       for threads, now extended to this axis).
---   (d) inserting a target_type = 'connection' interaction/task whose
---       target_id is a connection the caller is NOT a party to is rejected
---       by the new exists(...) branch — no row created.
---
--- `tasks` needs no policy change (Task 8's own ruling — "Tasks scoped to
--- account" has no per-target-type exists() check today, so 'connection' is
--- already covered by the plain account_id floor); this suite still proves
--- the resulting behaviour end to end for tasks, not only for interactions,
--- since AC-9 names both.
+--   (d) inserting a target_type = 'connection' INTERACTION whose target_id
+--       is a connection the caller is NOT a party to is rejected by the new
+--       exists(...) branch — no row created. `tasks` has no equivalent case
+--       (d): review fix (F3) — an earlier revision of this comment claimed
+--       (d) covered "interaction/task" and that this suite "proves the
+--       resulting behaviour end to end for tasks, not only for
+--       interactions"; neither was true. "Tasks scoped to account" (Task 8's
+--       own ruling, 05_policies.sql) has no per-target-type exists() check
+--       for ANY target_type, so a task naming a connection the caller is NOT
+--       a party to is NOT rejected — it is created like any other task,
+--       scoped only by account_id, exactly as it already was (and still is)
+--       for shidduch/single/shadchan/reference. (d) below proves that real
+--       behaviour for tasks explicitly, alongside interactions' real
+--       rejection, rather than leaving the divergence undocumented.
+--   (e) [Review fix, F2] deleting either party's ACCOUNT — not the
+--       connection itself, which end_connection() never hard-deletes — casc-
+--       ades the connections row away (connections_household_account_id_fkey
+--       / connections_shadchanus_account_id_fkey, both ON DELETE CASCADE,
+--       01_tables.sql) and purge_connection_dependents() (02_functions.sql)
+--       purges the OTHER side's task/interaction that named it, closing the
+--       dangling-reference gap contract §8 rule 3 exists to prevent.
 --
 -- Every check appends one row to `results`; the script emits them as JSON at
 -- the end and rolls back, so it leaves nothing behind. The runner
@@ -32,9 +44,15 @@
 -- control proving the targeted row is real and readable by ITS OWN account
 -- first — the same discipline shadchan_privacy_boundary.sql documents in its
 -- own header ("a privacy suite that passes against a broken policy is worse
--- than none"). (d) is a real INSERT attempt that must raise the specific
--- RLS sqlstate/message (interactions_targets.sql's own convention) — never
--- a generic `exception when others`.
+-- than none"). (d) is a real INSERT attempt: the interaction half must raise
+-- the specific RLS sqlstate/message (interactions_targets.sql's own
+-- convention) — never a generic `exception when others` — and the task half
+-- must succeed and remain readable only by its own account, proving the
+-- documented divergence rather than asserting it in prose. (e) is a real
+-- DELETE (an existence control before, an absence assertion after, on both
+-- the cascaded connections row and the two purged dependent rows) — not an
+-- inspection of the trigger's SQL text, which a disabled trigger or a
+-- dropped one would both pass.
 --
 -- Run via: npm run test:unit:db  (needs the local stack up).
 --
@@ -238,6 +256,107 @@ from public.interactions
 where target_type = 'connection'
   and target_id = (select value from ids where name = 'connection_a_s1')
   and body = 'S2 attempting to note a connection it is not party to';
+
+-- ---------------------------------------------------------------------------
+-- (d), task half [Review fix, F3] — the same attempt as above, but for
+-- tasks: S2 (still the active role from the interaction case) creates a
+-- task targeting connection A<->S1, a connection S2 is NOT a party to.
+-- Unlike the interaction above, this SUCCEEDS: "Tasks scoped to account"
+-- (05_policies.sql) has no per-target-type exists() check for ANY
+-- target_type, so 'connection' is no stricter here than 'shidduch' already
+-- was. Proving the real behaviour, not the header comment's old (false)
+-- claim that it is rejected. The row still never leaks: S1 (the
+-- connection's actual shadchan) and household A both read zero rows of it,
+-- by id — account-scoping alone, with no per-target-type check, is still
+-- enough to keep it private.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_id bigint;
+begin
+  insert into public.tasks (account_id, target_type, target_id, text, due_date)
+    values ((select value from ids where name = 'shadchanus_s2'), 'connection', (select value from ids where name = 'connection_a_s1'), 'S2 noting a connection it is not party to', now() + interval '1 day')
+    returning id into v_id;
+  insert into ids values ('s2_task_id', v_id);
+  insert into results values ('(d) S2 CAN create a task targeting a connection it is NOT a party to — tasks have no per-target-type existence check (F3)', true, null);
+exception when others then
+  insert into results values ('(d) S2 CAN create a task targeting a connection it is NOT a party to — tasks have no per-target-type existence check (F3)', false, sqlerrm);
+end $$;
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59500000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+insert into results (name, passed)
+select '(d) S1 (the connection''s actual shadchan) reads ZERO rows of S2''s task about it, by id',
+       count(*) = 0
+from public.tasks where id = (select value from ids where name = 's2_task_id');
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59500000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into results (name, passed)
+select '(d) household A reads ZERO rows of S2''s task about connection A<->S1, by id',
+       count(*) = 0
+from public.tasks where id = (select value from ids where name = 's2_task_id');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- (e) [Review fix, F2] Ending a connection never hard-deletes it (Story
+-- 8.2), but deleting either PARTY's account does: household A deletes its
+-- OWN account here — a write "Accounts writable by non-single members" (a
+-- FOR ALL policy, 05_policies.sql) already grants an ordinary parent_admin
+-- today, no service-role or admin action required. The cascade
+-- (connections_household_account_id_fkey, ON DELETE CASCADE, 01_tables.sql)
+-- removes connection_a_s1; purge_connection_dependents() must then purge
+-- S1's task/interaction from (a) above — rows owned by a DIFFERENT account
+-- (shadchanus S1), never household A's own — proving the purge reaches the
+-- OTHER side of the connection, not only whichever side's account is being
+-- deleted.
+-- ---------------------------------------------------------------------------
+-- Sanity + post-delete reads run as service_role: S1's task/interaction are
+-- account-scoped to shadchanus S1 (proved in (c) above, household A already
+-- reads zero of them), so a household-A-context read could never tell "the
+-- row is gone" apart from "the row was always invisible to me" — service_
+-- role bypasses RLS, so it is the one context that can distinguish them.
+set local role service_role;
+set local request.jwt.claims = '{"role":"service_role"}';
+
+insert into results (name, passed)
+select '(e) sanity: S1''s task/interaction from (a) still exist before household A''s account is deleted',
+       (select count(*) from public.tasks where id = (select value from ids where name = 's1_task_id')) = 1
+       and (select count(*) from public.interactions where id = (select value from ids where name = 's1_interaction_id')) = 1;
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59500000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+delete from public.accounts where id = (select value from ids where name = 'household_a');
+
+reset role;
+
+set local role service_role;
+set local request.jwt.claims = '{"role":"service_role"}';
+
+insert into results (name, passed)
+select '(e) deleting household A''s account cascades away connection A<->S1',
+       count(*) = 0
+from public.connections where id = (select value from ids where name = 'connection_a_s1');
+
+insert into results (name, passed)
+select '(e) purge_connection_dependents() purges S1''s task that targeted the deleted connection (F2)',
+       count(*) = 0
+from public.tasks where id = (select value from ids where name = 's1_task_id');
+
+insert into results (name, passed)
+select '(e) purge_connection_dependents() purges S1''s interaction that targeted the deleted connection (F2)',
+       count(*) = 0
+from public.interactions where id = (select value from ids where name = 's1_interaction_id');
 
 reset role;
 

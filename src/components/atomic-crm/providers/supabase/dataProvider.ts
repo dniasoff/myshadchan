@@ -999,6 +999,24 @@ export const lifeCycleCallbacks: ResourceCallbacks[] = [
     },
   },
   {
+    // Review fix, story 8-5 (F1 — BLOCKING): the Connections list's search
+    // box had no hook here, so `ra-supabase-core`'s `defaultListOp = 'eq'`
+    // turned `{q:"Klein"}` into `?q=eq.Klein` — `connections` has no `q`
+    // column, so every real search 400'd (`42703`) while the component test
+    // stayed green only because it runs on `ra-data-fakerest`'s generic `q`
+    // handling, which the shipped Supabase provider does not have. Keyed to
+    // "connections" — the resource `ConnectionList.tsx`'s `<EntityList>` is
+    // actually given, and there is no `connections_summary` redirect to fall
+    // into the dead-hook trap. `household_account_name` is the one column
+    // AC-1's placeholder ("Search by family name") promises; it is `not
+    // null` on every row (01_tables.sql), so no result is ever excluded by a
+    // null column the way an optional field could.
+    resource: "connections",
+    beforeGetList: async (params) => {
+      return applyFullTextSearch(["household_account_name"])(params);
+    },
+  },
+  {
     // Story 4.3 (AC 3): the shidduchim pipeline's search. Keyed to
     // "shidduchim" — the resource `ShidduchimList.tsx`'s `<List>` is
     // actually given — never "shidduchim_summary", even though
