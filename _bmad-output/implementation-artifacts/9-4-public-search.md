@@ -134,6 +134,18 @@ actually reach and use.
         bar the rest of the app's screens are held to. Verification: screenshots at 375px in
         both themes attached to the PR (or the repo's visual-regression setup if one exists by
         then) — a claim without the artifact does not close this box.
+  - [ ] **i18n, without `useTranslate()`.** This page renders outside `<Admin>` (Task 1), so
+        there is no `I18nContext` for `useTranslate()` to read — exactly the situation
+        `landing/landingTranslate.ts` already solves for the landing page: it calls
+        `i18nProvider.translate(key, { _: defaultMessage })` directly against the shared
+        catalogs, with the locale coming from the browser. Add an equivalent
+        `listings/publicSearchTranslate.ts` (or reuse `translateLanding` directly if its name
+        stops being landing-specific) rather than hardcoding English strings here — a hardcoded
+        literal type-checks fine and ships silent English in the French UI, and this page is not
+        exempt from C7 just because it sits outside `<Admin>`. Every new string still needs a
+        key in **both** `providers/commons/englishCrmMessages.ts` and
+        `providers/commons/frenchCrmMessages.ts` in the same diff; only the *lookup mechanism*
+        differs from the rest of Epic 9's Settings-hosted components.
 
 - [ ] **Task 4 — Tests** (AC: all)
   - [ ] `listings/PublicSearchPage.test.tsx` — mirrors `ChildPortalPage.test.tsx`'s shape: inject
@@ -211,24 +223,32 @@ None — this story ships no schema change.
 ### Testing standards
 
 AAA structure, descriptive names, isolated fixtures [Source: .claude/rules/testing.md]. This
-story's tests are pure frontend (Vitest + Testing Library, `FakeRest` for the client test) — no
-`npm run test:unit:db` addition, consistent with "no schema change" above.
+story's tests are pure frontend — **`vitest-browser-react` + `ra-core`'s `TestMemoryRouter` in
+real Chromium**, per the repo's actual harness (React Testing Library / `MemoryRouter` are
+**not** dependencies here; `FakeRest` backs the client-shape test only) — no `npm run
+test:unit:db` addition, consistent with "no schema change" above.
 
 ### Project Structure Notes
 
 - All new files in `src/components/atomic-crm/listings/`, alongside 9.1's and 9.2's components
   (`PublicSearchPage.tsx`, `ShadchanListingCard.tsx`, `SingleListingCard.tsx`,
-  `publicSearchUrl.ts`, `publicListingsClient.ts`).
+  `publicSearchUrl.ts`, `publicListingsClient.ts`, `publicSearchTranslate.ts`).
 - `src/App.tsx` gains one new pre-`<LandingGate>` branch — keep the file's existing shape
   (early-return pattern), do not restructure the surrounding portal-removal diff from Epic 1.
+- **`registry.json`** — new files land under `atomic-crm/listings/`; regenerate with `make
+  registry-gen` (or the pre-commit hook) and declare it as touched, same reasoning as 9.1–9.3.
+- **Both i18n catalogues** (`providers/commons/englishCrmMessages.ts`,
+  `providers/commons/frenchCrmMessages.ts`) — every string this story's cards and states render,
+  read through the `landingTranslate.ts`-style helper (Task 3), not hardcoded.
 - English-only in all committed content [Source: .claude/rules/english-only.md].
 
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Story-9.4-Public-search]
-- [Source: amendment-a2.md#A2.5] — FR106, PRV-13 ("never reveals who is researching whom")
-- [Source: ARCHITECTURE-SPINE.md#AD-21] — listings snapshot, the data this story reads
-- [Source: ARCHITECTURE-SPINE.md#AD-24] — `Entity360`/`EntityList` are the authenticated shell's contract, not a universal one
+- [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md#A2.5] — FR106, PRV-13 ("never reveals who is researching whom")
+- [Source: src/components/atomic-crm/landing/landingTranslate.ts] — the i18n-outside-`<Admin>` pattern this story's public page must follow instead of hardcoding strings
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-21] — listings snapshot, the data this story reads
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-24] — `Entity360`/`EntityList` are the authenticated shell's contract, not a universal one
 - [Source: 9-1-publish-shadchan-listing.md] / [9-2-publish-single-listing.md] — the table, grants, and field sets this story renders
 - [Source: src/App.tsx] — the pre-CRM routing pattern this story extends (portal precedent, deleted by Epic 1 Story 1.4)
 - [Source: src/components/atomic-crm/portal/portalClient.ts, ChildPortalPage.tsx] (pre-1.4 state) — the direct-Supabase-client pattern this story follows for an unauthenticated page

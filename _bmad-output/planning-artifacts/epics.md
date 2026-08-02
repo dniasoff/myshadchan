@@ -1258,6 +1258,55 @@ So that sharing is easy but controlled.
 **And** revoking it stops access immediately
 **And** the photo is included only if I choose it.
 
+### Epic 9 scope decisions (2026-08-02 story refresh)
+
+Recorded here, mirroring the Epic 1 pattern above, so the reasoning behind five story-file
+amendments lives in one place instead of being re-derived per reader.
+
+**Storage: Story 9.5 does not use Cloudflare R2.** Its earlier draft built the `share/` Worker
+against an R2 binding, matching AD-9's original text. Decided against, for two independent
+reasons: R2 is not enabled on the Cloudflare account (confirmed live,
+`.github/workflows/deploy.yml:233-251`), and no code in the product uploads a resume or photo
+byte to R2 at all — every upload already writes to Supabase Storage's `documents` bucket. 9.5
+now streams from `documents` using the service-role key it already holds; the `[[r2_buckets]]`
+binding is dropped, and `share` rejoins the `deploy-workers` matrix in the same story. The
+trade-off — a Worker bug on this path can in principle reach any object in any account, since
+the service-role key bypasses storage RLS the same way for every bucket — is accepted and named
+in 9.5's own Dev Notes, with the opaque server-derived `fileKey` (never a client-supplied
+storage path) as the specific mitigation, backed by its own negative test. `ARCHITECTURE-SPINE.md`
+AD-9/AD-15 are amended in the same diff so the written spine matches the shipped code.
+
+**Epic 5's resume-shape dependency: confirmed satisfied, not a residual risk.** 9.5 depends on
+a single having their own addressable resume (Epic 5 Stories 5.3/5.4/5.8), which an earlier
+draft flagged as unstated and gave a schema fallback for. Verified directly against the shipped
+schema for this refresh: `resumes.single_id`, `resumes_owner_check` and `resumes_single_id_key`
+are all live, and `resume_photos` covers the photo half. 9.5's fallback branch is removed. Adding
+the explicit "9.5 depends on 5.3/5.4/5.8" line here is the one remaining piece of that finding —
+Epic 9 does not start before Epic 5 in the pinned build order in any case.
+
+**Two pre-existing defects, given an owner rather than left in prose:**
+1. **Resume/photo byte cleanup.** Deleting a `singles` or `shidduchim` row cascades the row
+   delete to `resumes`/`resume_photos` at the database, but nothing removes the Storage bytes
+   those rows pointed at (`purge_polymorphic_dependents()` is SQL and cannot reach the Storage
+   API; the only existing byte-cleanup hook, `entityFilesCleanupCallbacks`, covers `entity_files`
+   alone). **Owned by Story 9.5** (new AC-11/AC-12, Task 7) — folded in because Epic 9 is the
+   storage epic and 9.5's own rework makes `documents` the sole byte-serving path either way.
+2. **`anon`'s stray sequence grant** — **owned by Story 9.1** (Task 3): a one-line `revoke all
+   on sequence public.members_id_seq from anon;`, the only survivor after `tasks_id_seq`'s
+   grant (which looked like a second instance) turned out to already be revoked later in
+   `06_grants.sql`. The much larger **repo-wide `FORCE ROW LEVEL SECURITY` retrofit stays
+   recorded as item **S2** above**, updated with this epic's numbers — it is explicitly **not**
+   owned by any Epic 9 story; it is a different order of magnitude and a different kind of
+   decision (design bypasses for `SECURITY DEFINER` functions) than a listings/sharing epic
+   should carry.
+
+**Opt-in confirmed, not re-decided.** Every publish path in 9.1–9.3 defaults every listing
+column to `null`/off and requires an explicit per-field toggle before anything is written; 9.5's
+`include_photo` defaults `false`. No story encodes default-on. This was re-verified against the
+story text during this refresh, not merely re-asserted, because the owner had previously changed
+this mid-programme and earlier drafts elsewhere in the project have encoded default-on by
+mistake.
+
 ---
 
 ## Epic 10: Capture Funnel Completion
@@ -1595,6 +1644,37 @@ designed with bypasses. AD-1's "one scoping axis" clause also needs a justified 
 none; zero tables have `connection_id`). **Disposition: own story, before Epic 3 — urgent, but
 not Epic 3's to build.** Split it: (a) the CI assertion + allowlist is cheap, ship now; (b) the
 retrofit with designed bypasses is the larger piece.
+
+**Update, Epic 9 refresh (2026-08-02): still open, and now higher-stakes, but still not Epic
+9's to fix.** By the time Epic 9 was being story-refreshed, the count had moved from "0 forced"
+to **7 of ~40 tables forced** — `connections`, `threads`, `thread_participants`, `messages`,
+`message_notifications`, `push_subscriptions`, `connection_invites` (`05_policies.sql:1178-1377`,
+all Epic 7/8 additions, each correctly forced on arrival) — while roughly 33 pre-existing tables
+(`singles`, `shadchanim`, `references`, `shidduchim`, `resumes`, `accounts`, `account_members`,
+`tasks`, `interactions`, and more) still are not. Epic 9's four new tables (`listings`,
+`listing_withdrawal_locks`, `share_links`, `share_access_log`) each correctly `FORCE` themselves
+too (9-1 Task 2, 9-3 Task 1, 9-5 Task 2) — the pattern going forward is sound, only the backlog
+of already-shipped tables is not shrinking. The reason this now matters more than it did at
+Epic 2/3 time: Epic 9 is the first epic to make `anon` a live, reachable production role, and
+table owners bypass **non-forced** RLS regardless of any policy written against `anon` or
+`authenticated` — so any future service-role or owner-context code path that touches one of the
+33 un-forced tables has no RLS backstop at all, policy correctness notwithstanding. This is
+**not** folded into any Epic 9 story: it is a different order of magnitude (a repo-wide retrofit
+across every domain table, with the same invite-acceptance-shaped bypass design problem S2
+already named) than anything in the epic's own scope, and doing it inside a listings/sharing
+story would bury a cross-cutting security decision inside an unrelated diff. It remains this
+item's disposition: **own story, and it should ship before or alongside Epic 9's production
+rollout, not merely "before Epic 3"** — that deadline has already passed once.
+
+**Related, smaller finding from the same refresh: a narrower, one-line instance of the same
+class of gap, fixed in place rather than left here.** `06_grants.sql:46` still runs `grant all
+on sequence public.members_id_seq to anon;` with no revoke anywhere in the file — a fork-era
+leftover this item's own AD-1 sweep missed. (`06_grants.sql:50` looked like a second instance —
+`tasks_id_seq` granted to `anon` the same way — but `:560` revokes it later in the same file, so
+only `members_id_seq` is actually still exposed.) Unlike the FORCE RLS retrofit, this one is a
+single `revoke` statement with no design decision attached, so it is fixed directly in **Story
+9.1** (Task 3) rather than added to this backlog — recorded here only so the two findings are
+not confused with each other going forward.
 
 ### S3 — Invite-token-at-rest posture is split
 2.7 stores membership-invite tokens as raw uuids; 8.2 stores connection-invite tokens as

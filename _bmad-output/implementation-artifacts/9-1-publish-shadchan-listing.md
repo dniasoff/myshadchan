@@ -93,7 +93,10 @@ through `listings`.
    and **nothing else** — no `insert`, `update`, `delete`, and no sequence privilege. `select,
    insert, update, delete` on `public.listings` are granted to `authenticated` (restricting
    `authenticated` to the `shadchan` branch is the policies' job, not the grant's). `rowsecurity`
-   and `forcerowsecurity` are both `true` on `public.listings`.
+   and `forcerowsecurity` are both `true` on `public.listings`. This story's migration also
+   revokes the one remaining fork-era `anon` grant elsewhere in the schema that would otherwise
+   make this AC's first sentence false — see Dev Notes "Closing a narrower, pre-existing AD-1 gap
+   while this file is open."
 
 ## Tasks / Subtasks
 
@@ -231,6 +234,22 @@ through `listings`.
         AD-1", not by Epic 1) does not silently hand this new sequence to `anon` — if that block
         still applies when this story lands, add the explicit `revoke` regardless of whether it
         has been dropped yet.
+  - [ ] **Close a narrower, pre-existing instance of the same AD-1 gap while this file is open**
+        (found by the Epic 9 pre-flight, 2026-08-02): `06_grants.sql:46` still runs `grant all on
+        sequence public.members_id_seq to anon;` and nothing ever revokes it — a fork-era
+        leftover the Epic 2 AD-1 sweep missed. (`06_grants.sql:50` grants `tasks_id_seq` to
+        `anon` too and looks like a second instance, but `06_grants.sql:560` revokes it later in
+        the same file — by the time the schema finishes applying, `anon` holds nothing on
+        `tasks_id_seq`, so `members_id_seq` is the only one still actually exposed; do not
+        "fix" `tasks_id_seq`, it is already closed.) Add `revoke all on sequence
+        public.members_id_seq from anon;` to this story's migration. This is not this story's
+        own defect and predates `listings` entirely — flagged, not caused, by this story — but
+        Epic 9 is the first epic where `anon` becomes a live, reachable production role, and
+        AC-8's "`anon` holds `select` on `listings` and nothing else" is not a true sentence
+        about the schema until this one-line revoke lands. The much larger, repo-wide `FORCE ROW
+        LEVEL SECURITY` retrofit this same pre-flight re-confirmed (~33 pre-existing tables,
+        tracked as `epics.md`'s Unowned-work item **S2**) is explicitly **not** folded in here —
+        different order of magnitude, different owner; only this one-line sequence revoke is.
 
 - [ ] **Task 4 — Generate and hand-check the migration** (AC: all)
   - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f add_listings`
@@ -280,10 +299,22 @@ through `listings`.
         id })`; on success the row and the anon-visible listing are gone (AC-5).
   - [ ] Wire the section into `settings/` (e.g. a new `settings/ShadchanListingSection.tsx` shown
         conditionally, alongside the existing `FamilySection.tsx` / `PrivacySection.tsx`
-        pattern) — the exact Settings-page composition depends on how Epic 2's context switcher
-        (Story 2.4) exposes `kind`; if 2.4 has not landed a way to read the active context's
-        `kind` in a component, treat that as a blocking prerequisite and say so rather than
-        guessing at a client-side workaround.
+        pattern). Epic 2 Story 2.4 has landed: `useMyContexts()` (`root/useMyContexts.ts:12-18`)
+        already returns each membership's `kind`, and `layout/ContextSwitcher.tsx:27-38` already
+        reads it in a component (`context.kind`) — read the active context's `kind` the same way
+        (`useMyContexts().data?.find(c => c.is_active)?.kind === "shadchanus"`) rather than
+        inventing a second mechanism. This bullet used to hedge on 2.4 landing; it has, so treat
+        this as settled, not as a blocking prerequisite to re-check.
+  - [ ] **Both i18n catalogues.** Every user-facing string this story adds (the three toggle
+        labels, the publish/withdraw button copy, any client-side validation message for AC-2)
+        gets a key in **both** `providers/commons/englishCrmMessages.ts` and
+        `providers/commons/frenchCrmMessages.ts` in the same diff —
+        `frenchCrmMessages.ts` is `satisfies CrmMessages` against
+        `MessageSchema<typeof englishCrmMessages>`, so a missing French twin is a `make
+        typecheck` failure, and a hardcoded literal string type-checks fine while shipping
+        silent English in the French UI. This panel renders inside the authenticated Settings
+        page (inside `<Admin>`), so the ordinary `useTranslate()` seam applies — contrast 9.4's
+        and 9.5's unauthenticated pages, which cannot use that seam (see their own Dev Notes).
 
 - [ ] **Task 8 — Tests** (AC: all)
   - [ ] `supabase/tests/listings.sql` + `listings.test.ts` — new database suite, structured
@@ -296,7 +327,10 @@ through `listings`.
         verification query" — returns the row), AC-5 (delete removes it from the anon-visible
         set), AC-6 (both negative sub-cases: wrong `kind`, wrong `role`), AC-7 (cross-shadchanus
         isolation, both directions), AC-8 (`has_table_privilege`/`has_sequence_privilege` checks
-        against `anon`). The anon-block and grant-assertion patterns to mirror are the deleted
+        against `anon`, including `has_sequence_privilege('anon', 'public.members_id_seq',
+        'USAGE')` = **false** — the fork-era grant Task 3's new `revoke` closes, and the reason
+        AC-8's "nothing else" claim is checkable, not asserted). The anon-block and
+        grant-assertion patterns to mirror are the deleted
         `supabase/tests/child_portal.sql`'s (its "anon reaches ONLY get_child_portal" section) —
         the file is removed by Story 1.4 before this story starts, so read it from git history.
   - [ ] `providers/fakerest/dataProvider.summaryStats.test.ts`-style unit test or a new focused
@@ -314,7 +348,7 @@ through `listings`.
 > by field; withdrawing deletes the row, which removes it from search immediately (FR105).
 > `listings` is the sole relation granted to `anon`, and it physically contains no private
 > column — so a leak is structurally impossible."
-> [Source: ARCHITECTURE-SPINE.md#AD-21]
+> [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-21]
 
 FR101 is the exact field list this story implements: *"A shadchan may publish a professional
 listing (name, area, how to reach)."* [Source:
@@ -377,6 +411,23 @@ Do not add a foreign key or join between `listings` and `shadchanim` — there i
 they describe different people from different sides of the relationship (a household's opinion
 of a matchmaker vs. the matchmaker's own public-facing profile).
 
+### Closing a narrower, pre-existing AD-1 gap while this file is open
+
+`06_grants.sql` still carries `grant all on sequence public.members_id_seq to anon;` (line 46)
+with no revoke anywhere in the file — a fork-era leftover the Epic 2 AD-1 sweep missed. It
+looked, on first read, like there were two such leftovers, because line 50 grants
+`tasks_id_seq` to `anon` the same way; but line 560 of the same file revokes it later
+(`revoke all on sequence public.tasks_id_seq from anon;`, ahead of the `interactions`/`tasks`
+grant block), so by the time the whole schema file has applied, `anon` holds nothing on
+`tasks_id_seq` — only `members_id_seq` is still actually exposed. This is not a defect this
+story introduces, and it is not this story's job to run the larger retrofit epics.md's
+Unowned-work item **S2** already tracks (a repo-wide `FORCE ROW LEVEL SECURITY` pass across
+~33 pre-existing tables). It is fixed here, narrowly, because: (a) it is a one-line `revoke`,
+or (b) it happens to sit in the exact grants file this story is already editing, and (c) Epic 9
+is the first epic where `anon` becomes a live, reachable production role — shipping the first
+public surface next to a known, named, one-line-fixable `anon` leak is worse than fixing it in
+passing. Task 3 adds the revoke; Task 8 adds the `has_sequence_privilege` assertion.
+
 ### Security / RLS
 
 This is a new anon-readable table — `.claude/rules/security-triggers.md` mandates a security
@@ -423,6 +474,13 @@ exactly as story 1.3 had to for the same reason.
   no new schema file.
 - New component directory `src/components/atomic-crm/listings/`, lowercase-plural, matching
   `shidduchim/` / `shadchanim/` / `references/`.
+- **`registry.json`** — this story adds a whole new `listings/` directory under
+  `atomic-crm/`; `scripts/generate-registry.mjs` globs every `.ts`/`.tsx` file there (tests
+  excluded) to build it, and `.husky/pre-commit` regenerates it on commit. Do not hand-edit it;
+  run `make registry-gen` (or let the hook run) and declare the file as touched.
+- **Both i18n catalogues** (`providers/commons/englishCrmMessages.ts`,
+  `providers/commons/frenchCrmMessages.ts`) — every new user-facing string in this story's
+  components needs a key in both (Task 7).
 - `.claude/rules/coding-style.md`: 200–400 lines typical, 800 max per file. Nothing here should
   approach that — keep `PublishShadchanListingSection.tsx` focused on the three-toggle form and
   put the upsert-decision logic in a small hook (`useShadchanListing.ts`) if the component would
@@ -433,10 +491,13 @@ exactly as story 1.3 had to for the same reason.
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-9-Listings--Sharing]
 - [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/amendment-a2.md#A2.5] — FR101, PRV-13
-- [Source: ARCHITECTURE-SPINE.md#AD-1] — scope + forced RLS, `anon` grant discipline
-- [Source: ARCHITECTURE-SPINE.md#AD-2] — `accounts.kind`, `account_members.role`, shadchan active
-- [Source: ARCHITECTURE-SPINE.md#AD-19] — `current_context_id()` replaces `current_account_id()`
-- [Source: ARCHITECTURE-SPINE.md#AD-21] — the listings snapshot itself, verbatim rule
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-1] — scope + forced RLS, `anon` grant discipline
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-2] — `accounts.kind`, `account_members.role`, shadchan active
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-19] — `current_context_id()` replaces `current_account_id()`
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-21] — the listings snapshot itself, verbatim rule
+- [Source: supabase/schemas/06_grants.sql:46,50,560] — the `members_id_seq`/`tasks_id_seq` `anon`-grant evidence this story's Task 3 closes (only `members_id_seq` is still open; `tasks_id_seq` is already revoked later in the same file)
+- [Source: _bmad-output/planning-artifacts/epics.md#Unowned-work-surfaced-by-the-Epic-2-11-story-review-2026-07-26] — item **S2**, the larger repo-wide `FORCE ROW LEVEL SECURITY` retrofit this story does **not** attempt
+- [Source: root/useMyContexts.ts, layout/ContextSwitcher.tsx:27-38] — `MyContext.kind` already live and component-readable (Task 7)
 - [Source: _bmad-output/specs/spec-myshadchan/glossary.md#Identity-and-access] — "listing" definition
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/SOLUTION-DESIGN.md §4] — `listings` in the data model, `accounts.kind`
 - [Source: supabase/schemas/02_functions.sql — `set_account_id_default()`] — the reusable trigger this story must not duplicate

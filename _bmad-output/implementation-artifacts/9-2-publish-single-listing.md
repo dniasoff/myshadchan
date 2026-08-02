@@ -160,6 +160,10 @@ is deliberate and is the reason 9.2 and 9.3 write different DELETE-vs-INSERT aut
         "coming soon" placeholder. A listing never carries a photo (Dev Notes "Field set
         decision", last row); a photo control here would imply otherwise and invite a future
         "just wire it up" regression.
+  - [ ] **Both i18n catalogues** — every field label, helper text and error message this form
+        adds gets a key in `providers/commons/englishCrmMessages.ts` **and**
+        `providers/commons/frenchCrmMessages.ts` in the same diff (C7 — see Project Structure
+        Notes).
 
 - [ ] **Task 6 — Tests** (AC: all)
   - [ ] Extend `supabase/tests/listings.sql` (created by 9.1) with the `single`-branch checks:
@@ -182,7 +186,7 @@ Epic 5 Story 5.2's Overview tab fields are: *"name (both scripts), age/DOB, heig
 location, shul, current and earlier yeshiva, father, mother, marital status and children."*
 [Source: epics.md#Story-5.2]. This story does **not** offer all of them. PRV-1 names *"family
 details"* as one of the product's highest-sensitivity categories alongside photos and health
-notes [Source: prd.md#PRV-1], and PRV-13's "narrow" requirement plus the general "least-exposure
+notes [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/prd.md#PRV-1], and PRV-13's "narrow" requirement plus the general "least-exposure
 by default" posture argue against defaulting the *offer list* as wide as the private Overview
 tab. The field set this story ships is:
 
@@ -247,6 +251,16 @@ coverage on new paths [Source: .claude/rules/testing.md].
   `listings/useListingUpsert.ts` rather than duplicating it — flag this refactor as part of this
   story's own diff even though the duplicated code originates in 9.1, since DRY is a coding-style
   requirement, not an optional cleanup [Source: .claude/rules/coding-style.md].
+- **`registry.json`** — new files land under `atomic-crm/listings/`; regenerate with
+  `make registry-gen` (or the pre-commit hook) and declare the file as touched, same reasoning
+  as 9.1.
+- **Both i18n catalogues** (`providers/commons/englishCrmMessages.ts`,
+  `providers/commons/frenchCrmMessages.ts`) — this story's field-by-field toggle labels (Dev
+  Notes "Field set decision"), the "must consent again"-adjacent copy is 9.3's, but this story's
+  own publish-form and error copy needs a key in both catalogues in the same diff (C7 — a
+  missing French twin is a `make typecheck` failure since `frenchCrmMessages.ts` is `satisfies
+  CrmMessages`). Renders inside Settings (inside `<Admin>`), so the ordinary `useTranslate()`
+  seam applies.
 - English-only in all committed content [Source: .claude/rules/english-only.md].
 
 ### References
@@ -254,8 +268,8 @@ coverage on new paths [Source: .claude/rules/testing.md].
 - [Source: _bmad-output/planning-artifacts/epics.md#Story-9.2-Publish-a-singles-listing]
 - [Source: _bmad-output/planning-artifacts/epics.md#Story-5.2-Shidduch-Overview-tab] — the field superset this story deliberately narrows
 - [Source: amendment-a2.md#A2.5] — FR102, FR103, PRV-13
-- [Source: prd.md#PRV-1] — highest-sensitivity data categories (photos, candid words, health, family details)
-- [Source: ARCHITECTURE-SPINE.md#AD-21] — listings snapshot rule
+- [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/prd.md#PRV-1] — highest-sensitivity data categories (photos, candid words, health, family details)
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-21] — listings snapshot rule
 - [Source: _bmad-output/specs/spec-myshadchan/personas-and-contexts.md] — `self_manager`, D11 shape
 - [Source: 9-1-publish-shadchan-listing.md#Dev-Notes] — the shared `listings` table shape (including `listings_single_id_fkey` and "No photo on a listing") and policy ownership map
 - [Source: .claude/rules/security-triggers.md] — negative-test requirement

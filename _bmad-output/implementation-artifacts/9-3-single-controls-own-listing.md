@@ -28,17 +28,21 @@ be withdrawn. This story adds:
 - **9.2** — the `listings` table's single-type publish path.
 - **Epic 6** for "a single with a login" actually existing (`account_members.role = 'single'`
   bound to a `singles` row via `member_id`) — without Epic 6, there is no distinct login for
-  this story's authorization to target; today's schema has no `single` role in
-  `account_members_role_check` at all (Epic 2 Story 2.2 adds it, per
-  `1-3-rename-children-to-singles.md`'s cross-story note: *"Epic 2 (story 2.2) will add `single`
-  to `account_members_role_check`"*).
+  this story's authorization to target. The role itself is already live: Epic 2 Story 2.2
+  shipped `single` into `account_members_role_check` (`01_tables.sql:239-241` today reads
+  `role in ('parent_admin', 'single', 'helper', 'self_manager', 'shadchan')`), and `singles`
+  already carries `singles_member_id_fkey` — per `1-3-rename-children-to-singles.md`'s
+  cross-story note, which named this as Epic 2's future work at the time it was written and is
+  now simply past. What Epic 6 supplies is not the role's existence but the actual
+  self-managing/single-login lifecycle this story's authorization logic exercises (a `single`
+  or `self_manager` whose `singles.member_id` genuinely points back at their own membership).
 
 **Why this is the sharpest story in the epic:** AD-21's own text warns about exactly the failure
 mode this story exists to close:
 
 > "A withdrawal by the single blocks republication until that single consents — otherwise the
 > dignity floor is a loop a manager can simply re-publish out of."
-> [Source: ARCHITECTURE-SPINE.md#AD-21]
+> [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-21]
 
 A row-delete alone (FR105: "withdrawal removes the listing from search immediately") is not
 enough on its own — 9.1's schema already guarantees that half for free (delete a row, `anon` can
@@ -389,14 +393,22 @@ for it [Source: .claude/rules/testing.md, .claude/rules/security-triggers.md].
   schema files.
 - New FakeRest helper `providers/fakerest/internal/listingWithdrawal.ts`, following the existing
   `internal/<behavior>.ts` convention for hand-written emulations of Postgres-only logic.
+- New components `listings/WithdrawSingleListingButton.tsx`, `listings/ConsentToRepublishButton.tsx`
+  land under `atomic-crm/listings/` — regenerate **`registry.json`** (`make registry-gen` /
+  pre-commit hook) and declare it as touched, same reasoning as 9.1/9.2.
+- **Both i18n catalogues** (`providers/commons/englishCrmMessages.ts`,
+  `providers/commons/frenchCrmMessages.ts`) — the "must consent again" honest-refusal message
+  (Task 7) and both new buttons' copy need a key in both catalogues in the same diff (C7); all
+  three components render inside Settings (inside `<Admin>`), so `useTranslate()` applies
+  normally.
 - English-only in all committed content [Source: .claude/rules/english-only.md].
 
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Story-9.3-A-single-controls-their-own-listing]
 - [Source: amendment-a2.md#A2.5] — FR104
-- [Source: ARCHITECTURE-SPINE.md#AD-21] — the exact "blocks republication until consent" rule this story implements
-- [Source: ARCHITECTURE-SPINE.md#AD-19] — fail-closed style precedent (`current_context_id()`)
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-21] — the exact "blocks republication until consent" rule this story implements
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-19] — fail-closed style precedent (`current_context_id()`)
 - [Source: 9-2-publish-single-listing.md] — the policy this story replaces, and why "manager" excludes plain `single`
 - [Source: 9-1-publish-shadchan-listing.md#Dev-Notes] — policy ownership map for `listings`
 - [Source: supabase/schemas/02_functions.sql — `get_child_portal()`, `set_child_portal_token_defaults()`, both deleted by Story 1.4; read from git history] — the `SECURITY DEFINER` + `search_path ''` precedent this story follows
