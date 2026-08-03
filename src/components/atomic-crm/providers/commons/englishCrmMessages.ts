@@ -1061,6 +1061,12 @@ export const englishCrmMessages = {
         skipped: "Shared to your inbox",
         saveError: "Couldn't file that share",
         pickSingleError: "Choose which single this is for",
+        // Review fix (F5, MEDIUM, Story 10.1): shown when a shared file
+        // couldn't be read back from the Cache API (missing entry, or no
+        // Cache API support) — the share still lands, without the file,
+        // rather than silently uploading a fabricated 0-byte attachment.
+        fileReadError:
+          "Couldn't load the shared file — you can still file this without it.",
       },
       // Story 10.1 (Task 3): the "link to an existing suggestion" search,
       // shared by ShareTarget.tsx and InboxResolveDialog.tsx
@@ -1070,6 +1076,10 @@ export const englishCrmMessages = {
         label: "Search your suggestions",
         loading: "Searching…",
         empty: "No matching suggestions.",
+        // Review fix (F3, HIGH, Story 10.1): distinct from `empty` — a
+        // failed search must never render as "no results".
+        searchError:
+          "Couldn't search your suggestions — try a different search.",
         onBoard: "already on the board",
         link: "Link",
       },

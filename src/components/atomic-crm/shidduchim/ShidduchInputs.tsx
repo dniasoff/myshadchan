@@ -97,15 +97,18 @@ export const ShidduchInputs = ({
    */
   isShadchanLocked?: boolean;
   /**
-   * Story 10.1 (Task 4): the share-target screen's "+ Add a shadchan"
-   * inline-create affordance (FR78) — optional and additive, so every
-   * existing caller (the manual "Add a suggestion" flow,
-   * `InboxResolveDialog.tsx`) keeps rendering a plain, non-creatable
-   * autocomplete when this is omitted. Passed straight through to the
+   * The "+ Add a shadchan" inline-create affordance (FR78) — optional and
+   * additive, so a caller that omits it still renders a plain,
+   * non-creatable autocomplete. Passed straight through to the
    * `shadchan_id` `AutocompleteInput`'s own `onCreate` prop
    * (`@/components/admin/autocomplete-input.tsx` already wires it into
-   * `useSupportCreateSuggestion` — this makes the affordance reachable from
-   * every screen that reuses `ShidduchInputs`, not just the new one).
+   * `useSupportCreateSuggestion`). Review fix (F4, MEDIUM, Story 10.1):
+   * this prop shipped wired to nothing — every real caller
+   * (`ShareTarget.tsx`, `InboxResolveDialog.tsx`, `ShidduchCreate.tsx`, the
+   * manual "Add a suggestion" flow) now passes the shared
+   * `shidduchim/createShadchanInline.ts` helper, so the affordance is
+   * actually reachable everywhere `ShidduchInputs` is reused, not just
+   * described as such.
    */
   onCreateShadchan?: SupportCreateSuggestionOptions["onCreate"];
 } = {}) => {

@@ -195,7 +195,7 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
   });
 });
 
-describe("useResolveInboxItem — dismissInboxItem (AC 6: skipping never loses it)", () => {
+describe("useResolveInboxItem — dismissInboxItem (InboxResolveDialog's Dismiss, never lets the item disappear)", () => {
   it("marks the item dismissed, never deletes it", async () => {
     // Arrange
     const item = buildItem();

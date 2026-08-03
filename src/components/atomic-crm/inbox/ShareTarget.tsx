@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
-import type { Identifier, SupportCreateSuggestionOptions } from "ra-core";
+import type { Identifier } from "ra-core";
 import {
   Form,
   useDataProvider,
@@ -25,6 +25,7 @@ import type {
   RAFile,
   Single,
 } from "../types";
+import { createShadchanInline } from "../shidduchim/createShadchanInline";
 import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
 import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
 import { useResolveInboxItem } from "./useResolveInboxItem";
@@ -68,26 +69,41 @@ type SharedAttachment = {
 
 type SharedFileManifestEntry = { name: string; type: string };
 
+/** The result of trying to read back whatever `src/sw.ts` stashed in the
+ * Cache API for one share. `failed` is true whenever the capture is
+ * incomplete — no Cache API support, no manifest, or one or more files
+ * missing from the cache — so the caller can tell the user something was
+ * lost instead of silently uploading a placeholder in its place (review
+ * fix F5, MEDIUM). */
+type SharedFilesResult = { files: File[]; failed: boolean };
+
 /** Task 1's counterpart read: the `fetch` handler in `src/sw.ts` stores each
  * shared file (plus a small JSON manifest recording name/type, since a
  * cached `Response` carries bytes and a content-type but no filename) and
  * redirects here with `?shareKey=…`. Reading it back rebuilds real `File`s;
  * the cache entries are deleted immediately after so a page refresh never
- * re-imports the same files. */
-async function readSharedFiles(shareKey: string): Promise<File[]> {
-  if (typeof caches === "undefined") return [];
+ * re-imports the same files.
+ *
+ * Review fix (F5, MEDIUM): a missing cache entry (e.g. the browser evicted
+ * it under storage pressure between the worker's write and this read) used
+ * to be papered over with `new Blob([], …)` — a fabricated, empty file
+ * silently uploaded and recorded as if it were the user's real photo, with
+ * nothing telling them. A missing entry is now simply DROPPED, and `failed`
+ * tells the caller to say so.
+ */
+async function readSharedFiles(shareKey: string): Promise<SharedFilesResult> {
+  if (typeof caches === "undefined") return { files: [], failed: true };
   const cache = await caches.open(SHARE_TARGET_CACHE);
   const manifestResponse = await cache.match(shareTargetManifestKey(shareKey));
-  if (!manifestResponse) return [];
+  if (!manifestResponse) return { files: [], failed: true };
   const manifest = (await manifestResponse.json()) as SharedFileManifestEntry[];
-  const files = await Promise.all(
+  const results = await Promise.all(
     manifest.map(async (entry, index) => {
       const fileResponse = await cache.match(
         shareTargetFileKey(shareKey, index),
       );
-      const blob = fileResponse
-        ? await fileResponse.blob()
-        : new Blob([], { type: entry.type });
+      if (!fileResponse) return null;
+      const blob = await fileResponse.blob();
       return new File([blob], entry.name, { type: entry.type });
     }),
   );
@@ -97,7 +113,8 @@ async function readSharedFiles(shareKey: string): Promise<File[]> {
       cache.delete(shareTargetFileKey(shareKey, index)),
     ),
   ]);
-  return files;
+  const files = results.filter((file): file is File => file !== null);
+  return { files, failed: files.length < manifest.length };
 }
 
 /** Task 4: uploads through the SAME primitive `members.avatar` already
@@ -162,7 +179,11 @@ export const ShareTarget = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
 
-  // AC 1: read the shared file(s) back exactly once per landing.
+  // AC 1: read the shared file(s) back exactly once per landing. Review fix
+  // (F5, MEDIUM): a partial or total read failure now surfaces as a warning
+  // instead of silently uploading a fabricated placeholder in its place —
+  // the share still lands (never AC 6's "nothing is ever lost"), just
+  // without the file(s) that couldn't be recovered.
   useEffect(() => {
     if (handled.current) return;
     handled.current = true;
@@ -171,8 +192,18 @@ export const ShareTarget = () => {
       setFiles([]);
       return;
     }
-    void readSharedFiles(shareKey).then(setFiles);
-  }, [shareKey]);
+    void readSharedFiles(shareKey).then(({ files: readFiles, failed }) => {
+      setFiles(readFiles);
+      if (failed) {
+        notify(
+          translate("crm.inbox.share.fileReadError", {
+            _: "Couldn't load the shared file — you can still file this without it.",
+          }),
+          { type: "warning" },
+        );
+      }
+    });
+  }, [shareKey, notify, translate]);
 
   // AC 2: default to "Photo" when a file was shared, "WhatsApp" otherwise —
   // set once, the moment `files` first resolves; never overridden after,
@@ -218,17 +249,10 @@ export const ShareTarget = () => {
     }
   }, [singles, singleId]);
 
-  // AC 3's inline "+ Add a shadchan" (FR78): the same
-  // `dataProvider.create("shadchanim", …)` call `ShidduchInputs.tsx`'s new
-  // `onCreateShadchan` prop (this story) plumbs through everywhere it's
-  // reused.
-  const handleCreateShadchan: SupportCreateSuggestionOptions["onCreate"] =
-    async (filter) => {
-      const { data } = await dataProvider.create("shadchanim", {
-        data: { name: filter ?? "" },
-      });
-      return data;
-    };
+  // AC 3's inline "+ Add a shadchan" (FR78): the shared helper (review fix
+  // F4) also wired through `InboxResolveDialog.tsx` and `ShidduchCreate.tsx`
+  // now — one function, not a divergent copy per screen.
+  const handleCreateShadchan = createShadchanInline(dataProvider);
 
   /** Task 4: "creates the inbox_items row first" — shared by "Save" and by
    * every "Link" press in `LinkToShidduchSearch`, so the raw capture (and
@@ -246,6 +270,27 @@ export const ShareTarget = () => {
       },
     });
     return data;
+  };
+
+  // Review fix (F6, MEDIUM): Save, every "Link" press, and Skip each used
+  // to call `createInboxItem()` independently. Any sequence that runs more
+  // than one of them for the SAME share — a link that fails after the row
+  // was already created, followed by Save or Skip; a double click; two
+  // resolve paths racing — created a second `inbox_items` row and
+  // re-uploaded the shared photo a second time. `getOrCreateInboxItem`
+  // caches the first SUCCESSFUL creation so every later call reuses the
+  // same item instead of making a new one; a failed attempt clears the
+  // cache so the next click gets a genuine retry rather than being stuck
+  // replaying the same rejection.
+  const createdItemRef = useRef<Promise<InboxItem> | null>(null);
+  const getOrCreateInboxItem = (): Promise<InboxItem> => {
+    if (!createdItemRef.current) {
+      createdItemRef.current = createInboxItem().catch((error: unknown) => {
+        createdItemRef.current = null;
+        throw error;
+      });
+    }
+    return createdItemRef.current;
   };
 
   const resolveSingleId = (): Identifier | null => {
@@ -267,7 +312,7 @@ export const ShareTarget = () => {
     }
     setIsSaving(true);
     try {
-      const item = await createInboxItem();
+      const item = await getOrCreateInboxItem();
       const input: CreateShidduchInput = {
         single_id: resolvedSingleId,
         shadchan_id: (values.shadchan_id as Identifier | undefined) ?? null,
@@ -298,9 +343,14 @@ export const ShareTarget = () => {
     }
   };
 
+  // Review fix (F6, MEDIUM): now guarded by `isSaving` exactly like Save and
+  // Skip — Save/Skip/every other "Link" row were still clickable while a
+  // link was in flight, which could race two resolve paths against the
+  // same freshly-created item.
   const handleLinkToExisting = async (shidduchimId: Identifier) => {
+    setIsSaving(true);
     try {
-      const item = await createInboxItem();
+      const item = await getOrCreateInboxItem();
       await resolveAsLinkToExisting(item, shidduchimId);
       notify(
         translate("crm.inbox.share.linked", {
@@ -318,6 +368,8 @@ export const ShareTarget = () => {
             }),
         { type: "error" },
       );
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -326,7 +378,7 @@ export const ShareTarget = () => {
   const handleSkip = async () => {
     setIsSaving(true);
     try {
-      await createInboxItem();
+      await getOrCreateInboxItem();
       notify(
         translate("crm.inbox.share.skipped", { _: "Shared to your inbox" }),
         {
@@ -483,7 +535,10 @@ export const ShareTarget = () => {
                 _: "Or link to an existing suggestion",
               })}
             </span>
-            <LinkToShidduchSearch onLink={handleLinkToExisting} />
+            <LinkToShidduchSearch
+              onLink={handleLinkToExisting}
+              disabled={isSaving}
+            />
           </div>
 
           <FormToolbar>

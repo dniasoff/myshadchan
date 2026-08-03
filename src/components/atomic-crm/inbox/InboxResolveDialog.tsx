@@ -1,6 +1,14 @@
+import { useState } from "react";
 import { Loader2, Paperclip } from "lucide-react";
 import type { Identifier } from "ra-core";
-import { Form, useGetList, useNotify, useRefresh, useTranslate } from "ra-core";
+import {
+  Form,
+  useDataProvider,
+  useGetList,
+  useNotify,
+  useRefresh,
+  useTranslate,
+} from "ra-core";
 import { CancelButton } from "@/components/admin/cancel-button";
 import { SaveButton } from "@/components/admin/form";
 import { FormToolbar } from "@/components/admin/simple-form";
@@ -12,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+import type { CrmDataProvider } from "../providers/types";
 import { signInboxAttachmentUrl } from "../providers/supabase/inboxAttachments";
 import type {
   CreateShidduchInput,
@@ -20,6 +29,7 @@ import type {
   PipelineState,
   Shadchan,
 } from "../types";
+import { createShadchanInline } from "../shidduchim/createShadchanInline";
 import { ShidduchInputs } from "../shidduchim/ShidduchInputs";
 import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
 import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
@@ -48,9 +58,25 @@ export const InboxResolveDialog = ({
 }) => {
   const { resolveAsNewShidduch, resolveAsLinkToExisting, dismissInboxItem } =
     useResolveInboxItem();
+  const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const refresh = useRefresh();
   const translate = useTranslate();
+
+  // Review fix (F6, MEDIUM, Story 10.1 — same family as ShareTarget.tsx's
+  // fix): "File as a suggestion", every "Link" press, and "Dismiss" each
+  // act on this SAME already-captured `item`. Nothing here duplicates the
+  // item itself the way ShareTarget.tsx's fresh capture could, but without
+  // a shared busy flag two of these could still race — e.g. a "Link" press
+  // resolving while "File as a suggestion" is mid-submit — and send two
+  // competing resolutions for the one item. One flag, gating all three.
+  const [isBusy, setIsBusy] = useState(false);
+
+  // AC 3's inline "+ Add a shadchan" (FR78): the shared helper (review fix
+  // F4) — was wired nowhere in this dialog before, leaving the affordance
+  // unreachable from the one screen `ShidduchInputs.tsx`'s own comment
+  // claims it's reused "wherever" it appears.
+  const handleCreateShadchan = createShadchanInline(dataProvider);
 
   const SourceIcon = INBOX_SOURCE_META[item.source].icon;
   const sourceLabel = translate(`crm.inbox.source_${item.source}`, {
@@ -79,6 +105,7 @@ export const InboxResolveDialog = ({
     : null;
 
   const onSubmit = async (values: Record<string, unknown>) => {
+    setIsBusy(true);
     try {
       const input: CreateShidduchInput = {
         single_id: values.single_id as Identifier,
@@ -119,6 +146,8 @@ export const InboxResolveDialog = ({
           type: "error",
         },
       );
+    } finally {
+      setIsBusy(false);
     }
   };
 
@@ -127,6 +156,7 @@ export const InboxResolveDialog = ({
   // share screen agree on exactly one way to attach a capture to an existing
   // suggestion instead of creating a second one (AD-4).
   const handleLinkToExisting = async (shidduchimId: Identifier) => {
+    setIsBusy(true);
     try {
       await resolveAsLinkToExisting(item, shidduchimId);
       notify("Linked to the existing suggestion", { type: "info" });
@@ -137,6 +167,8 @@ export const InboxResolveDialog = ({
         error instanceof Error ? error.message : "Couldn't link that item",
         { type: "error" },
       );
+    } finally {
+      setIsBusy(false);
     }
   };
 
@@ -159,6 +191,7 @@ export const InboxResolveDialog = ({
   };
 
   const onDismiss = async () => {
+    setIsBusy(true);
     try {
       await dismissInboxItem(item);
       notify("Dismissed — nothing was filed", { type: "info" });
@@ -168,6 +201,8 @@ export const InboxResolveDialog = ({
       notify(error instanceof Error ? error.message : "Couldn't dismiss", {
         type: "error",
       });
+    } finally {
+      setIsBusy(false);
     }
   };
 
@@ -256,6 +291,7 @@ export const InboxResolveDialog = ({
             <ShidduchInputs
               lockedShadchanId={lockedShadchanId}
               isShadchanLocked={isShadchanSourced}
+              onCreateShadchan={handleCreateShadchan}
             />
 
             {/* AC 5 (Story 10.1, Task 3): link to an existing suggestion
@@ -267,7 +303,10 @@ export const InboxResolveDialog = ({
                   _: "Or link to an existing suggestion",
                 })}
               </span>
-              <LinkToShidduchSearch onLink={handleLinkToExisting} />
+              <LinkToShidduchSearch
+                onLink={handleLinkToExisting}
+                disabled={isBusy}
+              />
             </div>
 
             <FormToolbar>
@@ -275,15 +314,21 @@ export const InboxResolveDialog = ({
                 <button
                   type="button"
                   onClick={onDismiss}
-                  className="inline-flex h-11 items-center rounded-xl px-4 text-sm font-medium text-muted-foreground hover:text-foreground"
+                  disabled={isBusy}
+                  className="inline-flex h-11 items-center rounded-xl px-4 text-sm font-medium text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Dismiss — not a redt
                 </button>
                 <div className="flex flex-row justify-end gap-2">
-                  <CancelButton className="h-11" onClick={onClose} />
+                  <CancelButton
+                    className="h-11"
+                    onClick={onClose}
+                    disabled={isBusy}
+                  />
                   <SaveButton
                     label="File as a suggestion"
                     className={INBOX_PRIMARY_CTA_CLASS}
+                    disabled={isBusy}
                   />
                 </div>
               </div>

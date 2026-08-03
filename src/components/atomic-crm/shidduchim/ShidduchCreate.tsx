@@ -13,6 +13,7 @@ import { FormToolbar } from "../layout/FormToolbar";
 import { FormPageFrame } from "../misc/FormPageFrame";
 import type { CrmDataProvider } from "../providers/types";
 import type { CreateShidduchInput, PipelineState } from "../types";
+import { createShadchanInline } from "./createShadchanInline";
 import { INITIAL_PIPELINE_STATES } from "./pipelineStates";
 import { ShidduchInputs } from "./ShidduchInputs";
 
@@ -36,6 +37,13 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
     stateParam && INITIAL_PIPELINE_STATES.includes(stateParam)
       ? stateParam
       : "new";
+
+  // FR78's inline "+ Add a shadchan" (review fix F4, Story 10.1): the manual
+  // "Add a suggestion" flow is the OTHER `ShidduchInputs` caller the story's
+  // own comment names ("consistent wherever ShidduchInputs is reused") —
+  // wired here with the same shared helper as ShareTarget.tsx and
+  // InboxResolveDialog.tsx.
+  const handleCreateShadchan = createShadchanInline(dataProvider);
 
   const onSubmit = async (values: Record<string, unknown>) => {
     try {
@@ -91,7 +99,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
           redt_date: new Date().toISOString().split("T")[0],
         }}
       >
-        <ShidduchInputs />
+        <ShidduchInputs onCreateShadchan={handleCreateShadchan} />
         <FormToolbar saveLabel="Add a suggestion" />
       </Form>
     </FormPageFrame>

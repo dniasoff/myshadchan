@@ -72,9 +72,13 @@ export default defineConfig({
       // Workbox-generated file to inject into), so simply dropping this
       // block would silently kill Epic 7's push notifications on every next
       // deploy with nothing failing loudly. `src/sw.ts` ports the same
-      // `importScripts("/push-sw.js")` call forward directly — see that
-      // file — so `public/push-sw.js` (unaffected by this switch; Vite's
-      // `public/` copy still ships it) keeps firing.
+      // call forward directly, as `importScripts("push-sw.js")` (relative,
+      // no leading slash — the exact literal
+      // `scripts/verify-push-sw-build.mjs` checks for in the built
+      // `dist/sw.js`; review fix F7, Story 10.1, corrected this comment,
+      // which used to say "/push-sw.js") — see that file — so
+      // `public/push-sw.js` (unaffected by this switch; Vite's `public/`
+      // copy still ships it) keeps firing.
       manifest: false, // Use existing manifest.json from public/
     }),
   ],

@@ -19,6 +19,12 @@ export interface LinkToShidduchSearchProps {
    * the caller to await and handle notify/refresh/navigation — this
    * component owns only the search UI, not what happens after a link. */
   onLink: (shidduchimId: Identifier) => void | Promise<void>;
+  /** Review fix (F6, Story 10.1): the search box and every "Link" button
+   * disable while the CALLER is busy with some other in-flight action
+   * (Save, Skip, or another Link) — not just the row that was clicked. This
+   * component owns only the search UI, so it cannot know about a sibling
+   * action on its own; the caller passes its own busy flag through. */
+  disabled?: boolean;
 }
 
 /**
@@ -29,7 +35,10 @@ export interface LinkToShidduchSearchProps {
  * cross-account isolation it inherits from `shidduchim_summary`'s RLS are
  * exercised identically everywhere it appears.
  */
-export function LinkToShidduchSearch({ onLink }: LinkToShidduchSearchProps) {
+export function LinkToShidduchSearch({
+  onLink,
+  disabled = false,
+}: LinkToShidduchSearchProps) {
   const translate = useTranslate();
   const [rawQuery, setRawQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -49,7 +58,7 @@ export function LinkToShidduchSearch({ onLink }: LinkToShidduchSearchProps) {
   // "shidduchim_summary" directly, is what actually fires 4.3's search hook
   // (the dead-hook trap: a hook keyed to the redirect TARGET never sees a
   // request made against the SOURCE name).
-  const { data, isPending } = useGetList<ShidduchSummary>(
+  const { data, isPending, error } = useGetList<ShidduchSummary>(
     "shidduchim",
     {
       filter: { q: trimmedQuery },
@@ -73,6 +82,20 @@ export function LinkToShidduchSearch({ onLink }: LinkToShidduchSearchProps) {
       <Input
         value={rawQuery}
         onChange={(event) => setRawQuery(event.target.value)}
+        // Review fix (F1, BLOCKING): this input lives inside the SAME
+        // ra-core <Form> as the "create a new suggestion" fields (both
+        // ShareTarget.tsx and InboxResolveDialog.tsx render it below
+        // ShidduchInputs/the shadchan picker), whose SaveButton is
+        // type="submit". Pressing Enter here therefore submitted THAT form
+        // — creating a second, duplicate suggestion — instead of doing
+        // nothing, which is what a search box's Enter key must do (AC 5:
+        // linking "does not create a second, duplicate suggestion").
+        // Swallowed here, once, rather than in every screen that reuses
+        // this component.
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.preventDefault();
+        }}
+        disabled={disabled}
         placeholder={translate("crm.inbox.linkSearch.placeholder", {
           _: "Or link to an existing suggestion…",
         })}
@@ -83,6 +106,16 @@ export function LinkToShidduchSearch({ onLink }: LinkToShidduchSearchProps) {
       {trimmedQuery.length === 0 ? null : isPending ? (
         <p className="text-sm text-muted-foreground">
           {translate("crm.inbox.linkSearch.loading", { _: "Searching…" })}
+        </p>
+      ) : error ? (
+        // Review fix (F3, HIGH): a failed search (e.g. PostgREST rejecting
+        // a malformed query) must never render as "No matching
+        // suggestions." — that is indistinguishable from a real empty
+        // result and hides a genuine failure as a false negative.
+        <p className="text-sm text-destructive">
+          {translate("crm.inbox.linkSearch.searchError", {
+            _: "Couldn't search your suggestions — try a different search.",
+          })}
         </p>
       ) : !data || data.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -125,7 +158,7 @@ export function LinkToShidduchSearch({ onLink }: LinkToShidduchSearchProps) {
                   type="button"
                   variant="secondary"
                   size="sm"
-                  disabled={linkingId === shidduch.id}
+                  disabled={disabled || linkingId === shidduch.id}
                   onClick={() => handleLink(shidduch.id)}
                 >
                   {translate("crm.inbox.linkSearch.link", { _: "Link" })}

@@ -75,9 +75,13 @@ export function useResolveInboxItem() {
     });
   };
 
-  /** AC 6: skipping never loses the capture — it stays an `unresolved` (now
-   * `dismissed`) row, visible in the Inbox for later triage. The existing
-   * dismiss update, unchanged. */
+  /** `InboxResolveDialog.tsx`'s "Dismiss — not a redt" action (never AC 6's
+   * "Skip" — that action creates a bare unresolved row from scratch via
+   * `dataProvider.create`, on `ShareTarget.tsx`; it never calls this).
+   * Marks an ALREADY-captured item `dismissed` rather than deleting it, so
+   * nothing already in the Inbox is ever lost by dismissing it. Review fix
+   * (F7, LOW, Story 10.1): this comment used to mislabel this as AC 6's
+   * Skip. */
   const dismissInboxItem = async (item: InboxItem): Promise<void> => {
     await dataProvider.update("inbox_items", {
       id: item.id,

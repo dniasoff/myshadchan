@@ -200,6 +200,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/createShadchanInline.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/boardUtils.ts",
           "type": "registry:component"
         },

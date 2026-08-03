@@ -119,38 +119,63 @@ sw.addEventListener("fetch", (event) => {
  * a stored `Response` carries bytes and a content-type, never a filename. */
 type SharedFileManifestEntry = { name: string; type: string };
 
+/**
+ * Review fix (F8, LOW, Story 10.1): this handler had no try/catch. A
+ * `respondWith` whose promise rejects fails the whole navigation with a
+ * bare browser network-error page — and `public/share-target.html` (the
+ * old GET fallback) was deleted by this same story (Task 1, NFR-14), so
+ * there was no page left to land on at all. Two levels of recovery, so a
+ * failure narrows what's lost instead of losing the whole share:
+ *  - the file-caching step is wrapped on its own: a Cache API failure
+ *    (e.g. storage quota) drops the file(s), never the title/text/url
+ *    fields already parsed successfully.
+ *  - the outer try/catch covers `formData()` itself failing to parse: the
+ *    worst case still redirects to a bare `/#/share`, landing the user in
+ *    the app to file the share manually rather than a dead error page.
+ */
 async function handleShareTarget(event: FetchEvent): Promise<Response> {
-  const formData = await event.request.formData();
-  const title = String(formData.get("title") ?? "");
-  const text = String(formData.get("text") ?? "");
-  const url = String(formData.get("url") ?? "");
-  const files = formData
-    .getAll("files")
-    .filter((entry): entry is File => entry instanceof File);
+  try {
+    const formData = await event.request.formData();
+    const title = String(formData.get("title") ?? "");
+    const text = String(formData.get("text") ?? "");
+    const url = String(formData.get("url") ?? "");
+    const files = formData
+      .getAll("files")
+      .filter((entry): entry is File => entry instanceof File);
 
-  const params = new URLSearchParams();
-  if (title) params.set("title", title);
-  if (text) params.set("text", text);
-  if (url) params.set("url", url);
+    const params = new URLSearchParams();
+    if (title) params.set("title", title);
+    if (text) params.set("text", text);
+    if (url) params.set("url", url);
 
-  if (files.length > 0) {
-    const shareKey = crypto.randomUUID();
-    const cache = await caches.open(SHARE_TARGET_CACHE);
-    const manifest: SharedFileManifestEntry[] = files.map((file) => ({
-      name: file.name,
-      type: file.type,
-    }));
-    await Promise.all([
-      cache.put(
-        shareTargetManifestKey(shareKey),
-        new Response(JSON.stringify(manifest)),
-      ),
-      ...files.map((file, index) =>
-        cache.put(shareTargetFileKey(shareKey, index), new Response(file)),
-      ),
-    ]);
-    params.set("shareKey", shareKey);
+    if (files.length > 0) {
+      try {
+        const shareKey = crypto.randomUUID();
+        const cache = await caches.open(SHARE_TARGET_CACHE);
+        const manifest: SharedFileManifestEntry[] = files.map((file) => ({
+          name: file.name,
+          type: file.type,
+        }));
+        await Promise.all([
+          cache.put(
+            shareTargetManifestKey(shareKey),
+            new Response(JSON.stringify(manifest)),
+          ),
+          ...files.map((file, index) =>
+            cache.put(shareTargetFileKey(shareKey, index), new Response(file)),
+          ),
+        ]);
+        params.set("shareKey", shareKey);
+      } catch {
+        // The file(s) couldn't be cached — still hand off whatever text
+        // fields were parsed above rather than losing the whole share.
+      }
+    }
+
+    return Response.redirect(`/#/share?${params.toString()}`, 303);
+  } catch {
+    // formData() itself failed to parse — nothing recoverable, but still
+    // land the user in the app instead of a bare network-error page.
+    return Response.redirect("/#/share", 303);
   }
-
-  return Response.redirect(`/#/share?${params.toString()}`, 303);
 }

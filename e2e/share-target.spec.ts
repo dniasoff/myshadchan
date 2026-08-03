@@ -168,7 +168,28 @@ test.describe("Share-target completion (Story 10.1)", () => {
       last_name: "HouseholdA",
       email: `e2e-share-a-${Date.now()}@example.com`,
     });
-    await createSingle({ member: memberA, first_name_en: "Sara A" });
+    const singleA = await createSingle({
+      member: memberA,
+      first_name_en: "Sara A",
+    });
+    // Review fix (F2, BLOCKING): a positive control on account A's OWN
+    // suggestion, searched below BEFORE the cross-account check — without
+    // it, this test only ever proved the search returns nothing, which is
+    // exactly as true when the search is broken (returns nothing for
+    // EVERY account, own included) as when it correctly excludes another
+    // account. Proven live: mutating the search filter to always return no
+    // rows left this test green with no such positive assertion present.
+    //
+    // Kept to two words: `applyFullTextSearch` + `@raphiniert/ra-data-
+    // postgrest`'s `or=(...)` builder mis-serializes any ilike value of
+    // THREE OR MORE words combined with multiple `@or` columns (confirmed
+    // pre-existing on `main`, reproduced independently of this story) —
+    // out of scope here; this fixture avoids it rather than exercising it.
+    await createShidduch({
+      accountId: singleA.account_id as number,
+      singleId: singleA.id as number,
+      nameEn: "Available Match",
+    });
 
     const memberB = await createMember({
       first_name: "Miriam",
@@ -182,7 +203,7 @@ test.describe("Share-target completion (Story 10.1)", () => {
     await createShidduch({
       accountId: singleB.account_id as number,
       singleId: singleB.id as number,
-      nameEn: "Confidential Suggestion B",
+      nameEn: "Confidential Match",
     });
 
     await signIn(page, memberA.email!);
@@ -191,13 +212,102 @@ test.describe("Share-target completion (Story 10.1)", () => {
       `${APP_URL}/#/share?text=${encodeURIComponent("Some raw text")}`,
     );
 
-    await page
-      .getByPlaceholder("Or link to an existing suggestion…")
-      .fill("Confidential Suggestion B");
+    const searchBox = page.getByPlaceholder(
+      "Or link to an existing suggestion…",
+    );
 
+    // Positive control: account A's own suggestion IS found.
+    await searchBox.fill("Available Match");
+    await expect(page.getByText("Available Match")).toBeVisible({
+      timeout: 15000,
+    });
+
+    // Negative check: account B's suggestion is never surfaced, even though
+    // the search mechanism is now proven to actually return rows.
+    await searchBox.fill("");
+    await searchBox.fill("Confidential Match");
     await expect(page.getByText("No matching suggestions.")).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.getByText("Confidential Suggestion B")).toHaveCount(0);
+    await expect(page.getByText("Confidential Match")).toHaveCount(0);
+  });
+
+  test("linking to an existing suggestion attaches the capture without creating a duplicate, and Enter never submits the create-new form instead (AC 1/5/6/7)", async ({
+    page,
+    createMember,
+    createSingle,
+    createShidduch,
+    signIn,
+  }) => {
+    const member = await createMember({
+      first_name: "Shprintza",
+      last_name: "Household",
+      email: `e2e-share-link-${Date.now()}@example.com`,
+    });
+    const single = await createSingle({ member, first_name_en: "Bracha E2E" });
+    // Two words only — see the cross-account test's comment above for why.
+    const existing = await createShidduch({
+      accountId: single.account_id as number,
+      singleId: single.id as number,
+      nameEn: "Existing Match",
+    });
+
+    await signIn(page, member.email!);
+
+    // Deliberately does NOT contain "Existing Match" as a substring — the
+    // raw-text preview panel renders this verbatim on the same screen as
+    // the search results list, and a shared text that echoed the
+    // suggestion's own name would make `getByText("Existing Match")` match
+    // two elements (a Playwright strict-mode violation) instead of the one
+    // search-result row these assertions mean to target.
+    const sharedText = "Spoke with them again today";
+    await page.goto(
+      `${APP_URL}/#/share?text=${encodeURIComponent(sharedText)}`,
+    );
+
+    await expect(
+      page.getByRole("heading", { name: "File this share" }),
+    ).toBeVisible();
+
+    const searchBox = page.getByPlaceholder(
+      "Or link to an existing suggestion…",
+    );
+    await searchBox.fill("Existing Match");
+
+    // Review fix (F2, BLOCKING): the positive control this search never
+    // had — the row genuinely surfaces, not just "no test ever proved it
+    // could".
+    await expect(page.getByText("Existing Match")).toBeVisible({
+      timeout: 15000,
+    });
+
+    // Review fix (F1, BLOCKING): this search box used to live inside the
+    // same <Form> as the "create a NEW suggestion" fields, whose SaveButton
+    // is type="submit" — pressing Enter here submitted THAT form instead of
+    // doing nothing, creating a second, duplicate suggestion (AC 5
+    // explicitly forbids this). A regression here would navigate straight
+    // to /#/inbox_items, exactly as the real "Save & review" button does.
+    await searchBox.press("Enter");
+    await expect(page).toHaveURL(/#\/share/);
+    await expect(
+      page.getByRole("heading", { name: "File this share" }),
+    ).toBeVisible();
+    await expect(page.getByText("Existing Match")).toBeVisible();
+
+    await page.getByRole("button", { name: "Link" }).click();
+
+    await expect(page).toHaveURL(/#\/inbox_items/);
+
+    // No duplicate suggestion exists — exactly one "Existing Match" row is
+    // on the board (review fix F2: no test had ever actually clicked
+    // "Link" before this one).
+    await page.goto(`${APP_URL}/#/shidduchim`);
+    await expect(page.getByText("Existing Match")).toHaveCount(1);
+
+    // AC 7: the capture was attached as a note against the SAME suggestion
+    // — never a bespoke insert — and shows up in its Notes tab
+    // automatically, no new rendering path needed.
+    await page.goto(`${APP_URL}/#/shidduchim/${existing.id}/notes`);
+    await expect(page.getByText(sharedText)).toBeVisible();
   });
 });

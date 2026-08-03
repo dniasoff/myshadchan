@@ -925,12 +925,16 @@ export const frenchCrmMessages = {
         skipped: "Partagé dans votre boîte de réception",
         saveError: "Impossible d'enregistrer ce partage",
         pickSingleError: "Choisissez pour quel célibataire c'est",
+        fileReadError:
+          "Impossible de charger le fichier partagé — vous pouvez tout de même l'enregistrer sans lui.",
       },
       linkSearch: {
         placeholder: "Ou lier à une suggestion existante…",
         label: "Rechercher vos suggestions",
         loading: "Recherche en cours…",
         empty: "Aucune suggestion correspondante.",
+        searchError:
+          "Impossible de rechercher vos suggestions — essayez une autre recherche.",
         onBoard: "déjà sur le tableau",
         link: "Lier",
       },
