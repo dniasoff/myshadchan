@@ -1,6 +1,6 @@
 # Story 10.6: Share-target upload ordering (row before storage)
 
-Status: in-progress
+Status: done
 
 ## Story
 

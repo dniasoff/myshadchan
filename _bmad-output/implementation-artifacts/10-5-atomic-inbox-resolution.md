@@ -1,6 +1,6 @@
 # Story 10.5: Atomic idempotency for inbox resolution
 
-Status: in-progress
+Status: done
 
 ## Story
 

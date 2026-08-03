@@ -1,6 +1,6 @@
 # Story 10.4: Carry inbox attachments into linked suggestion
 
-Status: in-progress
+Status: done
 
 ## Story
 

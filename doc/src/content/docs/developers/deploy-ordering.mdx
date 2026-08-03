@@ -39,14 +39,14 @@ push to main
 
 The frontend is strictly last. **If any backend job fails, the hook never fires
 and production stays on the last good build.** That is the whole design — the
-hook *not* firing is the safe outcome, not an error to route around.
+hook _not_ firing is the safe outcome, not an error to route around.
 
 ## The two halves — both are required
 
 1. **`vercel.json`** sets `git.deploymentEnabled: { "main": false }`, which stops
    Vercel auto-building on push to `main`.
 2. **`VERCEL_DEPLOY_HOOK_URL`** (GitHub Actions repo secret) is the Deploy Hook
-   that `trigger-frontend` POSTs. With half 1 in place, this is the *only* way
+   that `trigger-frontend` POSTs. With half 1 in place, this is the _only_ way
    production is ever rebuilt.
 
 Remove half 2 without reverting half 1 and production simply stops deploying.
@@ -59,12 +59,12 @@ a missing optional secret would be worse than the race being fixed.
 These were measured on a throwaway branch before the change landed, because
 guessing wrong means production silently stops deploying:
 
-| Question | Answer |
-| --- | --- |
-| Does `deploymentEnabled: false` stop a push-triggered build? | **Yes** — the push created no deployment at all. |
-| Does a Deploy Hook still build a branch that has `deploymentEnabled: false`? | **Yes** — hooks bypass the setting entirely. |
-| Do PR previews still work with `main: false`? | **Yes** — matching is per-branch-name, and a PR deploys its *head* branch, never `main`. |
-| Does a hook on `main` produce a production deployment? | **Yes** — `target=production`, verified against a commit already live. |
+| Question                                                                     | Answer                                                                                   |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Does `deploymentEnabled: false` stop a push-triggered build?                 | **Yes** — the push created no deployment at all.                                         |
+| Does a Deploy Hook still build a branch that has `deploymentEnabled: false`? | **Yes** — hooks bypass the setting entirely.                                             |
+| Do PR previews still work with `main: false`?                                | **Yes** — matching is per-branch-name, and a PR deploys its _head_ branch, never `main`. |
+| Does a hook on `main` produce a production deployment?                       | **Yes** — `target=production`, verified against a commit already live.                   |
 
 The documented setting that **does** disable Deploy Hooks is the deprecated
 `github.enabled: false`. Do not add that key to `vercel.json`; it would silently
@@ -94,7 +94,7 @@ value ends up with `\n` inside it.
 **Deploying the frontend without a code change** (e.g. after a manual database
 fix): re-run the `trigger-frontend` job from the GitHub Actions run, or redeploy
 from the Vercel dashboard. Dashboard redeploys and rollbacks are unaffected by
-`deploymentEnabled` — that setting only gates *git-push* triggers.
+`deploymentEnabled` — that setting only gates _git-push_ triggers.
 
 **Emergency: deploy the frontend right now, bypassing CI.** POST the hook
 directly. This skips every backend gate, so only do it when you know the schema

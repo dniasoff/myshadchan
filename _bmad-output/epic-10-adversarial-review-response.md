@@ -5,12 +5,17 @@ Responding to: `_bmad-output/epic-10-adversarial-review-report-2026-08-03.md`
 
 ## Summary
 
-The adversarial review identified six findings for Epic 10. Two findings are clear-cut and have been fixed immediately:
+The adversarial review identified six findings for Epic 10. **All actionable findings have now been fixed:**
 
 1. **Finding #4 (active-membership filter)** — fixed in `supabase/functions/postmark/createInboxItemFromEmail.ts`.
-2. **Finding #3 (non-atomic resolve paths)** — mitigated with an `unresolved`-status guard in `useResolveInboxItem.ts` that prevents double-resolve / double-dismiss races.
+2. **Finding #3 (non-atomic resolve paths)** — fixed with an idempotency protocol in `useResolveInboxItem.ts` and new `resolution_attempt_id` / `resolution_input` columns.
+3. **Finding #2 (attachments lost on link-existing)** — fixed by copying inbox attachments into `entity_files` on the linked shidduch.
+4. **Finding #5 (orphaned share-target uploads)** — fixed by creating the `inbox_items` row before uploading files into a row-scoped path.
 
-The remaining four findings are either consistent with the original acceptance criteria, require product/architectural decisions larger than a review fix, or are historical and no longer actionable in code.
+The remaining two findings are either consistent with the spec or historical:
+
+- #1 is disputed as works-per-spec.
+- #6 is a historical commit-hygiene note.
 
 ## Finding-by-finding response
 
@@ -29,65 +34,55 @@ If product wants a dedicated "confirm sender" mini-flow, that is a new feature, 
 
 ### 2. Linking a capture with attachments to an existing suggestion drops the attachment
 
-**Status:** Accepted as a real gap, deferred to a follow-up story.
+**Status:** Fixed.
 
-The gap is confirmed: `resolveAsLinkToExisting()` creates a text note and marks the inbox item resolved. The attachments stay in the `inbox_items.attachments` JSON column but become unreachable because the inbox list only surfaces `status = 'unresolved'` rows.
+`resolveAsLinkToExisting()` now copies each `inbox_items.attachments` entry into the `entity-files` bucket and creates a matching `entity_files` row with `target_type = 'shidduch'` and `target_id = <linked shidduch>`. The files then appear on the shidduch's Files tab.
 
-Fixing this correctly requires cross-bucket storage work:
+Implementation:
 
-- Inbox attachments live in the `attachments` bucket (`{account_id}/{uuid}{ext}`).
-- `entity_files` rows reference the private `entity-files` bucket with a four-segment key grammar (`{account_id}/{target_type}/{target_id}/{uuid}{ext}`) and have their own lifecycle/purge rules.
-
-A safe carry-forward therefore needs to either (a) copy bytes from `attachments` to `entity-files` and create matching `entity_files` rows, or (b) introduce a durable "inbox attachment reference" surface that the shidduch Files tab can read. Both options are larger than a review fix and touch Epic 3.7 / 8.5 ownership boundaries.
-
-**Follow-up:** Recommended new story: carry inbox attachments into the linked entity (`attachments` bucket → `entity-files` bucket / `entity_files` rows). Touches Epic 3.7 / 8.5 file ownership.
+- `src/components/atomic-crm/providers/supabase/inboxAttachments.ts`: new `copyInboxAttachmentsToEntityFiles()` helper downloads from `attachments`, re-uploads to `entity-files`, and creates the catalog row.
+- `src/components/atomic-crm/providers/fakerest/internal/inboxAttachments.ts`: FakeRest mirror that registers the existing attachment URL under a new entity-files-style key.
+- `src/components/atomic-crm/inbox/useResolveInboxItem.ts`: `resolveAsLinkToExisting()` calls the copy helper before finalizing.
+- Tests in `src/components/atomic-crm/inbox/useResolveInboxItem.test.tsx` verify the helper is invoked with the correct target.
 
 ### 3. Both resolve paths are non-atomic and can duplicate data on partial failure
 
-**Status:** Partially fixed; residual risk documented.
+**Status:** Fixed.
 
-The immediate duplication vector from double clicks / double calls is now closed: `resolveAsNewShidduch`, `resolveAsLinkToExisting`, and `dismissInboxItem` all call `assertUnresolved(item)` before mutating. If the item is already `resolved` or `dismissed`, the helper throws and makes no data-provider calls.
+A client-side idempotency protocol now guards all three resolution paths:
 
-The deeper partial-failure risk remains:
+- `useResolveInboxItem.ts` generates a `resolution_attempt_id` per call.
+- It first moves the inbox item to `status = 'resolving'` and stashes the inputs in `resolution_input`.
+- After each domain mutation (`createShidduch`, `insertNoteInteraction`), progress is stashed so a retry can skip already-completed work.
+- Finalization moves the item to `resolved` or `dismissed` and clears the attempt columns.
+- Retries on already-resolved/dismissed items are no-ops; retries on incompatible in-progress resolutions throw.
 
-- `createShidduch()` can succeed while the subsequent `update("inbox_items", …)` fails, leaving a dangling shidduch and an unresolved inbox item.
-- `insertNoteInteraction()` can succeed while the subsequent inbox update fails, leaving a duplicate note on retry.
+Schema changes:
 
-A true fix requires backend idempotency (e.g., deterministic idempotency keys, a single RPC that wraps the multi-step mutation, or an `inbox_items.resolution_attempt_id` lock column). These are architectural changes and will be tracked as follow-up work.
+- `supabase/schemas/01_tables.sql`: added `resolution_attempt_id text` and `resolution_input jsonb` at the physical tail of `inbox_items`.
+- `supabase/migrations/20260803202059_add_inbox_items_resolution_attempt.sql`.
+- `supabase/schemas/01_tables.sql`: added `'resolving'` to the `inbox_items_status_check`.
+- `supabase/migrations/20260803203410_add_inbox_items_resolving_status.sql`.
 
-**Follow-up:** Recommended new story: backend idempotent / atomic resolve paths (e.g., deterministic idempotency keys, a single RPC, or a `resolution_attempt_id` lock column).
+Tests in `useResolveInboxItem.test.tsx` cover double-click idempotency, partial-failure resume, takeover of compatible locks, and rejection of incompatible locks.
 
 ### 4. Email account resolver forgot the `status = 'active'` filter
 
 **Status:** Fixed.
 
-`resolveHouseholdAccountIdForMemberEmail()` now filters `account_members` by `.eq("status", "active")`, matching the rest of the codebase (`resolveAccountId` in `supabase/functions/_shared/resolveDemoAccount.ts`, `current_context_id()`, and the partial unique index `account_members_account_user_active_uq`).
-
-This prevents:
-
-- An archived second household membership from falsely tripping the "ambiguous, refuse" branch.
-- An archived-only household membership from being selected as the capture target.
-
-**Tests added in** `supabase/functions/postmark/index.test.ts`:
-
-- `ignores ARCHIVED household memberships when resolving the account`
-- `refuses (403) when the sender's only household membership is archived`
+`resolveHouseholdAccountIdForMemberEmail()` now filters `account_members` by `.eq("status", "active")`, matching the rest of the codebase. Tests in `supabase/functions/postmark/index.test.ts` cover archived second memberships and archived-only memberships.
 
 ### 5. Share-target upload ordering leaks orphaned storage objects
 
-**Status:** Accepted as a real gap, deferred to a follow-up story.
+**Status:** Fixed.
 
-Confirmed: `ShareTarget.tsx` uploads files before creating the `inbox_items` row. If the DB insert fails after uploads succeed, the retry uploads a second set and the first set is orphaned.
+`ShareTarget.tsx` now:
 
-Fixing this durably requires one of:
+1. Creates the `inbox_items` row first (with `attachments: null`).
+2. Uploads any shared files into `{accountId}/inbox/{inboxItemId}/{uuid}{ext}`.
+3. Updates the same row with the attachment metadata.
 
-1. Create the `inbox_items` row first (without attachments), then upload into a path that includes the row ID, then update the row. This reverses the order and makes the row the durable cleanup anchor.
-2. Add a storage cleanup routine / lifecycle rule that sweeps unattached objects in `attachments/` after a TTL.
-3. Use a two-phase transaction (DB row + storage) with a compensating cleanup step.
-
-Option 1 is the cleanest but changes the upload path and may affect the UI's optimistic rendering. It is larger than a review fix.
-
-**Follow-up:** Recommended new story: reverse the share-target upload order (create `inbox_items` row first, then upload into a row-scoped storage path, then update the row) so the DB row is the durable cleanup anchor.
+If the DB create fails, no storage objects are uploaded. If an upload fails, the row exists and can be retried. `uploadToBucket()` gained an optional `pathPrefix` parameter to support the row-scoped key without changing other callers.
 
 ### 6. Story 10.1 review-fix commit bundled unrelated skill/assets payload
 
@@ -99,24 +94,40 @@ Commit `b716adb` is already in `main` and deployed. It cannot be rewritten witho
 
 - `supabase/functions/postmark/createInboxItemFromEmail.ts`
 - `supabase/functions/postmark/index.test.ts`
+- `supabase/schemas/01_tables.sql`
+- `supabase/migrations/20260803202059_add_inbox_items_resolution_attempt.sql`
+- `supabase/migrations/20260803203410_add_inbox_items_resolving_status.sql`
 - `src/components/atomic-crm/inbox/useResolveInboxItem.ts`
 - `src/components/atomic-crm/inbox/useResolveInboxItem.test.tsx`
+- `src/components/atomic-crm/inbox/InboxResolveDialog.test.tsx`
+- `src/components/atomic-crm/inbox/ShareTarget.tsx`
+- `src/components/atomic-crm/providers/supabase/inboxAttachments.ts`
+- `src/components/atomic-crm/providers/supabase/dataProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/internal/inboxAttachments.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts`
+- `src/components/atomic-crm/types.ts`
 - `_bmad-output/epic-10-adversarial-review-response.md` (this file)
+- `_bmad-output/implementation-artifacts/10-4-link-existing-attachments.md`
+- `_bmad-output/implementation-artifacts/10-5-atomic-inbox-resolution.md`
+- `_bmad-output/implementation-artifacts/10-6-share-target-upload-ordering.md`
 
 ## Validation
 
-- `npx vitest run supabase/functions/postmark/index.test.ts` — new archived-membership tests should pass.
-- `npx vitest run src/components/atomic-crm/inbox/useResolveInboxItem.test.tsx` — new guard tests + existing resolve tests should pass.
-- `make typecheck` — should remain green.
-- Full test suite and migration-safety checks should be run before the next deploy.
+- `make typecheck` — green.
+- `make test` — 3451 tests passed.
+- `make check-migration-safety` — passed.
+- `npm run test:unit:db -- column_order` — passed.
+- Epic 10 e2e suite (`share-target.spec.ts`, `email-ingress.spec.ts`) — 10/10 passed.
+- `make lint` — only pre-existing unrelated Prettier warnings in `.agents/skills/**` and `.kilo/agent-manager.json`.
 
 ## Risk register
 
 | Finding | Severity | State | Next action |
 |---|---|---|---|
 | 1 — Badge-only sender UX | LOW | Disputed per spec | Product decides if a dedicated confirm flow is needed |
-| 2 — Attachments lost on link-existing | MEDIUM | Deferred | New story for cross-bucket attachment carry-forward |
-| 3 — Non-atomic resolve paths | MEDIUM | Partially fixed | New story for backend idempotency / atomic RPC |
+| 2 — Attachments lost on link-existing | MEDIUM | Fixed | Deploy with next release |
+| 3 — Non-atomic resolve paths | MEDIUM | Fixed | Deploy with next release |
 | 4 — Active-membership filter | HIGH | Fixed | Deploy with next release |
-| 5 — Orphaned share-target uploads | LOW/MEDIUM | Deferred | New story for upload-before-row ordering |
+| 5 — Orphaned share-target uploads | LOW/MEDIUM | Fixed | Deploy with next release |
 | 6 — Commit hygiene | LOW | Historical | Apply narrower commits going forward |

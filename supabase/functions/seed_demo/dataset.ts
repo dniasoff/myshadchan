@@ -325,6 +325,30 @@ export const REFERENCE_LINKS: Array<{
     whatTheySaid:
       "Knew her well in seminary — mature, responsible, wonderful family. Would be a great fit for a learning boy.",
   },
+  {
+    referenceKey: "R1",
+    suggestionKey: "AhronKlein",
+    whatTheySaid:
+      "Knew him from a previous shidduch inquiry. Very solid boy with a warm family. Would be a good match for a Lakewood girl.",
+  },
+  {
+    referenceKey: "R3",
+    suggestionKey: "ShiraFeldman",
+    whatTheySaid:
+      "Neighbor for several years. The family is quiet, ehrliche, and very close. Shira is helpful and mature.",
+  },
+  {
+    referenceKey: "R4",
+    suggestionKey: "YosefMandel",
+    whatTheySaid:
+      "Chavrusa for a full zeman. Yosef is consistent, has good derech eretz, and takes learning seriously. Recommended warmly.",
+  },
+  {
+    referenceKey: "R2",
+    suggestionKey: "EstherMalkaWeiss",
+    whatTheySaid:
+      "Former teacher. Esther Malka is a poised, responsible girl with a strong sense of family. Very positive impression.",
+  },
 ];
 
 // Plain timeline notes on suggestions.
@@ -387,3 +411,321 @@ export const EXTRA_REDTS: Array<{
   shadchanKey: string;
   redtDaysAgo: number;
 }> = [{ suggestionKey: "EliezerKatz", shadchanKey: "S3", redtDaysAgo: 18 }];
+
+export type AssetKey =
+  | "rivky"
+  | "yaakov"
+  | "ahron"
+  | "eliezer"
+  | "yosef"
+  | "estherMalka"
+  | "devoraLeah"
+  | "shira"
+  | "familyNotes"
+  | "referenceSummary"
+  | "steinNotes";
+
+export const RESUME_FILES: Array<{
+  suggestionKey?: string;
+  singleKey?: string;
+  filename: string;
+  assetKey: AssetKey;
+  mimeType: "application/pdf";
+}> = [
+  {
+    singleKey: "Rivky",
+    filename: "rivky-stern.pdf",
+    assetKey: "rivky",
+    mimeType: "application/pdf",
+  },
+  {
+    singleKey: "Yaakov",
+    filename: "yaakov-stern.pdf",
+    assetKey: "yaakov",
+    mimeType: "application/pdf",
+  },
+  {
+    suggestionKey: "AhronKlein",
+    filename: "ahron-klein.pdf",
+    assetKey: "ahron",
+    mimeType: "application/pdf",
+  },
+  {
+    suggestionKey: "EliezerKatz",
+    filename: "eliezer-katz.pdf",
+    assetKey: "eliezer",
+    mimeType: "application/pdf",
+  },
+  {
+    suggestionKey: "YosefMandel",
+    filename: "yosef-mandel.pdf",
+    assetKey: "yosef",
+    mimeType: "application/pdf",
+  },
+  {
+    suggestionKey: "EstherMalkaWeiss",
+    filename: "esther-malka-weiss.pdf",
+    assetKey: "estherMalka",
+    mimeType: "application/pdf",
+  },
+  {
+    suggestionKey: "DevoraLeahGross",
+    filename: "devora-leah-gross.pdf",
+    assetKey: "devoraLeah",
+    mimeType: "application/pdf",
+  },
+  {
+    suggestionKey: "ShiraFeldman",
+    filename: "shira-feldman.pdf",
+    assetKey: "shira",
+    mimeType: "application/pdf",
+  },
+];
+
+export const RESUME_PHOTOS: Array<{
+  suggestionKey?: string;
+  singleKey?: string;
+  filename: string;
+  assetKey: AssetKey;
+  visibility: "shared" | "private_parent";
+}> = [
+  {
+    singleKey: "Rivky",
+    filename: "rivky-stern.jpg",
+    assetKey: "rivky",
+    visibility: "shared",
+  },
+  {
+    singleKey: "Yaakov",
+    filename: "yaakov-stern.jpg",
+    assetKey: "yaakov",
+    visibility: "shared",
+  },
+  {
+    suggestionKey: "AhronKlein",
+    filename: "ahron-klein.jpg",
+    assetKey: "ahron",
+    visibility: "shared",
+  },
+  {
+    suggestionKey: "EliezerKatz",
+    filename: "eliezer-katz.jpg",
+    assetKey: "eliezer",
+    visibility: "shared",
+  },
+  {
+    suggestionKey: "ShiraFeldman",
+    filename: "shira-feldman.jpg",
+    assetKey: "shira",
+    visibility: "private_parent",
+  },
+  {
+    suggestionKey: "DevoraLeahGross",
+    filename: "devora-leah-gross.jpg",
+    assetKey: "devoraLeah",
+    visibility: "shared",
+  },
+];
+
+export const ENTITY_FILES: Array<{
+  targetType: "shidduch" | "reference";
+  targetKey: string;
+  filename: string;
+  assetKey: AssetKey;
+  mimeType: string;
+  visibility: "shared" | "private_parent";
+}> = [
+  {
+    targetType: "shidduch",
+    targetKey: "AhronKlein",
+    filename: "family-notes.pdf",
+    assetKey: "familyNotes",
+    mimeType: "application/pdf",
+    visibility: "shared",
+  },
+  {
+    targetType: "shidduch",
+    targetKey: "EliezerKatz",
+    filename: "reference-summary.pdf",
+    assetKey: "referenceSummary",
+    mimeType: "application/pdf",
+    visibility: "shared",
+  },
+  {
+    targetType: "reference",
+    targetKey: "R1",
+    filename: "stein-notes.pdf",
+    assetKey: "steinNotes",
+    mimeType: "application/pdf",
+    visibility: "shared",
+  },
+];
+
+export const MEDICAL_NOTES: Array<{ suggestionKey: string; body: string }> = [
+  {
+    suggestionKey: "EliezerKatz",
+    body: "No concerns noted. Routine check with family doctor completed.",
+  },
+  {
+    suggestionKey: "ShiraFeldman",
+    body: "Allergy to penicillin disclosed; not a concern for shidduch.",
+  },
+];
+
+export const EXTERNAL_LINKS: Array<{
+  suggestionKey: string;
+  url: string;
+  label: string;
+}> = [
+  {
+    suggestionKey: "EliezerKatz",
+    url: "https://example-shidduch-site.com/profile/eliezer-katz",
+    label: "Shidduch profile",
+  },
+  {
+    suggestionKey: "DevoraLeahGross",
+    url: "https://example-shidduch-site.com/profile/devora-leah-gross",
+    label: "Shidduch profile",
+  },
+];
+
+export const DATE_RECORDS: Array<{
+  singleKey: string;
+  personName: string;
+  personLocation: string;
+  dateOn: string;
+  outcome: string;
+  notes: string;
+}> = [
+  {
+    singleKey: "Yaakov",
+    personName: "Bracha Gold",
+    personLocation: "Lakewood, NJ",
+    dateOn: daysAgo(30),
+    outcome: "no",
+    notes: "Nice girl, ages didn't work out.",
+  },
+  {
+    singleKey: "Rivky",
+    personName: "Binyomin Reiss",
+    personLocation: "Lakewood, NJ",
+    dateOn: daysAgo(35),
+    outcome: "no",
+    notes: "Different hashkafos.",
+  },
+];
+
+export const STATUS_CHANGES: Array<{
+  suggestionKey: string;
+  from: PipelineState;
+  to: PipelineState;
+  body?: string;
+  atDaysAgo: number;
+}> = [
+  {
+    suggestionKey: "YisroelMeirFriedman",
+    from: "look_into",
+    to: "not_sure",
+    body: "Heard mixed things; holding for now.",
+    atDaysAgo: 8,
+  },
+  {
+    suggestionKey: "ShmuelBrog",
+    from: "look_into",
+    to: "for_sure_not",
+    body: "Family not the right fit.",
+    atDaysAgo: 7,
+  },
+  {
+    suggestionKey: "NaftaliSchwartz",
+    from: "look_into",
+    to: "for_sure_not",
+    body: "Not aligned on hashkafa.",
+    atDaysAgo: 18,
+  },
+  {
+    suggestionKey: "EliezerKatz",
+    from: "look_into",
+    to: "yes",
+    body: "Both sides very interested; moving forward.",
+    atDaysAgo: 25,
+  },
+  {
+    suggestionKey: "YosefMandel",
+    from: "look_into",
+    to: "unsure",
+    body: "Still checking references; undecided.",
+    atDaysAgo: 20,
+  },
+  {
+    suggestionKey: "BinyominReiss",
+    from: "look_into",
+    to: "no",
+    body: "Different hashkafa — not the right fit.",
+    atDaysAgo: 35,
+  },
+  {
+    suggestionKey: "ChanaRosen",
+    from: "look_into",
+    to: "for_sure_not",
+    body: "Not the right type for Yaakov.",
+    atDaysAgo: 12,
+  },
+  {
+    suggestionKey: "ShiraFeldman",
+    from: "look_into",
+    to: "yes",
+    body: "Great phone call with the mother; very promising.",
+    atDaysAgo: 22,
+  },
+  {
+    suggestionKey: "BrachaGold",
+    from: "look_into",
+    to: "no",
+    body: "Ages didn't work out.",
+    atDaysAgo: 30,
+  },
+];
+
+export const TIMELINE_NOTES: Array<{ suggestionKey: string; body: string }> = [
+  {
+    suggestionKey: "EliezerKatz",
+    body: "Parents sound very interested. Waiting to hear back after they check into our side. References so far are excellent.",
+  },
+  {
+    suggestionKey: "YisroelMeirFriedman",
+    body: "Redt by Rabbi Weiss — learning in Mir, supposed to be an outstanding bochur. Need to call references this week.",
+  },
+  {
+    suggestionKey: "DevoraLeahGross",
+    body: "Seminary teacher gave a glowing report. Planning to set up a call between the parents.",
+  },
+  {
+    suggestionKey: "ShiraFeldman",
+    body: "Parents spoke last night. Both sides are warm and practical; scheduling a second call.",
+  },
+  {
+    suggestionKey: "AhronKlein",
+    body: "Resume looks strong. Shadchan says he is a masmid with excellent middos; checking references.",
+  },
+  {
+    suggestionKey: "YosefMandel",
+    body: "Mixed reports from references. Holding off until we can speak directly to the rebbe.",
+  },
+  {
+    suggestionKey: "EstherMalkaWeiss",
+    body: "Just redt by Mrs. Rosenberg. Need to review resume and set up parent call.",
+  },
+  {
+    suggestionKey: "BinyominReiss",
+    body: "Closed after one date — different hashkafos. Spoke to shadchan respectfully.",
+  },
+  {
+    suggestionKey: "NaftaliSchwartz",
+    body: "Spoke to references; not the right fit. Will move to for-sure-not.",
+  },
+  {
+    suggestionKey: "BrachaGold",
+    body: "Date happened last week. Both agreed nicely that ages didn't work out.",
+  },
+];

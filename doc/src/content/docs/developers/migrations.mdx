@@ -18,15 +18,16 @@ The `supabase/schemas/` directory contains the **source of truth** for the datab
     }
     `}
 </style>
-| File | Contents |
-|------|----------|
-| `01_tables.sql` | Tables, foreign keys, indexes, extensions |
-| `02_functions.sql` | All PL/pgSQL functions |
-| `03_views.sql` | Views (`contacts_summary`, `companies_summary`, `activity_log`, `init_state`) |
-| `04_triggers.sql` | All triggers (public tables + auth.users) |
-| `05_policies.sql` | Row Level Security policies |
-| `06_grants.sql` | Grants and default privileges |
-| `07_storage.sql` | Storage bucket policies |
+
+| File               | Contents                                                                      |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `01_tables.sql`    | Tables, foreign keys, indexes, extensions                                     |
+| `02_functions.sql` | All PL/pgSQL functions                                                        |
+| `03_views.sql`     | Views (`contacts_summary`, `companies_summary`, `activity_log`, `init_state`) |
+| `04_triggers.sql`  | All triggers (public tables + auth.users)                                     |
+| `05_policies.sql`  | Row Level Security policies                                                   |
+| `06_grants.sql`    | Grants and default privileges                                                 |
+| `07_storage.sql`   | Storage bucket policies                                                       |
 
 Files are numbered to control load order (tables must exist before functions that reference them).
 
@@ -94,7 +95,7 @@ See the `COLUMN-ORDER TRAP` header in `supabase/schemas/01_tables.sql`.
 
 :::danger[The empty-table trap]
 Step 4 above applies your migration to a database that `db reset` just
-rebuilt from nothing, and step 5 compares *shapes*. **Neither one can see a
+rebuilt from nothing, and step 5 compares _shapes_. **Neither one can see a
 row.** A migration that drops a column, renames a table or rewrites a derived
 value is therefore perfectly green locally and still destroys production,
 because production is the only place the table is not empty.
@@ -106,7 +107,7 @@ production — HTTP 200 with zero rows on every surface.
 dropped `shidduchim.parents_en`/`parents_he` before adding
 `father_*`/`mother_*`, with nothing in between, against 24 populated rows —
 and its own review fix (`update public.shidduchim set id = id`, added to stop
-`identity_signals.parents_norm` going stale) would have run *after* the drop
+`identity_signals.parents_norm` going stale) would have run _after_ the drop
 and overwritten all 24 rows' `parents_norm` with NULL. Six clean `db diff`
 runs saw none of it.
 
@@ -117,10 +118,10 @@ make check-migration-safety            # add STACK_ID=<n> for your own stack
 ```
 
 It resets a local stack to the **last deployed** migration, seeds
-production-shaped rows, applies only the *pending* migrations, and then
+production-shaped rows, applies only the _pending_ migrations, and then
 asserts that every seeded row still exists, that every value in a surviving
 column is unchanged, and that every column that disappeared while holding
-data has a declared, *verified* destination. CI runs the same script
+data has a declared, _verified_ destination. CI runs the same script
 (`🧬 Migration data-safety`) against the merge base.
 
 When it goes red, the fix is almost always the same three moves inside the

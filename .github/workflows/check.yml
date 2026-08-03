@@ -1,246 +1,246 @@
 name: ✅ Check
 on:
-    push:
-        branches:
-            - main
-    pull_request:
-        types:
-            - opened
-            - reopened
-            - synchronize
-            - ready_for_review
+  push:
+    branches:
+      - main
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-    cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
-    contents: write
-    checks: write
+  contents: write
+  checks: write
 
 jobs:
-    lint:
-        name: 🔬 ESLint & Prettier
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
-        steps:
-            - name: 📥 Checkout repo
-              uses: actions/checkout@v7
+  lint:
+    name: 🔬 ESLint & Prettier
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v7
 
-            - name: ⚙️ Setup node
-              uses: actions/setup-node@v7
-              with:
-                  node-version-file: .nvmrc
-                  cache: npm
+      - name: ⚙️ Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
 
-            - name: 📥 Download deps
-              run: npm ci
+      - name: 📥 Download deps
+        run: npm ci
 
-            - name: 🔬 Lint
-              run: npm run lint
+      - name: 🔬 Lint
+        run: npm run lint
 
-            - name: 🎨 Prettier
-              run: npm run prettier
+      - name: 🎨 Prettier
+        run: npm run prettier
 
-    typecheck:
-        name: 🏷️ Typecheck
-        timeout-minutes: 10
-        runs-on: ubuntu-latest
-        if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
-        steps:
-            - name: 📥 Checkout repo
-              uses: actions/checkout@v7
+  typecheck:
+    name: 🏷️ Typecheck
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v7
 
-            - name: ⚙️ Setup node
-              uses: actions/setup-node@v7
-              with:
-                  node-version-file: .nvmrc
-                  cache: npm
+      - name: ⚙️ Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
 
-            - name: 📥 Download deps
-              run: npm ci
+      - name: 📥 Download deps
+        run: npm ci
 
-            - name: 🏷️ Typecheck
-              run: npm run typecheck
+      - name: 🏷️ Typecheck
+        run: npm run typecheck
 
-    test-app:
-        name: 🔎 Test
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
-        steps:
-            - name: 📥 Checkout repo
-              uses: actions/checkout@v7
+  test-app:
+    name: 🔎 Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v7
 
-            - name: ⚙️ Setup node
-              uses: actions/setup-node@v7
-              with:
-                  node-version-file: .nvmrc
-                  cache: npm
+      - name: ⚙️ Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
 
-            - name: 📥 Download deps
-              run: npm ci
+      - name: 📥 Download deps
+        run: npm ci
 
-            - name: 🎭 Install Playwright browsers
-              run: npx playwright install chromium-headless-shell 1>/dev/null
+      - name: 🎭 Install Playwright browsers
+        run: npx playwright install chromium-headless-shell 1>/dev/null
 
-            - name: 🔎 Unit Tests on App
-              run: CI=1 npm run test:unit:app -- --run
-            - name: 🔎 Unit Tests on Supabase functions
-              run: CI=1 npm run test:unit:functions -- --run
-            - name: 🔎 Unit Tests on Cloudflare Workers
-              run: CI=1 npm run test:unit:workers -- --run
-            - name: 🔎 Unit Tests on repo scripts
-              run: CI=1 npm run test:unit:scripts -- --run
+      - name: 🔎 Unit Tests on App
+        run: CI=1 npm run test:unit:app -- --run
+      - name: 🔎 Unit Tests on Supabase functions
+        run: CI=1 npm run test:unit:functions -- --run
+      - name: 🔎 Unit Tests on Cloudflare Workers
+        run: CI=1 npm run test:unit:workers -- --run
+      - name: 🔎 Unit Tests on repo scripts
+        run: CI=1 npm run test:unit:scripts -- --run
 
-    test-db:
-        name: 🗄️ Test (database)
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
-        steps:
-            - name: 📥 Checkout repo
-              uses: actions/checkout@v7
+  test-db:
+    name: 🗄️ Test (database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v7
 
-            - name: ⚙️ Setup node
-              uses: actions/setup-node@v7
-              with:
-                  node-version-file: .nvmrc
-                  cache: npm
+      - name: ⚙️ Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
 
-            - name: 📥 Download deps
-              run: npm ci
+      - name: 📥 Download deps
+        run: npm ci
 
-            - name: 🐘 Start local Supabase stack
-              run: make start-supabase-e2e
+      - name: 🐘 Start local Supabase stack
+        run: make start-supabase-e2e
 
-            - name: 🔎 Unit Tests on the database (RLS / SECURITY DEFINER suite)
-              run: CI=1 SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54342/postgres npm run test:unit:db -- --run
+      - name: 🔎 Unit Tests on the database (RLS / SECURITY DEFINER suite)
+        run: CI=1 SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54342/postgres npm run test:unit:db -- --run
 
-            - name: 🛑 Stop local Supabase stack
-              if: always()
-              run: make stop-supabase-e2e
+      - name: 🛑 Stop local Supabase stack
+        if: always()
+        run: make stop-supabase-e2e
 
-    # The only job that runs a migration against a NON-EMPTY table. Every
-    # other gate here — `db diff`, the db suite, e2e — works off `db reset`,
-    # which applies migrations to an empty database and seeds afterwards, so a
-    # `drop column` never meets a row and a missing backfill is invisible.
-    # `20260729095558_backfill_member_state.sql` and
-    # `20260730011428_shidduch_overview_fields.sql` both passed everything
-    # above green while destroying production data.
-    #
-    # The baseline is "what production had before this change": the merge base
-    # on a pull request, `github.event.before` on a push (this repo deploys
-    # every push to main, so that commit IS the deployed schema). When neither
-    # yields a usable ref, or nothing is pending, the script says so and
-    # passes — see scripts/check-migration-data-safety.mjs.
-    migration-data-safety:
-        name: 🧬 Migration data-safety (non-empty table)
-        runs-on: ubuntu-latest
-        timeout-minutes: 15
-        if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
-        steps:
-            - name: 📥 Checkout repo
-              uses: actions/checkout@v7
-              with:
-                  # The guard reads supabase/migrations at the base ref, so the
-                  # base commit has to be in the clone.
-                  fetch-depth: 0
+  # The only job that runs a migration against a NON-EMPTY table. Every
+  # other gate here — `db diff`, the db suite, e2e — works off `db reset`,
+  # which applies migrations to an empty database and seeds afterwards, so a
+  # `drop column` never meets a row and a missing backfill is invisible.
+  # `20260729095558_backfill_member_state.sql` and
+  # `20260730011428_shidduch_overview_fields.sql` both passed everything
+  # above green while destroying production data.
+  #
+  # The baseline is "what production had before this change": the merge base
+  # on a pull request, `github.event.before` on a push (this repo deploys
+  # every push to main, so that commit IS the deployed schema). When neither
+  # yields a usable ref, or nothing is pending, the script says so and
+  # passes — see scripts/check-migration-data-safety.mjs.
+  migration-data-safety:
+    name: 🧬 Migration data-safety (non-empty table)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v7
+        with:
+          # The guard reads supabase/migrations at the base ref, so the
+          # base commit has to be in the clone.
+          fetch-depth: 0
 
-            - name: ⚙️ Setup node
-              uses: actions/setup-node@v7
-              with:
-                  node-version-file: .nvmrc
-                  cache: npm
+      - name: ⚙️ Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
 
-            - name: 📥 Download deps
-              run: npm ci
+      - name: 📥 Download deps
+        run: npm ci
 
-            - name: 🐘 Start local Supabase stack
-              run: make start-supabase-e2e
+      - name: 🐘 Start local Supabase stack
+        run: make start-supabase-e2e
 
-            - name: 🧬 Do the pending migrations destroy existing data?
-              run: |
-                  if [ "${{ github.event_name }}" = "pull_request" ]; then
-                    BASE_REF="origin/${{ github.base_ref }}"
-                  else
-                    BASE_REF="${{ github.event.before }}"
-                  fi
-                  node scripts/check-migration-data-safety.mjs --base-ref "$BASE_REF"
+      - name: 🧬 Do the pending migrations destroy existing data?
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="origin/${{ github.base_ref }}"
+          else
+            BASE_REF="${{ github.event.before }}"
+          fi
+          node scripts/check-migration-data-safety.mjs --base-ref "$BASE_REF"
 
-            - name: 🛑 Stop local Supabase stack
-              if: always()
-              run: make stop-supabase-e2e
+      - name: 🛑 Stop local Supabase stack
+        if: always()
+        run: make stop-supabase-e2e
 
-    guards:
-        name: 🛡️ Suppression, retired-name & Tailwind-syntax guards
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
-        steps:
-            - name: 📥 Checkout repo
-              uses: actions/checkout@v7
+  guards:
+    name: 🛡️ Suppression, retired-name & Tailwind-syntax guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v7
 
-            - name: ⚙️ Setup node
-              uses: actions/setup-node@v7
-              with:
-                  node-version-file: .nvmrc
-                  cache: npm
+      - name: ⚙️ Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
 
-            - name: 📥 Download deps
-              run: npm ci
+      - name: 📥 Download deps
+        run: npm ci
 
-            - name: 🛡️ Suppression ratchet
-              run: node scripts/check-suppressions.mjs
+      - name: 🛡️ Suppression ratchet
+        run: node scripts/check-suppressions.mjs
 
-            - name: 🏷️ Retired-name guard
-              run: node scripts/check-retired-names.mjs
+      - name: 🏷️ Retired-name guard
+        run: node scripts/check-retired-names.mjs
 
-            - name: 🧭 Route-convention guard
-              run: node scripts/check-route-convention.mjs
+      - name: 🧭 Route-convention guard
+        run: node scripts/check-route-convention.mjs
 
-            - name: 🎨 Tailwind v3-syntax guard
-              run: node scripts/check-tailwind-arbitrary-var.mjs
+      - name: 🎨 Tailwind v3-syntax guard
+        run: node scripts/check-tailwind-arbitrary-var.mjs
 
-    e2e-test:
-        timeout-minutes: 10
-        runs-on: ubuntu-latest
-        steps:
-            - name: 📥 Checkout repo
-              uses: actions/checkout@v7
+  e2e-test:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v7
 
-            - name: ⚙️ Setup node
-              uses: actions/setup-node@v7
-              with:
-                  node-version-file: .nvmrc
-                  cache: npm
-            - name: Install dependencies
-              run: npm ci
-            - name: Install Playwright Browsers
-              run: npx playwright install --with-deps chromium-headless-shell 1>/dev/null
-            - name: Install wait-on and serve
-              run: npm install -g wait-on serve
-            - name: Run Playwright tests
-              run: make test-e2e-ci
+      - name: ⚙️ Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium-headless-shell 1>/dev/null
+      - name: Install wait-on and serve
+        run: npm install -g wait-on serve
+      - name: Run Playwright tests
+        run: make test-e2e-ci
 
-    build:
-        name: 🔨 Build
-        timeout-minutes: 10
-        runs-on: ubuntu-latest
-        if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
-        steps:
-            - name: 📥 Checkout repo
-              uses: actions/checkout@v7
+  build:
+    name: 🔨 Build
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v7
 
-            - name: ⚙️ Setup node
-              uses: actions/setup-node@v7
-              with:
-                  node-version-file: .nvmrc
-                  cache: npm
+      - name: ⚙️ Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
 
-            - name: 📥 Download deps
-              run: npm ci
+      - name: 📥 Download deps
+        run: npm ci
 
-            - name: 🔨 Build
-              run: npm run build
+      - name: 🔨 Build
+        run: npm run build

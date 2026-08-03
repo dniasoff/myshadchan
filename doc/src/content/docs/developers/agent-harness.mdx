@@ -3,7 +3,7 @@ title: Agent Harness
 description: How to use the Atomic CRM agent harness to implement CRM changes with a coordinated team of Claude Code agents.
 ---
 
-Atomic CRM ships an *agent harness*: a team of specialized Claude Code agents (planner, developer, reviewer, documenter) that turns a plain-English feature request into committed code through a deterministic pipeline. The agents share the same coding guidelines as the Atomic CRM core team, and add tools that cut token usage and speed up development.
+Atomic CRM ships an _agent harness_: a team of specialized Claude Code agents (planner, developer, reviewer, documenter) that turns a plain-English feature request into committed code through a deterministic pipeline. The agents share the same coding guidelines as the Atomic CRM core team, and add tools that cut token usage and speed up development.
 
 ## Prerequisites
 
@@ -25,7 +25,12 @@ Build a CRM for my company Acme, a recruiting agency.
 
 The harness starts immediately: Claude Code coordinates a team of specialized agents, depending on the complexity of the task. As the harness requires many permissions, you should turn on automatic permission mode to skip them.
 
-<script src="https://asciinema.org/a/CcmbA8XrclBVK855.js" id="asciicast-CcmbA8XrclBVK855" data-speed="4" async="true"></script>
+<script
+    src="https://asciinema.org/a/CcmbA8XrclBVK855.js"
+    id="asciicast-CcmbA8XrclBVK855"
+    data-speed="4"
+    async="true"
+></script>
 
 :::caution
 The automatic permissions mode lets Claude Code run arbitrary commands on your machine and may modify or delete files. We advise you to run the harness in a sandboxed environment, such as a DevContainer (already configured in the repo) or a VM.
@@ -40,7 +45,7 @@ Based on the complexity of the feature request, the main thread runs one of two 
 
 - **Simple**: a single cosmetic edit, a single-field change on an existing entity, or a filter reusing existing components. One developer agent, no planning overhead.
 - **Complex**: everything else. The planner decomposes it into tickets; developers, reviewers, and the merger run as a coordinated wave.
-:::
+  :::
 
 ## Inspecting a Change
 
@@ -82,7 +87,7 @@ Create a new field for lost deal reasons without the agent team
 Create a new field for lost deal reasons, skipping the agent team
 ```
 
-The main thread then implements the change itself, no specialized agents. Add *"no-harness for this session"* to keep it off for the whole session.
+The main thread then implements the change itself, no specialized agents. Add _"no-harness for this session"_ to keep it off for the whole session.
 
 ## Monitoring a Session
 
@@ -97,8 +102,12 @@ make sessions               # list known sessions, newest first
 
 `make watch` re-renders a live view of the active agents, hook activity, and ticket statuses, useful to keep open in a second terminal while a COMPLEX session runs. `make monitor` prints the same information as a single snapshot.
 
-<script src="https://asciinema.org/a/uyaoxIH5m5QdOcbZ.js" id="asciicast-uyaoxIH5m5QdOcbZ" data-speed="4" async="true"></script>
-
+<script
+    src="https://asciinema.org/a/uyaoxIH5m5QdOcbZ.js"
+    id="asciicast-uyaoxIH5m5QdOcbZ"
+    data-speed="4"
+    async="true"
+></script>
 
 ## CRM Builder: A Visual, Ready-Made Environment
 

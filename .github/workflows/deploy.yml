@@ -1,506 +1,506 @@
 name: 🚀 Deploy
 
 on:
-    push:
-        branches:
-            - main
+  push:
+    branches:
+      - main
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-    deploy-supabase:
-        name: 🚀 Deploy (supabase)
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
+  deploy-supabase:
+    name: 🚀 Deploy (supabase)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
-        env:
-            SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-            SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-            SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
-            IS_SUPABASE_CONFIGURED: ${{ secrets.SUPABASE_ACCESS_TOKEN && secrets.SUPABASE_DB_PASSWORD && secrets.SUPABASE_PROJECT_ID }}
-            RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-            UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
-            UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
-            # Story 10.3 (AC 7, Task 1): postmark/index.ts throws at request
-            # time (no longer at module scope — see that file's
-            # readWebhookSecrets()) when any of these three is absent. Before
-            # this story none of the three was ever pushed to the hosted
-            # project, so the deployed function had never booted in
-            # production; every invocation returned an opaque `500
-            # WORKER_ERROR`. VITE_INBOUND_EMAIL travels here too because the
-            # Edge Function reads its OWN copy via Deno.env.get — this is a
-            # Supabase function secret, a separate channel from
-            # vite.config.ts's `define` block, which only reaches the browser
-            # bundle.
-            POSTMARK_WEBHOOK_USER: ${{ secrets.POSTMARK_WEBHOOK_USER }}
-            POSTMARK_WEBHOOK_PASSWORD: ${{ secrets.POSTMARK_WEBHOOK_PASSWORD }}
-            POSTMARK_WEBHOOK_AUTHORIZED_IPS: ${{ secrets.POSTMARK_WEBHOOK_AUTHORIZED_IPS }}
-            VITE_INBOUND_EMAIL: ${{ secrets.VITE_INBOUND_EMAIL }}
-            IS_POSTMARK_CONFIGURED: ${{ secrets.POSTMARK_WEBHOOK_USER && secrets.POSTMARK_WEBHOOK_PASSWORD && secrets.POSTMARK_WEBHOOK_AUTHORIZED_IPS && secrets.VITE_INBOUND_EMAIL }}
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      IS_SUPABASE_CONFIGURED: ${{ secrets.SUPABASE_ACCESS_TOKEN && secrets.SUPABASE_DB_PASSWORD && secrets.SUPABASE_PROJECT_ID }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+      UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+      # Story 10.3 (AC 7, Task 1): postmark/index.ts throws at request
+      # time (no longer at module scope — see that file's
+      # readWebhookSecrets()) when any of these three is absent. Before
+      # this story none of the three was ever pushed to the hosted
+      # project, so the deployed function had never booted in
+      # production; every invocation returned an opaque `500
+      # WORKER_ERROR`. VITE_INBOUND_EMAIL travels here too because the
+      # Edge Function reads its OWN copy via Deno.env.get — this is a
+      # Supabase function secret, a separate channel from
+      # vite.config.ts's `define` block, which only reaches the browser
+      # bundle.
+      POSTMARK_WEBHOOK_USER: ${{ secrets.POSTMARK_WEBHOOK_USER }}
+      POSTMARK_WEBHOOK_PASSWORD: ${{ secrets.POSTMARK_WEBHOOK_PASSWORD }}
+      POSTMARK_WEBHOOK_AUTHORIZED_IPS: ${{ secrets.POSTMARK_WEBHOOK_AUTHORIZED_IPS }}
+      VITE_INBOUND_EMAIL: ${{ secrets.VITE_INBOUND_EMAIL }}
+      IS_POSTMARK_CONFIGURED: ${{ secrets.POSTMARK_WEBHOOK_USER && secrets.POSTMARK_WEBHOOK_PASSWORD && secrets.POSTMARK_WEBHOOK_AUTHORIZED_IPS && secrets.VITE_INBOUND_EMAIL }}
 
-        steps:
-            - name: 📥 Checkout repo
-              uses: actions/checkout@v7
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v7
 
-            - name: ⚙️ Setup node
-              uses: actions/setup-node@v7
-              with:
-                  node-version-file: .nvmrc
-                  cache: npm
+      - name: ⚙️ Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
 
-            - name: ⚙️ Setup supabase
-              uses: supabase/setup-cli@v3
+      - name: ⚙️ Setup supabase
+        uses: supabase/setup-cli@v3
 
-            - name: 📥 Download deps
-              run: npm ci
+      - name: 📥 Download deps
+        run: npm ci
 
-            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
-              name: 🔗 Supabase Link
-              run: npx supabase link --project-ref $SUPABASE_PROJECT_ID
+      - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+        name: 🔗 Supabase Link
+        run: npx supabase link --project-ref $SUPABASE_PROJECT_ID
 
-            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
-              name: 📡 Push supabase migrations
-              run: npx supabase db push
+      - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+        name: 📡 Push supabase migrations
+        run: npx supabase db push
 
-            # Story 2.7 review finding #1: `[auth.hook.before_user_created]` in
-            # supabase/config.toml is never synced to the hosted project, so
-            # check_signup_invite() exists in the database but GoTrue never calls
-            # it in production — invite-only signup is enforced locally only.
-            # Deliberately a SCOPED Management API patch, not `supabase config
-            # push`: config.toml's `[auth]` block also carries this repo's local
-            # dev values (`site_url = "http://localhost:5173"`,
-            # `additional_redirect_urls = ["https://localhost:5173/..."]`) —
-            # `config push` sends the whole auth config and would overwrite the
-            # hosted project's real production site_url/redirect allow-list with
-            # those localhost values on every deploy. This PATCHes only the two
-            # hook fields, leaving everything else the dashboard already has
-            # untouched.
-            #
-            # Story 6.6: the retry-with-backoff on a transient failure, and the
-            # redaction that keeps a successful PATCH's response (242 keys,
-            # including an unmasked `smtp_pass` and `external_google_secret`) out
-            # of the run log, both now live in the shared
-            # scripts/ci/patch-supabase-auth-config.sh — see its header for the
-            # full behaviour. It is the same script the mailer step below calls,
-            # so the retry logic exists once, not as two inline copies.
-            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
-              name: 📡 Enable the invite-signup Auth Hook (before_user_created)
-              run: |
-                  jq -n '{
-                      hook_before_user_created_enabled: true,
-                      hook_before_user_created_uri: "pg-functions://postgres/public/check_signup_invite"
-                  }' > /tmp/hook-payload.json
+      # Story 2.7 review finding #1: `[auth.hook.before_user_created]` in
+      # supabase/config.toml is never synced to the hosted project, so
+      # check_signup_invite() exists in the database but GoTrue never calls
+      # it in production — invite-only signup is enforced locally only.
+      # Deliberately a SCOPED Management API patch, not `supabase config
+      # push`: config.toml's `[auth]` block also carries this repo's local
+      # dev values (`site_url = "http://localhost:5173"`,
+      # `additional_redirect_urls = ["https://localhost:5173/..."]`) —
+      # `config push` sends the whole auth config and would overwrite the
+      # hosted project's real production site_url/redirect allow-list with
+      # those localhost values on every deploy. This PATCHes only the two
+      # hook fields, leaving everything else the dashboard already has
+      # untouched.
+      #
+      # Story 6.6: the retry-with-backoff on a transient failure, and the
+      # redaction that keeps a successful PATCH's response (242 keys,
+      # including an unmasked `smtp_pass` and `external_google_secret`) out
+      # of the run log, both now live in the shared
+      # scripts/ci/patch-supabase-auth-config.sh — see its header for the
+      # full behaviour. It is the same script the mailer step below calls,
+      # so the retry logic exists once, not as two inline copies.
+      - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+        name: 📡 Enable the invite-signup Auth Hook (before_user_created)
+        run: |
+          jq -n '{
+              hook_before_user_created_enabled: true,
+              hook_before_user_created_uri: "pg-functions://postgres/public/check_signup_invite"
+          }' > /tmp/hook-payload.json
 
-                  scripts/ci/patch-supabase-auth-config.sh /tmp/hook-payload.json \
-                      "invite-signup Auth Hook PATCH rejected"
+          scripts/ci/patch-supabase-auth-config.sh /tmp/hook-payload.json \
+              "invite-signup Auth Hook PATCH rejected"
 
-            # `[auth.email.template.*]` in supabase/config.toml is a LOCAL-ONLY
-            # block — `supabase db push` ships migrations, not auth config, so
-            # nothing ever transmitted it. Production served GoTrue's stock
-            # magic-link template, which renders `{{ .ConfirmationURL }}` and no
-            # `{{ .Token }}`, while Epic 2's login UI asks the user to type a
-            # 6-digit code: the product's only authentication path was dead until
-            # it was PATCHed by hand. Same scoped-PATCH rationale as the hook step
-            # above — never `supabase config push`, which would overwrite the
-            # hosted site_url / redirect allow-list with this file's localhost dev
-            # values.
-            #
-            # Subject and body are read back out of config.toml and
-            # supabase/templates/ so the repo stays the single source of truth and
-            # this step cannot drift from what a reviewer reads. Only `magic_link`
-            # is sent, because it is the only template the repo declares — adding
-            # invite / recovery / email-change keys here would mean inventing
-            # bodies in CI that nobody reviewed, the same drift in reverse.
-            #
-            # The three numeric mailer settings have no home in config.toml (the
-            # CLI does not model OTP length, OTP expiry or the email rate limit),
-            # so they are pinned here and mirror what production runs today. The
-            # consequence is deliberate: an emergency manual bump to
-            # `rate_limit_email_sent` is reverted by the next deploy — change the
-            # number here instead. `mailer_otp_length: 6` is what the login copy
-            # and e2e/fixtures.ts (`/\b(\d{6})\b/`) both assume; production ran 8
-            # for the whole of Epic 2.
-            #
-            # Story 6.6: transient failures (a 5xx, a 429, or a curl transport
-            # error) are now retried three times, with backoff, by the shared
-            # scripts/ci/patch-supabase-auth-config.sh — see its header for the
-            # full behaviour. A 400 still fails the deploy immediately, with no
-            # retry: template writes used to 400 ("not available for free tier
-            # projects using the default email provider"); now that custom SMTP
-            # is configured on the project, a 400 means SMTP was REMOVED — an
-            # alarm to stop on, not a warning to pass, and retrying it would
-            # delay that alarm behind two backoffs and print it three times.
-            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
-              name: 📡 Push auth mailer config (config.toml + templates → hosted)
-              run: |
-                  set -euo pipefail
+      # `[auth.email.template.*]` in supabase/config.toml is a LOCAL-ONLY
+      # block — `supabase db push` ships migrations, not auth config, so
+      # nothing ever transmitted it. Production served GoTrue's stock
+      # magic-link template, which renders `{{ .ConfirmationURL }}` and no
+      # `{{ .Token }}`, while Epic 2's login UI asks the user to type a
+      # 6-digit code: the product's only authentication path was dead until
+      # it was PATCHed by hand. Same scoped-PATCH rationale as the hook step
+      # above — never `supabase config push`, which would overwrite the
+      # hosted site_url / redirect allow-list with this file's localhost dev
+      # values.
+      #
+      # Subject and body are read back out of config.toml and
+      # supabase/templates/ so the repo stays the single source of truth and
+      # this step cannot drift from what a reviewer reads. Only `magic_link`
+      # is sent, because it is the only template the repo declares — adding
+      # invite / recovery / email-change keys here would mean inventing
+      # bodies in CI that nobody reviewed, the same drift in reverse.
+      #
+      # The three numeric mailer settings have no home in config.toml (the
+      # CLI does not model OTP length, OTP expiry or the email rate limit),
+      # so they are pinned here and mirror what production runs today. The
+      # consequence is deliberate: an emergency manual bump to
+      # `rate_limit_email_sent` is reverted by the next deploy — change the
+      # number here instead. `mailer_otp_length: 6` is what the login copy
+      # and e2e/fixtures.ts (`/\b(\d{6})\b/`) both assume; production ran 8
+      # for the whole of Epic 2.
+      #
+      # Story 6.6: transient failures (a 5xx, a 429, or a curl transport
+      # error) are now retried three times, with backoff, by the shared
+      # scripts/ci/patch-supabase-auth-config.sh — see its header for the
+      # full behaviour. A 400 still fails the deploy immediately, with no
+      # retry: template writes used to 400 ("not available for free tier
+      # projects using the default email provider"); now that custom SMTP
+      # is configured on the project, a 400 means SMTP was REMOVED — an
+      # alarm to stop on, not a warning to pass, and retrying it would
+      # delay that alarm behind two backoffs and print it three times.
+      - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+        name: 📡 Push auth mailer config (config.toml + templates → hosted)
+        run: |
+          set -euo pipefail
 
-                  section='/^\[auth\.email\.template\.magic_link\]/ { inside = 1; next } /^\[/ { inside = 0 }'
-                  read_key() {
-                      awk "$section"' inside && $0 ~ "^"key"[[:space:]]*=" { sub(/^[^=]*=[[:space:]]*/, ""); gsub(/^"|"$/, ""); print; exit }' \
-                          key="$1" supabase/config.toml
-                  }
+          section='/^\[auth\.email\.template\.magic_link\]/ { inside = 1; next } /^\[/ { inside = 0 }'
+          read_key() {
+              awk "$section"' inside && $0 ~ "^"key"[[:space:]]*=" { sub(/^[^=]*=[[:space:]]*/, ""); gsub(/^"|"$/, ""); print; exit }' \
+                  key="$1" supabase/config.toml
+          }
 
-                  subject=$(read_key subject)
-                  content_path=$(read_key content_path)
+          subject=$(read_key subject)
+          content_path=$(read_key content_path)
 
-                  test -n "$subject" || { echo "::error::no magic_link subject in supabase/config.toml"; exit 1; }
-                  test -f "$content_path" || { echo "::error::magic_link template not found: '$content_path'"; exit 1; }
+          test -n "$subject" || { echo "::error::no magic_link subject in supabase/config.toml"; exit 1; }
+          test -f "$content_path" || { echo "::error::magic_link template not found: '$content_path'"; exit 1; }
 
-                  jq -n --arg subject "$subject" --rawfile body "$content_path" \
-                      '{
-                          mailer_subjects_magic_link: $subject,
-                          mailer_templates_magic_link_content: $body,
-                          mailer_otp_length: 6,
-                          mailer_otp_exp: 600,
-                          rate_limit_email_sent: 20
-                      }' > /tmp/mailer-payload.json
+          jq -n --arg subject "$subject" --rawfile body "$content_path" \
+              '{
+                  mailer_subjects_magic_link: $subject,
+                  mailer_templates_magic_link_content: $body,
+                  mailer_otp_length: 6,
+                  mailer_otp_exp: 600,
+                  rate_limit_email_sent: 20
+              }' > /tmp/mailer-payload.json
 
-                  scripts/ci/patch-supabase-auth-config.sh /tmp/mailer-payload.json \
-                      "auth mailer PATCH rejected — if this is a 400, custom SMTP was removed from the project"
+          scripts/ci/patch-supabase-auth-config.sh /tmp/mailer-payload.json \
+              "auth mailer PATCH rejected — if this is a 400, custom SMTP was removed from the project"
 
-                  echo "✅ Auth mailer config pushed (magic_link template + OTP length/expiry + email rate limit)." >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ Auth mailer config pushed (magic_link template + OTP length/expiry + email rate limit)." >> "$GITHUB_STEP_SUMMARY"
 
-            - if: ${{ env.IS_SUPABASE_CONFIGURED && env.RESEND_API_KEY }}
-              name: 📡 Push supabase function secrets
-              run: |
-                  npx supabase secrets set RESEND_API_KEY=${{ env.RESEND_API_KEY }}
-                  npx supabase secrets set UPSTASH_REDIS_REST_URL=${{ env.UPSTASH_REDIS_REST_URL }}
-                  npx supabase secrets set UPSTASH_REDIS_REST_TOKEN=${{ env.UPSTASH_REDIS_REST_TOKEN }}
+      - if: ${{ env.IS_SUPABASE_CONFIGURED && env.RESEND_API_KEY }}
+        name: 📡 Push supabase function secrets
+        run: |
+          npx supabase secrets set RESEND_API_KEY=${{ env.RESEND_API_KEY }}
+          npx supabase secrets set UPSTASH_REDIS_REST_URL=${{ env.UPSTASH_REDIS_REST_URL }}
+          npx supabase secrets set UPSTASH_REDIS_REST_TOKEN=${{ env.UPSTASH_REDIS_REST_TOKEN }}
 
-            # Story 10.3 (AC 7, Task 1): a separate, separately-gated step —
-            # not folded into the one above — so a still-missing Postmark
-            # secret never blocks RESEND_API_KEY/UPSTASH from being pushed,
-            # and so THIS step's own skip can be its own loud line in the job
-            # summary (see the "postmark webhook secrets NOT pushed" step
-            # right below) instead of silently riding along inside a
-            # broader condition. `postmark/index.ts` throws a per-request
-            # 500 (readWebhookSecrets()) with any of the three Basic-Auth /
-            # IP-allowlist values missing — this step is what stops that
-            # from being the deployed function's permanent state.
-            # Story 10.3 review fix (F-F, non-blocking/minor): the previous
-            # form interpolated `${{ env.* }}` straight into the shell
-            # command text — safe for RESEND_API_KEY/UPSTASH above (CI-issued
-            # tokens with no adversarial shape), but this step is the first
-            # to route an OPERATOR-CHOSEN password through that pattern. A
-            # space, `;`, `$`, backtick or `&` in the password either
-            # corrupts the pushed secret or executes on the runner. Writing
-            # every value into a gitignored-by-construction temp file with
-            # `printf '%s'` (never `echo`, which can reinterpret backslashes)
-            # keeps the raw bytes out of the command line entirely — the
-            # shell substitutes `$POSTMARK_WEBHOOK_PASSWORD` itself, which
-            # `deploy-workers`' `echo "$SECRET" | wrangler secret put` already
-            # does correctly elsewhere in this same file.
-            - if: ${{ env.IS_SUPABASE_CONFIGURED && env.IS_POSTMARK_CONFIGURED }}
-              name: 📡 Push postmark webhook secrets
-              run: |
-                  set -euo pipefail
-                  secrets_file="$(mktemp)"
-                  trap 'rm -f "$secrets_file"' EXIT
-                  {
-                      printf 'POSTMARK_WEBHOOK_USER=%s\n' "$POSTMARK_WEBHOOK_USER"
-                      printf 'POSTMARK_WEBHOOK_PASSWORD=%s\n' "$POSTMARK_WEBHOOK_PASSWORD"
-                      printf 'POSTMARK_WEBHOOK_AUTHORIZED_IPS=%s\n' "$POSTMARK_WEBHOOK_AUTHORIZED_IPS"
-                      printf 'VITE_INBOUND_EMAIL=%s\n' "$VITE_INBOUND_EMAIL"
-                  } > "$secrets_file"
-                  npx supabase secrets set --env-file "$secrets_file"
-                  echo "✅ Postmark webhook secrets pushed — inbound email capture can boot." >> "$GITHUB_STEP_SUMMARY"
+      # Story 10.3 (AC 7, Task 1): a separate, separately-gated step —
+      # not folded into the one above — so a still-missing Postmark
+      # secret never blocks RESEND_API_KEY/UPSTASH from being pushed,
+      # and so THIS step's own skip can be its own loud line in the job
+      # summary (see the "postmark webhook secrets NOT pushed" step
+      # right below) instead of silently riding along inside a
+      # broader condition. `postmark/index.ts` throws a per-request
+      # 500 (readWebhookSecrets()) with any of the three Basic-Auth /
+      # IP-allowlist values missing — this step is what stops that
+      # from being the deployed function's permanent state.
+      # Story 10.3 review fix (F-F, non-blocking/minor): the previous
+      # form interpolated `${{ env.* }}` straight into the shell
+      # command text — safe for RESEND_API_KEY/UPSTASH above (CI-issued
+      # tokens with no adversarial shape), but this step is the first
+      # to route an OPERATOR-CHOSEN password through that pattern. A
+      # space, `;`, `$`, backtick or `&` in the password either
+      # corrupts the pushed secret or executes on the runner. Writing
+      # every value into a gitignored-by-construction temp file with
+      # `printf '%s'` (never `echo`, which can reinterpret backslashes)
+      # keeps the raw bytes out of the command line entirely — the
+      # shell substitutes `$POSTMARK_WEBHOOK_PASSWORD` itself, which
+      # `deploy-workers`' `echo "$SECRET" | wrangler secret put` already
+      # does correctly elsewhere in this same file.
+      - if: ${{ env.IS_SUPABASE_CONFIGURED && env.IS_POSTMARK_CONFIGURED }}
+        name: 📡 Push postmark webhook secrets
+        run: |
+          set -euo pipefail
+          secrets_file="$(mktemp)"
+          trap 'rm -f "$secrets_file"' EXIT
+          {
+              printf 'POSTMARK_WEBHOOK_USER=%s\n' "$POSTMARK_WEBHOOK_USER"
+              printf 'POSTMARK_WEBHOOK_PASSWORD=%s\n' "$POSTMARK_WEBHOOK_PASSWORD"
+              printf 'POSTMARK_WEBHOOK_AUTHORIZED_IPS=%s\n' "$POSTMARK_WEBHOOK_AUTHORIZED_IPS"
+              printf 'VITE_INBOUND_EMAIL=%s\n' "$VITE_INBOUND_EMAIL"
+          } > "$secrets_file"
+          npx supabase secrets set --env-file "$secrets_file"
+          echo "✅ Postmark webhook secrets pushed — inbound email capture can boot." >> "$GITHUB_STEP_SUMMARY"
 
-            # The loud-skip half of the step above: `deploy-workers`' `share`
-            # worker silently 500'd on every request for the same reason
-            # (base secrets skipped with no visible signal) before this
-            # story's brief called it out — this is what stops that pattern
-            # from repeating for postmark.
-            - if: ${{ env.IS_SUPABASE_CONFIGURED && !env.IS_POSTMARK_CONFIGURED }}
-              name: Postmark webhook secrets NOT pushed
-              run: |
-                  echo '::warning::One or more of POSTMARK_WEBHOOK_USER / POSTMARK_WEBHOOK_PASSWORD / POSTMARK_WEBHOOK_AUTHORIZED_IPS / VITE_INBOUND_EMAIL repo secrets is missing.'
-                  echo ':rotating_light: **Postmark webhook secrets NOT pushed.** The deployed `postmark` function will return `500` on every inbound email (a specific, logged per-request failure, not a cold-start crash — see `readWebhookSecrets()` in `supabase/functions/postmark/index.ts`) until all four secrets are set.' >> "$GITHUB_STEP_SUMMARY"
+      # The loud-skip half of the step above: `deploy-workers`' `share`
+      # worker silently 500'd on every request for the same reason
+      # (base secrets skipped with no visible signal) before this
+      # story's brief called it out — this is what stops that pattern
+      # from repeating for postmark.
+      - if: ${{ env.IS_SUPABASE_CONFIGURED && !env.IS_POSTMARK_CONFIGURED }}
+        name: Postmark webhook secrets NOT pushed
+        run: |
+          echo '::warning::One or more of POSTMARK_WEBHOOK_USER / POSTMARK_WEBHOOK_PASSWORD / POSTMARK_WEBHOOK_AUTHORIZED_IPS / VITE_INBOUND_EMAIL repo secrets is missing.'
+          echo ':rotating_light: **Postmark webhook secrets NOT pushed.** The deployed `postmark` function will return `500` on every inbound email (a specific, logged per-request failure, not a cold-start crash — see `readWebhookSecrets()` in `supabase/functions/postmark/index.ts`) until all four secrets are set.' >> "$GITHUB_STEP_SUMMARY"
 
-            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
-              name: 📡 Deploy supabase functions
-              run: npx supabase functions deploy
+      - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+        name: 📡 Deploy supabase functions
+        run: npx supabase functions deploy
 
-            # `supabase functions deploy` only ever pushes. Delete a function's
-            # directory from the repo and it keeps serving in production forever,
-            # with nothing anywhere to notice. `update_password` — a live
-            # supabaseAdmin-backed password-reset endpoint in a product that has no
-            # passwords — plus the Epic 1 fossils `merge_contacts` and
-            # `delete_note_attachments` all survived exactly this way, and all
-            # three were reachable by anyone (`verify_jwt: false` at the gateway).
-            # They were removed by hand; this step is what stops the next one.
-            #
-            # Deleting automatically is safe *because of where this sits*: it runs
-            # only after `functions deploy` SUCCEEDED, so every locally-declared
-            # function is already live, and therefore `live − local` can never
-            # contain one of ours. The single way that reasoning breaks is an empty
-            # local set (a bad checkout, a moved directory) — which would make
-            # every live function look orphaned — so that case aborts instead.
-            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
-              name: 🧹 Remove edge functions deleted from the repo
-              run: |
-                  set -euo pipefail
+      # `supabase functions deploy` only ever pushes. Delete a function's
+      # directory from the repo and it keeps serving in production forever,
+      # with nothing anywhere to notice. `update_password` — a live
+      # supabaseAdmin-backed password-reset endpoint in a product that has no
+      # passwords — plus the Epic 1 fossils `merge_contacts` and
+      # `delete_note_attachments` all survived exactly this way, and all
+      # three were reachable by anyone (`verify_jwt: false` at the gateway).
+      # They were removed by hand; this step is what stops the next one.
+      #
+      # Deleting automatically is safe *because of where this sits*: it runs
+      # only after `functions deploy` SUCCEEDED, so every locally-declared
+      # function is already live, and therefore `live − local` can never
+      # contain one of ours. The single way that reasoning breaks is an empty
+      # local set (a bad checkout, a moved directory) — which would make
+      # every live function look orphaned — so that case aborts instead.
+      - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+        name: 🧹 Remove edge functions deleted from the repo
+        run: |
+          set -euo pipefail
 
-                  api="https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_ID/functions"
+          api="https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_ID/functions"
 
-                  # Deliberately the CLI's own rule — every directory under
-                  # supabase/functions/ that is not `_`-prefixed (`_shared` is a
-                  # library, not a function) — and NOT something narrower like
-                  # "has an index.ts". Narrower is the unsafe direction here: a
-                  # function this predicate fails to recognise looks orphaned and
-                  # gets deleted. Erring wide only ever leaves something alive.
-                  local_fns=$(find supabase/functions -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
-                      | grep -v '^_' | sort)
+          # Deliberately the CLI's own rule — every directory under
+          # supabase/functions/ that is not `_`-prefixed (`_shared` is a
+          # library, not a function) — and NOT something narrower like
+          # "has an index.ts". Narrower is the unsafe direction here: a
+          # function this predicate fails to recognise looks orphaned and
+          # gets deleted. Erring wide only ever leaves something alive.
+          local_fns=$(find supabase/functions -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+              | grep -v '^_' | sort)
 
-                  if [ -z "$local_fns" ]; then
-                      echo "::error::no edge functions found under supabase/functions/ — refusing to reconcile"
-                      exit 1
-                  fi
+          if [ -z "$local_fns" ]; then
+              echo "::error::no edge functions found under supabase/functions/ — refusing to reconcile"
+              exit 1
+          fi
 
-                  curl -sS --fail-with-body -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "$api" \
-                      -o /tmp/live-functions.json \
-                      || { echo "::error::could not list deployed edge functions"; head -c 2000 /tmp/live-functions.json >&2; exit 1; }
+          curl -sS --fail-with-body -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "$api" \
+              -o /tmp/live-functions.json \
+              || { echo "::error::could not list deployed edge functions"; head -c 2000 /tmp/live-functions.json >&2; exit 1; }
 
-                  orphans=$(comm -23 <(jq -r '.[].slug' /tmp/live-functions.json | sort) <(echo "$local_fns"))
+          orphans=$(comm -23 <(jq -r '.[].slug' /tmp/live-functions.json | sort) <(echo "$local_fns"))
 
-                  if [ -z "$orphans" ]; then
-                      echo "✅ Edge functions in sync — nothing deployed that the repo no longer declares." >> "$GITHUB_STEP_SUMMARY"
-                      exit 0
-                  fi
+          if [ -z "$orphans" ]; then
+              echo "✅ Edge functions in sync — nothing deployed that the repo no longer declares." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+          fi
 
-                  for slug in $orphans; do
-                      curl -sS --fail-with-body -X DELETE \
-                          -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "$api/$slug" \
-                          -o /tmp/delete-function.json \
-                          || { echo "::error::could not delete orphaned edge function '$slug'"; head -c 2000 /tmp/delete-function.json >&2; exit 1; }
-                      echo "🧹 Deleted orphaned edge function \`$slug\` — no longer declared in \`supabase/functions/\`." >> "$GITHUB_STEP_SUMMARY"
-                  done
+          for slug in $orphans; do
+              curl -sS --fail-with-body -X DELETE \
+                  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "$api/$slug" \
+                  -o /tmp/delete-function.json \
+                  || { echo "::error::could not delete orphaned edge function '$slug'"; head -c 2000 /tmp/delete-function.json >&2; exit 1; }
+              echo "🧹 Deleted orphaned edge function \`$slug\` — no longer declared in \`supabase/functions/\`." >> "$GITHUB_STEP_SUMMARY"
+          done
 
-            - if: ${{ !env.IS_SUPABASE_CONFIGURED }}
-              name: Supabase deployment skipped
-              run: |
-                  echo ':warning: Supabase deployment skipped — missing SUPABASE_ACCESS_TOKEN / SUPABASE_DB_PASSWORD / SUPABASE_PROJECT_ID secret' >> $GITHUB_STEP_SUMMARY
+      - if: ${{ !env.IS_SUPABASE_CONFIGURED }}
+        name: Supabase deployment skipped
+        run: |
+          echo ':warning: Supabase deployment skipped — missing SUPABASE_ACCESS_TOKEN / SUPABASE_DB_PASSWORD / SUPABASE_PROJECT_ID secret' >> $GITHUB_STEP_SUMMARY
 
-    deploy-workers:
-        name: 🚀 Deploy (Cloudflare Workers · ${{ matrix.worker }})
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
+  deploy-workers:
+    name: 🚀 Deploy (Cloudflare Workers · ${{ matrix.worker }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
-        # The workers are a THIRD pipeline off the same push, and until this
-        # `needs:` they ran concurrently with `db push` exactly as Vercel did: a
-        # failed migration still shipped all seven workers, `billing` and `ai`
-        # included. Gating them on deploy-supabase means backend code never goes
-        # live against a schema that failed to apply.
-        needs: deploy-supabase
+    # The workers are a THIRD pipeline off the same push, and until this
+    # `needs:` they ran concurrently with `db push` exactly as Vercel did: a
+    # failed migration still shipped all seven workers, `billing` and `ai`
+    # included. Gating them on deploy-supabase means backend code never goes
+    # live against a schema that failed to apply.
+    needs: deploy-supabase
 
-        # `billing` is deliberately withheld from this matrix (worker-audit,
-        # 2026-08-02):
-        #   - billing: publishes an unauthenticated POST /webhook on a public
-        #     workers.dev origin ahead of Story 12.4 (Stripe integration).
-        #     There is no Stripe SDK, no signature verification, and no DB
-        #     write yet — a real Stripe webhook would retry against a 501 for
-        #     days and then disable the endpoint. Re-add when 12.4 lands a
-        #     real handler and STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET are
-        #     provisioned.
-        #
-        # `share` was ALSO withheld here (worker-audit, 2026-08-02: it was the
-        # only worker with an R2 binding, and R2 is not enabled on this
-        # Cloudflare account — error 10042 "Please enable R2 through the
-        # Cloudflare Dashboard", confirmed live against the API). That
-        # withholding note itself already named its own unlock: "Re-add once
-        # R2 is enabled on the account ... (or the binding is dropped)."
-        # Story 9.5 took the second branch — its storage ruling drops the
-        # `[[r2_buckets]]` binding from workers/share/wrangler.toml entirely
-        # and rewrites the Worker to stream from Supabase Storage's
-        # `documents` bucket instead (ARCHITECTURE-SPINE.md AD-9, amended in
-        # the same diff). `share` now needs nothing beyond the base
-        # SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY secrets every other worker
-        # in this matrix already gets, so it rejoins the matrix below rather
-        # than staying withheld for a binding that no longer exists.
-        #
-        # `fail-fast: false` (run 30742647288, 2026-08-02): CLOUDFLARE_API_TOKEN
-        # was added as a repo secret but the token itself was rejected —
-        # `wrangler deploy` failed every leg identically with "Authentication
-        # error [code: 10000]" / "Invalid access token [code: 9109]" from the
-        # Cloudflare API, not a per-worker problem. With the default fail-fast,
-        # the first leg to fail ("match") cancelled the other four before they
-        # even ran, so the run showed one real error and four ambiguous
-        # "canceled" annotations — worse for diagnosing an account-wide auth
-        # problem, since a reader can't tell "canceled" apart from "would have
-        # succeeded". Disabling fail-fast lets all five legs attempt and report
-        # their own copy of the real wrangler error, and — combined with the
-        # `trigger-frontend` change below — a Cloudflare auth failure no longer
-        # cancels work that doesn't depend on it.
-        strategy:
-            fail-fast: false
-            matrix:
-                worker: [ingest, parse, match, ai, cron, share]
-
-        env:
-            CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-            CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-            IS_CLOUDFLARE_CONFIGURED: ${{ secrets.CLOUDFLARE_API_TOKEN && secrets.CLOUDFLARE_ACCOUNT_ID }}
-            SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-            SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-            RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-            STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-            STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-
-        steps:
-            - name: 📥 Checkout repo
-              uses: actions/checkout@v7
-
-            - name: ⚙️ Setup node
-              uses: actions/setup-node@v7
-              with:
-                  node-version-file: .nvmrc
-                  cache: npm
-
-            - name: 📥 Download deps
-              run: npm ci
-
-            - if: ${{ env.IS_CLOUDFLARE_CONFIGURED }}
-              name: 🚀 wrangler deploy
-              working-directory: workers/${{ matrix.worker }}
-              run: npx wrangler deploy
-
-            # The secrets/skip steps below only fire on the missing-secret
-            # path (`!env.IS_CLOUDFLARE_CONFIGURED`). A *present but rejected*
-            # token — the failure mode from run 30742647288 — falls through to
-            # here instead: the step above already failed the job (so it shows
-            # red, not silently green), but its wrangler error lives in a
-            # collapsed log group a reader has to open. This puts the same
-            # fact where the missing-secret case already puts it: the job
-            # summary, so "workers didn't deploy" is visible without digging.
-            - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && failure() }}
-              name: 🚨 Cloudflare Workers deployment FAILED
-              run: |
-                  echo "::error::wrangler deploy failed for ${{ matrix.worker }} — CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are set but were rejected by the Cloudflare API (see the wrangler deploy step above for the exact error)."
-                  echo ':rotating_light: **Cloudflare Workers deployment FAILED (`${{ matrix.worker }}`).** `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` are present but were rejected — see the `wrangler deploy` step above for the exact error (commonly an invalid, expired, or under-scoped token). This worker was **NOT** deployed. `trigger-frontend` still runs once `deploy-supabase` succeeds — a Cloudflare problem does not block the frontend.' >> "$GITHUB_STEP_SUMMARY"
-
-            - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY }}
-              name: 🔑 Push base secrets (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-              working-directory: workers/${{ matrix.worker }}
-              run: |
-                  echo "$SUPABASE_URL" | npx wrangler secret put SUPABASE_URL
-                  echo "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-
-            - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'cron' && env.RESEND_API_KEY }}
-              name: 🔑 Push cron secrets (RESEND_API_KEY)
-              working-directory: workers/cron
-              run: echo "$RESEND_API_KEY" | npx wrangler secret put RESEND_API_KEY
-
-            - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'billing' && env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET }}
-              name: 🔑 Push billing secrets (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET)
-              working-directory: workers/billing
-              run: |
-                  echo "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY
-                  echo "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET
-
-            - if: ${{ !env.IS_CLOUDFLARE_CONFIGURED }}
-              name: Cloudflare deployment skipped
-              run: |
-                  echo ':warning: Cloudflare Workers deployment skipped (${{ matrix.worker }}) — missing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secret' >> $GITHUB_STEP_SUMMARY
-
-    # The frontend used to deploy on a pipeline entirely OUTSIDE this workflow:
-    # Vercel built from its own git integration on the same push that ran
-    # `db push`. Two independent pipelines, one trigger, no ordering. On the Epic
-    # 3 deploy Vercel finished at 11:59:56 with `db push` still running — new UI
-    # live against the old schema — and a *failed* migration still shipped the
-    # new frontend.
+    # `billing` is deliberately withheld from this matrix (worker-audit,
+    # 2026-08-02):
+    #   - billing: publishes an unauthenticated POST /webhook on a public
+    #     workers.dev origin ahead of Story 12.4 (Stripe integration).
+    #     There is no Stripe SDK, no signature verification, and no DB
+    #     write yet — a real Stripe webhook would retry against a 501 for
+    #     days and then disable the endpoint. Re-add when 12.4 lands a
+    #     real handler and STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET are
+    #     provisioned.
     #
-    # The fix has two halves, and BOTH must be in place or production breaks:
+    # `share` was ALSO withheld here (worker-audit, 2026-08-02: it was the
+    # only worker with an R2 binding, and R2 is not enabled on this
+    # Cloudflare account — error 10042 "Please enable R2 through the
+    # Cloudflare Dashboard", confirmed live against the API). That
+    # withholding note itself already named its own unlock: "Re-add once
+    # R2 is enabled on the account ... (or the binding is dropped)."
+    # Story 9.5 took the second branch — its storage ruling drops the
+    # `[[r2_buckets]]` binding from workers/share/wrangler.toml entirely
+    # and rewrites the Worker to stream from Supabase Storage's
+    # `documents` bucket instead (ARCHITECTURE-SPINE.md AD-9, amended in
+    # the same diff). `share` now needs nothing beyond the base
+    # SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY secrets every other worker
+    # in this matrix already gets, so it rejoins the matrix below rather
+    # than staying withheld for a binding that no longer exists.
     #
-    #   1. `git.deploymentEnabled: { "main": false }` in `vercel.json` stops
-    #      Vercel auto-building on push to `main`.
-    #   2. This job POSTs a Vercel Deploy Hook once every backend pipeline has
-    #      succeeded, which is now the ONLY way production is ever rebuilt.
-    #
-    # Verified empirically on a throwaway branch before landing (probe branch
-    # `ci/vercel-deploy-gate-probe`, since deleted), because guessing wrong here
-    # means production silently stops deploying forever:
-    #   - a push to a branch with `deploymentEnabled: false` for that branch
-    #     created NO deployment; and
-    #   - a Deploy Hook aimed at that same branch DID build it anyway.
-    # Deploy Hooks bypass `git.deploymentEnabled`. (The documented setting that
-    # *does* disable hooks is the deprecated `github.enabled: false` — not this
-    # one. Do not add that key.)
-    # A push to a DIFFERENT branch while `main: false` was set still produced a
-    # preview, so PR previews are unaffected — matching is per-branch-name, and a
-    # PR deploys its head branch, never `main`.
-    #
-    # `needs:` both backend jobs, so the frontend is strictly last-to-START:
-    # it does not fire until deploy-workers has finished (success or failure),
-    # preserving "workers land before the frontend that may call them, when
-    # they land at all". But `needs` alone would also make a *failed*
-    # deploy-workers skip this job — and Cloudflare and Vercel are independent
-    # providers, so a Cloudflare-side problem has no business blocking a
-    # Supabase-and-Vercel deploy. Run 30742647288 (2026-08-02) proved the cost
-    # of not separating them: an invalid CLOUDFLARE_API_TOKEN failed every
-    # `deploy-workers` leg and this job was skipped outright — production
-    # migrations had landed but the frontend never rebuilt, for a reason
-    # entirely unrelated to Supabase or Vercel.
-    #
-    # `if: always() && needs.deploy-supabase.result == 'success'` fixes that:
-    # deploy-workers' result is deliberately absent from the condition, so
-    # this job runs whenever migrations succeeded, whether the Cloudflare leg
-    # succeeded, failed, or (if `share`'s bucket gate above ever produces one)
-    # was skipped. A failed migration still blocks it — that ordering
-    # guarantee is the one that actually matters, because a frontend built
-    # against a schema that failed to migrate is the outage this workflow
-    # exists to prevent. A failed Cloudflare deploy is not that: the five
-    # workers gated in are inert health-checks the frontend does not depend on
-    # to render or to serve auth/CRUD, so shipping the frontend without them
-    # is safe, and leaving them undeployed is exactly as loud as it was inside
-    # `deploy-workers` (job stays red; see the 🚨 step there) — this job does
-    # not paper over it, it just declines to let it cascade.
-    #
-    # GUARD: if VERCEL_DEPLOY_HOOK_URL is ever absent (secret rotated away,
-    # restored-from-backup repo) this job does NOT fail the run — it warns
-    # loudly. Failing every deploy over a missing optional secret would be worse
-    # than the race being fixed. But note the consequence while it is missing:
-    # `vercel.json` still blocks the git build, so production simply does not
-    # deploy. The warning says exactly that.
-    #
-    # Rejected: building the frontend inside CI (`vercel deploy --prebuilt
-    # --prod`) costs three more secrets, reconfigures PR previews and loses
-    # Vercel's remote build cache; a `vercel.json` `ignoreCommand` that polls the
-    # schema would put database credentials inside the Vercel build.
-    #
-    # HONEST LIMIT, and the reason this is not the whole fix: ordering removes
-    # only "new UI against old schema". For the entire duration of the frontend
-    # build the NEW schema is live under the OLD frontend, and no ordering closes
-    # that half. Only backward-compatible (expand/contract) migrations do — every
-    # migration must keep the previous release working for one cycle. That
-    # property is required for rollback anyway; the hook just buys the cheap half.
-    trigger-frontend:
-        name: 🚀 Deploy (Vercel frontend)
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        needs: [deploy-supabase, deploy-workers]
-        # See the comment block above: deliberately keys on deploy-supabase's
-        # result only. `always()` lifts the default "every `needs:` job must
-        # have succeeded" gate so a failed/skipped deploy-workers doesn't
-        # skip this job too — deploy-supabase's own result still must be
-        # 'success', so a failed migration still blocks the frontend deploy.
-        if: ${{ always() && needs.deploy-supabase.result == 'success' }}
+    # `fail-fast: false` (run 30742647288, 2026-08-02): CLOUDFLARE_API_TOKEN
+    # was added as a repo secret but the token itself was rejected —
+    # `wrangler deploy` failed every leg identically with "Authentication
+    # error [code: 10000]" / "Invalid access token [code: 9109]" from the
+    # Cloudflare API, not a per-worker problem. With the default fail-fast,
+    # the first leg to fail ("match") cancelled the other four before they
+    # even ran, so the run showed one real error and four ambiguous
+    # "canceled" annotations — worse for diagnosing an account-wide auth
+    # problem, since a reader can't tell "canceled" apart from "would have
+    # succeeded". Disabling fail-fast lets all five legs attempt and report
+    # their own copy of the real wrangler error, and — combined with the
+    # `trigger-frontend` change below — a Cloudflare auth failure no longer
+    # cancels work that doesn't depend on it.
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [ingest, parse, match, ai, cron, share]
 
-        env:
-            VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      IS_CLOUDFLARE_CONFIGURED: ${{ secrets.CLOUDFLARE_API_TOKEN && secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
 
-        steps:
-            - if: ${{ env.VERCEL_DEPLOY_HOOK_URL }}
-              name: 🚀 Trigger the Vercel production build (backends are live)
-              run: |
-                  curl -sS --fail-with-body -X POST "$VERCEL_DEPLOY_HOOK_URL" \
-                      -o /tmp/vercel-hook.json \
-                      || { echo "::error::Vercel deploy hook failed — production was NOT rebuilt and is still on the previous build"; head -c 2000 /tmp/vercel-hook.json >&2; exit 1; }
-                  echo "🚀 Vercel production build triggered — migrations, edge functions and workers all landed first." >> "$GITHUB_STEP_SUMMARY"
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v7
 
-            - if: ${{ !env.VERCEL_DEPLOY_HOOK_URL }}
-              name: ⚠️ Frontend deploy trigger is not configured
-              run: |
-                  echo '::warning::VERCEL_DEPLOY_HOOK_URL secret is missing — the frontend was NOT deployed.'
-                  echo ':rotating_light: **The frontend was NOT deployed.** `vercel.json` sets `git.deploymentEnabled.main = false`, so Vercel no longer builds on push; this job is what replaces it, and it needs the `VERCEL_DEPLOY_HOOK_URL` repo secret. Recreate the hook (Vercel → Project → Settings → Git → Deploy Hooks, branch `main`) and store its URL as that secret. Production is still serving the last successful build.' >> $GITHUB_STEP_SUMMARY
+      - name: ⚙️ Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: 📥 Download deps
+        run: npm ci
+
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED }}
+        name: 🚀 wrangler deploy
+        working-directory: workers/${{ matrix.worker }}
+        run: npx wrangler deploy
+
+      # The secrets/skip steps below only fire on the missing-secret
+      # path (`!env.IS_CLOUDFLARE_CONFIGURED`). A *present but rejected*
+      # token — the failure mode from run 30742647288 — falls through to
+      # here instead: the step above already failed the job (so it shows
+      # red, not silently green), but its wrangler error lives in a
+      # collapsed log group a reader has to open. This puts the same
+      # fact where the missing-secret case already puts it: the job
+      # summary, so "workers didn't deploy" is visible without digging.
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && failure() }}
+        name: 🚨 Cloudflare Workers deployment FAILED
+        run: |
+          echo "::error::wrangler deploy failed for ${{ matrix.worker }} — CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are set but were rejected by the Cloudflare API (see the wrangler deploy step above for the exact error)."
+          echo ':rotating_light: **Cloudflare Workers deployment FAILED (`${{ matrix.worker }}`).** `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` are present but were rejected — see the `wrangler deploy` step above for the exact error (commonly an invalid, expired, or under-scoped token). This worker was **NOT** deployed. `trigger-frontend` still runs once `deploy-supabase` succeeds — a Cloudflare problem does not block the frontend.' >> "$GITHUB_STEP_SUMMARY"
+
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY }}
+        name: 🔑 Push base secrets (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        working-directory: workers/${{ matrix.worker }}
+        run: |
+          echo "$SUPABASE_URL" | npx wrangler secret put SUPABASE_URL
+          echo "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'cron' && env.RESEND_API_KEY }}
+        name: 🔑 Push cron secrets (RESEND_API_KEY)
+        working-directory: workers/cron
+        run: echo "$RESEND_API_KEY" | npx wrangler secret put RESEND_API_KEY
+
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'billing' && env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET }}
+        name: 🔑 Push billing secrets (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET)
+        working-directory: workers/billing
+        run: |
+          echo "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY
+          echo "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET
+
+      - if: ${{ !env.IS_CLOUDFLARE_CONFIGURED }}
+        name: Cloudflare deployment skipped
+        run: |
+          echo ':warning: Cloudflare Workers deployment skipped (${{ matrix.worker }}) — missing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secret' >> $GITHUB_STEP_SUMMARY
+
+  # The frontend used to deploy on a pipeline entirely OUTSIDE this workflow:
+  # Vercel built from its own git integration on the same push that ran
+  # `db push`. Two independent pipelines, one trigger, no ordering. On the Epic
+  # 3 deploy Vercel finished at 11:59:56 with `db push` still running — new UI
+  # live against the old schema — and a *failed* migration still shipped the
+  # new frontend.
+  #
+  # The fix has two halves, and BOTH must be in place or production breaks:
+  #
+  #   1. `git.deploymentEnabled: { "main": false }` in `vercel.json` stops
+  #      Vercel auto-building on push to `main`.
+  #   2. This job POSTs a Vercel Deploy Hook once every backend pipeline has
+  #      succeeded, which is now the ONLY way production is ever rebuilt.
+  #
+  # Verified empirically on a throwaway branch before landing (probe branch
+  # `ci/vercel-deploy-gate-probe`, since deleted), because guessing wrong here
+  # means production silently stops deploying forever:
+  #   - a push to a branch with `deploymentEnabled: false` for that branch
+  #     created NO deployment; and
+  #   - a Deploy Hook aimed at that same branch DID build it anyway.
+  # Deploy Hooks bypass `git.deploymentEnabled`. (The documented setting that
+  # *does* disable hooks is the deprecated `github.enabled: false` — not this
+  # one. Do not add that key.)
+  # A push to a DIFFERENT branch while `main: false` was set still produced a
+  # preview, so PR previews are unaffected — matching is per-branch-name, and a
+  # PR deploys its head branch, never `main`.
+  #
+  # `needs:` both backend jobs, so the frontend is strictly last-to-START:
+  # it does not fire until deploy-workers has finished (success or failure),
+  # preserving "workers land before the frontend that may call them, when
+  # they land at all". But `needs` alone would also make a *failed*
+  # deploy-workers skip this job — and Cloudflare and Vercel are independent
+  # providers, so a Cloudflare-side problem has no business blocking a
+  # Supabase-and-Vercel deploy. Run 30742647288 (2026-08-02) proved the cost
+  # of not separating them: an invalid CLOUDFLARE_API_TOKEN failed every
+  # `deploy-workers` leg and this job was skipped outright — production
+  # migrations had landed but the frontend never rebuilt, for a reason
+  # entirely unrelated to Supabase or Vercel.
+  #
+  # `if: always() && needs.deploy-supabase.result == 'success'` fixes that:
+  # deploy-workers' result is deliberately absent from the condition, so
+  # this job runs whenever migrations succeeded, whether the Cloudflare leg
+  # succeeded, failed, or (if `share`'s bucket gate above ever produces one)
+  # was skipped. A failed migration still blocks it — that ordering
+  # guarantee is the one that actually matters, because a frontend built
+  # against a schema that failed to migrate is the outage this workflow
+  # exists to prevent. A failed Cloudflare deploy is not that: the five
+  # workers gated in are inert health-checks the frontend does not depend on
+  # to render or to serve auth/CRUD, so shipping the frontend without them
+  # is safe, and leaving them undeployed is exactly as loud as it was inside
+  # `deploy-workers` (job stays red; see the 🚨 step there) — this job does
+  # not paper over it, it just declines to let it cascade.
+  #
+  # GUARD: if VERCEL_DEPLOY_HOOK_URL is ever absent (secret rotated away,
+  # restored-from-backup repo) this job does NOT fail the run — it warns
+  # loudly. Failing every deploy over a missing optional secret would be worse
+  # than the race being fixed. But note the consequence while it is missing:
+  # `vercel.json` still blocks the git build, so production simply does not
+  # deploy. The warning says exactly that.
+  #
+  # Rejected: building the frontend inside CI (`vercel deploy --prebuilt
+  # --prod`) costs three more secrets, reconfigures PR previews and loses
+  # Vercel's remote build cache; a `vercel.json` `ignoreCommand` that polls the
+  # schema would put database credentials inside the Vercel build.
+  #
+  # HONEST LIMIT, and the reason this is not the whole fix: ordering removes
+  # only "new UI against old schema". For the entire duration of the frontend
+  # build the NEW schema is live under the OLD frontend, and no ordering closes
+  # that half. Only backward-compatible (expand/contract) migrations do — every
+  # migration must keep the previous release working for one cycle. That
+  # property is required for rollback anyway; the hook just buys the cheap half.
+  trigger-frontend:
+    name: 🚀 Deploy (Vercel frontend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [deploy-supabase, deploy-workers]
+    # See the comment block above: deliberately keys on deploy-supabase's
+    # result only. `always()` lifts the default "every `needs:` job must
+    # have succeeded" gate so a failed/skipped deploy-workers doesn't
+    # skip this job too — deploy-supabase's own result still must be
+    # 'success', so a failed migration still blocks the frontend deploy.
+    if: ${{ always() && needs.deploy-supabase.result == 'success' }}
+
+    env:
+      VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+
+    steps:
+      - if: ${{ env.VERCEL_DEPLOY_HOOK_URL }}
+        name: 🚀 Trigger the Vercel production build (backends are live)
+        run: |
+          curl -sS --fail-with-body -X POST "$VERCEL_DEPLOY_HOOK_URL" \
+              -o /tmp/vercel-hook.json \
+              || { echo "::error::Vercel deploy hook failed — production was NOT rebuilt and is still on the previous build"; head -c 2000 /tmp/vercel-hook.json >&2; exit 1; }
+          echo "🚀 Vercel production build triggered — migrations, edge functions and workers all landed first." >> "$GITHUB_STEP_SUMMARY"
+
+      - if: ${{ !env.VERCEL_DEPLOY_HOOK_URL }}
+        name: ⚠️ Frontend deploy trigger is not configured
+        run: |
+          echo '::warning::VERCEL_DEPLOY_HOOK_URL secret is missing — the frontend was NOT deployed.'
+          echo ':rotating_light: **The frontend was NOT deployed.** `vercel.json` sets `git.deploymentEnabled.main = false`, so Vercel no longer builds on push; this job is what replaces it, and it needs the `VERCEL_DEPLOY_HOOK_URL` repo secret. Recreate the hook (Vercel → Project → Settings → Git → Deploy Hooks, branch `main`) and store its URL as that secret. Production is still serving the last successful build.' >> $GITHUB_STEP_SUMMARY

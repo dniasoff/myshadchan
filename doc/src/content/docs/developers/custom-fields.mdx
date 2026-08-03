@@ -80,26 +80,26 @@ Atomic CRM uses TypeScript to ensure type safety, so you'll need to modify the `
 
 ```tsx {18}
 export type Contact = {
-  first_name: string;
-  last_name: string;
-  title: string;
-  company_id: Identifier;
-  email_jsonb: EmailAndType[];
-  avatar?: Partial<RAFile>;
-  linkedin_url?: string | null;
-  first_seen: string;
-  last_seen: string;
-  has_newsletter: boolean;
-  tags: Identifier[];
-  gender: string;
-  sales_id: Identifier;
-  status: string;
-  background: string;
-  phone_jsonb: PhoneNumberAndType[];
-  referred_by?: string;
-  nb_tasks?: number;
-  company_name?: string;
-} & Pick<RaRecord, "id">;
+    first_name: string;
+    last_name: string;
+    title: string;
+    company_id: Identifier;
+    email_jsonb: EmailAndType[];
+    avatar?: Partial<RAFile>;
+    linkedin_url?: string | null;
+    first_seen: string;
+    last_seen: string;
+    has_newsletter: boolean;
+    tags: Identifier[];
+    gender: string;
+    sales_id: Identifier;
+    status: string;
+    background: string;
+    phone_jsonb: PhoneNumberAndType[];
+    referred_by?: string;
+    nb_tasks?: number;
+    company_name?: string;
+} & Pick<RaRecord, 'id'>;
 ```
 
 You will modify the contact creation and edition form to include an input for the `referred_by` field.
@@ -107,37 +107,34 @@ To do so, open the `src/components/atomic-crm/contacts/ContactInputs.tsx` file t
 
 ```tsx {5-8}
 const ContactMiscInputs = () => {
-  return (
-    <div className="flex flex-col gap-4">
-      <h6 className="text-lg font-semibold">Misc</h6>
-      <TextInput
-        source="referred_by"
-        helperText={false}
-      />
-      <TextInput
-        source="background"
-        label="Background info (bio, how you met, etc)"
-        multiline
-        helperText={false}
-      />
-      <BooleanInput source="has_newsletter" helperText={false} />
-      <ReferenceInput
-        reference="sales"
-        source="sales_id"
-        sort={{ field: "last_name", order: "ASC" }}
-        filter={{
-          "disabled@neq": true,
-        }}
-      >
-        <SelectInput
-          helperText={false}
-          label="Account manager"
-          optionText={saleOptionRenderer}
-          validate={required()}
-        />
-      </ReferenceInput>
-    </div>
-  );
+    return (
+        <div className="flex flex-col gap-4">
+            <h6 className="text-lg font-semibold">Misc</h6>
+            <TextInput source="referred_by" helperText={false} />
+            <TextInput
+                source="background"
+                label="Background info (bio, how you met, etc)"
+                multiline
+                helperText={false}
+            />
+            <BooleanInput source="has_newsletter" helperText={false} />
+            <ReferenceInput
+                reference="sales"
+                source="sales_id"
+                sort={{ field: 'last_name', order: 'ASC' }}
+                filter={{
+                    'disabled@neq': true,
+                }}
+            >
+                <SelectInput
+                    helperText={false}
+                    label="Account manager"
+                    optionText={saleOptionRenderer}
+                    validate={required()}
+                />
+            </ReferenceInput>
+        </div>
+    );
 };
 ```
 
