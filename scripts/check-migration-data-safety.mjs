@@ -270,60 +270,131 @@ function main() {
 
   refreshStackWorkdir(workdir);
 
-  console.log(
-    `\n[1/4] resetting to the last deployed migration (${baselineVersion})`,
-  );
-  run("npx", [
-    "supabase",
-    "db",
-    "reset",
-    "--workdir",
-    workdir,
-    "--version",
-    baselineVersion,
-    "--no-seed",
-  ]);
-
-  console.log(`\n[2/4] seeding production-shaped rows and snapshotting them`);
-  psql(dbUrl, path.join(GUARD_DIR, "fixture.sql"));
-
-  console.log(`\n[3/4] applying the ${pending.length} pending migration(s)`);
-  run("npx", ["supabase", "migration", "up", "--workdir", workdir, "--local"]);
-
-  console.log(`\n[4/4] asserting the seeded data survived`);
-  let failed = null;
+  // Every step below mutates the stack's database, and every one of them can
+  // fail. They used to be split across two error-handling paths: only the
+  // final [4/4] step was wrapped in a try/catch, so a failure in [1/4]-[3/4]
+  // — most importantly the fixture itself refusing to seed — threw straight
+  // out of main(), skipped "restoring the stack to head" below, AND printed
+  // the exact same generic "migration data-safety guard: <message>" text a
+  // real [4/4] data-loss finding does. That is how this guard gave zero
+  // signal for two epics (Story 8.2 broke the fixture's own INSERT; every
+  // migration after it hit this same untagged, unrestored failure and
+  // nobody could tell "the harness is broken" from "the harness ran and
+  // passed" by looking at anything short of the raw psql error — see
+  // .claude/rules/ for the incident). `phase` records which step failed so
+  // the banner below can say so explicitly, and the single try/finally-shaped
+  // block guarantees the restore runs on every exit path, not just [4/4]'s.
+  let phase = "reset";
   try {
+    console.log(
+      `\n[1/4] resetting to the last deployed migration (${baselineVersion})`,
+    );
+    run("npx", [
+      "supabase",
+      "db",
+      "reset",
+      "--workdir",
+      workdir,
+      "--version",
+      baselineVersion,
+      "--no-seed",
+    ]);
+
+    phase = "seed";
+    console.log(`\n[2/4] seeding production-shaped rows and snapshotting them`);
+    psql(dbUrl, path.join(GUARD_DIR, "fixture.sql"));
+
+    phase = "apply";
+    console.log(`\n[3/4] applying the ${pending.length} pending migration(s)`);
+    run("npx", [
+      "supabase",
+      "migration",
+      "up",
+      "--workdir",
+      workdir,
+      "--local",
+    ]);
+
+    phase = "assert";
+    console.log(`\n[4/4] asserting the seeded data survived`);
     psql(dbUrl, path.join(GUARD_DIR, "declared-moves.sql"));
     psql(dbUrl, path.join(GUARD_DIR, "assert.sql"));
   } catch (error) {
-    failed = error;
-  }
-
-  if (!options.keep) {
-    // Leave the stack at head, or every db suite after this one runs against
-    // a half-migrated database. Runs even on failure — but never masks it.
-    console.log(`\nrestoring the stack to head`);
-    try {
-      run("npx", ["supabase", "db", "reset", "--workdir", workdir]);
-    } catch (error) {
-      console.error(
-        `WARNING: could not restore the stack to head: ${error.message}`,
-      );
-      console.error(`Run: npx supabase db reset --workdir ${workdir}`);
-    }
-  }
-
-  if (failed) {
-    console.error(
-      `\nmigration data-safety guard FAILED. The pending migrations destroy data that ` +
-        `production already has. Fix the migration — add the backfill BEFORE the drop — ` +
-        `or, if the loss is intended, declare it in ` +
-        `supabase/tests/migration-data-safety/declared-moves.sql.`,
-    );
+    restoreStack(workdir, options.keep);
+    reportFailure(phase, error);
     process.exit(1);
   }
 
+  restoreStack(workdir, options.keep);
   console.log(`\nmigration data-safety guard PASSED.`);
+}
+
+/**
+ * Leaves the stack at head, or every db suite that runs after this one hits
+ * a half-migrated (or, before this fix, half-SEEDED — fixture.sql's own
+ * `migration_guard` schema and its production-shaped rows still sitting on
+ * top of the BASELINE schema) database. Runs on every exit path — success or
+ * any failure phase — because a stack a failed setup step left dirty is
+ * itself a silent hazard for whatever runs next, not merely this guard's
+ * own problem.
+ */
+function restoreStack(workdir, keep) {
+  if (keep) return;
+  console.log(`\nrestoring the stack to head`);
+  try {
+    run("npx", ["supabase", "db", "reset", "--workdir", workdir]);
+  } catch (error) {
+    console.error(
+      `WARNING: could not restore the stack to head: ${error.message}`,
+    );
+    console.error(`Run: npx supabase db reset --workdir ${workdir}`);
+  }
+}
+
+// One banner per phase, deliberately worded so a setup failure cannot be
+// mistaken for the one finding this guard actually exists to make ("the
+// pending migrations destroy data"). `reset` and `apply` are tooling/
+// migration-syntax problems this guard happens to surface first, not
+// data-safety findings. `seed` is the phase this file's own header comment
+// singles out as the one that went silently unnoticed: the message says, in
+// as many words, that nothing downstream ever ran. Only `assert` is the
+// guard doing its actual job and finding something real.
+const FAILURE_BANNERS = {
+  reset:
+    "SETUP FAILED — could not reset the stack to the last deployed migration " +
+    "(the baseline this run computed from --base-ref/--baseline). This is an " +
+    "environment/tooling problem. It says nothing about whether the pending " +
+    "migrations are safe — none of them has run yet.",
+  seed:
+    "SETUP FAILED — the fixture could not be seeded against the baseline schema. " +
+    "supabase/tests/migration-data-safety/fixture.sql hit a hard SQL error before " +
+    "any pending migration ever applied, which means NOTHING was verified this run. " +
+    "This is NOT a statement about migration safety — it means the fixture itself is " +
+    "out of sync with the baseline schema (the recurring shape: a deployed migration " +
+    "changed a constraint — e.g. added NOT NULL to a column — and this file's own " +
+    "INSERTs were never updated to match; see .claude/rules/migration-guard-" +
+    "integrity.md for the incident that named this failure mode). Fix the fixture — " +
+    "see its own header comment — then re-run.",
+  apply:
+    "SETUP FAILED — the pending migration(s) did not apply cleanly on top of the " +
+    "seeded baseline. This is a broken migration (bad SQL, a failed constraint, a " +
+    "missing dependency), not the data-destruction finding this guard exists to " +
+    "make — assert.sql never ran.",
+  assert:
+    "MIGRATION DATA-SAFETY GUARD FAILED. The pending migrations destroy data that " +
+    "production already has. Fix the migration — add the backfill BEFORE the drop " +
+    "— or, if the loss is intended, declare it in " +
+    "supabase/tests/migration-data-safety/declared-moves.sql.",
+};
+
+function reportFailure(phase, error) {
+  const banner =
+    FAILURE_BANNERS[phase] ?? `FAILED at an unrecognised phase (${phase}).`;
+  const rule = "=".repeat(Math.min(78, Math.max(banner.length, 40)));
+  console.error(`\n${rule}`);
+  console.error(banner);
+  console.error(rule);
+  console.error(error.message);
 }
 
 if (

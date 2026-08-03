@@ -21,6 +21,18 @@
 --
 -- See scripts/check-migration-data-safety.mjs (the driver) and
 -- doc/src/content/docs/developers/migrations.mdx ("The empty-table trap").
+--
+-- WHICH TABLES GET PROTECTED is now derived from the catalog (every base
+-- table in `public`), not hand-listed — see the `do $$ ... capture(v_table)`
+-- loop near the foot of this file. WHICH ROWS are production-shaped is still
+-- necessarily hand-authored per table (nothing can derive realistic business
+-- data from a schema), and the completeness check right after that loop fails
+-- loudly if any table has zero captured rows and no
+-- `migration_guard.empty_by_design` declaration explaining why. Both exist
+-- because the previous, fully-hand-maintained version of this file went stale
+-- twice — silently — and one of those two times is the reason
+-- `.claude/rules/` has a file about this guard specifically, not just about
+-- migrations in general.
 -- ===========================================================================
 
 begin;
@@ -121,6 +133,20 @@ create table migration_guard.expected_rewrites (
     column_name text not null,
     reason text not null,
     primary key (table_name, column_name)
+);
+
+-- The declared exception to the completeness check at the foot of this file:
+-- a `public` base table this fixture deliberately captures zero rows for,
+-- because it genuinely holds nothing in production today (a schema-ready
+-- table with no writer yet), and why. Anything NOT listed here has to have at
+-- least one captured row, or the fixture fails loudly before this guard ever
+-- reaches "asserting the seeded data survived" — see that check's own
+-- comment, and .claude/rules/ for the incident (two tables went unprotected
+-- silently, `invites` in Epic 6 and `connections`' own new columns in Epic 8,
+-- because nothing forced this list to stay honest).
+create table migration_guard.empty_by_design (
+    table_name text primary key,
+    reason text not null
 );
 
 -- The table's primary-key column names, in key order, straight out of the
@@ -439,6 +465,16 @@ values (
     'https://example.test/guard-writeup', 'Community writeup'
 );
 
+-- shidduch_schools (Story 3.x era, ShidduchOverviewTab.tsx): a seminary /
+-- yeshiva / school entry attached to a shidduch. Never seeded before this —
+-- one of the 7 tables the completeness check below found with real
+-- production traffic (see .claude/rules/ for the incident) but zero rows in
+-- this fixture.
+insert into public.shidduch_schools (id, account_id, shidduchim_id, kind, name_en, name_he, start_year, end_year)
+values (
+    9000001, 9000001, 9000001, 'seminary', 'Bais Yaakov Seminary', 'בית יעקב', 2019, 2021
+);
+
 -- Story 3.7: a Files-tab row, path-scoped to its account
 -- (entity_files_storage_path_scope_check).
 insert into public.entity_files (
@@ -478,6 +514,19 @@ select
 from public.members m
 where m.user_id = '00000000-0000-4000-8000-000000009001';
 
+-- inbox_items (the front-door capture inbox, InboxList.tsx /
+-- InboxResolveDialog.tsx): never seeded before this — one of the 7 tables the
+-- completeness check below found with real production traffic but zero rows
+-- in this fixture (see .claude/rules/ for the incident this closes).
+-- `source = 'email'` keeps `inbox_items_shadchan_source_requires_connection`
+-- out of scope (that check only constrains `source = 'shadchan'`).
+insert into public.inbox_items (id, account_id, source, raw_text, subject, sender, status)
+values (
+    9000001, 9000001, 'email',
+    'Forwarded resume for a potential match — see attached.',
+    'Possible shidduch for Leah', 'seminary.office@example.test', 'unresolved'
+);
+
 -- Story 7.1 (Epic 7: threads). A shadchanus account, an accepted connection
 -- to the household above, and one thread/participant/message PER SCOPE AXIS
 -- on the SAME subject shidduch (9000001) — the shape Story 7.5's
@@ -508,8 +557,27 @@ begin
       insert into public.accounts (id, name, kind, transparency_level, demo)
       values (9000002, 'Migration Guard Shadchanus', 'shadchanus', 'full', false);
 
-      insert into public.connections (id, household_account_id, shadchanus_account_id, status)
-      values (9000001, 9000001, 9000002, 'accepted');
+      -- Story 8.2 columns (proposed_by_account_id, accepted_at,
+      -- household_account_name): this insert predates 8.2 and was never
+      -- updated when that story made the first two NOT NULL and the third
+      -- both NOT NULL and newly-added (Story 8.5) — see 01_tables.sql's own
+      -- comments on each column. That gap is what this guard's own setup
+      -- silently failed on for every migration from Story 8.2 through all of
+      -- Epic 9: fixture.sql itself never got past this INSERT, so nothing
+      -- below it (including 9.1's and 9.3's own to_regclass-guarded blocks)
+      -- ever ran. Values mirror accept_connection_invite()'s own shape
+      -- (02_functions.sql): proposed_by_account_id is the inviter (here, the
+      -- shadchanus side), accepted_at is set together with status =
+      -- 'accepted', and household_account_name is the household account's
+      -- own name at accept time.
+      insert into public.connections (
+          id, household_account_id, shadchanus_account_id, status,
+          proposed_by_account_id, accepted_at, household_account_name
+      )
+      values (
+          9000001, 9000001, 9000002, 'accepted',
+          9000002, now(), 'Migration Guard Household'
+      );
 
       insert into public.threads (id, account_id, connection_id, subject_type, subject_id, visibility, created_by_member_id)
       values (9000001, 9000001, null, 'shidduch', 9000001, 'open', 9000001);
@@ -531,6 +599,24 @@ begin
     $seed$;
   end if;
 end $$;
+
+-- Story 8.2 (Task 2): a connection_invites row. The table is created by 8.2's
+-- own migration (20260802130221_connection_consent.sql), already part of
+-- every baseline this guard resets to today — same as `connections`'
+-- proposed_by_account_id/household_account_name above — so no `to_regclass`
+-- guard is needed, unlike the Epic-7/7.5/9.x blocks around it whose tables
+-- are still ahead of some baseline this guard might run against. Never
+-- seeded before this — the fixture's own INSERT into `connections` above
+-- failed on every run since 8.2, so nothing after it, including this table,
+-- was ever reachable (see .claude/rules/ for the incident).
+insert into public.connection_invites (
+    id, inviter_account_id, inviter_kind, token_hash, status, expires_at
+)
+values (
+    9000001, 9000002, 'shadchanus',
+    encode(extensions.digest('migration-guard-connection-invite', 'sha256'), 'hex'),
+    'pending', now() + interval '7 days'
+);
 
 -- Story 7.5 (message_notifications, push_subscriptions). Same `to_regclass`
 -- guard, same reasoning as the block above: THIS story's own migration is
@@ -627,6 +713,40 @@ begin
   end if;
 end $$;
 
+-- Story 9.5 (share_links, share_access_log). Same `to_regclass` guard, same
+-- reasoning as `listings`/`listing_withdrawal_locks` above: THIS story's own
+-- migration is what creates both tables, so they hold nothing before it
+-- applies, and the guard is trivially safe for its own migration. From the
+-- next story's baseline onward this seeds and captures a live share link
+-- (and one access-log row against it) like every other table here — closing
+-- the blind spot in the SAME diff that adds the tables, per the convention
+-- `listings` states, rather than leaving it for the completeness check below
+-- to catch once this migration is deployed and `share_links` starts
+-- resolving. Anchored on the single (9000001, account 9000001) the `singles`
+-- seed above already creates. `token` mirrors `connection_invites.token_hash`
+-- above: a fixed digest, not a guessable literal, even though (unlike a
+-- connection invite) this one is never treated as a secret by this fixture.
+do $$
+begin
+  if to_regclass('public.share_links') is not null then
+    execute $seed$
+      insert into public.share_links (id, account_id, single_id, created_by_member_id, token, include_photo, expires_at)
+      values (
+          9000001, 9000001, 9000001, 9000001,
+          encode(extensions.digest('migration-guard-share-link', 'sha256'), 'hex'),
+          true, now() + interval '7 days'
+      );
+
+      insert into public.share_access_log (id, share_link_id, resource, ip_hash, user_agent, duration_ms)
+      values (
+          9000001, 9000001, 'profile',
+          encode(extensions.digest('127.0.0.1', 'sha256'), 'hex'),
+          'Mozilla/5.0 (Migration Guard)', 42
+      );
+    $seed$;
+  end if;
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- Snapshot. `identity_signals` is captured last and on purpose: nothing
 -- inserts it directly — the `sync_shidduch_signals` trigger derives it from
@@ -675,35 +795,124 @@ begin
     end if;
 end;
 $$;
-select migration_guard.capture('accounts');
-select migration_guard.capture('account_members');
-select migration_guard.capture('members');
-select migration_guard.capture('member_state');
-select migration_guard.capture('pipeline_transitions');
-select migration_guard.capture('singles');
-select migration_guard.capture('shadchanim');
-select migration_guard.capture('invites');
-select migration_guard.capture('shidduchim');
-select migration_guard.capture('redts');
-select migration_guard.capture('references');
-select migration_guard.capture('reference_links');
-select migration_guard.capture('resumes');
-select migration_guard.capture('resume_photos');
-select migration_guard.capture('medical_notes');
-select migration_guard.capture('shidduchim_external_links');
-select migration_guard.capture('entity_files');
-select migration_guard.capture('subscription');
-select migration_guard.capture('ai_usage');
-select migration_guard.capture('interactions');
-select migration_guard.capture('tasks');
-select migration_guard.capture('identity_signals');
-select migration_guard.capture('connections');
-select migration_guard.capture('threads');
-select migration_guard.capture('thread_participants');
-select migration_guard.capture('messages');
-select migration_guard.capture('message_notifications');
-select migration_guard.capture('push_subscriptions');
-select migration_guard.capture('listings');
-select migration_guard.capture('listing_withdrawal_locks');
+-- Capture every base table that exists in `public` at this baseline —
+-- derived from the catalog, not hand-listed. `capture()` needs nothing but a
+-- table name (see its own comment above), so there is no reason to maintain
+-- a parallel list of names that can drift from the schema. This used to be
+-- ~30 `select migration_guard.capture('table');` lines, one hand-added per
+-- story, and it went stale twice in exactly the way a hand-maintained list
+-- does: `invites` was missing through the whole of Epic 6, and by the time
+-- this comment was written the list was ALSO silently missing `configuration`,
+-- `inbox_items`, `date_records`, `shidduch_schools`, `connection_invites`,
+-- `share_links` and `share_access_log` — seven more tables this guard was
+-- never protecting, discovered only while fixing the Epic 8 connections
+-- outage (see .claude/rules/ for the incident). A table added to
+-- `01_tables.sql` from this diff forward is captured automatically, whether
+-- or not the story that adds it remembers this file exists.
+--
+-- `relkind = 'r'`: ordinary base tables only — never a view (`v`), which
+-- holds no data of its own to protect, and this schema has no partitioned
+-- tables (`p`) today. `migration_guard` itself is a different schema and
+-- never enters this loop.
+do $$
+declare
+    v_table text;
+begin
+    for v_table in
+        select c.relname
+          from pg_class c
+          join pg_namespace n on n.oid = c.relnamespace
+         where n.nspname = 'public'
+           and c.relkind = 'r'
+         order by c.relname
+    loop
+        perform migration_guard.capture(v_table);
+    end loop;
+end;
+$$;
+
+-- What derivation cannot give us: MEANINGFUL rows. `capture()` protects
+-- whatever a table already holds, but nothing in the catalog can invent a
+-- production-shaped seed for a table nobody has inserted into — that step is
+-- unavoidably a human arguing "this is what a real row looks like", the same
+-- work the rest of this file already does for 30-odd tables. `configuration`
+-- turned out NOT to need an entry here despite looking like an obvious
+-- candidate (a schema-ready, seemingly-unwired singleton): its default row IS
+-- inserted, by `20260211194545_app_configuration.sql`, so the dynamic capture
+-- loop above already snapshots it like any other table — checked by running
+-- this fixture and reading migration_guard.snapshot back, not assumed from
+-- reading the schema. `date_records` is the honest remaining exception, not a
+-- loophole: no migration and no UI path writes it (verified by grep across
+-- `src/` and every migration), so a fabricated row would seed a shape
+-- production cannot actually produce — worse than no row, because a later
+-- migration could shape itself around fixture data no real deploy will ever
+-- match.
+insert into migration_guard.empty_by_design (table_name, reason) values
+    ('date_records', 'Schema-ready dating-history table (01_tables.sql: "powers dedupe later, '
+                      'Epic-4; no logic is built now"). No UI reads or writes it, and no migration '
+                      'or seed inserts a row. Seed once a story wires it up.');
+
+-- The completeness check itself: every `public` base table just captured
+-- above must have at least one snapshot row, or be declared empty_by_design
+-- with a reason. This is the strongest cheap alternative to seeding every
+-- table's data automatically (which the previous comment explains is not
+-- possible) — it cannot invent a realistic row, but it CAN refuse to stay
+-- quiet about a table nobody has ever seeded, converting the failure mode
+-- that hid `invites` for two epics from silent to loud. A table failing this
+-- check is a real gap: either add a production-shaped INSERT for it above
+-- (preferred — see the many examples in this file), or add it to
+-- `empty_by_design` with a reason, argued the same way the two entries above
+-- are.
+do $$
+declare
+    v_unseeded text[];
+begin
+    select array_agg(t.relname order by t.relname)
+      into v_unseeded
+      from pg_class t
+      join pg_namespace n on n.oid = t.relnamespace
+     where n.nspname = 'public'
+       and t.relkind = 'r'
+       and not exists (
+           select 1 from migration_guard.snapshot s where s.table_name = t.relname
+       )
+       and not exists (
+           select 1 from migration_guard.empty_by_design e where e.table_name = t.relname
+       );
+
+    if array_length(v_unseeded, 1) > 0 then
+        raise exception 'migration data-safety fixture: % table(s) exist in the baseline schema with '
+            'NO captured row and no migration_guard.empty_by_design declaration: %. An unseeded, '
+            'undeclared table is invisible to assert.sql — exactly the blind spot that let '
+            '''invites'' (Epic 6) and several other tables go unprotected. Add a production-shaped '
+            'INSERT for it above (preferred), or declare it empty_by_design with a reason if it '
+            'genuinely holds nothing in production today.',
+            array_length(v_unseeded, 1), array_to_string(v_unseeded, ', ');
+    end if;
+end;
+$$;
+
+-- Anti-vacuity floor: a regression that zeroed out most of this file's INSERT
+-- statements (but left a HANDFUL, e.g. only the trigger-derived tables above)
+-- would still pass the completeness check — every captured table has >= 1
+-- row — and still report a technically-true PASSED banner while verifying a
+-- small fraction of what it used to. 63 rows across 28 tables is the known-
+-- good count this file produces today (see .claude/rules/ for how that was
+-- established); the floor here is deliberately far below that — loose enough
+-- to never block a legitimate future edit that removes one table's seed, tight
+-- enough to catch the file being gutted back to a handful of rows.
+do $$
+declare
+    v_tables bigint := (select count(distinct table_name) from migration_guard.snapshot);
+    v_rows bigint := (select coalesce(sum(multiplicity), 0) from migration_guard.snapshot);
+begin
+    if v_tables < 20 or v_rows < 40 then
+        raise exception 'migration data-safety fixture: only % row(s) across % table(s) were '
+            'captured (expected at least 40 rows across 20 tables). The seed data likely '
+            'regressed — this run would otherwise report a PASS without actually rehearsing much '
+            'of anything.', v_rows, v_tables;
+    end if;
+end;
+$$;
 
 commit;
