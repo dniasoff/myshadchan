@@ -23,6 +23,22 @@ jobs:
             RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
             UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
             UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+            # Story 10.3 (AC 7, Task 1): postmark/index.ts throws at request
+            # time (no longer at module scope — see that file's
+            # readWebhookSecrets()) when any of these three is absent. Before
+            # this story none of the three was ever pushed to the hosted
+            # project, so the deployed function had never booted in
+            # production; every invocation returned an opaque `500
+            # WORKER_ERROR`. VITE_INBOUND_EMAIL travels here too because the
+            # Edge Function reads its OWN copy via Deno.env.get — this is a
+            # Supabase function secret, a separate channel from
+            # vite.config.ts's `define` block, which only reaches the browser
+            # bundle.
+            POSTMARK_WEBHOOK_USER: ${{ secrets.POSTMARK_WEBHOOK_USER }}
+            POSTMARK_WEBHOOK_PASSWORD: ${{ secrets.POSTMARK_WEBHOOK_PASSWORD }}
+            POSTMARK_WEBHOOK_AUTHORIZED_IPS: ${{ secrets.POSTMARK_WEBHOOK_AUTHORIZED_IPS }}
+            VITE_INBOUND_EMAIL: ${{ secrets.VITE_INBOUND_EMAIL }}
+            IS_POSTMARK_CONFIGURED: ${{ secrets.POSTMARK_WEBHOOK_USER && secrets.POSTMARK_WEBHOOK_PASSWORD && secrets.POSTMARK_WEBHOOK_AUTHORIZED_IPS && secrets.VITE_INBOUND_EMAIL }}
 
         steps:
             - name: 📥 Checkout repo
@@ -153,6 +169,36 @@ jobs:
                   npx supabase secrets set RESEND_API_KEY=${{ env.RESEND_API_KEY }}
                   npx supabase secrets set UPSTASH_REDIS_REST_URL=${{ env.UPSTASH_REDIS_REST_URL }}
                   npx supabase secrets set UPSTASH_REDIS_REST_TOKEN=${{ env.UPSTASH_REDIS_REST_TOKEN }}
+
+            # Story 10.3 (AC 7, Task 1): a separate, separately-gated step —
+            # not folded into the one above — so a still-missing Postmark
+            # secret never blocks RESEND_API_KEY/UPSTASH from being pushed,
+            # and so THIS step's own skip can be its own loud line in the job
+            # summary (see the "postmark webhook secrets NOT pushed" step
+            # right below) instead of silently riding along inside a
+            # broader condition. `postmark/index.ts` throws a per-request
+            # 500 (readWebhookSecrets()) with any of the three Basic-Auth /
+            # IP-allowlist values missing — this step is what stops that
+            # from being the deployed function's permanent state.
+            - if: ${{ env.IS_SUPABASE_CONFIGURED && env.IS_POSTMARK_CONFIGURED }}
+              name: 📡 Push postmark webhook secrets
+              run: |
+                  npx supabase secrets set POSTMARK_WEBHOOK_USER=${{ env.POSTMARK_WEBHOOK_USER }}
+                  npx supabase secrets set POSTMARK_WEBHOOK_PASSWORD=${{ env.POSTMARK_WEBHOOK_PASSWORD }}
+                  npx supabase secrets set POSTMARK_WEBHOOK_AUTHORIZED_IPS=${{ env.POSTMARK_WEBHOOK_AUTHORIZED_IPS }}
+                  npx supabase secrets set VITE_INBOUND_EMAIL=${{ env.VITE_INBOUND_EMAIL }}
+                  echo "✅ Postmark webhook secrets pushed — inbound email capture can boot." >> "$GITHUB_STEP_SUMMARY"
+
+            # The loud-skip half of the step above: `deploy-workers`' `share`
+            # worker silently 500'd on every request for the same reason
+            # (base secrets skipped with no visible signal) before this
+            # story's brief called it out — this is what stops that pattern
+            # from repeating for postmark.
+            - if: ${{ env.IS_SUPABASE_CONFIGURED && !env.IS_POSTMARK_CONFIGURED }}
+              name: Postmark webhook secrets NOT pushed
+              run: |
+                  echo '::warning::One or more of POSTMARK_WEBHOOK_USER / POSTMARK_WEBHOOK_PASSWORD / POSTMARK_WEBHOOK_AUTHORIZED_IPS / VITE_INBOUND_EMAIL repo secrets is missing.'
+                  echo ':rotating_light: **Postmark webhook secrets NOT pushed.** The deployed `postmark` function will return `500` on every inbound email (a specific, logged per-request failure, not a cold-start crash — see `readWebhookSecrets()` in `supabase/functions/postmark/index.ts`) until all four secrets are set.' >> "$GITHUB_STEP_SUMMARY"
 
             - if: ${{ env.IS_SUPABASE_CONFIGURED }}
               name: 📡 Deploy supabase functions

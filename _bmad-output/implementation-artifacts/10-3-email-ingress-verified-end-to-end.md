@@ -1,6 +1,6 @@
 # Story 10.3: Email ingress verified end to end
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -457,8 +457,119 @@ just a 200 response.
 
 ### Agent Model Used
 
+claude-opus-5 (build, review, and review-fix passes).
+
 ### Debug Log References
+
+Timestamps are UTC, from the runs themselves, so they can be checked against
+the stack-1 server log rather than taken on trust.
+
+- `13:16:46` — `inbox_items` db suite, 12/12, on a **freshly reset** stack 1.
+- `13:17:03` — falsifiability of the same suite, on **stack 2** (its own lease,
+  `STACK_OWNER=fix-10-3-mutation`), never on the stack carrying the real run.
+- `13:27:50–13:27:59` — `e2e/email-ingress.spec.ts`, 2/2 (chromium + Mobile
+  Chrome), after the `resolvePublicOrigin` fix below.
+- `13:29:17` — full `make test`: 280 files / 3396 tests, all passing.
+- `13:30:12` / `13:30:13` — final `inbox_items` (12/12) and
+  `postmark/index.test.ts` (18/18).
+
+**Voided and re-measured.** An earlier `inbox_items` result was taken while an
+ad-hoc `alter policy … with check (true)` was live on stack 1 (window
+`12:36:51`–`13:00:36` UTC). With that mutation in force the cross-account
+checks pass *without testing anything*, so that result could not distinguish a
+working suite from a broken one and was discarded rather than reported. Every
+number above post-dates a full stack reset. The lesson is recorded here
+because it is the same shape as `.claude/rules/migration-guard-integrity.md`:
+a green that nobody could have watched go red is not evidence.
 
 ### Completion Notes List
 
+**Review findings F1–F9, and what actually changed.**
+
+- **F1** — `deploy.yml` now carries all four values
+  (`POSTMARK_WEBHOOK_USER/PASSWORD/AUTHORIZED_IPS`, `VITE_INBOUND_EMAIL`) in
+  the job `env:` block, pushed by a **separately gated** step so a missing
+  Postmark secret can never block `RESEND_API_KEY`/Upstash, plus a paired
+  loud-skip step that emits a `::warning::` and a job-summary line. The silent
+  skip this story was written about is not reproduced.
+- **F2** — the suite's UUIDs were not valid hex (`ib111111-…`); it had never
+  executed. Fixed; now runs.
+- **F3** — the with-check assertions were vacuous (the household-scope trigger
+  denied the write first, so the policy was never reached). Added
+  `(b-isolated)`/`(c-isolated)`, which disable that trigger for one statement.
+  **Both have now been watched to fail**, and — the part worth keeping — the
+  falsifying mutation is *not the same for the two*:
+  `with check (true)` alone turns exactly `(b-isolated)` red;
+  `(c-isolated)` needs `using (true) with check (true)`, because for a
+  `for all` policy Postgres evaluates USING against the **new** row on UPDATE
+  as well as the old one. The check's name and comment were corrected to claim
+  "the policy denies this" rather than "the with-check clause does" — the
+  original wording was an overclaim no mutation of the with-check could
+  falsify.
+- **F4** — Tasks 5, 6 and 7 landed: attachment rendering in `InboxList`
+  (paperclip chip) and `InboxResolveDialog` (links), `InboxAttachment` in
+  `types.ts`, `CaptureSection.tsx` wired into both settings surfaces with
+  English **and** French catalogue entries, and the missing
+  `e2e/email-ingress.spec.ts`.
+- **F5** — Prettier is clean on every file in this commit.
+- **F6/F7** — unknown-sender test pinned so deleting the member gate actually
+  fails it; `Deno.serve`'s feature-detect now has a loud `else`.
+- **F8 — the fix in the tree was wrong, and the new e2e is what caught it.**
+  F8 correctly identified that the hardcoded `SB_JWT_ISSUER` broke every
+  `STACK_ID != 0`, but the replacement (`new URL(req.url).origin`) is wrong in
+  a worse way: inside the Edge Runtime `req.url` is the container's own
+  internal listener, so every stored attachment `src` pointed at
+  `http://127.0.0.1:8081/…` — reachable by nobody, on any stack, including
+  stack 0 where the old code had at least worked. The e2e's byte comparison
+  failed with `ECONNREFUSED 127.0.0.1:8081`. Replaced with
+  `resolvePublicOrigin()`, which reads the forwarded headers Kong actually
+  sends — measured on a real request: `x-forwarded-proto: http`,
+  `x-forwarded-host: 127.0.0.1`, `x-forwarded-port: 54351` — and keeps
+  `req.url` only as a last-resort fallback. This is the concrete argument for
+  Task 7 existing at all: the mocked handler test (18/18) passes either way,
+  because a mock cannot dial an unreachable host.
+- **F9** — `package.json`/`package-lock.json`/`vitest.config.ts` and both
+  `_shared/` shims are declared in the File List below. `vite.config.ts` is
+  **deliberately excluded**: its current diff is Story 10.1's
+  `generateSW`→`injectManifest` migration, which must land with 10.1's own
+  push-service-worker guard, not ride in here.
+
+**Still open, flagged not silently absorbed.**
+
+- `make lint` is red on `src/sw.ts`, `inbox/ShareTarget.tsx` and
+  `inbox/LinkToShidduchSearch.tsx` — all Story 10.1's in-progress files,
+  none in this commit. Prettier formatting only; eslint passes. Not fixed
+  here, because reformatting another story's uncommitted work is exactly the
+  cross-agent excursion `.claude/rules/parallel-ownership.md` prohibits.
+- `registry.json` was regenerated before 10.1 created
+  `LinkToShidduchSearch.tsx`, so it does not list that file. That is the
+  documented busy-tree behaviour; 10.1 regenerates on its own commit.
+- The Cloudflare Email Routing migration and FR22's per-account inbound
+  address remain out of scope, exactly as the Dev Notes above state.
+
 ### File List
+
+**New**
+
+- `e2e/email-ingress.spec.ts`
+- `src/components/atomic-crm/settings/CaptureSection.tsx`
+- `src/components/atomic-crm/settings/CaptureSection.test.tsx`
+- `supabase/functions/_shared/denoEnvTestShim.ts`
+- `supabase/functions/_shared/edgeRuntimeTypesStub.ts`
+- `supabase/functions/postmark/index.test.ts`
+- `supabase/tests/inbox_items.sql`
+- `supabase/tests/inbox_items.test.ts`
+
+**Modified**
+
+- `.github/workflows/deploy.yml`
+- `package.json`, `package-lock.json` (`base64-arraybuffer`, required by
+  `extractAndUploadAttachments.ts`)
+- `registry.json` (generated — `CaptureSection.tsx`)
+- `vitest.config.ts` (the `functions` project's `Deno.env` shim + the
+  `jsr:` type-stub alias)
+- `src/components/atomic-crm/inbox/{InboxList,InboxResolveDialog}.tsx`
+- `src/components/atomic-crm/providers/commons/{englishCrmMessages,frenchCrmMessages}.ts`
+- `src/components/atomic-crm/settings/{SettingsPage,SettingsPageMobile}.tsx`
+- `src/components/atomic-crm/types.ts`
+- `supabase/functions/postmark/{index,createInboxItemFromEmail,extractAndUploadAttachments}.ts`

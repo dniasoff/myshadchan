@@ -13,28 +13,123 @@ import { extractAndUploadAttachments } from "./extractAndUploadAttachments.ts";
 import { buildInboxItemPayload } from "./buildInboxItemPayload.ts";
 import {
   createInboxItemFromEmail,
-  resolveAccountIdForMemberEmail,
+  resolveHouseholdAccountIdForMemberEmail,
 } from "./createInboxItemFromEmail.ts";
 import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 
-const webhookUser = Deno.env.get("POSTMARK_WEBHOOK_USER");
-const webhookPassword = Deno.env.get("POSTMARK_WEBHOOK_PASSWORD");
-const INBOUND_EMAIL = (Deno.env.get("VITE_INBOUND_EMAIL") || "").toLowerCase();
-if (!webhookUser || !webhookPassword) {
-  throw new Error(
-    "Missing POSTMARK_WEBHOOK_USER or POSTMARK_WEBHOOK_PASSWORD env variable",
-  );
+/**
+ * The three Basic-Auth / IP-allowlist secrets this webhook cannot run
+ * without. Read HERE — inside the request handler, not at module scope —
+ * so a missing/rotated secret produces a per-request, log-visible 500
+ * instead of an import-time crash that takes the whole function down before
+ * it can even report why (Story 10.3, AC 7: before this, the deployed
+ * function never booted in production at all; every invocation returned an
+ * opaque `500 WORKER_ERROR`). `console.error`s a specific, greppable message
+ * naming whichever one is missing; returns null (never throws) so the
+ * caller can turn that into a normal Response.
+ */
+function readWebhookSecrets(): {
+  webhookUser: string;
+  webhookPassword: string;
+  rawAuthorizedIPs: string;
+} | null {
+  const webhookUser = Deno.env.get("POSTMARK_WEBHOOK_USER");
+  if (!webhookUser) {
+    console.error("postmark: missing POSTMARK_WEBHOOK_USER env variable");
+    return null;
+  }
+
+  const webhookPassword = Deno.env.get("POSTMARK_WEBHOOK_PASSWORD");
+  if (!webhookPassword) {
+    console.error("postmark: missing POSTMARK_WEBHOOK_PASSWORD env variable");
+    return null;
+  }
+
+  const rawAuthorizedIPs = Deno.env.get("POSTMARK_WEBHOOK_AUTHORIZED_IPS");
+  if (!rawAuthorizedIPs) {
+    console.error(
+      "postmark: missing POSTMARK_WEBHOOK_AUTHORIZED_IPS env variable",
+    );
+    return null;
+  }
+
+  return { webhookUser, webhookPassword, rawAuthorizedIPs };
 }
 
-const rawAuthorizedIPs = Deno.env.get("POSTMARK_WEBHOOK_AUTHORIZED_IPS");
-if (!rawAuthorizedIPs) {
-  throw new Error("Missing POSTMARK_WEBHOOK_AUTHORIZED_IPS env variable");
-}
+/**
+ * The origin the caller actually reached this function on — used to rewrite
+ * Storage's internal `http://kong:8000` signed-URL host into something the
+ * recipient can open (see extractAndUploadAttachments.ts's `fixPublicUrl`).
+ *
+ * Deliberately NOT `new URL(req.url).origin`. Review finding F8 replaced a
+ * hardcoded `SB_JWT_ISSUER` (wrong for every STACK_ID != 0) with exactly
+ * that, and it is wrong in a worse way: inside the Edge Runtime `req.url` is
+ * the container's own internal listener, so every stored `src` pointed at an
+ * address no client can reach. Measured against the real local stack —
+ * `req.url = http://127.0.0.1:8081/postmark`, `host =
+ * supabase_edge_runtime_…:8081` — and caught by e2e/email-ingress.spec.ts,
+ * whose byte comparison failed with ECONNREFUSED on port 8081.
+ *
+ * Kong passes the real client-facing origin in the standard forwarded
+ * headers (measured on the same request: `x-forwarded-proto: http`,
+ * `x-forwarded-host: 127.0.0.1`, `x-forwarded-port: 54351`), which is
+ * correct per-stack locally with no new config. `req.url` remains the
+ * last-resort fallback for a caller that sets no forwarded headers at all —
+ * no worse than the behaviour this replaces, and unreachable in production,
+ * where a hosted project's signed URL never contains `http://kong:8000` for
+ * `fixPublicUrl` to rewrite in the first place.
+ */
+export const resolvePublicOrigin = (req: Request): string => {
+  const proto = req.headers.get("x-forwarded-proto");
+  const host = req.headers.get("x-forwarded-host");
+  if (!proto || !host) return new URL(req.url).origin;
 
-Deno.serve(async (req) => {
+  // `x-forwarded-host` carries the hostname only; the port is its own header.
+  // Omit it when it is the scheme's default (production is https/443) so the
+  // origin reads as a normal URL rather than `https://host:443`.
+  const port = req.headers.get("x-forwarded-port");
+  const isDefaultPort =
+    (proto === "https" && port === "443") ||
+    (proto === "http" && port === "80");
+  return port && !isDefaultPort && !host.includes(":")
+    ? `${proto}://${host}:${port}`
+    : `${proto}://${host}`;
+};
+
+/**
+ * The inbound-email webhook handler, extracted and exported (Story 10.3,
+ * AC 3 / AC 7) so an integration test can exercise it directly, in-process
+ * — `Deno.serve` below is the only production entry point. Otherwise the
+ * same logic this function always ran, unchanged.
+ */
+export async function handleInboundEmail(req: Request): Promise<Response> {
+  const secrets = readWebhookSecrets();
+  if (!secrets) {
+    // The specific missing variable is in the server log
+    // (readWebhookSecrets above), never in the response body — Postmark,
+    // not an operator with log access, is what reads this.
+    return new Response("Server misconfigured", { status: 500 });
+  }
+  const { webhookUser, webhookPassword, rawAuthorizedIPs } = secrets;
+
+  // Deliberately NOT one of the three required secrets above: this only
+  // gates the "strip forwarding chrome for the shared address" convenience
+  // branch below, exactly as before this story. A member's own forward
+  // still files correctly with it unset — a missing/rotated value here must
+  // never 500 the whole capture path the way a missing Basic-Auth secret
+  // does.
+  const INBOUND_EMAIL = (
+    Deno.env.get("VITE_INBOUND_EMAIL") || ""
+  ).toLowerCase();
+
   let response: Response | undefined;
 
-  response = checkRequestTypeAndHeaders(req);
+  response = checkRequestTypeAndHeaders(
+    req,
+    webhookUser,
+    webhookPassword,
+    rawAuthorizedIPs,
+  );
   if (response) return response;
 
   const json = await req.json();
@@ -86,14 +181,23 @@ Deno.serve(async (req) => {
     );
   }
 
-  const accountId = await resolveAccountIdForMemberEmail(memberEmail);
+  const accountId = await resolveHouseholdAccountIdForMemberEmail(memberEmail);
   if (!accountId) {
     return new Response(`No MyShadchan account for sender ${memberEmail}`, {
       status: 403,
     });
   }
 
-  const attachments = await extractAndUploadAttachments(Attachments, accountId);
+  // Review finding F8: the origin THIS request actually arrived on — never
+  // a hardcoded env var — so the signed-URL host fix-up in
+  // extractAndUploadAttachments works correctly under any Supabase stack
+  // (each e2e STACK_ID serves on its own port; see that file's own comment).
+  const publicOrigin = resolvePublicOrigin(req);
+  const attachments = await extractAndUploadAttachments(
+    Attachments,
+    accountId,
+    publicOrigin,
+  );
 
   await createInboxItemFromEmail(
     buildInboxItemPayload({
@@ -106,9 +210,35 @@ Deno.serve(async (req) => {
   );
 
   return new Response("OK");
-});
+}
 
-const checkRequestTypeAndHeaders = (req: Request) => {
+// The real Deno Edge Runtime is the only production caller of Deno.serve —
+// guarded so importing this module (the "functions" Vitest project,
+// index.test.ts) never tries to actually start a server. `typeof Deno` is
+// the standard safe way to feature-detect a global that may not exist at
+// all: unlike `Deno.serve`, it never throws even when `Deno` itself is
+// undeclared.
+if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
+  Deno.serve(handleInboundEmail);
+} else {
+  // Never true in the real Edge Runtime (both `Deno` and `Deno.serve` are
+  // always present there) — only reachable if a future runtime change ever
+  // removed `Deno.serve`. Logged loudly rather than silently booting with no
+  // request handler registered at all: a step (or, here, a module) that
+  // silently skips its own setup is worse than one that fails (Story 10.3's
+  // brief — the same shape that let `deploy-workers` skip seven workers for
+  // weeks reporting green).
+  console.error(
+    "postmark: Deno.serve is unavailable — no request handler registered; this function will not receive any traffic",
+  );
+}
+
+const checkRequestTypeAndHeaders = (
+  req: Request,
+  webhookUser: string,
+  webhookPassword: string,
+  rawAuthorizedIPs: string,
+) => {
   // Only allow known IP addresses
   // We can use the x-forwarded-for header as it is populated by Supabase
   // https://supabase.com/docs/guides/api/securing-your-api#accessing-request-information

@@ -43,6 +43,7 @@ export const extractAndUploadAttachments = async (
     ContentLength: number;
   }[],
   accountId: number,
+  publicOrigin: string,
 ): Promise<Attachment[]> => {
   return (
     await Promise.all(
@@ -93,7 +94,7 @@ export const extractAndUploadAttachments = async (
           title: Name,
           type: ContentType,
           path: fileName,
-          src: fixPublicUrl(data.signedUrl),
+          src: fixPublicUrl(data.signedUrl, publicOrigin),
         };
       }),
     )
@@ -104,10 +105,21 @@ export const extractAndUploadAttachments = async (
  * Workaround fix for public URL not working on local environment
  * See https://github.com/orgs/supabase/discussions/37271
  *
- * Replaces http://kong:8000/storage/v1/object/public/attachments/0.08968261048718773.txt with http://127.0.0.1:54321/storage/v1/object/public/attachments/0.08968261048718773.txt, using the SB_JWT_ISSUER env var (value http://127.0.0.1:54321/auth/v1) to get the external/public URL of the Supabase instance.
+ * Replaces http://kong:8000/storage/v1/object/public/attachments/0.08968261048718773.txt with
+ * e.g. http://127.0.0.1:54321/storage/v1/object/public/attachments/0.08968261048718773.txt.
+ *
+ * Story 10.3 review finding F8: this used to read the replacement host from
+ * `Deno.env.get("SB_JWT_ISSUER")`, which `supabase/functions/.env` hardcodes
+ * to stack 0's port (54321) — correct for `make start`, but wrong for any
+ * `STACK_ID != 0` (a stack's Edge Runtime shares that one file with every
+ * other stack, since it is not itself stack-scoped). `publicOrigin` is
+ * derived by the caller from the INBOUND REQUEST's own URL instead — the
+ * origin Postmark (or, in the e2e test, Playwright) actually reached this
+ * function on, which is correct per-stack locally with zero new config, and
+ * a safe no-op in production: `.replace()` only fires when the string
+ * actually contains "http://kong:8000" (Supabase's own internal Docker
+ * hostname), which a real hosted project's signed URL never does.
  */
-const fixPublicUrl = (url: string) => {
-  const jwtIssuer = Deno.env.get("SB_JWT_ISSUER") ?? "";
-  const localUrl = jwtIssuer.replace("/auth/v1", "");
-  return url.replace("http://kong:8000", localUrl);
+const fixPublicUrl = (url: string, publicOrigin: string) => {
+  return url.replace("http://kong:8000", publicOrigin);
 };

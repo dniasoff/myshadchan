@@ -330,6 +330,18 @@ export const englishCrmMessages = {
             "Notifications are blocked for this site. Allow them from your browser's site settings, then try again.",
         },
       },
+      // Story 10.3 (Task 6): the inbound-forwarding address, surfaced so
+      // the phone-less capture path is discoverable —
+      // settings/CaptureSection.tsx. Grouped near `communication` here too:
+      // both are about how things reach this account, not privacy or family
+      // membership.
+      capture: {
+        title: "Capture by email",
+        description:
+          "Forward or CC any redt to this address — it lands in your own Inbox.",
+        copy: "Copy",
+        copied: "Copied",
+      },
       // Story 2.5: the "add or remove a persona at any time" section.
       // persona_add_error is the generic add_persona() failure; the
       // persona_remove_error_* keys map 1:1 to remove_persona()'s specific

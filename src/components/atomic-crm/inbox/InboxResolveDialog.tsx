@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { Loader2, Paperclip } from "lucide-react";
 import type { Identifier } from "ra-core";
 import {
   Form,
@@ -191,6 +191,27 @@ export const InboxResolveDialog = ({
               No text — see the attached file.
             </p>
           )}
+          {/* Story 10.3 (Task 5, AC 1/AC 4): the attachment was captured but
+              never reachable from either Inbox surface before this — a
+              signed, expiring URL (AD-9), so it's a plain link, not an
+              inline preview. */}
+          {item.attachments && item.attachments.length > 0 ? (
+            <ul className="mt-2 space-y-1">
+              {item.attachments.map((attachment) => (
+                <li key={attachment.path}>
+                  <a
+                    href={attachment.src}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-2 hover:underline"
+                  >
+                    <Paperclip className="size-3.5" aria-hidden="true" />
+                    {attachment.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
 
         {isShadchanSourced && isLoadingLinkedShadchan ? (

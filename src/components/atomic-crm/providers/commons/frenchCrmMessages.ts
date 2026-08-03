@@ -321,6 +321,14 @@ export const frenchCrmMessages = {
             "Les notifications sont bloquées pour ce site. Autorisez-les depuis les paramètres du site de votre navigateur, puis réessayez.",
         },
       },
+      // Story 10.3 — voir la même note dans englishCrmMessages.ts.
+      capture: {
+        title: "Capture par e-mail",
+        description:
+          "Transférez ou mettez en copie tout redt à cette adresse — il arrive directement dans votre boîte de réception.",
+        copy: "Copier",
+        copied: "Copié",
+      },
       personas_title: "Profils",
       persona_add_error: "Impossible de configurer cela. Réessayez.",
       persona_remove_error_ask_admin:

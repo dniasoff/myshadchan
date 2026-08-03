@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/item";
 
 import { BillingPage } from "../billing/BillingPage";
+import { CaptureSection } from "./CaptureSection";
 import { CommunicationSection } from "./CommunicationSection";
 import { ConnectionSection } from "./ConnectionSection";
 import { FamilySection } from "./FamilySection";
@@ -71,6 +72,9 @@ export const SettingsPage = () => {
 
         <div className="space-y-6">
           <CommunicationSection />
+          {/* Story 10.3 (Task 6): grouped with CommunicationSection — both
+              are about how things reach this account. */}
+          <CaptureSection />
           <ConnectionSection />
           <ShadchanListingSection />
           <PrivacySection />

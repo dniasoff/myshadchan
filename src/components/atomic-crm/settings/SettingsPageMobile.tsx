@@ -14,6 +14,7 @@ import {
 
 import { BillingPage } from "../billing/BillingPage";
 import MobileHeader from "../layout/MobileHeader";
+import { CaptureSection } from "./CaptureSection";
 import { CommunicationSection } from "./CommunicationSection";
 import { ConnectionSection } from "./ConnectionSection";
 import { FamilySection } from "./FamilySection";
@@ -64,6 +65,11 @@ export const SettingsPageMobile = () => {
           <InvitesSection />
           <PreferencesSection />
           <CommunicationSection />
+          {/* Story 10.3 (Task 6): grouped with CommunicationSection — both
+              are about how things reach this account. Declared here
+              separately per that story's own note: this file's section
+              order is its own, not shared with SettingsPage.tsx. */}
+          <CaptureSection />
           <ConnectionSection />
           <ShadchanListingSection />
           <PrivacySection />

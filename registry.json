@@ -480,6 +480,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/settings/CaptureSection.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/root/useMyPersonas.ts",
           "type": "registry:component"
         },
@@ -1353,6 +1357,10 @@
         },
         {
           "path": "src/components/atomic-crm/entity360/tabs/interactionLabels.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/tabs/insertNoteInteraction.ts",
           "type": "registry:component"
         },
         {

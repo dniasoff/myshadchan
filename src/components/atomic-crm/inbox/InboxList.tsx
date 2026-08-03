@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Paperclip, Plus } from "lucide-react";
 import { useListContext } from "ra-core";
 import { List } from "@/components/admin/list";
 
@@ -59,6 +59,17 @@ const InboxCard = ({
           An attachment, ready to file.
         </p>
       )}
+      {/* Story 10.3 (Task 5, AC 1/AC 4): a small chip, not the raw file list
+          InboxResolveDialog.tsx renders — this card is a preview, resolving
+          is where the attachment is actually reachable. */}
+      {item.attachments && item.attachments.length > 0 ? (
+        <span className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <Paperclip className="size-3.5" aria-hidden="true" />
+          {item.attachments.length > 1
+            ? `${item.attachments[0].title} +${item.attachments.length - 1}`
+            : item.attachments[0].title}
+        </span>
+      ) : null}
       <span className="mt-3 inline-block text-sm font-medium text-primary">
         Confirm the details →
       </span>

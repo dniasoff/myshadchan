@@ -157,6 +157,14 @@ export default defineConfig({
             ),
             "npm:tldts": path.resolve(__dirname, "node_modules/tldts"),
             "npm:pgsql-ast-parser@^12": "pgsql-ast-parser",
+            // Story 10.3: entrypoint files (postmark/index.ts) import this
+            // purely for its ambient `Deno` type declarations — see the stub
+            // file's own header comment for why Vite/Node cannot resolve the
+            // real `jsr:` specifier the way Deno itself does.
+            "jsr:@supabase/functions-js/edge-runtime.d.ts": path.resolve(
+              __dirname,
+              "supabase/functions/_shared/edgeRuntimeTypesStub.ts",
+            ),
           },
         },
         test: {
@@ -168,6 +176,14 @@ export default defineConfig({
             "**/node_modules/**",
             ".supabase-e2e/**",
             ".supabase-e2e-*/**",
+          ],
+          // Story 10.3: `Deno.env.get` shim — see the file's own header for
+          // why this project is the first to need it.
+          setupFiles: [
+            path.resolve(
+              __dirname,
+              "supabase/functions/_shared/denoEnvTestShim.ts",
+            ),
           ],
         },
       },

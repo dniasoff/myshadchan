@@ -458,6 +458,18 @@ export type InboxSource =
 /** Triage state of a captured item: needs confirmation, resolved, or dismissed. */
 export type InboxStatus = "unresolved" | "resolved" | "dismissed";
 
+/** One file attached to a captured inbox item (Story 10.3, Task 5) — the
+ * exact shape `postmark/extractAndUploadAttachments.ts`'s `Attachment` type
+ * returns and stores verbatim in `inbox_items.attachments`. `src` is a
+ * signed, expiring URL (AD-9) — a convenience for the resolve dialog/card to
+ * link to directly, never a durable reference (that's `path`). */
+export type InboxAttachment = {
+  title: string;
+  type: string;
+  path: string;
+  src: string;
+};
+
 /**
  * An un-triaged capture in the inbox "front door" (Epic 2). Arrives by PWA
  * share, inbound email, or manual upload and is stored verbatim until one calm
@@ -471,7 +483,7 @@ export type InboxItem = {
   raw_text?: string | null;
   subject?: string | null;
   sender?: string | null;
-  attachments?: unknown[] | null;
+  attachments?: InboxAttachment[] | null;
   status: InboxStatus;
   single_id?: Identifier | null;
   shadchan_id?: Identifier | null;
