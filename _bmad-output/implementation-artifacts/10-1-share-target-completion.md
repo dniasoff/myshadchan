@@ -4,7 +4,7 @@ baseline_commit: 993ae25c2e4dce236410b7b7c5e27b2b79801ec6
 
 # Story 10.1: Share-target completion
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
