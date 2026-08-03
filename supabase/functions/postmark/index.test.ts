@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleInboundEmail } from "./index.ts";
+import { handleInboundEmail, resolvePublicOrigin } from "./index.ts";
 
 /**
  * Story 10.3 (AC 3, AC 7): the webhook handler itself, under test — not just
@@ -228,6 +228,31 @@ describe("postmark handleInboundEmail", () => {
       expect(mockFrom).not.toHaveBeenCalled();
     });
 
+    // Story 10.3 review fix (F-D): a caller who controls the WHOLE header
+    // used to be able to sneak a real authorized IP anywhere in a
+    // comma-separated list of their own invention (`.some()`). Only the
+    // right-most entry — the position a proxy chain appends to, never
+    // prepends — is trusted now.
+    it("returns 401 when an authorized IP is only a PREFIX entry, never the right-most one (review fix F-D)", async () => {
+      seedDatabase([KNOWN_MEMBER], []);
+      const response = await handleInboundEmail(
+        buildRequest({ forwardedFor: `${VALID_IP},9.9.9.9` }),
+      );
+      expect(response.status).toBe(401);
+      expect(mockFrom).not.toHaveBeenCalled();
+    });
+
+    it("returns 200 when the authorized IP is the right-most entry, even with an untrusted prefix ahead of it", async () => {
+      seedDatabase(
+        [KNOWN_MEMBER],
+        [{ user_id: KNOWN_MEMBER.user_id, account_id: 7, kind: "household" }],
+      );
+      const response = await handleInboundEmail(
+        buildRequest({ forwardedFor: `9.9.9.9,${VALID_IP}` }),
+      );
+      expect(response.status).toBe(200);
+    });
+
     it("returns 405 for a non-POST method", async () => {
       seedDatabase([KNOWN_MEMBER], []);
       const response = await handleInboundEmail(
@@ -382,5 +407,85 @@ describe("postmark handleInboundEmail", () => {
       expect(response.status).toBe(403);
       expect(insertedInboxItems).toHaveLength(0);
     });
+  });
+});
+
+/**
+ * Story 10.3 review fix (F-E, non-blocking/minor): `resolvePublicOrigin` had
+ * zero direct coverage — only exercised end-to-end by `e2e/email-ingress.spec.ts`,
+ * which covers exactly one shape (http + a non-default port, via forwarded
+ * headers). The https/443 suppression, the `host.includes(":")` branch, and
+ * the no-forwarded-headers fallback were exercised by nothing.
+ */
+describe("resolvePublicOrigin (review fix F-E)", () => {
+  const buildRequestWithHeaders = (headers: Record<string, string>) =>
+    new Request("http://127.0.0.1:8081/functions/v1/postmark", { headers });
+
+  it("builds an http origin with a non-default port from the forwarded headers", () => {
+    const req = buildRequestWithHeaders({
+      "x-forwarded-proto": "http",
+      "x-forwarded-host": "127.0.0.1",
+      "x-forwarded-port": "54351",
+    });
+
+    expect(resolvePublicOrigin(req)).toBe("http://127.0.0.1:54351");
+  });
+
+  it("suppresses the port when it is https's default (443)", () => {
+    const req = buildRequestWithHeaders({
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "project.supabase.co",
+      "x-forwarded-port": "443",
+    });
+
+    expect(resolvePublicOrigin(req)).toBe("https://project.supabase.co");
+  });
+
+  it("suppresses the port when it is http's default (80)", () => {
+    const req = buildRequestWithHeaders({
+      "x-forwarded-proto": "http",
+      "x-forwarded-host": "example.com",
+      "x-forwarded-port": "80",
+    });
+
+    expect(resolvePublicOrigin(req)).toBe("http://example.com");
+  });
+
+  it("omits the port when x-forwarded-host already carries one (host.includes(':'))", () => {
+    const req = buildRequestWithHeaders({
+      "x-forwarded-proto": "http",
+      "x-forwarded-host": "127.0.0.1:54351",
+      "x-forwarded-port": "54351",
+    });
+
+    // The port is already embedded in the host — appending it again would
+    // produce "127.0.0.1:54351:54351".
+    expect(resolvePublicOrigin(req)).toBe("http://127.0.0.1:54351");
+  });
+
+  it("builds a bare proto://host with no port header at all", () => {
+    const req = buildRequestWithHeaders({
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "project.supabase.co",
+    });
+
+    expect(resolvePublicOrigin(req)).toBe("https://project.supabase.co");
+  });
+
+  it("falls back to the request's own URL origin when no forwarded headers are present", () => {
+    // The known-broken fallback F8 was written about (a container's
+    // internal listener, unreachable by any real client) — verified
+    // harmless in both real environments today (see index.ts's own
+    // comment), but nothing before this test pinned WHAT the fallback
+    // actually returns.
+    const req = new Request("http://127.0.0.1:8081/functions/v1/postmark");
+
+    expect(resolvePublicOrigin(req)).toBe("http://127.0.0.1:8081");
+  });
+
+  it("falls back when only one of proto/host is present", () => {
+    const req = buildRequestWithHeaders({ "x-forwarded-proto": "https" });
+
+    expect(resolvePublicOrigin(req)).toBe(new URL(req.url).origin);
   });
 });

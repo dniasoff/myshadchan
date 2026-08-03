@@ -64,8 +64,19 @@ export const extractAndUploadAttachments = async (
           return null;
         }
 
+        // Story 10.3 review fix (F-H, cosmetic): `Name` is fully
+        // sender-controlled. The old `${fileParts.pop()}` took whatever
+        // followed the LAST `.` verbatim — for `a.txt/../../../evil` that is
+        // `./evil`, producing a key like `11/<uuid>./evil`. Not exploitable
+        // (the account prefix stays intact and no traversal survives), but
+        // there is no reason to let attacker-controlled bytes — including
+        // `/` — reach the object key at all. Only a short alphanumeric
+        // extension is kept; anything else (an embedded `/`, `..`, unicode,
+        // an unreasonably long "extension") is dropped rather than sanitized
+        // byte-by-byte, since the extension is a cosmetic hint, not data.
         const fileParts = Name.split(".");
-        const fileExt = fileParts.length > 1 ? `.${Name.split(".").pop()}` : "";
+        const rawExt = fileParts.length > 1 ? (fileParts.pop() ?? "") : "";
+        const fileExt = /^[A-Za-z0-9]{1,10}$/.test(rawExt) ? `.${rawExt}` : "";
         // Account-prefixed, CSPRNG key. The bucket is private and its RLS policies
         // scope on this first path segment, so the prefix is load-bearing, not
         // cosmetic. `Math.random()` was never a secret.

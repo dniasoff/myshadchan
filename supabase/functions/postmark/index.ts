@@ -9,6 +9,7 @@ import {
   stripSubjectForwardingPrefix,
 } from "./forwardedParser.ts";
 import { getExpectedAuthorization } from "./getExpectedAuthorization.ts";
+import { timingSafeEqual } from "./timingSafeEqual.ts";
 import { extractAndUploadAttachments } from "./extractAndUploadAttachments.ts";
 import { buildInboxItemPayload } from "./buildInboxItemPayload.ts";
 import {
@@ -242,6 +243,23 @@ const checkRequestTypeAndHeaders = (
   // Only allow known IP addresses
   // We can use the x-forwarded-for header as it is populated by Supabase
   // https://supabase.com/docs/guides/api/securing-your-api#accessing-request-information
+  //
+  // Story 10.3 review fix (F-D, non-blocking/medium): this used to accept
+  // the request if ANY comma-separated entry matched (`ips.some(...)`) —
+  // but `x-forwarded-for` is caller-supplied, and the local Kong gateway
+  // was measured to pass it through completely unmodified (unlike
+  // `x-forwarded-host`, which it overwrites). A caller who controls the
+  // WHOLE header can put a real Postmark IP anywhere in a comma-separated
+  // list they invented and `.some()` would accept it. Only the RIGHT-MOST
+  // entry is trusted now — the position a well-behaved proxy chain APPENDS
+  // to (never prepends), so a client-supplied prefix cannot influence it.
+  // This is still a secondary, defense-in-depth control: the
+  // Authorization check below (a real, timing-safe-compared secret) is
+  // what this endpoint actually depends on, and this check does not by
+  // itself distinguish an attacker who reaches Kong directly, bypassing
+  // whatever trusted edge proxy fronts the hosted project, from a
+  // legitimate caller — that guarantee lives in the network topology, not
+  // in this function.
   const forwardedFor = req.headers.get("x-forwarded-for");
   if (!forwardedFor) {
     return new Response("Unauthorized", { status: 401 });
@@ -250,7 +268,8 @@ const checkRequestTypeAndHeaders = (
   const authorizedIPs = rawAuthorizedIPs
     .split(",")
     .map((ip: string) => ip.trim());
-  if (!ips.some((ip) => authorizedIPs.includes(ip))) {
+  const observedIp = ips[ips.length - 1];
+  if (!authorizedIPs.includes(observedIp)) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -259,13 +278,20 @@ const checkRequestTypeAndHeaders = (
     return new Response(null, { status: 405 });
   }
 
-  // Check the Authorization header
+  // Check the Authorization header. Story 10.3 review fix (F-D): a
+  // timing-safe compare, not `!==` — this endpoint's Basic-Auth password
+  // is the one control here that is not derived from network topology,
+  // and a byte-at-a-time short-circuit compare is the wrong risk to
+  // accept for free.
   const expectedAuthorization = getExpectedAuthorization(
     webhookUser,
     webhookPassword,
   );
   const authorization = req.headers.get("Authorization");
-  if (authorization !== expectedAuthorization) {
+  if (
+    !authorization ||
+    !timingSafeEqual(authorization, expectedAuthorization)
+  ) {
     return new Response("Unauthorized", { status: 401 });
   }
 };

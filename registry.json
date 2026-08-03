@@ -732,6 +732,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/supabase/inboxAttachments.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/supabase/entityFiles.ts",
           "type": "registry:component"
         },
@@ -1357,10 +1361,6 @@
         },
         {
           "path": "src/components/atomic-crm/entity360/tabs/interactionLabels.ts",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/entity360/tabs/insertNoteInteraction.ts",
           "type": "registry:component"
         },
         {

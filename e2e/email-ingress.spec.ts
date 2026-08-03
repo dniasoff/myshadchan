@@ -112,19 +112,29 @@ test("a forwarded email with an attachment reaches the Inbox with the file intac
   await expect(card).toContainText(ATTACHMENT_NAME);
 
   // Opening the item makes the attachment genuinely reachable
-  // (InboxResolveDialog.tsx) — a link, because `src` is a signed, expiring
-  // URL (AD-9), never an inline preview.
+  // (InboxResolveDialog.tsx). Review fix F-B: the persisted `src` is a
+  // signed URL that expires an hour after capture, with nothing anywhere
+  // to re-sign it — before the fix this was a static `<a href>` pointing
+  // straight at that stale value. It's a button now: clicking it mints a
+  // FRESH signed URL at click time (signInboxAttachmentUrl) and opens it
+  // in a new tab, exactly like FilesTab.tsx's own download button.
   await card.click();
-  const attachmentLink = page.getByRole("link", { name: ATTACHMENT_NAME });
-  await expect(attachmentLink).toBeVisible();
+  const attachmentButton = page.getByRole("button", { name: ATTACHMENT_NAME });
+  await expect(attachmentButton).toBeVisible();
 
-  const src = await attachmentLink.getAttribute("href");
-  expect(src, "the attachment link must carry an href").toBeTruthy();
+  const [popup] = await Promise.all([
+    page.waitForEvent("popup"),
+    attachmentButton.click(),
+  ]);
+  await popup.waitForLoadState();
+  const src = popup.url();
+  expect(src, "the attachment popup must carry a URL").toBeTruthy();
+  await popup.close();
 
   // AC 1's byte comparison. Also the only assertion that would have caught
   // review finding F8: before that fix `src` pointed at stack 0's port, so
   // this fetch fails outright on any STACK_ID != 0.
-  const storedResponse = await fetch(src!);
+  const storedResponse = await fetch(src);
   expect(
     storedResponse.status,
     `the stored attachment was not fetchable at ${src}`,

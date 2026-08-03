@@ -180,13 +180,32 @@ jobs:
             # 500 (readWebhookSecrets()) with any of the three Basic-Auth /
             # IP-allowlist values missing — this step is what stops that
             # from being the deployed function's permanent state.
+            # Story 10.3 review fix (F-F, non-blocking/minor): the previous
+            # form interpolated `${{ env.* }}` straight into the shell
+            # command text — safe for RESEND_API_KEY/UPSTASH above (CI-issued
+            # tokens with no adversarial shape), but this step is the first
+            # to route an OPERATOR-CHOSEN password through that pattern. A
+            # space, `;`, `$`, backtick or `&` in the password either
+            # corrupts the pushed secret or executes on the runner. Writing
+            # every value into a gitignored-by-construction temp file with
+            # `printf '%s'` (never `echo`, which can reinterpret backslashes)
+            # keeps the raw bytes out of the command line entirely — the
+            # shell substitutes `$POSTMARK_WEBHOOK_PASSWORD` itself, which
+            # `deploy-workers`' `echo "$SECRET" | wrangler secret put` already
+            # does correctly elsewhere in this same file.
             - if: ${{ env.IS_SUPABASE_CONFIGURED && env.IS_POSTMARK_CONFIGURED }}
               name: 📡 Push postmark webhook secrets
               run: |
-                  npx supabase secrets set POSTMARK_WEBHOOK_USER=${{ env.POSTMARK_WEBHOOK_USER }}
-                  npx supabase secrets set POSTMARK_WEBHOOK_PASSWORD=${{ env.POSTMARK_WEBHOOK_PASSWORD }}
-                  npx supabase secrets set POSTMARK_WEBHOOK_AUTHORIZED_IPS=${{ env.POSTMARK_WEBHOOK_AUTHORIZED_IPS }}
-                  npx supabase secrets set VITE_INBOUND_EMAIL=${{ env.VITE_INBOUND_EMAIL }}
+                  set -euo pipefail
+                  secrets_file="$(mktemp)"
+                  trap 'rm -f "$secrets_file"' EXIT
+                  {
+                      printf 'POSTMARK_WEBHOOK_USER=%s\n' "$POSTMARK_WEBHOOK_USER"
+                      printf 'POSTMARK_WEBHOOK_PASSWORD=%s\n' "$POSTMARK_WEBHOOK_PASSWORD"
+                      printf 'POSTMARK_WEBHOOK_AUTHORIZED_IPS=%s\n' "$POSTMARK_WEBHOOK_AUTHORIZED_IPS"
+                      printf 'VITE_INBOUND_EMAIL=%s\n' "$VITE_INBOUND_EMAIL"
+                  } > "$secrets_file"
+                  npx supabase secrets set --env-file "$secrets_file"
                   echo "✅ Postmark webhook secrets pushed — inbound email capture can boot." >> "$GITHUB_STEP_SUMMARY"
 
             # The loud-skip half of the step above: `deploy-workers`' `share`

@@ -19,9 +19,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+import { signInboxAttachmentUrl } from "../providers/supabase/inboxAttachments";
 import type { CrmDataProvider } from "../providers/types";
 import type {
   CreateShidduchInput,
+  InboxAttachment,
   InboxItem,
   PipelineState,
   Shadchan,
@@ -135,6 +137,24 @@ export const InboxResolveDialog = ({
     }
   };
 
+  // Story 10.3 review fix (F-B, BLOCKING): `attachment.src` is a signed URL
+  // that expires an hour after capture (`extractAndUploadAttachments.ts`);
+  // rendering it as a static `href` meant every link went dead the morning
+  // after a redt arrived. `attachment.path` (the durable object key) is
+  // re-signed HERE, at click time, exactly like `FilesTab.tsx`'s
+  // `handleDownload` — never cached in state, never persisted.
+  const handleOpenAttachment = async (attachment: InboxAttachment) => {
+    try {
+      const url = await signInboxAttachmentUrl(attachment.path);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Couldn't open the attachment",
+        { type: "error" },
+      );
+    }
+  };
+
   const onDismiss = async () => {
     try {
       await dataProvider.update("inbox_items", {
@@ -194,20 +214,20 @@ export const InboxResolveDialog = ({
           {/* Story 10.3 (Task 5, AC 1/AC 4): the attachment was captured but
               never reachable from either Inbox surface before this — a
               signed, expiring URL (AD-9), so it's a plain link, not an
-              inline preview. */}
+              inline preview. Review fix F-B: a fresh URL is signed on
+              click (handleOpenAttachment), never the persisted `src`. */}
           {item.attachments && item.attachments.length > 0 ? (
             <ul className="mt-2 space-y-1">
               {item.attachments.map((attachment) => (
                 <li key={attachment.path}>
-                  <a
-                    href={attachment.src}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => handleOpenAttachment(attachment)}
                     className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-2 hover:underline"
                   >
                     <Paperclip className="size-3.5" aria-hidden="true" />
                     {attachment.title}
-                  </a>
+                  </button>
                 </li>
               ))}
             </ul>
