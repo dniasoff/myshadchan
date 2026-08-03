@@ -1195,6 +1195,79 @@ select 'Story 9.3 AC-3: the parent_admin''s immediate republish succeeds — a p
 from public.listings where id = :listing_sibling2;
 
 -- -----------------------------------------------------------------------
+-- Review fix (F1, BLOCKING): the dignity-floor lock (AC-2) must survive an
+-- UPDATE that REPOINTS an unlocked listing onto the locked single, not
+-- only a plain re-INSERT (already proven above). `using` alone cannot
+-- catch this — it only ever evaluates the OLD row (listing_sibling2,
+-- unlocked, PA-managed), so the amended "Single listings update" WITH
+-- CHECK clause (mirroring the insert policy's own lock check, evaluated
+-- against the NEW row) is the only place this is refused. Positive
+-- control first: an ordinary update of the SAME unlocked listing (no
+-- single_id repoint) must still succeed — the fix must not overreach.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+with attempt as (
+  update public.listings set single_age = 24
+  where id = :listing_sibling2
+  returning id
+)
+select count(*) as cnt from attempt \gset s93_f1_control_
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'Story 9.3 F1 control: an ordinary UPDATE of an unlocked single''s listing (no single_id repoint) still succeeds',
+       :s93_f1_control_cnt = 1,
+       format('rows updated: %s', :s93_f1_control_cnt);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Story 9.3 F1: a parent_admin cannot UPDATE-repoint an unlocked sibling listing onto a LOCKED single — the dignity floor survives UPDATE, not just INSERT';
+  v_listing_sibling2 bigint;
+  v_single_login bigint;
+begin
+  select value into v_listing_sibling2 from ids where name = 's93_listing_sibling2';
+  select value into v_single_login from ids where name = 's93_single_login';
+  update public.listings
+  set single_id = v_single_login, single_first_name_en = 'Attacker Repoint While Locked'
+  where id = v_listing_sibling2;
+  perform pg_temp.unexpected_raise(v_name, null, 'update unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'Story 9.3 F1: the refused repoint left listing_sibling2 pointing at the ORIGINAL (unlocked) single, untouched',
+       single_id = :single_sibling and single_first_name_en <> 'Attacker Repoint While Locked',
+       format('single_id=%s first_name=%s', single_id, single_first_name_en)
+from public.listings where id = :listing_sibling2;
+
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+
+-- Filters/selects only anon's own granted columns (id, single_first_name_en)
+-- — never single_id, which anon has no column grant on at all (9.1 F6; the
+-- `?single_id=eq.…` oracle the review's own "Verified clean" section
+-- confirms is closed). The listing anon sees at this id must still be the
+-- ORIGINAL sibling's name, never the attacker's repoint text — the same
+-- fact the PA-role check above just proved, now re-proved from anon's own
+-- narrower, publicly-facing vantage point.
+insert into results (name, passed, detail)
+select 'Story 9.3 F1: anon sees the ORIGINAL (unlocked) listing at that id, not the attacker''s repoint — no leak occurred',
+       single_first_name_en <> 'Attacker Repoint While Locked',
+       format('single_first_name_en=%s', single_first_name_en)
+from public.listings where id = :listing_sibling2;
+
+reset role;
+
+-- -----------------------------------------------------------------------
 -- AC-4 (raw DML refused): only the single may clear the lock — never the
 -- parent, never any other role, via raw DML. `authenticated` holds NO DML
 -- grant on the lock table at all (select only), so every attempt below
@@ -1357,7 +1430,13 @@ select public.consent_to_republish_listing(:single_login);
 reset role;
 
 insert into results (name, passed, detail)
-select 'Story 9.3 AC-7: S2''s consent_to_republish_listing() call for S1''s single is a no-op (scoped to S2''s OWN active account) — S1''s lock survives',
+-- Review fix (F4): "scoped to S2's OWN active account" undersells WHY this
+-- specific call is refused — S2 and S1 are two DISJOINT logins, so the
+-- identity-binding subquery's own `s.member_id = am.id` join already
+-- refuses this on its own (mutation-proved), independent of the account
+-- clause. The F4 block below (after AC-6) isolates the account-scoping
+-- clause itself with a genuine dual-membership login.
+select 'Story 9.3 AC-7: S2''s consent_to_republish_listing() call for S1''s single is a no-op — S1''s lock survives',
        count(*) = 1,
        format('rows: %s', count(*))
 from public.listing_withdrawal_locks where single_id = :single_login;
@@ -1418,6 +1497,90 @@ select 'Story 9.3 AC-6: no lock row is created for a self-manager''s own withdra
        count(*) = 0,
        format('rows: %s', count(*))
 from public.listing_withdrawal_locks where single_id = :single_self;
+
+-- -----------------------------------------------------------------------
+-- Review fix (F4): consent_to_republish_listing()'s account-scoping clause
+-- (`ll.account_id = current_context_id()`) gets its own dedicated negative
+-- test. The AC-7 check above (S2, a DISJOINT login with only one
+-- membership) is refused entirely by the identity-binding subquery's own
+-- `s.member_id = am.id` join — mutation-proved: removing the account
+-- clause alone still leaves that check green, so it never actually
+-- exercises this clause.
+--
+-- Nothing in the schema ties a `singles` row's `member_id` to an
+-- account_members row IN THE SAME ACCOUNT as `singles.account_id` — the FK
+-- is a bare `references account_members(id)` (01_tables.sql), no composite
+-- match against `singles.account_id`. So a single CAN end up linked to a
+-- membership in a DIFFERENT account than its own — exactly the kind of
+-- schema-legal-but-otherwise-unreachable shape this suite's own AC-6(b)
+-- precedent constructs directly to prove a policy clause in isolation
+-- (05_policies.sql's comment on that same technique, echoed above). Built
+-- here with a genuine DUAL-membership login — one auth.uid() holding real,
+-- active memberships in BOTH PA and PB, per the `epic3-api-contract.md` /
+-- Story 8.4 convention this file's own header already names — not two
+-- disjoint logins.
+-- -----------------------------------------------------------------------
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('59220000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'listings-single-dualmember@test.local');
+
+insert into public.account_members (account_id, user_id, role) values
+  (:account_pa, '59220000-0000-0000-0000-000000000007', 'single')
+  returning id as member_dual_pa \gset
+
+insert into public.account_members (account_id, user_id, role) values
+  (:account_pb, '59220000-0000-0000-0000-000000000007', 'single')
+  returning id as member_dual_pb \gset
+
+-- The single itself: genuinely homed in PA (an ordinary insert via PA's own
+-- parent_admin, exactly like every other single row in this suite), member_id
+-- initially pointing at the dual-membership login's OWN, legitimate PA
+-- membership.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into public.singles (first_name_en, member_id)
+values ('Dual Membership Test Single', :member_dual_pa)
+returning id as single_dual \gset
+
+reset role;
+
+-- As postgres (table owner — RLS never applies to it regardless of FORCE
+-- ROW LEVEL SECURITY): repoint member_id onto the SAME login's OTHER (PB)
+-- membership. `account_id` is untouched (still PA), so the lock's own
+-- composite FK is satisfied either way — this is the "broken link" shape
+-- described above, constructed directly rather than through any app path.
+update public.singles set member_id = :member_dual_pb where id = :single_dual;
+
+-- A lock as if this single had genuinely withdrawn — inserted directly
+-- (postgres bypasses the absent authenticated DML grant), the same way
+-- AC-4's own raw-DML probes construct state directly rather than via the
+-- trigger.
+insert into public.listing_withdrawal_locks (account_id, single_id)
+values (:account_pa, :single_dual);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000007","role":"authenticated"}';
+
+select public.set_active_context(:account_pb);
+
+insert into results (name, passed)
+select 'Story 9.3 F4 sanity: the dual-membership caller''s active context is genuinely PB (not PA) before the consent call',
+       public.current_context_id() = :account_pb;
+
+select public.consent_to_republish_listing(:single_dual);
+
+reset role;
+
+-- With current_context_id() = PB, the identity-binding subquery ALONE
+-- would already match (member_dual_pb IS the single's member_id, role
+-- 'single', account_id = PB) — the ONLY thing standing between this call
+-- and clearing PA's lock is the outer `ll.account_id = current_context_id()`
+-- clause, since the lock's real account_id is PA, not PB.
+insert into results (name, passed, detail)
+select 'Story 9.3 F4: consent_to_republish_listing()''s account-scoping clause refuses a caller whose OWN (PB) membership matches the single''s member_id, when the single''s LOCK lives in a DIFFERENT account (PA) than the caller''s active context — the lock survives',
+       count(*) = 1,
+       format('rows: %s', count(*))
+from public.listing_withdrawal_locks where single_id = :single_dual;
 
 -- ---------------------------------------------------------------------------
 -- Emit the report as a single JSON array line, then undo everything.

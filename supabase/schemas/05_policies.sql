@@ -1625,6 +1625,24 @@ create policy "Single listings update" on public.listings
                   and s.id = listings.single_id
             )
         )
+        -- Review fix (F1, BLOCKING, Story 9.3): the SAME lock check the
+        -- insert policy carries, restated here for `with check`. Without
+        -- it, a `parent_admin` repoints an UNLOCKED sibling's row onto a
+        -- LOCKED single (`update listings set single_id = <locked>, ...`):
+        -- `using` only ever sees the OLD row (the sibling's own, unlocked,
+        -- authorized) so it never inspects the target being repointed TO,
+        -- and this WITH CHECK clause is the only place the NEW row's
+        -- single_id is evaluated. Omitting it here made the dignity-floor
+        -- lock (AD-21) bypassable by UPDATE even though plain re-INSERT was
+        -- already refused — the exact loop AD-21 names, reopened through a
+        -- different statement. `listings.single_id` below resolves against
+        -- the NEW row inside WITH CHECK, mirroring the insert policy's own
+        -- clause verbatim.
+        and not exists (
+            select 1 from public.listing_withdrawal_locks ll
+            where ll.account_id = public.current_context_id()
+              and ll.single_id = listings.single_id
+        )
     );
 
 -- =====================================================================

@@ -431,6 +431,24 @@ for it [Source: .claude/rules/testing.md, .claude/rules/security-triggers.md].
   6), `WithdrawSingleListingButton.tsx` / `ConsentToRepublishButton.tsx` and the manager-side
   "must consent again" message (Task 7), and the full database + component + FakeRest test suite
   (Task 8). Status → review.
+- 2026-08-03 — Review fixes (F1–F5): the `"Single listings update"` policy's `with check` now
+  carries the SAME `not exists (... listing_withdrawal_locks ...)` clause the insert policy
+  already had (F1, BLOCKING) — without it, a `parent_admin` could repoint an unlocked sibling's
+  listing's `single_id` onto a LOCKED single via `UPDATE`, bypassing AD-21's dignity floor through
+  a different statement than the one already guarded; `using` alone cannot catch this, since it
+  only ever evaluates the OLD (unlocked, authorized) row. `ConsentToRepublishButton.test.tsx`'s
+  two vacuous `.poll(...).toBe(0)` assertions now await a genuine settling anchor — independent of
+  the gate under test — before reading the button count, and a new test exercises the `!isSelf`
+  half of the double gate that neither original test varied at all (F2, HIGH). FakeRest's
+  `dataProvider.create("listings", ...)` now mirrors the amended insert policy's lock check, so
+  `make start-demo` can no longer republish a locked single without the "must consent again"
+  message ever firing (F3, MEDIUM). `consent_to_republish_listing()`'s account-scoping clause
+  (`ll.account_id = current_context_id()`) gets its own dedicated negative test, built with a
+  genuine dual-membership login rather than AC-7's disjoint one — see Completion Notes for why the
+  "obvious" dual-membership shape does NOT distinguish this clause, and what does (F4, LOW). The
+  migration-data-safety fixture now seeds and captures a `listing_withdrawal_locks` row, closing
+  the blind spot in the same diff that adds the table (F5, LOW). New migration
+  `20260803014905_listings_9_3_review_fix_f1.sql`. Status stays → review for re-review.
 
 ## Dev Agent Record
 
@@ -509,6 +527,68 @@ Claude (Sonnet 5), dispatched as the `developer`/bmad-dev-story agent on `STACK_
   touched by this story. All four CI guards (suppression ratchet, retired-name, route-convention,
   Tailwind v3-syntax) are green.
 
+- **Review-fix pass.** F1 (BLOCKING): `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff
+  --local -f listings_9_3_review_fix_f1` — generated `20260803014905_listings_9_3_review_fix_f1.sql`
+  (a clean `drop policy` + `create policy` pair for `"Single listings update"`, no grant/RLS
+  omissions to hand-add since this is a pure policy-body change). Applied via `migration up
+  --local`; `db diff --local` twice more — "No schema changes found". `select policyname, cmd from
+  pg_policies where tablename = 'listings'` confirms exactly one `"Single listings update"` policy
+  (no duplicate). Mutation-proved live: reverted the fix on the running dev DB (raw `drop policy` +
+  `create policy` restoring the pre-fix `with check`), re-ran `listings.sql` — the 3 new F1 checks
+  (the repoint attack, the post-attack row-state check, the anon-visibility check) flip red while
+  the F1-control (an ordinary update with no `single_id` repoint) and 9.2's own F1/F1b checks stay
+  green; `supabase db reset --local` restored the fixed state, re-ran — 96/96 green.
+- F2 (HIGH): mutation-proved against the running component (not merely the review's own claim) —
+  temporarily removing `!isSingleRole`, then separately `!isSelf`, from `ConsentToRepublishButton
+  .tsx`'s gate each flips exactly one new/rewritten test red (the role-gate test's settling-anchor
+  poll, and the new dedicated "SIBLING's locked single" test respectively); removing `isLocked`
+  flips the rewritten "not locked" test red. All three restored to the committed state afterward;
+  re-ran the file — 5/5 green. The fix pattern is a `SettledMarker` component — an independent
+  `useGetList` read on the SAME table, unaffected by the gates under test — awaited before the
+  button-count assertion, so a `parent_admin`'s expected-0 can no longer be satisfied by a
+  still-pending render.
+- F3 (MEDIUM): mutation-proved — temporarily short-circuited the new `assertListingInsertNotLocked`
+  call in `dataProvider.ts`'s `create()` override to a no-op; the new "refuses re-INSERTing…" test
+  in `dataProvider.listingWithdrawal.test.ts` flips red (promise resolves instead of rejecting).
+  Restored; re-ran — 6/6 green.
+- F4 (LOW, investigated and NOT the vulnerability the review's own wording suggested, but a related
+  latent gap confirmed real): the review frames this as "the clause matters when a caller holds
+  memberships in TWO accounts (own single in A, active context B)". Traced through by hand first —
+  in that literal shape, the RPC's identity-binding subquery (`s.member_id = am.id` joined to
+  `am.account_id = current_context_id()`) ALREADY refuses the call on its own, because a `singles`
+  row's `member_id` can only equal ONE specific `account_members.id`, which has exactly one fixed
+  `account_id`; the outer `ll.account_id = current_context_id()` clause never gets a chance to
+  matter. What DOES make the clause load-bearing: `singles_member_id_fkey` (`01_tables.sql`) is a
+  bare `references account_members(id)` — nothing anywhere enforces that a `singles` row's
+  `member_id` belongs to an account_members row IN THE SAME ACCOUNT as `singles.account_id` itself.
+  Constructed that exact schema-legal-but-otherwise-unreachable shape directly (this suite's own
+  AC-6(b) precedent for "prove a clause in isolation, not just the trigger that in every real case
+  already prevents it"): a single homed in PA whose `member_id` is repointed (via a superuser
+  UPDATE, no path any app code takes) onto a DIFFERENT account's (PB) membership, with a lock on
+  the PA side. Mutation-proved live: removed `ll.account_id = current_context_id()` from
+  `consent_to_republish_listing()` on the running dev DB — exactly the new F4 check flips red (0
+  rows survive, i.e. the lock is wrongly cleared cross-account) while all 95 other checks stay
+  green; `supabase db reset --local` restored the fixed function, re-ran — 96/96 green. Also
+  corrected the AC-7 test's own comment, which attributed that (disjoint-login) refusal to "account
+  scoping" when mutation-proving shows the identity-binding join is what actually refuses it there.
+- F5 (LOW): validated the new fixture block end-to-end against a scratch copy of `fixture.sql` with
+  the pre-existing, unrelated `connections` NOT NULL gap (F5 of 9.1's own review — `
+  proposed_by_account_id` and `household_account_name`) patched locally (not committed, per
+  parallel-ownership — that gap belongs to whoever owns Story 7.1/8.2's declared files): the
+  `listing_withdrawal_locks` row inserts, `migration_guard.primary_key_columns()` correctly reads
+  `single_id` (not `id`) as the table's PK, `capture()` snapshots it, and the script reaches
+  `commit` cleanly. `make check-migration-safety STACK_ID=1` (fresh e2e stack, `STACK_OWNER=fix-9-3`,
+  stopped afterward) reproduces the SAME pre-existing `fixture.sql:533` failure verbatim — this
+  story's new block is never reached by the guard today because the pre-existing bug aborts the
+  transaction earlier in the same script, but is real, dormant coverage for whenever that gap is
+  fixed by its actual owner.
+- Full re-run after all five fixes: `supabase/tests/listings.sql` 96/96 (bumped from 90 — F1 adds 4
+  checks, F4 adds 2); `npx vitest run` (unscoped) 264 files / 3193 tests, all pass;
+  `npm run test:unit:db` 33 files / 1272 tests, all pass; `make typecheck`, `make lint`
+  (ESLint + prettier), `make registry-gen` (no diff — no new registered components) all clean; all
+  four CI guards green; `check-migration-safety` re-confirmed pre-existing and unrelated (same
+  proof as the original Dev Agent Record, re-run independently above).
+
 ### Completion Notes List
 
 - All 7 ACs implemented and covered. AC-1 (single withdraws own listing regardless of publisher)
@@ -584,7 +664,9 @@ Claude (Sonnet 5), dispatched as the `developer`/bmad-dev-story agent on `STACK_
   trigger on `public.listings`.
 - `supabase/schemas/05_policies.sql` — `listing_withdrawal_locks`'s RLS (enable + force, one
   SELECT-only policy), the new `"Single listings delete"` policy, and the amended (drop +
-  recreate) `"Single listings insert"` policy with the added lock check.
+  recreate) `"Single listings insert"` policy with the added lock check; review fix F1 (BLOCKING)
+  adds the identical lock check to `"Single listings update"`'s `with check`, and corrects the
+  AC-7 test's own comment on the account-scoping clause (F4).
 - `supabase/schemas/06_grants.sql` — the lock table's grants (select-only to `authenticated`, all
   to `service_role`, nothing to `anon`) and the consent RPC's grant triplet.
 - `supabase/migrations/20260803003946_add_listing_withdrawal_lock.sql` — generated + hand-checked
@@ -595,13 +677,16 @@ Claude (Sonnet 5), dispatched as the `developer`/bmad-dev-story agent on `STACK_
   (`listing_withdrawal_locks` → `single_id`) and `consentToRepublishListingViaRpc`, wired as
   `consentToRepublishListing`.
 - `src/components/atomic-crm/providers/fakerest/internal/listingWithdrawal.ts` — the FakeRest
-  mirrors of the trigger and the RPC.
+  mirrors of the trigger and the RPC; review fix F3 adds `assertListingInsertNotLocked()`, the
+  mirror of the amended insert policy's lock check.
 - `src/components/atomic-crm/providers/fakerest/internal/listingWithdrawal.test.ts` — unit tests
   for both mirrors (AC-1, AC-3, AC-6, AC-7, idempotency, no-identity edge cases).
 - `src/components/atomic-crm/providers/fakerest/dataProvider.ts` — wires the `listings` delete
-  handler to the lock trigger mirror, and exposes `consentToRepublishListing`.
+  handler to the lock trigger mirror, and exposes `consentToRepublishListing`; review fix F3 wires
+  `create("listings", ...)`'s `single` branch to `assertListingInsertNotLocked()`.
 - `src/components/atomic-crm/providers/fakerest/dataProvider.listingWithdrawal.test.ts` —
-  end-to-end wiring tests against the real `createDataProvider` factory.
+  end-to-end wiring tests against the real `createDataProvider` factory; review fix F3 adds the
+  locked-republish-refused / consent-then-succeeds wiring tests.
 - `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts` /
   `dataGenerator/types.ts` — `db.listing_withdrawal_locks = []` (seeded empty, matching
   `listings`' own "opt-in, nothing published/locked by default" convention).
@@ -612,7 +697,9 @@ Claude (Sonnet 5), dispatched as the `developer`/bmad-dev-story agent on `STACK_
 - `src/components/atomic-crm/listings/ConsentToRepublishButton.tsx` — the single's own
   consent-to-republish control (AC-4).
 - `src/components/atomic-crm/listings/ConsentToRepublishButton.test.tsx` — self+role double-gate
-  and click-behavior tests.
+  and click-behavior tests; review fix F2 replaces two vacuous `.poll(...).toBe(0)` assertions
+  with a settling-anchor pattern (`SettledMarker`) and adds a dedicated test for the `!isSelf`
+  half of the gate, which neither original test varied at all.
 - `src/components/atomic-crm/listings/PublishSingleListingSection.tsx` — the "must consent
   again" honest-refusal message (AC-2), sourced from a fresh `getList` read at the point of
   failure; header comment corrected (see Completion Notes).
@@ -627,6 +714,14 @@ Claude (Sonnet 5), dispatched as the `developer`/bmad-dev-story agent on `STACK_
   `crm.settings.single_listing_form.locked_error`.
 - `registry.json` — regenerated (`make registry-gen`) for the two new `listings/` components.
 - `supabase/tests/listings.sql` — extended with Story 9.3's 30 new checks (AC-1 through AC-7,
-  plus the Task 5 "exactly one policy" structural checks).
+  plus the Task 5 "exactly one policy" structural checks); review fixes add 4 F1 checks (the
+  update-repoint attack, its post-attack row-state and anon-visibility checks, and a positive
+  control), 2 F4 checks (the dual-membership account-scoping negative test and its active-context
+  sanity check), and correct the AC-7 consent test's own comment (F4) — 96 checks total.
 - `supabase/tests/listings.test.ts` — header comment updated for all three stories; the "floor"
-  assertion raised from 60 to 90.
+  assertion raised from 60 to 90 by the original implementation, then to 96 by the review fixes.
+- `supabase/migrations/20260803014905_listings_9_3_review_fix_f1.sql` — review fix F1: generated +
+  hand-verified (a pure policy-body `drop`+`create` pair, no grant/RLS omissions to hand-add).
+- `supabase/tests/migration-data-safety/fixture.sql` — review fix F5: a `to_regclass`-guarded
+  `listing_withdrawal_locks` seed block + `capture('listing_withdrawal_locks')`, mirroring
+  `listings`' own 9.1-era block immediately above it.

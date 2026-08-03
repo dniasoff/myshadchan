@@ -605,6 +605,28 @@ begin
   end if;
 end $$;
 
+-- Story 9.3 (listing_withdrawal_locks, review finding F5). Same
+-- `to_regclass` guard, same reasoning as `listings` immediately above: THIS
+-- story's own migration is what creates `listing_withdrawal_locks`, so it
+-- holds nothing before it applies, and the guard is trivially safe for its
+-- own migration. From the next story's baseline onward this seeds and
+-- captures a live lock row like every other table here — closing the blind
+-- spot in the SAME diff that adds the table, per the convention
+-- `listings`' own comment above states and this table's schema comment
+-- (01_tables.sql, Dev Notes "Why a lock table") repeats. Anchored on the
+-- single (9000001, account 9000001) the `singles` seed above already
+-- creates — the lock's own composite FK (`account_id, single_id`
+-- references `singles(account_id, id)`) is satisfied by that existing row.
+do $$
+begin
+  if to_regclass('public.listing_withdrawal_locks') is not null then
+    execute $seed$
+      insert into public.listing_withdrawal_locks (account_id, single_id)
+      values (9000001, 9000001);
+    $seed$;
+  end if;
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- Snapshot. `identity_signals` is captured last and on purpose: nothing
 -- inserts it directly — the `sync_shidduch_signals` trigger derives it from
@@ -682,5 +704,6 @@ select migration_guard.capture('messages');
 select migration_guard.capture('message_notifications');
 select migration_guard.capture('push_subscriptions');
 select migration_guard.capture('listings');
+select migration_guard.capture('listing_withdrawal_locks');
 
 commit;

@@ -113,6 +113,7 @@ import {
 } from "./internal/threads";
 import { redtViaConnection as redtViaConnectionImpl } from "./internal/redting";
 import {
+  assertListingInsertNotLocked,
   consentToRepublishListing as consentToRepublishListingImpl,
   lockListingOnSingleWithdrawal,
 } from "./internal/listingWithdrawal";
@@ -844,6 +845,29 @@ export const createDataProvider = ({
           params.data ?? {},
         );
         return { data: participant } as any;
+      }
+      // Review fix (F3): mirrors the amended "Single listings insert"
+      // policy's added lock check (Story 9.3, AC-2) — a plain re-INSERT
+      // for a single who withdrew and has not consented again must be
+      // refused here too, or `make start-demo` never exercises the
+      // "must consent again" branch of `PublishSingleListingSection.tsx`
+      // at all (Task 6's "emulate the lock explicitly" covered the delete
+      // trigger and the consent RPC, but not this insert-side check).
+      // Runs BEFORE the account_id-stamping block below, against whichever
+      // account_id will actually end up on the row (the caller's own, if
+      // already set — never the case in practice, since `useListingUpsert`
+      // deliberately omits it — otherwise the one `resolveCurrentAccountId()`
+      // is about to stamp).
+      if (
+        resource === "listings" &&
+        params.data?.listing_type === "single" &&
+        params.data?.single_id != null
+      ) {
+        await assertListingInsertNotLocked(
+          baseDataProvider,
+          params.data.single_id,
+          params.data.account_id ?? (await resolveCurrentAccountId()),
+        );
       }
       // Story 9.1: mirrors set_account_id_default() (02_functions.sql) —
       // PublishShadchanListingSection.tsx never sends account_id itself

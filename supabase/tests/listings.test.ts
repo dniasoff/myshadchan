@@ -65,9 +65,11 @@ describe("publish a listing — shadchan (9.1), single (9.2) and the dignity-flo
   if (bailIfDbUnreachable(error)) return;
 
   // A floor, not an exact count — new checks are welcome, silently
-  // vanishing ones are not.
+  // vanishing ones are not. Raised from 90 to 96 by this story's own
+  // review fixes (F1's update-repoint checks, F4's account-scoping
+  // dual-membership check).
   it("runs every 9.1, 9.2 and 9.3 check group", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(90);
+    expect(checks.length).toBeGreaterThanOrEqual(96);
   });
 
   for (const check of checks) {

@@ -167,6 +167,85 @@ describe("FakeRest wiring — listings delete() triggers the withdrawal lock (St
   });
 });
 
+describe("FakeRest wiring — listings create() refuses a locked republish (Story 9.3 review fix F3, AC-2)", () => {
+  it("refuses re-INSERTing a listing for a single with an active withdrawal lock", async () => {
+    // Arrange — ONE provider instance for the whole test (the same
+    // shared-store technique the consentToRepublishListing test below
+    // uses): withdraw as the single (creates the lock), then attempt to
+    // republish as the parent_admin against the SAME store. Before this
+    // fix, `dataProvider.create("listings", ...)` had no mirror of the
+    // amended "Single listings insert" policy's lock check at all, so this
+    // republish silently succeeded in `make start-demo` even though the
+    // real backend refuses it (AC-2).
+    const db = generateData();
+    seedFixture(db);
+    const identity = { current: asSingle as { id: number } };
+    const dataProvider = createDataProvider({
+      db,
+      latency: 0,
+      silent: true,
+      authProvider: { getIdentity: async () => identity.current },
+    });
+
+    await dataProvider.delete("listings", { id: LISTING_LOGIN_SINGLE_ID });
+
+    // Act / Assert
+    identity.current = asParent;
+    await expect(
+      dataProvider.create("listings", {
+        data: {
+          listing_type: "single",
+          single_id: SINGLE_LOGIN_SINGLE_ID,
+          single_first_name_en: "Republish Attempt While Locked",
+          account_id: HOUSEHOLD_ACCOUNT_ID,
+        },
+      }),
+    ).rejects.toThrow();
+
+    const { total } = await dataProvider.getList("listings", {
+      pagination: { page: 1, perPage: 10 },
+      sort: { field: "id", order: "ASC" },
+      filter: { single_id: SINGLE_LOGIN_SINGLE_ID },
+    });
+    expect(total).toBe(0);
+  });
+
+  it("allows the republish once the single has consented again", async () => {
+    // Arrange
+    const db = generateData();
+    seedFixture(db);
+    const identity = { current: asSingle as { id: number } };
+    const dataProvider = createDataProvider({
+      db,
+      latency: 0,
+      silent: true,
+      authProvider: { getIdentity: async () => identity.current },
+    });
+
+    await dataProvider.delete("listings", { id: LISTING_LOGIN_SINGLE_ID });
+    await dataProvider.consentToRepublishListing(SINGLE_LOGIN_SINGLE_ID);
+
+    // Act
+    identity.current = asParent;
+    await dataProvider.create("listings", {
+      data: {
+        listing_type: "single",
+        single_id: SINGLE_LOGIN_SINGLE_ID,
+        single_first_name_en: "Republished After Consent",
+        account_id: HOUSEHOLD_ACCOUNT_ID,
+      },
+    });
+
+    // Assert
+    const { total } = await dataProvider.getList("listings", {
+      pagination: { page: 1, perPage: 10 },
+      sort: { field: "id", order: "ASC" },
+      filter: { single_id: SINGLE_LOGIN_SINGLE_ID },
+    });
+    expect(total).toBe(1);
+  });
+});
+
 describe("FakeRest wiring — consentToRepublishListing() (Story 9.3, AC-4)", () => {
   it("is a no-op when called by the parent_admin, then clears the lock when called by the single themselves", async () => {
     // Arrange — ONE provider instance for the whole test: `createDataProvider`

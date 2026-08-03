@@ -88,6 +88,40 @@ export async function lockListingOnSingleWithdrawal(
 }
 
 /**
+ * Review fix (F3): FakeRest mirror of the amended "Single listings insert"
+ * policy's added `not exists (... listing_withdrawal_locks ...)` clause
+ * (Story 9.3, AC-2). Postgres refuses the INSERT outright (a row-security
+ * violation) the moment a lock row exists for the target single; FakeRest
+ * has no RLS, so `dataProvider.create("listings", ...)`'s own `single`
+ * branch calls this explicitly, right where the real policy's WITH CHECK
+ * would fire, and throws to match. `PublishSingleListingSection.tsx`'s
+ * `handlePublish` never parses this error's text — it catches ANY thrown
+ * error and re-reads `listing_withdrawal_locks` itself to decide which
+ * message to show (`.claude/rules/security-triggers.md`'s own caution
+ * against treating error-message shape as a stable contract), so this
+ * message only needs to be truthy, not exactly matched anywhere.
+ */
+export async function assertListingInsertNotLocked(
+  baseDataProvider: DataProvider,
+  singleId: Identifier,
+  accountId: Identifier,
+): Promise<void> {
+  const { data: locks } = await baseDataProvider.getList<ListingWithdrawalLock>(
+    "listing_withdrawal_locks",
+    {
+      filter: { single_id: singleId, account_id: accountId },
+      pagination: PAGE_ONE,
+      sort: SORT_BY_ID,
+    },
+  );
+  if (locks.length > 0) {
+    throw new Error(
+      "this single withdrew this listing and must consent again before it can be republished",
+    );
+  }
+}
+
+/**
  * FakeRest mirror of `public.consent_to_republish_listing()` (Story 9.3,
  * AC-4). Fails CLOSED — a silent no-op for a wrong caller (wrong role, or a
  * `single_id` that is not their own), never a thrown error — matching the
