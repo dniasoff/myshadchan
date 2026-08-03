@@ -89,6 +89,15 @@ export default defineConfig({
           "import.meta.env.VITE_VAPID_PUBLIC_KEY": JSON.stringify(
             process.env.VITE_VAPID_PUBLIC_KEY,
           ),
+          // Story 9.5 (Task 6): `sharing/shareClient.ts` fetches the
+          // deployed `share/` Worker directly (never through the
+          // dataProvider — the recipient has no session). Same landmine as
+          // VITE_VAPID_PUBLIC_KEY above: without this line, setting the var
+          // in Vercel does nothing, because this `define` block is the
+          // only channel a VITE_* value reaches a deployed build through.
+          "import.meta.env.VITE_SHARE_WORKER_URL": JSON.stringify(
+            process.env.VITE_SHARE_WORKER_URL,
+          ),
         }
       : undefined,
   base: "./",

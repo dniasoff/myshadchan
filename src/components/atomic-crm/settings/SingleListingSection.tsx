@@ -23,6 +23,7 @@ import { ConsentToRepublishButton } from "../listings/ConsentToRepublishButton";
 import { PublishSingleListingSection } from "../listings/PublishSingleListingSection";
 import { WithdrawSingleListingButton } from "../listings/WithdrawSingleListingButton";
 import { pickActiveContext } from "../providers/commons/roleAuthority";
+import { ShareSingleDialog } from "../sharing/ShareSingleDialog";
 import { useCurrentMemberId } from "../threads/useCurrentMemberId";
 import { useMyContexts } from "../root/useMyContexts";
 import type { Listing, Single } from "../types";
@@ -183,6 +184,17 @@ export const SingleListingSection = (): ReactElement | null => {
                             />
                           </DialogContent>
                         </Dialog>
+                      ) : null}
+                      {/* Story 9.5 (Task 6): a SEPARATE surface from the
+                          Publish dialog above — sharing is targeted and
+                          revocable and can include the resume/photo; a
+                          listing is an opt-in public snapshot with no
+                          files. Manager-scoped the same way (Dev Notes "Why
+                          share links are manager-scoped, not
+                          household-scoped"), so reuses canPublish's own
+                          authority check rather than a second one. */}
+                      {canPublish(single) ? (
+                        <ShareSingleDialog single={single} />
                       ) : null}
                     </ItemActions>
                   </Item>

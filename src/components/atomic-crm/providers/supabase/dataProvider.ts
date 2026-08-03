@@ -36,6 +36,7 @@ import type {
   ReferenceMergePreview,
   Resume,
   ResumePhoto,
+  ShareAccessLog,
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
@@ -75,6 +76,7 @@ import type {
   SignResumePhotoUrlParams,
   UploadResumePhotoParams,
 } from "./resumePhotos";
+import { buildResumeStorageCleanupCallbacks } from "./resumeStorageCleanup";
 import { getSupabaseClient } from "./supabase";
 
 // Story 9.3: `public.listing_withdrawal_locks` deliberately has no `id`
@@ -265,6 +267,51 @@ const consentToRepublishListingViaRpc = async (
   }
 };
 
+// Story 9.5 (Task 6): revocation MUST touch only `revoked_at` — a generic
+// `dataProvider.update("share_links", { data: fullRecord, ... })` sends
+// every field present in `data` to PostgREST, and Task 2's grant is
+// `update (revoked_at)` only (column-level, no table-level `update` at
+// all). PostgREST refuses a PATCH naming a column the caller has no
+// UPDATE privilege on regardless of whether that column's VALUE actually
+// changed, so this bypasses the generic dataProvider path entirely and
+// issues a raw PATCH naming ONLY `revoked_at`. `enforce_share_link_revoke_
+// once` (02_functions.sql) is the server-side half of "one-way" (AC-6); this
+// wrapper does not attempt to pre-check that itself — a wrong-state revoke
+// attempt surfaces as the same ordinary trigger-raised error every other
+// failure here does.
+const revokeShareLinkViaUpdate = async (id: Identifier): Promise<void> => {
+  const { error } = await getSupabaseClient()
+    .from("share_links")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) {
+    console.error("revokeShareLink.error", error);
+    throw new Error(error.message || "Failed to revoke that share link");
+  }
+};
+
+// Story 9.5 (AC-8): the sharer's own access-log view. A plain read — RLS
+// ("Share access log readable by link owner", 05_policies.sql) already
+// narrows this to links the caller manages, via share_links' own manager
+// scoping, so this wrapper adds no authorization of its own, only a
+// documented, thin client surface (mirrors createShidduchViaRpc's own
+// shape: a small function this file's return object exposes, rather than
+// every caller re-deriving the same getList params by hand).
+const getShareAccessLogViaGetList = async (
+  baseDataProvider: DataProvider,
+  shareLinkId: Identifier,
+): Promise<ShareAccessLog[]> => {
+  const { data } = await baseDataProvider.getList<ShareAccessLog>(
+    "share_access_log",
+    {
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "accessed_at", order: "DESC" },
+      filter: { share_link_id: shareLinkId },
+    },
+  );
+  return data;
+};
+
 // Read-only (Task 3): the acceptor has no SELECT path to connection_invites,
 // so this is the one purpose-built read letting the accept screen show who
 // is inviting before the user commits. Resolves to null for an unknown,
@@ -448,6 +495,13 @@ export const getDataProviderWithCustomMethods = () => {
     redtViaConnection: redtViaConnectionViaRpc,
     // Story 9.3 (AC-4) — see consentToRepublishListingViaRpc above.
     consentToRepublishListing: consentToRepublishListingViaRpc,
+    // Story 9.5 (Task 6) — see revokeShareLinkViaUpdate above.
+    revokeShareLink: revokeShareLinkViaUpdate,
+    async getShareAccessLog(
+      shareLinkId: Identifier,
+    ): Promise<ShareAccessLog[]> {
+      return getShareAccessLogViaGetList(baseDataProvider, shareLinkId);
+    },
     // Story 7.3 (Task 4): "who am I" in the ACTIVE context's
     // `account_members.id` space — the id `thread_participants.member_id`
     // is keyed on, and a DIFFERENT id space from `getIdentity().id`
@@ -973,6 +1027,13 @@ export type CrmDataProvider = ReturnType<
 const entityFilesCleanupCallbacks: ResourceCallbacks[] =
   buildEntityFilesCleanupCallbacks();
 
+// Story 9.5 (AC-11, AC-12): the `resumes`/`resume_photos` byte-cleanup
+// equivalent — see resumeStorageCleanup.ts's own doc comment. Exported the
+// same way `entityFilesCleanupCallbacks` is (review-fix F2 precedent) so
+// `resumeStorageCleanup.test.ts` exercises the exact array that ships.
+export const resumeStorageCleanupCallbacks: ResourceCallbacks[] =
+  buildResumeStorageCleanupCallbacks();
+
 // Exported for `dataProvider.test.ts` (review fix, F2): the array's own
 // wiring — which resource string each hook is keyed to, and which real
 // columns each searches — had no test anywhere in the repo, so a re-keyed
@@ -1085,6 +1146,7 @@ export const lifeCycleCallbacks: ResourceCallbacks[] = [
     },
   },
   ...entityFilesCleanupCallbacks,
+  ...resumeStorageCleanupCallbacks,
 ];
 
 export const getDataProvider = () => {

@@ -20,6 +20,8 @@ import type {
   Resume,
   ResumePhoto,
   Shadchan,
+  ShareAccessLog,
+  ShareLink,
   Shidduch,
   ShidduchExternalLink,
   ShidduchSchool,
@@ -100,4 +102,16 @@ export interface Db {
   // mirror's own delete. Never seeded with a pre-existing lock, matching
   // "opt-in, nothing locked by default" the same way `listings` itself is.
   listing_withdrawal_locks: ListingWithdrawalLock[];
+  // Story 9.5 — seeded empty; the only writer is `CreateShareLinkDialog`'s
+  // own `dataProvider.create("share_links", ...)` (a SEPARATE mechanism
+  // from `listings` above — a targeted, revocable grant, not an opt-in
+  // public snapshot). The demo build never exercises the `share/` Worker's
+  // proxy stream itself (FakeRest cannot emulate a Cloudflare Worker) — see
+  // `internal/shareLinks.ts`'s own comment.
+  share_links: ShareLink[];
+  // Story 9.5 (AC-5, AC-8) — seeded empty; the real writer is the `share/`
+  // Worker using the service-role key, which has no FakeRest equivalent at
+  // all — this array only ever grows through a test/demo seeding a row
+  // directly, never through any UI action in this codebase.
+  share_access_log: ShareAccessLog[];
 }

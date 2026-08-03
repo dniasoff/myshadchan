@@ -3,12 +3,15 @@ main = "index.ts"
 compatibility_date = "2026-07-21"
 compatibility_flags = ["nodejs_compat"]
 
-# AD-9: the only Worker with an R2 binding. `bucket_name` is illustrative —
-# create the actual bucket (`npx wrangler r2 bucket create myshadchan-media`)
-# and adjust the name here if you choose a different one.
-[[r2_buckets]]
-binding = "MEDIA_BUCKET"
-bucket_name = "myshadchan-media"
+# Story 9.5 (storage ruling): NO R2 binding. R2 is not enabled on this
+# Cloudflare account (10042 "Please enable R2 through the Cloudflare
+# Dashboard"), and no code path in the product ever uploads a resume/photo
+# byte to R2 — every upload writes to Supabase Storage's `documents` bucket.
+# This Worker reaches Storage through the ordinary @supabase/supabase-js
+# client it already gets SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY for (below),
+# the same way every other Worker does. See ARCHITECTURE-SPINE.md AD-9/AD-15
+# (amended by this story) and the story's own Dev Notes "Why Supabase
+# Storage, not R2".
 
 # Secrets (set via `wrangler secret put <NAME> --config workers/share/wrangler.toml`,
 # or the CI job in .github/workflows/deploy.yml): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.

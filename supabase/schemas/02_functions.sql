@@ -4825,3 +4825,43 @@ begin
       );
 end;
 $$;
+
+-- Story 9.5 (AC-2): server-owned defaults for a share link, mirroring the
+-- retired token-portal's own token-default trigger exactly (Epic 1 Story
+-- 1.4 — that function is gone; read it from git history). `token` is
+-- ALWAYS overwritten with a fresh CSPRNG value (192 bits from pgcrypto,
+-- hex-encoded) regardless of what a client supplies — a client can never
+-- choose, predict or supply the bearer secret that guards a resume/photo.
+-- INSERT-only (never re-run on the revoke UPDATE, and there is no
+-- corresponding `before update` trigger for this function), so revoking a
+-- link never silently rotates its token.
+CREATE OR REPLACE FUNCTION "public"."set_share_link_token_defaults"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  if new.account_id is null then
+    new.account_id := public.current_context_id();
+  end if;
+  new.token := encode(extensions.gen_random_bytes(24), 'hex');
+  return new;
+end;
+$$;
+
+-- Story 9.5 (AC-6): revocation is one-way. `authenticated` holds only a
+-- `revoked_at`-only column UPDATE grant (06_grants.sql), so the client-side
+-- surface is already narrow — this closes the remaining gap, "can a client
+-- flip a revoked link back to null and resurrect a leaked link". Plain
+-- SECURITY INVOKER: it only ever blocks, never needs elevated privilege.
+CREATE OR REPLACE FUNCTION "public"."enforce_share_link_revoke_once"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  if old.revoked_at is not null
+     and new.revoked_at is distinct from old.revoked_at then
+    raise exception 'a revoked share link cannot be un-revoked';
+  end if;
+  return new;
+end;
+$$;

@@ -48,6 +48,13 @@ export default (): Db => {
   // withdrawal-lock trigger mirror (lockListingOnSingleWithdrawal()) is the
   // only writer.
   db.listing_withdrawal_locks = [];
+  // Story 9.5 — no share link exists by default; `CreateShareLinkDialog`'s
+  // own create call is the only writer (a separate mechanism from
+  // `listings` above — see `dataGenerator/types.ts`'s own comment).
+  db.share_links = [];
+  // Story 9.5 — no access is ever recorded in the demo build; the real
+  // writer is the `share/` Worker, which has no FakeRest equivalent.
+  db.share_access_log = [];
   // Shidduchim pipeline domain (accounts, singles, shadchanim, shidduchim, ...)
   generateShidduchimDomain(db);
   // References domain (references, reference_links, interactions, reference

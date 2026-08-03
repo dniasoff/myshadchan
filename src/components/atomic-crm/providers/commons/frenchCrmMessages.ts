@@ -406,6 +406,8 @@ export const frenchCrmMessages = {
         publish_button: "Publier",
         manage_button: "Gérer l'annonce",
         dialog_title: "Publier une annonce pour %{name}",
+        // Story 9.5 — voir la même note dans englishCrmMessages.ts.
+        share_button: "Partager",
       },
       // Story 9.2 — voir la même note dans englishCrmMessages.ts.
       single_listing_form: {
@@ -971,6 +973,51 @@ export const frenchCrmMessages = {
       },
       single_card: {
         age_label: "Âge",
+      },
+    },
+    // Story 9.5 — voir la même note dans englishCrmMessages.ts.
+    sharing: {
+      share_dialog: {
+        title: "Partager le profil de %{name}",
+      },
+      create_dialog: {
+        expiry_label: "Le lien expire après",
+        expiry_7: "7 jours",
+        expiry_30: "30 jours",
+        expiry_90: "90 jours",
+        include_photo_label: "Inclure la photo",
+        create_button: "Créer un lien de partage",
+        create_another_button: "Créer un autre lien",
+        create_error: "Impossible de créer le lien de partage. Réessayez.",
+        link_ready:
+          "Partagez ce lien — toute personne qui le détient peut voir le profil partagé jusqu'à son expiration ou sa révocation.",
+        copy_button: "Copier",
+      },
+      link_list: {
+        empty: "Aucun lien de partage pour l'instant.",
+        status_active: "Actif",
+        status_revoked: "Révoqué",
+        status_expired: "Expiré",
+        expires_at: "Expire le %{date}",
+        revoke_button: "Révoquer",
+        revoke_success: "Le lien a été révoqué.",
+        revoke_error: "Impossible de révoquer ce lien. Réessayez.",
+        view_access_button: "Journal d'accès",
+        access_log_title: "Qui a accédé à ce lien",
+        access_log_empty: "Aucun accès enregistré pour l'instant.",
+      },
+      shared_profile: {
+        loading: "Chargement",
+        inactive_title: "Ce lien n'est plus actif",
+        inactive_body:
+          "Si vous attendiez de voir quelque chose ici, demandez à la personne qui a partagé ce lien de vous en envoyer un nouveau.",
+        heading: "Profil partagé",
+        heading_named: "Profil de %{name}",
+        no_files: "Aucun CV n'a encore été partagé ici.",
+        resume_file: "CV",
+        download: "Télécharger",
+        footer:
+          "Ceci est un lien privé qui vous a été partagé. Seul ce qui a été choisi pour être partagé apparaît ici.",
       },
     },
   },

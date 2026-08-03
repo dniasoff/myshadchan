@@ -113,6 +113,9 @@ describe("SingleListingSection — parent_admin", () => {
     // Assert
     await expect.element(screen.getByText("Rivky Klein")).toBeInTheDocument();
     expect(buttonsNamed(screen, "Publish").length).toBe(2);
+    // Story 9.5 (Task 6): the Share action is manager-scoped the same way
+    // as Publish, so it appears on every row a parent_admin manages too.
+    expect(buttonsNamed(screen, "Share").length).toBe(2);
   });
 
   it("shows 'Manage listing' instead of 'Publish' for a single that already has one", async () => {
@@ -162,6 +165,9 @@ describe("SingleListingSection — self_manager (FR103's narrower authority)", (
     // (getCurrentMemberId() returns a Promise) before the row-gating result
     // is stable.
     await expect.poll(() => buttonsNamed(screen, "Publish").length).toBe(1);
+    // Story 9.5 (Task 6): the Share action follows the exact same
+    // self-manager row gate as Publish.
+    await expect.poll(() => buttonsNamed(screen, "Share").length).toBe(1);
     await expect.element(screen.getByText("Rivky Klein")).toBeInTheDocument();
     await expect.element(screen.getByText("Yaakov Klein")).toBeInTheDocument();
   });
@@ -185,6 +191,13 @@ describe("SingleListingSection — non-managing roles (AC-3)", () => {
         .not.toBeInTheDocument();
       await expect
         .element(screen.getByRole("button", { name: "Manage listing" }))
+        .not.toBeInTheDocument();
+      // Story 9.5 (Task 6): a helper or a plain single gets no Share
+      // action either — the same manager-only authority FR103 already
+      // draws for Publish (Dev Notes "Why share links are manager-scoped,
+      // not household-scoped").
+      await expect
+        .element(screen.getByRole("button", { name: "Share" }))
         .not.toBeInTheDocument();
     },
   );

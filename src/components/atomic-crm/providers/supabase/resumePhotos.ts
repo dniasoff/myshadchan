@@ -123,6 +123,28 @@ export async function signResumePhotoUrl(
 }
 
 /**
+ * Story 9.5 (AC-11, AC-12): byte cleanup for a deleted single's/shidduch's
+ * resume photo(s) — same shape as `resumes.ts#removeResumeFileObjects`,
+ * for `resume_photos.path` values. No-op on an empty array; logged, never
+ * thrown, on a storage-side failure (AC-12).
+ */
+export async function removeResumePhotoObjects(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  try {
+    const { error } = await getSupabaseClient()
+      .storage.from(DOCUMENTS_BUCKET)
+      .remove(paths);
+    if (error) {
+      console.error("removeResumePhotoObjects.error", error);
+    }
+  } catch (thrown) {
+    // A rejected promise, not merely a resolved `{ error }` tuple — see
+    // `resumes.ts#removeResumeFileObjects`'s identical guard (AC-12).
+    console.error("removeResumePhotoObjects.error", thrown);
+  }
+}
+
+/**
  * AC 2: the sole write path to `hidden_at` — a soft-hide, never a DELETE.
  */
 export async function hideResumePhoto(

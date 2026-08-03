@@ -436,6 +436,9 @@ export const englishCrmMessages = {
         publish_button: "Publish",
         manage_button: "Manage listing",
         dialog_title: "Publish a listing for %{name}",
+        // Story 9.5 — the "Share" action per row, opening
+        // sharing/ShareSingleDialog.tsx (a SEPARATE surface from Publish).
+        share_button: "Share",
       },
       // Story 9.2: the field-by-field publish form itself
       // (listings/PublishSingleListingSection.tsx) — field-by-field opt-in
@@ -1105,6 +1108,54 @@ export const englishCrmMessages = {
       },
       single_card: {
         age_label: "Age",
+      },
+    },
+    // Story 9.5 — revocable share links (FR107). `create_dialog`/`link_list`/
+    // `share_dialog` render inside Settings (inside <Admin>, useTranslate()).
+    // `shared_profile` renders OUTSIDE <Admin> (App.tsx's pre-CRM `/share`
+    // branch) — read via sharedProfileTranslate.ts, not useTranslate().
+    sharing: {
+      share_dialog: {
+        title: "Share %{name}'s profile",
+      },
+      create_dialog: {
+        expiry_label: "Link expires after",
+        expiry_7: "7 days",
+        expiry_30: "30 days",
+        expiry_90: "90 days",
+        include_photo_label: "Include photo",
+        create_button: "Create share link",
+        create_another_button: "Create another link",
+        create_error: "Couldn't create the share link. Try again.",
+        link_ready:
+          "Share this link — anyone who has it can view the shared profile until it expires or you revoke it.",
+        copy_button: "Copy",
+      },
+      link_list: {
+        empty: "No share links yet.",
+        status_active: "Active",
+        status_revoked: "Revoked",
+        status_expired: "Expired",
+        expires_at: "Expires %{date}",
+        revoke_button: "Revoke",
+        revoke_success: "The link has been revoked.",
+        revoke_error: "Couldn't revoke that link. Try again.",
+        view_access_button: "Access log",
+        access_log_title: "Who accessed this link",
+        access_log_empty: "No access recorded yet.",
+      },
+      shared_profile: {
+        loading: "Loading",
+        inactive_title: "This link is no longer active",
+        inactive_body:
+          "If you were expecting to see something here, please ask the person who shared this link to send you a new one.",
+        heading: "Shared profile",
+        heading_named: "%{name}'s profile",
+        no_files: "No resume has been shared here yet.",
+        resume_file: "Resume",
+        download: "Download",
+        footer:
+          "This is a private link shared with you. Only what was chosen to share appears here.",
       },
     },
   },

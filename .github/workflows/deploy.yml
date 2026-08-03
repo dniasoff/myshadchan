@@ -230,24 +230,8 @@ jobs:
         # live against a schema that failed to apply.
         needs: deploy-supabase
 
-        # `share` and `billing` are deliberately withheld from this matrix
-        # (worker-audit, 2026-08-02):
-        #   - share: the only worker with an R2 binding
-        #     (workers/share/wrangler.toml). Its own toml says `bucket_name` is
-        #     "illustrative — create the actual bucket". Checked directly
-        #     against the Cloudflare API during the 2026-08-02 token rotation
-        #     (`GET /accounts/{id}/r2/buckets`): error 10042 "Please enable R2
-        #     through the Cloudflare Dashboard" — R2 is not enabled on this
-        #     account at all, so the bucket cannot exist yet, confirmed rather
-        #     than assumed. An R2 binding pointed at a bucket that doesn't
-        #     exist fails `wrangler deploy`, and with the default `fail-fast`
-        #     strategy that cancels every other worker in this matrix AND
-        #     blocks `trigger-frontend` (which `needs: deploy-workers`) — a
-        #     missing bucket would silently take production frontend deploys
-        #     offline. Re-add once R2 is enabled on the account and
-        #     `wrangler r2 bucket create myshadchan-media` is confirmed run
-        #     (or the binding is dropped) by someone with Cloudflare
-        #     dashboard/CLI access.
+        # `billing` is deliberately withheld from this matrix (worker-audit,
+        # 2026-08-02):
         #   - billing: publishes an unauthenticated POST /webhook on a public
         #     workers.dev origin ahead of Story 12.4 (Stripe integration).
         #     There is no Stripe SDK, no signature verification, and no DB
@@ -255,6 +239,21 @@ jobs:
         #     days and then disable the endpoint. Re-add when 12.4 lands a
         #     real handler and STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET are
         #     provisioned.
+        #
+        # `share` was ALSO withheld here (worker-audit, 2026-08-02: it was the
+        # only worker with an R2 binding, and R2 is not enabled on this
+        # Cloudflare account — error 10042 "Please enable R2 through the
+        # Cloudflare Dashboard", confirmed live against the API). That
+        # withholding note itself already named its own unlock: "Re-add once
+        # R2 is enabled on the account ... (or the binding is dropped)."
+        # Story 9.5 took the second branch — its storage ruling drops the
+        # `[[r2_buckets]]` binding from workers/share/wrangler.toml entirely
+        # and rewrites the Worker to stream from Supabase Storage's
+        # `documents` bucket instead (ARCHITECTURE-SPINE.md AD-9, amended in
+        # the same diff). `share` now needs nothing beyond the base
+        # SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY secrets every other worker
+        # in this matrix already gets, so it rejoins the matrix below rather
+        # than staying withheld for a binding that no longer exists.
         #
         # `fail-fast: false` (run 30742647288, 2026-08-02): CLOUDFLARE_API_TOKEN
         # was added as a repo secret but the token itself was rejected —
@@ -272,7 +271,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                worker: [ingest, parse, match, ai, cron]
+                worker: [ingest, parse, match, ai, cron, share]
 
         env:
             CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

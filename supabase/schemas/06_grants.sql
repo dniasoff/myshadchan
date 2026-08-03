@@ -1268,3 +1268,57 @@ revoke all on function public.consent_to_republish_listing(bigint) from public, 
 grant execute on function public.consent_to_republish_listing(bigint) to authenticated;
 grant execute on function public.consent_to_republish_listing(bigint) to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Listings & Sharing (Epic 9 Story 9.5: revocable share links)
+-- ---------------------------------------------------------------------------
+
+-- AC-10: `share_links`/`share_access_log` are NEVER anon-reachable via
+-- PostgREST — no `grant ... to anon` line at all, on either table, ever.
+-- The only path to this data for an unauthenticated caller is the `share/`
+-- Worker using the service-role key (which bypasses RLS/grants entirely),
+-- never a direct table or RPC grant to `anon` — this is what keeps AD-1's
+-- "the only anon-readable relation is `listings`" true even though this
+-- story adds two more tables that unauthenticated recipients effectively
+-- read from. `revoke all ... from anon, authenticated` first, matching
+-- 9.1/9.3's own idiom above, so the fork's `alter default privileges ...
+-- grant all on tables to authenticated` never leaves a
+-- TRUNCATE/REFERENCES/TRIGGER leftover behind on either table.
+--
+-- `authenticated` gets `select, insert` on `share_links` (creating and
+-- listing their own links, narrowed by "Share links manager scoped") plus
+-- a COLUMN-LEVEL `update (revoked_at)` — and NO table-level `update` grant
+-- is ever issued, because a table-level grant would override the column
+-- restriction and let any member rewrite `token`/`single_id`/
+-- `include_photo`/`expires_at` (AC-2's "never client-chosen" must hold for
+-- updates too, not merely inserts). No `delete` at all (Dev Notes "Does
+-- revoking delete the log" — revocation is `update ... set revoked_at =
+-- now()`, never a hard delete; there is no product path that ever needs
+-- one).
+revoke all on table public.share_links from anon, authenticated;
+grant select, insert on table public.share_links to authenticated;
+grant update (revoked_at) on table public.share_links to authenticated;
+grant all on table public.share_links to service_role;
+
+revoke all on sequence public.share_links_id_seq from anon;
+grant usage, select on sequence public.share_links_id_seq to authenticated;
+grant all on sequence public.share_links_id_seq to service_role;
+
+-- `authenticated` gets `select` only (AC-8: the sharer sees who accessed
+-- and when, narrowed through `share_links`' own RLS) — no
+-- insert/update/delete grant at all. The ONLY writer of this table is the
+-- `share/` Worker using the service-role key, which bypasses RLS/grants
+-- entirely (AD-7); a client-issued write here would let a sharer forge
+-- their own access history.
+revoke all on table public.share_access_log from anon, authenticated;
+grant select on table public.share_access_log to authenticated;
+grant all on table public.share_access_log to service_role;
+
+-- No `authenticated` sequence grant here (unlike `share_links_id_seq`
+-- above) — `authenticated` never inserts into `share_access_log`, so
+-- `usage` would be an ungranted-for-nothing privilege; only `anon` needs
+-- the explicit revoke (belt-and-suspenders, matching this file's own
+-- pattern of never leaving a sequence's default ACL unexamined) and
+-- `service_role` needs `all` for the Worker's writes.
+revoke all on sequence public.share_access_log_id_seq from anon;
+grant all on sequence public.share_access_log_id_seq to service_role;
+

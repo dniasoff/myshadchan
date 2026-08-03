@@ -375,3 +375,19 @@ create or replace trigger set_listings_account_id
 create or replace trigger lock_listing_on_single_withdrawal
     after delete on public.listings
     for each row execute function public.lock_listing_on_single_withdrawal();
+
+-- =====================================================================
+-- MyShadchan — Listings & Sharing (Epic 9 Story 9.5: revocable share links)
+-- =====================================================================
+
+-- AC-2: the CSPRNG token trigger — INSERT only, never re-run on update, so
+-- revoking a link (an UPDATE) never rotates its token.
+create or replace trigger set_share_link_token_defaults
+    before insert on public.share_links
+    for each row execute function public.set_share_link_token_defaults();
+
+-- AC-6: revocation is one-way — a revoked link can never be un-revoked by
+-- any subsequent update, client-issued or otherwise.
+create or replace trigger enforce_share_link_revoke_once
+    before update on public.share_links
+    for each row execute function public.enforce_share_link_revoke_once();

@@ -1700,3 +1700,116 @@ create policy "Single listings delete" on public.listings
             )
         )
     );
+
+-- =====================================================================
+-- MyShadchan — Listings & Sharing (Epic 9 Story 9.5: revocable share links)
+-- =====================================================================
+
+-- FORCE ROW LEVEL SECURITY (AD-1) unconditionally, exactly like `listings`
+-- and `listing_withdrawal_locks` above — postgres/supabase_admin carry
+-- BYPASSRLS, so FORCE changes nothing for an owner-run path, but every
+-- table gets it regardless.
+alter table public.share_links enable row level security;
+alter table public.share_links force row level security;
+
+-- "Share links manager scoped" (Dev Notes "Why share links are
+-- manager-scoped, not household-scoped"): a `share_links` row carries the
+-- bearer token itself, and the `share/` Worker serves files to WHOEVER
+-- presents that token using the service-role key — not the reader's own
+-- rights. Widening this to the domain's usual blanket "scoped to account"
+-- policy would let a `helper` or a plain `single` mint or read a token and
+-- reach resume/photo bytes their role is denied everywhere else. Only the
+-- two roles FR103 already trusts to publish a listing may create, list, or
+-- revoke a share link: `parent_admin` (any single in the household) or
+-- `self_manager` (their own record only). One `for all` policy — creating,
+-- listing and revoking (an UPDATE, never a DELETE — Dev Notes "Does
+-- revoking delete the log") all go through it. Both `using` and `with
+-- check` carry the identical predicate, with explicit parentheses around
+-- the two-branch OR (the 9.3 Task 4 operator-precedence lesson applies
+-- here too — an unparenthesized `and ... or` would silently drop the
+-- account_id guard from the second branch).
+--
+-- Hardening found in this story's own SQL suite (share_links.sql), not in
+-- the ticket's own Task 1 SQL: `single_id in (select s.id from public.
+-- singles s where s.account_id = public.current_context_id())` — mirrors
+-- `listings`' own "Single listings insert"/"update" policies EXACTLY
+-- (`05_policies.sql`'s 9.2 section above). Without it, a parent_admin's
+-- WITH CHECK is satisfied by the FIRST disjunct alone (they genuinely ARE a
+-- parent_admin — of their OWN account) regardless of which single_id the
+-- row names, so a cross-account INSERT naming another household's single
+-- was refused only by the composite `share_links_single_id_fkey` FK
+-- (23503), never by RLS (42501) — safe in outcome (the row is still never
+-- created) but the wrong layer doing the refusing, and NOT the same
+-- "RLS is the real boundary, the FK is defense-in-depth" posture every
+-- other policy in this domain keeps (Dev Notes "Why the cross-account
+-- negative test still matters despite the composite FK", 9.2's own). This
+-- clause makes the refusal come from RLS itself, matching that posture,
+-- and closes the same gap for the self_manager branch's OWN clause too
+-- (that branch's `s.id = share_links.single_id` already narrows to their
+-- own record specifically, so this addition is redundant there but
+-- harmless — consistency, not a second boundary).
+create policy "Share links manager scoped" on public.share_links
+    for all to authenticated
+    using (
+        account_id = public.current_context_id()
+        and single_id in (
+            select s.id from public.singles s
+            where s.account_id = public.current_context_id()
+        )
+        and (
+            exists (
+                select 1 from public.account_members am
+                where am.account_id = public.current_context_id()
+                  and am.user_id = auth.uid() and am.role = 'parent_admin'
+            )
+            or exists (
+                select 1 from public.account_members am
+                  join public.singles s on s.member_id = am.id
+                where am.account_id = public.current_context_id()
+                  and am.user_id = auth.uid()
+                  and am.role = 'self_manager' and s.id = share_links.single_id
+            )
+        )
+    )
+    with check (
+        account_id = public.current_context_id()
+        and single_id in (
+            select s.id from public.singles s
+            where s.account_id = public.current_context_id()
+        )
+        and (
+            exists (
+                select 1 from public.account_members am
+                where am.account_id = public.current_context_id()
+                  and am.user_id = auth.uid() and am.role = 'parent_admin'
+            )
+            or exists (
+                select 1 from public.account_members am
+                  join public.singles s on s.member_id = am.id
+                where am.account_id = public.current_context_id()
+                  and am.user_id = auth.uid()
+                  and am.role = 'self_manager' and s.id = share_links.single_id
+            )
+        )
+    );
+
+alter table public.share_access_log enable row level security;
+alter table public.share_access_log force row level security;
+
+-- "Share access log readable by link owner" (AC-8): the subquery runs
+-- under `share_links`' own RLS (it is a plain correlated subquery, not
+-- SECURITY DEFINER), so the manager scoping above narrows this too — a
+-- helper or plain single who cannot see a share_links row cannot see its
+-- access log either, even though this policy's own predicate never
+-- mentions role. No insert/update/delete policy for `authenticated` at
+-- all: the ONLY writer of this table is the `share/` Worker using the
+-- service-role key, which bypasses RLS entirely (AD-7) — do not add one.
+create policy "Share access log readable by link owner" on public.share_access_log
+    for select to authenticated
+    using (
+        exists (
+            select 1 from public.share_links sl
+            where sl.id = share_access_log.share_link_id
+              and sl.account_id = public.current_context_id()
+        )
+    );

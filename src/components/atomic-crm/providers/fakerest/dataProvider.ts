@@ -38,6 +38,8 @@ import type {
   ReferenceMergePreview,
   Resume,
   ResumePhoto,
+  ShareAccessLog,
+  ShareLink,
   Shidduch,
   ShidduchCatch,
   ShidduchSchool,
@@ -117,6 +119,7 @@ import {
   consentToRepublishListing as consentToRepublishListingImpl,
   lockListingOnSingleWithdrawal,
 } from "./internal/listingWithdrawal";
+import { stampShareLinkDefaults } from "./internal/shareLinks";
 import {
   catchShidduch,
   computeShidduchCatchCount,
@@ -887,6 +890,18 @@ export const createDataProvider = ({
           },
         });
       }
+      // Story 9.5 (AC-2) — see ./internal/shareLinks.ts's own doc comment.
+      if (resource === "share_links") {
+        return baseDataProvider.create(resource, {
+          ...params,
+          data: await stampShareLinkDefaults(
+            baseDataProvider,
+            getIdentity,
+            () => activeAccountId,
+            params.data ?? {},
+          ),
+        });
+      }
       return baseDataProvider.create(resource, params);
     },
     async update(resource: string, params: any) {
@@ -1353,6 +1368,44 @@ export const createDataProvider = ({
         () => activeAccountId,
         singleId,
       ),
+    // Story 9.5 (Task 6): revocation only ever touches `revoked_at` in the
+    // real provider (the column-level grant); FakeRest has no column-level
+    // grants to mirror, so a plain `update` is enough here — the point of
+    // this custom method is a stable client API shape, not re-deriving the
+    // real backend's own privilege narrowing (which
+    // `supabase/tests/share_links.sql` proves directly, not this file).
+    revokeShareLink: async (id: Identifier): Promise<void> => {
+      const { data: link } = await baseDataProvider.getOne<ShareLink>(
+        "share_links",
+        { id },
+      );
+      if (link.revoked_at) {
+        // AC-6: one-way — a client-side no-op mirrors the real trigger's
+        // raised exception closely enough for demo purposes (the SQL suite
+        // is what proves the actual trigger).
+        return;
+      }
+      await baseDataProvider.update("share_links", {
+        id,
+        data: { revoked_at: new Date().toISOString() },
+        previousData: link,
+      });
+    },
+    // Story 9.5 (AC-8) -- a plain read; FakeRest has no RLS to mirror, so
+    // this is exactly `dataProvider.getList` under a documented name.
+    getShareAccessLog: async (
+      shareLinkId: Identifier,
+    ): Promise<ShareAccessLog[]> => {
+      const { data } = await baseDataProvider.getList<ShareAccessLog>(
+        "share_access_log",
+        {
+          pagination: { page: 1, perPage: 100 },
+          sort: { field: "accessed_at", order: "DESC" },
+          filter: { share_link_id: shareLinkId },
+        },
+      );
+      return data;
+    },
     // ---------------------------------------------------------------------
     // Files tab (Story 3.7) -- FakeRest mirrors of
     // providers/supabase/entityFiles.ts, backed by ./internal/entityFiles.ts.

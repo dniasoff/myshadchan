@@ -1183,3 +1183,51 @@ export type ListingWithdrawalLock = {
   account_id: Identifier;
   locked_at: string;
 } & Pick<RaRecord, "id">;
+
+/** A fixed set of expiry durations `sharing/CreateShareLinkDialog.tsx`
+ * offers (Story 9.5, Task 6) — a free datetime picker is deliberately not
+ * offered, kept simple on purpose. */
+export type ShareLinkExpiryDays = 7 | 30 | 90;
+
+/**
+ * One row of `public.share_links` (Story 9.5, FR107) — a revocable,
+ * expiring, per-single bearer-token share link: the "sole surviving use of
+ * tokenised access" now that the child portal is retired (Story 1.4). A
+ * SEPARATE mechanism from `Listing` above (AD-21) — a listing is an opt-in
+ * PUBLIC snapshot with no files; a share link is a targeted, revocable
+ * grant that can include the resume file(s) and an optional photo, served
+ * only through the `share/` Worker (never a direct or signed Storage URL).
+ * `token` is always server-overwritten by a CSPRNG trigger (AC-2)
+ * regardless of what a client supplies; `authenticated` may UPDATE only
+ * `revoked_at` (`06_grants.sql`, column-level grant) — revocation is the
+ * only client-side mutation this type's fields legitimately undergo after
+ * creation, and it can only ever go `null -> now()`, once
+ * (`enforce_share_link_revoke_once`, 02_functions.sql).
+ */
+export type ShareLink = {
+  account_id: Identifier;
+  single_id: Identifier;
+  created_by_member_id?: Identifier | null;
+  token: string;
+  include_photo: boolean;
+  expires_at: string;
+  revoked_at?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
+ * One row of `public.share_access_log` (Story 9.5, AC-5/AC-8) — one row per
+ * request against a share link (a profile view OR a file download), never
+ * merely "the link was opened once". The sole writer is the `share/` Worker
+ * using the service-role key (AD-7); `authenticated` only ever reads it,
+ * narrowed through `share_links`' own RLS (a caller who cannot see a link
+ * cannot see its access log either).
+ */
+export type ShareAccessLog = {
+  share_link_id: Identifier;
+  accessed_at: string;
+  resource: string;
+  ip_hash?: string | null;
+  user_agent?: string | null;
+  duration_ms?: number | null;
+} & Pick<RaRecord, "id">;

@@ -324,6 +324,34 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/sharing/sharedProfileTranslate.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/sharing/shareToken.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/sharing/shareClient.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/sharing/SharedProfilePage.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/sharing/ShareSingleDialog.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/sharing/ShareLinkList.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/sharing/CreateShareLinkDialog.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shadchanim/shadchanUtils.ts",
           "type": "registry:component"
         },
@@ -680,6 +708,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/supabase/resumeStorageCleanup.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/supabase/resumePhotos.ts",
           "type": "registry:component"
         },
@@ -737,6 +769,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/internal/shidduchCatch.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/shareLinks.ts",
           "type": "registry:component"
         },
         {

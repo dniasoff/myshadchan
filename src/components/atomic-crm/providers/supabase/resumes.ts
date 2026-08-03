@@ -107,6 +107,35 @@ export async function uploadResumeFile(
 }
 
 /**
+ * Story 9.5 (AC-11, AC-12): byte cleanup for a deleted single's/shidduch's
+ * resume — mirrors `entityFiles.ts#removeEntityFileObjects` exactly.
+ * `purge_polymorphic_dependents()` (02_functions.sql) removes the `resumes`
+ * CATALOG row when its parent `singles`/`shidduchim` row is deleted, but it
+ * is SQL and cannot reach the Storage API, so the PDF bytes those `files[]`
+ * entries pointed at are never removed without this. No-op on an empty
+ * array; a failure here is logged, never thrown — the parent row delete has
+ * already been requested and must not be blocked by a storage cleanup
+ * failure (AC-12).
+ */
+export async function removeResumeFileObjects(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  try {
+    const { error } = await getSupabaseClient()
+      .storage.from(DOCUMENTS_BUCKET)
+      .remove(paths);
+    if (error) {
+      console.error("removeResumeFileObjects.error", error);
+    }
+  } catch (thrown) {
+    // A rejected promise (transient network/storage-API failure), not
+    // merely a resolved `{ error }` tuple — caught here too so a genuine
+    // exception can never propagate out of a `beforeDelete` hook and block
+    // the parent row's delete (AC-12).
+    console.error("removeResumeFileObjects.error", thrown);
+  }
+}
+
+/**
  * AC 5: a signed, expiring URL minted at click time, never persisted.
  * `download: fileName` restores the original name to the browser without
  * putting it in the object key — mirrors `signEntityFileUrl`.

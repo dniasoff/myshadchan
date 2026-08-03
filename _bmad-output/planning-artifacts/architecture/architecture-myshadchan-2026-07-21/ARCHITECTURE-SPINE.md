@@ -35,7 +35,7 @@ companions:
 
 **Single-owner rule (gate-hardened, cross-cutting).** Wherever an AD says "one X," it names X's **single owner, writer, and runtime**. Logic more than one runtime touches (normalization, visibility, state transitions, suggestion creation, entitlement) lives in **one place — a Postgres function/trigger**. A shared reader with multiple writers is a divergence bug.
 
-**Layer → home (see AD-7):** SPA (**Vercel**, static) · CRUD (Supabase PostgREST + RLS, via dataProvider) · pipeline/AI/sharing/webhooks/cron/billing (**Cloudflare Workers**) · media (**R2**) · async + rate-limit (**Upstash**).
+**Layer → home (see AD-7):** SPA (**Vercel**, static) · CRUD (Supabase PostgREST + RLS, via dataProvider) · pipeline/AI/sharing/webhooks/cron/billing (**Cloudflare Workers**) · media (**Supabase Storage**, `documents` bucket, proxied by the `share/` Worker — Story 9.5's storage ruling, superseding the original R2 plan) · async + rate-limit (**Upstash**).
 
 **Namespace map:** `src/components/atomic-crm/<domain>/` (one folder per resource) · `providers/{supabase,fakerest,commons}/` (CRUD seam, AD-10, keep both in sync) · `workers/` *(new — `ingest/ parse/ match/ ai/ share/ cron/ billing/` + shared `forAccount()` client)* · `supabase/schemas/` (declarative DB source of truth).
 
@@ -46,7 +46,7 @@ graph TD
   SPA["SPA (Vercel)"] -->|dataProvider CRUD| SUPA["Supabase PostgREST + RLS"]
   SPA -->|"HTTPS (JWT)"| WK["Cloudflare Workers"]
   WK -->|"forAccount() scoped, trusted root"| SUPA
-  WK -->|proxied stream| R2["R2 (media)"]
+  WK -->|proxied stream| STOR["Supabase Storage (media)"]
   WK -->|jobs + rate-limit| UP["Upstash (Redis + QStash)"]
   WK -->|all AI| AIG["AI Gateway"] --> LLM["LLM / vision"]
   WK -->|billing sync| ST["Stripe (webhook)"]
@@ -95,10 +95,10 @@ graph TD
 - **Prevents:** direct-to-provider calls; uncached cost blow-out; AI drifting into matchmaking; outward scraping
 - **Rule:** OCR+extraction, reference-question generation, cross-reference summaries call **only** the Cloudflare AI Gateway from a Worker (provider SDK with `baseURL` overridden). **Hebrew OCR:** the parse step uses **Gemini** (Flash default → Pro for hard pages) via the gateway's Google Vertex/AI-Studio provider, returning structured JSON (typed Hebrew+English is well-handled); a **deterministic fallback — Google Document AI / Cloud Vision, a direct disclosed Google Cloud call** — covers degraded typed pages, and **Transkribus/Kraken** the rare handwritten one; generative-OCR **hallucination is guarded** by field validation + low-confidence human review (AD-6/NFR-5). Every call **Langfuse-traced** (`@langfuse/*` OTel SDK); response cache **namespaced by account**. **Hard invariant (FR63):** never judges compatibility / matches; **no outward web-scraping** (enforced by capability). US region; contractual no-training (PRV-6). *(AI tokens are the product's one unavoidable cost — caching + cheap-model-first + batching are **margin-critical** under the $2 cost-recovery model, AD-16.)*
 
-### AD-9 — User media lives in R2 behind a Worker-proxied stream — recipients never get a raw URL
+### AD-9 — User media lives in Supabase Storage behind a Worker-proxied stream — recipients never get a raw URL
 - **Binds:** FR35, FR47-49, PRV-5, PRV-8, PRV-10; Epic-8
 - **Prevents:** static/pre-signed links that outlive a revoke; unlogged access; unencrypted sensitive media
-- **Rule:** all user files (resumes, photos) in **R2**, namespaced by `account_id`, served **only** by the `share/` Worker as a **proxied stream** that checks `revoked_at`/`expires_at` and writes `share_access_log` on **every** request. **Recipients never receive a raw or pre-signed R2 URL.** Revoke = immediate; sharer sees who accessed and when. Photo inclusion is the sharer's choice; watermark available. Sensitive fields (health, photos) field-encrypted at rest — `[ASSUMPTION]` app-layer AES-GCM envelope in the Worker (note: a PDF may embed photo/health inline, protected by R2 SSE only).
+- **Rule:** all user files (resumes, photos) in **Supabase Storage's `documents` bucket**, namespaced by `account_id`, served **only** by the `share/` Worker as a **proxied stream** that checks `revoked_at`/`expires_at` and writes `share_access_log` on **every** request. **Recipients never receive a raw or pre-signed storage URL.** Revoke = immediate; sharer sees who accessed and when. Photo inclusion is the sharer's choice; watermark available. Sensitive fields (health, photos) field-encrypted at rest — `[ASSUMPTION]` app-layer AES-GCM envelope in the Worker (note: a PDF may embed photo/health inline, protected by Supabase Storage's at-rest encryption only). *Amended 2026-08-03 (Story 9.5): the storage vendor is Supabase Storage, not R2 — R2 is not enabled on the Cloudflare account and no upload path in the product ever wrote to it. The proxy-and-log requirement above is unchanged and fully binding; only the vendor named changed. See `9-5-revocable-share-links.md` Dev Notes "Why Supabase Storage, not R2" for the full reasoning and the accepted trade-off.*
 
 ### AD-10 — The dataProvider is the single CRUD seam; extend at its two seams; keep FakeRest in sync
 - **Binds:** all resource CRUD; ratified fork pattern
@@ -127,8 +127,8 @@ graph TD
 
 ### AD-15 — Data lifecycle: export, account deletion, and per-single purge are first-class (the wedge)
 - **Binds:** PRV-2, PRV-11, NFR-8, NFR-10; Epic-1/11; **overrides** the fork's "no user deletion" stance
-- **Prevents:** the deletion/export promise having no home; orphaned R2 media / AI-cache after delete
-- **Rule:** one-click **full account export** (PRV-2/NFR-10). **Account deletion** purges live immediately, clears backups within a defined retention window, and instructs sub-processors to delete per contract. **Per-single purge** (PRV-11) honours a data-subject removal request. Deletion **cascades to R2 objects and the account-namespaced AI cache**. Retention windows are defined, not implicit.
+- **Prevents:** the deletion/export promise having no home; orphaned Storage media / AI-cache after delete
+- **Rule:** one-click **full account export** (PRV-2/NFR-10). **Account deletion** purges live immediately, clears backups within a defined retention window, and instructs sub-processors to delete per contract. **Per-single purge** (PRV-11) honours a data-subject removal request. Deletion **cascades to Storage objects and the account-namespaced AI cache**. Retention windows are defined, not implicit. *Amended 2026-08-03 (Story 9.5): "R2 objects" → "Storage objects" — see AD-9's own amendment note.*
 
 ### AD-16 — Billing & entitlement: a provider is the synced source of truth; card data never touches us; freemium gates the cost-drivers
 - **Binds:** the $2/mo cost-recovery model; NFR-9
@@ -215,7 +215,7 @@ graph TD
 | **SPA host** | ✅ **Vercel** (zero-config Vite deploy, generous free tier) |
 | **Server compute** | ✅ **Cloudflare Workers** + Wrangler 4.113.0 / workers-types 5.20260721.1 · `compatibility_date=2026-07-21` + `nodejs_compat`; Hono 4.x `[ASSUMPTION]` |
 | **Data plane** | ⚠ **Supabase** Postgres 15 (free tier pauses after 7d idle → Pro ~$25/mo for always-on = first real cost) |
-| **Media** | ✅ **Cloudflare R2** (zero egress) |
+| **Media** | ✅ **Supabase Storage** (`documents` bucket, proxied by the `share/` Worker — no R2; Story 9.5 storage ruling) |
 | **Async + rate-limit** | ⚠ **Upstash** Redis 1.38.0 / QStash 2.11.2 *(CF Queues now free = consolidation option)* |
 | **AI** | ✅ Cloudflare AI Gateway (free) → **Gemini** (OCR+extract; Flash→Pro; Google Vertex/AI-Studio) + `@anthropic-ai/sdk` 0.112.4, via gateway `baseURL`; deterministic OCR fallback = Google Document AI/Vision (direct); 💲 model tokens billed by provider · Langfuse `@langfuse/*` 5.9.1 (self-host MIT = free) |
 | **Analytics** | ✅ PostHog `posthog-js` 1.406.1 / `-node` 5.46.0 (errors + replay + surveys) |
@@ -236,7 +236,7 @@ graph LR
   V --> SB["Supabase: Postgres+RLS · Auth · Realtime"]
   V --> W["Cloudflare Workers (Hono)"]
   W -->|forAccount| SB
-  W --> R2["R2 media (proxied)"]
+  W --> STOR["Supabase Storage media (proxied)"]
   W --> UP["Upstash Redis/QStash"]
   W --> AG["AI Gateway → LLM/vision"]
   W --> ST["Stripe (Checkout + webhook)"]
@@ -308,7 +308,7 @@ supabase/schemas/                           # + account_id/FORCE-RLS rewrite, re
 | E5 Auto-parse (OCR+LLM) | `parse/` | AD-6, AD-8, AD-12 |
 | E6 Unified Inbox + channels | `inbox/`, `ingest/` | AD-6, AD-7 |
 | E7 Reminders | `reminders`, `cron/` | AD-13 |
-| E8 Resume sharing | `sharing`, `share/`, R2 | AD-9, AD-15 |
+| E8 Resume sharing | `sharing`, `share/`, Supabase Storage | AD-9, AD-15 |
 | E9 Candidate portal | `candidate-portal` | AD-3 |
 | E10 AI research assistant | `ai/` | AD-8 |
 | E11 Search · dashboard · export | across resources | AD-1, AD-10, AD-15 |
@@ -321,7 +321,7 @@ supabase/schemas/                           # + account_id/FORCE-RLS rewrite, re
 - **Per-tab context** — one active context per user (AD-19). Revisit if multi-persona users report needing two contexts open at once.
 - **Listing freshness** — listings are snapshots (AD-21). Revisit if users expect edits to propagate without republishing.
 - **Native iOS wrapper** — stay pure-PWA (email-share) until the iPhone segment warrants it.
-- **Cloudflare consolidation** — CF Queues/KV (now free) vs Upstash; already all-Cloudflare for compute/media/email (SPA host is Vercel).
+- **Cloudflare consolidation** — CF Queues/KV (now free) vs Upstash; all-Cloudflare for compute/email (SPA host is Vercel; media is Supabase Storage as of Story 9.5's storage ruling, not Cloudflare).
 - **Sentry** — Phase 2; v1 backend errors = Cloudflare native + PostHog.
 - **International (UK/Israel)** — US-first in v1; UK/Israel users, data-residency, and locale rollout (UK-GDPR / EU-GDPR / Israeli privacy) are a deferred fast-follow.
 - **Merchant-of-Record billing** (Paddle/Lemon Squeezy) — adopt if international VAT handling for UK/Israel outweighs the higher fee.
