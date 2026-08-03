@@ -1043,6 +1043,36 @@ export const englishCrmMessages = {
     // text (see inboxMeta.ts's own comment).
     inbox: {
       source_shadchan: "Shadchan",
+      // Story 10.1 (Task 4): the share-target resolve screen
+      // (inbox/ShareTarget.tsx).
+      share: {
+        title: "File this share",
+        sourceLabel: "Where this came from",
+        loading: "Filing what you shared…",
+        noPreview: "No text — see the attached file.",
+        shadchanLabel: "Shadchan",
+        shadchanHelper: "Optional — who suggested this match",
+        singleLabel: "Which single is this for?",
+        linkLabel: "Or link to an existing suggestion",
+        skip: "Skip — drop it in my Inbox",
+        save: "Save & review",
+        saved: "Filed as a suggestion",
+        linked: "Linked to the existing suggestion",
+        skipped: "Shared to your inbox",
+        saveError: "Couldn't file that share",
+        pickSingleError: "Choose which single this is for",
+      },
+      // Story 10.1 (Task 3): the "link to an existing suggestion" search,
+      // shared by ShareTarget.tsx and InboxResolveDialog.tsx
+      // (inbox/LinkToShidduchSearch.tsx).
+      linkSearch: {
+        placeholder: "Or link to an existing suggestion…",
+        label: "Search your suggestions",
+        loading: "Searching…",
+        empty: "No matching suggestions.",
+        onBoard: "already on the board",
+        link: "Link",
+      },
     },
     // Story 8.3 (Task 6): the shadchan-side compose dialog
     // (connections/RedtComposeDialog.tsx) — sending a redt into a connected

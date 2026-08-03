@@ -46,19 +46,35 @@ export default defineConfig({
     }),
     VitePWA({
       registerType: "autoUpdate",
-      workbox: {
+      // Story 10.1 (Task 1): `generateSW` (the default strategy) auto-builds
+      // the whole precache/routing service worker and leaves no room for a
+      // custom `fetch` handler — exactly what AC 1's Web Share Target Level
+      // 2 (`method: "POST"`) needs, since a POST body can only be read by a
+      // service worker's own `fetch` listener (see `src/sw.ts`'s header for
+      // why). `injectManifest` swaps in the hand-written `src/sw.ts` below,
+      // still getting the precache manifest injected at `self.__WB_MANIFEST`.
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
+      injectManifest: {
+        // The exact glob/size-cap `workbox.globPatterns` /
+        // `maximumFileSizeToCacheInBytes` configured under `generateSW` —
+        // `injectManifest`'s config is where they live under this strategy,
+        // per vite-plugin-pwa's own docs.
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff,woff2}"],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MiB
-        // Story 7.5 (Task 6, Task 7): injects public/push-sw.js's `push` /
-        // `notificationclick` listeners into the generated service worker
-        // via importScripts() — workbox-build's own documented mechanism
-        // for adding a push listener without switching this whole PWA to
-        // the `injectManifest` strategy. Path is relative to the built
-        // service worker's own location (the dist root, same as
-        // manifest.json/favicon.ico below), which is where Vite's public/
-        // dir copy already places it.
-        importScripts: ["push-sw.js"],
       },
+      // Story 7.5's push/notificationclick listeners used to reach the
+      // generated worker via `workbox.importScripts: ["push-sw.js"]` — the
+      // documented `generateSW`-only mechanism for adding a push listener
+      // without a hand-written service worker. `injectManifest` has no
+      // `importScripts` option of its own (there is no longer a
+      // Workbox-generated file to inject into), so simply dropping this
+      // block would silently kill Epic 7's push notifications on every next
+      // deploy with nothing failing loudly. `src/sw.ts` ports the same
+      // `importScripts("/push-sw.js")` call forward directly — see that
+      // file — so `public/push-sw.js` (unaffected by this switch; Vite's
+      // `public/` copy still ships it) keeps firing.
       manifest: false, // Use existing manifest.json from public/
     }),
   ],

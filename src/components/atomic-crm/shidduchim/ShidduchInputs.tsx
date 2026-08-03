@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Identifier } from "ra-core";
+import type { Identifier, SupportCreateSuggestionOptions } from "ra-core";
 import { required } from "ra-core";
 import { AutocompleteInput } from "@/components/admin/autocomplete-input";
 import { DateInput } from "@/components/admin/date-input";
@@ -60,6 +60,7 @@ const FormSection = ({
 export const ShidduchInputs = ({
   lockedShadchanId,
   isShadchanLocked = lockedShadchanId != null,
+  onCreateShadchan,
 }: {
   /**
    * Story 8.3 (AC-3): the value to lock the `shadchan_id` field to, when
@@ -95,6 +96,18 @@ export const ShidduchInputs = ({
    * wrapper it replaces.
    */
   isShadchanLocked?: boolean;
+  /**
+   * Story 10.1 (Task 4): the share-target screen's "+ Add a shadchan"
+   * inline-create affordance (FR78) — optional and additive, so every
+   * existing caller (the manual "Add a suggestion" flow,
+   * `InboxResolveDialog.tsx`) keeps rendering a plain, non-creatable
+   * autocomplete when this is omitted. Passed straight through to the
+   * `shadchan_id` `AutocompleteInput`'s own `onCreate` prop
+   * (`@/components/admin/autocomplete-input.tsx` already wires it into
+   * `useSupportCreateSuggestion` — this makes the affordance reachable from
+   * every screen that reuses `ShidduchInputs`, not just the new one).
+   */
+  onCreateShadchan?: SupportCreateSuggestionOptions["onCreate"];
 } = {}) => {
   return (
     <div className="flex flex-col gap-4">
@@ -147,6 +160,7 @@ export const ShidduchInputs = ({
             <ReferenceInput source="shadchan_id" reference="shadchanim">
               <AutocompleteInput
                 label="Shadchan"
+                onCreate={onCreateShadchan}
                 helperText={
                   isShadchanLocked
                     ? lockedShadchanId != null

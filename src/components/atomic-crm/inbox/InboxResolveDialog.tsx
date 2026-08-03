@@ -1,13 +1,6 @@
 import { Loader2, Paperclip } from "lucide-react";
 import type { Identifier } from "ra-core";
-import {
-  Form,
-  useDataProvider,
-  useGetList,
-  useNotify,
-  useRefresh,
-  useTranslate,
-} from "ra-core";
+import { Form, useGetList, useNotify, useRefresh, useTranslate } from "ra-core";
 import { CancelButton } from "@/components/admin/cancel-button";
 import { SaveButton } from "@/components/admin/form";
 import { FormToolbar } from "@/components/admin/simple-form";
@@ -20,7 +13,6 @@ import {
 } from "@/components/ui/dialog";
 
 import { signInboxAttachmentUrl } from "../providers/supabase/inboxAttachments";
-import type { CrmDataProvider } from "../providers/types";
 import type {
   CreateShidduchInput,
   InboxAttachment,
@@ -30,6 +22,8 @@ import type {
 } from "../types";
 import { ShidduchInputs } from "../shidduchim/ShidduchInputs";
 import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
+import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
+import { useResolveInboxItem } from "./useResolveInboxItem";
 
 const PAGE_ONE = { page: 1, perPage: 1 } as const;
 const SORT_BY_ID = { field: "id", order: "ASC" } as const;
@@ -52,7 +46,8 @@ export const InboxResolveDialog = ({
   open: boolean;
   onClose: () => void;
 }) => {
-  const dataProvider = useDataProvider<CrmDataProvider>();
+  const { resolveAsNewShidduch, resolveAsLinkToExisting, dismissInboxItem } =
+    useResolveInboxItem();
   const notify = useNotify();
   const refresh = useRefresh();
   const translate = useTranslate();
@@ -113,17 +108,7 @@ export const InboxResolveDialog = ({
         visibility: "shared",
         redt_date: (values.redt_date as string) ?? null,
       };
-      const created = await dataProvider.createShidduch(input);
-      await dataProvider.update("inbox_items", {
-        id: item.id,
-        data: {
-          status: "resolved",
-          resolved_shidduchim_id: created.id,
-          single_id: input.single_id,
-          shadchan_id: input.shadchan_id ?? null,
-        },
-        previousData: item,
-      });
+      await resolveAsNewShidduch(item, input);
       notify("Filed as a suggestion", { type: "info" });
       refresh();
       onClose();
@@ -133,6 +118,24 @@ export const InboxResolveDialog = ({
         {
           type: "error",
         },
+      );
+    }
+  };
+
+  // AC 5 (Story 10.1, Task 3): "link to an existing suggestion" — the same
+  // shared search/resolve pair `ShareTarget.tsx` uses, so this dialog and the
+  // share screen agree on exactly one way to attach a capture to an existing
+  // suggestion instead of creating a second one (AD-4).
+  const handleLinkToExisting = async (shidduchimId: Identifier) => {
+    try {
+      await resolveAsLinkToExisting(item, shidduchimId);
+      notify("Linked to the existing suggestion", { type: "info" });
+      refresh();
+      onClose();
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Couldn't link that item",
+        { type: "error" },
       );
     }
   };
@@ -157,11 +160,7 @@ export const InboxResolveDialog = ({
 
   const onDismiss = async () => {
     try {
-      await dataProvider.update("inbox_items", {
-        id: item.id,
-        data: { status: "dismissed" },
-        previousData: item,
-      });
+      await dismissInboxItem(item);
       notify("Dismissed — nothing was filed", { type: "info" });
       refresh();
       onClose();
@@ -258,6 +257,19 @@ export const InboxResolveDialog = ({
               lockedShadchanId={lockedShadchanId}
               isShadchanLocked={isShadchanSourced}
             />
+
+            {/* AC 5 (Story 10.1, Task 3): link to an existing suggestion
+                instead of submitting the form above — the same shared
+                search component ShareTarget.tsx uses. */}
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+                {translate("crm.inbox.share.linkLabel", {
+                  _: "Or link to an existing suggestion",
+                })}
+              </span>
+              <LinkToShidduchSearch onLink={handleLinkToExisting} />
+            </div>
+
             <FormToolbar>
               <div className="flex flex-row justify-between gap-2">
                 <button

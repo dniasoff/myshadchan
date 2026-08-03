@@ -1224,6 +1224,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/inbox/useResolveInboxItem.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/inbox/index.ts",
           "type": "registry:component"
         },
@@ -1233,6 +1237,10 @@
         },
         {
           "path": "src/components/atomic-crm/inbox/ShareTarget.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/inbox/LinkToShidduchSearch.tsx",
           "type": "registry:component"
         },
         {
@@ -1361,6 +1369,10 @@
         },
         {
           "path": "src/components/atomic-crm/entity360/tabs/interactionLabels.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/entity360/tabs/insertNoteInteraction.ts",
           "type": "registry:component"
         },
         {

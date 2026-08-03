@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ReactElement } from "react";
 import {
-  useCreate,
+  useDataProvider,
   useGetList,
   useNotify,
   useRefresh,
@@ -13,38 +13,26 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 
-import type { EntityTargetType, Interaction } from "../../types";
+import type { CrmDataProvider } from "../../providers/types";
+import type { Interaction } from "../../types";
+import { insertNoteInteraction } from "./insertNoteInteraction";
 import { formatTimelineDate } from "./interactionLabels";
 import type { UniversalTabProps } from "./types";
 
 /**
  * A note is an interaction with `kind: "note"` (contract §8). This tab is
- * the ONLY place `interactions_summary` is read and the ONLY place a note is
- * added, edited or soft-deleted — Story 5.1 removed the inline `AddNote`
- * this generalises from the shidduch's own routed-dialog timeline
- * component (deleted along with the dialog it lived in).
+ * the ONLY place `interactions_summary` is read — Story 5.1 removed the
+ * inline `AddNote` this generalises from the shidduch's own routed-dialog
+ * timeline component (deleted along with the dialog it lived in). The
+ * INSERT itself goes through `insertNoteInteraction.ts` (Story 10.1 Task 2)
+ * — that helper, not this tab, is the sole writer of a `kind: "note"` row;
+ * `inbox/useResolveInboxItem.ts`'s `resolveAsLinkToExisting` is its other
+ * caller.
  */
 type NoteRow = Interaction & {
   author_name: string | null;
   can_moderate: boolean;
 };
-
-/**
- * AC 6's AD-3 scope discriminator, per target type. `shidduch` notes derive
- * visibility from the shidduch itself; every other universal target has no
- * single shidduch parent to derive from, so AC 1 forces it into the
- * account-scoped bucket — legal for `single` / `shadchan` only because of
- * 3.5's fourth `interactions_scope_link_check` branch
- * (01_tables.sql:473-477).
- */
-function noteScopeFor(targetType: EntityTargetType): {
-  scope: "shidduch" | "account";
-  reference_link_id: null;
-} {
-  return targetType === "shidduch"
-    ? { scope: "shidduch", reference_link_id: null }
-    : { scope: "account", reference_link_id: null };
-}
 
 function NotesSkeleton(): ReactElement {
   return (
@@ -88,29 +76,19 @@ function AddNoteForm({
   targetId,
   onAdded,
 }: UniversalTabProps & { onAdded: () => void }): ReactElement {
-  const [create, { isPending }] = useCreate();
+  const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const translate = useTranslate();
   const [body, setBody] = useState("");
+  const [isPending, setIsPending] = useState(false);
 
   const handleAdd = async () => {
     const text = body.trim();
     if (text === "") return;
 
+    setIsPending(true);
     try {
-      await create(
-        "interactions",
-        {
-          data: {
-            target_type: targetType,
-            target_id: targetId,
-            kind: "note",
-            body: text,
-            ...noteScopeFor(targetType),
-          },
-        },
-        { returnPromise: true },
-      );
+      await insertNoteInteraction(dataProvider, targetType, targetId, text);
       setBody("");
       onAdded();
     } catch (error) {
@@ -122,6 +100,8 @@ function AddNoteForm({
             }),
         { type: "error" },
       );
+    } finally {
+      setIsPending(false);
     }
   };
 

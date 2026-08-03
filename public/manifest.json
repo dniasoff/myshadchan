@@ -72,12 +72,19 @@
   "theme_color": "#4f46e5",
   "background_color": "#ffffff",
   "share_target": {
-    "action": "share-target.html",
-    "method": "GET",
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
     "params": {
       "title": "title",
       "text": "text",
-      "url": "url"
+      "url": "url",
+      "files": [
+        {
+          "name": "files",
+          "accept": ["image/*"]
+        }
+      ]
     }
   }
 }

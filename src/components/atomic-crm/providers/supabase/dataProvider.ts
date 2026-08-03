@@ -1241,7 +1241,11 @@ const getCurrentAccountId = async (): Promise<number> => {
   return data as number;
 };
 
-const uploadToBucket = async (fi: RAFile) => {
+// Story 10.1 (Task 4): exported so `ShareTarget.tsx` can upload a shared
+// photo through the exact same path `members.avatar` already uses — one
+// upload primitive across every entry point, not a second copy. Was a
+// module-private `const` (used only internally, above) before this story.
+export const uploadToBucket = async (fi: RAFile) => {
   if (!fi.src.startsWith("blob:") && !fi.src.startsWith("data:")) {
     // Sign URL check if path exists in the bucket
     if (fi.path) {
