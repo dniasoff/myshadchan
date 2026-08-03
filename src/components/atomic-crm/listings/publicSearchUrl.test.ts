@@ -13,9 +13,12 @@ const url = (overrides: Partial<PublicSearchUrl> = {}): PublicSearchUrl => ({
 });
 
 describe("isPublicSearchUrl", () => {
-  it("accepts exactly /find (with or without a trailing slash)", () => {
+  it("accepts exactly /find", () => {
     expect(isPublicSearchUrl(url())).toBe(true);
-    expect(isPublicSearchUrl(url({ pathname: "/find/" }))).toBe(true);
+  });
+
+  it("rejects a trailing slash (F9: base:'./' + the SPA catch-all rewrite would break asset loading there)", () => {
+    expect(isPublicSearchUrl(url({ pathname: "/find/" }))).toBe(false);
   });
 
   it("accepts /find whether or not a query string is present", () => {

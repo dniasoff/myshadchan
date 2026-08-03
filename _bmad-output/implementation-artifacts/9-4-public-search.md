@@ -196,9 +196,12 @@ A shadchan listing (9.1) offers up to three fields: name, area, contact info. A 
 (9.2) offers up to seven: first name (en and he), age, height, community, location, summary —
 never a photo (a listing carries none; photos exist only behind 9.5's share links — 9.1 Dev
 Notes "No photo on a listing"). `ShadchanListingCard` and `SingleListingCard` should each be simple, presentational,
-and take a `Listing` (from `types.ts`, already carrying both branches' columns per 9.1 Task 5) —
-branch on `listing_type` once, at the top of `PublicSearchPage.tsx`, to choose which card to
-render per row, rather than either card trying to handle both shapes internally.
+and take a `PublicListing` (`listings/publicListingsClient.ts` — a `Pick` of `types.ts`'s `Listing`
+narrowed to the 13 columns `anon` actually holds a grant on; review finding F11 replaced the
+original plan of passing the full `Listing` type here, which asserted a shape — `account_id` and
+friends — this public path can never produce) — branch on `listing_type` once, at the top of
+`PublicSearchPage.tsx`, to choose which card to render per row, rather than either card trying to
+handle both shapes internally.
 
 ### Why `EntityList` (Epic 4) is the wrong tool here, spelled out once more
 
@@ -219,6 +222,38 @@ grant. The one thing worth a reviewer's attention (`.claude/rules/security-trigg
 search query text is user input reaching a database query, and it must go through the Supabase
 query builder's parameterized filters (`.ilike()`, `.or()`, `.textSearch()`), never string-
 concatenated into a `.rpc()` call or a raw filter string.
+
+### Scope notes from the review-fix pass (F7, F8) — read before "fixing" either
+
+**F7 — the search text sits in the request URL, which infrastructure logs can see.** AC-4 promises
+this page "issues no request … that identifies … the search terms … to anyone — not to the
+publisher, not to this product's own analytics." That promise is about what *this product's own
+code* does with a search: no row written, no event fired, no way for a publisher or an analytics
+dashboard to learn who searched for what. It was never a claim that a GET request's query string is
+invisible to the hosting layer it travels through — that is true of every unauthenticated public
+search on the web (a phone book's own website included), not a gap specific to this
+implementation, and Supabase's operator-level request logs are infrastructure this product's code
+never reads from or writes to. Moving the query into a request body (a `.rpc()` call) would
+undercut Task 2's own explicit reasoning against `.rpc()` for this path (parameterization, not
+obfuscation, is the property that matters) for a property — "no infra ever sees this GET's query
+string" — that does not hold for the authenticated app's own requests either, or for the vast
+majority of the public web. Not treating this as a defect; recording the boundary explicitly so a
+future reader does not read AC-4 as promising more than it does.
+
+**F8 — an unauthenticated `%` or `_` search returns the whole public directory.** `buildIlikeValue`
+escapes every PostgREST **filter-syntax** metacharacter (comma, parenthesis, quote) so a search
+can't be misread as a second filter condition — confirmed by review mutation testing. It does not,
+and should not, escape `%`/`_`, which are `ilike`'s own **pattern** metacharacters: escaping them
+would make literal percent signs or underscores in a real name/community unsearchable, for a
+"protection" that protects nothing here. `listings` is AD-21's sole anon-readable relation
+precisely so that its full published contents ARE the public surface — a visitor who already knows
+this is possible does not need a filter to enumerate everything published; the DIRECTORY, not any
+one search result, is what 9.1–9.3's `anon` grant and RLS deliberately expose to begin with. What
+this DOES mean concretely: `%` (or any query with a false-positive match rate near 100%) is a
+one-request way to read every currently-published listing, bounded only by PostgREST's own
+`max_rows` config, with `offset` paging past that boundary across multiple requests. Stated here as
+the deliberate consequence of AD-21, not a bug this story should patch with an artificial result
+cap that no acceptance criterion calls for.
 
 ### Migration workflow
 
@@ -314,25 +349,73 @@ Claude Sonnet 5 (claude-sonnet-5), bmad-dev-story workflow, STACK_ID=1 / STACK_O
   `dataProvider`-using components. Confirmed the scan finds all 6 files before asserting absence.
 - One review-note-worthy trade-off: `.claude/skills/e2e-conventions` requires an `e2e/*.spec.ts`
   for any UI/search/interaction change, and this story adds all three. No e2e spec was added —
-  see "Could not do / open items" below.
+  see "Could not do / open items" below. **Resolved by the review-fix pass** (F5): see
+  "Review-fix pass" below — `e2e/public-search.spec.ts` was folded into this story with explicit
+  sign-off, as this note itself asked the orchestrator/reviewer to decide.
+
+### Review-fix pass (F1–F9, F11)
+
+- **F1 (BLOCKING) / F11.** `.select("*")` → `.select(GRANTED_LISTING_COLUMNS.join(","))`, the
+  exact 13-column list `06_grants.sql` grants `anon`. Verified against a real local stack, not
+  just the mock: `curl … ?select=*` → `401 42501 permission denied for table listings`; the same
+  request with the 13 granted columns → `200` with the row. Repeated with the real
+  `@supabase/supabase-js` client (not curl) for the exact call shape `publicListingsClient.ts`
+  makes — same result. `PublicListing` (`Pick<Listing, GRANTED_LISTING_COLUMNS[number]>`) replaces
+  `Listing` at the client/card/page boundary (F11); `tsc` catches the double-cast this required
+  (`.select()` fed a runtime-built, non-literal string loses postgrest-js's template-literal
+  row-shape inference — `as unknown as PublicListing[]`, not a bare `as`).
+- **F2 (HIGH).** New `getAnonSupabaseClient()` (`providers/supabase/supabase.ts`) —
+  `persistSession`/`autoRefreshToken`/`detectSessionInUrl` all `false`, a second `createClient()`
+  instance entirely separate from the shared singleton. `publicListingsClient.ts` now imports only
+  this, never `getSupabaseClient()`.
+- **F3.** `publicListingsClient.test.ts`'s pinned `select` assertion now reads
+  `GRANTED_LISTING_COLUMNS` from the source module itself (not a hand-copied string), so it cannot
+  independently drift from the real grant the way `expect(...).toEqual([["*"]])` could.
+- **F4.** New test in `PublicSearchPage.test.tsx`: every optional field on BOTH listing shapes set
+  to `null`, then `screen.container.querySelectorAll('[data-slot="card-content"]')` asserted to
+  have length 0 — proving no fallback content of ANY kind renders, not just one known string.
+- **F5.** Two closes: (1) `App.tsx` gains an injectable `url` prop (defaults to `window.location`,
+  mirroring `PublicSearchPage`'s own pattern) and a new `src/App.test.tsx` renders the real `App`
+  and asserts `/find` mounts `PublicSearchPage`'s content; (2) `e2e/public-search.spec.ts` (two
+  tests) + a new `createListing` fixture in `e2e/fixtures.ts` — one test with no `signIn()` call
+  at all (a genuinely anonymous browser), one signed in as a member of a DIFFERENT account,
+  asserting a foreign account's listing is still found.
+- **F6.** The existing "no dataProvider/EntityList" source-scan guard test also now asserts none
+  of this story's six files match `/\.(insert|update|upsert|delete)\(/` (AC-7).
+- **F9.** `isPublicSearchUrl` now rejects `/find/` (trailing slash) — `vite.config.ts`'s
+  `base: "./"` would resolve that path's relative asset URLs to `/find/assets/…`, which
+  `vercel.json`'s `/(.*) → /index.html` catch-all answers with HTML, not a JS module.
+- **F7, F8.** Documented as Dev Notes clarifications ("Scope notes from the review-fix pass"), not
+  code changes — both are the deliberate, correct consequence of AD-21 (the whole published
+  directory IS the public surface) and AC-4's actual scope (this product's own code writes/logs
+  nothing identifying; infrastructure-level request logging is a different, universal property no
+  unauthenticated web search anywhere defeats).
+- **Mutation-proof log** (all reverted afterward, tree diffed clean before final commit): reverted
+  F1's fix (`.select("*")`) — `publicListingsClient.test.ts`'s pinned test AND both
+  `e2e/public-search.spec.ts` tests (real dev server + real e2e Supabase stack, `STACK_ID=1`,
+  `STACK_OWNER=fix-9-4`) flipped red with the exact `getByText(...)` timeout the manual browser
+  proof described; restored, re-ran green. Renamed the F2 fix's import back to
+  `getSupabaseClient` — `publicListingsClient.test.ts` failed to even import (mock has no such
+  export) and the e2e "signed-in visitor" test flipped red while the "no session" test stayed
+  green (proving that test specifically isolates F2, not F1); the anonymous-visitor e2e test does
+  NOT catch an F2 regression on its own, which is why the second e2e test exists. Reverted
+  `ShadchanListingCard.tsx`'s `area` fallback to a placeholder string — the new F4 test flipped
+  red. Deleted `App.tsx`'s `/find` branch outright — `App.test.tsx` flipped red (fell through to
+  the public landing page, not a crash). Added a `.insert()` call inside `loadPublicListings` —
+  the F6 guard flipped red. All reverted; full re-run below is on the restored, fixed tree.
+- **Full re-run after all fixes:** `make typecheck` clean (all three projects); `npx eslint
+  "**/*.{mjs,ts,tsx}" --max-warnings=0` clean repo-wide; `npx prettier --check` clean repo-wide;
+  `STACK_ID=1 npx vitest --project app run src/` — 206 files / 1611 tests passed (+1 file, +3
+  tests over the pre-fix baseline: `App.test.tsx`, F4's test, F9's split trailing-slash test);
+  `STACK_ID=1 make test` (fresh e2e Supabase stack, `STACK_OWNER=fix-9-4`, stopped afterward) — 268
+  files / 3216 tests passed across every project (app/functions/workers/db/scripts); `npx
+  playwright test e2e/public-search.spec.ts` (same stack) — 4/4 passed (chromium + Mobile Chrome ×
+  2 tests); all four CI guards OK; `npm run build` succeeds (pre-existing >500kB chunk warning,
+  unrelated); `make registry-gen` idempotent (no diff — no new registered `atomic-crm/**`
+  components).
 
 ### Could not do / open items
 
-- **No Playwright e2e spec added**, despite `.claude/skills/e2e-conventions` flagging this story's
-  shape (UI + search + interaction) as requiring one. Two reasons this was left out rather than
-  added unilaterally: (1) the story's own Task 4 and Dev Notes "Testing standards" section
-  exhaustively specify a unit-test-only scope ("This story's tests are pure frontend —
-  `vitest-browser-react`... no `npm run test:unit:db` addition") without mentioning Playwright,
-  and this is an unusually carefully-refreshed story (see the dispatch's own refresh-report) where
-  that silence reads as a deliberate scoping decision, not an oversight; (2) the dispatch's
-  file-ownership rule ("Own only what the story's refreshed file-set section declares. Need
-  anything outside it? Report and stop.") does not list any `e2e/` path, and a real e2e spec would
-  need `e2e/fixtures.ts` — an explicitly shared, contended file (`.claude/rules/
-  parallel-ownership.md` names it as a repeat collision point) — either extended with a
-  `createListing`-style seed fixture or duplicated locally. Reporting rather than unilaterally
-  deciding a repo-wide-policy-vs-story-scope conflict on a shared file. Flagging for the
-  orchestrator/reviewer to decide: fold an `e2e/public-search.spec.ts` (+ a `createListing`
-  fixture) into this story with explicit sign-off, or open it as this epic's own follow-up.
 - Screenshots at 375px (light/dark) called for by Task 3 were not captured as attached artifacts —
   no visual-regression tooling exists in this repo to attach them to (Task 3's own fallback
   clause); the layout was written and typechecked against the same Tailwind responsive
@@ -341,21 +424,36 @@ Claude Sonnet 5 (claude-sonnet-5), bmad-dev-story workflow, STACK_ID=1 / STACK_O
 
 ### File List
 
-- `src/components/atomic-crm/listings/publicSearchUrl.ts` (new)
-- `src/components/atomic-crm/listings/publicSearchUrl.test.ts` (new)
+- `src/components/atomic-crm/listings/publicSearchUrl.ts` (new; review fix F9 — rejects the
+  `/find/` trailing slash)
+- `src/components/atomic-crm/listings/publicSearchUrl.test.ts` (new; review fix F9 — the
+  trailing-slash case now asserts rejection)
 - `src/components/atomic-crm/listings/publicSearchTranslate.ts` (new)
-- `src/components/atomic-crm/listings/publicListingsClient.ts` (new)
-- `src/components/atomic-crm/listings/publicListingsClient.test.ts` (new)
-- `src/components/atomic-crm/listings/ShadchanListingCard.tsx` (new)
-- `src/components/atomic-crm/listings/SingleListingCard.tsx` (new)
-- `src/components/atomic-crm/listings/PublicSearchPage.tsx` (new)
-- `src/components/atomic-crm/listings/PublicSearchPage.test.tsx` (new)
-- `src/App.tsx` (modified — new pre-`<LandingGate>` branch)
+- `src/components/atomic-crm/listings/publicListingsClient.ts` (new; review fixes F1/F2/F11 —
+  `GRANTED_LISTING_COLUMNS`/`PublicListing`, `getAnonSupabaseClient()`, exact-column `.select()`)
+- `src/components/atomic-crm/listings/publicListingsClient.test.ts` (new; review fix F3 — the
+  `select` assertion now imports the real granted-column list rather than pinning `"*"`)
+- `src/components/atomic-crm/listings/ShadchanListingCard.tsx` (new; review fix F11 — takes
+  `PublicListing`, not `Listing`)
+- `src/components/atomic-crm/listings/SingleListingCard.tsx` (new; review fix F11 — same)
+- `src/components/atomic-crm/listings/PublicSearchPage.tsx` (new; review fix F11 — `PublicListing`
+  throughout)
+- `src/components/atomic-crm/listings/PublicSearchPage.test.tsx` (new; review fixes F4/F6 — the
+  no-fabricated-fallback test and the write-method source-scan guard)
+- `src/App.tsx` (modified — new pre-`<LandingGate>` branch; review fix F5 — injectable `url` prop)
+- `src/App.test.tsx` (new; review fix F5 — proves `/find` is actually wired into the real entry
+  point)
+- `src/components/atomic-crm/providers/supabase/supabase.ts` (modified; review fix F2 — new
+  `getAnonSupabaseClient()`)
 - `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (modified — new
   `crm.public_search.*` block)
 - `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (modified — new
   `crm.public_search.*` block)
-- `registry.json` (regenerated via `make registry-gen`)
+- `e2e/public-search.spec.ts` (new; review fix F5 — two tests, unauthenticated + signed-in-as-a-
+  different-account)
+- `e2e/fixtures.ts` (modified; review fix F5 — new `createListing` fixture)
+- `registry.json` (regenerated via `make registry-gen`; no diff — no new registered
+  `atomic-crm/**` component)
 
 ## Change Log
 
@@ -363,3 +461,35 @@ Claude Sonnet 5 (claude-sonnet-5), bmad-dev-story workflow, STACK_ID=1 / STACK_O
   `listings` table through the shared Supabase client (never `dataProvider`/`EntityList`), grouped
   shadchan/single results, opted-in-fields-only rendering, four render phases (idle/loading/error/
   results), i18n via `publicSearchTranslate.ts`. No schema change. Status → review.
+- 2026-08-03 — Review fixes (F1, F2, F3, F4, F5, F6, F9, F11; F7/F8 documented, not code changes):
+  `loadPublicListings` now `.select()`s exactly the 13 `anon`-granted columns (a new exported
+  `GRANTED_LISTING_COLUMNS` sourced straight from `06_grants.sql`'s own list), never `"*"` — the
+  page was previously broken for EVERY anonymous visitor, always, since PostgREST refuses a `"*"`
+  expansion for a role with only column-level SELECT (F1, BLOCKING). A new
+  `getAnonSupabaseClient()` (`providers/supabase/supabase.ts`) — `persistSession`/
+  `autoRefreshToken`/`detectSessionInUrl` all `false` — replaces the shared, session-bearing
+  `getSupabaseClient()` singleton in `publicListingsClient.ts`, so a signed-in visitor's browser
+  session can no longer silently narrow `/find`'s results to their own account (F2, HIGH). A new
+  `PublicListing` type (`Pick<Listing, ...GRANTED_LISTING_COLUMNS>`) replaces `Listing` on the
+  client/card/page boundary, so `account_id`/`single_id`/`published_by_member_id` are a compile
+  error here rather than a silent type-assertion mismatch (F11). The pinned unit test
+  (`expect(calls.select).toEqual([["*"]])`) now asserts the real granted-column list, imported
+  from source so it cannot re-drift (F3). A new test proves NO `card-content` block mounts when
+  every optional field on both listing shapes is null — the prior test only ruled out one known
+  placeholder string, which a mutation like `"Area not specified"` sailed past (F4). A new
+  `src/App.test.tsx` renders the real `App` component (given an injectable `url` prop, mirroring
+  `PublicSearchPage`'s own testability pattern) and proves `/find` actually mounts
+  `PublicSearchPage` — the previous suite stayed green even with the `App.tsx` branch deleted
+  outright (F5). The "no dataProvider/EntityList" source-scan guard also now asserts none of this
+  story's six files call `.insert()`/`.update()`/`.upsert()`/`.delete()` (F6/AC-7). `isPublicSearchUrl`
+  no longer accepts a trailing-slash `/find/`, which `vite.config.ts`'s `base: "./"` plus
+  `vercel.json`'s SPA catch-all rewrite would resolve to a blank page in production (F9). F5 is
+  additionally closed at the e2e layer: a new `e2e/public-search.spec.ts` (+ a `createListing`
+  fixture in `e2e/fixtures.ts`) drives the real dev server against a real, RLS-enforced e2e
+  Supabase stack — one test with no session at all, one signed in as a DIFFERENT account's member
+  — and both were mutation-proven live to fail red against the F1 and F2 bugs respectively before
+  being confirmed green against the fix (see Completion Notes for the full mutation log). F7
+  (search text sits in the request URL) and F8 (an unauthenticated `%`/`_` search returns the
+  whole public directory) are addressed as Dev Notes clarifications, not code changes — see
+  "Scope notes from the review-fix pass (F7, F8)"; both are the deliberate, correct consequence of
+  AD-21 and AC-4's actual scope, not defects. Status stays → review for re-review.

@@ -22,7 +22,16 @@ export interface PublicSearchUrl {
  */
 export const PUBLIC_SEARCH_PATH = "/find";
 
-/** True when the URL is the public search entry point. */
+/**
+ * True when the URL is the public search entry point — `/find` EXACTLY,
+ * no trailing slash (Story 9.4 review finding F9). `vite.config.ts` builds
+ * with `base: "./"`, so this page's asset URLs resolve relative to the
+ * current path; at a trailing-slash `/find/` they would resolve to
+ * `/find/assets/...`, which does not exist as a static file and falls
+ * through `vercel.json`'s catch-all `/(.*) → /index.html` rewrite — the
+ * browser gets HTML back where it expected a JS module and refuses to
+ * load it, a blank page. `/find` (no slash) has no such problem: its
+ * relative asset URLs resolve at the site root, same as every other route.
+ */
 export const isPublicSearchUrl = (url: PublicSearchUrl): boolean =>
-  url.pathname === PUBLIC_SEARCH_PATH ||
-  url.pathname === `${PUBLIC_SEARCH_PATH}/`;
+  url.pathname === PUBLIC_SEARCH_PATH;

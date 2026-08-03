@@ -1,10 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-import type { Listing } from "../types";
+import type { PublicListing } from "./publicListingsClient";
 import { translatePublicSearch } from "./publicSearchTranslate";
 
 export interface SingleListingCardProps {
-  listing: Listing;
+  listing: PublicListing;
 }
 
 /**

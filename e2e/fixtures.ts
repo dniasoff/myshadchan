@@ -270,6 +270,55 @@ async function createShadchan({
 }
 
 /**
+ * Story 9.4 review fix (F5): seeds a published `listings` row directly —
+ * 9.1's "existence = published" design (`listings` review, AD-21) means
+ * the row's mere presence IS the publish action, so no publish flow needs
+ * to run for `public-search.spec.ts`, only for 9.1/9.2/9.3's own specs.
+ * Provisions its own account, mirroring `createSingle` above, since
+ * `listings.account_id` is a real FK — this is deliberately a SEPARATE
+ * account from any signed-in member the spec also creates, which is what
+ * makes the "signed-in visitor still sees the public directory" case
+ * (review finding F2) provable at all: if a signed-in browser's request
+ * were narrowed to that member's OWN account (the bug F2 describes), a
+ * listing that belongs to a DIFFERENT account, like this one, would never
+ * appear.
+ */
+async function createListing({
+  shadchan_name,
+  shadchan_area,
+}: {
+  shadchan_name: string;
+  shadchan_area?: string;
+}) {
+  const { data: account, error: accountError } = await adminSupabase
+    .from("accounts")
+    .insert({ name: "E2E Public Listing Household" })
+    .select()
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(`Failed to create account: ${accountError?.message}`);
+  }
+
+  const { data, error } = await adminSupabase
+    .from("listings")
+    .insert({
+      account_id: account.id,
+      listing_type: "shadchan",
+      shadchan_name,
+      shadchan_area,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to create listing: ${error.message}`);
+  }
+
+  return data;
+}
+
+/**
  * Story 4.4: gives an already-created member a SECOND context (a
  * shadchanus-kind account, alongside the household `createSingle`
  * provisions) — `ContextSwitcher`/`ContextMenuItems` render nothing below 2
@@ -442,6 +491,7 @@ export const test = base.extend<{
   createShadchan: typeof createShadchan;
   createSecondContext: typeof createSecondContext;
   createInvite: typeof createInvite;
+  createListing: typeof createListing;
   signIn: typeof signIn;
 }>({
   // The first argument to a Playwright fixture function must use object destructuring ({}) — _ is not allowed.
@@ -476,6 +526,9 @@ export const test = base.extend<{
   },
   createInvite: async ({}, cb) => {
     await cb(createInvite);
+  },
+  createListing: async ({}, cb) => {
+    await cb(createListing);
   },
   signIn: async ({}, cb) => {
     await cb(signIn);

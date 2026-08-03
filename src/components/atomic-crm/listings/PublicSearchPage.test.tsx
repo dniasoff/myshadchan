@@ -1,7 +1,7 @@
 import { render } from "vitest-browser-react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Listing } from "../types";
+import type { PublicListing } from "./publicListingsClient";
 import { PublicSearchPage } from "./PublicSearchPage";
 import type { PublicSearchUrl } from "./publicSearchUrl";
 
@@ -23,22 +23,37 @@ const url = (overrides: Partial<PublicSearchUrl> = {}): PublicSearchUrl => ({
   ...overrides,
 });
 
-const shadchanListing = (overrides: Partial<Listing> = {}): Listing => ({
+// `PublicListing` (not `Listing`): these fixtures model exactly what
+// `loadPublicListings` can actually return — the 13 anon-granted columns —
+// never `account_id`/`single_id`/`published_by_member_id`, which `anon`
+// has no SELECT on at all (Story 9.4 review findings F1/F11).
+const shadchanListing = (
+  overrides: Partial<PublicListing> = {},
+): PublicListing => ({
   id: 1,
-  account_id: 100,
   listing_type: "shadchan",
   shadchan_name: "Rivka Klein",
   shadchan_area: "Lakewood and nearby",
   shadchan_contact_info: null,
+  single_first_name_en: null,
+  single_first_name_he: null,
+  single_age: null,
+  single_height: null,
+  single_community: null,
+  single_location: null,
+  single_summary: null,
   created_at: "2026-07-01T00:00:00Z",
   ...overrides,
 });
 
-const singleListing = (overrides: Partial<Listing> = {}): Listing => ({
+const singleListing = (
+  overrides: Partial<PublicListing> = {},
+): PublicListing => ({
   id: 2,
-  account_id: 200,
   listing_type: "single",
-  single_id: 20,
+  shadchan_name: null,
+  shadchan_area: null,
+  shadchan_contact_info: null,
   single_first_name_en: "Chaya",
   single_first_name_he: null,
   single_age: 24,
@@ -72,10 +87,10 @@ describe("PublicSearchPage — idle state (AC-6)", () => {
 describe("PublicSearchPage — loading, then results (AC-1, AC-6)", () => {
   it("renders outside any Admin/dataProvider context, shows loading, then the fetched results", async () => {
     // Arrange
-    let resolveLoad: (listings: Listing[]) => void = () => {};
+    let resolveLoad: (listings: PublicListing[]) => void = () => {};
     const loadListings = vi.fn(
       () =>
-        new Promise<Listing[]>((resolve) => {
+        new Promise<PublicListing[]>((resolve) => {
           resolveLoad = resolve;
         }),
     );
@@ -165,6 +180,48 @@ describe("PublicSearchPage — only opted-in fields render (AC-2)", () => {
       .not.toBeInTheDocument();
     await expect.element(screen.getByText(/^Contact:/)).not.toBeInTheDocument();
     await expect.element(screen.getByText(/^Age/)).not.toBeInTheDocument();
+  });
+
+  it("mounts no card-content block at all when every optional field is left null — a fabricated fallback would add one (review finding F4)", async () => {
+    // Arrange — every field beyond the CHECK-constraint-guaranteed name is
+    // explicitly null, on BOTH shapes. The earlier test only proves one
+    // KNOWN value ("Lakewood and nearby") is absent, which a mutation like
+    // `listing.shadchan_area?.trim() || "Area not specified"` sails
+    // straight past (it never produces that literal string). This test
+    // instead asserts the CardContent block those fields would render
+    // into never mounts at all — any non-empty fallback for ANY omitted
+    // field makes its card's `(area || contactInfo)` /
+    // `(metaParts.length > 0 || summary)` guard true and adds one.
+    const bareShadchan = shadchanListing({
+      shadchan_area: null,
+      shadchan_contact_info: null,
+    });
+    const bareSingle = singleListing({
+      single_age: null,
+      single_height: null,
+      single_community: null,
+      single_location: null,
+      single_summary: null,
+    });
+    const loadListings = vi.fn(() =>
+      Promise.resolve([bareShadchan, bareSingle]),
+    );
+    const screen = await render(
+      <PublicSearchPage url={url()} loadListings={loadListings} />,
+    );
+    const input = screen.getByRole("searchbox");
+
+    // Act
+    await input.fill("l");
+    await expect.element(screen.getByText("Rivka Klein")).toBeVisible();
+    await expect.element(screen.getByText("Chaya")).toBeVisible();
+
+    // Assert — both cards rendered (name-only), but NEITHER opened a
+    // `card-content` block, since every other field on both rows is null.
+    const cardContentBlocks = screen.container.querySelectorAll(
+      '[data-slot="card-content"]',
+    );
+    expect(cardContentBlocks).toHaveLength(0);
   });
 
   it("shows every opted-in field, including the Hebrew name alongside the English one", async () => {
@@ -294,6 +351,18 @@ describe("PublicSearchPage — stays outside the authenticated dataProvider/Enti
       expect(content, `${path} must not reference EntityList`).not.toMatch(
         /\bEntityList\b/,
       );
+      // AC-7 (review finding F6): no write path exists on this page at
+      // all — not through dataProvider/EntityList (above), and not
+      // through a direct Supabase mutation call either. `anon`'s grant on
+      // `listings` is select-only; this is the source-level guard that a
+      // future contributor cannot silently add a `.insert()`/`.update()`/
+      // `.upsert()`/`.delete()` call this suite's mocked-client tests
+      // would otherwise never notice (a hand-rolled mock only errors on
+      // an unimplemented method call, it never asserts one was NOT made).
+      expect(
+        content,
+        `${path} must call no write method (.insert/.update/.upsert/.delete)`,
+      ).not.toMatch(/\.(insert|update|upsert|delete)\(/);
     }
   });
 });

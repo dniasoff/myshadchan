@@ -3,8 +3,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 
-import type { Listing } from "../types";
-import { loadPublicListings } from "./publicListingsClient";
+import type { ListingType } from "../types";
+import { loadPublicListings, type PublicListing } from "./publicListingsClient";
 import { ShadchanListingCard } from "./ShadchanListingCard";
 import { SingleListingCard } from "./SingleListingCard";
 import { translatePublicSearch } from "./publicSearchTranslate";
@@ -18,7 +18,7 @@ type SearchPhase =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "error" }
-  | { status: "results"; listings: Listing[] };
+  | { status: "results"; listings: PublicListing[] };
 
 export interface PublicSearchPageProps {
   /** Injectable for tests; defaults to the real `window.location`. */
@@ -26,8 +26,8 @@ export interface PublicSearchPageProps {
   /** Injectable loader; defaults to the anon Supabase client (Task 2). */
   loadListings?: (query: {
     text?: string;
-    type?: Listing["listing_type"];
-  }) => Promise<Listing[]>;
+    type?: ListingType;
+  }) => Promise<PublicListing[]>;
 }
 
 /** Reads the shareable `?q=` param (Task 1's rationale for a plain query
@@ -128,7 +128,7 @@ export const PublicSearchPage = ({
 
   // AC-5: branch on `listing_type` once, here, to pick which card renders a
   // given row — neither card component tries to handle both shapes itself.
-  const renderListingCard = (listing: Listing) =>
+  const renderListingCard = (listing: PublicListing) =>
     listing.listing_type === "shadchan" ? (
       <ShadchanListingCard key={listing.id} listing={listing} />
     ) : (

@@ -53,18 +53,25 @@ function createQueryBuilder(result: { data: unknown; error: unknown }): {
 
 const client = { from: vi.fn() };
 
+// F2: this client must come from `getAnonSupabaseClient()`, never the
+// shared, session-bearing `getSupabaseClient()` singleton — a signed-in
+// visitor's persisted session would otherwise silently narrow "public"
+// results down to their own account. Only exporting the anon factory from
+// this mock means an accidental `getSupabaseClient()` import in the
+// source under test fails with "is not a function", not a false green.
 vi.mock("../providers/supabase/supabase", () => ({
-  getSupabaseClient: () => client,
+  getAnonSupabaseClient: () => client,
 }));
 
-const { loadPublicListings } = await import("./publicListingsClient");
+const { loadPublicListings, GRANTED_LISTING_COLUMNS } =
+  await import("./publicListingsClient");
 
 describe("loadPublicListings — query shape", () => {
   beforeEach(() => {
     client.from.mockReset();
   });
 
-  it("selects every column from the listings table, newest first, with no filter for an empty query", async () => {
+  it("selects only the columns anon holds a grant on, newest first, with no filter for an empty query", async () => {
     // Arrange
     const { builder, calls } = createQueryBuilder({ data: [], error: null });
     client.from.mockReturnValue(builder);
@@ -72,9 +79,15 @@ describe("loadPublicListings — query shape", () => {
     // Act
     await loadPublicListings({});
 
-    // Assert
+    // Assert — NOT "*": PostgREST expands "*" to every column on the
+    // table, and `anon` holds only column-level SELECT (06_grants.sql),
+    // never table-level — a `select("*")` is refused outright, 401/42501,
+    // for every anonymous visitor (F1). The enumerated list is imported
+    // from the source module itself so this assertion cannot drift from
+    // the actual grant the way a hand-copied string could.
     expect(client.from).toHaveBeenCalledWith("listings");
-    expect(calls.select).toEqual([["*"]]);
+    expect(calls.select).toEqual([[GRANTED_LISTING_COLUMNS.join(",")]]);
+    expect(calls.select[0][0]).not.toBe("*");
     expect(calls.order).toEqual([["created_at", { ascending: false }]]);
     expect(calls.eq).toEqual([]);
     expect(calls.or).toEqual([]);

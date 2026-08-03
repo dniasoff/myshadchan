@@ -1,7 +1,20 @@
 import { LandingGate } from "@/components/atomic-crm/landing";
 import { PublicSearchPage } from "@/components/atomic-crm/listings/PublicSearchPage";
-import { isPublicSearchUrl } from "@/components/atomic-crm/listings/publicSearchUrl";
+import {
+  isPublicSearchUrl,
+  type PublicSearchUrl,
+} from "@/components/atomic-crm/listings/publicSearchUrl";
 import { CRM } from "@/components/atomic-crm/root/CRM";
+
+export interface AppProps {
+  /** Injectable for tests; defaults to the real `window.location`. Story
+   * 9.4 review finding F5: without this, nothing in the suite actually
+   * proves the `/find` branch below is wired into the real entry point —
+   * `publicSearchUrl.test.ts` only proves `isPublicSearchUrl`'s own
+   * predicate is correct in isolation, and deleting the branch entirely
+   * left every other test green. */
+  url?: PublicSearchUrl;
+}
 
 /**
  * Application entry point
@@ -30,8 +43,8 @@ import { CRM } from "@/components/atomic-crm/root/CRM";
  *    />
  * );
  */
-const App = () => {
-  if (isPublicSearchUrl(window.location)) {
+const App = ({ url = window.location }: AppProps = {}) => {
+  if (isPublicSearchUrl(url)) {
     return <PublicSearchPage />;
   }
 
