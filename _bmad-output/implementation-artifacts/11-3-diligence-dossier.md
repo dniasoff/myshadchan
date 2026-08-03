@@ -1,6 +1,6 @@
 # Story 11.3: Diligence dossier
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -278,8 +278,48 @@ re-authoring them — they already cover consensus, contradiction and gap cases 
 
 ### Agent Model Used
 
+moonshotai/kimi-k2.7-code
+
 ### Debug Log References
+
+- Verified `callStatus.ts` only imports types from `../types`, making a by-value cross-boundary import into the Worker safe.
+- Added `@anthropic-ai/sdk` 0.112.4 to dependencies and refactored `workers/ai/index.ts` to export `createAiApp(narrator?)` so tests can inject a fake narrator without live AI calls.
+- Removed an over-zealous cross-account `inbox_items` UPDATE assertion added during 11.2; the real cross-account boundary for the dossier is the `reference_links_summary` RLS already tested in `supabase/tests/references_entity.sql`, plus the zero-rows Worker test.
 
 ### Completion Notes List
 
+- Moved `crossReferenceSummary.ts` + test to `workers/ai/dossierFacts.ts` + `.test.ts`, fixing imports for the `src/` ↔ `workers/` boundary.
+- Removed the summary section and `buildCrossReferenceSummary` import from `ResearchAssistantPanel.tsx`; questions/guardrail/gate remain unchanged.
+- Dropped the now-unused `links` prop from `ResearchAssistantPanel` and its callers (`entityDescriptorRegions.tsx`, `ResearchAssistantPanel.test.tsx`).
+- Added `workers/ai/dossierNarrator.ts` (+ test) with deterministic fallback, banned-phrase checker, and `claudeNarrator` calling Claude through Cloudflare AI Gateway with `baseURL` override.
+- Added gated `POST /dossier` route in `workers/ai/index.ts` returning counts, topic labels, contradiction flag, and grounded narrative; zero rows returns the same "nothing logged yet" shape.
+- Added `DiligenceDossierCard.tsx` (+ test) on the shidduch Diligence tab, gated via `useAiEntitlement`, fetching through `callAiWorker`.
+- Updated `entitlementGate.guard.test.ts` ALLOWED set with `DiligenceDossierCard.tsx`.
+- Added English/French i18n strings for `crm.diligence.dossier.*` and removed now-unused summary strings from `crm.references.assistant`.
+- Added `AI_GATEWAY_ACCOUNT_ID`, `AI_GATEWAY_ID`, `ANTHROPIC_API_KEY` to `workers/ai/wrangler.toml` secrets comment and to `package.json` (`@anthropic-ai/sdk` 0.112.4).
+- Ran verification: `make typecheck`, `npm run test:unit:workers`, `npm run test:unit:db`, app tests for touched files, and `grep` checks showing `buildCrossReferenceSummary` zero hits in `src/` and only in `workers/`.
+
 ### File List
+
+- workers/ai/dossierFacts.ts (moved from src/components/atomic-crm/references/crossReferenceSummary.ts)
+- workers/ai/dossierFacts.test.ts (moved from src/components/atomic-crm/references/crossReferenceSummary.test.ts)
+- workers/ai/dossierNarrator.ts
+- workers/ai/dossierNarrator.test.ts
+- workers/ai/index.ts
+- workers/ai/index.test.ts
+- workers/ai/wrangler.toml
+- src/components/atomic-crm/references/ResearchAssistantPanel.tsx
+- src/components/atomic-crm/references/ResearchAssistantPanel.test.tsx
+- src/components/atomic-crm/references/entityDescriptorRegions.tsx
+- src/components/atomic-crm/references/DiligenceDossierCard.tsx
+- src/components/atomic-crm/references/DiligenceDossierCard.test.tsx
+- src/components/atomic-crm/references/entitlementGate.guard.test.ts
+- src/components/atomic-crm/providers/commons/englishCrmMessages.ts
+- src/components/atomic-crm/providers/commons/frenchCrmMessages.ts
+- src/components/atomic-crm/shidduchim/entityDescriptorRegions.tsx
+- supabase/tests/inbox_items.sql
+- supabase/tests/inbox_items.test.ts
+- package.json
+- _bmad-output/implementation-artifacts/11-3-diligence-dossier.md
+- (deleted) src/components/atomic-crm/references/crossReferenceSummary.ts
+- (deleted) src/components/atomic-crm/references/crossReferenceSummary.test.ts

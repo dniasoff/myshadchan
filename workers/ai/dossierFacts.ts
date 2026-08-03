@@ -1,5 +1,5 @@
-import type { ReferenceLinkSummary } from "../types";
-import { getCallStatusDescriptor } from "./callStatus";
+import { getCallStatusDescriptor } from "../../src/components/atomic-crm/references/callStatus";
+import type { ReferenceLinkSummary } from "../../src/components/atomic-crm/types";
 
 /**
  * Cross-reference summary (FR61): what several references said about the same

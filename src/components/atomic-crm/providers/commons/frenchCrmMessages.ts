@@ -827,18 +827,29 @@ export const frenchCrmMessages = {
         questionsTitle: "Questions à poser à %{relationship}",
         captureHint:
           "Utilisez « Enregistrer un appel » sur n'importe quel célibataire lié pour noter les réponses au fur et à mesure.",
-        summaryTitle: "Parmi les références auxquelles vous avez parlé",
+      },
+    },
+    diligence: {
+      dossier: {
+        title: "Synthèse des références",
+        paid: "Payant",
+        upsell:
+          "Voyez ce sur quoi tout le monde s'accorde, où les avis divergent, et ce que personne n'a demandé.",
+        consensus: "Consensus",
+        nothingRecorded: "Rien n'a encore été noté.",
+        consensusDetail:
+          "%{warm} ont parlé chaleureusement, %{reserved} ont émis une réserve.",
         covered: "Abordé",
         nothingCovered: "Rien n'a encore été noté.",
         gaps: "Encore manquant",
         noGaps: "Tous les sujets ont été abordés.",
         contradiction: "Les références divergent",
-        contradictionDetail:
-          "%{warm} ont parlé chaleureusement et %{reserved} ont émis une réserve. Les deux méritent d'être lus en entier.",
-        outstanding: "%{smart_count} conversations n'ont pas encore eu lieu.",
+        narrative: "Synthèse",
+        error: "Impossible de charger la synthèse. Veuillez réessayer.",
+        guardrail:
+          "Cette synthèse organise ce que vous avez appris. Elle ne juge jamais la compatibilité et ne suggère jamais de shidduch.",
       },
-    },
-    // Story 7.1 — l'onglet Discussions (ThreadList/ThreadPanel,
+    }, // Story 7.1 — l'onglet Discussions (ThreadList/ThreadPanel,
     // shidduchim/ShidduchDiscussionsTab). Voir la même note dans
     // englishCrmMessages.ts.
     threads: {

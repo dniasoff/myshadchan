@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ReferenceLinkSummary } from "../types";
-import { buildCrossReferenceSummary } from "./crossReferenceSummary";
+import type { ReferenceLinkSummary } from "../../src/components/atomic-crm/types";
+import { buildCrossReferenceSummary } from "./dossierFacts";
 
 const link = (
   overrides: Partial<ReferenceLinkSummary> & { id: number },

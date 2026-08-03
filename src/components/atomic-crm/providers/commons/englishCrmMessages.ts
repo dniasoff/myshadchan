@@ -937,18 +937,32 @@ export const englishCrmMessages = {
         questionsTitle: "Questions worth asking %{relationship}",
         captureHint:
           'Use "Log a call" on any linked single to capture the answers as you go.',
-        summaryTitle: "Across the references you have spoken to",
+        // Story 11.3: the per-suggestion cross-reference summary moved to the
+        // shidduch Diligence tab; the remaining assistant panel only shows
+        // tailored questions.
+      },
+    },
+    diligence: {
+      dossier: {
+        title: "Cross-reference summary",
+        paid: "Paid",
+        upsell:
+          "See what everyone agreed on, where they differed, and what nobody was asked.",
+        consensus: "Consensus",
+        nothingRecorded: "Nothing recorded yet.",
+        consensusDetail:
+          "%{warm} spoke warmly, %{reserved} raised a reservation.",
         covered: "Covered",
         nothingCovered: "Nothing recorded yet.",
         gaps: "Still missing",
         noGaps: "Every topic has been touched on.",
         contradiction: "References differ",
-        contradictionDetail:
-          "%{warm} spoke warmly and %{reserved} raised a reservation. Both are worth reading in full.",
-        outstanding: "%{smart_count} conversations have not happened yet.",
+        narrative: "Summary",
+        error: "Could not load the summary. Please try again.",
+        guardrail:
+          "This summary organises what you have learned. It never judges compatibility or suggests a match.",
       },
-    },
-    // Story 7.1 — the Discussions tab (ThreadList/ThreadPanel,
+    }, // Story 7.1 — the Discussions tab (ThreadList/ThreadPanel,
     // shidduchim/ShidduchDiscussionsTab). The tab's own LABEL is
     // `crm.entity360.tab.discussions` (already present); this block is the
     // tab's CONTENT strings, mirroring `shidduchim`/`references` above as

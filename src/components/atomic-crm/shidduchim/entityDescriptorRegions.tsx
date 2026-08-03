@@ -6,6 +6,7 @@ import { FilesTab } from "../entity360/tabs/FilesTab";
 import { NotesTab } from "../entity360/tabs/NotesTab";
 import { TasksTab } from "../entity360/tabs/TasksTab";
 import { ShidduchReferencesSection } from "../references/ShidduchReferencesSection";
+import { DiligenceDossierCard } from "../references/DiligenceDossierCard";
 import type { Shadchan, ShidduchSummary } from "../types";
 import { ShidduchShowHeader } from "./ShidduchShowHeader";
 import { ShidduchStateControl } from "./ShidduchStateControl";
@@ -71,7 +72,12 @@ export const ShidduchActions = ({ record }: { record: ShidduchSummary }) => (
 export function ShidduchDiligenceTab(): ReactNode {
   const record = useRecordContext<ShidduchSummary>();
   if (!record) return null;
-  return <ShidduchReferencesSection shidduchimId={record.id} />;
+  return (
+    <div className="flex flex-col gap-4">
+      <DiligenceDossierCard shidduchimId={record.id} />
+      <ShidduchReferencesSection shidduchimId={record.id} />
+    </div>
+  );
 }
 
 /**

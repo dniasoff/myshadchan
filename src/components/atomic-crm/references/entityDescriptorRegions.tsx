@@ -141,14 +141,12 @@ export function ReferenceShidduchimTab(): ReactNode {
 
 /**
  * The `assistant` tab: unchanged content (`ResearchAssistantPanel`), still
- * AI-entitlement-gated inside that component — this adapter only supplies
- * the `{ reference, links }` props it was already written against.
+ * AI-entitlement-gated inside that component.
  */
 export function ReferenceAssistantTab(): ReactNode {
   const record = useRecordContext<Reference>();
-  const { links } = useReferenceLinks(record?.id);
   if (!record) return null;
-  return <ResearchAssistantPanel reference={record} links={links} />;
+  return <ResearchAssistantPanel reference={record} />;
 }
 
 /**

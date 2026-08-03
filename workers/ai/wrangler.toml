@@ -8,5 +8,5 @@ port = 8789
 
 # Secrets (set via `wrangler secret put <NAME> --config workers/ai/wrangler.toml`,
 # or the CI job in .github/workflows/deploy.yml): SUPABASE_URL,
-# SUPABASE_SERVICE_ROLE_KEY, SUPABASE_PUBLISHABLE_KEY, plus the AI Gateway
-# account/token once the research assistant (AD-8, E10) lands.
+# SUPABASE_SERVICE_ROLE_KEY, SUPABASE_PUBLISHABLE_KEY, AI_GATEWAY_ACCOUNT_ID,
+# AI_GATEWAY_ID, ANTHROPIC_API_KEY.

@@ -1,8 +1,7 @@
 import { useTranslate } from "ra-core";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import type { Reference, ReferenceLinkSummary } from "../types";
-import { buildCrossReferenceSummary } from "./crossReferenceSummary";
+import type { Reference } from "../types";
 import { getQuestionsForRelationship } from "./relationshipQuestions";
 import { useAiEntitlement } from "./useAiEntitlement";
 
@@ -68,10 +67,8 @@ const UpgradePrompt = () => {
 
 export const ResearchAssistantPanel = ({
   reference,
-  links,
 }: {
   reference: Reference;
-  links: ReferenceLinkSummary[];
 }) => {
   const translate = useTranslate();
   const { isEntitled, isLoading } = useAiEntitlement();
@@ -82,7 +79,6 @@ export const ResearchAssistantPanel = ({
   const { set, questions } = getQuestionsForRelationship(
     reference.relationship,
   );
-  const summary = buildCrossReferenceSummary(links);
 
   return (
     <div className="flex flex-col gap-4">
@@ -117,72 +113,6 @@ export const ResearchAssistantPanel = ({
               _: 'Use "Log a call" on any linked single to capture the answers as you go.',
             })}
           </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="flex flex-col gap-3 pt-6">
-          <p className="text-sm font-medium">
-            {translate("crm.references.assistant.summaryTitle", {
-              _: "Across the references you have spoken to",
-            })}
-          </p>
-
-          <div className="text-sm">
-            <p className="font-medium">
-              {translate("crm.references.assistant.covered", {
-                _: "Covered",
-              })}
-            </p>
-            <p className="text-muted-foreground">
-              {summary.covered.length === 0
-                ? translate("crm.references.assistant.nothingCovered", {
-                    _: "Nothing recorded yet.",
-                  })
-                : summary.covered.map((topic) => topic.label).join(", ")}
-            </p>
-          </div>
-
-          <div className="text-sm">
-            <p className="font-medium">
-              {translate("crm.references.assistant.gaps", {
-                _: "Still missing",
-              })}
-            </p>
-            <p className="text-muted-foreground">
-              {summary.gaps.length === 0
-                ? translate("crm.references.assistant.noGaps", {
-                    _: "Every topic has been touched on.",
-                  })
-                : summary.gaps.map((topic) => topic.label).join(", ")}
-            </p>
-          </div>
-
-          {summary.hasContradiction ? (
-            <div className="text-sm">
-              <p className="font-medium">
-                {translate("crm.references.assistant.contradiction", {
-                  _: "References differ",
-                })}
-              </p>
-              <p className="text-muted-foreground">
-                {translate("crm.references.assistant.contradictionDetail", {
-                  warm: summary.endorsements.length,
-                  reserved: summary.reservations.length,
-                  _: "%{warm} spoke warmly and %{reserved} raised a reservation. Both are worth reading in full.",
-                })}
-              </p>
-            </div>
-          ) : null}
-
-          {summary.outstanding.length > 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {translate("crm.references.assistant.outstanding", {
-                smart_count: summary.outstanding.length,
-                _: "%{smart_count} conversations have not happened yet.",
-              })}
-            </p>
-          ) : null}
         </CardContent>
       </Card>
 

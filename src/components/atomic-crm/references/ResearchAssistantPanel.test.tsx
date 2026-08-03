@@ -34,7 +34,7 @@ const renderPanel = async (isEntitled: boolean) => {
   const aiEntitlement = vi.fn(async () => entitlement(isEntitled));
   const screen = await render(
     <StoryWrapper dataProvider={{ aiEntitlement }}>
-      <ResearchAssistantPanel reference={reference} links={[]} />
+      <ResearchAssistantPanel reference={reference} />
     </StoryWrapper>,
   );
   return { screen, aiEntitlement };

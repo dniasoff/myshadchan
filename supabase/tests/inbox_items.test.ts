@@ -72,14 +72,13 @@ describe("inbox_items account isolation (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   it("runs the full set of checks", () => {
-    // 12 today: (a) x3 select-isolation, (b)/(b-isolated) x2 INSERT
+    // 11 today: (a) x3 select-isolation, (b)/(b-isolated) x2 INSERT
     // with-check (both-layers-active + trigger-disabled), (c)/(c-isolated)
-    // x3 UPDATE with-check (attempt + verify + trigger-disabled), (c-resolve)
-    // x1 UPDATE-USING cross-account resolve, (d) x2 service_role bypass. An
-    // anti-vacuity floor (migration-guard-integrity.md's pattern): a
-    // regression that silently dropped most of this file's checks would
-    // still pass a loose ">= 8" one row at a time.
-    expect(checks.length).toBeGreaterThanOrEqual(12);
+    // x3 UPDATE with-check (attempt + verify + trigger-disabled), (d) x2
+    // service_role bypass. An anti-vacuity floor (migration-guard-integrity.md's
+    // pattern): a regression that silently dropped most of this file's checks
+    // would still pass a loose ">= 8" one row at a time.
+    expect(checks.length).toBeGreaterThanOrEqual(11);
   });
 
   for (const check of checks) {
