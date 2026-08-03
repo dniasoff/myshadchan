@@ -910,6 +910,10 @@ export const frenchCrmMessages = {
     inbox: {
       source_shadchan: "Shadchan",
       senderNeedsConfirmation: "Qui a envoyé ceci ?",
+      parse: {
+        autoFill: "Remplir automatiquement depuis le CV",
+        lowConfidence: "Veuillez vérifier",
+      },
       share: {
         title: "Enregistrer ce partage",
         sourceLabel: "D'où cela provient",

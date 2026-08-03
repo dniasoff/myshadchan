@@ -8,6 +8,8 @@ import { ReferenceInput } from "@/components/admin/reference-input";
 import { SelectInput } from "@/components/admin/select-input";
 import { TextInput } from "@/components/admin/text-input";
 
+import { Badge } from "@/components/ui/badge";
+import { useTranslate } from "ra-core";
 import { INITIAL_PIPELINE_STATES, PIPELINE_STATES } from "./pipelineStates";
 
 interface InitialStateChoice {
@@ -61,6 +63,7 @@ export const ShidduchInputs = ({
   lockedShadchanId,
   isShadchanLocked = lockedShadchanId != null,
   onCreateShadchan,
+  lowConfidenceFields = [],
 }: {
   /**
    * Story 8.3 (AC-3): the value to lock the `shadchan_id` field to, when
@@ -111,7 +114,36 @@ export const ShidduchInputs = ({
    * described as such.
    */
   onCreateShadchan?: SupportCreateSuggestionOptions["onCreate"];
+  /**
+   * Story 11.2: field keys the resume extractor flagged as low-confidence,
+   * so each input can render a "please check" badge.
+   */
+  lowConfidenceFields?: string[];
 } = {}) => {
+  const translate = useTranslate();
+
+  const fieldHelper = (
+    source: string,
+    existing?: ReactNode | false,
+  ): ReactNode | undefined => {
+    const isFlagged = lowConfidenceFields.includes(source);
+    if (!isFlagged && existing === false) return undefined;
+    if (!isFlagged) return existing || undefined;
+
+    const badge = (
+      <Badge variant="outline" className="text-attention border-attention/50">
+        {translate("crm.inbox.parse.lowConfidence", { _: "Please check" })}
+      </Badge>
+    );
+    if (!existing) return badge;
+    return (
+      <span className="flex flex-col gap-1">
+        {existing}
+        {badge}
+      </span>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <FormSection eyebrow="Who">
@@ -135,13 +167,19 @@ export const ShidduchInputs = ({
           <TextInput
             source="name_en"
             label="Name (English)"
-            helperText="As it will appear on the board"
+            helperText={fieldHelper(
+              "name_en",
+              "As it will appear on the board",
+            )}
             validate={required()}
           />
           <TextInput
             source="name_he"
             label="Name (Hebrew)"
-            helperText="Optional — shown alongside the English name"
+            helperText={fieldHelper(
+              "name_he",
+              "Optional — shown alongside the English name",
+            )}
             dir="rtl"
             inputClassName="font-hebrew"
           />
@@ -198,60 +236,60 @@ export const ShidduchInputs = ({
           <TextInput
             source="seminary_en"
             label="Yeshiva / seminary (English)"
-            helperText={false}
+            helperText={fieldHelper("seminary_en", false)}
           />
           <TextInput
             source="seminary_he"
             label="Yeshiva / seminary (Hebrew)"
-            helperText={false}
+            helperText={fieldHelper("seminary_he", false)}
             dir="rtl"
             inputClassName="font-hebrew"
           />
           <TextInput
             source="location_en"
             label="Location (English)"
-            helperText={false}
+            helperText={fieldHelper("location_en", false)}
           />
           <TextInput
             source="location_he"
             label="Location (Hebrew)"
-            helperText={false}
+            helperText={fieldHelper("location_he", false)}
             dir="rtl"
             inputClassName="font-hebrew"
           />
           <TextInput
             source="father_en"
             label="Father (English)"
-            helperText={false}
+            helperText={fieldHelper("father_en", false)}
           />
           <TextInput
             source="father_he"
             label="Father (Hebrew)"
-            helperText={false}
+            helperText={fieldHelper("father_he", false)}
             dir="rtl"
             inputClassName="font-hebrew"
           />
           <TextInput
             source="mother_en"
             label="Mother (English)"
-            helperText={false}
+            helperText={fieldHelper("mother_en", false)}
           />
           <TextInput
             source="mother_he"
             label="Mother (Hebrew)"
-            helperText={false}
+            helperText={fieldHelper("mother_he", false)}
             dir="rtl"
             inputClassName="font-hebrew"
           />
           <TextInput
             source="shul_en"
             label="Shul (English)"
-            helperText={false}
+            helperText={fieldHelper("shul_en", false)}
           />
           <TextInput
             source="shul_he"
             label="Shul (Hebrew)"
-            helperText={false}
+            helperText={fieldHelper("shul_he", false)}
             dir="rtl"
             inputClassName="font-hebrew"
           />
@@ -264,7 +302,10 @@ export const ShidduchInputs = ({
               helper-less height field. */}
           <NumberInput
             source="age"
-            helperText="Informational only — never used for matching"
+            helperText={fieldHelper(
+              "age",
+              "Informational only — never used for matching",
+            )}
           />
           {/* Story 5.2: DOB is the more precise source when both are known —
               the Overview tab prefers a live age computed from it. */}
@@ -273,7 +314,10 @@ export const ShidduchInputs = ({
             label="Date of birth"
             helperText="Optional — shown alongside age"
           />
-          <TextInput source="height" helperText={false} />
+          <TextInput
+            source="height"
+            helperText={fieldHelper("height", false)}
+          />
           <TextInput
             source="marital_status"
             label="Marital status"

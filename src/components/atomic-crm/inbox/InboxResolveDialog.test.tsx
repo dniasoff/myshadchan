@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter, type Identifier } from "ra-core";
+import { QueryClient } from "@tanstack/react-query";
 
 import { Notification } from "@/components/admin/notification";
 
@@ -19,8 +20,16 @@ const { signInboxAttachmentUrl } = vi.hoisted(() => ({
   signInboxAttachmentUrl: vi.fn(),
 }));
 
+const { callAiWorker } = vi.hoisted(() => ({
+  callAiWorker: vi.fn(),
+}));
+
 vi.mock("../providers/supabase/inboxAttachments", () => ({
   signInboxAttachmentUrl,
+}));
+
+vi.mock("../providers/commons/aiWorkerClient", () => ({
+  callAiWorker,
 }));
 
 /**
@@ -97,7 +106,18 @@ const buildDataProvider = (
       return Promise.resolve({ data: {} });
     }),
     createShidduch: vi.fn().mockResolvedValue({ id: 99 }),
-    update: vi.fn().mockResolvedValue({ data: {} }),
+    aiEntitlement: vi.fn().mockResolvedValue({
+      is_entitled: false,
+      plan: "free",
+      status: "none",
+      resumes_used: 0,
+      resumes_limit: 0,
+    }),
+    create: vi.fn().mockResolvedValue({ data: {} }),
+    update: vi.fn(
+      (_resource: string, params: { data: Record<string, unknown> }) =>
+        Promise.resolve({ data: params.data }),
+    ),
     copyInboxAttachmentsToEntityFiles: vi.fn().mockResolvedValue([]),
     ...overrides,
   }) as unknown as CrmDataProvider;
@@ -112,12 +132,16 @@ const renderDialog = async (
     item,
     dataProviderOverrides,
   );
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   const onClose = vi.fn();
 
   const screen = await render(
     <TestMemoryRouter>
       <CoreAdminContext
         dataProvider={dataProvider}
+        queryClient={queryClient}
         i18nProvider={testI18nProvider}
       >
         <InboxResolveDialog item={item} open onClose={onClose} />
@@ -126,8 +150,18 @@ const renderDialog = async (
     </TestMemoryRouter>,
   );
 
-  return { screen, dataProvider, onClose };
+  return { screen, dataProvider, onClose, queryClient };
 };
+
+const buildAttachment = (
+  overrides: Partial<InboxAttachment> = {},
+): InboxAttachment => ({
+  title: "resume.pdf",
+  type: "application/pdf",
+  path: "1/abc-123.pdf",
+  src: "https://stale.example/1/abc-123.pdf?token=expired",
+  ...overrides,
+});
 
 describe("InboxResolveDialog — origin selection (AC-4)", () => {
   it("a non-shadchan-sourced item resolves with origin: 'channel' and an unlocked shadchan_id field", async () => {
@@ -280,16 +314,6 @@ describe("InboxResolveDialog — attachment links are re-signed at click time (r
     signInboxAttachmentUrl.mockReset();
   });
 
-  const buildAttachment = (
-    overrides: Partial<InboxAttachment> = {},
-  ): InboxAttachment => ({
-    title: "resume.pdf",
-    type: "application/pdf",
-    path: "1/abc-123.pdf",
-    src: "https://stale.example/1/abc-123.pdf?token=expired",
-    ...overrides,
-  });
-
   it("signs a fresh URL from the durable path and opens it — never the persisted, expiring src", async () => {
     // Arrange
     vi.spyOn(window, "open").mockImplementation(() => null);
@@ -359,5 +383,167 @@ describe("InboxResolveDialog — attachment links are re-signed at click time (r
       .element(screen.getByText("object not found"))
       .toBeInTheDocument();
     expect(window.open).not.toHaveBeenCalled();
+  });
+});
+
+describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
+  afterEach(() => {
+    callAiWorker.mockReset();
+    vi.unstubAllEnvs();
+  });
+
+  const entitledDataProviderOverrides = {
+    aiEntitlement: vi.fn().mockResolvedValue({
+      is_entitled: true,
+      plan: "ai_tier",
+      status: "active",
+      resumes_used: 0,
+      resumes_limit: 50,
+    }),
+  };
+
+  const parseResponse = {
+    fields: {
+      name_en: "Rivky",
+      name_he: "רבקה",
+      parents_en: null,
+      parents_he: null,
+      seminary_en: "Bais Yaakov",
+      seminary_he: null,
+      shul_en: null,
+      shul_he: null,
+      location_en: "Lakewood, NJ",
+      location_he: null,
+      age: 24,
+      height: "5'6\"",
+    },
+    lowConfidenceFields: ["age"],
+    sections: { learningHistory: [], references: [] },
+    rawDraft: { name_en: { value: "Rivky", confidence: 0.95 } },
+  };
+
+  it("renders the auto-fill button when entitled and a resume attachment exists", async () => {
+    // Arrange
+    const item = buildItem({ attachments: [buildAttachment()] });
+    const { screen } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "Auto-fill from resume" }))
+      .toBeInTheDocument();
+  });
+
+  it("fills the form from the parsed draft and keeps the raw capture unchanged", async () => {
+    // Arrange
+    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
+    callAiWorker.mockResolvedValue(parseResponse);
+    const item = buildItem({
+      raw_text: "Dovid Berkowitz, BMG",
+      attachments: [buildAttachment()],
+    });
+    const { screen } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+
+    // Act
+    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
+
+    // Assert — raw capture is still visible.
+    await expect
+      .element(screen.getByText("Dovid Berkowitz, BMG"))
+      .toBeInTheDocument();
+    // Form was filled.
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Rivky");
+    await expect.element(screen.getByLabelText("Age")).toHaveValue(24);
+  });
+
+  it("renders a low-confidence badge for a flagged field", async () => {
+    // Arrange
+    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
+    callAiWorker.mockResolvedValue(parseResponse);
+    const item = buildItem({ attachments: [buildAttachment()] });
+    const { screen } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+
+    // Act
+    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
+
+    // Assert
+    await expect.element(screen.getByText("Please check")).toBeInTheDocument();
+  });
+
+  it("leaves the manual form usable when auto-fill fails", async () => {
+    // Arrange
+    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
+    callAiWorker.mockRejectedValue(new Error(" monthly resume limit reached"));
+    const item = buildItem({ attachments: [buildAttachment()] });
+    const { screen, dataProvider } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+
+    // Act
+    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
+    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen.getByRole("button", { name: "File as a suggestion" }).click();
+
+    // Assert
+    await expect
+      .poll(
+        () =>
+          (dataProvider.createShidduch as ReturnType<typeof vi.fn>).mock.calls
+            .length,
+      )
+      .toBeGreaterThan(0);
+    expect(dataProvider.createShidduch).toHaveBeenCalledWith(
+      expect.objectContaining({ name_en: "Chaya" }),
+    );
+  });
+
+  it("creates a shidduch and a resumes row when filing with a draft", async () => {
+    // Arrange
+    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
+    callAiWorker.mockResolvedValue(parseResponse);
+    const item = buildItem({ attachments: [buildAttachment()] });
+    const { screen, dataProvider } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+
+    // Act
+    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Rivky");
+    await screen.getByRole("button", { name: "File as a suggestion" }).click();
+
+    // Assert
+    await expect
+      .poll(
+        () =>
+          (dataProvider.createShidduch as ReturnType<typeof vi.fn>).mock.calls
+            .length,
+      )
+      .toBeGreaterThan(0);
+    expect(dataProvider.create).toHaveBeenCalledWith("resumes", {
+      data: expect.objectContaining({
+        shidduchim_id: 99,
+        extracted: parseResponse.rawDraft,
+        sections: parseResponse.sections,
+      }),
+    });
   });
 });

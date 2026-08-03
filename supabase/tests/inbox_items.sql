@@ -287,6 +287,32 @@ reset role;
 alter table public.inbox_items enable trigger validate_inbox_items_household_scope;
 
 -- ---------------------------------------------------------------------------
+-- (c-resolve) UPDATE side of the resolve path: A cannot move B's row to
+-- 'resolved' under the USING clause. Story 11.2 extends the resolve flow,
+-- so the USING side (not just with-check) needs the same cross-account
+-- protection.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a1111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+do $$
+declare
+  v_item_b bigint;
+begin
+  select value::bigint into v_item_b from ids where name = 'item_b';
+  update public.inbox_items set status = 'resolved' where id = v_item_b;
+  insert into results values ('(c-resolve) account A''s client cannot UPDATE account B''s inbox item to resolved (USING side)', false, 'update unexpectedly succeeded');
+exception when others then
+  insert into results values (
+    '(c-resolve) account A''s client cannot UPDATE account B''s inbox item to resolved (USING side)',
+    sqlerrm like '%is not a household-kind account%' or sqlerrm like '%row-level security policy%',
+    sqlerrm
+  );
+end $$;
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- (d) service_role bypasses RLS entirely — the webhook's own identity
 -- (supabaseAdmin never carries a caller JWT). Inserts into account B while
 -- no user session for B is active anywhere in this script.

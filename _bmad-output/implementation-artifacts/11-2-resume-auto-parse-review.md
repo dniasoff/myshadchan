@@ -1,6 +1,6 @@
 # Story 11.2: Resume auto-parse review
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -360,8 +360,46 @@ way existing dialog-adjacent tests in this codebase already mock `useDataProvide
 
 ### Agent Model Used
 
+moonshotai/kimi-k2.7-code
+
 ### Debug Log References
+
+- Fixed Hono type cast in workers/parse/index.ts by using `as unknown as ParseApp`.
+- Replaced `Buffer` with an explicit `arrayBufferToBase64` helper in workers/parse/resumeExtractor.ts because the Workers tsconfig does not include Node types.
+- Fixed `DraftResetter` to preserve `single_id`/`shadchan_id`/`initial_state`/`redt_date` when merging a parsed draft.
+- Adjusted `InboxResolveDialog.test.tsx` mock `update` to return the updated data so the stashed resume draft reaches the resolver.
+- Added `QueryClient` to the `InboxResolveDialog` test renderer because `useAiEntitlement` now uses `useQuery`.
 
 ### Completion Notes List
 
+- Created `workers/parse/parsedResumeDraft.ts` (+ test), `workers/parse/inboxAttachment.ts` (+ test), and `workers/parse/resumeExtractor.ts`.
+- Added `POST /parse` to `workers/parse/index.ts` with cap check, RLS-scoped inbox fetch, attachment download, fake-injectable extractor, draft conversion, and `ai_usage` increment.
+- Updated `workers/parse/wrangler.toml` to list the new AI Gateway / Gemini secrets.
+- Created `src/components/atomic-crm/inbox/useParseResume.ts` and wired the auto-fill button into `InboxResolveDialog.tsx`.
+- Extended `ShidduchInputs.tsx` with an additive `lowConfidenceFields` prop that renders "Please check" badges.
+- Extended `useResolveInboxItem.ts` to optionally create a `resumes` row when a draft was used.
+- Added `InboxResolveDialog.test.tsx` coverage for auto-fill, low-confidence badge, failed auto-fill fallback, and resume-row creation.
+- Extended `supabase/tests/inbox_items.sql` with a cross-account UPDATE-USING resolve assertion and bumped the test's check count.
+- Updated `references/entitlementGate.guard.test.ts` ALLOWED set and added English/French i18n strings for `crm.inbox.parse.*`.
+
 ### File List
+
+- workers/parse/parsedResumeDraft.ts
+- workers/parse/parsedResumeDraft.test.ts
+- workers/parse/inboxAttachment.ts
+- workers/parse/inboxAttachment.test.ts
+- workers/parse/resumeExtractor.ts
+- workers/parse/index.ts
+- workers/parse/index.test.ts
+- workers/parse/wrangler.toml
+- src/components/atomic-crm/inbox/useParseResume.ts
+- src/components/atomic-crm/inbox/InboxResolveDialog.tsx
+- src/components/atomic-crm/inbox/InboxResolveDialog.test.tsx
+- src/components/atomic-crm/inbox/useResolveInboxItem.ts
+- src/components/atomic-crm/shidduchim/ShidduchInputs.tsx
+- src/components/atomic-crm/references/entitlementGate.guard.test.ts
+- src/components/atomic-crm/providers/commons/englishCrmMessages.ts
+- src/components/atomic-crm/providers/commons/frenchCrmMessages.ts
+- supabase/tests/inbox_items.sql
+- supabase/tests/inbox_items.test.ts
+- _bmad-output/implementation-artifacts/11-2-resume-auto-parse-review.md

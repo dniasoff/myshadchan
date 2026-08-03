@@ -7,8 +7,20 @@ import type {
   CreateShidduchInput,
   InboxAttachment,
   InboxItem,
+  Resume,
   Shidduch,
 } from "../types";
+
+/**
+ * Story 11.2: optional resume draft captured by the parse Worker. When
+ * present, `resolveAsNewShidduch` also creates a `resumes` row attached to
+ * the new shidduch so the original attachment and extracted draft are kept.
+ */
+export type ResumeDraft = {
+  attachment: InboxAttachment;
+  rawDraft: unknown;
+  sections: unknown;
+};
 
 /**
  * Story 10.5: idempotency token + stashed inputs for the resolve window.
@@ -20,6 +32,7 @@ type ResolutionInput =
       action: "new";
       input: CreateShidduchInput;
       resolved_shidduchim_id?: Identifier;
+      resume_draft?: ResumeDraft;
     }
   | {
       action: "link";
@@ -43,7 +56,8 @@ function inputsAreCompatible(a: ResolutionInput, b: ResolutionInput): boolean {
     return (
       a.input.single_id === b.input.single_id &&
       a.input.shadchan_id === b.input.shadchan_id &&
-      a.input.origin === b.input.origin
+      a.input.origin === b.input.origin &&
+      a.resume_draft?.attachment.path === b.resume_draft?.attachment.path
     );
   }
   if (a.action === "link" && b.action === "link") {
@@ -186,9 +200,14 @@ export function useResolveInboxItem() {
   const resolveAsNewShidduch = async (
     item: InboxItem,
     input: CreateShidduchInput,
+    draft?: ResumeDraft,
   ): Promise<Shidduch> => {
     const attemptId = generateAttemptId();
-    const resolutionInput: ResolutionInput = { action: "new", input };
+    const resolutionInput: ResolutionInput = {
+      action: "new",
+      input,
+      resume_draft: draft,
+    };
     const lockedItem = await acquireResolutionLock(
       dataProvider,
       item,
@@ -227,6 +246,34 @@ export function useResolveInboxItem() {
           } as Record<string, unknown>,
         },
         previousData: lockedItem,
+      });
+    }
+
+    // Story 11.2: when a resume draft was used, attach the original
+    // attachment and extracted draft to the new shidduch as a resumes row.
+    // This is a plain CRUD write on a table the user already has full grants
+    // on. A failure here surfaces without leaving the shidduch half-created
+    // silently unexplained.
+    const savedDraft = (
+      stashed as ResolutionInput & { resume_draft?: ResumeDraft }
+    ).resume_draft;
+    if (savedDraft) {
+      await dataProvider.create<Resume>("resumes", {
+        data: {
+          shidduchim_id: created.id,
+          files: [
+            {
+              path: savedDraft.attachment.path,
+              filename: savedDraft.attachment.title,
+              mime_type: savedDraft.attachment.type,
+              uploaded_at: new Date().toISOString(),
+              uploaded_by: null,
+              size: 0,
+            },
+          ],
+          extracted: savedDraft.rawDraft,
+          sections: savedDraft.sections,
+        },
       });
     }
 

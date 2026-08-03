@@ -1044,6 +1044,10 @@ export const englishCrmMessages = {
     inbox: {
       source_shadchan: "Shadchan",
       senderNeedsConfirmation: "Who sent this?",
+      parse: {
+        autoFill: "Auto-fill from resume",
+        lowConfidence: "Please check",
+      },
       // Story 10.1 (Task 4): the share-target resolve screen
       // (inbox/ShareTarget.tsx).
       share: {

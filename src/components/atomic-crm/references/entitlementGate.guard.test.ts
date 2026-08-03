@@ -27,6 +27,7 @@ const ALLOWED = new Set([
   "useAiEntitlement.ts",
   "ResearchAssistantPanel.tsx",
   "BillingPage.tsx",
+  "InboxResolveDialog.tsx",
 ]);
 
 // A representative sample of free features that must remain gate-free. Names are
