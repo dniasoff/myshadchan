@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { cors } from "hono/cors";
 
 import { createWorkerApp } from "../shared/createApp";
 import { fail, ok } from "../shared/envelope";
@@ -20,6 +21,33 @@ export type ShareEnv = BaseEnv;
  * Worker is the ONLY place outside the authenticated app that ever reads
  * from it, and only ever as a proxied stream, never a signed URL. */
 const DOCUMENTS_BUCKET = "documents";
+
+/**
+ * Review fix (F2): `sharing/shareClient.ts`'s `fetch()` call is genuinely
+ * cross-origin — `myshadchan.space` (the Vercel app) calling
+ * `myshadchan-share.workers.dev` (no Worker declares a custom `routes`
+ * entry in its own `wrangler.toml`, so every Worker still lives on its
+ * default `*.workers.dev` origin). With no CORS headers at all the browser
+ * silently drops the response before `SharedProfilePage.tsx` ever sees it,
+ * and its own fail-soft `.catch()` then renders the identical "link is no
+ * longer active" notice a genuinely revoked link would — every share link
+ * looked correctly revoked in production, indistinguishable from the
+ * no-oracle behaviour AC-7 deliberately builds in for a different case.
+ * An explicit origin allowlist, never `*`: this response carries no
+ * cookies/`Authorization` header (the bearer credential is the token in
+ * the path, already known to whatever fetches it), so the allowlist isn't
+ * standing in for authentication — it just keeps the JSON readable by
+ * script only from the product's own origin(s), the same discipline the
+ * epic pre-flight's C2 names for the bearer-token AI/billing path, applied
+ * here too. `workers/shared/cors.ts` is reserved for Story 11-1 to
+ * introduce as a shared module (pre-flight §5 C2) — this allowlist stays
+ * worker-local until that lands, at which point `share` should migrate to
+ * it rather than fork it further.
+ */
+const SHARE_ALLOWED_ORIGINS = [
+  "https://www.myshadchan.space",
+  "https://myshadchan.space",
+];
 
 interface ShareLinkRow {
   id: number;
@@ -46,6 +74,7 @@ interface ResumeRow {
 interface ResumePhotoRow {
   id: number;
   path: string;
+  visibility: string;
   hidden_at: string | null;
   uploaded_at: string;
 }
@@ -136,6 +165,20 @@ async function resolveShareLink(
  * `resume_photos` row when `include_photo` is true. A soft-hidden photo
  * (`hidden_at is not null`) is excluded regardless of `include_photo` — a
  * hidden photo is never re-surfaced through a share link either (Task 5).
+ * Review fix (F1, BLOCKING): a `visibility = 'private_parent'` photo
+ * ("Parents only" in the UI — Story 5.4) is ALSO excluded regardless of
+ * `include_photo`, for the same reason: this Worker reads with the
+ * service-role key, which bypasses the storage-path policy
+ * (`07_storage.sql`) that is the only thing that normally keeps that photo
+ * away from the single it depicts (AD-3/FR93's dignity floor). Filtering
+ * to `visibility = 'shared'` here is the sole enforcement point on this
+ * path — there is no RLS backstop once `forAccount()`'s service-role
+ * client is in play (`workers/shared/forAccount.ts`) — and it also closes
+ * a live re-targeting hazard: without this filter, a parent uploading a
+ * `private_parent` photo after a shared one silently swapped the share
+ * link's photo out from under an already-issued link, because the query
+ * orders by `uploaded_at desc` and takes one row regardless of which
+ * visibility tier it belongs to.
  * Every tenant-table read goes through `forAccount()`, never the raw
  * service-role client, per AD-7 (Storage reads are the one exception —
  * `getServiceRoleClient` below, on the file-download path only).
@@ -181,8 +224,12 @@ async function buildManifest(
   if (shareLink.include_photo && resume) {
     const { data: photoData } = await scoped
       .from("resume_photos")
-      .select("id, path, hidden_at, uploaded_at")
+      .select("id, path, visibility, hidden_at, uploaded_at")
       .eq("resume_id", resume.id)
+      // F1: never a 'private_parent' ("Parents only") photo — see this
+      // function's own doc comment above for why this is the only
+      // enforcement point on this path.
+      .eq("visibility", "shared")
       .is("hidden_at", null)
       .order("uploaded_at", { ascending: false })
       .limit(1)
@@ -210,15 +257,54 @@ function toPublicManifest(entries: ManifestEntry[]): SharedFileManifestEntry[] {
 }
 
 /**
+ * Review fix (F6): `entry.filename` traces back to `resumes.files[].filename`
+ * — a user-supplied value at upload time (`resumes.ts#uploadResumeFile`),
+ * never validated for header-safety. Stripping only `"` (the original
+ * code) leaves CR/LF in a filename free to reach `Headers.set`, which
+ * throws in workerd on a value containing either — turning a same-account
+ * self-inflicted filename into a 500 instead of a download. Strip every
+ * control character (CR, LF, and the rest of the C0/DEL range) in addition
+ * to `"`, so the header value is always well-formed regardless of what a
+ * client uploaded.
+ */
+function sanitizeContentDispositionFilename(filename: string): string {
+  // No control-char regex here on purpose — this repo's suppression
+  // ratchet (`check-suppressions.mjs`) has a zero eslint-disable budget for
+  // `workers/`, and a `no-control-regex`-triggering pattern would need one.
+  // A plain code-point filter says the same thing without one.
+  let sanitized = "";
+  for (const char of filename) {
+    const code = char.codePointAt(0) ?? 0;
+    const isControlChar = code <= 0x1f || code === 0x7f;
+    if (char === '"' || isControlChar) continue;
+    sanitized += char;
+  }
+  return sanitized;
+}
+
+/**
  * AC-5: every request against a valid link writes one row, never merely
  * "the link was opened once". Best-effort — a logging failure must not
  * take down the actual response the recipient is waiting on.
+ *
+ * Review fix (F7, partial): `user_agent` is now written — a plain,
+ * unprocessed request header with no privacy trade-off to reason about.
+ * `ip_hash` deliberately stays `null` here, not filled in with a bare
+ * `sha256(ip)`: an unsalted hash of an IPv4 address (≤ 2^32 possibilities)
+ * is reversible by a rainbow table in practice, so it would give the
+ * `ip_hash` column's own name — a privacy-preserving pseudonym — without
+ * actually being one. A real fix needs a keyed hash (HMAC with a
+ * per-deployment secret pepper), which means a new `wrangler secret` and a
+ * `deploy.yml` provisioning step for this Worker specifically — real scope,
+ * not a one-line addition, and not this review-fix pass's job. Left as a
+ * named gap rather than a silently-wrong implementation.
  */
 async function logAccess(
   env: BaseEnv,
   shareLinkId: number,
   resource: string,
   durationMs: number,
+  userAgent: string | null,
 ): Promise<void> {
   const { error } = await getServiceRoleClient(env)
     .from("share_access_log")
@@ -226,6 +312,7 @@ async function logAccess(
       share_link_id: shareLinkId,
       resource,
       duration_ms: Math.round(durationMs),
+      user_agent: userAgent,
     });
   if (error) {
     console.error("share.logAccess.error", error);
@@ -233,6 +320,13 @@ async function logAccess(
 }
 
 const app = createWorkerApp<ShareEnv>("share");
+
+// Review fix (F2): every route on this Worker is reachable cross-origin
+// from the deployed app, so every route needs the allowlisted CORS header
+// — not just the ones a browser happens to call today. Hono's `cors()`
+// also answers the OPTIONS preflight itself (204, no downstream handler
+// invoked), so no separate `app.options(...)` route is needed.
+app.use("*", cors({ origin: SHARE_ALLOWED_ORIGINS, allowMethods: ["GET"] }));
 
 // AC-3, AC-6, AC-7: the profile view. Identical 404 for missing, revoked or
 // expired — no oracle for link status.
@@ -253,7 +347,13 @@ app.get("/r/:token", async (c) => {
   // of the request to just before responding), so a slow manifest build is
   // reflected in duration_ms rather than hidden by measuring only the
   // token check.
-  await logAccess(c.env, shareLink.id, "profile", Date.now() - startedAt);
+  await logAccess(
+    c.env,
+    shareLink.id,
+    "profile",
+    Date.now() - startedAt,
+    c.req.header("user-agent") ?? null,
+  );
 
   return c.json(ok(data));
 });
@@ -282,24 +382,32 @@ app.get("/r/:token/file/:fileKey", async (c) => {
     .storage.from(DOCUMENTS_BUCKET)
     .download(entry.storagePath);
 
-  if (error || !blob) {
-    console.error("share.download.error", error);
-    return c.json(fail("not found"), 404);
-  }
-
+  // Review fix (F8): logged regardless of whether the storage read itself
+  // succeeded. `entry` above is already a member of THIS freshly-rebuilt,
+  // authorized manifest — this is a real access against a valid,
+  // unexpired, unrevoked link, so AC-5's "every request" covers it even
+  // when a transient Storage API error means the bytes never make it back.
+  // Logging only the success path would have silently under-counted
+  // exactly the failures a sharer most wants visibility into.
   await logAccess(
     c.env,
     shareLink.id,
     entry.fileKey === "photo" ? "photo" : `resume:${entry.fileKey}`,
     Date.now() - startedAt,
+    c.req.header("user-agent") ?? null,
   );
+
+  if (error || !blob) {
+    console.error("share.download.error", error);
+    return c.json(fail("not found"), 404);
+  }
 
   const headers = new Headers();
   headers.set("Content-Type", blob.type || "application/octet-stream");
   if (entry.filename) {
     headers.set(
       "Content-Disposition",
-      `attachment; filename="${entry.filename.replace(/"/g, "")}"`,
+      `attachment; filename="${sanitizeContentDispositionFilename(entry.filename)}"`,
     );
   }
 

@@ -761,6 +761,148 @@ facing boundary [Source: .claude/rules/testing.md, .claude/rules/security-trigge
 - [Source: .claude/rules/security-triggers.md] — review triggers for external calls, file ops, user input
 - [Source: AGENTS.md#Database-Management] — migration workflow
 
+## Change Log
+
+- 2026-08-03 — Implemented Story 9.5 end to end: `share_links`/`share_access_log` tables (Task 1),
+  manager-scoped RLS with zero `anon` reach (Task 2), the `share/` Worker rewritten onto Supabase
+  Storage per the storage ruling (Task 4), the provider/component surface in `sharing/` (Task 6),
+  and `resumes`/`resume_photos` byte cleanup (Task 7). Status → review.
+- 2026-08-03 — Review fixes (F1 BLOCKING, F2 BLOCKING, fixed; F6/F8/F9 should-fix, fixed; F7
+  should-fix, partially fixed; F3/F4/F5/F10 addressed by disagreement-with-evidence or an
+  already-adequate deferral note — see "Review fixes" below). Status stays review pending
+  re-review.
+
+## Review fixes (F1–F10)
+
+**F1 (BLOCKING, fixed).** `buildManifest`'s photo query had no `visibility` filter, so a
+`resume_photos` row marked `'private_parent'` ("Parents only" — Story 5.4's dignity-floor tier,
+AD-3/FR93) was served to an anonymous share recipient whenever it happened to be the newest
+unhidden photo on the resume, `include_photo` true or false's distinction notwithstanding once a
+share link included a photo at all. This Worker reads with the service-role key
+(`forAccount()`/`workers/shared/forAccount.ts`), which bypasses the storage-path policy
+(`07_storage.sql`) that is the *only* thing normally keeping that photo away from the single it
+depicts — so the manifest query is the sole enforcement point on this path, and it was missing
+the one predicate that mattered. Fixed with `.eq("visibility", "shared")` on the `resume_photos`
+query (`workers/share/index.ts`), which also closes the live re-targeting hazard the review named:
+a `private_parent` photo uploaded *after* a shared one could no longer silently displace it, since
+`.order("uploaded_at", { ascending: false }).limit(1)` now only ever ranks among `'shared'` rows.
+Three new tests in `workers/share/index.test.ts`: a `private_parent`-only photo is absent from the
+manifest even with `include_photo: true`; a newer `private_parent` photo never displaces an older
+`shared` one (asserts the resolved `downloadUrl` streams the *shared* photo's storage path); and
+`GET .../file/photo` 404s (identical AC-13 shape, `.storage.from(...)` never invoked) when the
+only photo is `private_parent`.
+
+**F2 (BLOCKING, fixed).** No Worker in this codebase set CORS headers
+(`grep -rn "Access-Control" workers/` — zero matches, confirmed independently), and `share/` is
+the product's first and only browser→Worker `fetch()` call (`sharing/shareClient.ts`, confirmed
+the only `VITE_*_WORKER_URL` reference in `src/`). Every Worker still lives on its default
+`*.workers.dev` origin (`grep` over every `wrangler.toml` — none declare `routes`), so the call is
+genuinely cross-origin from `myshadchan.space`, and with no CORS header the browser silently drops
+the response; `SharedProfilePage.tsx`'s own fail-soft `.catch()` then renders the identical "link
+is no longer active" notice a genuinely revoked link would, so every share link would have looked
+correctly revoked in production. Fixed with Hono's built-in `cors()` middleware
+(`workers/share/index.ts`, `app.use("*", cors({ origin: SHARE_ALLOWED_ORIGINS, allowMethods:
+["GET"] }))`) — an explicit two-entry origin allowlist (`https://www.myshadchan.space`,
+`https://myshadchan.space`), never `*`, matching the discipline the epic pre-flight's C2 names for
+the bearer-token AI/billing path even though this path carries no bearer credential of its own
+(the token is in the URL path, already known to whatever calls it). Deliberately kept
+**worker-local**, not added to a new `workers/shared/cors.ts` — the pre-flight explicitly reserves
+that shared module for Story 11-1 to introduce; forking it here ahead of that would create the
+exact "two agents solving the same problem by different mechanisms" shape
+`.claude/rules/parallel-ownership.md` warns about. Three new tests in
+`workers/share/index.test.ts`: the allowed origin gets the exact `Access-Control-Allow-Origin`
+echo on an ordinary GET; an arbitrary third-party origin gets none; an `OPTIONS` preflight for the
+allowed origin returns `204` with the CORS headers set, never reaching route logic.
+
+**F3 (MEDIUM, not fixed — disagreement-with-evidence).** Re-verified per the "if a gate is red,
+prove it" rule: `make check-migration-safety STACK_ID=1` still fails identically at
+`supabase/tests/migration-data-safety/fixture.sql:533` (`null value in column
+"proposed_by_account_id" of relation "connections"`), on a stack rebuilt from scratch with this
+review-fix diff applied. This story's own two migrations remain purely additive `CREATE TABLE`s
+with no `drop`/`narrow`/`rename` of any existing column, so there is no data-loss risk this gate
+would actually be catching for `share_links`/`share_access_log` even if it could run to
+completion. The review's own point that 9.1's and 9.3's review-fix commits both *claimed* to seed
+this fixture without the guard ever reaching step 3 to prove it is accurate and larger than a
+single story's scope — `supabase/tests/migration-data-safety/fixture.sql` is outside this story's
+declared file set, and a real fix needs an owner who can touch it once, correctly, for every
+epic's benefit rather than each story guessing at a patch it cannot verify runs. Not fixed here;
+flagged for that owner, exactly as the review itself recommends ("needs an owner before Epic 9
+deploys").
+
+**F4 (MEDIUM, not fixed — already adequately flagged).** Agreed this is a real, deliberate
+asymmetry, not a bug: this story defers giving a plain `single` any visibility or control over
+links naming them, and with F1 open a `single` could not even *see* that a link existed. Dev Notes
+"Why share links are manager-scoped, not household-scoped" already states this as an explicit,
+named open question — "flagged, not resolved" — rather than a silent gap, and names the extension
+FR104 would need (a token-less view). With F1 now closed, the sharpest form of the review's
+concern (a `single` unable to see that a "Parents only" photo was reachable from the internet) no
+longer applies to *this* diff's own construction, even though the broader visibility question the
+review raises remains genuinely open. Left as a flagged deferral for a dedicated follow-up story,
+not resolved by a quiet policy change here — widening `share_links`' RLS is exactly the kind of
+edit the epic pre-flight's ownership discipline says should not happen as a side effect of an
+unrelated fix pass.
+
+**F5 (MEDIUM, not fixed — confirmed unowned, as the story's own Dev Notes already state).**
+AD-17 rate limiting on `/r/:token` remains unowned by any story in Epics 1–11 (re-confirmed:
+no `workers/shared/` rate-limit helper exists anywhere in the tree). The story's Dev Notes
+"Security / RLS" already names this explicitly as "flagged to the epic owner, not silently
+absorbed here" — restated, not newly discovered, and out of this fix pass's scope for the same
+reason F3 is.
+
+**F6 (LOW, fixed).** `entry.filename` (from `resumes.files[].filename`, a user-supplied value at
+upload time) only had `"` stripped before reaching `Content-Disposition`'s `Headers.set()` call,
+leaving a CR/LF-bearing filename free to throw in workerd (a same-account self-inflicted 500
+instead of a download). Fixed with `sanitizeContentDispositionFilename()`
+(`workers/share/index.ts`), which strips the full C0/DEL control range in addition to `"` —
+written as a plain code-point filter rather than a control-character regex, because this repo's
+suppression ratchet (`check-suppressions.mjs`) has a zero eslint-disable budget for `workers/` and
+a `no-control-regex`-triggering pattern would have needed one. New test: a filename containing a
+raw CRLF still produces a clean, injection-free `200` response instead of a crash.
+
+**F7 (LOW, partially fixed).** `share_access_log.user_agent` is now written on every log row
+(`logAccess()` in `workers/share/index.ts`, both call sites) — a plain, unprocessed request
+header with no privacy trade-off to reason about. `ip_hash` deliberately stays unwritten: an
+unsalted `sha256(ip)` over an IPv4 address (≤ 2^32 possibilities) is reversible by a rainbow table
+in practice, so shipping one would give the column's own name — a privacy-preserving pseudonym —
+without it actually being one. A real fix needs a keyed hash (HMAC with a per-deployment secret
+pepper), which means a new `wrangler secret` and a `deploy.yml` provisioning step specific to this
+Worker — real scope, documented inline as a named gap rather than filled with a silently-wrong
+implementation. New test confirms `user_agent` is written; `ip_hash` remains `null` by design.
+
+**F8 (LOW, fixed).** `logAccess` on the file route previously ran only after a successful storage
+download, so a valid, authorized request whose storage read failed went unlogged — under AC-5's
+"every request", not just the ones that succeeded. Fixed by moving the `logAccess` call ahead of
+the `error || !blob` check in `GET /r/:token/file/:fileKey` (`workers/share/index.ts`) — the
+request is already a member of the freshly-rebuilt, authorized manifest by that point, so it is a
+real access attempt regardless of what the storage call itself returns. New test: a mocked storage
+failure still produces exactly one `share_access_log` row.
+
+**F9 (LOW, fixed).** `buildResumeStorageCleanupCallbacks`'s two `dataProvider.getList` calls were
+unguarded — `removeResumeFileObjects`/`removeResumePhotoObjects` already fail soft on their own
+(try/catch around the storage call itself, per the story's original Task 7), but a `getList`
+rejection (a transient PostgREST/network failure, not a Storage failure) would have propagated
+straight out of `beforeDelete` and made the parent `singles`/`shidduchim` delete itself fail — the
+opposite of AC-12's "never blocks the delete". Fixed by wrapping the whole `beforeDelete` body in
+try/catch (`resumeStorageCleanup.ts`), logging rather than rethrowing regardless of which step
+failed. Two new tests in `resumeStorageCleanup.test.ts`: the delete still resolves when the first
+`getList` (`resumes`) rejects, and separately when the second (`resume_photos`) rejects after the
+first succeeded — the resume file removal already attempted by that point is asserted to have
+still happened.
+
+**F10 (LOW, informational, no action needed).** `vite.config.ts`'s `VITE_SHARE_WORKER_URL` entry
+was already recorded in this story's own File List and Completion Notes at the time of the
+original review, which is exactly what the finding asked for ("record it so 11-1/12-4 append
+rather than rewrite"). No further change made this pass; noted here only to confirm the finding's
+own request was already satisfied, not overlooked.
+
+**Not touched (confirmed out of scope for this story, matches the epics-9-12 preflight brief §9
+"Not a problem" and the review's own "Pre-existing, not 9-5's" section).** `anon`'s residual
+`TRUNCATE` on `public.members`/`public.configuration`, and the tables still missing `FORCE ROW
+LEVEL SECURITY` beyond this story's own two (which both `FORCE` correctly). The pre-flight
+explicitly rules these pre-existing and not a reason to block or re-scope any Epic 9 story;
+re-confirmed here, not fixed, matching the same disposition Story 9.1's review-fix pass gave the
+identical finding (its own F8).
+
 ## Dev Agent Record
 
 ### Agent Model Used
@@ -805,6 +947,37 @@ Claude Sonnet 5 (claude-sonnet-5), via the bmad-dev-story workflow.
   `child_portal_tokens`) verbatim while explaining precedent — reworded to describe the retired
   surface generically ("the retired token-portal, Epic 1 Story 1.4 — read it from git history")
   without spelling out its forbidden identifiers; re-ran clean.
+
+### Debug Log References — review-fix pass (F1/F2/F6–F9)
+
+- `npx vitest --config vitest.config.ts --project workers --run workers/share/index.test.ts` — 29/29
+  green (9 new: 3 for F1, 3 for F2's CORS, 1 each for F6/F7/F8).
+- `npx vitest --config vitest.config.ts --project app --run
+  src/components/atomic-crm/providers/supabase/resumeStorageCleanup.test.ts` — 8/8 green (2 new,
+  F9).
+- `make typecheck STACK_ID=1`, `npm run lint STACK_ID=1` — clean. First lint pass on F6's fix used
+  an `eslint-disable-next-line no-control-regex` comment, which tripped
+  `node scripts/check-suppressions.mjs` (`eslint-disable comments over budget in "workers": 1
+  found, budget 0`) — rewritten as a plain code-point filter instead of a control-char regex, no
+  disable directive needed; re-ran the suppression guard clean.
+- `npx prettier --check` on all four changed files — clean (one file needed `--write` after the
+  first pass, re-checked clean after).
+- `DBUS_SESSION_BUS_ADDRESS=/dev/null STACK_OWNER=fix-9-5 make start-supabase-e2e STACK_ID=1` (fresh
+  stack, migrations applied from HEAD) → `make test STACK_ID=1` — **276 files / 3345 tests green**,
+  reproduced twice (the review's own independently-measured pre-fix baseline was 3334; this pass's
+  11 new tests — 9 in `workers/share/index.test.ts`, 2 in `resumeStorageCleanup.test.ts` — account
+  for the difference exactly). `npm run test:unit:db STACK_ID=1` — 34 files / 1324 tests green
+  (unchanged by this pass — no schema/SQL touched). `db diff` against the rebuilt stack — "No
+  schema changes found", twice. `make registry-gen` — no drift (`git status --short registry.json`
+  empty; this pass touched no `sharing/`-directory files). All four CI guards re-run clean on the
+  final diff.
+- `make check-migration-safety STACK_ID=1` — **still red, re-confirmed pre-existing** (F3): fails
+  identically at `fixture.sql:533` on a stack rebuilt from scratch with this fix pass applied.
+  Running it also reset stack 1's database to a pre-9.5 baseline as a side effect of its own
+  internal `db reset`/rollback mechanics — stack was rebuilt via `make start-supabase-e2e
+  STACK_ID=1` again (migrations re-applied from HEAD, this story's own two included) before
+  re-running `make test STACK_ID=1` for the final green result above. Stack stopped and released
+  (`make stop-supabase-e2e STACK_ID=1`) after.
 
 ### Completion Notes List
 
@@ -854,6 +1027,18 @@ Claude Sonnet 5 (claude-sonnet-5), via the bmad-dev-story workflow.
   Invariants-and-Rules diagram's own R2 node, the Capability→Architecture map's E8 row, and the
   Deferred section's "already all-Cloudflare for compute/media/email" claim (now false without the
   amendment). Each edit is scoped to this one decision; nothing else in the file was touched.
+- **Review-fix pass (F1/F2/F6–F9 — see "Review fixes" above for the full account)**: the
+  `resume_photos` manifest query now filters `visibility = 'shared'` (F1, BLOCKING — a
+  `private_parent` photo was reachable through a share link, which the service-role-keyed Worker
+  query is the sole enforcement point against); `workers/share/index.ts` gained an explicit
+  two-origin CORS allowlist via Hono's built-in `cors()` middleware, kept worker-local rather than
+  forked into a new `workers/shared/cors.ts` (F2, BLOCKING — the recipient page could not actually
+  load cross-origin in production, and failed identically to a revoked link); a
+  Content-Disposition filename sanitizer strips the full C0/DEL control range, not just `"` (F6);
+  `share_access_log.user_agent` is now written, `ip_hash` deliberately stays unwritten pending a
+  keyed-hash secret (F7, partial); the file route now logs before checking the storage download's
+  own success (F8); and `resumeStorageCleanup.ts`'s `beforeDelete` wraps its two `getList` calls in
+  try/catch so a transient list failure can no longer block the parent delete (F9).
 - **Things this story did NOT do, on purpose**: no FakeRest emulation of the Worker's proxy stream
   (impossible — no Cloudflare Workers runtime in the browser bundle; documented explicitly in
   `internal/shareLinks.ts`'s own comment so a future contributor doesn't go looking for it there);
@@ -884,9 +1069,13 @@ Claude Sonnet 5 (claude-sonnet-5), via the bmad-dev-story workflow.
 
 **Worker**
 - `workers/share/index.ts` — `ShareEnv` narrowed to plain `BaseEnv`; `GET /r/:token` and
-  `GET /r/:token/file/:fileKey` implemented.
+  `GET /r/:token/file/:fileKey` implemented. Review fixes F1 (`visibility = 'shared'` filter on the
+  photo query), F2 (CORS allowlist middleware), F6 (Content-Disposition filename sanitizer), F7
+  (`user_agent` written to `share_access_log`), F8 (file route logs before the storage-download
+  success check).
 - `workers/share/wrangler.toml` — `[[r2_buckets]]` block removed.
-- `workers/share/index.test.ts` — extended from 1 test (`/health`) to 20.
+- `workers/share/index.test.ts` — extended from 1 test (`/health`) to 20, then to 29 in the
+  review-fix pass (F1 × 3, F2/CORS × 3, F6/F7/F8 × 1 each).
 
 **Frontend — `sharing/` (new directory)**
 - `src/components/atomic-crm/sharing/shareToken.ts` / `.test.ts`
@@ -912,6 +1101,8 @@ Claude Sonnet 5 (claude-sonnet-5), via the bmad-dev-story workflow.
 - `src/components/atomic-crm/providers/supabase/resumes.ts` — `removeResumeFileObjects`.
 - `src/components/atomic-crm/providers/supabase/resumePhotos.ts` — `removeResumePhotoObjects`.
 - `src/components/atomic-crm/providers/supabase/resumeStorageCleanup.ts` (new) / `.test.ts` (new).
+  Review fix F9: `beforeDelete`'s body wrapped in try/catch so a `dataProvider.getList` rejection
+  can no longer block the parent delete; two new tests.
 
 **Provider — FakeRest**
 - `src/components/atomic-crm/providers/fakerest/dataProvider.ts` — `share_links` create-time

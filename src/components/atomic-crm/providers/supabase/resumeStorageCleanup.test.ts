@@ -278,4 +278,78 @@ describe("buildResumeStorageCleanupCallbacks (AC-11, AC-12)", () => {
       )({ id: 1 }, stubDataProvider),
     ).resolves.toEqual({ id: 1 });
   });
+
+  it("review fix F9: the parent row's delete still resolves when dataProvider.getList itself rejects — no exception propagates", async () => {
+    // Arrange — a transient PostgREST/network failure on the FIRST
+    // getList("resumes", ...) call, before .remove() is ever reached. Prior
+    // to the F9 fix this threw straight out of beforeDelete, which would
+    // have made the singles/shidduchim delete itself fail — the opposite
+    // of AC-12's "never blocks the delete".
+    const callbacks = buildResumeStorageCleanupCallbacks();
+    const singlesCallback = callbacks.find(
+      (callback) => callback.resource === "singles",
+    );
+    if (!singlesCallback?.beforeDelete) {
+      throw new Error("expected a beforeDelete callback for singles");
+    }
+    const getList = vi.fn().mockRejectedValue(new Error("PostgREST down"));
+    const stubDataProvider = { getList } as unknown as DataProvider;
+
+    // Act / Assert
+    await expect(
+      (
+        singlesCallback.beforeDelete as (
+          params: { id: number },
+          dataProvider: DataProvider,
+        ) => Promise<{ id: number }>
+      )({ id: 1 }, stubDataProvider),
+    ).resolves.toEqual({ id: 1 });
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("review fix F9: the parent row's delete still resolves when the SECOND getList (resume_photos) rejects", async () => {
+    // Arrange — the resumes lookup succeeds and finds a resume with a file,
+    // but the follow-up resume_photos lookup rejects. The resume file's own
+    // removal must still have been attempted (it doesn't depend on the
+    // photo lookup), and the overall hook must still resolve.
+    const callbacks = buildResumeStorageCleanupCallbacks();
+    const singlesCallback = callbacks.find(
+      (callback) => callback.resource === "singles",
+    );
+    if (!singlesCallback?.beforeDelete) {
+      throw new Error("expected a beforeDelete callback for singles");
+    }
+    const resume: Resume = {
+      id: 1,
+      account_id: 1,
+      single_id: 1,
+      created_at: "2026-01-01T00:00:00Z",
+      files: [
+        {
+          path: "1/resumes/1/a.pdf",
+          filename: "a.pdf",
+          uploaded_at: "2026-01-01T00:00:00Z",
+          uploaded_by: null,
+          mime_type: "application/pdf",
+          size: 1,
+        },
+      ],
+    };
+    const getList = vi
+      .fn()
+      .mockImplementationOnce(async () => ({ data: [resume], total: 1 }))
+      .mockRejectedValueOnce(new Error("PostgREST down"));
+    const stubDataProvider = { getList } as unknown as DataProvider;
+
+    // Act / Assert
+    await expect(
+      (
+        singlesCallback.beforeDelete as (
+          params: { id: number },
+          dataProvider: DataProvider,
+        ) => Promise<{ id: number }>
+      )({ id: 1 }, stubDataProvider),
+    ).resolves.toEqual({ id: 1 });
+    expect(remove).toHaveBeenCalledExactlyOnceWith(["1/resumes/1/a.pdf"]);
+  });
 });

@@ -151,6 +151,7 @@ function seedPhoto(overrides: Partial<Row> = {}): void {
     account_id: 1,
     resume_id: 1,
     path: "1/photos/shared/single-1/xyz-photo.jpg",
+    visibility: "shared",
     hidden_at: null,
     uploaded_at: new Date().toISOString(),
     ...overrides,
@@ -178,6 +179,72 @@ describe("share worker", () => {
     expect(await res.json()).toEqual({
       success: true,
       data: { worker: "share", status: "ok" },
+    });
+  });
+
+  describe("CORS (review fix F2)", () => {
+    it("echoes Access-Control-Allow-Origin for the production origin on an ordinary GET", async () => {
+      // Arrange
+      const link = seedShareLink();
+      seedSingle();
+      seedResume();
+
+      // Act — the deployed app's own actual origin, exactly as
+      // sharing/shareClient.ts's fetch() call would send it.
+      const res = await app.request(
+        `/r/${link.token}`,
+        { headers: { Origin: "https://www.myshadchan.space" } },
+        env,
+      );
+
+      // Assert
+      expect(res.status).toBe(200);
+      expect(res.headers.get("access-control-allow-origin")).toBe(
+        "https://www.myshadchan.space",
+      );
+    });
+
+    it("does NOT echo Access-Control-Allow-Origin for an arbitrary third-party origin", async () => {
+      // Arrange
+      const link = seedShareLink();
+      seedSingle();
+      seedResume();
+
+      // Act
+      const res = await app.request(
+        `/r/${link.token}`,
+        { headers: { Origin: "https://evil.example.com" } },
+        env,
+      );
+
+      // Assert — the JSON body is still sent (this is a server-side check,
+      // not the actual enforcement point — the BROWSER refuses to expose
+      // the response to script without the header, which this assertion
+      // stands in for), but no header names this origin as allowed, so a
+      // real browser would block script access to it.
+      expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    });
+
+    it("answers an OPTIONS preflight for the allowed origin with 204 and the CORS headers, without touching any route logic", async () => {
+      // Act
+      const res = await app.request(
+        "/r/some-token",
+        {
+          method: "OPTIONS",
+          headers: {
+            Origin: "https://myshadchan.space",
+            "Access-Control-Request-Method": "GET",
+          },
+        },
+        env,
+      );
+
+      // Assert
+      expect(res.status).toBe(204);
+      expect(res.headers.get("access-control-allow-origin")).toBe(
+        "https://myshadchan.space",
+      );
+      expect(res.headers.get("access-control-allow-methods")).toContain("GET");
     });
   });
 
@@ -312,6 +379,78 @@ describe("share worker", () => {
       // Assert
       expect(body.data.files.some((file) => file.fileKey === "photo")).toBe(
         false,
+      );
+    });
+
+    it("review fix F1 (BLOCKING): excludes a visibility='private_parent' photo even when include_photo is true, and none other exists", async () => {
+      // Arrange — the ONLY photo on this resume is "Parents only"
+      // (Story 5.4's dignity-floor tier, AD-3/FR93). Even though the
+      // sharer explicitly chose include_photo=true, this Worker reads
+      // with the service-role key and bypasses the storage-path policy
+      // that normally keeps this photo away from the single it depicts —
+      // the manifest query's own visibility filter is the only thing
+      // standing between this and serving it to an anonymous recipient.
+      const link = seedShareLink({ include_photo: true });
+      seedSingle();
+      seedResume();
+      seedPhoto({ visibility: "private_parent" });
+
+      // Act
+      const res = await app.request(`/r/${link.token}`, {}, env);
+      const body = (await res.json()) as {
+        data: { files: Array<{ fileKey: string }> };
+      };
+
+      // Assert
+      expect(body.data.files.some((file) => file.fileKey === "photo")).toBe(
+        false,
+      );
+    });
+
+    it("review fix F1 (BLOCKING): a newer private_parent photo never displaces an older shared photo (the re-targeting hazard)", async () => {
+      // Arrange — a shared photo uploaded first, then a private_parent
+      // photo uploaded LATER. Before the fix, `.order('uploaded_at',
+      // {ascending: false}).limit(1)` picked the newest row regardless of
+      // visibility, so the later private_parent upload would silently
+      // swap an already-issued share link's photo out from under it.
+      const link = seedShareLink({ include_photo: true });
+      seedSingle();
+      seedResume();
+      seedPhoto({
+        id: 1,
+        path: "1/photos/shared/single-1/older-shared.jpg",
+        visibility: "shared",
+        uploaded_at: new Date(Date.now() - 60_000).toISOString(),
+      });
+      seedPhoto({
+        id: 2,
+        path: "1/photos/private_parent/single-1/newer-private.jpg",
+        visibility: "private_parent",
+        uploaded_at: new Date().toISOString(),
+      });
+
+      // Act
+      const res = await app.request(`/r/${link.token}`, {}, env);
+      const body = (await res.json()) as {
+        data: { files: Array<{ fileKey: string; downloadUrl: string }> };
+      };
+
+      // Assert
+      expect(body.data.files).toContainEqual({
+        fileKey: "photo",
+        filename: null,
+        mimeType: null,
+        size: null,
+        downloadUrl: `/r/${link.token}/file/photo`,
+      });
+      // Confirm it's specifically the SHARED photo's bytes that would be
+      // served, not the private one — download the resolved fileKey and
+      // assert the storage call targets the shared path.
+      storageDownload.mockClear();
+      storageFrom.mockClear();
+      await app.request(`/r/${link.token}/file/photo`, {}, env);
+      expect(storageDownload).toHaveBeenCalledExactlyOnceWith(
+        "1/photos/shared/single-1/older-shared.jpg",
       );
     });
 
@@ -496,6 +635,108 @@ describe("share worker", () => {
         share_link_id: 1,
         resource: "photo",
       });
+    });
+
+    it("review fix F7: writes the request's User-Agent header onto the share_access_log row", async () => {
+      // Arrange
+      const link = seedShareLink();
+      seedSingle();
+      seedResume();
+      storageDownload.mockResolvedValue({
+        data: new Blob(["x"]),
+        error: null,
+      });
+
+      // Act
+      await app.request(
+        `/r/${link.token}/file/resume-0`,
+        { headers: { "User-Agent": "MyShadchanTestAgent/1.0" } },
+        env,
+      );
+
+      // Assert
+      expect(insertedLogs[0]).toMatchObject({
+        user_agent: "MyShadchanTestAgent/1.0",
+      });
+    });
+
+    it("review fix F6: strips CR/LF from a malicious filename instead of throwing, so the download still succeeds", async () => {
+      // Arrange — a filename containing a raw CRLF, the shape that would
+      // otherwise let an uploaded file's name inject a second header (or
+      // simply crash Headers.set in workerd) once it reaches the
+      // Content-Disposition value.
+      const link = seedShareLink();
+      seedSingle();
+      seedResume({
+        files: [
+          {
+            path: "1/resumes/single-1/abc-resume.pdf",
+            filename: 'evil\r\nX-Injected: 1\r\n".pdf',
+            mime_type: "application/pdf",
+            size: 1234,
+          },
+        ],
+      });
+      storageDownload.mockResolvedValue({
+        data: new Blob(["bytes"]),
+        error: null,
+      });
+
+      // Act
+      const res = await app.request(`/r/${link.token}/file/resume-0`, {}, env);
+
+      // Assert — no crash, no injected header, no stray quote reopening
+      // the attribute.
+      expect(res.status).toBe(200);
+      const disposition = res.headers.get("content-disposition");
+      expect(disposition).not.toBeNull();
+      expect(disposition).not.toMatch(/[\r\n]/);
+      expect(res.headers.get("x-injected")).toBeNull();
+    });
+
+    it("review fix F8: logs the request even when the storage download itself fails", async () => {
+      // Arrange
+      const link = seedShareLink();
+      seedSingle();
+      seedResume();
+      storageDownload.mockResolvedValue({
+        data: null,
+        error: new Error("storage down"),
+      });
+
+      // Act
+      const res = await app.request(`/r/${link.token}/file/resume-0`, {}, env);
+
+      // Assert — the response still degrades to the standard 404 (AC-13's
+      // shape is reused for "could not serve the bytes" too), but this was
+      // a real, authorized access attempt against a valid link and must
+      // still be logged (AC-5's "every request"), not silently dropped.
+      expect(res.status).toBe(404);
+      expect(insertedLogs).toHaveLength(1);
+      expect(insertedLogs[0]).toMatchObject({
+        share_link_id: 1,
+        resource: "resume:resume-0",
+      });
+      expect(typeof insertedLogs[0].duration_ms).toBe("number");
+    });
+
+    it("review fix F1 (BLOCKING): GET .../file/photo 404s and never calls .storage.from(...) when the only photo is visibility='private_parent'", async () => {
+      // Arrange
+      const link = seedShareLink({ include_photo: true });
+      seedSingle();
+      seedResume();
+      seedPhoto({ visibility: "private_parent" });
+
+      // Act — "photo" is not a member of THIS token's manifest (F1 strips
+      // private_parent photos before the manifest is even built), so this
+      // is the same shape as a forged fileKey.
+      const res = await app.request(`/r/${link.token}/file/photo`, {}, env);
+
+      // Assert
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ success: false, error: "not found" });
+      expect(storageFrom).not.toHaveBeenCalled();
+      expect(storageDownload).not.toHaveBeenCalled();
     });
 
     it("re-validates revoke/expiry on the file route too — a revoked link refuses a download", async () => {
