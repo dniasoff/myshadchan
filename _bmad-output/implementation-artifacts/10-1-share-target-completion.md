@@ -71,7 +71,11 @@ existing account-scoped policies on `inbox_items`, `shidduchim`, `shadchanim`,
    at share-time or later from the Inbox, the only way a new suggestion is created is
    the existing `createShidduch()` RPC (AD-4); "link to an existing suggestion" writes
    an `interactions` row (`kind: 'note'`) against the chosen `shidduchim` row, the same
-   mechanism `ShidduchTimeline.tsx`'s `AddNote` already uses — never a bespoke insert.
+   values `entity360/tabs/NotesTab.tsx`'s `AddNoteForm` already inserts (`target_type:
+   "shidduch"`, `kind: "note"`, `scope: "shidduch"`, `reference_link_id: null`) —
+   never a bespoke insert, and reused through the shared helper Task 2 extracts (see
+   Task 2 — `NotesTab.tsx` documents itself as the sole note-writer, so this capture
+   path must go through the same function, not stand up a second one).
 
 8. **Cross-account isolation holds.** The shadchan search, the single picker, and the
    "link to an existing suggestion" search only ever return rows from my own account
@@ -91,10 +95,22 @@ existing account-scoped policies on `inbox_items`, `shidduchim`, `shadchanim`,
         "sw.ts"`; move the current `workbox.globPatterns` /
         `maximumFileSizeToCacheInBytes` values into the `injectManifest: {}` option
         (that's where they live under this strategy).
+  - [ ] **Do not drop `workbox.importScripts: ["push-sw.js"]` in this switch.** That
+        line (`vite.config.ts:60`, added by Story 7.5) is the only wiring for
+        `public/push-sw.js`'s `push`/`notificationclick` listeners under the current
+        `generateSW` strategy; `injectManifest`'s config has no `importScripts` option
+        of its own, so simply deleting the `workbox: {}` block silently kills
+        Epic 7's push notifications on every next deploy with nothing failing loudly.
+        Port both listeners forward instead: either add
+        `importScripts("/push-sw.js")` as the first line of the new `src/sw.ts` (same
+        mechanism, new host file), or inline the two listener bodies directly into
+        `src/sw.ts`. Either way, `public/push-sw.js` keeps shipping (Vite's `public/`
+        copy is unaffected by this switch) and its listeners keep firing.
   - [ ] New `src/sw.ts`: `precacheAndRoute(self.__WB_MANIFEST)` (workbox-precaching,
         same asset globs `vite.config.ts` configures today), `clientsClaim()` +
         `self.skipWaiting()` on install/activate (autoUpdate's current behavior, now
-        explicit since `injectManifest` doesn't wire it for you), and a `fetch`
+        explicit since `injectManifest` doesn't wire it for you), the ported
+        `push`/`notificationclick` listeners (bullet above), and a `fetch`
         listener: when `event.request.method === "POST"` and the URL path is
         `/share-target`, `event.respondWith(...)` a handler that reads
         `await event.request.formData()`, stores any `files` entries in the Cache API
@@ -120,13 +136,25 @@ existing account-scoped policies on `inbox_items`, `shidduchim`, `shadchanim`,
           single_id: input.single_id, shadchan_id: input.shadchan_id ?? null},
           previousData: item})` — the exact sequence `InboxResolveDialog.tsx` inlines
           today (`origin: "channel"`).
-        - `resolveAsLinkToExisting(item, shidduchimId: Identifier)` — calls
-          `dataProvider.create("interactions", {data: {target_type: "shidduch",
-          target_id: shidduchimId, kind: "note", scope: "shidduch", body:
-          item.raw_text, metadata: {source: "inbox_item", inbox_item_id: item.id}}})`,
+        - `resolveAsLinkToExisting(item, shidduchimId: Identifier)` — inserts the
+          `interactions` row (`target_type: "shidduch"`, `target_id: shidduchimId,
+          kind: "note", scope: "shidduch", reference_link_id: null, body:
+          item.raw_text, metadata: {source: "inbox_item", inbox_item_id: item.id}`),
           then `dataProvider.update("inbox_items", {id: item.id, data: {status:
-          "resolved", resolved_shidduchim_id: shidduchimId}, previousData: item})` —
-          mirrors `ShidduchTimeline.tsx`'s `AddNote` interaction shape exactly.
+          "resolved", resolved_shidduchim_id: shidduchimId}, previousData: item})`.
+          **`entity360/tabs/NotesTab.tsx`'s own doc comment calls it "the ONLY place
+          a note is added, edited or soft-deleted"** (Story 5.1) — `ShidduchTimeline.tsx`,
+          the file an earlier draft of this story pointed at, does not exist (deleted
+          along with the routed-dialog timeline it lived in; `NotesTab.tsx` is its
+          generalised replacement). Calling `dataProvider.create("interactions", …)`
+          straight from this new module would make it a **second** writer, silently
+          contradicting that invariant. Instead: extract the insert itself into a
+          tiny shared helper — e.g. `entity360/tabs/insertNoteInteraction.ts`
+          exporting `insertNoteInteraction(dataProvider, targetType, targetId,
+          body, metadata?)` — that both `NotesTab.tsx`'s `AddNoteForm.handleAdd` and
+          this function call. Update `NotesTab.tsx`'s comment to name the helper as
+          the sole writer (not the tab component itself). Do not leave the citation
+          pointing at a deleted file, and do not add a second, divergent insert path.
         - `dismissInboxItem(item)` — the existing dismiss update.
   - [ ] Refactor `InboxResolveDialog.tsx`'s `onSubmit`/`onDismiss` to call these
         instead of inlining the logic (behavior unchanged for the existing "create a
@@ -167,8 +195,11 @@ existing account-scoped policies on `inbox_items`, `shidduchim`, `shadchanim`,
         row exactly as the current implementation does, then navigates to
         `/inbox_items`).
   - [ ] Photo shares: upload the shared file(s) with the provider's existing
-        `uploadToBucket` helper (`providers/supabase/dataProvider.ts` — it already
-        handles `blob:`/`data:` sources) and write `inbox_items.attachments` entries
+        `uploadToBucket` helper (`providers/supabase/dataProvider.ts:1244` — it
+        already handles `blob:`/`data:` sources). **It is not exported today** (a
+        module-private `const`, used only internally at `:1049`) — add `export` to
+        its declaration in this same diff, or any file that imports it fails `tsc`.
+        Write `inbox_items.attachments` entries
         in the **same `{title, type, path, src}` shape the email webhook writes**
         (`postmark/extractAndUploadAttachments.ts`) — one attachment shape across
         channels (AD-6), one renderer (10.3's Inbox attachment rendering task).
@@ -183,6 +214,11 @@ existing account-scoped policies on `inbox_items`, `shidduchim`, `shadchanim`,
 - [ ] **Task 5 — Tests** (AC: all)
   - [ ] Unit tests for `useResolveInboxItem.ts`'s three functions (mock
         `dataProvider`), following the AAA pattern in `.claude/rules/testing.md`.
+  - [ ] **Build-output guard for the push listener (Task 1).** After `npm run build`,
+        assert the emitted `dist/sw.js` contains a `push` event listener (e.g. read
+        the file and assert it matches `/addEventListener\(\s*["']push["']/`). No
+        existing test would catch the `injectManifest` switch silently dropping
+        `importScripts: ["push-sw.js"]` — this is the assertion that would.
   - [ ] `e2e/share-target.spec.ts` (new — per `e2e-conventions`, this touches UI/forms):
         simulate a share landing (navigate directly to `/#/share?...` with a `shareKey`
         pre-seeded via `page.evaluate` writing to the Cache API, since Playwright
@@ -206,7 +242,7 @@ FR27/FR28 ("share-target: any messaging app," "SMS captured by Share") and FR78
 the exact mechanism: *"Optional quick-link at capture (FR78): the share flow can let
 the user search the shadchan book (typeahead) and select the candidate and/or attach to
 an existing suggestion — one tap, fully skippable straight to the unfiled Inbox."*
-[Source: ARCHITECTURE-SPINE.md#AD-6]. The mockup (`mockup/MyShadchan.dc.html:529-599`,
+[Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-6]. The mockup (`mockup/MyShadchan.dc.html:529-599`,
 `isShare` screen) is the concrete UX this story implements: source tabs, "Which
 shadchan?" with a detected/typeahead field and inline add, "Which child?" (single)
 pills, "Or link to an existing suggestion" with a search list, "Save & review" /
@@ -237,11 +273,14 @@ it were spec-legal.
   `AutocompleteInput` pattern for `shadchan_id` (→ `shadchanim`) and `single_id` (→
   `singles`, post-1.3) is the existing, shipped typeahead. Reuse it; do not build a
   second autocomplete.
-- `src/components/atomic-crm/shidduchim/ShidduchTimeline.tsx`'s `AddNote` — the exact
+- `src/components/atomic-crm/entity360/tabs/NotesTab.tsx`'s `AddNoteForm` — the exact
   `interactions` insert shape (`target_type: "shidduch"`, `kind: "note"`, `scope:
-  "shidduch"`) that "link to an existing suggestion" must reuse, so the linked capture
-  shows up in that suggestion's Activity/timeline automatically — no new rendering path
-  needed on the receiving end.
+  "shidduch"`, `reference_link_id: null`, stamped `actor_member_id` via the DB
+  trigger, never client-supplied) that "link to an existing suggestion" must reuse, so
+  the linked capture shows up in that suggestion's Notes/Activity tab automatically —
+  no new rendering path needed on the receiving end. (`ShidduchTimeline.tsx` / the
+  routed-dialog `AddNote` an earlier draft named here was deleted by Story 5.1;
+  `NotesTab.tsx` is its generalised, single-writer replacement — see Task 2.)
 - `src/components/admin/autocomplete-input.tsx` already supports `create`/`onCreate`
   (verified: it wires both into `useSupportCreateSuggestion`) — use the prop, don't
   hand-roll a create-inline dialog from scratch.
@@ -265,18 +304,31 @@ through the email channel (FR28, Story 10.3), so there is no gap to cover there.
 ### Project Structure Notes
 
 - New files: `src/sw.ts`, `src/components/atomic-crm/inbox/useResolveInboxItem.ts`,
-  `src/components/atomic-crm/inbox/LinkToShidduchSearch.tsx`, `e2e/share-target.spec.ts`.
+  `src/components/atomic-crm/inbox/LinkToShidduchSearch.tsx`,
+  `src/components/atomic-crm/entity360/tabs/insertNoteInteraction.ts` (Task 2),
+  `e2e/share-target.spec.ts`.
 - Modified: `public/manifest.json`, `vite.config.ts`,
   `src/components/atomic-crm/inbox/ShareTarget.tsx`,
   `src/components/atomic-crm/inbox/InboxResolveDialog.tsx`,
-  `src/components/atomic-crm/shidduchim/ShidduchInputs.tsx`.
+  `src/components/atomic-crm/shidduchim/ShidduchInputs.tsx`,
+  `src/components/atomic-crm/entity360/tabs/NotesTab.tsx` (Task 2 — routes through
+  the new shared helper, updates its sole-writer comment),
+  `src/components/atomic-crm/providers/supabase/dataProvider.ts` (Task 4 — export
+  `uploadToBucket`), `registry.json` (generated — the new `inbox/` and `entity360/`
+  files land under the glob `scripts/generate-registry.mjs` scans; `make
+  registry-gen` regenerates it, but declare it so the diff isn't a surprise),
+  `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` and
+  `frenchCrmMessages.ts` (new user-facing strings: source tabs, "+ Add a shadchan",
+  "Skip — drop it in my Inbox", the pipeline-state labels surfaced in
+  `LinkToShidduchSearch` — `frenchCrmMessages.ts` ends `satisfies CrmMessages`, so a
+  missing French twin is a `make typecheck` failure, not a silent gap).
 - Deleted: `public/share-target.html` (Task 1).
-- No schema change, no migration, no `dataProvider.ts` change (Task 3 reuses 4.3's
-  search entry). No FakeRest changes: `inbox_items`, `shadchanim`, `singles` are
-  plain CRUD there; `interactions` carries `assertValidInteraction` guards mirroring
-  the DB constraints, which the AddNote-shaped insert (target_type `shidduch`, scope
-  `shidduch`, no `reference_link_id`) already satisfies; `createShidduch` is
-  untouched.
+- No schema change, no migration. No `dataProvider.ts` change beyond exporting the
+  existing `uploadToBucket` (Task 3 reuses 4.3's search entry). No FakeRest changes:
+  `inbox_items`, `shadchanim`, `singles` are plain CRUD there; `interactions` carries
+  `assertValidInteraction` guards mirroring the DB constraints, which the
+  AddNoteForm-shaped insert (target_type `shidduch`, scope `shidduch`, no
+  `reference_link_id`) already satisfies; `createShidduch` is untouched.
 
 ### Testing standard
 
@@ -284,18 +336,23 @@ AAA pattern, descriptive names, ≥80% coverage on new code
 (`.claude/rules/testing.md`). Any UI/form/interaction change requires an
 `e2e/*.spec.ts` (`e2e-conventions` skill) — this story adds one. Use
 `playwright-testing` conventions: user-visible locators, deterministic waits, no
-`waitForTimeout`.
+`waitForTimeout`. `.claude/rules/security-triggers.md` applies and was missing from
+an earlier draft of this story: Task 1 adds a service-worker `fetch` handler that
+intercepts an OS-share POST body (user input handling), stores untrusted binary
+content in the Cache API (file-system-adjacent storage), and Task 4 adds an upload
+path with no server-side content-type/size validation on the shared file(s).
+Dispatch SECURITY-REVIEWER on this diff at implementation time.
 
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-10-Capture-Funnel-Completion]
   — Story 10.1's stated AC.
-- [Source: ARCHITECTURE-SPINE.md#AD-6] — the quick-link-at-capture rule, and "channel
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-6] — the quick-link-at-capture rule, and "channel
   ingestion is rate-limited against flooding" (AD-17) — out of scope here, already
   covered app-wide, not re-litigated per story.
-- [Source: ARCHITECTURE-SPINE.md#AD-4] — one `createSuggestion()`/`createShidduch()`
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-4] — one `createSuggestion()`/`createShidduch()`
   path; the rationale for the shared resolve module.
-- [Source: ARCHITECTURE-SPINE.md#AD-24] — Epic 3 lands before this epic, so
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-24] — Epic 3 lands before this epic, so
   `RecordLink` (Story 3.9) exists. It is a navigation anchor (a `<Link>` to the
   record); the picker rows here are **selection** controls ("Link" files the capture
   and must not navigate away mid-share), so they are not record mentions and stay

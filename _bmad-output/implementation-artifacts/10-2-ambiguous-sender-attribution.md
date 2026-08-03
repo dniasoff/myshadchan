@@ -152,10 +152,15 @@ testing; this story builds on both. Runs on the **post-Epic-1** codebase: `sales
   - [ ] `src/components/atomic-crm/types.ts`: add `sender_needs_confirmation: boolean`
         to `InboxItem`.
   - [ ] `src/components/atomic-crm/inbox/InboxList.tsx`'s `InboxCard`: when
-        `item.sender_needs_confirmation`, render "Who sent this?" (reusing the
-        `--attention` honey treatment `ShidduchCatchPanel.tsx` already establishes for
-        "needs a human look," not an error color) instead of the normal `· {sender}`
-        line.
+        `item.sender_needs_confirmation`, render a translated "Who sent this?" string
+        (`translate("crm.inbox.senderNeedsConfirmation", { _: "Who sent this?" })` —
+        add the key to **both** `englishCrmMessages.ts` and `frenchCrmMessages.ts` in
+        this diff; `frenchCrmMessages.ts` ends `} satisfies CrmMessages;`, so a
+        missing French twin is a `make typecheck` failure, and a hardcoded JSX string
+        would type-check fine while silently staying English in the French UI),
+        reusing the `--attention` honey treatment `ShidduchCatchPanel.tsx` already
+        establishes for "needs a human look," not an error color, instead of the
+        normal `· {sender}` line.
   - [ ] `src/components/atomic-crm/inbox/InboxResolveDialog.tsx`: same treatment in
         the raw-capture preview block; confirm the `shadchan_id` field's
         `defaultValues` are unaffected (they already come from `item.shadchan_id`,
@@ -177,15 +182,15 @@ testing; this story builds on both. Runs on the **post-Epic-1** codebase: `sales
 
 FR24: *"Forward mode. Parent forwards → recover the original sender (shadchan) from
 headers/quoted body; low-confidence flagged for confirmation (PRV-7)."*
-[Source: prd.md#5.1-Email]. PRV-7: *"For email, forwarded low-confidence
+[Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/prd.md#5.1-Email]. PRV-7: *"For email, forwarded low-confidence
 original-sender recovery is flagged, never silently wrong, and an unresolved item
-waits in a holding queue, never mis-attributed."* [Source: prd.md#4-Trust-Privacy-Security].
+waits in a holding queue, never mis-attributed."* [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/prd.md#4-Trust-Privacy-Security].
 AD-6 states the same rule at the architecture layer and explicitly disavows the
 fork's prior behavior: *"For email, attribution resolves sender → account
 deterministically; anything ambiguous/unknown → the unattributed queue, flagged, never
 auto-picked across the account boundary (the fork's postmark silent-first-body-email
 attribution is a behavior change, not a lift-and-shift)."* [Source:
-ARCHITECTURE-SPINE.md#AD-6].
+_bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-6].
 
 **Scope boundary — read this before expanding anything.** This story is about the
 *display* of a recovered original sender, not about *who is allowed to email the
@@ -245,16 +250,18 @@ content is parsed and attributed.
   buildInboxItemPayload.ts,buildInboxItemPayload.test.ts,createInboxItemFromEmail.ts,
   index.ts,index.test.ts}`, `src/components/atomic-crm/types.ts`,
   `src/components/atomic-crm/inbox/{InboxList.tsx,InboxResolveDialog.tsx}`,
-  `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts`.
+  `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts`,
+  `src/components/atomic-crm/providers/commons/{englishCrmMessages.ts,
+  frenchCrmMessages.ts}` (Task 4's new "Who sent this?" string — see Task 4).
 - No new files.
 
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic-10-Capture-Funnel-Completion]
   — Story 10.2's stated AC.
-- [Source: prd.md#5.1-Email] — FR22–FR26 (FR24 specifically governs this story).
-- [Source: prd.md#4-Trust-Privacy-Security] — PRV-7.
-- [Source: ARCHITECTURE-SPINE.md#AD-6] — the fork-behavior-is-not-a-lift-and-shift
+- [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/prd.md#5.1-Email] — FR22–FR26 (FR24 specifically governs this story).
+- [Source: _bmad-output/planning-artifacts/prds/prd-myshadchan-2026-07-21/prd.md#4-Trust-Privacy-Security] — PRV-7.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-myshadchan-2026-07-21/ARCHITECTURE-SPINE.md#AD-6] — the fork-behavior-is-not-a-lift-and-shift
   warning this story exists to satisfy.
 - [Source: mockup/MyShadchan.dc.html#L555] — "Mrs. Feldman · detected" is the
   confident-recovery UI treatment; the ambiguous case has no mockup screen and is
