@@ -44,6 +44,10 @@ export default (): Db => {
   // single-branch listing, the same "empty here, real row from
   // generateShidduchimDomain()" shape `db.connections` uses just below.
   db.listings = [];
+  // Story 9.3 — no single has withdrawn a listing by default; the
+  // withdrawal-lock trigger mirror (lockListingOnSingleWithdrawal()) is the
+  // only writer.
+  db.listing_withdrawal_locks = [];
   // Shidduchim pipeline domain (accounts, singles, shadchanim, shidduchim, ...)
   generateShidduchimDomain(db);
   // References domain (references, reference_links, interactions, reference

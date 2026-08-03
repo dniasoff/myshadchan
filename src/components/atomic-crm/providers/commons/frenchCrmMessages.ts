@@ -391,6 +391,11 @@ export const frenchCrmMessages = {
         withdraw_button: "Retirer l'annonce",
         withdraw_success: "Votre annonce a été retirée.",
         withdraw_error: "Impossible de retirer votre annonce. Réessayez.",
+        // Story 9.3 — voir la même note dans englishCrmMessages.ts.
+        consent_button: "Autoriser la republication",
+        consent_success:
+          "Vous avez donné votre consentement — cette annonce peut être republiée.",
+        consent_error: "Impossible de traiter votre consentement. Réessayez.",
       },
       // Story 9.2 — voir la même note dans englishCrmMessages.ts.
       single_listing: {
@@ -425,6 +430,9 @@ export const frenchCrmMessages = {
         update_button: "Mettre à jour l'annonce",
         publish_success: "L'annonce est en ligne.",
         publish_error: "Impossible de publier l'annonce. Réessayez.",
+        // Story 9.3 — voir la même note dans englishCrmMessages.ts.
+        locked_error:
+          "Ce célibataire a retiré cette annonce et doit consentir à nouveau avant qu'elle puisse être republiée.",
       },
       reset_defaults: "Réinitialiser aux valeurs par défaut",
       save_error: "Échec de l'enregistrement de la configuration",

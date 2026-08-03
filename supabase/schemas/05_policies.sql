@@ -1495,14 +1495,23 @@ create policy "Shadchan listings delete" on public.listings
 -- listing)
 -- =====================================================================
 
--- The `single` branch only (AC-1, AC-2, AC-3, AC-6, AC-8). FR103: "manager"
--- means exactly two roles against the target single's OWN household —
+-- The `single` branch only (AC-1, AC-2, AC-3, AC-6, AC-8 of Story 9.2; the
+-- lock clause below is Story 9.3's own amendment). FR103: "manager" means
+-- exactly two roles against the target single's OWN household —
 -- `parent_admin` (any single in the household) and `self_manager` (only the
 -- single record that is themselves, via singles.member_id). A plain `single`
--- role or a `helper` can never publish (they only ever withdraw, Story 9.3).
--- No lock/consent predicate here — that column does not exist until Story
--- 9.3, which drops and recreates this insert policy with the extra check;
--- this is not an omission.
+-- role or a `helper` can never publish (they only ever withdraw).
+--
+-- Story 9.3 amendment (AC-2): DROPPED and RECREATED here, not edited in
+-- place — Postgres has no ALTER POLICY for a USING/WITH CHECK body, only a
+-- full replace. The predicate below is 9.2's own, restated in full, plus
+-- ONE additive clause at the end: `and not exists (... listing_withdrawal_
+-- locks ...)`. Restated in full (not merely referenced) so a reviewer can
+-- see the delta is additive, not a rewrite — 9-3's own Dev Notes name this
+-- as the one place that story touches another story's SQL. The lock
+-- table's own "Listing locks readable in account" SELECT policy and grant
+-- (06_grants.sql) are what make this sub-select evaluable by
+-- `authenticated` at all.
 --
 -- Deliberately a SEPARATE, named policy from "Shadchan listings insert"
 -- above (never edited by this story) — Postgres combines multiple
@@ -1536,6 +1545,11 @@ create policy "Single listings insert" on public.listings
                   and am.role = 'self_manager'
                   and s.id = listings.single_id
             )
+        )
+        and not exists (
+            select 1 from public.listing_withdrawal_locks ll
+            where ll.account_id = public.current_context_id()
+              and ll.single_id = listings.single_id
         )
     );
 
@@ -1608,6 +1622,62 @@ create policy "Single listings update" on public.listings
                 where am.account_id = public.current_context_id()
                   and am.user_id = auth.uid()
                   and am.role = 'self_manager'
+                  and s.id = listings.single_id
+            )
+        )
+    );
+
+-- =====================================================================
+-- MyShadchan — Listings & Sharing (Epic 9 Story 9.3: a single controls
+-- their own listing)
+-- =====================================================================
+
+-- FORCE ROW LEVEL SECURITY (AD-1) — same reasoning as `listings` itself:
+-- postgres/supabase_admin carry BYPASSRLS on this stack, so FORCE changes
+-- nothing for any owner-run path here, but AD-1 requires it
+-- unconditionally.
+alter table public.listing_withdrawal_locks enable row level security;
+alter table public.listing_withdrawal_locks force row level security;
+
+-- SELECT only (Task 7): lets the manager's UI show "locked" honestly. There
+-- is NO insert/update/delete policy for `authenticated` on this table,
+-- ever — the absent DML grant (06_grants.sql) is AC-4's real boundary, not
+-- this policy. The two SECURITY DEFINER functions
+-- (lock_listing_on_single_withdrawal(), consent_to_republish_listing(),
+-- both in 02_functions.sql) are the ONLY writers.
+create policy "Listing locks readable in account" on public.listing_withdrawal_locks
+    for select to authenticated
+    using (account_id = public.current_context_id());
+
+-- "Single listings delete" (AC-1, AC-3, AC-7): three roles may legitimately
+-- delete a single's listing — `parent_admin` (a parent's own change of
+-- mind) and a `single`/`self_manager` acting on their OWN record (the
+-- second EXISTS branch, joining singles.member_id back to the caller).
+-- Explicit parentheses around the two branches are load-bearing: an
+-- unparenthesized `and ... and ... or ...` would bind as `(type and
+-- account and parent_admin) or (subject)`, silently dropping the
+-- listing_type/account_id guards from the second branch. This policy does
+-- NOT decide who leaves a lock behind — that is the AFTER DELETE trigger's
+-- own, narrower `role = 'single'` check (lock_listing_on_single_withdrawal,
+-- 02_functions.sql); a `single` OR a `self_manager` may both delete here,
+-- but only the plain `single` case leaves a lock (AC-6).
+create policy "Single listings delete" on public.listings
+    for delete to authenticated
+    using (
+        listing_type = 'single'
+        and account_id = public.current_context_id()
+        and (
+            exists (
+                select 1 from public.account_members am
+                where am.account_id = public.current_context_id()
+                  and am.user_id = auth.uid() and am.role = 'parent_admin'
+            )
+            or exists (
+                select 1 from public.account_members am
+                  join public.singles s on s.member_id = am.id
+                where am.account_id = public.current_context_id()
+                  and am.user_id = auth.uid()
+                  and am.role in ('single', 'self_manager')
                   and s.id = listings.single_id
             )
         )

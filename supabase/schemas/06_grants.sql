@@ -1245,3 +1245,26 @@ grant all on sequence public.listings_id_seq to service_role;
 -- in here — different order of magnitude, different owner.
 revoke all on sequence public.members_id_seq from anon;
 
+-- ---------------------------------------------------------------------------
+-- Listings & Sharing (Epic 9 Story 9.3: a single controls their own listing)
+-- ---------------------------------------------------------------------------
+
+-- AC-4: the absent DML grant IS the security boundary — `authenticated`
+-- gets SELECT and NOTHING else, ever, on the lock table (`revoke all ...
+-- from anon, authenticated` first, matching 9.1's own listings idiom above,
+-- so the fork's `alter default privileges ... grant all on tables to
+-- authenticated` never leaves a TRUNCATE/REFERENCES/TRIGGER leftover
+-- behind either). No sequence to revoke: single_id is a plain bigint
+-- primary key, not `generated ... as identity` (Task 1's own note — no
+-- identity column, no sequence).
+revoke all on table public.listing_withdrawal_locks from anon, authenticated;
+grant select on table public.listing_withdrawal_locks to authenticated;
+grant all on table public.listing_withdrawal_locks to service_role;
+
+-- The sole remover of a lock row — `authenticated` only, matching every
+-- other cross-account/elevated-privilege SECURITY DEFINER writer in this
+-- file (create_connection_invite() etc. above). Never `anon`.
+revoke all on function public.consent_to_republish_listing(bigint) from public, anon;
+grant execute on function public.consent_to_republish_listing(bigint) to authenticated;
+grant execute on function public.consent_to_republish_listing(bigint) to service_role;
+

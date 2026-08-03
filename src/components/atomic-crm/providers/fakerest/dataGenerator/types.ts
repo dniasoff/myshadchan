@@ -9,6 +9,7 @@ import type {
   Interaction,
   Invite,
   Listing,
+  ListingWithdrawalLock,
   MedicalNote,
   Member,
   Message,
@@ -93,4 +94,10 @@ export interface Db {
   // pre-published row, matching the "opt-in, nothing published by default"
   // requirement AC-1 makes for the real database too).
   listings: Listing[];
+  // Story 9.3 — seeded empty; the only writers are the hand-emulated
+  // withdrawal-lock trigger (lockListingOnSingleWithdrawal(), called from
+  // the "listings" delete handler) and the consent_to_republish_listing()
+  // mirror's own delete. Never seeded with a pre-existing lock, matching
+  // "opt-in, nothing locked by default" the same way `listings` itself is.
+  listing_withdrawal_locks: ListingWithdrawalLock[];
 }

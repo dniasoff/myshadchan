@@ -77,11 +77,24 @@ import type {
 } from "./resumePhotos";
 import { getSupabaseClient } from "./supabase";
 
+// Story 9.3: `public.listing_withdrawal_locks` deliberately has no `id`
+// column at all (Dev Notes "Why a lock table, not a column on `singles`" —
+// no identity column, no sequence). `@raphiniert/ra-data-postgrest`
+// defaults every resource's primary key to `id` unless told otherwise, so
+// without this every row would come back with `id: undefined`. Configuring
+// `single_id` here makes the underlying primitive
+// (`dataWithVirtualId`/`encodeId`) mirror it onto a client-side `id` field —
+// the ONLY resource in this provider that needs a non-default primary key.
+const PRIMARY_KEYS = new Map<string, string[]>([
+  ["listing_withdrawal_locks", ["single_id"]],
+]);
+
 const getBaseDataProvider = () =>
   supabaseDataProvider({
     instanceUrl: import.meta.env.VITE_SUPABASE_URL,
     apiKey: import.meta.env.VITE_SB_PUBLISHABLE_KEY,
     supabaseClient: getSupabaseClient(),
+    primaryKeys: PRIMARY_KEYS,
     sortOrder: "asc,desc.nullslast" as any,
   });
 
@@ -230,6 +243,25 @@ const revokeConnectionInviteViaRpc = async (
   if (error) {
     console.error("revokeConnectionInvite.error", error);
     throw new Error(error.message || "Failed to revoke that invite");
+  }
+};
+
+// Story 9.3 (AC-4): the sole remover of a listing_withdrawal_locks row. A
+// wrong-caller invocation (anyone but the single/self-manager the lock
+// belongs to) is a SILENT no-op at the database (consent_to_republish_
+// listing() fails closed rather than raising, AD-19's style) — this wrapper
+// does not paper over that with a client-side check; it exists only to
+// surface the ONE genuine error class, a network/RPC failure.
+const consentToRepublishListingViaRpc = async (
+  singleId: Identifier,
+): Promise<void> => {
+  const { error } = await getSupabaseClient().rpc(
+    "consent_to_republish_listing",
+    { p_single_id: singleId },
+  );
+  if (error) {
+    console.error("consentToRepublishListing.error", error);
+    throw new Error(error.message || "Failed to consent to republishing");
   }
 };
 
@@ -414,6 +446,8 @@ export const getDataProviderWithCustomMethods = () => {
     endConnection: endConnectionViaRpc,
     // Story 8.3 (Task 5) — see redtViaConnectionViaRpc above.
     redtViaConnection: redtViaConnectionViaRpc,
+    // Story 9.3 (AC-4) — see consentToRepublishListingViaRpc above.
+    consentToRepublishListing: consentToRepublishListingViaRpc,
     // Story 7.3 (Task 4): "who am I" in the ACTIVE context's
     // `account_members.id` space — the id `thread_participants.member_id`
     // is keyed on, and a DIFFERENT id space from `getIdentity().id`

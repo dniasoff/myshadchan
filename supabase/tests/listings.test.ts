@@ -6,16 +6,19 @@ import { describe, expect, it } from "vitest";
 import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 /**
- * Runs Stories 9.1 and 9.2's database suite (publishing a shadchan or a
- * single's listing) against the local Supabase stack. What it proves — that
- * `listings` is the sole anon-readable relation and is safe to read by
- * construction (AD-21), that both branches' CHECK constraints and partial
- * unique indexes hold regardless of what any client sends, that only a
- * subject's manager may publish (FR103), and that a household can never
- * publish a listing that is not theirs from any angle — only exists inside
- * Postgres (RLS + grants + constraints) and cannot be exercised through a
- * mock. The SQL emits one JSON row per check; this file turns each into a
- * named test so a failure names the invariant that broke.
+ * Runs Stories 9.1, 9.2 and 9.3's database suite (publishing a shadchan or a
+ * single's listing, and the dignity-floor withdrawal lock) against the
+ * local Supabase stack. What it proves — that `listings` is the sole
+ * anon-readable relation and is safe to read by construction (AD-21), that
+ * both branches' CHECK constraints and partial unique indexes hold
+ * regardless of what any client sends, that only a subject's manager may
+ * publish (FR103), that a household can never publish a listing that is not
+ * theirs from any angle, and that a single's own withdrawal blocks
+ * republication until they consent again — with the lock itself reachable
+ * by NO ONE's raw DML, ever (AC-4) — only exists inside Postgres (RLS +
+ * grants + constraints + a SECURITY DEFINER trigger/RPC pair) and cannot be
+ * exercised through a mock. The SQL emits one JSON row per check; this file
+ * turns each into a named test so a failure names the invariant that broke.
  *
  * Needs `make start` (or `supabase start`). If the database is unreachable
  * the suite reports a single skipped test rather than failing the whole run.
@@ -58,13 +61,13 @@ function runSuite(): { checks: Check[]; error?: string } {
 
 const { checks, error } = runSuite();
 
-describe("publish a listing — shadchan (9.1) and single (9.2) branches (database)", () => {
+describe("publish a listing — shadchan (9.1), single (9.2) and the dignity-floor lock (9.3) (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   // A floor, not an exact count — new checks are welcome, silently
   // vanishing ones are not.
-  it("runs every 9.1 and 9.2 check group", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(60);
+  it("runs every 9.1, 9.2 and 9.3 check group", () => {
+    expect(checks.length).toBeGreaterThanOrEqual(90);
   });
 
   for (const check of checks) {

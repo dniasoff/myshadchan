@@ -19,7 +19,9 @@ import {
 } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { ConsentToRepublishButton } from "../listings/ConsentToRepublishButton";
 import { PublishSingleListingSection } from "../listings/PublishSingleListingSection";
+import { WithdrawSingleListingButton } from "../listings/WithdrawSingleListingButton";
 import { pickActiveContext } from "../providers/commons/roleAuthority";
 import { useCurrentMemberId } from "../threads/useCurrentMemberId";
 import { useMyContexts } from "../root/useMyContexts";
@@ -134,7 +136,20 @@ export const SingleListingSection = (): ReactElement | null => {
                     <ItemContent>
                       <ItemTitle className="font-normal">{name}</ItemTitle>
                     </ItemContent>
-                    <ItemActions>
+                    <ItemActions className="gap-2">
+                      {/* Story 9.3 (AC-1, AC-4): both self-gate on the
+                          viewer's own identity, so they render only on the
+                          single's OWN row (self_manager or plain single) —
+                          never for a parent_admin/helper viewing someone
+                          else's row, regardless of canPublish below. */}
+                      <WithdrawSingleListingButton
+                        single={single}
+                        accountId={activeContext.account_id}
+                      />
+                      <ConsentToRepublishButton
+                        single={single}
+                        accountId={activeContext.account_id}
+                      />
                       {canPublish(single) ? (
                         <Dialog>
                           <DialogTrigger asChild>

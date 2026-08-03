@@ -276,3 +276,121 @@ describe("PublishSingleListingSection — an existing listing", () => {
     expect(dataProvider.create).not.toHaveBeenCalled();
   });
 });
+
+describe("PublishSingleListingSection — the dignity-floor lock (Story 9.3, AC-2)", () => {
+  it("shows the honest 'must consent again' message, not a generic error, when the single has withdrawn and not yet consented", async () => {
+    // Arrange — the publish attempt is refused (RLS, in the real database)
+    // AND a lock row genuinely exists for this single.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const dataProvider = {
+      getList: vi.fn((resource: string) => {
+        if (resource === "listing_withdrawal_locks") {
+          return Promise.resolve({
+            data: [
+              {
+                id: 7,
+                single_id: 7,
+                account_id: ACCOUNT_ID,
+                locked_at: "2026-01-01T00:00:00Z",
+              },
+            ],
+            total: 1,
+          });
+        }
+        return Promise.resolve({ data: [], total: 0 });
+      }),
+      create: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            'new row violates row-level security policy for table "listings"',
+          ),
+        ),
+    } as unknown as CrmDataProvider;
+
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/settings"]}>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          queryClient={queryClient}
+          i18nProvider={testI18nProvider}
+        >
+          <PublishSingleListingSection
+            single={buildSingle()}
+            accountId={ACCOUNT_ID}
+          />
+          <Notification />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    // Act
+    await screen.getByRole("switch", { name: "First name (English)" }).click();
+    await screen
+      .getByRole("textbox", { name: "First name (English)" })
+      .fill("Rivky");
+    await screen.getByRole("button", { name: "Publish listing" }).click();
+
+    // Assert — the honest, specific message, sourced from the fresh
+    // getList read, never the generic error and never the raw RLS text.
+    await expect
+      .element(
+        screen.getByText(
+          "This single withdrew this listing and must consent again before it can be republished.",
+        ),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Couldn't publish the listing. Try again."))
+      .not.toBeInTheDocument();
+  });
+
+  it("still shows the generic error when the failure is NOT the lock (no lock row exists)", async () => {
+    // Arrange — refused for some OTHER reason; no lock exists for this
+    // single, so the honest lock message must not be shown either.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const dataProvider = {
+      getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+      create: vi.fn().mockRejectedValue(new Error("network error")),
+    } as unknown as CrmDataProvider;
+
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/settings"]}>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          queryClient={queryClient}
+          i18nProvider={testI18nProvider}
+        >
+          <PublishSingleListingSection
+            single={buildSingle()}
+            accountId={ACCOUNT_ID}
+          />
+          <Notification />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    // Act
+    await screen.getByRole("switch", { name: "First name (English)" }).click();
+    await screen
+      .getByRole("textbox", { name: "First name (English)" })
+      .fill("Rivky");
+    await screen.getByRole("button", { name: "Publish listing" }).click();
+
+    // Assert
+    await expect
+      .element(screen.getByText("Couldn't publish the listing. Try again."))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "This single withdrew this listing and must consent again before it can be republished.",
+        ),
+      )
+      .not.toBeInTheDocument();
+  });
+});

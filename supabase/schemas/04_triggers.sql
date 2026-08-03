@@ -364,3 +364,14 @@ create or replace trigger fan_out_message_notifications_trigger
 create or replace trigger set_listings_account_id
     before insert on public.listings
     for each row execute function public.set_account_id_default();
+
+-- Story 9.3 (AC-2, AC-3, AC-6, AC-7): the withdrawal-lock trigger — the
+-- sole creator of a public.listing_withdrawal_locks row (02_functions.sql).
+-- AFTER DELETE, not BEFORE: the row must actually be gone before deciding
+-- whether to lock republication of it, and OLD is all this trigger ever
+-- needs (it never touches NEW). SECURITY DEFINER (the function's own
+-- attribute) lets it write a table `authenticated` holds no DML grant on
+-- at all.
+create or replace trigger lock_listing_on_single_withdrawal
+    after delete on public.listings
+    for each row execute function public.lock_listing_on_single_withdrawal();

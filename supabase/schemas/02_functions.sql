@@ -4746,3 +4746,82 @@ begin
   return v_row;
 end;
 $$;
+
+-- =====================================================================
+-- MyShadchan — Listings & Sharing (Epic 9 Story 9.3: a single controls
+-- their own listing)
+-- =====================================================================
+
+-- The sole creator of a public.listing_withdrawal_locks row. SECURITY
+-- DEFINER because 06_grants.sql deliberately gives `authenticated` no DML
+-- grant on that table at all (AC-4's own boundary) — an ordinary (SECURITY
+-- INVOKER, the default) trigger would hit that same absent grant and fail.
+-- Fires on every DELETE from `listings`, but only ever inserts a lock for
+-- the `single` branch, and only when the DELETING caller (auth.uid()) is
+-- THEMSELVES the subject via role = 'single' EXACTLY — not 'self_manager'.
+-- AC-6 requires a self-manager's own withdrawal to NOT set the lock (there
+-- is no separate manager to protect against); widening this predicate to
+-- `role in ('single', 'self_manager')` "for consistency" with the publish
+-- policy's check would silently break AC-6. `on conflict (single_id) do
+-- nothing`: a single who withdraws, is somehow republished, and withdraws
+-- again must not raise on the second lock (the primary key would otherwise
+-- collide) — the lock simply stays.
+CREATE OR REPLACE FUNCTION "public"."lock_listing_on_single_withdrawal"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if old.listing_type = 'single' then
+    if exists (
+      select 1
+      from public.account_members am
+        join public.singles s on s.member_id = am.id
+      where am.account_id = old.account_id
+        and am.user_id = auth.uid()
+        and am.role = 'single'
+        and s.id = old.single_id
+    ) then
+      insert into public.listing_withdrawal_locks (account_id, single_id)
+        values (old.account_id, old.single_id)
+        on conflict (single_id) do nothing;
+    end if;
+  end if;
+  return old;
+end;
+$$;
+
+-- The sole remover of a lock row. SECURITY DEFINER for the same reason as
+-- the trigger above — `authenticated` cannot DELETE this table directly.
+-- Scoped to the CALLER's own active context (current_context_id()), so a
+-- caller from a DIFFERENT account can never clear, or even discover via
+-- row-count, another household's lock (AC-7). No matching row is a SILENT
+-- no-op, never an exception — mirrors current_context_id()'s own
+-- fail-closed style (AD-19) rather than leaking existence information to a
+-- caller who has no business asking whether a lock exists at all. The role
+-- check deliberately widens to `single` OR `self_manager` (unlike the
+-- trigger's exact `single`) — only the subject themselves can ever match
+-- this EXISTS clause (the member_id join binds the caller to their own
+-- singles row), and a locked single whose role later changes to
+-- self_manager (persona lifecycle, Epic 2 Story 2.5) must still be able to
+-- clear their own lock; publishing-as-self-manager while locked is still
+-- refused until they consent, which is coherent — consent is the explicit
+-- act.
+CREATE OR REPLACE FUNCTION "public"."consent_to_republish_listing"("p_single_id" bigint) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  delete from public.listing_withdrawal_locks ll
+    where ll.account_id = public.current_context_id()
+      and ll.single_id = p_single_id
+      and exists (
+        select 1
+        from public.account_members am
+          join public.singles s on s.member_id = am.id
+        where am.account_id = public.current_context_id()
+          and am.user_id = auth.uid()
+          and am.role in ('single', 'self_manager')
+          and s.id = ll.single_id
+      );
+end;
+$$;

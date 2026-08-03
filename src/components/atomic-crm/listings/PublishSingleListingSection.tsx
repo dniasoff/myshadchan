@@ -1,12 +1,17 @@
 import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
-import { useNotify, useTranslate } from "ra-core";
+import { useDataProvider, useNotify, useTranslate } from "ra-core";
 import type { Identifier } from "ra-core";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import type { PublishableSingleListingFields, Single } from "../types";
+import type { CrmDataProvider } from "../providers/types";
+import type {
+  ListingWithdrawalLock,
+  PublishableSingleListingFields,
+  Single,
+} from "../types";
 import { ListingToggleField } from "./ListingToggleField";
 import { useListingUpsert } from "./useListingUpsert";
 
@@ -33,10 +38,22 @@ function PublishSingleListingSkeleton(): ReactElement {
  * history, private/parent notes, reference call content, diligence
  * progress, dating history and medical notes are not present as options at
  * all (AC-4), and there is no household-level "publish us" action anywhere
- * near this form (AC-5). It also offers NO withdrawal action (Story 9.3's —
- * there is no "Single listings delete" RLS policy for this branch yet) and
- * NO photo control of any kind, not even a disabled placeholder (a listing
- * never carries a photo; see 9.1 Dev Notes "No photo on a listing").
+ * near this form (AC-5). It still offers no withdrawal action of its own —
+ * Story 9.3 gave withdrawal its own dedicated, self-gated component
+ * (`WithdrawSingleListingButton.tsx`, mounted at the row level in
+ * `SingleListingSection.tsx`) rather than folding it in here, since only
+ * the SINGLE may withdraw via that control while this manager-facing form
+ * stays reachable by `parent_admin`/`self_manager` — and NO photo control
+ * of any kind, not even a disabled placeholder (a listing never carries a
+ * photo; see 9.1 Dev Notes "No photo on a listing").
+ *
+ * Story 9.3 (AC-2): when a publish/republish attempt is refused because the
+ * single withdrew and has not yet consented again, `handlePublish` shows
+ * the honest "must consent again" message instead of a generic error —
+ * sourced from a fresh `dataProvider.getList("listing_withdrawal_locks",
+ * ...)` read at the point of failure, never by parsing the RLS error text
+ * (`.claude/rules/security-triggers.md`'s own caution against treating
+ * error-message shape as a stable contract).
  *
  * Rendered inside a per-single Dialog from
  * `settings/SingleListingSection.tsx`, which owns "who may act on this
@@ -53,6 +70,7 @@ export const PublishSingleListingSection = ({
 }): ReactElement => {
   const translate = useTranslate();
   const notify = useNotify();
+  const dataProvider = useDataProvider<CrmDataProvider>();
   const { listing, isPending, upsert } = useListingUpsert(
     accountId,
     "single",
@@ -144,10 +162,44 @@ export const PublishSingleListingSection = ({
         messageArgs: { _: "The listing is live." },
       });
     } catch {
-      notify("crm.settings.single_listing_form.publish_error", {
-        type: "error",
-        messageArgs: { _: "Couldn't publish the listing. Try again." },
-      });
+      // Story 9.3 (AC-2): a refusal here MAY be the dignity-floor lock, not
+      // an ordinary failure — check for it fresh, right now, rather than
+      // parsing the caught error's message/status (an RLS refusal and a
+      // network error look identical to this catch block either way, and
+      // `.claude/rules/security-triggers.md` warns against treating error
+      // text as a stable contract). The lock table is `select`-able by any
+      // household member (06_grants.sql), so this read needs no elevated
+      // privilege the caller doesn't already have.
+      let isLocked = false;
+      try {
+        const { data: locks } =
+          await dataProvider.getList<ListingWithdrawalLock>(
+            "listing_withdrawal_locks",
+            {
+              pagination: { page: 1, perPage: 1 },
+              sort: { field: "id", order: "ASC" },
+              filter: { single_id: single.id },
+            },
+          );
+        isLocked = locks.length > 0;
+      } catch {
+        // The lock check itself failing is not the single's fault to hear
+        // about — fall through to the generic error below.
+      }
+
+      if (isLocked) {
+        notify("crm.settings.single_listing_form.locked_error", {
+          type: "error",
+          messageArgs: {
+            _: "This single withdrew this listing and must consent again before it can be republished.",
+          },
+        });
+      } else {
+        notify("crm.settings.single_listing_form.publish_error", {
+          type: "error",
+          messageArgs: { _: "Couldn't publish the listing. Try again." },
+        });
+      }
     } finally {
       setIsSaving(false);
     }

@@ -1161,6 +1161,22 @@ create table public.listings (
     )
 );
 
+-- Story 9.3 (AD-21's own dignity-floor requirement, FR104): existence of a
+-- row = "locked", mirroring `listings` itself. A TABLE, not a column on
+-- `singles` (Dev Notes "Why a lock table, not a column on `singles`" in
+-- 9-3-single-controls-own-listing.md) — `authenticated` already holds a
+-- table-level UPDATE grant on `singles` (06_grants.sql), and a column-level
+-- REVOKE cannot carve a column back out of a standing table-level grant, so
+-- a boolean column here would be a silent no-op the moment any
+-- parent_admin's ordinary dataProvider.update("singles", ...) reached it.
+-- No identity column, so no sequence exists to grant either way — the
+-- primary key is the single_id itself (one lock per single, ever, at once).
+create table public.listing_withdrawal_locks (
+    single_id bigint primary key,
+    account_id bigint not null,
+    locked_at timestamp with time zone not null default now()
+);
+
 --
 -- Foreign keys (shidduchim domain)
 --
@@ -1498,6 +1514,16 @@ alter table public.listings
     add constraint listings_single_id_fkey
     foreign key (account_id, single_id) references public.singles(account_id, id) on delete cascade;
 
+-- Story 9.3: the composite FK follows the same domain standard as
+-- listings_single_id_fkey just above — a purged single (AD-15) takes their
+-- own lock with them, so a lock row can never outlive the single it
+-- protects, and a lock can never be forged onto a single in a different
+-- account.
+alter table public.listing_withdrawal_locks
+    add constraint listing_withdrawal_locks_single_id_fkey
+    foreign key (account_id, single_id) references public.singles(account_id, id)
+    on delete cascade;
+
 --
 -- Indexes on foreign keys (shidduchim domain)
 --
@@ -1581,3 +1607,7 @@ create unique index listings_shadchan_account_id_key on public.listings (account
     where listing_type = 'shadchan';
 create unique index listings_single_id_key on public.listings (single_id)
     where listing_type = 'single';
+
+-- Story 9.3: matches every other account_id-scoped table's own index — the
+-- lock table's one RLS policy filters on account_id.
+create index listing_withdrawal_locks_account_id_idx on public.listing_withdrawal_locks using btree (account_id);

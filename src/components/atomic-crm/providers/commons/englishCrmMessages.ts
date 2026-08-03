@@ -418,6 +418,12 @@ export const englishCrmMessages = {
         withdraw_button: "Withdraw listing",
         withdraw_success: "Your listing has been withdrawn.",
         withdraw_error: "Couldn't withdraw your listing. Try again.",
+        // Story 9.3: consent_to_republish_listing() — shown only to the
+        // single themselves, only when their own withdrawal-lock row
+        // exists (ConsentToRepublishButton.tsx).
+        consent_button: "Allow republishing",
+        consent_success: "You've consented — this listing can be republished.",
+        consent_error: "Couldn't process your consent. Try again.",
       },
       // Story 9.2: the "Single listings" settings section
       // (settings/SingleListingSection.tsx) — the per-single roster and its
@@ -455,6 +461,11 @@ export const englishCrmMessages = {
         update_button: "Update listing",
         publish_success: "The listing is live.",
         publish_error: "Couldn't publish the listing. Try again.",
+        // Story 9.3 (AC-2): the honest refusal shown when a publish/
+        // republish attempt is blocked by the single's own withdrawal lock
+        // — never a generic "not authorized" error.
+        locked_error:
+          "This single withdrew this listing and must consent again before it can be republished.",
       },
       reset_defaults: "Reset to Defaults",
       save_error: "Failed to save configuration",

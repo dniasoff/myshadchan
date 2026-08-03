@@ -1,5 +1,6 @@
 --
--- Publishing a listing (Epic 9 Stories 9.1 and 9.2) — database test suite.
+-- Publishing a listing (Epic 9 Stories 9.1, 9.2 and 9.3) — database test
+-- suite.
 --
 -- Story 9.1 (the `shadchan` branch) covers AC-1 through AC-8: field-by-field
 -- opt-in with a real `null` (not an empty string) for anything left off, the
@@ -32,6 +33,20 @@
 -- F2 independently exercises the UPDATE policy's own authorization (helper,
 -- plain single, self-manager-on-sibling without touching single_id), which
 -- until this fix could be deleted from the policy with zero test failures.
+--
+-- Story 9.3 (the dignity-floor lock, appended below the 9.1/9.2 checks)
+-- covers AC-1 through AC-7: a single with a login withdraws their own
+-- listing regardless of who published it (AC-1), that withdrawal blocks
+-- republication until the single consents again (AC-2), a parent's OWN
+-- withdrawal of a listing the single never touched creates no lock and
+-- republishes freely (AC-3), only the single may ever clear the lock — the
+-- absent DML grant on `listing_withdrawal_locks` refuses every raw
+-- delete/insert/update attempt as `permission denied`, never a row-security
+-- violation, and the RPC itself is a silent no-op for the wrong caller
+-- (AC-4), withdrawal disappears from the anon-visible set immediately
+-- (AC-5), a self-manager's own withdrawal sets no lock (AC-6), and a
+-- DIFFERENT household's single can neither delete this single's listing nor
+-- clear their lock (AC-7).
 --
 -- Same conventions as every other suite here: one `begin; ... rollback;`
 -- transaction, a `results` table of named checks emitted as JSON,
@@ -998,6 +1013,411 @@ insert into results (name, passed)
 select 'Story 9.2 AC-8: PA''s single listing is untouched by every refused cross-account attempt',
        single_community = 'Yeshivish'
 from public.listings where id = :listing_sibling;
+
+-- =============================================================================
+-- A single controls their own listing (Epic 9 Story 9.3) — the dignity-floor
+-- lock: "Single listings delete", the withdrawal-lock trigger
+-- (lock_listing_on_single_withdrawal), the sole-consent RPC
+-- (consent_to_republish_listing()), and the amended "Single listings insert"
+-- policy that checks it.
+--
+-- Reuses household PA/PB from Story 9.2's own Arrange above rather than
+-- re-seeding a third pair of households — PA already has one member per
+-- role FR103 distinguishes. This section only:
+--   - links PA's existing plain-`single` member (member_pa_single) to a
+--     `singles` row of their own (single_login) — the "single with a login"
+--     subject S that AC-1 through AC-4 exercise;
+--   - adds ONE new PB member with role `single` (member_pb_single /
+--     single_login_pb) for AC-7's cross-account negative test.
+-- =============================================================================
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('59220000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'listings-single-pb-login@test.local');
+
+insert into public.account_members (account_id, user_id, role) values
+  (:account_pb, '59220000-0000-0000-0000-000000000006', 'single')
+  returning id as member_pb_single \gset
+
+insert into ids values ('s93_member_pb_single', :member_pb_single);
+
+-- single_login: PA's plain single member (member_pa_single, role 'single')
+-- gets their own singles row, member_id pointing straight back at their own
+-- account_members row — the same shape single_self already established for
+-- the self-manager above.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into public.singles (first_name_en, member_id)
+values ('Listings Login Single', :member_pa_single)
+returning id as single_login \gset
+
+reset role;
+insert into ids values ('s93_single_login', :single_login);
+
+-- single_login_pb: PB's own "single with a login" — S2 for AC-7's
+-- cross-account negative test, in a DIFFERENT household from single_login.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000005","role":"authenticated"}';
+
+insert into public.singles (first_name_en, member_id)
+values ('Listings Login Single PB', :member_pb_single)
+returning id as single_login_pb \gset
+
+reset role;
+insert into ids values ('s93_single_login_pb', :single_login_pb);
+
+-- PA's parent_admin publishes single_login's listing — the row S is about
+-- to withdraw (AC-1).
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into public.listings (listing_type, single_id, single_first_name_en)
+values ('single', :single_login, 'Login Single, Published By Parent')
+returning id as listing_login \gset
+
+reset role;
+insert into ids values ('s93_listing_login', :listing_login);
+
+-- -----------------------------------------------------------------------
+-- AC-1: a single with a login may always withdraw their own listing,
+-- regardless of who published it — S never had insert/update rights over
+-- this row (9.2 never granted plain `single` those), but the new "Single
+-- listings delete" policy's second EXISTS branch admits them.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000004","role":"authenticated"}';
+
+with attempt as (
+  delete from public.listings where id = :listing_login returning id
+)
+select count(*) as cnt from attempt \gset s93_ac1_
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'Story 9.3 AC-1: a single with a login (role single) deletes their OWN listing even though they never had insert/update rights over it',
+       :s93_ac1_cnt = 1,
+       format('rows deleted: %s', :s93_ac1_cnt);
+
+-- AC-5: the same immediate-disappearance mechanism as 9.1 AC-5, exercised
+-- specifically for the single's own withdrawal.
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+
+insert into results (name, passed, detail)
+select 'Story 9.3 AC-5: the single''s own withdrawal removes the listing from the anon-visible set immediately',
+       count(*) = 0,
+       format('rows still visible: %s', count(*))
+from public.listings where id = :listing_login;
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'Story 9.3: the withdrawal-lock trigger created exactly one lock row for single_login (role single, own withdrawal)',
+       count(*) = 1,
+       format('rows: %s', count(*))
+from public.listing_withdrawal_locks where single_id = :single_login;
+
+insert into results (name, passed)
+select 'Story 9.3: the lock row''s account_id matches PA''s household, not some other tenant',
+       account_id = :account_pa
+from public.listing_withdrawal_locks where single_id = :single_login;
+
+-- -----------------------------------------------------------------------
+-- AC-2: withdrawal by the single blocks republication until the single
+-- consents again — the amended "Single listings insert" policy's added
+-- `not exists (... listing_withdrawal_locks ...)` clause.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Story 9.3 AC-2: the parent_admin''s republish attempt for the locked single is refused by RLS (not merely discouraged in the UI)';
+  v_single_login bigint;
+begin
+  select value into v_single_login from ids where name = 's93_single_login';
+  insert into public.listings (listing_type, single_id, single_first_name_en)
+  values ('single', v_single_login, 'Republish Attempt While Locked');
+  perform pg_temp.unexpected_raise(v_name, null, 'insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'Story 9.3 AC-2: the refused republish attempt left zero rows for single_login',
+       count(*) = 0,
+       format('rows: %s', count(*))
+from public.listings where single_id = :single_login;
+
+-- -----------------------------------------------------------------------
+-- AC-3: the lock is set only by the single's OWN withdrawal, never by a
+-- parent's — single_sibling was never touched by any single (Story 9.2's
+-- own listing_sibling row, still live and republished there). PA's
+-- parent_admin withdraws it themselves, then republishes immediately — no
+-- lock, no refusal.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+with attempt as (
+  delete from public.listings where id = :listing_sibling returning id
+)
+select count(*) as cnt from attempt \gset s93_ac3_withdraw_
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'Story 9.3 AC-3: parent_admin can withdraw a listing about a single who never touched it',
+       :s93_ac3_withdraw_cnt = 1,
+       format('rows deleted: %s', :s93_ac3_withdraw_cnt);
+
+insert into results (name, passed, detail)
+select 'Story 9.3 AC-3: withdrawing a listing THE PARENT published themselves creates NO lock row for that single',
+       count(*) = 0,
+       format('rows: %s', count(*))
+from public.listing_withdrawal_locks where single_id = :single_sibling;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into public.listings (listing_type, single_id, single_first_name_en)
+values ('single', :single_sibling, 'Republished Immediately By Parent')
+returning id as listing_sibling2 \gset
+
+reset role;
+insert into ids values ('s93_listing_sibling2', :listing_sibling2);
+
+insert into results (name, passed)
+select 'Story 9.3 AC-3: the parent_admin''s immediate republish succeeds — a parent withdrawing their own publication is NOT the protected case',
+       single_first_name_en = 'Republished Immediately By Parent'
+from public.listings where id = :listing_sibling2;
+
+-- -----------------------------------------------------------------------
+-- AC-4 (raw DML refused): only the single may clear the lock — never the
+-- parent, never any other role, via raw DML. `authenticated` holds NO DML
+-- grant on the lock table at all (select only), so every attempt below
+-- raises "permission denied for table listing_withdrawal_locks" (42501),
+-- not a row-security violation — the absent grant IS the boundary.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Story 9.3 AC-4: a parent_admin''s raw DELETE on listing_withdrawal_locks is refused — no DML grant exists for authenticated at all';
+  v_single_login bigint;
+begin
+  select value into v_single_login from ids where name = 's93_single_login';
+  delete from public.listing_withdrawal_locks where single_id = v_single_login;
+  perform pg_temp.unexpected_raise(v_name, null, 'delete unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', '%permission denied for table listing_withdrawal_locks%', sqlstate, sqlerrm);
+end $$;
+
+do $$
+declare
+  v_name constant text := 'Story 9.3 AC-4: a parent_admin''s raw INSERT (forging a lock) on listing_withdrawal_locks is refused — no DML grant exists for authenticated at all';
+  v_account_pa bigint;
+  v_single_sibling bigint;
+begin
+  select value into v_account_pa from ids where name = 'spa_account_pa';
+  select value into v_single_sibling from ids where name = 'spa_single_sibling';
+  insert into public.listing_withdrawal_locks (account_id, single_id) values (v_account_pa, v_single_sibling);
+  perform pg_temp.unexpected_raise(v_name, null, 'insert unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', '%permission denied for table listing_withdrawal_locks%', sqlstate, sqlerrm);
+end $$;
+
+do $$
+declare
+  v_name constant text := 'Story 9.3 AC-4: a parent_admin''s raw UPDATE on listing_withdrawal_locks is refused — no DML grant exists for authenticated at all';
+  v_single_login bigint;
+begin
+  select value into v_single_login from ids where name = 's93_single_login';
+  update public.listing_withdrawal_locks set locked_at = now() where single_id = v_single_login;
+  perform pg_temp.unexpected_raise(v_name, null, 'update unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', '%permission denied for table listing_withdrawal_locks%', sqlstate, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'Story 9.3 AC-4: the lock row for single_login survived every refused raw DML attempt untouched',
+       count(*) = 1,
+       format('rows: %s', count(*))
+from public.listing_withdrawal_locks where single_id = :single_login;
+
+insert into results (name, passed)
+select 'Story 9.3 AC-4: authenticated holds no INSERT/UPDATE/DELETE/TRUNCATE on listing_withdrawal_locks',
+       not has_table_privilege('authenticated', 'public.listing_withdrawal_locks', 'insert')
+       and not has_table_privilege('authenticated', 'public.listing_withdrawal_locks', 'update')
+       and not has_table_privilege('authenticated', 'public.listing_withdrawal_locks', 'delete')
+       and not has_table_privilege('authenticated', 'public.listing_withdrawal_locks', 'truncate');
+
+insert into results (name, passed)
+select 'Story 9.3 AC-4: authenticated holds SELECT on listing_withdrawal_locks (the manager''s UI can show "locked" honestly)',
+       has_table_privilege('authenticated', 'public.listing_withdrawal_locks', 'select');
+
+insert into results (name, passed)
+select 'Story 9.3 AC-4: anon holds NO privilege at all on listing_withdrawal_locks',
+       not has_table_privilege('anon', 'public.listing_withdrawal_locks', 'select')
+       and not has_table_privilege('anon', 'public.listing_withdrawal_locks', 'insert')
+       and not has_table_privilege('anon', 'public.listing_withdrawal_locks', 'update')
+       and not has_table_privilege('anon', 'public.listing_withdrawal_locks', 'delete');
+
+insert into results (name, passed)
+select 'Story 9.3 AC-4: rowsecurity and forcerowsecurity are both true on listing_withdrawal_locks',
+       relrowsecurity and relforcerowsecurity
+from pg_class where oid = 'public.listing_withdrawal_locks'::regclass;
+
+insert into results (name, passed, detail)
+select 'Story 9.3 Task 5: exactly one "Single listings insert" policy exists on listings (drop+recreate did not leave two)',
+       count(*) = 1,
+       format('count: %s', count(*))
+from pg_policies where schemaname = 'public' and tablename = 'listings' and policyname = 'Single listings insert';
+
+insert into results (name, passed, detail)
+select 'Story 9.3 Task 4: exactly one "Single listings delete" policy exists on listings',
+       count(*) = 1,
+       format('count: %s', count(*))
+from pg_policies where schemaname = 'public' and tablename = 'listings' and policyname = 'Single listings delete';
+
+-- -----------------------------------------------------------------------
+-- AC-4 (RPC, wrong caller): consent_to_republish_listing() called by a
+-- parent_admin (not the single) is a SILENT no-op, not an error — the
+-- function fails closed rather than raising, and the lock row must still
+-- exist afterward.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select public.consent_to_republish_listing(:single_login);
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'Story 9.3 AC-4: consent_to_republish_listing() called by a parent_admin (wrong caller) is a silent no-op — the lock row still exists afterward',
+       count(*) = 1,
+       format('rows: %s', count(*))
+from public.listing_withdrawal_locks where single_id = :single_login;
+
+insert into results (name, passed)
+select 'Story 9.3 AC-4: anon holds NO execute on consent_to_republish_listing',
+       not has_function_privilege('anon', 'public.consent_to_republish_listing(bigint)', 'execute');
+
+insert into results (name, passed)
+select 'Story 9.3 AC-4: authenticated holds execute on consent_to_republish_listing',
+       has_function_privilege('authenticated', 'public.consent_to_republish_listing(bigint)', 'execute');
+
+-- -----------------------------------------------------------------------
+-- AC-7: cross-account — S2 (single_login_pb, household PB) may act freely
+-- over their OWN record, but neither deleting S1's listing nor clearing
+-- S1's lock reaches across the household boundary.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000006","role":"authenticated"}';
+
+with attempt as (
+  delete from public.listings where id = :listing_sibling2 returning id
+)
+select count(*) as cnt from attempt \gset s93_ac7_delete_
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'Story 9.3 AC-7: a DIFFERENT household''s single (S2) cannot delete S1''s listing — 0 rows affected, not an error',
+       :s93_ac7_delete_cnt = 0,
+       format('rows deleted: %s', :s93_ac7_delete_cnt);
+
+insert into results (name, passed)
+select 'Story 9.3 AC-7: PA''s listing is untouched by S2''s refused cross-account delete',
+       single_first_name_en = 'Republished Immediately By Parent'
+from public.listings where id = :listing_sibling2;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000006","role":"authenticated"}';
+
+do $$
+declare
+  v_name constant text := 'Story 9.3 AC-7: a DIFFERENT household''s single (S2)''s raw DELETE attempt on S1''s lock is refused — no DML grant, regardless of account';
+  v_single_login bigint;
+begin
+  select value into v_single_login from ids where name = 's93_single_login';
+  delete from public.listing_withdrawal_locks where single_id = v_single_login;
+  perform pg_temp.unexpected_raise(v_name, null, 'delete unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied(v_name, '42501', '%permission denied for table listing_withdrawal_locks%', sqlstate, sqlerrm);
+end $$;
+
+select public.consent_to_republish_listing(:single_login);
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'Story 9.3 AC-7: S2''s consent_to_republish_listing() call for S1''s single is a no-op (scoped to S2''s OWN active account) — S1''s lock survives',
+       count(*) = 1,
+       format('rows: %s', count(*))
+from public.listing_withdrawal_locks where single_id = :single_login;
+
+-- -----------------------------------------------------------------------
+-- AC-4 (positive) / AC-2 (tail): the single themselves clears their own
+-- lock, and only then does the parent's republish succeed.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000004","role":"authenticated"}';
+
+select public.consent_to_republish_listing(:single_login);
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'Story 9.3 AC-4: the single''s own consent_to_republish_listing() call clears their lock',
+       count(*) = 0,
+       format('rows remaining: %s', count(*))
+from public.listing_withdrawal_locks where single_id = :single_login;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+insert into public.listings (listing_type, single_id, single_first_name_en)
+values ('single', :single_login, 'Republished After Consent')
+returning id as listing_login2 \gset
+
+reset role;
+insert into ids values ('s93_listing_login2', :listing_login2);
+
+insert into results (name, passed)
+select 'Story 9.3 AC-2: once the single consents, the parent_admin''s republish succeeds',
+       single_first_name_en = 'Republished After Consent'
+from public.listings where id = :listing_login2;
+
+-- -----------------------------------------------------------------------
+-- AC-6: a self-manager's own withdrawal needs no lock and does not set
+-- one — there is no separate manager to protect against.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+with attempt as (
+  delete from public.listings where id = :listing_self returning id
+)
+select count(*) as cnt from attempt \gset s93_ac6_
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'Story 9.3 AC-6: a self-manager withdraws their own listing successfully',
+       :s93_ac6_cnt = 1,
+       format('rows deleted: %s', :s93_ac6_cnt);
+
+insert into results (name, passed, detail)
+select 'Story 9.3 AC-6: no lock row is created for a self-manager''s own withdrawal (no separate manager to protect against)',
+       count(*) = 0,
+       format('rows: %s', count(*))
+from public.listing_withdrawal_locks where single_id = :single_self;
 
 -- ---------------------------------------------------------------------------
 -- Emit the report as a single JSON array line, then undo everything.

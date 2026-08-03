@@ -780,6 +780,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/listingWithdrawal.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/fakerest/internal/listParser.ts",
           "type": "registry:component"
         },
@@ -996,6 +1000,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/listings/WithdrawSingleListingButton.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/listings/WithdrawShadchanListingButton.tsx",
           "type": "registry:component"
         },
@@ -1009,6 +1017,10 @@
         },
         {
           "path": "src/components/atomic-crm/listings/ListingToggleField.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/ConsentToRepublishButton.tsx",
           "type": "registry:component"
         },
         {

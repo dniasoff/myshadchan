@@ -24,20 +24,20 @@ export interface UseListingUpsertResult {
   /**
    * Deletes the row outright — never a soft-delete/flag.
    *
-   * Review note (F3): the `single` branch has no "Single listings delete"
-   * RLS policy yet (deliberate — Story 9.3 owns the dignity-floor lock and
-   * writes it); calling this for a `single`-branch subject before 9.3 lands
-   * does NOT silently report success on a no-op delete. The dataProvider's
-   * DELETE request sends `Accept: application/vnd.pgrst.object+json`
-   * (`@raphiniert/ra-data-postgrest`), which requires PostgREST to return
-   * exactly one row — RLS excluding all rows (no matching policy) makes
-   * PostgREST return zero, which PostgREST itself turns into an error
-   * response, so this promise rejects rather than resolving. No caller
-   * exercises this path today: `PublishSingleListingSection.tsx` never
-   * renders a withdraw control for the `single` branch (Task 5's own
-   * requirement) — but see the deploy-sequencing note where this hook is
-   * consumed, since a caller added ahead of 9.3 would see every attempt
-   * fail, not silently no-op.
+   * Story 9.3 shipped the `single` branch's own "Single listings delete"
+   * RLS policy (three roles admitted — `parent_admin`, `self_manager`, and
+   * a plain `single` acting on their own record, `05_policies.sql`'s own
+   * comment), so this now succeeds for every branch whenever the caller is
+   * one of those roles. A caller RLS still refuses rejects rather than
+   * resolving: the dataProvider's DELETE request sends `Accept:
+   * application/vnd.pgrst.object+json` (`@raphiniert/ra-data-postgrest`),
+   * which requires PostgREST to return exactly one row — RLS excluding the
+   * row makes PostgREST return zero, which PostgREST itself turns into an
+   * error response. `WithdrawSingleListingButton.tsx` is the single's own
+   * caller of this for the `single` branch (Story 9.3, AC-1); the
+   * manager's own withdrawal path is not this story's frontend scope
+   * (Task 7's own "AC: 1, 4" note) and still has no UI caller as of this
+   * story.
    */
   withdraw: () => Promise<void>;
 }

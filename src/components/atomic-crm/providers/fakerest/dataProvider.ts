@@ -22,6 +22,7 @@ import type {
   InvitableRole,
   InvitePreview,
   LinkReferenceInput,
+  Listing,
   LogReferenceCallInput,
   MatchReferenceInput,
   MergeResolution,
@@ -111,6 +112,10 @@ import {
   setThreadVisibility as setThreadVisibilityImpl,
 } from "./internal/threads";
 import { redtViaConnection as redtViaConnectionImpl } from "./internal/redting";
+import {
+  consentToRepublishListing as consentToRepublishListingImpl,
+  lockListingOnSingleWithdrawal,
+} from "./internal/listingWithdrawal";
 import {
   catchShidduch,
   computeShidduchCatchCount,
@@ -908,7 +913,23 @@ export const createDataProvider = ({
           "the diligence timeline is append-only; delete the reference link instead",
         );
       }
-      return baseDataProvider.delete(resource, params);
+      const result = await baseDataProvider.delete(resource, params);
+      // Story 9.3: FakeRest has no triggers, so the AFTER DELETE lock trigger
+      // (lock_listing_on_single_withdrawal, 02_functions.sql) gets called
+      // explicitly here, right after the delete succeeds — same "hand-written
+      // FakeRest twin" convention as every other Postgres-only behavior in
+      // this file. `result.data` is the row `database.removeOne()` just
+      // removed (ra-data-fakerest's own delete shape), never
+      // `params.previousData` — a caller is not required to supply it.
+      if (resource === "listings") {
+        await lockListingOnSingleWithdrawal(
+          baseDataProvider,
+          getIdentity,
+          () => activeAccountId,
+          result.data as Listing,
+        );
+      }
+      return result;
     },
     memberUpdate: async (
       id: Identifier,
@@ -1299,6 +1320,14 @@ export const createDataProvider = ({
         getIdentity,
         () => activeAccountId,
         input,
+      ),
+    // Story 9.3 (AC-4) -- FakeRest mirror of ./internal/listingWithdrawal.ts.
+    consentToRepublishListing: (singleId: Identifier): Promise<void> =>
+      consentToRepublishListingImpl(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId,
+        singleId,
       ),
     // ---------------------------------------------------------------------
     // Files tab (Story 3.7) -- FakeRest mirrors of

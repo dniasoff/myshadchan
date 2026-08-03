@@ -1162,3 +1162,24 @@ export type PublishableSingleListingFields = Pick<
   | "single_location"
   | "single_summary"
 >;
+
+/**
+ * One row of `public.listing_withdrawal_locks` (Story 9.3) — the
+ * dignity-floor lock. Existence of a row IS "locked", mirroring `Listing`
+ * itself (AD-21): there is no `locked: boolean` field, and none should ever
+ * be added — a lock is a row you either see or don't, in the same
+ * `useGetList(...).length > 0` shape as checking for a published listing.
+ *
+ * `single_id` is the table's real primary key, not `id` (Dev Notes "Why a
+ * lock table, not a column on `singles`" — no identity column, so no
+ * sequence exists either). `id` here is a CLIENT-SIDE virtual field, not a
+ * persisted column: both data providers are configured to mirror
+ * `single_id` onto it (`primaryKeys` on the Supabase provider;
+ * `id: singleId` on FakeRest's own insert) purely so this resource fits
+ * react-admin's `RaRecord` shape for `useGetList`/`getList`.
+ */
+export type ListingWithdrawalLock = {
+  single_id: Identifier;
+  account_id: Identifier;
+  locked_at: string;
+} & Pick<RaRecord, "id">;
