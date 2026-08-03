@@ -15,6 +15,7 @@ vi.mock("@supabase/supabase-js", () => ({
 const env = {
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_SERVICE_ROLE_KEY: "key",
+  SUPABASE_PUBLISHABLE_KEY: "publishable-key",
 };
 
 describe("forAccount", () => {

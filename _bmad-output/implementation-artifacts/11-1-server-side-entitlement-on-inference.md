@@ -1,6 +1,6 @@
 # Story 11.1: Server-side entitlement on inference
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -287,8 +287,40 @@ under `src/`, runs in a real browser per that project's config) — run it with
 
 ### Agent Model Used
 
+moonshotai/kimi-k2.7-code
+
 ### Debug Log References
+
+- Fixed Hono `app.request` requiring `env` as the third argument in worker tests.
+- Fixed browser test `global.fetch` by switching to `vi.stubGlobal("fetch", ...)`.
 
 ### Completion Notes List
 
+- Added `SUPABASE_PUBLISHABLE_KEY` to `BaseEnv` and updated existing worker tests to include it.
+- Added `[dev] port` blocks and `SUPABASE_PUBLISHABLE_KEY` secrets comments to both `wrangler.toml` files.
+- Added `VITE_PARSE_WORKER_URL` and `VITE_AI_WORKER_URL` to `.env.development` and `.env.e2e`.
+- Created `workers/shared/aiEntitlementGate.ts` with `createCallerClient`, `AiEntitlementVariables`, and `requireAiEntitlement` middleware.
+- Wired the gate into `workers/ai/index.ts` and `workers/parse/index.ts`.
+- Created `src/components/atomic-crm/providers/commons/aiWorkerClient.ts` as the single SPA call surface.
+- Added `aiEntitlementGate.test.ts`, updated `workers/ai/index.test.ts` and `workers/parse/index.test.ts`, and added `aiWorkerClient.test.ts`.
+- Verified AC-8 grep returns exactly two production `ai_entitlement` call sites.
+
 ### File List
+
+- workers/shared/env.ts
+- workers/shared/aiEntitlementGate.ts
+- workers/shared/aiEntitlementGate.test.ts
+- workers/ai/index.ts
+- workers/ai/index.test.ts
+- workers/ai/wrangler.toml
+- workers/parse/index.ts
+- workers/parse/index.test.ts
+- workers/parse/wrangler.toml
+- workers/cron/index.test.ts
+- workers/ingest/index.test.ts
+- workers/shared/forAccount.test.ts
+- src/components/atomic-crm/providers/commons/aiWorkerClient.ts
+- src/components/atomic-crm/providers/commons/aiWorkerClient.test.ts
+- .env.development
+- .env.e2e
+- _bmad-output/implementation-artifacts/11-1-server-side-entitlement-on-inference.md

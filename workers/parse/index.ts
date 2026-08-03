@@ -1,8 +1,11 @@
 import { createWorkerApp } from "../shared/createApp";
+import { requireAiEntitlement } from "../shared/aiEntitlementGate";
 
-// E5 (Auto-parse, OCR+LLM) lands here — AD-6, AD-8, AD-12. Only the health
-// route exists for now; the AI Gateway call + Hebrew OCR pipeline is separate
-// future work.
+// E5/E11 (resume auto-parse) land here — AD-6, AD-8, AD-12. Every non-health
+// route is gated by `requireAiEntitlement` (Story 11.1).
 const app = createWorkerApp("parse");
+app.use("*", requireAiEntitlement);
+
+// 11.2: POST /parse goes here, after the gate.
 
 export default app;
