@@ -1087,6 +1087,26 @@ export const englishCrmMessages = {
         error: "Couldn't end that connection. Try again.",
       },
     },
+    // Story 9.4 — the unauthenticated public search page (`/find`,
+    // listings/PublicSearchPage.tsx). Read via publicSearchTranslate.ts,
+    // not useTranslate() — this page renders outside <Admin> (Task 3).
+    public_search: {
+      title: "Find a shadchan or a single",
+      subtitle: "Search only shows what each family has chosen to publish.",
+      search_placeholder: "Search by name, area, or community",
+      idle_hint: "Start typing to search published listings.",
+      loading: "Searching…",
+      empty: "No published listings match this search.",
+      error: "Couldn't load listings. Please try again.",
+      shadchanim_heading: "Shadchanim",
+      singles_heading: "Singles",
+      shadchan_card: {
+        contact_label: "Contact",
+      },
+      single_card: {
+        age_label: "Age",
+      },
+    },
   },
 } as const;
 

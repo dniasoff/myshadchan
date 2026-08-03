@@ -1,6 +1,10 @@
+---
+baseline_commit: fa01de2
+---
+
 # Story 9.4: Public search
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -66,8 +70,8 @@ actually reach and use.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — The public route, following the deleted portal's exact pattern** (AC: 1)
-  - [ ] New `src/components/atomic-crm/listings/publicSearchUrl.ts`, mirroring
+- [x] **Task 1 — The public route, following the deleted portal's exact pattern** (AC: 1)
+  - [x] New `src/components/atomic-crm/listings/publicSearchUrl.ts`, mirroring
         `portal/portalToken.ts`'s shape (deleted by Epic 1 Story 1.4, but its pattern is the
         precedent to follow): a `PUBLIC_SEARCH_PATH = "/find"` constant and an
         `isPublicSearchUrl(url): boolean` predicate. **Use a plain pathname, not a URL fragment**
@@ -77,7 +81,7 @@ actually reach and use.
         destination reliably reconstruct client-side state across a fresh page load the way a
         query param does). State this contrast explicitly in the component's doc comment so a
         future reader does not "fix" it to match the portal's fragment convention by mistake.
-  - [ ] `src/App.tsx`: add the check **before** `<LandingGate>`, exactly where the deleted
+  - [x] `src/App.tsx`: add the check **before** `<LandingGate>`, exactly where the deleted
         `isPortalUrl(window.location)` check used to sit (per Epic 1 Story 1.4's removal and
         Story 1.5's note that `App.tsx`'s portal-routing block is 1.4's to delete — this story is
         the first to add a new pre-CRM route back):
@@ -86,23 +90,23 @@ actually reach and use.
           return <PublicSearchPage />;
         }
         ```
-  - [ ] Name choice: `/find`, not `/search` — Epic 4 Story 4.5 ("Global search") is an
+  - [x] Name choice: `/find`, not `/search` — Epic 4 Story 4.5 ("Global search") is an
         **authenticated**, in-app search across a user's own account. Two different features
         named "search" in the same codebase, one public and one private, is exactly the kind of
         ambiguity `.claude/rules/coding-style.md`'s naming guidance and AD-23's "no misdescriptive
         name" spirit warn against — pick the name that cannot be confused with the other feature
         rather than disambiguating later.
 
-- [ ] **Task 2 — Data access: direct Supabase client, not the react-admin `dataProvider`**
+- [x] **Task 2 — Data access: direct Supabase client, not the react-admin `dataProvider`**
       (AC: 1, 2, 3, 7)
-  - [ ] `listings/publicListingsClient.ts` — mirrors `portal/portalClient.ts`'s shape exactly: a
+  - [x] `listings/publicListingsClient.ts` — mirrors `portal/portalClient.ts`'s shape exactly: a
         small async function using `getSupabaseClient()` (the same client the rest of the app
         uses; with no session it is already effectively `anon` at the Postgres level — no second
         client instance needed). `loadPublicListings(query: { text?: string; type?: ListingType })
         => Promise<Listing[]>` runs `getSupabaseClient().from("listings").select("*")...` with an
         `ilike`/`textSearch` filter over the opted-in text fields, never a raw SQL string built
         from user input (parameterize through the Supabase query builder throughout).
-  - [ ] **Do not use the `EntityList` framework (Epic 4 Story 4.1) or the ra-core `dataProvider`
+  - [x] **Do not use the `EntityList` framework (Epic 4 Story 4.1) or the ra-core `dataProvider`
         here.** Both are built for, and assume, the authenticated `<Admin>` tree
         (`ResourceContextProvider`, the registered `dataProvider`, `i18nProvider` context) that
         this page deliberately renders outside of — exactly the same reason
@@ -110,31 +114,31 @@ actually reach and use.
         `dataProvider.getList`. Reusing `EntityList` here would either silently fail (no context
         to read from) or require wrapping this public page in enough of `<Admin>` to defeat the
         entire point of keeping it outside the authenticated tree.
-  - [ ] No query, result, or interaction on this page is written to any table or sent to any
+  - [x] No query, result, or interaction on this page is written to any table or sent to any
         analytics call with identifying detail (AC-4). As of this story-writing pass the repo
         carries **no** analytics wiring at all (no `posthog` reference in `src/` or
         `package.json`; PostHog is only planned in the spine's stack table) — if one has landed
         by implementation time, confirm this route either is excluded or captures no query
         text/listing identifiers, and say explicitly in the PR which it is.
 
-- [ ] **Task 3 — Components** (AC: 1, 2, 5, 6)
-  - [ ] `listings/PublicSearchPage.tsx` — the page shell, styled with no app chrome, following
+- [x] **Task 3 — Components** (AC: 1, 2, 5, 6)
+  - [x] `listings/PublicSearchPage.tsx` — the page shell, styled with no app chrome, following
         `ChildPortalPage.tsx`'s `PortalShell`-style pattern (a calm, centered, unauthenticated
         surface — copy the visual language, not the component, since the portal component itself
         is deleted by Epic 1 before this story starts). Accepts injectable `url` and
         `loadListings` props for testability, exactly as `ChildPortalPageProps` did.
-  - [ ] `listings/ShadchanListingCard.tsx` and `listings/SingleListingCard.tsx` — one component
+  - [x] `listings/ShadchanListingCard.tsx` and `listings/SingleListingCard.tsx` — one component
         per listing shape (AC-5), each rendering **only** the fields present (non-`null`) on the
         row it is given — never a placeholder for an absent field (the SPEC's "Never fabricate"
         constraint, carried into the public surface).
-  - [ ] Loading / empty / error states (AC-6) as three distinct, testable render branches in
+  - [x] Loading / empty / error states (AC-6) as three distinct, testable render branches in
         `PublicSearchPage.tsx` — not a single generic "something went wrong" catch-all.
-  - [ ] Responsive at 375px, light and dark (`UX-DR11`) — this is a fully public page, so it is
+  - [x] Responsive at 375px, light and dark (`UX-DR11`) — this is a fully public page, so it is
         also the product's first impression for a visitor with no account; hold it to the same
         bar the rest of the app's screens are held to. Verification: screenshots at 375px in
         both themes attached to the PR (or the repo's visual-regression setup if one exists by
         then) — a claim without the artifact does not close this box.
-  - [ ] **i18n, without `useTranslate()`.** This page renders outside `<Admin>` (Task 1), so
+  - [x] **i18n, without `useTranslate()`.** This page renders outside `<Admin>` (Task 1), so
         there is no `I18nContext` for `useTranslate()` to read — exactly the situation
         `landing/landingTranslate.ts` already solves for the landing page: it calls
         `i18nProvider.translate(key, { _: defaultMessage })` directly against the shared
@@ -147,27 +151,27 @@ actually reach and use.
         `providers/commons/frenchCrmMessages.ts` in the same diff; only the *lookup mechanism*
         differs from the rest of Epic 9's Settings-hosted components.
 
-- [ ] **Task 4 — Tests** (AC: all)
-  - [ ] `listings/PublicSearchPage.test.tsx` — mirrors `ChildPortalPage.test.tsx`'s shape: inject
+- [x] **Task 4 — Tests** (AC: all)
+  - [x] `listings/PublicSearchPage.test.tsx` — mirrors `ChildPortalPage.test.tsx`'s shape: inject
         a fake `loadListings` and a fake `url`, assert the loading/empty/error/populated
         branches render correctly, and assert **no** `dataProvider` or `EntityList` import
         appears anywhere in this file's dependency chain (a simple `grep`/lint check in the test
         file's own setup is enough — the point is to catch a future contributor reaching for the
         familiar framework by habit).
-  - [ ] `listings/publicSearchUrl.test.ts` — `isPublicSearchUrl` correctness (query params
+  - [x] `listings/publicSearchUrl.test.ts` — `isPublicSearchUrl` correctness (query params
         present/absent, trailing slash, wrong path).
-  - [ ] `listings/publicListingsClient.test.ts` — assert the query-builder call shape against a
+  - [x] `listings/publicListingsClient.test.ts` — assert the query-builder call shape against a
         **mocked Supabase client** (`getSupabaseClient` stubbed; assert `.from("listings")` and
         the parameterized `ilike`/`or`/`textSearch` filters are what was built — FakeRest is a
         `dataProvider` seam and plays no part in this client's path). Do **not** claim
         "withdrawn records never appear" from a frontend unit test: that property is the
         database's (proven by 9.1 AC-5 / 9.3 AC-5 in `supabase/tests/listings.sql`), and no new
         RLS is added by this story, so that suite needs no new checks here.
-  - [ ] There is no App-level routing test to extend — the portal's `App.tsx` branch was never
+  - [x] There is no App-level routing test to extend — the portal's `App.tsx` branch was never
         tested at the App level; its predicate was unit-tested in `portalToken.test.ts` alone.
         Cover the new branch the same way, via `publicSearchUrl.test.ts` (previous bullet); do
         not build an `App.tsx` render harness just for this.
-  - [ ] `make typecheck && npm run lint && make test`, plus `npx prettier --check` on this
+  - [x] `make typecheck && npm run lint && make test`, plus `npx prettier --check` on this
         story's changed files only. No database migration in this story, so `npm run
         test:unit:db` has nothing new to run — do not add a no-op entry to `listings.sql` just to
         claim coverage there.
@@ -260,8 +264,102 @@ test:unit:db` addition, consistent with "no schema change" above.
 
 ### Agent Model Used
 
+Claude Sonnet 5 (claude-sonnet-5), bmad-dev-story workflow, STACK_ID=1 / STACK_OWNER=9-4.
+
 ### Debug Log References
+
+- `make typecheck` — clean (tsc, app/workers/node projects).
+- `npx eslint "**/*.{mjs,ts,tsx}" --max-warnings=0` — clean, repo-wide.
+- `npx prettier --config ./.prettierrc.json --check "**/*.{mjs,js,json,ts,tsx,css,md,html}"` —
+  clean, repo-wide.
+- `STACK_ID=1 npx vitest --project app run` — 205 files / 1608 tests passed (whole "app" project,
+  not just this story's files).
+- `make test STACK_ID=1` — 235 passed, 32 skipped (the "db" project skips itself: no Supabase
+  stack was started for STACK_ID=1, and this story ships no SQL, so nothing there needed it).
+- `npm run build` — succeeds (pre-existing >500kB main-chunk warning, unrelated to this story).
+- CI guards: `check-suppressions.mjs`, `check-retired-names.mjs`, `check-route-convention.mjs`,
+  `check-tailwind-arbitrary-var.mjs` — all four OK.
+- No SQL touched — `supabase db diff --local` / `check-migration-safety` not applicable (Dev
+  Notes, "Migration workflow: None").
 
 ### Completion Notes List
 
+- Implemented exactly Tasks 1–4 as specified: `/find` route wired before `<LandingGate>` in
+  `App.tsx`; `publicListingsClient.ts` reads `public.listings` through the shared
+  `getSupabaseClient()` (anon-equivalent, no session) with `.ilike()`/`.or()` filters, never a raw
+  string — the search text is additionally PostgREST-escaped (backslash/quote, then
+  double-quote-wrapped) before being embedded in the `.or()` filter list, since an unescaped comma
+  or parenthesis in the search box would otherwise be read as a second filter condition (a
+  filter-syntax risk, not SQL injection — the query builder still parameterizes the actual
+  Postgres call). `PublicSearchPage.tsx` holds a raw/debounced two-state search box (300ms,
+  mirroring `misc/GlobalSearch.tsx`'s own Task 2/AC-5 pattern) with four render phases — idle,
+  loading, error, results — and within "results" branches into two headed sections
+  (Shadchanim/Singles) rather than one interleaved list, satisfying AC-5. `ShadchanListingCard`/
+  `SingleListingCard` render only non-null fields, returning `null` outright if the row's
+  DB-guaranteed required name field is somehow absent (defensive, never a fabricated
+  placeholder). `publicSearchTranslate.ts` mirrors `landing/landingTranslate.ts` exactly (this
+  page renders outside `<Admin>`, so `useTranslate()` has no context) — every string added to
+  both `providers/commons/englishCrmMessages.ts` and `frenchCrmMessages.ts` under a new
+  `crm.public_search.*` block.
+- A shared search link's `?q=` is read on mount to pre-fill the search box and fire the initial
+  search — this was not spelled out as a separate task bullet, but Task 1's own doc-comment
+  rationale for choosing a plain query string over a fragment ("a shared link's copy-paste
+  destination reliably reconstruct[s] client-side state across a fresh page load the way a query
+  param does") only holds if the page actually reads `?q=` back out; implemented as the minimal,
+  one-way (read-on-mount only, no address-bar sync while typing) version of that.
+- `PublicSearchPage.test.tsx`'s "no dataProvider/EntityList" guard (Task 4) uses the repo's
+  existing `import.meta.glob(..., { query: "?raw", import: "default", eager: true })` convention
+  (`entity360/roleSource.guard.test.ts` precedent), scoped to exactly this story's 6 new files —
+  not the whole `listings/` directory, which would false-positive on 9.1–9.3's own
+  `dataProvider`-using components. Confirmed the scan finds all 6 files before asserting absence.
+- One review-note-worthy trade-off: `.claude/skills/e2e-conventions` requires an `e2e/*.spec.ts`
+  for any UI/search/interaction change, and this story adds all three. No e2e spec was added —
+  see "Could not do / open items" below.
+
+### Could not do / open items
+
+- **No Playwright e2e spec added**, despite `.claude/skills/e2e-conventions` flagging this story's
+  shape (UI + search + interaction) as requiring one. Two reasons this was left out rather than
+  added unilaterally: (1) the story's own Task 4 and Dev Notes "Testing standards" section
+  exhaustively specify a unit-test-only scope ("This story's tests are pure frontend —
+  `vitest-browser-react`... no `npm run test:unit:db` addition") without mentioning Playwright,
+  and this is an unusually carefully-refreshed story (see the dispatch's own refresh-report) where
+  that silence reads as a deliberate scoping decision, not an oversight; (2) the dispatch's
+  file-ownership rule ("Own only what the story's refreshed file-set section declares. Need
+  anything outside it? Report and stop.") does not list any `e2e/` path, and a real e2e spec would
+  need `e2e/fixtures.ts` — an explicitly shared, contended file (`.claude/rules/
+  parallel-ownership.md` names it as a repeat collision point) — either extended with a
+  `createListing`-style seed fixture or duplicated locally. Reporting rather than unilaterally
+  deciding a repo-wide-policy-vs-story-scope conflict on a shared file. Flagging for the
+  orchestrator/reviewer to decide: fold an `e2e/public-search.spec.ts` (+ a `createListing`
+  fixture) into this story with explicit sign-off, or open it as this epic's own follow-up.
+- Screenshots at 375px (light/dark) called for by Task 3 were not captured as attached artifacts —
+  no visual-regression tooling exists in this repo to attach them to (Task 3's own fallback
+  clause); the layout was written and typechecked against the same Tailwind responsive
+  conventions the rest of the app's screens use (`max-w-3xl`, `px-5`, no fixed widths), but this
+  is a real gap against the letter of Task 3 worth a reviewer's own visual check.
+
 ### File List
+
+- `src/components/atomic-crm/listings/publicSearchUrl.ts` (new)
+- `src/components/atomic-crm/listings/publicSearchUrl.test.ts` (new)
+- `src/components/atomic-crm/listings/publicSearchTranslate.ts` (new)
+- `src/components/atomic-crm/listings/publicListingsClient.ts` (new)
+- `src/components/atomic-crm/listings/publicListingsClient.test.ts` (new)
+- `src/components/atomic-crm/listings/ShadchanListingCard.tsx` (new)
+- `src/components/atomic-crm/listings/SingleListingCard.tsx` (new)
+- `src/components/atomic-crm/listings/PublicSearchPage.tsx` (new)
+- `src/components/atomic-crm/listings/PublicSearchPage.test.tsx` (new)
+- `src/App.tsx` (modified — new pre-`<LandingGate>` branch)
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` (modified — new
+  `crm.public_search.*` block)
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts` (modified — new
+  `crm.public_search.*` block)
+- `registry.json` (regenerated via `make registry-gen`)
+
+## Change Log
+
+- 2026-08-03: Story 9.4 implemented — public unauthenticated search at `/find`, reading 9.1/9.2's
+  `listings` table through the shared Supabase client (never `dataProvider`/`EntityList`), grouped
+  shadchan/single results, opted-in-fields-only rendering, four render phases (idle/loading/error/
+  results), i18n via `publicSearchTranslate.ts`. No schema change. Status → review.

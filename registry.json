@@ -1000,6 +1000,18 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/listings/publicSearchUrl.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/publicSearchTranslate.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/publicListingsClient.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/listings/WithdrawSingleListingButton.tsx",
           "type": "registry:component"
         },
@@ -1008,11 +1020,23 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/listings/SingleListingCard.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/ShadchanListingCard.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/listings/PublishSingleListingSection.tsx",
           "type": "registry:component"
         },
         {
           "path": "src/components/atomic-crm/listings/PublishShadchanListingSection.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/PublicSearchPage.tsx",
           "type": "registry:component"
         },
         {

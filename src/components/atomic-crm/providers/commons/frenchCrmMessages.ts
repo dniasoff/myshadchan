@@ -954,5 +954,24 @@ export const frenchCrmMessages = {
         error: "Impossible de terminer cette connexion. Réessayez.",
       },
     },
+    // Story 9.4 — the unauthenticated public search page (`/find`).
+    public_search: {
+      title: "Trouver un shadchan ou un célibataire",
+      subtitle:
+        "La recherche ne montre que ce que chaque famille a choisi de publier.",
+      search_placeholder: "Rechercher par nom, secteur ou communauté",
+      idle_hint: "Commencez à taper pour rechercher les annonces publiées.",
+      loading: "Recherche…",
+      empty: "Aucune annonce publiée ne correspond à cette recherche.",
+      error: "Impossible de charger les annonces. Réessayez.",
+      shadchanim_heading: "Shadchanim",
+      singles_heading: "Célibataires",
+      shadchan_card: {
+        contact_label: "Contact",
+      },
+      single_card: {
+        age_label: "Âge",
+      },
+    },
   },
 } satisfies CrmMessages;
