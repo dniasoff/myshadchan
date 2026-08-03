@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+import { CoreAdminContext, memoryStore, TestMemoryRouter } from "ra-core";
+import type { Store } from "ra-core";
 import { QueryClient } from "@tanstack/react-query";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
@@ -32,13 +33,35 @@ const shadchanContext: MyContext = {
   is_active: true,
 };
 
-const renderSection = async (context: MyContext) => {
+/**
+ * `store` defaults to a FRESH `memoryStore()` per call, not
+ * `CoreAdminContext`'s own module-level singleton default, for the same
+ * test-isolation reason `settings/SingleListingSection.test.tsx` and
+ * `layout/DemoBanner.test.tsx` both give: the singleton would leak the
+ * `activeContext.lastKnownKind` hint one test writes into another's render.
+ */
+const renderSection = async (
+  context: MyContext,
+  {
+    store = memoryStore(),
+    pendingForever = false,
+  }: { store?: Store; pendingForever?: boolean } = {},
+) => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, [context]);
+  if (!pendingForever) {
+    queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, [context]);
+  }
   const dataProvider = {
-    getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    getMyContexts: vi.fn(() =>
+      pendingForever ? new Promise(() => {}) : Promise.resolve([context]),
+    ),
+    getList: vi.fn(() =>
+      pendingForever
+        ? new Promise(() => {})
+        : Promise.resolve({ data: [], total: 0 }),
+    ),
   } as unknown as CrmDataProvider;
 
   const screen = await render(
@@ -47,13 +70,14 @@ const renderSection = async (context: MyContext) => {
         dataProvider={dataProvider}
         queryClient={queryClient}
         i18nProvider={testI18nProvider}
+        store={store}
       >
         <ShadchanListingSection />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
 
-  return { screen, dataProvider };
+  return { screen, dataProvider, store };
 };
 
 describe("ShadchanListingSection", () => {
@@ -95,5 +119,64 @@ describe("ShadchanListingSection", () => {
           (dataProvider.getList as ReturnType<typeof vi.fn>).mock.calls.length,
       )
       .toBeGreaterThan(0);
+  });
+});
+
+/**
+ * CLS fix (Epic 9 layout-shift regression sweep — see this component's own
+ * Dev Notes and `root/activeContextKindHint.ts`). Every assertion here is
+ * synchronous against `container` with a `pendingForever` dataProvider,
+ * the same `layout/DemoBanner.test.tsx` / `settings/
+ * SingleListingSection.test.tsx` idiom: `expect.element(...)` retries, so
+ * it would pass just as happily on a skeleton that popped in three renders
+ * late — i.e. it could not fail on the bug being fixed.
+ */
+describe("ShadchanListingSection — CLS fix (reserved height on first paint)", () => {
+  it("renders the publish-listing skeleton on the first paint when the hint says shadchanus", async () => {
+    // Arrange — `useMyContexts()` never resolves; only the hint is available.
+    const store = memoryStore({ "activeContext.lastKnownKind": "shadchanus" });
+
+    // Act
+    const { screen } = await renderSection(shadchanContext, {
+      store,
+      pendingForever: true,
+    });
+
+    // Assert — synchronously present, i.e. the card is already at its
+    // final height. This is the assertion that is RED on the pre-fix code
+    // (which returned `null` unconditionally while pending).
+    expect(screen.container.textContent ?? "").toContain("Publish my listing");
+  });
+
+  it("renders nothing on the first paint when the hint says household", async () => {
+    // Arrange — a hint of "not shadchanus" must not reserve space nobody
+    // needs, mirroring `DemoBanner.test.tsx`'s identical assertion for its
+    // own boolean.
+    const store = memoryStore({ "activeContext.lastKnownKind": "household" });
+
+    // Act
+    const { screen } = await renderSection(householdContext, {
+      store,
+      pendingForever: true,
+    });
+
+    // Assert
+    expect(screen.container.textContent ?? "").not.toContain(
+      "Publish my listing",
+    );
+  });
+
+  it("renders nothing on the first paint when there is no hint", async () => {
+    // Arrange — first-ever visit to the app: no hint has ever been
+    // written. Fails TOWARD nothing, never toward a guess.
+    // Act
+    const { screen } = await renderSection(shadchanContext, {
+      pendingForever: true,
+    });
+
+    // Assert
+    expect(screen.container.textContent ?? "").not.toContain(
+      "Publish my listing",
+    );
   });
 });

@@ -11,7 +11,14 @@ import { ListingToggleField } from "./ListingToggleField";
 import { useShadchanListing } from "./useShadchanListing";
 import { WithdrawShadchanListingButton } from "./WithdrawShadchanListingButton";
 
-function PublishShadchanListingSkeleton(): ReactElement {
+/**
+ * Exported (not just used locally) so `settings/ShadchanListingSection.tsx`
+ * can render the IDENTICAL markup for its own outer "is this account even
+ * shadchanus yet" pending window — see that file's own CLS-fix comment for
+ * why the two pending windows need to render the same thing rather than
+ * two different placeholders back to back.
+ */
+export function PublishShadchanListingSkeleton(): ReactElement {
   const translate = useTranslate();
   return (
     <div>

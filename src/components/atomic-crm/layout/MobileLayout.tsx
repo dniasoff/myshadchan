@@ -5,7 +5,9 @@ import { Suspense, type ReactNode } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 
 import { GlobalSearch, GlobalSearchProvider } from "../misc/GlobalSearch";
+import { useActiveContextKindWarmer } from "../root/activeContextKindHint";
 import { OnboardingGate } from "../root/OnboardingGate";
+import { useSingleListingShapeHintWarmer } from "../root/singleListingShapeHint";
 import { useConfigurationLoader } from "../root/useConfigurationLoader";
 import { TourAutostart } from "../tour/TourAutostart";
 import { DemoBanner } from "./DemoBanner";
@@ -28,6 +30,12 @@ import { MobileNavigation } from "./MobileNavigation";
  */
 export const MobileLayout = ({ children }: { children: ReactNode }) => {
   useConfigurationLoader();
+  // CLS fix: warms Settings-only sections' own hints before they ever
+  // mount — see each hook's own comment for why this can't live in
+  // Settings (`settings/SingleListingSection.tsx`,
+  // `settings/ShadchanListingSection.tsx`).
+  useSingleListingShapeHintWarmer();
+  useActiveContextKindWarmer();
   return (
     <OnboardingGate>
       {/* Story 4.5 (AC-1): the mobile counterpart of Layout.tsx's provider —

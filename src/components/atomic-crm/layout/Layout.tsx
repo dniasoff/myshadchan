@@ -5,7 +5,9 @@ import { Error } from "@/components/admin/error";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { GlobalSearch, GlobalSearchProvider } from "../misc/GlobalSearch";
+import { useActiveContextKindWarmer } from "../root/activeContextKindHint";
 import { OnboardingGate } from "../root/OnboardingGate";
+import { useSingleListingShapeHintWarmer } from "../root/singleListingShapeHint";
 import { useConfigurationLoader } from "../root/useConfigurationLoader";
 import { TourAutostart } from "../tour/TourAutostart";
 import { DemoBanner } from "./DemoBanner";
@@ -22,6 +24,12 @@ import { TopBar } from "./TopBar";
  */
 export const Layout = ({ children }: { children: ReactNode }) => {
   useConfigurationLoader();
+  // CLS fix: warms Settings-only sections' own hints before they ever
+  // mount — see each hook's own comment for why this can't live in
+  // Settings (`settings/SingleListingSection.tsx`,
+  // `settings/ShadchanListingSection.tsx`).
+  useSingleListingShapeHintWarmer();
+  useActiveContextKindWarmer();
   return (
     <OnboardingGate>
       {/* Story 4.5 (AC-1): one GlobalSearch instance for the whole desktop

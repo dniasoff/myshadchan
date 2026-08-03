@@ -26,6 +26,7 @@ import { pickActiveContext } from "../providers/commons/roleAuthority";
 import { ShareSingleDialog } from "../sharing/ShareSingleDialog";
 import { useCurrentMemberId } from "../threads/useCurrentMemberId";
 import { useMyContexts } from "../root/useMyContexts";
+import { useSingleListingShapeHint } from "../root/singleListingShapeHint";
 import type { Listing, Single } from "../types";
 import { SectionLabel } from "./SectionLabel";
 
@@ -42,6 +43,88 @@ const GET_SINGLES_PARAMS = {
   sort: { field: "first_name_en" as const, order: "ASC" as const },
 };
 
+/** Mirrors a settled row's exact structure (`Item size="sm"` + a real
+ * `Button` of the same variant/size) so its height can never differ from
+ * the row it stands in for — the same technique `ProfileSection.tsx`'s own
+ * `ProfileFieldRowSkeleton` uses. The action is always drawn as a button
+ * (never omitted) because a `parent_admin`/`self_manager` hint — the only
+ * case this renders for — always has one; a viewer who won't get one
+ * settles into the real, action-less row a beat later, which is a much
+ * smaller shift than the row's own existence would have been.
+ */
+const SingleListingRowSkeleton = (): ReactElement => (
+  <Item size="sm">
+    <ItemContent>
+      <Skeleton className="h-4 w-24" />
+    </ItemContent>
+    <ItemActions className="gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled
+        tabIndex={-1}
+        aria-hidden="true"
+      >
+        <span className="invisible">Publish</span>
+      </Button>
+    </ItemActions>
+  </Item>
+);
+
+/**
+ * Stands in for the settled card while `useMyContexts()` / `useGetList`
+ * are in flight, sized from `hint` (the last settled shape) rather than a
+ * fixed guess — `rowCount` rows for a household that had some, the same
+ * empty-state copy for one that had none. Shares the settled card's own
+ * `SectionLabel` + border + description markup verbatim (not a shared
+ * wrapper component — `ProfileSection.tsx` keeps its own skeleton's markup
+ * literal for the same reason: the two are meant to read as identical, not
+ * merely similar, and a shared wrapper would be one more place a future
+ * edit could apply to only one of them).
+ */
+const SingleListingSectionSkeleton = ({
+  rowCount,
+}: {
+  rowCount: number;
+}): ReactElement => {
+  const translate = useTranslate();
+
+  return (
+    <div>
+      <SectionLabel>
+        {translate("crm.settings.single_listing.title", {
+          _: "Single listings",
+        })}
+      </SectionLabel>
+      <div className="rounded-lg border p-4" aria-busy="true">
+        <p className="mb-3 px-1 text-sm text-muted-foreground">
+          {translate("crm.settings.single_listing.description", {
+            _: "Publish a narrow, opt-in profile so shadchanim can find them.",
+          })}
+        </p>
+
+        {rowCount === 0 ? (
+          <p className="px-1 text-sm text-muted-foreground">
+            {translate("crm.settings.single_listing.empty", {
+              _: "No singles in this household yet.",
+            })}
+          </p>
+        ) : (
+          <ItemGroup className="overflow-hidden rounded-lg border">
+            {Array.from({ length: rowCount }, (_, index) => (
+              <div key={index}>
+                {index > 0 ? <ItemSeparator /> : null}
+                <SingleListingRowSkeleton />
+              </div>
+            ))}
+          </ItemGroup>
+        )}
+      </div>
+    </div>
+  );
+};
+
 /**
  * Story 9.2 — the Settings wiring for publishing a single's listing
  * (FR103): lists every single in the household with a Publish / Manage
@@ -56,13 +139,26 @@ const GET_SINGLES_PARAMS = {
  * `account_members.id`, `useCurrentMemberId()`). A `helper` or a plain
  * `single` sees the roster but no action on any row. This is UX only —
  * Task 1's two new RLS policies are the real boundary either way.
+ *
+ * CLS fix (Epic 9 layout-shift regression): this used to return `null`
+ * while `useMyContexts()` was in flight and then a fixed 2-row skeleton
+ * while `useGetList("singles")` was, popping into a differently-sized
+ * block twice on a cold load — measured 0.097 CLS against a 0.01 budget
+ * (`e2e/demo-banner-cls.spec.ts`). Both transitions are now gated on the
+ * same `isSettled` flag and, while unsettled, sized from
+ * `useSingleListingShapeHint()` (`root/singleListingShapeHint.ts` — see
+ * its own comment for why the hint has to be warmed from the shell, not
+ * from here) instead of a fixed guess. Only a genuinely first-ever visit
+ * to the whole app (no hint of any kind yet) still pops in at full size —
+ * the same "first load on a device" residual `DemoBanner.tsx` documents.
  */
 export const SingleListingSection = (): ReactElement | null => {
   const translate = useTranslate();
-  const { data: contexts } = useMyContexts();
+  const { data: contexts, isPending: contextsPending } = useMyContexts();
   const activeContext = pickActiveContext(contexts);
   const isHousehold = activeContext?.kind === "household";
   const { data: currentMemberId } = useCurrentMemberId();
+  const shapeHint = useSingleListingShapeHint();
 
   const { data: singles, isPending: singlesPending } = useGetList<Single>(
     "singles",
@@ -81,6 +177,18 @@ export const SingleListingSection = (): ReactElement | null => {
     },
     { enabled: isHousehold },
   );
+
+  // `singlesPending` stays `true` while the query is `enabled: false` (react
+  // query never resolves a disabled query to "not pending"), so it only
+  // gates settling for a household — a non-household is settled the moment
+  // `contexts` itself resolves, exactly like the pre-fix code's own
+  // `!isHousehold` short-circuit.
+  const isSettled = !contextsPending && (!isHousehold || !singlesPending);
+
+  if (!isSettled) {
+    if (!shapeHint || !shapeHint.isHousehold) return null;
+    return <SingleListingSectionSkeleton rowCount={shapeHint.rowCount} />;
+  }
 
   if (!activeContext || !isHousehold) return null;
 
@@ -113,12 +221,7 @@ export const SingleListingSection = (): ReactElement | null => {
           })}
         </p>
 
-        {singlesPending ? (
-          <div className="space-y-2" aria-busy="true">
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
-          </div>
-        ) : !singles || singles.length === 0 ? (
+        {!singles || singles.length === 0 ? (
           <p className="px-1 text-sm text-muted-foreground">
             {translate("crm.settings.single_listing.empty", {
               _: "No singles in this household yet.",
