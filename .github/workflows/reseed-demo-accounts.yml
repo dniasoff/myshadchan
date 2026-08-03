@@ -1,0 +1,78 @@
+name: Reseed demo accounts
+
+on:
+  # Manual trigger from the GitHub Actions tab.
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+
+  # Refresh demo data every day at 00:00 UTC.
+  # Disable or adjust the cron expression if you do not want automatic runs.
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  reseed:
+    name: Clear and re-seed demo-flagged accounts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      ADMIN_RESEED_SECRET: ${{ secrets.ADMIN_RESEED_SECRET }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      FUNCTION_URL: https://${{ secrets.SUPABASE_PROJECT_ID }}.supabase.co/functions/v1/admin_reseed_demo_accounts
+
+    steps:
+      - name: Validate required secrets
+        run: |
+          if [ -z "$ADMIN_RESEED_SECRET" ]; then
+            echo "::error::ADMIN_RESEED_SECRET repository secret is missing."
+            exit 1
+          fi
+          if [ -z "$SUPABASE_PROJECT_ID" ]; then
+            echo "::error::SUPABASE_PROJECT_ID repository secret is missing."
+            exit 1
+          fi
+
+      - name: Trigger admin reseed function
+        id: reseed
+        run: |
+          set -euo pipefail
+          echo "Calling $FUNCTION_URL ..."
+          response=$(curl -sS -w "\n%{http_code}" \
+            -X POST "$FUNCTION_URL" \
+            -H "Authorization: Bearer $ADMIN_RESEED_SECRET" \
+            -H "Content-Type: application/json")
+
+          body=$(echo "$response" | sed '$d')
+          status=$(echo "$response" | tail -n1)
+
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "$body" | jq . > reseed-response.json || echo "$body" > reseed-response.json
+          cat reseed-response.json
+
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "::error::Reseed request failed with HTTP $status"
+            exit 1
+          fi
+
+      - name: Summarize result
+        run: |
+          set -euo pipefail
+          succeeded=$(jq -r '.succeeded // "unknown"' reseed-response.json)
+          failed=$(jq -r '.failed // "unknown"' reseed-response.json)
+          processed=$(jq -r '.processed // "unknown"' reseed-response.json)
+
+          echo "✅ Demo accounts refreshed: $succeeded succeeded, $failed failed out of $processed processed." >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$failed" != "0" ] && [ "$failed" != "unknown" ]; then
+            echo "### Failed accounts" >> "$GITHUB_STEP_SUMMARY"
+            jq '[.results[] | select(.status == "error") | { accountId, accountKind, error }]' reseed-response.json >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

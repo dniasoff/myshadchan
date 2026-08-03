@@ -89,6 +89,7 @@ import {
   USER_STORAGE_KEY,
 } from "./authProvider";
 import generateData from "./dataGenerator";
+import { SEEDED_FILE_BLOBS } from "./dataGenerator/fileAssets";
 import type { Db } from "./dataGenerator/types";
 import { withSupabaseFilterAdapter } from "./internal/supabaseAdapter";
 import { resolveContextMembership } from "./internal/accountMemberships";
@@ -230,6 +231,22 @@ export const createDataProvider = ({
   // map (a different `photos/` prefix of the same `documents` bucket in the
   // real backend) — see ./internal/resumePhotos.ts.
   const resumePhotoBlobUrls: ResumePhotoBlobUrls = new Map();
+
+  // Richer demo data (seed_demo plan): if the generated Db included seeded
+  // files, pre-populate the in-memory blob maps so those files can be signed
+  // and downloaded in the demo without a separate upload round-trip.
+  const seededBlobs = (db as any)[SEEDED_FILE_BLOBS];
+  if (seededBlobs) {
+    seededBlobs.resumeFiles?.forEach((url: string, path: string) =>
+      resumeFileBlobUrls.set(path, url),
+    );
+    seededBlobs.resumePhotos?.forEach((url: string, path: string) =>
+      resumePhotoBlobUrls.set(path, url),
+    );
+    seededBlobs.entityFiles?.forEach((url: string, path: string) =>
+      entityFileBlobUrls.set(path, url),
+    );
+  }
 
   // Emulate the shidduchim_summary view (AD-10 FakeRest mirror): enrich each
   // shidduch with its shadchan name ("via {shadchan}"), single names, and

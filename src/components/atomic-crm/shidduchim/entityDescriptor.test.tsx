@@ -406,8 +406,18 @@ describe("shidduchimDescriptor — the right rail (Story 5.7, AC 1 / AC 2 / AC 3
    * here is against the already-settled state, per that instruction.
    */
   it("renders all three rail panels beside the tab content, with the settled empty/disabled states, for a viewer with no rail data yet", async () => {
-    // Act
-    const { screen } = await renderShidduchShow("parent_admin");
+    // Act — richer demo data now seeds resumes for some shidduchim. To keep
+    // this test focused on the empty/disabled rail state, clear the seeded
+    // rail data for the viewed shidduch.
+    const { screen } = await renderShidduchShow(
+      "parent_admin",
+      (db, shidduchId) => {
+        db.resumes = db.resumes.filter((r) => r.shidduchim_id !== shidduchId);
+        db.resume_photos = db.resume_photos.filter(
+          (p) => !p.path.includes(`/${shidduchId}/`),
+        );
+      },
+    );
 
     // Assert — the tab strip proves the settled (non-pending) render.
     await expect

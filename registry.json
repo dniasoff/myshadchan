@@ -640,10 +640,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/references/crossReferenceSummary.ts",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/references/callStatus.ts",
           "type": "registry:component"
         },
@@ -701,6 +697,10 @@
         },
         {
           "path": "src/components/atomic-crm/references/ReferenceAttachToShidduch.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/references/DiligenceDossierCard.tsx",
           "type": "registry:component"
         },
         {
@@ -896,6 +896,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/fakerest/dataGenerator/fileAssets.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/fakerest/dataGenerator/assets_base64.ts",
           "type": "registry:component"
         },
@@ -925,6 +929,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/commons/attachments.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/commons/aiWorkerClient.ts",
           "type": "registry:component"
         },
         {
@@ -1241,6 +1249,10 @@
         },
         {
           "path": "src/components/atomic-crm/inbox/useResolveInboxItem.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/inbox/useParseResume.ts",
           "type": "registry:component"
         },
         {

@@ -537,9 +537,10 @@ describe("singlesDescriptor — the real Resume tab mounts with { singleId }, ne
     await screen.getByRole("tab", { name: "Resume" }).click();
     await screen.getByLabelText("Upload a new version").upload(file);
 
-    // Assert
+    // Assert — the demo now seeds resume files for singles and shidduchim,
+    // so assert on the specific single's row rather than the global count.
     const { data } = await dataProvider.getList("resumes", {
-      filter: {},
+      filter: { single_id: singleId },
       pagination: { page: 1, perPage: 10 },
       sort: { field: "id", order: "ASC" },
     });
@@ -561,9 +562,10 @@ describe("singlesDescriptor — the real Photo tab mounts with { singleId }, nev
     await screen.getByRole("tab", { name: "Photo" }).click();
     await screen.getByLabelText("Upload a photo").upload(file);
 
-    // Assert
+    // Assert — the demo now seeds resume photos for singles and shidduchim,
+    // so assert on the specific single's row rather than the global count.
     const { data } = await dataProvider.getList("resumes", {
-      filter: {},
+      filter: { single_id: singleId },
       pagination: { page: 1, perPage: 10 },
       sort: { field: "id", order: "ASC" },
     });

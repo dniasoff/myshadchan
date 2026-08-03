@@ -1,6 +1,7 @@
 import { generateMembers } from "./members";
 import { generateReferencesDomain } from "./references";
 import { generateShidduchimDomain } from "./shidduchim";
+import { seedFileAssetsAndRelatedData } from "./fileAssets";
 import type { Db } from "./types";
 
 export default (): Db => {
@@ -60,6 +61,9 @@ export default (): Db => {
   // References domain (references, reference_links, interactions, reference
   // tasks) -- runs after shidduchim so it can link against real shidduchim ids.
   generateReferencesDomain(db);
+  // Richer demo data: resume files, photos, entity files, medical notes,
+  // external links, date records, and a fuller interaction timeline.
+  seedFileAssetsAndRelatedData(db);
   // A couple of un-triaged captures so the demo shows the inbox "front door"
   // (Epic 2). Unresolved -> they await one confirm step before becoming redts.
   const demoAccountId = db.accounts?.[0]?.id ?? 1;

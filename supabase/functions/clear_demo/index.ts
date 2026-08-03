@@ -23,6 +23,10 @@ import {
  *  3. Every delete also carries an explicit `.eq('account_id', accountId)`
  *     filter (belt + braces) — there is no unfiltered/blanket delete here.
  *
+ * Storage objects are removed via the service-role client before row deletion
+ * so repeated seed/clear cycles do not leave orphaned files in the `documents`
+ * or `entity-files` buckets.
+ *
  * interactions and identity_signals are never deleted directly (authenticated
  * holds no DELETE grant on either) — they are removed by the
  * purge_polymorphic_dependents trigger on shidduchim/references, and by the
@@ -39,7 +43,11 @@ const DELETE_ORDER = [
   "reference_links",
   "redts",
   "shidduch_schools",
+  "resume_photos",
   "resumes",
+  "entity_files",
+  "medical_notes",
+  "shidduchim_external_links",
   "date_records",
   "shidduchim",
   "references",
@@ -47,8 +55,85 @@ const DELETE_ORDER = [
   "singles",
 ] as const;
 
+async function collectStoragePaths(accountId: number): Promise<{
+  documentPaths: string[];
+  entityFilePaths: string[];
+}> {
+  // Resume files live in the `documents` bucket under `{account_id}/resumes/`.
+  const { data: resumes, error: resumesError } = await supabaseAdmin
+    .from("resumes")
+    .select("files")
+    .eq("account_id", accountId);
+  if (resumesError) {
+    throw new Error(`failed to list resumes: ${resumesError.message}`);
+  }
+  const resumeFilePaths: string[] = (resumes ?? [])
+    .flatMap((r) =>
+      Array.isArray(r.files) ? (r.files as Array<{ path?: string }>) : [],
+    )
+    .map((f) => f.path)
+    .filter((p): p is string => !!p);
+
+  // Resume photos live in the `documents` bucket under `{account_id}/photos/`.
+  const { data: photos, error: photosError } = await supabaseAdmin
+    .from("resume_photos")
+    .select("path")
+    .eq("account_id", accountId);
+  if (photosError) {
+    throw new Error(`failed to list resume_photos: ${photosError.message}`);
+  }
+  const photoPaths: string[] = (photos ?? [])
+    .map((p) => p.path)
+    .filter((p): p is string => !!p);
+
+  // Entity files live in the `entity-files` bucket.
+  const { data: entityFiles, error: entityFilesError } = await supabaseAdmin
+    .from("entity_files")
+    .select("storage_path")
+    .eq("account_id", accountId);
+  if (entityFilesError) {
+    throw new Error(`failed to list entity_files: ${entityFilesError.message}`);
+  }
+  const entityFilePaths: string[] = (entityFiles ?? [])
+    .map((f) => f.storage_path)
+    .filter((p): p is string => !!p);
+
+  return {
+    documentPaths: [...resumeFilePaths, ...photoPaths],
+    entityFilePaths,
+  };
+}
+
+async function removeStorageObjects(
+  documentPaths: string[],
+  entityFilePaths: string[],
+): Promise<void> {
+  if (documentPaths.length > 0) {
+    const { error } = await supabaseAdmin.storage
+      .from("documents")
+      .remove(documentPaths);
+    if (error) {
+      throw new Error(`failed to remove documents: ${error.message}`);
+    }
+  }
+  if (entityFilePaths.length > 0) {
+    const { error } = await supabaseAdmin.storage
+      .from("entity-files")
+      .remove(entityFilePaths);
+    if (error) {
+      throw new Error(`failed to remove entity-files: ${error.message}`);
+    }
+  }
+}
+
 async function clearDemoData(req: Request, accountId: number) {
   const db = userScopedClient(req);
+
+  // Clean up storage objects before row deletion so the deletion order stays
+  // FK-safe and no orphans are left behind if a later step fails.
+  const { documentPaths, entityFilePaths } =
+    await collectStoragePaths(accountId);
+  await removeStorageObjects(documentPaths, entityFilePaths);
 
   for (const table of DELETE_ORDER) {
     const { error } = await db.from(table).delete().eq("account_id", accountId);

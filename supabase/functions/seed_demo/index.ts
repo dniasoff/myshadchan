@@ -16,23 +16,34 @@ import {
   YAAKOV_SUGGESTIONS,
   REFERENCE_LINKS,
   TIMELINE_NOTES,
+  STATUS_CHANGES,
   TASKS,
   EXTRA_REDTS,
+  RESUME_FILES,
+  RESUME_PHOTOS,
+  ENTITY_FILES,
+  MEDICAL_NOTES,
+  EXTERNAL_LINKS,
+  DATE_RECORDS,
   daysAgo,
+  daysAgoIso,
   daysFromNowIso,
   type DemoSuggestion,
-} from "./dataset.ts";
+} from "../_shared/demoDataset.ts";
+import { getAssetBytes, type AssetKey } from "./assets/manifest.ts";
 
 /**
  * Plants the curated realistic demo dataset (singles/shadchanim/references/
- * shidduchim/tasks/interactions) into the caller's own, currently-empty
- * account, then flips accounts.demo = true.
+ * shidduchim/tasks/interactions, plus resume files, photos, entity files,
+ * medical notes, external links, and date records) into the caller's own,
+ * currently-empty account, then flips accounts.demo = true.
  *
  * Every insert/RPC below runs through the USER-scoped client (`db`), never
  * supabaseAdmin, so RLS and the set_account_id_default()/create_shidduch()
  * account resolution land the data in the caller's account — never anywhere
- * else. supabaseAdmin is used only to resolve the caller's account_id (a read)
- * and, at the very end, to set the demo flag for that server-resolved id.
+ * else. supabaseAdmin is used only to resolve the caller's account_id (a read),
+ * to upload bytes to storage (service role), and at the very end to set the demo
+ * flag for that server-resolved id.
  */
 
 // Tables checked by the empty-account guard below. Broader than "just
@@ -70,7 +81,7 @@ async function isAccountEmpty(accountId: number): Promise<boolean> {
 // Decision states (yes/unsure/no) cannot be created directly (AD-4): each is
 // created as look_into, then moved with transition_shidduch. Returns a map
 // of suggestion key -> shidduchim id, so later steps (redts/links/notes/
-// tasks) can address the right row.
+// tasks/files) can address the right row.
 async function seedSuggestions(
   db: SupabaseClient,
   singleId: number,
@@ -122,6 +133,129 @@ async function seedSuggestions(
   }
 
   return idByKey;
+}
+
+function resumeOwnerSegment(subject: {
+  singleId?: number;
+  shidduchimId?: number;
+}): string {
+  if (subject.singleId != null) return `single-${subject.singleId}`;
+  if (subject.shidduchimId != null) return `${subject.shidduchimId}`;
+  throw new Error("resume subject must be a single or shidduch");
+}
+
+function deriveExtension(fileName: string): string {
+  const parts = fileName.split(".");
+  return parts.length > 1 ? `.${parts.pop()}` : "";
+}
+
+async function uploadSeededResumeFile(
+  accountId: number,
+  params: {
+    filename: string;
+    assetKey: AssetKey;
+    mimeType: string;
+    singleId?: number;
+    shidduchimId?: number;
+  },
+  db: SupabaseClient,
+): Promise<void> {
+  const bytes = await getAssetBytes(params.assetKey);
+  const path = `${accountId}/resumes/${resumeOwnerSegment(params)}/${crypto.randomUUID()}-${params.filename}`;
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from("documents")
+    .upload(path, bytes, { contentType: params.mimeType });
+  if (uploadError) {
+    throw new Error(
+      `upload resume failed for ${params.filename}: ${uploadError.message}`,
+    );
+  }
+  const { error: rpcError } = await db.rpc("add_resume_file", {
+    p_path: path,
+    p_filename: params.filename,
+    p_mime_type: params.mimeType,
+    p_size: bytes.length,
+    p_shidduchim_id: params.shidduchimId ?? null,
+    p_single_id: params.singleId ?? null,
+  });
+  if (rpcError) {
+    throw new Error(
+      `add_resume_file failed for ${params.filename}: ${rpcError.message}`,
+    );
+  }
+}
+
+async function uploadSeededResumePhoto(
+  accountId: number,
+  params: {
+    filename: string;
+    assetKey: AssetKey;
+    visibility: string;
+    singleId?: number;
+    shidduchimId?: number;
+  },
+  db: SupabaseClient,
+): Promise<void> {
+  const bytes = await getAssetBytes(params.assetKey);
+  const path = `${accountId}/photos/${params.visibility}/${resumeOwnerSegment(params)}/${crypto.randomUUID()}-${params.filename}`;
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from("documents")
+    .upload(path, bytes, { contentType: "image/jpeg" });
+  if (uploadError) {
+    throw new Error(
+      `upload photo failed for ${params.filename}: ${uploadError.message}`,
+    );
+  }
+  const { error: rpcError } = await db.rpc("add_resume_photo", {
+    p_path: path,
+    p_shidduchim_id: params.shidduchimId ?? null,
+    p_single_id: params.singleId ?? null,
+    p_visibility: params.visibility,
+  });
+  if (rpcError) {
+    throw new Error(
+      `add_resume_photo failed for ${params.filename}: ${rpcError.message}`,
+    );
+  }
+}
+
+async function uploadSeededEntityFile(
+  accountId: number,
+  params: {
+    targetType: string;
+    targetId: number;
+    filename: string;
+    assetKey: AssetKey;
+    mimeType: string;
+    visibility: string;
+  },
+  db: SupabaseClient,
+): Promise<void> {
+  const bytes = await getAssetBytes(params.assetKey);
+  const ext = deriveExtension(params.filename);
+  const path = `${accountId}/${params.targetType}/${params.targetId}/${crypto.randomUUID()}${ext}`;
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from("entity-files")
+    .upload(path, bytes, { contentType: params.mimeType });
+  if (uploadError) {
+    throw new Error(
+      `upload entity file failed for ${params.filename}: ${uploadError.message}`,
+    );
+  }
+  const { error: insertError } = await db.from("entity_files").insert({
+    target_type: params.targetType,
+    target_id: params.targetId,
+    storage_path: path,
+    file_name: params.filename,
+    mime_type: params.mimeType,
+    size_bytes: bytes.length,
+    visibility: params.visibility,
+  });
+  if (insertError) {
+    throw new Error(
+      `insert entity_files failed for ${params.filename}: ${insertError.message}`,
+    );
+  }
 }
 
 async function seedDemoData(req: Request, accountId: number) {
@@ -228,12 +362,25 @@ async function seedDemoData(req: Request, accountId: number) {
     reference_link_id: null,
     kind: "note",
     body: n.body,
+    created_at: daysAgoIso(0),
+  }));
+  const statusChangesToInsert = STATUS_CHANGES.map((s) => ({
+    target_type: "shidduch",
+    scope: "shidduch",
+    target_id: suggestionIdByKey.get(s.suggestionKey),
+    reference_link_id: null,
+    kind: "status_change",
+    body: s.body ?? null,
+    metadata: { from: s.from, to: s.to },
+    created_at: daysAgoIso(s.atDaysAgo),
   }));
   const { error: notesError } = await db
     .from("interactions")
-    .insert(notesToInsert);
+    .insert([...notesToInsert, ...statusChangesToInsert]);
   if (notesError)
-    throw new Error(`insert timeline notes failed: ${notesError.message}`);
+    throw new Error(
+      `insert timeline interactions failed: ${notesError.message}`,
+    );
 
   const tasksToInsert = TASKS.map((t) => ({
     text: t.text,
@@ -247,6 +394,93 @@ async function seedDemoData(req: Request, accountId: number) {
   }));
   const { error: tasksError } = await db.from("tasks").insert(tasksToInsert);
   if (tasksError) throw new Error(`insert tasks failed: ${tasksError.message}`);
+
+  for (const file of RESUME_FILES) {
+    const singleId =
+      file.singleKey === "Rivky"
+        ? girlId
+        : file.singleKey === "Yaakov"
+          ? boyId
+          : undefined;
+    const shidduchimId = file.suggestionKey
+      ? suggestionIdByKey.get(file.suggestionKey)
+      : undefined;
+    await uploadSeededResumeFile(
+      accountId,
+      { ...file, singleId, shidduchimId },
+      db,
+    );
+  }
+
+  for (const photo of RESUME_PHOTOS) {
+    const singleId =
+      photo.singleKey === "Rivky"
+        ? girlId
+        : photo.singleKey === "Yaakov"
+          ? boyId
+          : undefined;
+    const shidduchimId = photo.suggestionKey
+      ? suggestionIdByKey.get(photo.suggestionKey)
+      : undefined;
+    await uploadSeededResumePhoto(
+      accountId,
+      { ...photo, singleId, shidduchimId },
+      db,
+    );
+  }
+
+  for (const file of ENTITY_FILES) {
+    const targetId =
+      file.targetType === "shidduch"
+        ? suggestionIdByKey.get(file.targetKey)
+        : referenceIdByKey.get(file.targetKey);
+    if (targetId == null) {
+      throw new Error(`entity file target not found: ${file.targetKey}`);
+    }
+    await uploadSeededEntityFile(accountId, { ...file, targetId }, db);
+  }
+
+  const medicalNotesToInsert = MEDICAL_NOTES.map((n) => ({
+    shidduchim_id: suggestionIdByKey.get(n.suggestionKey),
+    body: n.body,
+  }));
+  const { error: medicalNotesError } = await db
+    .from("medical_notes")
+    .insert(medicalNotesToInsert);
+  if (medicalNotesError) {
+    throw new Error(
+      `insert medical_notes failed: ${medicalNotesError.message}`,
+    );
+  }
+
+  const externalLinksToInsert = EXTERNAL_LINKS.map((l) => ({
+    shidduchim_id: suggestionIdByKey.get(l.suggestionKey),
+    url: l.url,
+    label: l.label,
+  }));
+  const { error: externalLinksError } = await db
+    .from("shidduchim_external_links")
+    .insert(externalLinksToInsert);
+  if (externalLinksError) {
+    throw new Error(
+      `insert shidduchim_external_links failed: ${externalLinksError.message}`,
+    );
+  }
+
+  const dateRecordsToInsert = DATE_RECORDS.map((r) => ({
+    single_id: r.singleKey === "Rivky" ? girlId : boyId,
+    person_name_en: r.personName,
+    person_location: r.personLocation,
+    date_on: r.dateOn,
+    outcome: r.outcome,
+    notes: r.notes,
+  }));
+  const { error: dateRecordsError } = await db
+    .from("date_records")
+    .insert(dateRecordsToInsert);
+  if (dateRecordsError) {
+    throw new Error(`insert date_records failed: ${dateRecordsError.message}`);
+  }
 
   // The demo flag is written last, with the service-role client, scoped to
   // the account_id resolved server-side at the top of the handler — never
@@ -266,8 +500,17 @@ async function seedDemoData(req: Request, accountId: number) {
     references: REFERENCES.length,
     shidduchim: RIVKY_SUGGESTIONS.length + YAAKOV_SUGGESTIONS.length,
     referenceLinks: referenceLinkCount,
-    interactions: TIMELINE_NOTES.length + referenceLinkCount * 2,
+    interactions:
+      notesToInsert.length +
+      statusChangesToInsert.length +
+      referenceLinkCount * 2,
     tasks: TASKS.length,
+    resumeFiles: RESUME_FILES.length,
+    resumePhotos: RESUME_PHOTOS.length,
+    entityFiles: ENTITY_FILES.length,
+    medicalNotes: MEDICAL_NOTES.length,
+    externalLinks: EXTERNAL_LINKS.length,
+    dateRecords: DATE_RECORDS.length,
   };
 }
 

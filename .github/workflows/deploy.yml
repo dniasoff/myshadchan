@@ -39,6 +39,7 @@ jobs:
       POSTMARK_WEBHOOK_AUTHORIZED_IPS: ${{ secrets.POSTMARK_WEBHOOK_AUTHORIZED_IPS }}
       VITE_INBOUND_EMAIL: ${{ secrets.VITE_INBOUND_EMAIL }}
       IS_POSTMARK_CONFIGURED: ${{ secrets.POSTMARK_WEBHOOK_USER && secrets.POSTMARK_WEBHOOK_PASSWORD && secrets.POSTMARK_WEBHOOK_AUTHORIZED_IPS && secrets.VITE_INBOUND_EMAIL }}
+      ADMIN_RESEED_SECRET: ${{ secrets.ADMIN_RESEED_SECRET }}
 
     steps:
       - name: 📥 Checkout repo
@@ -169,6 +170,25 @@ jobs:
           npx supabase secrets set RESEND_API_KEY=${{ env.RESEND_API_KEY }}
           npx supabase secrets set UPSTASH_REDIS_REST_URL=${{ env.UPSTASH_REDIS_REST_URL }}
           npx supabase secrets set UPSTASH_REDIS_REST_TOKEN=${{ env.UPSTASH_REDIS_REST_TOKEN }}
+
+      # Bulk demo-account reseed function. The secret is operator-chosen,
+      # so route it through a temp file (same posture as Postmark below)
+      # rather than interpolating it into the shell command.
+      - if: ${{ env.IS_SUPABASE_CONFIGURED && env.ADMIN_RESEED_SECRET }}
+        name: 📡 Push admin reseed secret
+        run: |
+          set -euo pipefail
+          secrets_file="$(mktemp)"
+          trap 'rm -f "$secrets_file"' EXIT
+          printf 'ADMIN_RESEED_SECRET=%s\n' "$ADMIN_RESEED_SECRET" > "$secrets_file"
+          npx supabase secrets set --env-file "$secrets_file"
+          echo "✅ ADMIN_RESEED_SECRET pushed — the admin_reseed_demo_accounts function is protected." >> "$GITHUB_STEP_SUMMARY"
+
+      - if: ${{ env.IS_SUPABASE_CONFIGURED && !env.ADMIN_RESEED_SECRET }}
+        name: Admin reseed secret NOT pushed
+        run: |
+          echo '::warning::ADMIN_RESEED_SECRET repo secret is missing.'
+          echo ':rotating_light: **ADMIN_RESEED_SECRET not pushed.** The deployed `admin_reseed_demo_accounts` function will return `401` on every request until the secret is set.' >> "$GITHUB_STEP_SUMMARY"
 
       # Story 10.3 (AC 7, Task 1): a separate, separately-gated step —
       # not folded into the one above — so a still-missing Postmark

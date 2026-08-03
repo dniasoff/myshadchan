@@ -10,6 +10,10 @@ export function daysAgo(n: number): string {
   return new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
 }
 
+export function daysAgoIso(n: number): string {
+  return new Date(Date.now() - n * 86_400_000).toISOString();
+}
+
 export function daysFromNowIso(n: number): string {
   return new Date(Date.now() + n * 86_400_000).toISOString();
 }
@@ -365,6 +369,34 @@ export const TIMELINE_NOTES: Array<{ suggestionKey: string; body: string }> = [
     suggestionKey: "DevoraLeahGross",
     body: "Seminary teacher gave a glowing report. Planning to set up a call between the parents.",
   },
+  {
+    suggestionKey: "ShiraFeldman",
+    body: "Parents spoke last night. Both sides are warm and practical; scheduling a second call.",
+  },
+  {
+    suggestionKey: "AhronKlein",
+    body: "Resume looks strong. Shadchan says he is a masmid with excellent middos; checking references.",
+  },
+  {
+    suggestionKey: "YosefMandel",
+    body: "Mixed reports from references. Holding off until we can speak directly to the rebbe.",
+  },
+  {
+    suggestionKey: "EstherMalkaWeiss",
+    body: "Just redt by Mrs. Rosenberg. Need to review resume and set up parent call.",
+  },
+  {
+    suggestionKey: "BinyominReiss",
+    body: "Closed after one date — different hashkafos. Spoke to shadchan respectfully.",
+  },
+  {
+    suggestionKey: "NaftaliSchwartz",
+    body: "Spoke to references; not the right fit. Will move to for-sure-not.",
+  },
+  {
+    suggestionKey: "BrachaGold",
+    body: "Date happened last week. Both agreed nicely that ages didn't work out.",
+  },
 ];
 
 // Reminders. target: 'shidduch' -> suggestionKey; 'reference' -> referenceKey.
@@ -623,27 +655,6 @@ export const STATUS_CHANGES: Array<{
   atDaysAgo: number;
 }> = [
   {
-    suggestionKey: "YisroelMeirFriedman",
-    from: "look_into",
-    to: "not_sure",
-    body: "Heard mixed things; holding for now.",
-    atDaysAgo: 8,
-  },
-  {
-    suggestionKey: "ShmuelBrog",
-    from: "look_into",
-    to: "for_sure_not",
-    body: "Family not the right fit.",
-    atDaysAgo: 7,
-  },
-  {
-    suggestionKey: "NaftaliSchwartz",
-    from: "look_into",
-    to: "for_sure_not",
-    body: "Not aligned on hashkafa.",
-    atDaysAgo: 18,
-  },
-  {
     suggestionKey: "EliezerKatz",
     from: "look_into",
     to: "yes",
@@ -665,13 +676,6 @@ export const STATUS_CHANGES: Array<{
     atDaysAgo: 35,
   },
   {
-    suggestionKey: "ChanaRosen",
-    from: "look_into",
-    to: "for_sure_not",
-    body: "Not the right type for Yaakov.",
-    atDaysAgo: 12,
-  },
-  {
     suggestionKey: "ShiraFeldman",
     from: "look_into",
     to: "yes",
@@ -684,48 +688,5 @@ export const STATUS_CHANGES: Array<{
     to: "no",
     body: "Ages didn't work out.",
     atDaysAgo: 30,
-  },
-];
-
-export const TIMELINE_NOTES: Array<{ suggestionKey: string; body: string }> = [
-  {
-    suggestionKey: "EliezerKatz",
-    body: "Parents sound very interested. Waiting to hear back after they check into our side. References so far are excellent.",
-  },
-  {
-    suggestionKey: "YisroelMeirFriedman",
-    body: "Redt by Rabbi Weiss — learning in Mir, supposed to be an outstanding bochur. Need to call references this week.",
-  },
-  {
-    suggestionKey: "DevoraLeahGross",
-    body: "Seminary teacher gave a glowing report. Planning to set up a call between the parents.",
-  },
-  {
-    suggestionKey: "ShiraFeldman",
-    body: "Parents spoke last night. Both sides are warm and practical; scheduling a second call.",
-  },
-  {
-    suggestionKey: "AhronKlein",
-    body: "Resume looks strong. Shadchan says he is a masmid with excellent middos; checking references.",
-  },
-  {
-    suggestionKey: "YosefMandel",
-    body: "Mixed reports from references. Holding off until we can speak directly to the rebbe.",
-  },
-  {
-    suggestionKey: "EstherMalkaWeiss",
-    body: "Just redt by Mrs. Rosenberg. Need to review resume and set up parent call.",
-  },
-  {
-    suggestionKey: "BinyominReiss",
-    body: "Closed after one date — different hashkafos. Spoke to shadchan respectfully.",
-  },
-  {
-    suggestionKey: "NaftaliSchwartz",
-    body: "Spoke to references; not the right fit. Will move to for-sure-not.",
-  },
-  {
-    suggestionKey: "BrachaGold",
-    body: "Date happened last week. Both agreed nicely that ages didn't work out.",
   },
 ];
