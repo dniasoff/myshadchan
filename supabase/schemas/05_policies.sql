@@ -1539,19 +1539,50 @@ create policy "Single listings insert" on public.listings
         )
     );
 
--- Same authorization predicate as the insert policy above, but the `using`
--- clause deliberately stays narrow (tenant + branch only): a caller who does
--- not qualify as this single's manager still matches `using` (so the UPDATE
--- reaches the row) and is then refused by `with check` on the resulting new
--- row — an explicit RLS violation (42501), never a silent "0 rows" that
--- could be mistaken for "no such row". A cross-account attempt still fails
--- at `using` itself (account_id mismatch), so it never reaches `with check`
--- at all.
+-- Review fix (F1, BLOCKING): `using` MUST repeat the full manager predicate
+-- against the OLD row — it is not safe to leave it narrow (tenant + branch
+-- only), because `with check` alone evaluates the ATTACKER-CONTROLLED NEW
+-- row. A self-manager with no listing of their own could otherwise `update
+-- ... set single_id = <their own single>` on a SIBLING's row: a tenant-only
+-- `using` lets the row be targeted, and `with check` on the resulting NEW
+-- row is satisfied because the NEW single_id now points at the caller's own
+-- record — silently un-publishing the sibling's real listing and re-pointing
+-- its opted-in fields at the attacker. Repeating the predicate here means
+-- `using` is evaluated against the row's CURRENT (OLD) single_id, so the
+-- caller must already manage the row being targeted, before `with check`
+-- ever gets a chance to evaluate what they are trying to turn it into. Both
+-- clauses are needed: `using` refuses an unauthorized OLD row; `with check`
+-- separately refuses repointing an authorized OLD row onto a single the
+-- caller does NOT manage.
 create policy "Single listings update" on public.listings
     for update to authenticated
     using (
-        account_id = public.current_context_id()
-        and listing_type = 'single'
+        listing_type = 'single'
+        and account_id = public.current_context_id()
+        and single_id in (
+            select s.id from public.singles s
+            where s.account_id = public.current_context_id()
+        )
+        and exists (
+            select 1 from public.accounts a
+            where a.id = public.current_context_id() and a.kind = 'household'
+        )
+        and (
+            exists (
+                select 1 from public.account_members am
+                where am.account_id = public.current_context_id()
+                  and am.user_id = auth.uid()
+                  and am.role = 'parent_admin'
+            )
+            or exists (
+                select 1 from public.account_members am
+                join public.singles s on s.member_id = am.id
+                where am.account_id = public.current_context_id()
+                  and am.user_id = auth.uid()
+                  and am.role = 'self_manager'
+                  and s.id = listings.single_id
+            )
+        )
     )
     with check (
         listing_type = 'single'

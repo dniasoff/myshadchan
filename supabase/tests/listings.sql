@@ -22,6 +22,17 @@
 -- the composite FK (Dev Notes "Why the cross-account negative test still
 -- matters despite the composite FK").
 --
+-- Story 9.2 review fixes (F1/F1b, F2): "Single listings update"'s `using`
+-- clause now repeats the manager predicate against the OLD row (it is not
+-- enough for `with check` alone to police the attacker-controlled NEW row)
+-- — F1 reproduces the exact exploit this closes (a self-manager repointing
+-- a SIBLING's listing's single_id at their own single_id), F1b proves the
+-- mirror direction still needs `with check`'s own predicate (repointing a
+-- listing the caller genuinely owns onto a single they don't manage), and
+-- F2 independently exercises the UPDATE policy's own authorization (helper,
+-- plain single, self-manager-on-sibling without touching single_id), which
+-- until this fix could be deleted from the policy with zero test failures.
+--
 -- Same conventions as every other suite here: one `begin; ... rollback;`
 -- transaction, a `results` table of named checks emitted as JSON,
 -- `pg_temp.denied()`/`pg_temp.unexpected_raise()` for SQLSTATE-exact denial
@@ -741,6 +752,38 @@ exception when others then
   perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
 end $$;
 
+-- -----------------------------------------------------------------------
+-- F1 (Review, BLOCKING) — same session, same self-manager, deliberately
+-- BEFORE the positive-control publish below: at this point the attacker
+-- (member 2) has NO listing of their own yet, matching the review's exact
+-- precondition ("attacker has no listing yet; realistic"). This matters —
+-- if the attacker already had a live listing, `listings_single_id_key`
+-- (the partial unique index) would collide and mask the RLS gap rather
+-- than prove it closed, since two rows can never share a single_id either
+-- way.
+--
+-- "Single listings update"'s `using` clause must enforce manager authority
+-- against the OLD row, not merely tenant + branch — otherwise a
+-- self-manager can `UPDATE ... SET single_id = <their own single>` on a
+-- SIBLING's listing: `with check` alone evaluates the attacker-controlled
+-- NEW row, and is satisfied once single_id points at the caller's own
+-- record. Reproduces the review's exact exploit and proves it is refused
+-- with zero rows affected — RLS excludes the row at `using` itself, before
+-- `with check` ever sees the attacker-chosen new single_id.
+-- -----------------------------------------------------------------------
+with attempt as (
+  update public.listings
+  set single_id = :single_self
+  where id = :listing_sibling
+  returning id
+)
+select count(*) as cnt from attempt \gset f1_hijack_
+
+insert into results (name, passed, detail)
+select 'F1: a self-manager with no listing of their own cannot repoint a SIBLING''s listing''s single_id at their own single_id (the "using" clause refuses at the OLD row before "with check" ever sees the attacker-controlled NEW row)',
+       :f1_hijack_cnt = 0,
+       format('rows updated: %s', :f1_hijack_cnt);
+
 -- Positive control, same session: the self-manager publishing THEIR OWN
 -- record succeeds — proves the refusal just above is FR103's authority
 -- boundary specifically, not a blanket refusal of every self-manager write.
@@ -750,6 +793,12 @@ returning id as listing_self \gset
 
 reset role;
 insert into ids values ('spa_listing_self', :listing_self);
+
+insert into results (name, passed, detail)
+select 'F1: the sibling''s listing is untouched by the refused repoint attempt (single_id and single_community unchanged)',
+       single_id = :single_sibling and single_community = 'Yeshivish',
+       format('single_id=%s single_community=%L', single_id, single_community)
+from public.listings where id = :listing_sibling;
 
 insert into results (name, passed)
 select 'Story 9.2 AC-3 control: the self-manager CAN publish their OWN record (single_self) — the sibling refusal above is a real authority boundary, not a blanket denial',
@@ -761,6 +810,124 @@ select 'Story 9.2 AC-3: none of the three refused attempts left a row behind for
        count(*) = 1,
        format('rows: %s', count(*))
 from public.listings where single_id = :single_sibling;
+
+-- -----------------------------------------------------------------------
+-- F2 (Review): the UPDATE policy's own authorization must be exercised
+-- independently of the INSERT policy's — a helper, a plain single, and a
+-- self-manager targeting a SIBLING (WITHOUT touching single_id at all)
+-- must each be refused when attempting to change an already-published
+-- single-branch listing they do not manage. A positive control (the
+-- self-manager updating their OWN listing) proves the fix does not also
+-- block the legitimate case.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000003","role":"authenticated"}';
+
+with attempt as (
+  update public.listings set single_community = 'Hijacked by Helper'
+  where id = (select value from ids where name = 'spa_listing_sibling')
+  returning id
+)
+select count(*) as cnt from attempt \gset f2_helper_
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'F2: a helper cannot UPDATE a single-branch listing (sibling''s) even without touching single_id',
+       :f2_helper_cnt = 0,
+       format('rows updated: %s', :f2_helper_cnt);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000004","role":"authenticated"}';
+
+with attempt as (
+  update public.listings set single_community = 'Hijacked by Plain Single'
+  where id = (select value from ids where name = 'spa_listing_sibling')
+  returning id
+)
+select count(*) as cnt from attempt \gset f2_plain_
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'F2: a plain single (not self-managing) cannot UPDATE a single-branch listing (sibling''s)',
+       :f2_plain_cnt = 0,
+       format('rows updated: %s', :f2_plain_cnt);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+with attempt as (
+  update public.listings set single_community = 'Hijacked by Self-Manager'
+  where id = (select value from ids where name = 'spa_listing_sibling')
+  returning id
+)
+select count(*) as cnt from attempt \gset f2_selfmgr_
+
+insert into results (name, passed, detail)
+select 'F2: a self-manager cannot UPDATE a SIBLING''s listing without repointing single_id either — authority is scoped to their own record only',
+       :f2_selfmgr_cnt = 0,
+       format('rows updated: %s', :f2_selfmgr_cnt);
+
+-- Positive control, same session: the self-manager updating THEIR OWN
+-- listing still succeeds after the "using"-clause fix — the refusals above
+-- are a real authority boundary, not a regression that blocks every
+-- self-manager UPDATE.
+update public.listings set single_height = 'Tall (self-update)'
+where id = (select value from ids where name = 'spa_listing_self');
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'F2 control: the self-manager CAN still UPDATE their OWN listing (single_self) after the "using"-clause fix',
+       single_height = 'Tall (self-update)',
+       format('single_height=%L', single_height)
+from public.listings where id = (select value from ids where name = 'spa_listing_self');
+
+insert into results (name, passed, detail)
+select 'F2: none of the three refused UPDATE attempts (helper, plain single, self-manager-on-sibling) changed the sibling''s listing',
+       single_community = 'Yeshivish',
+       format('single_community=%L', single_community)
+from public.listings where id = (select value from ids where name = 'spa_listing_sibling');
+
+-- -----------------------------------------------------------------------
+-- F1b (Review, BLOCKING) — the MIRROR direction of F1: "with check" must
+-- independently refuse a self-manager repointing a listing they already
+-- legitimately own (single_self) onto a single they do NOT manage (the
+-- sibling). "using" alone would let this UPDATE reach the row (it is
+-- genuinely theirs), so this is the one case where "with check"'s own
+-- manager predicate — not "using"'s — is the only thing standing between
+-- the caller and the write. Proves neither clause is redundant with the
+-- other; both are load-bearing.
+-- -----------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"59220000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+-- Unlike F1/F2 above, "using" genuinely admits this row (it is the caller's
+-- own), so the refusal here is a "with check" violation — an explicit RLS
+-- error (42501), not a silent 0-row exclusion — hence the exception-catching
+-- form rather than the row-count form used above.
+do $$
+declare
+  v_name constant text := 'F1b: a self-manager cannot repoint THEIR OWN listing''s single_id onto the SIBLING they do not manage ("with check" refuses the attacker-controlled NEW row even though "using" allows reaching a row they legitimately own)';
+  v_listing_self bigint;
+  v_single_sibling bigint;
+begin
+  select value into v_listing_self from ids where name = 'spa_listing_self';
+  select value into v_single_sibling from ids where name = 'spa_single_sibling';
+  update public.listings set single_id = v_single_sibling where id = v_listing_self;
+  perform pg_temp.unexpected_raise(v_name, null, 'update unexpectedly succeeded');
+exception when others then
+  perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
+end $$;
+
+reset role;
+
+insert into results (name, passed, detail)
+select 'F1b: the self-manager''s own listing (single_self) is untouched by the refused reverse-repoint attempt',
+       single_id = (select value from ids where name = 'spa_single_self'),
+       format('single_id=%s', single_id)
+from public.listings where id = (select value from ids where name = 'spa_listing_self');
 
 -- -----------------------------------------------------------------------
 -- AC-7: the single-branch listing is anon-readable too — opted-in fields

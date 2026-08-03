@@ -199,4 +199,57 @@ describe("useListingUpsert — a listing already exists for this subject", () =>
       expect.objectContaining({ id: existing.id }),
     );
   });
+
+  it("withdraw() propagates a rejected delete rather than swallowing it (Review F3 — a blocked single-branch DELETE must surface as a failure, never a silent success)", async () => {
+    // Arrange — a DataProvider whose delete() rejects, the shape PostgREST
+    // actually returns when RLS excludes every row (no "Single listings
+    // delete" policy exists yet — Story 9.3's): the dataProvider's own
+    // `Accept: application/vnd.pgrst.object+json` header requires exactly
+    // one row back, so zero rows is an error response, not an empty success.
+    const existing = buildListing();
+    const deleteError = new Error("no rows returned (PGRST116)");
+    const dataProvider = {
+      getList: vi.fn(() => Promise.resolve({ data: [existing], total: 1 })),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(() => Promise.reject(deleteError)),
+    } as unknown as CrmDataProvider;
+
+    let caught: unknown;
+    function ThrowingWithdrawProbe() {
+      const { withdraw } = useListingUpsert(9, "single", 42);
+      return (
+        <button
+          onClick={() =>
+            void withdraw().catch((error: unknown) => {
+              caught = error;
+            })
+          }
+        >
+          Withdraw
+        </button>
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const screen = await render(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          queryClient={queryClient}
+          i18nProvider={testI18nProvider}
+        >
+          <ThrowingWithdrawProbe />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    // Act
+    await screen.getByText("Withdraw").click();
+
+    // Assert
+    await expect.poll(() => caught).toBe(deleteError);
+  });
 });

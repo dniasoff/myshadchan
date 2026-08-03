@@ -21,7 +21,24 @@ export interface UseListingUpsertResult {
    * stays that branch's own component's job, not this shared hook's.
    */
   upsert: (fields: Partial<Listing>) => Promise<void>;
-  /** Deletes the row outright — never a soft-delete/flag. */
+  /**
+   * Deletes the row outright — never a soft-delete/flag.
+   *
+   * Review note (F3): the `single` branch has no "Single listings delete"
+   * RLS policy yet (deliberate — Story 9.3 owns the dignity-floor lock and
+   * writes it); calling this for a `single`-branch subject before 9.3 lands
+   * does NOT silently report success on a no-op delete. The dataProvider's
+   * DELETE request sends `Accept: application/vnd.pgrst.object+json`
+   * (`@raphiniert/ra-data-postgrest`), which requires PostgREST to return
+   * exactly one row — RLS excluding all rows (no matching policy) makes
+   * PostgREST return zero, which PostgREST itself turns into an error
+   * response, so this promise rejects rather than resolving. No caller
+   * exercises this path today: `PublishSingleListingSection.tsx` never
+   * renders a withdraw control for the `single` branch (Task 5's own
+   * requirement) — but see the deploy-sequencing note where this hook is
+   * consumed, since a caller added ahead of 9.3 would see every attempt
+   * fail, not silently no-op.
+   */
   withdraw: () => Promise<void>;
 }
 

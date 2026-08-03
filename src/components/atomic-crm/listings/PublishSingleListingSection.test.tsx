@@ -106,6 +106,15 @@ describe("PublishSingleListingSection — field set (AC-4, Dev Notes 'Field set 
         .not.toBeChecked();
     }
 
+    // Assert — AC-4's "no others", enforced structurally: exactly one
+    // switch per Dev-Notes field, never more. A denylist of banned words
+    // (below) cannot catch an EIGHTH toggle under a name nobody thought to
+    // ban (Review F4); a raw count of every `switch` on the page can, and
+    // does not depend on any toggle's accessible name resolving correctly.
+    expect(screen.getByRole("switch").elements().length).toBe(
+      offeredLabels.length,
+    );
+
     // Assert — AC-4: the working record, family, and photo are never
     // offered as options at all, not merely unchecked.
     const excludedText = [

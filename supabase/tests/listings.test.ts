@@ -64,7 +64,7 @@ describe("publish a listing — shadchan (9.1) and single (9.2) branches (databa
   // A floor, not an exact count — new checks are welcome, silently
   // vanishing ones are not.
   it("runs every 9.1 and 9.2 check group", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(45);
+    expect(checks.length).toBeGreaterThanOrEqual(60);
   });
 
   for (const check of checks) {
