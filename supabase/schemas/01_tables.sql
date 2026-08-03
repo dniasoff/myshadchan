@@ -190,8 +190,14 @@ create table public.accounts (
     plan text,
     current_period_end timestamp with time zone,
     trial_end timestamp with time zone,
-    -- Onboarding demo-data flag (Stage A). True while the account holds the
-    -- seeded demo dataset; cleared by clear_demo. Drives the future demo banner.
+    -- Onboarding demo-data flag (Stage A). Set once, to true, by seed_demo's
+    -- final write — durable identity ("this account was demo-seeded"), not
+    -- live state. clear_demo deliberately never writes this column (see its
+    -- module docstring): an account that has ever been legitimately seeded
+    -- must always be clearable again, regardless of how a later seed/clear
+    -- cycle succeeds or fails, so nothing may flip it back to false. Drives
+    -- the demo banner and (currently, staleness tracked there) the
+    -- onboarding re-arm condition in OnboardingGate.tsx.
     demo boolean not null default false,
     -- Story 2.2 (AC-1, AD-2): a context is typed household or shadchanus.
     -- Every account created before this column existed becomes 'household'

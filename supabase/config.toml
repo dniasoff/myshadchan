@@ -174,3 +174,5 @@ verify_jwt = false
 verify_jwt = false
 [functions.clear_demo]
 verify_jwt = false
+[functions.admin_reseed_demo_accounts]
+verify_jwt = false

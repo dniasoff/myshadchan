@@ -73,6 +73,12 @@ jobs:
 
           if [ "$failed" != "0" ] && [ "$failed" != "unknown" ]; then
             echo "### Failed accounts" >> "$GITHUB_STEP_SUMMARY"
-            jq '[.results[] | select(.status == "error") | { accountId, accountKind, error }]' reseed-response.json >> "$GITHUB_STEP_SUMMARY"
+            # "$failed" (job's own field) counts BOTH "error" and "skipped"
+            # results, so this listing must match — filtering on
+            # `status == "error"` alone would silently drop every skipped
+            # account (e.g. the pre-flight identity-confirmation refusal in
+            # reseedAccount.ts) from the printed detail while the headline
+            # count above still included it.
+            jq '[.results[] | select(.status != "ok") | { accountId, accountKind, status, error }]' reseed-response.json >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
