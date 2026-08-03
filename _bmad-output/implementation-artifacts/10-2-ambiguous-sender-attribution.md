@@ -1,6 +1,6 @@
 # Story 10.2: Ambiguous sender attribution
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -55,126 +55,57 @@ testing; this story builds on both. Runs on the **post-Epic-1** codebase: `sales
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Schema: add the confirmation flag** (AC: 2)
-  - [ ] `supabase/schemas/01_tables.sql`: add `sender_needs_confirmation boolean not
-        null default false` to `public.inbox_items`, next to `sender`. Update the
-        table's existing header comment (currently: *"Captured `raw_text`/`attachments`
-        are stored verbatim and never auto-parsed..."*) to note that `sender` is now the
-        recovered original sender for email, not the SMTP envelope address.
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
+- [x] **Task 1 — Schema: add the confirmation flag** (AC: 2)
+  - [x] `supabase/schemas/01_tables.sql`: add `sender_needs_confirmation boolean not
+        null default false` to `public.inbox_items`, at the physical tail (COLUMN-ORDER
+        TRAP) after `connection_id`. Update the table's existing header comment to note
+        that `sender` is now the recovered original sender for email.
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --local -f
         add_inbox_items_sender_confirmation` — a plain `ALTER TABLE ... ADD COLUMN`;
-        hand-check the generated migration touches nothing else (none expected for an
-        ADD COLUMN, but AGENTS.md warns generated migrations sometimes need manual
-        adjustment).
-  - [ ] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`. Never
-        `db reset`/`db push`.
-  - [ ] `06_grants.sql`: confirm no change needed — `inbox_items` already grants
-        `select, insert, update, delete` to `authenticated` and `all` to
-        `service_role` at the table level; a new column needs no separate grant.
+        hand-checked the generated migration touches nothing else.
+  - [x] `DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase migration up --local`.
+  - [x] `06_grants.sql`: confirmed no change needed.
 
-- [ ] **Task 2 — Pure extraction function** (AC: 1, 2)
-  - [ ] `supabase/functions/postmark/forwardedParser.ts`: add
-        ```ts
-        export interface OriginalSenderCandidate {
-          name: string | null;
-          email: string | null;
-          needsConfirmation: boolean;
-        }
-        export function extractOriginalSender(body: string): OriginalSenderCandidate
-        ```
-        Algorithm (pure, no I/O — matches this file's existing style):
-        1. Count occurrences of **any** `FORWARD_SEPARATOR_PATTERNS` entry across the
-           *whole* body (use each pattern with a global flag over the full text, not
-           just `lines[0]` as `stripForwardingHeaderBlock` does — that function only
-           ever looks at the first line, which is correct for its own job of stripping
-           one top-level block but insufficient for counting nested forwards).
-        2. Zero matches → not a forward at all → `{name: null, email: null,
-           needsConfirmation: false}` (nothing to recover; not ambiguous — there's
-           simply no forwarding signal, e.g. a member composed the message themselves).
-        3. Two or more matches → a forward-of-a-forward → `{name: null, email: null,
-           needsConfirmation: true}` (can't know which layer is "the" original sender).
-        4. Exactly one match → isolate the header block the same way
-           `stripForwardingHeaderBlock` does (from the separator line to the first
-           blank line), then scan those lines for a label match:
-           `/^(?:From|De|Von)\s*:?\s*(.+)$/i` (the same three locales
-           `FORWARD_SEPARATOR_PATTERNS` already supports — do not add more locales
-           speculatively).
-           - Zero "From:"-style lines found → ambiguous (`needsConfirmation: true`).
-           - More than one found → ambiguous (nested forwards inside one separator
-             block, or a quoted reply chain) — do not guess which line wins.
-           - Exactly one found → parse it with
-             `/^"?([^"<]*?)"?\s*(?:<([^<>]+)>)?$/` (trim results). A bare name with no
-             `<email>` is still a confident result (`needsConfirmation: false`) — the
-             mockup's "Mrs. Feldman · detected" shows a name alone.
-  - [ ] `supabase/functions/postmark/forwardedParser.test.ts`: new `describe
-        ("extractOriginalSender")` block covering each branch above — reuse the
-        existing Gmail/Apple/Outlook/French/German fixtures already in this file for
-        the "exactly one match" cases, plus new fixtures for zero matches, two nested
-        `---------- Forwarded message ----------` blocks, and a header block with no
-        `From:` line.
+- [x] **Task 2 — Pure extraction function** (AC: 1, 2)
+  - [x] `supabase/functions/postmark/forwardedParser.ts`: added
+        `export interface OriginalSenderCandidate` and `export function extractOriginalSender(body)`.
+        Algorithm: count separators globally; 0 = not forward; ≥2 = ambiguous; 1 = scan
+        the header block for `From/De/Von`, parse the single match with a name/email
+        regex; bare emails are treated as email for self-reference checks. Added tests
+        covering all branches and locales.
+  - [x] `supabase/functions/postmark/forwardedParser.test.ts`: new `describe
+        ("extractOriginalSender")` block with Gmail/Apple/Outlook/French/German fixtures
+        plus zero-match, nested-forward, and no-From-line cases.
 
-- [ ] **Task 3 — Wire it into the webhook** (AC: 1, 2, 3, 4)
-  - [ ] `supabase/functions/postmark/index.ts`: capture `const rawTextBody =
-        json.TextBody;` **before** the existing `TextBody =
-        getForwardedMailContent(TextBody)` reassignment (that call discards the
-        header block this story needs to read — extraction must run on the
-        unstripped body). Call `extractOriginalSender(rawTextBody)` **unconditionally**
-        for every accepted email (not just the narrow `ToFull.length === 1 &&
-        firstToEmail === INBOUND_EMAIL` branch that currently gates the
-        readability-stripping step — FR24 recovery is valuable on every forward, not
-        only that one case).
-  - [ ] After extraction, if `candidate.email` case-insensitively equals the
-        forwarding member's **own** address (`memberEmail` — the post-1.2 name of
-        `salesEmail`, already in scope in `index.ts`) — override to `{name: null,
-        email: null, needsConfirmation: true}`. A self-referential "From:" (someone
-        forwarded their own earlier message) is not useful attribution and must not
-        be shown as if it were. (Do **not** compare against the in-scope list
-        `memberEmails` — post-1.2 `salesEmails` — that is *every* member's email
-        product-wide, and matching it would wrongly nullify legitimate recoveries.)
-  - [ ] `supabase/functions/postmark/buildInboxItemPayload.ts`: change
-        `InboxItemEmailInput` to accept `originalSender: OriginalSenderCandidate` in
-        place of the old `sender: string | null`. Compute the row's `sender` as
-        `candidate.name ?? candidate.email` (trimmed, collapsed to `null` if both are
-        null) and set `sender_needs_confirmation: candidate.needsConfirmation`.
-  - [ ] `InboxItemRow` — defined in `buildInboxItemPayload.ts`, only *imported* by
-        `createInboxItemFromEmail.ts` — gains `sender_needs_confirmation: boolean`;
-        `createInboxItemFromEmail.ts` itself needs no change.
-  - [ ] `supabase/functions/postmark/buildInboxItemPayload.test.ts`: update the two
-        existing tests for the new `originalSender` input shape, and add a case for
-        `needsConfirmation: true` producing `sender: null,
-        sender_needs_confirmation: true`.
-  - [ ] Extend `supabase/functions/postmark/index.test.ts` (created by **10.3**) with
-        one new scenario: a forwarded email with a clean single "From:" line → the
-        inserted row has `sender` set and `sender_needs_confirmation: false`; a
-        doubly-forwarded email → `sender: null, sender_needs_confirmation: true`.
+- [x] **Task 3 — Wire it into the webhook** (AC: 1, 2, 3, 4)
+  - [x] `supabase/functions/postmark/index.ts`: captured `rawTextBody` before the
+        forwarding-strip reassign; call `extractOriginalSender` unconditionally for every
+        accepted email; override to ambiguous if the recovered email equals the
+        forwarding member's own address (`memberEmail`); pass the candidate to
+        `buildInboxItemPayload`.
+  - [x] `supabase/functions/postmark/buildInboxItemPayload.ts`: changed input to accept
+        `originalSender: OriginalSenderCandidate`; compute `sender` as
+        `name ?? email` and set `sender_needs_confirmation`.
+  - [x] `supabase/functions/postmark/buildInboxItemPayload.test.ts`: updated tests for
+        the new input shape and added ambiguous case.
+  - [x] Extended `supabase/functions/postmark/index.test.ts` with confident recovery,
+        doubly-forwarded ambiguous, and self-reference override scenarios; asserted
+        no `shadchanim` query and no `shadchan_id` on the inserted row.
 
-- [ ] **Task 4 — Surface it in the UI** (AC: 2, 3)
-  - [ ] `src/components/atomic-crm/types.ts`: add `sender_needs_confirmation: boolean`
+- [x] **Task 4 — Surface it in the UI** (AC: 2, 3)
+  - [x] `src/components/atomic-crm/types.ts`: added `sender_needs_confirmation: boolean`
         to `InboxItem`.
-  - [ ] `src/components/atomic-crm/inbox/InboxList.tsx`'s `InboxCard`: when
-        `item.sender_needs_confirmation`, render a translated "Who sent this?" string
-        (`translate("crm.inbox.senderNeedsConfirmation", { _: "Who sent this?" })` —
-        add the key to **both** `englishCrmMessages.ts` and `frenchCrmMessages.ts` in
-        this diff; `frenchCrmMessages.ts` ends `} satisfies CrmMessages;`, so a
-        missing French twin is a `make typecheck` failure, and a hardcoded JSX string
-        would type-check fine while silently staying English in the French UI),
-        reusing the `--attention` honey treatment `ShidduchCatchPanel.tsx` already
-        establishes for "needs a human look," not an error color, instead of the
-        normal `· {sender}` line.
-  - [ ] `src/components/atomic-crm/inbox/InboxResolveDialog.tsx`: same treatment in
-        the raw-capture preview block; confirm the `shadchan_id` field's
-        `defaultValues` are unaffected (they already come from `item.shadchan_id`,
-        never `item.sender` — no auto-fill exists to remove, just confirm it stays
-        that way).
+  - [x] `src/components/atomic-crm/inbox/InboxList.tsx` and
+        `InboxResolveDialog.tsx`: render translated "Who sent this?" using the
+        `--attention` honey treatment when the flag is true; normal sender line otherwise.
+  - [x] Added `crm.inbox.senderNeedsConfirmation` to both `englishCrmMessages.ts` and
+        `frenchCrmMessages.ts`.
 
-- [ ] **Task 5 — Provider sync** (AC: 1, 2)
-  - [ ] `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts`: add
-        `sender_needs_confirmation: false` to the two existing seeded `inbox_items`
-        rows, and change the second (email) row's `sender` from
-        `"a.shadchan@example.com"` to a name-shaped value (e.g. `"Mrs. Feldman"`) to
-        demonstrate the new semantics; add a third seeded row with
-        `sender_needs_confirmation: true, sender: null` so the demo shows the
-        flagged state too.
+- [x] **Task 5 — Provider sync** (AC: 1, 2)
+  - [x] `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts`: added
+        `sender_needs_confirmation: false` to existing seeded `inbox_items` rows; changed
+        the email row's `sender` to a name-shaped value; added a third row with
+        `sender_needs_confirmation: true, sender: null`.
 
 ## Dev Notes
 
@@ -286,8 +217,51 @@ content is parsed and attributed.
 
 ### Agent Model Used
 
+kilo/moonshotai/kimi-k2.7-code
+
 ### Debug Log References
+
+- Edge function `postmark` returned `BOOT_ERROR` in the e2e stack; root cause was
+  stale/corrupted function files in `.supabase-e2e/supabase/functions/`. Fixed by
+  re-copying `supabase/functions` to the e2e workdir and restarting the edge runtime.
+- `e2e/share-target.spec.ts` AC 8 failed because the per-word `applyFullTextSearch`
+  ORs each word across all columns; "Confidential Match" matched account A's own
+  "Available Match" via the shared word "Match". Fixed by renaming fixtures so the
+  negative search shares no words with the positive fixture.
 
 ### Completion Notes List
 
+- Implemented `extractOriginalSender` in `forwardedParser.ts` using the existing
+  `FORWARD_SEPARATOR_PATTERNS`; added bare-email handling so self-reference checks
+  work for `From: known@example.com` as well as `From: Name <email>`.
+- Added `sender_needs_confirmation` at the physical tail of `inbox_items` after
+  `connection_id` to avoid the column-order trap.
+- Generated clean migration `20260803191227_add_inbox_items_sender_confirmation.sql`.
+- Wired recovery into `postmark/index.ts` with a self-reference override and passed
+  the candidate to `buildInboxItemPayload`.
+- Surfaced the flag in `InboxList.tsx` and `InboxResolveDialog.tsx` using the
+  `--attention` honey treatment and a new i18n key translated in both English and
+  French.
+- Synced FakeRest demo data and added test coverage at unit and integration levels.
+- All Epic 10 e2e tests pass; migration safety guard passed; full unit suite passes;
+  typecheck passes; lint passes except for the unrelated `.kilo/agent-manager.json`.
+
 ### File List
+
+- `supabase/schemas/01_tables.sql`
+- `supabase/migrations/20260803191227_add_inbox_items_sender_confirmation.sql`
+- `supabase/functions/postmark/forwardedParser.ts`
+- `supabase/functions/postmark/forwardedParser.test.ts`
+- `supabase/functions/postmark/buildInboxItemPayload.ts`
+- `supabase/functions/postmark/buildInboxItemPayload.test.ts`
+- `supabase/functions/postmark/index.ts`
+- `supabase/functions/postmark/index.test.ts`
+- `src/components/atomic-crm/types.ts`
+- `src/components/atomic-crm/inbox/InboxList.tsx`
+- `src/components/atomic-crm/inbox/InboxResolveDialog.tsx`
+- `src/components/atomic-crm/inbox/InboxResolveDialog.test.tsx`
+- `src/components/atomic-crm/inbox/useResolveInboxItem.test.tsx`
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts`
+- `e2e/share-target.spec.ts`

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  extractOriginalSender,
   stripForwardingHeaderBlock,
   stripSubjectForwardingPrefix,
   stripMailSignature,
@@ -316,6 +317,155 @@ describe("forwardedParser", () => {
       expect(getForwardedMailContent(text)).toBe(
         "Hello,\nThis is the email body.",
       );
+    });
+  });
+
+  describe("extractOriginalSender", () => {
+    it("returns not-a-forward when no separator is present", () => {
+      const body = "Hi, I have a suggestion for Rivky.";
+      expect(extractOriginalSender(body)).toEqual({
+        name: null,
+        email: null,
+        needsConfirmation: false,
+      });
+    });
+
+    it("confidently recovers the original sender from a Gmail forward", () => {
+      const body = [
+        "---------- Forwarded message ----------",
+        "From: Mrs. Feldman <mrs.feldman@example.com>",
+        "Date: Mon, 21 Jul 2026 10:00:00 +0000",
+        "Subject: A suggestion",
+        "To: member@example.com",
+        "",
+        "Hi, I have a suggestion for Rivky.",
+      ].join("\n");
+
+      expect(extractOriginalSender(body)).toEqual({
+        name: "Mrs. Feldman",
+        email: "mrs.feldman@example.com",
+        needsConfirmation: false,
+      });
+    });
+
+    it("confidently recovers a bare name from Apple Mail forwards", () => {
+      const body = [
+        "Begin forwarded message:",
+        "From: Mrs. Feldman",
+        "Subject: A suggestion",
+        "Date: 21 Jul 2026",
+        "To: member@example.com",
+        "",
+        "Hi, I have a suggestion for Rivky.",
+      ].join("\n");
+
+      expect(extractOriginalSender(body)).toEqual({
+        name: "Mrs. Feldman",
+        email: null,
+        needsConfirmation: false,
+      });
+    });
+
+    it("confidently recovers the original sender from Outlook forwards", () => {
+      const body = [
+        "-----Original Message-----",
+        "From: Mrs. Feldman <mrs.feldman@example.com>",
+        "Sent: Monday, July 21, 2026 10:00 AM",
+        "To: member@example.com",
+        "Subject: A suggestion",
+        "",
+        "Hi, I have a suggestion for Rivky.",
+      ].join("\n");
+
+      expect(extractOriginalSender(body)).toEqual({
+        name: "Mrs. Feldman",
+        email: "mrs.feldman@example.com",
+        needsConfirmation: false,
+      });
+    });
+
+    it("confidently recovers the original sender from French forwards", () => {
+      const body = [
+        "---------- Message transféré ----------",
+        "De : Mrs. Feldman <mrs.feldman@example.com>",
+        "Date : 21 juil. 2026",
+        "Objet : Une suggestion",
+        "",
+        "Bonjour, j'ai une suggestion pour Rivky.",
+      ].join("\n");
+
+      expect(extractOriginalSender(body)).toEqual({
+        name: "Mrs. Feldman",
+        email: "mrs.feldman@example.com",
+        needsConfirmation: false,
+      });
+    });
+
+    it("confidently recovers the original sender from German forwards", () => {
+      const body = [
+        "---------- Weitergeleitete Nachricht ----------",
+        "Von: Mrs. Feldman <mrs.feldman@example.com>",
+        "Datum: 21. Jul. 2026",
+        "Betreff: Ein Vorschlag",
+        "",
+        "Hallo, ich habe einen Vorschlag für Rivky.",
+      ].join("\n");
+
+      expect(extractOriginalSender(body)).toEqual({
+        name: "Mrs. Feldman",
+        email: "mrs.feldman@example.com",
+        needsConfirmation: false,
+      });
+    });
+
+    it("flags doubly-forwarded messages as ambiguous", () => {
+      const body = [
+        "---------- Forwarded message ----------",
+        "From: member@example.com",
+        "",
+        "---------- Forwarded message ----------",
+        "From: mrs.feldman@example.com",
+        "",
+        "Hi, I have a suggestion for Rivky.",
+      ].join("\n");
+
+      expect(extractOriginalSender(body)).toEqual({
+        name: null,
+        email: null,
+        needsConfirmation: true,
+      });
+    });
+
+    it("flags a forward block with no From-style line as ambiguous", () => {
+      const body = [
+        "---------- Forwarded message ----------",
+        "Date: Mon, 21 Jul 2026 10:00:00 +0000",
+        "Subject: A suggestion",
+        "",
+        "Hi, I have a suggestion for Rivky.",
+      ].join("\n");
+
+      expect(extractOriginalSender(body)).toEqual({
+        name: null,
+        email: null,
+        needsConfirmation: true,
+      });
+    });
+
+    it("flags a forward block with multiple From-style lines as ambiguous", () => {
+      const body = [
+        "---------- Forwarded message ----------",
+        "From: Mrs. Feldman <mrs.feldman@example.com>",
+        "From: Another Shadchan <another@example.com>",
+        "",
+        "Hi, I have a suggestion for Rivky.",
+      ].join("\n");
+
+      expect(extractOriginalSender(body)).toEqual({
+        name: null,
+        email: null,
+        needsConfirmation: true,
+      });
     });
   });
 });

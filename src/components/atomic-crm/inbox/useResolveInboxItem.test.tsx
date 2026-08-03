@@ -26,6 +26,7 @@ const buildItem = (overrides: Partial<InboxItem> = {}): InboxItem => ({
   raw_text: "Chaim Berkowitz, BMG",
   subject: null,
   sender: null,
+  sender_needs_confirmation: false,
   attachments: null,
   status: "unresolved",
   single_id: null,

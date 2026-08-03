@@ -483,6 +483,7 @@ export type InboxItem = {
   raw_text?: string | null;
   subject?: string | null;
   sender?: string | null;
+  sender_needs_confirmation: boolean;
   attachments?: InboxAttachment[] | null;
   status: InboxStatus;
   single_id?: Identifier | null;

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Paperclip, Plus } from "lucide-react";
-import { useListContext } from "ra-core";
+import { useListContext, useTranslate } from "ra-core";
 import { List } from "@/components/admin/list";
 
 import { EmptyState } from "../misc/EmptyState";
@@ -25,6 +25,7 @@ const InboxCard = ({
 }) => {
   const meta = INBOX_SOURCE_META[item.source];
   const SourceIcon = meta.icon;
+  const translate = useTranslate();
   return (
     <button
       type="button"
@@ -39,7 +40,19 @@ const InboxCard = ({
         <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
           <SourceIcon className="size-3.5" aria-hidden="true" />
           {meta.label}
-          {item.sender ? (
+          {item.sender_needs_confirmation ? (
+            <span
+              className="normal-case font-medium"
+              style={{
+                color:
+                  "color-mix(in oklch, var(--attention) 75%, var(--foreground))",
+              }}
+            >
+              {translate("crm.inbox.senderNeedsConfirmation", {
+                _: "Who sent this?",
+              })}
+            </span>
+          ) : item.sender ? (
             <span className="normal-case font-normal">· {item.sender}</span>
           ) : null}
         </span>

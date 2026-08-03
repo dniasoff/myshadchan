@@ -5,6 +5,7 @@
 // Setup type definitions for built-in Supabase Runtime APIs
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
+  extractOriginalSender,
   getForwardedMailContent,
   stripSubjectForwardingPrefix,
 } from "./forwardedParser.ts";
@@ -138,6 +139,7 @@ export async function handleInboundEmail(req: Request): Promise<Response> {
   if (response) return response;
 
   const { FromFull, Attachments, ToFull } = json;
+  const rawTextBody = json.TextBody;
   let { TextBody, Subject } = json;
 
   const memberEmail = (FromFull.Email || "").toLowerCase();
@@ -189,6 +191,18 @@ export async function handleInboundEmail(req: Request): Promise<Response> {
     });
   }
 
+  // Story 10.2: recover the original sender from forwarded headers (FR24).
+  // Run on the UNSTRIPPED body — stripping discards the very headers we need.
+  let originalSender = extractOriginalSender(rawTextBody);
+  // A self-referential "From:" (the member forwarded their own earlier message)
+  // is not useful attribution and must not be shown as confident recovery.
+  if (
+    originalSender.email &&
+    originalSender.email.toLowerCase() === memberEmail
+  ) {
+    originalSender = { name: null, email: null, needsConfirmation: true };
+  }
+
   // Review finding F8: the origin THIS request actually arrived on — never
   // a hardcoded env var — so the signed-URL host fix-up in
   // extractAndUploadAttachments works correctly under any Supabase stack
@@ -205,7 +219,7 @@ export async function handleInboundEmail(req: Request): Promise<Response> {
       accountId,
       textBody: TextBody,
       subject: Subject,
-      sender: FromFull?.Email ?? null,
+      originalSender,
       attachments,
     }),
   );

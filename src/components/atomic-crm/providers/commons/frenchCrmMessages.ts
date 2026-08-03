@@ -909,6 +909,7 @@ export const frenchCrmMessages = {
     },
     inbox: {
       source_shadchan: "Shadchan",
+      senderNeedsConfirmation: "Qui a envoyé ceci ?",
       share: {
         title: "Enregistrer ce partage",
         sourceLabel: "D'où cela provient",

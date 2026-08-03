@@ -1043,6 +1043,7 @@ export const englishCrmMessages = {
     // text (see inboxMeta.ts's own comment).
     inbox: {
       source_shadchan: "Shadchan",
+      senderNeedsConfirmation: "Who sent this?",
       // Story 10.1 (Task 4): the share-target resolve screen
       // (inbox/ShareTarget.tsx).
       share: {

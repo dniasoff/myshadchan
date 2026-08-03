@@ -8,7 +8,11 @@ describe("buildInboxItemPayload", () => {
       accountId: 7,
       textBody: "  A wonderful boy for Rivky — Dovid Berkowitz, BMG.  ",
       subject: "  A suggestion  ",
-      sender: "mrs.feldman@example.com",
+      originalSender: {
+        name: "Mrs. Feldman",
+        email: "mrs.feldman@example.com",
+        needsConfirmation: false,
+      },
       attachments: [{ path: "inbox/resume.pdf" }] as never,
     };
 
@@ -21,10 +25,57 @@ describe("buildInboxItemPayload", () => {
       source: "email",
       raw_text: "A wonderful boy for Rivky — Dovid Berkowitz, BMG.",
       subject: "A suggestion",
-      sender: "mrs.feldman@example.com",
+      sender: "Mrs. Feldman",
+      sender_needs_confirmation: false,
       attachments: [{ path: "inbox/resume.pdf" }],
       status: "unresolved",
     });
+  });
+
+  it("prefers the sender name over the email address", () => {
+    const row = buildInboxItemPayload({
+      accountId: 3,
+      textBody: "Body",
+      subject: "Subject",
+      originalSender: {
+        name: "Mrs. Feldman",
+        email: "mrs.feldman@example.com",
+        needsConfirmation: false,
+      },
+    });
+
+    expect(row.sender).toBe("Mrs. Feldman");
+  });
+
+  it("falls back to the email address when no name is recovered", () => {
+    const row = buildInboxItemPayload({
+      accountId: 3,
+      textBody: "Body",
+      subject: "Subject",
+      originalSender: {
+        name: null,
+        email: "mrs.feldman@example.com",
+        needsConfirmation: false,
+      },
+    });
+
+    expect(row.sender).toBe("mrs.feldman@example.com");
+  });
+
+  it("flags ambiguous senders and leaves sender null", () => {
+    const row = buildInboxItemPayload({
+      accountId: 3,
+      textBody: "Body",
+      subject: "Subject",
+      originalSender: {
+        name: null,
+        email: null,
+        needsConfirmation: true,
+      },
+    });
+
+    expect(row.sender).toBeNull();
+    expect(row.sender_needs_confirmation).toBe(true);
   });
 
   it("collapses empty text, subject, sender, and attachments to null", () => {
@@ -33,7 +84,11 @@ describe("buildInboxItemPayload", () => {
       accountId: 3,
       textBody: "   ",
       subject: "",
-      sender: undefined,
+      originalSender: {
+        name: null,
+        email: null,
+        needsConfirmation: false,
+      },
       attachments: [],
     };
 
@@ -44,6 +99,7 @@ describe("buildInboxItemPayload", () => {
     expect(row.raw_text).toBeNull();
     expect(row.subject).toBeNull();
     expect(row.sender).toBeNull();
+    expect(row.sender_needs_confirmation).toBe(false);
     expect(row.attachments).toBeNull();
     expect(row.account_id).toBe(3);
     expect(row.status).toBe("unresolved");

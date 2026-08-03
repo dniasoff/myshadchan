@@ -324,7 +324,8 @@ describe("postmark handleInboundEmail", () => {
           source: "email",
           raw_text: VALID_BODY.TextBody,
           subject: VALID_BODY.Subject,
-          sender: KNOWN_MEMBER.email,
+          sender: null,
+          sender_needs_confirmation: false,
           attachments: null,
           status: "unresolved",
         },
@@ -406,6 +407,118 @@ describe("postmark handleInboundEmail", () => {
 
       expect(response.status).toBe(403);
       expect(insertedInboxItems).toHaveLength(0);
+    });
+
+    // Story 10.2: sender recovery from forwarded headers (FR24).
+    it("recovers a confident original sender from a forwarded email", async () => {
+      const { insertedInboxItems } = seedDatabase(
+        [KNOWN_MEMBER],
+        [{ user_id: KNOWN_MEMBER.user_id, account_id: 7, kind: "household" }],
+      );
+
+      const forwardedBody = [
+        "Hi, please see below.",
+        "",
+        "---------- Forwarded message ----------",
+        "From: Mrs. Feldman <mrs.feldman@example.com>",
+        "Date: Mon, 21 Jul 2026 10:00:00 +0000",
+        "Subject: A suggestion",
+        "To: member@example.com",
+        "",
+        "A wonderful boy for Rivky.",
+      ].join("\n");
+
+      const response = await handleInboundEmail(
+        buildRequest({
+          body: {
+            ...VALID_BODY,
+            TextBody: forwardedBody,
+          },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(insertedInboxItems).toHaveLength(1);
+      const row = insertedInboxItems[0] as {
+        sender: string | null;
+        sender_needs_confirmation: boolean;
+        shadchan_id: unknown;
+      };
+      expect(row.sender).toBe("Mrs. Feldman");
+      expect(row.sender_needs_confirmation).toBe(false);
+      expect(row.shadchan_id).toBeUndefined();
+      // Negative AC-4 check: we never looked up or set a shadchan record.
+      expect(mockFrom).not.toHaveBeenCalledWith("shadchanim");
+    });
+
+    it("flags a doubly-forwarded email as ambiguous and leaves sender null", async () => {
+      const { insertedInboxItems } = seedDatabase(
+        [KNOWN_MEMBER],
+        [{ user_id: KNOWN_MEMBER.user_id, account_id: 7, kind: "household" }],
+      );
+
+      const forwardedBody = [
+        "---------- Forwarded message ----------",
+        "From: member@example.com",
+        "",
+        "---------- Forwarded message ----------",
+        "From: Mrs. Feldman <mrs.feldman@example.com>",
+        "",
+        "A wonderful boy for Rivky.",
+      ].join("\n");
+
+      const response = await handleInboundEmail(
+        buildRequest({
+          body: {
+            ...VALID_BODY,
+            TextBody: forwardedBody,
+          },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(insertedInboxItems).toHaveLength(1);
+      const row = insertedInboxItems[0] as {
+        sender: string | null;
+        sender_needs_confirmation: boolean;
+        shadchan_id: unknown;
+      };
+      expect(row.sender).toBeNull();
+      expect(row.sender_needs_confirmation).toBe(true);
+      expect(row.shadchan_id).toBeUndefined();
+      expect(mockFrom).not.toHaveBeenCalledWith("shadchanim");
+    });
+
+    it("overrides a self-referential recovered sender to ambiguous", async () => {
+      const { insertedInboxItems } = seedDatabase(
+        [KNOWN_MEMBER],
+        [{ user_id: KNOWN_MEMBER.user_id, account_id: 7, kind: "household" }],
+      );
+
+      const forwardedBody = [
+        "---------- Forwarded message ----------",
+        `From: ${KNOWN_MEMBER.email}`,
+        "",
+        "A wonderful boy for Rivky.",
+      ].join("\n");
+
+      const response = await handleInboundEmail(
+        buildRequest({
+          body: {
+            ...VALID_BODY,
+            TextBody: forwardedBody,
+          },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(insertedInboxItems).toHaveLength(1);
+      const row = insertedInboxItems[0] as {
+        sender: string | null;
+        sender_needs_confirmation: boolean;
+      };
+      expect(row.sender).toBeNull();
+      expect(row.sender_needs_confirmation).toBe(true);
     });
   });
 });

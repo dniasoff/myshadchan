@@ -229,7 +229,19 @@ export const InboxResolveDialog = ({
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             <SourceIcon className="size-3.5" aria-hidden="true" />
             {sourceLabel}
-            {item.sender ? (
+            {item.sender_needs_confirmation ? (
+              <span
+                className="normal-case font-medium"
+                style={{
+                  color:
+                    "color-mix(in oklch, var(--attention) 75%, var(--foreground))",
+                }}
+              >
+                {translate("crm.inbox.senderNeedsConfirmation", {
+                  _: "Who sent this?",
+                })}
+              </span>
+            ) : item.sender ? (
               <span className="normal-case">· {item.sender}</span>
             ) : null}
           </div>
