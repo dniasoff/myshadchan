@@ -188,7 +188,7 @@ test.describe("Share-target completion (Story 10.1)", () => {
     await createShidduch({
       accountId: singleA.account_id as number,
       singleId: singleA.id as number,
-      nameEn: "Available Match",
+      nameEn: "Available Pick",
     });
 
     const memberB = await createMember({
@@ -203,7 +203,7 @@ test.describe("Share-target completion (Story 10.1)", () => {
     await createShidduch({
       accountId: singleB.account_id as number,
       singleId: singleB.id as number,
-      nameEn: "Confidential Match",
+      nameEn: "Confidential Choice",
     });
 
     await signIn(page, memberA.email!);
@@ -217,19 +217,22 @@ test.describe("Share-target completion (Story 10.1)", () => {
     );
 
     // Positive control: account A's own suggestion IS found.
-    await searchBox.fill("Available Match");
-    await expect(page.getByText("Available Match")).toBeVisible({
+    await searchBox.fill("Available Pick");
+    await expect(page.getByText("Available Pick")).toBeVisible({
       timeout: 15000,
     });
 
     // Negative check: account B's suggestion is never surfaced, even though
-    // the search mechanism is now proven to actually return rows.
+    // the search mechanism is now proven to actually return rows. The names
+    // deliberately share no words: the full-text hook ORs each word across
+    // every column, so a shared word (e.g. "Match") would make account A's
+    // own suggestion reappear and invalidate the negative assertion.
     await searchBox.fill("");
-    await searchBox.fill("Confidential Match");
+    await searchBox.fill("Confidential Choice");
     await expect(page.getByText("No matching suggestions.")).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.getByText("Confidential Match")).toHaveCount(0);
+    await expect(page.getByText("Confidential Choice")).toHaveCount(0);
   });
 
   test("linking to an existing suggestion attaches the capture without creating a duplicate, and Enter never submits the create-new form instead (AC 1/5/6/7)", async ({
