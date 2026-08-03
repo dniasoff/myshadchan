@@ -455,8 +455,8 @@ export type CreateShidduchInput = {
  * `redt_via_connection()`, never client-attributed. */
 export type InboxSource =
   "whatsapp" | "sms" | "email" | "photo" | "upload" | "shadchan";
-/** Triage state of a captured item: needs confirmation, resolved, or dismissed. */
-export type InboxStatus = "unresolved" | "resolved" | "dismissed";
+/** Triage state of a captured item: needs confirmation, resolving, resolved, or dismissed. */
+export type InboxStatus = "unresolved" | "resolving" | "resolved" | "dismissed";
 
 /** One file attached to a captured inbox item (Story 10.3, Task 5) — the
  * exact shape `postmark/extractAndUploadAttachments.ts`'s `Attachment` type
@@ -493,6 +493,12 @@ export type InboxItem = {
    * second RLS scoping axis (inbox_items stays scoped by account_id alone).
    * Null for every other source. */
   connection_id?: Identifier | null;
+  /** Story 10.5: idempotency token for the resolve window. Only non-null
+   * while a resolve/dismiss is in flight. */
+  resolution_attempt_id?: string | null;
+  /** Story 10.5: stashed resolve inputs so a retry can complete a partially
+   * failed resolve without re-running domain mutations. */
+  resolution_input?: Record<string, unknown> | null;
 };
 
 /** Input accepted by redtViaConnection() — mirrors the redt_via_connection

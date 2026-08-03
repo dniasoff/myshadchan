@@ -58,6 +58,8 @@ import type {
   SignEntityFileUrlParams,
   UploadEntityFileParams,
 } from "./entityFiles";
+import { copyInboxAttachmentsToEntityFiles as copyInboxAttachmentsToEntityFilesImpl } from "./inboxAttachments";
+import type { CopyInboxAttachmentsParams } from "./inboxAttachments";
 import {
   signResumeFileUrl as signResumeFileUrlImpl,
   uploadResumeFile as uploadResumeFileImpl,
@@ -975,7 +977,11 @@ export const getDataProviderWithCustomMethods = () => {
     async deleteEntityFile(params: DeleteEntityFileParams): Promise<void> {
       return deleteEntityFileImpl(baseDataProvider, params);
     },
-
+    async copyInboxAttachmentsToEntityFiles(
+      params: CopyInboxAttachmentsParams,
+    ): Promise<EntityFile[]> {
+      return copyInboxAttachmentsToEntityFilesImpl(params);
+    },
     // ---------------------------------------------------------------------
     // Resume tab (Story 5.3). Implementation lives in ./resumes.ts, mirroring
     // ./entityFiles.ts's own split — this file is already large
@@ -1245,7 +1251,12 @@ const getCurrentAccountId = async (): Promise<number> => {
 // photo through the exact same path `members.avatar` already uses — one
 // upload primitive across every entry point, not a second copy. Was a
 // module-private `const` (used only internally, above) before this story.
-export const uploadToBucket = async (fi: RAFile) => {
+//
+// Story 10.6: optional `pathPrefix` lets share-target include the owning
+// `inbox_items` id in the object key (`{accountId}/inbox/{inboxItemId}/...`)
+// so the DB row is created before the bytes, and orphaned objects are
+// recoverable by their owning row id.
+export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
   if (!fi.src.startsWith("blob:") && !fi.src.startsWith("data:")) {
     // Sign URL check if path exists in the bucket
     if (fi.path) {
@@ -1284,7 +1295,8 @@ export const uploadToBucket = async (fi: RAFile) => {
   // Account-prefixed, CSPRNG key. The attachments bucket is private and its RLS
   // policies scope on this first path segment, so an unprefixed key is rejected.
   const accountId = await getCurrentAccountId();
-  const filePath = `${accountId}/${crypto.randomUUID()}${fileExt}`;
+  const prefix = pathPrefix ? `${pathPrefix}/` : "";
+  const filePath = `${accountId}/${prefix}${crypto.randomUUID()}${fileExt}`;
   const { error: uploadError } = await getSupabaseClient()
     .storage.from(ATTACHMENTS_BUCKET)
     .upload(filePath, dataContent);

@@ -22,7 +22,12 @@ vi.mock("../_shared/supabaseAdmin.ts", () => ({
 }));
 
 type MemberRow = { email: string; user_id: string };
-type MembershipRow = { user_id: string; account_id: number; kind: string };
+type MembershipRow = {
+  user_id: string;
+  account_id: number;
+  kind: string;
+  status?: string;
+};
 
 /** Builds the `members` / `account_members` table doubles this handler
  * queries, keyed the same way the real tables are: `members` by email,
@@ -57,15 +62,22 @@ function seedDatabase(members: MemberRow[], memberships: MembershipRow[]) {
       return {
         select: () => ({
           eq: (_col1: string, userId: string) => ({
-            eq: (_col2: string, kind: string) =>
-              Promise.resolve({
-                data: memberships
-                  .filter((m) => m.user_id === userId && m.kind === kind)
-                  .map((m) => ({
-                    account_id: m.account_id,
-                    accounts: { kind: m.kind },
-                  })),
-              }),
+            eq: (_col2: string, kind: string) => ({
+              eq: (_col3: string, status: string) =>
+                Promise.resolve({
+                  data: memberships
+                    .filter(
+                      (m) =>
+                        m.user_id === userId &&
+                        m.kind === kind &&
+                        (m.status ?? "active") === status,
+                    )
+                    .map((m) => ({
+                      account_id: m.account_id,
+                      accounts: { kind: m.kind },
+                    })),
+                }),
+            }),
           }),
         }),
       };
@@ -400,6 +412,52 @@ describe("postmark handleInboundEmail", () => {
         [
           { user_id: KNOWN_MEMBER.user_id, account_id: 7, kind: "household" },
           { user_id: KNOWN_MEMBER.user_id, account_id: 8, kind: "household" },
+        ],
+      );
+
+      const response = await handleInboundEmail(buildRequest());
+
+      expect(response.status).toBe(403);
+      expect(insertedInboxItems).toHaveLength(0);
+    });
+
+    it("ignores ARCHIVED household memberships when resolving the account", async () => {
+      const { insertedInboxItems } = seedDatabase(
+        [KNOWN_MEMBER],
+        [
+          {
+            user_id: KNOWN_MEMBER.user_id,
+            account_id: 7,
+            kind: "household",
+            status: "active",
+          },
+          {
+            user_id: KNOWN_MEMBER.user_id,
+            account_id: 8,
+            kind: "household",
+            status: "archived",
+          },
+        ],
+      );
+
+      const response = await handleInboundEmail(buildRequest());
+
+      expect(response.status).toBe(200);
+      expect((insertedInboxItems[0] as { account_id: number }).account_id).toBe(
+        7,
+      );
+    });
+
+    it("refuses (403) when the sender's only household membership is archived", async () => {
+      const { insertedInboxItems } = seedDatabase(
+        [KNOWN_MEMBER],
+        [
+          {
+            user_id: KNOWN_MEMBER.user_id,
+            account_id: 7,
+            kind: "household",
+            status: "archived",
+          },
         ],
       );
 

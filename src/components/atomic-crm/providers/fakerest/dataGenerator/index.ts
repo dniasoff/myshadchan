@@ -79,6 +79,9 @@ export default (): Db => {
       single_id: null,
       shadchan_id: null,
       resolved_shidduchim_id: null,
+      connection_id: null,
+      resolution_attempt_id: null,
+      resolution_input: null,
     },
     {
       id: 2,
@@ -95,6 +98,9 @@ export default (): Db => {
       single_id: null,
       shadchan_id: null,
       resolved_shidduchim_id: null,
+      connection_id: null,
+      resolution_attempt_id: null,
+      resolution_input: null,
     },
     {
       id: 3,
@@ -111,6 +117,9 @@ export default (): Db => {
       single_id: null,
       shadchan_id: null,
       resolved_shidduchim_id: null,
+      connection_id: null,
+      resolution_attempt_id: null,
+      resolution_input: null,
     },
   ];
 

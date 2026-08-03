@@ -120,7 +120,10 @@ async function readSharedFiles(shareKey: string): Promise<SharedFilesResult> {
 /** Task 4: uploads through the SAME primitive `members.avatar` already
  * uses (`uploadToBucket`, exported this story) rather than a second upload
  * path — one upload primitive across every entry point. */
-async function uploadSharedFiles(files: File[]): Promise<SharedAttachment[]> {
+async function uploadSharedFiles(
+  files: File[],
+  inboxItemId?: Identifier,
+): Promise<SharedAttachment[]> {
   const uploaded: SharedAttachment[] = [];
   for (const file of files) {
     const objectUrl = URL.createObjectURL(file);
@@ -131,7 +134,8 @@ async function uploadSharedFiles(files: File[]): Promise<SharedAttachment[]> {
         rawFile: file,
         type: file.type,
       };
-      const result = await uploadToBucket(raFile);
+      const prefix = inboxItemId != null ? `inbox/${inboxItemId}` : undefined;
+      const result = await uploadToBucket(raFile, prefix);
       uploaded.push({
         title: result.title,
         type: result.type ?? file.type,
@@ -257,19 +261,39 @@ export const ShareTarget = () => {
   /** Task 4: "creates the inbox_items row first" — shared by "Save" and by
    * every "Link" press in `LinkToShidduchSearch`, so the raw capture (and
    * any shared photo) is preserved identically no matter which resolve path
-   * runs next, including a bare "Skip". */
+   * runs next, including a bare "Skip".
+   *
+   * Story 10.6: the row is created BEFORE uploading files, so a failed DB
+   * write never leaves orphaned storage objects. Files are uploaded into a
+   * row-scoped path (`{accountId}/inbox/{inboxItemId}/{uuid}{ext}`); the
+   * same row is then updated with the attachment metadata. */
   const createInboxItem = async (): Promise<InboxItem> => {
-    const attachments =
-      files && files.length > 0 ? await uploadSharedFiles(files) : [];
     const { data } = await dataProvider.create<InboxItem>("inbox_items", {
       data: {
         source: sourceTab ?? "whatsapp",
         raw_text: rawText || null,
-        attachments: attachments.length > 0 ? attachments : null,
+        attachments: null,
         status: "unresolved",
       },
     });
-    return data;
+    const item = data;
+
+    if (files && files.length > 0) {
+      const attachments = await uploadSharedFiles(files, item.id);
+      const { data: updated } = await dataProvider.update<InboxItem>(
+        "inbox_items",
+        {
+          id: item.id,
+          data: {
+            attachments: attachments.length > 0 ? attachments : null,
+          },
+          previousData: item,
+        },
+      );
+      return updated ?? item;
+    }
+
+    return item;
   };
 
   // Review fix (F6, MEDIUM): Save, every "Link" press, and Skip each used

@@ -571,8 +571,14 @@ create table public.inbox_items (
     -- original sender for email; this flag is set when forwarding is detected
     -- but the original sender is ambiguous or missing.
     sender_needs_confirmation boolean not null default false,
+    -- Story 10.5: idempotency token for the resolve window, appended at the
+    -- physical TAIL (COLUMN-ORDER TRAP). `resolution_input` stashes the
+    -- inputs so a retry can complete a partially-failed resolve without
+    -- re-running domain mutations.
+    resolution_attempt_id text,
+    resolution_input jsonb,
     constraint inbox_items_source_check check (source in ('whatsapp', 'sms', 'email', 'photo', 'upload', 'shadchan')),
-    constraint inbox_items_status_check check (status in ('unresolved', 'resolved', 'dismissed')),
+    constraint inbox_items_status_check check (status in ('unresolved', 'resolving', 'resolved', 'dismissed')),
     -- Story 8.3 review fix (non-blocking observation, judged real): the
     -- widened source check above permits `source = 'shadchan'` with a NULL
     -- connection_id — unreachable through redt_via_connection() (always

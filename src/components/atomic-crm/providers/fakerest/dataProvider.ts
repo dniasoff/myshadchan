@@ -53,6 +53,8 @@ import {
   signEntityFileUrl as signEntityFileUrlImpl,
   uploadEntityFile as uploadEntityFileImpl,
 } from "./internal/entityFiles";
+import { copyInboxAttachmentsToEntityFiles as copyInboxAttachmentsToEntityFilesImpl } from "./internal/inboxAttachments";
+import type { CopyInboxAttachmentsParams } from "./internal/inboxAttachments";
 import type {
   EntityFileBlobUrls,
   UploadEntityFileParams,
@@ -1435,6 +1437,20 @@ export const createDataProvider = ({
       storagePath: string;
     }): Promise<void> =>
       deleteEntityFileImpl(baseDataProvider, entityFileBlobUrls, params),
+    // Story 10.4: carry capture attachments into the linked shidduch's Files tab.
+    copyInboxAttachmentsToEntityFiles: async (
+      params: CopyInboxAttachmentsParams,
+    ): Promise<EntityFile[]> => {
+      const [accountId, caller] = await Promise.all([
+        resolveCurrentAccountId(),
+        resolveCallerMembership(),
+      ]);
+      return copyInboxAttachmentsToEntityFilesImpl(entityFileBlobUrls, {
+        ...params,
+        accountId,
+        uploadedByMemberId: caller?.membership?.id ?? null,
+      });
+    },
     // ---------------------------------------------------------------------
     // Resume tab (Story 5.3) -- FakeRest mirrors of add_resume_file /
     // signed-URL minting, backed by ./internal/resumes.ts.

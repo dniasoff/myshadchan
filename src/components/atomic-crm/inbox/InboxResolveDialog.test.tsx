@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+import { CoreAdminContext, TestMemoryRouter, type Identifier } from "ra-core";
 
 import { Notification } from "@/components/admin/notification";
 
@@ -62,6 +62,7 @@ const buildShadchan = (overrides: Partial<Shadchan> = {}): Shadchan =>
 
 const buildDataProvider = (
   linkedShadchanim: Shadchan[],
+  item: InboxItem,
   overrides: Partial<CrmDataProvider> = {},
 ): CrmDataProvider =>
   ({
@@ -86,8 +87,18 @@ const buildDataProvider = (
       },
     ),
     getMany: vi.fn().mockResolvedValue({ data: [] }),
+    getOne: vi.fn((resource: string, params: { id: Identifier }) => {
+      if (resource === "inbox_items" && params.id === item.id) {
+        return Promise.resolve({ data: item });
+      }
+      if (resource === "shidduchim" && params.id === 99) {
+        return Promise.resolve({ data: { id: 99 } });
+      }
+      return Promise.resolve({ data: {} });
+    }),
     createShidduch: vi.fn().mockResolvedValue({ id: 99 }),
     update: vi.fn().mockResolvedValue({ data: {} }),
+    copyInboxAttachmentsToEntityFiles: vi.fn().mockResolvedValue([]),
     ...overrides,
   }) as unknown as CrmDataProvider;
 
@@ -98,6 +109,7 @@ const renderDialog = async (
 ) => {
   const dataProvider = buildDataProvider(
     linkedShadchanim,
+    item,
     dataProviderOverrides,
   );
   const onClose = vi.fn();

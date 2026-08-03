@@ -36,7 +36,8 @@ export async function resolveHouseholdAccountIdForMemberEmail(
     .from("account_members")
     .select("account_id, accounts!inner(kind)")
     .eq("user_id", memberRow.user_id)
-    .eq("accounts.kind", "household");
+    .eq("accounts.kind", "household")
+    .eq("status", "active");
 
   if (!memberships || memberships.length === 0) return null;
 
