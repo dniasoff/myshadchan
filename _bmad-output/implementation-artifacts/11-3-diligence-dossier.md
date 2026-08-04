@@ -61,31 +61,45 @@ is deleted" in Dev Notes before starting.
 4. **The facts are computed server-side, from the rows this request just fetched — never from
    client-submitted facts.** `buildCrossReferenceSummary(links)` (relocated, AC-1) runs inside
    this route on the rows AC-3 fetched. No parameter of `POST /dossier` lets a caller supply
-   precomputed `covered`/`gaps`/`hasContradiction` values — the only client input is
-   `shidduchim_id`.
-5. **The narrative is AI-generated, strictly grounded, and never blocks on the model.** A
-   `DossierNarrator.compose(facts: CrossReferenceSummary): Promise<string>` interface
-   (`workers/ai/dossierNarrator.ts` — reuse the moved module's existing `CrossReferenceSummary`
-   type, do not mint a second name for the same facts); the production implementation calls Claude **only through
-   the Cloudflare AI Gateway** (`@anthropic-ai/sdk` with `baseURL` overridden, per the Stack
-   table) with a prompt containing **only** the computed topic labels/counts/booleans — never
-   raw `what_they_said` text or reference names. The response is checked against a fixed
-   banned-phrase list (`recommend`, `compatible`, `match`, `score`, `should date`, `good fit`,
-   case-insensitive); a hit, a thrown error, or a Gateway failure all fall back to
-   `deterministicNarrative(facts)` (a template string built purely from the facts, no model
-   call) — the route always returns a narrative, and a broken/absent Gateway credential
-   degrades the feature, it never fails the request.
+   precomputed `covered`/`gaps`/`hasMixedSentiment` values — the only client input is
+   `shidduchim_id`. (Field renamed from `hasContradiction` — see AC-6.)
+5. **The narrative is grounded and never blocks on a model call.** `deterministicNarrative(facts)`
+   (`workers/ai/dossierNarrator.ts`, reusing the moved module's existing `CrossReferenceSummary`
+   type) is a template string built purely from the computed topic labels/counts/booleans — never
+   raw `what_they_said` text or reference names — with no network call and no external
+   dependency, so the route always returns a narrative unconditionally.
+   **Superseded by an Epic 11 adversarial review (Finding 12), post-ship:** this AC originally
+   shipped a `DossierNarrator.compose(facts): Promise<string>` interface with a production
+   `claudeNarrator` calling Claude **only through the Cloudflare AI Gateway**
+   (`@anthropic-ai/sdk`, `baseURL` overridden), gated by a fixed six-phrase banned-word
+   blacklist (`recommend`, `compatible`, `match`, `score`, `should date`, `good fit`) with
+   `deterministicNarrative` as the fallback on a hit, a thrown error, or a Gateway failure. The
+   review found the blacklist trivially bypassable by paraphrase (an "ideal pairing" reads as
+   exactly the endorsement FR63 forbids without containing any of the six words) and the
+   fallback path itself unproven under failure (its own test patched a property the narrator
+   never attached, so it silently exercised `deterministicNarrative` directly rather than the
+   real `compose()`), so the free-form path was **deleted, not repaired**:
+   `deterministicNarrative` is now the dossier's only narrative implementation — safe by
+   construction rather than merely probabilistically safe. There is no Gateway credential left
+   to be broken or absent. See `dossierNarrator.ts`'s header comment for the full reasoning.
 6. **The response shape:** `{ spokenToCount, outstandingCount, endorsementCount,
-   reservationCount, covered: string[], gaps: string[], hasContradiction: boolean,
+   reservationCount, covered: string[], gaps: string[], hasMixedSentiment: boolean,
    narrative: string }` — counts and topic labels (`CoverageTopic.label`) only, derived from
    `CrossReferenceSummary`'s link arrays; the response never carries link rows, reference
    names, or `what_they_said` text (the client already has its own RLS'd read path for those —
    this endpoint returns only the aggregate). The two extra counts let the card render the
    Consensus column ("2 spoke warmly, 1 raised a reservation") without parsing prose.
-7. **It never judges compatibility or suggests a match (FR63/NFR "never fabricate").** Neither
-   the deterministic path nor a passed AI narrative may contain a scored verdict — enforced
-   mechanically by the banned-phrase check in AC-5, plus a test asserting the same list of
-   phrases never appears in `deterministicNarrative`'s own output for any fixture.
+   (Field renamed post-ship from `hasContradiction`, an Epic 11 adversarial review finding: the
+   original name overclaimed what the boolean measures — a whole-corpus OR of "some response has
+   an endorsement cue" and "some other response has a hesitation cue," which is mixed sentiment,
+   not a contradiction, since the two statements need not even address the same topic. See
+   `dossierFacts.ts`'s `CrossReferenceSummary.hasMixedSentiment` doc comment.)
+7. **It never judges compatibility or suggests a match (FR63/NFR "never fabricate").** The
+   deterministic narrative may not contain a scored verdict — enforced by construction (the
+   template only ever assembles known facts into fixed sentence shapes; there is no free-form
+   model output left to gate, per AC-5's post-ship correction) and confirmed by a test asserting
+   the banned-phrase list never appears in `deterministicNarrative`'s own output for any
+   fixture.
 8. **The paid gate covers only the dossier — the free question surfaces stay free.** The new
    `DiligenceDossierCard` is the only thing this story wraps in `useAiEntitlement()` (upgrade
    prompt in place of content when unentitled — client-side hint; AC-2's server gate is the
@@ -98,7 +112,8 @@ is deleted" in Dev Notes before starting.
    `references/DiligenceDossierCard.tsx`, rendered on the shidduch's Diligence tab alongside
    `ShidduchReferencesSection` (same tab module 5.1/5.10 wired), calls
    `callAiWorker(`${VITE_AI_WORKER_URL}/dossier`, { shidduchim_id })` (11.1) and renders the
-   returned `covered`/`gaps`/`hasContradiction`/`narrative` — no component performs a local
+   returned `covered`/`gaps`/`hasMixedSentiment`/`narrative` (renamed post-ship, AC-6) — no
+   component performs a local
    `buildCrossReferenceSummary` call (there is none left in `src/` to call after AC-1).
 10. **The entitlement-gate guard test is updated, not left stale.**
     `references/entitlementGate.guard.test.ts`'s `ALLOWED` set gains
@@ -140,26 +155,38 @@ is deleted" in Dev Notes before starting.
         requireAiEntitlement)`. Handler: fetch `reference_links_summary` filtered by
         `shidduchim_id` via `c.get("supabaseCaller")`; run `buildCrossReferenceSummary`; shape
         the AC-6 response; on zero rows return the same shape with all four counts `0`,
-        `covered: []`, `gaps: <all topic labels>`, `hasContradiction: false`,
+        `covered: []`, `gaps: <all topic labels>`, `hasMixedSentiment: false`,
         `narrative: <the "nothing logged yet" deterministic string>` rather than a special-cased
         error path (AC-3).
   - [ ] `index.test.ts`: happy path with fixture links (reuse the moved test file's fixtures —
         do not invent new ones); zero-rows case (AC-11).
 
 - [ ] **Task 3 — The narrator** (AC: 5, 7)
-  - [ ] `workers/ai/dossierNarrator.ts`: `DossierNarrator` interface,
-        `deterministicNarrative(facts)` (a direct port of the sentence-building already visible
-        in `ResearchAssistantPanel.tsx`'s JSX today — "X spoke warmly and Y raised a
-        reservation," "Nothing recorded yet," etc. — as plain string templates, not JSX), the
-        banned-phrase constant and checker, and `claudeNarrator: DossierNarrator` calling the
-        AI Gateway with `@anthropic-ai/sdk` (`baseURL` override). **`@anthropic-ai/sdk` is not
-        a dependency yet** — add it to `package.json` (Stack table pins 0.112.x). Extend
-        `AiEnv` (new, in `workers/ai/index.ts`) with `AI_GATEWAY_ACCOUNT_ID`, `AI_GATEWAY_ID`,
-        `ANTHROPIC_API_KEY`; add all three to `workers/ai/wrangler.toml`'s secrets comment.
-  - [ ] `dossierNarrator.test.ts`: a banned-phrase hit in a fake model response falls back to
-        deterministic; a thrown/rejected call falls back to deterministic; `deterministicNarrative`
-        never contains a banned phrase for any of the fixture facts (AC-7), asserted with a
-        loop over the banned-phrase list.
+  - [ ] `workers/ai/dossierNarrator.ts`: `deterministicNarrative(facts)` (a direct port of the
+        sentence-building already visible in `ResearchAssistantPanel.tsx`'s JSX today — "X spoke
+        warmly and Y raised a reservation," "Nothing recorded yet," etc. — as plain string
+        templates, not JSX) and the `BANNED_PHRASES` constant, used only to test that this
+        template's own output never emits a scored verdict (AC-7).
+        **Superseded by an Epic 11 adversarial review (Finding 12), post-ship:** this task
+        originally also built a `DossierNarrator` interface and a `claudeNarrator: DossierNarrator`
+        calling the AI Gateway with `@anthropic-ai/sdk` (`baseURL` override) — which required
+        adding `@anthropic-ai/sdk` to `package.json`, extending `AiEnv` (in
+        `workers/ai/index.ts`) with `AI_GATEWAY_ACCOUNT_ID`, `AI_GATEWAY_ID`,
+        `ANTHROPIC_API_KEY`, and noting all three in `workers/ai/wrangler.toml`'s secrets
+        comment — plus a checker gating the model's raw output against the banned-phrase list.
+        None of that exists today: the free-form path was deleted rather than repaired (see
+        AC-5), `AiEnv` is back to `BaseEnv` with no Gateway vars, and `wrangler.toml`'s comment
+        now says explicitly that nothing in `workers/ai/**` reads them. `@anthropic-ai/sdk`
+        was left in `package.json` as an unused dependency by the Finding-12 fix itself; a
+        follow-up cross-reconciliation pass removed it (and its now-orphaned transitive
+        packages) from both `package.json` and `package-lock.json` — it is gone from the tree
+        as of this correction, not merely unused.
+  - [ ] `dossierNarrator.test.ts`: `deterministicNarrative` never contains a banned phrase for
+        any of the fixture facts (AC-7), asserted with a loop over the banned-phrase list, plus
+        its "nothing recorded" and "full summary" cases. (The banned-phrase-hit-falls-back and
+        thrown/rejected-call-falls-back tests originally listed here belonged to the deleted
+        `claudeNarrator` and were deleted with it — `deterministicNarrative` has no fallback
+        case left to test because it is no longer a fallback.)
 
 - [ ] **Task 4 — Client wiring** (AC: 8, 9, 10)
   - [ ] New `references/DiligenceDossierCard.tsx`: takes `shidduchimId`; when
@@ -167,8 +194,9 @@ is deleted" in Dev Notes before starting.
         `ResearchAssistantPanel.tsx`'s existing `UpgradePrompt` pattern); when entitled,
         fetches `callAiWorker(`${import.meta.env.VITE_AI_WORKER_URL}/dossier`,
         { shidduchim_id })` via TanStack Query and renders
-        `covered`/`gaps`/`hasContradiction`/`narrative` as the mockup's three-column
-        Consensus / Contradiction / Gaps card. Mount it on the shidduch Diligence tab, above
+        `covered`/`gaps`/`hasMixedSentiment`/`narrative` (field renamed post-ship, AC-6) as the
+        mockup's three-column Consensus / Contradiction / Gaps card. Mount it on the shidduch
+        Diligence tab, above
         `ShidduchReferencesSection` (same tab module 5.1/5.10 wired) + a component test.
   - [ ] `ResearchAssistantPanel.tsx`: delete the summary section and the
         `buildCrossReferenceSummary` import (AC-1); everything else (questions, guardrail,
@@ -217,6 +245,15 @@ bounded: the model can rearrange known facts into prose, or violate the banned-p
 in `DossierFacts` because it was never given one. [Source: ARCHITECTURE-SPINE.md#AD-8 "hallucination is
 guarded by field validation + low-confidence human review"]
 
+**Post-ship correction:** the model this section describes was deleted by an Epic 11
+adversarial-review fix (AC-5) — a "bounded failure mode" turned out not to be bounded enough,
+since a paraphrase could clear the banned-phrase list while still reading as the endorsement
+FR63 forbids. `deterministicNarrative` today makes zero model calls, so the guarantee above is
+now unconditional rather than bounded: there is no model turn left to rearrange facts or reach
+for a banned phrase in the first place. The reasoning above is kept as the historical rationale
+for grounding-on-facts, which still holds as the reason the *facts* (not raw quotes) are what
+gets turned into prose at all.
+
 ### What this story does not build
 
 **Langfuse tracing and the account-namespaced response cache** (both named by AD-8) — same
@@ -248,9 +285,14 @@ Touched: `workers/ai/index.ts` (+test), `workers/ai/wrangler.toml`, `package.jso
 ### Testing standard
 
 AAA, no shared mutable state (`.claude/rules/testing.md`). No test makes a live Anthropic/AI
-Gateway network call — `DossierNarrator` is mocked exactly as `ResumeExtractor` is in 11.2.
+Gateway network call.
 Carry the moved test file's existing fixtures forward verbatim (Task 1) rather than
-re-authoring them — they already cover consensus, contradiction and gap cases correctly.
+re-authoring them — they already cover consensus, mixed-sentiment and gap cases correctly.
+
+**Post-ship correction:** the plan above was written when `DossierNarrator` still had a
+`claudeNarrator` implementation to mock (as `ResumeExtractor` is mocked in 11.2). That
+implementation was deleted by an Epic 11 adversarial-review fix (AC-5); `deterministicNarrative`
+is a pure function with no client to mock, and `dossierNarrator.test.ts` now calls it directly.
 
 ### References
 
@@ -283,7 +325,7 @@ moonshotai/kimi-k2.7-code
 ### Debug Log References
 
 - Verified `callStatus.ts` only imports types from `../types`, making a by-value cross-boundary import into the Worker safe.
-- Added `@anthropic-ai/sdk` 0.112.4 to dependencies and refactored `workers/ai/index.ts` to export `createAiApp(narrator?)` so tests can inject a fake narrator without live AI calls.
+- Added `@anthropic-ai/sdk` 0.112.4 to dependencies and refactored `workers/ai/index.ts` to export `createAiApp(narrator?)` so tests can inject a fake narrator without live AI calls. **Stale as of an Epic 11 adversarial-review fix (Finding 12):** the free-form narrator this signature existed to inject was deleted (see AC-5); `createAiApp()` today takes no parameter, and `index.test.ts` calls it with none. `@anthropic-ai/sdk` was orphaned by that fix and has since been removed from `package.json`/`package-lock.json` entirely by a follow-up cross-reconciliation pass — it is not merely unimported, it is no longer a dependency.
 - Removed an over-zealous cross-account `inbox_items` UPDATE assertion added during 11.2; the real cross-account boundary for the dossier is the `reference_links_summary` RLS already tested in `supabase/tests/references_entity.sql`, plus the zero-rows Worker test.
 
 ### Completion Notes List
@@ -291,8 +333,8 @@ moonshotai/kimi-k2.7-code
 - Moved `crossReferenceSummary.ts` + test to `workers/ai/dossierFacts.ts` + `.test.ts`, fixing imports for the `src/` ↔ `workers/` boundary.
 - Removed the summary section and `buildCrossReferenceSummary` import from `ResearchAssistantPanel.tsx`; questions/guardrail/gate remain unchanged.
 - Dropped the now-unused `links` prop from `ResearchAssistantPanel` and its callers (`entityDescriptorRegions.tsx`, `ResearchAssistantPanel.test.tsx`).
-- Added `workers/ai/dossierNarrator.ts` (+ test) with deterministic fallback, banned-phrase checker, and `claudeNarrator` calling Claude through Cloudflare AI Gateway with `baseURL` override.
-- Added gated `POST /dossier` route in `workers/ai/index.ts` returning counts, topic labels, contradiction flag, and grounded narrative; zero rows returns the same "nothing logged yet" shape.
+- Added `workers/ai/dossierNarrator.ts` (+ test) with deterministic fallback, banned-phrase checker, and `claudeNarrator` calling Claude through Cloudflare AI Gateway with `baseURL` override. **Superseded by an Epic 11 adversarial-review fix (Finding 12):** `claudeNarrator` and the `DossierNarrator` interface were deleted — the banned-phrase blacklist was found trivially bypassable by paraphrase, and the fallback path's own test was proven vacuous. `deterministicNarrative` is no longer a fallback; it is the dossier's only narrative implementation, and `BANNED_PHRASES` now exists solely to test that this template's own output stays clean. See AC-5 and `dossierNarrator.ts`'s header comment.
+- Added gated `POST /dossier` route in `workers/ai/index.ts` returning counts, topic labels, a mixed-sentiment flag (renamed post-ship from "contradiction flag" — see AC-6), and grounded narrative; zero rows returns the same "nothing logged yet" shape.
 - Added `DiligenceDossierCard.tsx` (+ test) on the shidduch Diligence tab, gated via `useAiEntitlement`, fetching through `callAiWorker`.
 - Updated `entitlementGate.guard.test.ts` ALLOWED set with `DiligenceDossierCard.tsx`.
 - Added English/French i18n strings for `crm.diligence.dossier.*` and removed now-unused summary strings from `crm.references.assistant`.

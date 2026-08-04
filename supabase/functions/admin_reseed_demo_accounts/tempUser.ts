@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
+import { formatSupabaseError } from "./errorMessage.ts";
 import type { CleanupResult, TempUser } from "./types.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -25,9 +26,49 @@ export async function createTempUser(): Promise<TempUser> {
     user_metadata: { source: "admin_reseed_demo_accounts" },
   });
   if (error || !data.user) {
-    throw new Error(`failed to create temp user: ${error?.message}`);
+    throw new Error(
+      `failed to create temp user: ${
+        error ? formatSupabaseError(error) : "no user returned"
+      }`,
+    );
   }
   return { id: data.user.id, email, password };
+}
+
+/**
+ * Deletes the `public.members` row `handle_new_user()`'s `on_auth_user_created`
+ * trigger (04_triggers.sql) created for this temp user the moment
+ * `createTempUser()` inserted its `auth.users` row.
+ *
+ * This is the root cause of the leaked-temp-user production defect: every
+ * `admin_reseed_demo_accounts` run left exactly this row behind, and
+ * `members_user_id_fkey` (01_tables.sql) declares no `on delete` action —
+ * Postgres defaults that to `NO ACTION`/RESTRICT. So `auth.admin.deleteUser`
+ * below was, unconditionally and on every single run, attempting to delete
+ * an `auth.users` row a `public.members` row still referenced — a
+ * foreign-key violation, not a transient failure. GoTrue turns any
+ * database-level error into a 5xx response, which is exactly the error
+ * class `formatSupabaseError`'s doc comment describes losing its message to
+ * "{}" upstream. Deleting this row first removes the referencing row before
+ * the `auth.users` delete is even attempted, so the FK never fires.
+ *
+ * No other table has a real foreign key to `public.members(id)` (see the
+ * `01_tables.sql` comment on `tasks.member_id` — deliberately FK-less), so
+ * this delete cannot itself cascade into anything else.
+ */
+async function deleteTempUserMembersRow(
+  userId: string,
+): Promise<CleanupResult> {
+  const { error } = await supabaseAdmin
+    .from("members")
+    .delete()
+    .eq("user_id", userId);
+  return error
+    ? {
+        ok: false,
+        error: `failed to remove members row for temp user ${userId}: ${formatSupabaseError(error)}`,
+      }
+    : { ok: true };
 }
 
 /**
@@ -37,13 +78,23 @@ export async function createTempUser(): Promise<TempUser> {
  * cause misdirection, because no later iteration ever reuses this user id.
  * The caller surfaces the returned failure (via `AccountResult.cleanupWarning`)
  * rather than this function swallowing it.
+ *
+ * Removes the trigger-created `public.members` row FIRST — see
+ * `deleteTempUserMembersRow`'s own comment for why skipping this step made
+ * `auth.admin.deleteUser` fail on every run, not just occasionally. If that
+ * removal itself fails, `auth.admin.deleteUser` is never attempted: it would
+ * only repeat the same foreign-key violation, so surfacing the members-row
+ * failure directly is the more actionable diagnostic.
  */
 export async function deleteTempUser(userId: string): Promise<CleanupResult> {
+  const membersRowCleanup = await deleteTempUserMembersRow(userId);
+  if (!membersRowCleanup.ok) return membersRowCleanup;
+
   const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
   return error
     ? {
         ok: false,
-        error: `failed to delete temp user ${userId}: ${error.message}`,
+        error: `failed to delete temp user ${userId}: ${formatSupabaseError(error)}`,
       }
     : { ok: true };
 }

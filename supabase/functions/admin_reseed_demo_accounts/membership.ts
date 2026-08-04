@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
+import { formatSupabaseError } from "./errorMessage.ts";
 import type { CleanupResult } from "./types.ts";
 
 export function roleForAccountKind(kind: string): string {
@@ -21,7 +22,11 @@ export async function addTempMembership(
     .select("id")
     .single();
   if (error || !data) {
-    throw new Error(`failed to add temp membership: ${error?.message}`);
+    throw new Error(
+      `failed to add temp membership: ${
+        error ? formatSupabaseError(error) : "no row returned"
+      }`,
+    );
   }
   return data.id;
 }
@@ -45,7 +50,7 @@ export async function removeTempMembership(
   return error
     ? {
         ok: false,
-        error: `failed to remove temp membership ${membershipId}: ${error.message}`,
+        error: `failed to remove temp membership ${membershipId}: ${formatSupabaseError(error)}`,
       }
     : { ok: true };
 }
@@ -58,6 +63,8 @@ export async function setTempActiveAccount(
     .from("member_state")
     .upsert({ user_id: userId, active_account_id: accountId });
   if (error) {
-    throw new Error(`failed to set active account: ${error.message}`);
+    throw new Error(
+      `failed to set active account: ${formatSupabaseError(error)}`,
+    );
   }
 }
