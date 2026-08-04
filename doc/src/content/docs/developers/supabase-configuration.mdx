@@ -87,7 +87,7 @@ For all these reasons, it is recommended to use a [custom SMTP provider](https:/
 
 A non-exhaustive list of services that work with Supabase Auth is:
 
-- [Postmark](https://postmarkapp.com/developer/user-guide/send-email-with-smtp) (recommended if you also plan to use the [Inbound Email](../../users/inbound-email) feature)
+- [Postmark](https://postmarkapp.com/developer/user-guide/send-email-with-smtp)
 - [Resend](https://resend.com/docs/send-with-supabase-smtp)
 - [AWS SES](https://docs.aws.amazon.com/ses/latest/dg/send-email-smtp.html)
 - [Twilio SendGrid](https://www.twilio.com/docs/sendgrid/for-developers/sending-email/getting-started-smtp)
@@ -107,7 +107,7 @@ This section will walk you through the configuration of **Postmark** as a **cust
 ![Example email with custom sender name](../../images/email-custom-sender-name.png)
 
 :::note
-While the [Inbound Email](../../users/inbound-email) feature requires using Postmark, Supabase Auth can work with any SMTP provider. But this guide assumes you are using Postmark as your SMTP provider too, since it's the recommended provider for both features.
+Supabase Auth can work with any SMTP provider — this guide just walks through Postmark as one example.
 :::
 
 **Step 1: Create a Postmark account and get your SMTP credentials**

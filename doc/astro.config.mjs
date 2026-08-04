@@ -86,7 +86,6 @@ export default defineConfig({
           items: [
             "users/user-management",
             "users/settings",
-            "users/inbound-email",
             "users/mobile-app",
             "users/mcp-server",
           ],
