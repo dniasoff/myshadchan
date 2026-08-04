@@ -756,9 +756,12 @@ export const getDataProviderWithCustomMethods = () => {
     // never be able to omit the choice by accident. clear_demo's own default
     // (absent -> false) is what protects admin_reseed_demo_accounts, which
     // calls the edge function directly rather than through this method.
-    async clearDemo(releaseDemoFlag: boolean): Promise<{ cleared: boolean }> {
+    async clearDemo(
+      releaseDemoFlag: boolean,
+    ): Promise<{ cleared: boolean; personaWarning?: string }> {
       const { data, error } = await getSupabaseClient().functions.invoke<{
         cleared: boolean;
+        personaWarning?: string;
       }>("clear_demo", { method: "POST", body: { releaseDemoFlag } });
       if (error || !data) {
         console.error("clear_demo.error", error);

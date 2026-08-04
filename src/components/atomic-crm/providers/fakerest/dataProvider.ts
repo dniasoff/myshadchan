@@ -1242,10 +1242,14 @@ export const createDataProvider = ({
     // but is otherwise unused: FakeRest has no second, opt-out caller
     // (there is no reseed orchestrator here, just one in-browser session),
     // so it always resets `fakeDemo` — the same unconditional behaviour this
-    // stub always had.
+    // stub always had. `personaWarning` is never returned here either: this
+    // stub never deletes any FakeRest resource row (unlike the real
+    // clear_demo edge function) and never calls the FakeRest
+    // removePersona() mirror, so there is nothing here that could fail —
+    // only the return SHAPE needs to match `CrmDataProvider`.
     clearDemo: async (
       _releaseDemoFlag: boolean,
-    ): Promise<{ cleared: boolean }> => {
+    ): Promise<{ cleared: boolean; personaWarning?: string }> => {
       fakeDemo = false;
       return { cleared: true };
     },

@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { type User } from "jsr:@supabase/supabase-js@2";
+import { type SupabaseClient, type User } from "jsr:@supabase/supabase-js@2";
 import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { corsHeaders, OptionsMiddleware } from "../_shared/cors.ts";
 import { createErrorResponse } from "../_shared/utils.ts";
@@ -28,8 +28,11 @@ import {
  *     filter (belt + braces) — there is no unfiltered/blanket delete here.
  *
  * Storage objects are removed via the service-role client before row deletion
- * so repeated seed/clear cycles do not leave orphaned files in the `documents`
- * or `entity-files` buckets.
+ * so repeated seed/clear cycles do not leave orphaned files in the `documents`,
+ * `entity-files`, or `attachments` buckets — the last of these backs
+ * inbox_items.attachments (ShareTarget.tsx's shared-file capture and
+ * postmark/extractAndUploadAttachments.ts's emailed attachments); inbox_items
+ * rows are otherwise a plain member of DELETE_ORDER below.
  *
  * interactions and identity_signals are never deleted directly (authenticated
  * holds no DELETE grant on either) — they are removed by the
@@ -38,6 +41,8 @@ import {
  * Deletion order is FK-safe: every dependent of shidduchim/references is
  * removed before the parent, and singles go last because
  * shidduchim.single_id/date_records.single_id cascade from singles.
+ * inbox_items carries no enforced foreign key to any of these (see
+ * DELETE_ORDER's own comment) so it needs no particular position among them.
  *
  * accounts.demo release is OPT-IN, via the request body's `releaseDemoFlag`
  * (default `false`/absent — see `parseReleaseDemoFlag`). This function has
@@ -61,11 +66,34 @@ import {
  * deadlock — which is why the release is opt-in and caller-chosen instead:
  * only after every delete below has succeeded, and only when the caller
  * explicitly asked for it.
+ *
+ * `releaseDemoFlag: true` ALSO releases the caller's auto-assigned `parent`
+ * bootstrap membership — the role OnboardingChoice.tsx's "Explore with demo
+ * data" silently provisions purely so seed_demo's writes pass RLS, never a
+ * role the user chose. Nothing else ever removes it, so without this release
+ * `my_personas()`/`my_contexts()` stay permanently non-empty and the welcome
+ * screen never returns after a clear. Gated the same way as the flag itself
+ * (opt-in, customer-exit-only — the reseed orchestrator never sets it) and,
+ * on top of that, gated on the caller being the account's SOLE active
+ * member: see `releaseBootstrapPersona`'s own docstring for why
+ * `guard_persona_removal()` alone is not enough to make that safe. A failure
+ * to release the persona is reported back as `personaWarning` rather than
+ * failing the clear — the data is already gone by that point.
  */
 
 // Deliberately explicit rather than looped over a table-name array — keeping
 // the FK-safe order visible in the code is the whole point of this function.
 const DELETE_ORDER = [
+  // inbox_items has no enforced foreign key to (or from) any other table
+  // here: single_id/shadchan_id/resolved_shidduchim_id are plain bigint
+  // columns with no `references` clause (01_tables.sql), connection_id's
+  // real FK points OUT to connections — a table this function never touches
+  // — and no table holds a foreign key INTO inbox_items. It is a leaf with
+  // nothing upstream or downstream to sequence against, so its position here
+  // is about logical order, not FK enforcement: first, because it is the
+  // "front door" — a capture exists before anything is ever resolved from
+  // it, never after.
+  "inbox_items",
   "tasks",
   "reference_links",
   "redts",
@@ -117,11 +145,30 @@ async function assertDemoAccount(accountId: number): Promise<void> {
   }
 }
 
-async function collectStoragePaths(accountId: number): Promise<{
-  documentPaths: string[];
-  entityFilePaths: string[];
-}> {
-  // Resume files live in the `documents` bucket under `{account_id}/resumes/`.
+/** Defensive parse of one `inbox_items.attachments` cell. The column is
+ * plain `jsonb` with no shape enforced at the DB layer: `AddToInboxDialog.tsx`'s
+ * manual-paste path never sets it (stays NULL), while `ShareTarget.tsx`'s
+ * `uploadSharedFiles` and `postmark/extractAndUploadAttachments.ts` both
+ * write the `{title, type, path, src}[]` shape `types.ts#InboxAttachment`
+ * describes. Anything that isn't an array of objects carrying a non-empty
+ * string `path` is skipped rather than thrown — a malformed or legacy cell
+ * must never block the surrounding demo-data clear. */
+function extractInboxAttachmentPaths(attachments: unknown): string[] {
+  if (!Array.isArray(attachments)) return [];
+  return attachments
+    .map((entry) =>
+      typeof entry === "object" && entry !== null && "path" in entry
+        ? (entry as { path?: unknown }).path
+        : undefined,
+    )
+    .filter(
+      (path): path is string => typeof path === "string" && path.length > 0,
+    );
+}
+
+/** Resume files and resume photos both live in the `documents` bucket
+ * (`{account_id}/resumes/` and `{account_id}/photos/` respectively). */
+async function listDocumentPaths(accountId: number): Promise<string[]> {
   const { data: resumes, error: resumesError } = await supabaseAdmin
     .from("resumes")
     .select("files")
@@ -136,7 +183,6 @@ async function collectStoragePaths(accountId: number): Promise<{
     .map((f) => f.path)
     .filter((p): p is string => !!p);
 
-  // Resume photos live in the `documents` bucket under `{account_id}/photos/`.
   const { data: photos, error: photosError } = await supabaseAdmin
     .from("resume_photos")
     .select("path")
@@ -148,7 +194,11 @@ async function collectStoragePaths(accountId: number): Promise<{
     .map((p) => p.path)
     .filter((p): p is string => !!p);
 
-  // Entity files live in the `entity-files` bucket.
+  return [...resumeFilePaths, ...photoPaths];
+}
+
+/** Entity files live in the `entity-files` bucket. */
+async function listEntityFilePaths(accountId: number): Promise<string[]> {
   const { data: entityFiles, error: entityFilesError } = await supabaseAdmin
     .from("entity_files")
     .select("storage_path")
@@ -156,19 +206,46 @@ async function collectStoragePaths(accountId: number): Promise<{
   if (entityFilesError) {
     throw new Error(`failed to list entity_files: ${entityFilesError.message}`);
   }
-  const entityFilePaths: string[] = (entityFiles ?? [])
+  return (entityFiles ?? [])
     .map((f) => f.storage_path)
     .filter((p): p is string => !!p);
+}
 
-  return {
-    documentPaths: [...resumeFilePaths, ...photoPaths],
-    entityFilePaths,
-  };
+/** Inbox capture attachments (ShareTarget.tsx / postmark's
+ * extractAndUploadAttachments.ts) live in the private `attachments` bucket,
+ * account-prefixed exactly like every other bucket here. Read before the
+ * inbox_items rows themselves are deleted (DELETE_ORDER), same as every
+ * other storage-backed table. */
+async function listInboxAttachmentPaths(accountId: number): Promise<string[]> {
+  const { data: inboxItems, error: inboxItemsError } = await supabaseAdmin
+    .from("inbox_items")
+    .select("attachments")
+    .eq("account_id", accountId);
+  if (inboxItemsError) {
+    throw new Error(`failed to list inbox_items: ${inboxItemsError.message}`);
+  }
+  return (inboxItems ?? []).flatMap((item) =>
+    extractInboxAttachmentPaths(item.attachments),
+  );
+}
+
+async function collectStoragePaths(accountId: number): Promise<{
+  documentPaths: string[];
+  entityFilePaths: string[];
+  attachmentPaths: string[];
+}> {
+  const [documentPaths, entityFilePaths, attachmentPaths] = await Promise.all([
+    listDocumentPaths(accountId),
+    listEntityFilePaths(accountId),
+    listInboxAttachmentPaths(accountId),
+  ]);
+  return { documentPaths, entityFilePaths, attachmentPaths };
 }
 
 async function removeStorageObjects(
   documentPaths: string[],
   entityFilePaths: string[],
+  attachmentPaths: string[],
 ): Promise<void> {
   if (documentPaths.length > 0) {
     const { error } = await supabaseAdmin.storage
@@ -176,6 +253,14 @@ async function removeStorageObjects(
       .remove(documentPaths);
     if (error) {
       throw new Error(`failed to remove documents: ${error.message}`);
+    }
+  }
+  if (attachmentPaths.length > 0) {
+    const { error } = await supabaseAdmin.storage
+      .from("attachments")
+      .remove(attachmentPaths);
+    if (error) {
+      throw new Error(`failed to remove attachments: ${error.message}`);
     }
   }
   if (entityFilePaths.length > 0) {
@@ -236,6 +321,88 @@ async function parseReleaseDemoFlag(req: Request): Promise<boolean> {
   return value;
 }
 
+/**
+ * Counts the account's currently-active memberships via supabaseAdmin — the
+ * authoritative, RLS-bypassing read, exactly like `assertDemoAccount` above
+ * — because this is the one thing standing between a solo demo explorer's
+ * exit flow and stripping a real, shared household's admin membership out
+ * from under it. See `releaseBootstrapPersona` for why this check exists
+ * independently of `guard_persona_removal()`.
+ */
+async function countActiveMembers(accountId: number): Promise<number> {
+  const { count, error } = await supabaseAdmin
+    .from("account_members")
+    .select("id", { count: "exact", head: true })
+    .eq("account_id", accountId)
+    .eq("status", "active");
+  if (error) {
+    throw new Error(`failed to count active members: ${error.message}`);
+  }
+  return count ?? 0;
+}
+
+/**
+ * Releases the auto-assigned bootstrap `parent` persona OnboardingChoice.tsx
+ * silently provisions for a brand-new demo explorer, purely so seed_demo's
+ * writes pass RLS — that comment says as much; it is never a role the user
+ * chose. Nothing else ever removes it (see the module docstring's
+ * OnboardingGate discussion), so without this release `my_personas()`/
+ * `my_contexts()` stay permanently non-empty and the welcome screen never
+ * returns after a clear.
+ *
+ * SAFETY: this must NEVER strip the caller's admin access from an account
+ * that has another active member. `remove_persona()`'s own
+ * `guard_persona_removal()` (02_functions.sql) only refuses archiving when
+ * the caller is the account's LAST active member AND the account still
+ * holds domain data — it does not, and was never meant to, stop a member of
+ * a MULTI-member household from voluntarily giving up their own persona.
+ * That is a legitimate, user-initiated action on a real account; it must
+ * never happen as a silent side effect of a demo-data clear. So this
+ * function adds its own, independent gate — `countActiveMembers` — and
+ * releases the persona only when the caller is the account's sole active
+ * member, never relying on the guard alone.
+ *
+ * Runs `remove_persona` as an RPC on the CALLER's OWN scoped client `db`
+ * (never `supabaseAdmin`), so RLS and the function's own `auth.uid()`-keyed
+ * queries apply exactly as they would for a real, user-driven persona
+ * removal. This performs no privilege bypass of its own — it only decides
+ * WHETHER to invoke something the caller could otherwise invoke themselves.
+ *
+ * Never throws: any failure — the member count, or the RPC itself — is
+ * returned as a warning string instead of failing the surrounding clear.
+ * The caller's data is already gone by this point (called last, after every
+ * delete/storage-removal/flag-release above has succeeded); losing sight of
+ * that behind an unrelated persona-release hiccup would be worse than a
+ * visible warning (mirrors admin_reseed_demo_accounts's `cleanupWarning`).
+ */
+async function releaseBootstrapPersona(
+  db: SupabaseClient,
+  accountId: number,
+): Promise<string | null> {
+  try {
+    const activeMembers = await countActiveMembers(accountId);
+    if (activeMembers !== 1) {
+      // A multi-member household (or, defensively, zero — should be
+      // unreachable, since the caller's own active membership is what
+      // resolved this accountId in the first place): never touch the
+      // persona. Not a failure — a correct, silent no-op.
+      return null;
+    }
+
+    const { error } = await db.rpc("remove_persona", { p_persona: "parent" });
+    if (error) {
+      throw new Error(error.message);
+    }
+    return null;
+  } catch (e) {
+    const message = `failed to release the bootstrap persona: ${
+      (e as Error).message
+    }`;
+    console.error(`clear_demo: ${message}`);
+    return message;
+  }
+}
+
 async function clearDemoData(
   req: Request,
   accountId: number,
@@ -250,9 +417,9 @@ async function clearDemoData(
 
   // Clean up storage objects before row deletion so the deletion order stays
   // FK-safe and no orphans are left behind if a later step fails.
-  const { documentPaths, entityFilePaths } =
+  const { documentPaths, entityFilePaths, attachmentPaths } =
     await collectStoragePaths(accountId);
-  await removeStorageObjects(documentPaths, entityFilePaths);
+  await removeStorageObjects(documentPaths, entityFilePaths, attachmentPaths);
 
   for (const table of DELETE_ORDER) {
     const { error } = await db.from(table).delete().eq("account_id", accountId);
@@ -267,6 +434,7 @@ async function clearDemoData(
   // clear must never also lose the account's demo identity, or the account
   // becomes unclearable AND un-reseedable (seed_demo refuses a non-empty
   // account; assertDemoAccount refuses a non-demo one).
+  let personaWarning: string | null = null;
   if (releaseDemoFlag) {
     const { error: flagError } = await supabaseAdmin
       .from("accounts")
@@ -275,9 +443,18 @@ async function clearDemoData(
     if (flagError) {
       throw new Error(`failed to release accounts.demo: ${flagError.message}`);
     }
+
+    // Last of all: only after data, storage, and the demo flag are gone.
+    // See releaseBootstrapPersona's own docstring for the multi-member
+    // safety check and its never-throws contract.
+    personaWarning = await releaseBootstrapPersona(db, accountId);
   }
 
-  return { cleared: true as const, accountId };
+  return {
+    cleared: true as const,
+    accountId,
+    ...(personaWarning ? { personaWarning } : {}),
+  };
 }
 
 /**

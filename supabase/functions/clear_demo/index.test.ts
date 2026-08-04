@@ -62,19 +62,32 @@ type AdminOptions = {
    * happened. */
   callOrder?: string[];
   updateError?: string;
+  /** `inbox_items.attachments` cells `collectStoragePaths` should read back
+   * for this account — defaults to none (no attachments anywhere). */
+  inboxItems?: Array<{ attachments: unknown }>;
+  /** How many active `account_members` rows exist for this account —
+   * defaults to 1 (a solo demo explorer: only the caller's own membership,
+   * the same one that resolved this accountId in the first place). */
+  activeMemberCount?: number;
+  memberCountError?: string;
 };
 
 /** Wires `supabaseAdmin.from("accounts")` (the guard's own read, plus the
- * conditional `.update` — only called when `releaseDemoFlag` is true) and
- * the three `collectStoragePaths` reads
- * (`resumes`/`resume_photos`/`entity_files`), each returning no files so
- * storage removal is a no-op in every test. */
+ * conditional `.update` — only called when `releaseDemoFlag` is true), the
+ * three `collectStoragePaths` reads (`resumes`/`resume_photos`/
+ * `entity_files`), each returning no files so storage removal is a no-op by
+ * default, the `inbox_items` read (`collectStoragePaths`'s fourth source),
+ * and the `account_members` count `releaseBootstrapPersona` runs before ever
+ * calling `remove_persona`. */
 function buildFakeAdmin(options: AdminOptions) {
   const accountsSelectCalls: number[] = [];
   const accountsUpdateAttempts: unknown[] = [];
   const callOrder = options.callOrder ?? [];
+  const adminCallsByTable: Record<string, number> = {};
+  const storageRemoveCalls: Array<{ bucket: string; paths: string[] }> = [];
 
   mockAdminFrom.mockImplementation((table: string) => {
+    adminCallsByTable[table] = (adminCallsByTable[table] ?? 0) + 1;
     if (table === "accounts") {
       return {
         select: () => ({
@@ -122,14 +135,48 @@ function buildFakeAdmin(options: AdminOptions) {
         }),
       };
     }
+    if (table === "inbox_items") {
+      return {
+        select: () => ({
+          eq: () =>
+            Promise.resolve({ data: options.inboxItems ?? [], error: null }),
+        }),
+      };
+    }
+    if (table === "account_members") {
+      return {
+        select: () => ({
+          eq: () => ({
+            eq: () =>
+              Promise.resolve(
+                options.memberCountError
+                  ? {
+                      count: null,
+                      error: { message: options.memberCountError },
+                    }
+                  : { count: options.activeMemberCount ?? 1, error: null },
+              ),
+          }),
+        }),
+      };
+    }
     throw new Error(`Unexpected admin table in test: ${table}`);
   });
 
-  mockAdminStorageFrom.mockImplementation(() => ({
-    remove: () => Promise.resolve({ error: null }),
+  mockAdminStorageFrom.mockImplementation((bucket: string) => ({
+    remove: (paths: string[]) => {
+      storageRemoveCalls.push({ bucket, paths });
+      return Promise.resolve({ error: null });
+    },
   }));
 
-  return { accountsSelectCalls, accountsUpdateAttempts, callOrder };
+  return {
+    accountsSelectCalls,
+    accountsUpdateAttempts,
+    callOrder,
+    adminCallsByTable,
+    storageRemoveCalls,
+  };
 }
 
 type DbOptions = {
@@ -137,11 +184,16 @@ type DbOptions = {
   failTable?: string;
   /** Shared with `buildFakeAdmin` — see its `callOrder` doc. */
   callOrder?: string[];
+  /** Error message the `remove_persona` RPC should fail with — omit for a
+   * successful call. */
+  rpcError?: string;
 };
 
-/** Wires the USER-scoped client the DELETE_ORDER loop runs on. */
+/** Wires the USER-scoped client the DELETE_ORDER loop AND
+ * `releaseBootstrapPersona`'s `remove_persona` RPC both run on. */
 function buildFakeDb(options: DbOptions = {}) {
   const deleteCalls: Array<{ table: string; accountId: unknown }> = [];
+  const rpcCalls: Array<{ fn: string; params: unknown }> = [];
   const callOrder = options.callOrder ?? [];
   const from = vi.fn((table: string) => ({
     delete: () => ({
@@ -155,8 +207,16 @@ function buildFakeDb(options: DbOptions = {}) {
       },
     }),
   }));
-  mockUserScopedClient.mockReturnValue({ from });
-  return { deleteCalls, from, callOrder };
+  const rpc = vi.fn((fn: string, params: unknown) => {
+    rpcCalls.push({ fn, params });
+    return Promise.resolve(
+      options.rpcError
+        ? { data: null, error: { message: options.rpcError } }
+        : { data: null, error: null },
+    );
+  });
+  mockUserScopedClient.mockReturnValue({ from, rpc });
+  return { deleteCalls, from, rpc, rpcCalls, callOrder };
 }
 
 function buildRequest(body: unknown = { accountId: 999999 }): Request {
@@ -515,6 +575,236 @@ describe("clear_demo handleClearDemo", () => {
         DEMO_ACCOUNT_ID,
       ]);
       expect(admin.accountsUpdateAttempts).toHaveLength(0);
+    });
+  });
+
+  // Story: inbox_items is the "front door" — the fresh-account promise
+  // ("gives you a fresh, empty account to start with", DemoBanner.tsx) is
+  // false if a captured redt or its storage-backed attachment survives.
+  describe("inbox_items purge", () => {
+    it("deletes inbox_items rows scoped to the resolved account", async () => {
+      // Arrange
+      buildFakeAdmin({ demo: true });
+      const db = buildFakeDb();
+
+      // Act
+      const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(db.deleteCalls).toContainEqual({
+        table: "inbox_items",
+        accountId: DEMO_ACCOUNT_ID,
+      });
+    });
+
+    it("collects and removes inbox capture attachments from the attachments bucket, scoped to the resolved account", async () => {
+      // Arrange — one inbox_items row carries a real attachment (the
+      // `{title, type, path, src}` shape ShareTarget.tsx/
+      // extractAndUploadAttachments.ts both write), one has none (the
+      // AddToInboxDialog.tsx manual-paste path, which leaves the column
+      // NULL) and one has an empty array — neither of the latter two should
+      // contribute a path.
+      const admin = buildFakeAdmin({
+        demo: true,
+        inboxItems: [
+          {
+            attachments: [
+              {
+                title: "resume.pdf",
+                type: "application/pdf",
+                path: `${DEMO_ACCOUNT_ID}/inbox/1/uuid-1.pdf`,
+                src: "https://signed-url.example/1",
+              },
+            ],
+          },
+          { attachments: null },
+          { attachments: [] },
+        ],
+      });
+      buildFakeDb();
+
+      // Act
+      const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(admin.storageRemoveCalls).toContainEqual({
+        bucket: "attachments",
+        paths: [`${DEMO_ACCOUNT_ID}/inbox/1/uuid-1.pdf`],
+      });
+    });
+
+    it("never calls the attachments bucket when no inbox_items carry a storage path", async () => {
+      // Arrange
+      const admin = buildFakeAdmin({
+        demo: true,
+        inboxItems: [{ attachments: null }, { attachments: [] }],
+      });
+      buildFakeDb();
+
+      // Act
+      const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(
+        admin.storageRemoveCalls.some((c) => c.bucket === "attachments"),
+      ).toBe(false);
+    });
+
+    it("skips a malformed attachments cell rather than throwing", async () => {
+      // Arrange — a cell that is neither an array nor null: defensive
+      // parsing (extractInboxAttachmentPaths) must skip it, not blow up the
+      // whole clear over one bad row.
+      const admin = buildFakeAdmin({
+        demo: true,
+        inboxItems: [
+          { attachments: "not-an-array" },
+          { attachments: [{ noPath: true }] },
+        ],
+      });
+      buildFakeDb();
+
+      // Act
+      const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(
+        admin.storageRemoveCalls.some((c) => c.bucket === "attachments"),
+      ).toBe(false);
+    });
+  });
+
+  // Story: releasing the bootstrap `parent` persona so OnboardingGate
+  // re-arms after a demo clear — gated on releaseDemoFlag AND on the caller
+  // being the account's SOLE active member (guard_persona_removal() alone
+  // does not protect a multi-member household — see
+  // releaseBootstrapPersona's docstring).
+  describe("bootstrap persona release", () => {
+    it("releases the persona via remove_persona when releaseDemoFlag is true and the caller is the account's sole active member", async () => {
+      // Arrange
+      buildFakeAdmin({ demo: true, activeMemberCount: 1 });
+      const db = buildFakeDb();
+
+      // Act
+      const response = await handleClearDemo(
+        buildRequest({ releaseDemoFlag: true }),
+        FAKE_USER,
+      );
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(db.rpcCalls).toEqual([
+        { fn: "remove_persona", params: { p_persona: "parent" } },
+      ]);
+      const body = await response.json();
+      expect(body.personaWarning).toBeUndefined();
+    });
+
+    it("does NOT release the persona when the account has another active member — the lockout regression test", async () => {
+      // Arrange — a household with the caller PLUS at least one other
+      // active member. guard_persona_removal() alone would happily let this
+      // through (it only refuses on the LAST member); this is the check
+      // that must refuse on its own.
+      buildFakeAdmin({ demo: true, activeMemberCount: 2 });
+      const db = buildFakeDb();
+
+      // Act
+      const response = await handleClearDemo(
+        buildRequest({ releaseDemoFlag: true }),
+        FAKE_USER,
+      );
+
+      // Assert — the clear itself still succeeds; only the persona release
+      // is skipped.
+      expect(response.status).toBe(200);
+      expect(db.rpcCalls).toHaveLength(0);
+      const body = await response.json();
+      expect(body.personaWarning).toBeUndefined();
+    });
+
+    it("never releases the persona when releaseDemoFlag is omitted (the reseeder path)", async () => {
+      // Arrange
+      const admin = buildFakeAdmin({ demo: true });
+      const db = buildFakeDb();
+
+      // Act — mirrors admin_reseed_demo_accounts's plain POST, no
+      // releaseDemoFlag at all.
+      const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+      // Assert — the persona-release path never even reads account_members:
+      // proof this is gated on releaseDemoFlag, not merely a lucky no-op.
+      expect(response.status).toBe(200);
+      expect(db.rpcCalls).toHaveLength(0);
+      expect(admin.adminCallsByTable["account_members"] ?? 0).toBe(0);
+    });
+
+    it("surfaces a persona-release RPC failure as a warning without failing the clear", async () => {
+      // Arrange
+      buildFakeAdmin({ demo: true, activeMemberCount: 1 });
+      const db = buildFakeDb({
+        rpcError: "cannot remove your last active membership of this account",
+      });
+
+      // Act
+      const response = await handleClearDemo(
+        buildRequest({ releaseDemoFlag: true }),
+        FAKE_USER,
+      );
+
+      // Assert — the data IS gone (200, cleared: true), but the failure is
+      // surfaced, not swallowed.
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.cleared).toBe(true);
+      expect(body.personaWarning).toMatch(
+        /cannot remove your last active membership/,
+      );
+      expect(db.rpcCalls).toHaveLength(1);
+    });
+
+    it("surfaces an active-member-count read failure as a warning without failing the clear", async () => {
+      // Arrange
+      buildFakeAdmin({
+        demo: true,
+        memberCountError: "connection reset",
+      });
+      const db = buildFakeDb();
+
+      // Act
+      const response = await handleClearDemo(
+        buildRequest({ releaseDemoFlag: true }),
+        FAKE_USER,
+      );
+
+      // Assert
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.cleared).toBe(true);
+      expect(body.personaWarning).toMatch(/failed to count active members/);
+      // The count read failed closed: remove_persona was never attempted.
+      expect(db.rpcCalls).toHaveLength(0);
+    });
+
+    it("still refuses a non-demo account with zero deletes even when a persona release would otherwise apply", async () => {
+      // Arrange — the existing tenancy guard must still refuse first, before
+      // any of the new inbox/persona-release logic ever runs.
+      const admin = buildFakeAdmin({ demo: false, activeMemberCount: 1 });
+      const db = buildFakeDb();
+
+      // Act
+      const response = await handleClearDemo(
+        buildRequest({ releaseDemoFlag: true }),
+        FAKE_USER,
+      );
+
+      // Assert
+      expect(response.status).toBe(403);
+      expect(db.from).not.toHaveBeenCalled();
+      expect(db.rpcCalls).toHaveLength(0);
+      expect(admin.adminCallsByTable["account_members"] ?? 0).toBe(0);
     });
   });
 });

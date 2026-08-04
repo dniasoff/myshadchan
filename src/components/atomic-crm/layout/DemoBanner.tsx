@@ -174,16 +174,25 @@ const ClearDemoDialog = ({
       // never passes this — it is REFRESHING a demo account that must stay
       // one so it remains in the reseed pool. See clear_demo/index.ts's
       // module docstring for the full two-caller contract.
-      await dataProvider.clearDemo(true);
+      //
+      // `releaseDemoFlag: true` also releases the auto-assigned `parent`
+      // bootstrap persona OnboardingChoice.tsx's "Explore with demo data"
+      // silently provisioned — never a role the user chose — so
+      // `my_personas()`/`my_contexts()` go back to empty and the welcome
+      // screen re-arms. Gated server-side to the caller's SOLE active
+      // membership (clear_demo/index.ts#releaseBootstrapPersona): it never
+      // fires if the household has any other active member. A failure to
+      // release it is reported back as `personaWarning` rather than
+      // swallowed — the demo data is already gone either way, so this
+      // surfaces as a warning toast, not a blocking error.
+      const { personaWarning } = await dataProvider.clearDemo(true);
       setTourCompleted(false);
+      if (personaWarning) {
+        notify(personaWarning, { type: "warning" });
+      }
       // Releasing the flag flips `current_account_demo()` to `false`, so
       // this refetch both hides the banner (isDemo === true above) and lets
-      // `OnboardingGate` re-evaluate. Whether the welcome screen actually
-      // re-shows also depends on `my_personas()`/`my_contexts()` staying
-      // empty — NOT guaranteed here, since "Explore with demo data"
-      // provisions a `parent` persona (OnboardingChoice.tsx) that this clear
-      // never removes. That persona/context gate is unrelated to this flag
-      // and out of scope for this change.
+      // `OnboardingGate` re-evaluate.
       await queryClient.invalidateQueries();
       onOpenChange(false);
     } catch (error) {
