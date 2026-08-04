@@ -45,7 +45,7 @@ No **critical** or **high** findings. Two **medium**, some **low/positive**, and
 
 - Correct. supabase-js runs on Workers with the `nodejs_compat` flag and a compatibility date **≥ 2024-09-23** — the spine states this exact date (line 167). Cloudflare's own Workers→Supabase integration doc endorses it.
 - **Caveat worth carrying:** `@supabase/**ssr**` (not plain supabase-js) has a known "Dynamic require of 'stream' is not supported" failure mode on Workers; the fix is `nodejs_compat` + a custom fetch client. The spine uses the service-role client in Workers (not ssr), so this is unlikely to bite, but the parse/ingest Workers should stick to `@supabase/supabase-js` with an explicit fetch.
-- `@anthropic-ai/sdk` (0.112.4) is fetch-based and runs on Workers — corroborated incidentally by the AI-Gateway/agents examples. Not independently version-checked (see could-not-verify).
+- `@anthropic-ai/sdk` (0.112.4) is fetch-based and runs on Workers — corroborated incidentally by the AI-Gateway/agents examples. Not independently version-checked (see could-not-verify). **Since removed** (Story 11.3 adversarial review, Finding 12): the dossier narrator ships deterministic, with no model call and no Anthropic dependency.
 - Sources: https://developers.cloudflare.com/workers/databases/third-party-integrations/supabase/ · https://developers.cloudflare.com/workers/runtime-apis/nodejs/ · https://github.com/supabase/supabase/issues/37592
 
 ### A4. QStash produced/consumed from a Cloudflare Worker (pipeline) — ✅ CONFIRMED
@@ -106,9 +106,9 @@ No **critical** or **high** findings. Two **medium**, some **low/positive**, and
 
 These were **not** independently re-checked; confidence is inferred from the 6/6 exact-match pattern above, which strongly implies the rest were also live-verified — but "inferred" is not "proven":
 
-1. **~25 remaining pinned versions** not individually pulled: `@vitejs/plugin-react` 6.0.3, react-router 8.2.0, ra-core/ra-data-fakerest 5.15.0, ra-supabase-core 3.5.2, Tailwind 4.3.3, TanStack Query 5.101.4, React Hook Form 7.82.0, Zod 4.4.3, vite-plugin-pwa 1.3.0, Supabase CLI 2.109.1, workers-types 5.20260721.1, Upstash Redis 1.38.0 / QStash-ts 2.11.2, `@anthropic-ai/sdk` 0.112.4, `ai` 7.0.34, posthog-js 1.406.1 / posthog-node 5.46.0, Postmark 5.1.0 / Resend 6.18.0, Twilio 6.0.2, ESLint 10.7.0, typescript-eslint 8.65.0, Prettier 3.9.6, Vitest 4.1.10, Playwright 1.61.1, shadcn 4.13.1, Storybook 10.5.3, marked 18, lucide-react 1. **Recommendation:** trust but pin via lockfile; let `npm install` + CI confirm the "⚠ major" set on first build.
+1. **~25 remaining pinned versions** not individually pulled: `@vitejs/plugin-react` 6.0.3, react-router 8.2.0, ra-core/ra-data-fakerest 5.15.0, ra-supabase-core 3.5.2, Tailwind 4.3.3, TanStack Query 5.101.4, React Hook Form 7.82.0, Zod 4.4.3, vite-plugin-pwa 1.3.0, Supabase CLI 2.109.1, workers-types 5.20260721.1, Upstash Redis 1.38.0 / QStash-ts 2.11.2, `@anthropic-ai/sdk` 0.112.4 (since removed — Story 11.3 review, Finding 12), `ai` 7.0.34, posthog-js 1.406.1 / posthog-node 5.46.0, Postmark 5.1.0 / Resend 6.18.0, Twilio 6.0.2, ESLint 10.7.0, typescript-eslint 8.65.0, Prettier 3.9.6, Vitest 4.1.10, Playwright 1.61.1, shadcn 4.13.1, Storybook 10.5.3, marked 18, lucide-react 1. **Recommendation:** trust but pin via lockfile; let `npm install` + CI confirm the "⚠ major" set on first build.
 2. **Cloudflare KV GA** — treated as established (long-GA) without a dedicated search; non-controversial but not re-confirmed here.
-3. **`@anthropic-ai/sdk` running under `nodejs_compat` on Workers** — asserted as low-risk (fetch-based; seen in CF agents examples) but not directly tested/version-verified.
+3. **`@anthropic-ai/sdk` running under `nodejs_compat` on Workers** — asserted as low-risk (fetch-based; seen in CF agents examples) but not directly tested/version-verified. **Since removed** (Story 11.3 adversarial review, Finding 12): the dependency was dropped along with the free-form Claude narrator it backed.
 4. **TS 7.0.2 exact patch + "semantics == TS 6"** — GA event corroborated, but only via secondary sources (see §B).
 
 ---
