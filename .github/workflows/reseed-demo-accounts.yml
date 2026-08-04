@@ -12,11 +12,6 @@ on:
         options:
           - production
 
-  # Refresh demo data every day at 00:00 UTC.
-  # Disable or adjust the cron expression if you do not want automatic runs.
-  schedule:
-    - cron: "0 0 * * *"
-
 jobs:
   reseed:
     name: Clear and re-seed demo-flagged accounts
