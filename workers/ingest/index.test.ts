@@ -1,18 +1,34 @@
-import { describe, expect, it, vi } from "vitest";
-import worker from "./index";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TEST_ENV } from "./emailFixtures";
+import {
+  insertedRows,
+  makeMessage,
+  resetFakeDb,
+  seedDefaultTables,
+  setInsertError,
+  tables,
+} from "./ingestTestHarness";
 
-const env = {
-  SUPABASE_URL: "https://example.supabase.co",
-  SUPABASE_SERVICE_ROLE_KEY: "key",
-  SUPABASE_PUBLISHABLE_KEY: "publishable-key",
-};
+// See `index.senderAndAttachments.test.ts` for sender classification,
+// attachment upload, and FR24 forwarded-sender recovery coverage — split out
+// (coding-style.md: grow the file count, not the file) once this suite grew
+// past the ~400-line typical ceiling. Both files share the
+// `@supabase/supabase-js` mock `ingestTestHarness.ts` registers (see that
+// module's own doc comment for why importing it is enough — no `vi.mock`
+// call needed in this file).
+import worker, { handleInboundEmail } from "./index";
 
 describe("ingest worker", () => {
+  beforeEach(() => {
+    resetFakeDb();
+    seedDefaultTables(tables);
+  });
+
   it("responds to GET /health", async () => {
     // Arrange / Act
     const res = await worker.fetch(
       new Request("http://ingest.local/health"),
-      env,
+      TEST_ENV,
     );
 
     // Assert
@@ -23,21 +39,60 @@ describe("ingest worker", () => {
     });
   });
 
-  it("logs the sender and recipient when an inbound email arrives", async () => {
-    // Arrange
-    const logSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const message = {
-      from: "sender@example.com",
-      to: "account-abc123@inbox.myshadchan.com",
-    } as ForwardableEmailMessage;
+  describe("recipient resolution", () => {
+    it("files a captured email under the household matching the recipient token", async () => {
+      // Arrange
+      const message = makeMessage({
+        to: "abc123def456@myshadchan.space",
+        from: "known.parent@example.com",
+      });
 
-    // Act
-    await worker.email(message, env, {} as ExecutionContext);
+      // Act
+      await handleInboundEmail(message, TEST_ENV);
 
-    // Assert
-    expect(logSpy).toHaveBeenCalledWith(
-      "[ingest/email] received message from sender@example.com to account-abc123@inbox.myshadchan.com",
-    );
-    logSpy.mockRestore();
+      // Assert
+      expect(insertedRows.inbox_items).toHaveLength(1);
+      expect(message.rejected).toEqual([]);
+    });
+
+    it("rejects an address matching no household's inbound token — the only bounce", async () => {
+      // Arrange
+      const message = makeMessage({ to: "nosuchtoken@myshadchan.space" });
+
+      // Act
+      await worker.email(message, TEST_ENV, {} as ExecutionContext);
+
+      // Assert
+      expect(message.rejected).toHaveLength(1);
+      expect(message.rejected[0]).toMatch(/recipient/i);
+      expect(insertedRows.inbox_items).toBeUndefined();
+    });
+  });
+
+  describe("failure semantics", () => {
+    it("rejects when the tenant-table write fails, and does not leave the message unaccounted for", async () => {
+      // Arrange
+      setInsertError({ message: "connection reset" });
+      const message = makeMessage({});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      // Act
+      await worker.email(message, TEST_ENV, {} as ExecutionContext);
+
+      // Assert
+      expect(message.rejected).toHaveLength(1);
+      errorSpy.mockRestore();
+    });
+
+    it("does NOT reject on the success path", async () => {
+      // Arrange
+      const message = makeMessage({});
+
+      // Act
+      await worker.email(message, TEST_ENV, {} as ExecutionContext);
+
+      // Assert
+      expect(message.rejected).toEqual([]);
+    });
   });
 });
