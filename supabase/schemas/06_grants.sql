@@ -1322,3 +1322,16 @@ grant all on table public.share_access_log to service_role;
 revoke all on sequence public.share_access_log_id_seq from anon;
 grant all on sequence public.share_access_log_id_seq to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Trusted senders (Epic 11, inbound email capture). Same shape as inbox_items
+-- above — full CRUD within the caller's account (RLS-scoped): add a sender
+-- (insert), remove one (delete). The `revoke all` strips TRUNCATE. anon is
+-- denied everywhere.
+revoke all on table public.trusted_senders from anon, authenticated;
+grant select, insert, update, delete on table public.trusted_senders to authenticated;
+grant all on table public.trusted_senders to service_role;
+
+revoke all on sequence public.trusted_senders_id_seq from anon;
+grant usage, select on sequence public.trusted_senders_id_seq to authenticated;
+grant all on sequence public.trusted_senders_id_seq to service_role;
+

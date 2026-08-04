@@ -1813,3 +1813,24 @@ create policy "Share access log readable by link owner" on public.share_access_l
               and sl.account_id = public.current_context_id()
         )
     );
+
+-- =====================================================================
+-- MyShadchan — Inbound Email Capture (Epic 11)
+-- =====================================================================
+
+-- Trusted senders: full CRUD within the caller's account, same shape as
+-- "Inbox items scoped to account" above — the same trust domain (AD-6, the
+-- candid capture layer this table gates). Denies `single` entirely, like
+-- inbox_items, rather than the ownership-only check most other tables use.
+alter table public.trusted_senders enable row level security;
+
+create policy "Trusted senders scoped to account" on public.trusted_senders
+    for all to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );

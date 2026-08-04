@@ -747,6 +747,25 @@ begin
   end if;
 end $$;
 
+-- Epic 11 (trusted_senders). Same `to_regclass` guard, same reasoning as
+-- `share_links`/`share_access_log` above: THIS migration is what creates the
+-- table, so it holds nothing before it applies, and the guard is trivially
+-- safe for its own migration. From the next story's baseline onward this
+-- seeds and captures a live trust row like every other table here — closing
+-- the blind spot in the SAME diff that adds the table, per the convention
+-- `share_links` states, rather than leaving it for the completeness check
+-- below to catch once this migration is deployed. Anchored on the household
+-- account (9000001) the `accounts` seed above already creates.
+do $$
+begin
+  if to_regclass('public.trusted_senders') is not null then
+    execute $seed$
+      insert into public.trusted_senders (id, account_id, created_by_member_id, email)
+      values (9000001, 9000001, 9000001, 'seminary.office@example.test');
+    $seed$;
+  end if;
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- Snapshot. `identity_signals` is captured last and on purpose: nothing
 -- inserts it directly — the `sync_shidduch_signals` trigger derives it from

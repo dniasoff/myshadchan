@@ -391,3 +391,23 @@ create or replace trigger set_share_link_token_defaults
 create or replace trigger enforce_share_link_revoke_once
     before update on public.share_links
     for each row execute function public.enforce_share_link_revoke_once();
+
+-- =====================================================================
+-- MyShadchan — Inbound Email Capture (Epic 11)
+-- =====================================================================
+
+-- Every future household account gets its own private inbound address at
+-- birth. No ordering hazard: no other BEFORE trigger exists on
+-- public.accounts today.
+create or replace trigger set_account_inbound_email_token_default
+    before insert on public.accounts
+    for each row execute function public.set_account_inbound_email_token_default();
+
+-- Household-only domain data (AD-1), same shape as every other
+-- `validate_<table>_household_scope` trigger in this file — a
+-- shadchanus-kind account can never hold a trusted-sender row. Bumps
+-- household_scope_lift.sql's catalog-fact literal from 14 to 15 in the same
+-- diff.
+create or replace trigger validate_trusted_senders_household_scope
+    before insert or update of account_id on public.trusted_senders
+    for each row execute function public.enforce_household_scope();
