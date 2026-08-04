@@ -168,10 +168,22 @@ const ClearDemoDialog = ({
   const handleConfirm = async () => {
     setClearing(true);
     try {
-      await dataProvider.clearDemo();
+      // `true`: this action is the customer saying "I'm done with demo
+      // mode" for good — release the demo flag so `accounts.demo` goes back
+      // to `false`. The other caller of clear_demo, admin_reseed_demo_accounts,
+      // never passes this — it is REFRESHING a demo account that must stay
+      // one so it remains in the reseed pool. See clear_demo/index.ts's
+      // module docstring for the full two-caller contract.
+      await dataProvider.clearDemo(true);
       setTourCompleted(false);
-      // `OnboardingGate` re-arms the welcome screen on its own once this
-      // refetch proves the account is empty again — no "seen" flag needed.
+      // Releasing the flag flips `current_account_demo()` to `false`, so
+      // this refetch both hides the banner (isDemo === true above) and lets
+      // `OnboardingGate` re-evaluate. Whether the welcome screen actually
+      // re-shows also depends on `my_personas()`/`my_contexts()` staying
+      // empty — NOT guaranteed here, since "Explore with demo data"
+      // provisions a `parent` persona (OnboardingChoice.tsx) that this clear
+      // never removes. That persona/context gate is unrelated to this flag
+      // and out of scope for this change.
       await queryClient.invalidateQueries();
       onOpenChange(false);
     } catch (error) {

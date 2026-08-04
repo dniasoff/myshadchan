@@ -191,13 +191,18 @@ create table public.accounts (
     current_period_end timestamp with time zone,
     trial_end timestamp with time zone,
     -- Onboarding demo-data flag (Stage A). Set once, to true, by seed_demo's
-    -- final write — durable identity ("this account was demo-seeded"), not
-    -- live state. clear_demo deliberately never writes this column (see its
-    -- module docstring): an account that has ever been legitimately seeded
-    -- must always be clearable again, regardless of how a later seed/clear
-    -- cycle succeeds or fails, so nothing may flip it back to false. Drives
-    -- the demo banner and (currently, staleness tracked there) the
-    -- onboarding re-arm condition in OnboardingGate.tsx.
+    -- final write. Cleared back to false ONLY as an opt-in side effect of
+    -- clear_demo (its `releaseDemoFlag` request param, default false/absent
+    -- -- see clear_demo/index.ts's module docstring): the customer's own
+    -- "clear it & start fresh" action passes true, meaning "I'm permanently
+    -- done with demo mode"; a reseed refresh (admin_reseed_demo_accounts)
+    -- never does, because that account must REMAIN demo-flagged to stay in
+    -- the reseed pool. An unconditional flip-to-false on every clear is NOT
+    -- this column's contract and must not come back — it previously
+    -- deadlocked clear_demo's own demo===true guard against a seed_demo run
+    -- that failed partway through. Drives the demo banner and (together
+    -- with my_personas()/my_contexts()) the onboarding re-arm condition in
+    -- OnboardingGate.tsx.
     demo boolean not null default false,
     -- Story 2.2 (AC-1, AD-2): a context is typed household or shadchanus.
     -- Every account created before this column existed becomes 'household'

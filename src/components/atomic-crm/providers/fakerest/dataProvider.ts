@@ -1237,7 +1237,15 @@ export const createDataProvider = ({
       fakeDemo = true;
       return { seeded: true };
     },
-    clearDemo: async (): Promise<{ cleared: boolean }> => {
+    // `_releaseDemoFlag` mirrors the Supabase provider's now-required
+    // parameter so `CrmDataProvider`'s signature matches on both providers,
+    // but is otherwise unused: FakeRest has no second, opt-out caller
+    // (there is no reseed orchestrator here, just one in-browser session),
+    // so it always resets `fakeDemo` — the same unconditional behaviour this
+    // stub always had.
+    clearDemo: async (
+      _releaseDemoFlag: boolean,
+    ): Promise<{ cleared: boolean }> => {
       fakeDemo = false;
       return { cleared: true };
     },

@@ -39,23 +39,28 @@ import {
  * removed before the parent, and singles go last because
  * shidduchim.single_id/date_records.single_id cascade from singles.
  *
- * accounts.demo is deliberately NEVER written here (it used to be cleared to
- * `false` at the end of a successful run — removed). `demo` is the only
- * signal this function has for "is this actually a demo account", so once
- * this function's own guard depends on reading it, this function must not
- * also be the thing that flips it off: seed_demo is not transactional with
- * clear_demo, so a seed_demo run that fails partway through (after some
- * rows already inserted, before its own final `demo = true` write) would
- * otherwise leave the account permanently unclearable — guarded here as
- * not-demo, and refused by seed_demo's own non-empty-account guard as
- * already-seeded. Treating `demo` as pure identity (set once, by seed_demo,
- * and left alone from then on) instead of "currently holds demo data" means
- * an account that has ever been legitimately seeded can always be cleared
- * again, no matter how many later seed/clear cycles succeed or fail. The
- * frontend (`OnboardingGate`/`DemoBanner`) currently expects `demo` to go
- * back to `false` after a clear to re-arm the onboarding screen — that
- * dependency is now stale and is out of scope for this change; see the
- * commit/PR notes.
+ * accounts.demo release is OPT-IN, via the request body's `releaseDemoFlag`
+ * (default `false`/absent — see `parseReleaseDemoFlag`). This function has
+ * TWO callers with opposite intent: the customer, via the demo banner's
+ * "clear it & start fresh" action, is permanently exiting demo mode and
+ * passes `releaseDemoFlag: true`; `admin_reseed_demo_accounts` is refreshing
+ * a demo account that must REMAIN one (so it stays in the reseed pool) and
+ * never sets it.
+ *
+ * Earlier this function unconditionally cleared `demo` to `false` at the end
+ * of every run. That broke the moment `assertDemoAccount` started guarding on
+ * `demo === true`: seed_demo is not transactional with clear_demo, so a
+ * seed_demo run that fails partway through (after some rows already
+ * inserted, before its own final `demo = true` write) would leave the
+ * account permanently unclearable — guarded here as not-demo, and refused by
+ * seed_demo's own non-empty-account guard as already-seeded. Removing the
+ * flip entirely (treating `demo` as permanent identity) fixed the deadlock
+ * but broke the OPPOSITE thing: the customer-facing exit flow, which needs
+ * `demo` to go back to `false` so `OnboardingGate`/`DemoBanner` re-arm. An
+ * unconditional flip-to-false must never come back — it reintroduces the
+ * deadlock — which is why the release is opt-in and caller-chosen instead:
+ * only after every delete below has succeeded, and only when the caller
+ * explicitly asked for it.
  */
 
 // Deliberately explicit rather than looped over a table-name array — keeping
@@ -183,7 +188,59 @@ async function removeStorageObjects(
   }
 }
 
-async function clearDemoData(req: Request, accountId: number) {
+/**
+ * Parses the caller-supplied opt-in flag from the request body — the ONLY
+ * thing the body may ever influence (accountId always comes from
+ * `resolveAccountId(user.id)`, never from here; see the module docstring).
+ *
+ * Defaults to `false` whenever there is nothing to read: no body at all
+ * (`admin_reseed_demo_accounts` sends a plain POST with no body), an empty
+ * object, or a body that simply doesn't set the key. That "absent means
+ * false" default is load-bearing — it is what keeps every existing caller's
+ * behaviour unchanged unless it explicitly opts in.
+ *
+ * Validated as a strict boolean: anything present but not literally `true`
+ * or `false` (a truthy string like `"true"`, a number, `null`, an object) is
+ * REJECTED rather than coerced, so a caller can never accidentally enable a
+ * destructive-to-identity flip via type juggling.
+ */
+async function parseReleaseDemoFlag(req: Request): Promise<boolean> {
+  let raw: string;
+  try {
+    raw = await req.text();
+  } catch {
+    return false;
+  }
+  if (!raw) return false;
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    throw new Error("Invalid JSON body");
+  }
+
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return false;
+  }
+
+  const value = (payload as Record<string, unknown>).releaseDemoFlag;
+  if (value === undefined) return false;
+  if (typeof value !== "boolean") {
+    throw new Error("releaseDemoFlag must be a boolean");
+  }
+  return value;
+}
+
+async function clearDemoData(
+  req: Request,
+  accountId: number,
+  releaseDemoFlag: boolean,
+) {
   // Server-side tenancy gate: must run before ANY delete or storage removal.
   // See the module docstring and NotDemoAccountError for why this refuses
   // rather than proceeding on any doubt.
@@ -204,8 +261,22 @@ async function clearDemoData(req: Request, accountId: number) {
     }
   }
 
-  // Deliberately no write to accounts.demo here — see the module docstring's
-  // "accounts.demo is deliberately NEVER written here" section.
+  // Opt-in release of the demo flag (module docstring) — deliberately the
+  // LAST thing this function does, and only when the caller asked for it.
+  // Never runs before every delete above has succeeded: a half-finished
+  // clear must never also lose the account's demo identity, or the account
+  // becomes unclearable AND un-reseedable (seed_demo refuses a non-empty
+  // account; assertDemoAccount refuses a non-demo one).
+  if (releaseDemoFlag) {
+    const { error: flagError } = await supabaseAdmin
+      .from("accounts")
+      .update({ demo: false })
+      .eq("id", accountId);
+    if (flagError) {
+      throw new Error(`failed to release accounts.demo: ${flagError.message}`);
+    }
+  }
+
   return { cleared: true as const, accountId };
 }
 
@@ -230,8 +301,15 @@ export async function handleClearDemo(
     return createErrorResponse(409, "No active account for user");
   }
 
+  let releaseDemoFlag: boolean;
   try {
-    const summary = await clearDemoData(req, accountId);
+    releaseDemoFlag = await parseReleaseDemoFlag(req);
+  } catch (e) {
+    return createErrorResponse(400, (e as Error).message);
+  }
+
+  try {
+    const summary = await clearDemoData(req, accountId, releaseDemoFlag);
     return new Response(JSON.stringify(summary), {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });

@@ -749,10 +749,17 @@ export const getDataProviderWithCustomMethods = () => {
       }
       return data;
     },
-    async clearDemo(): Promise<{ cleared: boolean }> {
+    // `releaseDemoFlag` is required (not defaulted) here on purpose: this is
+    // the only frontend caller of clear_demo, and the two possible intents
+    // (permanently exit demo mode vs. a reseed refresh that must keep the
+    // account demo-flagged) are different enough that a call site should
+    // never be able to omit the choice by accident. clear_demo's own default
+    // (absent -> false) is what protects admin_reseed_demo_accounts, which
+    // calls the edge function directly rather than through this method.
+    async clearDemo(releaseDemoFlag: boolean): Promise<{ cleared: boolean }> {
       const { data, error } = await getSupabaseClient().functions.invoke<{
         cleared: boolean;
-      }>("clear_demo", { method: "POST" });
+      }>("clear_demo", { method: "POST", body: { releaseDemoFlag } });
       if (error || !data) {
         console.error("clear_demo.error", error);
         throw new Error("Failed to clear the demo data");

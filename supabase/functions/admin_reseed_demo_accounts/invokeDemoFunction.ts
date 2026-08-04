@@ -4,6 +4,7 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 export async function invokeFunction(
   name: "clear_demo" | "seed_demo",
   accessToken: string,
+  requestBody?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
     method: "POST",
@@ -15,16 +16,17 @@ export async function invokeFunction(
       // self-contained and mirrors how userScopedClient constructs its client.
       apikey: SUPABASE_ANON_KEY,
     },
+    body: requestBody ? JSON.stringify(requestBody) : undefined,
   });
-  const body = await res.text();
+  const responseBody = await res.text();
   let json: Record<string, unknown>;
   try {
-    json = JSON.parse(body);
+    json = JSON.parse(responseBody);
   } catch {
-    json = { raw: body };
+    json = { raw: responseBody };
   }
   if (!res.ok) {
-    throw new Error(`${name} returned ${res.status}: ${body}`);
+    throw new Error(`${name} returned ${res.status}: ${responseBody}`);
   }
   return json;
 }
@@ -75,7 +77,17 @@ export async function clearAndSeedWithRetry(accessToken: string): Promise<{
   for (let attempt = 1; attempt <= MAX_CLEAR_SEED_ATTEMPTS; attempt++) {
     let cleared = false;
     try {
-      const clearResult = await invokeFunction("clear_demo", accessToken);
+      // Explicit opt-OUT, not an omission: this is a REFRESH of a demo
+      // account, which must REMAIN a demo account so it stays in the
+      // reseed pool (see clear_demo/index.ts's module docstring for the
+      // full two-caller contract). clear_demo already defaults to `false`
+      // when the flag is absent, so this `false` is redundant with that
+      // default today — it is written out anyway so a future reader can't
+      // "helpfully" flip it to `true` here without visibly contradicting
+      // this comment, which would silently drain the reseed pool.
+      const clearResult = await invokeFunction("clear_demo", accessToken, {
+        releaseDemoFlag: false,
+      });
       cleared = clearResult.cleared === true;
       if (!cleared) {
         throw new Error("clear_demo did not report cleared: true");

@@ -57,15 +57,22 @@ type AdminOptions = {
   demo?: boolean | null;
   noRow?: boolean;
   selectError?: string;
+  /** Shared with `buildFakeDb` so tests can assert relative ORDER between
+   * the delete loop and the accounts.demo release, not just that both
+   * happened. */
+  callOrder?: string[];
+  updateError?: string;
 };
 
 /** Wires `supabaseAdmin.from("accounts")` (the guard's own read, plus the
- * now-removed `.update` it must never call again) and the three
- * `collectStoragePaths` reads (`resumes`/`resume_photos`/`entity_files`),
- * each returning no files so storage removal is a no-op in every test. */
+ * conditional `.update` — only called when `releaseDemoFlag` is true) and
+ * the three `collectStoragePaths` reads
+ * (`resumes`/`resume_photos`/`entity_files`), each returning no files so
+ * storage removal is a no-op in every test. */
 function buildFakeAdmin(options: AdminOptions) {
   const accountsSelectCalls: number[] = [];
   const accountsUpdateAttempts: unknown[] = [];
+  const callOrder = options.callOrder ?? [];
 
   mockAdminFrom.mockImplementation((table: string) => {
     if (table === "accounts") {
@@ -92,7 +99,15 @@ function buildFakeAdmin(options: AdminOptions) {
         }),
         update: (patch: unknown) => {
           accountsUpdateAttempts.push(patch);
-          return { eq: () => Promise.resolve({ error: null }) };
+          callOrder.push("update:accounts");
+          return {
+            eq: () =>
+              Promise.resolve(
+                options.updateError
+                  ? { error: { message: options.updateError } }
+                  : { error: null },
+              ),
+          };
         },
       };
     }
@@ -114,22 +129,34 @@ function buildFakeAdmin(options: AdminOptions) {
     remove: () => Promise.resolve({ error: null }),
   }));
 
-  return { accountsSelectCalls, accountsUpdateAttempts };
+  return { accountsSelectCalls, accountsUpdateAttempts, callOrder };
 }
 
+type DbOptions = {
+  /** Table whose delete should fail, simulating a mid-loop failure. */
+  failTable?: string;
+  /** Shared with `buildFakeAdmin` — see its `callOrder` doc. */
+  callOrder?: string[];
+};
+
 /** Wires the USER-scoped client the DELETE_ORDER loop runs on. */
-function buildFakeDb() {
+function buildFakeDb(options: DbOptions = {}) {
   const deleteCalls: Array<{ table: string; accountId: unknown }> = [];
+  const callOrder = options.callOrder ?? [];
   const from = vi.fn((table: string) => ({
     delete: () => ({
       eq: (_col: string, value: unknown) => {
         deleteCalls.push({ table, accountId: value });
+        callOrder.push(`delete:${table}`);
+        if (options.failTable === table) {
+          return Promise.resolve({ error: { message: "delete failed" } });
+        }
         return Promise.resolve({ error: null });
       },
     }),
   }));
   mockUserScopedClient.mockReturnValue({ from });
-  return { deleteCalls, from };
+  return { deleteCalls, from, callOrder };
 }
 
 function buildRequest(body: unknown = { accountId: 999999 }): Request {
@@ -151,7 +178,7 @@ describe("clear_demo handleClearDemo", () => {
   });
 
   describe("guard allows a demo account", () => {
-    it("clears every table, scoped to the resolved account, and never touches accounts.demo", async () => {
+    it("clears every table, scoped to the resolved account, and does not touch accounts.demo when releaseDemoFlag is omitted", async () => {
       // Arrange
       const admin = buildFakeAdmin({ demo: true });
       const db = buildFakeDb();
@@ -169,10 +196,12 @@ describe("clear_demo handleClearDemo", () => {
       expect(db.deleteCalls.every((c) => c.accountId === DEMO_ACCOUNT_ID)).toBe(
         true,
       );
-      // Regression guard for the bricking trap: clear_demo must never write
+      // Regression guard for the bricking trap: an omitted/false
+      // releaseDemoFlag (the reseeder's shape) must never write
       // accounts.demo — writing `false` here is what made a demo account
       // permanently unclearable the next time a seed_demo run failed before
-      // reaching its own final `demo = true` write.
+      // reaching its own final `demo = true` write. The true-flag path is
+      // covered separately below in "releaseDemoFlag opt-in".
       expect(admin.accountsUpdateAttempts).toHaveLength(0);
     });
   });
@@ -342,6 +371,150 @@ describe("clear_demo handleClearDemo", () => {
 
       // Assert
       expect(response.status).toBe(405);
+    });
+  });
+
+  // The opt-in `releaseDemoFlag` request param — see the module docstring's
+  // "TWO callers with opposite intent" section. These tests are the
+  // decisive evidence for that contract; the earlier describe blocks above
+  // already assert `accountsUpdateAttempts` stays empty for every
+  // flag-omitted call, so this block focuses on what's NEW: the true case,
+  // ordering, failure handling, and strict validation.
+  describe("releaseDemoFlag opt-in", () => {
+    it("clears data without releasing accounts.demo when releaseDemoFlag is omitted from the body", async () => {
+      // Arrange — mirrors admin_reseed_demo_accounts's plain POST with no
+      // JSON body at all (invokeDemoFunction.ts's clear_demo call before
+      // this change), not just a body missing the key.
+      const admin = buildFakeAdmin({ demo: true });
+      const db = buildFakeDb();
+      const bodylessRequest = new Request(
+        "http://localhost/functions/v1/clear_demo",
+        { method: "POST" },
+      );
+
+      // Act
+      const response = await handleClearDemo(bodylessRequest, FAKE_USER);
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(db.deleteCalls.length).toBeGreaterThan(0);
+      expect(admin.accountsUpdateAttempts).toHaveLength(0);
+    });
+
+    it("clears data AND releases accounts.demo when releaseDemoFlag is true, only after every delete succeeds", async () => {
+      // Arrange — a single shared callOrder array lets us assert relative
+      // ordering, not just that both things eventually happened.
+      const callOrder: string[] = [];
+      const admin = buildFakeAdmin({ demo: true, callOrder });
+      const db = buildFakeDb({ callOrder });
+
+      // Act
+      const response = await handleClearDemo(
+        buildRequest({ releaseDemoFlag: true }),
+        FAKE_USER,
+      );
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(db.deleteCalls.length).toBeGreaterThan(0);
+      expect(admin.accountsUpdateAttempts).toEqual([{ demo: false }]);
+      // The update must be the LAST entry — every delete recorded first.
+      expect(callOrder.at(-1)).toBe("update:accounts");
+      expect(callOrder.filter((c) => c === "update:accounts")).toHaveLength(1);
+      expect(callOrder.slice(0, -1).every((c) => c.startsWith("delete:"))).toBe(
+        true,
+      );
+    });
+
+    it("does NOT release accounts.demo when a delete fails after releaseDemoFlag is true (no half-exit)", async () => {
+      // Arrange — the second table in DELETE_ORDER fails; the flag release
+      // must never run if any delete in the loop errors.
+      const admin = buildFakeAdmin({ demo: true });
+      buildFakeDb({ failTable: "reference_links" });
+
+      // Act
+      const response = await handleClearDemo(
+        buildRequest({ releaseDemoFlag: true }),
+        FAKE_USER,
+      );
+
+      // Assert
+      expect(response.status).toBe(500);
+      expect(admin.accountsUpdateAttempts).toHaveLength(0);
+    });
+
+    it("rejects a non-boolean releaseDemoFlag rather than coercing it, and performs zero deletes", async () => {
+      // Arrange — a truthy STRING must not silently enable the release.
+      const admin = buildFakeAdmin({ demo: true });
+      const db = buildFakeDb();
+
+      // Act
+      const response = await handleClearDemo(
+        buildRequest({ releaseDemoFlag: "true" }),
+        FAKE_USER,
+      );
+
+      // Assert
+      expect(response.status).toBe(400);
+      expect(db.from).not.toHaveBeenCalled();
+      expect(admin.accountsUpdateAttempts).toHaveLength(0);
+      const body = await response.json();
+      expect(body.message).toMatch(/releaseDemoFlag must be a boolean/i);
+    });
+
+    it("still refuses a non-demo account with zero deletes and zero flag writes, even when releaseDemoFlag is true", async () => {
+      // Arrange — the tenancy guard must run and refuse BEFORE the flag is
+      // ever considered, regardless of what the caller asked for.
+      const admin = buildFakeAdmin({ demo: false });
+      const db = buildFakeDb();
+
+      // Act
+      const response = await handleClearDemo(
+        buildRequest({ releaseDemoFlag: true }),
+        FAKE_USER,
+      );
+
+      // Assert
+      expect(response.status).toBe(403);
+      expect(db.from).not.toHaveBeenCalled();
+      expect(admin.accountsUpdateAttempts).toHaveLength(0);
+    });
+
+    it("leaves a reseeder-style clear (flag omitted) re-clearable indefinitely — the deadlock regression", async () => {
+      // Arrange — simulates admin_reseed_demo_accounts calling clear_demo
+      // repeatedly across refresh cycles, never releasing the flag.
+      const admin = buildFakeAdmin({ demo: true });
+      buildFakeDb();
+
+      // Act — three consecutive reseeder-style clears.
+      const first = await handleClearDemo(
+        buildRequest({ releaseDemoFlag: false }),
+        FAKE_USER,
+      );
+      buildFakeDb();
+      const second = await handleClearDemo(
+        buildRequest({ releaseDemoFlag: false }),
+        FAKE_USER,
+      );
+      buildFakeDb();
+      const third = await handleClearDemo(
+        buildRequest({ releaseDemoFlag: false }),
+        FAKE_USER,
+      );
+
+      // Assert — every call succeeds, the guard keeps re-passing (demo
+      // stays true throughout because nothing ever released it), and the
+      // account is never bricked the way an unconditional flip would brick
+      // it.
+      expect([first, second, third].map((r) => r.status)).toEqual([
+        200, 200, 200,
+      ]);
+      expect(admin.accountsSelectCalls).toEqual([
+        DEMO_ACCOUNT_ID,
+        DEMO_ACCOUNT_ID,
+        DEMO_ACCOUNT_ID,
+      ]);
+      expect(admin.accountsUpdateAttempts).toHaveLength(0);
     });
   });
 });

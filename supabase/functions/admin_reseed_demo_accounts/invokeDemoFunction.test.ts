@@ -118,4 +118,25 @@ describe("clearAndSeedWithRetry", () => {
     // Assert
     expect(caught).toBeInstanceOf(ClearSeedError);
   });
+
+  it("explicitly opts out of releasing accounts.demo on every clear_demo call — the reseed pool must never drain", async () => {
+    // Arrange — clear_demo's own default (absent -> false) would already
+    // give this behaviour, but the reseeder sends it explicitly (see
+    // invokeFunction's clear_demo call site) so a future reader can't
+    // silently flip it without contradicting that comment.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ cleared: true }))
+      .mockResolvedValueOnce(jsonResponse({ seeded: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    // Act
+    await clearAndSeedWithRetry("token");
+
+    // Assert
+    const [, clearCallOptions] = fetchMock.mock.calls[0];
+    expect(JSON.parse(clearCallOptions.body)).toEqual({
+      releaseDemoFlag: false,
+    });
+  });
 });
