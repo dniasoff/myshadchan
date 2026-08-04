@@ -224,11 +224,13 @@ create table public.accounts (
     -- make `db diff` emit a permanent, non-convergent set of view drops.
     default_thread_visibility text not null default 'open',
     -- Inbound email capture (Epic 11): a household's own private inbound
-    -- address, `<token>@myshadchan.space`. High-entropy (24 bytes CSPRNG,
-    -- hex-encoded — the exact `set_share_link_token_defaults()` idiom below,
-    -- 02_functions.sql), citext (case-insensitive, matching members.email's
-    -- own precedent), NEVER derived from `name`. Nullable because only a
-    -- household-kind account ever has one (see
+    -- address, `<token>@myshadchan.space`. Short on purpose (6 bytes CSPRNG,
+    -- hex-encoded = 12 chars — see set_account_inbound_email_token_default(),
+    -- 02_functions.sql, for why entropy isn't load-bearing here): this
+    -- address is displayed to and typed by users, unlike the high-entropy
+    -- `set_share_link_token_defaults()` idiom below. citext (case-insensitive,
+    -- matching members.email's own precedent), NEVER derived from `name`.
+    -- Nullable because only a household-kind account ever has one (see
     -- accounts_inbound_email_token_kind_check below) — a shadchanus account
     -- has no mailbox of its own. Server-owned: authenticated holds no UPDATE
     -- grant on this column at all (06_grants.sql), so a client can read but

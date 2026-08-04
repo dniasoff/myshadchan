@@ -17,12 +17,14 @@
 alter table "public"."accounts" add column "inbound_email_token" extensions.citext;
 
 -- Backfill every existing household-kind account with a fresh CSPRNG token —
--- 24 bytes (192 bits) from pgcrypto, hex-encoded — the exact call
--- set_account_inbound_email_token_default() (02_functions.sql) uses for every
--- future row. shadchanus-kind accounts are left NULL: they have no mailbox of
--- their own.
+-- 6 bytes (48 bits) from pgcrypto, hex-encoded (12 hex chars) — the exact
+-- call set_account_inbound_email_token_default() (02_functions.sql) uses for
+-- every future row. Short on purpose: this address is displayed to and
+-- typed by users, and entropy is not load-bearing here since mail from an
+-- unrecognized sender is held for review regardless. shadchanus-kind
+-- accounts are left NULL: they have no mailbox of their own.
 update "public"."accounts"
-set inbound_email_token = encode(extensions.gen_random_bytes(24), 'hex')
+set inbound_email_token = encode(extensions.gen_random_bytes(6), 'hex')
 where kind = 'household' and inbound_email_token is null;
 
 -- Fail closed rather than let a household row silently keep a NULL token: if
@@ -92,8 +94,9 @@ set check_function_bodies = off;
 
 -- Unconditional overwrite for a household-kind row (no `is null` guard) —
 -- mirrors set_share_link_token_defaults()'s own `new.token` line exactly: a
--- client-supplied value is never honored for a bearer credential. See
--- 02_functions.sql for the full rationale.
+-- client-supplied value is never honored for a bearer credential. Short
+-- token (12 hex chars / 48 bits) on purpose — see 02_functions.sql for the
+-- full rationale.
 CREATE OR REPLACE FUNCTION public.set_account_inbound_email_token_default()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -101,7 +104,7 @@ CREATE OR REPLACE FUNCTION public.set_account_inbound_email_token_default()
 AS $function$
 begin
   if new.kind = 'household' then
-    new.inbound_email_token := encode(extensions.gen_random_bytes(24), 'hex');
+    new.inbound_email_token := encode(extensions.gen_random_bytes(6), 'hex');
   end if;
   return new;
 end;

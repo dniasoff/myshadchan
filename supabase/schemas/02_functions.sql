@@ -4867,13 +4867,17 @@ end;
 $$;
 
 -- Epic 11 (inbound email capture): every FUTURE household account gets its
--- own private inbound address at birth, mirroring
--- set_share_link_token_defaults() exactly (same CSPRNG call, same 192 bits,
--- same hex encoding, and — like that function's own `new.token` line — an
--- UNCONDITIONAL overwrite, not an `is null` guard: this is a bearer
--- credential, so a client-supplied value must never be honored, the same
--- invariant AC-2 states for share_links' token). A shadchanus-kind account
--- is left untouched — it has no mailbox of its own
+-- own private inbound address at birth. Unlike set_share_link_token_defaults()
+-- this token is short — 6 random bytes (12 hex chars, 48 bits) rather than a
+-- share_link's 192 bits — because entropy is not load-bearing here: mail
+-- from an unrecognized sender is held for review regardless of how the
+-- address was found, so guessing one yields a spam item in a review queue,
+-- not access to real data, and a wrong guess simply bounces as
+-- unresolvable. The address is also displayed to and typed by users, so
+-- readability wins over the extra bits. Like that function's own
+-- `new.token` line, this is still an UNCONDITIONAL overwrite, not an `is
+-- null` guard: a client-supplied value must never be honored. A
+-- shadchanus-kind account is left untouched — it has no mailbox of its own
 -- (accounts_inbound_email_token_kind_check, 01_tables.sql catches a
 -- shadchanus row that somehow arrives with a non-null token anyway).
 -- Pre-existing rows are backfilled once, by the migration that adds this
@@ -4885,7 +4889,7 @@ CREATE OR REPLACE FUNCTION "public"."set_account_inbound_email_token_default"() 
     AS $$
 begin
   if new.kind = 'household' then
-    new.inbound_email_token := encode(extensions.gen_random_bytes(24), 'hex');
+    new.inbound_email_token := encode(extensions.gen_random_bytes(6), 'hex');
   end if;
   return new;
 end;
