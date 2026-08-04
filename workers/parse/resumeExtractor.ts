@@ -21,6 +21,14 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
+// Floating alias, not a pinned version: Google retires dated/numbered model
+// names (gemini-1.5-flash was retired outright — absent from the live model
+// list, not just deprecated) and a pin then fails at inference time, past the
+// auth gate, on the one call that consumes paid inference. `gemini-flash-latest`
+// always resolves to Google's current flash model, so a future retirement
+// cannot silently reintroduce this failure.
+const GEMINI_MODEL = "gemini-flash-latest";
+
 /**
  * Production resume extractor. Calls Google's Gemini API **only through the
  * Cloudflare AI Gateway** (AD-8), requesting a JSON response constrained to the
@@ -33,7 +41,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
       fileBytes: ArrayBuffer,
       mimeType: string,
     ): Promise<RawExtraction> {
-      const baseUrl = `https://gateway.ai.cloudflare.com/v1/${env.AI_GATEWAY_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/google-ai-studio/v1beta/models/gemini-1.5-flash:generateContent`;
+      const baseUrl = `https://gateway.ai.cloudflare.com/v1/${env.AI_GATEWAY_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/google-ai-studio/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
       const requestBody = {
         contents: [
