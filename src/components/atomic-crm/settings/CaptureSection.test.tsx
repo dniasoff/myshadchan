@@ -60,6 +60,20 @@ describe("CaptureSection", () => {
       .not.toBeInTheDocument();
   });
 
+  it("renders nothing when VITE_INBOUND_EMAIL is a malformed non-email value", async () => {
+    // Arrange — mirrors the real-world incident: an 11-char string with
+    // no "@" and no "." that was shown to users as a real address.
+    vi.stubEnv("VITE_INBOUND_EMAIL", "n3f8x7k2p9q");
+
+    // Act
+    const screen = await renderSection();
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "Copy" }))
+      .not.toBeInTheDocument();
+  });
+
   it("shows 'Copied' after the copy button is clicked", async () => {
     // Arrange
     vi.stubEnv("VITE_INBOUND_EMAIL", "you@in.myshadchan.space");

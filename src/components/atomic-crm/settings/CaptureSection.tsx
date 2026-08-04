@@ -13,6 +13,14 @@ import {
 
 import { SectionLabel } from "./SectionLabel";
 
+// Basic shape check, not an RFC-5322 regex — the point is to catch garbage
+// (a missing value, or a misconfigured non-email string) before it reaches
+// the UI, not to validate deliverability.
+const EMAIL_SHAPE_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const looksLikeEmail = (value: string): boolean =>
+  EMAIL_SHAPE_REGEX.test(value);
+
 /**
  * Story 10.3 (Task 6, AC 5): surfaces the one global inbound-email address
  * (`VITE_INBOUND_EMAIL` — FR22's per-account private address is explicitly
@@ -34,10 +42,12 @@ export const CaptureSection = () => {
   const translate = useTranslate();
   const [isCopied, setIsCopied] = useState(false);
 
-  // Local dev without the env var set: render nothing rather than an empty
-  // chip — this section is informational, not a blocking requirement.
+  // Fail closed: local dev without the env var set, and a misconfigured
+  // value that isn't shaped like an email (e.g. a mis-set Vercel var),
+  // both render nothing rather than showing something broken as a real
+  // address — this section is informational, not a blocking requirement.
   const inboundEmail = import.meta.env.VITE_INBOUND_EMAIL as string | undefined;
-  if (!inboundEmail) return null;
+  if (!inboundEmail || !looksLikeEmail(inboundEmail)) return null;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(inboundEmail).then(() => setIsCopied(true));
