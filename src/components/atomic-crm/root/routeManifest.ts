@@ -10,6 +10,7 @@ import inbox from "../inbox";
 import { ShareTarget } from "../inbox/ShareTarget";
 import type { ContextKind } from "../layout/navItems";
 import { InviteAcceptance } from "../login/InviteAcceptance";
+import { RegisterFlow } from "../login/RegisterFlow";
 import references from "../references";
 import { RemindersPage } from "../reminders/RemindersPage";
 import members from "../members";
@@ -69,6 +70,16 @@ export const CUSTOM_ROUTES: CustomRouteEntry[] = [
   {
     path: OAuthConsentPage.path,
     Component: OAuthConsentPage,
+    surface: "both",
+    chrome: "bare",
+  },
+  // Open self-service signup — the counterpart to LoginPage now that the
+  // invite gate is gone (20260804214603_open_signup.sql). Bare like
+  // InviteAcceptance above: reached by a not-yet-authenticated visitor, so
+  // it cannot sit inside the app shell.
+  {
+    path: RegisterFlow.path,
+    Component: RegisterFlow,
     surface: "both",
     chrome: "bare",
   },

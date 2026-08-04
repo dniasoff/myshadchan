@@ -736,6 +736,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/supabase/oauthCallback.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/supabase/index.ts",
           "type": "registry:component"
         },
@@ -1028,7 +1032,27 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/login/turnstileLoader.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/login/turnstileConfig.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/login/signupIntent.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/login/resolveAuthError.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/login/primaryCtaClassName.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/login/googleOAuth.ts",
           "type": "registry:component"
         },
         {
@@ -1036,7 +1060,19 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/login/TurnstileWidget.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/login/RegisterFlow.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/login/PersonaChecklist.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/login/OtpCodeStep.tsx",
           "type": "registry:component"
         },
         {
@@ -1053,6 +1089,10 @@
         },
         {
           "path": "src/components/atomic-crm/login/InviteAcceptance.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/login/GoogleSignInButton.tsx",
           "type": "registry:component"
         },
         {

@@ -1834,3 +1834,33 @@ create policy "Trusted senders scoped to account" on public.trusted_senders
         account_id = public.current_context_id()
         and public.current_member_role() <> 'single'
     );
+
+-- =====================================================================
+-- MyShadchan — Open signup (age affirmation across a Google OAuth redirect)
+-- =====================================================================
+
+-- FORCE ROW LEVEL SECURITY (AD-1), matching `listings`/`share_links`/
+-- `connection_invites` above — postgres/supabase_admin carry BYPASSRLS, so
+-- FORCE changes nothing for check_signup_age()'s own owner-run UPDATE/
+-- DELETE, but every anon-writable table gets it regardless.
+alter table public.signup_intents enable row level security;
+alter table public.signup_intents force row level security;
+
+-- The only policy this table ever needs: `anon` may INSERT one row for an
+-- email address it does not need to prove ownership of yet (see
+-- signup_intents' own comment, 01_tables.sql, for why that is safe). The
+-- `with check` bounds every column a client actually sends, not merely
+-- `email` — an unconstrained `expires_at` would let a forged row outlive
+-- the ten-minute window this table's whole safety argument depends on, and
+-- `consumed_at is null` keeps a client from inserting a row that already
+-- looks used. There is no SELECT/UPDATE/DELETE policy for `anon` or
+-- `authenticated` at all — consuming and sweeping are check_signup_age()'s
+-- job alone, running as the table owner (postgres), which needs no policy
+-- of its own to do it.
+create policy "Signup intents insertable by anon" on public.signup_intents
+    for insert to anon
+    with check (
+        email is not null
+        and consumed_at is null
+        and expires_at <= now() + interval '10 minutes'
+    );

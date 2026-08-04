@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Loader2, Lock } from "lucide-react";
 import {
   Form,
@@ -9,37 +9,21 @@ import {
   useTranslate,
 } from "ra-core";
 import type { SubmitHandler, FieldValues } from "react-hook-form";
+import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { TextInput } from "@/components/admin/text-input";
 import { cn } from "@/lib/utils";
 import { AuthLayout } from "./AuthLayout";
 import { AUTH_FIELD_CLASSNAME } from "./authFieldClassName";
 import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
+import { GoogleSignInButton } from "./GoogleSignInButton";
+import { isGoogleOAuthEnabled } from "./googleOAuth";
+import { resolveAuthErrorNotification } from "./resolveAuthError";
+import { TurnstileWidget, type TurnstileWidgetHandle } from "./TurnstileWidget";
+import { TURNSTILE_SITE_KEY } from "./turnstileConfig";
 
 type LoginStep = "email" | "code";
-
-interface NotifyFallback {
-  id: string;
-  defaultMessage: string;
-}
-
-/**
- * Reads the real error message off a rejected authProvider.login() call,
- * narrowing the `unknown` catch value safely (see .claude/rules/typescript.md),
- * and falls back to a translatable default when the rejection carries none.
- */
-function resolveErrorNotification(
-  error: unknown,
-  fallback: NotifyFallback,
-): { id: string; defaultMessage: string } {
-  if (typeof error === "string" && error.length > 0) {
-    return { id: error, defaultMessage: error };
-  }
-  if (error instanceof Error && error.message) {
-    return { id: error.message, defaultMessage: error.message };
-  }
-  return fallback;
-}
 
 /**
  * Login page displayed when authentication is enabled and the user is not
@@ -57,6 +41,29 @@ function resolveErrorNotification(
  * navigation for a step that only sends an email and never authenticates
  * anyone.
  *
+ * Also the ONLY entry point that renders `TurnstileWidget` on the sign-in
+ * path: `requestCode()` forwards whatever `captchaToken` the widget has
+ * solved so far on every `requestOtp` call (the initial send AND a resend).
+ * Supabase's captcha gate is project-wide, not per-endpoint (see
+ * `turnstileConfig.ts`), so sign-in has to already be sending a token before
+ * `security_captcha_enabled` is ever flipped on — this never blocks the
+ * "Send code" button on a solved token, though: `TurnstileWidget` degrades
+ * to rendering nothing and reporting `null` if its script fails to load
+ * (blocked by an extension, offline), and gating submission on a token that
+ * can legitimately never arrive would trap a visitor on a form that can't
+ * submit. `captchaToken` is simply whatever is currently held (possibly
+ * `undefined`), same as `GoogleSignInButton` never needing one at all
+ * (`signInWithOAuth()` isn't covered by the same captcha middleware).
+ * `TurnstileWidget` is mounted unconditionally for both steps (never inside
+ * the `step === "email"` branch) so a resend on the code step reuses the
+ * same live widget instance instead of re-solving a challenge the visitor
+ * already passed — see `TurnstileWidget`'s own doc comment.
+ *
+ * Also renders `GoogleSignInButton` (only when `isGoogleOAuthEnabled()`)
+ * and a link to `/register` (`RegisterFlow`) — the open self-service signup
+ * path now that the invite gate is gone. Both were previously built but
+ * wired into nothing; this is their entry point into the visible app.
+ *
  * @see {@link https://marmelab.com/shadcn-admin-kit/docs/loginpage LoginPage documentation}
  * @see {@link https://marmelab.com/shadcn-admin-kit/docs/security Security documentation}
  */
@@ -66,13 +73,21 @@ export const LoginPage = (props: { redirectTo?: string }) => {
   const [email, setEmail] = useState("");
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileWidgetHandle>(null);
   const authProvider = useAuthProvider();
   const login = useLogin();
   const notify = useNotify();
   const translate = useTranslate();
 
-  const notifyError = (error: unknown, fallback: NotifyFallback) => {
-    const { id, defaultMessage } = resolveErrorNotification(error, fallback);
+  const notifyError = (
+    error: unknown,
+    fallback: { id: string; defaultMessage: string },
+  ) => {
+    const { id, defaultMessage } = resolveAuthErrorNotification(
+      error,
+      fallback,
+    );
     notify(id, { type: "error", messageArgs: { _: defaultMessage } });
   };
 
@@ -80,7 +95,11 @@ export const LoginPage = (props: { redirectTo?: string }) => {
     if (!authProvider) {
       return Promise.reject(new Error("Authentication is not configured."));
     }
-    return authProvider.login({ email: targetEmail, requestOtp: true });
+    return authProvider.login({
+      email: targetEmail,
+      requestOtp: true,
+      captchaToken: captchaToken ?? undefined,
+    });
   };
 
   const handleRequestCode: SubmitHandler<FieldValues> = (values) => {
@@ -90,6 +109,10 @@ export const LoginPage = (props: { redirectTo?: string }) => {
       .then(() => {
         setEmail(submittedEmail);
         setStep("code");
+        // A Turnstile token is single-use — force a fresh one now that this
+        // one has been consumed, so a resend on the code step (below) never
+        // reuses an already-spent token.
+        turnstileRef.current?.reset();
       })
       .catch((error: unknown) => {
         notifyError(error, {
@@ -118,6 +141,7 @@ export const LoginPage = (props: { redirectTo?: string }) => {
         notify("crm.auth.login.code_resent", {
           messageArgs: { _: "Code sent again" },
         });
+        turnstileRef.current?.reset();
       })
       .catch((error: unknown) => {
         notifyError(error, {
@@ -161,34 +185,63 @@ export const LoginPage = (props: { redirectTo?: string }) => {
         </div>
 
         {step === "email" ? (
-          <Form
-            key="email-step"
-            className="space-y-4"
-            defaultValues={{ email }}
-            onSubmit={handleRequestCode}
-          >
-            <TextInput
-              label="ra.auth.email"
-              source="email"
-              type="email"
-              autoComplete="email"
-              inputClassName={AUTH_FIELD_CLASSNAME}
-              validate={required()}
-            />
-            <Button
-              type="submit"
-              className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
-              disabled={isRequesting}
+          <div className="space-y-6">
+            <Form
+              key="email-step"
+              className="space-y-4"
+              defaultValues={{ email }}
+              onSubmit={handleRequestCode}
             >
-              {isRequesting ? (
-                <Loader2
-                  className="me-2 size-4 animate-spin"
-                  aria-hidden="true"
-                />
-              ) : null}
-              {translate("crm.auth.login.send_code", { _: "Send code" })}
-            </Button>
-          </Form>
+              <TextInput
+                label="ra.auth.email"
+                source="email"
+                type="email"
+                autoComplete="email"
+                inputClassName={AUTH_FIELD_CLASSNAME}
+                validate={required()}
+              />
+              <Button
+                type="submit"
+                className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
+                disabled={isRequesting}
+              >
+                {isRequesting ? (
+                  <Loader2
+                    className="me-2 size-4 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : null}
+                {translate("crm.auth.login.send_code", { _: "Send code" })}
+              </Button>
+            </Form>
+
+            {isGoogleOAuthEnabled() ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <Separator className="flex-1" />
+                  <span className="text-xs uppercase text-muted-foreground">
+                    {translate("crm.auth.login.or_divider", { _: "or" })}
+                  </span>
+                  <Separator className="flex-1" />
+                </div>
+                <GoogleSignInButton redirect={redirectTo} />
+              </div>
+            ) : null}
+
+            <p className="text-center text-sm text-muted-foreground">
+              {translate("crm.auth.login.no_account", {
+                _: "Don't have an account?",
+              })}{" "}
+              <Link
+                to="/register"
+                className="font-medium text-foreground hover:underline"
+              >
+                {translate("crm.auth.login.create_account", {
+                  _: "Create one",
+                })}
+              </Link>
+            </p>
+          </div>
         ) : (
           <Form
             key="code-step"
@@ -239,6 +292,12 @@ export const LoginPage = (props: { redirectTo?: string }) => {
             </div>
           </Form>
         )}
+
+        <TurnstileWidget
+          ref={turnstileRef}
+          siteKey={TURNSTILE_SITE_KEY}
+          onToken={setCaptchaToken}
+        />
       </div>
     </AuthLayout>
   );

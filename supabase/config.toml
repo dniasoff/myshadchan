@@ -102,13 +102,17 @@ enable_confirmations = false
 subject = "Your MyShadchan sign-in code"
 content_path = "./supabase/templates/magic_link.html"
 
-# Story 2.7 (AC-5): the authoritative gate for invite-only signup — refuses
-# user creation with a clear 403 unless a matching, pending, unexpired invite
-# and an 18+ affirmation are present. See public.check_signup_invite()
-# (02_functions.sql) for the event shape and reject/allow contract.
+# Open signup: refuses user creation with a clear 403 unless the caller has
+# affirmed being 18+ — either directly (email/OTP signup's user_metadata) or
+# via a short-lived public.signup_intents row (the Google OAuth fallback,
+# since signInWithOAuth() cannot set user_metadata). No invite is required
+# to create an account; invites remain how someone joins an EXISTING
+# account (accept_invite()). See public.check_signup_age() (02_functions.sql,
+# renamed from check_signup_invite) for the event shape and reject/allow
+# contract.
 [auth.hook.before_user_created]
 enabled = true
-uri = "pg-functions://postgres/public/check_signup_invite"
+uri = "pg-functions://postgres/public/check_signup_age"
 
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.

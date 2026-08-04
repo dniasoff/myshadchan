@@ -4,7 +4,17 @@ import { supabaseAuthProvider } from "ra-supabase-core";
 import type { MemberRole, MyContext } from "../../types";
 import { canAccess } from "../commons/canAccess";
 import { pickActiveRole } from "../commons/roleAuthority";
+import { readOAuthCallbackError } from "./oauthCallback";
 import { getSupabaseClient } from "./supabase";
+
+// The route `admin.tsx` already wires up via `authCallbackPage={AuthCallback}`
+// (ra-core registers it at this exact path regardless of anything in this
+// app's own route manifest). Pointing `signInWithOAuth()`'s `redirectTo` here
+// — instead of the plain app root the old (pre-deletion) Google button used
+// — is what makes an OAuth rejection land on a route the HashRouter actually
+// matches, so `handleCallback()` below gets a chance to run at all instead of
+// the browser showing whatever an unmatched `#error=...` hash resolves to.
+const AUTH_CALLBACK_PATH = "/auth-callback";
 
 const getBaseAuthProvider = () =>
   supabaseAuthProvider(getSupabaseClient(), {
@@ -142,11 +152,20 @@ export const getAuthProvider = (): AuthProvider => {
       // (`raw_user_meta_data`), the same mechanism 2.7's invite token /
       // age-affirmation payload rides on.
       if (params.requestOtp) {
+        // `captchaToken`: Supabase's captcha gate is a single project-wide
+        // flag covering `/otp` among other endpoints (see the Turnstile
+        // rollout notes) — there is no way to require it for register's
+        // `allowSignup: true` calls while exempting this same sign-in call.
+        // Once `security_captcha_enabled` is flipped on, an undefined token
+        // here fails the SAME way for every visitor trying to sign in, not
+        // just for new signups, so this is sent unconditionally rather than
+        // only when `allowSignup` is set.
         const { error } = await getSupabaseClient().auth.signInWithOtp({
           email: params.email,
           options: {
             shouldCreateUser: params.allowSignup === true,
             data: params.meta,
+            captchaToken: params.captchaToken,
           },
         });
         if (error && !SILENT_OTP_ERROR_CODES.has(error.code ?? "")) {
@@ -154,7 +173,10 @@ export const getAuthProvider = (): AuthProvider => {
         }
         return;
       }
-      // Step two: verify the code the user typed back in.
+      // Step two: verify the code the user typed back in. Never needs a
+      // captcha token — GoTrue's captcha middleware is not attached to the
+      // `/verify` endpoint this call hits (verified against the actual
+      // GoTrue router source, not assumed).
       if (params.verifyOtp) {
         const { error } = await getSupabaseClient().auth.verifyOtp({
           email: params.email,
@@ -166,9 +188,52 @@ export const getAuthProvider = (): AuthProvider => {
         }
         return;
       }
+      // Standard social OAuth ("Continue with Google" — GoogleSignInButton).
+      // `redirectTo` points at the framework's dedicated auth-callback route
+      // (see AUTH_CALLBACK_PATH above), not the bare app root: that is what
+      // lets a rejected/cancelled attempt land somewhere `handleCallback()`
+      // below can turn into a calm message instead of an unmatched route.
+      // `loginHint` (Google's own `login_hint` OAuth param) steers the
+      // consent screen toward the email GoogleSignInButton already recorded
+      // a signup intent for — it does not force that email, so
+      // `check_signup_age()`'s own email match is still the real guarantee,
+      // not this hint.
+      if (params.oauthProvider) {
+        const { error } = await getSupabaseClient().auth.signInWithOAuth({
+          provider: params.oauthProvider,
+          options: {
+            redirectTo: `${window.location.origin}/#${AUTH_CALLBACK_PATH}`,
+            queryParams: params.loginHint
+              ? { login_hint: params.loginHint }
+              : undefined,
+          },
+        });
+        if (error) {
+          throw error;
+        }
+        return;
+      }
       // No other login shape is supported — in particular, ra-supabase-core's
       // own password login (`baseAuthProvider.login`) must be unreachable.
       throw new Error("Unsupported login request.");
+    },
+    handleCallback: async (params) => {
+      // An OAuth rejection (the visitor cancelled, the provider is
+      // misconfigured, or our own age gate 403'd the signup) lands here as
+      // `error`/`error_code`/`error_description` in the URL — never as a
+      // rejected promise, since `signInWithOAuth()` already navigated the
+      // browser away before any of this could be known. Map it to a calm,
+      // cause-accurate message BEFORE falling through to the base
+      // provider's recovery/invite handling, which knows nothing about
+      // OAuth and would silently resolve as if nothing happened.
+      const callbackError = readOAuthCallbackError(window.location);
+      if (callbackError) {
+        throw new Error(callbackError.messageKey);
+      }
+      // `baseAuthProvider.handleCallback` is always defined at runtime (the
+      // base `supabaseAuthProvider()` always sets it) — the `?.` is only to
+      // satisfy `AuthProvider`'s own optional-property typing.
+      return baseAuthProvider.handleCallback?.(params);
     },
     logout: async (params) => {
       clearCache();

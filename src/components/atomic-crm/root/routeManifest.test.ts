@@ -1,6 +1,7 @@
 import { createElement, type ComponentType } from "react";
 
 import { PRIMARY_NAV, SHADCHANUS_NAV } from "../layout/navItems";
+import { RegisterFlow } from "../login/RegisterFlow";
 import type { CustomRouteEntry, ResourceEntry } from "./routeManifest";
 import {
   CUSTOM_ROUTES,
@@ -354,5 +355,29 @@ describe("contextKind (Story 8.1, AC-3; Story 8.5, AC-8)", () => {
     const share = CUSTOM_ROUTES.find((route) => route.path === "/share");
 
     expect(share?.contextKind).toBe("household");
+  });
+});
+
+describe("open signup — the /register route is actually registered", () => {
+  it("registers RegisterFlow at the exact path LoginPage's 'Create one' link points to, outside the app shell, on both surfaces", () => {
+    // The whole failure this route exists to close is a screen that is
+    // built, imported by nothing, and reachable by nobody: before this
+    // assertion existed, deleting the RegisterFlow entry from
+    // CUSTOM_ROUTES left every suite in the tree green while a visitor
+    // following "Create one" landed on an unmatched hash route and was
+    // silently bounced back to /login (CoreAdminRoutes' unauthenticated
+    // `path="*"` -> <LogoutOnMount/>). Asserting the Component identity —
+    // not merely that some entry exists at the string "/register" — is
+    // what ties the link, the manifest and the component together.
+    const register = CUSTOM_ROUTES.find(
+      (route) => route.path === RegisterFlow.path,
+    );
+
+    expect(RegisterFlow.path).toBe("/register");
+    expect(register).toBeDefined();
+    expect(register?.Component).toBe(RegisterFlow);
+    expect(register?.surface).toBe("both");
+    expect(register?.chrome).toBe("bare");
+    expect(register?.contextKind).toBeUndefined();
   });
 });

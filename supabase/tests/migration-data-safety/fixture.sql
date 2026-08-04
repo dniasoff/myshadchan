@@ -766,6 +766,24 @@ begin
   end if;
 end $$;
 
+-- Open signup (signup_intents). Same `to_regclass` guard, same reasoning as
+-- every other table above: THIS migration is what creates the table, so it
+-- holds nothing before it applies, and the guard is trivially safe for its
+-- own migration. From the next story's baseline onward this seeds and
+-- captures a live, unconsumed, unexpired intent like every other table
+-- here — closing the blind spot in the SAME diff that adds the table. Not
+-- account-scoped (the table has no account_id — see its own comment,
+-- 01_tables.sql), so this needs no anchor row from the seeds above.
+do $$
+begin
+  if to_regclass('public.signup_intents') is not null then
+    execute $seed$
+      insert into public.signup_intents (id, email, expires_at)
+      values (9000001, 'oauth.guard@example.test', now() + interval '10 minutes');
+    $seed$;
+  end if;
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- Snapshot. `identity_signals` is captured last and on purpose: nothing
 -- inserts it directly — the `sync_shidduch_signals` trigger derives it from

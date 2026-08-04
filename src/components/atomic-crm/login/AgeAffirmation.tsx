@@ -19,7 +19,7 @@ export interface AgeAffirmationProps {
  * holder is an adult, before any family data is entered. Wired by Story 2.7's
  * InviteAcceptance (compact mode) as the gate before OTP signup: the checked
  * box travels to the server as `age_affirmed: true` in the OTP signup's
- * `meta`, and `check_signup_invite()`'s Auth Hook (02_functions.sql) is the
+ * `meta`, and `check_signup_age()`'s Auth Hook (02_functions.sql) is the
  * actual server-side enforcement — this component only collects the
  * affirmation, it does not persist or enforce one itself.
  */

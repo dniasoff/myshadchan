@@ -51,8 +51,16 @@ jobs:
 
       # Story 2.7 review finding #1: `[auth.hook.before_user_created]` in
       # supabase/config.toml is never synced to the hosted project, so
-      # check_signup_invite() exists in the database but GoTrue never calls
-      # it in production — invite-only signup is enforced locally only.
+      # check_signup_age() exists in the database but GoTrue never calls
+      # it in production — the signup gate is enforced locally only.
+      #
+      # The function name here is load-bearing and must track the migration
+      # that owns it. This step runs AFTER `db push`, so a stale name is not
+      # a no-op: 20260804214603_open_signup.sql DROPs check_signup_invite,
+      # and re-pinning that dropped name would leave GoTrue answering every
+      # signup with a 500 ("Error running hook URI"), re-applied on every
+      # subsequent deploy. Sign-in is unaffected — before_user_created only
+      # fires when a user is actually created.
       # Deliberately a SCOPED Management API patch, not `supabase config
       # push`: config.toml's `[auth]` block also carries this repo's local
       # dev values (`site_url = "http://localhost:5173"`,
@@ -71,11 +79,11 @@ jobs:
       # full behaviour. It is the same script the mailer step below calls,
       # so the retry logic exists once, not as two inline copies.
       - if: ${{ env.IS_SUPABASE_CONFIGURED }}
-        name: 📡 Enable the invite-signup Auth Hook (before_user_created)
+        name: 📡 Enable the signup age-gate Auth Hook (before_user_created)
         run: |
           jq -n '{
               hook_before_user_created_enabled: true,
-              hook_before_user_created_uri: "pg-functions://postgres/public/check_signup_invite"
+              hook_before_user_created_uri: "pg-functions://postgres/public/check_signup_age"
           }' > /tmp/hook-payload.json
 
           scripts/ci/patch-supabase-auth-config.sh /tmp/hook-payload.json \

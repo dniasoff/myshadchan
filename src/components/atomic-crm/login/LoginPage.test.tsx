@@ -1,9 +1,38 @@
-import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  type ReactNode,
+} from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, type AuthProvider } from "ra-core";
 import { testI18nProvider } from "@/components/atomic-crm/providers/commons/i18nProvider";
 import { LoginPage } from "./LoginPage";
+import type { TurnstileWidgetHandle } from "./TurnstileWidget";
+
+// LoginPage keeps one `TurnstileWidget` mounted for the whole screen and
+// forwards whatever token it reports on every `requestOtp` call — see
+// LoginPage's own doc comment. The real widget loads Cloudflare's script
+// over the network, which the test environment can't rely on, so every test
+// here gets a fake that reports a fixed, known token immediately on mount —
+// deterministic, and lets each test assert the exact call shape `login()`
+// receives.
+const FAKE_CAPTCHA_TOKEN = "test-captcha-token";
+vi.mock("./TurnstileWidget", () => ({
+  TurnstileWidget: forwardRef<
+    TurnstileWidgetHandle,
+    { onToken: (token: string | null) => void }
+  >(({ onToken }, ref) => {
+    useImperativeHandle(ref, () => ({ reset: vi.fn() }));
+    useEffect(() => {
+      onToken(FAKE_CAPTCHA_TOKEN);
+      // `onToken` is the parent's `setCaptchaToken` state setter — stable
+      // across renders, so this fires exactly once per mount.
+    }, [onToken]);
+    return null;
+  }),
+}));
 
 // Minimal AuthProvider stub driven by a caller-supplied `login` mock — the
 // other methods are never exercised by LoginPage but are required by the
@@ -31,7 +60,11 @@ const renderLoginPage = (login: AuthProvider["login"]) => {
 };
 
 describe("LoginPage", () => {
-  it("requests a code without asking to create a user, then moves to the code step", async () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("requests a code without asking to create a user, but does send a captcha token", async () => {
     // Arrange
     const login = vi.fn().mockResolvedValue(undefined);
     const screen = await renderLoginPage(login);
@@ -40,13 +73,17 @@ describe("LoginPage", () => {
     await screen.getByLabelText(/email/i).fill("ada@example.com");
     await screen.getByRole("button", { name: "Send code" }).click();
 
-    // Assert: no `allowSignup` — the login form never creates a user (AC-1).
+    // Assert: no `allowSignup` — the login form never creates a user (AC-1)
+    // — but the Turnstile token IS forwarded (the highest-risk wiring gap:
+    // Supabase's captcha gate is project-wide, so sign-in must already send
+    // a token before it's ever turned on — see LoginPage's own doc comment).
     await expect
       .element(screen.getByRole("button", { name: "Sign in" }))
       .toBeInTheDocument();
     expect(login).toHaveBeenCalledExactlyOnceWith({
       email: "ada@example.com",
       requestOtp: true,
+      captchaToken: FAKE_CAPTCHA_TOKEN,
     });
   });
 
@@ -137,9 +174,53 @@ describe("LoginPage", () => {
     expect(login).toHaveBeenLastCalledWith({
       email: "ada@example.com",
       requestOtp: true,
+      captchaToken: FAKE_CAPTCHA_TOKEN,
     });
     await expect
       .element(screen.getByRole("button", { name: "Sign in" }))
       .toBeInTheDocument();
+  });
+
+  it("does not render the Google sign-in entry point when Google OAuth is disabled", async () => {
+    // Arrange
+    const login = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    const screen = await renderLoginPage(login);
+
+    // Assert: VITE_ENABLE_GOOGLE_OAUTH is unset in this test — the button
+    // must not appear (isGoogleOAuthEnabled() gates it — googleOAuth.ts).
+    await expect
+      .element(screen.getByRole("button", { name: "Continue with Google" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("renders the Google sign-in entry point when Google OAuth is enabled", async () => {
+    // Arrange
+    vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
+    const login = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    const screen = await renderLoginPage(login);
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "Continue with Google" }))
+      .toBeInTheDocument();
+  });
+
+  it("shows a visible link to the register flow so a new visitor can see how to create an account", async () => {
+    // Arrange
+    const login = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    const screen = await renderLoginPage(login);
+
+    // Assert
+    const registerLink = screen.getByRole("link", { name: "Create one" });
+    await expect.element(registerLink).toBeInTheDocument();
+    await expect
+      .element(registerLink)
+      .toHaveAttribute("href", expect.stringContaining("/register"));
   });
 });

@@ -121,6 +121,34 @@ export const frenchCrmMessages = {
         code_resent: "Code envoyé à nouveau",
         use_different_email: "Utiliser une autre adresse e-mail",
         invalid_code: "Ce code est incorrect ou a expiré.",
+        continue_with_google: "Continuer avec Google",
+        or_divider: "ou",
+        no_account: "Vous n'avez pas de compte ?",
+        create_account: "Créez-en un",
+      },
+      google_step: {
+        email_label: "E-mail",
+        email_required: "Saisissez votre e-mail pour continuer.",
+        preparing: "Un instant…",
+        back: "Retour",
+      },
+      google_oauth_not_configured:
+        "La connexion Google n'est pas configurée. Demandez à un administrateur d'activer et de configurer le fournisseur Google dans Supabase.",
+      oauth_callback: {
+        cancelled:
+          "Vous avez fermé la fenêtre de connexion Google avant la fin. Aucun compte n'a été créé — revenez quand vous voulez réessayer.",
+        not_configured:
+          "La connexion Google n'est pas disponible pour le moment. Connectez-vous plutôt avec votre e-mail.",
+        generic:
+          "Nous n'avons pas pu terminer cette connexion. Réessayez, ou utilisez votre e-mail.",
+      },
+      register: {
+        title: "Créez votre compte",
+        subtitle: "Cela ne prend qu'une minute.",
+        email_required: "Saisissez votre e-mail pour continuer.",
+        sending_code: "Envoi de votre code…",
+        have_account: "Vous avez déjà un compte ?",
+        sign_in: "Se connecter",
       },
       // Story 2.7 : le flux d'invitation seule (/accept-invite/:token). Pas
       // de formulaire email/mot de passe séparé — l'invité·e confirme

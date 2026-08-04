@@ -1313,12 +1313,19 @@ CREATE OR REPLACE FUNCTION "public"."get_invite_preview"("p_token" "uuid") RETUR
   where i.token = p_token;
 $$;
 
--- Backs the "before user created" Auth Hook (AC-5,
--- [auth.hook.before_user_created] in supabase/config.toml). THE authoritative
--- gate for AD-11's "new users join only by a verified invite token" and the
--- 18+ affirmation — handle_new_user() only performs the BINDING once this
--- hook has already allowed creation (see "Two gates, one authoritative",
--- story 2.7's Dev Notes).
+-- Backs the "before user created" Auth Hook
+-- ([auth.hook.before_user_created] in supabase/config.toml). Originally
+-- (Story 2.7, AC-5) THE authoritative gate for AD-11's "new users join only
+-- by a verified invite token" AND the 18+ affirmation. Open signup removed
+-- the invite requirement — a signup no longer needs a matching, pending,
+-- unexpired invite to create an account — so this function is now solely
+-- the age gate, and it is renamed from check_signup_invite to match: a
+-- function still called "check_signup_invite" that lets invite-less
+-- signups through would be exactly the name/behaviour drift
+-- `.claude/rules/coding-style.md` warns about. Invites are not gone —
+-- accept_invite() still joins an invitee to an EXISTING account as a
+-- specific role, unchanged — this hook simply no longer requires one to
+-- exist before an account can be created at all.
 --
 -- Verified empirically against the running local stack (this repo pins no
 -- Supabase CLI version, see story 2.7's Dev Notes "Running the Supabase CLI
@@ -1333,17 +1340,34 @@ $$;
 -- `{"error": {"http_code": ..., "message": ...}}`, which GoTrue surfaces to
 -- the client as that exact HTTP status and message — verified to produce a
 -- real 403 with the given message, not GoTrue's generic hook-failure text.
--- Both metadata reads are cast defensively: a hand-crafted, malformed
--- `invite_token`/`age_affirmed` value must refuse cleanly, never crash the
--- hook (a hook error surfaces as an opaque 500, not a clear 403).
-CREATE OR REPLACE FUNCTION "public"."check_signup_invite"("event" "jsonb") RETURNS "jsonb"
+-- The metadata read is cast defensively: a hand-crafted, malformed
+-- `age_affirmed` value must refuse cleanly, never crash the hook (a hook
+-- error surfaces as an opaque 500, not a clear 403).
+--
+-- Google OAuth signups cannot carry `age_affirmed` here at all —
+-- signInWithOAuth() forwards its queryParams to the identity provider,
+-- never into GoTrue's own user_metadata, unlike signInWithOtp()'s
+-- email/OTP path. When user_metadata lacks the field, this function falls
+-- back to public.signup_intents: a short-lived, single-use row the
+-- frontend inserts (as `anon`, before ever redirecting to Google) for the
+-- exact email address about to authenticate. A matching, unconsumed,
+-- unexpired row is treated as an affirmation and consumed — never merely
+-- read — in the same UPDATE that finds it, which is what makes it
+-- single-use even under a raced retry (the UPDATE's own WHERE clause is
+-- the atomicity: a second, concurrent match finds zero rows once the first
+-- has committed `consumed_at`). See signup_intents' own comment
+-- (01_tables.sql) for why an anon-insertable table keyed only on an email
+-- address is safe. Expired intents are swept here too — this repo has no
+-- scheduled-job (pg_cron) infrastructure, so cleanup piggybacks on the one
+-- code path that already touches this table on every signup attempt,
+-- rather than growing the table forever.
+CREATE OR REPLACE FUNCTION "public"."check_signup_age"("event" "jsonb") RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
   v_email text;
   v_age_affirmed boolean;
-  v_token uuid;
 begin
   v_email := event -> 'user' ->> 'email';
 
@@ -1353,29 +1377,24 @@ begin
     v_age_affirmed := null;
   end;
 
+  if v_age_affirmed is distinct from true and v_email is not null then
+    update public.signup_intents
+    set consumed_at = now()
+    where email = v_email
+      and consumed_at is null
+      and expires_at > now();
+
+    if found then
+      v_age_affirmed := true;
+    end if;
+  end if;
+
+  delete from public.signup_intents where expires_at <= now();
+
   if v_age_affirmed is distinct from true then
     return jsonb_build_object('error', jsonb_build_object(
       'http_code', 403,
       'message', 'You must confirm you are 18 years of age or older to sign up.'
-    ));
-  end if;
-
-  begin
-    v_token := nullif(event -> 'user' -> 'user_metadata' ->> 'invite_token', '')::uuid;
-  exception when others then
-    v_token := null;
-  end;
-
-  if v_token is null or v_email is null or not exists (
-    select 1 from public.invites i
-    where i.token = v_token
-      and lower(i.email) = lower(v_email)
-      and i.status = 'pending'
-      and i.expires_at > now()
-  ) then
-    return jsonb_build_object('error', jsonb_build_object(
-      'http_code', 403,
-      'message', 'This invite is invalid, expired, or has already been used.'
     ));
   end if;
 

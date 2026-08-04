@@ -119,6 +119,48 @@ export const englishCrmMessages = {
         code_resent: "Code sent again",
         use_different_email: "Use a different email",
         invalid_code: "That code is incorrect or has expired.",
+        // Google sign-in entry point + the link to the open register flow
+        // (RegisterFlow) — both previously built but wired into nothing.
+        continue_with_google: "Continue with Google",
+        or_divider: "or",
+        no_account: "Don't have an account?",
+        create_account: "Create one",
+      },
+      // GoogleSignInButton's own inline email + age-affirmation step, shown
+      // after "Continue with Google" is clicked (signInWithOAuth() redirects
+      // before anything about the visitor is known, so this has to be
+      // collected first — see the component's own doc comment).
+      google_step: {
+        email_label: "Email",
+        email_required: "Enter your email to continue.",
+        preparing: "One moment…",
+        back: "Back",
+      },
+      google_oauth_not_configured:
+        "Google sign-in is not configured. Ask an administrator to enable and configure the Google provider in Supabase.",
+      // oauthCallback.ts's own mapped, calm messages for a rejected OAuth
+      // redirect. AuthCallback (components/admin/authentication.tsx)
+      // translates the thrown error's message with the message itself as
+      // its own fallback, so these catalogue entries — not the strings in
+      // oauthCallback.ts — are what a turned-away visitor actually sees.
+      oauth_callback: {
+        cancelled:
+          "You closed the Google sign-in window before finishing. No account was created — come back and try again whenever you're ready.",
+        not_configured:
+          "Google sign-in isn't available right now. Please sign in with your email instead.",
+        generic:
+          "We couldn't complete that sign-in. Please try again, or use your email instead.",
+      },
+      // The open self-service signup path (/register, RegisterFlow) — the
+      // counterpart to crm.auth.login.* above, now that the invite gate is
+      // gone (20260804214603_open_signup.sql).
+      register: {
+        title: "Create your account",
+        subtitle: "It only takes a minute.",
+        email_required: "Enter your email to continue.",
+        sending_code: "Sending your code…",
+        have_account: "Already have an account?",
+        sign_in: "Sign in",
       },
       // Story 2.7: the invite-only signup flow (/accept-invite/:token).
       // There is no separate email/password form — the invitee only

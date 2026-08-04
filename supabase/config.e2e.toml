@@ -98,11 +98,14 @@ enable_confirmations = false
 subject = "Your MyShadchan sign-in code"
 content_path = "./supabase/templates/magic_link.html"
 
-# Story 2.7 (AC-5): see supabase/config.toml's own comment — kept in sync so
-# e2e behaves identically to dev.
+# Open signup: see supabase/config.toml's own comment — kept in sync so
+# e2e behaves identically to dev. The function is check_signup_age (renamed
+# from check_signup_invite, which 20260804214603_open_signup.sql DROPS): a
+# stack built from a config still naming the old one answers every signup
+# with a GoTrue 500, "Error running hook URI".
 [auth.hook.before_user_created]
 enabled = true
-uri = "pg-functions://postgres/public/check_signup_invite"
+uri = "pg-functions://postgres/public/check_signup_age"
 
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.
