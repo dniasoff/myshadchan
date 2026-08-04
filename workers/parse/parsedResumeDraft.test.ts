@@ -84,4 +84,88 @@ describe("toDraft", () => {
     expect(draft.lowConfidenceFields).not.toContain("name_en");
     expect(draft.lowConfidenceFields).toContain("age");
   });
+
+  // Review fix (Finding 3): father/mother must come back as four SEPARATE
+  // fields — ShidduchInputs.tsx has no input for a combined "parents" value,
+  // so that shape was silently discarded on every auto-fill.
+  it("emits split father/mother fields, never a combined parents field", () => {
+    // Arrange
+    const raw = {
+      father_en: { value: "Yaakov Cohen", confidence: 0.9 },
+      father_he: { value: "יעקב כהן", confidence: 0.9 },
+      mother_en: { value: "Rivka Cohen", confidence: 0.85 },
+      mother_he: { value: "רבקה כהן", confidence: 0.85 },
+    };
+
+    // Act
+    const draft = toDraft(raw);
+
+    // Assert
+    expect(draft.fields.father_en).toBe("Yaakov Cohen");
+    expect(draft.fields.father_he).toBe("יעקב כהן");
+    expect(draft.fields.mother_en).toBe("Rivka Cohen");
+    expect(draft.fields.mother_he).toBe("רבקה כהן");
+    expect(draft.fields).not.toHaveProperty("parents_en");
+    expect(draft.fields).not.toHaveProperty("parents_he");
+  });
+
+  // Review fix (Finding 10, SMALL scope): bounds on string length and array
+  // size so a pathological model response cannot blow up the client.
+  describe("Finding 10 — pathological response bounds", () => {
+    it("falls back to an all-null draft when a field value exceeds the max length", () => {
+      // Arrange
+      const raw = {
+        name_en: { value: "Rivky", confidence: 0.9 },
+        location_en: { value: "x".repeat(10_000), confidence: 0.9 },
+      };
+
+      // Act
+      const draft = toDraft(raw);
+
+      // Assert — the whole-object schema rejects the oversized field, so
+      // `toDraft` falls back to its existing all-null default rather than
+      // ever handing a 10,000-char string to the client.
+      expect(Object.values(draft.fields).every((v) => v === null)).toBe(true);
+    });
+
+    it("falls back to an all-null draft when a section array exceeds the max length", () => {
+      // Arrange
+      const oversizedReferences = Array.from({ length: 51 }, (_, i) => ({
+        name: `Ref ${i}`,
+        relationship: "friend",
+        phone: "555-0100",
+      }));
+      const raw = {
+        name_en: { value: "Rivky", confidence: 0.9 },
+        sections: { learningHistory: [], references: oversizedReferences },
+      };
+
+      // Act
+      const draft = toDraft(raw);
+
+      // Assert
+      expect(draft.sections.references).toEqual([]);
+      expect(Object.values(draft.fields).every((v) => v === null)).toBe(true);
+    });
+
+    it("accepts a section array right at the max length", () => {
+      // Arrange
+      const references = Array.from({ length: 50 }, (_, i) => ({
+        name: `Ref ${i}`,
+        relationship: "friend",
+        phone: "555-0100",
+      }));
+      const raw = {
+        name_en: { value: "Rivky", confidence: 0.9 },
+        sections: { learningHistory: [], references },
+      };
+
+      // Act
+      const draft = toDraft(raw);
+
+      // Assert
+      expect(draft.sections.references).toHaveLength(50);
+      expect(draft.fields.name_en).toBe("Rivky");
+    });
+  });
 });

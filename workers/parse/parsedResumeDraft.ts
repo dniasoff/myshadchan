@@ -5,34 +5,70 @@ import { z } from "zod";
  */
 export const LOW_CONFIDENCE_THRESHOLD = 0.7;
 
+/**
+ * Review fix (Finding 10, SMALL scope only — see the Story 11-1 review
+ * report): bounds on string length and array size so a pathological model
+ * response (a single field holding megabytes of repeated text, or a section
+ * array with tens of thousands of entries) cannot blow up the client that
+ * renders this draft. This is deliberately NOT source-grounding or an
+ * evidence-span validator — the review's verification pass concluded the
+ * human-review gate in `InboxResolveDialog.tsx` already covers that risk and
+ * building a proof system here would be YAGNI.
+ */
+const MAX_FIELD_VALUE_LENGTH = 500;
+const MAX_SECTION_TEXT_LENGTH = 1000;
+const MAX_SECTION_ARRAY_LENGTH = 50;
+
 const FieldValueSchema = z.object({
-  value: z.union([z.string(), z.number(), z.null()]),
+  value: z.union([
+    z.string().max(MAX_FIELD_VALUE_LENGTH),
+    z.number().finite(),
+    z.null(),
+  ]),
   confidence: z.number().min(0).max(1),
 });
 
 const ResumeSectionSchema = z.object({
-  label: z.string(),
-  value: z.string(),
+  label: z.string().max(MAX_SECTION_TEXT_LENGTH),
+  value: z.string().max(MAX_SECTION_TEXT_LENGTH),
 });
 
 const ResumeReferenceSchema = z.object({
-  name: z.string(),
-  relationship: z.string(),
-  phone: z.string(),
+  name: z.string().max(MAX_SECTION_TEXT_LENGTH),
+  relationship: z.string().max(MAX_SECTION_TEXT_LENGTH),
+  phone: z.string().max(MAX_SECTION_TEXT_LENGTH),
 });
 
 /**
  * Raw extraction shape returned by a resume extractor. Every field is
  * `{ value, confidence }` so `toDraft` can validate, nullify, and flag.
+ *
+ * Review fix (Finding 3): this used to be a single combined `parents_en` /
+ * `parents_he` pair, but `public.shidduchim` (supabase/schemas/01_tables.sql)
+ * — and the form that consumes this draft, `ShidduchInputs.tsx` /
+ * `ShidduchCreate.tsx` — has always stored and rendered father and mother as
+ * four SEPARATE split fields (`father_en`, `father_he`, `mother_en`,
+ * `mother_he`). The combined shape had no input that rendered it and no
+ * submit mapping that read it, so any parent information the model extracted
+ * was silently discarded on every auto-fill. Emit the same four split fields
+ * the rest of the app already uses.
  */
 export const RawExtractionSchema = z.object({
   name_en: FieldValueSchema.nullable().default({ value: null, confidence: 0 }),
   name_he: FieldValueSchema.nullable().default({ value: null, confidence: 0 }),
-  parents_en: FieldValueSchema.nullable().default({
+  father_en: FieldValueSchema.nullable().default({
     value: null,
     confidence: 0,
   }),
-  parents_he: FieldValueSchema.nullable().default({
+  father_he: FieldValueSchema.nullable().default({
+    value: null,
+    confidence: 0,
+  }),
+  mother_en: FieldValueSchema.nullable().default({
+    value: null,
+    confidence: 0,
+  }),
+  mother_he: FieldValueSchema.nullable().default({
     value: null,
     confidence: 0,
   }),
@@ -58,8 +94,14 @@ export const RawExtractionSchema = z.object({
   height: FieldValueSchema.nullable().default({ value: null, confidence: 0 }),
   sections: z
     .object({
-      learningHistory: z.array(ResumeSectionSchema).default([]),
-      references: z.array(ResumeReferenceSchema).default([]),
+      learningHistory: z
+        .array(ResumeSectionSchema)
+        .max(MAX_SECTION_ARRAY_LENGTH)
+        .default([]),
+      references: z
+        .array(ResumeReferenceSchema)
+        .max(MAX_SECTION_ARRAY_LENGTH)
+        .default([]),
     })
     .default({ learningHistory: [], references: [] }),
 });
@@ -67,13 +109,15 @@ export const RawExtractionSchema = z.object({
 export type RawExtraction = z.infer<typeof RawExtractionSchema>;
 
 /**
- * The twelve bilingual fields a resume may fill in the shidduch create form.
+ * The fourteen bilingual fields a resume may fill in the shidduch create form.
  */
 export type ParsedResumeFields = {
   name_en: string | number | null;
   name_he: string | number | null;
-  parents_en: string | number | null;
-  parents_he: string | number | null;
+  father_en: string | number | null;
+  father_he: string | number | null;
+  mother_en: string | number | null;
+  mother_he: string | number | null;
   seminary_en: string | number | null;
   seminary_he: string | number | null;
   shul_en: string | number | null;
@@ -117,8 +161,10 @@ function parseField(raw: z.infer<typeof FieldValueSchema> | null): {
 const FIELD_KEYS: (keyof ParsedResumeFields)[] = [
   "name_en",
   "name_he",
-  "parents_en",
-  "parents_he",
+  "father_en",
+  "father_he",
+  "mother_en",
+  "mother_he",
   "seminary_en",
   "seminary_he",
   "shul_en",

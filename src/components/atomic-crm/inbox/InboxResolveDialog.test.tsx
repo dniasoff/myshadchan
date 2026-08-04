@@ -24,12 +24,33 @@ const { callAiWorker } = vi.hoisted(() => ({
   callAiWorker: vi.fn(),
 }));
 
+/**
+ * Story 11-1 review fix (cross-reconciliation): `useResolveInboxItem.ts`
+ * calls `copyInboxAttachmentToResumeFile` directly (Finding 2, not through
+ * the mocked `CrmDataProvider` above), so — same idiom as
+ * `signInboxAttachmentUrl` above — it needs its own `vi.mock`. Without this,
+ * "creates a shidduch and a resumes row when filing with a draft" hit the
+ * real, unmocked Supabase client and rejected before `dataProvider.create`
+ * was ever called.
+ */
+const { copyInboxAttachmentToResumeFile, removeResumeFileObjects } = vi.hoisted(
+  () => ({
+    copyInboxAttachmentToResumeFile: vi.fn(),
+    removeResumeFileObjects: vi.fn(),
+  }),
+);
+
 vi.mock("../providers/supabase/inboxAttachments", () => ({
   signInboxAttachmentUrl,
 }));
 
 vi.mock("../providers/commons/aiWorkerClient", () => ({
   callAiWorker,
+}));
+
+vi.mock("../providers/supabase/resumes", () => ({
+  copyInboxAttachmentToResumeFile,
+  removeResumeFileObjects,
 }));
 
 /**
@@ -389,6 +410,8 @@ describe("InboxResolveDialog — attachment links are re-signed at click time (r
 describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
   afterEach(() => {
     callAiWorker.mockReset();
+    copyInboxAttachmentToResumeFile.mockReset();
+    removeResumeFileObjects.mockReset();
     vi.unstubAllEnvs();
   });
 
@@ -406,8 +429,15 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
     fields: {
       name_en: "Rivky",
       name_he: "רבקה",
-      parents_en: null,
-      parents_he: null,
+      // Story 11-1 review fix (Finding 3, cross-reconciliation): this used
+      // to be a combined `parents_en`/`parents_he` pair, which
+      // `ShidduchInputs.tsx` has no input for — any parent info the model
+      // extracted was silently discarded. Split to match the four separate
+      // fields the form actually renders.
+      father_en: "Shloime",
+      father_he: null,
+      mother_en: "Chaya Sara",
+      mother_he: null,
       seminary_en: "Bais Yaakov",
       seminary_he: null,
       shul_en: null,
@@ -463,6 +493,15 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
       .element(screen.getByLabelText("Name (English)"))
       .toHaveValue("Rivky");
     await expect.element(screen.getByLabelText("Age")).toHaveValue(24);
+    // Story 11-1 review fix (Finding 3, cross-reconciliation): father/mother
+    // are split fields — regression coverage for the rename, since nothing
+    // here previously asserted on either.
+    await expect
+      .element(screen.getByLabelText("Father (English)"))
+      .toHaveValue("Shloime");
+    await expect
+      .element(screen.getByLabelText("Mother (English)"))
+      .toHaveValue("Chaya Sara");
   });
 
   it("renders a low-confidence badge for a flagged field", async () => {
@@ -516,6 +555,14 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
     // Arrange
     vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
     callAiWorker.mockResolvedValue(parseResponse);
+    // Story 11-1 review fix (Finding 2, cross-reconciliation): the copy now
+    // lands in the `documents` bucket under a fresh path, with the real
+    // downloaded byte size — never the original `attachments`-bucket path
+    // and never a hardcoded 0.
+    copyInboxAttachmentToResumeFile.mockResolvedValue({
+      storagePath: "1/resumes/99/copied-resume.pdf",
+      size: 54321,
+    });
     const item = buildItem({ attachments: [buildAttachment()] });
     const { screen, dataProvider } = await renderDialog(
       item,
@@ -538,11 +585,23 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
             .length,
       )
       .toBeGreaterThan(0);
+    expect(copyInboxAttachmentToResumeFile).toHaveBeenCalledWith({
+      shidduchimId: 99,
+      attachmentPath: "1/abc-123.pdf",
+      fileName: "resume.pdf",
+    });
     expect(dataProvider.create).toHaveBeenCalledWith("resumes", {
       data: expect.objectContaining({
         shidduchim_id: 99,
         extracted: parseResponse.rawDraft,
         sections: parseResponse.sections,
+        files: [
+          expect.objectContaining({
+            path: "1/resumes/99/copied-resume.pdf",
+            filename: "resume.pdf",
+            size: 54321,
+          }),
+        ],
       }),
     });
   });

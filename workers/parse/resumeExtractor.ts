@@ -43,7 +43,11 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
                 text:
                   "Extract the following fields from this resume as JSON. " +
                   "Return confidence 0-1 per field. If a field is absent or unclear, return null for its value and confidence 0. " +
-                  "Fields: name_en, name_he, parents_en, parents_he, seminary_en, seminary_he, shul_en, shul_he, location_en, location_he, age, height. " +
+                  // Review fix (Finding 3): father and mother are SEPARATE
+                  // fields in the target form (ShidduchInputs.tsx) and in
+                  // public.shidduchim — a combined "parents" field had
+                  // nothing downstream that read it, so extract them split.
+                  "Fields: name_en, name_he, father_en, father_he, mother_en, mother_he, seminary_en, seminary_he, shul_en, shul_he, location_en, location_he, age, height. " +
                   "Also include sections.learningHistory as [{label, value}] and sections.references as [{name, relationship, phone}]. " +
                   "Do not invent information. Return only valid JSON.",
               },

@@ -1,10 +1,11 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { CrossReferenceSummary } from "./dossierFacts";
 
-export interface DossierNarrator {
-  compose(facts: CrossReferenceSummary): Promise<string>;
-}
-
+/**
+ * Phrases the narrative must never contain (FR63: it organizes what was
+ * learned, it never judges compatibility). Kept as a named export so
+ * `deterministicNarrative`'s own test suite can assert against it directly,
+ * rather than duplicating the list.
+ */
 const BANNED_PHRASES = [
   "recommend",
   "compatible",
@@ -14,19 +15,41 @@ const BANNED_PHRASES = [
   "good fit",
 ] as const;
 
-function containsBannedPhrase(text: string): boolean {
-  const lower = text.toLowerCase();
-  return BANNED_PHRASES.some((phrase) => lower.includes(phrase));
-}
-
 function formatCount(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
 /**
- * Deterministic narrative built purely from the computed facts. This is the
- * fallback when the model is unavailable, fails, or returns disallowed wording.
- * It never contains a banned phrase by construction.
+ * The dossier's narrative summary. Deterministic and pure: the same facts
+ * always produce the same sentence, with no network call, no external
+ * dependency, and — by construction, not by a wordlist — no banned phrase.
+ *
+ * Story 11.3 originally paired this with a free-form Claude narrator
+ * (`claudeNarrator`, since removed) that layered nicer phrasing on top of
+ * these same facts, gated by a six-phrase banned-word blacklist with this
+ * function as its fallback on error or disallowed wording. Review fix
+ * (Finding 12) removed that free-form path rather than repairing it:
+ *
+ * - The blacklist is trivially bypassable by paraphrase (Finding 11 — "an
+ *   ideal pairing" contains none of the six banned words but reads as
+ *   exactly the endorsement FR63 forbids), and nothing validated the
+ *   model's prose against the actual input facts, so it could invent a
+ *   topic, attribute a view to a reference that never gave one, or add
+ *   causation absent from the input.
+ * - The model call's own error-fallback path had never been proven to work:
+ *   its test (Finding 14) patched a `.client` property `claudeNarrator`
+ *   never attached to the returned object, so the patch silently no-op'd
+ *   and the test asserted this function directly instead of exercising
+ *   `compose()` — proven by deleting the real `try/catch` in a scratchpad
+ *   copy and watching the suite stay green.
+ * - For a tool whose only stated product guarantee is "never judges
+ *   compatibility", a narrative that is safe by construction beats one that
+ *   is merely probabilistically safe, call for call: same underlying facts,
+ *   no fabrication surface, no added latency or cost, and nothing left that
+ *   still needs to be proven under failure.
+ *
+ * Given that, `deterministicNarrative` is no longer a fallback — it is the
+ * dossier's only narrative implementation.
  */
 export function deterministicNarrative(facts: CrossReferenceSummary): string {
   if (facts.spokenTo.length === 0) {
@@ -70,62 +93,6 @@ export function deterministicNarrative(facts: CrossReferenceSummary): string {
   }
 
   return parts.join(" ");
-}
-
-export type NarratorEnv = {
-  AI_GATEWAY_ACCOUNT_ID: string;
-  AI_GATEWAY_ID: string;
-  ANTHROPIC_API_KEY: string;
-};
-
-/**
- * Production narrator. Calls Claude **only** through the Cloudflare AI Gateway.
- * The prompt receives topic labels, counts and booleans — never raw reference
- * text or names — and is checked against a banned-phrase list. Any failure or
- * disallowed wording falls back to the deterministic narrative.
- */
-export function claudeNarrator(env: NarratorEnv): DossierNarrator {
-  const client = new Anthropic({
-    apiKey: env.ANTHROPIC_API_KEY,
-    baseURL: `https://gateway.ai.cloudflare.com/v1/${env.AI_GATEWAY_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/anthropic`,
-  });
-
-  return {
-    async compose(facts): Promise<string> {
-      const prompt =
-        "You are a neutral research assistant summarising what a family has learned from reference calls about a suggestion. " +
-        "Do not recommend, score, or judge compatibility. Write one short paragraph in plain English. " +
-        "Use only the following facts; do not invent details, quotes, or topics.\n\n" +
-        `References spoken to: ${facts.spokenTo.length}\n` +
-        `Warm endorsements: ${facts.endorsements.length}\n` +
-        `Reservations raised: ${facts.reservations.length}\n` +
-        `Topics covered: ${facts.covered.map((t) => t.label).join(", ") || "none"}\n` +
-        `Topics still missing: ${facts.gaps.map((t) => t.label).join(", ") || "none"}\n` +
-        `References differ: ${facts.hasContradiction ? "yes" : "no"}\n` +
-        `Outstanding calls: ${facts.outstanding.length}\n`;
-
-      try {
-        const response = await client.messages.create({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 256,
-          messages: [{ role: "user", content: prompt }],
-        });
-
-        const text =
-          response.content
-            .map((block) => (block.type === "text" ? block.text : ""))
-            .join(" ")
-            .trim() || deterministicNarrative(facts);
-
-        if (containsBannedPhrase(text)) {
-          return deterministicNarrative(facts);
-        }
-        return text;
-      } catch {
-        return deterministicNarrative(facts);
-      }
-    },
-  };
 }
 
 export { BANNED_PHRASES };

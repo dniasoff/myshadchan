@@ -1,6 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createParseApp } from "./index";
 import type { RawExtraction } from "./resumeExtractor";
+import { ENTITLED_PAYLOAD, TEST_ENV, makeExtract } from "./parseTestFixtures";
+
+// Finding 8 (idempotency) and Finding 9 (attachment size guard) each moved to
+// their own file — `index.idempotency.test.ts` / `index.sizeGuard.test.ts` —
+// once adding them here would have pushed this file well past the ~400-line
+// typical ceiling (coding-style.md). They share this file's mock shape and
+// `parseTestFixtures.ts`'s fixtures, but each still declares its own
+// `vi.mock(...)` calls: those are per-file (Vitest hoists them within the
+// file that declares them), so mocking cannot be centralized further.
 
 const rpc = vi.fn();
 const select = vi.fn().mockReturnThis();
@@ -10,19 +19,17 @@ const update = vi.fn().mockReturnThis();
 const insert = vi.fn().mockReturnThis();
 const storageFrom = vi.fn();
 const download = vi.fn();
+const list = vi.fn();
 const from = vi.fn(() => ({ select, eq, single, update, insert }));
 
-const aiUsageEq = vi.fn().mockReturnValue({ data: [], error: null });
-const aiUsageSelect = vi.fn().mockReturnValue({
-  eq: aiUsageEq,
-});
-const aiUsageUpdateEq = vi.fn().mockReturnValue({ data: null, error: null });
-const aiUsageInsert = vi.fn().mockReturnValue({ error: null });
-
 const mockScopedTable = {
-  select: aiUsageSelect,
-  insert: aiUsageInsert,
-  update: vi.fn(() => ({ eq: aiUsageUpdateEq })),
+  select: vi.fn().mockReturnValue({
+    eq: vi.fn().mockReturnValue({ data: [], error: null }),
+  }),
+  insert: vi.fn().mockReturnValue({ error: null }),
+  update: vi.fn(() => ({
+    eq: vi.fn().mockReturnValue({ data: null, error: null }),
+  })),
   delete: vi.fn(),
 };
 
@@ -38,42 +45,6 @@ vi.mock("../shared/forAccount", () => ({
   forAccount: vi.fn(() => ({ from: () => mockScopedTable })),
 }));
 
-const env = {
-  SUPABASE_URL: "https://example.supabase.co",
-  SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
-  SUPABASE_PUBLISHABLE_KEY: "publishable-key",
-  AI_GATEWAY_ACCOUNT_ID: "acct",
-  AI_GATEWAY_ID: "gateway",
-  GOOGLE_AI_STUDIO_API_KEY: "key",
-};
-
-const entitledPayload = {
-  is_entitled: true,
-  plan: "ai_tier",
-  status: "active",
-  resumes_used: 0,
-  resumes_limit: 50,
-};
-
-const makeExtract = (
-  overrides: Partial<RawExtraction> = {},
-): RawExtraction => ({
-  name_en: { value: "Rivky", confidence: 0.95 },
-  name_he: { value: "רבקה", confidence: 0.9 },
-  parents_en: { value: null, confidence: 0 },
-  parents_he: { value: null, confidence: 0 },
-  seminary_en: { value: "Bais Yaakov", confidence: 0.85 },
-  seminary_he: { value: null, confidence: 0 },
-  shul_en: { value: null, confidence: 0 },
-  shul_he: { value: null, confidence: 0 },
-  location_en: { value: "Lakewood, NJ", confidence: 0.88 },
-  location_he: { value: null, confidence: 0 },
-  age: { value: 24, confidence: 0.92 },
-  height: { value: "5'6\"", confidence: 0.8 },
-  sections: { learningHistory: [], references: [] },
-  ...overrides,
-});
-
 describe("parse worker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -86,7 +57,7 @@ describe("parse worker", () => {
     const app = createParseApp();
 
     // Act
-    const res = await app.request("http://parse.local/health", {}, env);
+    const res = await app.request("http://parse.local/health", {}, TEST_ENV);
 
     // Assert
     expect(res.status).toBe(200);
@@ -117,7 +88,7 @@ describe("parse worker", () => {
         method: "POST",
         headers: { Authorization: "Bearer token" },
       },
-      env,
+      TEST_ENV,
     );
 
     // Assert
@@ -131,7 +102,7 @@ describe("parse worker", () => {
     const app = createParseApp({
       extract: async () => raw,
     });
-    rpc.mockResolvedValue({ data: entitledPayload, error: null });
+    rpc.mockResolvedValue({ data: ENTITLED_PAYLOAD, error: null });
     single.mockResolvedValue({
       data: {
         id: 1,
@@ -146,7 +117,8 @@ describe("parse worker", () => {
       },
       error: null,
     });
-    storageFrom.mockReturnValue({ download });
+    storageFrom.mockReturnValue({ download, list });
+    list.mockResolvedValue({ data: [], error: null });
     download.mockResolvedValue({
       data: new Blob(["pdf bytes"]),
       error: null,
@@ -163,7 +135,7 @@ describe("parse worker", () => {
         },
         body: JSON.stringify({ inbox_item_id: 1 }),
       },
-      env,
+      TEST_ENV,
     );
 
     // Assert
@@ -181,7 +153,7 @@ describe("parse worker", () => {
     // Arrange
     const app = createParseApp();
     rpc.mockResolvedValue({
-      data: { ...entitledPayload, resumes_used: 50, resumes_limit: 50 },
+      data: { ...ENTITLED_PAYLOAD, resumes_used: 50, resumes_limit: 50 },
       error: null,
     });
 
@@ -196,7 +168,7 @@ describe("parse worker", () => {
         },
         body: JSON.stringify({ inbox_item_id: 1 }),
       },
-      env,
+      TEST_ENV,
     );
 
     // Assert
@@ -211,7 +183,7 @@ describe("parse worker", () => {
   it("returns 404 when the inbox item is not found", async () => {
     // Arrange
     const app = createParseApp();
-    rpc.mockResolvedValue({ data: entitledPayload, error: null });
+    rpc.mockResolvedValue({ data: ENTITLED_PAYLOAD, error: null });
     single.mockResolvedValue({ data: null, error: { message: "not found" } });
 
     // Act
@@ -225,7 +197,7 @@ describe("parse worker", () => {
         },
         body: JSON.stringify({ inbox_item_id: 999 }),
       },
-      env,
+      TEST_ENV,
     );
 
     // Assert
@@ -236,10 +208,141 @@ describe("parse worker", () => {
     });
   });
 
+  describe("CORS (Story 11-1 review fix, Finding 1)", () => {
+    it("answers an OPTIONS preflight from an allowed origin with 204 + Access-Control-Allow-Origin, WITHOUT invoking the entitlement gate — the regression test for the ordering fix", async () => {
+      // Arrange
+      const app = createParseApp();
+
+      // Act — no Authorization header, exactly like a real browser
+      // preflight. If CORS were ever registered AFTER
+      // `requireAiEntitlement`, this request would hit the gate first, get
+      // 401'd (`missing Authorization header`), and never reach `hono/cors`
+      // at all — no Access-Control-Allow-Origin header, no 2xx.
+      const res = await app.request(
+        "http://parse.local/parse",
+        {
+          method: "OPTIONS",
+          headers: {
+            Origin: "https://www.myshadchan.space",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,content-type",
+          },
+        },
+        TEST_ENV,
+      );
+
+      // Assert
+      expect(res.status).toBe(204);
+      expect(res.headers.get("access-control-allow-origin")).toBe(
+        "https://www.myshadchan.space",
+      );
+      expect(rpc).not.toHaveBeenCalled();
+    });
+
+    it("does NOT grant Access-Control-Allow-Origin to a disallowed origin's preflight", async () => {
+      // Arrange
+      const app = createParseApp();
+
+      // Act
+      const res = await app.request(
+        "http://parse.local/parse",
+        {
+          method: "OPTIONS",
+          headers: {
+            Origin: "https://evil.example.com",
+            "Access-Control-Request-Method": "POST",
+          },
+        },
+        TEST_ENV,
+      );
+
+      // Assert
+      expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    });
+
+    it("allows both Content-Type and Authorization on the preflight response", async () => {
+      // Arrange
+      const app = createParseApp();
+
+      // Act
+      const res = await app.request(
+        "http://parse.local/parse",
+        {
+          method: "OPTIONS",
+          headers: {
+            Origin: "https://www.myshadchan.space",
+            "Access-Control-Request-Method": "POST",
+          },
+        },
+        TEST_ENV,
+      );
+
+      // Assert
+      const allowHeaders =
+        res.headers.get("access-control-allow-headers") ?? "";
+      expect(allowHeaders.toLowerCase()).toContain("content-type");
+      expect(allowHeaders.toLowerCase()).toContain("authorization");
+    });
+
+    it("still requires entitlement on a real POST from an allowed origin — proves the CORS fix did NOT open an auth hole", async () => {
+      // Arrange
+      const app = createParseApp();
+
+      // Act — a real POST, allowed origin, but no Authorization header.
+      const res = await app.request(
+        "http://parse.local/parse",
+        {
+          method: "POST",
+          headers: {
+            Origin: "https://www.myshadchan.space",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ inbox_item_id: 1 }),
+        },
+        TEST_ENV,
+      );
+
+      // Assert
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({
+        success: false,
+        error: "missing Authorization header",
+      });
+      expect(rpc).not.toHaveBeenCalled();
+    });
+
+    it("returns the documented 400 envelope for a syntactically malformed JSON body instead of a 500 (Finding 5)", async () => {
+      // Arrange
+      const app = createParseApp();
+      rpc.mockResolvedValue({ data: ENTITLED_PAYLOAD, error: null });
+
+      // Act — invalid JSON syntax, not merely a schema mismatch.
+      const res = await app.request(
+        "http://parse.local/parse",
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer token",
+            "Content-Type": "application/json",
+          },
+          body: "{not valid json",
+        },
+        TEST_ENV,
+      );
+
+      // Assert
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        success: false,
+        error: "invalid request body",
+      });
+    });
+  });
+
   it("returns 422 when no resume attachment exists", async () => {
     // Arrange
     const app = createParseApp();
-    rpc.mockResolvedValue({ data: entitledPayload, error: null });
+    rpc.mockResolvedValue({ data: ENTITLED_PAYLOAD, error: null });
     single.mockResolvedValue({
       data: {
         id: 1,
@@ -262,7 +365,7 @@ describe("parse worker", () => {
         },
         body: JSON.stringify({ inbox_item_id: 1 }),
       },
-      env,
+      TEST_ENV,
     );
 
     // Assert

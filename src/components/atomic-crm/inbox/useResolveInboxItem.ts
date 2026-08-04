@@ -3,6 +3,11 @@ import { useDataProvider } from "ra-core";
 
 import { insertNoteInteraction } from "../entity360/tabs/insertNoteInteraction";
 import type { CrmDataProvider } from "../providers/types";
+import {
+  copyInboxAttachmentToResumeFile,
+  removeResumeFileObjects,
+  type CopiedResumeFile,
+} from "../providers/supabase/resumes";
 import type {
   CreateShidduchInput,
   InboxAttachment,
@@ -33,6 +38,7 @@ type ResolutionInput =
       input: CreateShidduchInput;
       resolved_shidduchim_id?: Identifier;
       resume_draft?: ResumeDraft;
+      resume_created?: boolean;
     }
   | {
       action: "link";
@@ -111,11 +117,28 @@ async function acquireResolutionLock(
     const compatible = inputsAreCompatible(input, currentInput);
 
     if (sameAttempt || compatible) {
+      // Review fix (Story 11.2 review, "also fix #2"): a takeover from a
+      // genuinely new top-level call (a fresh `attemptId` — every call
+      // generates one, so `sameAttempt` is never true across two separate
+      // invocations) used to persist `input` verbatim, discarding whatever
+      // progress the PREVIOUS attempt had already stashed on `currentInput`
+      // (`resolved_shidduchim_id`, `note_inserted`, `resume_created`). That
+      // silently defeated every one of this file's stashed-progress guards
+      // on exactly the "crash mid-resolve, retry" case they exist for: the
+      // retry would see a blank slate and redo the already-completed
+      // mutation. `input` never carries those progress keys at all (they
+      // are added later, after the mutation they guard succeeds), so
+      // spreading `currentInput` first and `input` on top updates the
+      // caller's current intent while preserving any progress key `input`
+      // doesn't set.
       const { data } = await dataProvider.update<InboxItem>("inbox_items", {
         id: item.id,
         data: {
           resolution_attempt_id: attemptId,
-          resolution_input: input as Record<string, unknown>,
+          resolution_input: {
+            ...currentInput,
+            ...input,
+          } as Record<string, unknown>,
         },
         previousData: current,
       });
@@ -254,26 +277,70 @@ export function useResolveInboxItem() {
     // This is a plain CRUD write on a table the user already has full grants
     // on. A failure here surfaces without leaving the shidduch half-created
     // silently unexplained.
-    const savedDraft = (
-      stashed as ResolutionInput & { resume_draft?: ResumeDraft }
-    ).resume_draft;
-    if (savedDraft) {
-      await dataProvider.create<Resume>("resumes", {
+    //
+    // Review fix (Finding 2, P1): the captured attachment lives in the
+    // `attachments` bucket; every resume download signs against the
+    // separate `documents` bucket. `copyInboxAttachmentToResumeFile` moves
+    // the bytes into the bucket the signer (and its stricter, single-denying
+    // RLS — see that function's own comment) actually uses, and returns the
+    // real byte size instead of the hardcoded `0` this path used to persist.
+    //
+    // Review fix (also-fix #2): gated by the same stashed-progress mechanism
+    // guarding `resolved_shidduchim_id` above and `note_inserted` in
+    // `resolveAsLinkToExisting` below — a retry that observes
+    // `resume_created` already stashed skips re-creating the row, so a crash
+    // between this write and the finalize step below cannot duplicate it.
+    const draftProgress = stashed as ResolutionInput & {
+      resume_draft?: ResumeDraft;
+      resume_created?: boolean;
+    };
+    const savedDraft = draftProgress.resume_draft;
+    if (savedDraft && !draftProgress.resume_created) {
+      let copiedFile: CopiedResumeFile | undefined;
+      try {
+        copiedFile = await copyInboxAttachmentToResumeFile({
+          shidduchimId: created.id,
+          attachmentPath: savedDraft.attachment.path,
+          fileName: savedDraft.attachment.title,
+        });
+        await dataProvider.create<Resume>("resumes", {
+          data: {
+            shidduchim_id: created.id,
+            files: [
+              {
+                path: copiedFile.storagePath,
+                filename: savedDraft.attachment.title,
+                mime_type: savedDraft.attachment.type,
+                uploaded_at: new Date().toISOString(),
+                uploaded_by: null,
+                size: copiedFile.size,
+              },
+            ],
+            extracted: savedDraft.rawDraft,
+            sections: savedDraft.sections,
+          },
+        });
+      } catch (creationError) {
+        // Mirrors `uploadResumeFile`'s "no object without a row" ordering:
+        // the copy already landed in `documents` when the row write failed,
+        // so remove it rather than leaving an orphaned, never-referenced
+        // object behind.
+        if (copiedFile) {
+          await removeResumeFileObjects([copiedFile.storagePath]);
+        }
+        throw creationError;
+      }
+
+      await dataProvider.update<InboxItem>("inbox_items", {
+        id: item.id,
         data: {
-          shidduchim_id: created.id,
-          files: [
-            {
-              path: savedDraft.attachment.path,
-              filename: savedDraft.attachment.title,
-              mime_type: savedDraft.attachment.type,
-              uploaded_at: new Date().toISOString(),
-              uploaded_by: null,
-              size: 0,
-            },
-          ],
-          extracted: savedDraft.rawDraft,
-          sections: savedDraft.sections,
+          resolution_input: {
+            ...draftProgress,
+            resolved_shidduchim_id: created.id,
+            resume_created: true,
+          } as Record<string, unknown>,
         },
+        previousData: lockedItem,
       });
     }
 

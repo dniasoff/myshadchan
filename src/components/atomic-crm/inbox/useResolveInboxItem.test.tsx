@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter, type Identifier } from "ra-core";
 
@@ -11,7 +11,26 @@ import type {
   InboxItem,
   Shidduch,
 } from "../types";
-import { useResolveInboxItem } from "./useResolveInboxItem";
+import { useResolveInboxItem, type ResumeDraft } from "./useResolveInboxItem";
+
+/**
+ * `useResolveInboxItem.ts` calls these two directly (the
+ * `signInboxAttachmentUrl` idiom `InboxResolveDialog.tsx` already uses,
+ * not a `CrmDataProvider` custom method — see the Finding 2 review-fix
+ * comment on `resolveAsNewShidduch`), so they are mocked at the module
+ * level rather than through the `dataProvider` mock below.
+ */
+const { copyInboxAttachmentToResumeFile, removeResumeFileObjects } = vi.hoisted(
+  () => ({
+    copyInboxAttachmentToResumeFile: vi.fn(),
+    removeResumeFileObjects: vi.fn(),
+  }),
+);
+
+vi.mock("../providers/supabase/resumes", () => ({
+  copyInboxAttachmentToResumeFile,
+  removeResumeFileObjects,
+}));
 
 /**
  * Story 10.1 (Task 5, AC 5/6/7) + Story 10.5 idempotency:
@@ -99,7 +118,13 @@ const buildDataProvider = (
   } as unknown as CrmDataProvider;
 };
 
-function ResolveProbe({ item }: { item: InboxItem }) {
+function ResolveProbe({
+  item,
+  draft,
+}: {
+  item: InboxItem;
+  draft?: ResumeDraft;
+}) {
   const { resolveAsNewShidduch, resolveAsLinkToExisting, dismissInboxItem } =
     useResolveInboxItem();
   const [result, setResult] = useState("idle");
@@ -122,7 +147,7 @@ function ResolveProbe({ item }: { item: InboxItem }) {
               single_id: 5,
               shadchan_id: 7,
             };
-            const created = await resolveAsNewShidduch(item, input);
+            const created = await resolveAsNewShidduch(item, input, draft);
             return `new:${created.id}`;
           })
         }
@@ -156,6 +181,7 @@ function ResolveProbe({ item }: { item: InboxItem }) {
 const renderProbe = async (
   item: InboxItem,
   dataProviderOverrides: Partial<CrmDataProvider> = {},
+  draft?: ResumeDraft,
 ) => {
   const dataProvider = buildDataProvider(dataProviderOverrides, item);
   const screen = await render(
@@ -164,12 +190,26 @@ const renderProbe = async (
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <ResolveProbe item={item} />
+        <ResolveProbe item={item} draft={draft} />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
   return { screen, dataProvider };
 };
+
+const buildResumeDraft = (
+  overrides: Partial<ResumeDraft["attachment"]> = {},
+): ResumeDraft => ({
+  attachment: {
+    title: "resume.pdf",
+    type: "application/pdf",
+    path: "1/inbox-resume.pdf",
+    src: "https://example.test/resume.pdf",
+    ...overrides,
+  },
+  rawDraft: { name_en: "Chaim Berkowitz" },
+  sections: { learningHistory: [], references: [] },
+});
 
 describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShidduch path)", () => {
   it("creates via dataProvider.createShidduch, then marks the item resolved and linked", async () => {
@@ -239,6 +279,130 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
     await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
 
     expect(dataProvider.createShidduch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 review fix, Finding 2 + also-fixes)", () => {
+  beforeEach(() => {
+    copyInboxAttachmentToResumeFile.mockReset();
+    removeResumeFileObjects.mockReset();
+  });
+
+  it("persists the copied documents-bucket path and the real byte size on the new resumes row — the regression test for Finding 2", async () => {
+    // Arrange
+    copyInboxAttachmentToResumeFile.mockResolvedValue({
+      storagePath: "7/resumes/99/generated-uuid-resume.pdf",
+      size: 245678,
+    });
+    const item = buildItem();
+    const draft = buildResumeDraft();
+    const { screen, dataProvider } = await renderProbe(item, {}, draft);
+
+    // Act
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+
+    // Assert: the ORIGINAL inbox attachment path is handed to the copier,
+    // never persisted directly (that was the bug: an `attachments`-bucket
+    // path saved as if it were a `documents`-bucket one).
+    expect(copyInboxAttachmentToResumeFile).toHaveBeenCalledWith({
+      shidduchimId: 99,
+      attachmentPath: "1/inbox-resume.pdf",
+      fileName: "resume.pdf",
+    });
+
+    // Assert: the persisted file version uses the COPIED path (the bucket
+    // the signer actually reads from) and the real downloaded size, not the
+    // stale attachment path or a hardcoded 0.
+    expect(dataProvider.create).toHaveBeenCalledWith(
+      "resumes",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          shidduchim_id: 99,
+          files: [
+            expect.objectContaining({
+              path: "7/resumes/99/generated-uuid-resume.pdf",
+              filename: "resume.pdf",
+              mime_type: "application/pdf",
+              size: 245678,
+            }),
+          ],
+          extracted: draft.rawDraft,
+          sections: draft.sections,
+        }),
+      }),
+    );
+  });
+
+  it("does not attempt a resumes row when no draft was used", async () => {
+    // Arrange
+    const item = buildItem();
+    const { dataProvider, screen } = await renderProbe(item);
+
+    // Act
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+
+    // Assert
+    expect(copyInboxAttachmentToResumeFile).not.toHaveBeenCalled();
+    expect(dataProvider.create).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent: a retry that resumes an in-progress resolve with the resumes row already stashed does not create a second one", async () => {
+    // Arrange: simulates a crash between the `resume_created` stash update
+    // and the finalize update — the item is still `resolving`, but the
+    // resolution_input already recorded that the row was created.
+    const draft = buildResumeDraft();
+    const item = buildItem({
+      status: "resolving",
+      resolution_attempt_id: "old-attempt",
+      resolution_input: {
+        action: "new",
+        input: { single_id: 5, shadchan_id: 7 },
+        resume_draft: draft,
+        resolved_shidduchim_id: 99,
+        resume_created: true,
+      },
+    });
+    const { screen, dataProvider } = await renderProbe(item, {}, draft);
+
+    // Act
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+
+    // Assert: the retry completes (finalizes) without redoing any of the
+    // already-stashed work.
+    expect(dataProvider.createShidduch).not.toHaveBeenCalled();
+    expect(copyInboxAttachmentToResumeFile).not.toHaveBeenCalled();
+    expect(dataProvider.create).not.toHaveBeenCalled();
+  });
+
+  it("removes the copied object and rethrows when the resumes row write fails, rather than leaving an orphaned object", async () => {
+    // Arrange
+    copyInboxAttachmentToResumeFile.mockResolvedValue({
+      storagePath: "7/resumes/99/generated-uuid-resume.pdf",
+      size: 245678,
+    });
+    const create = vi.fn(async (resource: string) => {
+      if (resource === "resumes") {
+        throw new Error("insert failed");
+      }
+      return { data: { id: 100 } };
+    }) as unknown as CrmDataProvider["create"];
+    const item = buildItem();
+    const draft = buildResumeDraft();
+    const { screen } = await renderProbe(item, { create }, draft);
+
+    // Act
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+
+    // Assert
+    await expect
+      .element(screen.getByText("error:insert failed"))
+      .toBeInTheDocument();
+    expect(removeResumeFileObjects).toHaveBeenCalledWith([
+      "7/resumes/99/generated-uuid-resume.pdf",
+    ]);
   });
 });
 

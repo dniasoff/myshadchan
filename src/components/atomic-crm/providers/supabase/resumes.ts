@@ -3,6 +3,7 @@ import {
   type ResumeSubject,
 } from "../../resumes/resumeSubject";
 import type { Resume } from "../../types";
+import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import { getSupabaseClient } from "./supabase";
 
 /**
@@ -104,6 +105,74 @@ export async function uploadResumeFile(
 
   const row = Array.isArray(data) ? data[0] : data;
   return row as Resume;
+}
+
+export type CopyInboxAttachmentToResumeFileParams = ResumeSubject & {
+  /** The `attachments`-bucket key an inbox capture already lives at
+   * (`InboxAttachment.path`). */
+  attachmentPath: string;
+  fileName: string;
+};
+
+export type CopiedResumeFile = {
+  storagePath: string;
+  size: number;
+};
+
+/**
+ * Story 11.2 review fix (Finding 2, P1): a resume draft's saved file version
+ * used to persist the ORIGINAL inbox attachment's path verbatim — a key
+ * inside `ATTACHMENTS_BUCKET` — while every resume download signs against
+ * `DOCUMENTS_BUCKET` (`signResumeFileUrl` below). Every auto-parsed resume
+ * was therefore permanently undownloadable: `createSignedUrl` looks the path
+ * up in the wrong bucket and 404s.
+ *
+ * Worse than a broken download link: leaving the object in `attachments`
+ * would also silently defeat Story 6.3's AC-6 guarantee that a `single`
+ * cannot reach a resume's raw PDF bytes at the storage layer.
+ * `07_storage.sql`'s `documents`/`resumes/` policies carry an explicit
+ * `current_member_role() <> 'single'` guard; `attachments`' policies carry
+ * no such guard at all — any authenticated member of the account can read
+ * any object under their account's `attachments` prefix, regardless of role.
+ * So this is not an optimization, it is the fix: copy the bytes into
+ * `documents`, under the exact same `{account}/resumes/{ownerSegment}/…`
+ * grammar `uploadResumeFile` above uses, so every `resumes.files[]` entry —
+ * manually uploaded or auto-parsed — lives under the one bucket the signer
+ * and the RLS policies both agree on. The real byte size comes back from the
+ * downloaded blob rather than being invented, which is also this same
+ * code path's fix for a second, unrelated data-fidelity gap (the auto-parse
+ * writer used to hardcode `size: 0`).
+ */
+export async function copyInboxAttachmentToResumeFile(
+  params: CopyInboxAttachmentToResumeFileParams,
+): Promise<CopiedResumeFile> {
+  const { attachmentPath, fileName, ...subject } = params;
+  const accountId = await getCurrentAccountId();
+  const ownerSegment = isSingleSubject(subject)
+    ? `single-${subject.singleId}`
+    : `${subject.shidduchimId}`;
+  const storagePath = `${accountId}/resumes/${ownerSegment}/${crypto.randomUUID()}-${fileName}`;
+
+  const { data: blob, error: downloadError } = await getSupabaseClient()
+    .storage.from(ATTACHMENTS_BUCKET)
+    .download(attachmentPath);
+  if (downloadError || !blob) {
+    console.error(
+      "copyInboxAttachmentToResumeFile.download.error",
+      downloadError,
+    );
+    throw new Error("Failed to read the captured resume attachment");
+  }
+
+  const { error: uploadError } = await getSupabaseClient()
+    .storage.from(DOCUMENTS_BUCKET)
+    .upload(storagePath, blob);
+  if (uploadError) {
+    console.error("copyInboxAttachmentToResumeFile.upload.error", uploadError);
+    throw new Error("Failed to save the captured resume");
+  }
+
+  return { storagePath, size: blob.size };
 }
 
 /**

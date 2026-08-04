@@ -17,9 +17,6 @@ const env = {
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_SERVICE_ROLE_KEY: "key",
   SUPABASE_PUBLISHABLE_KEY: "publishable-key",
-  AI_GATEWAY_ACCOUNT_ID: "acct",
-  AI_GATEWAY_ID: "gateway",
-  ANTHROPIC_API_KEY: "key",
 };
 
 const entitledPayload = {
@@ -105,12 +102,9 @@ describe("POST /dossier", () => {
       ],
       error: null,
     });
-    const fakeNarrator = {
-      compose: vi.fn().mockResolvedValue("A composed narrative."),
-    };
 
     // Act
-    const app = createAiApp(fakeNarrator);
+    const app = createAiApp();
     const res = await app.request(
       "http://ai.local/dossier",
       {
@@ -129,7 +123,7 @@ describe("POST /dossier", () => {
         spokenToCount: number;
         endorsementCount: number;
         reservationCount: number;
-        hasContradiction: boolean;
+        hasMixedSentiment: boolean;
         covered: string[];
         narrative: string;
       };
@@ -138,12 +132,16 @@ describe("POST /dossier", () => {
     expect(body.data.spokenToCount).toBe(2);
     expect(body.data.endorsementCount).toBe(1);
     expect(body.data.reservationCount).toBe(1);
-    expect(body.data.hasContradiction).toBe(true);
+    expect(body.data.hasMixedSentiment).toBe(true);
     expect(body.data.covered).toContain("Character");
-    expect(body.data.narrative).toBe("A composed narrative.");
+    // Review fix (Finding 12): no model call, no injected fake — the
+    // narrative is the real deterministic sentence built from these facts.
+    expect(body.data.narrative).toContain("2 references were spoken to");
+    expect(body.data.narrative).toContain("1 spoke warmly");
+    expect(body.data.narrative).toContain("1 raised a reservation");
   });
 
-  it("returns the zero-row shape when the shidduchim_id resolves to nothing", async () => {
+  it("returns every topic as a gap — never an empty gap list — when the shidduchim_id resolves to nothing (Finding 4)", async () => {
     // Arrange
     mockEntitlement();
     eq.mockResolvedValue({ data: [], error: null });
@@ -171,7 +169,7 @@ describe("POST /dossier", () => {
         reservationCount: number;
         covered: string[];
         gaps: string[];
-        hasContradiction: boolean;
+        hasMixedSentiment: boolean;
         narrative: string;
       };
     };
@@ -181,8 +179,20 @@ describe("POST /dossier", () => {
     expect(body.data.endorsementCount).toBe(0);
     expect(body.data.reservationCount).toBe(0);
     expect(body.data.covered).toEqual([]);
-    expect(body.data.gaps).toEqual([]);
-    expect(body.data.hasContradiction).toBe(false);
+    // This is the regression test for Finding 4: the response used to
+    // hard-code `gaps: []` for the zero-row case, which the card rendered as
+    // "Every topic has been touched on" — the opposite of the truth. Every
+    // COVERAGE_TOPICS entry must be reported missing when nothing has been
+    // recorded, exactly as the non-empty-corpus path already does.
+    expect(body.data.gaps).toEqual([
+      "Character",
+      "Family",
+      "Learning or work",
+      "Health",
+      "Observance",
+      "Friends and social",
+    ]);
+    expect(body.data.hasMixedSentiment).toBe(false);
     expect(body.data.narrative).toContain("Nothing has been recorded");
   });
 
@@ -208,5 +218,140 @@ describe("POST /dossier", () => {
       success: false,
       error: "invalid request body",
     });
+  });
+
+  it("returns 400 for a syntactically malformed JSON body instead of a 500 (Finding 5)", async () => {
+    // Arrange
+    mockEntitlement();
+
+    // Act — invalid JSON syntax, not merely a schema mismatch (that's the
+    // test above).
+    const app = createAiApp();
+    const res = await app.request(
+      "http://ai.local/dossier",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token",
+          "Content-Type": "application/json",
+        },
+        body: "{not valid json",
+      },
+      env,
+    );
+
+    // Assert
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      success: false,
+      error: "invalid request body",
+    });
+  });
+});
+
+describe("CORS (Story 11-1 review fix, Finding 1)", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("answers an OPTIONS preflight from an allowed origin with 204 + Access-Control-Allow-Origin, WITHOUT invoking the entitlement gate — the regression test for the ordering fix", async () => {
+    // Arrange
+    const app = createAiApp();
+
+    // Act — no Authorization header, exactly like a real browser preflight.
+    // If CORS were ever registered AFTER `requireAiEntitlement`, this
+    // request would hit the gate first, get 401'd (`missing Authorization
+    // header`), and never reach `hono/cors` at all — no
+    // Access-Control-Allow-Origin header, no 2xx.
+    const res = await app.request(
+      "http://ai.local/dossier",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://www.myshadchan.space",
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "authorization,content-type",
+        },
+      },
+      env,
+    );
+
+    // Assert
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "https://www.myshadchan.space",
+    );
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("does NOT grant Access-Control-Allow-Origin to a disallowed origin's preflight", async () => {
+    // Arrange
+    const app = createAiApp();
+
+    // Act
+    const res = await app.request(
+      "http://ai.local/dossier",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://evil.example.com",
+          "Access-Control-Request-Method": "POST",
+        },
+      },
+      env,
+    );
+
+    // Assert
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("allows both Content-Type and Authorization on the preflight response", async () => {
+    // Arrange
+    const app = createAiApp();
+
+    // Act
+    const res = await app.request(
+      "http://ai.local/dossier",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://www.myshadchan.space",
+          "Access-Control-Request-Method": "POST",
+        },
+      },
+      env,
+    );
+
+    // Assert
+    const allowHeaders = res.headers.get("access-control-allow-headers") ?? "";
+    expect(allowHeaders.toLowerCase()).toContain("content-type");
+    expect(allowHeaders.toLowerCase()).toContain("authorization");
+  });
+
+  it("still requires entitlement on a real POST from an allowed origin — proves the CORS fix did NOT open an auth hole", async () => {
+    // Arrange
+    const app = createAiApp();
+
+    // Act — a real POST, allowed origin, but no Authorization header.
+    const res = await app.request(
+      "http://ai.local/dossier",
+      {
+        method: "POST",
+        headers: {
+          Origin: "https://www.myshadchan.space",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ shidduchim_id: 1 }),
+      },
+      env,
+    );
+
+    // Assert
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({
+      success: false,
+      error: "missing Authorization header",
+    });
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

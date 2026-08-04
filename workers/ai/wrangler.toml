@@ -8,5 +8,11 @@ port = 8789
 
 # Secrets (set via `wrangler secret put <NAME> --config workers/ai/wrangler.toml`,
 # or the CI job in .github/workflows/deploy.yml): SUPABASE_URL,
-# SUPABASE_SERVICE_ROLE_KEY, SUPABASE_PUBLISHABLE_KEY, AI_GATEWAY_ACCOUNT_ID,
-# AI_GATEWAY_ID, ANTHROPIC_API_KEY.
+# SUPABASE_SERVICE_ROLE_KEY, SUPABASE_PUBLISHABLE_KEY.
+#
+# Review fix (Finding 12): this worker no longer calls Claude (see
+# dossierNarrator.ts's header comment), so AI_GATEWAY_ACCOUNT_ID,
+# AI_GATEWAY_ID and ANTHROPIC_API_KEY are no longer required here — nothing
+# in workers/ai/** reads them. Not removed from wherever they were
+# provisioned (e.g. Cloudflare's dashboard) as part of this change; that is
+# an infra action, not a code one, and out of scope for this fix.

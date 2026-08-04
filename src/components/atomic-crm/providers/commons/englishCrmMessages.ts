@@ -956,7 +956,11 @@ export const englishCrmMessages = {
         nothingCovered: "Nothing recorded yet.",
         gaps: "Still missing",
         noGaps: "Every topic has been touched on.",
-        contradiction: "References differ",
+        // Story 11-1 review fix (Finding 13): renamed from `contradiction`
+        // ("References differ") to match `DossierResponse.hasMixedSentiment`
+        // — the flag is a whole-corpus warm-vs-hesitant split, not a claim
+        // that two references disagree on the same point.
+        mixedSentiment: "Mixed sentiment",
         narrative: "Summary",
         error: "Could not load the summary. Please try again.",
         guardrail:

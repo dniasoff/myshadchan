@@ -843,7 +843,9 @@ export const frenchCrmMessages = {
         nothingCovered: "Rien n'a encore été noté.",
         gaps: "Encore manquant",
         noGaps: "Tous les sujets ont été abordés.",
-        contradiction: "Les références divergent",
+        // Story 11-1 review fix (Finding 13): renamed from `contradiction`
+        // to match the English catalogue's `mixedSentiment` key.
+        mixedSentiment: "Sentiments partagés",
         narrative: "Synthèse",
         error: "Impossible de charger la synthèse. Veuillez réessayer.",
         guardrail:

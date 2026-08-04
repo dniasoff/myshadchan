@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
-import { cors } from "hono/cors";
 
 import { createWorkerApp } from "../shared/createApp";
+import { createCorsMiddleware, PRODUCTION_ORIGINS } from "../shared/cors";
 import { fail, ok } from "../shared/envelope";
 import { forAccount } from "../shared/forAccount";
 import type { BaseEnv } from "../shared/env";
@@ -39,15 +39,16 @@ const DOCUMENTS_BUCKET = "documents";
  * standing in for authentication — it just keeps the JSON readable by
  * script only from the product's own origin(s), the same discipline the
  * epic pre-flight's C2 names for the bearer-token AI/billing path, applied
- * here too. `workers/shared/cors.ts` is reserved for Story 11-1 to
- * introduce as a shared module (pre-flight §5 C2) — this allowlist stays
- * worker-local until that lands, at which point `share` should migrate to
- * it rather than fork it further.
+ * here too.
+ *
+ * Story 11-1 review fix: migrated onto `workers/shared/cors.ts`, the shared
+ * module this comment used to reserve for that story to build (it now
+ * exists, and `workers/parse`/`workers/ai` also use it) — one implementation
+ * instead of a fork. `PRODUCTION_ORIGINS` there is byte-for-byte the same two
+ * origins, same order, that were hard-coded here before; this Worker
+ * deliberately does NOT also pick up `LOCAL_DEV_ORIGINS` (unlike the AI
+ * Workers) — nothing about this route's behaviour changes.
  */
-const SHARE_ALLOWED_ORIGINS = [
-  "https://www.myshadchan.space",
-  "https://myshadchan.space",
-];
 
 interface ShareLinkRow {
   id: number;
@@ -323,10 +324,17 @@ const app = createWorkerApp<ShareEnv>("share");
 
 // Review fix (F2): every route on this Worker is reachable cross-origin
 // from the deployed app, so every route needs the allowlisted CORS header
-// — not just the ones a browser happens to call today. Hono's `cors()`
-// also answers the OPTIONS preflight itself (204, no downstream handler
-// invoked), so no separate `app.options(...)` route is needed.
-app.use("*", cors({ origin: SHARE_ALLOWED_ORIGINS, allowMethods: ["GET"] }));
+// — not just the ones a browser happens to call today. `hono/cors` (wrapped
+// by `createCorsMiddleware`) also answers the OPTIONS preflight itself (204,
+// no downstream handler invoked), so no separate `app.options(...)` route is
+// needed. No `allowHeaders` is passed — same as before this migration —
+// which keeps `hono/cors`'s own default (echo back whatever the browser's
+// preflight asked for), because this route never requires a caller to send
+// anything beyond a browser's own simple headers.
+app.use(
+  "*",
+  createCorsMiddleware({ origins: PRODUCTION_ORIGINS, methods: ["GET"] }),
+);
 
 // AC-3, AC-6, AC-7: the profile view. Identical 404 for missing, revoked or
 // expired — no oracle for link status.

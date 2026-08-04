@@ -75,7 +75,7 @@ describe("buildCrossReferenceSummary", () => {
     expect(summary.covered.map((topic) => topic.id)).toContain("learning");
   });
 
-  it("flags a contradiction when references pull in different directions", () => {
+  it("flags mixed sentiment when references pull in different directions", () => {
     // Arrange
     const links = [
       link({ id: 1, what_they_said: "A wonderful person, no reservations." }),
@@ -91,10 +91,10 @@ describe("buildCrossReferenceSummary", () => {
     // Assert
     expect(summary.endorsements.map((l) => l.id)).toEqual([1]);
     expect(summary.reservations.map((l) => l.id)).toEqual([2]);
-    expect(summary.hasContradiction).toBe(true);
+    expect(summary.hasMixedSentiment).toBe(true);
   });
 
-  it("does not flag a contradiction when everyone agrees", () => {
+  it("does not flag mixed sentiment when everyone agrees", () => {
     // Arrange
     const links = [
       link({ id: 1, what_they_said: "Wonderful, warm, highly recommended." }),
@@ -105,7 +105,7 @@ describe("buildCrossReferenceSummary", () => {
     const summary = buildCrossReferenceSummary(links);
 
     // Assert
-    expect(summary.hasContradiction).toBe(false);
+    expect(summary.hasMixedSentiment).toBe(false);
     expect(summary.reservations).toHaveLength(0);
   });
 
@@ -137,7 +137,26 @@ describe("buildCrossReferenceSummary", () => {
     // Assert
     expect(summary.covered).toHaveLength(0);
     expect(summary.gaps.length).toBeGreaterThan(0);
-    expect(summary.hasContradiction).toBe(false);
+    expect(summary.hasMixedSentiment).toBe(false);
+  });
+
+  it("reports every topic as a gap when there are no reference links at all (Finding 4)", () => {
+    // Arrange — the shape the worker passes through when a suggestion has no
+    // reference rows. Before the fix the worker special-cased this instead of
+    // calling this function, and hand-returned `gaps: []`, which the card then
+    // rendered as "Every topic has been touched on" — the exact opposite of
+    // the truth. This function has always computed the honest answer for an
+    // empty corpus; the fix was to stop bypassing it.
+    const links: ReferenceLinkSummary[] = [];
+
+    // Act
+    const summary = buildCrossReferenceSummary(links);
+
+    // Assert
+    expect(summary.spokenTo).toHaveLength(0);
+    expect(summary.covered).toHaveLength(0);
+    expect(summary.gaps).toHaveLength(6);
+    expect(summary.hasMixedSentiment).toBe(false);
   });
 
   it("never emits a verdict field about the match itself (FR63)", () => {
@@ -155,7 +174,7 @@ describe("buildCrossReferenceSummary", () => {
       "gaps",
       "endorsements",
       "reservations",
-      "hasContradiction",
+      "hasMixedSentiment",
     ]);
   });
 });

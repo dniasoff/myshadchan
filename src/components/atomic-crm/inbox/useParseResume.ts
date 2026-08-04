@@ -3,15 +3,22 @@ import { callAiWorker } from "../providers/commons/aiWorkerClient";
 import type { InboxAttachment, InboxItem } from "../types";
 
 /**
- * The twelve bilingual fields a resume may fill in the shidduch create form.
+ * The fourteen bilingual fields a resume may fill in the shidduch create form.
  * Defined here (mirroring the Worker's `ParsedResumeFields`) so the SPA does not
  * import runtime code from `workers/`.
+ *
+ * Review fix (Finding 3): father and mother are split fields, matching
+ * `ShidduchInputs.tsx` / `public.shidduchim` — a combined `parents_en` /
+ * `parents_he` pair had no input that rendered it and no submit mapping that
+ * read it, so any parent info the model extracted was silently discarded.
  */
 export type ParsedResumeFields = {
   name_en: string | number | null;
   name_he: string | number | null;
-  parents_en: string | number | null;
-  parents_he: string | number | null;
+  father_en: string | number | null;
+  father_he: string | number | null;
+  mother_en: string | number | null;
+  mother_he: string | number | null;
   seminary_en: string | number | null;
   seminary_he: string | number | null;
   shul_en: string | number | null;
@@ -32,11 +39,25 @@ export type ParsedResumeResponse = {
   rawDraft: unknown;
 };
 
+/**
+ * Mirrors the Worker's `ALLOWED_ATTACHMENT_MIME_TYPES`
+ * (`workers/parse/inboxAttachment.ts`, review fix Finding 9) — duplicated,
+ * not imported, for the same reason as `ParsedResumeFields` above: the SPA
+ * does not import runtime code from `workers/`. Kept in sync so this
+ * button-visibility heuristic never renders "Auto-fill from resume" for a
+ * MIME type the Worker's own authority will then reject.
+ */
+const RESUME_SHAPED_MIME_TYPES: readonly string[] = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+];
+
 function isResumeShapedAttachment(attachment: InboxAttachment): boolean {
-  return (
-    attachment.type.startsWith("application/pdf") ||
-    attachment.type.startsWith("image/")
-  );
+  return RESUME_SHAPED_MIME_TYPES.includes(attachment.type);
 }
 
 /**

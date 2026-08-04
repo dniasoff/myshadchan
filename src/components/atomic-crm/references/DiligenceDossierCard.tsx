@@ -15,7 +15,14 @@ export interface DossierResponse {
   reservationCount: number;
   covered: string[];
   gaps: string[];
-  hasContradiction: boolean;
+  /**
+   * True when at least one reference read warm and at least one read
+   * hesitant, anywhere across the whole corpus — a coarse sentiment split,
+   * not a claim that two references contradict each other on the same
+   * topic. Named `hasMixedSentiment` rather than "contradiction" for that
+   * reason (review fix, Finding 13).
+   */
+  hasMixedSentiment: boolean;
   narrative: string;
 }
 
@@ -58,13 +65,23 @@ function DossierCardContent({ data }: { data: DossierResponse }) {
             _: "Cross-reference summary",
           })}
         </CardTitle>
-        {data.hasContradiction ? (
+        {data.hasMixedSentiment ? (
           <Badge
             variant="outline"
             className="text-attention border-attention/50"
           >
-            {translate("crm.diligence.dossier.contradiction", {
-              _: "References differ",
+            {/*
+             * Review fix (Finding 13): this used to read
+             * "crm.diligence.dossier.contradiction" / "References differ",
+             * which claims two references disagree on the same point. The
+             * underlying flag is a whole-corpus warm-vs-hesitant split, not a
+             * same-topic conflict, so the label is renamed to match — see
+             * DossierResponse.hasMixedSentiment's doc comment above. The
+             * catalogue key itself was renamed alongside this (English +
+             * French) as part of the wave's cross-reconciliation pass.
+             */}
+            {translate("crm.diligence.dossier.mixedSentiment", {
+              _: "Mixed sentiment",
             })}
           </Badge>
         ) : null}

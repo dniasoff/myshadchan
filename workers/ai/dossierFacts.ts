@@ -117,10 +117,20 @@ export type CrossReferenceSummary = {
   /** References that voiced some reservation. */
   reservations: ReferenceLinkSummary[];
   /**
-   * True when references pull in different directions — some warm, some
-   * reserved. Surfaced so the user reads both, never resolved for them.
+   * True when at least one reference read as a warm endorsement AND at
+   * least one (possibly the same, possibly a different) reference read as
+   * hesitant, anywhere across the whole corpus.
+   *
+   * Review fix (Finding 13): this used to be called `hasContradiction`,
+   * which claims more than the computation supports — it is a whole-corpus
+   * sentiment split, not a check that two references disagree about the
+   * same topic or fact. Two references, one warm about the family and one
+   * separately hesitant about health, trip this flag even though neither
+   * contradicts the other. Renamed so the field name matches what it
+   * actually measures; surfaced so the user reads every reference in full,
+   * never resolved for them.
    */
-  hasContradiction: boolean;
+  hasMixedSentiment: boolean;
 };
 
 const textOf = (link: ReferenceLinkSummary): string => {
@@ -168,6 +178,6 @@ export const buildCrossReferenceSummary = (
     gaps,
     endorsements,
     reservations,
-    hasContradiction: endorsements.length > 0 && reservations.length > 0,
+    hasMixedSentiment: endorsements.length > 0 && reservations.length > 0,
   };
 };
