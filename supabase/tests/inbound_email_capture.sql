@@ -401,6 +401,68 @@ select 'control: account_a''s OWN parent_admin CAN select their trusted_senders 
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- inbox_items.sender_email — the persisted SMTP envelope sender (Epic 11
+-- review fix, 01_tables.sql). Deliberately separate from `inbox_items.sender`
+-- (the FR24-recovered forwarded-ORIGINAL sender, extracted from the message
+-- body and often a bare display name) — `sender_email` answers a different
+-- question ("who actually sent us this message") and is what the
+-- Needs-review tab's Trust-sender action must write to and compare against
+-- `trusted_senders.email`. Covers: it accepts and stores a real address, it
+-- is nullable (an item with no recoverable envelope sender leaves it NULL —
+-- never backfilled from `sender`, which would fabricate a value for a
+-- different question), and it is citext — the SAME case-insensitive
+-- comparison `trusted_senders.email` already relies on, so a Trust-sender
+-- match needs no separate JS-side normalisation.
+-- ---------------------------------------------------------------------------
+
+insert into public.inbox_items (id, account_id, source, sender_email, status)
+values (91000001, :account_a, 'email', 'Seminary.Office@EXAMPLE.test', 'held')
+returning id as inbox_sender_email_set \gset
+
+insert into ids values ('inbox_sender_email_set', :inbox_sender_email_set);
+
+insert into results (name, passed, detail)
+select 'inbox_items.sender_email accepts and stores a real envelope sender address',
+       sender_email is not null,
+       format('sender_email=%L', sender_email)
+from public.inbox_items where id = :inbox_sender_email_set;
+
+insert into public.inbox_items (id, account_id, source, status)
+values (91000002, :account_a, 'email', 'held')
+returning id as inbox_sender_email_null \gset
+
+insert into ids values ('inbox_sender_email_null', :inbox_sender_email_null);
+
+insert into results (name, passed, detail)
+select 'inbox_items.sender_email is nullable — an item held with no recoverable envelope sender leaves it NULL',
+       sender_email is null,
+       format('sender_email=%L', sender_email)
+from public.inbox_items where id = :inbox_sender_email_null;
+
+insert into results (name, passed, detail)
+select 'inbox_items.sender_email is citext: a differently-cased literal compares equal to the stored value',
+       sender_email = 'seminary.office@example.test'::extensions.citext
+       and sender_email = 'SEMINARY.OFFICE@EXAMPLE.TEST'::extensions.citext,
+       format('sender_email=%L', sender_email)
+from public.inbox_items where id = :inbox_sender_email_set;
+
+-- The end-to-end reason sender_email is citext, not text: this row's value
+-- ('Seminary.Office@EXAMPLE.test') differs in case from the trusted_senders
+-- row seeded earlier for the SAME account ('seminary.office@example.test'),
+-- yet the two must still be recognised as the same address for the
+-- Trust-sender action to work — with no lower()/upper() call anywhere.
+insert into results (name, passed, detail)
+select 'a differently-cased inbox_items.sender_email matches the SAME address already trusted in trusted_senders for the same account, without JS-side normalisation',
+       exists (
+         select 1
+         from public.inbox_items i
+         join public.trusted_senders t
+           on t.account_id = i.account_id and t.email = i.sender_email
+         where i.id = :inbox_sender_email_set
+       ),
+       'expected a citext match against the trusted_senders row seeded earlier (seminary.office@example.test, account_a)';
+
+-- ---------------------------------------------------------------------------
 -- Emit the report as a single JSON array line, then undo everything.
 -- ---------------------------------------------------------------------------
 \t on

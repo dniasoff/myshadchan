@@ -77,6 +77,11 @@ export async function handleInboundEmail(
     textBody: parsed.text ?? parsed.html ?? null,
     subject: parsed.subject,
     originalSender,
+    // The envelope sender, NOT `originalSender` above — this is what
+    // classifySender() just checked, and what the Needs-review tab's
+    // Trust-sender action needs a real address to write to and compare
+    // against (see `buildInboxItemRow.ts`'s own doc comment).
+    senderEmail: fromEmail,
     attachments,
     classification,
   });

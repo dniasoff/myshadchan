@@ -1082,11 +1082,16 @@ export const englishCrmMessages = {
         dialogTitle: "Review this sender",
         dialogDescription:
           "This arrived from someone we don't yet recognize for this household. Trusting them lets this — and anything else already waiting from the same address — into your working inbox.",
-        // Shown instead of the Trust button when inbox_items.sender isn't a
-        // usable email address (a display name, or unknown) — see
-        // NeedsReviewDialog.tsx's own comment on why that happens.
+        // Shown next to the Trust button, naming the actual address that
+        // will be trusted — see NeedsReviewDialog.tsx's own comment on why
+        // this is sender_email, not the (possibly display-name) sender.
+        trustTargetNotice:
+          "Trusting will let in future mail from %{email} too.",
+        // Shown INSTEAD of the Trust button when inbox_items.sender_email is
+        // null — an item ingested before that column existed — see
+        // NeedsReviewDialog.tsx's own comment.
         senderUnknownNotice:
-          "We don't have a clear email address for this sender yet, so there's no address to trust. You can still discard this item.",
+          "We don't have a return address on file for this item, so there's nothing to trust yet. You can still discard it.",
         trustSender: "Trust sender",
         trusting: "Trusting…",
         discard: "Discard",

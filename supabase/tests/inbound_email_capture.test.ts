@@ -61,9 +61,10 @@ describe("inbound email capture (Epic 11) (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   // A floor, not an exact count — new checks are welcome, silently
-  // vanishing ones are not.
+  // vanishing ones are not. Raised from 19 to 23 when the
+  // inbox_items.sender_email checks (Epic 11 review fix) were added.
   it("runs every check group", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(19);
+    expect(checks.length).toBeGreaterThanOrEqual(23);
   });
 
   for (const check of checks) {

@@ -14,7 +14,6 @@ import {
 import type { CrmDataProvider } from "../providers/types";
 import type { InboxItem } from "../types";
 import { InboxCapturePreview } from "./InboxCapturePreview";
-import { looksLikeEmail } from "./looksLikeEmail";
 import { useResolveInboxItem } from "./useResolveInboxItem";
 
 /**
@@ -26,18 +25,20 @@ import { useResolveInboxItem } from "./useResolveInboxItem";
  * resolved normally; DISCARD marks just this item `dismissed`, reusing
  * `useResolveInboxItem`'s existing dismiss path unchanged.
  *
- * WHY "Trust sender" IS SOMETIMES UNAVAILABLE: `inbox_items.sender` is the
- * FR24-recovered ORIGINAL sender for a forwarded email (`workers/ingest/
- * forwardedSender.ts`), not necessarily the actual envelope address the
- * ingest Worker classified — for a DIRECT (non-forwarded) email it is
- * `null` outright, and even when set it may be a bare display name (e.g.
- * "Mrs. Feldman") rather than an address. `trusted_senders.email` only
- * means something when it IS an address, so this dialog only offers Trust
- * when `item.sender` passes `looksLikeEmail()` — otherwise it explains why
- * and leaves Discard as the only action. This is a real, named limitation
- * of the current data model, not a UI choice — see this feature's own
- * report for the follow-up (a dedicated `sender_email` column, populated
- * from the true envelope address at ingest) that would close it properly.
+ * TRUST IS GATED ON `sender_email`, NOT `sender`: `inbox_items.sender_email`
+ * is the persisted SMTP envelope sender (`workers/ingest/
+ * buildInboxItemRow.ts`) — a real address, always populated for any item
+ * ingested since that column existed. `inbox_items.sender` is a DIFFERENT
+ * field, the FR24-recovered ORIGINAL sender for a forwarded email
+ * (`workers/ingest/forwardedSender.ts`) — `null` outright for a direct
+ * email, and even when set it may be a bare display name (e.g.
+ * "Mrs. Feldman"). `trusted_senders.email` needs a real address, so Trust
+ * uses `sender_email`, never `sender`. The one remaining gap is an item
+ * ingested BEFORE `sender_email` existed: it has `sender_email: null`, so
+ * this dialog offers Discard only and explains why, rather than showing a
+ * dead Trust button. `sender` is still shown (via `InboxCapturePreview`) as
+ * useful context for deciding whether to trust — it just no longer gates
+ * the button.
  */
 export const NeedsReviewDialog = ({
   item,
@@ -64,16 +65,18 @@ export const NeedsReviewDialog = ({
   );
   const isBusy = busyAction !== null;
 
-  const senderEmail =
-    item.account_id != null && looksLikeEmail(item.sender) ? item.sender : null;
+  const trustableSenderEmail =
+    item.account_id != null && item.sender_email != null
+      ? item.sender_email
+      : null;
 
   const handleTrust = async () => {
-    if (!senderEmail || item.account_id == null) return;
+    if (!trustableSenderEmail || item.account_id == null) return;
     setBusyAction("trust");
     try {
       const result = await dataProvider.trustSender({
         accountId: item.account_id,
-        email: senderEmail,
+        email: trustableSenderEmail,
       });
       const othersReleased = result.releasedItemIds.filter(
         (id: Identifier) => String(id) !== String(item.id),
@@ -155,13 +158,20 @@ export const NeedsReviewDialog = ({
 
         <InboxCapturePreview item={item} />
 
-        {!senderEmail ? (
+        {trustableSenderEmail ? (
           <p className="text-sm text-muted-foreground">
-            {translate("crm.inbox.needsReview.senderUnknownNotice", {
-              _: "We don't have a clear email address for this sender yet, so there's no address to trust. You can still discard this item.",
+            {translate("crm.inbox.needsReview.trustTargetNotice", {
+              _: "Trusting will let in future mail from %{email} too.",
+              email: trustableSenderEmail,
             })}
           </p>
-        ) : null}
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {translate("crm.inbox.needsReview.senderUnknownNotice", {
+              _: "We don't have a return address on file for this item, so there's nothing to trust yet. You can still discard it.",
+            })}
+          </p>
+        )}
 
         <div className="flex flex-row justify-between gap-2">
           <button
@@ -178,7 +188,7 @@ export const NeedsReviewDialog = ({
                   _: "Discard",
                 })}
           </button>
-          {senderEmail ? (
+          {trustableSenderEmail ? (
             <Button type="button" onClick={handleTrust} disabled={isBusy}>
               {busyAction === "trust"
                 ? translate("crm.inbox.needsReview.trusting", {

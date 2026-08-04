@@ -130,17 +130,18 @@ export default (): Db => {
     },
     // Epic 11: a `held` item — an email from an address the household has
     // never confirmed — so the demo build's "Needs review" tab
-    // (inbox/InboxList.tsx) isn't empty by default. `sender` is a bare,
-    // email-shaped address (never a display name) so the "Trust sender"
-    // action is actually exercisable in the demo — see
-    // `NeedsReviewDialog.tsx`'s own comment on why a display-name `sender`
-    // can't be trusted.
+    // (inbox/InboxList.tsx) isn't empty by default. `sender_email` (the
+    // persisted envelope address) is what gates the "Trust sender" action
+    // now (Epic 11 review fix) — see `NeedsReviewDialog.tsx`'s own comment —
+    // so it, not `sender`, must be a real address for Trust to be
+    // exercisable in the demo.
     {
       id: 4,
       account_id: demoAccountId,
       created_at: "2026-07-23T08:05:00.000Z",
       source: "email",
       sender: "newcontact@example.com",
+      sender_email: "newcontact@example.com",
       sender_needs_confirmation: false,
       subject: "A possible shidduch",
       raw_text:

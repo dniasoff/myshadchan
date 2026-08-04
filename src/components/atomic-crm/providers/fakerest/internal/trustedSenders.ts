@@ -53,10 +53,14 @@ export async function trustSenderAndRelease(
       })
     ).data;
 
+  // Matched on `sender_email` (the persisted envelope address, Epic 11
+  // review-fix) — NEVER `sender`, which is the FR24-recovered ORIGINAL
+  // forwarded sender and often a display name or null. See
+  // `providers/supabase/trustedSenders.ts`'s own comment on this same query.
   const { data: heldItems } = await baseDataProvider.getList<InboxItem>(
     "inbox_items",
     {
-      filter: { account_id: accountId, sender: email, status: "held" },
+      filter: { account_id: accountId, sender_email: email, status: "held" },
       pagination: HELD_PAGE,
       sort: SORT_BY_ID,
     },

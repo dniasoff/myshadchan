@@ -12,10 +12,14 @@ import { NeedsReviewDialog } from "./NeedsReviewDialog";
 /**
  * Epic 11's "Needs review" trust/discard action. Pins:
  *   - Trust sender calls `dataProvider.trustSender()` with the item's own
- *     account and email-shaped sender, and closes on success.
+ *     account and `sender_email` (the persisted envelope address), and
+ *     closes on success.
  *   - The button is withheld — and an explanatory notice shown instead —
- *     when `inbox_items.sender` isn't shaped like an address (the FR24
- *     display-name/null case this dialog's own doc comment explains).
+ *     when `inbox_items.sender_email` is `null` (an item ingested before
+ *     that column existed; see this dialog's own doc comment).
+ *   - `inbox_items.sender` (the FR24-recovered display name / original
+ *     sender) never gates the button, and is never what gets trusted —
+ *     only `sender_email` is.
  *   - Discard reuses `useResolveInboxItem`'s existing dismiss path (sets
  *     `dismissed`) and never calls `trustSender`.
  */
@@ -28,6 +32,7 @@ const buildItem = (overrides: Partial<InboxItem> = {}): InboxItem => ({
   raw_text: "We haven't been in touch before, but I have a suggestion.",
   subject: "A possible shidduch",
   sender: "newcontact@example.com",
+  sender_email: "newcontact@example.com",
   sender_needs_confirmation: false,
   attachments: null,
   status: "held",
@@ -96,7 +101,7 @@ const renderDialog = async (item: InboxItem, dataProvider: CrmDataProvider) => {
 };
 
 describe("NeedsReviewDialog — Trust sender", () => {
-  it("calls dataProvider.trustSender with the held item's account and its email-shaped sender", async () => {
+  it("calls dataProvider.trustSender with the held item's account and its envelope sender_email", async () => {
     // Arrange
     const item = buildItem();
     const dataProvider = buildDataProvider(item);
@@ -118,6 +123,35 @@ describe("NeedsReviewDialog — Trust sender", () => {
       email: "newcontact@example.com",
     });
     await expect.poll(() => onClose.mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it("trusts the envelope sender_email, NOT the FR24 display-name sender, when the two differ", async () => {
+    // Arrange — a forwarded email: `sender` is the FR24-recovered display
+    // name ("Mrs. Feldman"), completely different from `sender_email` (the
+    // real envelope address). This would fail if the button were ever wired
+    // to send `item.sender` instead of `item.sender_email`.
+    const item = buildItem({
+      sender: "Mrs. Feldman",
+      sender_email: "envelope-address@example.com",
+    });
+    const dataProvider = buildDataProvider(item);
+    const { screen } = await renderDialog(item, dataProvider);
+
+    // Act
+    await screen.getByRole("button", { name: "Trust sender" }).click();
+
+    // Assert
+    await expect
+      .poll(
+        () =>
+          (dataProvider.trustSender as ReturnType<typeof vi.fn>).mock.calls
+            .length,
+      )
+      .toBeGreaterThan(0);
+    expect(dataProvider.trustSender).toHaveBeenCalledWith({
+      accountId: 7,
+      email: "envelope-address@example.com",
+    });
   });
 
   it("mentions the other released item when trustSender reports more than this one", async () => {
@@ -146,25 +180,43 @@ describe("NeedsReviewDialog — Trust sender", () => {
       .toBeInTheDocument();
   });
 
-  it("does not offer Trust sender when the sender is a display name, not an address", async () => {
-    // Arrange — the FR24 forwarded-sender recovery case this dialog's own
-    // doc comment explains: `sender` holds "Mrs. Feldman", never an email.
-    const item = buildItem({ sender: "Mrs. Feldman" });
+  it("still offers Trust sender when the FR24 sender is a display name, as long as sender_email is a real address", async () => {
+    // Arrange — the FR24 forwarded-sender recovery case: `sender` holds
+    // "Mrs. Feldman", never an email — but that no longer gates Trust,
+    // since `sender_email` (the envelope address) is what's used now.
+    const item = buildItem({
+      sender: "Mrs. Feldman",
+      sender_email: "mrs.feldman@example.com",
+    });
     const dataProvider = buildDataProvider(item);
     const { screen } = await renderDialog(item, dataProvider);
 
     // Assert
     await expect
       .element(screen.getByRole("button", { name: "Trust sender" }))
-      .not.toBeInTheDocument();
-    await expect
-      .element(screen.getByText(/don't have a clear email address/))
       .toBeInTheDocument();
   });
 
-  it("does not offer Trust sender when the sender is null (a direct, non-forwarded email)", async () => {
+  it("offers Trust sender for a direct, non-forwarded email — sender is null but sender_email is set (the bug this fix closes)", async () => {
+    // Arrange — the common case the whole fix exists for: a direct email has
+    // no FR24-recovered original sender at all, yet the envelope address was
+    // still captured.
+    const item = buildItem({
+      sender: null,
+      sender_email: "direct@example.com",
+    });
+    const dataProvider = buildDataProvider(item);
+    const { screen } = await renderDialog(item, dataProvider);
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "Trust sender" }))
+      .toBeInTheDocument();
+  });
+
+  it("does not offer Trust sender when sender_email is null — an item ingested before that column existed", async () => {
     // Arrange
-    const item = buildItem({ sender: null });
+    const item = buildItem({ sender_email: null });
     const dataProvider = buildDataProvider(item);
     const { screen } = await renderDialog(item, dataProvider);
 
@@ -172,6 +224,9 @@ describe("NeedsReviewDialog — Trust sender", () => {
     await expect
       .element(screen.getByRole("button", { name: "Trust sender" }))
       .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText(/don't have a return address on file/))
+      .toBeInTheDocument();
   });
 
   it("shows an error and does not close when trustSender rejects — the partial-state case", async () => {
@@ -228,7 +283,7 @@ describe("NeedsReviewDialog — Discard", () => {
 
   it("is offered even when there is no usable sender address at all", async () => {
     // Arrange
-    const item = buildItem({ sender: null });
+    const item = buildItem({ sender: null, sender_email: null });
     const dataProvider = buildDataProvider(item);
     const { screen } = await renderDialog(item, dataProvider);
 

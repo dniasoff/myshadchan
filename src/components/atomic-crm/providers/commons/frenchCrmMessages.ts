@@ -937,8 +937,10 @@ export const frenchCrmMessages = {
         dialogTitle: "Vérifier cet expéditeur",
         dialogDescription:
           "Ce message provient d'une personne que nous ne reconnaissons pas encore pour ce foyer. Lui faire confiance permet à ce message — et à tout autre message déjà en attente de la même adresse — d'entrer dans votre boîte de réception.",
+        trustTargetNotice:
+          "Faire confiance autorisera aussi les futurs messages de %{email}.",
         senderUnknownNotice:
-          "Nous n'avons pas d'adresse e-mail claire pour cet expéditeur, donc rien à approuver. Vous pouvez toujours ignorer ce message.",
+          "Nous n'avons pas d'adresse de retour enregistrée pour ce message, donc rien à approuver pour l'instant. Vous pouvez toujours l'ignorer.",
         trustSender: "Faire confiance",
         trusting: "Confirmation…",
         discard: "Ignorer",

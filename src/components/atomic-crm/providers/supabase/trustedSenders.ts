@@ -75,7 +75,13 @@ export async function trustSenderAndRelease(
     .from("inbox_items")
     .update({ status: "unresolved" })
     .eq("account_id", accountId)
-    .eq("sender", email)
+    // Matched on `sender_email` (the persisted envelope address, Epic 11
+    // review-fix) — NEVER `sender`, which is the FR24-recovered ORIGINAL
+    // forwarded sender and often a display name or null. `email` here is
+    // always an envelope address (NeedsReviewDialog.tsx only offers Trust
+    // when `item.sender_email` is set), so matching on anything else would
+    // silently fail to release the very item the user just trusted.
+    .eq("sender_email", email)
     .eq("status", "held")
     .select("id");
   if (releaseError) {

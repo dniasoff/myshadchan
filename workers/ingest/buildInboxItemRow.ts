@@ -6,6 +6,11 @@ export interface InboxItemEmailInput {
   textBody: string | null;
   subject: string | null;
   originalSender: OriginalSenderCandidate;
+  /** The real SMTP envelope sender — `parsed.fromEmail ?? message.from` in
+   * `index.ts`, always present at this layer. Distinct from `originalSender`
+   * (the FR24-recovered forwarded-original, which answers a different
+   * question — see `InboxItemRow.sender_email`'s own doc comment). */
+  senderEmail: string;
   attachments: UploadedAttachment[];
   classification: SenderClassification;
 }
@@ -16,6 +21,18 @@ export interface InboxItemRow {
   subject: string | null;
   sender: string | null;
   sender_needs_confirmation: boolean;
+  /**
+   * The persisted SMTP envelope sender (Epic 11 review-fix) — what the
+   * Needs-review tab's Trust-sender action writes to `trusted_senders.email`
+   * and compares future mail against. Independent of `sender` above, which
+   * answers a different question ("who did this mail ORIGINALLY come from",
+   * FR24-recovered from a forwarded body) and is never conflated with this
+   * one. Always populated for a row this Worker writes — Cloudflare
+   * guarantees `message.from`, so `senderEmail` is never empty by the time it
+   * reaches here — even though the column itself stays nullable for rows
+   * written before this field existed.
+   */
+  sender_email: string;
   attachments: UploadedAttachment[] | null;
   status: "unresolved" | "held";
 }
@@ -54,6 +71,10 @@ export function buildInboxItemRow(input: InboxItemEmailInput): InboxItemRow {
     subject: trimmedSubject.length > 0 ? trimmedSubject : null,
     sender: trimmedSender.length > 0 ? trimmedSender : null,
     sender_needs_confirmation: input.originalSender.needsConfirmation,
+    // Not lowercased here — `sender_email` is `citext` and handles case
+    // itself; normalising in JS as well would be a second normalisation
+    // mechanism, and two mechanisms is how they drift apart.
+    sender_email: input.senderEmail,
     attachments: input.attachments.length > 0 ? input.attachments : null,
     status: input.classification === "known" ? "unresolved" : "held",
   };

@@ -10,18 +10,31 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * this module's code does both (`.select().single()` for the trust step,
  * a bare terminal `.select("id")` for the release step).
  */
-const { trustResult, releaseResult, upsertSpy, updateSpy, fromSpy } =
-  vi.hoisted(() => ({
-    trustResult: { current: { data: null as unknown, error: null as unknown } },
-    releaseResult: {
-      current: { data: null as unknown, error: null as unknown },
-    },
-    upsertSpy: vi.fn(),
-    updateSpy: vi.fn(),
-    fromSpy: vi.fn(),
-  }));
+const {
+  trustResult,
+  releaseResult,
+  upsertSpy,
+  updateSpy,
+  fromSpy,
+  releaseEqSpy,
+} = vi.hoisted(() => ({
+  trustResult: { current: { data: null as unknown, error: null as unknown } },
+  releaseResult: {
+    current: { data: null as unknown, error: null as unknown },
+  },
+  upsertSpy: vi.fn(),
+  updateSpy: vi.fn(),
+  fromSpy: vi.fn(),
+  // Tracks every `.eq(column, value)` call made against the RELEASE chain
+  // specifically (`inbox_items`), so a test can assert which COLUMN the
+  // release query matches on — not just what it returns.
+  releaseEqSpy: vi.fn(),
+}));
 
-function makeChain(resultBox: { current: { data: unknown; error: unknown } }) {
+function makeChain(
+  resultBox: { current: { data: unknown; error: unknown } },
+  eqSpy?: (...args: unknown[]) => void,
+) {
   const chain = {
     upsert: vi.fn((...args: unknown[]) => {
       upsertSpy(...args);
@@ -31,7 +44,10 @@ function makeChain(resultBox: { current: { data: unknown; error: unknown } }) {
       updateSpy(...args);
       return chain;
     }),
-    eq: vi.fn(() => chain),
+    eq: vi.fn((...args: unknown[]) => {
+      eqSpy?.(...args);
+      return chain;
+    }),
     select: vi.fn(() => chain),
     single: vi.fn(() => Promise.resolve(resultBox.current)),
     then: (
@@ -48,7 +64,7 @@ vi.mock("./supabase", () => ({
       fromSpy(table);
       return table === "trusted_senders"
         ? makeChain(trustResult)
-        : makeChain(releaseResult);
+        : makeChain(releaseResult, releaseEqSpy);
     },
   }),
 }));
@@ -60,6 +76,7 @@ describe("trustSenderAndRelease (Epic 11 — Needs review trust action)", () => 
     upsertSpy.mockReset();
     updateSpy.mockReset();
     fromSpy.mockReset();
+    releaseEqSpy.mockReset();
     trustResult.current = {
       data: {
         id: 1,
@@ -108,6 +125,19 @@ describe("trustSenderAndRelease (Epic 11 — Needs review trust action)", () => 
     // Assert
     expect(updateSpy).toHaveBeenCalledWith({ status: "unresolved" });
     expect(result.releasedItemIds).toEqual([10, 11]);
+  });
+
+  it("matches the release query on sender_email — the persisted envelope address — never the FR24-recovered sender field", async () => {
+    // Arrange / Act
+    await trustSenderAndRelease({ accountId: 7, email: "feldman@example.com" });
+
+    // Assert — this is exactly what this fix changes: releasing on the real
+    // envelope address, not the (often display-name/null) forwarded sender.
+    expect(releaseEqSpy).toHaveBeenCalledWith(
+      "sender_email",
+      "feldman@example.com",
+    );
+    expect(releaseEqSpy).not.toHaveBeenCalledWith("sender", expect.anything());
   });
 
   it("returns zero released ids when no other held item matches — never an error", async () => {

@@ -173,6 +173,52 @@ describe("ingest worker: sender classification, attachments, forwarded-sender re
       expect(row.sender_needs_confirmation).toBe(false);
     });
 
+    it("persists the envelope sender in sender_email — NOT the FR24-recovered forwarded sender", async () => {
+      // Arrange: envelope sender is "known.parent@example.com", but the
+      // forwarded body attributes the note to a completely different
+      // address. If sender_email were ever wired to the forwarded-recovered
+      // value instead of the envelope one, this assertion would fail.
+      const raw = buildRawEmail({
+        from: "known.parent@example.com",
+        textBody: [
+          "---------- Forwarded message ----------",
+          "From: Mrs. Feldman <mrs.feldman@example.com>",
+          "Date: Mon, 21 Jul 2026 10:00:00 +0000",
+          "Subject: A suggestion",
+          "",
+          "Hi, I have a suggestion for Rivky.",
+        ].join("\n"),
+      });
+      const message = makeMessage({ raw });
+
+      // Act
+      await handleInboundEmail(message, TEST_ENV);
+
+      // Assert
+      const [row] = insertedRows.inbox_items;
+      expect(row.sender_email).toBe("known.parent@example.com");
+      expect(row.sender).toBe("Mrs. Feldman");
+      expect(row.sender_email).not.toBe(row.sender);
+    });
+
+    it("persists sender_email from the envelope even for a direct, non-forwarded email with no recoverable original sender", async () => {
+      // Arrange
+      const raw = buildRawEmail({
+        from: "a-stranger@example.com",
+        textBody: "Hi, I have a suggestion for Rivky directly.",
+      });
+      const message = makeMessage({ raw });
+
+      // Act
+      await handleInboundEmail(message, TEST_ENV);
+
+      // Assert
+      const [row] = insertedRows.inbox_items;
+      expect(row.sender).toBeNull();
+      expect(row.sender_email).toBe("a-stranger@example.com");
+      expect(row.status).toBe("held");
+    });
+
     it("flags a self-referential forward as needing confirmation rather than confidently misattributing it", async () => {
       // Arrange: the member forwarded their OWN earlier message.
       const raw = buildRawEmail({

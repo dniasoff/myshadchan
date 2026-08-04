@@ -505,6 +505,18 @@ export type InboxItem = {
   raw_text?: string | null;
   subject?: string | null;
   sender?: string | null;
+  /**
+   * The persisted SMTP envelope sender (Epic 11 review-fix,
+   * `workers/ingest/buildInboxItemRow.ts`) — a real address the
+   * Needs-review tab's Trust-sender action writes to `trusted_senders.email`
+   * and matches future mail against. Distinct from `sender` above, which is
+   * the FR24-recovered ORIGINAL forwarded sender (may be a display name, or
+   * null for a direct email) and answers a different question — "who did
+   * this mail originally come from" vs. "who do we actually trust". Optional
+   * because rows written before this column existed have it as `null`; every
+   * row this Worker writes going forward always populates it.
+   */
+  sender_email?: string | null;
   sender_needs_confirmation: boolean;
   attachments?: InboxAttachment[] | null;
   status: InboxStatus;

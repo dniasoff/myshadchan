@@ -609,6 +609,24 @@ create table public.inbox_items (
     -- re-running domain mutations.
     resolution_attempt_id text,
     resolution_input jsonb,
+    -- Epic 11 review fix: appended at the physical TAIL (COLUMN-ORDER TRAP) —
+    -- the real SMTP envelope sender (`message.from` in workers/ingest/index.ts,
+    -- already parsed and passed to classifySender there, previously never
+    -- persisted). Deliberately DISTINCT from `sender`: `sender` holds the
+    -- FR24-recovered ORIGINAL FORWARDED sender extracted from the message
+    -- body (null for a direct email, sometimes a bare display name) and
+    -- answers "who did this mail originally come from"; `sender_email`
+    -- answers "who actually sent us this message" and is what the
+    -- Needs-review tab's Trust-sender action must write to
+    -- `trusted_senders.email` and compare future mail against — trusting a
+    -- forwarded display name would trust the wrong party. citext, matching
+    -- `trusted_senders.email`/`members.email`'s own precedent, so a
+    -- case-insensitive comparison needs no separate JS-side normalisation.
+    -- Nullable with no backfill: existing rows predate envelope-sender
+    -- capture and there is no way to recover one — copying `sender` across
+    -- would silently fabricate a value for a different question and could
+    -- later get trusted on false grounds.
+    sender_email extensions.citext,
     constraint inbox_items_source_check check (source in ('whatsapp', 'sms', 'email', 'photo', 'upload', 'shadchan')),
     -- Epic 11: `held` is an email-sourced item whose sender is not yet a
     -- known member or trusted address for the household (see

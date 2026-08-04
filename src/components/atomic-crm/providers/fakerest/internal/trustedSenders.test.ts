@@ -17,7 +17,12 @@ const buildHeldItem = (overrides: Partial<InboxItem> = {}): InboxItem => ({
   source: "email",
   raw_text: "A suggestion",
   subject: null,
-  sender: "newcontact@example.com",
+  // Deliberately a DIFFERENT value from sender_email below — `sender` is the
+  // FR24-recovered display name/original sender, never what trust matches
+  // against. If the release query were ever wired back to `sender`, these
+  // fixtures would immediately fail every "releases" assertion below.
+  sender: "New Contact",
+  sender_email: "newcontact@example.com",
   sender_needs_confirmation: false,
   attachments: null,
   status: "held",
@@ -62,7 +67,7 @@ describe("trustSenderAndRelease (FakeRest mirror)", () => {
     const second = buildHeldItem({ id: 2, subject: "A second message" });
     const unrelated = buildHeldItem({
       id: 3,
-      sender: "someone-else@example.com",
+      sender_email: "someone-else@example.com",
     });
     const baseDataProvider = makeProvider([first, second, unrelated]);
 
@@ -103,6 +108,31 @@ describe("trustSenderAndRelease (FakeRest mirror)", () => {
       filter: {},
     });
     expect(total).toBe(1);
+  });
+
+  it("matches on sender_email, not sender — an item whose FR24 sender happens to equal the trusted address but whose sender_email differs stays held", async () => {
+    // Arrange — `sender` here is the exact string being trusted, but
+    // `sender_email` (the real envelope address) is something else
+    // entirely. A regression that matched on `sender` would incorrectly
+    // release this item.
+    const item = buildHeldItem({
+      sender: "newcontact@example.com",
+      sender_email: "actual-envelope-address@example.com",
+    });
+    const baseDataProvider = makeProvider([item]);
+
+    // Act
+    const result = await trustSenderAndRelease(baseDataProvider, {
+      accountId: 7,
+      email: "newcontact@example.com",
+    });
+
+    // Assert
+    expect(result.releasedItemIds).toEqual([]);
+    const { data: stillHeld } = await baseDataProvider.getOne("inbox_items", {
+      id: 1,
+    });
+    expect(stillHeld.status).toBe("held");
   });
 
   it("returns zero released ids on a retry once every matching item already moved past 'held'", async () => {

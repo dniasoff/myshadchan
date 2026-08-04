@@ -4,17 +4,18 @@
  * non-email string) before it reaches something that treats the value as an
  * address, not to validate deliverability.
  *
- * Shared by two callers that both need exactly this bar, for two different
- * reasons:
- *   - `inbox/NeedsReviewDialog.tsx` (Epic 11): `inbox_items.sender` is the
- *     FR24-recovered ORIGINAL sender for a forwarded email — a display name
- *     (e.g. "Mrs. Feldman"), a bare email, or null, depending on what the
- *     forwarded body's headers actually contained. "Trust sender" writes
- *     `trusted_senders.email`, which only means something when `sender` is
- *     itself shaped like an address — this is that gate.
- *   - `settings/CaptureSection.tsx` (Story 10.3): guards against rendering a
- *     misconfigured, non-email value as this household's real capture
- *     address.
+ * Used by `settings/CaptureSection.tsx` (Story 10.3): guards against
+ * rendering a misconfigured, non-email value as this household's real
+ * capture address.
+ *
+ * NOT used by `inbox/NeedsReviewDialog.tsx` (Epic 11) any more: that dialog
+ * used to gate "Trust sender" on this check against `inbox_items.sender`
+ * (the FR24-recovered ORIGINAL forwarded sender — a display name, a bare
+ * email, or null, often not address-shaped at all). It now gates on
+ * `inbox_items.sender_email` (the persisted SMTP envelope sender,
+ * `workers/ingest/buildInboxItemRow.ts`), which is always a real address
+ * when present — so a shape check there would be redundant. See that
+ * dialog's own doc comment.
  */
 const EMAIL_SHAPE_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
