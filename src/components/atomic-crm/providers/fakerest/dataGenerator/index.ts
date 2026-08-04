@@ -56,6 +56,9 @@ export default (): Db => {
   // Story 9.5 — no access is ever recorded in the demo build; the real
   // writer is the `share/` Worker, which has no FakeRest equivalent.
   db.share_access_log = [];
+  // Epic 11 — no address is trusted by default; `dataProvider.trustSender()`
+  // is the only writer (see `dataGenerator/types.ts`'s own comment).
+  db.trusted_senders = [];
   // Shidduchim pipeline domain (accounts, singles, shadchanim, shidduchim, ...)
   generateShidduchimDomain(db);
   // References domain (references, reference_links, interactions, reference
@@ -118,6 +121,32 @@ export default (): Db => {
         "---------- Forwarded message ----------\nFrom: someone@example.com\nDate: Mon, 21 Jul 2026 10:00:00 +0000\nSubject: Fwd: suggestion\nTo: member@example.com\n\nSee attached resume.",
       attachments: null,
       status: "unresolved",
+      single_id: null,
+      shadchan_id: null,
+      resolved_shidduchim_id: null,
+      connection_id: null,
+      resolution_attempt_id: null,
+      resolution_input: null,
+    },
+    // Epic 11: a `held` item — an email from an address the household has
+    // never confirmed — so the demo build's "Needs review" tab
+    // (inbox/InboxList.tsx) isn't empty by default. `sender` is a bare,
+    // email-shaped address (never a display name) so the "Trust sender"
+    // action is actually exercisable in the demo — see
+    // `NeedsReviewDialog.tsx`'s own comment on why a display-name `sender`
+    // can't be trusted.
+    {
+      id: 4,
+      account_id: demoAccountId,
+      created_at: "2026-07-23T08:05:00.000Z",
+      source: "email",
+      sender: "newcontact@example.com",
+      sender_needs_confirmation: false,
+      subject: "A possible shidduch",
+      raw_text:
+        "Hi, we haven't been in touch before — I heard about your family through a mutual friend and wanted to suggest someone.",
+      attachments: null,
+      status: "held",
       single_id: null,
       shadchan_id: null,
       resolved_shidduchim_id: null,

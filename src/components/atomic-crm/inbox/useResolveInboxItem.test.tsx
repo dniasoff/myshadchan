@@ -558,6 +558,39 @@ describe("useResolveInboxItem — dismissInboxItem (InboxResolveDialog's Dismiss
     // Only the first call's second update (finalization) mutates the DB.
     expect(dataProvider.update).toHaveBeenCalledTimes(2);
   });
+
+  it("Epic 11: also dismisses a 'held' item — widening InboxStatus did not break this path, which never assumed 'unresolved'", async () => {
+    // Arrange — NeedsReviewDialog.tsx's Discard action reuses this exact
+    // function against an item whose status is 'held', never 'unresolved'.
+    // `acquireResolutionLock`'s own branching only special-cases
+    // resolved/dismissed/resolving — every other status (this included)
+    // falls through to "try to acquire the lock", so this must keep working
+    // without this file needing a 'held'-specific branch.
+    const item = buildItem({
+      status: "held",
+      sender: "newcontact@example.com",
+    });
+    const { screen, dataProvider } = await renderProbe(item);
+
+    // Act
+    await screen.getByRole("button", { name: "dismissInboxItem" }).click();
+
+    // Assert
+    await expect
+      .element(screen.getByText("result:dismissed"))
+      .toBeInTheDocument();
+    expect(dataProvider.update).toHaveBeenLastCalledWith(
+      "inbox_items",
+      expect.objectContaining({
+        id: item.id,
+        data: expect.objectContaining({
+          status: "dismissed",
+          resolution_attempt_id: null,
+          resolution_input: null,
+        }),
+      }),
+    );
+  });
 });
 
 describe("useResolveInboxItem — Story 10.5 idempotency edge cases", () => {

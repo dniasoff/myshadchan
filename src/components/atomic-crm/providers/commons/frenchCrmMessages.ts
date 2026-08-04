@@ -326,6 +326,8 @@ export const frenchCrmMessages = {
         title: "Capture par e-mail",
         description:
           "Transférez ou mettez en copie tout redt à cette adresse — il arrive directement dans votre boîte de réception.",
+        explanation:
+          "Toute personne connaissant cette adresse peut vous y écrire. Les messages d'un expéditeur non reconnu attendent dans « À vérifier » jusqu'à ce que vous le confirmiez.",
         copy: "Copier",
         copied: "Copié",
       },
@@ -923,6 +925,32 @@ export const frenchCrmMessages = {
     inbox: {
       source_shadchan: "Shadchan",
       senderNeedsConfirmation: "Qui a envoyé ceci ?",
+      tabs: {
+        working: "Boîte de réception",
+        needsReview: "À vérifier",
+      },
+      needsReview: {
+        cta: "Vérifier cet expéditeur →",
+        emptyTitle: "Rien à vérifier",
+        emptyDescription:
+          "Les messages d'un expéditeur non reconnu pour ce foyer attendent ici jusqu'à ce que vous le confirmiez.",
+        dialogTitle: "Vérifier cet expéditeur",
+        dialogDescription:
+          "Ce message provient d'une personne que nous ne reconnaissons pas encore pour ce foyer. Lui faire confiance permet à ce message — et à tout autre message déjà en attente de la même adresse — d'entrer dans votre boîte de réception.",
+        senderUnknownNotice:
+          "Nous n'avons pas d'adresse e-mail claire pour cet expéditeur, donc rien à approuver. Vous pouvez toujours ignorer ce message.",
+        trustSender: "Faire confiance",
+        trusting: "Confirmation…",
+        discard: "Ignorer",
+        discarding: "Suppression…",
+        trusted:
+          "Confirmé — ce message est maintenant dans votre boîte de réception",
+        trustedWithReleased:
+          "Confirmé — ce message et %{smart_count} autre message en attente sont maintenant dans votre boîte de réception |||| Confirmé — ce message et %{smart_count} autres messages en attente sont maintenant dans votre boîte de réception",
+        trustError: "Impossible de confirmer cet expéditeur. Réessayez.",
+        discarded: "Ignoré — rien n'a été enregistré",
+        discardError: "Impossible d'ignorer ce message",
+      },
       parse: {
         autoFill: "Remplir automatiquement depuis le CV",
         lowConfidence: "Veuillez vérifier",

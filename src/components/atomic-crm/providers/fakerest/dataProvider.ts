@@ -117,6 +117,11 @@ import {
   setThreadVisibility as setThreadVisibilityImpl,
 } from "./internal/threads";
 import { redtViaConnection as redtViaConnectionImpl } from "./internal/redting";
+import { trustSenderAndRelease } from "./internal/trustedSenders";
+import type {
+  TrustSenderParams,
+  TrustSenderResult,
+} from "./internal/trustedSenders";
 import {
   assertListingInsertNotLocked,
   consentToRepublishListing as consentToRepublishListingImpl,
@@ -1391,6 +1396,12 @@ export const createDataProvider = ({
         () => activeAccountId,
         input,
       ),
+    // Epic 11 (Needs review tab) -- FakeRest mirror of
+    // ./internal/trustedSenders.ts. Unlike redtViaConnection above, this
+    // needs no active-account resolution: the caller always supplies
+    // `accountId` from the held item's own `account_id` (NeedsReviewDialog.tsx).
+    trustSender: (params: TrustSenderParams): Promise<TrustSenderResult> =>
+      trustSenderAndRelease(baseDataProvider, params),
     // Story 9.3 (AC-4) -- FakeRest mirror of ./internal/listingWithdrawal.ts.
     consentToRepublishListing: (singleId: Identifier): Promise<void> =>
       consentToRepublishListingImpl(

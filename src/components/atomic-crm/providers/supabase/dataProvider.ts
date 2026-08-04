@@ -60,6 +60,8 @@ import type {
 } from "./entityFiles";
 import { copyInboxAttachmentsToEntityFiles as copyInboxAttachmentsToEntityFilesImpl } from "./inboxAttachments";
 import type { CopyInboxAttachmentsParams } from "./inboxAttachments";
+import { trustSenderAndRelease } from "./trustedSenders";
+import type { TrustSenderParams, TrustSenderResult } from "./trustedSenders";
 import {
   signResumeFileUrl as signResumeFileUrlImpl,
   uploadResumeFile as uploadResumeFileImpl,
@@ -991,6 +993,13 @@ export const getDataProviderWithCustomMethods = () => {
       params: CopyInboxAttachmentsParams,
     ): Promise<EntityFile[]> {
       return copyInboxAttachmentsToEntityFilesImpl(params);
+    },
+    // Epic 11 (Needs review tab): the "TRUST SENDER" action — see
+    // ./trustedSenders.ts's own doc comment for the atomicity/idempotency
+    // reasoning (no schema change available in this pass, so this is two
+    // client-side writes in the order that fails safe, not one RPC).
+    async trustSender(params: TrustSenderParams): Promise<TrustSenderResult> {
+      return trustSenderAndRelease(params);
     },
     // ---------------------------------------------------------------------
     // Resume tab (Story 5.3). Implementation lives in ./resumes.ts, mirroring

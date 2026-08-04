@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Paperclip, Sparkles } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import type { Identifier } from "ra-core";
 import {
   Form,
@@ -23,18 +23,17 @@ import {
 } from "@/components/ui/dialog";
 
 import type { CrmDataProvider } from "../providers/types";
-import { signInboxAttachmentUrl } from "../providers/supabase/inboxAttachments";
 import { useAiEntitlement } from "../references/useAiEntitlement";
 import type {
   CreateShidduchInput,
-  InboxAttachment,
   InboxItem,
   PipelineState,
   Shadchan,
 } from "../types";
 import { createShadchanInline } from "../shidduchim/createShadchanInline";
 import { ShidduchInputs } from "../shidduchim/ShidduchInputs";
-import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
+import { InboxCapturePreview } from "./InboxCapturePreview";
+import { INBOX_PRIMARY_CTA_CLASS } from "./inboxMeta";
 import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
 import { useResolveInboxItem } from "./useResolveInboxItem";
 import {
@@ -117,11 +116,6 @@ export const InboxResolveDialog = ({
   // unreachable from the one screen `ShidduchInputs.tsx`'s own comment
   // claims it's reused "wherever" it appears.
   const handleCreateShadchan = createShadchanInline(dataProvider);
-
-  const SourceIcon = INBOX_SOURCE_META[item.source].icon;
-  const sourceLabel = translate(`crm.inbox.source_${item.source}`, {
-    _: INBOX_SOURCE_META[item.source].label,
-  });
 
   // Story 8.3 (AC-3): a shadchan-sourced item's shadchan_id is resolved from
   // the CONNECTION, never left to the household to pick — the linked
@@ -247,24 +241,6 @@ export const InboxResolveDialog = ({
     }
   };
 
-  // Story 10.3 review fix (F-B, BLOCKING): `attachment.src` is a signed URL
-  // that expires an hour after capture (`extractAndUploadAttachments.ts`);
-  // rendering it as a static `href` meant every link went dead the morning
-  // after a redt arrived. `attachment.path` (the durable object key) is
-  // re-signed HERE, at click time, exactly like `FilesTab.tsx`'s
-  // `handleDownload` — never cached in state, never persisted.
-  const handleOpenAttachment = async (attachment: InboxAttachment) => {
-    try {
-      const url = await signInboxAttachmentUrl(attachment.path);
-      window.open(url, "_blank", "noopener,noreferrer");
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Couldn't open the attachment",
-        { type: "error" },
-      );
-    }
-  };
-
   const onDismiss = async () => {
     setIsBusy(true);
     try {
@@ -300,60 +276,7 @@ export const InboxResolveDialog = ({
         </DialogHeader>
 
         {/* The raw capture, verbatim, for reference while filing. */}
-        <div className="rounded-2xl border border-border bg-secondary/60 p-4">
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-            <SourceIcon className="size-3.5" aria-hidden="true" />
-            {sourceLabel}
-            {item.sender_needs_confirmation ? (
-              <span
-                className="normal-case font-medium"
-                style={{
-                  color:
-                    "color-mix(in oklch, var(--attention) 75%, var(--foreground))",
-                }}
-              >
-                {translate("crm.inbox.senderNeedsConfirmation", {
-                  _: "Who sent this?",
-                })}
-              </span>
-            ) : item.sender ? (
-              <span className="normal-case">· {item.sender}</span>
-            ) : null}
-          </div>
-          {item.subject ? (
-            <p className="text-sm font-semibold">{item.subject}</p>
-          ) : null}
-          {item.raw_text ? (
-            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-              {item.raw_text}
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No text — see the attached file.
-            </p>
-          )}
-          {/* Story 10.3 (Task 5, AC 1/AC 4): the attachment was captured but
-              never reachable from either Inbox surface before this — a
-              signed, expiring URL (AD-9), so it's a plain link, not an
-              inline preview. Review fix F-B: a fresh URL is signed on
-              click (handleOpenAttachment), never the persisted `src`. */}
-          {item.attachments && item.attachments.length > 0 ? (
-            <ul className="mt-2 space-y-1">
-              {item.attachments.map((attachment) => (
-                <li key={attachment.path}>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenAttachment(attachment)}
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-2 hover:underline"
-                  >
-                    <Paperclip className="size-3.5" aria-hidden="true" />
-                    {attachment.title}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
+        <InboxCapturePreview item={item} />
 
         {canAutoFill && (
           <div className="flex items-center justify-end">

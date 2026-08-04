@@ -716,6 +716,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/supabase/trustedSenders.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/supabase/supabase.ts",
           "type": "registry:component"
         },
@@ -761,6 +765,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/authProvider.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/trustedSenders.ts",
           "type": "registry:component"
         },
         {
@@ -1256,6 +1264,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/inbox/looksLikeEmail.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/inbox/index.ts",
           "type": "registry:component"
         },
@@ -1268,6 +1280,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/inbox/NeedsReviewDialog.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/inbox/LinkToShidduchSearch.tsx",
           "type": "registry:component"
         },
@@ -1277,6 +1293,10 @@
         },
         {
           "path": "src/components/atomic-crm/inbox/InboxList.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/inbox/InboxCapturePreview.tsx",
           "type": "registry:component"
         },
         {

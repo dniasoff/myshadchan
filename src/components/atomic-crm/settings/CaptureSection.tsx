@@ -1,5 +1,5 @@
 import { Check, Copy, Mail } from "lucide-react";
-import { useTranslate } from "ra-core";
+import { useGetOne, useTranslate } from "ra-core";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -11,42 +11,59 @@ import {
   ItemGroup,
 } from "@/components/ui/item";
 
+import { looksLikeEmail } from "../inbox/looksLikeEmail";
+import { pickActiveContext } from "../providers/commons/roleAuthority";
+import { useMyContexts } from "../root/useMyContexts";
+import type { Account } from "../types";
 import { SectionLabel } from "./SectionLabel";
 
-// Basic shape check, not an RFC-5322 regex — the point is to catch garbage
-// (a missing value, or a misconfigured non-email string) before it reaches
-// the UI, not to validate deliverability.
-const EMAIL_SHAPE_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const looksLikeEmail = (value: string): boolean =>
-  EMAIL_SHAPE_REGEX.test(value);
+/** The live domain every household capture address is minted under
+ * (`accounts.inbound_email_token` + this, `01_tables.sql`) — mirrors the
+ * same literal `workers/ingest/resolveAccount.ts` and `DeleteDataDialog.tsx`
+ * already hardcode. */
+const CAPTURE_EMAIL_DOMAIN = "myshadchan.space";
 
 /**
- * Story 10.3 (Task 6, AC 5): surfaces the one global inbound-email address
- * (`VITE_INBOUND_EMAIL` — FR22's per-account private address is explicitly
- * out of scope for this story, see the story's Dev Notes) so the phone-less
- * capture path is actually discoverable — before this, nothing in the app
- * ever showed a signed-in member where to forward or CC a redt.
+ * Epic 11 (Story 10.3's successor): surfaces THIS household's own inbound
+ * capture address — `${accounts.inbound_email_token}@myshadchan.space` — so
+ * a signed-in member knows where to forward or CC a redt. Replaces the
+ * earlier `VITE_INBOUND_EMAIL`-based single shared address (removed from
+ * every environment): the address is now per-household, read from the
+ * database, not an env var.
  *
  * Grouped near `CommunicationSection` (both sections are about how things
- * reach this account, not about privacy or family membership) rather than
- * by a fixed position in either settings page — see SettingsPage.tsx /
- * SettingsPageMobile.tsx for the exact slot in each layout.
+ * reach this account, not about privacy or family membership) — same slot
+ * in `SettingsPage.tsx` / `SettingsPageMobile.tsx` as before.
  *
- * No shared copy-to-clipboard primitive exists yet (the story's Dev Notes:
- * the only two prior `navigator.clipboard` call sites are both deleted by
- * Epic 1) — this mirrors InvitesSection.tsx's own inline `isCopied` pattern
- * rather than inventing a generic component for one more caller.
+ * Only a household account has an inbox to capture into
+ * (`accounts_inbound_email_token_kind_check`): a shadchanus context, or a
+ * still-loading/absent token, both render nothing — informational, never a
+ * broken or empty address shown as real.
  */
 export const CaptureSection = () => {
   const translate = useTranslate();
   const [isCopied, setIsCopied] = useState(false);
 
-  // Fail closed: local dev without the env var set, and a misconfigured
-  // value that isn't shaped like an email (e.g. a mis-set Vercel var),
-  // both render nothing rather than showing something broken as a real
-  // address — this section is informational, not a blocking requirement.
-  const inboundEmail = import.meta.env.VITE_INBOUND_EMAIL as string | undefined;
+  const { data: contexts } = useMyContexts();
+  const activeContext = pickActiveContext(contexts);
+  const isHousehold = activeContext?.kind === "household";
+
+  const { data: account } = useGetOne<Account>(
+    "accounts",
+    { id: activeContext?.account_id },
+    { enabled: isHousehold && activeContext?.account_id != null },
+  );
+
+  if (!isHousehold) return null;
+
+  const inboundEmail = account?.inbound_email_token
+    ? `${account.inbound_email_token}@${CAPTURE_EMAIL_DOMAIN}`
+    : null;
+
+  // Fail closed: still loading, a malformed/blank token, or (defensively)
+  // this branch somehow reached for a non-household account — render
+  // nothing rather than a broken or empty address. Mirrors the pre-existing
+  // guard this section already had for a misconfigured VITE_INBOUND_EMAIL.
   if (!inboundEmail || !looksLikeEmail(inboundEmail)) return null;
 
   const handleCopy = () => {
@@ -64,6 +81,11 @@ export const CaptureSection = () => {
             <ItemDescription>
               {translate("crm.settings.capture.description", {
                 _: "Forward or CC any redt to this address — it lands in your own Inbox.",
+              })}
+            </ItemDescription>
+            <ItemDescription>
+              {translate("crm.settings.capture.explanation", {
+                _: "Anyone who knows this address can send to it. Mail from a sender we don't recognize waits in Needs review until you confirm them.",
               })}
             </ItemDescription>
           </ItemContent>

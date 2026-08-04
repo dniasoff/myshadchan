@@ -307,6 +307,11 @@ export const generateShidduchimDomain = (db: Db) => {
       transparency_level: "shared",
       kind: "household",
       default_thread_visibility: "open",
+      // Epic 11: a household's real capture address is
+      // `${inbound_email_token}@myshadchan.space` — see
+      // settings/CaptureSection.tsx. Twelve lowercase hex chars, mirroring
+      // `set_account_inbound_email_token_default()`'s real generated shape.
+      inbound_email_token: "a1b2c3d4e5f6",
       created_at: "2026-01-01T00:00:00.000Z",
     },
     // Story 7.4 (Task 6): see SHADCHANUS_ACCOUNT_ID's own comment above.
@@ -316,6 +321,10 @@ export const generateShidduchimDomain = (db: Db) => {
       transparency_level: "shared",
       kind: "shadchanus",
       default_thread_visibility: "open",
+      // Epic 11: null for every shadchanus-kind account
+      // (accounts_inbound_email_token_kind_check) — a shadchanus has no
+      // inbox to capture into.
+      inbound_email_token: null,
       created_at: "2026-01-01T00:00:00.000Z",
     },
     // Story 8.5 (Task 7): see SECOND_HOUSEHOLD_ACCOUNT_ID's own comment above.
@@ -325,6 +334,7 @@ export const generateShidduchimDomain = (db: Db) => {
       transparency_level: "shared",
       kind: "household",
       default_thread_visibility: "open",
+      inbound_email_token: "f6e5d4c3b2a1",
       created_at: "2026-01-05T00:00:00.000Z",
     },
   ];

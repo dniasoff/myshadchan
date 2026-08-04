@@ -29,6 +29,7 @@ import type {
   Task,
   Thread,
   ThreadParticipant,
+  TrustedSender,
 } from "../../../types";
 import type { ConfigurationContextValue } from "../../../root/ConfigurationContext";
 
@@ -114,4 +115,10 @@ export interface Db {
   // all — this array only ever grows through a test/demo seeding a row
   // directly, never through any UI action in this codebase.
   share_access_log: ShareAccessLog[];
+  // Epic 11 (inbound email capture) — seeded empty; the only writer is
+  // `dataProvider.trustSender()`'s FakeRest mirror
+  // (`internal/trustedSenders.ts`, never a raw dataProvider.create), same
+  // "opt-in, nothing trusted by default" shape as `listings`/`share_links`
+  // above.
+  trusted_senders: TrustedSender[];
 }

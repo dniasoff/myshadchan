@@ -1,13 +1,17 @@
 import { useState } from "react";
 import { Paperclip, Plus } from "lucide-react";
-import { useListContext, useTranslate } from "ra-core";
+import { useGetList, useListContext, useTranslate } from "ra-core";
+import { useSearchParams } from "react-router";
 import { List } from "@/components/admin/list";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { EmptyState } from "../misc/EmptyState";
 import type { InboxItem } from "../types";
 import { formatRedtDate } from "../shidduchim/boardUtils";
 import { AddToInboxDialog } from "./AddToInboxDialog";
 import { InboxResolveDialog } from "./InboxResolveDialog";
+import { NeedsReviewDialog } from "./NeedsReviewDialog";
 import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
 
 /**
@@ -15,13 +19,19 @@ import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
  * share / email / upload, each awaiting one calm confirm step. Resolving files
  * a suggestion (via createShidduch, so the catch fires); dismissing keeps it
  * out of the way without losing it. Never an alarming badge — a calm count.
+ *
+ * Epic 11 adds a second tab: mail from a sender the household hasn't
+ * confirmed yet (`status: 'held'`) waits in "Needs review" instead of
+ * mixing into the working inbox above — see `NeedsReviewDialog.tsx`.
  */
 const InboxCard = ({
   item,
-  onResolve,
+  ctaLabel,
+  onOpen,
 }: {
   item: InboxItem;
-  onResolve: (item: InboxItem) => void;
+  ctaLabel: string;
+  onOpen: (item: InboxItem) => void;
 }) => {
   const meta = INBOX_SOURCE_META[item.source];
   const SourceIcon = meta.icon;
@@ -29,7 +39,7 @@ const InboxCard = ({
   return (
     <button
       type="button"
-      onClick={() => onResolve(item)}
+      onClick={() => onOpen(item)}
       className="ql-enter w-full rounded-2xl border border-border bg-card p-4 text-start shadow-sm
         transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)]
         hover:shadow-md active:scale-[0.99]
@@ -84,18 +94,80 @@ const InboxCard = ({
         </span>
       ) : null}
       <span className="mt-3 inline-block text-sm font-medium text-primary">
-        Confirm the details →
+        {ctaLabel}
       </span>
     </button>
   );
 };
 
+const CardGridSkeleton = () => (
+  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    {Array.from({ length: 2 }).map((_, index) => (
+      <div
+        key={index}
+        className="h-[120px] animate-pulse rounded-2xl bg-muted"
+      />
+    ))}
+  </div>
+);
+
+const SORT_BY_CREATED_DESC = { field: "created_at", order: "DESC" } as const;
+const HELD_PAGINATION = { page: 1, perPage: 100 } as const;
+
+/** The one query param the two tabs sync to (web-patterns.md, "URL as
+ * state") — a linkable, refresh-proof view of which tab is active. Any
+ * value other than "needs-review" (missing, unrecognized, or explicitly
+ * "working") resolves to the working inbox, so an old/bad link never lands
+ * on a blank tab. */
+type InboxTabKey = "working" | "needs-review";
+const TAB_QUERY_PARAM = "tab";
+
+const readActiveTab = (searchParams: URLSearchParams): InboxTabKey =>
+  searchParams.get(TAB_QUERY_PARAM) === "needs-review"
+    ? "needs-review"
+    : "working";
+
 const InboxContent = () => {
+  // The working inbox's own data (status: 'unresolved') — UNCHANGED from
+  // before this tab split: still the resource's own <List> filter below,
+  // still this same `useListContext()` read. A held item leaking in here
+  // would defeat the entire "Needs review" design, so this filter is not
+  // touched by anything added in this file.
   const { data, isPending } = useListContext<InboxItem>();
+  const workingItems = data ?? [];
+
+  // The "Needs review" tab's data (status: 'held') — a second, independent
+  // read, never merged with the working inbox's ListContext above.
+  const { data: heldData, isPending: isPendingHeld } = useGetList<InboxItem>(
+    "inbox_items",
+    {
+      filter: { status: "held" },
+      sort: SORT_BY_CREATED_DESC,
+      pagination: HELD_PAGINATION,
+    },
+  );
+  const heldItems = heldData ?? [];
+
+  const translate = useTranslate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = readActiveTab(searchParams);
+
   const [addOpen, setAddOpen] = useState(false);
   const [resolving, setResolving] = useState<InboxItem | null>(null);
+  const [reviewing, setReviewing] = useState<InboxItem | null>(null);
 
-  const items = data ?? [];
+  const handleTabChange = (value: string) => {
+    const next = value === "needs-review" ? "needs-review" : "working";
+    const nextParams = new URLSearchParams(searchParams);
+    if (next === "working") {
+      // Keep the default tab's URL clean (no `?tab=working` clutter) —
+      // absence already reads as "working" via readActiveTab() above.
+      nextParams.delete(TAB_QUERY_PARAM);
+    } else {
+      nextParams.set(TAB_QUERY_PARAM, next);
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -122,27 +194,71 @@ const InboxContent = () => {
         </button>
       </div>
 
-      {isPending ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {Array.from({ length: 2 }).map((_, index) => (
-            <div
-              key={index}
-              className="h-[120px] animate-pulse rounded-2xl bg-muted"
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
+        <TabsList>
+          <TabsTrigger value="working">
+            {translate("crm.inbox.tabs.working", { _: "Inbox" })}
+          </TabsTrigger>
+          <TabsTrigger value="needs-review" className="gap-1.5">
+            {translate("crm.inbox.tabs.needsReview", { _: "Needs review" })}
+            {/* A calm count, never an alarming dot — matching this file's own
+                header comment. Nothing renders at zero. */}
+            {heldItems.length > 0 ? (
+              <Badge variant="secondary">{heldItems.length}</Badge>
+            ) : null}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="working" className="mt-4">
+          {isPending ? (
+            <CardGridSkeleton />
+          ) : workingItems.length === 0 ? (
+            <EmptyState
+              title="Nothing to confirm"
+              description="When a resume or redt arrives — shared, emailed, or pasted in — it lands here so nothing slips by. Use “Add to inbox” to drop one in."
             />
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <EmptyState
-          title="Nothing to confirm"
-          description="When a resume or redt arrives — shared, emailed, or pasted in — it lands here so nothing slips by. Use “Add to inbox” to drop one in."
-        />
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {items.map((item) => (
-            <InboxCard key={item.id} item={item} onResolve={setResolving} />
-          ))}
-        </div>
-      )}
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {workingItems.map((item) => (
+                <InboxCard
+                  key={item.id}
+                  item={item}
+                  ctaLabel="Confirm the details →"
+                  onOpen={setResolving}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="needs-review" className="mt-4">
+          {isPendingHeld ? (
+            <CardGridSkeleton />
+          ) : heldItems.length === 0 ? (
+            <EmptyState
+              title={translate("crm.inbox.needsReview.emptyTitle", {
+                _: "Nothing waiting on review",
+              })}
+              description={translate("crm.inbox.needsReview.emptyDescription", {
+                _: "Mail from a sender we don't yet recognize for this household waits here until you confirm them.",
+              })}
+            />
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {heldItems.map((item) => (
+                <InboxCard
+                  key={item.id}
+                  item={item}
+                  ctaLabel={translate("crm.inbox.needsReview.cta", {
+                    _: "Review this sender →",
+                  })}
+                  onOpen={setReviewing}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       <AddToInboxDialog open={addOpen} onClose={() => setAddOpen(false)} />
       {resolving ? (
@@ -150,6 +266,13 @@ const InboxContent = () => {
           item={resolving}
           open={!!resolving}
           onClose={() => setResolving(null)}
+        />
+      ) : null}
+      {reviewing ? (
+        <NeedsReviewDialog
+          item={reviewing}
+          open={!!reviewing}
+          onClose={() => setReviewing(null)}
         />
       ) : null}
     </div>

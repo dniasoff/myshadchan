@@ -339,6 +339,11 @@ export const englishCrmMessages = {
         title: "Capture by email",
         description:
           "Forward or CC any redt to this address — it lands in your own Inbox.",
+        // Epic 11: the per-household address is now read from
+        // accounts.inbound_email_token, not a shared VITE_INBOUND_EMAIL —
+        // this explains what sharing it means before the household does.
+        explanation:
+          "Anyone who knows this address can send to it. Mail from a sender we don't recognize waits in Needs review until you confirm them.",
         copy: "Copy",
         copied: "Copied",
       },
@@ -1062,6 +1067,37 @@ export const englishCrmMessages = {
     inbox: {
       source_shadchan: "Shadchan",
       senderNeedsConfirmation: "Who sent this?",
+      // Epic 11: the two-tab split (inbox/InboxList.tsx) — the working
+      // inbox (status 'unresolved', unchanged) and "Needs review" (status
+      // 'held' — a sender the household hasn't confirmed yet).
+      tabs: {
+        working: "Inbox",
+        needsReview: "Needs review",
+      },
+      needsReview: {
+        cta: "Review this sender →",
+        emptyTitle: "Nothing waiting on review",
+        emptyDescription:
+          "Mail from a sender we don't yet recognize for this household waits here until you confirm them.",
+        dialogTitle: "Review this sender",
+        dialogDescription:
+          "This arrived from someone we don't yet recognize for this household. Trusting them lets this — and anything else already waiting from the same address — into your working inbox.",
+        // Shown instead of the Trust button when inbox_items.sender isn't a
+        // usable email address (a display name, or unknown) — see
+        // NeedsReviewDialog.tsx's own comment on why that happens.
+        senderUnknownNotice:
+          "We don't have a clear email address for this sender yet, so there's no address to trust. You can still discard this item.",
+        trustSender: "Trust sender",
+        trusting: "Trusting…",
+        discard: "Discard",
+        discarding: "Discarding…",
+        trusted: "Trusted — this is now in your Inbox",
+        trustedWithReleased:
+          "Trusted — this and %{smart_count} other waiting item are now in your Inbox |||| Trusted — this and %{smart_count} other waiting items are now in your Inbox",
+        trustError: "Couldn't trust that sender. Try again.",
+        discarded: "Discarded — nothing was filed",
+        discardError: "Couldn't discard that",
+      },
       parse: {
         autoFill: "Auto-fill from resume",
         lowConfidence: "Please check",
