@@ -364,9 +364,27 @@ jobs:
       IS_CLOUDFLARE_CONFIGURED: ${{ secrets.CLOUDFLARE_API_TOKEN && secrets.CLOUDFLARE_ACCOUNT_ID }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      # E11 finding 15: `ai` and `parse` are the only two workers whose own
+      # wrangler.toml declares this (see workers/ai/wrangler.toml,
+      # workers/parse/wrangler.toml) — `aiEntitlementGate.ts`'s
+      # `requireAiEntitlement` calls `createClient(SUPABASE_URL,
+      # SUPABASE_PUBLISHABLE_KEY, ...)` on every non-health route of both, so
+      # without it the Worker throws an unhandled 500 instead of the intended
+      # 401/402. Not part of the "base secrets" step below because the other
+      # four workers in this matrix (ingest, match, cron, share) never read it.
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      # E11 finding 15: `parse` only — `resumeExtractor.ts`'s `geminiExtractor()`
+      # needs all three to call Gemini through the Cloudflare AI Gateway (AD-8).
+      # `ai` no longer needs these (Review fix Finding 12 deleted the Claude
+      # narrator — see workers/ai/wrangler.toml's header comment) and
+      # ANTHROPIC_API_KEY is moot for the same reason, so neither is wired here.
+      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      GOOGLE_AI_STUDIO_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
+      IS_PARSE_AI_GATEWAY_CONFIGURED: ${{ secrets.AI_GATEWAY_ACCOUNT_ID && secrets.AI_GATEWAY_ID && secrets.GOOGLE_AI_STUDIO_API_KEY }}
 
     steps:
       - name: 📥 Checkout repo
@@ -406,6 +424,33 @@ jobs:
         run: |
           echo "$SUPABASE_URL" | npx wrangler secret put SUPABASE_URL
           echo "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+
+      # E11 finding 15: only `ai` and `parse` read this (see the
+      # SUPABASE_PUBLISHABLE_KEY comment on this job's `env:` block above).
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse') && env.SUPABASE_PUBLISHABLE_KEY }}
+        name: 🔑 Push AI entitlement secret (SUPABASE_PUBLISHABLE_KEY)
+        working-directory: workers/${{ matrix.worker }}
+        run: echo "$SUPABASE_PUBLISHABLE_KEY" | npx wrangler secret put SUPABASE_PUBLISHABLE_KEY
+
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse') && !env.SUPABASE_PUBLISHABLE_KEY }}
+        name: AI entitlement secret NOT pushed
+        run: |
+          echo '::warning::SUPABASE_PUBLISHABLE_KEY repo secret is missing.'
+          echo ':rotating_light: **SUPABASE_PUBLISHABLE_KEY NOT pushed to `${{ matrix.worker }}`.** `requireAiEntitlement` (workers/shared/aiEntitlementGate.ts) calls `createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, ...)` on every non-health route — without this secret the deployed Worker throws an unhandled `500` instead of the intended `401`/`402`.' >> "$GITHUB_STEP_SUMMARY"
+
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'parse' && env.IS_PARSE_AI_GATEWAY_CONFIGURED }}
+        name: 🔑 Push parse AI Gateway secrets (AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID, GOOGLE_AI_STUDIO_API_KEY)
+        working-directory: workers/parse
+        run: |
+          echo "$AI_GATEWAY_ACCOUNT_ID" | npx wrangler secret put AI_GATEWAY_ACCOUNT_ID
+          echo "$AI_GATEWAY_ID" | npx wrangler secret put AI_GATEWAY_ID
+          echo "$GOOGLE_AI_STUDIO_API_KEY" | npx wrangler secret put GOOGLE_AI_STUDIO_API_KEY
+
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'parse' && !env.IS_PARSE_AI_GATEWAY_CONFIGURED }}
+        name: Parse AI Gateway secrets NOT pushed
+        run: |
+          echo '::warning::One or more of AI_GATEWAY_ACCOUNT_ID / AI_GATEWAY_ID / GOOGLE_AI_STUDIO_API_KEY repo secrets is missing.'
+          echo ':rotating_light: **AI Gateway secrets NOT pushed to `parse`.** `geminiExtractor()` (workers/parse/resumeExtractor.ts) needs all three to call Gemini through the Cloudflare AI Gateway — resume auto-parse (`POST /parse`) will fail on every request until they are set.' >> "$GITHUB_STEP_SUMMARY"
 
       - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'cron' && env.RESEND_API_KEY }}
         name: 🔑 Push cron secrets (RESEND_API_KEY)

@@ -8,5 +8,6 @@ port = 8788
 
 # Secrets (set via `wrangler secret put <NAME> --config workers/parse/wrangler.toml`,
 # or the CI job in .github/workflows/deploy.yml): SUPABASE_URL,
-# SUPABASE_SERVICE_ROLE_KEY, SUPABASE_PUBLISHABLE_KEY, plus the AI Gateway
-# account/token once the OCR pipeline (AD-8) lands.
+# SUPABASE_SERVICE_ROLE_KEY, SUPABASE_PUBLISHABLE_KEY, AI_GATEWAY_ACCOUNT_ID,
+# AI_GATEWAY_ID, GOOGLE_AI_STUDIO_API_KEY (resumeExtractor.ts's
+# geminiExtractor() — the OCR pipeline, AD-8 — reads all three).
