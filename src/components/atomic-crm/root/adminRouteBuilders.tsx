@@ -210,3 +210,23 @@ export function buildDashboardRoute(
   };
   return DashboardRoute;
 }
+
+/**
+ * `CRM.tsx`'s wrapped `authProvider.login()` prefetches `configuration` "to
+ * avoid a flickering when accessing the app for the first time" — but only
+ * a COMPLETED sign-in (an OTP code actually verified via `verifyOtp`) ever
+ * establishes a session. The OTP flow's "Send code" step (`requestOtp`) and
+ * an OAuth click (`oauthProvider`, about to navigate away to Google) both
+ * resolve `authProvider.login()` too, without ever authenticating anyone —
+ * prefetching for either is a request guaranteed to 406 against
+ * `configuration`'s `authenticated`-only RLS policy (`05_policies.sql`):
+ * harmless (the caller's own `catch` discards it), but a wasted, visibly-red
+ * network call on every single "Send code" click.
+ */
+export function shouldPrefetchConfigOnLogin(params: unknown): boolean {
+  return (
+    typeof params === "object" &&
+    params !== null &&
+    (params as { verifyOtp?: unknown }).verifyOtp === true
+  );
+}

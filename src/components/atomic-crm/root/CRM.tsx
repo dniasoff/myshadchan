@@ -41,6 +41,7 @@ import {
   buildDashboardRoute,
   renderCustomRoutes,
   renderResources,
+  shouldPrefetchConfigOnLogin,
 } from "./adminRouteBuilders";
 
 const defaultStore = createCrmStore();
@@ -141,13 +142,15 @@ export const CRM = ({
       ...authProvider,
       login: async (params: any) => {
         const result = await authProvider.login(params);
-        try {
-          const config = await dataProvider.getConfiguration();
-          if (Object.keys(config).length > 0) {
-            store.setItem(CONFIGURATION_STORE_KEY, config);
+        if (shouldPrefetchConfigOnLogin(params)) {
+          try {
+            const config = await dataProvider.getConfiguration();
+            if (Object.keys(config).length > 0) {
+              store.setItem(CONFIGURATION_STORE_KEY, config);
+            }
+          } catch {
+            // Non-critical: config will load via useConfigurationLoader
           }
-        } catch {
-          // Non-critical: config will load via useConfigurationLoader
         }
         return result;
       },
