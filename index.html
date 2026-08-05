@@ -143,6 +143,35 @@
       </div>
     </div>
     <noscript>You need to enable JavaScript to run this app.</noscript>
+    <script>
+      // Repairs a GoTrue OAuth redirect corrupted by this app's own
+      // HashRouter: a successful Google sign-in lands here as
+      // "/#/auth-callback#access_token=...", with a literal SECOND "#" that
+      // GoTrue glued straight onto our own "/#/auth-callback" redirect
+      // target. Only the first "#" in a URL is ever a real fragment
+      // delimiter, so everything after it — including that second "#" — is
+      // one opaque string, and @supabase/auth-js's own URL parser then reads
+      // "access_token" as the corrupted key "/auth-callback#access_token",
+      // silently losing the session. This must run before the bundled
+      // module below (and therefore before the Supabase client it
+      // constructs) ever reads the URL — a classic script always runs
+      // before a `type="module"` script, which always defers. See
+      // src/components/atomic-crm/providers/supabase/oauthCallbackHashFix.ts
+      // for the tested, single source of truth this mirrors — Vite does not
+      // transpile a classic inline script, so it cannot import that file
+      // directly; keep the two in sync by hand.
+      (function () {
+        var href = window.location.href;
+        var firstHash = href.indexOf("#");
+        if (firstHash === -1) return;
+        var afterFirstHash = href.slice(firstHash + 1);
+        var secondHash = afterFirstHash.indexOf("#");
+        if (secondHash === -1) return;
+        var tokenFragment = afterFirstHash.slice(secondHash + 1);
+        var fixedHref = href.slice(0, firstHash) + "#" + tokenFragment;
+        window.history.replaceState(window.history.state, "", fixedHref);
+      })();
+    </script>
     <script type="module" src="<%= mainScript %>"></script>
   </body>
 </html>

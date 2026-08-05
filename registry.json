@@ -736,6 +736,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/supabase/oauthCallbackHashFix.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/supabase/oauthCallback.ts",
           "type": "registry:component"
         },
