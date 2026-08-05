@@ -216,6 +216,8 @@ Note on Epic 5: FR60 (the guided call script) is covered by **Story 5.12**, adde
 11. **AI Layer** — dossier and auto-parse, server-gated
 12. **Phase-1 Completion & Operational Readiness** — the FR1–FR78 surfaces that shipped
     incomplete, and the deployment that makes them real
+13. **When a Family Changes** — a child looked after by two households, and a person no longer
+    part of one
 
 ---
 
@@ -1569,6 +1571,153 @@ literally would write entitlement state into columns nothing reads. The webhook 
 **Contention:** `references/entitlementGate.guard.test.ts` is also edited by **Story 5.12** —
 `ALLOWED` here, `FREE_FEATURES_THAT_MUST_NOT_GATE` there. One file, adjacent arrays, never the same
 wave, and neither edit may be satisfied by weakening the guard.
+
+---
+
+## Epic 13: When a Family Changes
+
+*Added 2026-08-05.*
+
+Every epic before this one assumes a family that stays the same shape. Epic 13 is about the two
+occasions when it does not: **a child who is looked after by two households**, and **a person who
+is no longer part of one**. A marriage ending. A child leaving. Somebody who has died.
+
+These are the hardest weeks a family will have while using this product, and the app's job in
+them is small and specific: keep working, keep remembering, and stay out of the way. It does not
+ask what happened. It does not offer a list of reasons to choose from. It does not make anybody
+classify a bereavement to complete a form. And it does not quietly erase a person, because a
+brother's shidduch history still mentions his sister, the references already spoken to still
+refer to her, and a family may want to look back.
+
+**Why a thirteenth epic rather than a home in 1–12.** Epic 2 owns persona lifecycle and would be
+the obvious home for 13.2 — but Epic 2 is shipped, and its Story 2.5 built the *self-service*
+half deliberately (`remove_persona()` is filtered to `user_id = auth.uid()` by design, with its
+own comment explaining why). 13.2 is the other half: one person acting on behalf of another,
+which is a different authorization question, not a completion of 2.5. Epic 8 owns cross-account
+links, but `connections` is household↔shadchanus by column name, by trigger and by AD-20's core
+promise; household↔household is not a widening of it (see 13.1 §2.3). Epic 9 owns sharing, but
+`share_links` grants a bearer token to an anonymous reader — it shows a child to a shadchan, it
+cannot make a second parent a participant. Epic 12 is Phase-1 completion of FR1–FR78 surfaces
+that shipped incomplete; neither of these shipped at all.
+
+**Both stories are specification, not build-ready.** Between them they carry **fifteen open
+product decisions** and **one architecture amendment**. That is the deliverable: the questions
+are surfaced rather than silently answered, because most of them are product calls with no
+technical answer, and answering them wrong would be worse than answering them late. Neither story
+should enter a wave until §3 of its own file is settled.
+
+**Delivery order: 13.2 → 13.1, with one coupling.** 13.2 is the smaller build and the mechanism
+mostly exists. 13.1 requires a tenancy amendment and should not be started before it is accepted.
+The coupling runs the other way: **13.2's AC-8** ("removing a person, and whether they keep
+access to a child, are one act with two questions") only has a meaningful answer once 13.1
+exists. If 13.1 is deferred, 13.2 ships **without** the access question rather than with a
+silently weakened version of it — because "keeps access" without 13.1 means "keeps the whole
+household", which is the exact thing 13.1 exists to prevent.
+
+**Scheduling constraint (whole epic).** Both stories touch `supabase/schemas/**` and a migration
+each; 13.1 additionally widens RLS across most of the household tables. They must not share a
+wave with each other or with any Epic 12 story. **Security review is mandatory for both**
+(`.claude/rules/security-triggers.md`: authorization, database queries, migrations, RLS — these
+stories are all four). 13.1 is the single largest widening of the tenant boundary since Epic 2;
+13.2 creates the product's first function that acts on a person other than the caller.
+
+### Requirements this epic adds
+
+Neither story is covered by FR1–FR119. Proposed new requirements, for the owner to ratify with
+the §3 decisions:
+
+- FR120: A household may grant another household continuing access to **one named child**, and to
+  nothing else of that household.
+- FR121: A grant requires consent on both sides and is live, not a snapshot — records added later
+  are included without any republication step.
+- FR122: Either household may sever a grant; severing ends access immediately and leaves the
+  severing side a copy of what it could see.
+- FR123: A household's founding admin may remove a person from the household, and separately
+  decide whether that person keeps access to a child. The two are never one collapsed decision.
+- FR124: A person may be removed from a household by someone other than themselves. Removal
+  archives, never erases, and is undoable.
+- FR125: The interface never names or offers a reason for a person leaving a household. One
+  neutral action, one wording, whatever the circumstance.
+
+### Story 13.1: Sharing a child across two households
+
+As a parent whose child's other parent belongs to a different family,
+I want to give that parent continuing access to our child's record — our child's, and nothing
+else of mine —
+So that both of us can look after this shidduch together without either household opening its
+front door to the other.
+
+**Acceptance Criteria:**
+
+**Given** a child in my household
+**When** I share that child with another household
+**Then** nothing is shared until the other side accepts
+**And** they see that child and everything hanging off them, and no other child, member, shadchan,
+reminder or setting of mine
+**And** both households see the same live record, including everything added later
+**And** either side may sever it, taking a copy of what they could see
+**And** everyone in both households can see on the record who else can see this child
+**And** every boundary here is enforced in Postgres, with a negative test proving the wrong caller
+sees nothing.
+
+**Depends on:** an **architecture amendment** to AD-1 — a shared child's rows keep their single
+`account_id` (the composite `(account_id, single_id)` FKs leave no choice), so what changes is the
+*reachability* rule, not the scoping column. **Ten open product decisions**, listed in the story
+file. Story file: `13-1-sharing-a-child-across-two-households.md`.
+
+**What was established, and is not open:** `public.accounts` has no creator column of any kind —
+the founding member is derivable (`account_members.invited_by is null`) but not stored, and
+nothing makes it unique. `connections` cannot carry this (household↔shadchanus by trigger, and
+AD-20's promise is the opposite of what this needs); `share_links` cannot carry this (bearer
+token, anonymous reader, read-only, expiring). Documents are the sharpest constraint: the storage
+key grammar is `{account_id}/…` and every policy compares that segment to `current_context_id()`,
+so a second household cannot form a readable path to a child's resume **regardless of what RLS
+says about the rows**. Shared-by-default does include later records, and that is the deliberate
+opposite of AD-21's snapshot semantics — a builder must not copy `listings`' reflexes here.
+
+### Story 13.2: When someone leaves the household
+
+As someone holding a family's records,
+I want to be able to say that a person is no longer part of this household — once, plainly,
+without being asked to explain —
+So that the app stops treating them as present, and still remembers them, because everyone else's
+history is full of them.
+
+**Acceptance Criteria:**
+
+**Given** a person in my household
+**When** I remove them
+**Then** the app never asks why, never offers a reason to choose from, and reads the same whether
+they have moved out, left a marriage, or died
+**And** nothing is erased — their name stays in a sibling's notes, in past redts, in reference
+call history, because that history is about other people too
+**And** it can be undone
+**And** they stop being treated as present: no reminder reaches them, no notification is addressed
+to them, they are not offered in a member picker
+**And** their tasks stay listed, completable and reassignable, so somebody can pick the work up
+**And** their login is not disabled — a household may end its own relationship with a person, not
+that person's account.
+
+**Depends on:** nothing built; the archive mechanism already exists. **Five open product
+decisions**, listed in the story file. Story file:
+`13-2-when-someone-leaves-the-household.md`.
+
+**What was established, and is not open:** archiving already exists and already fails closed —
+`current_context_id()` requires `status = 'active'`, so an archived membership resolves to a NULL
+context and every policy denies. `remove_persona()` archives and never deletes (its own comment:
+*"zero `delete from`"*). What does **not** exist is any path for one person to do this to another:
+every query in `remove_persona()` is filtered to `user_id = auth.uid()`, deliberately. That is the
+whole gap — and it is why a person who has died currently cannot be removed at all, since only
+they could have done it. There is also **no un-archive path anywhere in the product**, so undo is
+new work, not a toggle. One shipped decision this story may reverse: Story 2.5 AC-8 deliberately
+keeps archived singles visible in the roster (`SingleCard.tsx:23-25`); whether a family should see
+a daughter who has died in the list every time they open the app is the owner's call, and if it
+changes, 2.5's story file is amended in the same dispatch.
+
+**The constraint that outranks the rest.** The interface never names a reason and never offers one
+to choose from. Not a nullable column, not an optional field, not a free-text box, not branching
+copy. An optional field still asks; the question is not asked. The only thing the app may ask is
+whether the person keeps access to a child — a permission question, phrased as a permission.
 
 ---
 
