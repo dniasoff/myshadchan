@@ -4,12 +4,24 @@ import {
   useImperativeHandle,
   type ReactNode,
 } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, type AuthProvider } from "ra-core";
 import { testI18nProvider } from "@/components/atomic-crm/providers/commons/i18nProvider";
 import { RegisterFlow } from "./RegisterFlow";
+import * as signupIntentModule from "./signupIntent";
 import type { TurnstileWidgetHandle } from "./TurnstileWidget";
+
+// GoogleSignUpButton (rendered here when Google OAuth is enabled) records a
+// signup_intents row directly through the Supabase client — mocked for the
+// same reason GoogleSignUpButton.test.tsx mocks it: no real network call.
+vi.mock("./signupIntent", () => ({
+  recordSignupIntent: vi.fn(),
+}));
+
+const mockedRecordSignupIntent = vi.mocked(
+  signupIntentModule.recordSignupIntent,
+);
 
 // Same deterministic fake as LoginPage.test.tsx — RegisterFlow keeps one
 // TurnstileWidget mounted across both its steps and forwards whatever token
@@ -59,6 +71,11 @@ const fillDetailsStep = async (
 };
 
 describe("RegisterFlow", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    mockedRecordSignupIntent.mockReset();
+  });
+
   it("requests a code with allowSignup and the age affirmation, plus a captcha token", async () => {
     // Arrange
     const login = vi.fn().mockResolvedValue(undefined);
@@ -226,5 +243,49 @@ describe("RegisterFlow", () => {
     await expect
       .element(signInLink)
       .toHaveAttribute("href", expect.stringContaining("/login"));
+  });
+
+  it("does not render a Google entry point when Google OAuth is disabled", async () => {
+    // Arrange
+    const login = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    const screen = await renderRegisterFlow(login);
+
+    // Assert: VITE_ENABLE_GOOGLE_OAUTH is unset in this test — the button
+    // must not appear (isGoogleOAuthEnabled() gates it — googleOAuth.ts).
+    await expect
+      .element(screen.getByRole("button", { name: "Continue with Google" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps the Google button disabled until the age box is checked, then redirects with the typed email", async () => {
+    // Arrange: confirm first, then Google — same one affirmation gates both
+    // the OTP "Continue" button and this one.
+    vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
+    mockedRecordSignupIntent.mockResolvedValue(undefined);
+    const login = vi.fn().mockResolvedValue(undefined);
+    const screen = await renderRegisterFlow(login);
+    await screen.getByLabelText(/email/i).fill("ada@example.com");
+
+    // Assert: unchecked box, button still disabled.
+    await expect
+      .element(screen.getByRole("button", { name: "Continue with Google" }))
+      .toBeDisabled();
+
+    // Act
+    await screen.getByRole("checkbox").click();
+    await screen.getByRole("button", { name: "Continue with Google" }).click();
+
+    // Assert
+    await vi.waitFor(() => {
+      expect(login).toHaveBeenCalledExactlyOnceWith({
+        oauthProvider: "google",
+        loginHint: "ada@example.com",
+      });
+    });
+    expect(mockedRecordSignupIntent).toHaveBeenCalledExactlyOnceWith(
+      "ada@example.com",
+    );
   });
 });

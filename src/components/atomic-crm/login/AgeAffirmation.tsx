@@ -12,6 +12,13 @@ export interface AgeAffirmationProps {
   onContinue: () => void;
   /** Optional: render as a step inside a larger wizard (hides the brand mark). */
   compact?: boolean;
+  /**
+   * Optional: fires on every checkbox toggle with its new value. Lets a
+   * parent gate a sibling control (e.g. `RegisterFlow`'s
+   * `GoogleSignUpButton`) on the same affirmation this component owns,
+   * without that parent duplicating the checkbox itself.
+   */
+  onAffirmedChange?: (affirmed: boolean) => void;
 }
 
 /**
@@ -26,9 +33,15 @@ export interface AgeAffirmationProps {
 export const AgeAffirmation = ({
   onContinue,
   compact = false,
+  onAffirmedChange,
 }: AgeAffirmationProps) => {
   const translate = useTranslate();
   const [affirmed, setAffirmed] = useState(false);
+
+  const handleAffirmedChange = (checked: boolean) => {
+    setAffirmed(checked);
+    onAffirmedChange?.(checked);
+  };
 
   // Compact mode is embedded inside a wizard that already owns the
   // full-screen container (see InviteAcceptance) — only wrap ourselves in the
@@ -82,7 +95,7 @@ export const AgeAffirmation = ({
         <Checkbox
           id="age-affirmation-checkbox"
           checked={affirmed}
-          onCheckedChange={(checked) => setAffirmed(checked === true)}
+          onCheckedChange={(checked) => handleAffirmedChange(checked === true)}
           className="mt-0.5"
         />
         <span className="text-sm font-medium">

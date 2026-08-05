@@ -1092,7 +1092,15 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/login/GoogleSignUpButton.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/login/GoogleSignInButton.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/login/GoogleIcon.tsx",
           "type": "registry:component"
         },
         {

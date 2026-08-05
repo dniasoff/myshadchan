@@ -4,9 +4,12 @@ import { useAuthProvider, useLogin, useNotify, useTranslate } from "ra-core";
 import type { SubmitHandler, FieldValues } from "react-hook-form";
 import { Link } from "react-router";
 import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 import { AgeAffirmation } from "./AgeAffirmation";
 import { AuthLayout } from "./AuthLayout";
 import { AUTH_FIELD_CLASSNAME } from "./authFieldClassName";
+import { GoogleSignUpButton } from "./GoogleSignUpButton";
+import { isGoogleOAuthEnabled } from "./googleOAuth";
 import { OtpCodeStep } from "./OtpCodeStep";
 import { resolveAuthErrorNotification } from "./resolveAuthError";
 import { TurnstileWidget, type TurnstileWidgetHandle } from "./TurnstileWidget";
@@ -41,11 +44,21 @@ type RegisterStep = "details" | "code";
  * branch) so a resend on the code step reuses the same live widget instance
  * instead of re-solving a challenge the visitor already passed seconds
  * earlier — see `TurnstileWidget`'s own doc comment.
+ *
+ * Also renders `GoogleSignUpButton` (only when `isGoogleOAuthEnabled()`) as
+ * an alternate way to finish this same signup: it reuses the email typed
+ * into the field above rather than asking for it twice, and stays disabled
+ * until `AgeAffirmation`'s checkbox is checked (`ageAffirmed`, threaded
+ * through via `onAffirmedChange`) — confirm first, then Google, one
+ * confirmation for either path. `LoginPage`'s own `GoogleSignInButton` is
+ * the opposite case: signing in never creates an account, so it redirects
+ * immediately with no affirmation step at all.
  */
 export const RegisterFlow = (props: { redirectTo?: string }) => {
   const { redirectTo } = props;
   const [step, setStep] = useState<RegisterStep>("details");
   const [email, setEmail] = useState("");
+  const [ageAffirmed, setAgeAffirmed] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
@@ -190,7 +203,27 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
                 className={AUTH_FIELD_CLASSNAME}
               />
             </div>
-            <AgeAffirmation onContinue={handleContinue} compact />
+            <AgeAffirmation
+              onContinue={handleContinue}
+              onAffirmedChange={setAgeAffirmed}
+              compact
+            />
+            {isGoogleOAuthEnabled() ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <Separator className="flex-1" />
+                  <span className="text-xs uppercase text-muted-foreground">
+                    {translate("crm.auth.login.or_divider", { _: "or" })}
+                  </span>
+                  <Separator className="flex-1" />
+                </div>
+                <GoogleSignUpButton
+                  email={email}
+                  disabled={!ageAffirmed}
+                  redirect={redirectTo}
+                />
+              </div>
+            ) : null}
             {isRequesting ? (
               <p className="flex items-center justify-center gap-2 text-center text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
