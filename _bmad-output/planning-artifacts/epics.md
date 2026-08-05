@@ -1606,6 +1606,11 @@ are surfaced rather than silently answered, because most of them are product cal
 technical answer, and answering them wrong would be worse than answering them late. Neither story
 should enter a wave until §3 of its own file is settled.
 
+The fifteen are collected, with what is established, the options and a recommended answering
+order, in **`epic-13-open-decisions.md`** (E13-D1 … E13-D15). That file is an index — each entry
+links back to the story section that owns it, and an answer recorded there is applied to the story
+file in the same edit.
+
 **Delivery order: 13.2 → 13.1, with one coupling.** 13.2 is the smaller build and the mechanism
 mostly exists. 13.1 requires a tenancy amendment and should not be started before it is accepted.
 The coupling runs the other way: **13.2's AC-8** ("removing a person, and whether they keep
