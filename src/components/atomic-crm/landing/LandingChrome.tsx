@@ -1,17 +1,34 @@
 import { Button } from "@/components/ui/button";
 import { LandingBrand } from "./LandingBrand";
-import { SIGN_IN_PATH } from "./landingLinks";
+import { REGISTER_PATH, SIGN_IN_PATH } from "./landingLinks";
 import { translateLanding } from "./landingTranslate";
 
+/**
+ * Two intents, two weights: a visitor who already knows they want to sign in
+ * gets the solid button, same as before this pair existed; "Create an
+ * account" sits beside it in the quieter ghost treatment, since the header's
+ * job is navigation for someone who already knows what they want, not
+ * persuasion — that is the hero's job.
+ */
 export const LandingHeader = () => (
   <header className="relative px-6 py-5 sm:px-8 sm:py-6">
     <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
       <LandingBrand />
-      <Button asChild size="sm" className="h-10 px-5 shadow-xs">
-        <a href={SIGN_IN_PATH}>
-          {translateLanding("crm.landing.nav.sign_in", "Sign in")}
-        </a>
-      </Button>
+      <div className="flex items-center gap-1 sm:gap-2">
+        <Button asChild size="sm" variant="ghost" className="h-10 px-4">
+          <a href={REGISTER_PATH}>
+            {translateLanding(
+              "crm.landing.nav.create_account",
+              "Create an account",
+            )}
+          </a>
+        </Button>
+        <Button asChild size="sm" className="h-10 px-5 shadow-xs">
+          <a href={SIGN_IN_PATH}>
+            {translateLanding("crm.landing.nav.sign_in", "Sign in")}
+          </a>
+        </Button>
+      </div>
     </div>
   </header>
 );

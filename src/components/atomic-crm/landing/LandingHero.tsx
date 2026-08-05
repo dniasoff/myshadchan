@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { LandingEyebrow } from "./LandingHeading";
 import { LandingStatesCard } from "./LandingStatesCard";
-import { SIGN_IN_PATH, WHAT_ANCHOR } from "./landingLinks";
+import { REGISTER_PATH, WHAT_ANCHOR } from "./landingLinks";
 import { translateLanding } from "./landingTranslate";
 
 export const LandingHero = () => (
@@ -40,8 +40,8 @@ export const LandingHero = () => (
 
         <div className="mt-9 flex flex-wrap items-center gap-3">
           <Button asChild size="lg" className="h-12 px-7 text-base shadow-sm">
-            <a href={SIGN_IN_PATH}>
-              {translateLanding("crm.landing.hero.cta", "Sign in")}
+            <a href={REGISTER_PATH}>
+              {translateLanding("crm.landing.hero.cta", "Create an account")}
             </a>
           </Button>
           <Button

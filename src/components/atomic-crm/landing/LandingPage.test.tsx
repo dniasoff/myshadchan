@@ -1,6 +1,6 @@
 import { render } from "vitest-browser-react";
 import { LandingPage } from "./LandingPage";
-import { SIGN_IN_PATH } from "./landingLinks";
+import { REGISTER_PATH, SIGN_IN_PATH } from "./landingLinks";
 
 /**
  * The landing page is the one public surface of the product, so these tests pin
@@ -26,6 +26,17 @@ describe("LandingPage", () => {
     // Assert
     const links = screen.getByRole("link", { name: /^sign in$/i });
     await expect.element(links.first()).toHaveAttribute("href", SIGN_IN_PATH);
+  });
+
+  it("offers a visible way to create an account, not only to sign in", async () => {
+    // Arrange / Act
+    const screen = await render(<LandingPage />);
+
+    // Assert: a visitor with no account yet has an explicit, named route to
+    // /register — not just a sign-in button that happens to lead there
+    // eventually (LoginPage.test.tsx covers that indirect hop separately).
+    const links = screen.getByRole("link", { name: /create an account/i });
+    await expect.element(links.first()).toHaveAttribute("href", REGISTER_PATH);
   });
 
   it("names each of the four things it stores", async () => {

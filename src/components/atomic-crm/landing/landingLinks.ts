@@ -6,6 +6,13 @@
 export const SIGN_IN_PATH = "/login";
 
 /**
+ * Same reasoning as `SIGN_IN_PATH`: a real navigation, not a client-side
+ * route, since the landing page renders before the app's router exists.
+ * `RegisterFlow` is what actually answers this path (`root/routeManifest.ts`).
+ */
+export const REGISTER_PATH = "/register";
+
+/**
  * In-page target for the hero's second action. It stays a fragment rather than
  * a route: the app routes on `#/`, so a bare `#what` never reads as a deep link
  * into the app.
