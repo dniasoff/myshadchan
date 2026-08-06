@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAiApp } from "./index";
 
 const rpc = vi.fn();
@@ -26,6 +26,22 @@ const entitledPayload = {
   resumes_used: 0,
   resumes_limit: 50,
 };
+
+/**
+ * `POST /dossier` calls `.rpc()` once — `ai_entitlement`, inside
+ * `requireAiEntitlement`. Responses are keyed by RPC function name (rather
+ * than a blanket `mockResolvedValue`) so a future second RPC call can be
+ * added to this same mocked client without silently reusing another RPC's
+ * canned response.
+ */
+function mockRpcResponses(responses: Record<string, unknown>) {
+  rpc.mockImplementation((fnName: string) =>
+    Promise.resolve({
+      data: fnName in responses ? responses[fnName] : null,
+      error: null,
+    }),
+  );
+}
 
 describe("ai worker", () => {
   it("responds to GET /health without auth", async () => {
@@ -73,7 +89,7 @@ describe("ai worker", () => {
 
 describe("POST /dossier", () => {
   const mockEntitlement = () => {
-    rpc.mockResolvedValue({ data: entitledPayload, error: null });
+    mockRpcResponses({ ai_entitlement: entitledPayload });
   };
 
   afterEach(() => {
@@ -245,6 +261,106 @@ describe("POST /dossier", () => {
     expect(await res.json()).toEqual({
       success: false,
       error: "invalid request body",
+    });
+  });
+
+  describe("cross-role isolation within one account (C1 — Finding 16 follow-up)", () => {
+    /**
+     * The exploit this review closed: a response cache keyed only on
+     * (accountId, shidduchim_id) let one member of a household read another
+     * member's cached `/dossier` payload — a parent_admin's real diligence
+     * content served to the `single` being evaluated, or vice versa,
+     * whichever caller happened to populate the cache first. There is no
+     * cache here any more: this route now re-queries
+     * `reference_links_summary` on every request and relies on RLS alone
+     * ("Reference links scoped to account", supabase/schemas/05_policies.sql
+     * — a blanket deny for role `single`) to draw the line between viewers.
+     * These two mocked row sets stand in for that RLS behavior: a
+     * parent_admin's query returns the real link, a single's returns none.
+     */
+    const parentAdminRows = {
+      data: [
+        {
+          id: 1,
+          shidduchim_id: 42,
+          call_status: "answered",
+          what_they_said: "Wonderful character, very warm.",
+          conversation_log: [],
+        },
+      ],
+      error: null,
+    };
+    const singleRlsEmptyRows = { data: [], error: null };
+
+    function requestDossier(app: ReturnType<typeof createAiApp>) {
+      return app.request(
+        "http://ai.local/dossier",
+        {
+          method: "POST",
+          headers: { Authorization: "Bearer token" },
+          body: JSON.stringify({ shidduchim_id: 42 }),
+        },
+        env,
+      );
+    }
+
+    it("never serves one caller's reference_links_summary result to a different caller, even for the same shidduchim_id and account (C1 regression)", async () => {
+      // Arrange — same account (two members of one household), but the
+      // underlying query returns DIFFERENT row sets per call, exactly as RLS
+      // does for a parent_admin vs. the `single` being evaluated.
+      mockEntitlement();
+      eq.mockResolvedValueOnce(parentAdminRows);
+      eq.mockResolvedValueOnce(singleRlsEmptyRows);
+      const app = createAiApp();
+
+      // Act — two independent requests, same shidduchim_id.
+      const parentAdminResponse = await requestDossier(app);
+      const singleResponse = await requestDossier(app);
+
+      // Assert — the route re-queried on BOTH requests; no cache intercepted
+      // the second one and returned the first caller's payload.
+      expect(eq).toHaveBeenCalledTimes(2);
+
+      const parentAdminBody = (await parentAdminResponse.json()) as {
+        data: { spokenToCount: number; covered: string[]; gaps: string[] };
+      };
+      const singleBody = (await singleResponse.json()) as {
+        data: { spokenToCount: number; covered: string[]; gaps: string[] };
+      };
+      // The parent_admin's own request reflects the real diligence data...
+      expect(parentAdminBody.data.spokenToCount).toBe(1);
+      expect(parentAdminBody.data.covered).toContain("Character");
+      // ...and the single's own request reflects their RLS-empty view —
+      // never the parent_admin's privileged payload.
+      expect(singleBody.data.spokenToCount).toBe(0);
+      expect(singleBody.data.gaps).toContain("Character");
+    });
+
+    it("never masks a parent_admin's real diligence data behind an earlier single's RLS-empty response — the inverse of the leak (C1 regression)", async () => {
+      // Arrange — reverse order: the RLS-empty response is cached-and-stale
+      // in the OLD (buggy) design; here it must simply be that call's own
+      // independent result, never reused for the next request.
+      mockEntitlement();
+      eq.mockResolvedValueOnce(singleRlsEmptyRows);
+      eq.mockResolvedValueOnce(parentAdminRows);
+      const app = createAiApp();
+
+      // Act
+      const singleResponse = await requestDossier(app);
+      const parentAdminResponse = await requestDossier(app);
+
+      // Assert
+      expect(eq).toHaveBeenCalledTimes(2);
+      const singleBody = (await singleResponse.json()) as {
+        data: { spokenToCount: number };
+      };
+      const parentAdminBody = (await parentAdminResponse.json()) as {
+        data: { spokenToCount: number };
+      };
+      expect(singleBody.data.spokenToCount).toBe(0);
+      // The parent_admin's later request must see the real data — never the
+      // single's earlier empty payload masking it for up to 120 seconds.
+      expect(parentAdminBody.data.spokenToCount).toBe(1);
     });
   });
 });

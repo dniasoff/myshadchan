@@ -520,12 +520,51 @@ where m.user_id = '00000000-0000-4000-8000-000000009001';
 -- in this fixture (see .claude/rules/ for the incident this closes).
 -- `source = 'email'` keeps `inbox_items_shadchan_source_requires_connection`
 -- out of scope (that check only constrains `source = 'shadchan'`).
-insert into public.inbox_items (id, account_id, source, raw_text, subject, sender, status)
+-- `attachments` carries one resume-shaped entry (`extractAndUploadAttachments.ts`'s
+-- shape, InboxAttachmentSchema in workers/parse/inboxAttachment.ts) whose
+-- `path` matches the ai_parse_attempts row seeded below verbatim — that row
+-- is production-shaped precisely because it references a real attachment on
+-- a real inbox item, the same pair POST /parse's findResumeAttachment() would
+-- actually resolve, not an arbitrary path with nothing behind it.
+insert into public.inbox_items (id, account_id, source, raw_text, subject, sender, status, attachments)
 values (
     9000001, 9000001, 'email',
     'Forwarded resume for a potential match — see attached.',
-    'Possible shidduch for Leah', 'seminary.office@example.test', 'unresolved'
+    'Possible shidduch for Leah', 'seminary.office@example.test', 'unresolved',
+    '[{"type": "application/pdf", "path": "9000001/inbox/9000001/resume.pdf", "title": "resume.pdf"}]'::jsonb
 );
+
+-- Epic 11 Findings 6/7/8 closure: ai_parse_attempts is the per-attachment
+-- parse claim/idempotency ledger. Same `to_regclass` guard as the
+-- connections/threads/message_notifications blocks below and for the exact
+-- same reason: THIS story's own migration is what creates this table, so it
+-- genuinely holds nothing before that migration applies — the guard is
+-- trivially safe for its own migration, and from the next baseline onward
+-- this seeds and captures it like every other table here, closing the blind
+-- spot in the same diff that adds it (see those blocks' own comments for the
+-- Epic 8 incident this pattern exists to avoid repeating). Seeded AFTER the
+-- inbox_items row (9000001, account 9000001) directly above it, on purpose —
+-- `inbox_item_id` carries no FK (01_tables.sql), so nothing would fail if
+-- this ran first, but a completed row that references an item which does
+-- not yet exist is not production-shaped. `attachment_path` matches that
+-- row's `attachments[0].path` exactly, so this is shaped like what
+-- POST /parse's claim_ai_parse_attempt() would actually create for it —
+-- `generation` is left at its default (1: a fresh claim, never reclaimed),
+-- the production-shape default for a completed row.
+do $$
+begin
+  if to_regclass('public.ai_parse_attempts') is not null then
+    execute $seed$
+      insert into public.ai_parse_attempts
+        (id, account_id, inbox_item_id, attachment_path, period, status, started_at, result)
+      values (
+        9000001, 9000001, 9000001,
+        '9000001/inbox/9000001/resume.pdf', '2026-07', 'completed', now(),
+        '{"fields": {}, "lowConfidenceFields": [], "sections": {}, "rawDraft": {}}'::jsonb
+      );
+    $seed$;
+  end if;
+end $$;
 
 -- Story 7.1 (Epic 7: threads). A shadchanus account, an accepted connection
 -- to the household above, and one thread/participant/message PER SCOPE AXIS

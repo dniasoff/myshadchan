@@ -328,7 +328,6 @@ jobs:
       AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
       AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
       GOOGLE_AI_STUDIO_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
-      IS_PARSE_AI_GATEWAY_CONFIGURED: ${{ secrets.AI_GATEWAY_ACCOUNT_ID && secrets.AI_GATEWAY_ID && secrets.GOOGLE_AI_STUDIO_API_KEY }}
 
     steps:
       - name: 📥 Checkout repo
@@ -343,7 +342,22 @@ jobs:
       - name: 📥 Download deps
         run: npm ci
 
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED }}
+      # External review Finding 1 (2026-08-06): `ai` and `parse` are excluded
+      # here — plain `wrangler deploy` publishes code AND immediately serves
+      # it, so a deploy followed by several `wrangler secret put` calls (the
+      # old flow, still used below for the other four workers) means each
+      # `secret put` promotes and serves ANOTHER version — several
+      # partially-configured releases in a row, live in production, before
+      # the last one happens to be complete. `/parse` and `/dossier` sit
+      # behind `requireAiEntitlement` and carry PII (medical notes, reference
+      # testimony), so that window matters more for these two than for the
+      # other four. See the "🔎 Required AI Worker secrets present?" /
+      # "🚀 Upload Worker version" / "🚀 Promote uploaded version" steps below
+      # for their replacement: `wrangler versions upload --secrets-file`
+      # bundles code and every secret into ONE version atomically, and
+      # nothing serves traffic until the explicit `versions deploy` promotion
+      # that follows it.
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker != 'ai' && matrix.worker != 'parse' }}
         name: 🚀 wrangler deploy
         working-directory: workers/${{ matrix.worker }}
         run: npx wrangler deploy
@@ -356,45 +370,125 @@ jobs:
       # collapsed log group a reader has to open. This puts the same
       # fact where the missing-secret case already puts it: the job
       # summary, so "workers didn't deploy" is visible without digging.
+      #
+      # `ai`/`parse` can also land here via a DIFFERENT failed step now (the
+      # required-secrets check below, or the versions upload/promote steps),
+      # not only a rejected Cloudflare token — the wording stays generic
+      # enough to cover both without misattributing one worker's real cause
+      # to the other's.
       - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && failure() }}
         name: 🚨 Cloudflare Workers deployment FAILED
         run: |
-          echo "::error::wrangler deploy failed for ${{ matrix.worker }} — CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are set but were rejected by the Cloudflare API (see the wrangler deploy step above for the exact error)."
-          echo ':rotating_light: **Cloudflare Workers deployment FAILED (`${{ matrix.worker }}`).** `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` are present but were rejected — see the `wrangler deploy` step above for the exact error (commonly an invalid, expired, or under-scoped token). This worker was **NOT** deployed. `trigger-frontend` still runs once `deploy-supabase` succeeds — a Cloudflare problem does not block the frontend.' >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::deployment failed for ${{ matrix.worker }} — see the failed step above for the exact error (commonly an invalid/expired/under-scoped CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID, or — for ai/parse — a required secret that was never configured)."
+          echo ':rotating_light: **Cloudflare Workers deployment FAILED (`${{ matrix.worker }}`).** See the failed step above for the exact error. This worker was **NOT** deployed. `trigger-frontend` still runs once `deploy-supabase` succeeds — a Cloudflare problem does not block the frontend.' >> "$GITHUB_STEP_SUMMARY"
 
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY }}
+      # External review Finding 2 (2026-08-06): SUPABASE_URL /
+      # SUPABASE_SERVICE_ROLE_KEY / SUPABASE_PUBLISHABLE_KEY (both `ai` and
+      # `parse`), plus the Gemini AI Gateway trio (`parse` only), used to be
+      # "advisory" — a missing repo secret only printed a `::warning::` and
+      # left the job GREEN, so a Worker missing credentials for a route it
+      # cannot serve without them still deployed successfully. Every
+      # non-health route on both Workers calls `requireAiEntitlement`
+      # (workers/shared/aiEntitlementGate.ts), which throws an unhandled
+      # `500` without SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/
+      # SUPABASE_PUBLISHABLE_KEY; `parse`'s `geminiExtractor()`
+      # (workers/parse/resumeExtractor.ts) cannot call Gemini at all without
+      # all three Gateway secrets. These are genuinely required, not
+      # optional, so a miss now fails the job BEFORE any code is uploaded —
+      # this step runs before (and, on failure, blocks) the upload step
+      # below. `workers/parse/wrangler.toml` / `workers/ai/wrangler.toml`'s
+      # own `[secrets] required = [...]` block is wrangler's OWN independent
+      # enforcement of the same requirement, for any deploy of these two
+      # Workers that does not go through this workflow at all.
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse') }}
+        name: 🔎 Required AI Worker secrets present? (fails the job, not just a warning)
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_URL:-}" ] || missing+=("SUPABASE_URL")
+          [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || missing+=("SUPABASE_SERVICE_ROLE_KEY")
+          [ -n "${SUPABASE_PUBLISHABLE_KEY:-}" ] || missing+=("SUPABASE_PUBLISHABLE_KEY")
+          if [ "${{ matrix.worker }}" = "parse" ]; then
+            [ -n "${AI_GATEWAY_ACCOUNT_ID:-}" ] || missing+=("AI_GATEWAY_ACCOUNT_ID")
+            [ -n "${AI_GATEWAY_ID:-}" ] || missing+=("AI_GATEWAY_ID")
+            [ -n "${GOOGLE_AI_STUDIO_API_KEY:-}" ] || missing+=("GOOGLE_AI_STUDIO_API_KEY")
+          fi
+
+          if [ ${#missing[@]} -eq 0 ]; then
+            exit 0
+          fi
+
+          echo "::error::${{ matrix.worker }} is missing required secret(s): ${missing[*]}"
+          {
+            echo ":rotating_light: **\`${{ matrix.worker }}\` was NOT deployed — missing required secret(s): \`${missing[*]}\`.**"
+            echo 'This Worker cannot serve its route(s) without them (see this step'"'"'s comment in `.github/workflows/deploy.yml` for why each one is required). Set the missing repo secret(s) and re-run.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      # External review Finding 1 (2026-08-06): code and every secret above
+      # go up TOGETHER, in one `versions upload` call, as a new Version that
+      # is NOT yet serving any traffic — `versions upload` only ever creates
+      # a version, it never promotes one (confirmed against `wrangler
+      # versions upload --help`, 4.113.0: no flag on this command routes
+      # traffic). `--secrets-file` also works on a Worker that does not exist
+      # yet (confirmed: wrangler's own error message for a missing secret on
+      # a brand-new Worker literally recommends this flag), which
+      # `wrangler secret put` alone cannot do — so this covers both the
+      # first-ever deploy of `ai`/`parse` and every steady-state redeploy
+      # with the same command. `--secrets-file` is additive (per
+      # `--help`): a secret not listed here is left untouched, never deleted.
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse') }}
+        name: 🚀 Upload Worker version (ai/parse — code + every secret, bundled atomically)
+        working-directory: workers/${{ matrix.worker }}
+        run: |
+          set -euo pipefail
+          secrets_file="$(mktemp)"
+          upload_log="$(mktemp)"
+          trap 'rm -f "$secrets_file" "$upload_log"' EXIT
+          {
+            printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"
+            printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
+            printf 'SUPABASE_PUBLISHABLE_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY"
+            if [ "${{ matrix.worker }}" = "parse" ]; then
+              printf 'AI_GATEWAY_ACCOUNT_ID=%s\n' "$AI_GATEWAY_ACCOUNT_ID"
+              printf 'AI_GATEWAY_ID=%s\n' "$AI_GATEWAY_ID"
+              printf 'GOOGLE_AI_STUDIO_API_KEY=%s\n' "$GOOGLE_AI_STUDIO_API_KEY"
+            fi
+          } > "$secrets_file"
+          chmod 600 "$secrets_file"
+
+          npx wrangler versions upload \
+            --message "CI deploy $GITHUB_SHA" \
+            --secrets-file "$secrets_file" \
+            | tee "$upload_log"
+
+          version_id=$(sed -n 's/^Worker Version ID: *//p' "$upload_log" | tail -n1)
+          if [ -z "$version_id" ]; then
+            echo "::error::could not parse a Worker Version ID out of 'wrangler versions upload' output for ${{ matrix.worker }} — nothing was promoted."
+            exit 1
+          fi
+          echo "WRANGLER_VERSION_ID=$version_id" >> "$GITHUB_ENV"
+
+      # The explicit promotion `versions upload` above deliberately never
+      # does — this is the only step that makes the uploaded version start
+      # serving traffic, and it only runs once the version above uploaded
+      # successfully WITH every required secret already attached to it.
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse') }}
+        name: 🚀 Promote uploaded version to 100% traffic (ai/parse)
+        working-directory: workers/${{ matrix.worker }}
+        run: npx wrangler versions deploy "${WRANGLER_VERSION_ID}@100" --yes --message "CI deploy $GITHUB_SHA"
+
+      # `ai`/`parse` are excluded here — they get SUPABASE_URL /
+      # SUPABASE_SERVICE_ROLE_KEY via the atomic `--secrets-file` upload
+      # above instead (and fail the job outright if either is missing,
+      # rather than silently skipping this push the way the other four
+      # workers still do below).
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY && matrix.worker != 'ai' && matrix.worker != 'parse' }}
         name: 🔑 Push base secrets (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
         working-directory: workers/${{ matrix.worker }}
         run: |
           echo "$SUPABASE_URL" | npx wrangler secret put SUPABASE_URL
           echo "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-
-      # E11 finding 15: only `ai` and `parse` read this (see the
-      # SUPABASE_PUBLISHABLE_KEY comment on this job's `env:` block above).
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse') && env.SUPABASE_PUBLISHABLE_KEY }}
-        name: 🔑 Push AI entitlement secret (SUPABASE_PUBLISHABLE_KEY)
-        working-directory: workers/${{ matrix.worker }}
-        run: echo "$SUPABASE_PUBLISHABLE_KEY" | npx wrangler secret put SUPABASE_PUBLISHABLE_KEY
-
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse') && !env.SUPABASE_PUBLISHABLE_KEY }}
-        name: AI entitlement secret NOT pushed
-        run: |
-          echo '::warning::SUPABASE_PUBLISHABLE_KEY repo secret is missing.'
-          echo ':rotating_light: **SUPABASE_PUBLISHABLE_KEY NOT pushed to `${{ matrix.worker }}`.** `requireAiEntitlement` (workers/shared/aiEntitlementGate.ts) calls `createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, ...)` on every non-health route — without this secret the deployed Worker throws an unhandled `500` instead of the intended `401`/`402`.' >> "$GITHUB_STEP_SUMMARY"
-
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'parse' && env.IS_PARSE_AI_GATEWAY_CONFIGURED }}
-        name: 🔑 Push parse AI Gateway secrets (AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID, GOOGLE_AI_STUDIO_API_KEY)
-        working-directory: workers/parse
-        run: |
-          echo "$AI_GATEWAY_ACCOUNT_ID" | npx wrangler secret put AI_GATEWAY_ACCOUNT_ID
-          echo "$AI_GATEWAY_ID" | npx wrangler secret put AI_GATEWAY_ID
-          echo "$GOOGLE_AI_STUDIO_API_KEY" | npx wrangler secret put GOOGLE_AI_STUDIO_API_KEY
-
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'parse' && !env.IS_PARSE_AI_GATEWAY_CONFIGURED }}
-        name: Parse AI Gateway secrets NOT pushed
-        run: |
-          echo '::warning::One or more of AI_GATEWAY_ACCOUNT_ID / AI_GATEWAY_ID / GOOGLE_AI_STUDIO_API_KEY repo secrets is missing.'
-          echo ':rotating_light: **AI Gateway secrets NOT pushed to `parse`.** `geminiExtractor()` (workers/parse/resumeExtractor.ts) needs all three to call Gemini through the Cloudflare AI Gateway — resume auto-parse (`POST /parse`) will fail on every request until they are set.' >> "$GITHUB_STEP_SUMMARY"
 
       - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'cron' && env.RESEND_API_KEY }}
         name: 🔑 Push cron secrets (RESEND_API_KEY)

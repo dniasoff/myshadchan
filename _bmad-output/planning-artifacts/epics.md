@@ -1384,8 +1384,25 @@ So that I confirm rather than retype.
 **Given** a resume in the Inbox and an entitled account
 **When** it is parsed
 **Then** I review an editable draft with the original kept as received
-**And** unknown fields are blank, never invented
+**And** a field the model did not return, or returned in a shape the schema rejects, is left blank — never filled with a guessed or fabricated value
+**And** every returned field carries the model's own confidence, and a low-confidence field is visibly flagged for review rather than presented as reliable
+**And** the draft is never treated as verified against the source document — the human review step, not the extraction step, is what confirms a value is correct
 **And** "enter myself" is always available.
+
+**Amendment (recorded 2026-08-06, closing finding 10's documentation half of
+`_bmad-output/epic-11-adversarial-review-report-2026-08-04.md`).** The criteria above replace the
+original wording, "unknown fields are blank, never invented." That review found the code faithful
+to the first half — an absent or malformed field really does come back `null`, never a
+passed-through guess — but the second half overclaimed: nothing in the implementation
+distinguishes a genuinely extracted value from a well-shaped hallucination, since there are no
+source spans or quotations tying a returned value back to the document it came from. The review's
+own resolution judged building that machinery YAGNI (the human review gate in the resolve dialog
+already covers the real risk) and recorded that "the epic's wording, not the code, was the
+overclaim." The wording above is that correction: it states the structural guarantee that is
+actually true (blank rather than guessed), names the confidence signal for what it is
+(model-supplied and advisory, driving the low-confidence flag), and is explicit that the human
+review step — not the extraction step — is what confirms a value is correct. It does not weaken
+the feature or the review gate; it makes the written claim match what was always shipped.
 
 ### Story 11.3: Diligence dossier
 
@@ -1400,6 +1417,36 @@ So that I can see agreement, contradiction and gaps.
 **Then** I see consensus, contradictions and what nobody was asked
 **And** it draws only on this account's own records
 **And** it never judges compatibility or suggests a match.
+
+### Story 11.4: Operational controls for the AI Workers
+
+As a platform owner,
+I want the AI Workers' rate limiting, tracing and response cache to fail safely,
+So that a limiter fault can never silently become an unmetered paid endpoint and no household can ever see another's cached data.
+
+**Acceptance Criteria:**
+
+**Given** an AI Worker whose rate-limit binding is unavailable
+**When** a request reaches `/parse` or `/dossier`
+**Then** the request is refused when this environment declares enforcement, and allowed through only when it does not
+**And** a limiter that throws at runtime always refuses the request, regardless of that declaration
+**And** every request is traced with a request id, route and outcome, never the resume contents, dossier narrative, or JWT
+**And** `/dossier` evaluates row-level security fresh on every request and holds no cross-request state that could serve one caller's data to another.
+
+**Amendment (recorded 2026-08-06, closing finding 18 raised against the prior wording).** The last
+criterion above replaces "a cached `/dossier` response is scoped to its account and never returned
+to another account's request." An account-namespaced response cache for `/dossier` was built to
+satisfy that wording, then failed a follow-up adversarial review as a P1: its key had only one
+dimension, `account_id`, but `reference_links` RLS additionally denies the `single` role outright —
+a second, independent dimension the key never captured — so two members of the *same* account could
+collide on one cache key while RLS gave them genuinely different rows underneath it. The fix removed
+the cache rather than re-keying it; the full incident and reasoning are in
+`_bmad-output/implementation-artifacts/11-4-operational-controls.md` ("Resolution note: C1"). `/dossier`
+never called a model (see Story 11.3) and its query is a single indexed `SELECT`, so the cache was
+saving one query, not inference — removing it is a legitimate design choice, not a shortfall against
+this story. The wording above asserts what the shipped code actually guarantees and what is
+mechanically testable now: no cached state exists to leak, because none exists at all, and RLS is
+evaluated on every request rather than once per cache key.
 
 ---
 

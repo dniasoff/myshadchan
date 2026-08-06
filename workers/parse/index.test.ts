@@ -1,37 +1,45 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createParseApp } from "./index";
 import type { RawExtraction } from "./resumeExtractor";
-import { ENTITLED_PAYLOAD, TEST_ENV, makeExtract } from "./parseTestFixtures";
+import { CURRENT_PARSE_RESULT_SCHEMA_VERSION } from "./parseResultPayload";
+import {
+  APPLIED_CONFIRM_OUTCOME,
+  APPLIED_RELEASE_OUTCOME,
+  CLAIMED_ATTEMPT,
+  ENTITLED_PAYLOAD,
+  TEST_ENV,
+  makeExtract,
+} from "./parseTestFixtures";
 
-// Finding 8 (idempotency) and Finding 9 (attachment size guard) each moved to
-// their own file — `index.idempotency.test.ts` / `index.sizeGuard.test.ts` —
-// once adding them here would have pushed this file well past the ~400-line
-// typical ceiling (coding-style.md). They share this file's mock shape and
-// `parseTestFixtures.ts`'s fixtures, but each still declares its own
-// `vi.mock(...)` calls: those are per-file (Vitest hoists them within the
-// file that declares them), so mocking cannot be centralized further.
+// Finding 8 (idempotency), Finding 9 (attachment size guard), and Findings
+// 6/7's own quota-enforcement branches (cap reached at the atomic claim,
+// fail-closed on an RPC error, release-on-extractor-failure) each moved to
+// their own file — `index.idempotency.test.ts` / `index.sizeGuard.test.ts` /
+// `index.quotaEnforcement.test.ts` — once adding them here would have pushed
+// this file well past the ~400-line typical ceiling (coding-style.md). They
+// share this file's mock shape and `parseTestFixtures.ts`'s fixtures, but
+// each still declares its own `vi.mock(...)` calls: those are per-file
+// (Vitest hoists them within the file that declares them), so mocking cannot
+// be centralized further.
 
 const rpc = vi.fn();
 const select = vi.fn().mockReturnThis();
 const eq = vi.fn().mockReturnThis();
 const single = vi.fn();
-const update = vi.fn().mockReturnThis();
-const insert = vi.fn().mockReturnThis();
 const storageFrom = vi.fn();
 const download = vi.fn();
 const list = vi.fn();
-const from = vi.fn(() => ({ select, eq, single, update, insert }));
+const from = vi.fn(() => ({ select, eq, single }));
 
-const mockScopedTable = {
-  select: vi.fn().mockReturnValue({
-    eq: vi.fn().mockReturnValue({ data: [], error: null }),
-  }),
-  insert: vi.fn().mockReturnValue({ error: null }),
-  update: vi.fn(() => ({
-    eq: vi.fn().mockReturnValue({ data: null, error: null }),
-  })),
-  delete: vi.fn(),
-};
+// Findings 6/7/8 closure: the monthly-cap reservation and the idempotency
+// check are now the single atomic `claimParseAttempt()` call
+// (`parseQuota.ts`) instead of the old `forAccount(...).from("ai_usage")`
+// read-modify-write and the deleted Cache-API probe/write — mock the module,
+// not a Supabase table.
+const claimParseAttempt = vi.fn();
+const confirmParseAttempt = vi.fn();
+const releaseParseAttempt = vi.fn();
+const forceReclaimParseAttempt = vi.fn();
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
@@ -41,15 +49,58 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }));
 
-vi.mock("../shared/forAccount", () => ({
-  forAccount: vi.fn(() => ({ from: () => mockScopedTable })),
+vi.mock("./parseQuota", () => ({
+  claimParseAttempt: (...args: unknown[]) => claimParseAttempt(...args),
+  confirmParseAttempt: (...args: unknown[]) => confirmParseAttempt(...args),
 }));
+
+vi.mock("./parseQuotaRecovery", () => ({
+  releaseParseAttempt: (...args: unknown[]) => releaseParseAttempt(...args),
+  forceReclaimParseAttempt: (...args: unknown[]) =>
+    forceReclaimParseAttempt(...args),
+}));
+
+function postParse(app: ReturnType<typeof createParseApp>) {
+  return app.request(
+    "http://parse.local/parse",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ inbox_item_id: 1 }),
+    },
+    TEST_ENV,
+  );
+}
+
+function arrangeEntitledItemWithAttachment() {
+  rpc.mockResolvedValue({ data: ENTITLED_PAYLOAD, error: null });
+  single.mockResolvedValue({
+    data: {
+      id: 1,
+      account_id: 10,
+      attachments: [
+        {
+          title: "resume.pdf",
+          type: "application/pdf",
+          path: "10/resume.pdf",
+        },
+      ],
+    },
+    error: null,
+  });
+  storageFrom.mockReturnValue({ download, list });
+}
 
 describe("parse worker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     select.mockReturnThis();
     eq.mockReturnThis();
+    confirmParseAttempt.mockResolvedValue(APPLIED_CONFIRM_OUTCOME);
+    releaseParseAttempt.mockResolvedValue(APPLIED_RELEASE_OUTCOME);
   });
 
   it("responds to GET /health without auth", async () => {
@@ -96,47 +147,22 @@ describe("parse worker", () => {
     expect(await res.json()).toEqual({ success: false, error: "not entitled" });
   });
 
-  it("returns the parsed draft on the happy path", async () => {
+  it("returns the parsed draft on the happy path and durably confirms the reservation", async () => {
     // Arrange
     const raw = makeExtract();
     const app = createParseApp({
       extract: async () => raw,
     });
-    rpc.mockResolvedValue({ data: ENTITLED_PAYLOAD, error: null });
-    single.mockResolvedValue({
-      data: {
-        id: 1,
-        account_id: 10,
-        attachments: [
-          {
-            title: "resume.pdf",
-            type: "application/pdf",
-            path: "10/resume.pdf",
-          },
-        ],
-      },
-      error: null,
-    });
-    storageFrom.mockReturnValue({ download, list });
+    arrangeEntitledItemWithAttachment();
     list.mockResolvedValue({ data: [], error: null });
     download.mockResolvedValue({
       data: new Blob(["pdf bytes"]),
       error: null,
     });
+    claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
 
     // Act
-    const res = await app.request(
-      "http://parse.local/parse",
-      {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer token",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ inbox_item_id: 1 }),
-      },
-      TEST_ENV,
-    );
+    const res = await postParse(app);
 
     // Assert
     expect(res.status).toBe(200);
@@ -147,37 +173,49 @@ describe("parse worker", () => {
     expect(json.success).toBe(true);
     expect(json.data?.fields.name_en).toBe("Rivky");
     expect(json.data?.rawDraft).toEqual(raw);
+    // The claim happens BEFORE any download/inference (Findings 6/7): a 200
+    // must never be reachable without it.
+    expect(claimParseAttempt).toHaveBeenCalledWith(
+      expect.anything(),
+      10,
+      1,
+      "10/resume.pdf",
+      CURRENT_PARSE_RESULT_SCHEMA_VERSION,
+    );
+    expect(confirmParseAttempt).toHaveBeenCalledWith(
+      expect.anything(),
+      10,
+      CLAIMED_ATTEMPT.outcome.attempt_id,
+      CLAIMED_ATTEMPT.outcome.generation,
+      json.data,
+      CURRENT_PARSE_RESULT_SCHEMA_VERSION,
+    );
+    expect(releaseParseAttempt).not.toHaveBeenCalled();
   });
 
-  it("returns 402 when the monthly cap is reached", async () => {
-    // Arrange
-    const app = createParseApp();
-    rpc.mockResolvedValue({
-      data: { ...ENTITLED_PAYLOAD, resumes_used: 50, resumes_limit: 50 },
+  it("labels the happy path as a fresh, billable parse in the trace log (review Finding C4)", async () => {
+    // Arrange — a real, freshly-inferred result must be distinguishable from
+    // a free replay in Cloudflare Logs, so an operator can tell a billable
+    // request from a free one without reading application code.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const app = createParseApp({ extract: async () => makeExtract() });
+    arrangeEntitledItemWithAttachment();
+    list.mockResolvedValue({ data: [], error: null });
+    download.mockResolvedValue({
+      data: new Blob(["pdf bytes"]),
       error: null,
     });
+    claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
 
     // Act
-    const res = await app.request(
-      "http://parse.local/parse",
-      {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer token",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ inbox_item_id: 1 }),
-      },
-      TEST_ENV,
-    );
+    const res = await postParse(app);
 
     // Assert
-    expect(res.status).toBe(402);
-    expect(await res.json()).toEqual({
-      success: false,
-      error: "monthly resume limit reached",
-    });
-    expect(single).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "parse.request",
+      expect.objectContaining({ outcome: "fresh_parse" }),
+    );
   });
 
   it("returns 404 when the inbox item is not found", async () => {
@@ -187,18 +225,7 @@ describe("parse worker", () => {
     single.mockResolvedValue({ data: null, error: { message: "not found" } });
 
     // Act
-    const res = await app.request(
-      "http://parse.local/parse",
-      {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer token",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ inbox_item_id: 999 }),
-      },
-      TEST_ENV,
-    );
+    const res = await postParse(app);
 
     // Assert
     expect(res.status).toBe(404);
@@ -206,6 +233,7 @@ describe("parse worker", () => {
       success: false,
       error: "inbox item not found",
     });
+    expect(claimParseAttempt).not.toHaveBeenCalled();
   });
 
   describe("CORS (Story 11-1 review fix, Finding 1)", () => {
@@ -355,18 +383,7 @@ describe("parse worker", () => {
     });
 
     // Act
-    const res = await app.request(
-      "http://parse.local/parse",
-      {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer token",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ inbox_item_id: 1 }),
-      },
-      TEST_ENV,
-    );
+    const res = await postParse(app);
 
     // Assert
     expect(res.status).toBe(422);
@@ -375,5 +392,6 @@ describe("parse worker", () => {
       error: "no resume attachment found",
     });
     expect(download).not.toHaveBeenCalled();
+    expect(claimParseAttempt).not.toHaveBeenCalled();
   });
 });

@@ -871,12 +871,70 @@ grant all on sequence public.subscription_id_seq to service_role;
 revoke all on sequence public.ai_usage_id_seq from anon, authenticated;
 grant all on sequence public.ai_usage_id_seq to service_role;
 
+-- Epic 11 Findings 6/7/8 closure: ai_parse_attempts is the per-attachment
+-- parse claim/idempotency ledger. Same posture as ai_usage above — no client
+-- write path, no client read path at all (05_policies.sql has zero policies
+-- on it). Every access goes through the claim/confirm/release RPCs below,
+-- which are service_role-only.
+revoke all on table public.ai_parse_attempts from anon, authenticated;
+grant all on table public.ai_parse_attempts to service_role;
+
+revoke all on sequence public.ai_parse_attempts_id_seq from anon, authenticated;
+grant all on sequence public.ai_parse_attempts_id_seq to service_role;
+
 -- ai_entitlement() is the single server-authoritative entitlement decision,
 -- called by the SPA and (future) AI edge functions alike. anon must never run
 -- it; authenticated and service_role may.
 revoke all on function public.ai_entitlement() from public, anon;
 grant execute on function public.ai_entitlement() to authenticated;
 grant execute on function public.ai_entitlement() to service_role;
+
+-- ai_monthly_resume_limit() is a read-only constant lookup, safe for a
+-- client JWT to invoke directly (same posture as ai_entitlement() above).
+revoke all on function public.ai_monthly_resume_limit() from public, anon;
+grant execute on function public.ai_monthly_resume_limit() to authenticated;
+grant execute on function public.ai_monthly_resume_limit() to service_role;
+
+-- ai_resume_limit_for_account(): reads only public.subscription, which is
+-- already RLS-scoped to the caller's own account — asking about another
+-- account's id from a client JWT simply resolves no row (returns 0), never
+-- another tenant's data (see the function's own comment). Same posture as
+-- ai_entitlement()/ai_monthly_resume_limit() above.
+revoke all on function public.ai_resume_limit_for_account(bigint) from public, anon;
+grant execute on function public.ai_resume_limit_for_account(bigint) to authenticated;
+grant execute on function public.ai_resume_limit_for_account(bigint) to service_role;
+
+-- claim/confirm/release are reachable ONLY from the Worker's service-role
+-- client — EXECUTE is never granted to authenticated or anon, unlike
+-- ai_entitlement()/ai_monthly_resume_limit() above. SECURITY DEFINER
+-- bypasses RLS entirely, so if EXECUTE were ever granted to authenticated, a
+-- modified client could pass ANY p_account_id, not just its own, enabling
+-- cross-tenant quota exhaustion and — worse — could insert a fake
+-- 'completed' row with attacker-controlled result JSON that a later
+-- legitimate request would replay verbatim into another account's resume
+-- draft.
+revoke all on function public.claim_ai_parse_attempt(bigint, bigint, text, smallint) from public, anon, authenticated;
+grant execute on function public.claim_ai_parse_attempt(bigint, bigint, text, smallint) to service_role;
+
+revoke all on function public.confirm_ai_parse_attempt(bigint, bigint, bigint, jsonb, smallint) from public, anon, authenticated;
+grant execute on function public.confirm_ai_parse_attempt(bigint, bigint, bigint, jsonb, smallint) to service_role;
+
+revoke all on function public.release_ai_parse_attempt(bigint, bigint, bigint) from public, anon, authenticated;
+grant execute on function public.release_ai_parse_attempt(bigint, bigint, bigint) to service_role;
+
+-- force_reclaim_ai_parse_attempt() (Finding 12 closure): same posture as
+-- claim/confirm/release above — SECURITY DEFINER, reachable ONLY from the
+-- Worker's service-role client. A modified client with EXECUTE could
+-- force-reclaim any account's completed row and trigger a free re-parse on
+-- its behalf.
+revoke all on function public.force_reclaim_ai_parse_attempt(bigint, bigint) from public, anon, authenticated;
+grant execute on function public.force_reclaim_ai_parse_attempt(bigint, bigint) to service_role;
+
+-- sweep_expired_ai_parse_attempts() (Finding 11 closure): called only from
+-- workers/cron's scheduled() tick via the service-role client — never a
+-- caller-supplied JWT.
+revoke all on function public.sweep_expired_ai_parse_attempts() from public, anon, authenticated;
+grant execute on function public.sweep_expired_ai_parse_attempts() to service_role;
 
 -- ---------------------------------------------------------------------------
 -- Inbox items (Epic 2 capture funnel). Unlike the billing ledger, authenticated

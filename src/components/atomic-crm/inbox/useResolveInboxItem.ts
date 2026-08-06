@@ -15,180 +15,19 @@ import type {
   Resume,
   Shidduch,
 } from "../types";
+import {
+  acquireResolutionLock,
+  finalizePayload,
+  generateAttemptId,
+  type ResolutionInput,
+  type ResumeDraft,
+} from "./resolveInboxItemLock";
 
-/**
- * Story 11.2: optional resume draft captured by the parse Worker. When
- * present, `resolveAsNewShidduch` also creates a `resumes` row attached to
- * the new shidduch so the original attachment and extracted draft are kept.
- */
-export type ResumeDraft = {
-  attachment: InboxAttachment;
-  rawDraft: unknown;
-  sections: unknown;
-};
-
-/**
- * Story 10.5: idempotency token + stashed inputs for the resolve window.
- * Stored on `inbox_items.resolution_input` as JSONB so a retry can complete
- * a partially-failed resolve without re-running domain mutations.
- */
-type ResolutionInput =
-  | {
-      action: "new";
-      input: CreateShidduchInput;
-      resolved_shidduchim_id?: Identifier;
-      resume_draft?: ResumeDraft;
-      resume_created?: boolean;
-    }
-  | {
-      action: "link";
-      shidduchim_id: Identifier;
-      note_inserted?: boolean;
-    }
-  | {
-      action: "dismiss";
-    };
-
-const MAX_LOCK_RETRIES = 3;
-
-function generateAttemptId(): string {
-  return crypto.randomUUID();
-}
-
-function inputsAreCompatible(a: ResolutionInput, b: ResolutionInput): boolean {
-  if (a.action !== b.action) return false;
-  if (a.action === "dismiss" && b.action === "dismiss") return true;
-  if (a.action === "new" && b.action === "new") {
-    return (
-      a.input.single_id === b.input.single_id &&
-      a.input.shadchan_id === b.input.shadchan_id &&
-      a.input.origin === b.input.origin &&
-      a.resume_draft?.attachment.path === b.resume_draft?.attachment.path
-    );
-  }
-  if (a.action === "link" && b.action === "link") {
-    return a.shidduchim_id === b.shidduchim_id;
-  }
-  return false;
-}
-
-/**
- * Acquire the resolve lock for an inbox item. Returns the current row state.
- *
- * Protocol:
- *   1. Try to move `unresolved` -> `resolving` with our attempt id + input.
- *   2. If that fails (status changed concurrently), fetch the current row.
- *   3. If the item is already `resolved` or `dismissed`, return it as a
- *      no-op (idempotent).
- *   4. If the item is `resolving` with the SAME attempt id or a COMPATIBLE
- *      input, take over the lock and return the row.
- *   5. If the item is `resolving` with a different, incompatible attempt,
- *      throw — another resolution is in flight.
- *   6. If the item is somehow still `unresolved` (race), retry a bounded
- *      number of times.
- *
- * This is client-side compare-and-swap. It is not strictly serializable
- * against concurrent callers, but it closes the double-click / double-call
- * and partial-retry duplication vectors that matter in practice. A future
- * backend RPC can tighten the guarantee.
- */
-async function acquireResolutionLock(
-  dataProvider: CrmDataProvider,
-  item: InboxItem,
-  attemptId: string,
-  input: ResolutionInput,
-  retryCount = 0,
-): Promise<InboxItem> {
-  const { data: current } = await dataProvider.getOne<InboxItem>(
-    "inbox_items",
-    { id: item.id },
-  );
-  if (!current) {
-    throw new Error(`Inbox item ${item.id} not found`);
-  }
-
-  if (current.status === "resolved" || current.status === "dismissed") {
-    return current;
-  }
-
-  if (current.status === "resolving") {
-    const currentInput = (current.resolution_input ?? {}) as ResolutionInput;
-    const sameAttempt = current.resolution_attempt_id === attemptId;
-    const compatible = inputsAreCompatible(input, currentInput);
-
-    if (sameAttempt || compatible) {
-      // Review fix (Story 11.2 review, "also fix #2"): a takeover from a
-      // genuinely new top-level call (a fresh `attemptId` — every call
-      // generates one, so `sameAttempt` is never true across two separate
-      // invocations) used to persist `input` verbatim, discarding whatever
-      // progress the PREVIOUS attempt had already stashed on `currentInput`
-      // (`resolved_shidduchim_id`, `note_inserted`, `resume_created`). That
-      // silently defeated every one of this file's stashed-progress guards
-      // on exactly the "crash mid-resolve, retry" case they exist for: the
-      // retry would see a blank slate and redo the already-completed
-      // mutation. `input` never carries those progress keys at all (they
-      // are added later, after the mutation they guard succeeds), so
-      // spreading `currentInput` first and `input` on top updates the
-      // caller's current intent while preserving any progress key `input`
-      // doesn't set.
-      const { data } = await dataProvider.update<InboxItem>("inbox_items", {
-        id: item.id,
-        data: {
-          resolution_attempt_id: attemptId,
-          resolution_input: {
-            ...currentInput,
-            ...input,
-          } as Record<string, unknown>,
-        },
-        previousData: current,
-      });
-      return data ?? current;
-    }
-
-    throw new Error(
-      `Another resolution is already in progress for inbox item ${item.id}.`,
-    );
-  }
-
-  // current.status === "unresolved": try to acquire the lock.
-  try {
-    const { data } = await dataProvider.update<InboxItem>("inbox_items", {
-      id: item.id,
-      data: {
-        status: "resolving",
-        resolution_attempt_id: attemptId,
-        resolution_input: input as Record<string, unknown>,
-      },
-      previousData: current,
-    });
-    return data ?? current;
-  } catch {
-    if (retryCount >= MAX_LOCK_RETRIES) {
-      throw new Error(
-        `Could not acquire resolution lock for inbox item ${item.id}`,
-      );
-    }
-    return acquireResolutionLock(
-      dataProvider,
-      item,
-      attemptId,
-      input,
-      retryCount + 1,
-    );
-  }
-}
-
-function finalizePayload(
-  status: "resolved" | "dismissed",
-  extra: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return {
-    status,
-    resolution_attempt_id: null,
-    resolution_input: null,
-    ...extra,
-  };
-}
+// Re-exported for backward compatibility: this hook's public surface used
+// to define `ResumeDraft` itself before it moved into
+// `resolveInboxItemLock.ts` alongside the rest of the lock protocol
+// (coding-style.md's ~400-line typical ceiling).
+export type { ResumeDraft };
 
 /**
  * The three ways a captured `inbox_items` row stops being unresolved (Story
@@ -296,39 +135,71 @@ export function useResolveInboxItem() {
     };
     const savedDraft = draftProgress.resume_draft;
     if (savedDraft && !draftProgress.resume_created) {
-      let copiedFile: CopiedResumeFile | undefined;
-      try {
-        copiedFile = await copyInboxAttachmentToResumeFile({
-          shidduchimId: created.id,
-          attachmentPath: savedDraft.attachment.path,
-          fileName: savedDraft.attachment.title,
-        });
-        await dataProvider.create<Resume>("resumes", {
-          data: {
-            shidduchim_id: created.id,
-            files: [
-              {
-                path: copiedFile.storagePath,
-                filename: savedDraft.attachment.title,
-                mime_type: savedDraft.attachment.type,
-                uploaded_at: new Date().toISOString(),
-                uploaded_by: null,
-                size: copiedFile.size,
-              },
-            ],
-            extracted: savedDraft.rawDraft,
-            sections: savedDraft.sections,
-          },
-        });
-      } catch (creationError) {
-        // Mirrors `uploadResumeFile`'s "no object without a row" ordering:
-        // the copy already landed in `documents` when the row write failed,
-        // so remove it rather than leaving an orphaned, never-referenced
-        // object behind.
-        if (copiedFile) {
-          await removeResumeFileObjects([copiedFile.storagePath]);
+      // Review fix (Finding 16, Epic 11 adversarial review): the copied
+      // storage object and the `resumes` row used to be created BEFORE
+      // `resume_created` was stashed on the inbox item, with nothing to
+      // recover the window between them. A failure between the `create`
+      // above succeeding and the stash `update` below landing (network
+      // drop, tab close) left `resume_created` still false, so a retry
+      // re-entered this whole block and produced a SECOND copied object and
+      // a SECOND `resumes` row for the same shidduch — duplicated personal
+      // data, silently.
+      //
+      // `resumes` carries no uniqueness constraint on `shidduchim_id`
+      // (`01_tables.sql`), so this can't be closed with a database
+      // constraint alone. It doesn't need one: `created.id` was only just
+      // created (or reused from an earlier stashed attempt) by THIS exact
+      // resolve flow a few lines up, and no other code path attaches a
+      // resume to a shidduch this function is in the middle of resolving —
+      // so any `resumes` row already carrying this `shidduchim_id` can only
+      // be this same flow's own, earlier, not-yet-stashed attempt. Looking
+      // it up before creating turns the create into an idempotent
+      // operation: a retry that finds the row already there skips straight
+      // to the stash, closing the window without ever risking a duplicate.
+      const { data: existingResumes } = await dataProvider.getList<Resume>(
+        "resumes",
+        {
+          filter: { shidduchim_id: created.id },
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "id", order: "ASC" },
+        },
+      );
+
+      if (existingResumes.length === 0) {
+        let copiedFile: CopiedResumeFile | undefined;
+        try {
+          copiedFile = await copyInboxAttachmentToResumeFile({
+            shidduchimId: created.id,
+            attachmentPath: savedDraft.attachment.path,
+            fileName: savedDraft.attachment.title,
+          });
+          await dataProvider.create<Resume>("resumes", {
+            data: {
+              shidduchim_id: created.id,
+              files: [
+                {
+                  path: copiedFile.storagePath,
+                  filename: savedDraft.attachment.title,
+                  mime_type: savedDraft.attachment.type,
+                  uploaded_at: new Date().toISOString(),
+                  uploaded_by: null,
+                  size: copiedFile.size,
+                },
+              ],
+              extracted: savedDraft.rawDraft,
+              sections: savedDraft.sections,
+            },
+          });
+        } catch (creationError) {
+          // Mirrors `uploadResumeFile`'s "no object without a row" ordering:
+          // the copy already landed in `documents` when the row write failed,
+          // so remove it rather than leaving an orphaned, never-referenced
+          // object behind.
+          if (copiedFile) {
+            await removeResumeFileObjects([copiedFile.storagePath]);
+          }
+          throw creationError;
         }
-        throw creationError;
       }
 
       await dataProvider.update<InboxItem>("inbox_items", {

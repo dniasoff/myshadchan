@@ -3,17 +3,31 @@ main = "index.ts"
 compatibility_date = "2026-07-21"
 compatibility_flags = ["nodejs_compat"]
 
-# [triggers] deliberately withheld (worker-audit, 2026-08-02): the schedule
-# below registers on `wrangler deploy` and starts firing within 15 minutes.
-# Story 12-2-reminder-delivery.md (Task 4/5: workers/shared/resend.ts,
-# workers/cron/sweepReminders.ts) owns the sweep mechanism and is unbuilt —
-# its AC-4 backfill must land BEFORE this trigger goes live, or the first
-# scheduled tick sweeps the 8 already-overdue tasks with no suppression in
-# place. Re-add as part of 12.2's wave, after the AC-4 backfill migration
-# ships. Provisional schedule for reference (AD-13, "sweeps due/overdue"):
+# [triggers] was withheld from worker-audit (2026-08-02) through R2 (Epic 11
+# external review, Finding 11 closure) because the ORIGINAL reason still
+# applies to a DIFFERENT, still-unbuilt sweep: Story 12-2-reminder-delivery.md
+# (Task 4/5: workers/shared/resend.ts, workers/cron/sweepReminders.ts) owns a
+# due/overdue-task sweep (AD-13) and its AC-4 backfill migration has not
+# landed — enabling a trigger that fired sweepReminders() today would sweep
+# the 8 already-overdue tasks with no suppression in place. That mechanism is
+# still not wired into scheduled() (confirmed by reading workers/cron/index.ts
+# as part of R2 — it remains a bare stub for reminders/message-notification
+# work), so the trigger below activates ONLY the sweep R2 added:
+# sweepAiParseAttempts() (./sweepAiParseAttempts.ts), an account-agnostic
+# PII-retention TTL over `ai_parse_attempts` — not reminders, not delivery.
+# Story 7.5's message-notification sweep (sweepMessages.ts) is equally
+# unwired for the same reason as before (workers/shared/resend.ts is
+# outstanding) and is likewise NOT activated by this trigger.
 #
-# [triggers]
-# crons = ["*/15 * * * *"]
+# Retention is daily-ish maintenance, not minutely, hence the schedule below
+# (03:00 UTC daily) rather than the old provisional */15 cadence, which was
+# sized for a due/overdue sweep that still does not run here.
+#
+# When 12.2's AC-4 backfill lands and sweepReminders() is wired into this
+# same scheduled() tick, confirm it does not change the cadence this comment
+# documents without updating the comment to match.
+[triggers]
+crons = ["0 3 * * *"]
 
 # Secrets (set via `wrangler secret put <NAME> --config workers/cron/wrangler.toml`,
 # or the CI job in .github/workflows/deploy.yml): SUPABASE_URL,

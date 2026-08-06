@@ -1100,6 +1100,16 @@ create policy "AI usage readable within account" on public.ai_usage
         and public.current_member_role() <> 'single'
     );
 
+-- Epic 11 Findings 6/7/8 closure. RLS enabled, ZERO client policies — not
+-- even SELECT. With RLS on and no policy, authenticated has no visible rows
+-- even if a grant were ever mistakenly added — belt-and-suspenders on top
+-- of the grants in 06_grants.sql. Every access to this table goes through
+-- claim_ai_parse_attempt() / confirm_ai_parse_attempt() /
+-- release_ai_parse_attempt() (02_functions.sql), all SECURITY DEFINER +
+-- service_role-only, which bypass RLS by design. No story needs a client to
+-- read this table directly.
+alter table public.ai_parse_attempts enable row level security;
+
 -- Inbox items (Epic 2): full CRUD within the caller's account. Insert/update
 -- are with-check-scoped so a client can capture (share/upload) and resolve its
 -- own items but never read, write, or resolve another account's captures. The

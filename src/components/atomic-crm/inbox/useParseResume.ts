@@ -11,22 +11,34 @@ import type { InboxAttachment, InboxItem } from "../types";
  * `ShidduchInputs.tsx` / `public.shidduchim` — a combined `parents_en` /
  * `parents_he` pair had no input that rendered it and no submit mapping that
  * read it, so any parent info the model extracted was silently discarded.
+ *
+ * Review fix (Finding 13, Epic 11 adversarial review): narrowed from a
+ * uniform `string | number | null` on every field to ONE type per field,
+ * mirroring `workers/parse/parsedResumeDraft.ts`'s own Finding-13 closure —
+ * `age` is the sole numeric field (`public.shidduchim.age integer`), every
+ * other field, `height` included (`public.shidduchim.height text` —
+ * freeform, e.g. `5'10"`, not a structured dimension), is text. The Worker
+ * now coerces at its own validation boundary (`toDraft()`'s
+ * `TextFieldValueSchema` / `NumericFieldValueSchema`), so `POST /parse`'s
+ * response already carries this exact shape — this type just says so,
+ * closing off the `as string` / `as number` assertions this mismatch used
+ * to force on every caller (`InboxResolveDialog.tsx`'s `onSubmit`).
  */
 export type ParsedResumeFields = {
-  name_en: string | number | null;
-  name_he: string | number | null;
-  father_en: string | number | null;
-  father_he: string | number | null;
-  mother_en: string | number | null;
-  mother_he: string | number | null;
-  seminary_en: string | number | null;
-  seminary_he: string | number | null;
-  shul_en: string | number | null;
-  shul_he: string | number | null;
-  location_en: string | number | null;
-  location_he: string | number | null;
-  age: string | number | null;
-  height: string | number | null;
+  name_en: string | null;
+  name_he: string | null;
+  father_en: string | null;
+  father_he: string | null;
+  mother_en: string | null;
+  mother_he: string | null;
+  seminary_en: string | null;
+  seminary_he: string | null;
+  shul_en: string | null;
+  shul_he: string | null;
+  location_en: string | null;
+  location_he: string | null;
+  age: number | null;
+  height: string | null;
 };
 
 export type ParsedResumeResponse = {

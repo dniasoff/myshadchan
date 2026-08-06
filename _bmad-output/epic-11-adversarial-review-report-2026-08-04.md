@@ -21,6 +21,122 @@ STILL OPEN: findings 6+7 (atomic quota reservation, needs a migration), 15 (miss
 
 The new tests covering the highest-stakes fixes were mutation-tested: the CORS-ordering test, the auth-hole test, the size guard, the idempotency tests, the dossier zero-state test, and the surviving narrative tests were each confirmed to FAIL when the production behaviour they cover was removed. None was vacuous.
 
+## Resolution addendum (2026-08-06)
+
+This addendum corrects one stale line in the Resolution above and records the current state of
+the remaining open items. It supplements the original Resolution; nothing above is edited or
+retracted — this document is a historical record and the original findings, fix list, and "STILL
+OPEN" line stand as written on 2026-08-04.
+
+**Finding 15 — already closed; the "STILL OPEN" line above is stale.** `.github/workflows/deploy.yml`
+now exports and pushes both `SUPABASE_PUBLISHABLE_KEY` (lines ~315-383) and the three AI Gateway
+secrets `AI_GATEWAY_ACCOUNT_ID` / `AI_GATEWAY_ID` / `GOOGLE_AI_STUDIO_API_KEY` (lines ~328-397),
+each gated on `IS_CLOUDFLARE_CONFIGURED` and the `ai`/`parse` matrix legs, with a fail-loud
+`::warning::` plus a `GITHUB_STEP_SUMMARY` entry naming the exact downstream failure (an unhandled
+`500` instead of `401`/`402` for the missing publishable key; every `POST /parse` request failing
+for the missing Gateway trio) whenever the corresponding repository secret is absent. This was
+re-confirmed directly against the current tree while preparing this addendum (`grep -n` over
+`.github/workflows/deploy.yml` for the secret names and the `wrangler secret put` / `step-summary`
+lines cited above). The "STILL OPEN" line above, written 2026-08-04, predates this fix and was
+left un-updated; it should be read as superseded by this line, not as a current statement of the
+workflow's contents.
+
+**Findings 6, 7, 8 and 16 — closure in progress in this wave, described here as design intent, not
+as verified, deployed fact.** Following this same adversarial review, an approved design closes
+the remaining gaps in each:
+
+- **Findings 6 and 7** (the unchecked read-modify-write meter, and the monthly cap's
+  concurrent-overrun exposure): the approved design replaces `workers/parse/index.ts`'s step-9
+  read-modify-write block entirely with a single atomic, `SECURITY DEFINER`
+  `claim_ai_parse_attempt()` database function (paired with `confirm_ai_parse_attempt()` and
+  `release_ai_parse_attempt()`) that performs the quota reservation and the increment as one
+  transaction, refusing when the cap is exhausted and never returning a successful response unless
+  the increment is durably recorded. A new `public.ai_parse_attempts` table backs it, reachable
+  only from the Worker's service-role client (`EXECUTE` never granted to `authenticated`/`anon`),
+  closing the cross-tenant quota-exhaustion and result-injection risk a client-reachable version
+  would otherwise open. The monthly cap itself moves to a single new source of truth,
+  `public.ai_monthly_resume_limit()`, read by both `ai_entitlement()` and the new claim function so
+  the two can never silently disagree.
+- **Finding 8** (the remainder still open after the earlier Cache-API mitigation): the same
+  `ai_parse_attempts` table is also the idempotency ledger — a unique constraint on
+  `(account_id, inbox_item_id, attachment_path)` gives the compare-and-set guarantee the Cache API
+  could not, so a genuinely concurrent retry for the same attachment gets a bounded `409` rather
+  than a second model call, and a completed attempt replays its cached result byte-for-byte.
+  `workers/parse/parseIdempotency.ts` and its Cache-API call sites are removed as part of the same
+  change, since the table is a strict superset of what the cache offered once the DB round trip is
+  unavoidable on every request anyway (it is also now the cap check).
+- **Finding 16** (rate limiting, tracing, and response caching left unowned): a new Story 11.4,
+  "Operational controls for the AI Workers," has been added to Epic 11 in
+  `_bmad-output/planning-artifacts/epics.md`, with its own acceptance criteria naming the
+  fail-closed contract this finding asked for. Its design — Cloudflare's native `[[ratelimits]]`
+  binding (IP- and caller-keyed, two bindings per Worker), a `console.warn`-based per-request trace
+  line carrying a request id and a truncated caller-key prefix but never resume content, dossier
+  narrative, or JWT material, and an account-namespaced `/dossier` response cache with a bounded
+  120-second TTL — is recorded in full, including its rejected alternatives and an explicit
+  "what this does NOT guarantee" section (per-colo approximation, per-caller rather than strictly
+  per-account keying, and unverified Cloudflare-plan/`wrangler dev` behavior chief among them), in
+  `_bmad-output/implementation-artifacts/11-4-operational-controls.md`.
+
+**What this addendum does not claim.** The database migration, the `workers/parse/index.ts`
+rewrite, the new `workers/shared/rateLimit.ts`/`requestTracing.ts`/`callerIdentity.ts` modules,
+and `workers/ai/dossierCache.ts` were, at the time this addendum was written, being implemented by
+other agents in the same work wave as this addendum — not by whoever wrote this paragraph, and not
+verified by them. No claim is made here that any of it typechecks, passes its test suite, has been
+migrated onto a real database, or has been deployed. Confirming that is this wave's own
+verification phase's job, per `.claude/rules/gate-verification.md` and
+`.claude/rules/migration-guard-integrity.md` — a guard's (or a story's) claimed closure is only
+evidence once someone has actually watched the relevant gate run green against the real change, and
+that had not yet happened when this addendum was written. Treat findings 6, 7, 8, and 16 as
+**designed and story-owned**, not as **closed**, until a future dated addendum says otherwise on
+the strength of that verification.
+
+## Documentation-closure addendum (2026-08-06)
+
+This addendum supplements the two sections above; nothing in them is edited or retracted.
+
+**Finding 10's documentation half is now closed.** The Resolution above (line 17) already recorded
+the finding's disposition: source-grounding machinery was deliberately scoped out as YAGNI, and
+"the epic's wording, not the code, was the overclaim." That wording — `epics.md`'s Story 11.2
+acceptance criterion "unknown fields are blank, never invented" — had not actually been amended in
+the roughly six weeks since. A subsequent external review of Epic 11 (2026-08-06, 19 findings,
+independently triaged against this tree) re-raised the identical gap as its own finding 15,
+confirming it as `PARTIALLY_VALID`: the code-level complaint was invalid (the scoping decision
+recorded here still holds and is working as designed), but the epic wording had genuinely never
+been brought back into agreement with it. That review's triage note reads: "confirmed today, that
+wording was never actually amended."
+
+It has now been amended. `_bmad-output/planning-artifacts/epics.md`'s Story 11.2 acceptance
+criteria were rewritten to distinguish structural validation (an absent or malformed field comes
+back blank, never a guess) from proof that a value was present in the source document (not
+established, and never claimed to be by the code); to describe the per-field confidence score
+honestly as model-supplied and advisory; and to state plainly that the human review step, not the
+extraction step, is what confirms a value is correct. The prior wording is not deleted — the new
+text carries an inline note recording what it replaced and why, so the history stays legible. The
+same clarification was added to `_bmad-output/implementation-artifacts/11-2-resume-auto-parse-review.md`'s
+own AC-6, which had echoed the same "mechanically" framing.
+
+**A second, related drift was found and closed in the same pass, not originally part of this
+report's 16 findings.** The same external review's finding 18 observed that Story 11.4's own
+acceptance criterion — "a cached `/dossier` response is scoped to its account and never returned to
+another account's request" — no longer matches the implementation: the account-namespaced
+`/dossier` cache that criterion describes was built, then removed after a follow-up adversarial
+review found its cache key collided across roles within one account (see
+`_bmad-output/implementation-artifacts/11-4-operational-controls.md`, "Resolution note: C1"). That
+implementation document had already flagged the drift and named the intended fix, but noted
+`epics.md` was outside its own declared scope. `epics.md`'s Story 11.4 criterion has now been
+amended to state the property the shipped code actually guarantees — RLS evaluated fresh on every
+`/dossier` request, no cross-request cached state to leak — with the same inline record of what it
+replaced and why.
+
+**What this addendum does not claim, matching the caveat in the addendum above it.** These are
+documentation edits, made by an agent whose declared scope in this wave was the planning and
+implementation-artifact files, not the code. No claim is made here that any Worker code, migration,
+or test suite in this same wave typechecks, passes, or has been deployed — that is unrelated to
+this addendum and remains this wave's verification phase's job, per
+`.claude/rules/gate-verification.md`. This addendum closes only the two documentation gaps named
+above: the two files stating a guarantee the code does not (or no longer) provide, now restated to
+match what is actually shipped.
+
 ## Scope Reviewed
 
 Epic 11 stories and their implementation in the current repository state:

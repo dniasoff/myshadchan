@@ -66,7 +66,16 @@ see "The attachments contract" in Dev Notes.
    validated field-by-field against `ParsedResumeDraftSchema` (Zod); any field that fails
    validation or is absent becomes `null` in the response, never a passed-through guess. Every
    field in the schema is nullable — the schema itself cannot represent "invented" data as
-   required.
+   required. **Scope of what "mechanically" covers here (added 2026-08-06, closing finding 10's
+   documentation half — see `_bmad-output/epic-11-adversarial-review-report-2026-08-04.md`):**
+   this mechanism enforces *structure*, not *provenance*. It guarantees an absent or
+   malformed-shape field comes back `null` rather than a guess; it does not, and was never
+   designed to, prove that a well-shaped returned value was actually present in the source
+   document — there are no source spans or quotations tying a value back to the resume it was
+   read from. That gap was reviewed and deliberately left unclosed: building source-grounding
+   machinery was judged YAGNI because the human review gate in `InboxResolveDialog` (AC-10/11
+   below) already covers the real risk, and AC-7's per-field confidence score is model-supplied
+   and advisory — a "please check" flag for the reviewer, not proof of correctness.
 7. **Low-confidence fields are flagged, not hidden.** A named constant
    `LOW_CONFIDENCE_THRESHOLD = 0.7` (`workers/parse/parsedResumeDraft.ts`) — any field whose raw
    per-field confidence is below it is listed by key in the response's `lowConfidenceFields:

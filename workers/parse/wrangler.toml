@@ -6,8 +6,78 @@ compatibility_flags = ["nodejs_compat"]
 [dev]
 port = 8788
 
-# Secrets (set via `wrangler secret put <NAME> --config workers/parse/wrangler.toml`,
-# or the CI job in .github/workflows/deploy.yml): SUPABASE_URL,
-# SUPABASE_SERVICE_ROLE_KEY, SUPABASE_PUBLISHABLE_KEY, AI_GATEWAY_ACCOUNT_ID,
-# AI_GATEWAY_ID, GOOGLE_AI_STUDIO_API_KEY (resumeExtractor.ts's
-# geminiExtractor() — the OCR pipeline, AD-8 — reads all three).
+# Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_PUBLISHABLE_KEY,
+# AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID, GOOGLE_AI_STUDIO_API_KEY
+# (resumeExtractor.ts's geminiExtractor() — the OCR pipeline, AD-8 — reads all
+# three). The `[secrets]` block below makes wrangler itself refuse to publish
+# this Worker if any of them is missing — see that block's own comment.
+#
+# External review Findings 1/2 (2026-08-06): .github/workflows/deploy.yml no
+# longer uses `wrangler deploy` + a series of `wrangler secret put` calls for
+# this Worker (each `secret put` promotes and serves a NEW version
+# immediately — several partially-configured releases in a row, the last of
+# which happened to be complete). It now does `wrangler versions upload
+# --secrets-file <file>` (code AND every secret above, bundled into one
+# version, atomically — nothing served until the next step explicitly
+# promotes it) followed by `wrangler versions deploy <id>@100` (the explicit
+# promotion). No version this Worker has ever served traffic on can be
+# missing a secret the code needed at the time it started serving. `wrangler
+# secret put <NAME> --config workers/parse/wrangler.toml` still works for an
+# out-of-band manual rotation.
+#
+# Story 11.4 (Finding 16) / External review Finding 3: RATE_LIMITING_ENFORCED
+# used to be pushed as a Worker *secret* by a separate, droppable CI step —
+# see workers/shared/rateLimit.ts's header comment for why that was the bug
+# and why it is now the `[vars]` entry below instead. Read by
+# workers/shared/rateLimit.ts's `isRateLimitingEnforced()` to tell "this
+# environment never configures rate limiting" (local dev, the vitest
+# "workers" project — this var is never provisioned there) apart from "a
+# [[ratelimits]] block below was dropped by mistake in a real deploy" — see
+# that module's header comment for the full fail-closed / fail-open decision
+# table this flag drives.
+[vars]
+RATE_LIMITING_ENFORCED = "true"
+
+# External review Finding 2 (2026-08-06): wrangler's own required-secrets
+# enforcement (https://developers.cloudflare.com/workers/wrangler/configuration/#secrets-configuration-property).
+# Any `wrangler deploy` / `wrangler versions upload` against this file —
+# CI-driven or run by hand — fails outright if one of these was never
+# supplied (via `--secrets-file`, `wrangler secret put`, or an already-set
+# secret on the target Worker). Verified locally (2026-08-06, wrangler
+# 4.113.0): `wrangler versions upload --secrets-file <file-missing-one>`
+# against a brand-new Worker name returns `INVALID_INHERIT_BINDING_CODE` and
+# wrangler surfaces "The following required secrets have not been set: ...";
+# no version is created, so nothing is ever eligible to be promoted. This is
+# a backstop for any deploy path OTHER than this repo's own CI (which fails
+# faster, before ever invoking wrangler — see deploy.yml's own
+# "Required AI Worker secrets present?" step) — most importantly a manual
+# deploy from a laptop, the exact scenario Findings 1-3 are about.
+[secrets]
+required = [
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_PUBLISHABLE_KEY",
+  "AI_GATEWAY_ACCOUNT_ID",
+  "AI_GATEWAY_ID",
+  "GOOGLE_AI_STUDIO_API_KEY",
+]
+
+# Story 11.4 (Finding 16): two Cloudflare native rate-limit bindings — an
+# abuse-prevention SPEED BUMP, not the monthly quota (that is the atomic
+# `ai_usage` reservation in `parseQuota.ts`, Findings 6/7). `namespace_id` is
+# an arbitrary string the developer picks, unique per binding within the
+# Cloudflare account — it does not name a pre-provisioned resource the way a
+# KV/DO namespace does. RISK (unverified without Cloudflare dashboard/API
+# access — see this story's design doc): confirm the Rate Limiting binding
+# feature is enabled on this account, and that these `namespace_id`s do not
+# collide with any other binding in the account, before relying on this at
+# deploy time.
+[[ratelimits]]
+name = "PARSE_IP_RATE_LIMITER"
+namespace_id = "1101"
+simple = { limit = 20, period = 10 }
+
+[[ratelimits]]
+name = "PARSE_USER_RATE_LIMITER"
+namespace_id = "1102"
+simple = { limit = 10, period = 60 }

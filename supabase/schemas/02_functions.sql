@@ -3386,6 +3386,60 @@ $$;
 -- unforgeable answer. This is what the retired client-side placeholder
 -- (useAiEntitlement's hardcoded `true`) explicitly warned had to happen.
 --
+-- Single source of truth for the AI tier's monthly resume-parse allowance,
+-- read by both ai_entitlement() (the check shown to the client) and
+-- claim_ai_parse_attempt() (the atomic reservation, below) so the two can
+-- never silently disagree — see Epic 11 Findings 6/7 closure. STABLE, not
+-- IMMUTABLE: reserves room for a future per-plan or per-account limit
+-- without changing either caller's call shape; today it is a pure constant.
+CREATE OR REPLACE FUNCTION "public"."ai_monthly_resume_limit"() RETURNS integer
+    LANGUAGE "sql" STABLE
+    SET "search_path" TO ''
+    AS $$
+  select 100;
+$$;
+
+-- The entitlement DECISION ("is this account, by id, on the paid AI tier and
+-- currently active?") reduced to the one number every caller actually needs:
+-- 0 for unentitled, ai_monthly_resume_limit() for entitled. Parameterised by
+-- account id (not current_context_id()) so it works both for ai_entitlement()
+-- (RLS-scoped to the caller's own context) and for claim_ai_parse_attempt()
+-- below (SECURITY DEFINER, given an explicit p_account_id by the Worker's
+-- service-role client, no JWT/context to derive from). This is what lets
+-- claim_ai_parse_attempt() refuse a reservation for an unentitled account
+-- WITHOUT re-stating the plan/status formula a second time — Epic 11
+-- Findings 6/7 exist precisely because a second, out-of-band copy of an
+-- enforcement decision is how it drifts or gets bypassed; this keeps the
+-- formula itself in exactly one place.
+--
+-- STABLE, no SECURITY DEFINER (default invoker): it only reads
+-- public.subscription, and every real caller already has the right to see
+-- that row (a plain authenticated caller via RLS, scoped to their own
+-- account_id — asking about another account's id here simply resolves no
+-- row and returns 0, never another tenant's data; or claim_ai_parse_attempt()
+-- itself, which is SECURITY DEFINER and so already runs with owner rights,
+-- under which RLS does not restrict the table owner).
+CREATE OR REPLACE FUNCTION "public"."ai_resume_limit_for_account"("p_account_id" bigint) RETURNS integer
+    LANGUAGE "plpgsql" STABLE
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_plan text;
+  v_status text;
+begin
+  select s.plan, s.status
+    into v_plan, v_status
+  from public.subscription s
+  where s.account_id = p_account_id;
+
+  if coalesce(v_plan, 'free') = 'ai' and coalesce(v_status, 'none') = 'active' then
+    return public.ai_monthly_resume_limit();
+  end if;
+
+  return 0;
+end;
+$$;
+
 -- STABLE + security invoker (like catch_shidduch): it resolves the account with
 -- current_context_id() and reads subscription/ai_usage under the caller's RLS,
 -- so it works identically for the SPA (authenticated JWT) and an edge function
@@ -3396,9 +3450,6 @@ CREATE OR REPLACE FUNCTION "public"."ai_entitlement"() RETURNS "jsonb"
     SET "search_path" TO ''
     AS $$
 declare
-  -- Monthly resume auto-parse allowance for the AI tier. Named rather than
-  -- magic; the meter reads "<resumes_used> / <this>". Free tier gets 0.
-  c_ai_monthly_resume_limit constant integer := 100;
   v_account_id bigint;
   v_plan text := 'free';
   v_status text := 'none';
@@ -3428,8 +3479,11 @@ begin
   -- AI auto-fill pauses, nothing is lost, the free manual path stays.
   v_plan := coalesce(v_plan, 'free');
   v_status := coalesce(v_status, 'none');
-  v_is_entitled := (v_plan = 'ai' and v_status = 'active');
-  v_resumes_limit := case when v_is_entitled then c_ai_monthly_resume_limit else 0 end;
+  -- ai_resume_limit_for_account() is the one place that formula lives now
+  -- (shared with claim_ai_parse_attempt()) — is_entitled is derived from its
+  -- answer rather than restating "plan = 'ai' and status = 'active'" here too.
+  v_resumes_limit := public.ai_resume_limit_for_account(v_account_id);
+  v_is_entitled := (v_resumes_limit > 0);
 
   select coalesce(u.resumes_parsed, 0)
     into v_resumes_used
@@ -3445,6 +3499,449 @@ begin
     'resumes_used', v_resumes_used,
     'resumes_limit', v_resumes_limit
   );
+end;
+$$;
+
+-- Atomically claim (or replay, or refuse) a resume-parse attempt for one
+-- (account, inbox item, attachment). SECURITY DEFINER, called ONLY from the
+-- Worker's service-role client (EXECUTE revoked from every client role,
+-- 06_grants.sql) — never reachable with a caller-supplied JWT, so
+-- p_account_id can never be spoofed from the browser. This is the ONE
+-- atomic operation that closes Epic 11 Findings 6, 7 and 8 together: it is
+-- simultaneously the idempotency check (Finding 8's remaining
+-- compare-and-set gap) and the quota reservation (Findings 6/7), so a
+-- caller cannot observe "claimed" without the increment already being
+-- durably committed, and cannot slip two concurrent claims for the same key
+-- or two concurrent over-cap claims for different keys past it.
+--
+-- Same key, two simultaneous claims: the unique constraint on
+-- (account_id, inbox_item_id, attachment_path) lets exactly one INSERT win;
+-- the loser raises unique_violation (caught here, never propagated) and
+-- gets 'conflict'. Different keys at the cap boundary: the row lock
+-- Postgres takes for the ai_usage upsert below serializes concurrent
+-- callers against the same (account_id, period) row, so exactly one of two
+-- simultaneous callers can observe resumes_parsed < limit become false
+-- first — the other's increment is guaranteed to see the first's committed
+-- value before evaluating its own WHERE.
+--
+-- Recovery from an abandoned 'in_progress' row (Worker died, model timed
+-- out) is lazy reclaim, not a scheduled reaper: a subsequent claim() call
+-- for the same key locks the row and checks started_at; if older than
+-- c_stale_after, it silently resumes the SAME reservation (started_at
+-- refreshed, no re-increment — the original increment is still validly
+-- held) instead of blocking forever. A 'failed' row (its reservation
+-- already released) goes through the full atomic reserve-or-refuse path
+-- again, same as a brand-new key.
+--
+-- Fencing token (review Finding C2): every reclaim — of a stale
+-- 'in_progress' row OR a 'failed' one — bumps `generation`, and the new
+-- value is returned to the caller alongside `attempt_id`. The Worker MUST
+-- carry that generation into its later confirm_ai_parse_attempt() /
+-- release_ai_parse_attempt() call. Those two functions require the
+-- generation they are given to still match the row's CURRENT value; if it
+-- does not (a newer generation already reclaimed this row), the call is a
+-- benign no-op ('superseded'), never an exception. Without this, an
+-- original request whose own extractor call outlives c_stale_after — and
+-- Postgres's row lock on the reclaiming UPDATE/SELECT-FOR-UPDATE is what
+-- makes this safe under REAL concurrency, not merely when called in a
+-- chosen order — could otherwise still confirm/release the SAME row a
+-- reclaiming generation has already taken over: forging a stale result
+-- over a newer one's real result, or releasing (decrementing ai_usage for)
+-- a reservation a newer generation is still legitimately holding. Verified
+-- under two real overlapping sessions in ai_parse_quota.test.ts.
+--
+-- v_limit is entitlement-aware (ai_resume_limit_for_account(), above) — an
+-- unentitled account (no subscription row, free plan, or lapsed status)
+-- resolves to a limit of 0, so a fresh claim for it returns 'cap_reached'
+-- immediately, never 'claimed'. This does not depend on the Worker's own
+-- advisory pre-check having run correctly first (Epic 11 review, Finding 6
+-- closure: the Worker-side pre-check was DELETED — this RPC is now the SOLE
+-- cap gate. Read against its own branches: the 'replay' branch below and the
+-- stale-in_progress reclaim branch both return before v_limit is ever
+-- consulted, so a replay and a stale reclaim both succeed at ANY usage
+-- level, including exactly at the cap — only a genuinely NEW reservation
+-- (the `v_needs_reservation` path) ever checks it).
+--
+-- p_current_result_schema_version (Finding 12 closure): the Worker's own
+-- CURRENT_PARSE_RESULT_SCHEMA_VERSION constant (parsedResumeDraft.ts). A
+-- 'completed' row whose result_schema_version is BEHIND this value is not
+-- served as a replay — it is flipped back to a free re-claim instead (see
+-- the 'completed' branch below), exactly like reclaiming an abandoned
+-- in_progress row, because the account already paid once for this document
+-- and a re-parse forced by OUR OWN contract change must not charge it again.
+--
+-- Opportunistic reaper (Finding 10 closure): before doing its own main job,
+-- every call sweeps and refunds THIS SAME ACCOUNT's own other rows that have
+-- sat 'in_progress' for 3x the ordinary staleness window (c_reap_after,
+-- below) — no scheduled-job (pg_cron) infrastructure exists in this repo
+-- (see public.signup_intents / check_signup_age() for the established
+-- precedent of piggybacking cleanup on the one code path that already
+-- touches the relevant row); this piggybacks on the one code path that
+-- already touches this account's ai_usage row on every /parse call instead.
+-- A row this stale can only be genuinely abandoned (a crashed/evicted Worker
+-- that never reached confirm or release) — resumeExtractor.ts's own fetch
+-- timeout (GEMINI_EXTRACT_TIMEOUT_MS) keeps any live request well under
+-- c_stale_after, let alone 3x it. The row currently being claimed is
+-- explicitly excluded from this sweep: it is handled for free by the
+-- ordinary stale-in_progress reclaim branch below (a resume, not a
+-- refund-then-respend), which is what lets that branch succeed even at the
+-- account's cap — sweeping it here first would refund then immediately
+-- re-spend it through the capped reservation path, defeating that guarantee.
+--
+-- Returns jsonb: {"outcome": "claimed", "attempt_id": <id>, "generation": <n>}
+--              | {"outcome": "replay", "attempt_id": <id>, "result": <jsonb>, "result_schema_version": <n>}
+--              | {"outcome": "conflict", "attempt_id": <id>}
+--              | {"outcome": "cap_reached"}
+CREATE OR REPLACE FUNCTION "public"."claim_ai_parse_attempt"("p_account_id" bigint, "p_inbox_item_id" bigint, "p_attachment_path" "text", "p_current_result_schema_version" smallint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  c_stale_after constant interval := interval '5 minutes';
+  -- 3x c_stale_after: comfortably outside any genuinely live request (see
+  -- the function comment above), so a row this old can only be abandoned.
+  c_reap_after constant interval := interval '15 minutes';
+  v_period text := to_char(now(), 'YYYY-MM');
+  -- Entitlement-aware, not the raw constant: an unentitled account (no
+  -- subscription row, wrong plan, lapsed status) resolves to 0 here, so the
+  -- `where v_limit > 0` reservation guard below refuses it outright — the
+  -- SAME formula ai_entitlement() uses, never a second copy of it. Findings
+  -- 6/7 are exactly about not trusting an earlier, out-of-band entitlement
+  -- snapshot for enforcement; deriving it fresh, inside the same atomic
+  -- operation that spends the quota, is what makes this fail-closed rather
+  -- than merely relying on the Worker's own advisory pre-check.
+  v_limit integer := public.ai_resume_limit_for_account(p_account_id);
+  v_attempt_id bigint;
+  v_generation bigint;
+  v_status text;
+  v_result jsonb;
+  v_result_schema_version smallint;
+  v_started_at timestamptz;
+  v_new_count integer;
+  v_is_fresh_claim boolean := false;
+  v_needs_reservation boolean := false;
+begin
+  -- Opportunistic reaper (Finding 10 closure) — see function comment above
+  -- for the full argument. Refunds only THIS account's own OTHER stuck
+  -- rows; the key being claimed right now is excluded on purpose.
+  with reaped as (
+    update public.ai_parse_attempts
+       set status = 'failed', result = null, generation = generation + 1
+     where account_id = p_account_id
+       and status = 'in_progress'
+       and started_at < now() - c_reap_after
+       and not (inbox_item_id = p_inbox_item_id and attachment_path = p_attachment_path)
+    returning period
+  ), reaped_counts as (
+    select period, count(*) as n from reaped group by period
+  )
+  update public.ai_usage u
+     set resumes_parsed = greatest(u.resumes_parsed - rc.n, 0)
+    from reaped_counts rc
+   where u.account_id = p_account_id and u.period = rc.period;
+
+  -- Serialize on the unique constraint itself: the first INSERT for this
+  -- key wins outright; a genuinely concurrent second INSERT blocks on
+  -- Postgres's own conflict handling and then raises unique_violation,
+  -- never silently succeeding twice.
+  begin
+    insert into public.ai_parse_attempts
+      (account_id, inbox_item_id, attachment_path, period, status, started_at)
+    values
+      (p_account_id, p_inbox_item_id, p_attachment_path, v_period, 'in_progress', now())
+    returning id, generation into v_attempt_id, v_generation;
+    v_is_fresh_claim := true;
+    v_needs_reservation := true;
+  exception when unique_violation then
+    select id, status, result, result_schema_version, started_at, generation
+      into v_attempt_id, v_status, v_result, v_result_schema_version, v_started_at, v_generation
+    from public.ai_parse_attempts
+    where account_id = p_account_id
+      and inbox_item_id = p_inbox_item_id
+      and attachment_path = p_attachment_path
+    for update;
+
+    if v_status = 'completed' and v_result_schema_version >= p_current_result_schema_version then
+      return jsonb_build_object(
+        'outcome', 'replay', 'attempt_id', v_attempt_id, 'result', v_result,
+        'result_schema_version', v_result_schema_version
+      );
+    elsif v_status = 'completed' then
+      -- Stale CONTRACT, not stale time (Finding 12 closure): the cached
+      -- result was written under an older response shape than the caller's
+      -- own current one. Same free-reclaim treatment as an abandoned
+      -- in_progress row below — the account already paid for one
+      -- extraction of this document; a re-parse forced by OUR OWN contract
+      -- change must not charge it again.
+      update public.ai_parse_attempts
+         set status = 'in_progress', started_at = now(), result = null, generation = generation + 1
+       where id = v_attempt_id
+      returning generation into v_generation;
+      return jsonb_build_object('outcome', 'claimed', 'attempt_id', v_attempt_id, 'generation', v_generation);
+    elsif v_status = 'in_progress' and v_started_at > now() - c_stale_after then
+      return jsonb_build_object('outcome', 'conflict', 'attempt_id', v_attempt_id);
+    elsif v_status = 'in_progress' then
+      -- Stale: the original claim's reservation is still held (never
+      -- released), so this resumes the SAME reservation without reserving
+      -- a second unit — but it IS a new generation: bumping the fencing
+      -- token here is what makes the original (now superseded) holder's
+      -- later confirm/release a no-op instead of a race.
+      update public.ai_parse_attempts
+         set started_at = now(), generation = generation + 1
+       where id = v_attempt_id
+      returning generation into v_generation;
+      return jsonb_build_object('outcome', 'claimed', 'attempt_id', v_attempt_id, 'generation', v_generation);
+    else
+      -- 'failed': its reservation was already released — needs a fresh
+      -- atomic reserve-or-refuse, same as a brand-new key.
+      v_needs_reservation := true;
+    end if;
+  end;
+
+  if v_needs_reservation then
+    -- Atomic reserve-or-refuse: the `WHERE v_limit > 0` on the INSERT's
+    -- source rows gates the very-first-row-of-the-period case; the
+    -- `WHERE resumes_parsed < v_limit` on the UPDATE gates every later
+    -- increment. See the function comment above for the concurrency
+    -- argument.
+    insert into public.ai_usage as u (account_id, period, resumes_parsed)
+    select p_account_id, v_period, 1
+    where v_limit > 0
+    on conflict (account_id, period) do update
+      set resumes_parsed = u.resumes_parsed + 1
+      where u.resumes_parsed < v_limit
+    returning u.resumes_parsed into v_new_count;
+
+    if not found then
+      if v_is_fresh_claim then
+        -- Undo the claim so this key isn't left permanently wedged by a
+        -- reservation that was refused.
+        delete from public.ai_parse_attempts where id = v_attempt_id;
+      end if;
+      -- Reclaim-from-'failed' path: leave the row as 'failed' — nothing
+      -- to undo, it already reflects "no reservation held".
+      return jsonb_build_object('outcome', 'cap_reached');
+    end if;
+
+    if not v_is_fresh_claim then
+      -- Reclaim-from-'failed': a brand-new reservation, so — same reasoning
+      -- as the stale-reclaim branch above — this is also a new generation.
+      update public.ai_parse_attempts
+         set status = 'in_progress', started_at = now(), result = null, period = v_period, generation = generation + 1
+       where id = v_attempt_id
+      returning generation into v_generation;
+    end if;
+  end if;
+
+  return jsonb_build_object('outcome', 'claimed', 'attempt_id', v_attempt_id, 'generation', v_generation);
+end;
+$$;
+
+-- Mark a claimed attempt completed and cache its result for future
+-- idempotent replay. Does NOT touch ai_usage — the spend already happened,
+-- atomically, inside claim_ai_parse_attempt(). Idempotent: a retry against
+-- an already-'completed' row FROM THE SAME GENERATION (e.g. the Worker's own
+-- network retry after a lost response) is a no-op success, not an error.
+--
+-- Fencing token (review Finding C2): p_generation MUST match the row's
+-- current `generation` for this call to actually mutate anything. A caller
+-- from an OLDER, superseded generation (claim_ai_parse_attempt()'s own
+-- comment explains how a generation becomes superseded) gets 'superseded'
+-- back — a benign no-op, never an exception — instead of overwriting a
+-- newer generation's real result with a stale one, or (worse, if it somehow
+-- raced ahead) getting confused with a genuinely wrong attempt/account pair.
+-- Only a truly unknown (id, account_id) pair — never issued by
+-- claim_ai_parse_attempt() for this account at all — still raises; that
+-- remains a hard error, not a benign outcome, exactly as before.
+--
+-- p_result_schema_version (Finding 12 closure): the Worker's own
+-- CURRENT_PARSE_RESULT_SCHEMA_VERSION constant, stamped onto the row
+-- alongside its result so a future claim can tell a stale-contract replay
+-- from a current one (see claim_ai_parse_attempt() above).
+--
+-- superseded (Finding 8 closure): the response now tells the superseded
+-- caller what actually happened to the WINNING generation instead of a bare
+-- 'superseded'. If the winner has already completed, its result/version ride
+-- along so the caller can serve the SAME durable answer instead of its own,
+-- never-replayable draft — both concurrent HTTP responses then converge on
+-- the one answer future replays will actually return. If the winner is still
+-- working, there is nothing final to offer yet and only `status` comes back.
+--
+-- Returns jsonb: {"outcome": "applied"}
+--              | {"outcome": "superseded", "status": "completed", "result": <jsonb>, "result_schema_version": <n>}
+--              | {"outcome": "superseded", "status": "in_progress" | "failed"}
+CREATE OR REPLACE FUNCTION "public"."confirm_ai_parse_attempt"("p_account_id" bigint, "p_attempt_id" bigint, "p_generation" bigint, "p_result" "jsonb", "p_result_schema_version" smallint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_generation bigint;
+  v_status text;
+  v_result jsonb;
+  v_result_schema_version smallint;
+begin
+  update public.ai_parse_attempts
+     set status = 'completed', result = p_result, result_schema_version = p_result_schema_version
+   where id = p_attempt_id
+     and account_id = p_account_id
+     and status = 'in_progress'
+     and generation = p_generation;
+
+  if found then
+    return jsonb_build_object('outcome', 'applied');
+  end if;
+
+  select generation, status, result, result_schema_version
+    into v_generation, v_status, v_result, v_result_schema_version
+  from public.ai_parse_attempts
+  where id = p_attempt_id and account_id = p_account_id;
+
+  if not found then
+    raise exception 'ai_parse_attempts % is not confirmable for account %', p_attempt_id, p_account_id;
+  end if;
+
+  if v_generation = p_generation and v_status = 'completed' then
+    -- Idempotent retry of THIS SAME generation's own already-applied
+    -- confirm (e.g. a lost-response network retry) — success, not merely
+    -- "superseded by someone else".
+    return jsonb_build_object('outcome', 'applied');
+  end if;
+
+  -- Either a newer generation already reclaimed this row (v_generation !=
+  -- p_generation), or this generation's own reservation was already
+  -- released through a different path (e.g. a client-side timeout) before
+  -- this confirm arrived. Either way this call must not touch status,
+  -- result, or ai_usage on another generation's behalf.
+  if v_status = 'completed' then
+    return jsonb_build_object(
+      'outcome', 'superseded', 'status', v_status,
+      'result', v_result, 'result_schema_version', v_result_schema_version
+    );
+  end if;
+
+  return jsonb_build_object('outcome', 'superseded', 'status', v_status);
+end;
+$$;
+
+-- Release a claimed attempt that failed before producing a draft (extractor
+-- error, oversized/undownloadable attachment, etc.) — marks it 'failed' and
+-- atomically gives back the reservation it held, floored at zero. Idempotent
+-- for the same reason as confirm_ai_parse_attempt() above, and gated by the
+-- SAME fencing token: p_generation must match the row's current value, or
+-- this is a benign 'superseded' no-op rather than an exception, and — the
+-- specific defect this closes — rather than decrementing ai_usage for a
+-- reservation a newer generation is still legitimately holding.
+--
+-- Returns jsonb: {"outcome": "applied"} | {"outcome": "superseded"}
+CREATE OR REPLACE FUNCTION "public"."release_ai_parse_attempt"("p_account_id" bigint, "p_attempt_id" bigint, "p_generation" bigint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_period text;
+  v_generation bigint;
+  v_status text;
+begin
+  update public.ai_parse_attempts
+     set status = 'failed', result = null
+   where id = p_attempt_id
+     and account_id = p_account_id
+     and status = 'in_progress'
+     and generation = p_generation
+  returning period into v_period;
+
+  if found then
+    update public.ai_usage
+       set resumes_parsed = greatest(resumes_parsed - 1, 0)
+     where account_id = p_account_id
+       and period = v_period;
+    return jsonb_build_object('outcome', 'applied');
+  end if;
+
+  select generation, status
+    into v_generation, v_status
+  from public.ai_parse_attempts
+  where id = p_attempt_id and account_id = p_account_id;
+
+  if not found then
+    raise exception 'ai_parse_attempts % is not releasable for account %', p_attempt_id, p_account_id;
+  end if;
+
+  if v_generation = p_generation and v_status = 'failed' then
+    -- Idempotent retry of THIS SAME generation's own already-applied
+    -- release.
+    return jsonb_build_object('outcome', 'applied');
+  end if;
+
+  return jsonb_build_object('outcome', 'superseded');
+end;
+$$;
+
+-- Force-reclaim a 'completed' parse attempt whose cached result failed the
+-- Worker's OWN Zod validation despite matching the current
+-- result_schema_version (Epic 11 Finding 12 closure) — genuine data
+-- corruption (a manual edit, a bug), not the version drift
+-- claim_ai_parse_attempt() already catches for free by comparing
+-- result_schema_version. SECURITY DEFINER, service_role-only
+-- (06_grants.sql): reachable from the browser it could force-reclaim ANY
+-- account's row, same reasoning as claim/confirm/release above. Does NOT
+-- touch ai_usage — this is the platform's own bug/corruption, not a cost
+-- the account should bear, mirroring the version-mismatch free-reclaim
+-- branch in claim_ai_parse_attempt() above. Bumps `generation` like every
+-- other reclaim path, so a slow, still-live caller from the pre-reclaim
+-- generation cannot race the fresh attempt this unlocks.
+--
+-- Returns jsonb: {"outcome": "reclaimed", "generation": <n>} | {"outcome": "not_reclaimable"}
+CREATE OR REPLACE FUNCTION "public"."force_reclaim_ai_parse_attempt"("p_account_id" bigint, "p_attempt_id" bigint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_generation bigint;
+begin
+  update public.ai_parse_attempts
+     set status = 'in_progress', started_at = now(), result = null, generation = generation + 1
+   where id = p_attempt_id
+     and account_id = p_account_id
+     and status = 'completed'
+  returning generation into v_generation;
+
+  if found then
+    return jsonb_build_object('outcome', 'reclaimed', 'generation', v_generation);
+  end if;
+
+  return jsonb_build_object('outcome', 'not_reclaimable');
+end;
+$$;
+
+-- Daily retention sweep (Epic 11 Finding 11 closure): deletes any
+-- ai_parse_attempts row older than a flat 30-day TTL, regardless of status.
+-- The cached `result` exists only to make a genuine RETRY free; the
+-- realistic retry window (a user re-opening an unfinished resolve dialog) is
+-- hours to a couple of weeks, not months — 30 days is generous margin above
+-- that window while still bounding indefinite PII retention (names,
+-- parents, schools, synagogues, locations, reference names/phones) to a
+-- finite lifetime. Deliberately NOT the same window as c_stale_after (5
+-- minutes, above) or c_reap_after (15 minutes, above): those detect an
+-- abandoned reservation; this one bounds how long a completed cache entry's
+-- personal data may live at all. Swept by workers/cron's scheduled()
+-- (event.cron-gated, see workers/cron/wrangler.toml), not by anything in
+-- this transaction's own callers. SECURITY DEFINER, service_role-only
+-- (06_grants.sql) — never reachable from a caller-supplied JWT. Returns only
+-- the deleted row COUNT so the caller's log line stays content-free (never
+-- which rows, whose account, or what they held) — see workers/shared's
+-- redaction discipline (Epic 11 Finding 5).
+CREATE OR REPLACE FUNCTION "public"."sweep_expired_ai_parse_attempts"() RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_deleted integer;
+begin
+  delete from public.ai_parse_attempts
+   where created_at < now() - interval '30 days';
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
 end;
 $$;
 

@@ -46,6 +46,39 @@ const PAGE_ONE = { page: 1, perPage: 1 } as const;
 const SORT_BY_ID = { field: "id", order: "ASC" } as const;
 
 /**
+ * Review fix (Finding 13, frontend half — Epic 11 adversarial review):
+ * `onSubmit` used to read every text-shaped field off `values` with a bare
+ * `as string` assertion — compile-time only, so a value that was ACTUALLY a
+ * number (e.g. a resume-parsed `height` a malformed model response left as
+ * `5` instead of `"5'6\""`) still reached `CreateShidduchInput` — and from
+ * there `createShidduch()`'s RPC parameters and `ShidduchInputs.tsx`'s text
+ * controls — as a raw JS number. `parsedResumeDraft.ts`'s `toDraft()` now
+ * coerces at the Worker's own validation boundary (Finding 13 closure), so
+ * an auto-filled value is already the right JS type by the time it lands in
+ * `values` — but `values` itself is `Record<string, unknown>` (React Hook
+ * Form's generic shape), so nothing enforces that at the type level, and a
+ * value that reaches the form some other way is still worth converting
+ * rather than silently dropping. These do the actual runtime conversion the
+ * assertions never did.
+ */
+function readTextField(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return null;
+}
+
+function readNumberField(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+/**
  * Inner component that resets the form when a parsed draft arrives. Lives
  * inside the Form context so `useFormContext()` is valid.
  */
@@ -159,35 +192,46 @@ export const InboxResolveDialog = ({
     setIsBusy(true);
     try {
       const input: CreateShidduchInput = {
+        // `single_id` / `shadchan_id`: written only by `ReferenceInput` +
+        // `AutocompleteInput` (`ShidduchInputs.tsx`), which produce an
+        // `Identifier` (string | number) or leave the field unset — never a
+        // value a resume extraction could have supplied. A resume draft
+        // never touches either field (`ParsedResumeFields` has no
+        // `single_id` / `shadchan_id`), so this assertion is sound;
+        // Finding 13 concerns only the fourteen resume-fillable fields
+        // below, all read through `readTextField` / `readNumberField`.
         single_id: values.single_id as Identifier,
         shadchan_id: (values.shadchan_id as Identifier) ?? null,
-        name_en: (values.name_en as string) ?? null,
-        name_he: (values.name_he as string) ?? null,
-        father_en: (values.father_en as string) ?? null,
-        father_he: (values.father_he as string) ?? null,
-        mother_en: (values.mother_en as string) ?? null,
-        mother_he: (values.mother_he as string) ?? null,
-        seminary_en: (values.seminary_en as string) ?? null,
-        seminary_he: (values.seminary_he as string) ?? null,
-        shul_en: (values.shul_en as string) ?? null,
-        shul_he: (values.shul_he as string) ?? null,
-        location_en: (values.location_en as string) ?? null,
-        location_he: (values.location_he as string) ?? null,
-        age: (values.age as number) ?? null,
-        height: (values.height as string) ?? null,
-        dob: (values.dob as string) ?? null,
-        background: (values.background as string) ?? null,
-        marital_status: (values.marital_status as string) ?? null,
-        existing_children_note:
-          (values.existing_children_note as string) ?? null,
+        name_en: readTextField(values.name_en),
+        name_he: readTextField(values.name_he),
+        father_en: readTextField(values.father_en),
+        father_he: readTextField(values.father_he),
+        mother_en: readTextField(values.mother_en),
+        mother_he: readTextField(values.mother_he),
+        seminary_en: readTextField(values.seminary_en),
+        seminary_he: readTextField(values.seminary_he),
+        shul_en: readTextField(values.shul_en),
+        shul_he: readTextField(values.shul_he),
+        location_en: readTextField(values.location_en),
+        location_he: readTextField(values.location_he),
+        age: readNumberField(values.age),
+        height: readTextField(values.height),
+        dob: readTextField(values.dob),
+        background: readTextField(values.background),
+        marital_status: readTextField(values.marital_status),
+        existing_children_note: readTextField(values.existing_children_note),
         // Story 8.3 (AC-4): a shadchan-sourced item enters via
         // create_shidduch() with origin: 'shadchan', never 'channel' or
         // 'manual' — the pipeline still starts at 'new' (initial_state
         // below), same as every other origin; there is no fast path.
         origin: isShadchanSourced ? "shadchan" : "channel",
+        // `initial_state`: constrained to `SelectInput`'s fixed
+        // `initialStateChoices` (`ShidduchInputs.tsx`), every choice a real
+        // `PipelineState` literal — sound for the same reason as
+        // `single_id` above.
         initial_state: (values.initial_state as PipelineState) ?? "new",
         visibility: "shared",
-        redt_date: (values.redt_date as string) ?? null,
+        redt_date: readTextField(values.redt_date),
       };
 
       const resumeAttachment = item.attachments?.find((a) =>

@@ -9,6 +9,7 @@ import type {
   CreateShidduchInput,
   EntityFile,
   InboxItem,
+  Resume,
   Shidduch,
 } from "../types";
 import { useResolveInboxItem, type ResumeDraft } from "./useResolveInboxItem";
@@ -62,23 +63,61 @@ const buildItem = (overrides: Partial<InboxItem> = {}): InboxItem => ({
   ...overrides,
 });
 
+/** Lets a test inject a one-off failure into a specific `update` call
+ * without losing the default merge-into-`currentItem` behavior every other
+ * call still needs — the F16 regression test uses this to fail exactly the
+ * `resume_created` stash once, simulating a crash between the `resumes` row
+ * landing and that stash reaching the database. */
+type DataProviderHooks = {
+  beforeUpdate?: (resource: string, params: unknown) => void;
+};
+
 /**
  * A stateful mock that merges inbox_items updates so `getOne` reflects the
- * current row. This is the minimum fidelity needed to test Story 10.5's
- * resolve-window protocol (status: unresolved -> resolving -> resolved/dismissed).
+ * current row, and tracks `resumes` rows so `getList`/`create` behave like a
+ * real table (Finding 16's fix looks up existing rows before creating one).
+ * This is the minimum fidelity needed to test Story 10.5's resolve-window
+ * protocol (status: unresolved -> resolving -> resolved/dismissed) and the
+ * resume-row idempotency it now also covers.
  */
 const buildDataProvider = (
   overrides: Partial<CrmDataProvider> = {},
   initialItem: InboxItem = buildItem(),
+  hooks: DataProviderHooks = {},
 ): CrmDataProvider => {
   let currentItem: InboxItem = { ...initialItem };
+  const resumesTable: Resume[] = [];
 
   const createShidduch = vi.fn(async (_input: CreateShidduchInput) => {
     return { id: 99 } as Shidduch;
   });
 
-  const create = vi.fn(async (_resource: string, _params: unknown) => {
+  const create = vi.fn(async (resource: string, params: unknown) => {
+    if (resource === "resumes") {
+      const { data } = params as { data: Partial<Resume> };
+      const row = {
+        id: resumesTable.length + 1,
+        account_id: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        ...data,
+      } as Resume;
+      resumesTable.push(row);
+      return { data: row };
+    }
     return { data: { id: 100 } };
+  });
+
+  const getList = vi.fn(async (resource: string, params: unknown) => {
+    if (resource === "resumes") {
+      const { filter } = params as {
+        filter?: { shidduchim_id?: Identifier };
+      };
+      const matches = resumesTable.filter(
+        (row) => row.shidduchim_id === filter?.shidduchim_id,
+      );
+      return { data: matches, total: matches.length };
+    }
+    return { data: [], total: 0 };
   });
 
   const copyInboxAttachmentsToEntityFiles = vi.fn(async () => {
@@ -96,6 +135,7 @@ const buildDataProvider = (
   });
 
   const update = vi.fn(async (resource: string, params: unknown) => {
+    hooks.beforeUpdate?.(resource, params);
     if (resource === "inbox_items") {
       const { data } = params as {
         id: Identifier;
@@ -111,6 +151,7 @@ const buildDataProvider = (
   return {
     createShidduch,
     create,
+    getList,
     copyInboxAttachmentsToEntityFiles,
     getOne,
     update,
@@ -121,9 +162,11 @@ const buildDataProvider = (
 function ResolveProbe({
   item,
   draft,
+  input = { single_id: 5, shadchan_id: 7 },
 }: {
   item: InboxItem;
   draft?: ResumeDraft;
+  input?: CreateShidduchInput;
 }) {
   const { resolveAsNewShidduch, resolveAsLinkToExisting, dismissInboxItem } =
     useResolveInboxItem();
@@ -143,10 +186,6 @@ function ResolveProbe({
       <button
         onClick={() =>
           run(async () => {
-            const input: CreateShidduchInput = {
-              single_id: 5,
-              shadchan_id: 7,
-            };
             const created = await resolveAsNewShidduch(item, input, draft);
             return `new:${created.id}`;
           })
@@ -182,15 +221,17 @@ const renderProbe = async (
   item: InboxItem,
   dataProviderOverrides: Partial<CrmDataProvider> = {},
   draft?: ResumeDraft,
+  hooks: DataProviderHooks = {},
+  input?: CreateShidduchInput,
 ) => {
-  const dataProvider = buildDataProvider(dataProviderOverrides, item);
+  const dataProvider = buildDataProvider(dataProviderOverrides, item, hooks);
   const screen = await render(
     <TestMemoryRouter>
       <CoreAdminContext
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <ResolveProbe item={item} draft={draft} />
+        <ResolveProbe item={item} draft={draft} input={input} />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -375,6 +416,59 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     expect(dataProvider.createShidduch).not.toHaveBeenCalled();
     expect(copyInboxAttachmentToResumeFile).not.toHaveBeenCalled();
     expect(dataProvider.create).not.toHaveBeenCalled();
+  });
+
+  it("recovers from a crash between the resumes-row create and the resume_created stash: a retry produces exactly one storage object and one resumes row (Finding 16)", async () => {
+    // Arrange: unlike the "already stashed" test above (which starts AFTER
+    // `resume_created` is durably true), this simulates the crash window
+    // itself — the `resumes` row is created successfully, but the very next
+    // write (stashing `resume_created: true` on the inbox item) fails once,
+    // exactly as a dropped connection or a closed tab would. `stashShouldFail`
+    // makes the injected failure fire on that ONE call only, so the retry's
+    // own stash succeeds.
+    copyInboxAttachmentToResumeFile.mockResolvedValue({
+      storagePath: "7/resumes/99/generated-uuid-resume.pdf",
+      size: 245678,
+    });
+    let stashShouldFail = true;
+    const hooks: DataProviderHooks = {
+      beforeUpdate: (resource, params) => {
+        if (!stashShouldFail) return;
+        const { data } = params as {
+          data?: { resolution_input?: { resume_created?: boolean } | null };
+        };
+        if (
+          resource === "inbox_items" &&
+          data?.resolution_input?.resume_created
+        ) {
+          stashShouldFail = false;
+          throw new Error("connection dropped");
+        }
+      },
+    };
+    const item = buildItem();
+    const draft = buildResumeDraft();
+
+    // Act: first attempt crashes in the stash window described above.
+    const { screen, dataProvider } = await renderProbe(item, {}, draft, hooks);
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect
+      .element(screen.getByText("error:connection dropped"))
+      .toBeInTheDocument();
+
+    // Act: retry, against the SAME dataProvider (so its `resumes` table and
+    // stashed inbox-item state persist across the "crash").
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+
+    // Assert: exactly ONE copy and ONE `resumes` row exist — the retry found
+    // the row the first attempt already durably created instead of making a
+    // second one.
+    expect(copyInboxAttachmentToResumeFile).toHaveBeenCalledTimes(1);
+    const resumesCreateCalls = (
+      dataProvider.create as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(([resource]) => resource === "resumes");
+    expect(resumesCreateCalls).toHaveLength(1);
   });
 
   it("removes the copied object and rethrows when the resumes row write fails, rather than leaving an orphaned object", async () => {
@@ -659,5 +753,120 @@ describe("useResolveInboxItem — Story 10.5 idempotency edge cases", () => {
 
     // Takes over the existing lock and completes the resolve.
     expect(dataProvider.createShidduch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useResolveInboxItem — retry-compatibility widened to full input + draft (Finding 17)", () => {
+  it("rejects a retry whose form fields differ from the in-progress attempt, instead of silently finalizing the stale shidduch", async () => {
+    // Arrange: an earlier attempt already created shidduch 99 (its id is
+    // stashed on `resolved_shidduchim_id`) with background "Learns at BMG",
+    // then never reached finalize — simulating a crash right after creation.
+    // The user has since edited the form (background is now different) and
+    // retries. Before Finding 17's fix, `inputsAreCompatible` only compared
+    // single_id/shadchan_id/origin/attachment-path — all unchanged here — so
+    // this would have taken over the lock, skipped `createShidduch`
+    // (`stashed.resolved_shidduchim_id` is already set), and silently
+    // finalized shidduch 99 with the STALE background while reporting
+    // success.
+    const item = buildItem({
+      status: "resolving",
+      resolution_attempt_id: "old-attempt",
+      resolution_input: {
+        action: "new",
+        input: { single_id: 5, shadchan_id: 7, background: "Learns at BMG" },
+        resolved_shidduchim_id: 99,
+      },
+    });
+    const { screen, dataProvider } = await renderProbe(
+      item,
+      {},
+      undefined,
+      {},
+      { single_id: 5, shadchan_id: 7, background: "Moved to Lakewood" },
+    );
+
+    // Act
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+
+    // Assert: rejected — never silently finalized with mismatched data.
+    await expect
+      .element(
+        screen.getByText(
+          "error:Another resolution is already in progress for inbox item 1.",
+        ),
+      )
+      .toBeInTheDocument();
+    expect(dataProvider.update).not.toHaveBeenCalled();
+  });
+
+  it("still takes over a compatible in-progress attempt when every field, including background, matches exactly — the ordinary crash-retry case", async () => {
+    // Arrange — same shape as the test above, but the retry resubmits IDENTICAL
+    // values, exactly what a genuine crash-retry (not a user edit) looks like.
+    const item = buildItem({
+      status: "resolving",
+      resolution_attempt_id: "old-attempt",
+      resolution_input: {
+        action: "new",
+        input: { single_id: 5, shadchan_id: 7, background: "Learns at BMG" },
+        resolved_shidduchim_id: 99,
+      },
+    });
+    const { screen, dataProvider } = await renderProbe(
+      item,
+      {},
+      undefined,
+      {},
+      { single_id: 5, shadchan_id: 7, background: "Learns at BMG" },
+    );
+
+    // Act
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+
+    // Assert: takes over and finalizes — never re-runs createShidduch, since
+    // the earlier attempt's id is reused.
+    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+    expect(dataProvider.createShidduch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a retry whose resume draft differs from the one already in progress, even though the attachment path is unchanged", async () => {
+    // Arrange: same attachment (same path — all the OLD narrow check
+    // compared), but a different extraction (`rawDraft`/`sections`) — e.g. a
+    // re-run of auto-fill against the same file produced a different
+    // result. The old code treated this as compatible purely because the
+    // path matched.
+    const oldDraft = buildResumeDraft();
+    const newDraft: ResumeDraft = {
+      ...oldDraft,
+      rawDraft: { name_en: "Someone Else Entirely" },
+    };
+    const item = buildItem({
+      status: "resolving",
+      resolution_attempt_id: "old-attempt",
+      resolution_input: {
+        action: "new",
+        input: { single_id: 5, shadchan_id: 7 },
+        resume_draft: oldDraft,
+      },
+    });
+    const { screen, dataProvider } = await renderProbe(
+      item,
+      {},
+      newDraft,
+      {},
+      { single_id: 5, shadchan_id: 7 },
+    );
+
+    // Act
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+
+    // Assert
+    await expect
+      .element(
+        screen.getByText(
+          "error:Another resolution is already in progress for inbox item 1.",
+        ),
+      )
+      .toBeInTheDocument();
+    expect(dataProvider.update).not.toHaveBeenCalled();
   });
 });

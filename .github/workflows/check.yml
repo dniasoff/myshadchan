@@ -203,6 +203,9 @@ jobs:
       - name: 🎨 Tailwind v3-syntax guard
         run: node scripts/check-tailwind-arbitrary-var.mjs
 
+      - name: 🚦 Rate-limit config drift guard
+        run: node scripts/check-rate-limit-config.mjs
+
   e2e-test:
     timeout-minutes: 10
     runs-on: ubuntu-latest
