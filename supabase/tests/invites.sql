@@ -849,6 +849,15 @@ exception when others then
 end $$;
 
 reset role;
+-- Clear the claims as well as the role, for the reason spelled out at the
+-- top of the mismatched-caller block above: `reset role` restores the DB
+-- role but leaves `request.jwt.claims` — a separate, transaction-scoped
+-- GUC — still carrying the previous block's `sub`. The `insert into
+-- public.tasks` further down this block sends no member_id, so
+-- set_member_id_default() would resolve auth.uid() to that stale user,
+-- who holds no active membership in :acct_household, and Story 12.3's
+-- validate_task_assignee trigger would (correctly) reject the insert.
+set local request.jwt.claims = '{}';
 
 insert into results (name, passed)
 select 'AC4: the already-linked single''s member_id is unchanged after the refused second acceptance',

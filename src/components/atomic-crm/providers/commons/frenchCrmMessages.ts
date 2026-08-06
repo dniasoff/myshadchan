@@ -922,6 +922,19 @@ export const frenchCrmMessages = {
         overflow: "et %{smart_count} de plus",
       },
     },
+    // Story 12.3 — see the matching note in englishCrmMessages.ts.
+    tasks: {
+      assignee: {
+        label: "Assigné à",
+        unassigned: "Non assigné",
+        you: "Vous",
+        everyone: "Tout le monde",
+        mine: "Assigné à moi",
+        scope_group: "Portée des tâches",
+        former_member: "Ne fait plus partie de ce foyer",
+        reassign: "Réassigner",
+      },
+    },
     validation: {
       invalid_url: "Doit être une URL valide",
       invalid_linkedin_url: "L'URL doit provenir de linkedin.com",

@@ -230,6 +230,22 @@ export type MyContext = {
   is_active: boolean;
 };
 
+/** One row of `public.context_members` (Story 12.3) — the assignee picker's
+ * roster: the ACTIVE members of the caller's ACTIVE context. `id` is
+ * `public.members.id` (the same identity key `tasks.member_id` holds), never
+ * `account_members.id`, because `members.id` is stable across a persona
+ * archive/re-add round-trip and `account_members.id` is re-minted. Do not
+ * source the assignee picker from `useGetList("members")` — that table has
+ * no `account_id` and would leak every household's roster. */
+export type ContextMember = {
+  id: Identifier;
+  account_id: Identifier;
+  user_id: string;
+  role: MemberRole;
+  full_name: string | null;
+  is_self: boolean;
+};
+
 export type Single = {
   account_id: Identifier;
   first_name_en?: string | null;

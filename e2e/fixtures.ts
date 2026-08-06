@@ -319,6 +319,36 @@ async function createListing({
 }
 
 /**
+ * Story 12.3: gives an already-created member a SECOND parent membership on
+ * an EXISTING household account (`createSingle`'s own `account_id`) —
+ * `tasks-assignment.spec.ts` needs a real second `parent_admin` to prove a
+ * task assigned to them shows under Everyone but not under "Assigned to
+ * me" for the caller, and vice versa once that second member signs in.
+ * Unlike `createSecondContext` below (a second ACCOUNT for the SAME
+ * member), this is a second MEMBER on the SAME account.
+ */
+async function addHouseholdMember({
+  accountId,
+  member,
+}: {
+  accountId: number;
+  member: { user_id: string };
+}) {
+  const { error } = await adminSupabase.from("account_members").insert({
+    account_id: accountId,
+    user_id: member.user_id,
+    role: "parent_admin",
+    status: "active",
+  });
+
+  if (error) {
+    throw new Error(
+      `Failed to add household member ${member.user_id}: ${error.message}`,
+    );
+  }
+}
+
+/**
  * Story 4.4: gives an already-created member a SECOND context (a
  * shadchanus-kind account, alongside the household `createSingle`
  * provisions) — `ContextSwitcher`/`ContextMenuItems` render nothing below 2
@@ -489,6 +519,7 @@ export const test = base.extend<{
   createSelfManagedSingle: typeof createSelfManagedSingle;
   createShidduch: typeof createShidduch;
   createShadchan: typeof createShadchan;
+  addHouseholdMember: typeof addHouseholdMember;
   createSecondContext: typeof createSecondContext;
   createInvite: typeof createInvite;
   createListing: typeof createListing;
@@ -520,6 +551,9 @@ export const test = base.extend<{
   },
   createShadchan: async ({}, cb) => {
     await cb(createShadchan);
+  },
+  addHouseholdMember: async ({}, cb) => {
+    await cb(addHouseholdMember);
   },
   createSecondContext: async ({}, cb) => {
     await cb(createSecondContext);

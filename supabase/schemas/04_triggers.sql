@@ -158,6 +158,19 @@ create or replace trigger sync_task_target_trigger
     before insert or update on public.tasks
     for each row execute function public.sync_task_target();
 
+-- Story 12.3: an assignee must be an ACTIVE member of the task's own
+-- account. `update of member_id, account_id` — never a bare `update`:
+-- completing or snoozing a task whose assignee has since been archived
+-- must keep working (AC-6). Named `validate_...` so it sorts AFTER every
+-- `set_...`/`sync_...` trigger on this table ('v' > 's'), which is what
+-- guarantees set_tasks_account_id has already filled new.account_id by
+-- the time this reads it — read the alphabetical-trigger-ordering
+-- rationale below (the `validate_*_household_scope` block's own comment,
+-- "MyShadchan — Persona and context data model") before renaming this.
+create or replace trigger validate_task_assignee
+    before insert or update of member_id, account_id on public.tasks
+    for each row execute function public.validate_task_assignee();
+
 create or replace trigger set_interactions_account_id
     before insert on public.interactions
     for each row execute function public.set_account_id_default();

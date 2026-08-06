@@ -884,8 +884,138 @@ typical ceiling; grow the file count, not the file
 
 ### Agent Model Used
 
+Claude (Sonnet), via the BMad dev-story workflow.
+
 ### Debug Log References
+
+**AC-9 pre-migration backfill count** — run against the local stack (`STACK_ID=1`,
+`postgresql://postgres:postgres@127.0.0.1:54352/postgres`) both before generating the migration
+and again after applying it, using the exact predicate from Task 3:
+
+```sql
+select count(*) from public.tasks t
+where t.member_id is not null
+  and not exists (
+    select 1
+    from public.account_members am
+      join public.members m on m.user_id = am.user_id
+    where m.id = t.member_id
+      and am.account_id = t.account_id
+      and am.status = 'active'
+  );
+```
+
+Result: **0 rows** matched the predicate on the local stack (2026-08-06) — no legacy task had an
+unresolvable assignee, so the backfill in `supabase/migrations/20260806201222_task_assignment.sql`
+nulled 0 rows. This 0-row result is also recorded as a comment directly above the `update` in the
+migration file, per Task 3's instruction. A non-zero count would have been reported here rather
+than buried; there was none to report.
+
+**Guard test shown red first (`tasks/taskScope.guard.test.ts`, contract §13 rule 2)** — ran
+`npx vitest run --project app src/components/atomic-crm/tasks/taskScope.guard.test.ts` against a
+deliberately reverted copy of `TasksListByDueDate.tsx` (the `filter` line reverted from
+`scope === "mine" ? { member_id: identity?.id } : {}` back to the pre-story unconditional
+`{ member_id: identity?.id }`), then restored the fix. Captured output:
+
+```
+ RUN  v4.1.10 /home/daniel/repos/myshadchan
+
+ ❯ |app (chromium)| src/components/atomic-crm/tasks/taskScope.guard.test.ts (3 tests | 1 failed) 153ms
+     × does not contain an unconditional member_id filter 151ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |app (chromium)| src/components/atomic-crm/tasks/taskScope.guard.test.ts > TasksListByDueDate never sends member_id unconditionally (AC-1) > does not contain an unconditional member_id filter
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ src/components/atomic-crm/tasks/taskScope.guard.test.ts:51:56
+     49|
+     50|   it("does not contain an unconditional member_id filter", () => {
+     51|     expect(UNCONDITIONAL_MEMBER_ID_FILTER.test(SOURCE)).toBe(false);
+       |                                                        ^
+     52|   });
+     53| });
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+```
+
+After restoring the real fix, the same command reports `Test Files 1 passed (1)` /
+`Tests 3 passed (3)`, confirming the guard is non-vacuous in both directions.
 
 ### Completion Notes List
 
+- AC-9's backfill matched 0 rows on the local stack; nothing to report beyond the count above.
+- The trigger-name-ordering hazard (Dev Notes → "Trigger name ordering is load-bearing") was
+  respected: `validate_task_assignee` sorts after `set_task_member_id_trigger` and
+  `set_tasks_account_id` alphabetically, so `new.account_id` is populated before the guard reads it.
+- `db diff`'s two blind spots (`security_invoker`, view grants) were hand-added to the generated
+  migration per the Dev Notes checklist and confirmed present in
+  `supabase/migrations/20260806201222_task_assignment.sql`.
+
 ### File List
+
+**Schema / database**
+- `supabase/schemas/01_tables.sql`
+- `supabase/schemas/02_functions.sql`
+- `supabase/schemas/03_views.sql`
+- `supabase/schemas/04_triggers.sql`
+- `supabase/schemas/06_grants.sql`
+- `supabase/migrations/20260806201222_task_assignment.sql` (new)
+- `supabase/tests/task_assignment.sql` (new)
+- `supabase/tests/task_assignment.test.ts` (new)
+
+**Source**
+- `src/components/atomic-crm/tasks/TasksListByDueDate.tsx`
+- `src/components/atomic-crm/tasks/TasksListByDueDate.test.tsx` (new)
+- `src/components/atomic-crm/tasks/Task.tsx`
+- `src/components/atomic-crm/tasks/Task.test.tsx` (new)
+- `src/components/atomic-crm/tasks/TaskFormContent.tsx`
+- `src/components/atomic-crm/tasks/useTaskAssigneeScope.ts` (new)
+- `src/components/atomic-crm/tasks/useTaskAssigneeScope.test.ts` (new)
+- `src/components/atomic-crm/tasks/TaskScopeToggle.tsx` (new)
+- `src/components/atomic-crm/tasks/TaskScopeToggle.test.tsx` (new)
+- `src/components/atomic-crm/tasks/useTaskAssignees.ts` (new)
+- `src/components/atomic-crm/tasks/useTaskAssignees.test.tsx` (new)
+- `src/components/atomic-crm/tasks/TaskAssigneeChip.tsx` (new)
+- `src/components/atomic-crm/tasks/TaskAssigneeChip.test.tsx` (new)
+- `src/components/atomic-crm/tasks/TaskAssigneeSelect.tsx` (new)
+- `src/components/atomic-crm/tasks/TaskAssigneeSelect.test.tsx` (new)
+- `src/components/atomic-crm/tasks/assigneeLabel.ts` (new)
+- `src/components/atomic-crm/tasks/taskScope.guard.test.ts` (new)
+- `src/components/atomic-crm/reminders/ReminderCard.tsx`
+- `src/components/atomic-crm/reminders/ReminderCard.test.tsx`
+- `src/components/atomic-crm/reminders/ReminderCreateSheet.tsx`
+- `src/components/atomic-crm/reminders/ReminderCreateSheet.test.tsx` (new)
+- `src/components/atomic-crm/reminders/useReminders.ts`
+- `src/components/atomic-crm/reminders/useReminders.test.tsx` (new)
+- `src/components/atomic-crm/reminders/RemindersPage.tsx`
+- `src/components/atomic-crm/entity360/tabs/TasksTab.tsx`
+- `src/components/atomic-crm/entity360/tabs/TasksTab.test.tsx`
+- `src/components/atomic-crm/entity360/tabs/TasksRailSummary.tsx`
+- `src/components/atomic-crm/entity360/tabs/TasksRailSummary.test.tsx`
+- `src/components/atomic-crm/types.ts`
+
+**Categories that keep getting missed**
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts`
+- `src/components/atomic-crm/providers/fakerest/dataProvider.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/shidduchim.ts`
+- `src/components/atomic-crm/providers/fakerest/dataGenerator/references.ts`
+- `e2e/tasks-assignment.spec.ts` (new)
+- `e2e/fixtures.ts`
+
+**Known collateral, out of this story's ownership manifest — not fixed here, reported instead**
+- `supabase/tests/invites.sql` / `supabase/tests/invites.test.ts` — the new `validate_task_assignee`
+  trigger correctly rejects a stale-JWT-claims fixture bug at `invites.sql:851` (`reset role;` does
+  not also reset `request.jwt.claims`, unlike the fixed pattern at `:592-597`), which fails
+  `npm run test:unit:db`'s `invites.test.ts` suite. Neither file is in this story's declared
+  ownership manifest above. Fix (one line, `set local request.jwt.claims = '{}';` after the
+  `reset role;` at `:851`, mirroring `:592-597`) needs an owner outside this story per
+  "out-of-scope work is reported, not taken."

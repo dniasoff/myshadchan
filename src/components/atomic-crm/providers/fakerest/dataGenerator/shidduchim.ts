@@ -420,6 +420,21 @@ export const generateShidduchimDomain = (db: Db) => {
       status: "active",
       created_at: "2026-01-01T00:00:00.000Z",
     },
+    // Story 12.3 (Task 6, AC-12): a SECOND active parent on ACCOUNT_ID, so
+    // the assignee picker/chips and the Everyone/Mine toggle are all
+    // demonstrable in `make start-demo` — without this, `context_members`
+    // resolves to Jane Doe alone and the toggle changes nothing. Binds
+    // `generateMembers()`'s first random member (`id: 1`) — see the
+    // `db.members` override right below, which gives that member a stable
+    // name for reproducible screenshots.
+    {
+      id: 3,
+      account_id: ACCOUNT_ID,
+      user_id: "1",
+      role: "parent_admin",
+      status: "active",
+      created_at: "2026-01-01T00:00:00.000Z",
+    },
   ];
 
   const allSeeds = [...rivkySeeds, ...yaakovSeeds];
@@ -554,6 +569,16 @@ export const generateShidduchimDomain = (db: Db) => {
   db.accounts = accounts;
   db.connections = connections;
   db.account_members = account_members;
+  // Story 12.3 (Task 6): stabilizes the second household parent's (member
+  // id 1) name — `generateMembers()` gives it a random `faker()` name,
+  // which would make the assignee picker/chips non-reproducible across
+  // demo screenshots. Immutable: a new array, a new object for the one
+  // affected member, every other member untouched.
+  db.members = db.members.map((member) =>
+    member.id === 1
+      ? { ...member, first_name: "Dovid", last_name: "Klein" }
+      : member,
+  );
   db.singles = singlesSeed;
   // Story 9.2 (Task 4): overwrites index.ts's own `db.listings = []` default
   // with the one seeded single listing above — same "empty by default,

@@ -121,9 +121,17 @@ create table public.tasks (
 -- tasks.member_id points at public.members (the user/profile table) — NOT at
 -- public.account_members like singles.member_id / shidduchim.owner_member_id /
 -- interactions.actor_member_id do. The two `member_id` names collide on
--- purpose-free vocabulary but not on referent; resolving the collision is
--- Epic 2 (AD-19), not this story.
-comment on column public.tasks.member_id is 'FK-less reference to public.members(id) — the assignee/reminder-owner user. NOT public.account_members, unlike other *_member_id columns in this schema.';
+-- purpose-free vocabulary but not on referent, and that is deliberate, not a
+-- gap: public.members carries `uq__members__user_id` (one row per auth user,
+-- stable for the account's lifetime), while account_members.id is re-minted
+-- on every persona archive/re-add round-trip. Aligning tasks.member_id onto
+-- account_members.id — as every other `*_member_id` column in this schema
+-- does — would strand every existing assignment the first time its assignee
+-- is archived and re-added. Story 12.3 keeps the column and its referent as
+-- they are; validate_task_assignee() (02_functions.sql) is what makes the
+-- value trustworthy, and public.context_members (03_views.sql) is what
+-- resolves it back to a name.
+comment on column public.tasks.member_id is 'FK-less reference to public.members(id) — the assignee/reminder-owner user. NOT public.account_members, unlike other *_member_id columns in this schema. Deliberately NOT re-aligned: members.id is stable across a persona archive/re-add round-trip, account_members.id is not (Story 12.3).';
 
 create table public.configuration (
     id integer not null default 1 primary key,
@@ -1853,6 +1861,9 @@ create index identity_signals_name_en_key_idx on public.identity_signals using b
 create index identity_signals_name_he_key_idx on public.identity_signals using btree (account_id, target_type, name_he_key);
 create index tasks_account_id_idx on public.tasks using btree (account_id);
 create index tasks_target_idx on public.tasks using btree (account_id, target_type, target_id);
+-- Story 12.3: "Assigned to me" is account_id (RLS) + member_id (filter);
+-- tasks_account_id_idx alone leaves the member predicate to a filter step.
+create index tasks_account_member_idx on public.tasks using btree (account_id, member_id);
 -- `created_at desc` tail mirrors interactions_target_idx above: the Files
 -- tab lists newest-first.
 create index entity_files_account_id_idx on public.entity_files using btree (account_id);

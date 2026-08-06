@@ -6,7 +6,9 @@ import { cn } from "@/lib/utils";
 
 import { RecordLink } from "../entity360/RecordLink";
 import { formatDueMoment } from "../misc/formatDueMoment";
+import { TaskAssigneeChip } from "../tasks/TaskAssigneeChip";
 import { isOverdue } from "../tasks/tasksPredicate";
+import { useTaskAssignees } from "../tasks/useTaskAssignees";
 import { RESOURCE_FOR_TARGET } from "./reminderEntity";
 import type { ReminderItem } from "./useReminders";
 
@@ -32,6 +34,11 @@ export const ReminderCard = ({
 }: ReminderCardProps) => {
   const { task, linkedEntity } = item;
   const overdue = isOverdue(task.due_date);
+  // `ReminderList.tsx` (out of this story's ownership manifest) renders one
+  // `ReminderCard` per item with no shared assignee map threaded down —
+  // same reasoning as `tasks/Task.tsx`: react-query dedupes the identical
+  // `context_members` query across every mounted card into one request.
+  const { assigneesById, isMultiMember } = useTaskAssignees();
 
   return (
     <li className="ql-enter" style={{ animationDelay: `${enterDelayMs}ms` }}>
@@ -76,6 +83,16 @@ export const ReminderCard = ({
               ? `Since ${formatDueMoment(task.due_date)}`
               : `Due ${formatDueMoment(task.due_date)}`}
           </p>
+
+          {/* AC-10: visible on every row once the household has more than
+              one active member. */}
+          <div className="mt-1.5">
+            <TaskAssigneeChip
+              memberId={task.member_id}
+              assigneesById={assigneesById}
+              isMultiMember={isMultiMember}
+            />
+          </div>
         </div>
 
         <Button

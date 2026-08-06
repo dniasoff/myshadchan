@@ -13,6 +13,7 @@ import type {
   AiEntitlementInfo,
   Connection,
   ConnectionInvitePreview,
+  ContextMember,
   CreateShidduchInput,
   CreateThreadInput,
   EntityFile,
@@ -347,6 +348,56 @@ export const createDataProvider = ({
   const resolveCurrentAccountId = async (): Promise<Identifier> => {
     const caller = await resolveCallerMembership();
     return caller?.membership?.account_id ?? activeAccountId ?? 1;
+  };
+
+  // Story 12.3 (AD-10 FakeRest mirror): emulates `public.context_members` —
+  // the ACTIVE `account_members` of the caller's ACTIVE context, joined to
+  // `members` on `user_id` (never `account_members.id`, which is re-minted
+  // on an archive/re-add round-trip — the same reasoning the real view's
+  // own comment carries). `id` on the returned rows is `members.id`, the
+  // same identity key `tasks.member_id` holds.
+  const resolveContextMembers = async (): Promise<ContextMember[]> => {
+    const [{ data: accountMembers }, { data: members }, accountId, caller] =
+      await Promise.all([
+        baseDataProvider.getList<AccountMember>("account_members", {
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        }),
+        baseDataProvider.getList<Member>("members", {
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        }),
+        resolveCurrentAccountId(),
+        resolveCallerMembership(),
+      ]);
+    const memberByUserId = new Map(members.map((m) => [m.user_id, m]));
+
+    return accountMembers
+      .filter(
+        (am) =>
+          am.status === "active" && String(am.account_id) === String(accountId),
+      )
+      .map((am): ContextMember | null => {
+        const profile = am.user_id ? memberByUserId.get(am.user_id) : undefined;
+        // No matching members row — cannot happen for seeded/created data
+        // (every account_members write has a member with the same
+        // user_id), but skipped defensively rather than surfacing a row
+        // with no resolvable id (ContextMember.id must be members.id).
+        if (!profile) return null;
+        const fullName = `${profile.first_name} ${profile.last_name}`.trim();
+        return {
+          id: profile.id,
+          account_id: am.account_id,
+          user_id: am.user_id ?? "",
+          role: am.role,
+          full_name: fullName || null,
+          is_self: caller?.userId != null && am.user_id === caller.userId,
+        };
+      })
+      .filter((row): row is ContextMember => row != null)
+      .sort((a, b) => Number(a.id) - Number(b.id));
   };
 
   // Mirrors `public.is_owning_membership_role()` (02_functions.sql). Kept as
@@ -770,7 +821,32 @@ export const createDataProvider = ({
         );
         return { data: await enrichEntityFiles(data), total };
       }
+      // Story 12.3 (Task 2): "context_members" does NOT end in "_summary" —
+      // the adapter's suffix strip would otherwise collapse
+      // "context_members_summary" onto the raw "account_members" table
+      // (the same reasoning "shadchan_stats" above documents). It is
+      // computed, not stored, so there is no `db.context_members` table.
+      if (resource === "context_members") {
+        const rows = await resolveContextMembers();
+        return { data: rows, total: rows.length };
+      }
       return baseDataProvider.getList(resource, params);
+    },
+    async getMany(resource: string, params: any) {
+      // Story 12.3 (Task 6): `useGetList`'s own cache warm-up can issue a
+      // `getMany` for a resource it already holds a `getList` result for —
+      // "context_members" has no `db` table for the default `getMany` to
+      // read, so it needs the same emulation as getList above.
+      if (resource === "context_members") {
+        const rows = await resolveContextMembers();
+        const wantedIds = new Set(
+          (params.ids ?? []).map((id: Identifier) => String(id)),
+        );
+        return {
+          data: rows.filter((row) => wantedIds.has(String(row.id))),
+        } as any;
+      }
+      return baseDataProvider.getMany(resource, params);
     },
     async getOne(resource: string, params: any) {
       if (resource === "shidduchim" || resource === "shidduchim_summary") {

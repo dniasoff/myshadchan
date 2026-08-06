@@ -4,6 +4,8 @@ import { Link } from "react-router";
 
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { TaskAssigneeChip } from "../../tasks/TaskAssigneeChip";
+import { useTaskAssignees } from "../../tasks/useTaskAssignees";
 import type { Task } from "../../types";
 import { buildTabPath } from "../entityPaths";
 import type { UniversalTabProps } from "./types";
@@ -107,6 +109,11 @@ export function TasksRailSummary({
     sort: { field: "due_date", order: "ASC" },
     pagination: { page: 1, perPage: limit },
   });
+  // AC-10: the assignee, visible on every row once the household has more
+  // than one active member. `useTaskAssignees` is a read hook (useGetList
+  // under the hood) — it does not violate Ruling 2's read-only requirement,
+  // and `TaskAssigneeChip` is a pure display component (F6).
+  const { assigneesById, isMultiMember } = useTaskAssignees();
 
   const tasks = selectVisibleTasks(data ?? [], limit);
 
@@ -128,6 +135,13 @@ export function TasksRailSummary({
                   {new Date(task.due_date).toLocaleDateString()}
                 </p>
               ) : null}
+              <div className="mt-1">
+                <TaskAssigneeChip
+                  memberId={task.member_id}
+                  assigneesById={assigneesById}
+                  isMultiMember={isMultiMember}
+                />
+              </div>
             </li>
           ))}
         </ul>

@@ -19,8 +19,10 @@ import {
 import { formatDueMoment } from "../misc/formatDueMoment";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 import type { Task as TData } from "../types";
+import { TaskAssigneeChip } from "./TaskAssigneeChip";
 import { TaskEdit } from "./TaskEdit";
 import { TaskEditSheet } from "./TaskEditSheet";
+import { useTaskAssignees } from "./useTaskAssignees";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 export const Task = ({ task }: { task: TData }) => {
@@ -29,6 +31,16 @@ export const Task = ({ task }: { task: TData }) => {
   const notify = useNotify();
   const translate = useTranslate();
   const queryClient = useQueryClient();
+  // `TasksIterator.tsx`/`TasksListFilter.tsx` (out of this story's
+  // ownership manifest) render one `Task` per row with no shared assignee
+  // map threaded down, so this reads `useTaskAssignees()` directly rather
+  // than growing that prop-drilling chain — react-query dedupes the
+  // identical `context_members` query across every mounted row into ONE
+  // network request, so this stays "one fetch per surface" in effect even
+  // though the hook is called per component instance (AC-10).
+  const { assigneesById, isMultiMember } = useTaskAssignees();
+  const isUnresolvedAssignee =
+    task.member_id != null && !assigneesById.has(task.member_id);
 
   const [openEdit, setOpenEdit] = useState(false);
 
@@ -119,6 +131,29 @@ export const Task = ({ task }: { task: TData }) => {
               {translate("resources.tasks.fields.due_short")}
               &nbsp;
               {task.due_date ? formatDueMoment(task.due_date) : null}
+            </div>
+            {/* AC-10: the assignee, visible on every row once the household
+                has more than one active member. AC-7: an archived assignee
+                stays completable and gets a Reassign affordance here, on
+                the row — never on the chip itself, which stays a pure,
+                surface-agnostic display component (F6). */}
+            <div className="mt-1 flex items-center gap-2">
+              <TaskAssigneeChip
+                memberId={task.member_id}
+                assigneesById={assigneesById}
+                isMultiMember={isMultiMember}
+              />
+              {isUnresolvedAssignee && (
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline"
+                  onClick={handleEdit}
+                >
+                  {translate("crm.tasks.assignee.reassign", {
+                    _: "Reassign",
+                  })}
+                </button>
+              )}
             </div>
           </div>
         </div>

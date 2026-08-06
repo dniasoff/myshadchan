@@ -1,6 +1,8 @@
 import { PlusIcon } from "lucide-react";
 import { useState } from "react";
 
+import { TaskScopeToggle } from "../tasks/TaskScopeToggle";
+import { useTaskAssigneeScope } from "../tasks/useTaskAssigneeScope";
 import { OutstandingCallsSection } from "./OutstandingCallsSection";
 import { ReminderCreateSheet } from "./ReminderCreateSheet";
 import { ReminderList } from "./ReminderList";
@@ -20,8 +22,9 @@ import { useReminders } from "./useReminders";
  */
 export const RemindersPage = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [scope, setScope] = useTaskAssigneeScope();
   const { isPending, isEmpty, overdue, upcoming, complete, snooze } =
-    useReminders();
+    useReminders(scope);
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
@@ -35,22 +38,26 @@ export const RemindersPage = () => {
           </h1>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setIsCreateOpen(true)}
-          className="inline-flex h-11 items-center gap-2 rounded-xl px-4
-            font-semibold text-primary-foreground
-            bg-[linear-gradient(135deg,var(--accent-grad-from),var(--accent-grad-to))]
-            shadow-sm shadow-[0_8px_24px_-6px_var(--glow-accent)]
-            transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)]
-            hover:shadow-[0_10px_30px_-6px_var(--glow-accent-strong)]
-            active:scale-[0.97]
-            focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
-            focus-visible:ring-offset-background outline-none"
-        >
-          <PlusIcon className="size-4" aria-hidden="true" />
-          Add a reminder
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <TaskScopeToggle scope={scope} onChange={setScope} />
+
+          <button
+            type="button"
+            onClick={() => setIsCreateOpen(true)}
+            className="inline-flex h-11 items-center gap-2 rounded-xl px-4
+              font-semibold text-primary-foreground
+              bg-[linear-gradient(135deg,var(--accent-grad-from),var(--accent-grad-to))]
+              shadow-sm shadow-[0_8px_24px_-6px_var(--glow-accent)]
+              transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)]
+              hover:shadow-[0_10px_30px_-6px_var(--glow-accent-strong)]
+              active:scale-[0.97]
+              focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
+              focus-visible:ring-offset-background outline-none"
+          >
+            <PlusIcon className="size-4" aria-hidden="true" />
+            Add a reminder
+          </button>
+        </div>
       </div>
 
       {/* The account-wide outstanding-calls worklist inherited from the

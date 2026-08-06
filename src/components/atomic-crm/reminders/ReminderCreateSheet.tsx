@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 
+import { TaskAssigneeSelect } from "../tasks/TaskAssigneeSelect";
 import type {
   ShidduchSummary,
   Task,
@@ -104,6 +105,14 @@ export const ReminderCreateSheet = ({
     undefined,
   );
   const [withPush, setWithPush] = useState(false);
+  // AC-3: defaults to the caller's own row (`defaultToSelf` on
+  // TaskAssigneeSelect) — a reminder you create for yourself must stay a
+  // one-tap flow. `undefined` here means "not yet resolved"; it becomes the
+  // caller's own id, or whatever the user explicitly picks (including
+  // Unassigned -> null).
+  const [memberId, setMemberId] = useState<Identifier | null | undefined>(
+    undefined,
+  );
 
   const needsShidduch = requiresShidduchScope(linkType);
   const { options: shidduchOptions, isPending: shidduchPending } =
@@ -137,6 +146,7 @@ export const ReminderCreateSheet = ({
     setTargetId(undefined);
     setShidduchId(undefined);
     setWithPush(false);
+    setMemberId(undefined);
   };
 
   const handleSave = async () => {
@@ -146,19 +156,28 @@ export const ReminderCreateSheet = ({
       ? [...BASE_DELIVERY_CHANNELS, "push"]
       : BASE_DELIVERY_CHANNELS;
 
+    // `Task.member_id` (types.ts, not owned by this story) is declared as
+    // `Identifier | undefined` — it does not model the `null` "Unassigned"
+    // value AC-3 introduces as a legitimate, explicit choice. Built as a
+    // loosely-typed record and cast at the call site rather than widening
+    // that declaration; report it, don't fix it.
+    const data: Record<string, unknown> = {
+      type: "reminder",
+      text: text.trim(),
+      due_date: dueDate.toISOString(),
+      target_type: linkType,
+      target_id: targetId,
+      delivery_channels,
+      // AC-3: omitted only if the self-default effect somehow hasn't
+      // resolved yet — the server's own if-null default then applies, same
+      // as before this story.
+      ...(memberId !== undefined ? { member_id: memberId } : {}),
+    };
+
     try {
       await create(
         "tasks",
-        {
-          data: {
-            type: "reminder",
-            text: text.trim(),
-            due_date: dueDate.toISOString(),
-            target_type: linkType,
-            target_id: targetId,
-            delivery_channels,
-          },
-        },
+        { data: data as Partial<Task> },
         { returnPromise: true },
       );
       resetForm();
@@ -318,6 +337,19 @@ export const ReminderCreateSheet = ({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* AC-3: defaults to "me" — see the memberId state's own comment. */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="reminder-assignee">
+              {translate("crm.tasks.assignee.label", { _: "Assignee" })}
+            </Label>
+            <TaskAssigneeSelect
+              id="reminder-assignee"
+              value={memberId}
+              onChange={setMemberId}
+              defaultToSelf
+            />
           </div>
 
           <div className="flex flex-col gap-2 rounded-xl border border-border bg-secondary/50 p-3">

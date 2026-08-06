@@ -552,6 +552,12 @@ revoke all on table public.shadchan_stats from anon, authenticated;
 grant select on table public.shadchan_stats to authenticated;
 grant all on table public.shadchan_stats to service_role;
 
+-- Story 12.3: the assignee picker's roster. Read path only, same posture as
+-- shadchan_stats above.
+revoke all on table public.context_members from anon, authenticated;
+grant select on table public.context_members to authenticated;
+grant all on table public.context_members to service_role;
+
 revoke all on sequence public.interactions_id_seq from anon;
 grant all on sequence public.interactions_id_seq to authenticated;
 grant all on sequence public.interactions_id_seq to service_role;

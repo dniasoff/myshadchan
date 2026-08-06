@@ -95,8 +95,8 @@ describe("TasksTab — one target type per test (AC 3a)", () => {
   );
 });
 
-describe("TasksTab — create payload shape (AC 3c)", () => {
-  it("sends only target_type, target_id, text and due_date — never member_id, account_id or delivery_channels", async () => {
+describe("TasksTab — create payload shape (AC 3c / Story 12.3 AC-11)", () => {
+  it("omits member_id from the payload when no assignee is chosen — target_type, target_id, text and due_date only", async () => {
     // Arrange
     const create = vi.fn().mockResolvedValue({ data: buildTask() });
     const getList = vi.fn().mockResolvedValue({ data: [], total: 0 });
@@ -109,7 +109,9 @@ describe("TasksTab — create payload shape (AC 3c)", () => {
     await screen.getByPlaceholder("Add a task…").fill("Call back Sunday");
     await screen.getByRole("button", { name: "Add task" }).click();
 
-    // Assert
+    // Assert — never member_id, account_id or delivery_channels: a stray
+    // one of those in the payload is exactly what `toEqual` (not
+    // `objectContaining`) exists to catch.
     expect(create).toHaveBeenCalledTimes(1);
     const [, params] = create.mock.calls[0];
     expect(params.data).toEqual({
@@ -117,6 +119,54 @@ describe("TasksTab — create payload shape (AC 3c)", () => {
       target_id: 7,
       text: "Call back Sunday",
       due_date: null,
+    });
+  });
+
+  it("includes member_id in the payload once an assignee is explicitly chosen", async () => {
+    // Arrange
+    const create = vi.fn().mockResolvedValue({ data: buildTask() });
+    const getList = vi.fn((resource: string) => {
+      if (resource === "context_members") {
+        return Promise.resolve({
+          data: [
+            {
+              id: 1,
+              account_id: 1,
+              user_id: "1",
+              role: "parent_admin",
+              full_name: "Chani Klein",
+              is_self: true,
+            },
+          ],
+          total: 1,
+        });
+      }
+      return Promise.resolve({ data: [], total: 0 });
+    }) as unknown as DataProvider["getList"];
+
+    // Act
+    const { screen } = await renderTasksTab(
+      { targetType: "reference", targetId: 7 },
+      { create, getList },
+    );
+    await screen.getByPlaceholder("Add a task…").fill("Call back Sunday");
+    await screen.getByRole("combobox").click();
+    await screen
+      .getByRole("option", { name: "Chani Klein (You) · Parent / admin" })
+      .click();
+    await screen.getByRole("button", { name: "Add task" }).click();
+
+    // Assert — exactly the four original fields plus member_id; account_id
+    // and delivery_channels are still never sent (still `toEqual`, not
+    // `objectContaining`).
+    expect(create).toHaveBeenCalledTimes(1);
+    const [, params] = create.mock.calls[0];
+    expect(params.data).toEqual({
+      target_type: "reference",
+      target_id: 7,
+      text: "Call back Sunday",
+      due_date: null,
+      member_id: 1,
     });
   });
 

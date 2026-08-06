@@ -198,6 +198,47 @@ describe("TasksRailSummary — seven tasks, three shown, no mutation controls (A
   });
 });
 
+describe("TasksRailSummary — assignee chip (Story 12.3 AC-10)", () => {
+  it("shows the assignee once the household has more than one active member", async () => {
+    // Arrange
+    const task = buildTask({ member_id: 2 });
+    const getList = vi.fn((resource: string) => {
+      if (resource === "context_members") {
+        return Promise.resolve({
+          data: [
+            {
+              id: 1,
+              account_id: 1,
+              user_id: "1",
+              role: "parent_admin",
+              full_name: "Chani Klein",
+              is_self: true,
+            },
+            {
+              id: 2,
+              account_id: 1,
+              user_id: "2",
+              role: "helper",
+              full_name: "Yaakov Klein",
+              is_self: false,
+            },
+          ],
+          total: 2,
+        });
+      }
+      return Promise.resolve({ data: [task], total: 1 });
+    }) as unknown as DataProvider["getList"];
+
+    // Act
+    const { screen } = await renderRailSummary({}, { getList });
+
+    // Assert — the rail is read-only, but the assignee is still visible.
+    await expect
+      .element(screen.getByText("Yaakov Klein · Helper"))
+      .toBeInTheDocument();
+  });
+});
+
 describe("TasksRailSummary — loading, empty and error states (AC 6)", () => {
   it("shows a skeleton placeholder while the query is in flight", async () => {
     // Arrange

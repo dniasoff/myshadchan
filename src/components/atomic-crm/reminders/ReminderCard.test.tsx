@@ -1,11 +1,14 @@
+import { vi } from "vitest";
 import { render } from "vitest-browser-react";
-import { TestMemoryRouter } from "ra-core";
+import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+import type { DataProvider } from "ra-core";
 
 // Side-effect imports — register the entity descriptors ReminderCard's
 // RecordLink resolves against, exactly as each `<entity>/index.ts` does at
 // boot.
 import "../shadchanim/entityDescriptor";
 import "../shidduchim/entityDescriptor";
+import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { Task } from "../types";
 import { ReminderCard } from "./ReminderCard";
 import type { ReminderItem } from "./useReminders";
@@ -26,14 +29,27 @@ const buildTask = (overrides: Partial<Task> = {}): Task => ({
   ...overrides,
 });
 
-const renderCard = async (item: ReminderItem) =>
-  render(
+const renderCard = async (item: ReminderItem) => {
+  // Story 12.3: ReminderCard now mounts TaskAssigneeChip via
+  // useTaskAssignees(), which needs a real CoreAdminContext (dataProvider +
+  // query client) — this file previously rendered with none at all.
+  const dataProvider = {
+    getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+  } as unknown as DataProvider;
+
+  return render(
     <TestMemoryRouter>
-      <ul>
-        <ReminderCard item={item} onComplete={() => {}} onSnooze={() => {}} />
-      </ul>
+      <CoreAdminContext
+        dataProvider={dataProvider}
+        i18nProvider={testI18nProvider}
+      >
+        <ul>
+          <ReminderCard item={item} onComplete={() => {}} onSnooze={() => {}} />
+        </ul>
+      </CoreAdminContext>
     </TestMemoryRouter>,
   );
+};
 
 describe("ReminderCard — linked entity renders through RecordLink (AC 5)", () => {
   it("links a shadchan-targeted reminder to the shadchan's AD-24 record route (Story 5.9)", async () => {

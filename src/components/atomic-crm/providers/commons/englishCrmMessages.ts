@@ -1063,6 +1063,22 @@ export const englishCrmMessages = {
         overflow: "and %{smart_count} more",
       },
     },
+    // Story 12.3: family-shared tasks with assignees — the Everyone/Mine
+    // scope toggle (`tasks/TaskScopeToggle.tsx`, shared by `/tasks` and
+    // `/reminders`) and the assignee chip/picker
+    // (`tasks/TaskAssigneeChip.tsx`, `tasks/TaskAssigneeSelect.tsx`).
+    tasks: {
+      assignee: {
+        label: "Assignee",
+        unassigned: "Unassigned",
+        you: "You",
+        everyone: "Everyone",
+        mine: "Assigned to me",
+        scope_group: "Task scope",
+        former_member: "No longer in this household",
+        reassign: "Reassign",
+      },
+    },
     validation: {
       invalid_url: "Must be a valid URL",
       invalid_linkedin_url: "URL must be from linkedin.com",

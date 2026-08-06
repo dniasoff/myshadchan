@@ -2546,6 +2546,45 @@ begin
 end;
 $$;
 
+-- Story 12.3 (AC-5, AC-6, AC-8): guards that tasks.member_id, when set,
+-- names an ACTIVE member of the task's own account_id. NOT SECURITY
+-- DEFINER, deliberately — the same split set_interaction_actor_member_id()
+-- documents above. Under invoker rights the two base tables' RLS applies,
+-- which makes the check stricter, never looser: a foreign members row is
+-- invisible to the caller, `not exists` holds, and the statement raises. A
+-- service_role writer bypasses RLS and still gets the correct answer,
+-- because the predicate is written on real ids, not on auth.uid().
+--
+-- `before insert or update of member_id, account_id` (04_triggers.sql) —
+-- never a bare `update` — so completing or snoozing a task whose assignee
+-- has since been archived (AC-6) never re-validates a historical
+-- assignment.
+CREATE OR REPLACE FUNCTION "public"."validate_task_assignee"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  if new.member_id is null then
+    return new;
+  end if;
+
+  if not exists (
+    select 1
+    from public.account_members am
+      join public.members m on m.user_id = am.user_id
+    where m.id = new.member_id
+      and am.account_id = new.account_id
+      and am.status = 'active'
+  ) then
+    raise exception 'member % is not an active member of account %',
+      new.member_id, new.account_id
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
 -- THE account-scoped identity matcher (AD-5). Returns candidates with a
 -- confidence and the deciding facts that produced it — never a bare boolean,
 -- and never a decision: the caller's user always confirms or dismisses.

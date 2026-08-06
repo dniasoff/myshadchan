@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ReactElement } from "react";
+import type { Identifier } from "ra-core";
 import {
   useCreate,
   useGetList,
@@ -14,6 +15,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { TaskAssigneeChip } from "../../tasks/TaskAssigneeChip";
+import { TaskAssigneeSelect } from "../../tasks/TaskAssigneeSelect";
+import { useTaskAssignees } from "../../tasks/useTaskAssignees";
 import type { Task } from "../../types";
 import type { UniversalTabProps } from "./types";
 
@@ -76,20 +80,28 @@ export function TasksTab({
   const [update] = useUpdate();
   const [text, setText] = useState("");
   const [dueDate, setDueDate] = useState("");
+  // Story 12.3 (AC-11): `undefined` = not chosen -> omitted from the create
+  // payload, letting the server default (`set_member_id_default()`) apply;
+  // `null` = explicitly Unassigned; a number = that member's id.
+  const [assigneeId, setAssigneeId] = useState<Identifier | null | undefined>(
+    undefined,
+  );
 
   const { data, error, isPending } = useGetList<Task>("tasks", {
     filter: { target_type: targetType, target_id: targetId },
     sort: { field: "due_date", order: "ASC" },
     pagination: { page: 1, perPage: 50 },
   });
+  const { assigneesById, isMultiMember } = useTaskAssignees();
 
   const tasks = data ?? [];
 
-  // AC 3(c): only these four fields are ever sent. member_id, account_id and
-  // delivery_channels are all server-set (set_member_id_default(),
-  // set_tasks_account_id -> set_account_id_default(), and the column
-  // default respectively) — sending any of them from the client would be a
-  // failing assertion.
+  // AC 3(c) / Story 12.3 AC-11: `account_id` and `delivery_channels` stay
+  // server-set and client-unsendable. `member_id` is now client-sendable —
+  // this story adds a server-side validator (`validate_task_assignee`)
+  // alongside the pre-existing if-null default, so it is safe to include
+  // when the caller actually chose an assignee, and omitted (not sent as
+  // `null`) when they didn't, letting the default apply exactly as before.
   const handleAdd = async () => {
     const trimmed = text.trim();
     if (trimmed === "") return;
@@ -103,12 +115,14 @@ export function TasksTab({
             target_id: targetId,
             text: trimmed,
             due_date: dueDate === "" ? null : new Date(dueDate).toISOString(),
+            ...(assigneeId !== undefined ? { member_id: assigneeId } : {}),
           },
         },
         { returnPromise: true },
       );
       setText("");
       setDueDate("");
+      setAssigneeId(undefined);
       refresh();
     } catch (err) {
       // AC 6 mutation-failure state: the text the user typed is NOT cleared
@@ -169,6 +183,14 @@ export function TasksTab({
             _: "Due date",
           })}
         />
+        <TaskAssigneeSelect
+          value={assigneeId}
+          onChange={setAssigneeId}
+          className="sm:w-44"
+          ariaLabel={translate("crm.tasks.assignee.label", {
+            _: "Assignee",
+          })}
+        />
         <Button
           type="button"
           disabled={isCreating || text.trim() === ""}
@@ -207,6 +229,13 @@ export function TasksTab({
                     {new Date(task.due_date).toLocaleDateString()}
                   </p>
                 ) : null}
+                <div className="mt-1">
+                  <TaskAssigneeChip
+                    memberId={task.member_id}
+                    assigneesById={assigneesById}
+                    isMultiMember={isMultiMember}
+                  />
+                </div>
               </div>
             </li>
           ))}

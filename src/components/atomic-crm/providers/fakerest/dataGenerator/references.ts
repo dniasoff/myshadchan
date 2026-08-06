@@ -343,7 +343,11 @@ export const generateReferencesDomain = (db: Db) => {
     text: seed.text,
     due_date: seed.dueDate,
     done_date: undefined,
-    member_id: 0,
+    // Story 12.3 (Task 6, AC-12): spread across BOTH seeded household
+    // members (0 = Jane Doe, 1 = Dovid Klein — shidduchim.ts's second
+    // account_members row) rather than `member_id: 0` for every task, so
+    // the Everyone/Mine toggle visibly changes the list in the demo.
+    member_id: i % 2 === 0 ? 0 : 1,
   }));
 
   db.references = references;

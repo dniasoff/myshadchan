@@ -72,7 +72,19 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/tasks/useTaskAssignees.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/tasks/useTaskAssigneeScope.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/tasks/tasksPredicate.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/tasks/assigneeLabel.ts",
           "type": "registry:component"
         },
         {
@@ -96,6 +108,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/tasks/TaskScopeToggle.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/tasks/TaskFormContent.tsx",
           "type": "registry:component"
         },
@@ -105,6 +121,14 @@
         },
         {
           "path": "src/components/atomic-crm/tasks/TaskEdit.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/tasks/TaskAssigneeSelect.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/tasks/TaskAssigneeChip.tsx",
           "type": "registry:component"
         },
         {

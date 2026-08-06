@@ -1,6 +1,7 @@
 import { addDays } from "date-fns";
 import type { Identifier } from "ra-core";
 import {
+  useGetIdentity,
   useGetList,
   useGetMany,
   useNotify,
@@ -11,6 +12,7 @@ import {
 import { useMemo } from "react";
 
 import { isOverdue } from "../tasks/tasksPredicate";
+import type { TaskAssigneeScope } from "../tasks/useTaskAssigneeScope";
 import type { Task, TaskTargetType } from "../types";
 import { RESOURCE_FOR_TARGET, targetEntityLabel } from "./reminderEntity";
 
@@ -135,18 +137,32 @@ const useLinkedEntityRecords = (
  * overdue and upcoming, each resolved against the entity it is linked to
  * (FR44-46, AD-13's polymorphic target_type/target_id) so the card can show
  * a real name and link out to it.
+ *
+ * `scope` (AC-2) mirrors `TasksListByDueDate.tsx`'s own Everyone/Mine
+ * split, under the SAME `useTaskAssigneeScope` store key — Ruling 4 forbids
+ * a second, `/reminders`-only notion of "mine".
  */
-export const useReminders = (): UseRemindersResult => {
+export const useReminders = (
+  scope: TaskAssigneeScope = "everyone",
+): UseRemindersResult => {
   const notify = useNotify();
   const refresh = useRefresh();
   const translate = useTranslate();
   const [update] = useUpdate();
+  const { identity } = useGetIdentity();
 
-  const { data: tasks, isPending: tasksPending } = useGetList<Task>("tasks", {
-    filter: { "done_date@is": null },
-    pagination: { page: 1, perPage: 200 },
-    sort: { field: "due_date", order: "ASC" },
-  });
+  const { data: tasks, isPending: tasksPending } = useGetList<Task>(
+    "tasks",
+    {
+      filter:
+        scope === "mine"
+          ? { "done_date@is": null, member_id: identity?.id }
+          : { "done_date@is": null },
+      pagination: { page: 1, perPage: 200 },
+      sort: { field: "due_date", order: "ASC" },
+    },
+    { enabled: scope === "everyone" || !!identity },
+  );
 
   const openTasks = useMemo(() => tasks ?? [], [tasks]);
   const idsByType = useMemo(() => groupIdsByTargetType(openTasks), [openTasks]);

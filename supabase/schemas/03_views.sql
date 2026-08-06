@@ -386,3 +386,39 @@ select
 from public.entity_files ef
     left join public.account_members am on am.id = ef.uploaded_by_member_id
     left join public.members m on m.user_id = am.user_id;
+
+-- Story 12.3: the assignee picker's roster — the ACTIVE members of the
+-- caller's ACTIVE context, whatever that context's kind (Ruling 1: a
+-- shadchanus context holds tasks too). `id` is public.members.id,
+-- because that is what tasks.member_id holds (01_tables.sql) and
+-- because it is the identity key that survives a persona archive/re-add
+-- round-trip — account_members.id is re-minted and is deliberately NOT
+-- exposed here. Same user_id-keyed join interactions_summary
+-- (above) and entity_files_summary use.
+--
+-- The explicit account_id predicate is NOT redundant with RLS.
+-- account_members' SELECT policy is
+-- `user_id = auth.uid() or account_id = public.current_context_id()`
+-- (05_policies.sql); its first disjunct would leak the caller's
+-- memberships in every OTHER context they hold into a picker scoped to
+-- one. security_invoker keeps both base tables' RLS applying on top.
+--
+-- Named `context_members`, not `*_summary`: the FakeRest adapter strips a
+-- `_summary` suffix before the resource name reaches the provider
+-- (providers/fakerest/internal/supabaseAdapter.ts), which would collapse
+-- `context_members_summary` onto the in-memory account_members table and
+-- silently return raw membership rows with no name. shadchan_stats above
+-- is the in-repo precedent for a view deliberately outside the `_summary`
+-- convention.
+create or replace view public.context_members with (security_invoker = on) as
+select
+    m.id,
+    am.account_id,
+    am.user_id,
+    am.role,
+    nullif(btrim(coalesce(m.first_name, '') || ' ' || coalesce(m.last_name, '')), '') as full_name,
+    (am.user_id = auth.uid()) as is_self
+from public.account_members am
+    join public.members m on m.user_id = am.user_id
+where am.status = 'active'
+  and am.account_id = public.current_context_id();
