@@ -64,6 +64,43 @@ a fail-closed assertion** so a wrong assumption about the data halts the
 deploy instead of erasing it. Declare intentional losses in
 `supabase/tests/migration-data-safety/declared-moves.sql`.
 
+#### The `--db-url` trap (a diff that reports "no changes", always)
+
+**`supabase db diff --db-url <url>` does not read `supabase/schemas/**` at all.**
+It compares a migrations-replay against the target database and prints
+`No schema changes found` no matter what the declarative schema says. It is not
+a convergence check, and using it as one is a guaranteed false green.
+
+Measured on CLI 2.109.1: with `zzz_probe_column` added to `cron_heartbeat` in
+`01_tables.sql`, `db diff --db-url` reported `No schema changes found`; the
+scratch-workdir form below reported
+`alter table "public"."cron_heartbeat" add column "zzz_probe_column" text;`.
+
+This bites specifically when targeting a **leased stack**, because the obvious
+way to aim at one is wrong in the other direction: **`--local` ignores
+`STACK_ID`** and always means the shared dev stack on `54322`. `STACK_ID` is
+read by the makefile, `vite.config.ts`, `playwright.config.ts`,
+`vitest.config.ts` and `scripts/stack-env.mjs` — never by the supabase CLI. An
+agent that ran `db diff --local` while holding stack 1 wrote its migration into
+the shared dev database and had to hand-revert it.
+
+To diff declaratively against stack N, give the CLI a workdir whose
+`config.toml` names that stack's port:
+
+```bash
+SCRATCH=$(mktemp -d); cp -r supabase "$SCRATCH/supabase"
+perl -0pi -e 's/(\[db\]\n(?:#[^\n]*\n|\n)*port = )\d+/${1}5435N/' "$SCRATCH/supabase/config.toml"
+DBUS_SESSION_BUS_ADDRESS=/dev/null npx supabase db diff --workdir "$SCRATCH" --local
+rm -rf "$SCRATCH"
+```
+
+Applying a migration is the opposite: `migration up --db-url <url>` **does**
+honour the URL, so that one is correct as written.
+
+Before trusting any empty diff, confirm the check can fail — inject a throwaway
+column into the scratch copy and watch it appear. An empty diff from a command
+that cannot see your schema looks exactly like a converged one.
+
 #### The column-order trap (`db diff` never converges)
 
 If `db diff` emits `drop view` + `create or replace view` for views you did not
