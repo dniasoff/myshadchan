@@ -30,7 +30,10 @@ vi.mock("./TurnstileWidget", () => ({
       // `onToken` is the parent's `setCaptchaToken` state setter — stable
       // across renders, so this fires exactly once per mount.
     }, [onToken]);
-    return null;
+    // A detectable stand-in for the real widget's own `data-testid` — lets
+    // tests below assert whether LoginPage mounted it at all, which is
+    // exactly the lazy-mount behavior (`wantsOtp`) those tests exercise.
+    return <div data-testid="turnstile-widget" />;
   }),
 }));
 
@@ -207,6 +210,62 @@ describe("LoginPage", () => {
     await expect
       .element(screen.getByRole("button", { name: "Continue with Google" }))
       .toBeInTheDocument();
+  });
+
+  it("does not mount Turnstile on initial load, before the visitor has shown any OTP intent", async () => {
+    // Arrange — a visitor who only ever intends to click "Continue with
+    // Google" must never trigger Cloudflare's challenge machinery on this
+    // page at all (see LoginPage's own doc comment on `wantsOtp`).
+    vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
+    const login = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    const screen = await renderLoginPage(login);
+
+    // Assert
+    await expect
+      .element(screen.getByTestId("turnstile-widget"))
+      .not.toBeInTheDocument();
+  });
+
+  it("mounts Turnstile once the email field is focused", async () => {
+    // Arrange
+    const login = vi.fn().mockResolvedValue(undefined);
+    const screen = await renderLoginPage(login);
+    await expect
+      .element(screen.getByTestId("turnstile-widget"))
+      .not.toBeInTheDocument();
+
+    // Act — a real focus event, not a value change: showing OTP intent by
+    // clicking into the field is enough, before anything is even typed.
+    await screen.getByLabelText(/email/i).click();
+
+    // Assert
+    await expect
+      .element(screen.getByTestId("turnstile-widget"))
+      .toBeInTheDocument();
+  });
+
+  it("still sends a captcha token when the email field was focused before sending a code", async () => {
+    // Arrange — proves the lazy mount leaves enough time for a real widget
+    // to solve its challenge before the visitor can possibly submit: this
+    // fake mounts and reports its token synchronously, but the ordering
+    // (focus/fill, then submit) is the same shape a real solve would need.
+    const login = vi.fn().mockResolvedValue(undefined);
+    const screen = await renderLoginPage(login);
+
+    // Act
+    await screen.getByLabelText(/email/i).fill("ada@example.com");
+    await screen.getByRole("button", { name: "Send code" }).click();
+
+    // Assert
+    await vi.waitFor(() => {
+      expect(login).toHaveBeenCalledExactlyOnceWith({
+        email: "ada@example.com",
+        requestOtp: true,
+        captchaToken: FAKE_CAPTCHA_TOKEN,
+      });
+    });
   });
 
   it("shows a visible link to the register flow so a new visitor can see how to create an account", async () => {

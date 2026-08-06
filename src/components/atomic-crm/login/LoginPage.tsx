@@ -54,10 +54,19 @@ type LoginStep = "email" | "code";
  * submit. `captchaToken` is simply whatever is currently held (possibly
  * `undefined`), same as `GoogleSignInButton` never needing one at all
  * (`signInWithOAuth()` isn't covered by the same captcha middleware).
- * `TurnstileWidget` is mounted unconditionally for both steps (never inside
- * the `step === "email"` branch) so a resend on the code step reuses the
- * same live widget instance instead of re-solving a challenge the visitor
- * already passed — see `TurnstileWidget`'s own doc comment.
+ *
+ * `TurnstileWidget` only mounts once the visitor has actually shown OTP
+ * intent (focused the email field, tracked by `wantsOtp`) or already reached
+ * the code step — never unconditionally on page load. A visitor who goes
+ * straight for `GoogleSignInButton` never triggers Cloudflare's challenge
+ * machinery on this page at all, which observably has its own flakiness
+ * (double challenge sessions, its own internal verification calls
+ * returning 401) that has nothing to do with — and must never be able to
+ * interfere with — a click that doesn't need it. Once mounted (`wantsOtp`
+ * never resets to `false`), it stays alive across a switch to the code step
+ * and back, same as before, so a resend still reuses the same live widget
+ * instance instead of re-solving a challenge the visitor already passed —
+ * see `TurnstileWidget`'s own doc comment.
  *
  * Also renders `GoogleSignInButton` (only when `isGoogleOAuthEnabled()`)
  * and a link to `/register` (`RegisterFlow`) — the open self-service signup
@@ -74,6 +83,7 @@ export const LoginPage = (props: { redirectTo?: string }) => {
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [wantsOtp, setWantsOtp] = useState(false);
   const turnstileRef = useRef<TurnstileWidgetHandle>(null);
   const authProvider = useAuthProvider();
   const login = useLogin();
@@ -199,6 +209,7 @@ export const LoginPage = (props: { redirectTo?: string }) => {
                 autoComplete="email"
                 inputClassName={AUTH_FIELD_CLASSNAME}
                 validate={required()}
+                onFocus={() => setWantsOtp(true)}
               />
               <Button
                 type="submit"
@@ -293,11 +304,13 @@ export const LoginPage = (props: { redirectTo?: string }) => {
           </Form>
         )}
 
-        <TurnstileWidget
-          ref={turnstileRef}
-          siteKey={TURNSTILE_SITE_KEY}
-          onToken={setCaptchaToken}
-        />
+        {wantsOtp || step === "code" ? (
+          <TurnstileWidget
+            ref={turnstileRef}
+            siteKey={TURNSTILE_SITE_KEY}
+            onToken={setCaptchaToken}
+          />
+        ) : null}
       </div>
     </AuthLayout>
   );
