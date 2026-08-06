@@ -554,8 +554,198 @@ Declared deliberately wide; every set in this project has so far been too small.
 
 ### Agent Model Used
 
+claude-opus-4-6 (implementation), claude-sonnet-4-5 (this pass).
+
 ### Debug Log References
+
+**Guard test shown red once, then green** (`DueRemindersCard.guard.test.ts`, contract §13
+rule 2), per Task 4's requirement — this is a genuine red, not a staged one: the hook's
+own module doc comment named `reminders/useReminders` and `useUpdate` in prose while
+explaining why they are deliberately not imported, and the guard's `?raw` source scan
+cannot distinguish a comment from code:
+
+```
+ FAIL  |app (chromium)| src/components/atomic-crm/dashboard/DueRemindersCard.guard.test.ts
+ > DueRemindersCard + useDueReminders stay read-only and reference-free (AC-3, AC-5)
+ > ./useDueReminders.ts references none of the forbidden mutation hooks / useReminders
+
+AssertionError: ./useDueReminders.ts references: useUpdate, useReminders: expected
+[ 'useUpdate', 'useReminders' ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "useUpdate",
++   "useReminders",
++ ]
+```
+
+Fixed by rewording the two doc-comment sentences to describe the hub's data hook
+without spelling out its literal import name (e.g. "the reminders hub's own data hook
+… performs task mutations (mark-done, snooze)" instead of naming `useReminders`/
+`useUpdate` directly). Re-run after the fix: `DueRemindersCard.guard.test.ts` — 5/5
+green (including the "has a non-empty set of sources to scan" sanity case, run first
+and confirmed it fails loudly if the glob resolves nothing).
+
+**A second, unplanned red/green cycle in `DueRemindersCard.test.tsx`** (component
+tests), worth recording because it is a reusable lesson about this test stack, not a
+story-specific bug:
+
+1. `getBoundingClientRect().height` initially read `0` for every state (AC-2's
+   height-equality assertion) — `vitest-browser-react` only applies Tailwind's compiled
+   CSS to a test's DOM if that test file's module graph actually imports the
+   stylesheet (`Entity360.responsive.test.tsx`'s own `import "@/index.css"` is the
+   precedent). Fixed by adding the same import.
+2. After that fix, mounting three states (loading/empty/full) in one test and calling
+   the library's `cleanup()` between them caused every later test in the file to fail
+   with a permanently empty `<body>`, preceded by `You seem to have overlapping act()
+   calls`. Root cause, isolated by re-running subsets of the file
+   (`npx vitest run --project app -t "…"`): `cleanup()` synchronously unmounts a React
+   root, and the "loading" state's data provider deliberately never resolves any
+   promise (that is how its `isPending: true` is held deterministically) — unmounting
+   a root with a permanently in-flight query destabilizes the shared browser
+   environment for the rest of the file, not just that test. Fixed two ways together:
+   (a) never call `cleanup()` on the never-resolving-provider render (leave it mounted;
+   harmless), and (b) query every render through its own `screen.locator` (`page
+   .elementLocator(container)`, scoped to that render's container) rather than the
+   top-level `screen.getByRole`/`getByText` shortcuts, which resolve against
+   `document.body` as a whole and therefore collide once more than one render is
+   mounted at once. Full file re-run after the fix: 7/7 green.
+
+**AD-24 conformance guard**, run against the whole `entity360` + `dashboard` trees
+after adding `dashboard/DueRemindersCard.tsx` / `dashboard/useDueReminders.ts` to the
+`expect.arrayContaining` scan list: green — the "no-browse enumeration on a browse
+surface" describe block confirms both new files are scanned and neither enumerates
+`references`/`references_summary`.
+
+**`e2e/dashboard-reminders-cls.spec.ts` was written but NOT executed in this session** —
+no Vite dev server was confirmed running against the leased `STACK_ID=1` Supabase
+stack, and starting one was outside this session's authorized commands (dispatch
+instructions listed only `npm run typecheck`, `npx eslint`, and
+`npx vitest run --project app <path>` as the gates to run and report). The spec
+follows `e2e/demo-banner-cls.spec.ts`'s exact idiom (own admin client, `addInitScript`
+sampling, deterministic `expect.poll` settle, no `waitForTimeout`) and was reviewed by
+hand against that template rather than run. Flagging this honestly rather than
+claiming a run that did not happen — running it (`STACK_ID=1 npx playwright test
+e2e/dashboard-reminders-cls.spec.ts`) is the one verification step still open.
+
+**Final full run** (as requested): `npm run typecheck` — clean. `npx eslint` on every
+file this story touches, `--max-warnings=0` — clean. `STACK_ID=1 npx vitest run
+--project app src/components/atomic-crm/dashboard src/components/atomic-crm/entity360`
+— 50 files / 485 tests, all green. `node scripts/check-tailwind-arbitrary-var.mjs` —
+clean (the icon-badge `bg-[color-mix(…)]` this card uses mirrors the identical,
+already-accepted pattern in `AttentionSection.tsx`/`OutstandingCallsSection.tsx` — the
+guard's bare-`--var` pattern does not match a `color-mix()` call). `node scripts/check
+-retired-names.mjs .` — reports only the two findings already declared pre-existing in
+this story's dispatch (`assets_base64.ts`, `manifest_base64.ts`); nothing new.
 
 ### Completion Notes List
 
+- **AC-1**: `DueRemindersCard` is one component, mounted once each in `Dashboard.tsx`
+  (first child of the `lg:col-span-4` column, above the `DashboardStat` grid) and
+  `MobileDashboard.tsx` (first child of the populated branch, above
+  `PipelineSnapshot`), both inside the existing `hasSuggestions` branch only (Task 3's
+  own recorded scope decision — no third branch added). The component takes no props
+  at all, so it cannot be scoped to the selected single even by accident; its hook
+  (`useDueReminders`) issues one account-wide `tasks` query with no `member_id`/
+  `single_id` filter.
+- **AC-2**: the list region (`data-role="due-reminders-list"`) is a fixed
+  `h-72` (18rem) Tailwind-scale height with `overflow-hidden`, never a `min-h-…`.
+  Skeleton, rows, and the empty message all render inside it; the card never returns
+  `null`. Verified as a number via `getBoundingClientRect().height` across
+  loading/empty/full renders in the component test, not via `toHaveClass`.
+- **AC-3**: no checkbox, no Snooze, no "Add a reminder" — the only navigation
+  affordance is a plain `<Link to="/reminders">` ("See all reminders"), rendered in
+  every state. Proven two ways: a behaviour test (`getByRole("checkbox")`/
+  `getByRole("button", { name: /snooze/i })` absent with three rows on screen) and the
+  `?raw` source-scan guard (`DueRemindersCard.guard.test.ts`) — which additionally
+  scans for the literal string `useReminders`, not just the four mutation-hook names,
+  per the story's own "Failing looks like" clause.
+- **AC-4**: `MAX_ROWS = 3`, overdue rows first (free from the query's own
+  `due_date ASC` sort — no client-side re-sort), `Since {…}`/`Due {…}` prefixes via
+  `formatDueMoment`, an `and N more` overflow line. A `null` `due_date` (the DB column
+  is nullable; `Task.due_date`'s app-wide `string` type is known to lie about that,
+  per the story) renders the row's text with no due line at all — guarded first in the
+  hook, never reaching `new Date(null)`/`isOverdue`.
+- **AC-5**: `dashboard/useDueReminders.ts` never issues a `useGetList`/`getList` call
+  naming `references`/`references_summary` — reference-targeted reminders resolve
+  through `useGetList("reference_links", { filter: { "reference_id@in": "(…)" } }
+  )` only. `ad24Conformance.guard.test.ts`'s `expect.arrayContaining` now names both
+  new dashboard files so the scan is proven to cover them.
+- **AC-6**: reference resolution lives entirely in the hook (`pickBestLinkPerReference`
+  / `pickReferenceName`) — one link resolves trivially; more than one resolves to the
+  most recent `created_at`, tie-broken by the highest `reference_links.id` (covered
+  against the exact fixture shape — three links on one reference, two links sharing a
+  `created_at`); zero links (an unattached reference) resolves to `link: null` and a
+  generic fallback label, never a guessed `/references/{id}` link. The card wraps
+  `{reference name} · about {shidduch name}` in ONE `RecordLink` pointing at
+  `resource="shidduchim"` — the reference's own name is never itself the link target,
+  and an unattached reference's row has no anchor of any kind.
+- **AC-7**: every user-facing string routes through `useTranslate` with an inline `_`
+  default, under a new `crm.reminders.dueCard` block (sibling of `outstandingCalls`) in
+  both `englishCrmMessages.ts` and `frenchCrmMessages.ts`. `make typecheck` is the
+  proof the French catalogue stayed in lockstep (`satisfies CrmMessages` — a missing
+  key is a type error, not a runtime fallback).
+- **AC-8**: no file under `supabase/` in this diff — confirmed by `git status`
+  throughout; every resource this card reads (`tasks`, `reference_links`,
+  `shidduchim`, `shadchanim`, `singles`) already exists with the RLS/grants it needs.
+- **F6 (12.3 reconciliation)**: `TaskAssigneeChip` (`tasks/TaskAssigneeChip.tsx`) and
+  its data hook `useTaskAssignees` (`tasks/useTaskAssignees.ts`, itself a plain
+  `useGetList("context_members")` — no mutation) are imported directly into the card,
+  exactly as `entity360/tabs/TasksRailSummary.tsx` already does for the same reason —
+  no second chip was written. The card does **not** read 12.3's
+  `useTaskAssigneeScope` store key: it stays account-wide, reaffirming AC-1 rather than
+  weakening it, per the ruling.
+- **F7 divergence (recorded, not an oversight)**: `reminders/useReminders.ts` and
+  `ReminderCard.tsx` were re-read as they are now (post-12.3). Two real divergences
+  from this story's original text, both decided and documented inline in
+  `useDueReminders.ts`:
+  1. `types.ts`'s `TaskTargetType` now has a fifth member, `connection` (Story 8.5),
+     which did not exist when Task 1 was written as "three, not four". This card
+     resolves only `shidduch`/`shadchan`/`single` (a fourth `useGetMany` call) plus
+     `reference` (its own path); a `connection`-targeted task (and any other
+     unrecognized target type) degrades to the same "no linked entity" rendering
+     already used for a task with no `target_type` at all — never a guessed link,
+     and no additional query the story's ACs never asked for. Documented at the
+     relevant branch in `useDueReminders.ts`, cheap to widen later if a story needs it.
+  2. `ReminderCard.tsx` post-12.3 also renders `TaskAssigneeChip` on every row (AC-10)
+     — this card mirrors that (see F6 above) rather than the pre-12.3 hub shape the
+     story text was written against.
+- **Neither `reminders/**` nor `entity360/ad24Conformance.ts` (the rule itself) was
+  touched** — only the guard test's scan list grew, exactly as declared.
+- **AD-10 lockstep verified, not re-derived**: the component tests exercise the real
+  FakeRest `reference_links` → `reference_links_summary`-equivalent join
+  (`providers/fakerest/internal/referenceSummary.ts`'s `enrichReferenceLinks`) end to
+  end, including the `@in` filter path — nothing needed changing on either provider.
+- **`registry.json`** was regenerated (`make registry-gen`) after adding the two new
+  non-test modules, since no pre-commit hook will run in this session (no commit is
+  being made). Diff is exactly the two new entries under `dashboard/`.
+- Pre-existing dirty state in this shared checkout, **not touched and not caused by
+  this story**: `.gitignore` (adds `.env.stripe`) and
+  `_bmad-output/implementation-artifacts/12-4-stripe-billing.md` were already modified
+  on disk before this session started (concurrent Story 12.4 work, per Epic 12's
+  binding delivery order). Left exactly as found.
+
 ### File List
+
+**New**
+- `src/components/atomic-crm/dashboard/useDueReminders.ts`
+- `src/components/atomic-crm/dashboard/DueRemindersCard.tsx`
+- `src/components/atomic-crm/dashboard/useDueReminders.test.tsx`
+- `src/components/atomic-crm/dashboard/DueRemindersCard.test.tsx`
+- `src/components/atomic-crm/dashboard/DueRemindersCard.guard.test.ts`
+- `e2e/dashboard-reminders-cls.spec.ts`
+
+**Modified**
+- `src/components/atomic-crm/dashboard/Dashboard.tsx`
+- `src/components/atomic-crm/dashboard/MobileDashboard.tsx`
+- `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`
+- `src/components/atomic-crm/providers/commons/frenchCrmMessages.ts`
+- `src/components/atomic-crm/entity360/ad24Conformance.guard.test.ts`
+- `registry.json` (generated — `make registry-gen`, no hand edits)
+
+**Not touched** (as the story declares): `supabase/**`, `types.ts`,
+`reminders/**`, `entity360/ad24Conformance.ts`, `tourSteps.ts`,
+`providers/fakerest/dataGenerator/**`.

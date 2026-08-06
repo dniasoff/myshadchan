@@ -8,6 +8,7 @@ import { useConfigurationContext } from "../root/ConfigurationContext";
 import { AttentionSection } from "./AttentionSection";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardStat } from "./DashboardStat";
+import { DueRemindersCard } from "./DueRemindersCard";
 import { PipelineSnapshot } from "./PipelineSnapshot";
 import { RecentSuggestions } from "./RecentSuggestions";
 import { useDashboardData } from "./useDashboardData";
@@ -88,6 +89,9 @@ export const MobileDashboard = () => {
           />
         ) : (
           <>
+            {/* Story 12.1 (gap D1): first child of the populated branch,
+                above PipelineSnapshot. */}
+            <DueRemindersCard />
             <PipelineSnapshot singleId={selectedSingleId} />
             <RecentSuggestions singleId={selectedSingleId} />
             {/* F4 fix: DashboardStat is a half-width tile (design-language

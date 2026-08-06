@@ -5,6 +5,7 @@ import { EmptyState } from "../misc/EmptyState";
 import { AttentionSection } from "./AttentionSection";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardStat } from "./DashboardStat";
+import { DueRemindersCard } from "./DueRemindersCard";
 import { PipelineSnapshot } from "./PipelineSnapshot";
 import { RecentSuggestions } from "./RecentSuggestions";
 import { useDashboardData } from "./useDashboardData";
@@ -63,6 +64,10 @@ export const Dashboard = () => {
               <RecentSuggestions singleId={selectedSingleId} />
             </div>
             <div className="flex flex-col gap-6 lg:col-span-4">
+              {/* Story 12.1 (gap D1): account-wide, read-only "Due now"
+                  reminders card — first child of this column, above the
+                  DashboardStat grid. */}
+              <DueRemindersCard />
               {/* F4 fix: DashboardStat is a half-width tile (design-language
                   §5.7); the grid wrapper survives even with a single child so
                   it doesn't stretch to fill the column now that the

@@ -421,6 +421,11 @@ describe("AD-24 conformance guard — no-browse enumeration on a browse surface"
         "dashboard/Dashboard.tsx",
         "dashboard/MobileDashboard.tsx",
         "misc/useGlobalSearch.ts",
+        // Story 12.1 (gap D1, AC-5): the new "Due now" card and its hook —
+        // pinned so the scan is proven to actually cover them, rather than
+        // silently skipping two new browse-surface files.
+        "dashboard/DueRemindersCard.tsx",
+        "dashboard/useDueReminders.ts",
       ]),
     );
   });

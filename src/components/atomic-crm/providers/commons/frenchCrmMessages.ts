@@ -921,6 +921,18 @@ export const frenchCrmMessages = {
         about: "à propos de",
         overflow: "et %{smart_count} de plus",
       },
+      // Story 12.1 — see the matching note in englishCrmMessages.ts.
+      dueCard: {
+        title: "À faire maintenant",
+        subtitle:
+          "Ce qui est à faire pour votre famille, du plus urgent au moins urgent.",
+        empty: "Rien à faire — tout est à jour",
+        since: "Depuis %{when}",
+        due: "Prévu %{when}",
+        about: "à propos de",
+        overflow: "et %{smart_count} de plus",
+        seeAll: "Voir tous les rappels",
+      },
     },
     // Story 12.3 — see the matching note in englishCrmMessages.ts.
     tasks: {

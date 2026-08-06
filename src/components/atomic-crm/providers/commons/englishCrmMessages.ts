@@ -1062,6 +1062,21 @@ export const englishCrmMessages = {
         about: "about",
         overflow: "and %{smart_count} more",
       },
+      // Story 12.1 (gap D1) — the dashboard's account-wide, read-only "Due
+      // now" card (`dashboard/DueRemindersCard.tsx`). `since`/`due` mirror
+      // `ReminderCard.tsx:82-84`'s own prefixes verbatim; `empty` reuses
+      // `ReminderList.tsx:71`'s exact phrase so the hub and the dashboard
+      // never develop two voices for the same state.
+      dueCard: {
+        title: "Due now",
+        subtitle: "What's due across your family, soonest first.",
+        empty: "Nothing due — you're on top of it",
+        since: "Since %{when}",
+        due: "Due %{when}",
+        about: "about",
+        overflow: "and %{smart_count} more",
+        seeAll: "See all reminders",
+      },
     },
     // Story 12.3: family-shared tasks with assignees — the Everyone/Mine
     // scope toggle (`tasks/TaskScopeToggle.tsx`, shared by `/tasks` and

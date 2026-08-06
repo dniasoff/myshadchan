@@ -1536,6 +1536,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/dashboard/useDueReminders.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/dashboard/useDashboardData.ts",
           "type": "registry:component"
         },
@@ -1561,6 +1565,10 @@
         },
         {
           "path": "src/components/atomic-crm/dashboard/MobileDashboard.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/dashboard/DueRemindersCard.tsx",
           "type": "registry:component"
         },
         {
