@@ -620,6 +620,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/reminders/ReminderDeliveryStatus.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/reminders/ReminderCreateSheet.tsx",
           "type": "registry:component"
         },

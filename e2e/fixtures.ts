@@ -41,12 +41,30 @@ const adminSupabase = createClient(
 // from an invite instead), so createSingle() below provisions its own
 // account + membership directly rather than relying on any signup side
 // effect.
-const TABLES = ["tasks", "accounts", "configuration", "members"];
+// Story 12.2 (AC-9): `cron_heartbeat` has no `account_id` — deleting
+// "accounts" does not cascade it away, so it would leak a stale row between
+// specs (and between this stack's e2e runs and its dev use) without its own
+// entry here.
+const TABLES = [
+  "tasks",
+  "accounts",
+  "configuration",
+  "members",
+  "cron_heartbeat",
+];
+
+// `cron_heartbeat`'s real primary key is `worker text`, not `id` — the
+// table has no `id` column at all, so the default `.not("id", "is", null)`
+// predicate below would fail against it with a missing-column error.
+const NON_ID_KEY: Partial<Record<(typeof TABLES)[number], string>> = {
+  cron_heartbeat: "worker",
+};
 
 async function resetDb() {
   for (const table of TABLES) {
     // Supabase client delete need a where clause to get executed, so we use one that will match on all rows (id is not null)
-    await adminSupabase.from(table).delete().not("id", "is", null);
+    const key = NON_ID_KEY[table] ?? "id";
+    await adminSupabase.from(table).delete().not(key, "is", null);
   }
 
   // Delete all auth users (cascades to members via DB trigger)

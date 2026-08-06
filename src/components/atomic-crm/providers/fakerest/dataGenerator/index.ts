@@ -59,6 +59,21 @@ export default (): Db => {
   // Epic 11 — no address is trusted by default; `dataProvider.trustSender()`
   // is the only writer (see `dataGenerator/types.ts`'s own comment).
   db.trusted_senders = [];
+  // Story 12.2 (AC-9) — a fresh heartbeat, unlike every table above: there
+  // is no cron Worker to run against a FakeRest build, so this is the one
+  // row the demo has no in-app action that ever writes. Seeded fresh (not
+  // empty) so the demo's Settings → Preferences row reads "Sending" rather
+  // than a permanently alarming "Not set up yet" — see
+  // `dataGenerator/types.ts`'s own comment.
+  db.cron_heartbeat = [
+    {
+      id: "cron",
+      worker: "cron",
+      last_run_at: new Date().toISOString(),
+      last_ok_at: new Date().toISOString(),
+      last_error: null,
+    },
+  ];
   // Shidduchim pipeline domain (accounts, singles, shadchanim, shidduchim, ...)
   generateShidduchimDomain(db);
   // References domain (references, reference_links, interactions, reference

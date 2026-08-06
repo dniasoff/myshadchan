@@ -1374,6 +1374,46 @@ create policy "Push subscriptions manageable by their own member" on public.push
     );
 
 -- =====================================================================
+-- MyShadchan — Reminders (Story 12.2: reminder delivery, AD-13)
+-- =====================================================================
+--
+-- FORCE ROW LEVEL SECURITY on task_notifications — extends Story 7.5's
+-- precedent above (message_notifications/push_subscriptions) rather than
+-- re-deciding it: `postgres`/`supabase_admin` both carry BYPASSRLS on this
+-- stack (evidence recorded at Story 7.1's FORCE block, top of this file),
+-- so FORCE changes no behaviour for any SECURITY DEFINER function here
+-- (every one of them owned by `postgres`) — shipped anyway for the same
+-- reason 7.5 shipped it: a brand-new table, landing in this diff, with no
+-- legacy caller anywhere relying on owner-bypass. (This story's own draft
+-- text predates 7.5 and says no table in this schema uses FORCE — that was
+-- true when written and is superseded by 7.5 having since landed it; this
+-- table is task_notifications' closest twin — no `authenticated` policy at
+-- all, recipient-email-bearing, service_role only — so it follows the newer
+-- precedent rather than forking a second posture for one table.)
+alter table public.task_notifications enable row level security;
+alter table public.task_notifications force row level security;
+alter table public.cron_heartbeat enable row level security;
+
+-- task_notifications (AC-8): NO policy for `authenticated` at all — the
+-- stricter form of the subscription/ai_usage no-write posture above, which
+-- withholds even SELECT because this queue carries recipient email
+-- addresses across every tenant, and a client has no legitimate reason to
+-- read a delivery queue at all. With RLS enabled and no policy,
+-- `authenticated` reads, writes and deletes zero rows regardless of any
+-- table grant; 06_grants.sql also withholds the grant outright, so neither
+-- layer alone regressing would expose this table on its own.
+
+-- cron_heartbeat (AC-9): readable by any signed-in member, deliberately.
+-- Safe only because it holds no tenant data — no account_id column exists
+-- to scope by — and because last_error is constrained to a bounded code by
+-- record_cron_heartbeat() (02_functions.sql), never a raw provider response
+-- body, stack trace or URL. No write policy: every write is service_role
+-- (the cron Worker via record_cron_heartbeat()), which bypasses RLS.
+create policy "Cron heartbeat readable by any signed-in member" on public.cron_heartbeat
+    for select to authenticated
+    using (true);
+
+-- =====================================================================
 -- MyShadchan — Shadchan Context (Epic 8 Story 8.2: consent-based connection)
 -- =====================================================================
 --

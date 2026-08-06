@@ -1197,6 +1197,76 @@ export type PushSubscription = {
   created_at: string;
 } & Pick<RaRecord, "id">;
 
+// =====================================================================
+// Reminder delivery (Story 12.2, AD-13)
+// =====================================================================
+
+/**
+ * `task_notifications.status` (AC-1, AC-4, AC-5, AC-6): `sending` is the
+ * claim-before-dispatch state `claim_due_task_notifications()` moves a row
+ * into. `skipped` covers TWO cases — AC-4's pre-existing-backlog backfill
+ * AND AC-5's deliberately-unassigned case (a null `member_id`, ruled after
+ * Story 12.3 landed: Unassigned is a legitimate choice, not a failure).
+ * `failed` is reserved for a non-null `member_id` naming no live or no
+ * enabled member.
+ */
+export type TaskNotificationStatus =
+  "pending" | "sending" | "sent" | "failed" | "skipped";
+
+/**
+ * One row of `public.task_notifications` (Story 12.2) — the TIME-based
+ * delivery queue over `tasks`/reminders ("a reminder came due"), distinct
+ * from `message_notifications` above (EVENT-based: "a message was
+ * inserted"). Unreachable from the browser (AC-8: RLS enabled and forced,
+ * no policy for `authenticated` at all, no table grant either) — declared
+ * here for type-parity/documentation only, the same reason `PushSubscription`
+ * is declared above even though most of its own traffic never reaches the
+ * client either; nothing in `src/` fetches this resource. `channel` is
+ * always `"email"` — `task_notifications_channel_check` admits no other
+ * value (AC-3's structural exclusion of push).
+ */
+export type TaskNotification = {
+  account_id: Identifier;
+  task_id: Identifier;
+  channel: "email";
+  due_date: string;
+  status: TaskNotificationStatus;
+  recipient_email?: string | null;
+  attempts: number;
+  sent_at?: string | null;
+  error?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/** The bounded set `record_cron_heartbeat()` (02_functions.sql) accepts for
+ * `cron_heartbeat.last_error` — never a raw provider response, stack trace
+ * or URL, because this row is readable by any signed-in member (AC-9). */
+export type CronHeartbeatErrorCode =
+  "rpc_failed" | "transport_failed" | "unknown";
+
+/**
+ * One row of `public.cron_heartbeat` (Story 12.2, AC-9) — the cron Worker's
+ * own liveness signal. This build only ever writes `worker = 'cron'`.
+ * SELECT-only for `authenticated`; read by `ReminderDeliveryStatus.tsx`
+ * (settings/) as a single `useGetOne("cron_heartbeat", { id: "cron" })`,
+ * never registered as a react-admin `<Resource>` (no list/show/edit
+ * surface).
+ *
+ * `worker` is the table's REAL primary key, not `id` — mirroring
+ * `ListingWithdrawalLock`'s own `single_id`/`id` split above. `id` here is a
+ * CLIENT-SIDE virtual field, not a persisted column: the Supabase data
+ * provider's `primaryKeys` map must mirror `worker` onto it (see that
+ * provider's own `PRIMARY_KEYS`, alongside `listing_withdrawal_locks`) for
+ * `useGetOne("cron_heartbeat", { id: "cron" })` to resolve at all — a plain
+ * `id=eq.cron` filter against this table has no `id` column to match.
+ */
+export type CronHeartbeat = {
+  worker: string;
+  last_run_at: string;
+  last_ok_at?: string | null;
+  last_error?: CronHeartbeatErrorCode | null;
+} & Pick<RaRecord, "id">;
+
 /** `listing_type` — Story 9.1 ships the `shadchan` branch only; `single`
  * (Story 9.2) reuses the same table (AD-21's sole anon-readable relation). */
 export type ListingType = "shadchan" | "single";

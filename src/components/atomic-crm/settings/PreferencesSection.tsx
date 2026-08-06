@@ -19,9 +19,11 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
+import { ReminderDeliveryStatus } from "../reminders/ReminderDeliveryStatus";
 import { SectionLabel } from "./SectionLabel";
 
-/** Language (prominent, first-class per the ticket) + appearance theme. */
+/** Language (prominent, first-class per the ticket) + appearance theme +
+ * (Story 12.2, AC-9) the reminder-email delivery heartbeat. */
 export const PreferencesSection = () => {
   const translate = useTranslate();
 
@@ -34,6 +36,8 @@ export const PreferencesSection = () => {
         <LanguageRow />
         <ItemSeparator />
         <ThemeRow />
+        <ItemSeparator />
+        <ReminderDeliveryStatus />
       </ItemGroup>
     </div>
   );

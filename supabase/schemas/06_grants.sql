@@ -1153,6 +1153,42 @@ revoke all on function public.delete_push_subscription_by_endpoint(text) from pu
 grant execute on function public.delete_push_subscription_by_endpoint(text) to service_role;
 
 -- ---------------------------------------------------------------------------
+-- Reminders (Story 12.2: reminder delivery, AD-13)
+-- ---------------------------------------------------------------------------
+-- task_notifications (AC-8): unreachable from a browser. No grant at all for
+-- anon/authenticated — belt-and-braces alongside the "no policy" RLS posture
+-- (05_policies.sql): either layer alone already denies every client access,
+-- so neither can regress silently on its own.
+revoke all on table public.task_notifications from anon, authenticated;
+grant all on table public.task_notifications to service_role;
+revoke all on sequence public.task_notifications_id_seq from anon, authenticated;
+grant all on sequence public.task_notifications_id_seq to service_role;
+
+-- cron_heartbeat (AC-9): SELECT-only for every signed-in member — it holds
+-- no tenant data, so no per-account narrowing is needed. No sequence: the
+-- primary key is `worker text`, not an identity column. Every write is
+-- service_role, through record_cron_heartbeat() alone.
+revoke all on table public.cron_heartbeat from anon, authenticated;
+grant select on table public.cron_heartbeat to authenticated;
+grant all on table public.cron_heartbeat to service_role;
+
+-- enqueue_due_task_notifications()/claim_due_task_notifications()/
+-- settle_task_notification()/record_cron_heartbeat() (AC-1, AC-6, AC-7,
+-- AC-9): service_role only — the cron Worker's entire interface to this
+-- domain, never called from a browser.
+revoke all on function public.enqueue_due_task_notifications(timestamp with time zone) from public, anon, authenticated;
+grant execute on function public.enqueue_due_task_notifications(timestamp with time zone) to service_role;
+
+revoke all on function public.claim_due_task_notifications(integer) from public, anon, authenticated;
+grant execute on function public.claim_due_task_notifications(integer) to service_role;
+
+revoke all on function public.settle_task_notification(bigint, text, text) from public, anon, authenticated;
+grant execute on function public.settle_task_notification(bigint, text, text) to service_role;
+
+revoke all on function public.record_cron_heartbeat(text, text) from public, anon, authenticated;
+grant execute on function public.record_cron_heartbeat(text, text) to service_role;
+
+-- ---------------------------------------------------------------------------
 -- Shadchan Context (Epic 8 Story 8.2: consent-based connection)
 -- ---------------------------------------------------------------------------
 

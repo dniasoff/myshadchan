@@ -4840,6 +4840,190 @@ end;
 $$;
 
 -- =====================================================================
+-- MyShadchan — Reminders (Story 12.2: reminder delivery, AD-13)
+-- =====================================================================
+--
+-- A TIME-based delivery queue over public.tasks — the reminders hub's
+-- polymorphic "due/overdue" shape — distinct from message_notifications
+-- above (EVENT-based: "a message was inserted"). SECURITY DEFINER
+-- throughout, service_role only (06_grants.sql): the cron Worker's entire
+-- interface to this domain, satisfying AD-7's "no direct tenant table
+-- access" for a Worker whose job is inherently cross-tenant (a sweep has no
+-- single account_id to scope a forAccount() client to) by issuing NO table
+-- query at all — every read and write goes through these four RPCs, and the
+-- cross-tenant read lives inside Postgres, where the definer boundary is.
+
+-- AC-1, AC-2, AC-4, AC-5: inserts one 'email' row per open, due,
+-- email-channel task. `left join ... and m.disabled = false` (not a plain
+-- join with a separate disabled check) is what makes "no live member",
+-- "member since deleted" and "member disabled" all collapse into the same
+-- NULL-email branch below.
+--
+-- AC-5 (ruling amended after Story 12.3 — see the table comment,
+-- 01_tables.sql): a null member_id is deliberately Unassigned and settles
+-- 'skipped'; a non-null member_id that resolves to no live/enabled member
+-- settles 'failed' with an explanatory error. Nothing is ever dropped
+-- silently — every candidate row gets a task_notifications row, one way or
+-- the other.
+--
+-- `on conflict (task_id, channel, due_date) do nothing` is what makes this
+-- idempotent under any number of overlapping ticks (AC-1) AND is the exact
+-- mechanism AC-4's migration-time backfill relies on to suppress the
+-- pre-existing overdue backlog forever after (the backfill inserts
+-- 'skipped' rows at today's due_date; a later tick recomputing the same
+-- (task_id, 'email', due_date) key finds it already occupied).
+CREATE OR REPLACE FUNCTION "public"."enqueue_due_task_notifications"("p_now" timestamp with time zone DEFAULT now()) RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_count integer;
+begin
+  with candidates as (
+    select
+      t.id as task_id,
+      t.account_id,
+      t.due_date,
+      m.email::text as recipient_email,
+      case
+        when t.member_id is null then 'skipped'
+        when m.email is null then 'failed'
+        else 'pending'
+      end as status,
+      case
+        when t.member_id is null then 'unassigned — no member_id set (deliberate, not a delivery failure)'
+        when m.email is null then 'member_id names no live or no enabled member'
+        else null
+      end as error
+    from public.tasks t
+    left join public.members m on m.id = t.member_id and m.disabled = false
+    where t.done_date is null
+      and t.due_date is not null
+      and t.due_date <= p_now
+      and 'email' = any (t.delivery_channels)
+  ),
+  inserted as (
+    insert into public.task_notifications (account_id, task_id, channel, due_date, status, recipient_email, error)
+    select candidates.account_id, candidates.task_id, 'email', candidates.due_date, candidates.status, candidates.recipient_email, candidates.error
+    from candidates
+    on conflict (task_id, channel, due_date) do nothing
+    returning 1
+  )
+  select count(*) into v_count from inserted;
+
+  return v_count;
+end;
+$$;
+
+-- AC-1, AC-6, AC-7: the claim-then-return step of the claim/dispatch/settle
+-- pattern (Dev Notes, "The claim-then-dispatch pattern" — the CTE below is
+-- that pattern verbatim, schema-qualified for `search_path ''`, and mirrors
+-- claim_message_notifications() above exactly on purpose). Calls
+-- enqueue_due_task_notifications() first so a tick that starts after a
+-- reminder became due, or after a snooze re-armed one, always has a fresh
+-- 'pending' row to claim without the Worker needing a second RPC
+-- round-trip. Ships as a function, not a view, because PostgREST cannot
+-- express `for update skip locked` — the one thing that makes two
+-- overlapping sweep ticks claim disjoint rows instead of double-sending.
+-- The join to tasks is what lets the Worker satisfy AC-7 (no `.from(...)`
+-- anywhere in its files) with this single RPC call and no second lookup.
+--
+-- Every OUT column above is an implicitly declared plpgsql variable in scope
+-- for the whole function body (claim_message_notifications()'s own comment
+-- explains this in full) — table aliases (tn/tn2/t) on every reference, not
+-- just the final projection, avoid a bare `id`/`task_id`/`account_id`/
+-- `due_date` being ambiguous with the OUT parameters of the same name.
+CREATE OR REPLACE FUNCTION "public"."claim_due_task_notifications"("p_limit" integer) RETURNS TABLE("id" bigint, "task_id" bigint, "account_id" bigint, "recipient_email" text, "task_text" text, "due_date" timestamp with time zone, "target_type" text, "target_id" bigint)
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  perform public.enqueue_due_task_notifications();
+
+  return query
+  with claimed as (
+    update public.task_notifications tn
+    set status = 'sending', attempts = tn.attempts + 1
+    where tn.id in (
+      select tn2.id from public.task_notifications tn2
+      where tn2.status = 'pending'
+      order by tn2.created_at
+      limit p_limit
+      for update skip locked
+    )
+    returning tn.*
+  )
+  select
+    claimed.id,
+    claimed.task_id,
+    claimed.account_id,
+    claimed.recipient_email,
+    t.text,
+    claimed.due_date,
+    t.target_type,
+    t.target_id
+  from claimed
+  join public.tasks t on t.id = claimed.task_id;
+end;
+$$;
+
+-- AC-1, AC-6: mirrors settle_message_notification() above, narrowed to the
+-- two terminal states a reminder settle call may report ('sent'/'failed') —
+-- unlike message_notifications, task_notifications never settles 'skipped'
+-- through this function (that state is only ever written directly, by
+-- enqueue_due_task_notifications() or the AC-4 migration backfill, and
+-- claim_due_task_notifications() never selects a 'skipped' row to begin
+-- with). Updates ONLY rows currently 'sending', so a late duplicate settle
+-- (the Worker retrying after a timeout whose original call actually
+-- succeeded) can never resurrect an already-finished row.
+CREATE OR REPLACE FUNCTION "public"."settle_task_notification"("p_id" bigint, "p_status" text, "p_error" text DEFAULT NULL::text) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if p_status not in ('sent', 'failed') then
+    raise exception 'invalid task_notification status: %', p_status
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  update public.task_notifications
+  set status = p_status,
+      error = p_error,
+      sent_at = case when p_status = 'sent' then now() else sent_at end
+  where id = p_id
+    and status = 'sending';
+end;
+$$;
+
+-- AC-9: the cron Worker's liveness upsert, called once per reminder-sweep
+-- tick, success or failure. `p_error` is REJECTED unless it is null or one
+-- of a bounded, closed set of codes — never a raw provider response body,
+-- stack trace or URL — because cron_heartbeat is readable by ANY
+-- authenticated user (05_policies.sql) on the premise that it holds no
+-- tenant data; that premise only holds if last_error can never carry
+-- anything else. The Worker is what maps a real caught error down to one of
+-- these three codes (workers/cron/index.ts) — this constraint is what makes
+-- that mapping non-optional rather than merely a caller's good intention.
+CREATE OR REPLACE FUNCTION "public"."record_cron_heartbeat"("p_worker" text, "p_error" text DEFAULT NULL::text) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if p_error is not null and p_error not in ('rpc_failed', 'transport_failed', 'unknown') then
+    raise exception 'invalid cron_heartbeat error code: %', p_error
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  insert into public.cron_heartbeat (worker, last_run_at, last_ok_at, last_error)
+  values (p_worker, now(), case when p_error is null then now() else null end, p_error)
+  on conflict (worker) do update
+    set last_run_at = now(),
+        last_ok_at = case when p_error is null then now() else public.cron_heartbeat.last_ok_at end,
+        last_error = p_error;
+end;
+$$;
+
+-- =====================================================================
 -- MyShadchan — Shadchan Context (Epic 8 Story 8.2: consent-based connection)
 -- =====================================================================
 --

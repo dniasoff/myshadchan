@@ -89,10 +89,19 @@ import { getSupabaseClient } from "./supabase";
 // defaults every resource's primary key to `id` unless told otherwise, so
 // without this every row would come back with `id: undefined`. Configuring
 // `single_id` here makes the underlying primitive
-// (`dataWithVirtualId`/`encodeId`) mirror it onto a client-side `id` field —
-// the ONLY resource in this provider that needs a non-default primary key.
+// (`dataWithVirtualId`/`encodeId`) mirror it onto a client-side `id` field.
+//
+// Story 12.2: `public.cron_heartbeat`'s real primary key is `worker text`,
+// the same shape — no `id` column exists. The story's own `CronHeartbeat`
+// type doc comment (`../../types.ts`) already documents this requirement;
+// without this entry `useGetOne("cron_heartbeat", { id: "cron" })` builds
+// `id=eq.cron` against a table with no `id` column, which PostgREST answers
+// with `400`/`42703`, not the `406` (no matching row) that
+// `ReminderDeliveryStatus.tsx`'s AC-9 status resolution expects — permanently
+// rendering "Couldn't check" instead of any of the three real states.
 const PRIMARY_KEYS = new Map<string, string[]>([
   ["listing_withdrawal_locks", ["single_id"]],
+  ["cron_heartbeat", ["worker"]],
 ]);
 
 const getBaseDataProvider = () =>

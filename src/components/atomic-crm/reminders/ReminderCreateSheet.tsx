@@ -9,7 +9,6 @@ import {
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -82,8 +81,11 @@ const useShidduchOptions = (enabled: boolean) => {
  * Create a reminder as a bottom sheet (design-language §5.2 glass chrome):
  * what, due date/time, and the linked entity it's about — mandatory, since
  * tasks.target_type/target_id are NOT NULL (AD-13). Delivery is a calm,
- * fixed in-app + email floor with an optional push add-on; there is
- * deliberately no SMS option, shown as reassurance rather than a control.
+ * fixed in-app + email floor — there is deliberately no push option (Story
+ * 12.2, AC-3: `task_notifications.channel` is structurally `'email'` only,
+ * so a client-offered push toggle would silently queue undeliverable rows)
+ * and deliberately no SMS option either, both shown as reassurance rather
+ * than a control.
  */
 export const ReminderCreateSheet = ({
   open,
@@ -104,7 +106,6 @@ export const ReminderCreateSheet = ({
   const [shidduchId, setShidduchId] = useState<Identifier | undefined>(
     undefined,
   );
-  const [withPush, setWithPush] = useState(false);
   // AC-3: defaults to the caller's own row (`defaultToSelf` on
   // TaskAssigneeSelect) — a reminder you create for yourself must stay a
   // one-tap flow. `undefined` here means "not yet resolved"; it becomes the
@@ -145,16 +146,12 @@ export const ReminderCreateSheet = ({
     setTime("");
     setTargetId(undefined);
     setShidduchId(undefined);
-    setWithPush(false);
     setMemberId(undefined);
   };
 
   const handleSave = async () => {
     if (!canSubmit || isSaving) return;
     const dueDate = new Date(`${date}T${time}`);
-    const delivery_channels: TaskDeliveryChannel[] = withPush
-      ? [...BASE_DELIVERY_CHANNELS, "push"]
-      : BASE_DELIVERY_CHANNELS;
 
     // `Task.member_id` (types.ts, not owned by this story) is declared as
     // `Identifier | undefined` — it does not model the `null` "Unassigned"
@@ -167,7 +164,9 @@ export const ReminderCreateSheet = ({
       due_date: dueDate.toISOString(),
       target_type: linkType,
       target_id: targetId,
-      delivery_channels,
+      // AC-3: unconditional — the push channel is never offered, so there is
+      // nothing left to branch on.
+      delivery_channels: BASE_DELIVERY_CHANNELS,
       // AC-3: omitted only if the self-default effect somehow hasn't
       // resolved yet — the server's own if-null default then applies, same
       // as before this story.
@@ -353,20 +352,17 @@ export const ReminderCreateSheet = ({
           </div>
 
           <div className="flex flex-col gap-2 rounded-xl border border-border bg-secondary/50 p-3">
+            {/* Story 12.2 (AC-3), amended by the 12.3 cross-reconciliation
+                (F3): must name the RECIPIENT, not just "by email" — 12.3
+                made member_id the assignee and does not track the creator,
+                so assigning a reminder to someone else silently redirects
+                the only notification away from whoever created it. This
+                line is what makes that redirection visible before save. */}
             <p className="text-xs text-muted-foreground">
               {translate("crm.reminders.create.deliveryNote", {
-                _: "Delivered in-app and by email. We never send SMS.",
+                _: "Delivered in-app, and by email to the person it is assigned to. We never send SMS.",
               })}
             </p>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={withPush}
-                onCheckedChange={(checked) => setWithPush(checked === true)}
-              />
-              {translate("crm.reminders.create.pushToggle", {
-                _: "Also send a push notification",
-              })}
-            </label>
           </div>
         </div>
 

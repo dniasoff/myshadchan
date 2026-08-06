@@ -318,6 +318,11 @@ jobs:
       # four workers in this matrix (ingest, match, cron, share) never read it.
       SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      # Story 12.2: the `cron` Worker's outbound-email sender identity —
+      # `RESEND_FROM` (a verified Resend sending domain address, e.g.
+      # support@myshadchan.space). Only `cron` reads it (see the push step
+      # below); declared at the job level like every other secret here.
+      RESEND_FROM: ${{ secrets.RESEND_FROM }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       # E11 finding 15: `parse` only — `resumeExtractor.ts`'s `geminiExtractor()`
@@ -490,10 +495,21 @@ jobs:
           echo "$SUPABASE_URL" | npx wrangler secret put SUPABASE_URL
           echo "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'cron' && env.RESEND_API_KEY }}
-        name: 🔑 Push cron secrets (RESEND_API_KEY)
+      # Story 12.2: RESEND_FROM added alongside RESEND_API_KEY — both are
+      # required together (gated with `&&`, not pushed independently): a key
+      # with no verified sender identity behind it makes every Resend call
+      # fail, so there is no useful partial state to push one without the
+      # other. `wrangler secret put` still promotes and serves a new version
+      # on each call within this step (the non-atomic path — see Finding 1's
+      # comment above on why `ai`/`parse` moved to `--secrets-file` and
+      # `cron` has not been migrated onto it in this pass), which is why
+      # both go together in one step rather than two.
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'cron' && env.RESEND_API_KEY && env.RESEND_FROM }}
+        name: 🔑 Push cron secrets (RESEND_API_KEY, RESEND_FROM)
         working-directory: workers/cron
-        run: echo "$RESEND_API_KEY" | npx wrangler secret put RESEND_API_KEY
+        run: |
+          echo "$RESEND_API_KEY" | npx wrangler secret put RESEND_API_KEY
+          echo "$RESEND_FROM" | npx wrangler secret put RESEND_FROM
 
       - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'billing' && env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET }}
         name: 🔑 Push billing secrets (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET)

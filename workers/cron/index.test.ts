@@ -13,16 +13,27 @@ import worker from "./index";
  */
 
 const rpc = vi.fn();
+const sendEmail = vi.fn();
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({ rpc }),
+}));
+
+vi.mock("../shared/resend", () => ({
+  sendEmail: (...args: unknown[]) => sendEmail(...args),
 }));
 
 const env = {
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_SERVICE_ROLE_KEY: "key",
   SUPABASE_PUBLISHABLE_KEY: "publishable-key",
+  RESEND_API_KEY: "re_test_key",
+  RESEND_FROM: "support@myshadchan.space",
+  APP_ORIGIN: "https://www.myshadchan.space",
 };
+
+const REMINDER_EVENT = { cron: "*/15 * * * *" } as ScheduledEvent;
+const RETENTION_EVENT = { cron: "0 3 * * *" } as ScheduledEvent;
 
 // A realistic caught error whose OWN `.message` embeds PII, the same shape
 // requestTracing.test.ts's PII suite uses — the sweep's whole reason for
@@ -127,5 +138,152 @@ describe("cron worker", () => {
     await expect(
       worker.scheduled({} as ScheduledEvent, env, {} as ExecutionContext),
     ).resolves.toBeUndefined();
+  });
+});
+
+// Story 12.2: the reminders-sweep branch of scheduled(), dispatched on
+// `event.cron === REMINDER_SWEEP_CRON` (REMINDER_EVENT, every 15 minutes) —
+// a SEPARATE tick from the retention sweep covered above (RETENTION_EVENT,
+// once daily). Asserts AC-9's own falsifiable claim: a heartbeat is
+// recorded with no error on success, and with a bounded
+// rpc_failed/transport_failed code — followed by a rethrow — on failure.
+describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("claims nothing, sends nothing, and records a heartbeat with no error when nothing is due", async () => {
+    // Arrange
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    rpc.mockImplementation((name: string) => {
+      if (name === "claim_due_task_notifications") {
+        return Promise.resolve({ data: [], error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    // Act
+    await worker.scheduled(REMINDER_EVENT, env, {} as ExecutionContext);
+
+    // Assert
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith("record_cron_heartbeat", {
+      p_worker: "cron",
+      p_error: null,
+    });
+    // The retention sweep's own RPC never fires on this tick.
+    expect(rpc).not.toHaveBeenCalledWith(
+      "sweep_expired_ai_parse_attempts",
+      expect.anything(),
+    );
+  });
+
+  it("does not run the retention sweep on the reminders tick", async () => {
+    // Arrange
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    rpc.mockResolvedValue({ data: [], error: null });
+
+    // Act
+    await worker.scheduled(REMINDER_EVENT, env, {} as ExecutionContext);
+
+    // Assert
+    const calledNames = rpc.mock.calls.map((call) => call[0]);
+    expect(calledNames).not.toContain("sweep_expired_ai_parse_attempts");
+  });
+
+  it("does not run the reminders sweep on the retention tick", async () => {
+    // Arrange
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    rpc.mockResolvedValue({ data: 0, error: null });
+
+    // Act
+    await worker.scheduled(RETENTION_EVENT, env, {} as ExecutionContext);
+
+    // Assert
+    const calledNames = rpc.mock.calls.map((call) => call[0]);
+    expect(calledNames).not.toContain("claim_due_task_notifications");
+    expect(calledNames).not.toContain("record_cron_heartbeat");
+  });
+
+  it("records rpc_failed and rethrows when claim_due_task_notifications reports an error", async () => {
+    // Arrange
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    rpc.mockImplementation((name: string) => {
+      if (name === "claim_due_task_notifications") {
+        return Promise.resolve({
+          data: null,
+          error: { message: "permission denied" },
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    // Act / Assert
+    await expect(
+      worker.scheduled(REMINDER_EVENT, env, {} as ExecutionContext),
+    ).rejects.toThrow();
+    expect(rpc).toHaveBeenCalledWith("record_cron_heartbeat", {
+      p_worker: "cron",
+      p_error: "rpc_failed",
+    });
+  });
+
+  it("records transport_failed and rethrows when the claim call itself rejects", async () => {
+    // Arrange
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    rpc.mockImplementation((name: string) => {
+      if (name === "claim_due_task_notifications") {
+        return Promise.reject(new TypeError("network unreachable"));
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    // Act / Assert
+    await expect(
+      worker.scheduled(REMINDER_EVENT, env, {} as ExecutionContext),
+    ).rejects.toThrow();
+    expect(rpc).toHaveBeenCalledWith("record_cron_heartbeat", {
+      p_worker: "cron",
+      p_error: "transport_failed",
+    });
+  });
+
+  it("claims, sends and settles a due reminder, then records a healthy heartbeat", async () => {
+    // Arrange
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const claimedRow = {
+      id: 1,
+      task_id: 10,
+      account_id: 100,
+      recipient_email: "parent@example.test",
+      task_text: "Follow up with the Cohens",
+      due_date: "2026-08-07T12:00:00Z",
+      target_type: "shidduch",
+      target_id: 55,
+    };
+    rpc.mockImplementation((name: string) => {
+      if (name === "claim_due_task_notifications") {
+        return Promise.resolve({ data: [claimedRow], error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+    sendEmail.mockResolvedValue({ ok: true, id: "email-1" });
+
+    // Act
+    await worker.scheduled(REMINDER_EVENT, env, {} as ExecutionContext);
+
+    // Assert
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith("settle_task_notification", {
+      p_id: 1,
+      p_status: "sent",
+      p_error: null,
+    });
+    expect(rpc).toHaveBeenCalledWith("record_cron_heartbeat", {
+      p_worker: "cron",
+      p_error: null,
+    });
   });
 });

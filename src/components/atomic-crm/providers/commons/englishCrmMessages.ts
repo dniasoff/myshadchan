@@ -1077,6 +1077,17 @@ export const englishCrmMessages = {
         overflow: "and %{smart_count} more",
         seeAll: "See all reminders",
       },
+      // Story 12.2 (AC-9): the Settings → Preferences delivery heartbeat row
+      // (`reminders/ReminderDeliveryStatus.tsx`). Anti-recurrence control — a
+      // dead sweep and a healthy one must never look the same from inside
+      // the app.
+      deliveryStatus: {
+        label: "Reminder emails",
+        notSetUp: "Not set up yet",
+        sending: "Sending",
+        paused: "Paused",
+        fetchError: "Couldn't check",
+      },
     },
     // Story 12.3: family-shared tasks with assignees — the Everyone/Mine
     // scope toggle (`tasks/TaskScopeToggle.tsx`, shared by `/tasks` and

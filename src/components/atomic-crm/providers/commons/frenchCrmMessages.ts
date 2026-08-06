@@ -933,6 +933,14 @@ export const frenchCrmMessages = {
         overflow: "et %{smart_count} de plus",
         seeAll: "Voir tous les rappels",
       },
+      // Story 12.2 — see the matching note in englishCrmMessages.ts.
+      deliveryStatus: {
+        label: "E-mails de rappel",
+        notSetUp: "Pas encore configuré",
+        sending: "Envoi en cours",
+        paused: "En pause",
+        fetchError: "Impossible de vérifier",
+      },
     },
     // Story 12.3 — see the matching note in englishCrmMessages.ts.
     tasks: {

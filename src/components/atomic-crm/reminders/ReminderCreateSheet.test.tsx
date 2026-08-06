@@ -75,6 +75,50 @@ const fillMinimalForm = async (screen: Awaited<ReturnType<typeof render>>) => {
   await screen.getByRole("option", { name: "Chaim Cohen" }).click();
 };
 
+describe("ReminderCreateSheet — stops offering a channel it cannot deliver (AC-3, Story 12.2)", () => {
+  it("has no push checkbox in the DOM", async () => {
+    // Arrange / Act
+    const { screen } = await renderSheet();
+
+    // Assert
+    await expect.element(screen.getByRole("checkbox")).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText(/push notification/i))
+      .not.toBeInTheDocument();
+  });
+
+  it("names the assignee as the email recipient in the reassurance line", async () => {
+    // Arrange / Act
+    const { screen } = await renderSheet();
+
+    // Assert — F3 (12.3 cross-reconciliation): must say WHO gets the
+    // email, not just "by email", because member_id is the assignee and
+    // the creator is not tracked.
+    await expect
+      .element(
+        screen.getByText(
+          "Delivered in-app, and by email to the person it is assigned to. We never send SMS.",
+        ),
+      )
+      .toBeInTheDocument();
+  });
+
+  it("submits delivery_channels as exactly ['in_app', 'email'], never 'push'", async () => {
+    // Arrange
+    const create = vi.fn().mockResolvedValue({ data: {} as Task });
+    const { screen } = await renderSheet(create);
+    await fillMinimalForm(screen);
+
+    // Act
+    await screen.getByRole("button", { name: "Add reminder" }).click();
+
+    // Assert
+    expect(create).toHaveBeenCalledTimes(1);
+    const [, params] = create.mock.calls[0];
+    expect(params.data.delivery_channels).toEqual(["in_app", "email"]);
+  });
+});
+
 describe("ReminderCreateSheet — assignee defaults to the caller (AC-3)", () => {
   it("auto-selects the caller's own row once the roster loads", async () => {
     // Arrange / Act

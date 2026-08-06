@@ -3,6 +3,7 @@ import type {
   AccountMember,
   Connection,
   ConnectionInvite,
+  CronHeartbeat,
   DateRecord,
   EntityFile,
   InboxItem,
@@ -121,4 +122,14 @@ export interface Db {
   // "opt-in, nothing trusted by default" shape as `listings`/`share_links`
   // above.
   trusted_senders: TrustedSender[];
+  // Story 12.2 (AC-9) — seeded with ONE fresh row (`index.ts`) rather than
+  // empty like every other table above: email delivery itself is
+  // inherently unexercisable in the FakeRest build (there is no backend to
+  // run the cron sweep against), so an empty seed would leave the demo
+  // build's Settings → Preferences row permanently reading "Not set up
+  // yet" — true in production today, but not a demo-worthy default. `id`
+  // mirrors `worker` (`"cron"`), matching the real provider's own
+  // virtual-id shape for this table (`types.ts`'s `CronHeartbeat` doc
+  // comment; `dataProvider.ts`'s `PRIMARY_KEYS`).
+  cron_heartbeat: CronHeartbeat[];
 }
