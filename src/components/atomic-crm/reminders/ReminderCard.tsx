@@ -79,9 +79,15 @@ export const ReminderCard = ({
             )}
           >
             <ClockIcon className="size-3.5 shrink-0" aria-hidden="true" />
-            {overdue
-              ? `Since ${formatDueMoment(task.due_date)}`
-              : `Due ${formatDueMoment(task.due_date)}`}
+            {/* Epic 12 review fix (R6): task.due_date is honestly nullable
+                — formatDueMoment() is never called on a null value, which
+                used to render "Since 1 Jan, 12:00 AM" via new Date(null)'s
+                silent coercion to the Unix epoch. */}
+            {task.due_date == null
+              ? "No due date"
+              : overdue
+                ? `Since ${formatDueMoment(task.due_date)}`
+                : `Due ${formatDueMoment(task.due_date)}`}
           </p>
 
           {/* AC-10: visible on every row once the household has more than

@@ -938,6 +938,9 @@ export const frenchCrmMessages = {
         label: "E-mails de rappel",
         notSetUp: "Pas encore configuré",
         sending: "Envoi en cours",
+        // Epic 12 review fix (R3) — see the matching note in
+        // englishCrmMessages.ts.
+        failing: "Échec de la livraison",
         paused: "En pause",
         fetchError: "Impossible de vérifier",
       },

@@ -103,3 +103,22 @@ describe("ReminderCard — linked entity renders through RecordLink (AC 5)", () 
       .toBeInTheDocument();
   });
 });
+
+describe("ReminderCard — no due date (Epic 12 review fix, R6)", () => {
+  it("renders 'No due date' instead of calling formatDueMoment on a null due_date", async () => {
+    // Arrange — `new Date(null)` is the Unix epoch, not "Invalid Date"; this
+    // is the exact rendering the adversarial review found ("Since 1 Jan,
+    // 12:00 AM") when due_date was null and this guard was missing.
+    const item: ReminderItem = {
+      task: buildTask({ due_date: null }),
+      linkedEntity: null,
+    };
+
+    // Act
+    const screen = await renderCard(item);
+
+    // Assert
+    await expect.element(screen.getByText("No due date")).toBeInTheDocument();
+    await expect.element(screen.getByText(/1 Jan/)).not.toBeInTheDocument();
+  });
+});

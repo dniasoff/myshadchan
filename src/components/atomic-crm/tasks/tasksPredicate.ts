@@ -6,7 +6,7 @@ import { endOfWeek } from "date-fns/endOfWeek";
 import { isAfter } from "date-fns";
 
 type Task = {
-  due_date: string;
+  due_date: string | null;
   done_date: string | null;
 };
 
@@ -18,21 +18,41 @@ export const isRecentlyDone = (task: Task) =>
   task.done_date != null &&
   isAfter(new Date(task.done_date), new Date(Date.now() - 5 * 60 * 1000));
 
-export const isOverdue = (dateString: string) => {
+/**
+ * Epic 12 review fix (R6): the ONE honest check for "does this task have a
+ * due date at all" — a type predicate, so every predicate below narrows
+ * `dateString` from `string | null` to `string` before calling `new
+ * Date(dateString)`, rather than each repeating its own null check (or,
+ * worse, none — `new Date(null)` returns the Unix epoch, not "Invalid
+ * Date"; that silent coercion is exactly the bug the adversarial review
+ * found: a no-date task rendered as overdue since 1 Jan, 12:00 AM). A task
+ * with no due date matches NONE of `isOverdue`/`isDueToday`/
+ * `isDueTomorrow`/`isDueThisWeek`/`isDueLater` — callers that need to
+ * render or bucket it must check this explicitly, not assume every task
+ * falls into exactly one of those five buckets.
+ */
+export const hasDueDate = (dateString: string | null): dateString is string =>
+  dateString != null;
+
+export const isOverdue = (dateString: string | null) => {
+  if (!hasDueDate(dateString)) return false;
   return new Date(dateString) < startOfToday();
 };
 
-export const isDueToday = (dateString: string) => {
+export const isDueToday = (dateString: string | null) => {
+  if (!hasDueDate(dateString)) return false;
   const dueDate = new Date(dateString);
   return dueDate >= startOfToday() && dueDate < endOfToday();
 };
 
-export const isDueTomorrow = (dateString: string) => {
+export const isDueTomorrow = (dateString: string | null) => {
+  if (!hasDueDate(dateString)) return false;
   const dueDate = new Date(dateString);
   return dueDate >= endOfToday() && dueDate < endOfTomorrow();
 };
 
-export const isDueThisWeek = (dateString: string) => {
+export const isDueThisWeek = (dateString: string | null) => {
+  if (!hasDueDate(dateString)) return false;
   const dueDate = new Date(dateString);
   return (
     dueDate >= endOfTomorrow() &&
@@ -40,7 +60,8 @@ export const isDueThisWeek = (dateString: string) => {
   );
 };
 
-export const isDueLater = (dateString: string) => {
+export const isDueLater = (dateString: string | null) => {
+  if (!hasDueDate(dateString)) return false;
   const dueDate = new Date(dateString);
   return dueDate >= endOfWeek(new Date(), { weekStartsOn: 0 });
 };

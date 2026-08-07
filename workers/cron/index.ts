@@ -53,6 +53,18 @@ function getServiceRoleClient(env: BaseEnv) {
  * to the reminders cadence specifically, and Settings' three-state read is
  * about "is the reminders sweep alive", not "did any cron tick fire at all".
  *
+ * Epic 12 review fix (R3): `failedCount` is the just-finished tick's own
+ * `result.failed` — record_cron_heartbeat() only stores it on a null
+ * errorCode call (a genuinely successful tick), but a "successful tick"
+ * and "every email actually sent" used to be conflated: `sweepReminders()`
+ * returns normally even when every individual send failed (a single bad
+ * recipient must never abort the batch — sweepReminders.ts's own header),
+ * and this function used to record a plain success heartbeat regardless,
+ * so missing/invalid Resend credentials produced a green heartbeat and a
+ * permanently failing queue. ReminderDeliveryStatus.tsx now reads
+ * `last_failed_count` to tell "the sweep ran" apart from "delivery is
+ * actually healthy."
+ *
  * Never throws itself — a heartbeat write failing must not mask (or
  * replace) whatever real sweep failure is already being reported by the
  * caller's own rethrow.
@@ -60,11 +72,12 @@ function getServiceRoleClient(env: BaseEnv) {
 async function recordHeartbeat(
   env: BaseEnv,
   errorCode: SweepRemindersErrorCode | null,
+  failedCount: number | null = null,
 ): Promise<void> {
   try {
     const { error } = await getServiceRoleClient(env).rpc(
       "record_cron_heartbeat",
-      { p_worker: "cron", p_error: errorCode },
+      { p_worker: "cron", p_error: errorCode, p_failed_count: failedCount },
     );
     if (error) {
       console.error(
@@ -84,7 +97,7 @@ export default {
       try {
         const result = await sweepReminders(env as CronEnv);
         console.warn("[cron] sweepReminders.ok", result);
-        await recordHeartbeat(env, null);
+        await recordHeartbeat(env, null, result.failed);
       } catch (error) {
         const code =
           error instanceof SweepRemindersError ? error.code : "unknown";

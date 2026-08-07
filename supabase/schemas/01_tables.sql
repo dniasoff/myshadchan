@@ -158,6 +158,25 @@ create table public.task_notifications (
     sent_at timestamp with time zone,
     error text,
     created_at timestamp with time zone not null default now(),
+    -- Column order for these two deliberately matches the order `supabase
+    -- db diff` appends them (alphabetical: claimed_at, next_attempt_at) —
+    -- see COLUMN-ORDER TRAP at the top of this file.
+    --
+    -- Epic 12 review fix (R4): set by claim_due_task_notifications() the
+    -- moment a row moves to 'sending', cleared on every settle. A 'sending'
+    -- row whose claimed_at is older than the lease window
+    -- (claim_due_task_notifications(), 02_functions.sql) is presumed
+    -- stranded — the Worker crashed or was killed between claim and settle
+    -- — and is reclaimed rather than lost forever. Also passed back on
+    -- settle as a fencing token (settle_task_notification()'s p_claimed_at)
+    -- so a late settle from an attempt that has since been reclaimed cannot
+    -- clobber the newer attempt's outcome.
+    claimed_at timestamp with time zone,
+    -- Epic 12 review fix (R2): when a row is 'pending' after a retryable
+    -- send failure, this is when it becomes eligible for another claim
+    -- (workers/cron/sweepReminders.ts computes the backoff). NULL means
+    -- "eligible immediately" — every row's normal state on first enqueue.
+    next_attempt_at timestamp with time zone,
     -- AC-3: push is structurally excluded — the same closed-enumeration
     -- style as tasks_delivery_channels_check, so a future "just add push
     -- here" cannot be a one-word edit that silently queues undeliverable
@@ -166,7 +185,10 @@ create table public.task_notifications (
     -- 'sending' is the claim-before-dispatch state (AC-6, `for update skip
     -- locked`); 'skipped' covers both AC-4's pre-existing-backlog backfill
     -- and AC-5's deliberately-unassigned (null member_id) case — neither is
-    -- a failure.
+    -- a failure. Epic 12 review fix (R2): a row can cycle 'pending' ->
+    -- 'sending' -> 'pending' (retryable failure, re-armed at
+    -- next_attempt_at) any number of times before it finally reaches 'sent'
+    -- or terminal 'failed'.
     constraint task_notifications_status_check check (
         status in ('pending', 'sending', 'sent', 'failed', 'skipped')
     ),
@@ -195,7 +217,17 @@ create table public.cron_heartbeat (
     worker text primary key,
     last_run_at timestamp with time zone not null default now(),
     last_ok_at timestamp with time zone,
-    last_error text
+    last_error text,
+    -- Epic 12 review fix (R3): the count of task_notifications this worker
+    -- did NOT successfully send on its most recent tick — set by
+    -- record_cron_heartbeat()'s new p_failed_count argument, read by
+    -- ReminderDeliveryStatus.tsx. `last_ok_at` alone only proves the sweep's
+    -- own RPC calls succeeded; it says nothing about whether Resend actually
+    -- delivered anything, which is exactly how a green heartbeat and a
+    -- permanently failing queue (missing/invalid Resend credentials) used
+    -- to coexist. Reflects only the LAST tick, not a cumulative total — a
+    -- tick with nothing due reports 0, which is the honest, healthy answer.
+    last_failed_count integer not null default 0
 );
 
 create table public.configuration (

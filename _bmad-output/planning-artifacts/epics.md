@@ -1550,7 +1550,12 @@ So that a follow-up does not depend on me remembering to open the app.
 
 **Given** an open reminder that is due
 **When** the cron sweep runs
-**Then** exactly one email is sent, exactly once, idempotent by construction
+**Then** one email is sent — at-least-once, deduplicated by Resend's own idempotency key
+  (Epic 12 adversarial review, R4: the earlier "exactly once, idempotent by construction"
+  wording was disproved — a crash between claim and settle, or a stranded 'sending' lease
+  reclaimed on a later tick, can cause the same occurrence to be claimed and sent more than
+  once; what prevents a second email is Resend's `Idempotency-Key`, not database-level
+  exactly-once semantics)
 **And** snoozing re-arms delivery
 **And** the pre-existing overdue backlog is suppressed by the same migration that creates the queue
 **And** the create sheet stops promising a channel the product cannot deliver

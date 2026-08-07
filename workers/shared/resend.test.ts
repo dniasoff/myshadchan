@@ -44,7 +44,7 @@ describe("sendEmail", () => {
     });
   });
 
-  it("returns ok:false with the response body on a non-2xx response, never throwing", async () => {
+  it("returns ok:false, retryable:false with the response body on a terminal 4xx response, never throwing", async () => {
     // Arrange
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
@@ -63,10 +63,53 @@ describe("sendEmail", () => {
     expect(result).toEqual({
       ok: false,
       error: "Resend responded 403: domain is not verified",
+      retryable: false,
     });
   });
 
-  it("returns ok:false when fetch itself rejects (a real network-level failure), never throwing", async () => {
+  it("returns ok:false, retryable:true on a 429 (rate limited) response", async () => {
+    // Arrange
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(new Response("too many requests", { status: 429 })),
+    );
+
+    // Act
+    const result = await sendEmail(INPUT);
+
+    // Assert
+    expect(result).toEqual({
+      ok: false,
+      error: "Resend responded 429: too many requests",
+      retryable: true,
+    });
+  });
+
+  it("returns ok:false, retryable:true on a 5xx (Resend's own failure) response", async () => {
+    // Arrange
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(new Response("upstream error", { status: 502 })),
+    );
+
+    // Act
+    const result = await sendEmail(INPUT);
+
+    // Assert
+    expect(result).toEqual({
+      ok: false,
+      error: "Resend responded 502: upstream error",
+      retryable: true,
+    });
+  });
+
+  it("returns ok:false, retryable:true when fetch itself rejects (a real network-level failure), never throwing", async () => {
     // Arrange
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
@@ -81,6 +124,7 @@ describe("sendEmail", () => {
     expect(result).toEqual({
       ok: false,
       error: "transport error contacting Resend",
+      retryable: true,
     });
     // The raw exception's own message never reaches a console line —
     // summarizeErrorForLog() is the only thing this file ever logs through.
@@ -90,7 +134,7 @@ describe("sendEmail", () => {
     expect(loggedText).not.toContain("network unreachable");
   });
 
-  it("returns ok:false when a 2xx response body is not valid JSON", async () => {
+  it("returns ok:false, retryable:true when a 2xx response body is not valid JSON", async () => {
     // Arrange
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
@@ -105,10 +149,11 @@ describe("sendEmail", () => {
     expect(result).toEqual({
       ok: false,
       error: "Resend response body was not valid JSON",
+      retryable: true,
     });
   });
 
-  it("returns ok:false when a 2xx response has no string id", async () => {
+  it("returns ok:false, retryable:true when a 2xx response has no string id", async () => {
     // Arrange
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
@@ -125,7 +170,49 @@ describe("sendEmail", () => {
     expect(result).toEqual({
       ok: false,
       error: "Resend response did not include an id",
+      retryable: true,
     });
+  });
+
+  it("sends the Idempotency-Key header when idempotencyKey is supplied", async () => {
+    // Arrange
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ id: "email-123" }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    // Act
+    await sendEmail({
+      ...INPUT,
+      idempotencyKey: "task-notification:10:email:2026-08-07T12:00:00Z",
+    });
+
+    // Assert
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Idempotency-Key"]).toBe(
+      "task-notification:10:email:2026-08-07T12:00:00Z",
+    );
+  });
+
+  it("omits the Idempotency-Key header when idempotencyKey is not supplied", async () => {
+    // Arrange
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ id: "email-123" }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    // Act
+    await sendEmail(INPUT);
+
+    // Assert
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Idempotency-Key"]).toBeUndefined();
   });
 
   it("truncates a very long error body before it would ever be stored", async () => {

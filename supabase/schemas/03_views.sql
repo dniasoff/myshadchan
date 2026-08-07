@@ -410,6 +410,27 @@ from public.entity_files ef
 -- silently return raw membership rows with no name. shadchan_stats above
 -- is the in-repo precedent for a view deliberately outside the `_summary`
 -- convention.
+--
+-- Epic 12 review fix (R5): adds `public.is_deliverable_member()`
+-- (02_functions.sql) alongside `am.status = 'active'`, not instead of it.
+-- `am.status = 'active'` still has to stay: it is what picks the ONE
+-- current account_members row for a member who has been archived and
+-- re-added (Story 12.3's own round-trip, task_assignment.sql AC-7) — every
+-- one of that user's historical rows for this account_id would otherwise
+-- pass an id/account_id-only predicate, fanning `context_members` out to
+-- one row per historical membership instead of one row per current member
+-- (proven: dropping the direct status check here made a plain
+-- `context_members` lookup by id return more than one row for a re-added
+-- member). is_deliverable_member() is the ADDITIONAL check, and the reason
+-- this line exists at all: the OLD predicate here checked active
+-- membership only, validate_task_assignee() checked the same thing on
+-- write, and NEITHER checked members.disabled, so a globally disabled
+-- member (members.disabled = true) stayed pickable in this roster and
+-- passed the write-time guard, only to fail silently once a reminder for
+-- them actually came due. All three call sites — this view, that trigger,
+-- and the delivery queue — now share the ONE function for the disabled
+-- check specifically, so "assignable" and "deliverable" cannot diverge on
+-- THAT axis again.
 create or replace view public.context_members with (security_invoker = on) as
 select
     m.id,
@@ -421,4 +442,5 @@ select
 from public.account_members am
     join public.members m on m.user_id = am.user_id
 where am.status = 'active'
-  and am.account_id = public.current_context_id();
+  and am.account_id = public.current_context_id()
+  and public.is_deliverable_member(m.id, am.account_id);

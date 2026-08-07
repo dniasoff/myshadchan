@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
+  hasDueDate,
   isOverdue,
   isDueToday,
   isDueTomorrow,
@@ -203,6 +204,21 @@ describe("tasksPredicate", () => {
       expect(isDueTomorrow(twoDaysFromNow)).toBe(false);
       expect(isDueThisWeek(twoDaysFromNow)).toBe(true);
       expect(isDueLater(twoDaysFromNow)).toBe(false);
+    });
+  });
+
+  describe("no due date (R6)", () => {
+    it("hasDueDate returns false for null and true for a real date string", () => {
+      expect(hasDueDate(null)).toBe(false);
+      expect(hasDueDate(today.toISOString())).toBe(true);
+    });
+
+    it("a null due_date matches none of the five buckets — never silently classified as overdue", () => {
+      expect(isOverdue(null)).toBe(false);
+      expect(isDueToday(null)).toBe(false);
+      expect(isDueTomorrow(null)).toBe(false);
+      expect(isDueThisWeek(null)).toBe(false);
+      expect(isDueLater(null)).toBe(false);
     });
   });
 });

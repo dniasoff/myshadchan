@@ -28,12 +28,24 @@ const STALE_AFTER_MS = 30 * 60 * 1000;
  */
 const NO_ROW_STATUS = 406;
 
-type DeliveryState = "not_set_up" | "sending" | "paused" | "fetch_error";
+type DeliveryState =
+  "not_set_up" | "sending" | "failing" | "paused" | "fetch_error";
 
 /**
  * "no row" and "fetch failed" are deliberately distinct from each other and
  * from "stale" — a failed fetch is not evidence the sweep is healthy, and
  * must never be presented as "Sending" or silently folded into "Paused".
+ *
+ * Epic 12 review fix (R3): "sweep liveness" (last_ok_at fresh) and
+ * "delivery health" (did the sweep's own emails actually go out) are now
+ * two separate signals — `last_failed_count` is what
+ * `record_cron_heartbeat()` records from `sweepReminders()`'s own
+ * `result.failed`. A fresh `last_ok_at` alone used to be presented as
+ * "Sending" even when EVERY email in the last tick failed (missing/invalid
+ * Resend credentials being the concrete case that motivated this): the
+ * sweep's own RPC calls all succeeded, so `last_ok_at` updated, but nothing
+ * was actually delivered. "failing" is the new state that tells those two
+ * apart — a fresh, non-stale heartbeat with a non-zero `last_failed_count`.
  */
 const resolveDeliveryState = (
   data: CronHeartbeat | undefined,
@@ -46,7 +58,8 @@ const resolveDeliveryState = (
   if (!data) return "not_set_up";
   if (!data.last_ok_at) return "paused";
   const staleness = Date.now() - new Date(data.last_ok_at).getTime();
-  return staleness <= STALE_AFTER_MS ? "sending" : "paused";
+  if (staleness > STALE_AFTER_MS) return "paused";
+  return (data.last_failed_count ?? 0) > 0 ? "failing" : "sending";
 };
 
 /**
@@ -103,6 +116,12 @@ export const ReminderDeliveryStatus = () => {
         _: "Sending",
       }),
       variant: "default",
+    },
+    failing: {
+      text: translate("crm.reminders.deliveryStatus.failing", {
+        _: "Delivery failing",
+      }),
+      variant: "destructive",
     },
     paused: {
       text: translate("crm.reminders.deliveryStatus.paused", {

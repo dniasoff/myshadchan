@@ -92,6 +92,56 @@ describe("ReminderDeliveryStatus", () => {
     await expect.element(screen.getByText("Sending")).toBeInTheDocument();
   });
 
+  it('renders "Delivery failing" when the sweep is fresh but its last tick failed to send at least one email (R3)', async () => {
+    // Arrange — a healthy-looking heartbeat (fresh last_ok_at, no
+    // rpc/transport error) whose last tick still failed to deliver:
+    // missing/invalid Resend credentials is the concrete scenario the
+    // Epic 12 review named — the sweep's own RPC calls all succeed, so
+    // last_ok_at updates, but nothing is actually delivered.
+    const failingButAlive: CronHeartbeat = {
+      id: "cron",
+      worker: "cron",
+      last_run_at: new Date().toISOString(),
+      last_ok_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+      last_error: null,
+      last_failed_count: 3,
+    };
+
+    // Act
+    const { screen } = await renderStatus(() =>
+      Promise.resolve({ data: failingButAlive }),
+    );
+
+    // Assert
+    await expect
+      .element(screen.getByText("Delivery failing"))
+      .toBeInTheDocument();
+    await expect.element(screen.getByText("Sending")).not.toBeInTheDocument();
+  });
+
+  it('renders "Sending", not "Delivery failing", when the sweep is fresh and last_failed_count is 0', async () => {
+    // Arrange
+    const healthy: CronHeartbeat = {
+      id: "cron",
+      worker: "cron",
+      last_run_at: new Date().toISOString(),
+      last_ok_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+      last_error: null,
+      last_failed_count: 0,
+    };
+
+    // Act
+    const { screen } = await renderStatus(() =>
+      Promise.resolve({ data: healthy }),
+    );
+
+    // Assert
+    await expect.element(screen.getByText("Sending")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Delivery failing"))
+      .not.toBeInTheDocument();
+  });
+
   it('renders "Paused" when last_ok_at is older than the 30-minute staleness window', async () => {
     // Arrange
     const stale: CronHeartbeat = {

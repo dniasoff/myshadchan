@@ -1085,6 +1085,12 @@ export const englishCrmMessages = {
         label: "Reminder emails",
         notSetUp: "Not set up yet",
         sending: "Sending",
+        // Epic 12 review fix (R3): a fresh, non-stale heartbeat whose most
+        // recent tick still failed to deliver at least one email — distinct
+        // from "Sending" (which now means the sweep is alive AND nothing
+        // recently failed) so a green-looking heartbeat can never again
+        // stand in for a queue that is actually failing.
+        failing: "Delivery failing",
         paused: "Paused",
         fetchError: "Couldn't check",
       },

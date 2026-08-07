@@ -514,6 +514,84 @@ select
 from public.members m
 where m.user_id = '00000000-0000-4000-8000-000000009001';
 
+-- Story 12.2 (reminder delivery): task_notifications and cron_heartbeat,
+-- both never seeded before this — two more of the completeness check's
+-- undeclared-and-unseeded findings (see .claude/rules/
+-- migration-guard-integrity.md; this closes them the same way that
+-- incident's own repair closed `share_links`/`share_access_log`, in the
+-- SAME diff as the migration that first needed them protected — the Epic 12
+-- adversarial review's R2/R4 findings widened task_notifications with two
+-- new nullable columns (next_attempt_at, claimed_at) and this fixture had
+-- no row of that table for the guard to prove those columns' addition
+-- survived a real row).
+--
+-- `to_regclass`-guarded like connections/threads/ai_parse_attempts/
+-- signup_intents above: both tables already exist at every baseline this
+-- fixture can run against today, but the guard stays cheap and consistent
+-- with this file's own convention rather than assuming that never changes.
+--
+-- task_notifications: one 'sent' row against the tasks(9000001) row seeded
+-- immediately above — the exact shape enqueue_due_task_notifications()
+-- produces for a due, open, email-channel task with a resolvable recipient,
+-- carried through to its terminal settled state (settle_task_notification()
+-- sets `sent_at`, never `next_attempt_at`/`claimed_at`, on a 'sent' row).
+--
+-- cron_heartbeat: one healthy row for the one worker this build ever writes
+-- (`worker = 'cron'`, record_cron_heartbeat()'s own comment) — last_ok_at
+-- set, last_error null, matching a tick that completed cleanly.
+do $$
+begin
+  if to_regclass('public.task_notifications') is not null then
+    execute $seed$
+      insert into public.task_notifications
+        (id, account_id, task_id, channel, due_date, status, recipient_email, attempts, sent_at)
+      select
+        9000001, 9000001, 9000001, 'email', t.due_date, 'sent',
+        m.email::text, 1, now()
+      from public.tasks t
+      join public.members m on m.id = t.member_id
+      where t.id = 9000001;
+    $seed$;
+  end if;
+
+  if to_regclass('public.cron_heartbeat') is not null then
+    execute $seed$
+      insert into public.cron_heartbeat (worker, last_run_at, last_ok_at, last_error)
+      values ('cron', now(), now(), null);
+    $seed$;
+  end if;
+
+  -- Story 12.4 (Stripe billing): stripe_events, the webhook idempotency
+  -- ledger. Missing here until the epic's own review round caught it, which
+  -- is the exact failure mode `.claude/rules/migration-guard-integrity.md`
+  -- exists to prevent — and it hid for a specific, repeatable reason worth
+  -- writing down. The completeness check runs during SEED, against the
+  -- BASELINE schema (the last deployed migration). While 12.4 was merely
+  -- committed, `stripe_events` did not exist at baseline, so the check could
+  -- not see it and the guard reported PASS. The moment 12.4 deployed, the
+  -- table joined the baseline with no seed and no declaration, and the guard
+  -- began aborting at SEED — where it verifies NOTHING, while still looking
+  -- like an ordinary red. Any table added by a migration is therefore
+  -- invisible to this check until the deploy after the one that creates it.
+  --
+  -- Seeded rather than declared empty_by_design because it genuinely carries
+  -- production data: every webhook the billing Worker accepts writes one row,
+  -- and it is the only thing standing between a replayed Stripe event and
+  -- duplicate entitlement. A migration that dropped it must go red.
+  -- Two rows, both shapes the ledger really holds: one resolved to an
+  -- account, one recorded with a null account_id (the "unknown customer"
+  -- outcome resolveAccountForCustomer() returns).
+  if to_regclass('public.stripe_events') is not null then
+    execute $seed$
+      insert into public.stripe_events
+        (event_id, type, account_id, received_at, livemode)
+      values
+        ('evt_9000001', 'customer.subscription.updated', 9000001, now(), false),
+        ('evt_9000002', 'invoice.payment_failed', null, now(), false);
+    $seed$;
+  end if;
+end $$;
+
 -- inbox_items (the front-door capture inbox, InboxList.tsx /
 -- InboxResolveDialog.tsx): never seeded before this — one of the 7 tables the
 -- completeness check below found with real production traffic but zero rows
@@ -927,6 +1005,17 @@ insert into migration_guard.empty_by_design (table_name, reason) values
     ('date_records', 'Schema-ready dating-history table (01_tables.sql: "powers dedupe later, '
                       'Epic-4; no logic is built now"). No UI reads or writes it, and no migration '
                       'or seed inserts a row. Seed once a story wires it up.');
+-- `stripe_events` (Story 12.4 billing) is a KNOWN, still-open gap: it has no
+-- captured row and no declaration here either, so this guard cannot reach
+-- its ASSERT phase for ANY change today, not just this one — confirmed by
+-- running it with a throwaway declaration added transiently for this
+-- session's own verification, then reverted (see this session's report).
+-- Deliberately left unaddressed: `workers/billing/**` and its tables are
+-- out of scope for the Epic 12 reminder-delivery review fixes this file's
+-- neighboring task_notifications/cron_heartbeat seeds belong to. Whoever
+-- fixes the Epic 12 billing findings should seed it (preferred — Stripe
+-- events are real production traffic once billing is live) or declare it
+-- empty_by_design with a genuine reason, not this comment.
 
 -- The completeness check itself: every `public` base table just captured
 -- above must have at least one snapshot row, or be declared empty_by_design

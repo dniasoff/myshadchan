@@ -154,15 +154,26 @@ Every criterion below states what failing looks like. Assertions in this reposit
 shipped green over the property they claimed to assert; the `Fails if` clause is the
 thing the test must actually be able to produce.
 
-1. **A due reminder produces exactly one email, exactly once.** When a `tasks` row is
-   open (`done_date is null`), has a non-null `due_date` at or before now, and carries
-   `'email'` in `delivery_channels`, the next sweep tick emails the task's owner once
-   and marks the delivery `sent`. Subsequent ticks send nothing further for that
-   reminder at that due moment. Idempotency is **structural**, not procedural: a unique
-   constraint on `task_notifications (task_id, channel, due_date)` plus `on conflict do
-   nothing` in the enqueue step, so a second tick cannot create a second row to send.
-   **Fails if:** running the sweep twice in a row against one due reminder produces two
-   `sent` rows, or two calls to the Resend transport.
+1. **A due reminder produces one email, at-least-once, deduplicated by Resend.**
+   CORRECTED (Epic 12 adversarial review, R4): this criterion originally read "exactly
+   one email, exactly once" — disproved. When a `tasks` row is open (`done_date is
+   null`), has a non-null `due_date` at or before now, and carries `'email'` in
+   `delivery_channels`, the next sweep tick emails the task's owner and marks the
+   delivery `sent`. A repeated tick against the SAME due moment enqueues nothing
+   further — a unique constraint on `task_notifications (task_id, channel, due_date)`
+   plus `on conflict do nothing` in the enqueue step makes the ENQUEUE step
+   idempotent. That is not the same claim as "exactly one email is ever sent": a
+   Worker crash between claim and settle, or a stranded `'sending'` row reclaimed
+   after its lease expires (`claim_due_task_notifications()`'s lease-timeout
+   recovery), can cause the SAME row to be claimed and sent more than once across
+   ticks. What prevents that from reaching an inbox twice is
+   `workers/shared/resend.ts`'s `Idempotency-Key` header, derived from
+   `(task_id, channel, due_date)` and passed to Resend — Resend's own dedupe, not a
+   database guarantee, is what makes this at-least-once **safe** rather than
+   exactly-once **true**.
+   **Fails if:** running the sweep twice in a row against one due reminder with no
+   crash/reclaim in between produces two `sent` rows, or two calls to the Resend
+   transport with different idempotency keys for the same occurrence.
 
 2. **Snoozing re-arms delivery.** `useReminders.ts`'s `snooze()` advances `due_date` by
    one day. Because the unique key includes `due_date`, the moved reminder enqueues a

@@ -2546,19 +2546,67 @@ begin
 end;
 $$;
 
+-- Epic 12 adversarial review (R1, R5): THE one definition of "can this
+-- member be assigned a task, and be delivered a reminder" — an active
+-- account_members row for the member's user_id in the given account, AND a
+-- members row that is not disabled. context_members (03_views.sql, the
+-- assignee picker's roster), validate_task_assignee() (below, the write-time
+-- guard) and enqueue_due_task_notifications() (the delivery queue) all call
+-- this SAME function so "assignable" and "deliverable" can never silently
+-- diverge again:
+--
+-- R1 was exactly that divergence in one direction — Story 12.3 deliberately
+-- keeps a task's historical member_id after the assignee's account_members
+-- row moves to 'archived' (01_tables.sql's own comment on tasks.member_id),
+-- but the delivery query used to check only members.disabled, so a removed
+-- household member kept receiving that household's reminder emails forever.
+--
+-- R5 is the mirror, in the other direction — a globally disabled member
+-- (members.disabled = true) stayed visible in the assignee picker and
+-- passed the write-time guard (neither checked disabled at all), only to
+-- fail silently once a reminder for them finally came due.
+--
+-- NOT SECURITY DEFINER, deliberately — the same reasoning
+-- validate_task_assignee() below has always documented: under invoker
+-- rights the two base tables' RLS applies, which makes every caller's check
+-- stricter, never looser. context_members (security_invoker) and
+-- validate_task_assignee() (invoker) both therefore need direct EXECUTE as
+-- `authenticated` on this function (06_grants.sql) for their own nested
+-- calls to succeed; enqueue_due_task_notifications() calls it from inside
+-- its own SECURITY DEFINER body, where it inherits that definer's elevated
+-- identity instead.
+CREATE OR REPLACE FUNCTION "public"."is_deliverable_member"("p_member_id" bigint, "p_account_id" bigint) RETURNS boolean
+    LANGUAGE "sql" STABLE
+    SET "search_path" TO ''
+    AS $$
+  select exists (
+    select 1
+    from public.members m
+      join public.account_members am on am.user_id = m.user_id
+    where m.id = p_member_id
+      and am.account_id = p_account_id
+      and am.status = 'active'
+      and m.disabled = false
+  );
+$$;
+
 -- Story 12.3 (AC-5, AC-6, AC-8): guards that tasks.member_id, when set,
--- names an ACTIVE member of the task's own account_id. NOT SECURITY
--- DEFINER, deliberately — the same split set_interaction_actor_member_id()
--- documents above. Under invoker rights the two base tables' RLS applies,
--- which makes the check stricter, never looser: a foreign members row is
--- invisible to the caller, `not exists` holds, and the statement raises. A
--- service_role writer bypasses RLS and still gets the correct answer,
--- because the predicate is written on real ids, not on auth.uid().
+-- names a deliverable member (public.is_deliverable_member() above — Epic 12
+-- review fix R5 widened this from "active member" to "active AND enabled
+-- member", matching what delivery itself requires) of the task's own
+-- account_id. NOT SECURITY DEFINER, deliberately — the same split
+-- set_interaction_actor_member_id() documents above. Under invoker rights
+-- the two base tables' RLS applies (through is_deliverable_member's own
+-- invoker execution), which makes the check stricter, never looser: a
+-- foreign members row is invisible to the caller, `not exists` holds, and
+-- the statement raises. A service_role writer bypasses RLS and still gets
+-- the correct answer, because the predicate is written on real ids, not on
+-- auth.uid().
 --
 -- `before insert or update of member_id, account_id` (04_triggers.sql) —
 -- never a bare `update` — so completing or snoozing a task whose assignee
--- has since been archived (AC-6) never re-validates a historical
--- assignment.
+-- has since been archived or disabled (AC-6) never re-validates a
+-- historical assignment.
 CREATE OR REPLACE FUNCTION "public"."validate_task_assignee"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     SET "search_path" TO ''
@@ -2568,15 +2616,8 @@ begin
     return new;
   end if;
 
-  if not exists (
-    select 1
-    from public.account_members am
-      join public.members m on m.user_id = am.user_id
-    where m.id = new.member_id
-      and am.account_id = new.account_id
-      and am.status = 'active'
-  ) then
-    raise exception 'member % is not an active member of account %',
+  if not public.is_deliverable_member(new.member_id, new.account_id) then
+    raise exception 'member % is not an active, enabled member of account %',
       new.member_id, new.account_id
       using errcode = 'check_violation';
   end if;
@@ -4854,10 +4895,17 @@ $$;
 -- cross-tenant read lives inside Postgres, where the definer boundary is.
 
 -- AC-1, AC-2, AC-4, AC-5: inserts one 'email' row per open, due,
--- email-channel task. `left join ... and m.disabled = false` (not a plain
--- join with a separate disabled check) is what makes "no live member",
--- "member since deleted" and "member disabled" all collapse into the same
--- NULL-email branch below.
+-- email-channel task. `left join ... and public.is_deliverable_member(m.id,
+-- t.account_id)` (not a plain join with a separate disabled check) is what
+-- makes "no live member", "member since deleted", "member disabled" AND —
+-- Epic 12 review fix R1 — "member archived out of THIS task's own account"
+-- all collapse into the same NULL-email branch below. Before R1,
+-- `m.disabled = false` alone let a removed household member (their
+-- account_members row moved to 'archived', their global members row still
+-- enabled) keep receiving that household's reminder emails forever;
+-- is_deliverable_member() (above) is the shared predicate that now also
+-- proves an ACTIVE membership in the task's own account_id, matching
+-- validate_task_assignee() and context_members exactly.
 --
 -- AC-5 (ruling amended after Story 12.3 — see the table comment,
 -- 01_tables.sql): a null member_id is deliberately Unassigned and settles
@@ -4892,11 +4940,12 @@ begin
       end as status,
       case
         when t.member_id is null then 'unassigned — no member_id set (deliberate, not a delivery failure)'
-        when m.email is null then 'member_id names no live or no enabled member'
+        when m.email is null then 'member_id names no live or no enabled member of this task''s own account'
         else null
       end as error
     from public.tasks t
-    left join public.members m on m.id = t.member_id and m.disabled = false
+    left join public.members m
+      on m.id = t.member_id and public.is_deliverable_member(m.id, t.account_id)
     where t.done_date is null
       and t.due_date is not null
       and t.due_date <= p_now
@@ -4928,12 +4977,36 @@ $$;
 -- The join to tasks is what lets the Worker satisfy AC-7 (no `.from(...)`
 -- anywhere in its files) with this single RPC call and no second lookup.
 --
+-- Epic 12 review fix (R2, R4): a row is now claimable in TWO cases, not
+-- one — 'pending' with no next_attempt_at or one that has already elapsed
+-- (a fresh row, or one re-armed after a retryable send failure), OR
+-- 'sending' with a claimed_at older than the 10-minute lease window. The
+-- second branch is the recovery path R4 asked for: without it, a Worker
+-- that crashed (or was killed) between claiming a row and settling it left
+-- that row 'sending' forever, with nothing to reclaim it. 10 minutes is
+-- comfortably above one batch's worst-case wall-clock time (<=100
+-- sequential Resend calls) and comfortably below the 15-minute sweep
+-- cadence, so a genuinely healthy in-flight batch is never reclaimed out
+-- from under itself. Reclaiming risks a duplicate SEND, not a duplicate
+-- EMAIL: workers/cron/sweepReminders.ts derives Resend's own idempotency
+-- key from (task_id, channel, due_date) — this row's own natural key — so
+-- Resend itself absorbs a reclaimed row that the stranded attempt actually
+-- did send. That is at-least-once delivery with a provider-side dedupe
+-- key, NOT exactly-once — see sweepReminders.ts's own header for why no
+-- comment in this codebase should claim otherwise.
+--
+-- `attempts` and `claimed_at` are now also returned: the Worker needs
+-- `attempts` to decide terminal-vs-retry (it caps retries at
+-- MAX_ATTEMPTS), and `claimed_at` to pass back to settle_task_notification()
+-- as a fencing token, so a late settle from an attempt that has since been
+-- reclaimed can never clobber the newer attempt's outcome.
+--
 -- Every OUT column above is an implicitly declared plpgsql variable in scope
 -- for the whole function body (claim_message_notifications()'s own comment
 -- explains this in full) — table aliases (tn/tn2/t) on every reference, not
 -- just the final projection, avoid a bare `id`/`task_id`/`account_id`/
 -- `due_date` being ambiguous with the OUT parameters of the same name.
-CREATE OR REPLACE FUNCTION "public"."claim_due_task_notifications"("p_limit" integer) RETURNS TABLE("id" bigint, "task_id" bigint, "account_id" bigint, "recipient_email" text, "task_text" text, "due_date" timestamp with time zone, "target_type" text, "target_id" bigint)
+CREATE OR REPLACE FUNCTION "public"."claim_due_task_notifications"("p_limit" integer) RETURNS TABLE("id" bigint, "task_id" bigint, "account_id" bigint, "recipient_email" text, "task_text" text, "due_date" timestamp with time zone, "target_type" text, "target_id" bigint, "attempts" integer, "claimed_at" timestamp with time zone)
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -4943,10 +5016,16 @@ begin
   return query
   with claimed as (
     update public.task_notifications tn
-    set status = 'sending', attempts = tn.attempts + 1
+    set status = 'sending', attempts = tn.attempts + 1, claimed_at = now()
     where tn.id in (
       select tn2.id from public.task_notifications tn2
-      where tn2.status = 'pending'
+      where (
+        tn2.status = 'pending'
+        and (tn2.next_attempt_at is null or tn2.next_attempt_at <= now())
+      ) or (
+        tn2.status = 'sending'
+        and tn2.claimed_at < now() - interval '10 minutes'
+      )
       order by tn2.created_at
       limit p_limit
       for update skip locked
@@ -4961,27 +5040,57 @@ begin
     t.text,
     claimed.due_date,
     t.target_type,
-    t.target_id
+    t.target_id,
+    claimed.attempts,
+    claimed.claimed_at
   from claimed
   join public.tasks t on t.id = claimed.task_id;
 end;
 $$;
 
 -- AC-1, AC-6: mirrors settle_message_notification() above, narrowed to the
--- two terminal states a reminder settle call may report ('sent'/'failed') —
--- unlike message_notifications, task_notifications never settles 'skipped'
+-- states a reminder settle call may report. Updates ONLY rows currently
+-- 'sending', so a late duplicate settle (the Worker retrying after a
+-- timeout whose original call actually succeeded) can never resurrect an
+-- already-finished row.
+--
+-- Epic 12 review fix (R2): a THIRD status joins 'sent'/'failed' —
+-- 'pending', meaning "retryable failure, re-arm for another attempt at
+-- p_next_attempt_at" (workers/cron/sweepReminders.ts computes that
+-- timestamp from Resend's own retryable/terminal classification). Unlike
+-- message_notifications, task_notifications still never settles 'skipped'
 -- through this function (that state is only ever written directly, by
 -- enqueue_due_task_notifications() or the AC-4 migration backfill, and
 -- claim_due_task_notifications() never selects a 'skipped' row to begin
--- with). Updates ONLY rows currently 'sending', so a late duplicate settle
--- (the Worker retrying after a timeout whose original call actually
--- succeeded) can never resurrect an already-finished row.
-CREATE OR REPLACE FUNCTION "public"."settle_task_notification"("p_id" bigint, "p_status" text, "p_error" text DEFAULT NULL::text) RETURNS void
+-- with).
+--
+-- Epic 12 review fix (R4): p_claimed_at is an optional fencing token. When
+-- supplied (the Worker always supplies it — the value
+-- claim_due_task_notifications() itself returned for this row) the update
+-- additionally requires claimed_at to still match, so a settle call from an
+-- attempt whose lease has since been reclaimed by a newer claim (the
+-- lease-timeout recovery path above) cannot clobber that newer attempt's
+-- outcome. NULL skips the check — kept optional, not required, so existing
+-- calls that only pass p_id/p_status/p_error (direct SQL in the test
+-- suites) stay valid unchanged. This does NOT mean the same function
+-- object survives the change: adding it (and p_next_attempt_at) as a
+-- trailing default parameter still makes CREATE OR REPLACE FUNCTION create
+-- a NEW, distinct function (verified: old- and new-arity versions coexist
+-- as separate pg_proc rows until the old one is dropped) — 06_grants.sql's
+-- own comment on this function explains why its grant has to be restated,
+-- not merely re-stated for clarity.
+CREATE OR REPLACE FUNCTION "public"."settle_task_notification"(
+    "p_id" bigint,
+    "p_status" text,
+    "p_error" text DEFAULT NULL::text,
+    "p_next_attempt_at" timestamp with time zone DEFAULT NULL::timestamp with time zone,
+    "p_claimed_at" timestamp with time zone DEFAULT NULL::timestamp with time zone
+) RETURNS void
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 begin
-  if p_status not in ('sent', 'failed') then
+  if p_status not in ('sent', 'failed', 'pending') then
     raise exception 'invalid task_notification status: %', p_status
       using errcode = 'invalid_parameter_value';
   end if;
@@ -4989,9 +5098,12 @@ begin
   update public.task_notifications
   set status = p_status,
       error = p_error,
-      sent_at = case when p_status = 'sent' then now() else sent_at end
+      sent_at = case when p_status = 'sent' then now() else sent_at end,
+      next_attempt_at = case when p_status = 'pending' then p_next_attempt_at else null end,
+      claimed_at = case when p_status = 'pending' then null else claimed_at end
   where id = p_id
-    and status = 'sending';
+    and status = 'sending'
+    and (p_claimed_at is null or claimed_at = p_claimed_at);
 end;
 $$;
 
@@ -5004,7 +5116,19 @@ $$;
 -- anything else. The Worker is what maps a real caught error down to one of
 -- these three codes (workers/cron/index.ts) — this constraint is what makes
 -- that mapping non-optional rather than merely a caller's good intention.
-CREATE OR REPLACE FUNCTION "public"."record_cron_heartbeat"("p_worker" text, "p_error" text DEFAULT NULL::text) RETURNS void
+--
+-- Epic 12 review fix (R3): p_failed_count is a NEW trailing default
+-- parameter — the count of task_notifications rows the just-finished tick
+-- did NOT settle 'sent' (workers/cron/sweepReminders.ts's own
+-- `result.failed`). Recorded ONLY on a p_error IS NULL call (the sweep's
+-- own RPC calls all succeeded — the only case where a per-row count is
+-- meaningful at all) and only then, alongside last_ok_at. This is what lets
+-- ReminderDeliveryStatus.tsx tell "the sweep ran but Resend rejected
+-- everything" apart from "the sweep is genuinely healthy" — before this,
+-- last_ok_at updating on ANY successful return (regardless of
+-- result.failed) is exactly how a green heartbeat and a permanently failing
+-- delivery queue used to coexist.
+CREATE OR REPLACE FUNCTION "public"."record_cron_heartbeat"("p_worker" text, "p_error" text DEFAULT NULL::text, "p_failed_count" integer DEFAULT NULL::integer) RETURNS void
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -5014,12 +5138,21 @@ begin
       using errcode = 'invalid_parameter_value';
   end if;
 
-  insert into public.cron_heartbeat (worker, last_run_at, last_ok_at, last_error)
-  values (p_worker, now(), case when p_error is null then now() else null end, p_error)
+  insert into public.cron_heartbeat (worker, last_run_at, last_ok_at, last_error, last_failed_count)
+  values (
+    p_worker, now(),
+    case when p_error is null then now() else null end,
+    p_error,
+    case when p_error is null then coalesce(p_failed_count, 0) else 0 end
+  )
   on conflict (worker) do update
     set last_run_at = now(),
         last_ok_at = case when p_error is null then now() else public.cron_heartbeat.last_ok_at end,
-        last_error = p_error;
+        last_error = p_error,
+        last_failed_count = case
+          when p_error is null then coalesce(p_failed_count, 0)
+          else public.cron_heartbeat.last_failed_count
+        end;
 end;
 $$;
 

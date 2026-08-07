@@ -28,16 +28,38 @@ compatibility_flags = ["nodejs_compat"]
 # if it lands; reminders would then simply sweep more often too — harmless,
 # and the 30-minute staleness threshold above still holds regardless.
 [triggers]
-# PAUSED 2026-08-07 pending the Epic 12 adversarial review fixes. The reminder
-# sweep is disarmed because two of its defects are irreversible once a tick
-# fires: a task assigned to an ARCHIVED household member is still emailed (the
-# recipient join checks members.disabled but never that the member still holds
-# an active membership in the task's own account), and any transient Resend
-# failure settles the row `failed` permanently, with no retry and no way to
-# re-enqueue that due occurrence. Sending an ex-spouse a household reminder
-# cannot be taken back. Restore `"*/15 * * * *"` alongside the daily tick once
-# both are fixed — the daily 03:00 retention tick is unaffected and stays armed.
-crons = ["0 3 * * *"]
+# RE-ARMED 2026-08-07 (Epic 12 adversarial review fixes, R1 and R2 — see
+# _bmad-output/epic-12-adversarial-review-report-2026-08-07.md). This schedule
+# was paused because two defects were irreversible once a tick fired:
+#
+#   - R1: the recipient join checked only members.disabled, never that the
+#     member still held an ACTIVE membership in the task's own account_id —
+#     an archived household member (a removed spouse, Story 12.3's
+#     deliberate history-preserving design) kept receiving that household's
+#     reminder emails. Fixed: public.is_deliverable_member() (02_functions
+#     .sql) is now the ONE shared predicate enqueue_due_task_notifications(),
+#     validate_task_assignee() and context_members all use — proven with a
+#     new db-suite case (an account_members row archived AFTER assignment,
+#     member NOT globally disabled) that failed before the fix and passes
+#     after it (supabase/tests/reminder_delivery.sql).
+#   - R2: any transient Resend failure (429/5xx/transport) settled the row
+#     `failed` permanently — no retry, no way to re-enqueue that due
+#     occurrence, so a momentary Resend outage silently defeated delivery.
+#     Fixed: workers/shared/resend.ts classifies retryable-vs-terminal
+#     failures; a retryable one re-arms the row `pending` at a
+#     backoff-scheduled `next_attempt_at` (capped at 5 attempts) instead of
+#     failing immediately.
+#
+# Also closed in the same pass (not themselves reasons this was paused, but
+# found and fixed alongside): R4, a settle failure for one claimed row used
+# to abort the whole batch and strand every remaining row — now contained
+# per-row, with a lease-timeout recovery path for a stranded 'sending' row
+# and an at-least-once/Resend-idempotency-key delivery guarantee (see
+# sweepReminders.ts's own header — this is no longer described as "exactly
+# once" anywhere in this codebase); and R3, a green heartbeat no longer
+# implies healthy delivery (cron_heartbeat.last_failed_count,
+# ReminderDeliveryStatus.tsx's new "Delivery failing" state).
+crons = ["*/15 * * * *", "0 3 * * *"]
 
 # Secrets (set via `wrangler secret put <NAME> --config workers/cron/wrangler.toml`,
 # or the CI job in .github/workflows/deploy.yml): SUPABASE_URL,

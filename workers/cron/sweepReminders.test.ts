@@ -4,10 +4,13 @@ import { sweepReminders, SweepRemindersError } from "./sweepReminders";
 import type { CronEnv } from "./sweepReminders";
 
 /**
- * Story 12.2 (AC-1, AC-6, AC-7): covers claim -> send -> settle ordering, a
- * transport failure settling the offending row 'failed' with the reason
- * (never on cron_heartbeat) while the batch continues past it, and the
- * classification a thrown error carries out to index.ts (AC-9's
+ * Story 12.2 (AC-1, AC-6, AC-7) + Epic 12 adversarial review fixes (R2, R4):
+ * covers claim -> send -> settle ordering, retryable-vs-terminal send
+ * failure classification (a retryable one re-arms 'pending' with a backoff
+ * next_attempt_at; a terminal one, or a retryable one past MAX_ATTEMPTS,
+ * settles 'failed'), a settle failure for ONE row never stranding the rest
+ * of the batch (R4 — this used to throw and abort the whole tick), and the
+ * classification a thrown claim-level error carries out to index.ts (AC-9's
  * rpc_failed/transport_failed split). AC-7's own `?raw` source scan lives in
  * noTenantTableAccess.guard.test.ts, scoped to the whole of workers/cron/**.
  */
@@ -42,6 +45,8 @@ function claimedRow(overrides: Partial<Record<string, unknown>> = {}) {
     due_date: "2026-08-07T12:00:00Z",
     target_type: "shidduch",
     target_id: 55,
+    attempts: 1,
+    claimed_at: "2026-08-07T12:05:00Z",
     ...overrides,
   };
 }
@@ -84,6 +89,8 @@ describe("sweepReminders", () => {
       p_id: 1,
       p_status: "sent",
       p_error: null,
+      p_next_attempt_at: null,
+      p_claimed_at: "2026-08-07T12:05:00Z",
     });
   });
 
@@ -107,10 +114,139 @@ describe("sweepReminders", () => {
       to: "parent@example.test",
       subject: "Reminder: Follow up with the Cohens",
       text: expect.stringContaining("https://www.myshadchan.space/#/reminders"),
+      idempotencyKey: "task-notification:10:email:2026-08-07T12:00:00Z",
     });
   });
 
-  it("a transport failure settles the row 'failed' with the reason, and the batch continues to the next row", async () => {
+  it("a terminal (non-retryable) send failure settles the row 'failed' with the reason, and the batch continues to the next row", async () => {
+    // Arrange
+    const settleCalls: unknown[] = [];
+    rpc.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === "claim_due_task_notifications") {
+        return Promise.resolve({
+          data: [
+            claimedRow({
+              id: 1,
+              recipient_email: "one@example.test",
+              claimed_at: "2026-08-07T12:05:00Z",
+            }),
+            claimedRow({
+              id: 2,
+              recipient_email: "two@example.test",
+              claimed_at: "2026-08-07T12:05:01Z",
+            }),
+          ],
+          error: null,
+        });
+      }
+      if (name === "settle_task_notification") {
+        settleCalls.push(args);
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+    sendEmail
+      .mockResolvedValueOnce({
+        ok: false,
+        error: "Resend responded 403: domain is not verified",
+        retryable: false,
+      })
+      .mockResolvedValueOnce({ ok: true, id: "email-2" });
+
+    // Act
+    const result = await sweepReminders(env);
+
+    // Assert
+    expect(result).toEqual({ claimed: 2, sent: 1, failed: 1 });
+    expect(sendEmail).toHaveBeenCalledTimes(2);
+    expect(settleCalls).toEqual([
+      {
+        p_id: 1,
+        p_status: "failed",
+        p_error: "Resend responded 403: domain is not verified",
+        p_next_attempt_at: null,
+        p_claimed_at: "2026-08-07T12:05:00Z",
+      },
+      {
+        p_id: 2,
+        p_status: "sent",
+        p_error: null,
+        p_next_attempt_at: null,
+        p_claimed_at: "2026-08-07T12:05:01Z",
+      },
+    ]);
+  });
+
+  it("a retryable send failure re-arms the row 'pending' with a computed next_attempt_at, not 'failed'", async () => {
+    // Arrange
+    const settleCalls: Array<Record<string, unknown>> = [];
+    rpc.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === "claim_due_task_notifications") {
+        return Promise.resolve({
+          data: [claimedRow({ attempts: 1 })],
+          error: null,
+        });
+      }
+      if (name === "settle_task_notification" && args) {
+        settleCalls.push(args);
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+    sendEmail.mockResolvedValue({
+      ok: false,
+      error: "Resend responded 503: upstream unavailable",
+      retryable: true,
+    });
+
+    // Act
+    const result = await sweepReminders(env);
+
+    // Assert
+    expect(result).toEqual({ claimed: 1, sent: 0, failed: 1 });
+    expect(settleCalls).toHaveLength(1);
+    expect(settleCalls[0]).toMatchObject({
+      p_id: 1,
+      p_status: "pending",
+      p_error: "Resend responded 503: upstream unavailable",
+    });
+    expect(typeof settleCalls[0].p_next_attempt_at).toBe("string");
+    expect(
+      new Date(settleCalls[0].p_next_attempt_at as string).getTime(),
+    ).toBeGreaterThan(Date.now());
+  });
+
+  it("a retryable send failure settles terminally 'failed' once attempts reach MAX_ATTEMPTS, not 'pending'", async () => {
+    // Arrange
+    const settleCalls: Array<Record<string, unknown>> = [];
+    rpc.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === "claim_due_task_notifications") {
+        return Promise.resolve({
+          data: [claimedRow({ attempts: 5 })],
+          error: null,
+        });
+      }
+      if (name === "settle_task_notification" && args) {
+        settleCalls.push(args);
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+    sendEmail.mockResolvedValue({
+      ok: false,
+      error: "Resend responded 503: upstream unavailable",
+      retryable: true,
+    });
+
+    // Act
+    const result = await sweepReminders(env);
+
+    // Assert
+    expect(result).toEqual({ claimed: 1, sent: 0, failed: 1 });
+    expect(settleCalls).toHaveLength(1);
+    expect(settleCalls[0].p_status).toBe("failed");
+    expect(settleCalls[0].p_next_attempt_at).toBeNull();
+    expect(settleCalls[0].p_error).toContain("exhausted 5 attempts");
+  });
+
+  it("a settle failure for one row does not strand the rest of the batch (R4)", async () => {
     // Arrange
     const settleCalls: unknown[] = [];
     rpc.mockImplementation((name: string, args?: Record<string, unknown>) => {
@@ -125,30 +261,25 @@ describe("sweepReminders", () => {
       }
       if (name === "settle_task_notification") {
         settleCalls.push(args);
+        if ((args as { p_id: number }).p_id === 1) {
+          return Promise.resolve({
+            data: null,
+            error: { message: "row not found" },
+          });
+        }
       }
       return Promise.resolve({ data: null, error: null });
     });
-    sendEmail
-      .mockResolvedValueOnce({
-        ok: false,
-        error: "Resend responded 500: upstream error",
-      })
-      .mockResolvedValueOnce({ ok: true, id: "email-2" });
+    sendEmail.mockResolvedValue({ ok: true, id: "email-1" });
 
     // Act
     const result = await sweepReminders(env);
 
-    // Assert
+    // Assert — the whole batch still gets processed; the failing settle for
+    // row 1 does not prevent row 2 from being sent and settled.
     expect(result).toEqual({ claimed: 2, sent: 1, failed: 1 });
     expect(sendEmail).toHaveBeenCalledTimes(2);
-    expect(settleCalls).toEqual([
-      {
-        p_id: 1,
-        p_status: "failed",
-        p_error: "Resend responded 500: upstream error",
-      },
-      { p_id: 2, p_status: "sent", p_error: null },
-    ]);
+    expect(settleCalls).toHaveLength(2);
   });
 
   it("claims nothing and sends nothing when no reminder is due", async () => {
@@ -187,7 +318,7 @@ describe("sweepReminders", () => {
     expect((error as SweepRemindersError).code).toBe("transport_failed");
   });
 
-  it("throws a SweepRemindersError('rpc_failed') when settle_task_notification reports an error", async () => {
+  it("R4: does NOT throw when settle_task_notification reports an error for a claimed row — it is counted 'failed' and the tick still resolves", async () => {
     // Arrange
     rpc.mockImplementation((name: string) => {
       if (name === "claim_due_task_notifications") {
@@ -200,13 +331,15 @@ describe("sweepReminders", () => {
     });
     sendEmail.mockResolvedValue({ ok: true, id: "email-1" });
 
-    // Act / Assert
-    const error = await sweepReminders(env).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(SweepRemindersError);
-    expect((error as SweepRemindersError).code).toBe("rpc_failed");
+    // Act
+    const result = await sweepReminders(env);
+
+    // Assert — before R4 this threw a SweepRemindersError and aborted the
+    // whole tick; now the row's own settle failure is contained.
+    expect(result).toEqual({ claimed: 1, sent: 0, failed: 1 });
   });
 
-  it("throws a SweepRemindersError('transport_failed') when the settle call itself rejects", async () => {
+  it("R4: does NOT throw when the settle call itself rejects for a claimed row — it is counted 'failed' and the tick still resolves", async () => {
     // Arrange
     rpc.mockImplementation((name: string) => {
       if (name === "claim_due_task_notifications") {
@@ -216,10 +349,11 @@ describe("sweepReminders", () => {
     });
     sendEmail.mockResolvedValue({ ok: true, id: "email-1" });
 
-    // Act / Assert
-    const error = await sweepReminders(env).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(SweepRemindersError);
-    expect((error as SweepRemindersError).code).toBe("transport_failed");
+    // Act
+    const result = await sweepReminders(env);
+
+    // Assert
+    expect(result).toEqual({ claimed: 1, sent: 0, failed: 1 });
   });
 
   it("settles a claimed row with no recipient_email as 'failed' without ever calling Resend", async () => {
@@ -244,6 +378,8 @@ describe("sweepReminders", () => {
       p_id: 1,
       p_status: "failed",
       p_error: "claimed row carried no recipient_email",
+      p_next_attempt_at: null,
+      p_claimed_at: "2026-08-07T12:05:00Z",
     });
   });
 

@@ -321,6 +321,66 @@ select 'AC-8: enforce_household_scope is still not attached to tasks or interact
          (select count(*) from pg_trigger where tgfoid = 'public.enforce_household_scope'::regproc and not tgisinternal));
 
 -- ---------------------------------------------------------------------------
+-- Epic 12 review fix (R5): a GLOBALLY disabled member (members.disabled =
+-- true) — active membership, active context, but disabled — is neither
+-- pickable in context_members (the roster) nor assignable through
+-- validate_task_assignee(): the delivery queue's own enabled-member
+-- definition (is_deliverable_member(), 02_functions.sql), and this is now
+-- the SAME predicate the roster and the write-time guard use. Before this
+-- fix, neither checked `disabled` at all — a disabled account passed both
+-- gates and only failed once a reminder for them actually came due.
+-- ---------------------------------------------------------------------------
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('a5123001-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'ta-x-disabled@test.local');
+
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_a, 'a5123001-0000-0000-0000-000000000004', 'helper', 'active')
+returning id as x_am_a \gset
+
+update public.members set first_name = 'Xena', last_name = 'TaDisabled', disabled = true
+where user_id = 'a5123001-0000-0000-0000-000000000004';
+
+select m.id as x_mid from public.members m where m.user_id = 'a5123001-0000-0000-0000-000000000004' \gset
+insert into ids values ('x_am_a', :'x_am_a'), ('x_mid', :'x_mid');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a5123001-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select public.set_active_context(:acct_a);
+
+insert into results (name, passed, detail)
+select 'R5: context_members active in A excludes a globally disabled member despite an active membership',
+       (select count(*) from public.context_members where id = :x_mid) = 0,
+       format('count=%s', (select count(*) from public.context_members where id = :x_mid));
+
+do $$
+declare
+  v_x_mid bigint;
+  v_count_before int;
+  v_count_after int;
+begin
+  select value::bigint into v_x_mid from ids where name = 'x_mid';
+  select count(*) into v_count_before from public.tasks;
+
+  insert into public.tasks (target_type, target_id, text, member_id)
+    values ('reference', 1, 'TA task assigned to disabled X (should never land)', v_x_mid);
+
+  insert into results values (
+    'R5: insert with member_id = a globally disabled (but active-membership) member raises check_violation',
+    false, 'insert unexpectedly succeeded'
+  );
+exception when others then
+  select count(*) into v_count_after from public.tasks;
+  insert into results values (
+    'R5: insert with member_id = a globally disabled (but active-membership) member raises check_violation',
+    sqlstate = '23514' and v_count_after = v_count_before,
+    format('sqlstate=%s count_before=%s count_after=%s', sqlstate, v_count_before, v_count_after)
+  );
+end $$;
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- AC-9: replay the exact backfill statement from the migration. The trigger
 -- makes it impossible to plant an unresolvable member_id through ordinary
 -- DML, so the trigger is disabled just long enough to plant one row with an

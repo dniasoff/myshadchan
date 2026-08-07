@@ -72,6 +72,10 @@ export default (): Db => {
       last_run_at: new Date().toISOString(),
       last_ok_at: new Date().toISOString(),
       last_error: null,
+      // Epic 12 review fix (R3): 0, matching a healthy tick — see this
+      // block's own comment above for why the demo seeds "Sending" rather
+      // than a permanently alarming state.
+      last_failed_count: 0,
     },
   ];
   // Shidduchim pipeline domain (accounts, singles, shadchanim, shidduchim, ...)

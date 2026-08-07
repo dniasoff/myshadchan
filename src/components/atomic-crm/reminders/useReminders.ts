@@ -189,6 +189,11 @@ export const useReminders = (
     [openTasks, lookup],
   );
 
+  // Epic 12 review fix (R6): a task with no due_date is honestly neither
+  // overdue nor "due at some moment" — isOverdue(null) is `false` (never
+  // silently true via new Date(null)'s Unix-epoch coercion), so a no-date
+  // task lands in `upcoming`, the same bucket a genuinely-far-future task
+  // would.
   const overdue = items.filter((item) => isOverdue(item.task.due_date));
   const upcoming = items.filter((item) => !isOverdue(item.task.due_date));
 
@@ -221,9 +226,17 @@ export const useReminders = (
   };
 
   const snooze = async (task: Task): Promise<void> => {
-    const base = isOverdue(task.due_date)
-      ? new Date()
-      : new Date(task.due_date);
+    // Epic 12 review fix (R6): a no-due-date task used to land here only
+    // because isOverdue(null) happened to return true under the old
+    // (false) `due_date: string` contract — new Date(null) is the Unix
+    // epoch, which is always < startOfToday(). Now that Task.due_date is
+    // honestly `string | null`, isOverdue(null) is `false`, so the same
+    // "base it on now" behavior has to be spelled out deliberately here
+    // instead of falling out of that accident.
+    const base =
+      task.due_date == null || isOverdue(task.due_date)
+        ? new Date()
+        : new Date(task.due_date);
     try {
       await update(
         "tasks",

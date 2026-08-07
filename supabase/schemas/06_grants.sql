@@ -1191,11 +1191,34 @@ grant execute on function public.enqueue_due_task_notifications(timestamp with t
 revoke all on function public.claim_due_task_notifications(integer) from public, anon, authenticated;
 grant execute on function public.claim_due_task_notifications(integer) to service_role;
 
-revoke all on function public.settle_task_notification(bigint, text, text) from public, anon, authenticated;
-grant execute on function public.settle_task_notification(bigint, text, text) to service_role;
+-- Epic 12 review fix (R2, R4) widened this signature with two trailing
+-- defaulted params (p_next_attempt_at, p_claimed_at). VERIFIED: adding a
+-- parameter — even a trailing one with a default — makes `CREATE OR
+-- REPLACE FUNCTION` create a genuinely NEW, separately-OID'd function
+-- alongside the old one, not an in-place replace (confirmed directly: the
+-- old- and new-arity functions coexist in `pg_proc` with different oids
+-- until the old one is explicitly dropped, which the migration for this
+-- change does). The new function therefore starts with the CREATING
+-- ROLE's own default privileges, not the old function's grants, so this
+-- grant is restated against the new signature — not merely "re-stated for
+-- clarity".
+revoke all on function public.settle_task_notification(bigint, text, text, timestamp with time zone, timestamp with time zone) from public, anon, authenticated;
+grant execute on function public.settle_task_notification(bigint, text, text, timestamp with time zone, timestamp with time zone) to service_role;
 
-revoke all on function public.record_cron_heartbeat(text, text) from public, anon, authenticated;
-grant execute on function public.record_cron_heartbeat(text, text) to service_role;
+-- Epic 12 review fix (R3) widened this signature with a trailing defaulted
+-- p_failed_count param — same caveat as settle_task_notification() above:
+-- a genuinely new function object, needing its own grant.
+revoke all on function public.record_cron_heartbeat(text, text, integer) from public, anon, authenticated;
+grant execute on function public.record_cron_heartbeat(text, text, integer) to service_role;
+
+-- Epic 12 review fix (R1, R5): is_deliverable_member() is SECURITY INVOKER
+-- (its own comment in 02_functions.sql explains why), so
+-- context_members (03_views.sql) and validate_task_assignee()'s own nested
+-- calls — both running as `authenticated`, not as a definer — need direct
+-- EXECUTE here; anon never reaches either call site.
+revoke all on function public.is_deliverable_member(bigint, bigint) from public, anon;
+grant execute on function public.is_deliverable_member(bigint, bigint) to authenticated;
+grant execute on function public.is_deliverable_member(bigint, bigint) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- Shadchan Context (Epic 8 Story 8.2: consent-based connection)

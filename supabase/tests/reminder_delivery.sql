@@ -74,7 +74,8 @@ delete from public.account_members;
 insert into auth.users (id, instance_id, aud, role, email) values
   ('51920000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rd-ok@test.local'),
   ('51920000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rd-disabled@test.local'),
-  ('51920000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rd-removed@test.local');
+  ('51920000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rd-removed@test.local'),
+  ('51920000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rd-archived@test.local');
 
 insert into public.accounts (name, kind) values ('Reminder Delivery Test Household', 'household')
 returning id as account_id \gset
@@ -91,9 +92,22 @@ insert into public.account_members (account_id, user_id, role, status)
 values (:account_id, '51920000-0000-0000-0000-000000000003', 'helper', 'active')
 returning id as removed_account_member_id \gset
 
+-- Epic 12 review fix (R1): a FOURTH recipient, distinct from "removed"
+-- above. "removed" simulates the member row itself disappearing; this one
+-- simulates Story 12.3's own deliberate design — the member row (and
+-- global members.disabled) stays exactly as it was, ONLY this account's
+-- account_members.status moves to 'archived' — the shape an archived
+-- household member (a removed spouse, per the review's own scenario)
+-- actually takes. Inserted 'active' here and archived AFTER its task below
+-- is planted, mirroring how a real assignment predates a real archive.
+insert into public.account_members (account_id, user_id, role, status)
+values (:account_id, '51920000-0000-0000-0000-000000000004', 'helper', 'active')
+returning id as archived_account_member_id \gset
+
 select id as ok_member_id from public.members where user_id = '51920000-0000-0000-0000-000000000001' \gset
 select id as disabled_member_id from public.members where user_id = '51920000-0000-0000-0000-000000000002' \gset
 select id as removed_member_id from public.members where user_id = '51920000-0000-0000-0000-000000000003' \gset
+select id as archived_member_id from public.members where user_id = '51920000-0000-0000-0000-000000000004' \gset
 
 insert into public.shadchanim (account_id, name)
 values (:account_id, 'Reminder Delivery Test Shadchan')
@@ -127,6 +141,12 @@ insert into public.tasks (account_id, target_type, target_id, text, due_date, me
 values (:account_id, 'shadchan', :shadchan_id, 'Follow up — due, removed recipient', now() - interval '1 hour', :removed_member_id, array['in_app','email'])
 returning id as task_removed \gset
 
+-- Epic 12 review fix (R1): a task assigned to the fourth recipient, BEFORE
+-- their account_members row is archived below.
+insert into public.tasks (account_id, target_type, target_id, text, due_date, member_id, delivery_channels)
+values (:account_id, 'shadchan', :shadchan_id, 'Follow up — due, archived-in-account recipient', now() - interval '1 hour', :archived_member_id, array['in_app','email'])
+returning id as task_archived \gset
+
 insert into public.tasks (account_id, target_type, target_id, text, due_date, member_id, delivery_channels)
 values (:account_id, 'shadchan', :shadchan_id, 'Follow up — not yet due', now() + interval '1 day', :ok_member_id, array['in_app','email'])
 returning id as task_future \gset
@@ -147,11 +167,21 @@ delete from public.members where user_id = '51920000-0000-0000-0000-000000000003
 -- Simulate the assignee being disabled AFTER assignment.
 update public.members set disabled = true where user_id = '51920000-0000-0000-0000-000000000002';
 
+-- Epic 12 review fix (R1): simulate the assignee being ARCHIVED OUT OF
+-- THIS ACCOUNT after assignment — Story 12.3's deliberate design (a removed
+-- household member keeps their historical tasks.member_id). The member row
+-- itself is untouched and NOT disabled — only this account_members row
+-- moves to 'archived', exactly the shape the adversarial review's R1
+-- finding describes ("a removed spouse remains a valid recipient... as
+-- long as their global member row is enabled").
+update public.account_members set status = 'archived' where id = :archived_account_member_id;
+
 insert into ids values
   ('task_ok', :task_ok),
   ('task_unassigned', :task_unassigned),
   ('task_disabled', :task_disabled),
   ('task_removed', :task_removed),
+  ('task_archived', :task_archived),
   ('task_future', :task_future),
   ('task_done', :task_done),
   ('task_no_email', :task_no_email);
@@ -162,8 +192,8 @@ insert into ids values
 select public.enqueue_due_task_notifications() as first_pass_count \gset
 
 insert into results (name, passed, detail)
-select 'enqueue_due_task_notifications(): enqueues exactly the four due, open, email-channel tasks',
-       :first_pass_count = 4,
+select 'enqueue_due_task_notifications(): enqueues exactly the five due, open, email-channel tasks',
+       :first_pass_count = 5,
        format('returned %s', :first_pass_count);
 
 insert into results (name, passed, detail)
@@ -194,6 +224,17 @@ select 'enqueue (AC-5): a member removed after assignment settles failed with an
 from public.task_notifications tn
 where tn.task_id = :task_removed;
 
+insert into results (name, passed, detail)
+select 'enqueue (R1): a member ARCHIVED OUT OF THIS ACCOUNT (but not globally '
+       || 'disabled) settles failed with an explanatory error, and carries NO '
+       || 'recipient_email — the exact bug the Epic 12 adversarial review named: '
+       || 'a removed household member must never be selected as a valid recipient',
+       tn.status = 'failed' and tn.recipient_email is null
+         and tn.error like '%no live or no enabled member%',
+       format('status=%s recipient_email=%s error=%s', tn.status, tn.recipient_email, tn.error)
+from public.task_notifications tn
+where tn.task_id = :task_archived;
+
 insert into results (name, passed)
 select 'enqueue: a not-yet-due task is never enqueued',
        not exists (select 1 from public.task_notifications where task_id = :task_future);
@@ -219,9 +260,9 @@ select 'enqueue_due_task_notifications() (AC-1): a second pass over the same due
 
 insert into results (name, passed)
 select 'task_notifications (AC-1): exactly one row per due task after two enqueue passes',
-       count(*) = 4
+       count(*) = 5
 from public.task_notifications
-where task_id in (:task_ok, :task_unassigned, :task_disabled, :task_removed);
+where task_id in (:task_ok, :task_unassigned, :task_disabled, :task_removed, :task_archived);
 
 -- ---------------------------------------------------------------------------
 -- Act (AC-2): snoozing task_ok (advancing due_date, exactly what
@@ -364,6 +405,118 @@ select 'settle_task_notification(): a late duplicate settle cannot resurrect an 
        tn.status = 'sent' and tn.error is null,
        format('status=%s error=%s', tn.status, tn.error)
 from public.task_notifications tn where tn.id = :claim1_id;
+
+-- ---------------------------------------------------------------------------
+-- Epic 12 review fix (R2): a retryable failure re-arms a row as 'pending' at
+-- a future next_attempt_at, and claim_due_task_notifications() honours that
+-- timestamp — not claimable before it, claimable (with attempts incremented
+-- again) once it has elapsed.
+-- ---------------------------------------------------------------------------
+insert into public.tasks (account_id, target_type, target_id, text, due_date, member_id, delivery_channels)
+values (:account_id, 'shadchan', :shadchan_id, 'R2 retry probe', now() - interval '1 hour', :ok_member_id, array['in_app','email'])
+returning id as task_retry \gset
+
+select public.enqueue_due_task_notifications();
+select * from public.claim_due_task_notifications(1) \gset retry1_
+
+select public.settle_task_notification(
+  :retry1_id, 'pending', 'Resend responded 503', now() + interval '1 hour', :'retry1_claimed_at'
+);
+
+insert into results (name, passed, detail)
+select 'settle_task_notification(''pending''): a retryable failure re-arms the row pending with next_attempt_at set and clears claimed_at',
+       tn.status = 'pending' and tn.next_attempt_at is not null and tn.claimed_at is null and tn.error = 'Resend responded 503',
+       format('status=%s next_attempt_at=%s claimed_at=%s error=%s', tn.status, tn.next_attempt_at, tn.claimed_at, tn.error)
+from public.task_notifications tn where tn.id = :retry1_id;
+
+select count(*) as reclaim_before_due_count from public.claim_due_task_notifications(50) \gset
+
+insert into results (name, passed, detail)
+select 'claim_due_task_notifications(): does NOT reclaim a pending row before its next_attempt_at',
+       tn.status = 'pending',
+       format('status=%s next_attempt_at=%s now=%s', tn.status, tn.next_attempt_at, now())
+from public.task_notifications tn where tn.id = :retry1_id;
+
+-- Simulate the backoff window elapsing.
+update public.task_notifications set next_attempt_at = now() - interval '1 minute' where id = :retry1_id;
+
+select * from public.claim_due_task_notifications(1) \gset retry2_
+
+insert into results (name, passed, detail)
+select 'claim_due_task_notifications(): reclaims a pending row once next_attempt_at has elapsed, incrementing attempts again',
+       :retry2_id = :retry1_id and tn.status = 'sending' and tn.attempts = 2,
+       format('retry2_id=%s retry1_id=%s status=%s attempts=%s', :retry2_id, :retry1_id, tn.status, tn.attempts)
+from public.task_notifications tn where tn.id = :retry1_id;
+
+select public.settle_task_notification(:retry1_id, 'sent', null, null, :'retry2_claimed_at');
+
+-- ---------------------------------------------------------------------------
+-- Epic 12 review fix (R4): a 'sending' row whose lease (claimed_at) is older
+-- than the 10-minute window is reclaimed by a later claim rather than
+-- stranded forever — the recovery path a Worker crash between claim and
+-- settle otherwise had none of.
+-- ---------------------------------------------------------------------------
+insert into public.tasks (account_id, target_type, target_id, text, due_date, member_id, delivery_channels)
+values (:account_id, 'shadchan', :shadchan_id, 'R4 lease probe', now() - interval '1 hour', :ok_member_id, array['in_app','email'])
+returning id as task_lease \gset
+
+select public.enqueue_due_task_notifications();
+select * from public.claim_due_task_notifications(1) \gset lease1_
+
+-- Simulate a stranded Worker: the claim happened 11 minutes ago and nothing
+-- ever settled it.
+update public.task_notifications set claimed_at = now() - interval '11 minutes' where id = :lease1_id;
+
+select * from public.claim_due_task_notifications(1) \gset lease2_
+
+insert into results (name, passed, detail)
+select 'claim_due_task_notifications() (R4): reclaims a ''sending'' row whose lease has expired, incrementing attempts and refreshing claimed_at',
+       :lease2_id = :lease1_id and tn.attempts = 2 and tn.claimed_at > (now() - interval '1 minute'),
+       format('lease2_id=%s lease1_id=%s attempts=%s claimed_at=%s', :lease2_id, :lease1_id, tn.attempts, tn.claimed_at)
+from public.task_notifications tn where tn.id = :lease1_id;
+
+-- ---------------------------------------------------------------------------
+-- Epic 12 review fix (R4): the claimed_at fencing token — a settle call
+-- carrying a STALE claimed_at (the original, now-superseded claim) must not
+-- be able to clobber the outcome of the newer claim that reclaimed the row.
+-- ---------------------------------------------------------------------------
+insert into public.tasks (account_id, target_type, target_id, text, due_date, member_id, delivery_channels)
+values (:account_id, 'shadchan', :shadchan_id, 'R4 fencing probe', now() - interval '1 hour', :ok_member_id, array['in_app','email'])
+returning id as task_fence \gset
+
+select public.enqueue_due_task_notifications();
+select * from public.claim_due_task_notifications(1) \gset fence1_
+
+-- Force a lease-timeout reclaim, exactly as above, so fence1_claimed_at is
+-- now stale.
+update public.task_notifications set claimed_at = now() - interval '11 minutes' where id = :fence1_id;
+select * from public.claim_due_task_notifications(1) \gset fence2_
+
+-- `now()` is frozen for the whole of this transaction (it is transaction
+-- start time, not wall-clock time), so the reclaim above can genuinely set
+-- claimed_at back to the SAME value fence1_claimed_at already held —
+-- fabricate a definitely-earlier stale token instead of trusting fence1's
+-- own captured value to still differ from fence2's.
+select (:'fence2_claimed_at')::timestamptz - interval '1 second' as stale_claimed_at \gset
+
+-- The stranded original attempt "finally responds" using a stale
+-- claimed_at — not the reclaiming attempt's current one.
+select public.settle_task_notification(:fence1_id, 'sent', null, null, :'stale_claimed_at');
+
+insert into results (name, passed, detail)
+select 'settle_task_notification() (R4 fencing): a settle carrying a stale claimed_at is a no-op — it cannot clobber the reclaimed attempt''s outcome',
+       tn.status = 'sending' and tn.attempts = 2 and tn.claimed_at = :'fence2_claimed_at'::timestamptz,
+       format('status=%s attempts=%s claimed_at=%s fence2_claimed_at=%s', tn.status, tn.attempts, tn.claimed_at, :'fence2_claimed_at')
+from public.task_notifications tn where tn.id = :fence1_id;
+
+-- The reclaiming (current) attempt settles it normally, unaffected.
+select public.settle_task_notification(:fence2_id, 'sent', null, null, :'fence2_claimed_at');
+
+insert into results (name, passed, detail)
+select 'settle_task_notification() (R4 fencing): the CURRENT claim''s own settle still succeeds normally',
+       tn.status = 'sent' and tn.sent_at is not null,
+       format('status=%s sent_at=%s', tn.status, tn.sent_at)
+from public.task_notifications tn where tn.id = :fence2_id;
 
 -- ---------------------------------------------------------------------------
 -- AC-9: record_cron_heartbeat()'s bounded-code enforcement.

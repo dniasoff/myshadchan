@@ -4,7 +4,9 @@ import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import type { AuthProvider, DataProvider } from "ra-core";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
+import type { Task } from "../types";
 import { useReminders } from "./useReminders";
+import type { UseRemindersResult } from "./useReminders";
 
 /**
  * AC-2: `/reminders` carries the SAME Everyone/Mine scope as `/tasks`, under
@@ -70,5 +72,61 @@ describe("useReminders — Everyone/Mine scope (AC-2)", () => {
         }),
       );
     });
+  });
+});
+
+describe("useReminders — snooze() with no due date (Epic 12 review fix, R6)", () => {
+  it("bases the new due date on now, not on new Date(null)'s Unix-epoch coercion", async () => {
+    // Arrange
+    const update = vi.fn().mockResolvedValue({ data: {} });
+    const dataProvider = {
+      getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+      getMany: vi.fn().mockResolvedValue({ data: [] }),
+      update,
+    } as unknown as DataProvider;
+
+    let hookResult: UseRemindersResult | undefined;
+    const Probe = () => {
+      hookResult = useReminders("everyone");
+      return null;
+    };
+
+    await render(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          authProvider={buildAuthProvider()}
+          i18nProvider={testI18nProvider}
+        >
+          <Probe />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await vi.waitFor(() => expect(hookResult).toBeDefined());
+
+    const task: Task = {
+      id: 1,
+      type: "reminder",
+      text: "No-date reminder",
+      due_date: null,
+    };
+    const before = Date.now();
+
+    // Act
+    await hookResult!.snooze(task);
+
+    // Assert — before this fix, isOverdue(null) was `true` only by the
+    // accident of the old `due_date: string` contract; the honest fix makes
+    // this deliberate, not accidental, so it must still base on "now".
+    const after = Date.now();
+    expect(update).toHaveBeenCalledTimes(1);
+    const [, params] = update.mock.calls[0] as [
+      string,
+      { data: { due_date: string } },
+    ];
+    const newDueDateMs = new Date(params.data.due_date).getTime();
+    expect(newDueDateMs).toBeGreaterThan(before);
+    expect(newDueDateMs).toBeLessThan(after + 2 * 24 * 60 * 60 * 1000);
   });
 });

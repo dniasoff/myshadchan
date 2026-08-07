@@ -170,6 +170,7 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
     expect(rpc).toHaveBeenCalledWith("record_cron_heartbeat", {
       p_worker: "cron",
       p_error: null,
+      p_failed_count: 0,
     });
     // The retention sweep's own RPC never fires on this tick.
     expect(rpc).not.toHaveBeenCalledWith(
@@ -226,6 +227,7 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
     expect(rpc).toHaveBeenCalledWith("record_cron_heartbeat", {
       p_worker: "cron",
       p_error: "rpc_failed",
+      p_failed_count: null,
     });
   });
 
@@ -247,6 +249,7 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
     expect(rpc).toHaveBeenCalledWith("record_cron_heartbeat", {
       p_worker: "cron",
       p_error: "transport_failed",
+      p_failed_count: null,
     });
   });
 
@@ -262,6 +265,8 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
       due_date: "2026-08-07T12:00:00Z",
       target_type: "shidduch",
       target_id: 55,
+      attempts: 1,
+      claimed_at: "2026-08-07T12:05:00Z",
     };
     rpc.mockImplementation((name: string) => {
       if (name === "claim_due_task_notifications") {
@@ -280,10 +285,57 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
       p_id: 1,
       p_status: "sent",
       p_error: null,
+      p_next_attempt_at: null,
+      p_claimed_at: "2026-08-07T12:05:00Z",
     });
     expect(rpc).toHaveBeenCalledWith("record_cron_heartbeat", {
       p_worker: "cron",
       p_error: null,
+      p_failed_count: 0,
+    });
+  });
+
+  it("R3: records the tick's own failed count on the heartbeat even though the tick itself succeeded — a green sweep is not the same claim as healthy delivery", async () => {
+    // Arrange
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const claimedRow = {
+      id: 1,
+      task_id: 10,
+      account_id: 100,
+      recipient_email: "parent@example.test",
+      task_text: "Follow up with the Cohens",
+      due_date: "2026-08-07T12:00:00Z",
+      target_type: "shidduch",
+      target_id: 55,
+      attempts: 5,
+      claimed_at: "2026-08-07T12:05:00Z",
+    };
+    rpc.mockImplementation((name: string) => {
+      if (name === "claim_due_task_notifications") {
+        return Promise.resolve({ data: [claimedRow], error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+    // Every send fails terminally — simulates missing/invalid Resend
+    // credentials, the exact scenario R3 names.
+    sendEmail.mockResolvedValue({
+      ok: false,
+      error: "Resend responded 401: invalid API key",
+      retryable: false,
+    });
+
+    // Act
+    await worker.scheduled(REMINDER_EVENT, env, {} as ExecutionContext);
+
+    // Assert — the sweep's own RPCs all succeeded (no rethrow, no
+    // rpc_failed/transport_failed code), but the heartbeat still carries
+    // last_failed_count > 0, which is what lets Settings tell this apart
+    // from a genuinely healthy sweep.
+    expect(rpc).toHaveBeenCalledWith("record_cron_heartbeat", {
+      p_worker: "cron",
+      p_error: null,
+      p_failed_count: 1,
     });
   });
 });

@@ -110,17 +110,24 @@ export type Task = {
   type: string;
   text: string;
   /**
-   * KNOWN CONTRACT DRIFT, deliberately left as-is rather than widened here.
-   * The column is **nullable** (`01_tables.sql`) but this has been declared
-   * non-null since Phase 1, so a task with no due date is a shape TypeScript
-   * says cannot exist. `dashboard/DueRemindersCard.tsx` guards it (a null
-   * would otherwise render the string "Invalid Date" via `new Date(null)`);
-   * the Reminders hub does not — widening this to `string | null` makes
-   * `reminders/ReminderCard.tsx:84` and `reminders/useReminders.ts:192,193,
-   * 224,226` fail to typecheck, which is the honest measure of the exposure.
-   * Fixing those guards is a follow-up story, not an Epic 12 edit.
+   * Epic 12 adversarial review fix (R6): widened to match the actual
+   * column, which is **nullable** (`01_tables.sql`) — the universal Tasks
+   * tab (`entity360/tabs/TasksTab.tsx`) can create a task with no due date
+   * at all. This type used to claim `string`, a KNOWN CONTRACT DRIFT that
+   * was deliberately left as-is — the review named the concrete cost:
+   * `new Date(null)` is the Unix epoch, not "Invalid Date", so a no-date
+   * task was silently classified overdue everywhere `isOverdue()` (and
+   * every other tasksPredicate.ts predicate) was called on it, rendering
+   * "Since 1 Jan, 12:00 AM". Every predicate in `tasks/tasksPredicate.ts`
+   * now accepts `string | null` and treats `null` honestly as "no due
+   * date" — never overdue, never due-today/tomorrow/this-week/later.
+   * `reminders/ReminderCard.tsx` renders "No due date" for it instead of
+   * calling `formatDueMoment` on a value it cannot format, and
+   * `reminders/useReminders.ts`'s `snooze()` bases a no-date task's new
+   * due date on "now" deliberately, not as an accident of the old
+   * (wrong) overdue classification.
    */
-  due_date: string;
+  due_date: string | null;
   done_date?: string | null;
   /**
    * The assignee, as `public.members.id` — see the column comment in
@@ -1255,6 +1262,16 @@ export type TaskNotification = {
   sent_at?: string | null;
   error?: string | null;
   created_at: string;
+  /** Epic 12 review fix (R2): set when `status` is 'pending' after a
+   * retryable send failure — when this row becomes claimable again.
+   * `null` for a fresh row (claimable immediately) and for every
+   * terminal/settled row. */
+  next_attempt_at?: string | null;
+  /** Epic 12 review fix (R4): set by `claim_due_task_notifications()` the
+   * moment this row moves to 'sending'; cleared on every settle. The
+   * fencing token `settle_task_notification()`'s `p_claimed_at` checks
+   * against. */
+  claimed_at?: string | null;
 } & Pick<RaRecord, "id">;
 
 /** The bounded set `record_cron_heartbeat()` (02_functions.sql) accepts for
@@ -1284,6 +1301,17 @@ export type CronHeartbeat = {
   last_run_at: string;
   last_ok_at?: string | null;
   last_error?: CronHeartbeatErrorCode | null;
+  /**
+   * Epic 12 review fix (R3): the most recent tick's own
+   * `sweepReminders()` `result.failed` count — 0 on a tick that sent
+   * everything it claimed (or had nothing due), > 0 when Resend rejected
+   * at least one send even though the sweep's own RPC calls all
+   * succeeded. `last_ok_at` alone only proves the sweep ran; this is what
+   * lets `ReminderDeliveryStatus.tsx` tell that apart from delivery
+   * actually working — a green heartbeat and a permanently failing queue
+   * (missing/invalid Resend credentials) used to be indistinguishable.
+   */
+  last_failed_count?: number | null;
 } & Pick<RaRecord, "id">;
 
 /** `listing_type` — Story 9.1 ships the `shadchan` branch only; `single`

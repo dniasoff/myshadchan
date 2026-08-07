@@ -45,15 +45,53 @@ export interface SendEmailInput {
   to: string;
   subject: string;
   text: string;
+  /**
+   * Epic 12 review fix (R4): Resend's own `Idempotency-Key` request header.
+   * The caller (sweepReminders.ts) derives this from the reminder's own
+   * natural key — (task_id, channel, due_date), the SAME tuple
+   * task_notifications' unique constraint uses (01_tables.sql) — so a row
+   * reclaimed after a stranded 'sending' lease (claim_due_task_notifications
+   * ()'s recovery path, 02_functions.sql) resends through the identical
+   * provider request identity instead of a second, distinct email. This is
+   * what makes reminder delivery honestly "at-least-once, deduplicated by
+   * Resend" rather than "exactly once" — see sweepReminders.ts's own header
+   * for why no comment in this codebase should claim the latter. Omitted
+   * (undefined) sends no header at all, so a caller that has no natural key
+   * to offer degrades to plain at-least-once with no dedupe.
+   */
+  idempotencyKey?: string;
 }
 
 export type SendEmailResult =
-  { ok: true; id: string } | { ok: false; error: string };
+  | { ok: true; id: string }
+  | {
+      ok: false;
+      error: string;
+      /**
+       * Epic 12 review fix (R2): retryable-vs-terminal classification.
+       * `true` for a transport failure or a 429/5xx response — nothing about
+       * the recipient or the message is known to be wrong, so the SAME
+       * attempt might succeed later. `false` for every other non-2xx
+       * response (400/401/403/404/422 and friends) — Resend rejected this
+       * exact request and will reject it identically on every future
+       * attempt, so retrying is not a recovery, it's a guaranteed repeat.
+       * sweepReminders.ts is what turns this into a `task_notifications`
+       * 'pending' (re-armed) or terminal 'failed' row.
+       */
+      retryable: boolean;
+    };
 
 function truncate(value: string): string {
   return value.length > MAX_STORED_ERROR_LENGTH
     ? `${value.slice(0, MAX_STORED_ERROR_LENGTH)}…`
     : value;
+}
+
+/** R2: 429 (rate limited) and every 5xx (Resend's own failure) are
+ * retryable — nothing here says the request itself was wrong. Every other
+ * non-2xx status is a terminal rejection of THIS request. */
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
 }
 
 export async function sendEmail({
@@ -62,6 +100,7 @@ export async function sendEmail({
   to,
   subject,
   text,
+  idempotencyKey,
 }: SendEmailInput): Promise<SendEmailResult> {
   let response: Response;
   try {
@@ -70,6 +109,7 @@ export async function sendEmail({
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
       },
       body: JSON.stringify({ from, to: [to], subject, text }),
     });
@@ -78,7 +118,13 @@ export async function sendEmail({
       "resend.sendEmail.transportError",
       summarizeErrorForLog(error),
     );
-    return { ok: false, error: "transport error contacting Resend" };
+    // R2: a transport failure (fetch itself rejecting — DNS, network, TLS)
+    // says nothing about this request being wrong; it is always retryable.
+    return {
+      ok: false,
+      error: "transport error contacting Resend",
+      retryable: true,
+    };
   }
 
   if (!response.ok) {
@@ -96,6 +142,7 @@ export async function sendEmail({
           ? `Resend responded ${response.status}: ${bodyText}`
           : `Resend responded ${response.status}`,
       ),
+      retryable: isRetryableStatus(response.status),
     };
   }
 
@@ -107,13 +154,24 @@ export async function sendEmail({
       "resend.sendEmail.unparseableResponse",
       summarizeErrorForLog(error),
     );
-    return { ok: false, error: "Resend response body was not valid JSON" };
+    // R2: a 2xx response with an unparseable body is Resend's contract
+    // breaking, not this request being wrong — treated as retryable rather
+    // than silently dropping a send that may have actually gone through.
+    return {
+      ok: false,
+      error: "Resend response body was not valid JSON",
+      retryable: true,
+    };
   }
 
   const id = (data as { id?: unknown } | null)?.id;
   if (typeof id !== "string") {
     console.error("resend.sendEmail.unexpectedShape", { dataType: typeof id });
-    return { ok: false, error: "Resend response did not include an id" };
+    return {
+      ok: false,
+      error: "Resend response did not include an id",
+      retryable: true,
+    };
   }
 
   return { ok: true, id };
