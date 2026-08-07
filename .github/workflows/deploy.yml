@@ -37,6 +37,11 @@ jobs:
 
       - name: ⚙️ Setup supabase
         uses: supabase/setup-cli@v3
+        with:
+          # 2.112.0 rejects the hosted Management API's current inserted_at
+          # timestamp shape during `supabase link`; 2.111.0 is the last
+          # known-good deploy version until that upstream regression lands.
+          version: 2.111.0
 
       - name: 📥 Download deps
         run: npm ci
