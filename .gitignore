@@ -36,6 +36,7 @@ supabase/.temp
 dist/
 /lib/
 .env
+.env.stripe
 *storybook.log
 
 # Shadcn Registry
