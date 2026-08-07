@@ -1,9 +1,29 @@
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import { CoreAdminContext, type AuthProvider } from "ra-core";
+import {
+  CoreAdminContext,
+  type AuthProvider,
+  useNotificationContext,
+} from "ra-core";
 import { testI18nProvider } from "@/components/atomic-crm/providers/commons/i18nProvider";
 import { GoogleSignInButton } from "./GoogleSignInButton";
+
+const NotificationProbe = () => {
+  const { notifications } = useNotificationContext();
+  const latest = notifications.at(-1);
+  if (!latest) return null;
+
+  return (
+    <output
+      data-testid="notification"
+      data-message={String(latest.message)}
+      data-type={latest.type}
+    >
+      {latest.notificationOptions?.messageArgs?._ ?? String(latest.message)}
+    </output>
+  );
+};
 
 const buildAuthProvider = (login: AuthProvider["login"]): AuthProvider => ({
   login,
@@ -12,13 +32,14 @@ const buildAuthProvider = (login: AuthProvider["login"]): AuthProvider => ({
   checkError: async () => undefined,
 });
 
-const renderGoogleSignInButton = (login: AuthProvider["login"]) => {
+const renderGoogleSignInButton = (login?: AuthProvider["login"]) => {
   const Wrapper = ({ children }: { children: ReactNode }) => (
     <CoreAdminContext
-      authProvider={buildAuthProvider(login)}
+      authProvider={login ? buildAuthProvider(login) : undefined}
       i18nProvider={testI18nProvider}
     >
       {children}
+      <NotificationProbe />
     </CoreAdminContext>
   );
 
@@ -28,6 +49,7 @@ const renderGoogleSignInButton = (login: AuthProvider["login"]) => {
 describe("GoogleSignInButton", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it("renders nothing when Google OAuth is not enabled", async () => {
@@ -64,6 +86,9 @@ describe("GoogleSignInButton", () => {
     vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
     const login = vi.fn().mockResolvedValue(undefined);
     const screen = await renderGoogleSignInButton(login);
+    const pushState = vi.spyOn(window.history, "pushState");
+    const replaceState = vi.spyOn(window.history, "replaceState");
+    const initialUrl = window.location.href;
 
     // Act
     await screen.getByRole("button", { name: "Continue with Google" }).click();
@@ -74,7 +99,37 @@ describe("GoogleSignInButton", () => {
         oauthProvider: "google",
       });
     });
+    expect(pushState).not.toHaveBeenCalled();
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(window.location.href).toBe(initialUrl);
     await expect.element(screen.getByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("does not navigate and shows the configuration error when no auth provider exists", async () => {
+    // Arrange
+    vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
+    const screen = await renderGoogleSignInButton();
+    const pushState = vi.spyOn(window.history, "pushState");
+    const initialUrl = window.location.href;
+
+    // Act
+    await screen.getByRole("button", { name: "Continue with Google" }).click();
+
+    // Assert
+    expect(pushState).not.toHaveBeenCalled();
+    expect(window.location.href).toBe(initialUrl);
+    await expect
+      .element(screen.getByText(/Google sign-in is not configured/i))
+      .toBeVisible();
+    await expect
+      .element(screen.getByTestId("notification"))
+      .toHaveAttribute("data-message", "crm.auth.google_oauth_not_configured");
+    await expect
+      .element(screen.getByTestId("notification"))
+      .toHaveAttribute("data-type", "error");
+    await expect
+      .element(screen.getByRole("button", { name: "Continue with Google" }))
+      .not.toBeDisabled();
   });
 
   it("re-enables the button and shows an error when the OAuth call rejects", async () => {
@@ -90,6 +145,7 @@ describe("GoogleSignInButton", () => {
     await vi.waitFor(() => {
       expect(login).toHaveBeenCalledOnce();
     });
+    await expect.element(screen.getByText("provider disabled")).toBeVisible();
     await expect
       .element(screen.getByRole("button", { name: "Continue with Google" }))
       .not.toBeDisabled();

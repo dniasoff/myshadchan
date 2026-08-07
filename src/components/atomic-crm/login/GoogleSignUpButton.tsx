@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
-import { useLogin, useNotify, useTranslate } from "ra-core";
+import { useAuthProvider, useNotify, useTranslate } from "ra-core";
 import { Button } from "@/components/ui/button";
 import { GoogleIcon } from "./GoogleIcon";
 import { isGoogleOAuthEnabled } from "./googleOAuth";
@@ -12,6 +12,7 @@ export type GoogleSignUpButtonProps = {
   email: string;
   /** True until the age-affirmation checkbox above this button is checked. */
   disabled: boolean;
+  /** @deprecated Supabase owns the OAuth callback and external navigation. */
   redirect?: string;
 };
 
@@ -28,13 +29,18 @@ export type GoogleSignUpButtonProps = {
  * same email passed as `login_hint` so the consent screen defaults to it (a
  * hint, not an enforcement — `check_signup_age()`'s own email match is what
  * actually matters).
+ *
+ * Calls `authProvider.login()` directly for the same reason as
+ * `GoogleSignInButton`: Supabase owns the external navigation, so ra-core's
+ * `useLogin()` must not schedule a competing HashRouter navigation after the
+ * OAuth promise resolves. The deprecated `redirect` prop remains in the
+ * public registry API as a no-op for downstream compatibility.
  */
 export const GoogleSignUpButton = ({
   email,
   disabled,
-  redirect: redirectTo,
 }: GoogleSignUpButtonProps) => {
-  const login = useLogin();
+  const authProvider = useAuthProvider();
   const notify = useNotify();
   const translate = useTranslate();
   const [isPending, setIsPending] = useState(false);
@@ -42,6 +48,19 @@ export const GoogleSignUpButton = ({
   if (!isGoogleOAuthEnabled()) {
     return null;
   }
+
+  const notifyError = (error?: unknown) => {
+    const fallback = {
+      id: "crm.auth.google_oauth_not_configured",
+      defaultMessage:
+        "Google sign-in is not configured. Ask an administrator to enable and configure the Google provider in Supabase.",
+    };
+    const { id, defaultMessage } =
+      error === undefined
+        ? fallback
+        : resolveAuthErrorNotification(error, fallback);
+    notify(id, { type: "error", messageArgs: { _: defaultMessage } });
+  };
 
   const handleClick = () => {
     if (isPending || disabled) {
@@ -55,22 +74,21 @@ export const GoogleSignUpButton = ({
       });
       return;
     }
+    if (!authProvider) {
+      notifyError();
+      return;
+    }
     setIsPending(true);
     recordSignupIntent(trimmedEmail)
       .then(() =>
-        login(
-          { oauthProvider: "google", loginHint: trimmedEmail },
-          redirectTo ?? window.location.toString(),
-        ),
+        authProvider.login({
+          oauthProvider: "google",
+          loginHint: trimmedEmail,
+        }),
       )
       .catch((error: unknown) => {
         setIsPending(false);
-        const { id, defaultMessage } = resolveAuthErrorNotification(error, {
-          id: "crm.auth.google_oauth_not_configured",
-          defaultMessage:
-            "Google sign-in is not configured. Ask an administrator to enable and configure the Google provider in Supabase.",
-        });
-        notify(id, { type: "error", messageArgs: { _: defaultMessage } });
+        notifyError(error);
       });
     // No `.finally` resetting `isPending` on success: the browser is about
     // to navigate to Google, so there is no "after" to reset it in.
