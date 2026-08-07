@@ -53,14 +53,26 @@ values (:acct_a, 'a1a1a1a1-1111-1111-1111-1111111111b4', 'parent_admin'),
 -- Tenant A is on the paid AI tier and active, and has used 34 resumes this
 -- month. Tenant B was paid but lapsed. Tenant C has no subscription row at all
 -- (the free-forever default). All seeded here as the superuser test role —
--- exactly the server-only write path (service_role in production).
-insert into public.subscription (account_id, plan, status, current_period_end)
-values (:acct_a, 'ai', 'active', now() + interval '20 days');
+-- exactly the server-only write path (service_role in production). Tenant A
+-- also carries a stripe_customer_id (Story 12.4), used below for the
+-- uniqueness check.
+insert into public.subscription (account_id, plan, status, current_period_end, stripe_customer_id)
+values (:acct_a, 'ai', 'active', now() + interval '20 days', 'cus_billing_test_a');
 insert into public.subscription (account_id, plan, status)
 values (:acct_b, 'ai', 'lapsed');
 
 insert into public.ai_usage (account_id, period, resumes_parsed)
 values (:acct_a, to_char(now(), 'YYYY-MM'), 34);
+
+-- Story 12.4 (AC-2/AC-10): Tenant D is a hand-provisioned row — no Stripe
+-- identity at all, provisioning_source explicitly 'manual' — standing in for
+-- every account that predates this story's migration (backfilled the same
+-- way) or was provisioned by hand afterward. Used below to prove a manual
+-- row is invisible to the `provisioning_source = 'stripe'` predicate any
+-- future reconciliation sweep must use (AC-10).
+insert into public.accounts (name) values ('Billing Tenant D (manual)') returning id as acct_d \gset
+insert into public.subscription (account_id, plan, status, provisioning_source)
+values (:acct_d, 'free', 'none', 'manual');
 
 -- ---------------------------------------------------------------------------
 -- ai_entitlement() as tenant A — entitled, with the usage meter.
@@ -183,12 +195,97 @@ select 'ai_entitlement: a caller with no membership gets the free default, not a
 
 reset role;
 
--- Confirm no self-grant attempt actually wrote anything: still exactly the two
--- rows we seeded as the server (A active, B lapsed), none added or flipped.
+-- ---------------------------------------------------------------------------
+-- Story 12.4 (AC-1, AC-2, AC-3, AC-10): the new Stripe-identity columns and
+-- the stripe_events ledger carry the SAME no-client-write / no-client-read
+-- posture as the rest of this table — extending the pair rather than adding
+-- a new one, per this directory's paired-file rule.
+-- ---------------------------------------------------------------------------
+
+-- AC-3: authenticated cannot SELECT stripe_events at all — RLS is enabled
+-- with ZERO policies (05_policies.sql) and the table-level grant is revoked
+-- (06_grants.sql), so this must error, not merely return zero rows.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a1a1a1a1-1111-1111-1111-1111111111b4","role":"authenticated"}';
+
+do $$
+begin
+  begin
+    perform * from public.stripe_events limit 1;
+    insert into results (name, passed, detail)
+      values ('stripe_events: authenticated cannot SELECT it', false, 'SELECT unexpectedly succeeded');
+  exception when others then
+    insert into results (name, passed, detail)
+      values ('stripe_events: authenticated cannot SELECT it', true, sqlerrm);
+  end;
+end $$;
+
+reset role;
+
+-- AC-1/AC-2: the NEW columns are exactly as unwritable as the original ones —
+-- a member cannot self-grant Stripe identity to escape a future
+-- reconciliation sweep (AC-10) by flipping their own row to
+-- provisioning_source = 'manual', nor forge a stripe_customer_id.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"b2b2b2b2-2222-2222-2222-2222222222b4","role":"authenticated"}';
+
+do $$
+begin
+  begin
+    update public.subscription
+      set provisioning_source = 'manual', stripe_customer_id = 'cus_forged'
+      where account_id = public.current_context_id();
+    insert into results (name, passed, detail)
+      values ('subscription: a member cannot UPDATE the new Stripe-identity columns', false, 'UPDATE unexpectedly succeeded');
+  exception when others then
+    insert into results (name, passed, detail)
+      values ('subscription: a member cannot UPDATE the new Stripe-identity columns', true, sqlerrm);
+  end;
+end $$;
+
+reset role;
+
+-- AC-10: a hand-provisioned row is invisible to the predicate any automated
+-- lapse/reconciliation sweep must use — proven directly against the
+-- predicate itself, since this story ships no sweep to exercise (AC-10's own
+-- "satisfied by there being no such query at all" branch).
+insert into results (name, passed)
+select 'subscription: a manual row is excluded by the provisioning_source = ''stripe'' reconciliation predicate',
+       (select count(*) from public.subscription where account_id = :acct_d and provisioning_source = 'stripe') = 0
+       and (select provisioning_source from public.subscription where account_id = :acct_d) = 'manual';
+
+-- AC-2: stripe_customer_id is unique across accounts (the partial unique
+-- index), so one Stripe customer can never be bound to two accounts — even
+-- for the server-only write path this constraint is not bypassable.
+-- (The account id is resolved INSIDE the block via a name lookup, not a
+-- psql `:acct_b` substitution — psql does not interpolate `:variables`
+-- inside dollar-quoted `do $$ … $$` bodies; see the direct-SELECT checks
+-- elsewhere in this file for where that substitution form IS used.)
+do $$
+declare
+  v_acct_b bigint;
+begin
+  select id into v_acct_b from public.accounts where name = 'Billing Tenant B';
+  begin
+    update public.subscription set stripe_customer_id = 'cus_billing_test_a'
+      where account_id = v_acct_b;
+    insert into results (name, passed, detail)
+      values ('subscription: stripe_customer_id is unique across accounts', false, 'duplicate stripe_customer_id unexpectedly accepted');
+  exception when others then
+    insert into results (name, passed, detail)
+      values ('subscription: stripe_customer_id is unique across accounts', true, sqlerrm);
+  end;
+end $$;
+
+-- Confirm no self-grant attempt actually wrote anything: still exactly the
+-- three rows we seeded as the server (A active, B lapsed, D manual/free),
+-- none added or flipped, and tenant B's forged UPDATE above never landed.
 insert into results (name, passed)
 select 'subscription: the ledger is unchanged after every self-grant attempt',
-       (select count(*) from public.subscription) = 2
-       and (select status from public.subscription where account_id = :acct_b) = 'lapsed';
+       (select count(*) from public.subscription) = 3
+       and (select status from public.subscription where account_id = :acct_b) = 'lapsed'
+       and (select provisioning_source from public.subscription where account_id = :acct_b) = 'stripe'
+       and (select stripe_customer_id from public.subscription where account_id = :acct_b) is null;
 
 -- ---------------------------------------------------------------------------
 -- Emit the report as a single JSON array line, then undo everything.

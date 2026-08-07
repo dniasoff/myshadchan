@@ -1110,6 +1110,14 @@ create policy "AI usage readable within account" on public.ai_usage
 -- read this table directly.
 alter table public.ai_parse_attempts enable row level security;
 
+-- Story 12.4 (AC-3). Same shape as ai_parse_attempts above: RLS enabled,
+-- ZERO client policies — not even SELECT. The webhook that writes it, and
+-- everything downstream (the future reconciliation sweep, if any ships),
+-- runs as service_role, which bypasses RLS. No story needs a client to read
+-- raw Stripe event metadata directly, and there is deliberately no path for
+-- one to try.
+alter table public.stripe_events enable row level security;
+
 -- Inbox items (Epic 2): full CRUD within the caller's account. Insert/update
 -- are with-check-scoped so a client can capture (share/upload) and resolve its
 -- own items but never read, write, or resolve another account's captures. The

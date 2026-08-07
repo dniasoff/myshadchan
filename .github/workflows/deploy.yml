@@ -259,15 +259,19 @@ jobs:
     # live against a schema that failed to apply.
     needs: deploy-supabase
 
-    # `billing` is deliberately withheld from this matrix (worker-audit,
-    # 2026-08-02):
+    # `billing` WAS withheld from this matrix (worker-audit, 2026-08-02):
     #   - billing: publishes an unauthenticated POST /webhook on a public
     #     workers.dev origin ahead of Story 12.4 (Stripe integration).
     #     There is no Stripe SDK, no signature verification, and no DB
     #     write yet — a real Stripe webhook would retry against a 501 for
-    #     days and then disable the endpoint. Re-add when 12.4 lands a
-    #     real handler and STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET are
-    #     provisioned.
+    #     days and then disable the endpoint.
+    #   Story 12.4 lands the real handler (signature verification via the
+    #   Stripe SDK, the stripe_events idempotency ledger, the subscription
+    #   sync) and provisions STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET /
+    #   STRIPE_PRICE_ID_QUARTERLY / STRIPE_PRICE_ID_YEARLY / APP_ORIGIN, so
+    #   `billing` rejoins the matrix below — the endpoint Stripe's test-mode
+    #   webhook is registered against (workers/billing/wrangler.toml's
+    #   `workers_dev = true`) now has somewhere real to arrive.
     #
     # `share` was ALSO withheld here (worker-audit, 2026-08-02: it was the
     # only worker with an R2 binding, and R2 is not enabled on this
@@ -300,7 +304,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        worker: [ingest, parse, match, ai, cron, share]
+        worker: [ingest, parse, match, ai, cron, share, billing]
 
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -325,6 +329,16 @@ jobs:
       RESEND_FROM: ${{ secrets.RESEND_FROM }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      # Story 12.4: the remaining three billing-worker bindings. There is no
+      # monthly cadence (pricing amendment) — STRIPE_PRICE_ID_QUARTERLY, not
+      # _MONTHLY. APP_ORIGIN here is `billing`'s own Checkout/Portal
+      # return-URL origin — a DIFFERENT push mechanism than `cron`'s own
+      # APP_ORIGIN (a plain `[vars]` literal in workers/cron/wrangler.toml,
+      # never a secret); billing's copy is pushed as a Worker secret instead
+      # (see workers/billing/wrangler.toml's own comment on why).
+      STRIPE_PRICE_ID_QUARTERLY: ${{ secrets.STRIPE_PRICE_ID_QUARTERLY }}
+      STRIPE_PRICE_ID_YEARLY: ${{ secrets.STRIPE_PRICE_ID_YEARLY }}
+      APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
       # E11 finding 15: `parse` only — `resumeExtractor.ts`'s `geminiExtractor()`
       # needs all three to call Gemini through the Cloudflare AI Gateway (AD-8).
       # `ai` no longer needs these (Review fix Finding 12 deleted the Claude
@@ -511,12 +525,21 @@ jobs:
           echo "$RESEND_API_KEY" | npx wrangler secret put RESEND_API_KEY
           echo "$RESEND_FROM" | npx wrangler secret put RESEND_FROM
 
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'billing' && env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET }}
-        name: 🔑 Push billing secrets (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET)
+      # Story 12.4: extended from the original two (STRIPE_SECRET_KEY,
+      # STRIPE_WEBHOOK_SECRET) to all six bindings workers/billing/index.ts
+      # reads — all-or-nothing, matching this step's own pre-existing shape,
+      # rather than pushing a partial set that leaves the Worker unable to
+      # verify signatures or resolve a price id.
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'billing' && env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET && env.STRIPE_PRICE_ID_QUARTERLY && env.STRIPE_PRICE_ID_YEARLY && env.APP_ORIGIN && env.SUPABASE_PUBLISHABLE_KEY }}
+        name: 🔑 Push billing secrets (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_ID_QUARTERLY, STRIPE_PRICE_ID_YEARLY, APP_ORIGIN, SUPABASE_PUBLISHABLE_KEY)
         working-directory: workers/billing
         run: |
           echo "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY
           echo "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET
+          echo "$STRIPE_PRICE_ID_QUARTERLY" | npx wrangler secret put STRIPE_PRICE_ID_QUARTERLY
+          echo "$STRIPE_PRICE_ID_YEARLY" | npx wrangler secret put STRIPE_PRICE_ID_YEARLY
+          echo "$APP_ORIGIN" | npx wrangler secret put APP_ORIGIN
+          echo "$SUPABASE_PUBLISHABLE_KEY" | npx wrangler secret put SUPABASE_PUBLISHABLE_KEY
 
       - if: ${{ !env.IS_CLOUDFLARE_CONFIGURED }}
         name: Cloudflare deployment skipped

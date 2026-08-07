@@ -26,6 +26,36 @@ order 11.2 + 11.3 → 12.4.
 
 **Binding delivery order inside Epic 12: 12.3 → 12.1 → 12.2 → 12.4.**
 
+### Pricing — AMENDED 2026-08-06 by the project owner. This block is authoritative.
+
+The AI tier's cadences are **$6 per 3 months** and **$24 per year**. This supersedes every
+`$2/month` reference below — lines 104, 105, 774 and 788 are kept as history and are wrong on the
+monthly figure only; the yearly price is unchanged.
+
+Consequences, all of which this story owns:
+
+1. **There is no monthly cadence.** The secret is `STRIPE_PRICE_ID_QUARTERLY`, not
+   `STRIPE_PRICE_ID_MONTHLY` (supersedes lines 110 and 402), and the checkout request body's
+   cadence discriminator is `{quarterly|yearly}`, not `{monthly|yearly}` (supersedes line 299).
+   A leftover `monthly` spelling in either place is a silent 400 at checkout, because the Worker
+   would look up an env var that was never pushed.
+2. **`billingPlans.ts` renames its constant.** `AI_PRICE_MONTHLY = "$2"` becomes
+   `AI_PRICE_QUARTERLY = "$6"`; `AI_PRICE_YEARLY = "$24"` is unchanged. `BillingPage.tsx:110-118`
+   renders both through `translate()` with `_:` defaults reading `%{price} / month` and
+   `or %{price} / year` — the first default becomes `%{price} / 3 months`. Both i18n catalogues, if
+   `crm.billing.ai.price` is ever promoted out of an inline default, move in lockstep.
+3. **The AD-16 fee posture improves and the story's own arithmetic must be restated, not deleted.**
+   At $2 a card charge costs 2.9% + 30¢ = 35.8¢ — **≈18%** of the payment, which is what drove
+   AD-16 to prefer bank debit. At $6 the same charge costs 47.4¢ — **≈7.9%**. The preference for
+   bank debit stands, but it stops being close to existential, and the story should say the real
+   number rather than carry the $2 one forward.
+4. **The annual price offers no saving, and that is now a recorded decision rather than an
+   oversight.** $6 × 4 = $24, exactly the yearly price, so a subscriber has zero financial reason
+   to prefer annual — unusual, since annual plans normally carry a discount to buy the cashflow and
+   the lower churn. It is consistent with the "run at cost, not for profit" posture in
+   `billingPlans.ts:1-6`: there is no margin to discount out of. Flagged for the owner; if a
+   discount is wanted later it is a Stripe Price change plus one constant, not a code change.
+
 ### Cross-story reconciliation findings (from the same pass)
 
 - **F5 — BLOCKING file contention with Story 5.12 (Guided Call mode).** This story updates the

@@ -4,8 +4,13 @@
  * function. AI is the ONLY paid surface; everything else is free forever.
  *
  * "Run at cost, not for profit": the AI tier just covers what inference costs.
+ *
+ * Story 12.4 pricing amendment (2026-08-06, owner-set, authoritative): the
+ * AI tier's cadences are $6 every 3 months and $24 per year — there is no
+ * monthly cadence. `AI_PRICE_MONTHLY` is renamed `AI_PRICE_QUARTERLY`
+ * accordingly; `AI_PRICE_YEARLY` is unchanged.
  */
-export const AI_PRICE_MONTHLY = "$2";
+export const AI_PRICE_QUARTERLY = "$6";
 export const AI_PRICE_YEARLY = "$24";
 
 /** Display fallback for the monthly resume auto-parse allowance, used in the

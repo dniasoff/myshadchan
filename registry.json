@@ -972,6 +972,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/commons/billingClient.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/commons/attachments.ts",
           "type": "registry:component"
         },
@@ -1644,7 +1648,19 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/billing/SubscribeButton.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/billing/PlanCard.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/billing/ManageSubscriptionButton.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/billing/BillingReturnNotice.tsx",
           "type": "registry:component"
         },
         {

@@ -74,7 +74,13 @@ describe("billing / AI entitlement (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   it("runs the full set of checks", () => {
-    expect(checks.length).toBeGreaterThanOrEqual(11);
+    // Story 12.4 added 4 checks (stripe_events read denial, the new
+    // Stripe-identity columns' write denial, the manual-row reconciliation
+    // predicate, and stripe_customer_id uniqueness) on top of the original
+    // 13 — 17 today; the floor stays comfortably below that so a future
+    // check addition doesn't need to bump it, while still catching the file
+    // being gutted back toward the original set.
+    expect(checks.length).toBeGreaterThanOrEqual(15);
   });
 
   for (const check of checks) {

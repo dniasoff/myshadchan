@@ -14,6 +14,10 @@ export class ScopedAccountError extends Error {
 
 type QueryBuilder = ReturnType<SupabaseClient["from"]>;
 
+export interface UpsertOptions {
+  onConflict: string;
+}
+
 export interface ScopedTable {
   select(columns?: string): ReturnType<QueryBuilder["select"]>;
   insert(
@@ -21,6 +25,10 @@ export interface ScopedTable {
   ): ReturnType<QueryBuilder["insert"]>;
   update(values: Record<string, unknown>): ReturnType<QueryBuilder["update"]>;
   delete(): ReturnType<QueryBuilder["delete"]>;
+  upsert(
+    values: Record<string, unknown> | Record<string, unknown>[],
+    options: UpsertOptions,
+  ): ReturnType<QueryBuilder["upsert"]>;
 }
 
 export interface ScopedClient {
@@ -53,6 +61,19 @@ export function forAccount(accountId: string, env: BaseEnv): ScopedClient {
         update: (values) =>
           client.from(table).update(values).eq("account_id", accountId),
         delete: () => client.from(table).delete().eq("account_id", accountId),
+        // Story 12.4 (AC-11): injects account_id exactly as insert() does —
+        // and, critically, injects it LAST, after spreading the caller's
+        // payload, so a caller-supplied account_id in `values` can never
+        // override the scoped one. Needed because subscription.account_id is
+        // unique: a webhook that raced select-then-insert against a
+        // concurrent event for the same account could attempt two inserts
+        // and violate that constraint, where upsert()'s onConflict target
+        // resolves it atomically instead.
+        upsert: (values, { onConflict }) => {
+          const rows = Array.isArray(values) ? values : [values];
+          const scoped = rows.map((row) => ({ ...row, account_id: accountId }));
+          return client.from(table).upsert(scoped, { onConflict });
+        },
       } as ScopedTable;
     },
   };

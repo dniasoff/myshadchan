@@ -1,27 +1,43 @@
+import { useCallback } from "react";
 import { useTranslate } from "ra-core";
+import { useQueryClient } from "@tanstack/react-query";
 
-import { Button } from "@/components/ui/button";
-
-import { useAiEntitlementInfo } from "../references/useAiEntitlement";
-import { AI_PRICE_MONTHLY, AI_PRICE_YEARLY } from "./billingPlans";
+import {
+  AI_ENTITLEMENT_QUERY_KEY,
+  useAiEntitlementInfo,
+} from "../references/useAiEntitlement";
+import { AI_PRICE_QUARTERLY, AI_PRICE_YEARLY } from "./billingPlans";
+import { BillingReturnNotice } from "./BillingReturnNotice";
+import { ManageSubscriptionButton } from "./ManageSubscriptionButton";
 import { PlanCard } from "./PlanCard";
+import { SubscribeButton } from "./SubscribeButton";
 import { UsageMeter } from "./UsageMeter";
 
 /**
- * Desktop /billing (E4). "Run at cost, not for profit": everything in
- * MyShadchan is free forever; the optional AI tier ($2/mo · $24/yr) only covers
- * what inference costs. This page shows the two tiers, the current plan, the
- * calm usage meter, and a graceful-lapse note.
+ * Desktop /billing (E4/Story 12.4). "Run at cost, not for profit": everything
+ * in MyShadchan is free forever; the optional AI tier ($6 / 3 months ·
+ * $24/yr) only covers what inference costs. This page shows the two tiers,
+ * the current plan, the calm usage meter, and a graceful-lapse note.
  *
- * PAYMENT IS A STUB. No real payment provider is wired (no product/keys exist
- * yet), so the Subscribe control shows the price and a calm "coming soon /
- * contact to enable" state. It deliberately calls NO client path that could
- * grant entitlement — the only way an account becomes entitled is a server-side
- * (service_role) write to `subscription`, exactly as ai_entitlement() requires.
+ * PAYMENT IS REAL (Story 12.4). `SubscribeButton` POSTs `/checkout` and
+ * `ManageSubscriptionButton` POSTs `/portal` against the billing Worker, both
+ * hosted-redirect flows to Stripe. Neither writes or asserts entitlement:
+ * `isEntitled`/`isLapsed` below are derived ONLY from `info`, i.e. from the
+ * server's `ai_entitlement()` — the only way an account becomes entitled is
+ * the webhook's own service_role write to `subscription`.
  */
 export const BillingPage = () => {
   const translate = useTranslate();
+  const queryClient = useQueryClient();
   const { info, isLoading } = useAiEntitlementInfo();
+
+  // Passed down to BillingReturnNotice rather than it calling
+  // useAiEntitlementInfo/useQueryClient itself — keeps every reference to
+  // the entitlement hook and its query key inside this file, per
+  // entitlementGate.guard.test.ts's "pass props down" option.
+  const refreshEntitlement = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: AI_ENTITLEMENT_QUERY_KEY });
+  }, [queryClient]);
 
   if (isLoading) {
     return (
@@ -95,6 +111,11 @@ export const BillingPage = () => {
         </div>
       ) : null}
 
+      <BillingReturnNotice
+        isEntitled={isEntitled}
+        onNeedsRefresh={refreshEntitlement}
+      />
+
       <div className="mt-8 grid gap-6 lg:grid-cols-2 lg:items-stretch">
         <PlanCard
           name={translate("crm.billing.free.name", { _: "Free forever" })}
@@ -109,8 +130,8 @@ export const BillingPage = () => {
         <PlanCard
           name={translate("crm.billing.ai.name", { _: "AI tier" })}
           priceLabel={translate("crm.billing.ai.price", {
-            price: AI_PRICE_MONTHLY,
-            _: "%{price} / month",
+            price: AI_PRICE_QUARTERLY,
+            _: "%{price} / 3 months",
           })}
           priceSubLabel={translate("crm.billing.ai.priceSub", {
             price: AI_PRICE_YEARLY,
@@ -121,13 +142,18 @@ export const BillingPage = () => {
           highlighted={!isEntitled}
           cta={
             isEntitled ? (
-              <p className="text-sm text-muted-foreground">
-                {translate("crm.billing.ai.active", {
-                  _: "You are on the AI tier. Thank you for supporting the running costs.",
-                })}
-              </p>
+              <div className="flex flex-col gap-3">
+                <p className="text-sm text-muted-foreground">
+                  {translate("crm.billing.ai.active", {
+                    _: "You are on the AI tier. Thank you for supporting the running costs.",
+                  })}
+                </p>
+                <ManageSubscriptionButton info={info} />
+              </div>
+            ) : isLapsed ? (
+              <ManageSubscriptionButton info={info} />
             ) : (
-              <SubscribeStub />
+              <SubscribeButton />
             )
           }
         />
@@ -136,28 +162,6 @@ export const BillingPage = () => {
       <div className="mt-6">
         <UsageMeter used={info.resumes_used} limit={info.resumes_limit} />
       </div>
-    </div>
-  );
-};
-
-/**
- * The stubbed Subscribe control. It shows the price and a calm "not yet enabled"
- * state and does NOTHING on click — there is no payment provider wired, and
- * (by design) no client path that grants entitlement. Enabling the AI tier for
- * an account is a server-side action today.
- */
-const SubscribeStub = () => {
-  const translate = useTranslate();
-  return (
-    <div className="flex flex-col gap-2">
-      <Button type="button" className="w-full" disabled aria-disabled="true">
-        {translate("crm.billing.subscribe.cta", { _: "Subscribe" })}
-      </Button>
-      <p className="text-xs text-muted-foreground">
-        {translate("crm.billing.subscribe.note", {
-          _: "Payments aren't enabled yet. Contact us to turn on the AI tier for your account — the free plan keeps working in the meantime.",
-        })}
-      </p>
     </div>
   );
 };

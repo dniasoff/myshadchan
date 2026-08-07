@@ -949,14 +949,44 @@ create table public.subscription (
     account_id bigint not null,
     created_at timestamp with time zone not null default now(),
     updated_at timestamp with time zone not null default now(),
-    -- 'free' = the free-forever tier; 'ai' = the paid AI tier ($2/mo · $24/yr).
+    -- 'free' = the free-forever tier; 'ai' = the paid AI tier ($6/3mo · $24/yr,
+    -- Story 12.4 pricing amendment — there is no monthly cadence).
     plan text not null default 'free',
     -- 'active' = entitled and paid; 'lapsed' = was paid, now expired (AI
     -- auto-fill pauses, the free manual path stays); 'none' = never subscribed.
     status text not null default 'none',
     current_period_end timestamp with time zone,
+    -- Story 12.4: Stripe becomes the source of truth for THIS row — never for
+    -- `accounts.*` (see the decoy-column comment above). Nullable, because a
+    -- hand-provisioned row (provisioning_source = 'manual') never has any of
+    -- these until/unless a real Stripe customer is later bound to it.
+    -- stripe_customer_id / stripe_subscription_id are each unique (partial
+    -- indexes below, NULLs excluded) so one Stripe object never binds to two
+    -- accounts. last_stripe_event_at is the AC-5 ordering guard: the webhook
+    -- only ever applies a mutation when the incoming event's `created`
+    -- timestamp is >= this column, so a stale, out-of-order or replayed
+    -- delivery can never regress state.
+    --
+    -- COLUMN ORDER: this block's order matches the database's PHYSICAL
+    -- column order (the order the migration's ADD COLUMN statements ran in,
+    -- which `db diff`/migra emitted alphabetically) — see the "COLUMN-ORDER
+    -- TRAP" header at the top of this file. Do not reorder these to a more
+    -- "logical" grouping without also generating a migration for it.
+    last_stripe_event_at timestamp with time zone,
+    -- 'manual' = provisioned by hand (service_role, e.g. today's "contact us"
+    -- path); 'stripe' = provisioned by the billing webhook. Any future
+    -- reconciliation sweep that lapses a subscription with no matching Stripe
+    -- counterpart must filter on = 'stripe' — a hand-provisioned row is never
+    -- automatically lapsed just because Stripe has never heard of it. See the
+    -- migration for why every pre-existing row is backfilled 'manual' rather
+    -- than defaulting straight to 'stripe'.
+    provisioning_source text not null default 'stripe',
+    stripe_customer_id text,
+    stripe_price_id text,
+    stripe_subscription_id text,
     constraint subscription_plan_check check (plan in ('free', 'ai')),
-    constraint subscription_status_check check (status in ('active', 'lapsed', 'none'))
+    constraint subscription_status_check check (status in ('active', 'lapsed', 'none')),
+    constraint subscription_provisioning_source_check check (provisioning_source in ('manual', 'stripe'))
 );
 
 -- AI usage meter (E4). One row per account per calendar month. resumes_parsed
@@ -981,6 +1011,28 @@ create table public.ai_usage (
 -- until a future story states a rule either way.
 comment on table public.subscription is 'Deliberately excluded from enforce_household_scope() (Story 2.2 AC-4): no source restricts a shadchanus context from holding billing/entitlement rows; scoped generically by current_context_id() until a story states a rule.';
 comment on table public.ai_usage is 'Deliberately excluded from enforce_household_scope() (Story 2.2 AC-4): same open question as public.subscription — no source restricts entitlement usage-metering to household contexts.';
+
+-- Stripe webhook idempotency ledger (Story 12.4, AC-3/AC-5). One row per
+-- verified Stripe event ever received. The primary key on event_id IS the
+-- idempotency mechanism: a duplicate delivery attempts a duplicate INSERT,
+-- which fails unique_violation (Postgres 23505, surfaced by PostgREST as
+-- HTTP 409), and the webhook handler treats that as a cheap, successful
+-- no-op rather than reapplying the event. `account_id` is nullable and
+-- `on delete set null` — an event for an unknown Stripe customer (no
+-- resolvable account) is still recorded, just without a tenant link, and a
+-- deleted account must not cascade-delete its own billing history. RLS
+-- enabled with ZERO policies (05_policies.sql) — not even SELECT for
+-- `authenticated` — because nothing in the product ever needs a client to
+-- read raw Stripe event metadata; every access is service_role, from the
+-- billing worker alone. New and empty at creation, so — unlike
+-- subscription's provisioning_source above — this table needs no backfill.
+create table public.stripe_events (
+    event_id text primary key,
+    type text not null,
+    account_id bigint references public.accounts(id) on delete set null,
+    received_at timestamp with time zone not null default now(),
+    livemode boolean not null default false
+);
 
 -- Per-attachment parse claim/idempotency ledger (Epic 11 Findings 6/7/8
 -- closure). One row per (account, inbox item, attachment) ever attempted.
@@ -1943,6 +1995,10 @@ create index entity_files_account_id_idx on public.entity_files using btree (acc
 create index entity_files_target_idx on public.entity_files using btree (account_id, target_type, target_id, created_at desc);
 create index references_phone_norm_idx on public."references" using btree (account_id, phone_norm);
 create index subscription_account_id_idx on public.subscription using btree (account_id);
+-- Story 12.4 (AC-2): partial (NULLs excluded) so every hand-provisioned row
+-- — which never has either column — can coexist without colliding on NULL.
+create unique index subscription_stripe_customer_id_key on public.subscription using btree (stripe_customer_id) where stripe_customer_id is not null;
+create unique index subscription_stripe_subscription_id_key on public.subscription using btree (stripe_subscription_id) where stripe_subscription_id is not null;
 create index ai_usage_account_id_idx on public.ai_usage using btree (account_id);
 create index inbox_items_account_id_idx on public.inbox_items using btree (account_id);
 create index inbox_items_status_idx on public.inbox_items using btree (account_id, status);

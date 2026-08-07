@@ -888,6 +888,15 @@ grant all on table public.ai_parse_attempts to service_role;
 revoke all on sequence public.ai_parse_attempts_id_seq from anon, authenticated;
 grant all on sequence public.ai_parse_attempts_id_seq to service_role;
 
+-- Story 12.4 (AC-3): stripe_events is the webhook idempotency ledger. Same
+-- posture as ai_parse_attempts above — no client write path, no client read
+-- path at all (05_policies.sql has zero policies on it). Every access is
+-- service_role, from the billing worker alone. `event_id` is a `text`
+-- primary key (the Stripe event id itself), not an identity column, so
+-- there is no owned sequence to grant here.
+revoke all on table public.stripe_events from anon, authenticated;
+grant all on table public.stripe_events to service_role;
+
 -- ai_entitlement() is the single server-authoritative entitlement decision,
 -- called by the SPA and (future) AI edge functions alike. anon must never run
 -- it; authenticated and service_role may.

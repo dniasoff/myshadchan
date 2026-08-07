@@ -6,7 +6,15 @@ const select = vi.fn().mockReturnThis();
 const insert = vi.fn().mockReturnThis();
 const update = vi.fn().mockReturnThis();
 const del = vi.fn().mockReturnThis();
-const from = vi.fn(() => ({ select, insert, update, delete: del, eq }));
+const upsert = vi.fn().mockReturnThis();
+const from = vi.fn(() => ({
+  select,
+  insert,
+  update,
+  delete: del,
+  upsert,
+  eq,
+}));
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({ from }),
@@ -73,5 +81,46 @@ describe("forAccount", () => {
     // Assert
     expect(del).toHaveBeenCalled();
     expect(eq).toHaveBeenCalledWith("account_id", "acct_1");
+  });
+
+  it("injects account_id into every row on upsert()", () => {
+    // Arrange
+    const client = forAccount("acct_1", env);
+
+    // Act
+    client
+      .from("subscription")
+      .upsert(
+        [{ stripe_customer_id: "cus_1" }, { stripe_customer_id: "cus_2" }],
+        { onConflict: "account_id" },
+      );
+
+    // Assert
+    expect(upsert).toHaveBeenCalledWith(
+      [
+        { stripe_customer_id: "cus_1", account_id: "acct_1" },
+        { stripe_customer_id: "cus_2", account_id: "acct_1" },
+      ],
+      { onConflict: "account_id" },
+    );
+  });
+
+  it("cannot have its account_id overridden by the caller's payload on upsert()", () => {
+    // Arrange
+    const client = forAccount("acct_1", env);
+
+    // Act
+    client
+      .from("subscription")
+      .upsert(
+        { account_id: "acct_attacker", plan: "ai" },
+        { onConflict: "account_id" },
+      );
+
+    // Assert
+    expect(upsert).toHaveBeenCalledWith(
+      [{ account_id: "acct_1", plan: "ai" }],
+      { onConflict: "account_id" },
+    );
   });
 });

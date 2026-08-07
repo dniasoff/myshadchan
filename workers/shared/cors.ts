@@ -103,3 +103,24 @@ export const AI_WORKER_ALLOWED_HEADERS = [
   "Content-Type",
   "Authorization",
 ] as const;
+
+/**
+ * Story 12.4 (AC-12): `/checkout` and `/portal` need the same production +
+ * local-dev origin allowlist as `parse`/`ai` above, but named for what it
+ * actually is here rather than reused under the `AI_WORKER_*` name — this
+ * Worker never calls `requireAiEntitlement` (billing has to work for callers
+ * who are NOT entitled yet; they're the ones trying to become entitled).
+ * `/webhook` is deliberately excluded — it is server-to-server (Stripe, not
+ * a browser) and gets NO CORS headers at all (AC-12's own failing
+ * condition), so this middleware is registered only on the two browser
+ * routes, never with `app.use("*", …)`.
+ */
+export const BILLING_WORKER_ALLOWED_ORIGINS = [
+  ...PRODUCTION_ORIGINS,
+  ...LOCAL_DEV_ORIGINS,
+] as const;
+
+export const BILLING_WORKER_ALLOWED_HEADERS = [
+  "Content-Type",
+  "Authorization",
+] as const;

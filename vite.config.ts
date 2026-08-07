@@ -118,6 +118,17 @@ export default defineConfig({
           "import.meta.env.VITE_SHARE_WORKER_URL": JSON.stringify(
             process.env.VITE_SHARE_WORKER_URL,
           ),
+          // Story 12.4: `billing/SubscribeButton.tsx` and
+          // `ManageSubscriptionButton.tsx` POST to the deployed `billing/`
+          // Worker directly (Stripe Checkout and the customer portal are not
+          // dataProvider calls). Third time this landmine has been stepped on,
+          // after VITE_VAPID_PUBLIC_KEY and VITE_SHARE_WORKER_URL above:
+          // without this line the built bundle resolves the var to `undefined`
+          // and every Subscribe click POSTs to `undefined/checkout`, no matter
+          // what is set in Vercel.
+          "import.meta.env.VITE_BILLING_WORKER_URL": JSON.stringify(
+            process.env.VITE_BILLING_WORKER_URL,
+          ),
         }
       : undefined,
   base: "./",

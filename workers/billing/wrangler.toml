@@ -3,6 +3,38 @@ main = "index.ts"
 compatibility_date = "2026-07-21"
 compatibility_flags = ["nodejs_compat"]
 
+[dev]
+port = 8790
+
+# Story 12.4 (Task 1): the webhook endpoint is registered in Stripe (test
+# mode) against a FIXED URL — `myshadchan-billing.myshadchan.workers.dev` —
+# and a Stripe webhook endpoint is a decision made once by hand, never a
+# default nobody wrote down. No custom domain is configured on this
+# Cloudflare account, so `workers_dev = true` (explicit, not left to
+# wrangler's own default) is the correct, and only, choice here.
+workers_dev = true
+
 # Secrets (set via `wrangler secret put <NAME> --config workers/billing/wrangler.toml`,
 # or the CI job in .github/workflows/deploy.yml): SUPABASE_URL,
 # SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET.
+#
+# Story 12.4: four more, pushed by the same CI step (extended, not forked —
+# see deploy.yml's "🔑 Push billing secrets" step):
+#   - STRIPE_PRICE_ID_QUARTERLY / STRIPE_PRICE_ID_YEARLY — the two Stripe
+#     Price ids /checkout resolves the `{quarterly|yearly}` request body
+#     against. There is no monthly cadence (Story 12.4's pricing amendment) —
+#     a STRIPE_PRICE_ID_MONTHLY here would be dead configuration nobody
+#     reads.
+#   - APP_ORIGIN — the Checkout/Billing Portal success/cancel/return URLs
+#     (`${APP_ORIGIN}/billing?checkout=...`). Pushed as a Worker secret
+#     alongside the Stripe keys, in the same step, rather than a plain
+#     `[vars]` entry the way `workers/cron/wrangler.toml` does it — this
+#     worker's CI step already groups every billing-specific binding
+#     together, and there is no cost to treating a non-sensitive value as a
+#     secret here.
+#   - SUPABASE_PUBLISHABLE_KEY — builds the caller-scoped Supabase client for
+#     /checkout and /portal (`createCallerClient`, `workers/shared/aiEntitlementGate.ts`),
+#     the same constructor Story 11.1 established. `ai`/`parse` already push
+#     this same value via their own atomic `versions upload --secrets-file`
+#     path; billing pushes it the older `wrangler secret put` way, matching
+#     how this worker already pushes STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET.
