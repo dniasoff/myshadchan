@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 
 import { callBillingWorker } from "../providers/commons/billingClient";
 import type { AiEntitlementInfo } from "../types";
+import { useSubscriptionStatus } from "./useSubscriptionStatus";
 
 /**
  * The ONLY upgrade / downgrade / cancel / card-update surface (AC-9). Visible
@@ -15,6 +16,14 @@ import type { AiEntitlementInfo } from "../types";
  * what keeps card data off this origin (PCI SAQ-A, AD-16). Every lifecycle
  * change made in the portal comes back as a webhook event and lands via the
  * worker's `/webhook` route, never through this component.
+ *
+ * Review fix (B7, Epic 12 adversarial review): "entitled or lapsed" is
+ * necessary but not sufficient — a hand-provisioned subscription
+ * (`provisioning_source = 'manual'`, no Stripe customer id, e.g. today's
+ * "contact us" path) is entitled/lapsed too, and `/portal` 404s for it. This
+ * component now checks `useSubscriptionStatus()` and renders honest copy
+ * ("contact support") instead of a button that can only ever fail for that
+ * population, rather than letting the click surface the 404 after the fact.
  *
  * `redirectTo` mirrors `SubscribeButton`'s own seam — defaults to a real
  * `window.location.assign`, overridable so a test can observe the redirect
@@ -30,9 +39,28 @@ export const ManageSubscriptionButton = ({
   const translate = useTranslate();
   const notify = useNotify();
   const [isPending, setIsPending] = useState(false);
+  const { status, isLoading: isStatusLoading } = useSubscriptionStatus();
 
   if (!info.is_entitled && info.status !== "lapsed") {
     return null;
+  }
+
+  // Fail toward NOT rendering the doomed button while the status read is
+  // still in flight — the same "unresolved -> render the safe branch"
+  // posture `RequireBillingEligibleRole`/`RequireContextKind` use, applied
+  // here to a button rather than a route.
+  if (isStatusLoading) {
+    return null;
+  }
+
+  if (!status.hasStripeCustomer) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {translate("crm.billing.manage.manualSubscription", {
+          _: "This subscription was set up manually. Contact support to make changes.",
+        })}
+      </p>
+    );
   }
 
   const openPortal = async () => {

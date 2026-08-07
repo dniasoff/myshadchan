@@ -6,6 +6,7 @@ import {
   applySubscriptionPatch,
   HANDLED_STRIPE_EVENT_TYPES,
   isHandledStripeEventType,
+  isLiveStripeSecretKey,
   mapStripeStatus,
   stripeIdOf,
   type SubscriptionPatch,
@@ -69,10 +70,12 @@ describe("mapStripeStatus", () => {
 });
 
 describe("isHandledStripeEventType / HANDLED_STRIPE_EVENT_TYPES", () => {
-  it("lists exactly the five event types AC-6 names", () => {
+  it("lists exactly the seven event types this worker acts on (B9 added the two async Checkout events)", () => {
     // Arrange / Act / Assert
     expect(HANDLED_STRIPE_EVENT_TYPES).toEqual([
       "checkout.session.completed",
+      "checkout.session.async_payment_succeeded",
+      "checkout.session.async_payment_failed",
       "customer.subscription.created",
       "customer.subscription.updated",
       "customer.subscription.deleted",
@@ -108,6 +111,30 @@ describe("stripeIdOf", () => {
   });
 });
 
+// B1: the Worker's own mode, derived from the key it is actually configured
+// with — never a second, independently-set boolean that could itself drift.
+describe("isLiveStripeSecretKey", () => {
+  it("reports live for a live secret key", () => {
+    expect(isLiveStripeSecretKey("sk_live_abc123")).toBe(true);
+  });
+
+  it("reports live for a live restricted key", () => {
+    expect(isLiveStripeSecretKey("rk_live_abc123")).toBe(true);
+  });
+
+  it("reports NOT live for a test secret key", () => {
+    expect(isLiveStripeSecretKey("sk_test_abc123")).toBe(false);
+  });
+
+  it("reports NOT live for a test restricted key", () => {
+    expect(isLiveStripeSecretKey("rk_test_abc123")).toBe(false);
+  });
+
+  it("fails closed (not live) for a malformed/unrecognized key shape", () => {
+    expect(isLiveStripeSecretKey("not-a-real-key")).toBe(false);
+  });
+});
+
 function buildEvent(
   type: string,
   object: Record<string, unknown>,
@@ -127,9 +154,78 @@ function buildEvent(
 }
 
 describe("applyEvent", () => {
-  it("checkout.session.completed writes ai/active and binds customer + subscription, leaving price/period unset", () => {
+  it("checkout.session.completed with payment_status 'paid' writes ai/active and binds customer + subscription, leaving price/period unset", () => {
     // Arrange
     const event = buildEvent("checkout.session.completed", {
+      customer: "cus_1",
+      subscription: "sub_1",
+      client_reference_id: "1",
+      payment_status: "paid",
+    });
+
+    // Act
+    const patch = applyEvent(event);
+
+    // Assert
+    expect(patch).toEqual({
+      plan: "ai",
+      status: "active",
+      stripe_customer_id: "cus_1",
+      stripe_subscription_id: "sub_1",
+      last_stripe_event_at: new Date(1_700_000_000 * 1000).toISOString(),
+    });
+  });
+
+  it("checkout.session.completed with payment_status 'no_payment_required' also writes ai/active", () => {
+    // Arrange
+    const event = buildEvent("checkout.session.completed", {
+      customer: "cus_1",
+      subscription: "sub_1",
+      client_reference_id: "1",
+      payment_status: "no_payment_required",
+    });
+
+    // Act
+    const patch = applyEvent(event);
+
+    // Assert
+    expect(patch?.plan).toBe("ai");
+    expect(patch?.status).toBe("active");
+  });
+
+  // B9: the finding's own reproduction. checkout.session.completed does NOT
+  // imply payment succeeded for a delayed method (e.g. bank debit, this
+  // story's own stated fee-driven preference) — `payment_status` reads
+  // 'unpaid' at this point, and granting entitlement here would be exactly
+  // the bug: paying without the payment having cleared.
+  it("checkout.session.completed with payment_status 'unpaid' (a delayed payment method) does NOT grant entitlement, but still binds customer/subscription", () => {
+    // Arrange
+    const event = buildEvent("checkout.session.completed", {
+      customer: "cus_1",
+      subscription: "sub_1",
+      client_reference_id: "1",
+      payment_status: "unpaid",
+    });
+
+    // Act
+    const patch = applyEvent(event);
+
+    // Assert — plan/status OMITTED (never written), matching this file's
+    // own "omit what is not yet known" convention elsewhere. Customer and
+    // subscription ids ARE bound so resolveAccountForCustomer can find the
+    // account for the async follow-up event regardless of delivery order.
+    expect(patch).toEqual({
+      stripe_customer_id: "cus_1",
+      stripe_subscription_id: "sub_1",
+      last_stripe_event_at: new Date(1_700_000_000 * 1000).toISOString(),
+    });
+    expect(patch).not.toHaveProperty("plan");
+    expect(patch).not.toHaveProperty("status");
+  });
+
+  it("checkout.session.async_payment_succeeded grants ai/active once the delayed payment clears", () => {
+    // Arrange
+    const event = buildEvent("checkout.session.async_payment_succeeded", {
       customer: "cus_1",
       subscription: "sub_1",
       client_reference_id: "1",
@@ -144,6 +240,26 @@ describe("applyEvent", () => {
       status: "active",
       stripe_customer_id: "cus_1",
       stripe_subscription_id: "sub_1",
+      last_stripe_event_at: new Date(1_700_000_000 * 1000).toISOString(),
+    });
+  });
+
+  it("checkout.session.async_payment_failed resolves explicitly to free/none — never entitled", () => {
+    // Arrange
+    const event = buildEvent("checkout.session.async_payment_failed", {
+      customer: "cus_1",
+      subscription: "sub_1",
+      client_reference_id: "1",
+    });
+
+    // Act
+    const patch = applyEvent(event);
+
+    // Assert
+    expect(patch).toEqual({
+      plan: "free",
+      status: "none",
+      stripe_customer_id: "cus_1",
       last_stripe_event_at: new Date(1_700_000_000 * 1000).toISOString(),
     });
   });
@@ -342,11 +458,44 @@ describe("applySubscriptionPatch", () => {
     // Assert
     expect(result).toEqual({ outcome: "applied" });
     expect(calls.updates).toEqual([patch]);
+    // B8: `.lte.`, not `.lt.` — an event whose timestamp EQUALS the stored
+    // one must still be eligible to apply (see applySubscriptionPatch's own
+    // comment for the same-second-collision reasoning this implements).
     expect(calls.updateFilters).toEqual([
-      "last_stripe_event_at.is.null,last_stripe_event_at.lt.2026-08-06T00:00:00.000Z",
+      "last_stripe_event_at.is.null,last_stripe_event_at.lte.2026-08-06T00:00:00.000Z",
     ]);
     expect(calls.inserts).toEqual([]);
   });
+
+  // B8's own reproduction: two DISTINCT Stripe events sharing the exact same
+  // second-precision `created` timestamp (e.g. checkout.session.completed
+  // and customer.subscription.created for the same checkout) must NOT have
+  // whichever lands second discarded as "not newer." A strict `.lt.` guard
+  // would report "stale" here; `.lte.` correctly reports "applied".
+  it("B8: an event whose timestamp EQUALS the existing row's last_stripe_event_at is still applied, not rejected as stale", async () => {
+    // Arrange — the existing row's last_stripe_event_at is already exactly
+    // this event's own timestamp (a same-second sibling event committed
+    // first).
+    const { scoped, calls } = buildScopedClient({
+      updateOutcomes: [{ data: [{ account_id: 1 }], error: null }],
+    });
+
+    // Act
+    const result = await applySubscriptionPatch(scoped, patch, eventCreatedAt);
+
+    // Assert
+    expect(result).toEqual({ outcome: "applied" });
+    expect(calls.updateFilters).toEqual([
+      "last_stripe_event_at.is.null,last_stripe_event_at.lte.2026-08-06T00:00:00.000Z",
+    ]);
+  });
+
+  // The other half of B8's constraint — a GENUINELY older event must still
+  // be rejected under the widened `.lte.` boundary — is exactly what
+  // "reports stale — and writes nothing further…" below already proves;
+  // `.lte.` only widens the boundary to include equality, it never admits
+  // anything `.lt.` would have excluded, so that existing test's assertion
+  // is unchanged by this fix and is not duplicated here.
 
   it("creates the row via insert when no subscription row exists yet for the account", async () => {
     // Arrange — the conditional update matches nothing (no row to match).

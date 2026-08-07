@@ -58,9 +58,20 @@ export function mapStripeStatus(status: string): MappedSubscriptionState {
 }
 
 /** Every Stripe event type this worker acts on. Any other type is recorded
- * in stripe_events and answered 200 — never 400, never 500 (AC-6). */
+ * in stripe_events and answered 200 — never 400, never 500 (AC-6).
+ *
+ * Review fix (B9): `checkout.session.async_payment_succeeded` /
+ * `..._failed` were added alongside `checkout.session.completed` because a
+ * delayed payment method (bank debit — this story's own stated fee-driven
+ * preference) does NOT settle synchronously. `applyEvent()` below never
+ * grants ai/active from `checkout.session.completed` unless Stripe's own
+ * `payment_status` on that session already reads `paid` — a delayed method
+ * reports `unpaid` at that point, and entitlement is granted only once one
+ * of these two async events resolves it either way. */
 export const HANDLED_STRIPE_EVENT_TYPES = [
   "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
   "customer.subscription.created",
   "customer.subscription.updated",
   "customer.subscription.deleted",
@@ -86,6 +97,28 @@ export function stripeIdOf(
 ): string | null {
   if (!value) return null;
   return typeof value === "string" ? value : value.id;
+}
+
+/**
+ * Review fix (B1): `event.livemode` was stored in `stripe_events` for audit
+ * but never checked against anything — so a test-mode Stripe event, sent to
+ * a Worker that happens to be running test-mode secrets in production
+ * (exactly the deployed state at the time of this finding), could write a
+ * real `active` subscription into the production entitlement table.
+ *
+ * The Worker's own mode must be an ENFORCED invariant, derived from
+ * something that cannot silently drift from what it actually talks to —
+ * never a second, independently-set boolean env var, which could itself be
+ * misconfigured the same way `STRIPE_SECRET_KEY` was. Stripe secret (and
+ * restricted) keys are self-describing: `sk_live_…`/`rk_live_…` vs.
+ * `sk_test_…`/`rk_test_…`. Deriving the Worker's mode from the KEY IT IS
+ * ACTUALLY CONFIGURED WITH means there is no second setting to forget, and
+ * "which mode is this Worker in" always answers "whichever mode its own
+ * secret key would authenticate against at Stripe" — the same fact Stripe
+ * itself would use.
+ */
+export function isLiveStripeSecretKey(secretKey: string): boolean {
+  return secretKey.startsWith("sk_live_") || secretKey.startsWith("rk_live_");
 }
 
 function isoOrNull(unixSeconds: number | null | undefined): string | null {
@@ -119,18 +152,59 @@ export function applyEvent(event: Stripe.Event): SubscriptionPatch | null {
   switch (event.type) {
     // The one event that carries `client_reference_id` — index.ts uses it to
     // establish the account<->customer binding before this function ever
-    // runs. A completed subscription-mode Checkout Session means payment
-    // succeeded, so this writes ai/active directly rather than waiting for
-    // the `customer.subscription.created` event that follows it — price and
-    // period are left unset here (not yet known from this payload) and get
-    // filled in by that follow-on event.
+    // runs, for this event AND for its two async siblings below (they carry
+    // the same field on the same Checkout Session object).
+    //
+    // Review fix (B9): a completed Checkout Session does NOT always mean
+    // payment succeeded — `payment_status` is `'unpaid'` for a delayed
+    // payment method (e.g. bank debit) until the async event resolves it.
+    // Only `'paid'`/`'no_payment_required'` grants ai/active here; otherwise
+    // plan/status are OMITTED (never written), leaving the row at its
+    // existing/default unentitled state while still binding
+    // stripe_customer_id/stripe_subscription_id — REQUIRED so
+    // `resolveAccountForCustomer` can resolve the account for the async
+    // follow-up event regardless of which one Stripe delivers first (Stripe
+    // does not guarantee delivery order). price/period stay unset either
+    // way — not yet known from this payload — and get filled in by the
+    // `customer.subscription.created` event that follows.
     case "checkout.session.completed": {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const paidNow =
+        session.payment_status === "paid" ||
+        session.payment_status === "no_payment_required";
+      return {
+        ...(paidNow ? { plan: "ai" as const, status: "active" as const } : {}),
+        stripe_customer_id: stripeIdOf(session.customer),
+        stripe_subscription_id: stripeIdOf(session.subscription),
+        last_stripe_event_at: lastStripeEventAt,
+      };
+    }
+
+    // B9: the delayed payment actually cleared — grant entitlement now,
+    // exactly as the synchronous `'paid'` branch above does.
+    case "checkout.session.async_payment_succeeded": {
       const session = event.data.object as Stripe.Checkout.Session;
       return {
         plan: "ai",
         status: "active",
         stripe_customer_id: stripeIdOf(session.customer),
         stripe_subscription_id: stripeIdOf(session.subscription),
+        last_stripe_event_at: lastStripeEventAt,
+      };
+    }
+
+    // B9: the delayed payment failed — this Checkout attempt never became a
+    // paid subscription, so the row is written explicitly to free/none
+    // (never merely left alone) rather than reusing the 'lapsed' status
+    // `invoice.payment_failed` below uses for an ALREADY-active
+    // subscription's failed renewal. "Lapsed" means "was paid, now expired";
+    // this attempt was never paid in the first place.
+    case "checkout.session.async_payment_failed": {
+      const session = event.data.object as Stripe.Checkout.Session;
+      return {
+        plan: "free",
+        status: "none",
+        stripe_customer_id: stripeIdOf(session.customer),
         last_stripe_event_at: lastStripeEventAt,
       };
     }
@@ -234,7 +308,36 @@ export async function applySubscriptionPatch(
   patch: SubscriptionPatch,
   eventCreatedAt: Date,
 ): Promise<ApplySubscriptionPatchResult> {
-  const staleFilter = `last_stripe_event_at.is.null,last_stripe_event_at.lt.${eventCreatedAt.toISOString()}`;
+  // Review fix (B8): `event.created` has SECOND precision, so two distinct
+  // events (e.g. `checkout.session.completed` and
+  // `customer.subscription.created` for the same checkout, or two
+  // legitimate updates) can carry the identical timestamp. A strict `.lt.`
+  // here treated a tie as "not newer" and silently dropped whichever event
+  // lost the race to be applied first — even though it was not older, just
+  // simultaneous. `.lte.` implements the epic's own stated rule ("applies
+  // when its timestamp is greater than or equal to the last one") instead:
+  // an event with a timestamp EQUAL to the stored one is still eligible to
+  // apply.
+  //
+  // What this guarantees: a genuinely OLDER event (`created` strictly less
+  // than the stored value) is still always rejected — `.lte.` only widens
+  // the boundary to include equality, it never admits anything `.lt.` would
+  // have excluded for being older. What it does NOT guarantee: a total
+  // order between two same-second events — Stripe does not provide one, and
+  // no timestamp-only rule can invent one. Both same-second events are
+  // instead allowed to apply, in WHATEVER order they are delivered, and
+  // correctness falls out of `applyEvent()`'s own field-omission
+  // convention: each event's patch OMITS (never nulls) any field it does
+  // not know, so two same-second patches with disjoint field sets (e.g.
+  // `checkout.session.completed`'s customer/subscription ids and
+  // `customer.subscription.created`'s price/period) both land regardless of
+  // arrival order, rather than the second one clobbering the first's
+  // fields with nulls. A genuine conflict between two same-second events
+  // that both set the SAME field differently is not resolved by this
+  // guard — it resolves to "whichever committed last," which is the same
+  // guarantee `.lt.` already gave for a strictly-newer event racing an
+  // in-flight older write.
+  const staleFilter = `last_stripe_event_at.is.null,last_stripe_event_at.lte.${eventCreatedAt.toISOString()}`;
 
   const attemptConditionalUpdate = async (): Promise<{
     rows: unknown[];

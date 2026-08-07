@@ -10,11 +10,18 @@ import {
 import { ok, fail } from "../shared/envelope";
 import type { BaseEnv } from "../shared/env";
 import { forAccount } from "../shared/forAccount";
-import { recordStripeEvent, resolveAccountForCustomer } from "./resolveAccount";
+import { summarizeErrorForLog } from "../shared/safeLog";
+import { appReturnUrl, isEligibleForBilling } from "./checkoutHelpers";
+import {
+  claimStripeEvent,
+  markStripeEventDone,
+  resolveAccountForCustomer,
+} from "./resolveAccount";
 import {
   applyEvent,
   applySubscriptionPatch,
   isHandledStripeEventType,
+  isLiveStripeSecretKey,
   stripeIdOf,
 } from "./subscriptionState";
 
@@ -113,16 +120,78 @@ app.post("/checkout", async (c) => {
     return c.json(fail("no active context"), 403);
   }
 
+  const eligibility = await isEligibleForBilling(supabase);
+  if (!eligibility.eligible) {
+    return c.json(fail(eligibility.message), 403);
+  }
+
   // AC-8: never a second Stripe customer for the same account — reuse the
   // one already on file, if any.
+  //
+  // Review fix (B4): the initial select's error was previously discarded
+  // outright (only `data` was read), so a transient read failure fell
+  // through to the "no existing customer" branch below and could create a
+  // customer the account may already have one for.
   const scoped = forAccount(String(accountId), c.env);
-  const { data: existing } = (await scoped
+  const { data: existing, error: selectError } = (await scoped
     .from("subscription")
     .select("stripe_customer_id")
-    .maybeSingle()) as { data: SubscriptionCustomerRow | null };
+    .maybeSingle()) as {
+    data: SubscriptionCustomerRow | null;
+    error: { message: string } | null;
+  };
+  if (selectError) {
+    return c.json(fail("failed to look up subscription"), 500);
+  }
   const existingCustomerId = existing?.stripe_customer_id ?? undefined;
 
   const stripe = createStripeClient(STRIPE_SECRET_KEY);
+  let customerId = existingCustomerId;
+
+  if (!customerId) {
+    // Review fix (B4): concurrent creation. Two `/checkout` calls for the
+    // SAME account (two household members, two tabs) can both reach this
+    // branch having both observed no stored customer — a plain
+    // read-then-create race the DB's unique index on
+    // `subscription.stripe_customer_id` cannot prevent, because it only
+    // stops two LOCAL rows from holding the same remote id; it does nothing
+    // to stop two DIFFERENT remote Stripe customers from being created in
+    // the first place.
+    //
+    // A DETERMINISTIC idempotency key derived from `accountId` alone (never
+    // a random UUID) closes this at the one place that can actually
+    // serialize it: Stripe itself. Two concurrent `customers.create()` calls
+    // carrying the identical key AND identical params (this body never
+    // varies per call) are deduplicated by Stripe — both requests resolve to
+    // the SAME customer object, never two. The key stays valid for Stripe's
+    // idempotency window regardless of how this request's own database
+    // write below fares, so a retried `/checkout` after a failed upsert
+    // reuses the same customer rather than minting another.
+    let customer: Stripe.Customer;
+    try {
+      customer = await stripe.customers.create(
+        { metadata: { account_id: String(accountId) } },
+        { idempotencyKey: `billing-customer-account-${accountId}` },
+      );
+    } catch {
+      return c.json(fail("failed to create customer"), 500);
+    }
+    customerId = customer.id;
+
+    // Review fix (B4): this upsert's error was previously discarded
+    // outright — a failed write here used to still return a successful
+    // Checkout URL, silently leaving the new customer unrecorded (the next
+    // `/checkout` call would then have no stored id to reuse and rely
+    // entirely on the SAME idempotency key to avoid creating yet another
+    // Stripe customer).
+    const { error: upsertError } = await scoped
+      .from("subscription")
+      .upsert({ stripe_customer_id: customerId }, { onConflict: "account_id" });
+    if (upsertError) {
+      return c.json(fail("failed to persist stripe customer"), 500);
+    }
+  }
+
   let session: Stripe.Checkout.Session;
   try {
     session = await stripe.checkout.sessions.create({
@@ -130,9 +199,9 @@ app.post("/checkout", async (c) => {
       line_items: [{ price: priceId, quantity: 1 }],
       client_reference_id: String(accountId),
       metadata: { account_id: String(accountId) },
-      ...(existingCustomerId ? { customer: existingCustomerId } : {}),
-      success_url: `${APP_ORIGIN}/billing?checkout=success`,
-      cancel_url: `${APP_ORIGIN}/billing?checkout=cancelled`,
+      customer: customerId,
+      success_url: appReturnUrl(APP_ORIGIN, "/billing?checkout=success"),
+      cancel_url: appReturnUrl(APP_ORIGIN, "/billing?checkout=cancelled"),
     });
   } catch {
     return c.json(fail("failed to create checkout session"), 500);
@@ -140,20 +209,6 @@ app.post("/checkout", async (c) => {
 
   if (!session.url) {
     return c.json(fail("failed to create checkout session"), 500);
-  }
-
-  // This route writes NO entitlement (AC-8's own failing condition) — only
-  // ever `stripe_customer_id`, and only when Stripe assigned a NEW one (a
-  // brand-new Checkout Session for an account that had none on file yet).
-  // `plan`/`status` are never present in this upsert payload.
-  const newCustomerId = stripeIdOf(session.customer);
-  if (newCustomerId && newCustomerId !== existingCustomerId) {
-    await scoped
-      .from("subscription")
-      .upsert(
-        { stripe_customer_id: newCustomerId },
-        { onConflict: "account_id" },
-      );
   }
 
   return c.json(ok({ url: session.url }));
@@ -182,6 +237,12 @@ app.post("/portal", async (c) => {
     return c.json(fail("no active context"), 403);
   }
 
+  // Review fix (B5): same eligible-role contract as /checkout above.
+  const eligibility = await isEligibleForBilling(supabase);
+  if (!eligibility.eligible) {
+    return c.json(fail(eligibility.message), 403);
+  }
+
   const scoped = forAccount(String(accountId), c.env);
   const { data: existing } = (await scoped
     .from("subscription")
@@ -197,7 +258,7 @@ app.post("/portal", async (c) => {
   try {
     session = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url: `${APP_ORIGIN}/billing`,
+      return_url: appReturnUrl(APP_ORIGIN, "/billing"),
     });
   } catch {
     return c.json(fail("failed to create billing portal session"), 500);
@@ -244,12 +305,66 @@ app.post("/webhook", async (c) => {
     return c.json(fail("invalid signature"), 400);
   }
 
-  // checkout.session.completed is the one event that carries
-  // client_reference_id — the account<->customer binding is established
-  // HERE. Every other event resolves the account through the customer id
-  // alone (resolveAccountForCustomer, AC-11's one named carve-out).
+  // Review fix (B1): mode is an ENFORCED invariant, checked before any
+  // database call — never merely stored for later audit. A mismatched event
+  // (a test-mode event delivered to a Worker configured with a live secret
+  // key, or vice versa) can NEVER become valid on retry — the Worker's mode
+  // is a static fact of its own configuration, not a transient condition —
+  // so it is answered 200 (never 500) to stop Stripe from retrying it
+  // forever, and recorded rather than silently dropped.
+  const workerIsLive = isLiveStripeSecretKey(STRIPE_SECRET_KEY);
+  if (event.livemode !== workerIsLive) {
+    const claimed = await claimStripeEvent(
+      { eventId: event.id, type: event.type, livemode: event.livemode },
+      c.env,
+    );
+    if (claimed.outcome === "error") {
+      return c.json(fail("failed to record webhook event"), 500);
+    }
+    if (claimed.outcome !== "done") {
+      const marked = await markStripeEventDone(event.id, null, c.env);
+      if (!marked.ok) {
+        return c.json(fail("failed to record webhook event"), 500);
+      }
+    }
+    console.error("billing.webhook.modeMismatch", {
+      eventId: event.id,
+      eventType: event.type,
+      eventLivemode: event.livemode,
+      workerIsLive,
+    });
+    return c.json(ok({ rejected: "mode_mismatch" }));
+  }
+
+  // Review fix (B2): claim the ledger row BEFORE resolving the account or
+  // attempting any mutation — "received" (this delivery owns processing,
+  // whether for the first time or because an earlier attempt never reached
+  // a terminal state) and "done" (a genuinely completed delivery, safe to
+  // dedupe forever) are now distinct, see resolveAccount.ts's own comment.
+  // Only a "done" claim may short-circuit to `{deduped:true}` — a "claimed"
+  // or "retry" outcome both continue processing exactly the same way below.
+  const claimed = await claimStripeEvent(
+    { eventId: event.id, type: event.type, livemode: event.livemode },
+    c.env,
+  );
+  if (claimed.outcome === "error") {
+    return c.json(fail("failed to record webhook event"), 500);
+  }
+  if (claimed.outcome === "done") {
+    return c.json(ok({ deduped: true }));
+  }
+
+  // checkout.session.completed and its two async siblings are the events
+  // that carry client_reference_id — the account<->customer binding is
+  // established HERE. Every other event resolves the account through the
+  // customer id alone (resolveAccountForCustomer, AC-11's one named
+  // carve-out).
   let accountId: number | null = null;
-  if (event.type === "checkout.session.completed") {
+  if (
+    event.type === "checkout.session.completed" ||
+    event.type === "checkout.session.async_payment_succeeded" ||
+    event.type === "checkout.session.async_payment_failed"
+  ) {
     const session = event.data.object as Stripe.Checkout.Session;
     const parsed = session.client_reference_id
       ? Number(session.client_reference_id)
@@ -262,41 +377,43 @@ app.post("/webhook", async (c) => {
     };
     const customerId = stripeIdOf(eventObject.customer);
     if (customerId) {
-      accountId = await resolveAccountForCustomer(customerId, c.env);
+      const resolution = await resolveAccountForCustomer(customerId, c.env);
+      if (resolution.outcome === "error") {
+        // Review fix (B3): an operational failure (a query/transport error),
+        // not a business outcome — the ledger row stays at status
+        // 'received' (never marked done), so a Stripe redelivery of this
+        // SAME event id reprocesses from scratch instead of being told it
+        // was already handled.
+        console.error(
+          "billing.webhook.resolveAccountFailed",
+          summarizeErrorForLog(new Error(resolution.message)),
+        );
+        return c.json(fail("failed to resolve account"), 500);
+      }
+      accountId = resolution.outcome === "found" ? resolution.accountId : null;
     }
-  }
-
-  // AC-5: insert-first idempotency guard. A duplicate delivery fails
-  // unique_violation on event_id and is answered as a cheap no-op, never an
-  // error — Stripe retries a non-2xx for up to 3 days.
-  const recorded = await recordStripeEvent(
-    {
-      eventId: event.id,
-      type: event.type,
-      accountId,
-      livemode: event.livemode,
-    },
-    c.env,
-  );
-
-  if (recorded.outcome === "error") {
-    return c.json(fail("failed to record webhook event"), 500);
-  }
-  if (recorded.outcome === "duplicate") {
-    return c.json(ok({ deduped: true }));
   }
 
   // An event for a customer this worker cannot resolve to any account (Task
   // 5: "record it in stripe_events with a null account_id and return 200; do
-  // not guess") — recorded above, nothing left to do.
+  // not guess") — a genuine, terminal "unknown customer" outcome, distinct
+  // from the operational failure handled above (B3).
   if (accountId === null) {
+    const marked = await markStripeEventDone(event.id, null, c.env);
+    if (!marked.ok) {
+      return c.json(fail("failed to record webhook event"), 500);
+    }
     return c.json(ok({ ignored: true }));
   }
 
-  // Any type outside the five this worker acts on: recorded above, answered
+  // Any type outside the ones this worker acts on: recorded above, answered
   // 200 — never 400, never 500 (an unhandled type returning non-2xx puts the
   // endpoint into Stripe's retry-and-disable loop).
   if (!isHandledStripeEventType(event.type)) {
+    const marked = await markStripeEventDone(event.id, accountId, c.env);
+    if (!marked.ok) {
+      return c.json(fail("failed to record webhook event"), 500);
+    }
     return c.json(ok({ handled: false }));
   }
 
@@ -307,15 +424,20 @@ app.post("/webhook", async (c) => {
     // Unreachable given the isHandledStripeEventType guard above — kept as
     // a fail-closed backstop rather than asserting/throwing into Stripe's
     // retry loop over a defect that would need a code fix either way.
+    const marked = await markStripeEventDone(event.id, accountId, c.env);
+    if (!marked.ok) {
+      return c.json(fail("failed to record webhook event"), 500);
+    }
     return c.json(ok({ handled: false }));
   }
 
   // AC-5 ordering guard, applied atomically (review fix — see
   // applySubscriptionPatch()'s own comment for why the previous
   // select-then-upsert shape here left a real TOCTOU race between
-  // concurrent deliveries). A mutation only ever applies when this event's
-  // `created` timestamp is >= the account's own last-applied event; an
-  // older, out-of-order or re-delivered event writes nothing.
+  // concurrent deliveries, and for B8's same-second tie-break). A mutation
+  // only ever applies when this event's `created` timestamp is >= the
+  // account's own last-applied event; a genuinely older, out-of-order event
+  // writes nothing.
   const eventCreatedAt = new Date(event.created * 1000);
   const applyResult = await applySubscriptionPatch(
     scoped,
@@ -323,12 +445,23 @@ app.post("/webhook", async (c) => {
     eventCreatedAt,
   );
   if (applyResult.outcome === "error") {
+    // Review fix (B2): the ledger row is deliberately left at status
+    // 'received' here — NOT marked done — so a Stripe retry of this exact
+    // event id reprocesses the mutation instead of being deduped past it.
     return c.json(fail("failed to update subscription"), 500);
   }
+
+  // Both "applied" and "stale" are terminal successes of THIS event's own
+  // processing — a stale event correctly wrote nothing because a newer one
+  // already won the ordering guard, which is not a failure to retry.
+  const marked = await markStripeEventDone(event.id, accountId, c.env);
+  if (!marked.ok) {
+    return c.json(fail("failed to record webhook event"), 500);
+  }
+
   if (applyResult.outcome === "stale") {
     return c.json(ok({ stale: true }));
   }
-
   return c.json(ok({ applied: true }));
 });
 

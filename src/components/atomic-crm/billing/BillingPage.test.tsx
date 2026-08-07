@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter, type DataProvider } from "ra-core";
 import { QueryClient } from "@tanstack/react-query";
@@ -9,14 +9,25 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { AiEntitlementInfo } from "../types";
 import { BillingPage } from "./BillingPage";
 
-const { useAiEntitlementInfo } = vi.hoisted(() => ({
-  useAiEntitlementInfo: vi.fn(),
-}));
+const { useAiEntitlementInfo, useMyContexts, useSubscriptionStatus } =
+  vi.hoisted(() => ({
+    useAiEntitlementInfo: vi.fn(),
+    useMyContexts: vi.fn(),
+    useSubscriptionStatus: vi.fn(),
+  }));
 
 vi.mock("../references/useAiEntitlement", () => ({
   useAiEntitlementInfo,
   AI_ENTITLEMENT_QUERY_KEY: ["aiEntitlement"],
 }));
+
+// B5's route guard (RequireBillingEligibleRole) and B7's manage-subscription
+// honest-copy branch both read hooks this suite would otherwise have to hit
+// a real Supabase client for — mocked here the same way the entitlement hook
+// already is, so every existing assertion below (about plan cards and ctas)
+// stays isolated to what `ai_entitlement()` itself reports.
+vi.mock("../root/useMyContexts", () => ({ useMyContexts }));
+vi.mock("./useSubscriptionStatus", () => ({ useSubscriptionStatus }));
 
 const entitlementInfo = (
   overrides: Partial<AiEntitlementInfo> = {},
@@ -59,6 +70,24 @@ const renderPage = async (info: AiEntitlementInfo, url = "/billing") => {
  * return must never flip any of that on its own.
  */
 describe("BillingPage", () => {
+  beforeEach(() => {
+    useMyContexts.mockReturnValue({
+      data: [
+        {
+          account_id: 1,
+          kind: "household",
+          name: "Test household",
+          role: "parent_admin",
+          is_active: true,
+        },
+      ],
+    });
+    useSubscriptionStatus.mockReturnValue({
+      status: { hasStripeCustomer: true, provisioningSource: "stripe" },
+      isLoading: false,
+    });
+  });
+
   it("shows the free plan as current and a SubscribeButton for a never-subscribed account", async () => {
     // Arrange / Act
     const { screen } = await renderPage(entitlementInfo());
@@ -141,5 +170,32 @@ describe("BillingPage", () => {
       .not.toBeInTheDocument();
     // "Current plan" still marks Free forever, not the AI tier.
     await expect.element(screen.getByText("Current plan")).toBeVisible();
+  });
+
+  // B5: a `single`-role caller can pay through /checkout and never observe
+  // or use what they bought (subscription/ai_usage RLS denies that role
+  // entirely) — the route itself must never render for them.
+  it("B5: redirects away from /billing entirely for a 'single'-role active context", async () => {
+    // Arrange
+    useMyContexts.mockReturnValue({
+      data: [
+        {
+          account_id: 2,
+          kind: "household",
+          name: "Test single",
+          role: "single",
+          is_active: true,
+        },
+      ],
+    });
+
+    // Act
+    const { screen } = await renderPage(entitlementInfo());
+
+    // Assert — none of the Billing page's own content ever mounts.
+    await expect.element(screen.getByText("Billing")).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: /Subscribe/ }))
+      .not.toBeInTheDocument();
   });
 });

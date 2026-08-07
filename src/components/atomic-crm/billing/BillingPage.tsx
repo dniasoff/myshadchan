@@ -10,6 +10,7 @@ import { AI_PRICE_QUARTERLY, AI_PRICE_YEARLY } from "./billingPlans";
 import { BillingReturnNotice } from "./BillingReturnNotice";
 import { ManageSubscriptionButton } from "./ManageSubscriptionButton";
 import { PlanCard } from "./PlanCard";
+import { RequireBillingEligibleRole } from "./RequireBillingEligibleRole";
 import { SubscribeButton } from "./SubscribeButton";
 import { UsageMeter } from "./UsageMeter";
 
@@ -26,7 +27,15 @@ import { UsageMeter } from "./UsageMeter";
  * server's `ai_entitlement()` — the only way an account becomes entitled is
  * the webhook's own service_role write to `subscription`.
  */
-export const BillingPage = () => {
+export const BillingPage = () => (
+  <RequireBillingEligibleRole>
+    <BillingPageContent />
+  </RequireBillingEligibleRole>
+);
+
+BillingPage.path = "/billing";
+
+const BillingPageContent = () => {
   const translate = useTranslate();
   const queryClient = useQueryClient();
   const { info, isLoading } = useAiEntitlementInfo();
@@ -165,5 +174,3 @@ export const BillingPage = () => {
     </div>
   );
 };
-
-BillingPage.path = "/billing";

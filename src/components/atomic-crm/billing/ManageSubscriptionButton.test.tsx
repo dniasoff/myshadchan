@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, type DataProvider } from "ra-core";
 
@@ -8,13 +8,20 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { AiEntitlementInfo } from "../types";
 import { ManageSubscriptionButton } from "./ManageSubscriptionButton";
 
-const { callBillingWorker } = vi.hoisted(() => ({
+const { callBillingWorker, useSubscriptionStatus } = vi.hoisted(() => ({
   callBillingWorker: vi.fn(),
+  useSubscriptionStatus: vi.fn(),
 }));
 
 vi.mock("../providers/commons/billingClient", () => ({
   callBillingWorker,
 }));
+
+// Review fix (B7): a Stripe customer id is on file by default here, so the
+// pre-existing tests below (which exercise the working /portal path) are
+// unaffected — the "manual subscriber, no Stripe customer" branch this hook
+// also covers gets its own dedicated test.
+vi.mock("./useSubscriptionStatus", () => ({ useSubscriptionStatus }));
 
 const entitlementInfo = (
   overrides: Partial<AiEntitlementInfo> = {},
@@ -50,6 +57,13 @@ const renderButton = async (
  * something to manage (entitled or lapsed).
  */
 describe("ManageSubscriptionButton", () => {
+  beforeEach(() => {
+    useSubscriptionStatus.mockReturnValue({
+      status: { hasStripeCustomer: true, provisioningSource: "stripe" },
+      isLoading: false,
+    });
+  });
+
   it("renders nothing for a free, never-subscribed account", async () => {
     // Arrange / Act
     const { screen } = await renderButton(
@@ -126,5 +140,49 @@ describe("ManageSubscriptionButton", () => {
     await expect
       .element(screen.getByRole("button", { name: "Manage subscription" }))
       .not.toBeDisabled();
+  });
+
+  // Review fix (B7): a hand-provisioned subscription (no Stripe customer
+  // id) previously still rendered this button, and clicking it always 404'd
+  // ("no subscription", workers/billing/index.ts). Honest copy instead.
+  it("B7: renders honest copy instead of a doomed button for a manually provisioned subscription (no Stripe customer id)", async () => {
+    // Arrange
+    useSubscriptionStatus.mockReturnValue({
+      status: { hasStripeCustomer: false, provisioningSource: "manual" },
+      isLoading: false,
+    });
+
+    // Act
+    const { screen } = await renderButton(
+      entitlementInfo({ is_entitled: true, status: "active", plan: "ai" }),
+    );
+
+    // Assert
+    await expect
+      .element(
+        screen.getByText(
+          "This subscription was set up manually. Contact support to make changes.",
+        ),
+      )
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: "Manage subscription" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("renders nothing while the subscription status read is still in flight — never the doomed button, even briefly", async () => {
+    // Arrange
+    useSubscriptionStatus.mockReturnValue({
+      status: { hasStripeCustomer: false, provisioningSource: "manual" },
+      isLoading: true,
+    });
+
+    // Act
+    const { screen } = await renderButton(
+      entitlementInfo({ is_entitled: true, status: "active", plan: "ai" }),
+    );
+
+    // Assert
+    await expect.element(screen.getByRole("button")).not.toBeInTheDocument();
   });
 });

@@ -581,14 +581,34 @@ begin
   -- Two rows, both shapes the ledger really holds: one resolved to an
   -- account, one recorded with a null account_id (the "unknown customer"
   -- outcome resolveAccountForCustomer() returns).
+  -- `status` (Epic 12 adversarial review, B2 closure): both seeded rows
+  -- represent Stripe events that were fully, successfully processed by a
+  -- prior deploy — 'done' is the historically accurate value, not the
+  -- table's own 'received' default (which describes a delivery still
+  -- in-flight). Guarded the same `to_regclass` way as the column itself: a
+  -- baseline predating this migration has no `status` column at all, and
+  -- this INSERT must still work against that older shape.
   if to_regclass('public.stripe_events') is not null then
-    execute $seed$
-      insert into public.stripe_events
-        (event_id, type, account_id, received_at, livemode)
-      values
-        ('evt_9000001', 'customer.subscription.updated', 9000001, now(), false),
-        ('evt_9000002', 'invoice.payment_failed', null, now(), false);
-    $seed$;
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'stripe_events' and column_name = 'status'
+    ) then
+      execute $seed$
+        insert into public.stripe_events
+          (event_id, type, account_id, received_at, livemode, status)
+        values
+          ('evt_9000001', 'customer.subscription.updated', 9000001, now(), false, 'done'),
+          ('evt_9000002', 'invoice.payment_failed', null, now(), false, 'done');
+      $seed$;
+    else
+      execute $seed$
+        insert into public.stripe_events
+          (event_id, type, account_id, received_at, livemode)
+        values
+          ('evt_9000001', 'customer.subscription.updated', 9000001, now(), false),
+          ('evt_9000002', 'invoice.payment_failed', null, now(), false);
+      $seed$;
+    end if;
   end if;
 end $$;
 

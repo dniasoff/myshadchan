@@ -13,17 +13,17 @@ import type { BaseEnv } from "../shared/env";
  * test) that builds a raw service-role client keyed on
  * `SUPABASE_SERVICE_ROLE_KEY` — everything downstream of a RESOLVED account
  * id goes through `forAccount(accountId, env)` instead (index.ts's
- * `subscription` upsert). `recordStripeEvent` below is the one other
- * operation kept here rather than routed through `forAccount()`:
+ * `subscription` upsert). The ledger functions below are the other
+ * operations kept here rather than routed through `forAccount()`:
  * `stripe_events.account_id` is nullable BY DESIGN (an event for a customer
  * this worker cannot resolve to any account is still recorded — Task 5's
  * "do not guess" instruction — and `forAccount()` refuses an empty accountId
  * outright), and the table itself has zero RLS policies to bypass carefully
  * (05_policies.sql) — there is no tenant-isolation concern `forAccount()`'s
- * scoping exists to enforce here the way there is for `subscription`. Both
- * functions share ONE client-construction call site (`serviceClient` below)
- * rather than each minting its own, which is what keeps this file's total
- * raw-client surface at exactly one line for a source sweep to find.
+ * scoping exists to enforce here the way there is for `subscription`. Every
+ * function below shares ONE client-construction call site (`serviceClient`
+ * below) rather than each minting its own, which is what keeps this file's
+ * total raw-client surface at exactly one line for a source sweep to find.
  */
 function serviceClient(env: BaseEnv): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
@@ -31,73 +31,153 @@ function serviceClient(env: BaseEnv): SupabaseClient {
   });
 }
 
+export type ResolveAccountResult =
+  | { outcome: "found"; accountId: number }
+  | { outcome: "not_found" }
+  | { outcome: "error"; message: string };
+
 /**
  * The one query this carve-out exists for:
  * `select account_id from subscription where stripe_customer_id = $1`.
- * Returns `null`, never throws, when the customer is unknown — an unknown
- * customer is a normal event (a Stripe test fixture, another environment
- * sharing the Stripe account, or an event that legitimately arrives before
- * `checkout.session.completed` has ever bound this customer to an account),
- * and the webhook answers `200 ok({ ignored: true })` for it rather than
- * 500ing into Stripe's retry-and-disable loop. A real query error (a
- * transport failure, a malformed customerId) is treated the same way, for
- * the same reason — this function's whole contract is "never throw".
+ *
+ * Review fix (B3): this used to collapse "no matching row" and "the query
+ * itself failed" onto the same `null` return, which made a transient
+ * database/transport error indistinguishable from a genuinely unknown
+ * customer. The caller needs to tell them apart — "unknown customer" is a
+ * business outcome the webhook may safely record and dedupe forever;
+ * "could not query the mapping" is an operational failure that MUST stay
+ * retryable, or a database blip on delivery #1 permanently strands that
+ * event's account binding even after the database recovers, because a
+ * later manual resend of the SAME event id would already be in the ledger.
+ * Three explicit outcomes replace the single nullable return so the caller
+ * can never conflate them again.
  */
 export async function resolveAccountForCustomer(
   customerId: string,
   env: BaseEnv,
-): Promise<number | null> {
+): Promise<ResolveAccountResult> {
   const { data, error } = await serviceClient(env)
     .from("subscription")
     .select("account_id")
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
 
-  if (error || !data) {
-    return null;
+  if (error) {
+    return { outcome: "error", message: error.message };
   }
-
-  return data.account_id as number;
+  if (!data) {
+    return { outcome: "not_found" };
+  }
+  return { outcome: "found", accountId: data.account_id as number };
 }
 
-export interface RecordStripeEventInput {
+export interface ClaimStripeEventInput {
   eventId: string;
   type: string;
-  /** Null when the event's customer could not be resolved to any account
-   * (Task 5: "record it in stripe_events with a null account_id"). */
-  accountId: number | null;
   livemode: boolean;
 }
 
-export type RecordStripeEventResult =
-  | { outcome: "recorded" }
-  | { outcome: "duplicate" }
+export type ClaimStripeEventResult =
+  | { outcome: "claimed" }
+  | { outcome: "retry" }
+  | { outcome: "done" }
   | { outcome: "error"; message: string };
 
 /**
- * AC-5's insert-first idempotency guard: `stripe_events.event_id` is the
- * primary key, so a duplicate delivery attempts a duplicate INSERT and fails
- * `unique_violation` (Postgres 23505, surfaced by PostgREST as HTTP 409) —
- * treated here as a normal, expected outcome (`"duplicate"`), never an
- * error, because Stripe retries a non-2xx for up to 3 days and a duplicate
- * must be a cheap, successful no-op.
+ * Review fix (B2): the old `recordStripeEvent()` inserted the ledger row
+ * BEFORE the domain mutation was even attempted, and treated any later
+ * unique-violation as an unconditional "deduped, nothing left to do." That
+ * conflated two different states under one primary key: "Stripe has
+ * delivered this event id before" and "this event was fully, successfully
+ * processed." A mutation failure after the insert left the ledger row
+ * behind with nothing recorded about that failure — the next delivery
+ * (Stripe's own automatic retry) hit the same primary key, was told
+ * `{deduped:true}`, and the failed mutation was never retried. A transient
+ * database error thus became permanent entitlement drift.
+ *
+ * `stripe_events.status` (`'received' | 'done'`, migration
+ * 20260807_billing_ledger_status or similar — see 01_tables.sql) makes the
+ * two states explicit and this function is the ONLY writer of `'received'`:
+ *
+ * - No existing row -> INSERT one at `status = 'received'` and report
+ *   `"claimed"`: this delivery owns processing end-to-end.
+ * - An existing row still at `'received'` -> report `"retry"`: an earlier
+ *   attempt for this exact event id claimed it but never reached
+ *   `markStripeEventDone()`, so this delivery (Stripe's own retry, or a
+ *   manual resend) must reprocess from scratch rather than being told it
+ *   already happened. Reprocessing is safe: every downstream step this
+ *   event can reach (`resolveAccountForCustomer`, `applySubscriptionPatch`)
+ *   is itself idempotent/order-safe.
+ * - An existing row at `'done'` -> report `"done"`: a genuinely completed
+ *   delivery. THIS is the only case that may answer `{deduped:true}` without
+ *   doing any further work.
  */
-export async function recordStripeEvent(
-  input: RecordStripeEventInput,
+export async function claimStripeEvent(
+  input: ClaimStripeEventInput,
   env: BaseEnv,
-): Promise<RecordStripeEventResult> {
+): Promise<ClaimStripeEventResult> {
   const { error } = await serviceClient(env).from("stripe_events").insert({
     event_id: input.eventId,
     type: input.type,
-    account_id: input.accountId,
     livemode: input.livemode,
+    status: "received",
   });
 
   if (!error) {
-    return { outcome: "recorded" };
+    return { outcome: "claimed" };
   }
-  if (error.code === "23505") {
-    return { outcome: "duplicate" };
+  if (error.code !== "23505") {
+    return { outcome: "error", message: error.message };
   }
-  return { outcome: "error", message: error.message };
+
+  const { data, error: selectError } = await serviceClient(env)
+    .from("stripe_events")
+    .select("status")
+    .eq("event_id", input.eventId)
+    .maybeSingle();
+
+  if (selectError) {
+    return { outcome: "error", message: selectError.message };
+  }
+  if (!data) {
+    // The row that just caused our insert to conflict is gone by the time
+    // we re-read it — never observed, kept as a fail-closed backstop rather
+    // than treating an impossible state as a silent dedupe.
+    return {
+      outcome: "error",
+      message: "stripe_events row vanished after a conflicting insert",
+    };
+  }
+
+  return (data as { status: string }).status === "done"
+    ? { outcome: "done" }
+    : { outcome: "retry" };
+}
+
+export type MarkStripeEventDoneResult =
+  { ok: true } | { ok: false; message: string };
+
+/**
+ * The ONLY writer of `status = 'done'` — called once this event has reached
+ * a genuinely terminal outcome (a mutation applied, a mutation correctly
+ * declined as stale, or a legitimate no-op: an unresolvable customer, an
+ * unhandled event type, or a mode mismatch). `accountId` is written here
+ * too — never at claim time — so a row claimed before account resolution
+ * completes still ends up with the right tenant link once resolution
+ * succeeds.
+ */
+export async function markStripeEventDone(
+  eventId: string,
+  accountId: number | null,
+  env: BaseEnv,
+): Promise<MarkStripeEventDoneResult> {
+  const { error } = await serviceClient(env)
+    .from("stripe_events")
+    .update({ status: "done", account_id: accountId })
+    .eq("event_id", eventId);
+
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+  return { ok: true };
 }

@@ -1048,22 +1048,47 @@ comment on table public.ai_usage is 'Deliberately excluded from enforce_househol
 -- verified Stripe event ever received. The primary key on event_id IS the
 -- idempotency mechanism: a duplicate delivery attempts a duplicate INSERT,
 -- which fails unique_violation (Postgres 23505, surfaced by PostgREST as
--- HTTP 409), and the webhook handler treats that as a cheap, successful
--- no-op rather than reapplying the event. `account_id` is nullable and
--- `on delete set null` — an event for an unknown Stripe customer (no
--- resolvable account) is still recorded, just without a tenant link, and a
--- deleted account must not cascade-delete its own billing history. RLS
--- enabled with ZERO policies (05_policies.sql) — not even SELECT for
--- `authenticated` — because nothing in the product ever needs a client to
--- read raw Stripe event metadata; every access is service_role, from the
--- billing worker alone. New and empty at creation, so — unlike
--- subscription's provisioning_source above — this table needs no backfill.
+-- HTTP 409). `account_id` is nullable and `on delete set null` — an event
+-- for an unknown Stripe customer (no resolvable account) is still recorded,
+-- just without a tenant link, and a deleted account must not cascade-delete
+-- its own billing history. RLS enabled with ZERO policies (05_policies.sql)
+-- — not even SELECT for `authenticated` — because nothing in the product
+-- ever needs a client to read raw Stripe event metadata; every access is
+-- service_role, from the billing worker alone. New and empty at creation,
+-- so — unlike subscription's provisioning_source above — this table needs
+-- no backfill.
+--
+-- `status` (Epic 12 adversarial review, B2 closure): distinguishes
+-- "Stripe has delivered this event id" (`'received'`) from "this event was
+-- fully, successfully processed" (`'done'`). The original shape of this
+-- table let a duplicate INSERT's unique-violation alone answer "deduped,
+-- nothing left to do" — which was true only when the FIRST delivery had
+-- actually finished. A mutation failure after the row was inserted but
+-- before the domain write succeeded left the row behind with nothing
+-- recorded about that failure; Stripe's own automatic retry then hit the
+-- same primary key and was told the event was already handled, so a
+-- transient database error became permanent entitlement drift. Every row
+-- is inserted at `'received'` (`claimStripeEvent()`,
+-- `workers/billing/resolveAccount.ts`) and moves to `'done'` exactly once,
+-- when processing reaches a genuinely terminal outcome (`markStripeEventDone()`)
+-- — a mutation applied, a mutation correctly declined as stale, or a
+-- legitimate no-op (unresolvable customer, unhandled type, livemode
+-- mismatch). A row still at `'received'` on a later delivery of the SAME
+-- event id means the earlier attempt never finished, and the Worker
+-- reprocesses it rather than deduping past an incomplete attempt.
+--
+-- COLUMN ORDER: `status` is appended at the physical end (the "COLUMN-ORDER
+-- TRAP" header at the top of this file) — it was added by
+-- `ALTER TABLE ... ADD COLUMN` after this table's original five, never
+-- reordered into a more "logical" position.
 create table public.stripe_events (
     event_id text primary key,
     type text not null,
     account_id bigint references public.accounts(id) on delete set null,
     received_at timestamp with time zone not null default now(),
-    livemode boolean not null default false
+    livemode boolean not null default false,
+    status text not null default 'received',
+    constraint stripe_events_status_check check (status in ('received', 'done'))
 );
 
 -- Per-attachment parse claim/idempotency ledger (Epic 11 Findings 6/7/8
