@@ -109,9 +109,28 @@ export type TaskDeliveryChannel = "in_app" | "email" | "push";
 export type Task = {
   type: string;
   text: string;
+  /**
+   * KNOWN CONTRACT DRIFT, deliberately left as-is rather than widened here.
+   * The column is **nullable** (`01_tables.sql`) but this has been declared
+   * non-null since Phase 1, so a task with no due date is a shape TypeScript
+   * says cannot exist. `dashboard/DueRemindersCard.tsx` guards it (a null
+   * would otherwise render the string "Invalid Date" via `new Date(null)`);
+   * the Reminders hub does not — widening this to `string | null` makes
+   * `reminders/ReminderCard.tsx:84` and `reminders/useReminders.ts:192,193,
+   * 224,226` fail to typecheck, which is the honest measure of the exposure.
+   * Fixing those guards is a follow-up story, not an Epic 12 edit.
+   */
   due_date: string;
   done_date?: string | null;
-  member_id?: Identifier;
+  /**
+   * The assignee, as `public.members.id` — see the column comment in
+   * `01_tables.sql`. Nullable because Story 12.3 made **Unassigned** an
+   * explicit, legitimate choice rather than an absence: its migration nulls
+   * every unresolvable assignment, and Story 12.2's sweep settles a null here
+   * as `skipped` (a deliberate choice) rather than `failed`. Matching the
+   * other nullable `*_member_id` fields in this file.
+   */
+  member_id?: Identifier | null;
   account_id?: Identifier;
   target_type?: TaskTargetType;
   target_id?: Identifier;

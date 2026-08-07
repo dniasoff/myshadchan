@@ -832,8 +832,64 @@ substrate is E4 and shipped. This story does **not** depend on Epic 5 or on Epic
 
 ### Agent Model Used
 
+claude-sonnet-5, dispatched as two sequential agents (Worker/database, then SPA) under an
+opus-5 orchestrator, followed by four parallel review lenses, per-finding adversarial
+verification, a fix pass and a gate pass.
+
 ### Debug Log References
+
+- **Signature verification proved to reject**, not merely to accept: a tampered body and a stale
+  timestamp each assert `400 invalid signature` with zero database calls behind them.
+- **Idempotency proved**: replaying an event id returns `{deduped:true}` and does not touch
+  `subscription`; an older `customer.subscription.updated` delivered after a
+  `customer.subscription.deleted` returns `{stale:true}` and writes nothing.
+- **The column-order trap fired once** during migration generation (`db diff` appended the new
+  `subscription` columns alphabetically) and was fixed by reordering the declarative block in
+  `01_tables.sql` — never with a migration. `column_order.test.ts` and a second convergence diff
+  confirm it.
+- `STACK_ID=1 make check-migration-safety` passed the `assert` phase with the three pending
+  migrations applied: "74 seeded row(s) across 39 table(s) survived intact".
+- `e2e/billing-checkout.spec.ts` was run for real: 4/4 on chromium and Mobile Chrome, twice.
 
 ### Completion Notes List
 
+- **Pricing is $6 every three months and $24 a year**, per the owner's amendment recorded at the
+  top of this file. There is no monthly cadence anywhere: the secret is
+  `STRIPE_PRICE_ID_QUARTERLY` and the checkout body takes `{quarterly|yearly}`. A `monthly`
+  spelling would 400 silently, because the Worker would look up a price env var nobody pushed —
+  `index.test.ts` pins exactly that rejection.
+- **A webhook ordering race was found in review and fixed.** The staleness guard was a
+  read-then-write (select the last event timestamp, compare in memory, upsert unconditionally),
+  so two concurrent deliveries could both pass the check against the same pre-write value and
+  race — letting an older event win, which is the failure the guard existed to prevent, since
+  Stripe does not guarantee delivery order. Replaced with a single conditional
+  `UPDATE ... WHERE last_stripe_event_at IS NULL OR last_stripe_event_at < event.created`.
+  The reviewer's suggested fix was a `SECURITY DEFINER` function in `02_functions.sql`, which
+  AC-1 forbids; the race was closed within the declared Worker file set instead.
+- **Deviation — `vite.config.ts` was modified**, and it appears in no section of this story's
+  declared file set. Two reviewers found that `VITE_BILLING_WORKER_URL` was absent from the
+  production `define` block, which that file's own comments call the only channel a `VITE_*` value
+  reaches a deployed build through. Without it the built bundle resolves the var to `undefined`
+  and every Subscribe click POSTs to `undefined/checkout`, whatever Vercel holds. The fix agent
+  correctly declined it as out of scope; the epic owner applied it. Third time this repo has hit
+  that landmine, after `VITE_VAPID_PUBLIC_KEY` and `VITE_SHARE_WORKER_URL`.
+- **AC-1 held**: `git diff` on `supabase/schemas/02_functions.sql` is empty. `ai_entitlement()` is
+  byte-unchanged and remains the single authority on entitlement.
+- **AC-14 is NOT satisfied.** No Worker has been deployed since this code landed, so no Stripe
+  event has ever reached the running webhook. The endpoint is registered in test mode against
+  `https://myshadchan-billing.myshadchan.workers.dev/webhook` for the five AC-6 event types, and
+  `billing` has joined `deploy.yml`'s matrix — but the delivery itself is untested. This is the
+  story's remaining definition-of-done item.
+- Stripe test-mode objects in use: product `prod_V1bIMx10dzcDFB`, prices
+  `price_1U1Y5mEimvfTzCZTHSYufq9V` ($6 / 3 months) and `price_1U1Y5nEimvfTzCZT9O3Yqv7h`
+  ($24 / year). Live-mode prices do not exist yet.
+
 ### File List
+
+See commit `a623503` (37 files), plus the `vite.config.ts` fix described above. New: the
+`stripe_events` ledger and its migration, `workers/billing/{subscriptionState,resolveAccount}.ts`,
+`workers/shared/cors.test.ts`, `billing/{SubscribeButton,BillingReturnNotice,
+ManageSubscriptionButton}.tsx`, `providers/commons/billingClient.ts`,
+`e2e/billing-checkout.spec.ts`. Modified: `workers/billing/{index.ts,wrangler.toml}`,
+`workers/shared/{cors,forAccount}.ts`, `billing/{BillingPage,billingPlans}.ts(x)`,
+`.github/workflows/deploy.yml`, `.env.development`, `.env.e2e`, `vite.config.ts`, `package.json`.

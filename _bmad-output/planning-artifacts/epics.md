@@ -1477,7 +1477,32 @@ a migration each. **No Epic 12 story may share a wave with an Epic 5 story**, an
 share a wave with 12.3 (`ReminderCreateSheet.tsx`, `types.ts`, migrations) or with 12.4
 (`.github/workflows/deploy.yml`).
 
-### Gate G1 — the Cloudflare Workers have never deployed *(blocking, ops, not code)*
+### Gate G1 — DISCHARGED 2026-08-07. The text below is kept as history.
+
+All four stories are built and committed: 12.3 `f1a6b4c`, 12.1 `47cc239`, 12.2 `4446540`,
+12.4 `a623503`. Every credential G1 named now exists as a repository secret —
+`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `RESEND_API_KEY`, `RESEND_FROM`
+(`support@myshadchan.space`, verified sending domain), and for 12.4 `STRIPE_SECRET_KEY`,
+`STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_PRICE_ID_QUARTERLY`,
+`STRIPE_PRICE_ID_YEARLY`, `APP_ORIGIN`. `deploy-workers` stopped skipping (first green run
+30743735202), the `billing` Worker has joined the matrix, and both `cron` and `billing` pin
+`workers_dev = true` rather than inheriting wrangler's default.
+
+**Two things G1 asked for were answered differently than written, deliberately.** Pricing is
+**$6 every three months and $24 a year** — there is no monthly cadence, so the secret is
+`STRIPE_PRICE_ID_QUARTERLY`; see the "Pricing — AMENDED" block in `12-4-stripe-billing.md`.
+And the Worker URLs stay on `workers.dev` rather than moving to pinned custom domains, because no
+custom domain is configured on the Cloudflare account; the Stripe webhook is registered against
+`https://myshadchan-billing.myshadchan.workers.dev/webhook`. Pinning `workers_dev = true`
+explicitly is what turns that from a default into a decision.
+
+**What is still open is no longer a gate on building — it is the deploy itself.** No Worker has
+been deployed since the code landed, so 12.2's cron sweep has never fired against a live Worker,
+no reminder email has arrived at a real inbox (12.2 AC-10), and no Stripe event has been delivered
+to the running webhook (12.4 AC-14). Those three are the remaining definition-of-done items for
+the epic.
+
+### Gate G1 — the Cloudflare Workers have never deployed *(blocking, ops, not code — historical)*
 
 Stories 12.2 and 12.4 independently discovered the same thing: `deploy.yml`'s `deploy-workers`
 matrix has printed *"Cloudflare Workers deployment skipped"* on every push to date, so there is no

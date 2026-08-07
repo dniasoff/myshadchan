@@ -114,11 +114,13 @@ describe("TasksTab — create payload shape (AC 3c / Story 12.3 AC-11)", () => {
     // `objectContaining`) exists to catch.
     expect(create).toHaveBeenCalledTimes(1);
     const [, params] = create.mock.calls[0];
+    // `due_date` is absent, not `null`: the column is nullable with no
+    // default, so an omitted key lands the same NULL, and omitting keeps the
+    // payload honest against `Task`, which declares `due_date` non-null.
     expect(params.data).toEqual({
       target_type: "reference",
       target_id: 7,
       text: "Call back Sunday",
-      due_date: null,
     });
   });
 
@@ -165,7 +167,6 @@ describe("TasksTab — create payload shape (AC 3c / Story 12.3 AC-11)", () => {
       target_type: "reference",
       target_id: 7,
       text: "Call back Sunday",
-      due_date: null,
       member_id: 1,
     });
   });

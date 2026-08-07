@@ -76,7 +76,7 @@ export function TasksTab({
   const translate = useTranslate();
   const notify = useNotify();
   const refresh = useRefresh();
-  const [create, { isPending: isCreating }] = useCreate();
+  const [create, { isPending: isCreating }] = useCreate<Task>();
   const [update] = useUpdate();
   const [text, setText] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -114,7 +114,14 @@ export function TasksTab({
             target_type: targetType,
             target_id: targetId,
             text: trimmed,
-            due_date: dueDate === "" ? null : new Date(dueDate).toISOString(),
+            // Omitted rather than sent as an explicit `null` when empty: the
+            // column is nullable and an absent key lands the same NULL, but
+            // sending `null` through a field `Task` declares as `string` is
+            // the drift documented on that type. Same shape as `member_id`
+            // just below.
+            ...(dueDate === ""
+              ? {}
+              : { due_date: new Date(dueDate).toISOString() }),
             ...(assigneeId !== undefined ? { member_id: assigneeId } : {}),
           },
         },

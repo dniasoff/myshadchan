@@ -1,4 +1,3 @@
-import type { Identifier } from "ra-core";
 import { required, useTranslate } from "ra-core";
 import { useController } from "react-hook-form";
 import { SelectInput } from "@/components/admin/select-input";
@@ -6,6 +5,7 @@ import { TextInput } from "@/components/admin/text-input";
 import { DateTimeInput } from "@/components/admin";
 import { Label } from "@/components/ui/label";
 
+import type { Task } from "../types";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 import { TaskAssigneeSelect } from "./TaskAssigneeSelect";
 
@@ -19,9 +19,9 @@ export const TaskFormContent = () => {
   // `ra-core`'s `<Form>` wraps its children in react-hook-form's
   // `FormProvider`, so `control` resolves from context without being passed
   // explicitly.
-  const { field: assigneeField } = useController<{
-    member_id?: Identifier | null;
-  }>({ name: "member_id" });
+  const { field: assigneeField } = useController<Pick<Task, "member_id">>({
+    name: "member_id",
+  });
 
   return (
     <div className="flex flex-col gap-4">

@@ -790,8 +790,58 @@ close-out is the epic owner's edit, not this story's.
 
 ### Agent Model Used
 
+claude-sonnet-5, dispatched as two sequential agents (database/Worker, then SPA) under an
+opus-5 orchestrator, followed by four parallel review lenses, per-finding adversarial
+verification, a fix pass and a gate pass.
+
 ### Debug Log References
+
+- **AC-2 unique-key guard, shown red before green.** Reverted the queue's unique key to
+  `(task_id, channel)` on the live stack: the whole `reminder_delivery.sql` suite went red with
+  `ON CONFLICT` failing outright (no matching constraint), proving `due_date` must be in the key.
+  Restored and re-verified green.
+- **AC-5 skipped/failed split, shown red before green.** Reverted
+  `enqueue_due_task_notifications()` to the pre-12.3 "null -> failed" behaviour: exactly and only
+  the AC-5 test went red. Restored and re-verified.
+- `STACK_ID=1 make check-migration-safety` reached and passed the `assert` phase —
+  "74 seeded row(s) across 39 table(s) survived intact".
+- Convergence was re-checked by the epic owner with the scratch-workdir method after the
+  `db diff --db-url` false-green was discovered (see below); genuinely empty, and the check was
+  first proved capable of failing.
 
 ### Completion Notes List
 
+- **Two amendments superseded this story's own AC text**, both because Story 12.3 landed first:
+  a null `member_id` settles `skipped` rather than `failed` (Unassigned is a deliberate choice
+  after 12.3, so `failed` would have held the new Settings heartbeat red forever), and the
+  reworded delivery line names its recipient (after 12.3 the email goes to the assignee, so
+  copy that said only "by email" would be false by omission).
+- **Deviation 1 — `providers/supabase/dataProvider.ts` was modified**, though this story's
+  declared file set lists it under "Explicitly NOT modified". `cron_heartbeat`'s primary key is
+  `worker text`, not `id`, so `useGetOne("cron_heartbeat", { id: "cron" })` cannot resolve without
+  a `PRIMARY_KEYS` entry. Four independent reviewers found this; without it AC-9's Settings row
+  would have shipped permanently reading "couldn't check". The story text was simply wrong.
+- **Deviation 2 — `task_notifications` gets `FORCE ROW LEVEL SECURITY`**, which this story's text
+  explicitly said not to introduce. That text predates Story 7.5, which established exactly this
+  posture for `message_notifications` and `push_subscriptions`, the closest twins of this table.
+  Verified present at `05_policies.sql` before following the newer precedent.
+- **Post-commit fix (cross-reconciliation pass).** `ReminderDeliveryStatus.tsx`'s `useGetOne` had
+  no `retry: false`, so TanStack Query retried PostgREST's correct `406` on the empty-heartbeat
+  state — which is the *normal* state until the cron Worker runs once. Settings rendered blank for
+  7-9 seconds on every load, for every account. Caught by `e2e/reminder-delivery-status.spec.ts`,
+  which had been written but never executed until the epic-level e2e round; the spec now passes
+  in 1.9s where it previously timed out at 5s.
+- **AC-10 is NOT satisfied.** "Delivered" means a real reminder email arriving at a real inbox.
+  No Worker has been deployed since this code landed, so the cron sweep has never fired outside
+  tests. This is the story's remaining definition-of-done item.
+
 ### File List
+
+See commit `4446540` (29 files) and the post-commit fixes described above. New: the
+`task_notifications` queue and `cron_heartbeat` table plus their migration and paired DB suite,
+`workers/shared/resend.ts`, `workers/cron/sweepReminders.ts`,
+`reminders/ReminderDeliveryStatus.tsx`, `e2e/reminder-delivery-status.spec.ts`. Modified: the
+cron Worker and its `wrangler.toml` (the `[triggers]` schedule is now enabled),
+`.github/workflows/deploy.yml`, `ReminderCreateSheet.tsx`, `settings/PreferencesSection.tsx`,
+`providers/supabase/dataProvider.ts`, `types.ts`, both i18n catalogues, and the FakeRest
+generators.

@@ -153,12 +153,7 @@ export const ReminderCreateSheet = ({
     if (!canSubmit || isSaving) return;
     const dueDate = new Date(`${date}T${time}`);
 
-    // `Task.member_id` (types.ts, not owned by this story) is declared as
-    // `Identifier | undefined` — it does not model the `null` "Unassigned"
-    // value AC-3 introduces as a legitimate, explicit choice. Built as a
-    // loosely-typed record and cast at the call site rather than widening
-    // that declaration; report it, don't fix it.
-    const data: Record<string, unknown> = {
+    const data: Partial<Task> = {
       type: "reminder",
       text: text.trim(),
       due_date: dueDate.toISOString(),
@@ -174,11 +169,7 @@ export const ReminderCreateSheet = ({
     };
 
     try {
-      await create(
-        "tasks",
-        { data: data as Partial<Task> },
-        { returnPromise: true },
-      );
+      await create("tasks", { data }, { returnPromise: true });
       resetForm();
       refresh();
       onOpenChange(false);

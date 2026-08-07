@@ -1011,11 +1011,23 @@ After restoring the real fix, the same command reports `Test Files 1 passed (1)`
 - `e2e/tasks-assignment.spec.ts` (new)
 - `e2e/fixtures.ts`
 
-**Known collateral, out of this story's ownership manifest — not fixed here, reported instead**
-- `supabase/tests/invites.sql` / `supabase/tests/invites.test.ts` — the new `validate_task_assignee`
-  trigger correctly rejects a stale-JWT-claims fixture bug at `invites.sql:851` (`reset role;` does
-  not also reset `request.jwt.claims`, unlike the fixed pattern at `:592-597`), which fails
-  `npm run test:unit:db`'s `invites.test.ts` suite. Neither file is in this story's declared
-  ownership manifest above. Fix (one line, `set local request.jwt.claims = '{}';` after the
-  `reset role;` at `:851`, mirroring `:592-597`) needs an owner outside this story per
-  "out-of-scope work is reported, not taken."
+**Known collateral, out of this story's ownership manifest — reported by the dev agent, then
+fixed by the epic owner in this same commit**
+- `supabase/tests/invites.sql` — the new `validate_task_assignee` trigger correctly rejects a
+  stale-JWT-claims fixture bug at `invites.sql:851` (`reset role;` does not also reset
+  `request.jwt.claims`, unlike the documented-correct pattern at `:592-597`), which failed
+  `npm run test:unit:db`'s `invites.test.ts` suite. The file is not in this story's declared
+  ownership manifest, so the dev agent correctly reported it rather than taking it, per
+  "out-of-scope work is reported, not taken".
+- **It was then fixed by the epic owner and is part of commit `f1a6b4c`**, because `make test` is
+  a required gate and this story's own trigger is what made it red. The fix is the one line the
+  agent identified — `set local request.jwt.claims = '{}';` after the `reset role;` — with a
+  comment explaining why.
+- An audit of the other 24 `reset role;` sites in that file found 22 carry the same latent hazard
+  and only 2 clear the claims. They are harmless today because no `tasks` insert follows them.
+  Rewriting a fixture this story does not own, for a hypothetical, was judged the wrong trade;
+  recorded here so the next reader meets it as a decision.
+- Two independent reviewers and the gate agent each proved this failure was **not** pre-existing,
+  per `.claude/rules/gate-verification.md`: dropping the trigger mid-transaction made every check
+  in `invites.sql` pass, and `git archive` of base `895d435` showed the trigger absent there with
+  both files byte-identical.

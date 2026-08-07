@@ -65,6 +65,16 @@ export const ReminderDeliveryStatus = () => {
   const { data, error, isPending } = useGetOne<CronHeartbeat>(
     "cron_heartbeat",
     { id: "cron" },
+    // `retry: false` is load-bearing, not a tidy-up. The empty-table case is
+    // the NORMAL state until the cron Worker has run even once, and PostgREST
+    // reports it as a 406 — which TanStack Query treats as a failed request
+    // and retries with backoff. Until those retries are exhausted `isPending`
+    // stays true and the row below renders NOTHING, so Settings sat blank for
+    // 7-9 seconds on every load for every account. Caught by
+    // `e2e/reminder-delivery-status.spec.ts`, which timed out at 5s waiting
+    // for a row that was always going to arrive eventually. A 406 here is an
+    // answer, not a failure; there is nothing to retry.
+    { retry: false },
   );
 
   // While the first fetch is in flight there is nothing honest to report
