@@ -7,6 +7,7 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import { createDataProvider } from "../providers/fakerest/dataProvider";
 import generateData from "../providers/fakerest/dataGenerator";
 import type {
+  Connection,
   Reference,
   ReferenceLink,
   Shadchan,
@@ -36,6 +37,14 @@ const REFERENCE_ONE_LINK_ID = 801;
 const REFERENCE_MULTI_LINK_ID = 802;
 const REFERENCE_TIE_ID = 803;
 const REFERENCE_UNATTACHED_ID = 804;
+// F18: a reference with many links (REFERENCE_HEAVY_ID) and a reference
+// whose only link is far older (REFERENCE_SPARSE_ID) — see the "F18 fix"
+// describe block below.
+const REFERENCE_HEAVY_ID = 805;
+const REFERENCE_SPARSE_ID = 806;
+// F17: a connection-targeted task, resolved like the other browsable types.
+const CONNECTION_ID = 901;
+const CONNECTION_HOUSEHOLD_ACCOUNT_ID = 555;
 
 const PAST_DATE = "2020-01-01T00:00:00.000Z";
 const FUTURE_DATE = "2999-01-01T00:00:00.000Z";
@@ -87,12 +96,30 @@ const references: Reference[] = [
   REFERENCE_MULTI_LINK_ID,
   REFERENCE_TIE_ID,
   REFERENCE_UNATTACHED_ID,
+  REFERENCE_HEAVY_ID,
+  REFERENCE_SPARSE_ID,
 ].map((id) => ({
   id,
   account_id: ACCOUNT_ID,
   name_en: `Reference #${id}`,
   created_at: "2026-01-01T00:00:00.000Z",
 }));
+
+// F17: a single connection, from the household side, exactly the shape
+// `targetEntityLabel`'s `"connection"` branch reads (`household_account_name`
+// — a connection has no plain `name` column, `reminderEntity.ts`'s own
+// comment).
+const connections: Connection[] = [
+  {
+    id: CONNECTION_ID,
+    household_account_id: CONNECTION_HOUSEHOLD_ACCOUNT_ID,
+    shadchanus_account_id: ACCOUNT_ID,
+    status: "accepted",
+    proposed_by_account_id: ACCOUNT_ID,
+    created_at: "2026-01-01T00:00:00.000Z",
+    household_account_name: "The Cohen Family",
+  },
+];
 
 const referenceLinks: ReferenceLink[] = [
   // AC-6 "one link" — the only candidate wins trivially.
@@ -153,12 +180,27 @@ function buildDb(tasks: TaskFixture[]) {
   db.shadchanim = shadchanim;
   db.references = references;
   db.reference_links = referenceLinks;
+  db.connections = connections;
   db.tasks = tasks as unknown as Task[];
   return db;
 }
 
-async function renderHookProbe(tasks: TaskFixture[]) {
+interface RenderHookProbeOptions {
+  /** F18: additional `reference_links` rows, merged with the shared
+   * `referenceLinks` fixture above — kept OUT of that shared array so the
+   * "many links for one reference" scenario doesn't add 150 irrelevant rows
+   * to every other test in this file. */
+  extraReferenceLinks?: ReferenceLink[];
+}
+
+async function renderHookProbe(
+  tasks: TaskFixture[],
+  options: RenderHookProbeOptions = {},
+) {
   const db = buildDb(tasks);
+  if (options.extraReferenceLinks) {
+    db.reference_links = [...referenceLinks, ...options.extraReferenceLinks];
+  }
   const dataProvider = createDataProvider({ db, latency: 0, silent: true });
   const getListSpy = vi.spyOn(dataProvider, "getList");
   let captured: UseDueRemindersResult | undefined;
@@ -310,6 +352,82 @@ describe("useDueReminders — resolving a reference to a shidduch (AC-6)", () =>
     expect(row.link).toBeNull();
     expect(row.contextLabel).toBeNull();
     expect(row.primaryLabel).toBeTruthy();
+  });
+});
+
+describe("useDueReminders — F18 fix: reference_links resolution is scoped per reference, not globally paginated", () => {
+  it("resolves a sparse reference's own link even when another visible reference has 150+ links", async () => {
+    // Arrange — REFERENCE_HEAVY_ID has 150 links, every one created AFTER
+    // REFERENCE_SPARSE_ID's single link. The pre-fix implementation ran ONE
+    // `reference_id@in` query across BOTH ids sharing a single GLOBAL
+    // `perPage: 100`, sorted `created_at DESC`: the 150 heavy rows alone
+    // would fill that page (they are all more recent than the sparse
+    // reference's one row), pushing the sparse reference's link outside the
+    // top 100 and losing it — even though the database holds a perfectly
+    // valid link for it. The fix queries each reference id on its own, so
+    // the heavy reference's link count can never crowd out another
+    // reference's own top-100 pool.
+    const heavyLinks: ReferenceLink[] = Array.from({ length: 150 }, (_, i) => ({
+      id: 10_000 + i,
+      account_id: ACCOUNT_ID,
+      reference_id: REFERENCE_HEAVY_ID,
+      shidduchim_id: null,
+      created_at: new Date(
+        Date.UTC(2026, 5, 1 + Math.floor(i / 24), i % 24),
+      ).toISOString(),
+    }));
+    const sparseLink: ReferenceLink = {
+      id: 9,
+      account_id: ACCOUNT_ID,
+      reference_id: REFERENCE_SPARSE_ID,
+      shidduchim_id: SHIDDUCH_TWO_ID,
+      created_at: "2020-01-01T00:00:00.000Z",
+    };
+
+    const { getCaptured } = await renderHookProbe(
+      [
+        referenceTask(1, REFERENCE_HEAVY_ID, PAST_DATE),
+        referenceTask(2, REFERENCE_SPARSE_ID, PAST_DATE),
+      ],
+      { extraReferenceLinks: [...heavyLinks, sparseLink] },
+    );
+
+    // Assert — the sparse reference's own row still resolves its link and
+    // shidduch context, proving the heavy reference's 150 links never
+    // contended for its query slot.
+    const sparseRow = getCaptured().rows.find(
+      (row) => row.text === "Reference task 2",
+    );
+    expect(sparseRow?.link).toEqual({
+      resource: "shidduchim",
+      id: SHIDDUCH_TWO_ID,
+    });
+    expect(sparseRow?.contextLabel).toBe("Dovid Katz");
+  });
+});
+
+describe("useDueReminders — F17 fix: a connection-targeted task resolves like the other browsable types", () => {
+  it("resolves a connection task to household_account_name and links to /connections/{id}", async () => {
+    // Arrange / Act
+    const { getCaptured } = await renderHookProbe([
+      {
+        id: 1,
+        account_id: ACCOUNT_ID,
+        type: "call",
+        text: "Connection task",
+        due_date: PAST_DATE,
+        target_type: "connection",
+        target_id: CONNECTION_ID,
+      },
+    ]);
+
+    // Assert — `connections` is a registered, routable resource
+    // (`root/routeManifest.ts`), so this card resolves it exactly like
+    // shidduch/shadchan/single instead of rendering inert text.
+    const [row] = getCaptured().rows;
+    expect(row.primaryLabel).toBe("The Cohen Family");
+    expect(row.contextLabel).toBeNull();
+    expect(row.link).toEqual({ resource: "connections", id: CONNECTION_ID });
   });
 });
 

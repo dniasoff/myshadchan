@@ -30,23 +30,46 @@ import type { ReferenceLinkSummary, Task, TaskTargetType } from "../types";
 
 export const MAX_ROWS = 3;
 
-/** The three target types this card resolves to a real record + name.
- * Deliberately three, not the full five-member `TaskTargetType` union
- * (AC-5's "three, not four" — see this file's own divergence note below for
- * the fifth, `connection`). `reference` is handled on its own path (Query
- * three); it is not a "label" type because it never reads `references`. */
-type LabelTargetType = "shidduch" | "shadchan" | "single";
+/** The four target types this card resolves to a real record + name via a
+ * plain `useGetMany` on their own resource. `reference` is handled on its
+ * own path (Query three below); it is not a "label" type because it never
+ * reads `references` (AD-24 RULING 7 — see the module doc comment).
+ *
+ * F17 (Epic 12 adversarial review): `connection` joined this set. It is a
+ * registered, routable resource (`root/routeManifest.ts`'s `RESOURCES` —
+ * `hasShow: true`, `buildEntityRoutes`), so per this story's own "resolve it
+ * like the other browsable types when it is routable" instruction it is
+ * resolved exactly like `shidduch`/`shadchan`/`single`, not left as inert
+ * text. `reminderEntity.ts`'s `targetEntityLabel` already has a `"connection"`
+ * branch (`record.household_account_name`), so no new label logic is needed
+ * here — only the resource mapping and the `useGetMany` call below.
+ *
+ * Known, pre-existing, out-of-scope limitation carried over unchanged: the
+ * `connections` resource is `contextKind: "shadchanus"`-gated
+ * (`routeManifest.ts`), so a household-context viewer following this link
+ * hits `RequireContextKind`'s silent redirect to `/`. The already-shipped
+ * reminders hub (`reminders/ReminderCard.tsx` + `entity360/RecordLink.tsx`)
+ * has the exact same behavior for a household-context connection task today
+ * — this card is being made consistent with that existing pattern, not
+ * introducing a new gap. Fixing the redirect itself is a separate concern. */
+type LabelTargetType = "shidduch" | "shadchan" | "single" | "connection";
 
 const RESOURCE_FOR_LABEL_TYPE: Record<LabelTargetType, string> = {
   shidduch: "shidduchim",
   shadchan: "shadchanim",
   single: "singles",
+  connection: "connections",
 };
 
 function isLabelTargetType(
   type: TaskTargetType | undefined,
 ): type is LabelTargetType {
-  return type === "shidduch" || type === "shadchan" || type === "single";
+  return (
+    type === "shidduch" ||
+    type === "shadchan" ||
+    type === "single" ||
+    type === "connection"
+  );
 }
 
 export interface DueReminderRow {
@@ -56,9 +79,9 @@ export interface DueReminderRow {
   isOverdue: boolean;
   memberId: Identifier | null | undefined;
   /** The record name to show as the row's own record mention. `null` when
-   * the task has no linked entity this card can resolve (no target, or a
-   * target type this card does not fetch — see the `connection` note
-   * below). */
+   * the task has no linked entity at all (`target_type`/`target_id` unset) —
+   * every `TaskTargetType` member is now resolved to a record by either
+   * `isLabelTargetType`'s branch or the `reference` branch below. */
   primaryLabel: string | null;
   /** AC-6: for a reference row with a resolved shidduch, "about {shidduch
    * name}" — always paired with `link`, never set on its own. */
@@ -135,6 +158,40 @@ function pickReferenceName(
   return names;
 }
 
+/**
+ * F18 (Epic 12 adversarial review): fetches ONE reference's own links, never
+ * a pool shared with other references. The prior implementation ran a
+ * single `reference_id@in` query across every visible reference id with one
+ * GLOBAL `perPage: 100` — if one heavily-reused reference's links filled
+ * that page, a second, sparser reference's own valid link could rank
+ * outside the top 100 of the COMBINED set and vanish, even though
+ * `perPage: 100` is generous for any one reference on its own. Scoping the
+ * query to a single id removes the cross-reference contention entirely:
+ * each reference gets its own top-100 pool, sorted by the same
+ * `created_at DESC` `pickBestLinkPerReference` already tie-breaks on.
+ *
+ * Called a FIXED number of times — one call site per slot in
+ * `useDueReminders`, below — never inside a loop over a variable-length
+ * array (`referenceIds.map(useReferenceLinksForSlot)` would violate the
+ * rules of hooks, since the number of hook calls would vary by render).
+ */
+function useReferenceLinksForSlot(referenceId: Identifier | undefined) {
+  return useGetList<ReferenceLinkSummary>(
+    "reference_links",
+    {
+      // AC-5 / `transformInFilter.ts:5-17`: `@in` takes the PostgREST string
+      // "(1,5)", never an array. Reused here as a one-element list, rather
+      // than switching to `@eq`, so the filter stays the same proven shape
+      // as before. `"()"` is the explicit empty-list shape for an empty
+      // slot — valid, and moot, since the query is disabled then anyway.
+      filter: { "reference_id@in": `(${referenceId ?? ""})` },
+      sort: { field: "created_at", order: "DESC" },
+      pagination: { page: 1, perPage: 100 },
+    },
+    { enabled: referenceId != null },
+  );
+}
+
 export function useDueReminders(): UseDueRemindersResult {
   const { data: tasks, isPending: tasksPending } = useGetList<Task>("tasks", {
     filter: { "done_date@is": null },
@@ -175,6 +232,10 @@ export function useDueReminders(): UseDueRemindersResult {
     () => collectIds(visibleTasks, "reference"),
     [visibleTasks],
   );
+  const connectionIds = useMemo(
+    () => collectIds(visibleTasks, "connection"),
+    [visibleTasks],
+  );
 
   const shidduchim = useGetMany(
     RESOURCE_FOR_LABEL_TYPE.shidduch,
@@ -191,24 +252,37 @@ export function useDueReminders(): UseDueRemindersResult {
     { ids: singleIds },
     { enabled: singleIds.length > 0 },
   );
+  // F17: resolved exactly like the three label types above — see this
+  // file's `LabelTargetType` doc comment for why `connection` now belongs
+  // in this set and what stays out of scope.
+  const connections = useGetMany(
+    RESOURCE_FOR_LABEL_TYPE.connection,
+    { ids: connectionIds },
+    { enabled: connectionIds.length > 0 },
+  );
 
-  // AC-5 / `transformInFilter.ts:5-17`: `@in` takes the PostgREST string
-  // "(1,5)", never an array. `"()"` is the explicit empty-list shape, valid
-  // even when `referenceIds` is empty (the query is disabled then anyway).
-  const referenceIdsFilter = `(${referenceIds.join(",")})`;
-  const { data: referenceLinksData, isPending: referenceLinksPending } =
-    useGetList<ReferenceLinkSummary>(
-      "reference_links",
-      {
-        filter: { "reference_id@in": referenceIdsFilter },
-        sort: { field: "created_at", order: "DESC" },
-        pagination: { page: 1, perPage: 100 },
-      },
-      { enabled: referenceIds.length > 0 },
-    );
+  // F18: one query PER reference id (`useReferenceLinksForSlot`'s own
+  // comment explains why), never one query pooled across all of them.
+  // `MAX_ROWS` fixed call sites, hand-unrolled rather than
+  // `referenceIds.map(useReferenceLinksForSlot)` — `visibleTasks` is
+  // already capped at `MAX_ROWS` (currently 3) and `collectIds` dedups, so
+  // `referenceIds` can never hold more than `MAX_ROWS` entries; add another
+  // `useReferenceLinksForSlot(referenceIds[n])` call here if `MAX_ROWS` ever
+  // grows.
+  const referenceLinksSlot0 = useReferenceLinksForSlot(referenceIds[0]);
+  const referenceLinksSlot1 = useReferenceLinksForSlot(referenceIds[1]);
+  const referenceLinksSlot2 = useReferenceLinksForSlot(referenceIds[2]);
   const referenceLinks = useMemo(
-    () => referenceLinksData ?? [],
-    [referenceLinksData],
+    () => [
+      ...(referenceLinksSlot0.data ?? []),
+      ...(referenceLinksSlot1.data ?? []),
+      ...(referenceLinksSlot2.data ?? []),
+    ],
+    [
+      referenceLinksSlot0.data,
+      referenceLinksSlot1.data,
+      referenceLinksSlot2.data,
+    ],
   );
 
   const labelRecordsByKey = useMemo(() => {
@@ -217,6 +291,7 @@ export function useDueReminders(): UseDueRemindersResult {
       ["shidduch", shidduchim],
       ["shadchan", shadchanim],
       ["single", singles],
+      ["connection", connections],
     ];
     byType.forEach(([type, result]) => {
       (result.data ?? []).forEach((record) => {
@@ -224,7 +299,7 @@ export function useDueReminders(): UseDueRemindersResult {
       });
     });
     return lookup;
-  }, [shidduchim, shadchanim, singles]);
+  }, [shidduchim, shadchanim, singles, connections]);
 
   const bestLinkByReferenceId = useMemo(
     () => pickBestLinkPerReference(referenceLinks),
@@ -283,28 +358,13 @@ export function useDueReminders(): UseDueRemindersResult {
           };
         }
 
-        // No target at all, or a target type this card does not resolve to
-        // a record — currently `connection` only (see the divergence note
-        // below). Never guess a link; render the task's own text with no
-        // record mention, exactly like the hub's own "no target" branch
+        // No target at all — the only remaining case now that `shidduch`,
+        // `shadchan`, `single` and `connection` are all handled by the
+        // generic `isLabelTargetType` branch above and `reference` by its
+        // own branch. Never guess a link; render the task's own text with
+        // no record mention, exactly like the hub's own "no target" branch
         // (`reminders/` folder, the hook this file deliberately does not
         // import — see the module doc comment above).
-        //
-        // F7 divergence, recorded per the story's instruction: `types.ts`'s
-        // `TaskTargetType` (aliasing `EntityTargetType`) now has FIVE
-        // members — Story 8.5 added `connection` after this story's Task 1
-        // was written as "three, not four". A household context (where
-        // this card mounts, Task 3) can hold a connection-targeted task
-        // (`reminderEntity.ts`'s own comment: "a household or a shadchan
-        // can each hold a private task about their own shared connection").
-        // Resolving it would need a fourth `useGetMany("connections", …)`
-        // call, which is legal under the AD-24 guard (id-scoped reads are
-        // addressability, `ad24Conformance.ts:692-694`) but adds a query
-        // and a resource dependency no AC in this story asks for. This
-        // card degrades a connection-targeted row to plain text instead —
-        // safe (never a wrong link), consistent with the "no target"
-        // fallback already used for a null `target_type`, and cheap to
-        // widen later if a story actually needs it.
         return {
           ...base,
           primaryLabel: null,
@@ -319,7 +379,10 @@ export function useDueReminders(): UseDueRemindersResult {
     (shidduchIds.length > 0 && shidduchim.isPending) ||
     (shadchanIds.length > 0 && shadchanim.isPending) ||
     (singleIds.length > 0 && singles.isPending) ||
-    (referenceIds.length > 0 && referenceLinksPending);
+    (connectionIds.length > 0 && connections.isPending) ||
+    (referenceIds[0] != null && referenceLinksSlot0.isPending) ||
+    (referenceIds[1] != null && referenceLinksSlot1.isPending) ||
+    (referenceIds[2] != null && referenceLinksSlot2.isPending);
 
   return {
     isPending: tasksPending || labelsPending,

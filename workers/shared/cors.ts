@@ -15,9 +15,21 @@ import type { MiddlewareHandler } from "hono";
  * the response merely by getting a signed-in user to load it, which is a
  * real vulnerability, not a theoretical one.
  */
+
+/**
+ * F19 (Epic 12 adversarial review): a predicate over the request's `Origin`
+ * header, for a Worker that needs to admit more than one fixed exact-match
+ * list — e.g. this project's own verified Vercel preview-domain pattern
+ * (`VERCEL_PREVIEW_ORIGIN_PATTERN` below), never a bare wildcard. Given the
+ * exact origin string that sent the request; returns whether to allow it.
+ */
+export type OriginMatcher = (origin: string) => boolean;
+
 export interface CorsMiddlewareOptions {
-  /** Exact origins allowed to read the response. Never `"*"`. */
-  origins: readonly string[];
+  /** Exact origins allowed to read the response, OR (F19) an `OriginMatcher`
+   * predicate for a Worker that also needs to admit a verified origin
+   * PATTERN rather than only a fixed list. Never `"*"` either way. */
+  origins: readonly string[] | OriginMatcher;
   /** HTTP methods this route set actually serves (OPTIONS is handled by
    * `hono/cors` itself and must not be listed here). */
   methods: readonly string[];
@@ -46,8 +58,19 @@ export function createCorsMiddleware(
   options: CorsMiddlewareOptions,
 ): MiddlewareHandler {
   const { origins, methods, allowHeaders } = options;
+  // F19: `hono/cors`'s own `origin` option accepts either shape natively —
+  // a plain array (exact match, unchanged for every caller that still
+  // passes one) or a function of the request's `Origin` header. The
+  // function form must return the origin STRING to allow it (hono echoes
+  // that value back as `Access-Control-Allow-Origin`) or `undefined` to
+  // deny it — never `true`/`false`.
+  const origin =
+    typeof origins === "function"
+      ? (requestOrigin: string) =>
+          origins(requestOrigin) ? requestOrigin : undefined
+      : [...origins];
   return cors({
-    origin: [...origins],
+    origin,
     allowMethods: [...methods],
     ...(allowHeaders ? { allowHeaders: [...allowHeaders] } : {}),
   });
@@ -105,6 +128,52 @@ export const AI_WORKER_ALLOWED_HEADERS = [
 ] as const;
 
 /**
+ * F19 (Epic 12 adversarial review): "Preview deployments cannot exercise
+ * billing." Story 12.4's own Task 1 says `VITE_BILLING_WORKER_URL` must be
+ * set "in the Vercel project (production AND preview)" — but until this
+ * fix, `BILLING_WORKER_ALLOWED_ORIGINS` was an exact-match list of
+ * production + local-dev origins only, identical to
+ * `AI_WORKER_ALLOWED_ORIGINS`. A Vercel preview build's `Origin` header is
+ * neither, so the browser's own CORS preflight rejected `/checkout` and
+ * `/portal` before a single request could reach this Worker — no code bug
+ * to fix there, just a CORS allowlist that never admitted the origin the
+ * story's own Task 1 says needs to work.
+ *
+ * This project's team slug is `dniasoffs-projects` (`vercel teams ls`'s own
+ * `id` column) and every deployment of this exact project — production or
+ * preview alike — resolves at
+ * `https://myshadchan-<deployment-id>-dniasoffs-projects.vercel.app`
+ * (verified directly against the live project with
+ * `vercel ls --scope team_vh6r4A6auhjSNmZApI8YD20v`, 2026-08-07: 20/20
+ * sampled deployment URLs matched this exact shape); a preview's stable
+ * git-branch alias adds one literal segment,
+ * `https://myshadchan-git-<branch-slug>-dniasoffs-projects.vercel.app`.
+ * `VERCEL_PREVIEW_ORIGIN_PATTERN` below matches both, and nothing else.
+ *
+ * Anchored on BOTH ends (`^https://myshadchan-` … `-dniasoffs-projects
+ * \.vercel\.app$`) so this can never become the "permissive suffix/substring
+ * test an attacker-controlled domain could satisfy" a bare `.vercel.app` or
+ * `myshadchan-` check would be: `vercel.app` is a SHARED apex domain (any
+ * Vercel customer can register a project under it), so matching on it
+ * alone, or on a `myshadchan-` prefix alone, would also admit an attacker's
+ * OWN project. The exact team-slug SUFFIX is what closes that — Vercel team
+ * slugs are globally unique, so no other team can ever produce
+ * `-dniasoffs-projects.vercel.app`, no matter what they name their project.
+ * The middle segment is restricted to the exact character class Vercel's
+ * own deployment ids and branch slugs use (lowercase alphanumerics and
+ * hyphens, bounded length) — never `.` or any other character that could
+ * smuggle a second host/path segment past the two anchors (e.g.
+ * `https://myshadchan-x-dniasoffs-projects.vercel.app.evil.example` fails
+ * this pattern precisely because of the trailing `$`).
+ */
+export const VERCEL_PREVIEW_ORIGIN_PATTERN =
+  /^https:\/\/myshadchan-[a-z0-9-]{1,80}-dniasoffs-projects\.vercel\.app$/;
+
+export function isVercelPreviewOrigin(origin: string): boolean {
+  return VERCEL_PREVIEW_ORIGIN_PATTERN.test(origin);
+}
+
+/**
  * Story 12.4 (AC-12): `/checkout` and `/portal` need the same production +
  * local-dev origin allowlist as `parse`/`ai` above, but named for what it
  * actually is here rather than reused under the `AI_WORKER_*` name — this
@@ -114,11 +183,17 @@ export const AI_WORKER_ALLOWED_HEADERS = [
  * a browser) and gets NO CORS headers at all (AC-12's own failing
  * condition), so this middleware is registered only on the two browser
  * routes, never with `app.use("*", …)`.
+ *
+ * F19: an `OriginMatcher` now, not a plain array — the exact-match part is
+ * byte-for-byte `AI_WORKER_ALLOWED_ORIGINS` (production + local-dev), with
+ * `isVercelPreviewOrigin` admitting this project's own preview builds on
+ * top. `workers/billing/index.ts` needs no change for this: it already
+ * forwards this constant, unread, straight into `createCorsMiddleware`'s
+ * `origins:` field, which accepts either shape.
  */
-export const BILLING_WORKER_ALLOWED_ORIGINS = [
-  ...PRODUCTION_ORIGINS,
-  ...LOCAL_DEV_ORIGINS,
-] as const;
+export const BILLING_WORKER_ALLOWED_ORIGINS: OriginMatcher = (origin) =>
+  (AI_WORKER_ALLOWED_ORIGINS as readonly string[]).includes(origin) ||
+  isVercelPreviewOrigin(origin);
 
 export const BILLING_WORKER_ALLOWED_HEADERS = [
   "Content-Type",

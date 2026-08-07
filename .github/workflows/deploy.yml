@@ -361,8 +361,9 @@ jobs:
       - name: 📥 Download deps
         run: npm ci
 
-      # External review Finding 1 (2026-08-06): `ai` and `parse` are excluded
-      # here — plain `wrangler deploy` publishes code AND immediately serves
+      # External review Finding 1 (2026-08-06), widened by the Epic 12
+      # adversarial review (2026-08-07) to `cron` and `billing`: those four
+      # are excluded here — plain `wrangler deploy` publishes code AND serves
       # it, so a deploy followed by several `wrangler secret put` calls (the
       # old flow, still used below for the other four workers) means each
       # `secret put` promotes and serves ANOTHER version — several
@@ -376,7 +377,7 @@ jobs:
       # bundles code and every secret into ONE version atomically, and
       # nothing serves traffic until the explicit `versions deploy` promotion
       # that follows it.
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker != 'ai' && matrix.worker != 'parse' }}
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker != 'ai' && matrix.worker != 'parse' && matrix.worker != 'cron' && matrix.worker != 'billing' }}
         name: 🚀 wrangler deploy
         working-directory: workers/${{ matrix.worker }}
         run: npx wrangler deploy
@@ -419,8 +420,8 @@ jobs:
       # own `[secrets] required = [...]` block is wrangler's OWN independent
       # enforcement of the same requirement, for any deploy of these two
       # Workers that does not go through this workflow at all.
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse') }}
-        name: 🔎 Required AI Worker secrets present? (fails the job, not just a warning)
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse' || matrix.worker == 'cron' || matrix.worker == 'billing') }}
+        name: 🔎 Required Worker secrets present? (fails the job, not just a warning)
         run: |
           set -euo pipefail
           missing=()
@@ -431,6 +432,26 @@ jobs:
             [ -n "${AI_GATEWAY_ACCOUNT_ID:-}" ] || missing+=("AI_GATEWAY_ACCOUNT_ID")
             [ -n "${AI_GATEWAY_ID:-}" ] || missing+=("AI_GATEWAY_ID")
             [ -n "${GOOGLE_AI_STUDIO_API_KEY:-}" ] || missing+=("GOOGLE_AI_STUDIO_API_KEY")
+          fi
+          # Epic 12 review finding: cron and billing were left on the unsafe
+          # path. `cron` arms a schedule the moment it deploys, so publishing
+          # it before RESEND_* exists means the sweep runs, finds no
+          # credentials, and settles real reminders as delivery failures
+          # before anyone can attach them.
+          if [ "${{ matrix.worker }}" = "cron" ]; then
+            [ -n "${RESEND_API_KEY:-}" ] || missing+=("RESEND_API_KEY")
+            [ -n "${RESEND_FROM:-}" ] || missing+=("RESEND_FROM")
+            [ -n "${APP_ORIGIN:-}" ] || missing+=("APP_ORIGIN")
+          fi
+          # `billing` has a webhook endpoint registered against it in Stripe,
+          # so a published-but-unconfigured version answers real deliveries
+          # with 500s for the length of the configuration window.
+          if [ "${{ matrix.worker }}" = "billing" ]; then
+            [ -n "${STRIPE_SECRET_KEY:-}" ] || missing+=("STRIPE_SECRET_KEY")
+            [ -n "${STRIPE_WEBHOOK_SECRET:-}" ] || missing+=("STRIPE_WEBHOOK_SECRET")
+            [ -n "${STRIPE_PRICE_ID_QUARTERLY:-}" ] || missing+=("STRIPE_PRICE_ID_QUARTERLY")
+            [ -n "${STRIPE_PRICE_ID_YEARLY:-}" ] || missing+=("STRIPE_PRICE_ID_YEARLY")
+            [ -n "${APP_ORIGIN:-}" ] || missing+=("APP_ORIGIN")
           fi
 
           if [ ${#missing[@]} -eq 0 ]; then
@@ -456,8 +477,8 @@ jobs:
       # first-ever deploy of `ai`/`parse` and every steady-state redeploy
       # with the same command. `--secrets-file` is additive (per
       # `--help`): a secret not listed here is left untouched, never deleted.
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse') }}
-        name: 🚀 Upload Worker version (ai/parse — code + every secret, bundled atomically)
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse' || matrix.worker == 'cron' || matrix.worker == 'billing') }}
+        name: 🚀 Upload Worker version (code + every secret, bundled atomically)
         working-directory: workers/${{ matrix.worker }}
         run: |
           set -euo pipefail
@@ -472,6 +493,20 @@ jobs:
               printf 'AI_GATEWAY_ACCOUNT_ID=%s\n' "$AI_GATEWAY_ACCOUNT_ID"
               printf 'AI_GATEWAY_ID=%s\n' "$AI_GATEWAY_ID"
               printf 'GOOGLE_AI_STUDIO_API_KEY=%s\n' "$GOOGLE_AI_STUDIO_API_KEY"
+            fi
+            if [ "${{ matrix.worker }}" = "cron" ]; then
+              printf 'RESEND_API_KEY=%s\n' "$RESEND_API_KEY"
+              printf 'RESEND_FROM=%s\n' "$RESEND_FROM"
+              printf 'APP_ORIGIN=%s\n' "$APP_ORIGIN"
+              [ -n "${VAPID_PUBLIC_KEY:-}" ] && printf 'VAPID_PUBLIC_KEY=%s\n' "$VAPID_PUBLIC_KEY"
+              [ -n "${VAPID_PRIVATE_KEY:-}" ] && printf 'VAPID_PRIVATE_KEY=%s\n' "$VAPID_PRIVATE_KEY"
+            fi
+            if [ "${{ matrix.worker }}" = "billing" ]; then
+              printf 'STRIPE_SECRET_KEY=%s\n' "$STRIPE_SECRET_KEY"
+              printf 'STRIPE_WEBHOOK_SECRET=%s\n' "$STRIPE_WEBHOOK_SECRET"
+              printf 'STRIPE_PRICE_ID_QUARTERLY=%s\n' "$STRIPE_PRICE_ID_QUARTERLY"
+              printf 'STRIPE_PRICE_ID_YEARLY=%s\n' "$STRIPE_PRICE_ID_YEARLY"
+              printf 'APP_ORIGIN=%s\n' "$APP_ORIGIN"
             fi
           } > "$secrets_file"
           chmod 600 "$secrets_file"
@@ -492,8 +527,8 @@ jobs:
       # does — this is the only step that makes the uploaded version start
       # serving traffic, and it only runs once the version above uploaded
       # successfully WITH every required secret already attached to it.
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse') }}
-        name: 🚀 Promote uploaded version to 100% traffic (ai/parse)
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse' || matrix.worker == 'cron' || matrix.worker == 'billing') }}
+        name: 🚀 Promote uploaded version to 100% traffic
         working-directory: workers/${{ matrix.worker }}
         run: npx wrangler versions deploy "${WRANGLER_VERSION_ID}@100" --yes --message "CI deploy $GITHUB_SHA"
 
@@ -502,44 +537,12 @@ jobs:
       # above instead (and fail the job outright if either is missing,
       # rather than silently skipping this push the way the other four
       # workers still do below).
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY && matrix.worker != 'ai' && matrix.worker != 'parse' }}
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY && matrix.worker != 'ai' && matrix.worker != 'parse' && matrix.worker != 'cron' && matrix.worker != 'billing' }}
         name: 🔑 Push base secrets (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
         working-directory: workers/${{ matrix.worker }}
         run: |
           echo "$SUPABASE_URL" | npx wrangler secret put SUPABASE_URL
           echo "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-
-      # Story 12.2: RESEND_FROM added alongside RESEND_API_KEY — both are
-      # required together (gated with `&&`, not pushed independently): a key
-      # with no verified sender identity behind it makes every Resend call
-      # fail, so there is no useful partial state to push one without the
-      # other. `wrangler secret put` still promotes and serves a new version
-      # on each call within this step (the non-atomic path — see Finding 1's
-      # comment above on why `ai`/`parse` moved to `--secrets-file` and
-      # `cron` has not been migrated onto it in this pass), which is why
-      # both go together in one step rather than two.
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'cron' && env.RESEND_API_KEY && env.RESEND_FROM }}
-        name: 🔑 Push cron secrets (RESEND_API_KEY, RESEND_FROM)
-        working-directory: workers/cron
-        run: |
-          echo "$RESEND_API_KEY" | npx wrangler secret put RESEND_API_KEY
-          echo "$RESEND_FROM" | npx wrangler secret put RESEND_FROM
-
-      # Story 12.4: extended from the original two (STRIPE_SECRET_KEY,
-      # STRIPE_WEBHOOK_SECRET) to all six bindings workers/billing/index.ts
-      # reads — all-or-nothing, matching this step's own pre-existing shape,
-      # rather than pushing a partial set that leaves the Worker unable to
-      # verify signatures or resolve a price id.
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker == 'billing' && env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET && env.STRIPE_PRICE_ID_QUARTERLY && env.STRIPE_PRICE_ID_YEARLY && env.APP_ORIGIN && env.SUPABASE_PUBLISHABLE_KEY }}
-        name: 🔑 Push billing secrets (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_ID_QUARTERLY, STRIPE_PRICE_ID_YEARLY, APP_ORIGIN, SUPABASE_PUBLISHABLE_KEY)
-        working-directory: workers/billing
-        run: |
-          echo "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY
-          echo "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET
-          echo "$STRIPE_PRICE_ID_QUARTERLY" | npx wrangler secret put STRIPE_PRICE_ID_QUARTERLY
-          echo "$STRIPE_PRICE_ID_YEARLY" | npx wrangler secret put STRIPE_PRICE_ID_YEARLY
-          echo "$APP_ORIGIN" | npx wrangler secret put APP_ORIGIN
-          echo "$SUPABASE_PUBLISHABLE_KEY" | npx wrangler secret put SUPABASE_PUBLISHABLE_KEY
 
       - if: ${{ !env.IS_CLOUDFLARE_CONFIGURED }}
         name: Cloudflare deployment skipped

@@ -1496,11 +1496,32 @@ custom domain is configured on the Cloudflare account; the Stripe webhook is reg
 `https://myshadchan-billing.myshadchan.workers.dev/webhook`. Pinning `workers_dev = true`
 explicitly is what turns that from a default into a decision.
 
-**What is still open is no longer a gate on building — it is the deploy itself.** No Worker has
-been deployed since the code landed, so 12.2's cron sweep has never fired against a live Worker,
-no reminder email has arrived at a real inbox (12.2 AC-10), and no Stripe event has been delivered
-to the running webhook (12.4 AC-14). Those three are the remaining definition-of-done items for
-the epic.
+**Deployed 2026-08-07** (`d49aee5`): all nine jobs green — Supabase migrations, all seven Workers
+including `billing` for the first time, and the Vercel frontend. Verified against the running
+deployment rather than the workflow's own green: both Worker health routes answer, and an unsigned
+forged `customer.subscription.deleted` POSTed at the production webhook is refused with a 400.
+
+**The epic is NOT done, and calling G1 discharged does not make it so.** An adversarial review on
+the same day (`_bmad-output/epic-12-adversarial-review-report-2026-08-07.md`) opened with exactly
+that objection and it is upheld here: credentials existing is not the same event as delivery
+working. Two acceptance criteria remain unmet by observation, not by argument:
+
+- **12.2 AC-10** — no reminder email has been confirmed arriving at a real inbox. The sweep was
+  disarmed for part of the day (`5da019e`) because two of the review's findings were irreversible
+  once a tick fired, and re-armed only after both were fixed and independently reproduced
+  (`6a50a25`).
+- **12.4 AC-14** — no real signed Stripe event has been observed reaching the running webhook and
+  producing the matching `subscription` and `stripe_events` rows. The endpoint is registered and
+  the Worker is live, but registration is not delivery.
+
+**Live billing is also not configured.** The Stripe product and both prices are **test mode**
+(`prod_V1bIMx10dzcDFB`, `price_1U1Y5mEimvfTzCZTHSYufq9V` at $6/3mo, `price_1U1Y5nEimvfTzCZT9O3Yqv7h`
+at $24/yr). Live mode needs its own product, prices, webhook endpoint and secrets. Until then the
+paid tier cannot take real money — which the review correctly noted is part of "operational
+readiness", not a footnote to it. The Worker now enforces the mode rather than trusting the event
+body, so a test event can no longer write production entitlement (`f45afb4`).
+
+Epic status stays **incomplete** until those three are observed.
 
 ### Gate G1 — the Cloudflare Workers have never deployed *(blocking, ops, not code — historical)*
 
