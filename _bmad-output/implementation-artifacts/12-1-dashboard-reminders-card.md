@@ -1,6 +1,13 @@
 # Story 12.1: Dashboard reminders card
 
 Status: ready-for-dev *(schedule after Story 12.3 — see F6 below)*
+> **Status correction — 2026-08-09.** The header above is stale by weeks; it is kept because this
+> file's whole history is kept. What is true: this story was built and committed at `47cc239`. The nineteen findings of
+> `_bmad-output/epic-12-adversarial-review-report-2026-08-07.md` were closed in `f45afb4`,
+> `6a50a25` and `14cc3c3`. What is **not** true is that this story is done in the sense the epic
+> needs: the epic's closing condition is now **Story 12.5** (observed delivery and live-mode
+> billing) and **Story 12.6** (FR72's trial, FR75's grace window, FR77's policy surface, none of
+> which any Epic 12 story covered). See `epics.md` → Epic 12 → "Epic 12 closing condition".
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

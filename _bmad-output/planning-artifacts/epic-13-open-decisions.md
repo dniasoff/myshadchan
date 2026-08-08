@@ -18,6 +18,45 @@ purpose.
 
 ---
 
+## Amendment 2026-08-09 — every entry now carries a `DEFAULT IF SILENT`
+
+**Why.** The original rule was that neither story enters a wave until §3 of its file is settled.
+That made fifteen unrelated product calls into one all-or-nothing gate: an unanswered question
+about how a bereavement should read blocked a schema change nobody disputes. Four days on, none of
+the fifteen had an answer and not one line of Epic 13 existed. The questions were right; the gate
+was the wrong shape.
+
+**What changed.** Each entry below now ends with a `DEFAULT IF SILENT`: what gets built if no
+answer has arrived by the time its story dispatches.
+
+- A default is **a build instruction, not a ruling.** The owner overrides any single one at any
+  time, and overriding one does not re-open the other fourteen.
+- Defaults are chosen for **reversibility, not quality.** Where an option is worse but easier to
+  undo, the default is the worse option and the entry says so in those words. Six entries already
+  carried a recommendation and those became the default verbatim.
+- The five entries with *"deliberately no recommendation"* keep it. Their default is whichever
+  option is cheapest to reverse, explicitly labelled as such — none of them is dressed up as a
+  preference that was never expressed.
+- **Two entries have no default at all: E13-D6 and E13-D8.** They fix the shape of nearly every
+  screen and of the schema underneath, so the wrong answer is discovered only after thirty screens
+  exist. Those two — and only those two — block **Story 13.3**. Nothing else in this file blocks
+  anything.
+
+**What this does not change.** The five owner-settled constraints under *"What is not open"* stand
+untouched, including the hard one: the interface never names a reason and never offers one to
+choose from. No default weakens it, and none may.
+
+**Which stories are gated now:**
+
+| Story | Gated by |
+|---|---|
+| 13.2 — when someone leaves the household | **Nothing.** Dispatch it |
+| 13.1 — the grant's lifecycle | **Nothing.** D1/D3/D4 govern it and all three default |
+| 13.3 — what the collaborating household sees | **E13-D6 and E13-D8** |
+| 13.4 — one act, two questions | Stories 13.2 and 13.3 |
+
+---
+
 ## How to answer these — the order matters
 
 They are not independent. Answering them out of order produces answers that have to be revisited.
@@ -64,6 +103,14 @@ or the agreement of both?
 wrong substrate for "who may eject whom". No recommendation on the second half; it has no
 technical answer.
 
+**DEFAULT IF SILENT.** (b) — store `accounts.founding_member_id`, backfilled once from
+`invited_by IS NULL`, with a unique index so the hole this entry names ("nothing enforces
+at-most-one such row") is closed on the way in. On the second half: **any `parent_admin` may
+propose, accept or sever a grant**, matching the authority model already shipped
+(`is_owning_membership_role()`), because inventing a seniority the schema has never had is the
+larger change. Reversible: a stored column can be re-derived, and narrowing authority later is a
+policy change against one function, not a data migration.
+
 **Answer:**
 
 ---
@@ -84,6 +131,12 @@ of the old one (with its history)? Does the ejected party have to accept again?
 **Recommendation.** None. Both are defensible and the choice is about what the family should see,
 not about the schema.
 
+**DEFAULT IF SILENT.** A re-grant is a **brand-new grant**; the ended row is kept and the
+uniqueness index is partial on the live state (the `connections` precedent, already in the tree);
+the other side accepts again. Most reversible: nothing is destroyed, so "reinstate the old one with
+its history" remains buildable on top of the kept rows, whereas a reinstatement that silently
+resurrects an old arrangement cannot be un-done.
+
 **Answer:**
 
 ---
@@ -100,6 +153,12 @@ E13-D1 attaches to "founding member" pointing at an archived row.
 **Decide.** Does the authority transfer (to whom, chosen by whom?), lapse, or block the departure?
 
 **Recommendation.** None until E13-D1 is settled — this answer is downstream of it.
+
+**DEFAULT IF SILENT.** Authority transfers to the longest-standing remaining
+`parent_admin`. If there is none, the departure is refused — the shape `guard_persona_removal()`
+already uses for the last active member with domain data. Reversible: the transfer rule is one
+function, and refusing is the fail-closed answer, which is the one that cannot strand a household
+with authority pointing at an archived row.
 
 **Answer:**
 
@@ -120,6 +179,13 @@ party told before it takes effect? Or is mutual ejection simply allowed, first-w
 **Recommendation.** None. This is the sharpest human-consequence question in the epic and the
 right answer depends on a judgement about people, not about locking.
 
+**DEFAULT IF SILENT.** Mutual ejection is **allowed, first-writer-wins, and both parties
+are notified**. This is the least-committed option, not the best one, and the entry says so: adding
+a waiting period, an asymmetry or a required agreement later is one function; discovering that a
+silently-built asymmetry was the wrong one, after a real family has lived through it, is not.
+**This is the entry most deserving of an actual answer** — it is the sharpest human-consequence
+question in the epic and a default is a poor substitute for thinking about it.
+
 **Answer:**
 
 ---
@@ -139,6 +205,11 @@ sever is the hard one.
 your child gone, which is cruel. An email saying "your access to X has been removed" arriving in
 the middle of the worst month of someone's life is also a decision, not a default. **Worth
 thinking about as a person, not as a feature flag.**
+
+**DEFAULT IF SILENT.** Notify on **both** — on grant, and on sever — in the same neutral
+register as the removal itself: what changed, not why. Reversible: suppressing a notification later
+is a flag. The asymmetry is the reason: an access change nobody was told about is discovered by
+opening the app and finding your child gone, and that cannot be un-happened.
 
 **Answer:**
 
@@ -161,6 +232,12 @@ active context, which for a collaborator resolves to a membership in the *other*
 **Recommendation.** Read everything, write *some* — where "some" is the collaborative surface
 (notes, reminders, call logs, references) and "none" is the structural surface (the child's own
 identity row, publication, share links, inviting the child to a login — see E13-D10).
+
+**NO DEFAULT — THIS ONE GATES A STORY.** It is one of exactly two decisions that block
+**Story 13.3** and it is not defaultable in any honest sense: read-only and read-plus-write differ
+in what `set_account_id_default()` has to allow, what `current_member_id()` resolves an author to,
+and what roughly thirty screens do. The wrong answer is discovered after those screens exist.
+Answer it; do not let it default.
 
 **Answer:**
 
@@ -185,6 +262,13 @@ files at all.
 
 **Recommendation.** None. The three differ in what a family walks away with, which is the point.
 
+**DEFAULT IF SILENT.** (c) — an **export bundle** produced at the moment of sever, reusing
+Story **14.3**'s complete-export machinery (which by then covers every tenant table *and the file
+bytes*, which is exactly what makes (a)'s "rows only" loss unnecessary). This removes the storage
+question entirely rather than answering it: no byte duplication, no divergent second file set, no
+rows pointing at object keys the departing household's policies deny. Reversible: (b) remains
+buildable later if a live copy is ever wanted.
+
 **Answer:**
 
 ---
@@ -207,6 +291,11 @@ household of theirs, and every screen is a household they do not own.
 
 **Recommendation.** None. It determines what almost every screen looks like and both have real
 costs.
+
+**NO DEFAULT — THIS ONE GATES A STORY.** The second of the two that block **Story 13.3**,
+and by the file's own assessment "probably the largest UX consequence in the epic". Inside-my-own-
+household and context-switch-into-theirs produce different navigation, different lists, different
+empty states and a different `current_context_id()` story. Answer it; do not let it default.
 
 **Answer:**
 
@@ -235,6 +324,13 @@ seeing half of it — but **it should be a decision that was made, not one that 
 **Recommendation.** Confirm the private-thread exclusion as deliberate — it is the escape valve
 that makes shared-by-default liveable. No recommendation on the other three.
 
+**DEFAULT IF SILENT.** The collaborator receives the ordinary **shared** tier and **none**
+of the four narrower ones: not `shidduchim.close_reason`, not `medical_notes`, not `private_parent`
+photos, and not private threads. The private-thread exclusion is confirmed as deliberate, per the
+recommendation. Reversible in exactly one direction: widening later is a policy change, and a
+disclosure is not undoable — which is the whole reason this default leans closed even though a
+co-parent arguably should see some of it.
+
 **Answer:**
 
 ---
@@ -258,6 +354,13 @@ on the shared child? The question has no answer today because the situation cann
 
 **Recommendation.** No to all three powers, each enforced in the database rather than by hiding a
 button. No recommendation on the entitlement question.
+
+**DEFAULT IF SILENT.** The recommendation, in full: **no** publishing the child, **no**
+minting a share link, **no** inviting the child to their own login — each refused in the database,
+never by hiding a button. On the entitlement question, which had no recommendation: AI work on a
+shared child is charged to the **owning** household's entitlement, because `ai_usage` and
+`subscription` are per-account and the rows being worked on are that account's. Reversible: a
+collaborator-pays or either-pays rule is a change to one predicate.
 
 **Answer:**
 
@@ -287,6 +390,11 @@ history intact.
 **Recommendation.** (c). It adds no state, tells no lie about any shadchan, and matches the
 existing shape. Depends on E13-D14's answer about lists.
 
+**DEFAULT IF SILENT.** (c) — leave `pipeline_state` alone and let the single's archived
+status carry it. As recommended: it adds no eighth state, writes no lie into the record of a
+shadchan who did nothing wrong, corrupts no `shadchan_stats` tile, and matches the shape already in
+the tree.
+
 **Answer:**
 
 ---
@@ -307,6 +415,9 @@ mention of an archived person carry a visible marker, or does it read exactly as
 is honest and may also be a small unkindness every time somebody opens the file.
 
 **Recommendation.** Mark the person's own record, not every mention of them.
+
+**DEFAULT IF SILENT.** Mark the person's own record; do not mark every mention of them.
+As recommended.
 
 **Answer:**
 
@@ -330,6 +441,10 @@ restorable only from the archived person's own record, never offered as a banner
 **Recommendation.** (a), unlimited. A time limit exists to protect the system from something;
 nothing here needs protecting from a family changing its mind two months later, and a deadline on
 undoing a bereavement notice is a cruelty with no compensating benefit.
+
+**DEFAULT IF SILENT.** (a) — unlimited. As recommended: nothing here needs protecting
+from a family changing its mind two months later, and a deadline on undoing a bereavement notice is
+a cruelty with no compensating benefit.
 
 **Answer:**
 
@@ -361,6 +476,13 @@ reverses a shipped, deliberate decision and therefore belongs to the owner.
 decision" and "update the story that describes it" across two agents
 (`.claude/rules/parallel-ownership.md`).
 
+**DEFAULT IF SILENT.** (b) — archived people sit behind a deliberate control labelled
+**"past"**, not "archived". As recommended. **This default carries an obligation, not just a
+behaviour:** it reverses Story 2.5's shipped AC-8, so `2-5-persona-lifecycle-changes.md` and
+`SingleCard.tsx:23-25`'s comment are amended in the **same dispatch** — never split "change the
+decision" from "update the story that describes it" (`parallel-ownership.md`). If the owner
+overrides this default, that amendment is simply not made.
+
 **Answer:**
 
 ---
@@ -391,6 +513,12 @@ cross-household access exists. If 13.1 is deferred, "keeps access" would mean "k
 household membership" — which hands them the whole household, the exact thing 13.1 exists to
 prevent. That is not a smaller version of the promise; it is a different and worse one. The honest
 interim is to ship 13.2 **without** the access question and add it when 13.1 lands.
+
+**DEFAULT IF SILENT.** The recommendation: **two outcomes from one act.** One neutral
+action removes the person from this household and never touches their login, because a login may
+carry memberships this household has nothing to do with. The second outcome — whether they keep
+access to a child — is now **Story 13.4** and exists only once Story 13.3 does, so Story 13.2 is
+unblocked today and ships the first half without shipping a weakened version of the second.
 
 **Answer:**
 

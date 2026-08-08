@@ -1,8 +1,44 @@
 # Story 13.2: When someone leaves the household
 
-Status: **specification — not ready for dev.** Five product questions are open (see §3), and one
-of them (§3.5) is coupled to Story 13.1. The mechanism this story needs mostly exists; what does
-not exist is the ability for one person to do it on behalf of another, and the answers to §3.
+Status: **ready-for-dev** *(unblocked 2026-08-09 — see the amendment below).* **This is the first
+story of Epic 13.**
+
+## Unblocked — 2026-08-09
+
+Two changes, neither of which answers a product question on the owner's behalf.
+
+**1. All five of its decisions now default.** E13-D11 through E13-D15 each carry a
+`DEFAULT IF SILENT` in `epic-13-open-decisions.md` — four of them the recommendation this file
+already made, verbatim. The story dispatches on those; an owner override changes one behaviour, not
+the plan.
+
+**2. AC-8's coupling is moved out, not weakened.** *"Removing a person, and whether they keep
+access to a child, are one act with two questions"* is now **Story 13.4**
+(`13-4-one-act-two-questions.md`), which depends on this story and on 13.3. The old handling was
+for this story to ship a degraded version of the promise if 13.1 slipped; moving it is better,
+because a permission question with no permission mechanism behind it does not belong in acceptance
+criteria at all. **E13-D15's first half stays here and ships here:** removal ends a household
+membership and never touches the person's login, because a login may carry memberships of contexts
+this household has nothing to do with.
+
+**One obligation travels with E13-D14's default.** The default hides archived people behind a
+control labelled "past", which reverses Story 2.5's shipped AC-8 — so
+`2-5-persona-lifecycle-changes.md` and the reasoning comment at `SingleCard.tsx:23-25` are amended
+in the **same dispatch as this story**, by the same agent. Never split "change the decision" from
+"update the story that describes it" (`.claude/rules/parallel-ownership.md` — this project's
+three-times-repeated failure). If the owner overrides D14, that amendment is simply not made.
+
+**What this story still is, unchanged:** the first function in the product that acts on a person
+other than the caller, and therefore a mandatory security review. And the constraint that outranks
+everything else in it is untouched by all of the above — the interface never names a reason and
+never offers one to choose from.
+
+---
+
+*Original status line, kept as history:* **specification — not ready for dev.** Five product
+questions are open (see §3), and one of them (§3.5) is coupled to Story 13.1. The mechanism this
+story needs mostly exists; what does not exist is the ability for one person to do it on behalf of
+another, and the answers to §3.
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

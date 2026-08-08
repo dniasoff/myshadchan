@@ -197,9 +197,20 @@ Owned by Story 5.9 (Shadchan 360), Task 2b.
 | 9 — Listings & sharing | FR101–107, PRV-13 |
 | 10 — Capture funnel completion | FR27–28, FR78, PRD §13 |
 | 11 — AI layer | PRD §13–14, billing gate |
-| 12 — Phase-1 completion & operational readiness | FR44–46, FR54, PRD §14 billing; AD-13 |
+| 12 — Phase-1 completion & operational readiness | FR44–46, FR54, FR71–77, PRD §16 billing; AD-13 |
+| 13 — When a family changes | FR120–125 (proposed) |
+| 14 — Trust, compliance & data rights | PRV-2, PRV-6, PRV-10, PRV-11, PRV-12, NFR-10 |
+| 15 — Run it for real | NFR-8, NFR-13, AD-1's CI assertion, AD-8; the unowned S-ledger |
+| 16 — The single's own space & message delivery | FR67–69, FR100 (send half), PRV-4 |
 
 Note on Epic 5: FR60 (the guided call script) is covered by **Story 5.12**, added 2026-07-30.
+
+**Note on Epics 14–16, added 2026-08-09.** Every requirement they carry was in the PRD from the
+start and was covered by *no* epic in this document until now. That is not a scope increase; it is
+a coverage-map correction, evidenced line by line in
+`phase1-completeness-audit-2026-08-09.md`. Four of them — no privacy policy, no terms, no
+sub-processor disclosure, no working deletion — are why a product whose stated core wedge is
+privacy cannot be opened to a real user today.
 
 ## Epic List
 
@@ -218,6 +229,27 @@ Note on Epic 5: FR60 (the guided call script) is covered by **Story 5.12**, adde
     incomplete, and the deployment that makes them real
 13. **When a Family Changes** — a child looked after by two households, and a person no longer
     part of one
+14. **Trust, Compliance & Data Rights** — the privacy wedge, made real and readable
+15. **Run It For Real** — know when it breaks, bound what it costs, force the RLS backstop
+16. **The Single's Own Space & Message Delivery** — the third of UJ-2 that was never storied
+
+### Delivery order from here (2026-08-09)
+
+Launch-blocking, in this order, and the reason each blocks:
+
+1. **12.5** — the product cannot take money or prove a reminder reaches anyone.
+2. **14.1** — live-mode Stripe activation needs published terms and privacy URLs, so 12.5's
+   live-mode half depends on it; and no real user should arrive before it exists.
+3. **15.3a** — the AD-1 CI assertion. Cheap, and its absence is why the FORCE-RLS count drifted
+   unnoticed for three epics.
+4. **15.4** — rate limits on auth/invite/signup, ingestion and share-link access. Share-link
+   access is the one PRV-8 actually sells.
+5. **12.6** — the free trial. Not safety-blocking; it is the conversion mechanism the PRD's own
+   biggest risk (R7) names as its mitigation, so launching without it launches without the answer
+   to the risk.
+
+Then, in any order the waves allow: **5.12**, **7.5's send half (via 16.4)**, the rest of **14**
+and **15**, **16.1–16.3**. **Epic 13** is last and gated on its own decisions.
 
 ---
 
@@ -1523,6 +1555,12 @@ body, so a test event can no longer write production entitlement (`f45afb4`).
 
 Epic status stays **incomplete** until those three are observed.
 
+**Superseded 2026-08-09.** Those three are now the acceptance criteria of **Story 12.5**, which
+also adds the negative halves (a second sweep sending nothing; a test-mode event refused at the
+live endpoint; a forged event refused) that turn "it worked once" into evidence. The epic's closing
+condition is stated once, at the end of this section, and is 12.5 **and** 12.6 — not this
+paragraph. Kept as history so the reasoning that produced 12.5 is legible.
+
 ### Gate G1 — the Cloudflare Workers have never deployed *(blocking, ops, not code — historical)*
 
 Stories 12.2 and 12.4 independently discovered the same thing: `deploy.yml`'s `deploy-workers`
@@ -1670,6 +1708,125 @@ literally would write entitlement state into columns nothing reads. The webhook 
 `ALLOWED` here, `FREE_FEATURES_THAT_MUST_NOT_GATE` there. One file, adjacent arrays, never the same
 wave, and neither edit may be satisfied by weakening the guard.
 
+### Story 12.5: Observed delivery and live-mode billing *(closes the epic)*
+
+As the platform owner,
+I want the three things this epic has only ever argued to be working to be **watched** working,
+and the paid tier to be able to take an actual pound of an actual person's money,
+So that "operational readiness" stops being a claim about code that landed and becomes a record of
+behaviour that happened.
+
+**Acceptance Criteria:**
+
+**Given** the deployed cron Worker and a reminder due within the sweep window
+**When** the sweep runs against production
+**Then** an email is observed arriving at a real inbox, and the observation is recorded with the
+occurrence id, the `task_notifications` row it settled, and the Resend message id
+**And** a second sweep over the same occurrence sends nothing (the settle/idempotency path is
+watched, not inferred)
+
+**Given** live-mode Stripe objects — their own product, both prices, webhook endpoint and secrets
+**When** a real card completes Checkout against the running Worker
+**Then** the signed event is observed reaching the webhook and writing the matching `subscription`
+and `stripe_events` rows, with `livemode = true` and the Worker's own mode check passing
+**And** a **test-mode** event POSTed at the same live endpoint is refused and recorded terminally
+**And** an unsigned forged event is refused with a 400
+**And** the account's entitlement is observed changing only because the webhook wrote — not the
+checkout return
+
+**Given** the four public surfaces (both Worker health routes, the webhook, the SPA)
+**When** they are probed from outside the deploy pipeline
+**Then** each answers, and the probe is the artefact — a workflow's own green is not one of the
+observations this story accepts.
+
+**Why the negative halves are acceptance criteria and not extras.**
+`.claude/rules/migration-guard-integrity.md` is in this repo because a guard nobody has watched
+fail is not evidence. The same standard applies to a delivery path nobody has watched refuse: the
+second-sweep-sends-nothing check, the test-mode refusal and the forged-event 400 are what
+distinguish "it worked once" from "it works".
+
+**Depends on:** **Story 14.1** for the live-mode half only — Stripe activation requires published
+terms and privacy URLs on the business's own site, and there are none (see
+`phase1-completeness-audit-2026-08-09.md` §C1). The reminder half and the probe half have no
+dependency and should not wait for it.
+
+**This story owns no source file by default.** If any observation fails, the fix is a defect
+against 12.2 or 12.4 and is made there; 12.5 records the observation either way. A story whose
+success condition is "nothing was wrong" must still be able to report that something was.
+
+### Story 12.6: The free trial, the grace window, and the policy the PRD already named
+
+As a parent who has never seen the AI do anything,
+I want to try it before I am asked to pay for it, and not to lose it the hour a card expires,
+So that the one paid surface in a free product is something I chose rather than something I gambled
+on.
+
+**Acceptance Criteria:**
+
+**Given** an account that has never used an AI feature
+**When** its first resume parse is claimed
+**Then** the trial starts at that moment (FR72 — "from first AI use", not from signup), for the
+configured window (default 14 days)
+**And** entitlement during the trial is decided by `ai_entitlement()` and nothing else — the trial
+is a term **inside** `ai_resume_limit_for_account()`, never a second thing that can decide whether
+an account is entitled
+**And** the trial's remaining time and allowance are visible in Billing, in the same meter that
+already shows usage
+**And** at trial end the AI features lock, the free core is untouched, and no data is hidden or
+lost (FR75)
+**And** an account gets one trial: a second `claim_ai_parse_attempt()` after a trial has ended
+never re-arms it
+
+**Given** a subscribed account whose payment fails
+**When** Stripe reports `past_due`
+**Then** entitlement continues for a grace window (FR75 — "not an instant cut-off"), a dunning
+notice is sent through the same Resend transport 12.2 built, and only the window's expiry lapses it
+**And** the window is time-driven by the existing cron sweep, so a Worker that never runs cannot
+silently extend entitlement forever — an ungraced account is the fail-closed outcome
+**And** `unpaid`, `canceled`, `incomplete_expired` and `paused` continue to lapse immediately, as
+they do today
+
+**Given** the Billing page
+**When** a parent reads it
+**Then** it states cancel-any-time, access-to-period-end, no-refunds and how tax is handled
+(FR77), in the cost-recovery register `billingPlans.ts` already uses — not a sales funnel
+
+**Given** NFR-11's requirement that "limits and price are operationally tunable, ideally without a
+code change"
+**When** the monthly allowance needs to move
+**Then** it moves without a deploy — `ai_monthly_resume_limit()` returns a hard-coded `select 100`
+today, and its own comment already says it is `STABLE` rather than `IMMUTABLE` specifically to
+reserve room for this. Read it from `configuration`, keeping the function as the single place the
+number is resolved so `ai_entitlement()` and `claim_ai_parse_attempt()` still cannot disagree.
+
+**The reconciliation that makes the grace window legitimate.** `subscriptionState.test.ts:62-68`
+pins `past_due → lapsed` as "the AD-17 fail-closed ruling", and this story changes it. That is a
+deliberate narrowing, not a weakening: fail-closed governs **unknown** state — a limiter that
+throws, a mode that cannot be derived, an entitlement that cannot be read. `past_due` is a
+**known** state with Stripe's own published retry schedule attached. The invariant that must not
+move is that the *default* is unentitled and that expiry, not a request, is what ends the grace.
+The existing test is retargeted to assert exactly that, and a new test proves an expired grace
+lapses without any Stripe event arriving.
+
+**One open decision, and it does not block the build.** FR77 asks for "one free trial per
+**verified family**". Per-account is what this story builds. An account recreated from a fresh
+invite gets a fresh trial, and closing that needs an identity axis above the account — which the
+product deliberately does not have. Recorded rather than solved: invite-only signup already bounds
+the abuse to people someone chose to invite, and NFR-13's signup rate limit (Story 15.4) bounds the
+rest. Revisit only if it is ever observed happening.
+
+**Depends on:** nothing built. Shares `subscription`'s table shape with 12.4 (a migration —
+mind the column-order trap), `workers/billing/subscriptionState.ts` with 12.4, and
+`workers/cron/**` with 12.2 and Story 16.4. Never the same wave as any of the three.
+
+### Epic 12 closing condition — REPLACES the "three things" list above
+
+Epic 12 is complete when **12.5** records its observations and **12.6** ships. The earlier list of
+three (a reminder email, a signed Stripe event, live-mode billing) is exactly 12.5's scope and is
+superseded by it rather than restated; 12.6 exists because a completeness pass on 2026-08-09 found
+three §16 requirements — FR72's trial, FR75's grace window and FR77's policy surface — that Story
+12.4 did not cover and no story anywhere owned.
+
 ---
 
 ## Epic 13: When a Family Changes
@@ -1701,28 +1858,75 @@ that shipped incomplete; neither of these shipped at all.
 **Both stories are specification, not build-ready.** Between them they carry **fifteen open
 product decisions** and **one architecture amendment**. That is the deliverable: the questions
 are surfaced rather than silently answered, because most of them are product calls with no
-technical answer, and answering them wrong would be worse than answering them late. Neither story
-should enter a wave until §3 of its own file is settled.
+technical answer, and answering them wrong would be worse than answering them late.
 
 The fifteen are collected, with what is established, the options and a recommended answering
 order, in **`epic-13-open-decisions.md`** (E13-D1 … E13-D15). That file is an index — each entry
 links back to the story section that owns it, and an answer recorded there is applied to the story
 file in the same edit.
 
-**Delivery order: 13.2 → 13.1, with one coupling.** 13.2 is the smaller build and the mechanism
-mostly exists. 13.1 requires a tenancy amendment and should not be started before it is accepted.
-The coupling runs the other way: **13.2's AC-8** ("removing a person, and whether they keep
-access to a child, are one act with two questions") only has a meaningful answer once 13.1
-exists. If 13.1 is deferred, 13.2 ships **without** the access question rather than with a
-silently weakened version of it — because "keeps access" without 13.1 means "keeps the whole
-household", which is the exact thing 13.1 exists to prevent.
+### Amendment 2026-08-09 — how this epic stops being frozen
 
-**Scheduling constraint (whole epic).** Both stories touch `supabase/schemas/**` and a migration
-each; 13.1 additionally widens RLS across most of the household tables. They must not share a
-wave with each other or with any Epic 12 story. **Security review is mandatory for both**
-(`.claude/rules/security-triggers.md`: authorization, database queries, migrations, RLS — these
-stories are all four). 13.1 is the single largest widening of the tenant boundary since Epic 2;
-13.2 creates the product's first function that acts on a person other than the caller.
+The sentence *"neither story should enter a wave until §3 of its own file is settled"* has been
+**replaced**. It was correct in intent and wrong in mechanism: it makes fifteen unrelated product
+calls into a single all-or-nothing gate, so one unanswered question about bereavement copy blocks a
+schema change nobody disputes. Four days on, none of the fifteen has an answer and no line of this
+epic exists.
+
+Three changes, and none of them answers a product question on the owner's behalf.
+
+**1. Every decision now carries a `DEFAULT IF SILENT`.** `epic-13-open-decisions.md` records, for
+each of the fifteen, what gets built if no answer arrives by the time its story dispatches — chosen
+to be the most reversible option, not the best one. A default is a **build instruction, not a
+ruling**: the owner overrides any single one at any time, and overriding one does not re-open the
+other fourteen. Six of the fifteen already had a recommendation and those become the default
+verbatim. The five with *"deliberately no recommendation"* keep it — their default is the option
+that is cheapest to reverse, and the entry says so in those words rather than pretending a
+preference was expressed.
+
+**2. Two decisions genuinely cannot be defaulted, and only those two hold a gate.** E13-D6 (view
+or edit) and E13-D8 (where the shared child appears) fix the shape of almost every screen and of
+the schema underneath them; a default there is not reversible in any honest sense, because the
+wrong answer is discovered after thirty screens exist. **Those two, and only those two, block
+Story 13.3.** Stories 13.1 and 13.2 do not touch them and are unblocked today.
+
+**3. The epic is four stories, not two.** As drafted, 13.1 carried the grant mechanism *and* the
+largest RLS widening since Epic 2 *and* a cross-account document problem *and* the UX shape
+question — which is more than one story can hold and more than one reviewer can check, and is
+exactly the shape `.claude/rules/coding-style.md` says to split rather than grow. The split below
+puts every decision-bearing part in one story and leaves two that can be built on facts alone.
+
+**What this changes about risk.** It does not lower it — 13.3 is still the single largest widening
+of the tenant boundary since Epic 2 and still requires a security review. It moves the risk into
+one story instead of smearing it across two, and it lets the two stories that carry none of it
+ship while the two shape questions are being thought about properly.
+
+**Delivery order (binding, amended 2026-08-09): 13.2 → 13.1 → 13.3 → 13.4.**
+
+- **13.2** first: smallest build, the archive mechanism already exists, and it carries no shape
+  decision. Unblocked today.
+- **13.1** second: the grant's own lifecycle — propose, accept, sever — which is a copy of
+  `connection_invites`' shape and needs no answer to E13-D6 or E13-D8. It **grants nothing** on its
+  own; a grant row with no reachability rule behind it is inert by construction, which is what
+  makes it safe to build first.
+- **13.3** third, and **only** after E13-D6 and E13-D8 are answered. This is where the reachability
+  rule, the RLS widening, the document path and every boundary question live.
+- **13.4** last: it joins 13.2's removal to 13.3's access and cannot exist before both.
+
+**The coupling, restated.** 13.2's original AC-8 — *"removing a person, and whether they keep
+access to a child, are one act with two questions"* — is **moved out of 13.2 into Story 13.4**.
+The old text handled the coupling by having 13.2 ship a degraded version of the promise if 13.1
+slipped; moving it is better, because a permission question with no permission behind it should not
+be in a story's acceptance criteria at all. 13.2 ships the neutral removal; 13.4 adds the second
+question to the same one act once there is an answer to give.
+
+**Scheduling constraint (whole epic).** All four touch `supabase/schemas/**` and a migration each;
+13.3 additionally widens RLS across most of the household tables. No two may share a wave, and none
+may share a wave with an Epic 12 or Epic 14 story (both also claim `supabase/migrations/**`).
+**Security review is mandatory for all four** (`.claude/rules/security-triggers.md`: authorization,
+database queries, migrations, RLS — these stories are all four). 13.3 is the single largest
+widening of the tenant boundary since Epic 2; 13.2 creates the product's first function that acts
+on a person other than the caller.
 
 ### Requirements this epic adds
 
@@ -1742,41 +1946,47 @@ the §3 decisions:
 - FR125: The interface never names or offers a reason for a person leaving a household. One
   neutral action, one wording, whatever the circumstance.
 
-### Story 13.1: Sharing a child across two households
+### Story 13.1: The grant — proposing, accepting and severing *(rescoped 2026-08-09)*
 
 As a parent whose child's other parent belongs to a different family,
-I want to give that parent continuing access to our child's record — our child's, and nothing
-else of mine —
-So that both of us can look after this shidduch together without either household opening its
-front door to the other.
+I want to offer that parent continuing access to our child's record, and to be able to take it
+back,
+So that the arrangement is something both of us agreed to and either of us can end.
 
 **Acceptance Criteria:**
 
-**Given** a child in my household
-**When** I share that child with another household
-**Then** nothing is shared until the other side accepts
-**And** they see that child and everything hanging off them, and no other child, member, shadchan,
-reminder or setting of mine
-**And** both households see the same live record, including everything added later
-**And** either side may sever it, taking a copy of what they could see
-**And** everyone in both households can see on the record who else can see this child
-**And** every boundary here is enforced in Postgres, with a negative test proving the wrong caller
-sees nothing.
+**Given** a child in my household and another household's identifier
+**When** I propose sharing that child
+**Then** a grant exists in a proposed state and **confers nothing** until the other side accepts
+**And** the invitation carries a hashed token never stored raw, an expiry and a status lifecycle,
+copying `connection_invites`' shape rather than inventing a second one (E13-D-established)
+**And** acceptance is an explicit act by a member of the receiving household with authority to
+take it
+**And** either side may sever, immediately and without the other's agreement
+**And** a severed grant is kept, not deleted, and its uniqueness index is partial on the live
+state so the same pair can be re-granted later (the `connections` precedent)
+**And** everyone in both households can see, on the child's record, which households hold a live
+grant on them
+**And** every state transition has its own function — one function per verb — and a negative test
+proves a caller from neither household can drive any of them.
 
-**Depends on:** an **architecture amendment** to AD-1 — a shared child's rows keep their single
-`account_id` (the composite `(account_id, single_id)` FKs leave no choice), so what changes is the
-*reachability* rule, not the scoping column. **Ten open product decisions**, listed in the story
-file. Story file: `13-1-sharing-a-child-across-two-households.md`.
+**Why this is safe to build before the shape questions are answered.** A grant row is inert: no
+policy anywhere reads it until Story 13.3 writes the reachability rule that does. Building the
+lifecycle first means the hard story is a reachability change against a settled substrate, rather
+than a lifecycle *and* a reachability change at once.
+
+**Depends on:** nothing built, and **no open decision**. E13-D1/D3/D4 (the authority chain) govern
+*who may propose, accept and sever*; each has a `DEFAULT IF SILENT` in
+`epic-13-open-decisions.md`, so this story dispatches on the defaults and an override is a
+one-function change. Story file: `13-1-sharing-a-child-across-two-households.md`, whose §3 is
+rescoped to D1–D5 by this amendment; D6–D10 move to 13.3.
 
 **What was established, and is not open:** `public.accounts` has no creator column of any kind —
 the founding member is derivable (`account_members.invited_by is null`) but not stored, and
 nothing makes it unique. `connections` cannot carry this (household↔shadchanus by trigger, and
 AD-20's promise is the opposite of what this needs); `share_links` cannot carry this (bearer
-token, anonymous reader, read-only, expiring). Documents are the sharpest constraint: the storage
-key grammar is `{account_id}/…` and every policy compares that segment to `current_context_id()`,
-so a second household cannot form a readable path to a child's resume **regardless of what RLS
-says about the rows**. Shared-by-default does include later records, and that is the deliberate
-opposite of AD-21's snapshot semantics — a builder must not copy `listings`' reflexes here.
+token, anonymous reader, read-only, expiring) — but `connection_invites`' *invitation* shape is
+the right thing to copy, and this story copies it.
 
 ### Story 13.2: When someone leaves the household
 
@@ -1801,9 +2011,19 @@ to them, they are not offered in a member picker
 **And** their login is not disabled — a household may end its own relationship with a person, not
 that person's account.
 
-**Depends on:** nothing built; the archive mechanism already exists. **Five open product
-decisions**, listed in the story file. Story file:
-`13-2-when-someone-leaves-the-household.md`.
+**Depends on:** nothing built, and **nothing open**. The archive mechanism already exists; all five
+of its product decisions (E13-D11–D15) now carry a `DEFAULT IF SILENT`, and its one coupled
+criterion has been moved out to Story 13.4. **This story is unblocked and should be dispatched
+first in the epic.** Story file: `13-2-when-someone-leaves-the-household.md`.
+
+**Rescoped 2026-08-09 — AC-8 moved to Story 13.4.** The original acceptance criteria ended with
+*"removing a person, and whether they keep access to a child, are one act with two questions"*. It
+is now Story 13.4, because a permission question with no permission mechanism behind it does not
+belong in a story's acceptance criteria — the old wording handled the coupling by shipping a
+degraded promise if 13.3 slipped, and moving it removes the need for a degraded promise at all.
+E13-D15's **first** half stays here and ships here: removal ends a household membership and never
+touches the person's login, because a login may carry memberships of contexts this household has
+nothing to do with.
 
 **What was established, and is not open:** archiving already exists and already fails closed —
 `current_context_id()` requires `status = 'active'`, so an archived membership resolves to a NULL
@@ -1821,6 +2041,605 @@ changes, 2.5's story file is amended in the same dispatch.
 to choose from. Not a nullable column, not an optional field, not a free-text box, not branching
 copy. An optional field still asks; the question is not asked. The only thing the app may ask is
 whether the person keeps access to a child — a permission question, phrased as a permission.
+
+### Story 13.3: What the collaborating household sees *(new 2026-08-09 — carved out of 13.1)*
+
+As the parent on the other side of an accepted grant,
+I want to see and work on my child's record as it actually is, and nothing else of that household,
+So that we can look after this shidduch together without either of us opening our front door to
+the other.
+
+**Acceptance Criteria:**
+
+**Given** an accepted grant on one child
+**When** I open the app
+**Then** I reach that child and everything hanging off them, and **no** other child, member,
+shadchan, reminder, task, thread or setting of that household
+**And** I see the same live record they do, including everything added after the grant — there is
+no snapshot and no republication step
+**And** the boundary is enforced in Postgres, with a negative test per table proving a caller
+holding a grant on child A sees nothing of child B in the same account
+**And** a resume or photo of the shared child is readable by me, and no object outside that child's
+subtree is
+**And** on sever, the departing side is left with whatever E13-D7 settles a copy to mean, and loses
+live access immediately.
+
+**The AD-1 amendment this story is.** A shared child's rows keep their single `account_id` — the
+composite `(account_id, single_id)` FKs leave no choice — so what changes is the **reachability**
+rule, not the scoping column. That amendment must be accepted before any schema is written; it is
+the largest widening of the tenant boundary since Epic 2 and the reason this story carries a
+mandatory security review and a per-table negative test rather than one representative one.
+
+**The document problem has a shipped answer — use it, do not re-solve it.** The storage key
+grammar is `{account_id}/…` and every policy compares that segment to `current_context_id()`, so a
+second household cannot form a readable path to a child's resume *regardless of what RLS says about
+the rows*. `epic-13-open-decisions.md` records the only two options as a service-role Worker or
+duplicating bytes — and **the service-role Worker already exists**: Story 9.5's `share` Worker
+streams from `documents` under the service-role key, addressed by an opaque server-derived
+`fileKey` that is never a client-supplied storage path, with its own negative test for exactly the
+"this key bypasses storage RLS" hazard. 13.3 extends that Worker with a grant-aware authorization
+check rather than building a second privileged reader. Byte duplication is rejected: it doubles
+storage per shared child and creates two divergent file sets from the moment of the grant.
+
+**Blocked on exactly two decisions: E13-D6 (view or edit) and E13-D8 (where the shared child
+appears).** Both are shape-fixing and neither can be honestly defaulted — the wrong answer is
+discovered after thirty screens exist. E13-D7, D9 and D10 govern this story too and each has a
+`DEFAULT IF SILENT`, so they do not gate it.
+
+**Depends on:** Story **13.1** (the grant it reads), the **AD-1 amendment**, Story **9.5**'s
+`share` Worker, and — for the sever-copy criterion only, under E13-D7's default — Story **14.3**'s
+complete export. If 14.3 has not landed when 13.3 does, the sever-copy criterion ships as rows-only
+and is upgraded when 14.3 arrives; that is the one degradation in this epic that is honest, because
+it loses nothing that was ever available. Story file: to be created as
+`13-3-what-the-collaborating-household-sees.md` when D6 and D8 are answered — not before, because
+its Dev Notes are mostly consequences of those two answers.
+
+### Story 13.4: One act, two questions *(new 2026-08-09 — moved out of 13.2 AC-8)*
+
+As the person removing someone from a household,
+I want the same single act to ask whether that person keeps access to a child,
+So that "they are no longer part of this family" and "they may no longer see their daughter" are
+never accidentally the same decision.
+
+**Acceptance Criteria:**
+
+**Given** a person in my household who is a parent of a child I hold
+**When** I remove them
+**Then** the one neutral action asks exactly one further question — whether they keep access to
+that child — phrased as a permission and never as a reason
+**And** answering "keeps access" mints the grant of Story 13.1 in an already-accepted state,
+scoped to that child alone, rather than leaving them a household membership
+**And** answering "does not" removes them with no grant, and no third option is offered
+**And** the question is asked once per child they are a parent of, and not at all when there is
+none
+**And** undo (Story 13.2) restores the membership and the grant state together, never one without
+the other.
+
+**Depends on:** Stories **13.2** and **13.3**, both. It is the join and cannot precede either. This
+is E13-D15's second half; E13-D15's first half (removal and login-disabling are not the same act)
+belongs to 13.2 and ships there.
+
+---
+
+## Epic 14: Trust, Compliance & Data Rights
+
+*Added 2026-08-09 by the Phase-1 completeness audit
+(`phase1-completeness-audit-2026-08-09.md` §C).*
+
+PRD §1 names privacy and data ownership as **the core wedge** — the pillar the whole product is
+built on. PRV-2 promises full export and real deletion. PRV-6 promises disclosed sub-processors.
+PRV-11 promises to honour a purge request from a single who never consented to being in the CRM.
+PRV-12 promises a breach-notification process and clear 18+ terms.
+
+**None of it exists.** `root/routeManifest.ts` registers ten paths and not one is a privacy policy
+or terms; `landing/landingLinks.ts` exports three links and none is legal; the deletion control is a
+`mailto:` that says so in its own comment; and the export covers four resources
+(`exportFamilyData.ts:4-9`) out of roughly thirty, with no files at all. The product currently
+promises its differentiator in a PRD and delivers it nowhere a user can see.
+
+**Why a fourteenth epic rather than a home in 1–13.** Every candidate was tested. Epic 2 owns
+identity and is shipped; deletion is not a persona lifecycle event. Epic 9 owns *publication*, the
+opposite direction. Epic 12 is FR1–78 surfaces that shipped incomplete — these shipped not at all,
+and Epic 12 is closing. Epic 13 is a family changing shape, not a family leaving. The five stories
+below are also mutually coherent in a way that matters at build time: they share the same legal
+review, the same copy register, and four of the five write the same two new public routes.
+
+**This epic gates the launch, and one story gates money.** Story 14.1 is a dependency of Story
+12.5's live-mode half: Stripe activation requires published terms and privacy URLs on the
+business's own site.
+
+### Story 14.1: The legal surfaces *(PRV-6, PRV-12; blocks 12.5)*
+
+As someone deciding whether to put my family's most sensitive records into this app,
+I want to be able to read what happens to them before I sign up,
+So that "privacy is the product" is something I can check rather than something I am told.
+
+**Acceptance Criteria:**
+
+**Given** the public landing page and the signup flow
+**When** I look for them
+**Then** a privacy policy, terms of service and a sub-processor list are reachable without an
+account, at stable public routes, linked from the landing page, the signup flow and Settings
+**And** the sub-processor list names every processor that actually touches user data today —
+Supabase, Cloudflare, Vercel, Resend, Stripe and the inference provider — with what each one
+receives, and is derived from the deployment rather than remembered
+**And** the terms state the 18+ requirement the signup already enforces, the cost-recovery
+non-profit position, and the FR77 billing policy (cancel any time, access to period end, no
+refunds, how tax is handled)
+**And** the privacy policy states the export right, the deletion right, the retention window
+deletion actually achieves, and a breach-notification commitment and contact
+**And** each document carries a version and an effective date, and a change to any of them is a
+visible event rather than a silent edit
+**And** every claim in them is true of the shipped system on the day it ships — a policy that
+promises a control the product does not have is worse than no policy.
+
+**The last criterion is the hard one and it is the point.** Three of this epic's other four
+stories exist because the honest version of that document currently has to say "we cannot do
+that". Where a promise cannot yet be kept, 14.1 states the true position and the corresponding
+story raises it — it does not write the aspiration.
+
+**`landing/LandingPrivacy.tsx` is not this and must not be mistaken for it.** It is a marketing
+section that explains the privacy posture persuasively. A privacy policy is a legal document with a
+version, an effective date, a named controller, a retention statement, a rights procedure and a
+contact. The two live in the same product and do different jobs; 14.1 adds the second and leaves
+the first alone, except to link it.
+
+### Story 14.2: Deletion that deletes *(PRV-2)*
+
+As a family leaving the product,
+I want to actually be able to take our data out of it,
+So that the promise that made me trust it holds at the one moment it matters.
+
+**Acceptance Criteria:**
+
+**Given** an account and a member with authority to end it
+**When** deletion is requested from the app
+**Then** it is confirmed deliberately, not by a single click, and a stated cooling-off window
+passes before anything is destroyed, during which it is cancellable
+**And** on execution the live system is purged — every row in every tenant table, every object
+under the account's storage prefix, every queued notification, and the Stripe subscription
+cancelled — with nothing left addressable
+**And** what cannot be purged immediately is stated honestly to the user rather than implied:
+the backup retention window, and the sub-processor instructions issued
+**And** an export bundle (Story 14.3) is offered and produced **before** the purge, in the same
+flow, so nobody has to choose between leaving and keeping their own records
+**And** the purge is proven by a test that seeds a second account and asserts it is untouched —
+the one failure mode of a cascading delete is reaching too far
+**And** the `mailto:` stub in `settings/DeleteDataDialog.tsx` is deleted in the same change, not
+left beside the real path (NFR-14: one code path per behaviour).
+
+**Depends on:** Story **14.3** (the export it must offer). Note this reverses the inherited fork
+stance in `AGENTS.md` — *"user deletion is not supported to avoid data loss; use account disabling
+instead"* — which is a sensible default for a CRM demo and the opposite of what this product sold.
+`AGENTS.md` is amended in the same change.
+
+### Story 14.3: The whole export, not four tables *(NFR-10, PRV-2)*
+
+As a family that owns its own records,
+I want an export that is actually all of them,
+So that "fully exportable" means what it says.
+
+**Acceptance Criteria:**
+
+**Given** my account
+**When** I export
+**Then** the bundle contains every tenant table this account holds rows in — including the ones the
+current export omits: notes and interactions, reference call logs, date records, redts, tasks and
+reminders, threads and messages, medical notes, listings and share links
+**And** it contains the **files**: resumes, photos and attachments, as bytes, not as storage keys
+that stop resolving the moment the account does
+**And** the table list is derived from the schema rather than hand-enumerated, and a test fails
+when a new tenant table exists that the export does not cover
+**And** a large account's export streams rather than assembling in a browser tab
+**And** the bundle is readable by a person without this application — the point of portability is
+that it survives us.
+
+**The derived-list criterion is not a nicety.** `exportFamilyData.ts`'s hand-written four-item
+array is the same failure shape as the migration-safety fixture's hand-enumerated `capture()` list,
+which went stale and silently under-protected seven tables until
+`.claude/rules/migration-guard-integrity.md` was written about it. Derive it from `pg_class`, the
+same way that repair did.
+
+### Story 14.4: The data subject's purge request *(PRV-11)*
+
+As a single who never signed up for this and has found out I am in it,
+I want to be able to ask to be removed,
+So that the promise made about me is one I can act on.
+
+**Acceptance Criteria:**
+
+**Given** a person who is a suggested single in some account, and is not a user
+**When** they make a purge request through the published route
+**Then** the request is receivable without an account and without them having to guess which family
+holds them
+**And** identity is established proportionately before anything is destroyed — a purge request is
+also an excellent way to attack somebody
+**And** the affected accounts are notified, the matching `singles`/`shidduchim` subtree is purged,
+and the accounts' own records **about their own child** are untouched
+**And** what remains is stated honestly: a reference conversation that mentions them is about the
+speaker too (the Epic 13 §E13-D12 reasoning applies), and the policy in 14.1 says which of the two
+wins
+**And** the process is documented as a runbook, because the first ten of these will be handled by a
+person, not a function.
+
+**This is the one requirement in the PRD that an account owner cannot satisfy on their own data,
+because the requester is not a user.** It is voluntary — PRV-11 says so — and it is a stated values
+differentiator, which makes shipping the product without any mechanism for it a claim the product
+cannot back.
+
+### Story 14.5: Field-level encryption for the sensitive tier *(PRV-10 — decision-bearing)*
+
+As the platform owner,
+I want the two categories the PRD calls out by name protected beyond volume encryption,
+So that PRV-10 is either true or amended, and not left ambiguous.
+
+**Acceptance Criteria:**
+
+**Given** `medical_notes` and photo objects
+**When** this story completes
+**Then** either they are encrypted at the field/object level with a key the database does not hold
+in plaintext, and every read path — RLS, the `share` Worker, the export of Story 14.3 — still
+works; **or** PRV-10 is amended in the PRD with the reasoning, and the amendment is the
+deliverable
+**And** whichever is chosen, the privacy policy of Story 14.1 says the true thing.
+
+**Deliberately framed as a decision.** PRV-10's exact words are "field-level encryption for the
+most sensitive fields (health, photos)". Supabase encrypts at rest at the volume level, which is
+not that. Real field-level encryption costs searchability, key management, and every existing read
+path including RLS predicates; the honest alternatives are a narrower claim or a smaller mechanism
+(for example, encrypting photo objects only, where nothing queries the bytes). **The owner decides
+which. What is not acceptable is the current state, where the PRD asserts a control that does not
+exist and no story has ever said so out loud.**
+
+### Story 14.6: Per-recipient shares and the watermark *(FR48, PRV-8)*
+
+As a parent sending my daughter's resume to four shadchanim,
+I want to know which of them opened it, and for the file to say who it was sent to,
+So that a link that escapes tells me where it escaped from.
+
+**Acceptance Criteria:**
+
+**Given** a single's profile and resume
+**When** I create a share link
+**Then** I name the recipient it is for, and the access log attributes each access to that link's
+recipient rather than to an anonymous bearer
+**And** a second recipient gets a second link, revocable independently — one link per recipient is
+what makes revocation meaningful
+**And** a watermark identifying the recipient is available on the served document and photo, at the
+sharer's choice
+**And** revoking one link does not affect the others, and the existing expiry, access log and
+`include_photo` behaviour is unchanged.
+
+**Why this is a gap and not an embellishment.** `share_links` today carries `token`,
+`include_photo`, `expires_at`, `revoked_at` and a creator — **no recipient at all**. FR48 and PRV-8
+both say "per-recipient", and PRV-5 says "watermark + expiry available"; neither is a stylistic
+flourish. Without a recipient, "revocable" means revoking the one link everybody has, and the access
+log records that *somebody* opened it. This is the one place the sharing promise is thinner than the
+PRD's words, and Epic 9 shipped the rest of it correctly.
+
+**Depends on:** Story **9.5**'s `share` Worker and `share_access_log`, both shipped. A migration
+(mind the column-order trap). **Note the interaction with Story 13.3**, which also extends the
+`share` Worker's authorization — never the same wave.
+
+**Scheduling constraint (whole epic).** 14.2, 14.3 and 14.6 write `supabase/schemas/**` and a
+migration; 14.1, 14.2 and 14.4 all add public routes to `root/routeManifest.ts` and copy to both
+i18n catalogues. No two Epic 14 stories may share a wave, and none may share a wave with an Epic 12
+or Epic 13 story. **Security review is mandatory for 14.2 and 14.4** (`security-triggers.md`:
+authorization, database queries, migrations, file-system operations).
+
+---
+
+## Epic 15: Run It For Real
+
+*Added 2026-08-09 by the Phase-1 completeness audit
+(`phase1-completeness-audit-2026-08-09.md` §D).*
+
+The product deploys, and after that nobody finds out anything. There is **no error tracking in the
+SPA, the seven Workers or the Edge Functions**; the only tracing is
+`workers/shared/requestTracing.ts` writing request ids into a log stream nobody watches. There is
+**no product analytics**, so every metric in PRD §18 — including the north star — is currently
+uncollectable. `FORCE ROW LEVEL SECURITY` is on **7 of ~40 tables** and AD-1's CI assertion, first
+called urgent on 2026-07-26, has never been written. NFR-13 requires rate limits on five surfaces
+and one is protected.
+
+This epic is also where the unowned S-ledger finally gets an owner, because that ledger is the
+same failure in written form: work correctly identified, correctly reasoned about, and assigned to
+nobody.
+
+**Why a fifteenth epic.** Epic 11 owns the AI Workers' operational controls and closed them for
+`/parse` and `/dossier` (Story 11.4); it is the AI *Layer* and does not cover auth, ingestion,
+share links or the SPA. Epic 12 is FR1–78 completion. No other epic has ever owned cross-cutting
+operability, which is exactly how it ended up owned by nobody.
+
+### Story 15.1: Know when it breaks *(AD-8)*
+
+As the platform owner,
+I want an error to reach me instead of a log nobody reads,
+So that the first person to notice a failure is not a family whose reminder never arrived.
+
+**Acceptance Criteria:**
+
+**Given** the SPA, the seven Workers and the Edge Functions
+**When** any of them throws
+**Then** the error reaches one place with enough context to act on — release, route, request id,
+account id **never** the payload — and no resume text, dossier narrative, message body, JWT or
+Stripe secret is ever transmitted with it
+**And** the two paths where silence is indistinguishable from success — the reminder sweep and the
+Stripe webhook — alert on the *absence* of expected activity, not only on errors
+**And** `cron_heartbeat`'s existing liveness signal is joined by a delivery-health signal, so
+Settings can no longer say "Sending" while every send fails (the Epic 12 review's own finding, fixed
+in the UI and still unmonitored)
+**And** an alert has a named recipient and a documented response, or it is not an alert
+**And** the whole thing is proven by breaking something on purpose and watching the alert arrive —
+`.claude/rules/migration-guard-integrity.md`: a guard nobody has watched fire is not evidence.
+
+### Story 15.2: Measure what the PRD said it would *(PRD §18)*
+
+As the platform owner,
+I want the north-star and counter-metrics to be collectable,
+So that "families running their whole process in-app" is something we know rather than hope.
+
+**Acceptance Criteria:**
+
+**Given** the events PRD §18 names — filing an item, confirming a duplicate or already-dated catch,
+logging a reference call, capturing via a channel, time-to-file
+**When** they happen
+**Then** each is recorded as a first-party event with no third-party analytics script, no
+cross-site identifier and nothing that would make PRV-2 or the sub-processor list of Story 14.1
+false
+**And** the counter-metrics are derivable: cross-account leak reports, mis-routed channel items,
+dismissed-duplicate-flags ÷ total-flags, trial→paid conversion, AI cost per active family
+**And** no event carries a name, a phone number, a note body or a file
+**And** the collection is visible to users where 14.1's policy says it is, and disableable if that
+policy says it is.
+
+**Why first-party and no third-party script.** A product whose wedge is "your data is never
+shared" cannot ship a tag that ships behaviour to an ad network. This is not a preference; it is
+the same claim Story 14.1 has to write down.
+
+### Story 15.3: S2 at last — the RLS backstop *(AD-1; (a) blocks launch)*
+
+As the platform owner,
+I want the database's own last line of defence actually switched on, and a check that says when it
+is not,
+So that the counter-metric "cross-account data leaks = 0" has something enforcing it rather than
+something asserting it.
+
+**Acceptance Criteria — part (a), the assertion, ship first and alone:**
+
+**Given** the declarative schema
+**When** CI runs
+**Then** a check enumerates every table in `public`, asserts `FORCE ROW LEVEL SECURITY`, and fails
+naming any table that lacks it
+**And** a table may be exempted only by an explicit, reasoned entry in an allowlist — the
+`declared-moves.sql` / `empty_by_design` pattern this repo already uses — never by omission
+**And** the check is watched failing on a deliberately unforced table before it is believed
+**And** the allowlist is seeded with the tables that legitimately have no scoping axis
+(`accounts`, `members`, `member_state`, `configuration`, `pipeline_transitions`), each with its
+reason.
+
+**Acceptance Criteria — part (b), the retrofit:**
+
+**Given** the ~33 tables that are RLS-enabled and unforced
+**When** they are forced
+**Then** every `SECURITY DEFINER` function that depended on the owner's implicit bypass has a
+**designed** bypass instead — `accept_invite()`'s unscoped read of `invites` is the known one and
+is not the only one
+**And** each is staged and rehearsed against a seeded database before it reaches production, the
+way Story 3.14 staged the trigger lift
+**And** a negative test per newly-forced table proves the wrong caller still sees nothing.
+
+**(a) before (b), never together.** (a) is a day and unblocks nothing else; (b) is the retrofit
+that has been deferred twice for being large. Shipping (a) alone converts a silent drift into a
+red build, which is most of the value and none of the risk.
+
+### Story 15.4: NFR-13, on the four surfaces that have nothing *(blocks launch)*
+
+As the platform owner,
+I want every abuse-prone surface bounded, not just the expensive one,
+So that the cheap surfaces are not the way in.
+
+**Acceptance Criteria:**
+
+**Given** auth / magic-link / invite, signup, channel ingestion, and share-link access
+**When** any is hit repeatedly
+**Then** each is rate-limited per account **and** per IP, reusing `workers/shared/rateLimit.ts`
+rather than growing a second limiter
+**And** a limiter that is unavailable or throws refuses the request on the paid AI paths and on
+share-link access, and degrades openly elsewhere — the same fail-closed/fail-open split Story 11.4
+already reasoned through, restated per surface rather than assumed
+**And** share-link access additionally bounds *per token*, because PRV-8 sells "revocable,
+expiring, access-logged" and an unbounded bearer token is a scrapeable surface however well logged
+**And** each limit is observable in Story 15.1's alerting when it starts firing, since a limiter
+firing constantly is either an attack or a limit set wrong, and both need a human.
+
+### Story 15.5: The things that only matter on the worst day *(NFR-8)*
+
+As the platform owner,
+I want the recovery paths to have been walked before they are needed,
+So that "regular backups" is a capability rather than a setting somebody enabled.
+
+**Acceptance Criteria:**
+
+**Given** the production database
+**When** a restore is rehearsed into a scratch environment
+**Then** it succeeds, the elapsed time is recorded, and the recovery point is measured — an
+unrehearsed backup has an unknown RTO and NFR-8 is a claim about one
+**And** a runbook exists for: a failed deploy, a stuck reminder queue, a Stripe webhook outage, a
+leaked secret, and a restore
+**And** **the two credentials S19 named are rotated** — the SMTP password and the Google OAuth
+client secret, both printed unmasked into retained Actions logs on every deploy before `af2074e`
+added `-o /dev/null`. This has been outstanding since 2026-07-29 and is a live exposure, not a
+chore
+**And** the expand/contract expectation S20 recorded is written down where a migration author will
+see it: deploy ordering closes "new code against old schema" and nothing in the repo closes the
+reverse window.
+
+### Story 15.6: Close the ledger
+
+As whoever reads `epics.md` next,
+I want the unowned-work list to be true,
+So that it stops being a place where correctly identified work goes to be forgotten.
+
+**Acceptance Criteria:**
+
+**Given** the S-item ledger
+**When** this story completes
+**Then** **S15** is closed — `supabase/functions/mcp/index.ts`'s tool descriptions stop advertising
+`references_summary` as a browsable entity and stop offering reference creation unattached to a
+shidduch, so the deployed assistant obeys RULING 7 that the human UI already obeys. This is the
+one open ledger item that is a live product-behaviour violation rather than debt
+**And** **S16** (RULING 7 wave B: contract files **and** the story files describing the same
+mechanism, one agent, never split) and **S17** (wave C: schema + framework) are executed or
+explicitly retired by the owner
+**And** **S3** (invite tokens: raw uuid in 2.7 vs SHA-256 in 8.2 — one mechanism, two postures) is
+aligned to hashing or blessed as a split, in writing
+**And** **S11** (`TaskDeliveryChannel` vs `MessageNotificationChannel`) is unified — cheapest
+alongside Story 16.4, which touches both
+**And** **S13**'s residue (retiring the client-side permission boolean in `canAccess.ts` now that
+`current_member_role()` exists and RLS uses it), **S21** (three date formatters and one docstring
+that is now false), **S22** (two pluralization strings) and **S26** (four dead exemptions in
+`retired-names.json`) are done
+**And** the ledger entries for **S8**, **S9**, **S13** and **S20** are corrected to closed with the
+commits that closed them — they are recorded as open or dropped for work that is shipped.
+
+**One decision to take here, not to inherit.** `providers/commons/frenchCrmMessages.ts` is fork
+residue in a US Orthodox-Jewish product: a tabled shared artifact that every wave adding
+user-facing copy must write twice, for a locale with no users, while S27 has already dropped
+Hebrew. Delete it and record the app as English-only (amending NFR-12 in the PRD, which currently
+asserts an internationalisation this product has decided twice not to build), or keep it
+deliberately. It is currently kept by inertia, which is the one option that is not a decision.
+
+**Scheduling constraint (whole epic).** 15.3(b) claims `supabase/schemas/**` and
+`supabase/migrations/**` across nearly every table and cannot share a wave with any other story in
+any epic. 15.6 claims story files and contract files across several epics and must run as **one
+agent** (`parallel-ownership.md` — "a shared decision has exactly one owner"); its S16 half is
+exactly the failure that rule exists to name. 15.1, 15.2, 15.4 and 15.5 are mutually disjoint and
+may run as one wave.
+
+---
+
+## Epic 16: The Single's Own Space & Message Delivery
+
+*Added 2026-08-09 by the Phase-1 completeness audit
+(`phase1-completeness-audit-2026-08-09.md` §E and §F).*
+
+UJ-2 — "the single's own *amazing* experience" — is one of the PRD's two user journeys and the one
+the product's ethics rest on. Epic 6 built the access model and Story 6.4 built the single's input.
+**Three of PRD §15's seven requirements were never storied by anyone**: FR67 (their own preferences,
+in their own words), FR68 (seeing that diligence is happening, at a dignified distance) and FR69 (a
+private space of their own).
+
+FR68 is the one to notice: it is not missing, it is **inverted**. The shidduch's `diligence` tab
+excludes the `single` role outright (`shidduchim/entityDescriptor.tsx:134-138`) and RLS empties
+`reference_links` and `references` underneath, so hiding the tab is the honest thing to do rather
+than cosmetic. That is correct for the candid words and is Story 6.3 working exactly as written.
+But the requirement is a *presence* — "sees that reference diligence is happening at a dignified
+distance — progress, not the candid content" — and what a single sees today is an absent tab. The
+dignity floor was implemented as a ceiling.
+
+This epic also closes **FR100**, whose send half is the only unbuilt part of Epic 7 and whose
+blocker no longer exists.
+
+**Why a sixteenth epic rather than reopening Epic 6.** The same reasoning Epic 12 used and this
+document already accepted: Epic 6 is closed and shipped, and reopening a closed epic makes it
+retroactively incomplete. Story 16.4 is different — it finishes Story **7.5**, which is `in-progress`
+and has never closed, so 16.4 is scheduled here but **amends 7.5 in place** rather than duplicating
+it, and Epic 7 closes when it lands.
+
+### Story 16.1: Her own preferences, in her own words *(FR67)*
+
+As a single in shidduchim,
+I want to say what matters to me and what I will not compromise on,
+So that the process reflects me rather than only what my parents think I want.
+
+**Acceptance Criteria:**
+
+**Given** my own login
+**When** I set my preferences
+**Then** they are free text in my own words — not a checklist of communal categories, because a
+form that offers the categories is already an opinion about the answer
+**And** I choose whether each is visible to whoever manages my process, and the default is that
+they are, because a preference nobody reads is not participation
+**And** they render on my record where the person working my shidduchim will actually see them
+**And** they are never used to filter, rank, score or match anything — FR63's hard invariant
+applies to preferences too
+**And** RLS proves a member of another household cannot read them.
+
+### Story 16.2: Diligence at a dignified distance *(FR68)*
+
+As a single,
+I want to know that references are being spoken to,
+So that I am a participant in my own process rather than the last to know.
+
+**Acceptance Criteria:**
+
+**Given** a suggestion visible to me and reference calls happening on it
+**When** I open it
+**Then** I see that diligence is under way and how far it has got — the "N of M spoken to" shape
+Story 5.10 already renders for the parent — and **nothing** of what anybody said
+**And** no name, relationship, phone number or note reaches the client, proven at the database and
+not by hiding a component
+**And** the count is honest: it does not imply progress that has not happened, and it does not
+appear at all where no diligence has started
+**And** a negative test proves a single reading the same endpoint as a parent gets the count and
+never a word of content.
+
+**This narrows Story 6.3, deliberately and by exactly one number.** 6.3's criterion is that candid
+reference words never reach a single, and that criterion is unchanged and untouched: a count is not
+a word. `6-3-field-level-scoping-for-a-single.md` is amended in the same dispatch, because a story
+may not silently change what another story asserted (`parallel-ownership.md`).
+
+### Story 16.3: A space that is hers *(FR69, PRV-4)*
+
+As a single,
+I want somewhere to think that my mother cannot read,
+So that "private both ways" is true in both directions.
+
+**Acceptance Criteria:**
+
+**Given** my own login
+**When** I write a private note
+**Then** it is invisible to every other member of the household, enforced in Postgres
+**And** I can choose to share any one of them, and sharing is per-note and revocable
+**And** the parent's own working notes remain equally invisible to me — PRV-4 is symmetric and the
+existing behaviour is not weakened to achieve this
+**And** the family's transparency posture may be dialled up by agreement but never below the
+dignity floor: my live prospects and my ability to give input are not switchable off
+**And** negative tests prove both directions.
+
+**Precedent, not new machinery.** `shidduchim.visibility` already carries `private_single`, Epic 7
+already has private threads with participants-only resolution, and AD-3 already forbids per-row
+visibility columns on derived tables. This story reuses those; it does not add a third visibility
+vocabulary.
+
+### Story 16.4: Messages that leave the app *(FR100 — finishes Story 7.5)*
+
+As anyone party to a thread,
+I want to be told when someone writes to me even when I am not in the app,
+So that conversations move instead of going quiet.
+
+**Acceptance Criteria:**
+
+**Given** a new message on a thread I am party to
+**When** it is posted
+**Then** I am notified in-app (shipped), **by email**, and **by push where installed**
+**And** no outbound SMS is ever sent, by anything, ever
+**And** delivery reuses `workers/shared/resend.ts` and the sweep shape Story 12.2 built — one
+transport, one claim/settle discipline, one idempotency key — rather than a second delivery system
+**And** the two channel enums are unified in the same change (ledger item **S11**), because this is
+the one story that touches both
+**And** my notification preferences are honoured, and a thread I have muted sends nothing.
+
+**Depends on:** Story **12.2**'s transport (shipped) and gate **G1** (discharged) — the two things
+Story 7.5 named as its blockers, both of which are now gone. Amends
+`7-5-notifications.md` in place and closes it. Shares `workers/cron/**` and `wrangler.toml` with
+12.2 and 12.6: never the same wave.
+
+**Scheduling constraint (whole epic).** 16.1, 16.2 and 16.3 each write `supabase/schemas/**` and a
+migration; 16.3 additionally writes RLS. No two may share a wave. 16.4 shares `workers/cron/**`
+with Epic 12 and shares `types.ts` with 16.1–16.3. **Security review is mandatory for 16.2 and
+16.3** (field-level authorization, RLS).
 
 ---
 
@@ -1859,6 +2678,25 @@ Also settled by the same pass, none of which needed a story:
 
 Ten adversarial reviewers plus two cross-checks surfaced work that **no story owns**.
 Recorded here so each is a decision, not an oversight. Nothing below is scheduled.
+
+> **Ownership update — 2026-08-09.** "Nothing below is scheduled" held for six weeks and is no
+> longer true. Every still-open item in **both** unowned-work sections now has an owner:
+>
+> | Items | Owner |
+> |---|---|
+> | S2 (FORCE RLS + AD-1's CI assertion) | **Story 15.3**, split (a) assertion / (b) retrofit |
+> | S6's non-AI half (observability, rate limiting beyond `/parse` and `/dossier`) | **Stories 15.1 and 15.4** |
+> | S3, S11, S13's residue, S15, S16, S17, S21, S22, S26 | **Story 15.6** |
+> | S19's two unrotated credentials | **Story 15.5** — a live exposure, not a chore |
+> | S23's two 4-1 deferrals | **Story 15.6**, folded in with S21/S22 |
+> | S8, S9, S20 | **Closed by shipped work** — see the corrections on those entries |
+> | S5, S7, S10, S14, S24-R1/R3/R6, S25 | Already closed; unchanged |
+> | S9's D8 rationale, S27 (Hebrew/RTL), S25's acceptance | Standing decisions; unchanged |
+>
+> The two entries marked *closed by shipped work* are the reason this update exists: they described
+> the tree falsely for weeks in the one file whose purpose is to record what nobody is doing. A
+> ledger with no freshness check is a ledger that quietly stops being true — see
+> `phase1-completeness-audit-2026-08-09.md` §H.
 
 ### S1 — SECURITY: the `attachments` bucket was public and account-unscoped ✅ FIXED 2026-07-26
 The bucket holding **resumes and photos** — PRV-1's highest-sensitivity data — is
@@ -1967,14 +2805,31 @@ consumes `getEntityDescriptor(resource).label`. **Residual, still unowned:** `ic
 story, not Epic 3's — Epic 3 Story 3.3 ships the registry `4-1` needs; it does not itself
 migrate every list.
 
-### S8 — Postmark → Cloudflare Email Routing migration
-The spine's AD-6 and stack table name Cloudflare Email Routing; the shipped code is
-Postmark, and `workers/ingest/index.ts` calls the migration "separate future work".
+### S8 — Postmark → Cloudflare Email Routing migration ✅ CLOSED BY SHIPPED WORK (recorded 2026-08-09)
+**This entry was wrong for weeks.** It read as open while the migration was done.
+`workers/ingest/index.ts` is now a Cloudflare Email Worker with an `email()` entry point, the
+Postmark webhook was removed in `17fba3f`, and `supabase/functions/postmark/` no longer exists.
+Account attribution is resolved only from `message.to` (`workers/ingest/resolveAccount.ts`), never
+from the sender or the body — the retired path's F5 finding. Related shipped work not recorded
+anywhere in this ledger: the `trusted_senders` classification and the *Needs-review* inbox tab
+(`da457f0`, `db7e3b4`).
 
-### S9 — FR22, the per-account private inbound address ❌ DELIBERATELY DROPPED (2026-07-30)
-The product has one global `VITE_INBOUND_EMAIL`. No story delivers per-account addresses.
+### S9 — FR22, the per-account private inbound address ✅ BUILT (correction recorded 2026-08-09)
 
-**Dropped, not deferred.** This is gap **D8** of the mobile gap analysis — the mockup's copyable
+**The heading below said DELIBERATELY DROPPED. It is built, and has been since before Epic 12.**
+`accounts.inbound_email_token` exists (`01_tables.sql:345`), constrained so exactly the household
+kinds carry one (`accounts_inbound_email_token_kind_check`), shortened to 12 characters in
+`d79e58f`, defaulted by `set_account_inbound_email_token_default()`, and consumed by the ingest
+Worker's account resolution. The mockup's copyable `you@in.myshadchan.space` chip is real.
+
+**Why this matters more than the entry it corrects.** S9's own text said *"revisit only when S8
+lands"*. S8 landed, it was revisited, the work was done — and nothing updated either entry. Two
+ledger items therefore described the tree falsely for weeks, in a file whose entire purpose is to
+be the record of what nobody is doing. Correcting them is Story **15.6**'s job; noticing that a
+ledger needs its own freshness check is the more general lesson, and is why the Phase-1 audit
+re-checked every S-item rather than quoting them.
+
+**The original entry follows, as history.** This is gap **D8** of the mobile gap analysis — the mockup's copyable
 `you@in.myshadchan.space` chip — one of the six orphans, and one of the two the owner did **not**
 adopt. Reasons, recorded so this is a decision and not an oversight:
 
@@ -2004,7 +2859,13 @@ Story 7.5 defers unifying the two channel enums and assigns the cleanup to nobod
 The Epic 8 row omits its Epic 7 (threads/AD-22), Epic 3/4 (AD-24) and Epic 2 (AD-19)
 dependencies. Other rows may be similarly thin.
 
-### S13 — The five-value role has a DB half and no client half (added 2026-07-28)
+### S13 — The five-value role has a DB half and no client half ⚠️ MOSTLY CLOSED (updated 2026-08-09)
+
+**The server half exists now.** `public.current_member_role()` is defined at
+`02_functions.sql:316`, RLS uses it (`:1612`), the thread rules use it (`:4322`), and `f45afb4`
+added the billing eligibility guard on the same predicate the policies use. **The residue is one
+thing:** retiring the client-side boolean (`authProvider.ts` → `canAccess.ts`) now that a real role
+is resolvable. Owned by Story **15.6**. Original entry follows.
 `account_members.role` carries the AD-2 constraint (`01_tables.sql:153-155`) and
 `my_contexts()` exposes it (`02_functions.sql:341`), but the client still resolves permissions
 from a single boolean: `authProvider.ts:151` → `canAccess.ts:16`. There is no
@@ -2116,7 +2977,15 @@ are pinned in the workflow because `config.toml` cannot model them, which makes 
 of truth. Move them into `config.toml` and read them with `yq` in a round that is allowed to edit
 `config.toml` (this one was not — `stack-env.mjs` derives every parallel stack's config from it).
 
-### S20 — `deploy-workers` races `db push` in exactly the way item A was raised to fix
+### S20 — `deploy-workers` races `db push` ✅ CLOSED (verified 2026-08-09)
+
+**Closed.** `.github/workflows/deploy.yml:265` now reads `needs: deploy-supabase`, and
+`trigger-frontend` (`:632`) needs both backend jobs. The three pipelines are serialized. **The
+residue this entry itself named is not closed and is now Story 15.5's:** ordering removes "new code
+against old schema" and nothing anywhere closes the reverse window (new schema, old code), which
+needs expand/contract migrations — and no check in this repo asserts that a migration is one.
+`make check-migration-safety` proves a migration does not destroy data, which is a different
+property. The original entry follows, as history.
 Found by the cross-reconciliation pass, in nobody's diff. Item A was framed as "the frontend and the
 database deploy on two independent pipelines", and the fix closes the Vercel half. But `deploy.yml`
 has a **third** pipeline: the `deploy-workers` job (7 Cloudflare Workers — `ingest`, `parse`,

@@ -1,9 +1,44 @@
-# Story 13.1: Sharing a child across two households
+# Story 13.1: The grant — proposing, accepting and severing
 
-Status: **specification — not ready for dev.** Ten product questions are open (see "What still
-needs a decision"), and the tenancy model does not currently support what this story asks for.
-Nothing here should be built until the questions in §3 are answered and the architecture
-amendment in §5 is accepted or rejected.
+Status: **ready-for-dev** *(rescoped 2026-08-09 — see the amendment below; this file's title,
+§1 and §3 predate the rescope and are being read as history where they conflict).*
+
+## Rescope — 2026-08-09
+
+This story was *"Sharing a child across two households"* and carried the grant lifecycle, the
+largest RLS widening since Epic 2, the cross-account document problem and two shape-fixing UX
+decisions, in one file, blocked on ten open questions. That is more than one story can hold and
+more than one reviewer can check.
+
+**It is now two stories.** 13.1 keeps the **grant's own lifecycle** — propose, accept, sever,
+re-grant, and who may do each. Everything about *what an accepted grant lets you see* moves to
+**Story 13.3** (`13-3-what-the-collaborating-household-sees.md`, to be created when E13-D6 and
+E13-D8 are answered), including: the reachability rule, the AD-1 amendment in §5, the RLS
+widening, the documents constraint, and decisions **E13-D6 through E13-D10**.
+
+**This story is unblocked.** The decisions that govern it — **E13-D1** (who holds authority),
+**E13-D3** (what happens when that person leaves), **E13-D4** (mutual ejection), **E13-D2**
+(re-granting) and **E13-D5** (notification) — all now carry a `DEFAULT IF SILENT` in
+`epic-13-open-decisions.md`. It dispatches on those defaults, and an owner override is a change to
+one function rather than a re-planning of the epic.
+
+**What makes that safe.** A grant row is **inert**: no policy anywhere reads it until 13.3 writes
+the reachability rule that does. Building the lifecycle first means the dangerous story is a
+reachability change against a settled substrate, instead of a lifecycle change and a reachability
+change landing in one diff.
+
+**Shape to copy, not invent:** `connection_invites` — a token hashed and never stored raw, an
+expiry, a status lifecycle, one function per verb — and `connections`' partial uniqueness index on
+the live state, which is what lets a severed pair be re-granted later.
+
+**Delivery order in the epic: 13.2 → 13.1 → 13.3 → 13.4.**
+
+---
+
+*Original status line, kept as history:* **specification — not ready for dev.** Ten product
+questions are open (see "What still needs a decision"), and the tenancy model does not currently
+support what this story asks for. Nothing here should be built until the questions in §3 are
+answered and the architecture amendment in §5 is accepted or rejected.
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

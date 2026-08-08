@@ -1,6 +1,14 @@
 # Story 11.4: Operational controls for the AI Workers
 
 Status: in-progress — design approved (this wave); code changes are tracked separately and are
+
+> **Status correction — 2026-08-09.** This says `in-progress` for code that **shipped** in
+> `895d435` ("Close Epic 11 AI-layer findings from two review rounds") — the atomic quota RPCs,
+> the rate limiting and the cache removal described below are all present in
+> `supabase/schemas/` and `workers/` today. Epic 11 is complete; this header is not. The
+> residue that *is* open was never this story's: **S6**'s non-AI half — observability and rate
+> limiting on the four surfaces outside `/parse` and `/dossier` — which is now owned by
+> **Stories 15.1 and 15.4**.
 **not** verified by this document's author (see "Verification status" at the end).
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->

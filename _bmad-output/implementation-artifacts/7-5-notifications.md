@@ -1,5 +1,17 @@
 # Story 7.5: Notifications
 
+> **Status correction — 2026-08-09. The blocker named below no longer exists.** This story
+> deferred the send half — the Resend transport, the message sweep and the cron `scheduled()`
+> wiring — to Epic 12 gate **G1** and to Story 12.2's delivery mechanism. G1 was discharged on
+> 2026-08-07 and 12.2 shipped at `4446540`: `workers/shared/resend.ts` and
+> `workers/cron/sweepReminders.ts` are in the tree, with a claim/settle discipline and a provider
+> idempotency key to copy. Nothing has been scheduled against this since, so **FR100 is still
+> in-app only** and Epic 7 is still open on one story.
+>
+> **Owner: Story 16.4** (`epics.md` → Epic 16), which finishes this story **in place** rather
+> than duplicating it, unifies the two channel enums in the same change (ledger item **S11**),
+> and closes Epic 7 when it lands.
+
 Status: in-progress *(DB/schema/queue layer complete, reviewed-ready. In-app
 unread (`markThreadRead`), the private-default posture control, and the push
 opt-in UI + service-worker listeners are now wired end-to-end — see Dev

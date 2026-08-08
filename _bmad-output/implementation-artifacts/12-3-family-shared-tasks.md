@@ -1,6 +1,13 @@
 # Story 12.3: Family-shared tasks with assignees
 
 Status: ready-for-dev — **first story of Epic 12**
+> **Status correction — 2026-08-09.** The header above is stale by weeks; it is kept because this
+> file's whole history is kept. What is true: this story was built and committed at `f1a6b4c`, first of the epic as planned. The nineteen findings of
+> `_bmad-output/epic-12-adversarial-review-report-2026-08-07.md` were closed in `f45afb4`,
+> `6a50a25` and `14cc3c3`. What is **not** true is that this story is done in the sense the epic
+> needs: the epic's closing condition is now **Story 12.5** (observed delivery and live-mode
+> billing) and **Story 12.6** (FR72's trial, FR75's grace window, FR77's policy surface, none of
+> which any Epic 12 story covered). See `epics.md` → Epic 12 → "Epic 12 closing condition".
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

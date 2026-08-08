@@ -4,6 +4,16 @@ Status: ready-for-dev *(code); delivery blocked on Epic 12 gate **G1**, now
 **partially discharged (2026-08-02)** — the Cloudflare-auth/deploy half is done
 (`deploy-workers` no longer skips; see Dependencies → D1), the Resend-domain half
 (`RESEND_FROM` + a verified sending domain) is still open — see below.*
+> **Status correction — 2026-08-09.** The header above is stale by weeks; it is kept because this
+> file's whole history is kept. What is true: G1 is fully discharged, this story was built and committed at `4446540`, the sweep was
+> disarmed (`5da019e`) and re-armed (`6a50a25`) once the two irreversible review findings were
+> fixed. **AC-10 is still unmet:** no reminder email has been observed arriving at a real inbox,
+> and observing it is Story 12.5's job, not a re-run of this one. The nineteen findings of
+> `_bmad-output/epic-12-adversarial-review-report-2026-08-07.md` were closed in `f45afb4`,
+> `6a50a25` and `14cc3c3`. What is **not** true is that this story is done in the sense the epic
+> needs: the epic's closing condition is now **Story 12.5** (observed delivery and live-mode
+> billing) and **Story 12.6** (FR72's trial, FR75's grace window, FR77's policy surface, none of
+> which any Epic 12 story covered). See `epics.md` → Epic 12 → "Epic 12 closing condition".
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
