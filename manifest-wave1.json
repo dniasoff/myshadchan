@@ -1,0 +1,9 @@
+{
+  "story-15-3-a": [
+    "scripts/check-force-rls.mjs",
+    "scripts/check-force-rls.test.mjs",
+    ".github/workflows/check.yml",
+    "supabase/tests/migration-data-safety/fixture.sql",
+    "supabase/tests/migration-data-safety/declared-moves.sql"
+  ]
+}

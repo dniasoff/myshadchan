@@ -1,0 +1,11 @@
+{
+  "story-14-1": [
+    "src/components/atomic-crm/root/routeManifest.ts",
+    "src/components/atomic-crm/legal/**",
+    "src/components/atomic-crm/landing/LandingChrome.tsx",
+    "src/components/atomic-crm/login/RegisterFlow.tsx",
+    "src/components/atomic-crm/settings/SettingsPage.tsx",
+    "src/components/atomic-crm/providers/commons/englishCrmMessages.ts",
+    "src/components/atomic-crm/providers/commons/frenchCrmMessages.ts"
+  ]
+}

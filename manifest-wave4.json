@@ -1,0 +1,45 @@
+{
+  "story-12-5": [
+    "_bmad-output/implementation-artifacts/12-5-observed-delivery.md"
+  ],
+  "story-15-2": {
+    "paths": [
+      "src/components/atomic-crm/dashboard/**",
+      "src/components/atomic-crm/providers/**",
+      "src/components/atomic-crm/root/CRM.tsx",
+      "src/components/admin/admin.tsx",
+      "supabase/schemas/01_tables.sql",
+      "supabase/schemas/03_views.sql",
+      "supabase/migrations/**",
+      "supabase/tests/migration-data-safety/fixture.sql",
+      "supabase/tests/migration-data-safety/declared-moves.sql",
+      "workers/**"
+    ],
+    "after": []
+  },
+  "story-15-4": {
+    "paths": [
+      "supabase/schemas/01_tables.sql",
+      "supabase/schemas/02_functions.sql",
+      "supabase/migrations/**",
+      "supabase/tests/migration-data-safety/fixture.sql",
+      "supabase/tests/migration-data-safety/declared-moves.sql",
+      "workers/shared/rateLimit.ts",
+      "supabase/functions/edge/**",
+      "workers/ingest/**",
+      "workers/share/**",
+      "src/components/atomic-crm/providers/**",
+      "src/components/atomic-crm/auth/**"
+    ],
+    "after": ["story-15-2"]
+  },
+  "story-15-5": {
+    "paths": [
+      ".github/workflows/*.yml",
+      "workers/**",
+      "scripts/*.mjs",
+      "docs/runbooks/*.md"
+    ],
+    "after": ["story-15-4"]
+  }
+}

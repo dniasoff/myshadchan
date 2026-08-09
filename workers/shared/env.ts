@@ -5,4 +5,7 @@ export interface BaseEnv {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   SUPABASE_PUBLISHABLE_KEY: string;
+  RESEND_API_KEY: string;
+  RESEND_FROM: string;
+  APP_ORIGIN: string;
 }

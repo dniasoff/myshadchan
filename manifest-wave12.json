@@ -1,0 +1,8 @@
+{
+  "story-14-2": [
+    "supabase/schemas/02_functions.sql",
+    "supabase/migrations/20260809180000_account_deletion_requests.sql",
+    "src/components/atomic-crm/settings/DeleteDataDialog.tsx",
+    "AGENTS.md"
+  ]
+}

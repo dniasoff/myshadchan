@@ -1192,6 +1192,14 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/listings/purgeRequestVerifyUrl.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/purgeRequestUrl.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/listings/publicSearchUrl.ts",
           "type": "registry:component"
         },
@@ -1217,6 +1225,14 @@
         },
         {
           "path": "src/components/atomic-crm/listings/ShadchanListingCard.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/PurgeRequestVerifyPage.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/PurgeRequestPage.tsx",
           "type": "registry:component"
         },
         {

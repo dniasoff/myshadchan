@@ -1,0 +1,13 @@
+{
+  "story-13-2": [
+    "supabase/schemas/01_tables.sql",
+    "supabase/schemas/02_functions.sql",
+    "supabase/schemas/05_policies.sql",
+    "supabase/migrations/**",
+    "supabase/tests/migration-data-safety/fixture.sql",
+    "supabase/tests/migration-data-safety/declared-moves.sql",
+    "src/components/atomic-crm/members/**",
+    "src/components/atomic-crm/singles/**",
+    "src/components/atomic-crm/providers/**"
+  ]
+}

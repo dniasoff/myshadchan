@@ -1,0 +1,15 @@
+{
+  "story-15-4": [
+    "supabase/schemas/01_tables.sql",
+    "supabase/schemas/02_functions.sql",
+    "supabase/migrations/**",
+    "supabase/tests/migration-data-safety/fixture.sql",
+    "supabase/tests/migration-data-safety/declared-moves.sql",
+    "workers/shared/rateLimit.ts",
+    "supabase/functions/edge/**",
+    "workers/ingest/**",
+    "workers/share/**",
+    "src/components/atomic-crm/providers/**",
+    "src/components/atomic-crm/auth/**"
+  ]
+}

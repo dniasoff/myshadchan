@@ -1,0 +1,12 @@
+{
+  "story-15-1": [
+    "workers/**",
+    "supabase/functions/**",
+    "src/components/atomic-crm/**",
+    "src/components/admin/**",
+    "src/hooks/**",
+    "src/lib/**",
+    ".github/workflows/**",
+    "scripts/**"
+  ]
+}

@@ -30,7 +30,7 @@ describe("mapStripeStatus", () => {
   const table: Record<string, { plan: string; status: string }> = {
     active: { plan: "ai", status: "active" },
     trialing: { plan: "ai", status: "active" },
-    past_due: { plan: "ai", status: "lapsed" },
+    past_due: { plan: "ai", status: "past_due" },
     unpaid: { plan: "ai", status: "lapsed" },
     canceled: { plan: "ai", status: "lapsed" },
     incomplete_expired: { plan: "ai", status: "lapsed" },
@@ -59,13 +59,24 @@ describe("mapStripeStatus", () => {
     expect(result).toEqual({ plan: "free", status: "none" });
   });
 
-  it("never maps past_due to active — the AD-17 fail-closed ruling this table encodes", () => {
+  it("maps past_due to past_due (grace window, FR75) — not lapsed", () => {
     // Arrange / Act
     const result = mapStripeStatus("past_due");
 
     // Assert
-    expect(result.status).not.toBe("active");
-    expect(result).toEqual({ plan: "ai", status: "lapsed" });
+    expect(result).toEqual({ plan: "ai", status: "past_due" });
+  });
+
+  it("maps unpaid/canceled/incomplete_expired/paused to lapsed — no grace for these", () => {
+    for (const status of [
+      "unpaid",
+      "canceled",
+      "incomplete_expired",
+      "paused",
+    ]) {
+      const result = mapStripeStatus(status);
+      expect(result).toEqual({ plan: "ai", status: "lapsed" });
+    }
   });
 });
 

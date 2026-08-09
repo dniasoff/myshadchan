@@ -1,0 +1,14 @@
+{
+  "story-12-6": [
+    "supabase/schemas/01_tables.sql",
+    "supabase/schemas/02_functions.sql",
+    "supabase/schemas/03_views.sql",
+    "supabase/migrations/**",
+    "supabase/tests/migration-data-safety/fixture.sql",
+    "supabase/tests/migration-data-safety/declared-moves.sql",
+    "workers/billing/subscriptionState.ts",
+    "workers/cron/**",
+    "src/components/atomic-crm/billing/**",
+    "src/components/atomic-crm/providers/supabase/aiEntitlement.ts"
+  ]
+}

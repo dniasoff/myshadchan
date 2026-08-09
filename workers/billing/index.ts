@@ -38,7 +38,7 @@ export interface BillingEnv extends BaseEnv {
   STRIPE_WEBHOOK_SECRET?: string;
   STRIPE_PRICE_ID_QUARTERLY?: string;
   STRIPE_PRICE_ID_YEARLY?: string;
-  APP_ORIGIN?: string;
+  APP_ORIGIN: string;
 }
 
 function createStripeClient(secretKey: string): Stripe {

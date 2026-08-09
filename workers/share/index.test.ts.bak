@@ -115,7 +115,7 @@ function seedShareLink(overrides: Partial<Row> = {}): Row {
   };
   (tables.share_links ??= []).push(row);
   return row;
-}
+
 
 function seedSingle(overrides: Partial<Row> = {}): void {
   (tables.singles ??= []).push({

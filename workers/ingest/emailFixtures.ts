@@ -10,6 +10,9 @@ export const TEST_ENV = {
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
   SUPABASE_PUBLISHABLE_KEY: "publishable-key",
+  RESEND_API_KEY: "re_test",
+  RESEND_FROM: "test@example.com",
+  APP_ORIGIN: "https://app.example.com",
 };
 
 /** Turn a plain string into the `ReadableStream<Uint8Array>` shape

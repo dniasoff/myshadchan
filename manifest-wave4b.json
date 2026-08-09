@@ -1,0 +1,14 @@
+{
+  "story-15-2": [
+    "src/components/atomic-crm/dashboard/**",
+    "src/components/atomic-crm/providers/**",
+    "src/components/atomic-crm/root/CRM.tsx",
+    "src/components/admin/admin.tsx",
+    "supabase/schemas/01_tables.sql",
+    "supabase/schemas/03_views.sql",
+    "supabase/migrations/**",
+    "supabase/tests/migration-data-safety/fixture.sql",
+    "supabase/tests/migration-data-safety/declared-moves.sql",
+    "workers/**"
+  ]
+}

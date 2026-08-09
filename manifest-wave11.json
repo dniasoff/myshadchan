@@ -1,0 +1,12 @@
+{
+  "story-14-3": [
+    "supabase/schemas/01_tables.sql",
+    "supabase/schemas/02_functions.sql",
+    "supabase/migrations/**",
+    "supabase/tests/migration-data-safety/fixture.sql",
+    "supabase/tests/migration-data-safety/declared-moves.sql",
+    "src/components/atomic-crm/settings/exportFamilyData.ts",
+    "src/components/atomic-crm/providers/**",
+    "src/components/atomic-crm/settings/PrivacySection.tsx"
+  ]
+}

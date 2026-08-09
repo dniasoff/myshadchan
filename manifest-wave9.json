@@ -1,0 +1,8 @@
+{
+  "story-15-3-b": [
+    "supabase/schemas/01_tables.sql",
+    "supabase/migrations/**",
+    "supabase/tests/migration-data-safety/fixture.sql",
+    "supabase/tests/migration-data-safety/declared-moves.sql"
+  ]
+}

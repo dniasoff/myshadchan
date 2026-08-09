@@ -19,6 +19,9 @@ const env: BaseEnv = {
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
   SUPABASE_PUBLISHABLE_KEY: "publishable-key",
+  RESEND_API_KEY: "re_test",
+  RESEND_FROM: "test@example.com",
+  APP_ORIGIN: "https://app.example.com",
 };
 
 // A realistic caught error whose OWN `.message` embeds PII — the exact shape
