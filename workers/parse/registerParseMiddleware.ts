@@ -76,6 +76,8 @@ export function registerParseMiddleware(app: ParseApp): void {
       config: AI_WORKER_IP_RATE_LIMIT,
       getBinding: (env) => env.PARSE_IP_RATE_LIMITER,
       deriveKey: (c) => deriveIpKey(c.req.header("CF-Connecting-IP")),
+      workerName: "parse",
+      surface: "parse",
     }),
   );
   app.use("*", requireAiEntitlement);
@@ -86,6 +88,8 @@ export function registerParseMiddleware(app: ParseApp): void {
       config: PARSE_USER_RATE_LIMIT,
       getBinding: (env) => env.PARSE_USER_RATE_LIMITER,
       deriveKey: (c) => deriveCallerKey(c.req.header("Authorization")),
+      workerName: "parse",
+      surface: "parse",
     }),
   );
 }

@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler } from "hono";
 import { fail } from "./envelope";
 import { summarizeErrorForLog } from "./safeLog";
+import { alertOnRateLimit } from "./alerting";
 
 /**
  * Story 11.4 (Finding 16): abuse-prevention rate limiting for `/parse` and
@@ -121,6 +122,76 @@ export const PARSE_USER_RATE_LIMIT: RateLimitConfig = {
  * session is normal, deliberate use (design Q1/limiterDesign).
  */
 export const DOSSIER_USER_RATE_LIMIT: RateLimitConfig = {
+  limit: 30,
+  periodSeconds: 60,
+};
+
+/**
+ * Auth / magic-link / invite surfaces: IP-scoped, fail-open (degrade
+ * openly). 10 requests / 60s per IP bounds enumeration without blocking
+ * legitimate households behind one NAT.
+ */
+export const AUTH_IP_RATE_LIMIT: RateLimitConfig = {
+  limit: 10,
+  periodSeconds: 60,
+};
+
+/**
+ * Signup surface: IP-scoped, fail-closed (paid path per PRV-8). 5 requests
+ * / 60s per IP is tight enough to deter bulk registration while allowing
+ * a real user a retry or two.
+ */
+export const SIGNUP_IP_RATE_LIMIT: RateLimitConfig = {
+  limit: 5,
+  periodSeconds: 60,
+};
+
+/**
+ * Channel ingestion: IP-scoped pre-auth backstop, fail-open. 50 requests /
+ * 60s per IP absorbs a forwarded mailbox burst while bounding a scripted
+ * flood.
+ */
+export const INGEST_IP_RATE_LIMIT: RateLimitConfig = {
+  limit: 50,
+  periodSeconds: 60,
+};
+
+/**
+ * Channel ingestion: per-account post-auth backstop, fail-open. 100
+ * requests / 60s per account is the ceiling a real household's inbound
+ * channels could plausibly hit.
+ */
+export const INGEST_ACCOUNT_RATE_LIMIT: RateLimitConfig = {
+  limit: 100,
+  periodSeconds: 60,
+};
+
+/**
+ * Share-link access: IP-scoped pre-auth backstop, fail-closed (PRV-8 paid
+ * path). 30 requests / 60s per IP bounds scraping without blocking a
+ * recipient clicking through a few files.
+ */
+export const SHARE_IP_RATE_LIMIT: RateLimitConfig = {
+  limit: 30,
+  periodSeconds: 60,
+};
+
+/**
+ * Share-link access: per-account post-auth backstop, fail-closed. 60
+ * requests / 60s per account bounds a compromised account's tokens.
+ */
+export const SHARE_ACCOUNT_RATE_LIMIT: RateLimitConfig = {
+  limit: 60,
+  periodSeconds: 60,
+};
+
+/**
+ * Share-link access: per-token bucket, fail-closed (PRV-8 requirement).
+ * 30 requests / 60s per issued token bounds each revocable link
+ * independently — the core PRV-8 "revocable, expiring, access-logged"
+ * guarantee.
+ */
+export const SHARE_TOKEN_RATE_LIMIT: RateLimitConfig = {
   limit: 30,
   periodSeconds: 60,
 };
@@ -264,6 +335,12 @@ export interface CreateRateLimitMiddlewareOptions<
    * `deriveCallerKey` from `callerIdentity.ts`, applied to the relevant
    * header. */
   deriveKey: (c: Context<E>) => string;
+  /** Worker name for alerting context. */
+  workerName: string;
+  /** Surface identifier for alerting (e.g., "ingest", "share", "auth", "signup"). */
+  surface: string;
+  /** Optional account ID extractor for alerting context. */
+  getAccountId?: (c: Context<E>) => number | undefined;
 }
 
 /**
@@ -281,7 +358,15 @@ export interface CreateRateLimitMiddlewareOptions<
 export function createRateLimitMiddleware<
   E extends { Bindings: RateLimitEnforcementEnv },
 >(options: CreateRateLimitMiddlewareOptions<E>): MiddlewareHandler<E> {
-  const { limiterName, config, getBinding, deriveKey } = options;
+  const {
+    limiterName,
+    config,
+    getBinding,
+    deriveKey,
+    workerName,
+    surface,
+    getAccountId,
+  } = options;
 
   return async (c, next) => {
     if (c.req.path === "/health") {
@@ -301,6 +386,24 @@ export function createRateLimitMiddleware<
     if (result.allowed) {
       return next();
     }
+
+    // Emit alert when rate limit fires (Story 15.4)
+    const requestId = crypto.randomUUID();
+    const accountId = getAccountId ? getAccountId(c) : undefined;
+    const keyPrefix = key.length > 16 ? key.slice(0, 16) + "..." : key;
+    await alertOnRateLimit(
+      c.env,
+      {
+        limiterName,
+        keyPrefix,
+        surface,
+        worker: workerName,
+        route: c.req.path,
+        requestId,
+        accountId,
+      },
+      "warning",
+    );
 
     if (result.reason === "over_limit") {
       c.header("Retry-After", String(config.periodSeconds));

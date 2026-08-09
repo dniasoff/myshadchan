@@ -48,6 +48,8 @@ export function createAnalyticsApp(): Hono<AnalyticsEnvContext> {
       config: { limit: 100, periodSeconds: 60 },
       getBinding: (env) => env.ANALYTICS_RATE_LIMITER,
       deriveKey: (c) => c.req.header("CF-Connecting-IP") ?? "unknown",
+      workerName: "analytics",
+      surface: "analytics",
     }),
   );
 

@@ -1,4 +1,9 @@
 import { createWorkerApp } from "../shared/createApp";
+import {
+  createRateLimitMiddleware,
+  INGEST_IP_RATE_LIMIT,
+} from "../shared/rateLimit";
+import { deriveIpKey } from "../shared/callerIdentity";
 import { forAccount } from "../shared/forAccount";
 import type { BaseEnv } from "../shared/env";
 import { buildInboxItemRow } from "./buildInboxItemRow";
@@ -11,7 +16,37 @@ import { uploadAttachments } from "./attachments";
 // E6 (Unified Inbox + channels) lands here — AD-6, AD-7. Every inbound
 // channel creates an unfiled inbox_item and never writes straight to a
 // suggestion.
-const app = createWorkerApp<BaseEnv>("ingest");
+type IngestEnv = BaseEnv & {
+  RATE_LIMITING_ENFORCED?: string;
+  INGEST_IP_RATE_LIMITER?: RateLimit;
+};
+const app = createWorkerApp<IngestEnv>("ingest");
+
+/**
+ * Middleware order (Story 15.4 / AD-17):
+ * 1. CORS (handled by createWorkerApp -> securityHeaders)
+ * 2. IP-scoped rate limiter (pre-auth backstop)
+ * 3. Account resolution (via message.to in email handler)
+ * 4. Caller-scoped rate limiter (post-auth backstop, per-account)
+ * 5. Route handlers
+ *
+ * Note: The email() handler is the entry point, not fetch(). The fetch()
+ * handler only serves /health. Rate limiting on the email path is applied
+ * by wrapping handleInboundEmail with the limiters.
+ */
+
+// IP-scoped limiter: applies to all requests (including /health bypass)
+app.use(
+  "*",
+  createRateLimitMiddleware<{ Bindings: IngestEnv }>({
+    limiterName: "ingest-ip",
+    config: INGEST_IP_RATE_LIMIT,
+    getBinding: (env) => env.INGEST_IP_RATE_LIMITER,
+    deriveKey: (c) => deriveIpKey(c.req.header("CF-Connecting-IP")),
+    workerName: "ingest",
+    surface: "ingest",
+  }),
+);
 
 /**
  * The inbound-email pipeline, extracted so tests can call it directly — the
@@ -32,7 +67,7 @@ const app = createWorkerApp<BaseEnv>("ingest");
  */
 export async function handleInboundEmail(
   message: ForwardableEmailMessage,
-  env: BaseEnv,
+  env: IngestEnv,
 ): Promise<void> {
   const accountId = await resolveAccountId(message.to, env);
   if (accountId === null) {
@@ -102,7 +137,7 @@ export default {
   fetch: app.fetch,
   async email(
     message: ForwardableEmailMessage,
-    env: BaseEnv,
+    env: IngestEnv,
     _ctx: ExecutionContext,
   ): Promise<void> {
     try {

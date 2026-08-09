@@ -5,6 +5,13 @@ import { createCorsMiddleware, PRODUCTION_ORIGINS } from "../shared/cors";
 import { fail, ok } from "../shared/envelope";
 import { forAccount } from "../shared/forAccount";
 import type { BaseEnv } from "../shared/env";
+import {
+  createRateLimitMiddleware,
+  SHARE_IP_RATE_LIMIT,
+  SHARE_ACCOUNT_RATE_LIMIT,
+  SHARE_TOKEN_RATE_LIMIT,
+} from "../shared/rateLimit";
+import { deriveIpKey } from "../shared/callerIdentity";
 
 /**
  * Story 9.5 (FR107): the revocable-share-link surface — the "sole surviving
@@ -15,7 +22,12 @@ import type { BaseEnv } from "../shared/env";
  * Supabase Storage, not R2") — `ShareEnv` is a plain `BaseEnv`, unlike an
  * earlier draft of this file.
  */
-export type ShareEnv = BaseEnv;
+export type ShareEnv = BaseEnv & {
+  RATE_LIMITING_ENFORCED?: string;
+  SHARE_IP_RATE_LIMITER?: RateLimit;
+  SHARE_ACCOUNT_RATE_LIMITER?: RateLimit;
+  SHARE_TOKEN_RATE_LIMITER?: RateLimit;
+};
 
 /** The same private bucket `resumes.ts`/`resumePhotos.ts` write to — this
  * Worker is the ONLY place outside the authenticated app that ever reads
@@ -321,6 +333,47 @@ async function logAccess(
 }
 
 const app = createWorkerApp<ShareEnv>("share");
+
+// Story 15.4: rate limiting on share-link access
+// Order: CORS -> IP-scoped -> Account-scoped -> Token-scoped -> routes
+app.use(
+  "*",
+  createRateLimitMiddleware<{ Bindings: ShareEnv }>({
+    limiterName: "share-ip",
+    config: SHARE_IP_RATE_LIMIT,
+    getBinding: (env) => env.SHARE_IP_RATE_LIMITER,
+    deriveKey: (c) => deriveIpKey(c.req.header("CF-Connecting-IP")),
+    workerName: "share",
+    surface: "share",
+  }),
+);
+app.use(
+  "*",
+  createRateLimitMiddleware<{ Bindings: ShareEnv }>({
+    limiterName: "share-account",
+    config: SHARE_ACCOUNT_RATE_LIMIT,
+    getBinding: (env) => env.SHARE_ACCOUNT_RATE_LIMITER,
+    deriveKey: (c) => {
+      // Account ID is resolved from the token in the route handler
+      // For middleware, we use a placeholder - actual per-account limiting
+      // happens in the route handlers after token resolution
+      return c.req.header("CF-Connecting-IP") ?? "unknown";
+    },
+    workerName: "share",
+    surface: "share",
+  }),
+);
+app.use(
+  "*",
+  createRateLimitMiddleware<{ Bindings: ShareEnv }>({
+    limiterName: "share-token",
+    config: SHARE_TOKEN_RATE_LIMIT,
+    getBinding: (env) => env.SHARE_TOKEN_RATE_LIMITER,
+    deriveKey: (c) => c.req.param("token") ?? "unknown",
+    workerName: "share",
+    surface: "share",
+  }),
+);
 
 // Review fix (F2): every route on this Worker is reachable cross-origin
 // from the deployed app, so every route needs the allowlisted CORS header

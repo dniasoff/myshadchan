@@ -298,6 +298,8 @@ function buildApp() {
         config: TEST_CONFIG,
         getBinding: (env) => env.TEST_LIMITER,
         deriveKey: () => "user:1",
+        workerName: "test",
+        surface: "test",
       }),
     )
     .all("*", (c) => c.text("ok"));

@@ -120,6 +120,8 @@ export function createAiApp(): AiApp {
       config: AI_WORKER_IP_RATE_LIMIT,
       getBinding: (env) => env.AI_IP_RATE_LIMITER,
       deriveKey: (c) => deriveIpKey(c.req.header("CF-Connecting-IP")),
+      workerName: "ai",
+      surface: "ai",
     }),
   );
   app.use("*", requireAiEntitlement);
@@ -130,6 +132,8 @@ export function createAiApp(): AiApp {
       config: DOSSIER_USER_RATE_LIMIT,
       getBinding: (env) => env.AI_USER_RATE_LIMITER,
       deriveKey: (c) => deriveCallerKey(c.req.header("Authorization")),
+      workerName: "ai",
+      surface: "ai",
     }),
   );
 

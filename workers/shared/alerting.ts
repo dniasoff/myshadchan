@@ -135,3 +135,52 @@ export function createErrorAlerter(
   return (error: unknown, severity?: "critical" | "warning") =>
     alertOnError(env, error, context, severity);
 }
+
+/**
+ * Story 15.4: emit an alert when a rate limiter fires. A limiter that
+ * constantly refuses requests is either an attack or a limit set wrong —
+ * both need a human. Called from `createRateLimitMiddleware` on
+ * `over_limit` and `limiter_error` refusals.
+ */
+export interface RateLimitAlertContext {
+  limiterName: string;
+  keyPrefix: string;
+  surface: string;
+  worker: string;
+  route: string;
+  requestId: string;
+  accountId?: number;
+}
+
+export async function alertOnRateLimit(
+  _env: unknown,
+  context: RateLimitAlertContext,
+  severity: "critical" | "warning" = "warning",
+): Promise<void> {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    context: {
+      release: getRelease(),
+      limiter: context.limiterName,
+      keyPrefix: context.keyPrefix,
+      surface: context.surface,
+      worker: context.worker,
+      route: context.route,
+      requestId: context.requestId,
+      accountId: context.accountId,
+    },
+    severity,
+  };
+
+  try {
+    await fetch(ALERT_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    console.error("alerting.rateLimitEmitFailed", {
+      limiter: context.limiterName,
+    });
+  }
+}
