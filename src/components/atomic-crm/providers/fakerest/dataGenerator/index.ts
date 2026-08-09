@@ -2,6 +2,7 @@ import { generateMembers } from "./members";
 import { generateReferencesDomain } from "./references";
 import { generateShidduchimDomain } from "./shidduchim";
 import { seedFileAssetsAndRelatedData } from "./fileAssets";
+import { seedAnalyticsEvents } from "../internal/analytics";
 import type { Db } from "./types";
 
 export default (): Db => {
@@ -56,7 +57,7 @@ export default (): Db => {
   // Story 9.5 — no access is ever recorded in the demo build; the real
   // writer is the `share/` Worker, which has no FakeRest equivalent.
   db.share_access_log = [];
-  // Epic 11 — no address is trusted by default; `dataProvider.trustSender()`
+  // Story 11 — no address is trusted by default; `dataProvider.trustSender()`
   // is the only writer (see `dataGenerator/types.ts`'s own comment).
   db.trusted_senders = [];
   // Story 12.2 (AC-9) — a fresh heartbeat, unlike every table above: there
@@ -86,9 +87,11 @@ export default (): Db => {
   // Richer demo data: resume files, photos, entity files, medical notes,
   // external links, date records, and a fuller interaction timeline.
   seedFileAssetsAndRelatedData(db);
+  // Analytics events (Story 15.2) — seed demo events for dashboard metrics demo
+  const demoAccountId = (db.accounts?.[0]?.id ?? 1) as number;
+  seedAnalyticsEvents(db, demoAccountId);
   // A couple of un-triaged captures so the demo shows the inbox "front door"
   // (Epic 2). Unresolved -> they await one confirm step before becoming redts.
-  const demoAccountId = db.accounts?.[0]?.id ?? 1;
   db.inbox_items = [
     {
       id: 1,

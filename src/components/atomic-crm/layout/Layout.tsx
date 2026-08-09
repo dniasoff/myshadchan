@@ -13,6 +13,7 @@ import { TourAutostart } from "../tour/TourAutostart";
 import { DemoBanner } from "./DemoBanner";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { AnalyticsInitializer } from "../analytics/AnalyticsInitializer";
 
 /**
  * Desktop app shell (foundation-plan §1): a fixed left Sidebar + a column
@@ -57,6 +58,8 @@ export const Layout = ({ children }: { children: ReactNode }) => {
           <Notification />
           <TourAutostart />
           <GlobalSearch />
+          {/* Story 15.2: Initialize first-party analytics event collector */}
+          <AnalyticsInitializer />
         </div>
       </GlobalSearchProvider>
     </OnboardingGate>

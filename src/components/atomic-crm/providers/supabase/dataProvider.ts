@@ -82,6 +82,15 @@ import type {
 } from "./resumePhotos";
 import { buildResumeStorageCleanupCallbacks } from "./resumeStorageCleanup";
 import { getSupabaseClient } from "./supabase";
+import {
+  getAnalyticsSummary,
+  getCounterMetrics,
+  setAnalyticsEnabled,
+} from "./analytics";
+import type {
+  AnalyticsEventsSummaryRow,
+  CounterMetrics,
+} from "../../analytics/types";
 
 // Story 9.3: `public.listing_withdrawal_locks` deliberately has no `id`
 // column at all (Dev Notes "Why a lock table, not a column on `singles`" —
@@ -419,6 +428,13 @@ export const getDataProviderWithCustomMethods = () => {
         // Both the per-shidduch call-log cards and the repeat-recognition panel
         // need the joined shidduch/single names, so they read the summary view.
         return baseDataProvider.getList("reference_links_summary", params);
+      }
+      if (
+        resource === "analytics_events" ||
+        resource === "analytics_events_summary"
+      ) {
+        // Analytics events summary view (Story 15.2, AD-10).
+        return baseDataProvider.getList("analytics_events_summary", params);
       }
 
       return baseDataProvider.getList(resource, params);
@@ -1038,6 +1054,23 @@ export const getDataProviderWithCustomMethods = () => {
     },
     async hideResumePhoto(params: HideResumePhotoParams): Promise<ResumePhoto> {
       return hideResumePhotoImpl(params);
+    },
+    // ---------------------------------------------------------------------
+    // Analytics (Story 15.2) -- Custom methods for dashboard metrics.
+    // ---------------------------------------------------------------------
+    async getAnalyticsSummary(): Promise<AnalyticsEventsSummaryRow | null> {
+      return getAnalyticsSummary();
+    },
+    async getCounterMetrics(): Promise<CounterMetrics> {
+      return getCounterMetrics();
+    },
+    async setAnalyticsEnabled(enabled: boolean): Promise<void> {
+      return setAnalyticsEnabled(enabled);
+    },
+    // Resolve the current account ID from the server-side context pointer.
+    // This is the same logic used internally for uploads (Story 10.1).
+    async getCurrentAccountId(): Promise<number> {
+      return getCurrentAccountId();
     },
   } satisfies DataProvider;
 };

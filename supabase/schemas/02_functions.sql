@@ -5766,3 +5766,126 @@ begin
   return new;
 end;
 $$;
+
+-- Analytics counter-metric functions (Story 15.2): derive PRD §18 counter-metrics.
+-- All functions are SECURITY DEFINER with search_path = '' and scoped to the
+-- caller's current_context_id() via RLS on underlying tables.
+
+-- Cross-account leak reports: should always be 0. Alert if > 0.
+-- Checks for any analytics_events row where account_id != current_context_id()
+-- would be visible (should be impossible due to FORCE RLS).
+CREATE OR REPLACE FUNCTION "public"."cross_account_leak_reports"() RETURNS bigint
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_count bigint;
+begin
+  select count(*) into v_count
+  from public.analytics_events
+  where account_id != public.current_context_id();
+  return v_count;
+end;
+$$;
+
+-- Mis-routed channel items: count of inbox_items with attribution issues.
+-- Items where detected_shadchan confidence is low OR unattributed queue.
+CREATE OR REPLACE FUNCTION "public"."misrouted_channel_items"() RETURNS bigint
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_count bigint;
+begin
+  select count(*) into v_count
+  from public.inbox_items
+  where account_id = public.current_context_id()
+    and (
+      source = 'shadchan' and connection_id is null
+      or source in ('email', 'whatsapp', 'sms') and sender_needs_confirmation
+    );
+  return v_count;
+end;
+$$;
+
+-- Duplicate flag false positive rate: dismissed_duplicate_flags / total_flags.
+-- From analytics_events properties (flag_type, dismissed boolean).
+CREATE OR REPLACE FUNCTION "public"."duplicate_flag_false_positive_rate"() RETURNS numeric
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_total bigint;
+  v_dismissed bigint;
+begin
+  select count(*) into v_total
+  from public.analytics_events
+  where account_id = public.current_context_id()
+    and event_type = 'duplicate_confirmed';
+
+  if v_total = 0 then
+    return 0;
+  end if;
+
+  select count(*) into v_dismissed
+  from public.analytics_events
+  where account_id = public.current_context_id()
+    and event_type = 'duplicate_confirmed'
+    and (properties->>'dismissed')::boolean = true;
+
+  return round((v_dismissed::numeric / v_total::numeric) * 100, 2);
+end;
+$$;
+
+-- Trial to paid conversion: from accounts billing state.
+-- COUNT(active_subscriptions) / COUNT(trial_started)
+CREATE OR REPLACE FUNCTION "public"."trial_to_paid_conversion"() RETURNS numeric
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_trial_started bigint;
+  v_active_subscriptions bigint;
+begin
+  select count(*) into v_trial_started
+  from public.accounts
+  where trial_end is not null;
+
+  if v_trial_started = 0 then
+    return 0;
+  end if;
+
+  select count(*) into v_active_subscriptions
+  from public.accounts
+  where subscription_status = 'active'
+    and plan is not null;
+
+  return round((v_active_subscriptions::numeric / v_trial_started::numeric) * 100, 2);
+end;
+$$;
+
+-- AI cost per active family: from ai_usage_meter and active accounts.
+-- SUM(ai_cost) / COUNT(active_accounts)
+CREATE OR REPLACE FUNCTION "public"."ai_cost_per_active_family"() RETURNS numeric
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_total_cost numeric;
+  v_active_accounts bigint;
+begin
+  select coalesce(sum(cost_usd), 0) into v_total_cost
+  from public.ai_usage_meter
+  where account_id = public.current_context_id();
+
+  select count(*) into v_active_accounts
+  from public.accounts
+  where id = public.current_context_id();
+
+  if v_active_accounts = 0 then
+    return 0;
+  end if;
+
+  return round(v_total_cost / v_active_accounts, 4);
+end;
+$$;

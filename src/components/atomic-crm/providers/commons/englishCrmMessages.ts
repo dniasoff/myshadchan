@@ -1397,6 +1397,35 @@ export const englishCrmMessages = {
         footer_note: "The code is public. The service is free, run at cost.",
       },
     },
+    // Story 15.2: Analytics metrics and privacy control (PRD §18)
+    analytics: {
+      privacy: {
+        title: "Analytics Collection",
+        description:
+          "We collect anonymous, first-party usage metrics to understand how families use MyShadchan. No personal data, names, contact details, or note contents are ever included. This helps us improve the service while respecting your privacy.",
+        collection: "Collect anonymous usage metrics",
+        collection_hint:
+          "Counts things like suggestions filed, reference calls logged, and inbox captures. Never names, phones, or note content.",
+        enabled: "Collection is on",
+        disabled: "Collection is off",
+        policy_link: "Privacy Policy",
+      },
+      metrics: {
+        items_filed: "Suggestions Filed",
+        duplicates_confirmed: "Duplicates Confirmed",
+        reference_calls: "Reference Calls Logged",
+        channel_captures: "Inbox Captures",
+        avg_time_to_file: "Avg. Time to File",
+        cross_account_leaks: "Cross-Account Leaks",
+        should_be_zero: "Should always be 0",
+        alert: "ALERT: Data leak detected",
+        misrouted_items: "Mis-routed Items",
+        duplicate_false_positive: "Duplicate False Positive Rate",
+        dismissed_rate: "Dismissed ÷ Total flags",
+        trial_to_paid: "Trial → Paid Conversion",
+        ai_cost_per_family: "AI Cost per Active Family",
+      },
+    },
   },
 } as const;
 

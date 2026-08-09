@@ -444,3 +444,17 @@ from public.account_members am
 where am.status = 'active'
   and am.account_id = public.current_context_id()
   and public.is_deliverable_member(m.id, am.account_id);
+
+-- Analytics events summary (Story 15.2): per-account aggregates for dashboard metrics.
+-- security_invoker keeps base-table RLS applying to the caller.
+create or replace view public.analytics_events_summary with (security_invoker = on) as
+select
+    account_id,
+    count(*) filter (where event_type = 'item_filed') as items_filed,
+    count(*) filter (where event_type = 'duplicate_confirmed') as duplicates_confirmed,
+    count(*) filter (where event_type = 'reference_call_logged') as reference_calls_logged,
+    count(*) filter (where event_type = 'channel_capture') as channel_captures,
+    avg((properties->>'time_to_file_ms')::bigint) filter (where event_type = 'time_to_file') as avg_time_to_file_ms,
+    count(*) as total_events
+from public.analytics_events
+group by account_id;

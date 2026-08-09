@@ -141,6 +141,15 @@ import {
   enrichReferenceLinks,
   enrichReferences,
 } from "./internal/referenceSummary";
+import {
+  getAnalyticsSummary as getAnalyticsSummaryImpl,
+  getCounterMetrics as getCounterMetricsImpl,
+  setAnalyticsEnabled as setAnalyticsEnabledImpl,
+} from "./internal/analytics";
+import type {
+  AnalyticsEventsSummaryRow,
+  CounterMetrics,
+} from "../../analytics/types";
 
 export interface CreateFakeRestDataProviderOptions {
   db?: Db;
@@ -829,6 +838,17 @@ export const createDataProvider = ({
       if (resource === "context_members") {
         const rows = await resolveContextMembers();
         return { data: rows, total: rows.length };
+      }
+      // Emulate the analytics_events_summary view (Story 15.2, AD-10 FakeRest mirror)
+      if (
+        resource === "analytics_events" ||
+        resource === "analytics_events_summary"
+      ) {
+        const summary = await getAnalyticsSummaryImpl(
+          baseDataProvider,
+          activeAccountId as number,
+        );
+        return { data: [summary], total: 1 };
       }
       return baseDataProvider.getList(resource, params);
     },
@@ -1611,6 +1631,21 @@ export const createDataProvider = ({
       signResumePhotoUrlImpl(resumePhotoBlobUrls, params.storagePath),
     hideResumePhoto: (params: { id: Identifier }): Promise<ResumePhoto> =>
       hideResumePhotoImpl(baseDataProvider, params),
+    // ---------------------------------------------------------------------
+    // Analytics (Story 15.2) -- FakeRest mirrors of the analytics RPCs.
+    // ---------------------------------------------------------------------
+    getAnalyticsSummary: async (): Promise<AnalyticsEventsSummaryRow | null> =>
+      getAnalyticsSummaryImpl(baseDataProvider, activeAccountId as number),
+    getCounterMetrics: async (): Promise<CounterMetrics> =>
+      getCounterMetricsImpl(baseDataProvider, activeAccountId as number),
+    setAnalyticsEnabled: async (enabled: boolean): Promise<void> =>
+      setAnalyticsEnabledImpl(
+        baseDataProvider,
+        activeAccountId as number,
+        enabled,
+      ),
+    // Resolve the current account ID from the FakeRest session state.
+    getCurrentAccountId: async (): Promise<number> => activeAccountId as number,
   };
 
   const dataProvider = withLifecycleCallbacks(

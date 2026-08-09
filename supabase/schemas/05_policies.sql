@@ -1922,3 +1922,20 @@ create policy "Signup intents insertable by anon" on public.signup_intents
         and consumed_at is null
         and expires_at <= now() + interval '10 minutes'
     );
+
+-- =====================================================================
+-- Analytics Events (Story 15.2) — First-party event collection for PRD §18
+-- =====================================================================
+
+-- Analytics events are append-only, account-scoped, with FORCE RLS.
+-- No UPDATE/DELETE policies — events are immutable once stored.
+alter table public.analytics_events enable row level security;
+alter table public.analytics_events force row level security;
+
+create policy "Analytics events selectable by account" on public.analytics_events
+    for select to authenticated
+    using (account_id = public.current_context_id());
+
+create policy "Analytics events insertable by account" on public.analytics_events
+    for insert to authenticated
+    with check (account_id = public.current_context_id());

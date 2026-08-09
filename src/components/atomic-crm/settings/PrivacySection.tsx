@@ -11,6 +11,7 @@ import type { Reference, Shadchan, Shidduch, Single } from "../types";
 import { DeleteDataDialog } from "./DeleteDataDialog";
 import { collectFamilyData, downloadAsJson } from "./exportFamilyData";
 import { SectionLabel } from "./SectionLabel";
+import { AnalyticsPrivacyControl } from "../analytics/privacyControl";
 
 /**
  * The privacy statement section (ticket lane 7 — "the privacy wedge made
@@ -130,6 +131,9 @@ export const PrivacySection = () => {
             })}
           </Link>
         </nav>
+
+        {/* Story 15.2: Analytics privacy control — respects Story 14.1 policy */}
+        <AnalyticsPrivacyControl />
       </div>
     </div>
   );

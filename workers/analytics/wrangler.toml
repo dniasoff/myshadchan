@@ -1,0 +1,16 @@
+name = "analytics"
+main = "index.ts"
+compatibility_date = "2026-07-21"
+nodejs_compat = true
+
+[vars]
+RATE_LIMITING_ENFORCED = "true"
+
+[[ratelimits]]
+name = "ANALYTICS_RATE_LIMITER"
+simple = { limit = 100, period = "60s" }
+
+[bindings]
+# Supabase credentials injected at deploy time via secrets
+# SUPABASE_URL
+# SUPABASE_SERVICE_ROLE_KEY

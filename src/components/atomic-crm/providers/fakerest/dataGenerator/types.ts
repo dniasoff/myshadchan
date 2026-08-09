@@ -1,6 +1,7 @@
 import type {
   Account,
   AccountMember,
+  AnalyticsEvent,
   Connection,
   ConnectionInvite,
   CronHeartbeat,
@@ -132,4 +133,6 @@ export interface Db {
   // virtual-id shape for this table (`types.ts`'s `CronHeartbeat` doc
   // comment; `dataProvider.ts`'s `PRIMARY_KEYS`).
   cron_heartbeat: CronHeartbeat[];
+  // Analytics events (Story 15.2) — seeded with demo events for dashboard metrics
+  analytics_events: AnalyticsEvent[];
 }

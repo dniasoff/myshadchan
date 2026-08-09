@@ -792,6 +792,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/supabase/analytics.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/fakerest/index.ts",
           "type": "registry:component"
         },
@@ -801,6 +805,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/authProvider.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/fakerest/analytics.ts",
           "type": "registry:component"
         },
         {
@@ -905,6 +913,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/internal/connections.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/analytics.ts",
           "type": "registry:component"
         },
         {
@@ -1588,6 +1600,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/dashboard/MetricsCards.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/dashboard/DueRemindersCard.tsx",
           "type": "registry:component"
         },
@@ -1685,6 +1701,22 @@
         },
         {
           "path": "src/components/atomic-crm/billing/BillingPage.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/analytics/types.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/analytics/privacyControl.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/analytics/eventCollector.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/analytics/AnalyticsInitializer.tsx",
           "type": "registry:component"
         },
         {

@@ -1389,6 +1389,21 @@ export type ListingWithdrawalLock = {
   locked_at: string;
 } & Pick<RaRecord, "id">;
 
+export type {
+  AnalyticsEvent,
+  AnalyticsEventsBatch,
+  AnalyticsEventRow,
+  AnalyticsEventsSummaryRow,
+  CounterMetrics,
+  EventProperties,
+  EventType,
+  ItemFiledProperties,
+  DuplicateConfirmedProperties,
+  ReferenceCallLoggedProperties,
+  ChannelCaptureProperties,
+  TimeToFileProperties,
+} from "./analytics/types";
+
 /** A fixed set of expiry durations `sharing/CreateShareLinkDialog.tsx`
  * offers (Story 9.5, Task 6) — a free datetime picker is deliberately not
  * offered, kept simple on purpose. */
