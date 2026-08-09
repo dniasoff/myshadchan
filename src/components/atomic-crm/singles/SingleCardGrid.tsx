@@ -1,5 +1,5 @@
 import type { Identifier, RaRecord } from "ra-core";
-import { useGetList } from "ra-core";
+import { useGetList, useListContext } from "ra-core";
 import { useMemo } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -44,10 +44,12 @@ export interface SingleCardGridProps {
  */
 export const SingleCardGrid = ({ data }: SingleCardGridProps) => {
   const singles = data as Single[];
+  const { filterValues } = useListContext();
   // The roster is small (perPage 100), so a single 500-row read covers it.
   const { data: summaries } = useGetList<SingleSummary>("singles_summary", {
     pagination: { page: 1, perPage: 500 },
     sort: { field: "id", order: "ASC" },
+    filter: filterValues,
   });
   const openCountById = useMemo(() => {
     const map = new Map<Identifier, number>();

@@ -472,7 +472,10 @@ create table public.singles (
     dob date,
     community text,
     status text not null default 'active',
-    member_id bigint
+    member_id bigint,
+    constraint singles_status_check check (
+        status in ('active', 'paused', 'archived')
+    )
 );
 
 -- Matchmakers. "via {shadchan}" provenance lives here (FR18).

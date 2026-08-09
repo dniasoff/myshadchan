@@ -21,9 +21,6 @@ const GENDER_LABEL: Record<string, string> = {
   male: "Male",
 };
 
-// 2.5 AC-8: this roster keeps showing archived singles (the full family
-// record, not just the active ones), so the status pill must say "Archived"
-// rather than falling into the generic non-active "Paused" label.
 const STATUS_LABEL: Record<string, string> = {
   active: "Active",
   paused: "Paused",

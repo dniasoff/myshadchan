@@ -960,6 +960,38 @@ export const getDataProviderWithCustomMethods = () => {
         throw new Error(error.message);
       }
     },
+    // Removes another person from the household (Story 13.2). Admin-only.
+    // Archives the target's membership and/or singles row — never deletes.
+    // p_target_type: 'member' archives account_members, 'single' archives singles.
+    async removePersonaAdmin(
+      targetAccountMemberId: Identifier,
+      targetType: "member" | "single",
+    ): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("remove_persona_admin", {
+        p_target_account_member_id: targetAccountMemberId,
+        p_target_type: targetType,
+      });
+      if (error) {
+        console.error("remove_persona_admin.error", error);
+        throw new Error(error.message);
+      }
+    },
+    // Restores an archived person to the household (Story 13.2). Admin-only.
+    // Unlimited undo — restorable at any time by anyone who could have removed them.
+    // p_target_type: 'member' restores account_members, 'single' restores singles.
+    async restorePersonaAdmin(
+      targetAccountMemberId: Identifier,
+      targetType: "member" | "single",
+    ): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("restore_persona_admin", {
+        p_target_account_member_id: targetAccountMemberId,
+        p_target_type: targetType,
+      });
+      if (error) {
+        console.error("restore_persona_admin.error", error);
+        throw new Error(error.message);
+      }
+    },
 
     // ---------------------------------------------------------------------
     // Billing / AI entitlement (E4). The ai_entitlement() RPC is the SINGLE

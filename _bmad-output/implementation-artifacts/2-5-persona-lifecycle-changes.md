@@ -52,6 +52,14 @@ hunting for a retired name.
    *Decided by:* the `PersonasSection` component test in Task 6 plus a manual pass at
    `/settings`.
 
+**AMENDMENT (Story 13.2, E13-D14 DEFAULT IF SILENT):** AC-8 below is amended by
+Story 13.2. The default behaviour changes from "archived singles always visible in the
+roster with an 'Archived' pill" to "archived singles hidden by default, shown only
+when a 'Past members' toggle is engaged". The `SingleCard.tsx` status pill still
+renders "Archived" for archived singles, but they no longer appear in the default
+roster view. This amendment is recorded here and applied to `SingleCard.tsx:24-25`
+in the same dispatch as Story 13.2, per `.claude/rules/parallel-ownership.md`.
+
 2. **One new function owns removal — `public.remove_persona(p_persona text)`.**
    `SECURITY DEFINER`, `SET search_path TO ''`, for the identical reason `add_persona()`
    is (Story 2.2 Dev Notes: the target context may not be the caller's active one).
@@ -151,8 +159,8 @@ hunting for a retired name.
    or a redirect to `/` picks up the new state on the next query, exactly as a manual
    switch does.
 
-8. **An archived `single` is not left half-visible in the UI.** *(New in this refresh —
-   the gap is real in the current tree and this story is the first thing to create it.)*
+8. **An archived `single` is not left half-visible in the UI.** *(Amended by Story 13.2,
+   E13-D14 DEFAULT IF SILENT — see amendment note above.)*
    `singles.status` today has a UI vocabulary of exactly two values — `SingleInputs.tsx:41-49`
    offers `active` and `paused` and nothing else — and two screens derive presence from
    it directly (`SingleCard.tsx:43` and `SingleShow.tsx:41`, both
@@ -173,11 +181,15 @@ hunting for a retired name.
      archived rows; AC-3's "remains auditable" is the whole point of the export).
      `singles_summary` (`03_views.sql:176`) also passes `status` through unfiltered
      (`:188`).
-     Minimum bar for this story: `TopBar`'s single switcher and `OnboardingGate`'s count
+     **Story 2.5 minimum bar:** `TopBar`'s single switcher and `OnboardingGate`'s count
      must exclude `status = 'archived'` (an archived single must not be selectable, and
      must not keep onboarding suppressed). The remaining sites may keep showing archived
      rows *provided they render them as archived*; whichever you choose, record the
      decision per-site in the Completion Notes.
+   - **Story 13.2 amendment:** The singles roster (`SingleList.tsx`) now filters
+     `status@neq=archived` by default, with a "Past members" toggle to include them.
+     This is the new default for the roster; the export and privacy disclosure remain
+     unfiltered per the original AC-8 decisions.
    *Decided by:* `grep -rn 'useGetList<Single>' src/ --include=*.tsx --include=*.ts | grep -v "\.test\." | grep -v "/providers/"`
    (six hits today) plus the component test in Task 6.
 

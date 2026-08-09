@@ -103,6 +103,10 @@ import {
 import { matchReferenceOnEntry } from "./internal/referenceMatch";
 import { addPersona, getMyPersonas } from "./internal/personas";
 import { removePersona } from "./internal/removePersona";
+import {
+  removePersonaAdmin,
+  restorePersonaAdmin,
+} from "./internal/removePersonaAdmin";
 import { getMyContexts, switchActiveContext } from "./internal/contexts";
 import { createInvite, revokeInvite } from "./internal/invites";
 import {
@@ -1385,6 +1389,29 @@ export const createDataProvider = ({
         (id) => {
           activeAccountId = id;
         },
+      ),
+    // Admin removal of another person (Story 13.2) -- FakeRest mirror of
+    // remove_persona_admin() / restore_persona_admin() in
+    // ./internal/removePersonaAdmin.ts.
+    removePersonaAdmin: (
+      targetAccountMemberId: Identifier,
+      targetType: "member" | "single",
+    ): Promise<void> =>
+      removePersonaAdmin(
+        baseDataProvider,
+        getIdentity,
+        targetAccountMemberId,
+        targetType,
+      ),
+    restorePersonaAdmin: (
+      targetAccountMemberId: Identifier,
+      targetType: "member" | "single",
+    ): Promise<void> =>
+      restorePersonaAdmin(
+        baseDataProvider,
+        getIdentity,
+        targetAccountMemberId,
+        targetType,
       ),
     // Context switcher (2.4 AC-6) -- FakeRest mirrors of
     // my_contexts()/set_active_context() in ./internal/contexts.ts. Derive

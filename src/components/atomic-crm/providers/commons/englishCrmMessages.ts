@@ -72,6 +72,17 @@ export const englishCrmMessages = {
         success: "User updated successfully",
         title: "Edit %{name}",
       },
+      remove: {
+        label: "Remove from household",
+        confirmTitle: "Remove from household",
+        confirmDescription:
+          "This will remove {name} from this household. They will stay in your family's records and you can undo this at any time.",
+        cancel: "Cancel",
+        confirm: "Remove",
+        removing: "Removing...",
+        success: "Person removed from household",
+        error: "Could not remove person. Try again.",
+      },
     },
     tasks: {
       name: "Task |||| Tasks",
@@ -832,6 +843,9 @@ export const englishCrmMessages = {
         emptyDescriptionSelfManaged:
           "This is where your own shidduchim pipeline will live. Add your record to start tracking suggestions.",
         noMatches: "No singles match this search.",
+        filter: {
+          past: "Past members",
+        },
       },
       // Story 6.1 (AC 1) — SingleLoginInvite.tsx's own copy: the one entry
       // point that gives a single their own login, mounted on the record

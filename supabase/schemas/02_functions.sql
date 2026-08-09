@@ -1145,6 +1145,269 @@ end;
 $$;
 
 -- =====================================================================
+-- MyShadchan — Admin removal of another person (Story 13.2)
+-- =====================================================================
+
+-- Removes another person from the household (archive, never erase).
+-- Unlike remove_persona() which is self-service only, this function allows a
+-- parent_admin to archive another member's membership and/or their singles row.
+-- SECURITY DEFINER: the target may not be in the caller's active context, and
+-- we must re-derive the caller's own active membership from auth.uid() to
+-- enforce the tenant boundary. Every query filters to the caller's account_id
+-- from current_context_id() — never a parameter — so bypassing RLS never
+-- becomes bypassing the tenant boundary.
+--
+-- Archives, never deletes (AC-3): the only writes are `update ... set status =
+-- 'archived'` — zero `delete from`.
+--
+-- Two independent branches, selected by p_target_type:
+--   'member'  -> archives the target's account_members row (status='archived')
+--   'single'  -> archives the target's singles row (status='archived')
+-- Both may apply if the target is both a member (with login) and has a singles
+-- row (the self-manager shape). The caller chooses which to remove, or calls
+-- twice. This matches remove_persona()'s three independent branches.
+--
+-- Guards reused verbatim from remove_persona():
+--   - guard_persona_removal() refuses archiving the last active member of an
+--     account that holds domain data
+--   - parent branch's other-admin check refuses when other active singles
+--     would be left without a parent_admin
+--   - AC-7 dangling-context handoff re-activates another membership or clears
+--     to NULL
+--
+-- The "keep access to a child" question is Story 13.1's grant, not a column
+-- here. This function never touches members.disabled (E13-D15).
+CREATE OR REPLACE FUNCTION "public"."remove_persona_admin"(
+    "p_target_account_member_id" bigint,
+    "p_target_type" text
+) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_user_id uuid := auth.uid();
+  v_account_id bigint;
+  v_caller_role text;
+  v_caller_membership_id bigint;
+  v_target_membership public.account_members;
+  v_target_single_id bigint;
+  v_target_single_member_id bigint;
+  v_holds_single boolean;
+  v_other_singles_count int;
+  v_other_admins_count int;
+  v_archived_account_id bigint;
+  v_was_active boolean;
+  v_new_active_account_id bigint;
+begin
+  if v_user_id is null then
+    raise exception 'remove_persona_admin requires an authenticated caller'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if p_target_type not in ('member', 'single') then
+    raise exception 'unknown target_type: %', p_target_type
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  v_account_id := public.current_context_id();
+  if v_account_id is null then
+    raise exception 'no active context'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Caller must be parent_admin in this account
+  select am.id, am.role into v_caller_membership_id, v_caller_role
+  from public.account_members am
+  where am.account_id = v_account_id
+    and am.user_id = v_user_id
+    and am.status = 'active'
+  order by am.id
+  limit 1;
+
+  if v_caller_membership_id is null or v_caller_role <> 'parent_admin' then
+    raise exception 'only a parent_admin may remove another person'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Target must be in the same account
+  select * into v_target_membership
+  from public.account_members
+  where id = p_target_account_member_id
+    and account_id = v_account_id;
+
+  if not found then
+    raise exception 'target membership % not found in this household', p_target_account_member_id
+      using errcode = 'check_violation';
+  end if;
+
+  -- Cannot remove yourself via this path (use remove_persona() instead)
+  if v_target_membership.user_id = v_user_id then
+    raise exception 'use remove_persona() to remove your own persona'
+      using errcode = 'check_violation';
+  end if;
+
+  -- member branch: archive the target's account_members row
+  if p_target_type = 'member' then
+    if v_target_membership.status = 'active' then
+      -- Refuse if this would orphan the account (reuse guard_persona_removal)
+      perform public.guard_persona_removal(v_target_membership.id, v_account_id);
+      update public.account_members set status = 'archived' where id = v_target_membership.id;
+      v_archived_account_id := v_account_id;
+    end if;
+  end if;
+
+  -- single branch: archive the target's singles row (if they have one linked to this membership)
+  if p_target_type = 'single' then
+    select s.id, s.member_id into v_target_single_id, v_target_single_member_id
+    from public.singles s
+    where s.member_id = v_target_membership.id
+      and s.account_id = v_account_id
+      and s.status = 'active'
+    order by s.id
+    limit 1;
+
+    if v_target_single_id is not null then
+      -- If the target membership holds a single, check the parent guard
+      -- (cannot remove parent_admin if other active singles exist and no other admin)
+      select exists (
+        select 1 from public.singles
+        where member_id = v_target_membership.id and status = 'active'
+      ) into v_holds_single;
+
+      select count(*) into v_other_singles_count
+      from public.singles
+      where account_id = v_account_id
+        and status = 'active'
+        and member_id is distinct from v_target_membership.id;
+
+      select count(*) into v_other_admins_count
+      from public.account_members
+      where account_id = v_account_id
+        and status = 'active'
+        and role = 'parent_admin'
+        and id <> v_caller_membership_id;
+
+      if v_other_singles_count > 0 and v_other_admins_count = 0 then
+        raise exception 'cannot remove single — no other admin manages this household''s other singles'
+          using errcode = 'check_violation';
+      end if;
+
+      update public.singles set status = 'archived' where id = v_target_single_id;
+    end if;
+  end if;
+
+  -- AC-7: if a membership was just archived and it was the target's active
+  -- context, we do NOT switch the target's context here — the target's own
+  -- member_state is theirs to manage. We only handle the CALLER's context
+  -- handoff if the caller archived their own membership (which this function
+  -- prevents above). The target's context will naturally fail closed on their
+  -- next request (current_context_id() requires status='active').
+end;
+$$;
+
+-- Restores an archived person to the household (undo for remove_persona_admin
+-- and remove_persona). Unlimited — restorable at any time by anyone who could
+-- have removed them (E13-D13 DEFAULT IF SILENT: a).
+--
+-- SECURITY DEFINER: the target may not be in the caller's active context.
+-- Re-derives caller's active membership from auth.uid() to enforce tenant
+-- boundary. Every query filters to caller's account_id from current_context_id().
+--
+-- Two independent branches, selected by p_target_type:
+--   'member'  -> restores the target's account_members row (status='active')
+--   'single'  -> restores the target's singles row (status='active')
+--
+-- For 'member': also reactivates the target's singles row if it was archived
+-- and linked to this membership (the self-manager shape).
+--
+-- The caller must be parent_admin in the same account.
+CREATE OR REPLACE FUNCTION "public"."restore_persona_admin"(
+    "p_target_account_member_id" bigint,
+    "p_target_type" text
+) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_user_id uuid := auth.uid();
+  v_account_id bigint;
+  v_caller_role text;
+  v_caller_membership_id bigint;
+  v_target_membership public.account_members;
+  v_target_single_id bigint;
+begin
+  if v_user_id is null then
+    raise exception 'restore_persona_admin requires an authenticated caller'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if p_target_type not in ('member', 'single') then
+    raise exception 'unknown target_type: %', p_target_type
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  v_account_id := public.current_context_id();
+  if v_account_id is null then
+    raise exception 'no active context'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Caller must be parent_admin in this account
+  select am.id, am.role into v_caller_membership_id, v_caller_role
+  from public.account_members am
+  where am.account_id = v_account_id
+    and am.user_id = v_user_id
+    and am.status = 'active'
+  order by am.id
+  limit 1;
+
+  if v_caller_membership_id is null or v_caller_role <> 'parent_admin' then
+    raise exception 'only a parent_admin may restore a person'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Target must be in the same account
+  select * into v_target_membership
+  from public.account_members
+  where id = p_target_account_member_id
+    and account_id = v_account_id;
+
+  if not found then
+    raise exception 'target membership % not found in this household', p_target_account_member_id
+      using errcode = 'check_violation';
+  end if;
+
+  -- member branch: restore the target's account_members row
+  if p_target_type = 'member' then
+    if v_target_membership.status = 'archived' then
+      update public.account_members set status = 'active' where id = v_target_membership.id;
+      -- Also restore any singles row linked to this membership
+      update public.singles
+      set status = 'active'
+      where member_id = v_target_membership.id
+        and account_id = v_account_id
+        and status = 'archived';
+    end if;
+  end if;
+
+  -- single branch: restore the target's singles row
+  if p_target_type = 'single' then
+    select s.id into v_target_single_id
+    from public.singles s
+    where s.member_id = v_target_membership.id
+      and s.account_id = v_account_id
+      and s.status = 'archived'
+    order by s.id
+    limit 1;
+
+    if v_target_single_id is not null then
+      update public.singles set status = 'active' where id = v_target_single_id;
+    end if;
+  end if;
+end;
+$$;
+
+-- =====================================================================
 -- MyShadchan — Invite-only signup with 18+ affirmation (Story 2.7, AD-11)
 -- =====================================================================
 

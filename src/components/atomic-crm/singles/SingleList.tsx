@@ -1,5 +1,5 @@
 import type { Identifier, RaRecord } from "ra-core";
-import { useGetList, useTranslate } from "ra-core";
+import { useGetList, useTranslate, useListContext } from "ra-core";
 import { useMemo } from "react";
 
 import { buildNewPath } from "../entity360/entityPaths";
@@ -10,6 +10,7 @@ import { useMyPersonas } from "../root/useMyPersonas";
 import type { Single, SingleSummary } from "../types";
 import { SingleCardGrid, SingleCardGridSkeleton } from "./SingleCardGrid";
 import { SingleRow } from "./SingleRow";
+import { ToggleFilterButton } from "@/components/admin/toggle-filter-button";
 
 /**
  * `EntityList`'s `renderList` for the singles roster (Story 4.2, Task 4):
@@ -21,9 +22,11 @@ import { SingleRow } from "./SingleRow";
  */
 const SingleRowList = ({ data }: { data: RaRecord[] }) => {
   const singles = data as Single[];
+  const { filterValues } = useListContext();
   const { data: summaries } = useGetList<SingleSummary>("singles_summary", {
     pagination: { page: 1, perPage: 500 },
     sort: { field: "id", order: "ASC" },
+    filter: filterValues,
   });
   const openCountById = useMemo(() => {
     const map = new Map<Identifier, number>();
@@ -87,14 +90,17 @@ export const SingleList = () => {
   );
   const holdsParentPersona =
     activePersonas?.some((p) => p.persona === "parent") ?? false;
-  // Also true for an ordinary `single`-role viewer (my_personas()'s third
-  // union matches `role = 'single'` too, not only an owning role with a
-  // linked singles row) — the name is "the pipeline shown is my own", not
-  // "I hold the self_manager role specifically"; both cases read correctly
-  // as the self-referential copy either way, so no narrower check is needed.
   const isSelfManagedOnly =
     !holdsParentPersona &&
     (activePersonas?.some((p) => p.persona === "single") ?? false);
+
+  const pastFilter = [
+    <ToggleFilterButton
+      key="past"
+      label={translate("crm.singles.list.filter.past", { _: "Past members" })}
+      value={{ "status@neq": "archived" }}
+    />,
+  ];
 
   return (
     <EntityList
@@ -117,18 +123,11 @@ export const SingleList = () => {
         _: "Search by name",
       })}
       perPage={100}
-      // Review fix (F7): the pre-story `SingleList` explicitly disabled
-      // pagination (`pagination={null}`) for this roster, which has never
-      // paged — the retrofit silently dropped that, and `EntityList`
-      // substitutes its own `<ListPagination/>` for any `pagination` value
-      // left `undefined`. Preserve the original, deliberate behaviour.
+      filterDefaultValues={{ "status@neq": "archived" }}
       pagination={null}
       sort={{ field: "first_name_en", order: "ASC" }}
-      // Review fix (F4): AC-10 requires sort to be provable through the
-      // URL; with no `sortFields` on either retrofitted list,
-      // `EntityListToolbar`'s `SortButton` never rendered and the sort
-      // half of AC-5/AC-10 had no reachable UI anywhere in the app.
       sortFields={["first_name_en", "last_name_en"]}
+      extraFilters={pastFilter}
       skeleton={<SingleCardGridSkeleton />}
       emptyState={{
         title: translate("crm.singles.list.emptyTitle", {
@@ -149,9 +148,6 @@ export const SingleList = () => {
       noMatchesMessage={translate("crm.singles.list.noMatches", {
         _: "No singles match this search.",
       })}
-      // Story 4.2, AC 1: this roster's current, only, deliberately-designed
-      // first-visit look — a small family roster reads better as cards than
-      // as a dense table (Dev Notes).
       defaultViewMode="cards"
       renderCards={(data) => <SingleCardGrid data={data} />}
       renderList={(data) => <SingleRowList data={data} />}

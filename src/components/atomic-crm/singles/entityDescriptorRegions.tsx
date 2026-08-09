@@ -14,6 +14,7 @@ import { PhotoTabContent } from "../resumes/PhotoTab";
 import { ResumeUpload } from "../resumes/ResumeUpload";
 import { ResumeVersionList } from "../resumes/ResumeVersionList";
 import type { Single } from "../types";
+import { SingleGrantManagement } from "./SingleGrantManagement";
 import { SingleLoginInvite } from "./SingleLoginInvite";
 import { SingleProfileHeader } from "./SingleProfileHeader";
 
@@ -47,10 +48,14 @@ export const SingleIdentityHeader = ({ record }: { record: Single }) => (
  * role/link-state gating (renders nothing, the button, or the linked
  * indicator) — this component stays a thin composition, matching
  * `entityDescriptorRegions.tsx`'s own "thin adapter list" convention.
+ *
+ * Story 13.1: adds `SingleGrantManagement` for the grant lifecycle —
+ * proposing, accepting, severing grants to another household.
  */
 export const SingleActions = ({ record }: { record: Single }) => (
   <TopToolbar>
     <SingleLoginInvite single={record} />
+    <SingleGrantManagement />
     <EditButton />
   </TopToolbar>
 );

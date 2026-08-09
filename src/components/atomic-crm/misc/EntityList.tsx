@@ -33,6 +33,7 @@ export interface EntityListProps extends Pick<
   sortFields?: string[];
   sort?: SortPayload;
   perPage?: number;
+  filterDefaultValues?: Record<string, any>;
   /**
    * Passthrough to `<List pagination>`. Left `undefined` (the default),
    * `EntityList` paginates with the standard `<ListPagination/>`; pass
@@ -70,6 +71,7 @@ export const EntityList = ({
   sortFields,
   sort,
   perPage,
+  filterDefaultValues,
   pagination,
   skeleton,
   emptyState,
@@ -115,6 +117,7 @@ export const EntityList = ({
         title={false}
         perPage={perPage ?? 100}
         sort={sort}
+        filterDefaultValues={filterDefaultValues}
         pagination={pagination === undefined ? <ListPagination /> : pagination}
         filters={[
           <SearchInput

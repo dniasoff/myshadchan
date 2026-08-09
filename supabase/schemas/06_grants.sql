@@ -372,6 +372,19 @@ revoke all on function public.remove_persona(text) from public, anon;
 grant execute on function public.remove_persona(text) to authenticated;
 grant execute on function public.remove_persona(text) to service_role;
 
+-- Story 13.2: remove_persona_admin() and restore_persona_admin() are
+-- SECURITY DEFINER — every query inside re-derives the caller's active
+-- membership from auth.uid() and filters to the caller's account_id from
+-- current_context_id(), so bypassing RLS never becomes bypassing the tenant
+-- boundary; anon must never execute them.
+revoke all on function public.remove_persona_admin(bigint, text) from public, anon;
+grant execute on function public.remove_persona_admin(bigint, text) to authenticated;
+grant execute on function public.remove_persona_admin(bigint, text) to service_role;
+
+revoke all on function public.restore_persona_admin(bigint, text) from public, anon;
+grant execute on function public.restore_persona_admin(bigint, text) to authenticated;
+grant execute on function public.restore_persona_admin(bigint, text) to service_role;
+
 -- Story 2.7 (AC-3): role_authority() is a small IMMUTABLE helper — a pure
 -- function of its argument — safe to grant broadly.
 revoke all on function public.role_authority(text) from public, anon;

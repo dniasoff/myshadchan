@@ -74,6 +74,17 @@ export const frenchCrmMessages = {
         success: "Utilisateur mis à jour avec succès",
         title: "Modifier %{name}",
       },
+      remove: {
+        label: "Retirer du foyer",
+        confirmTitle: "Retirer du foyer",
+        confirmDescription:
+          "Ceci retirera {name} de ce foyer. Ils resteront dans les dossiers de votre famille et vous pourrez annuler cela à tout moment.",
+        cancel: "Annuler",
+        confirm: "Retirer",
+        removing: "Retrait en cours…",
+        success: "Personne retirée du foyer",
+        error: "Impossible de retirer la personne. Réessayez.",
+      },
     },
     tasks: {
       name: "Tâche |||| Tâches",
@@ -717,6 +728,9 @@ export const frenchCrmMessages = {
         emptyDescriptionSelfManaged:
           "C'est ici que vivra votre propre parcours de shidduchim. Ajoutez votre fiche pour commencer à suivre les propositions.",
         noMatches: "Aucun célibataire ne correspond à cette recherche.",
+        filter: {
+          past: "Membres passés",
+        },
       },
       loginInvite: {
         action: "Donner à %{name} son propre accès",
