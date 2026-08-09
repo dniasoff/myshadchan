@@ -41,12 +41,28 @@ export const DeleteDataDialog = () => {
       setLoading(true);
 
       // Call the delete_account_data RPC function
+      // First get the current context ID (account_id)
+      const { data: contextData } = await dataProvider.custom({
+        url: "/rpc/current_context_id",
+        options: {
+          method: "POST",
+        },
+      });
+      const accountId = contextData ?? null;
+
+      if (!accountId) {
+        notify("Error: Unable to determine account context", { type: "error" });
+        setStep("request");
+        setLoading(false);
+        return;
+      }
+
       const { data } = await dataProvider.custom({
         url: "/rpc/delete_account_data",
         options: {
           method: "POST",
           body: JSON.stringify({
-            p_account_id: identity.account_id, // Assuming identity has account_id
+            p_account_id: accountId,
             p_requested_by_auth_uid: identity.id,
             p_include_export: includeExport,
           }),
