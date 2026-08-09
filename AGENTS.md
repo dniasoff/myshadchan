@@ -265,5 +265,5 @@ When modifying an entity's data structures (e.g. `shidduchim`, `references`):
 - The codebase is intentionally small (~15,000 LOC in `src/components/atomic-crm`) for easy customization
 - Modify files in `src/components/admin` and `src/components/ui` directly - they are meant to be customized
 - Unit tests can be added in the `src/` directory (test files are named `*.test.ts` or `*.test.tsx`)
-- User deletion is not supported to avoid data loss; use account disabling instead
+- User deletion is now supported via the account deletion workflow (see Story 14.2)
 - Filter operators must be supported by the `supabaseAdapter` when using FakeRest

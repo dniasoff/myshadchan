@@ -1428,7 +1428,127 @@ CREATE OR REPLACE FUNCTION "public"."role_authority"("p_role" "text") RETURNS in
     when 'single' then 1
     when 'shadchan' then 1
     else 0
-  end;
+end;
+
+-- Story 14.2: Account deletion function
+-- Performs full account deletion: export (if requested), storage cleanup, tenant table purging
+CREATE OR REPLACE FUNCTION "public"."delete_account_data"(
+    p_account_id bigint,
+    p_requested_by_auth_uid uuid,
+    p_include_export boolean default false
+) RETURNS jsonb
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+    v_account_id bigint := p_account_id;
+    v_requested_by_auth_uid uuid := p_requested_by_auth_uid;
+    v_include_export boolean := p_include_export;
+    v_export_data jsonb;
+    v_result jsonb := '{}'::jsonb;
+    v_table record;
+    v_rows jsonb;
+    v_error text;
+begin
+    -- Verify service_role caller (this function should only be called by Workers)
+    if current_user <> 'postgres' then
+        raise exception 'delete_account_data: must be called as service_role'
+            using errcode = 'insufficient_privilege';
+    end if;
+
+    -- Optional: Export account data before deletion
+    if v_include_export then
+        v_export_data := public.export_full_account_bundle();
+        v_result := jsonb_set(v_result, '{export}', v_export_data);
+    end if;
+
+    -- Delete storage objects (documents, entity-files, attachments buckets)
+    begin
+        -- Delete document storage (resumes and photos)
+        perform supabase_remove_storage_objects(
+            'documents',
+            array(
+                select 'resumes/' || files->>0->>'path'
+                from (
+                    select jsonb_array_elements(files) as files
+                    from public.resumes
+                    where account_id = v_account_id
+                        and files is not null
+                ) files_table
+                where files ? 'path'
+            ) || array(
+                select path
+                from public.resume_photos
+                where account_id = v_account_id
+                    and path is not null
+            )
+        );
+
+        -- Delete entity file storage
+        perform supabase_remove_storage_objects(
+            'entity-files',
+            array(
+                select storage_path
+                from public.entity_files
+                where account_id = v_account_id
+                    and storage_path is not null
+            )
+        );
+
+        -- Delete attachment storage (inbox capture attachments)
+        perform supabase_remove_storage_objects(
+            'attachments',
+            array(
+                select (jsonb_array_elements(attachments))->>'path'
+                from public.inbox_items
+                where account_id = v_account_id
+                    and attachments is not null
+                    and jsonb_typeof(attachments) = 'array'
+            )
+        );
+    exception
+        when others then
+            v_error := sqlerrm;
+            v_result := jsonb_set(v_result, '{storage_error}', to_jsonb(v_error));
+    end;
+
+    -- Delete from all tenant tables (tables with account_id column)
+    for v_table in select * from public.get_tenant_tables() loop
+        begin
+            execute format(
+                'delete from public.%I where account_id = $1',
+                v_table.table_name
+            ) using v_account_id;
+        exception
+            when others then
+                -- Continue with other tables even if one fails
+                v_error := sqlerrm;
+                v_result := jsonb_set(
+                    v_result,
+                    format('{table_errors,%s}', v_table.table_name),
+                    to_jsonb(v_error)
+                );
+        end;
+    end loop;
+
+    -- Note: subscription and message_notifications tables have ON DELETE CASCADE
+    -- on account_id, so they will be automatically deleted when the account row is deleted
+
+    -- Delete the account row itself (this will trigger ON DELETE CASCADE for related tables)
+    delete from public.accounts
+    where id = v_account_id
+    returning id into v_account_id;
+
+    if not found then
+        raise exception 'account not found for deletion: %', p_account_id
+            using errcode = 'no_data';
+    end if;
+
+    v_result := jsonb_set(v_result, '{deleted_account_id}', to_jsonb(v_account_id));
+    v_result := jsonb_set(v_result, '{status}', to_jsonb('completed'));
+
+    return v_result;
+end;
 $$;
 
 -- The shared "may this role send invites at all" predicate (AC-3) — the
@@ -6672,7 +6792,152 @@ begin
     'data', v_data,
     'files', v_files
   );
-  return v_bundle;
+   return v_bundle;
+end;
+$$;
+
+-- Story 14.2: Account deletion function
+-- Performs full account deletion: export (if requested), storage cleanup, tenant table purging
+CREATE OR REPLACE FUNCTION "public"."delete_account_data"(
+    p_account_id bigint,
+    p_requested_by_auth_uid uuid,
+    p_include_export boolean default false
+) RETURNS jsonb
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+    v_account_id bigint := p_account_id;
+    v_requested_by_auth_uid uuid := p_requested_by_auth_uid;
+    v_include_export boolean := p_include_export;
+    v_export_data jsonb;
+    v_result jsonb := '{}'::jsonb;
+    v_table record;
+    v_rows jsonb;
+    v_error text;
+begin
+    -- Verify service_role caller (this function should only be called by Workers)
+    if current_user <> 'postgres' then
+        raise exception 'delete_account_data: must be called as service_role'
+            using errcode = 'insufficient_privilege';
+    end if;
+
+    -- Optional: Export account data before deletion
+    if v_include_export then
+        v_export_data := public.export_full_account_bundle();
+        v_result := jsonb_set(v_result, '{export}', v_export_data);
+    end if;
+
+    -- Delete storage objects (documents, entity-files, attachments buckets)
+    begin
+        -- Delete document storage (resumes and photos)
+        perform supabase_remove_storage_objects(
+            'documents',
+            array(
+                select 'resumes/' || files->>0->>'path'
+                from (
+                    select jsonb_array_elements(files) as files
+                    from public.resumes
+                    where account_id = v_account_id
+                        and files is not null
+                ) files_table
+                where files ? 'path'
+            ) || array(
+                select path
+                from public.resume_photos
+                where account_id = v_account_id
+                    and path is not null
+            )
+        );
+
+        -- Delete entity file storage
+        perform supabase_remove_storage_objects(
+            'entity-files',
+            array(
+                select storage_path
+                from public.entity_files
+                where account_id = v_account_id
+                    and storage_path is not null
+            )
+        );
+
+        -- Delete attachment storage (inbox capture attachments)
+        perform supabase_remove_storage_objects(
+            'attachments',
+            array(
+                select (jsonb_array_elements(attachments))->>'path'
+                from public.inbox_items
+                where account_id = v_account_id
+                    and attachments is not null
+                    and jsonb_typeof(attachments) = 'array'
+            )
+        );
+    exception
+        when others then
+            v_error := sqlerrm;
+            v_result := jsonb_set(v_result, '{storage_error}', to_jsonb(v_error));
+    end;
+
+    -- Delete from all tenant tables (tables with account_id column)
+    for v_table in select * from public.get_tenant_tables() loop
+        begin
+            execute format(
+                'delete from public.%I where account_id = $1',
+                v_table.table_name
+            ) using v_account_id;
+        exception
+            when others then
+                -- Continue with other tables even if one fails
+                v_error := sqlerrm;
+                v_result := jsonb_set(
+                    v_result,
+                    format('{table_errors,%s}', v_table.table_name),
+                    to_jsonb(v_error)
+                );
+        end;
+    end loop;
+
+    -- Note: subscription and message_notifications tables have ON DELETE CASCADE
+    -- on account_id, so they will be automatically deleted when the account row is deleted
+
+    -- Delete the account row itself (this will trigger ON DELETE CASCADE for related tables)
+    delete from public.accounts
+    where id = v_account_id
+    returning id into v_account_id;
+
+    if not found then
+        raise exception 'account not found for deletion: %', p_account_id
+            using errcode = 'no_data';
+    end if;
+
+    v_result := jsonb_set(v_result, '{deleted_account_id}', to_jsonb(v_account_id));
+    v_result := jsonb_set(v_result, '{status}', to_jsonb('completed'));
+
+    return v_result;
+end;
+$$;
+
+-- Helper function to delete storage objects from a bucket
+CREATE OR REPLACE FUNCTION "public"."supabase_remove_storage_objects"(
+    p_bucket text,
+    p_paths text[]
+) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+    v_path text;
+begin
+    if p_paths is null or array_length(p_paths, 1) = 0 then
+        return;
+    end if;
+
+    foreach v_path in array p_paths loop
+        delete from storage.objects
+        where bucket_id = p_bucket
+            and name = v_path
+            and (select auth.uid()) is null;  -- Bypass RLS as service_role
+    end loop;
 end;
 $$;
 
