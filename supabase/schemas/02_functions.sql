@@ -3471,12 +3471,28 @@ $$;
 -- claim_ai_parse_attempt() (the atomic reservation, below) so the two can
 -- never silently disagree — see Epic 11 Findings 6/7 closure. STABLE, not
 -- IMMUTABLE: reserves room for a future per-plan or per-account limit
--- without changing either caller's call shape; today it is a pure constant.
+-- without changing either caller's call shape; today it reads from the
+-- configuration singleton so the monthly allowance is operationally tunable
+-- without a code change (NFR-11). The configuration key is
+-- `ai_monthly_resume_limit`; if absent or invalid, falls back to 100.
 CREATE OR REPLACE FUNCTION "public"."ai_monthly_resume_limit"() RETURNS integer
-    LANGUAGE "sql" STABLE
+    LANGUAGE "plpgsql" STABLE
     SET "search_path" TO ''
     AS $$
-  select 100;
+declare
+  v_limit integer;
+begin
+  select coalesce((config->>'ai_monthly_resume_limit')::integer, 100)
+    into v_limit
+  from public.configuration
+  where id = 1;
+
+  if v_limit is null or v_limit < 0 then
+    v_limit := 100;
+  end if;
+
+  return v_limit;
+end;
 $$;
 
 -- The entitlement DECISION ("is this account, by id, on the paid AI tier and

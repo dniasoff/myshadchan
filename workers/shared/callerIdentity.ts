@@ -87,3 +87,12 @@ export function deriveIpKey(ipHeader: string | null | undefined): string {
 export function truncateCallerKey(callerKey: string): string {
   return callerKey.slice(0, CALLER_KEY_PREFIX_LENGTH);
 }
+
+/**
+ * Derive a rate-limit bucket key from a share-link token. Used for
+ * per-token bounding (PRV-8) — each issued token gets its own independent
+ * bucket. The token itself is the bucket key, prefixed for namespacing.
+ */
+export function deriveTokenKey(token: string): string {
+  return `token:${token}`;
+}
