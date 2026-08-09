@@ -5,8 +5,11 @@
 
 -- Enable RLS on all tables
 alter table public.members enable row level security;
+alter table public.members force row level security;
 alter table public.tasks enable row level security;
+alter table public.tasks force row level security;
 alter table public.configuration enable row level security;
+alter table public.configuration force row level security;
 
 -- Members (Story 2.2, AC-9): a caller always reads their own row, plus any
 -- other member's profile row that shares an ACTIVE membership of the
@@ -68,22 +71,39 @@ create policy "Enable read for authenticated" on public.configuration for select
 -- with no assigned story (see Story 2.1's Dev Notes).
 
 alter table public.accounts enable row level security;
+alter table public.accounts force row level security;
 alter table public.account_members enable row level security;
+alter table public.account_members force row level security;
 alter table public.member_state enable row level security;
+alter table public.member_state force row level security;
 alter table public.invites enable row level security;
+alter table public.invites force row level security;
 alter table public.singles enable row level security;
+alter table public.singles force row level security;
 alter table public.shadchanim enable row level security;
+alter table public.shadchanim force row level security;
 alter table public."references" enable row level security;
+alter table public."references" force row level security;
 alter table public.shidduchim enable row level security;
+alter table public.shidduchim force row level security;
 alter table public.resumes enable row level security;
+alter table public.resumes force row level security;
 alter table public.resume_photos enable row level security;
+alter table public.resume_photos force row level security;
 alter table public.medical_notes enable row level security;
+alter table public.medical_notes force row level security;
 alter table public.reference_links enable row level security;
+alter table public.reference_links force row level security;
 alter table public.date_records enable row level security;
+alter table public.date_records force row level security;
 alter table public.redts enable row level security;
+alter table public.redts force row level security;
 alter table public.shidduch_schools enable row level security;
+alter table public.shidduch_schools force row level security;
 alter table public.shidduchim_external_links enable row level security;
+alter table public.shidduchim_external_links force row level security;
 alter table public.pipeline_transitions enable row level security;
+alter table public.pipeline_transitions force row level security;
 
 -- Accounts: a member sees every account they hold ANY membership in
 -- (active or not) — a strict superset of "the currently active one", never
@@ -633,7 +653,9 @@ create policy "Pipeline transitions readable" on public.pipeline_transitions
     using (true);
 
 alter table public.interactions enable row level security;
+alter table public.interactions force row level security;
 alter table public.identity_signals enable row level security;
+alter table public.identity_signals force row level security;
 
 -- Interactions carry the candid diligence timeline, so the account floor is not
 -- the whole story (AD-3/F3). An interaction that belongs to a specific
@@ -1084,7 +1106,9 @@ create policy "Identity signals readable within account" on public.identity_sign
 -- Story 6.2 (AC 5) denies the `single` role on both: billing/entitlement is
 -- household-owner business.
 alter table public.subscription enable row level security;
+alter table public.subscription force row level security;
 alter table public.ai_usage enable row level security;
+alter table public.ai_usage force row level security;
 
 create policy "Subscription readable within account" on public.subscription
     for select to authenticated
@@ -1109,6 +1133,7 @@ create policy "AI usage readable within account" on public.ai_usage
 -- service_role-only, which bypass RLS by design. No story needs a client to
 -- read this table directly.
 alter table public.ai_parse_attempts enable row level security;
+alter table public.ai_parse_attempts force row level security;
 
 -- Story 12.4 (AC-3). Same shape as ai_parse_attempts above: RLS enabled,
 -- ZERO client policies — not even SELECT. The webhook that writes it, and
@@ -1117,6 +1142,7 @@ alter table public.ai_parse_attempts enable row level security;
 -- raw Stripe event metadata directly, and there is deliberately no path for
 -- one to try.
 alter table public.stripe_events enable row level security;
+alter table public.stripe_events force row level security;
 
 -- Inbox items (Epic 2): full CRUD within the caller's account. Insert/update
 -- are with-check-scoped so a client can capture (share/upload) and resolve its
@@ -1127,6 +1153,7 @@ alter table public.stripe_events enable row level security;
 -- command. Raw, pre-confirm captures; the least triaged, most candid layer
 -- in the product (AD-6).
 alter table public.inbox_items enable row level security;
+alter table public.inbox_items force row level security;
 
 create policy "Inbox items scoped to account" on public.inbox_items
     for all to authenticated
@@ -1143,16 +1170,9 @@ create policy "Inbox items scoped to account" on public.inbox_items
 -- entity_files is account-scoped like the rest of the domain and, like tasks
 -- (Story 3.14), is NOT household-only: a shadchanus context must be able to
 -- attach files to its own shadchan/shidduch rows from day one (Epic 8.5).
--- Not FORCE ROW LEVEL SECURITY — no OTHER table in this repo has it (a
--- single forced table among these 22 would have diverged for no reason).
--- Story 7.1 is the first to adopt FORCE, on its own four new Communication
--- tables below, with pg_roles.rolbypassrls evidence recorded there.
---
--- Story 6.3 (AC 1) adds the `single` role guard tasks already carries: a
--- Story 3.7 upload is a diligence attachment, candid by construction, with
--- no per-row visibility column to narrow on — no row is safe to expose, so
--- this is a pure narrowing, not a two-policy split.
+-- FORCE ROW LEVEL SECURITY — added by Story 15.3(b) retrofit.
 alter table public.entity_files enable row level security;
+alter table public.entity_files force row level security;
 
 create policy "Entity files scoped to account" on public.entity_files
     for all to authenticated
@@ -1401,6 +1421,7 @@ create policy "Push subscriptions manageable by their own member" on public.push
 alter table public.task_notifications enable row level security;
 alter table public.task_notifications force row level security;
 alter table public.cron_heartbeat enable row level security;
+alter table public.cron_heartbeat force row level security;
 
 -- task_notifications (AC-8): NO policy for `authenticated` at all — the
 -- stricter form of the subscription/ai_usage no-write posture above, which
@@ -1903,6 +1924,7 @@ create policy "Share access log readable by link owner" on public.share_access_l
 -- candid capture layer this table gates). Denies `single` entirely, like
 -- inbox_items, rather than the ownership-only check most other tables use.
 alter table public.trusted_senders enable row level security;
+alter table public.trusted_senders force row level security;
 
 create policy "Trusted senders scoped to account" on public.trusted_senders
     for all to authenticated
