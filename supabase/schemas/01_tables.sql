@@ -1033,19 +1033,6 @@ create table public.subscription (
     -- TRAP" header at the top of this file. Do not reorder these to a more
     -- "logical" grouping without also generating a migration for it.
     last_stripe_event_at timestamp with time zone,
-    -- Trial (FR72): starts on first AI resume parse claim, 14-day window.
-    -- Nullable — only set when the trial is actually started. One trial per
-    -- account: a second claim_ai_parse_attempt() after trial_ends_at has
-    -- passed never re-arms it.
-    trial_started_at timestamp with time zone,
-    trial_ends_at timestamp with time zone,
-    -- Grace window (FR75): on past_due subscription, entitlement continues
-    -- until grace_ends_at. Nullable — only set when a subscription enters
-    -- past_due. Other statuses (unpaid, canceled, incomplete_expired, paused)
-    -- lapse immediately with no grace. Dunning notice sent via Resend (12.2
-    -- transport). Time-driven by cron sweep; an ungraced account is the
-    -- fail-closed outcome if the Worker stops.
-    grace_ends_at timestamp with time zone,
     -- 'manual' = provisioned by hand (service_role, e.g. today's "contact us"
     -- path); 'stripe' = provisioned by the billing webhook. Any future
     -- reconciliation sweep that lapses a subscription with no matching Stripe
@@ -1057,8 +1044,21 @@ create table public.subscription (
     stripe_customer_id text,
     stripe_price_id text,
     stripe_subscription_id text,
+    -- Grace window (FR75): on past_due subscription, entitlement continues
+    -- until grace_ends_at. Nullable — only set when a subscription enters
+    -- past_due. Other statuses (unpaid, canceled, incomplete_expired, paused)
+    -- lapse immediately with no grace. Dunning notice sent via Resend (12.2
+    -- transport). Time-driven by cron sweep; an ungraced account is the
+    -- fail-closed outcome if the Worker stops.
+    grace_ends_at timestamp with time zone,
+    -- Trial (FR72): starts on first AI resume parse claim, 14-day window.
+    -- Nullable — only set when the trial is actually started. One trial per
+    -- account: a second claim_ai_parse_attempt() after trial_ends_at has
+    -- passed never re-arms it.
+    trial_ends_at timestamp with time zone,
+    trial_started_at timestamp with time zone,
     constraint subscription_plan_check check (plan in ('free', 'ai')),
-    constraint subscription_status_check check (status in ('active', 'lapsed', 'none')),
+    constraint subscription_status_check check (status in ('active', 'past_due', 'lapsed', 'none')),
     constraint subscription_provisioning_source_check check (provisioning_source in ('manual', 'stripe'))
 );
 

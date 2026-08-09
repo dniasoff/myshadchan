@@ -14,7 +14,7 @@ import type { ScopedClient } from "../shared/forAccount";
  * silent wrong state.
  */
 export type SubscriptionPlan = "free" | "ai";
-export type SubscriptionStatus = "active" | "lapsed" | "none";
+export type SubscriptionStatus = "active" | "past_due" | "lapsed" | "none";
 
 export interface MappedSubscriptionState {
   plan: SubscriptionPlan;
@@ -26,14 +26,9 @@ const ENTITLED_STRIPE_STATUSES: ReadonlySet<string> = new Set([
   "trialing",
 ]);
 
-// past_due/unpaid/canceled/incomplete_expired/paused all PAUSE entitlement
-// (AC-6's own ruling, recorded so it is not re-litigated mid-build):
-// `past_due` pauses immediately rather than holding a grace window — AD-17
-// is explicit ("fail-closed on the paid AI paths") and the pause is fully
-// reversible: a successful dunning retry emits `customer.subscription.updated`
-// with `status: active`, which flips the row back within seconds.
+// FR75: past_due gets a grace window — map to our 'past_due' status (not 'lapsed').
+// unpaid/canceled/incomplete_expired/paused lapse immediately with no grace.
 const LAPSED_STRIPE_STATUSES: ReadonlySet<string> = new Set([
-  "past_due",
   "unpaid",
   "canceled",
   "incomplete_expired",
@@ -50,6 +45,9 @@ const LAPSED_STRIPE_STATUSES: ReadonlySet<string> = new Set([
 export function mapStripeStatus(status: string): MappedSubscriptionState {
   if (ENTITLED_STRIPE_STATUSES.has(status)) {
     return { plan: "ai", status: "active" };
+  }
+  if (status === "past_due") {
+    return { plan: "ai", status: "past_due" };
   }
   if (LAPSED_STRIPE_STATUSES.has(status)) {
     return { plan: "ai", status: "lapsed" };
@@ -144,6 +142,7 @@ export type SubscriptionPatch = Partial<{
   stripe_subscription_id: string | null;
   stripe_price_id: string | null;
   current_period_end: string | null;
+  grace_ends_at: string | null;
 }> & { last_stripe_event_at: string };
 
 export function applyEvent(event: Stripe.Event): SubscriptionPatch | null {
@@ -214,7 +213,7 @@ export function applyEvent(event: Stripe.Event): SubscriptionPatch | null {
       const subscription = event.data.object as Stripe.Subscription;
       const mapped = mapStripeStatus(subscription.status);
       const item = subscription.items?.data?.[0];
-      return {
+      const patch: SubscriptionPatch = {
         ...mapped,
         stripe_customer_id: stripeIdOf(subscription.customer),
         stripe_subscription_id: subscription.id,
@@ -222,6 +221,11 @@ export function applyEvent(event: Stripe.Event): SubscriptionPatch | null {
         current_period_end: item ? isoOrNull(item.current_period_end) : null,
         last_stripe_event_at: lastStripeEventAt,
       };
+      // FR75: when subscription recovers to active, clear grace_ends_at
+      if (mapped.status === "active") {
+        patch.grace_ends_at = null;
+      }
+      return patch;
     }
 
     // AC-7: a lapse is a pause, never a deletion — this row is UPDATED to

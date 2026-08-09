@@ -3785,13 +3785,29 @@ CREATE OR REPLACE FUNCTION "public"."ai_resume_limit_for_account"("p_account_id"
 declare
   v_plan text;
   v_status text;
+  v_trial_ends_at timestamptz;
+  v_grace_ends_at timestamptz;
 begin
-  select s.plan, s.status
-    into v_plan, v_status
+  select s.plan, s.status, s.trial_ends_at, s.grace_ends_at
+    into v_plan, v_status, v_trial_ends_at, v_grace_ends_at
   from public.subscription s
   where s.account_id = p_account_id;
 
-  if coalesce(v_plan, 'free') = 'ai' and coalesce(v_status, 'none') = 'active' then
+  v_plan := coalesce(v_plan, 'free');
+  v_status := coalesce(v_status, 'none');
+
+  -- Trial (FR72): entitled during trial window (trial_started_at set, now() < trial_ends_at)
+  if v_trial_ends_at is not null and now() < v_trial_ends_at then
+    return public.ai_monthly_resume_limit();
+  end if;
+
+  -- Grace window (FR75): entitled during grace window (status = past_due, grace_ends_at set, now() < grace_ends_at)
+  if v_status = 'past_due' and v_grace_ends_at is not null and now() < v_grace_ends_at then
+    return public.ai_monthly_resume_limit();
+  end if;
+
+  -- Paid active subscription
+  if v_plan = 'ai' and v_status = 'active' then
     return public.ai_monthly_resume_limit();
   end if;
 
@@ -3812,10 +3828,15 @@ declare
   v_account_id bigint;
   v_plan text := 'free';
   v_status text := 'none';
+  v_trial_started_at timestamptz;
+  v_trial_ends_at timestamptz;
+  v_grace_ends_at timestamptz;
   v_is_entitled boolean := false;
   v_resumes_limit integer := 0;
   v_resumes_used integer := 0;
   v_period text := to_char(now(), 'YYYY-MM');
+  v_trial_remaining_days integer;
+  v_grace_remaining_days integer;
 begin
   v_account_id := public.current_context_id();
   if v_account_id is null then
@@ -3824,12 +3845,16 @@ begin
       'plan', 'free',
       'status', 'none',
       'resumes_used', 0,
-      'resumes_limit', 0
+      'resumes_limit', 0,
+      'trial_ends_at', null,
+      'grace_ends_at', null,
+      'trial_remaining_days', null,
+      'grace_remaining_days', null
     );
   end if;
 
-  select s.plan, s.status
-    into v_plan, v_status
+  select s.plan, s.status, s.trial_started_at, s.trial_ends_at, s.grace_ends_at
+    into v_plan, v_status, v_trial_started_at, v_trial_ends_at, v_grace_ends_at
   from public.subscription s
   where s.account_id = v_account_id;
 
@@ -3844,6 +3869,19 @@ begin
   v_resumes_limit := public.ai_resume_limit_for_account(v_account_id);
   v_is_entitled := (v_resumes_limit > 0);
 
+  -- Calculate remaining days for trial and grace (for UI display)
+  if v_trial_ends_at is not null and now() < v_trial_ends_at then
+    v_trial_remaining_days := ceil(extract(epoch from (v_trial_ends_at - now())) / 86400);
+  else
+    v_trial_remaining_days := null;
+  end if;
+
+  if v_grace_ends_at is not null and now() < v_grace_ends_at then
+    v_grace_remaining_days := ceil(extract(epoch from (v_grace_ends_at - now())) / 86400);
+  else
+    v_grace_remaining_days := null;
+  end if;
+
   select coalesce(u.resumes_parsed, 0)
     into v_resumes_used
   from public.ai_usage u
@@ -3856,7 +3894,11 @@ begin
     'plan', v_plan,
     'status', v_status,
     'resumes_used', v_resumes_used,
-    'resumes_limit', v_resumes_limit
+    'resumes_limit', v_resumes_limit,
+    'trial_ends_at', v_trial_ends_at,
+    'grace_ends_at', v_grace_ends_at,
+    'trial_remaining_days', v_trial_remaining_days,
+    'grace_remaining_days', v_grace_remaining_days
   );
 end;
 $$;
@@ -4056,6 +4098,32 @@ begin
       v_needs_reservation := true;
     end if;
   end;
+
+  -- Trial start (FR72): on first AI parse claim (fresh claim), if no trial
+  -- yet and not already entitled, start a 14-day trial. One trial per account
+  -- — a second claim after trial_ends_at has passed never re-arms it.
+  if v_is_fresh_claim and v_needs_reservation then
+    declare
+      v_trial_started_at timestamptz;
+      v_trial_ends_at timestamptz;
+    begin
+      select s.trial_started_at, s.trial_ends_at
+        into v_trial_started_at, v_trial_ends_at
+      from public.subscription s
+      where s.account_id = p_account_id;
+
+      -- Only start trial if: never had a trial (both null), and not currently entitled (limit was 0)
+      if v_trial_started_at is null and v_trial_ends_at is null and v_limit = 0 then
+        update public.subscription
+           set trial_started_at = now(),
+               trial_ends_at = now() + interval '14 days',
+               updated_at = now()
+         where account_id = p_account_id;
+        -- Recalculate limit with trial now active
+        v_limit := public.ai_resume_limit_for_account(p_account_id);
+      end if;
+    end;
+  end if;
 
   if v_needs_reservation then
     -- Atomic reserve-or-refuse: the `WHERE v_limit > 0` on the INSERT's
@@ -6470,5 +6538,127 @@ begin
   end if;
 
   return round(v_total_cost / v_active_accounts, 4);
+end;
+$$;
+
+-- ============================================================================
+-- Story 12.6 (FR75): grace window sweep RPCs — service_role only
+-- These replace direct `.from("subscription")` access in workers/cron/sweepGraceWindow.ts
+-- per AC-10 (no tenant table access in Workers). The cron Worker calls these
+-- RPCs with its service_role key; the functions run SECURITY DEFINER and
+-- assert the caller is service_role (not an authenticated user).
+-- ============================================================================
+
+-- Find all subscriptions with status = 'past_due' that need grace window processing.
+-- Returns one row per subscription needing attention (grace expired or not yet started).
+CREATE OR REPLACE FUNCTION "public"."find_grace_subscriptions"() RETURNS TABLE(
+  account_id bigint,
+  stripe_customer_id text,
+  grace_ends_at timestamptz,
+  status text
+)
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  -- Assert service_role caller
+  if current_user <> 'postgres' then
+    raise exception 'find_grace_subscriptions: must be called as service_role'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  return query
+  select s.account_id, s.stripe_customer_id, s.grace_ends_at, s.status
+  from public.subscription s
+  where s.status = 'past_due';
+end;
+$$;
+
+-- Start a 7-day grace window for a newly past_due subscription.
+-- Returns the new grace_ends_at timestamp on success.
+CREATE OR REPLACE FUNCTION "public"."start_grace_window"(
+  p_account_id bigint,
+  p_grace_days integer DEFAULT 7
+) RETURNS timestamptz
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_grace_ends_at timestamptz;
+begin
+  -- Assert service_role caller
+  if current_user <> 'postgres' then
+    raise exception 'start_grace_window: must be called as service_role'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  update public.subscription
+  set grace_ends_at = now() + (p_grace_days || ' days')::interval,
+      updated_at = now()
+  where account_id = p_account_id
+    and status = 'past_due'
+    and grace_ends_at is null
+  returning grace_ends_at into v_grace_ends_at;
+
+  if not found then
+    raise exception 'no subscription found to start grace window for account %', p_account_id
+      using errcode = 'no_data';
+  end if;
+
+  return v_grace_ends_at;
+end;
+$$;
+
+-- Lapse a subscription whose grace window has expired.
+-- Sets status = 'lapsed' where grace_ends_at < now().
+CREATE OR REPLACE FUNCTION "public"."lapse_grace_subscription"(
+  p_account_id bigint
+) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  -- Assert service_role caller
+  if current_user <> 'postgres' then
+    raise exception 'lapse_grace_subscription: must be called as service_role'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  update public.subscription
+  set status = 'lapsed', updated_at = now()
+  where account_id = p_account_id
+    and status = 'past_due'
+    and grace_ends_at is not null
+    and grace_ends_at < now();
+
+  if not found then
+    raise exception 'no subscription found to lapse for account %', p_account_id
+      using errcode = 'no_data';
+  end if;
+end;
+$$;
+
+-- Get the parent_admin email for a given account (for dunning emails).
+-- Service_role only — no RLS check needed since we're already in SECURITY DEFINER.
+CREATE OR REPLACE FUNCTION "public"."get_account_owner_email"(
+  p_account_id bigint
+) RETURNS TABLE(email text)
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if current_user <> 'postgres' then
+    raise exception 'get_account_owner_email: must be called as service_role'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  return query
+  select m.email
+  from public.account_members am
+  join public.members m on m.user_id = am.user_id
+  where am.account_id = p_account_id
+    and am.status = 'active'
+    and am.role = 'parent_admin'
+  limit 1;
 end;
 $$;

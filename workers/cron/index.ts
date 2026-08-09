@@ -3,40 +3,40 @@ import { createWorkerApp } from "../shared/createApp";
 import type { BaseEnv } from "../shared/env";
 import { summarizeErrorForLog } from "../shared/safeLog";
 import { sweepAiParseAttempts } from "./sweepAiParseAttempts";
+import { sweepGraceWindow } from "./sweepGraceWindow";
 import { sweepReminders, SweepRemindersError } from "./sweepReminders";
 import type { CronEnv, SweepRemindersErrorCode } from "./sweepReminders";
 import { alertOnSilence, createErrorAlerter } from "../shared/alerting";
 
-// This Worker's `scheduled()` handler fires on TWO independent cron
+// This Worker's `scheduled()` handler fires on THREE independent cron
 // schedules, declared together in wrangler.toml's `[triggers]` (Cloudflare
 // dispatches every schedule in that array to the SAME `scheduled()` export,
 // distinguished at runtime by `event.cron`):
 //
 //   - REMINDER_SWEEP_CRON ("*/15 * * * *"): Story 12.2's reminder-delivery
 //     sweep (AD-13) — sweepReminders.ts, claiming due/overdue tasks and
-//     emailing their owner. This is the branch this story wires in below;
-//     until this story landed it was a bare stub (see git history for
-//     workers/cron/wrangler.toml's own long-standing header comment on why
-//     it stayed unarmed — the AC-4 backfill migration that suppresses the
-//     pre-existing overdue backlog had not shipped yet).
-//   - every other scheduled tick (currently just "0 3 * * *"): R2 (Epic 11
-//     external review, Finding 11 closure)'s daily PII-retention sweep,
-//     sweepAiParseAttempts() — unchanged by this story.
+//     emailing their owner.
+//   - GRACE_SWEEP_CRON ("0 3 * * *"): Story 12.6's grace window sweep
+//     (FR75) — lapses expired grace windows, starts new ones for freshly
+//     past_due subscriptions, sends dunning emails.
+//   - every other scheduled tick: R2 (Epic 11 external review, Finding 11
+//     closure)'s daily PII-retention sweep, sweepAiParseAttempts().
 //
 // Story 7.5 ("Communication", the post-Amendment-A2 Epic 7) will eventually
-// add a THIRD concern — sweepMessages.ts, queued message notifications —
+// add a FOURTH concern — sweepMessages.ts, queued message notifications —
 // sharing this same Worker and this same scheduled() tick, per that story's
 // own Dev Notes ("The AD-13 'E7' naming trap"). Not wired here: this
 // story's declared file set does not include it.
 const app = createWorkerApp<BaseEnv>("cron");
 
-// Kept as an exported constant, not a literal repeated in two places, so
+// Kept as exported constants, not literals repeated in two places, so
 // this file's own branch below and wrangler.toml's `[triggers]` entry
 // cannot silently drift apart — a mismatch here would mean the reminders
 // sweep either never fires (wrong string) or fires on every tick, including
-// the retention sweep's, undermining that sweep's own daily-ish cadence
-// rationale (wrangler.toml's header comment).
+// the grace/retention sweeps, undermining their own cadence rationale
+// (wrangler.toml's header comment).
 export const REMINDER_SWEEP_CRON = "*/15 * * * *";
+export const GRACE_SWEEP_CRON = "0 3 * * *";
 
 function getServiceRoleClient(env: BaseEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
@@ -122,7 +122,22 @@ export default {
       return;
     }
 
-    console.warn("[cron] sweep tick");
+    if (event.cron === GRACE_SWEEP_CRON) {
+      try {
+        const result = await sweepGraceWindow(env);
+        console.warn("[cron] sweepGraceWindow.ok", result);
+      } catch (error) {
+        console.error(
+          "[cron] sweepGraceWindow.failed",
+          summarizeErrorForLog(error),
+        );
+        await alerter(error, "critical");
+        throw error;
+      }
+      return;
+    }
+
+    console.warn("[cron] sweepAiParseAttempts tick");
 
     const result = await sweepAiParseAttempts(env);
     if (result.ok) {
