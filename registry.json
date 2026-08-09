@@ -1708,6 +1708,10 @@
           "type": "registry:lib"
         },
         {
+          "path": "src/lib/alerting.ts",
+          "type": "registry:lib"
+        },
+        {
           "path": "CHANGELOG.md",
           "type": "registry:file",
           "target": "~/CHANGELOG.md"

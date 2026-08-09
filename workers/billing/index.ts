@@ -10,7 +10,6 @@ import {
 import { ok, fail } from "../shared/envelope";
 import type { BaseEnv } from "../shared/env";
 import { forAccount } from "../shared/forAccount";
-import { summarizeErrorForLog } from "../shared/safeLog";
 import { appReturnUrl, isEligibleForBilling } from "./checkoutHelpers";
 import {
   claimStripeEvent,
@@ -24,6 +23,7 @@ import {
   isLiveStripeSecretKey,
   stripeIdOf,
 } from "./subscriptionState";
+import { alertOnSilence, createErrorAlerter } from "../shared/alerting";
 
 // Story 12.4: Stripe billing. Checkout + a signature-verified, idempotent
 // Stripe webhook syncing `public.subscription` and `public.stripe_events` —
@@ -82,6 +82,9 @@ const CheckoutBodySchema = z.object({
  * payment entitles the same context that was active at checkout.
  */
 app.post("/checkout", async (c) => {
+  const requestId = crypto.randomUUID();
+  const alerter = createErrorAlerter(c.env, "billing", "/checkout", requestId);
+
   const authHeader = c.req.header("Authorization");
   if (!authHeader) {
     return c.json(fail("missing Authorization header"), 401);
@@ -90,11 +93,13 @@ app.post("/checkout", async (c) => {
   let rawBody: unknown;
   try {
     rawBody = await c.req.json();
-  } catch {
+  } catch (error) {
+    await alerter(error, "warning");
     return c.json(fail("invalid request body"), 400);
   }
   const bodyResult = CheckoutBodySchema.safeParse(rawBody);
   if (!bodyResult.success) {
+    await alerter(new Error("invalid request body"), "warning");
     return c.json(fail("invalid request body"), 400);
   }
 
@@ -109,6 +114,7 @@ app.post("/checkout", async (c) => {
       ? STRIPE_PRICE_ID_QUARTERLY
       : STRIPE_PRICE_ID_YEARLY;
   if (!STRIPE_SECRET_KEY || !APP_ORIGIN || !priceId) {
+    await alerter(new Error("billing not configured"), "critical");
     return c.json(fail("billing not configured"), 500);
   }
 
@@ -117,11 +123,13 @@ app.post("/checkout", async (c) => {
     await supabase.rpc("current_context_id");
   const accountId = accountIdRaw as number | null;
   if (contextError || accountId == null) {
+    await alerter(contextError ?? new Error("no active context"), "warning");
     return c.json(fail("no active context"), 403);
   }
 
   const eligibility = await isEligibleForBilling(supabase);
   if (!eligibility.eligible) {
+    await alerter(new Error(eligibility.message), "warning");
     return c.json(fail(eligibility.message), 403);
   }
 
@@ -141,6 +149,7 @@ app.post("/checkout", async (c) => {
     error: { message: string } | null;
   };
   if (selectError) {
+    await alerter(new Error(selectError.message), "critical");
     return c.json(fail("failed to look up subscription"), 500);
   }
   const existingCustomerId = existing?.stripe_customer_id ?? undefined;
@@ -173,7 +182,8 @@ app.post("/checkout", async (c) => {
         { metadata: { account_id: String(accountId) } },
         { idempotencyKey: `billing-customer-account-${accountId}` },
       );
-    } catch {
+    } catch (error) {
+      await alerter(error, "critical");
       return c.json(fail("failed to create customer"), 500);
     }
     customerId = customer.id;
@@ -188,6 +198,7 @@ app.post("/checkout", async (c) => {
       .from("subscription")
       .upsert({ stripe_customer_id: customerId }, { onConflict: "account_id" });
     if (upsertError) {
+      await alerter(new Error(upsertError.message), "critical");
       return c.json(fail("failed to persist stripe customer"), 500);
     }
   }
@@ -203,11 +214,13 @@ app.post("/checkout", async (c) => {
       success_url: appReturnUrl(APP_ORIGIN, "/billing?checkout=success"),
       cancel_url: appReturnUrl(APP_ORIGIN, "/billing?checkout=cancelled"),
     });
-  } catch {
+  } catch (error) {
+    await alerter(error, "critical");
     return c.json(fail("failed to create checkout session"), 500);
   }
 
   if (!session.url) {
+    await alerter(new Error("failed to create checkout session"), "critical");
     return c.json(fail("failed to create checkout session"), 500);
   }
 
@@ -273,6 +286,9 @@ app.post("/portal", async (c) => {
  * server-to-server.
  */
 app.post("/webhook", async (c) => {
+  const requestId = crypto.randomUUID();
+  const alerter = createErrorAlerter(c.env, "billing", "/webhook", requestId);
+
   const sig = c.req.header("stripe-signature");
   if (!sig) {
     return c.json(fail("missing stripe-signature header"), 400);
@@ -299,11 +315,23 @@ app.post("/webhook", async (c) => {
       undefined,
       Stripe.createSubtleCryptoProvider(),
     );
-  } catch {
+  } catch (error) {
     // Signature mismatch or a stale timestamp — NO database call of any
     // kind happens above this line.
+    await alerter(error, "warning");
     return c.json(fail("invalid signature"), 400);
   }
+
+  // Emit silence-detection heartbeat for Stripe webhook
+  c.executionCtx.waitUntil(
+    alertOnSilence(
+      c.env,
+      "stripe-webhook",
+      60,
+      new Date().toISOString(),
+      "billing",
+    ),
+  );
 
   // Review fix (B1): mode is an ENFORCED invariant, checked before any
   // database call — never merely stored for later audit. A mismatched event
@@ -319,11 +347,13 @@ app.post("/webhook", async (c) => {
       c.env,
     );
     if (claimed.outcome === "error") {
+      await alerter(new Error("failed to record webhook event"), "critical");
       return c.json(fail("failed to record webhook event"), 500);
     }
     if (claimed.outcome !== "done") {
       const marked = await markStripeEventDone(event.id, null, c.env);
       if (!marked.ok) {
+        await alerter(new Error("failed to record webhook event"), "critical");
         return c.json(fail("failed to record webhook event"), 500);
       }
     }
@@ -348,6 +378,7 @@ app.post("/webhook", async (c) => {
     c.env,
   );
   if (claimed.outcome === "error") {
+    await alerter(new Error("failed to record webhook event"), "critical");
     return c.json(fail("failed to record webhook event"), 500);
   }
   if (claimed.outcome === "done") {
@@ -384,10 +415,7 @@ app.post("/webhook", async (c) => {
         // 'received' (never marked done), so a Stripe redelivery of this
         // SAME event id reprocesses from scratch instead of being told it
         // was already handled.
-        console.error(
-          "billing.webhook.resolveAccountFailed",
-          summarizeErrorForLog(new Error(resolution.message)),
-        );
+        await alerter(new Error(resolution.message), "critical");
         return c.json(fail("failed to resolve account"), 500);
       }
       accountId = resolution.outcome === "found" ? resolution.accountId : null;
@@ -401,6 +429,7 @@ app.post("/webhook", async (c) => {
   if (accountId === null) {
     const marked = await markStripeEventDone(event.id, null, c.env);
     if (!marked.ok) {
+      await alerter(new Error("failed to record webhook event"), "critical");
       return c.json(fail("failed to record webhook event"), 500);
     }
     return c.json(ok({ ignored: true }));
@@ -412,6 +441,7 @@ app.post("/webhook", async (c) => {
   if (!isHandledStripeEventType(event.type)) {
     const marked = await markStripeEventDone(event.id, accountId, c.env);
     if (!marked.ok) {
+      await alerter(new Error("failed to record webhook event"), "critical");
       return c.json(fail("failed to record webhook event"), 500);
     }
     return c.json(ok({ handled: false }));
@@ -426,6 +456,7 @@ app.post("/webhook", async (c) => {
     // retry loop over a defect that would need a code fix either way.
     const marked = await markStripeEventDone(event.id, accountId, c.env);
     if (!marked.ok) {
+      await alerter(new Error("failed to record webhook event"), "critical");
       return c.json(fail("failed to record webhook event"), 500);
     }
     return c.json(ok({ handled: false }));
@@ -448,6 +479,7 @@ app.post("/webhook", async (c) => {
     // Review fix (B2): the ledger row is deliberately left at status
     // 'received' here — NOT marked done — so a Stripe retry of this exact
     // event id reprocesses the mutation instead of being deduped past it.
+    await alerter(new Error("failed to update subscription"), "critical");
     return c.json(fail("failed to update subscription"), 500);
   }
 
@@ -456,6 +488,7 @@ app.post("/webhook", async (c) => {
   // already won the ordering guard, which is not a failure to retry.
   const marked = await markStripeEventDone(event.id, accountId, c.env);
   if (!marked.ok) {
+    await alerter(new Error("failed to record webhook event"), "critical");
     return c.json(fail("failed to record webhook event"), 500);
   }
 

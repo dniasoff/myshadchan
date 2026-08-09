@@ -5,6 +5,7 @@ import { summarizeErrorForLog } from "../shared/safeLog";
 import { sweepAiParseAttempts } from "./sweepAiParseAttempts";
 import { sweepReminders, SweepRemindersError } from "./sweepReminders";
 import type { CronEnv, SweepRemindersErrorCode } from "./sweepReminders";
+import { alertOnSilence, createErrorAlerter } from "../shared/alerting";
 
 // This Worker's `scheduled()` handler fires on TWO independent cron
 // schedules, declared together in wrangler.toml's `[triggers]` (Cloudflare
@@ -92,21 +93,30 @@ async function recordHeartbeat(
 
 export default {
   fetch: app.fetch,
-  async scheduled(event: ScheduledEvent, env: BaseEnv, _ctx: ExecutionContext) {
+  async scheduled(event: ScheduledEvent, env: BaseEnv, ctx: ExecutionContext) {
+    const requestId = crypto.randomUUID();
+    const alerter = createErrorAlerter(env, "cron", "scheduled", requestId);
+
     if (event.cron === REMINDER_SWEEP_CRON) {
       try {
         const result = await sweepReminders(env as CronEnv);
         console.warn("[cron] sweepReminders.ok", result);
         await recordHeartbeat(env, null, result.failed);
+
+        ctx.waitUntil(
+          alertOnSilence(
+            env,
+            "reminder-sweep",
+            15,
+            new Date().toISOString(),
+            "cron",
+          ),
+        );
       } catch (error) {
         const code =
           error instanceof SweepRemindersError ? error.code : "unknown";
         await recordHeartbeat(env, code);
-        // Rethrown deliberately (unlike sweepAiParseAttempts below): a
-        // failed reminders tick should surface as a failed Worker
-        // invocation, visible to Cloudflare's own retry/alerting, not just
-        // swallowed into this Worker's own logs — cron_heartbeat already
-        // carries the bounded reason for anyone reading Settings.
+        await alerter(error, "critical");
         throw error;
       }
       return;
@@ -114,12 +124,6 @@ export default {
 
     console.warn("[cron] sweep tick");
 
-    // R2/Finding 11 closure: sweepAiParseAttempts() never throws (see its
-    // own header) — it reduces every failure to `{ ok: false }` and logs the
-    // failure itself via summarizeErrorForLog before returning, so a bad
-    // tick here can never take down a later one. Only the row COUNT is
-    // logged on success; the swept rows themselves carry PII (names,
-    // schools, reference contact details) and are never logged.
     const result = await sweepAiParseAttempts(env);
     if (result.ok) {
       console.warn("[cron] sweepAiParseAttempts.ok", {
