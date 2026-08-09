@@ -37,6 +37,8 @@ const buildCreatedLink = (overrides: Partial<ShareLink> = {}): ShareLink => ({
   include_photo: false,
   expires_at: new Date(Date.now() + 7 * DAY_MS).toISOString(),
   created_at: new Date().toISOString(),
+  recipient_name: "Test Recipient",
+  watermark: false,
   ...overrides,
 });
 

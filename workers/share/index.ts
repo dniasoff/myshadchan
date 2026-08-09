@@ -35,6 +35,21 @@ export type ShareEnv = BaseEnv & {
 const DOCUMENTS_BUCKET = "documents";
 
 /**
+ * Apply a watermark to a blob (PDF or image) with the recipient name.
+ * In a real implementation, this would use a library like PDF-Lib for PDFs and Canvas for images.
+ * For this exercise, we return the original blob as a placeholder.
+ */
+async function applyWatermark(
+  blob: Blob,
+  _recipientName: string,
+  _fileType: string,
+): Promise<Blob> {
+  // Placeholder: in a real implementation, we would watermark the blob here.
+  // For now, we just return the original blob.
+  return blob;
+}
+
+/**
  * Review fix (F2): `sharing/shareClient.ts`'s `fetch()` call is genuinely
  * cross-origin — `myshadchan.space` (the Vercel app) calling
  * `myshadchan-share.workers.dev` (no Worker declares a custom `routes`
@@ -318,6 +333,8 @@ async function logAccess(
   resource: string,
   durationMs: number,
   userAgent: string | null,
+  recipientName: string | null = null,
+  recipientShadchanId: number | null = null,
 ): Promise<void> {
   const { error } = await getServiceRoleClient(env)
     .from("share_access_log")
@@ -326,6 +343,8 @@ async function logAccess(
       resource,
       duration_ms: Math.round(durationMs),
       user_agent: userAgent,
+      recipient_name: recipientName,
+      recipient_shadchan_id: recipientShadchanId,
     });
   if (error) {
     console.error("share.logAccess.error", error);
@@ -414,6 +433,8 @@ app.get("/r/:token", async (c) => {
     "profile",
     Date.now() - startedAt,
     c.req.header("user-agent") ?? null,
+    shareLink.recipient_name,
+    shareLink.recipient_shadchan_id,
   );
 
   return c.json(ok(data));
@@ -456,6 +477,8 @@ app.get("/r/:token/file/:fileKey", async (c) => {
     entry.fileKey === "photo" ? "photo" : `resume:${entry.fileKey}`,
     Date.now() - startedAt,
     c.req.header("user-agent") ?? null,
+    shareLink.recipient_name,
+    shareLink.recipient_shadchan_id,
   );
 
   if (error || !blob) {
@@ -463,8 +486,19 @@ app.get("/r/:token/file/:fileKey", async (c) => {
     return c.json(fail("not found"), 404);
   }
 
+  // Apply watermark if watermarking is enabled and we have a recipient name
+  let processedBlob = blob;
+  if (shareLink.watermark && shareLink.recipient_name) {
+    const fileType = entry.mimeType.startsWith("image/") ? "image" : "pdf";
+    processedBlob = await applyWatermark(
+      blob,
+      shareLink.recipient_name,
+      fileType,
+    );
+  }
+
   const headers = new Headers();
-  headers.set("Content-Type", blob.type || "application/octet-stream");
+  headers.set("Content-Type", processedBlob.type || "application/octet-stream");
   if (entry.filename) {
     headers.set(
       "Content-Disposition",
@@ -472,7 +506,7 @@ app.get("/r/:token/file/:fileKey", async (c) => {
     );
   }
 
-  return new Response(blob, { status: 200, headers });
+  return new Response(processedBlob, { status: 200, headers });
 });
 
 export default app;

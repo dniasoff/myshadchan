@@ -904,11 +904,11 @@ export type ShidduchCatch = {
 export type SubscriptionPlan = "free" | "ai";
 
 /**
- * 'active' = entitled and paid; 'lapsed' = was paid, now expired (a graceful
- * pause — AI auto-fill stops, nothing is lost, the free manual path stays);
- * 'none' = never subscribed.
+ * 'active' = entitled and paid; 'past_due' = payment failed, grace window active;
+ * 'lapsed' = was paid, now expired (a graceful pause — AI auto-fill stops,
+ * nothing is lost, the free manual path stays); 'none' = never subscribed.
  */
-export type SubscriptionStatus = "active" | "lapsed" | "none";
+export type SubscriptionStatus = "active" | "past_due" | "lapsed" | "none";
 
 /**
  * The server-authoritative entitlement payload returned by the ai_entitlement()
@@ -917,6 +917,9 @@ export type SubscriptionStatus = "active" | "lapsed" | "none";
  * SELECT-only `subscription` table, so a modified client cannot forge it; the
  * matching field names mirror the jsonb the function returns. `resumes_used /
  * resumes_limit` back the calm usage meter (free tier gets a limit of 0).
+ * Trial/grace fields (FR72, FR75): `trial_ends_at`/`grace_ends_at` are the
+ * absolute expiry timestamps; `trial_remaining_days`/`grace_remaining_days`
+ * are precomputed for UI display (null when not in that window).
  */
 export type AiEntitlementInfo = {
   is_entitled: boolean;
@@ -924,6 +927,10 @@ export type AiEntitlementInfo = {
   status: SubscriptionStatus;
   resumes_used: number;
   resumes_limit: number;
+  trial_ends_at?: string | null;
+  grace_ends_at?: string | null;
+  trial_remaining_days?: number | null;
+  grace_remaining_days?: number | null;
 };
 
 export type LinkReferenceInput = {
@@ -1465,6 +1472,8 @@ export type ShareLink = {
   include_photo: boolean;
   expires_at: string;
   revoked_at?: string | null;
+  recipient_name: string;
+  watermark: boolean;
   created_at: string;
 } & Pick<RaRecord, "id">;
 
@@ -1483,4 +1492,6 @@ export type ShareAccessLog = {
   ip_hash?: string | null;
   user_agent?: string | null;
   duration_ms?: number | null;
+  recipient_name?: string;
+  recipient_shadchan_id?: Identifier | null;
 } & Pick<RaRecord, "id">;

@@ -30,6 +30,8 @@ const buildLink = (overrides: Partial<ShareLink> = {}): ShareLink => ({
   expires_at: new Date(Date.now() + 7 * DAY_MS).toISOString(),
   revoked_at: null,
   created_at: "2026-01-01T00:00:00Z",
+  recipient_name: "Test Recipient",
+  watermark: false,
   ...overrides,
 });
 
@@ -40,6 +42,8 @@ const buildAccessLog = (
   share_link_id: 1,
   accessed_at: "2026-01-02T10:00:00Z",
   resource: "profile",
+  recipient_name: "Test Recipient",
+  recipient_shadchan_id: 1,
   ...overrides,
 });
 

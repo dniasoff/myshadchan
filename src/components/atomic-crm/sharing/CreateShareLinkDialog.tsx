@@ -1,10 +1,10 @@
 import { Check, Copy } from "lucide-react";
 import { useDataProvider, useNotify, useTranslate } from "ra-core";
+import type { FormEvent } from "react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -21,15 +21,6 @@ import { buildShareUrl } from "./shareToken";
 /** AC-1: a fixed set of durations, deliberately not a free datetime picker
  * — kept simple. */
 const EXPIRY_OPTIONS: ShareLinkExpiryDays[] = [7, 30, 90];
-
-const EXPIRY_LABELS: Record<
-  ShareLinkExpiryDays,
-  { key: string; fallback: string }
-> = {
-  7: { key: "crm.sharing.create_dialog.expiry_7", fallback: "7 days" },
-  30: { key: "crm.sharing.create_dialog.expiry_30", fallback: "30 days" },
-  90: { key: "crm.sharing.create_dialog.expiry_90", fallback: "90 days" },
-};
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -63,11 +54,19 @@ export const CreateShareLinkDialog = ({
 
   const [expiryDays, setExpiryDays] = useState<ShareLinkExpiryDays>(7);
   const [includePhoto, setIncludePhoto] = useState(false);
+  const [watermark, setWatermark] = useState(false);
+  const [recipientName, setRecipientName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [createdUrl, setCreatedUrl] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
 
-  const handleCreate = async () => {
+  const handleCreate = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!recipientName.trim()) {
+      notify("Please enter a recipient name", { type: "error" });
+      return;
+    }
+
     setIsSaving(true);
     try {
       const expiresAt = new Date(
@@ -80,6 +79,8 @@ export const CreateShareLinkDialog = ({
             single_id: single.id,
             expires_at: expiresAt,
             include_photo: includePhoto,
+            recipient_name: recipientName.trim(),
+            watermark: watermark,
           },
         },
       );
@@ -150,58 +151,111 @@ export const CreateShareLinkDialog = ({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-1">
-        <Label htmlFor="share-link-expiry">
-          {translate("crm.sharing.create_dialog.expiry_label", {
-            _: "Link expires after",
+    <form onSubmit={handleCreate} className="space-y-4">
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-foreground">
+          {translate("crm.sharing.create_dialog.recipient_name", {
+            _: "Recipient Name",
           })}
-        </Label>
+        </label>
+        <input
+          type="text"
+          value={recipientName}
+          onChange={(e) => setRecipientName(e.target.value)}
+          placeholder={translate(
+            "crm.sharing.create_dialog.recipient_name_placeholder",
+            {
+              _: "Enter recipient's name (e.g., shadchan name)",
+            },
+          )}
+          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+          required
+        />
+      </div>
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-foreground">
+          {translate("crm.sharing.create_dialog.expiry", {
+            _: "Link expires in",
+          })}
+        </label>
         <Select
-          value={String(expiryDays)}
-          onValueChange={(value) =>
-            setExpiryDays(Number(value) as ShareLinkExpiryDays)
-          }
+          value={expiryDays}
+          onValueChange={setExpiryDays}
+          className="w-full"
         >
-          <SelectTrigger id="share-link-expiry" className="w-full sm:w-40">
-            <SelectValue />
+          <SelectTrigger>
+            <SelectValue
+              placeholder={translate(
+                "crm.sharing.create_dialog.select_expiry",
+                {
+                  _: "Select expiry period",
+                },
+              )}
+            />
           </SelectTrigger>
           <SelectContent>
-            {EXPIRY_OPTIONS.map((option) => (
-              <SelectItem key={option} value={String(option)}>
-                {translate(EXPIRY_LABELS[option].key, {
-                  _: EXPIRY_LABELS[option].fallback,
+            {EXPIRY_OPTIONS.map((days) => (
+              <SelectItem key={days} value={days}>
+                {translate(`crm.sharing.create_dialog.expiry_${days}`, {
+                  _: `${days} days`,
                 })}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
-
-      <div className="flex items-center justify-between gap-3 rounded-md border p-3">
-        <Label htmlFor="share-link-include-photo" className="font-normal">
-          {translate("crm.sharing.create_dialog.include_photo_label", {
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-foreground">
+          {translate("crm.sharing.create_dialog.include_photo", {
             _: "Include photo",
           })}
-        </Label>
+        </label>
         <Switch
-          id="share-link-include-photo"
           checked={includePhoto}
           onCheckedChange={setIncludePhoto}
-          disabled={isSaving}
+          className="w-full"
         />
       </div>
-
-      <Button
-        type="button"
-        onClick={() => void handleCreate()}
-        disabled={isSaving}
-        className="w-full"
-      >
-        {translate("crm.sharing.create_dialog.create_button", {
-          _: "Create share link",
-        })}
-      </Button>
-    </div>
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-foreground">
+          {translate("crm.sharing.create_dialog.watermark", {
+            _: "Add watermark",
+          })}
+        </label>
+        <Switch
+          checked={watermark}
+          onCheckedChange={setWatermark}
+          className="w-full"
+        />
+      </div>
+      <div className="flex justify-end space-x-3">
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setExpiryDays(7);
+            setIncludePhoto(false);
+            setWatermark(false);
+            setRecipientName("");
+          }}
+          disabled={isSaving}
+        >
+          {translate("ra.action.reset")}
+        </Button>
+        <Button
+          variant="outline"
+          type="submit"
+          disabled={isSaving || recipientName.trim() === ""}
+          loading={isSaving}
+        >
+          {isSaving
+            ? translate("crm.sharing.create_dialog.creating", {
+                _: "Creating link...",
+              })
+            : translate("crm.sharing.create_dialog.create_link", {
+                _: "Create link",
+              })}
+        </Button>
+      </div>
+    </form>
   );
 };
