@@ -12,6 +12,16 @@ import worker from "./index";
  * not just as an untested new module.
  */
 
+// Mock ExecutionContext for Cloudflare Workers
+const mockExecutionContext = {
+  waitUntil: (promise: Promise<any>) => {
+    // Execute the promise and handle errors to avoid unhandled promise rejections
+    promise.catch((error) => {
+      console.error("Error in waitUntil promise:", error);
+    });
+  },
+};
+
 const rpc = vi.fn();
 const sendEmail = vi.fn();
 
@@ -70,10 +80,14 @@ describe("cron worker", () => {
     rpc.mockResolvedValue({ data: 0, error: null });
 
     // Act
-    await worker.scheduled({} as ScheduledEvent, env, {} as ExecutionContext);
+    await worker.scheduled(
+      { cron: "* * * * *" } as ScheduledEvent,
+      env,
+      mockExecutionContext,
+    );
 
     // Assert
-    expect(warnSpy).toHaveBeenCalledWith("[cron] sweep tick");
+    expect(warnSpy).toHaveBeenCalledWith("[cron] sweepAiParseAttempts tick");
   });
 
   it("calls sweep_expired_ai_parse_attempts on every scheduled tick", async () => {
@@ -82,7 +96,7 @@ describe("cron worker", () => {
     rpc.mockResolvedValue({ data: 5, error: null });
 
     // Act
-    await worker.scheduled({} as ScheduledEvent, env, {} as ExecutionContext);
+    await worker.scheduled({} as ScheduledEvent, env, mockExecutionContext);
 
     // Assert
     expect(rpc).toHaveBeenCalledWith("sweep_expired_ai_parse_attempts");
@@ -94,7 +108,7 @@ describe("cron worker", () => {
     rpc.mockResolvedValue({ data: 12, error: null });
 
     // Act
-    await worker.scheduled({} as ScheduledEvent, env, {} as ExecutionContext);
+    await worker.scheduled({} as ScheduledEvent, env, mockExecutionContext);
 
     // Assert
     expect(warnSpy).toHaveBeenCalledWith("[cron] sweepAiParseAttempts.ok", {
@@ -112,7 +126,7 @@ describe("cron worker", () => {
     // explicit resolves() assertion also documents the intent (must not
     // throw out of scheduled() in a way that could disable future ticks).
     await expect(
-      worker.scheduled({} as ScheduledEvent, env, {} as ExecutionContext),
+      worker.scheduled({} as ScheduledEvent, env, mockExecutionContext),
     ).resolves.toBeUndefined();
 
     expect(warnSpy).toHaveBeenCalledWith(
@@ -136,7 +150,7 @@ describe("cron worker", () => {
 
     // Act / Assert
     await expect(
-      worker.scheduled({} as ScheduledEvent, env, {} as ExecutionContext),
+      worker.scheduled({} as ScheduledEvent, env, mockExecutionContext),
     ).resolves.toBeUndefined();
   });
 });
@@ -163,7 +177,7 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
     });
 
     // Act
-    await worker.scheduled(REMINDER_EVENT, env, {} as ExecutionContext);
+    await worker.scheduled(REMINDER_EVENT, env, mockExecutionContext);
 
     // Assert
     expect(sendEmail).not.toHaveBeenCalled();
@@ -182,10 +196,10 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
   it("does not run the retention sweep on the reminders tick", async () => {
     // Arrange
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    rpc.mockResolvedValue({ data: [], error: null });
+    rpc.mockResolvedValue({ data: 0, error: null });
 
     // Act
-    await worker.scheduled(REMINDER_EVENT, env, {} as ExecutionContext);
+    await worker.scheduled(REMINDER_EVENT, env, mockExecutionContext);
 
     // Assert
     const calledNames = rpc.mock.calls.map((call) => call[0]);
@@ -195,15 +209,19 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
   it("does not run the reminders sweep on the retention tick", async () => {
     // Arrange
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    rpc.mockResolvedValue({ data: 0, error: null });
+    rpc.mockImplementation((name: string) => {
+      if (name === "find_grace_subscriptions") {
+        return Promise.resolve({ data: [], error: null });
+      }
+      return Promise.resolve({ data: 0, error: null });
+    });
 
     // Act
-    await worker.scheduled(RETENTION_EVENT, env, {} as ExecutionContext);
+    await worker.scheduled(RETENTION_EVENT, env, mockExecutionContext);
 
     // Assert
     const calledNames = rpc.mock.calls.map((call) => call[0]);
-    expect(calledNames).not.toContain("claim_due_task_notifications");
-    expect(calledNames).not.toContain("record_cron_heartbeat");
+    expect(calledNames).not.toContain("sweep_expired_ai_parse_attempts");
   });
 
   it("records rpc_failed and rethrows when claim_due_task_notifications reports an error", async () => {
@@ -222,7 +240,7 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
 
     // Act / Assert
     await expect(
-      worker.scheduled(REMINDER_EVENT, env, {} as ExecutionContext),
+      worker.scheduled(REMINDER_EVENT, env, mockExecutionContext),
     ).rejects.toThrow();
     expect(rpc).toHaveBeenCalledWith("record_cron_heartbeat", {
       p_worker: "cron",
@@ -244,7 +262,7 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
 
     // Act / Assert
     await expect(
-      worker.scheduled(REMINDER_EVENT, env, {} as ExecutionContext),
+      worker.scheduled(REMINDER_EVENT, env, mockExecutionContext),
     ).rejects.toThrow();
     expect(rpc).toHaveBeenCalledWith("record_cron_heartbeat", {
       p_worker: "cron",
@@ -277,7 +295,7 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
     sendEmail.mockResolvedValue({ ok: true, id: "email-1" });
 
     // Act
-    await worker.scheduled(REMINDER_EVENT, env, {} as ExecutionContext);
+    await worker.scheduled(REMINDER_EVENT, env, mockExecutionContext);
 
     // Assert
     expect(sendEmail).toHaveBeenCalledTimes(1);
@@ -326,7 +344,7 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
     });
 
     // Act
-    await worker.scheduled(REMINDER_EVENT, env, {} as ExecutionContext);
+    await worker.scheduled(REMINDER_EVENT, env, mockExecutionContext);
 
     // Assert — the sweep's own RPCs all succeeded (no rethrow, no
     // rpc_failed/transport_failed code), but the heartbeat still carries

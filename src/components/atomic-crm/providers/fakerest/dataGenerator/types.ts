@@ -5,6 +5,7 @@ import type {
   Connection,
   ConnectionInvite,
   CronHeartbeat,
+  ChildGrant,
   DateRecord,
   EntityFile,
   InboxItem,
@@ -39,6 +40,7 @@ export interface Db {
   members: Member[];
   tasks: Task[];
   configuration: Array<{ id: number; config: ConfigurationContextValue }>;
+  child_grants: ChildGrant[];
   // Shidduchim pipeline domain
   accounts: Account[];
   account_members: AccountMember[];

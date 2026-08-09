@@ -57,6 +57,9 @@ export default (): Db => {
   // Story 9.5 — no access is ever recorded in the demo build; the real
   // writer is the `share/` Worker, which has no FakeRest equivalent.
   db.share_access_log = [];
+  // Story 13.1 — no child grants exist by default; the real
+  // writer is the `createChildGrant` action in SingleGrantManagement.tsx.
+  db.child_grants = [];
   // Story 11 — no address is trusted by default; `dataProvider.trustSender()`
   // is the only writer (see `dataGenerator/types.ts`'s own comment).
   db.trusted_senders = [];

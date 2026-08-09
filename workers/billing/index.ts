@@ -323,7 +323,20 @@ app.post("/webhook", async (c) => {
   }
 
   // Emit silence-detection heartbeat for Stripe webhook
-  c.executionCtx.waitUntil(
+  let executionCtx;
+  try {
+    executionCtx = c.executionCtx;
+  } catch {
+    executionCtx = undefined;
+  }
+  (
+    executionCtx || {
+      waitUntil: (promise: Promise<any>) => {
+        promise.catch(console.error);
+        return undefined;
+      },
+    }
+  ).waitUntil(
     alertOnSilence(
       c.env,
       "stripe-webhook",

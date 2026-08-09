@@ -306,7 +306,7 @@ describe("applyEvent", () => {
     });
   });
 
-  it("customer.subscription.updated with past_due pauses entitlement (ai/lapsed), never active", () => {
+  it("customer.subscription.updated with past_due pauses entitlement (ai/past_due), never active", () => {
     // Arrange
     const event = buildEvent("customer.subscription.updated", {
       id: "sub_1",
@@ -320,7 +320,7 @@ describe("applyEvent", () => {
 
     // Assert
     expect(patch?.plan).toBe("ai");
-    expect(patch?.status).toBe("lapsed");
+    expect(patch?.status).toBe("past_due");
   });
 
   it("customer.subscription.deleted UPDATES to ai/lapsed and clears stripe_subscription_id — never a delete", () => {

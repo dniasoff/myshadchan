@@ -1,8 +1,8 @@
-if (data) {
-  notify("Purge request submitted successfully", { type: "success" });
-  setOpen(true);
-  setSingleName("");
-  setSingleEmail("");
-} else {
-  notify("Failed to submit purge request", { type: "error" });
-}
+export const PurgeRequestPage = () => {
+  return (
+    <div>
+      <h1>Purge Request Page</h1>
+      <p>This is a placeholder for the purge request page.</p>
+    </div>
+  );
+};

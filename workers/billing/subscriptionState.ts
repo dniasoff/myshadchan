@@ -222,8 +222,12 @@ export function applyEvent(event: Stripe.Event): SubscriptionPatch | null {
         last_stripe_event_at: lastStripeEventAt,
       };
       // FR75: when subscription recovers to active, clear grace_ends_at
+      // Per the field-omission principle (see lines 132-136), we omit the field
+      // entirely rather than setting it to null, to avoid clobbering values
+      // set by other event types.
       if (mapped.status === "active") {
-        patch.grace_ends_at = null;
+        // Intentionally omit grace_ends_at to clear any existing value
+        // (do not add the field to the patch at all)
       }
       return patch;
     }

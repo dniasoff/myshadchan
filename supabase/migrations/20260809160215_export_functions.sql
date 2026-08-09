@@ -33,6 +33,7 @@ $$;
 
 -- Export all data for the current account across all tenant tables.
 -- Returns JSONB with one key per table containing an array of rows.
+-- Uses explicit table list to avoid dynamic SQL issues with to_jsonb()
 CREATE OR REPLACE FUNCTION "public"."export_account_data"() RETURNS jsonb
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -40,9 +41,6 @@ CREATE OR REPLACE FUNCTION "public"."export_account_data"() RETURNS jsonb
 declare
   v_account_id bigint := public.current_context_id();
   v_result jsonb := '{}'::jsonb;
-  v_table record;
-  v_query text;
-  v_rows jsonb;
 begin
   -- Verify authenticated caller (not service_role)
   if current_user = 'postgres' then
@@ -50,15 +48,102 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
-  for v_table in select * from public.get_tenant_tables() loop
-    execute format(
-      'select coalesce(jsonb_agg(to_jsonb(t)), ''[]''::jsonb) from (select * from public.%I where account_id = $1) t',
-      v_table.table_name
-    ) into v_rows using v_account_id;
-    v_result := jsonb_set(v_result, array[v_table.table_name], v_rows);
-  end loop;
+  -- Explicitly list each table to avoid dynamic SQL issues
+  -- This is maintainable because schema changes require migrations anyway
+  SELECT jsonb_set(v_result, '{accounts}', coalesce(jsonb_agg(to_jsonb(acc)), '[]'))
+  FROM public.accounts acc WHERE acc.id = v_account_id
+  INTO v_result;
 
-  return v_result;
+  SELECT jsonb_set(v_result, '{singles}', coalesce(jsonb_agg(to_jsonb(s)), '[]'))
+  FROM public.singles s WHERE s.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{resumes}', coalesce(jsonb_agg(to_jsonb(r)), '[]'))
+  FROM public.resumes r WHERE r.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{shidduchim}', coalesce(jsonb_agg(to_jsonb(sh)), '[]'))
+  FROM public.shidduchim sh WHERE sh.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{messages}', coalesce(jsonb_agg(to_jsonb(m)), '[]'))
+  FROM public.messages m WHERE m.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{references}', coalesce(jsonb_agg(to_jsonb(ref)), '[]'))
+  FROM public.references ref WHERE ref.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{tasks}', coalesce(jsonb_agg(to_jsonb(t)), '[]'))
+  FROM public.tasks t WHERE t.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{notes}', coalesce(jsonb_agg(to_jsonb(n)), '[]'))
+  FROM public.notes n WHERE n.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{events}', coalesce(jsonb_agg(to_jsonb(e)), '[]'))
+  FROM public.events e WHERE e.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{medical_notes}', coalesce(jsonb_agg(to_jsonb(mn)), '[]'))
+  FROM public.medical_notes mn WHERE mn.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{connections}', coalesce(jsonb_agg(to_jsonb(c)), '[]'))
+  FROM public.connections c WHERE c.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{connection_invites}', coalesce(jsonb_agg(to_jsonb(ci)), '[]'))
+  FROM public.connection_invites ci WHERE ci.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{child_grants}', coalesce(jsonb_agg(to_jsonb(cg)), '[]'))
+  FROM public.child_grants cg WHERE cg.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{share_links}', coalesce(jsonb_agg(to_jsonb(sl)), '[]'))
+  FROM public.share_links sl WHERE sl.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{account_members}', coalesce(jsonb_agg(to_jsonb(am)), '[]'))
+  FROM public.account_members am WHERE am.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{purge_requests}', coalesce(jsonb_agg(to_jsonb(pr)), '[]'))
+  FROM public.purge_requests pr WHERE pr.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{deletion_requests}', coalesce(jsonb_agg(to_jsonb(dr)), '[]'))
+  FROM public.deletion_requests dr WHERE dr.account_id = v_account_id
+  INTO v_result;
+
+  -- Add remaining tables with account_id column
+  SELECT jsonb_set(v_result, '{entity_files}', coalesce(jsonb_agg(to_jsonb(ef)), '[]'))
+  FROM public.entity_files ef WHERE ef.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{configuration}', coalesce(jsonb_agg(to_jsonb(c)), '[]'))
+  FROM public.configuration c WHERE c.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{ai_usage}', coalesce(jsonb_agg(to_jsonb(au)), '[]'))
+  FROM public.ai_usage au WHERE au.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{stripe_events}', coalesce(jsonb_agg(to_jsonb(se)), '[]'))
+  FROM public.stripe_events se WHERE se.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{ai_parse_attempts}', coalesce(jsonb_agg(to_jsonb(apa)), '[]'))
+  FROM public.ai_parse_attempts apa WHERE apa.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{cron_heartbeat}', coalesce(jsonb_agg(to_jsonb(ch)), '[]'))
+  FROM public.cron_heartbeat ch WHERE ch.account_id = v_account_id
+  INTO v_result;
+
+  RETURN v_result;
 end;
 $$;
 

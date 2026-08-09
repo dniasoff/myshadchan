@@ -961,6 +961,19 @@ begin
     execute $seed$
       insert into public.signup_intents (id, email, expires_at)
       values (9000001, 'oauth.guard@example.test', now() + interval '10 minutes');
+
+-- Account deletion requests (Story 14.2: Deletion that deletes)
+insert into public.account_deletion_requests (
+    id, account_id, requested_at, expires_at, status, 
+    export_completed, export_data, requested_by_auth_uid,
+    cancelled_at, deleted_at
+)
+values (
+    9000001, 9000001, now() - interval '1 day', 
+    now() + interval '29 days', 'pending', false, null,
+    '00000000-0000-4000-8000-000000009001',
+    null, null
+);
     $seed$;
   end if;
 end $$;
