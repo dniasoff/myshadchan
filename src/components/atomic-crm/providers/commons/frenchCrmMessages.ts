@@ -186,6 +186,11 @@ export const frenchCrmMessages = {
         persona_validation: "Cochez au moins une option pour continuer.",
         persona_done_shadchan_body: "Votre carnet de shadchanus est prêt.",
       },
+      footer: {
+        terms: "Conditions d'utilisation",
+        privacy: "Politique de confidentialité",
+        subprocessors: "Sous-traitants",
+      },
     },
     landing: {
       nav: {
@@ -277,6 +282,9 @@ export const frenchCrmMessages = {
       },
       footer: {
         note: "Le code est public. Le service est gratuit, assuré à prix coûtant.",
+        terms: "Conditions d'utilisation",
+        privacy: "Politique de confidentialité",
+        subprocessors: "Sous-traitants",
       },
     },
     common: {
@@ -496,6 +504,11 @@ export const frenchCrmMessages = {
           categories: "catégories",
           stages: "étapes",
         },
+      },
+      privacy: {
+        terms_link: "Conditions d'utilisation",
+        privacy_link: "Politique de confidentialité",
+        subprocessors_link: "Sous-traitants",
       },
     },
     theme: {
@@ -1105,68 +1118,95 @@ export const frenchCrmMessages = {
         error: "Impossible de terminer cette connexion. Réessayez.",
       },
     },
-    // Story 9.4 — the unauthenticated public search page (`/find`).
-    public_search: {
-      title: "Trouver un shadchan ou un célibataire",
-      subtitle:
-        "La recherche ne montre que ce que chaque famille a choisi de publier.",
-      search_placeholder: "Rechercher par nom, secteur ou communauté",
-      idle_hint: "Commencez à taper pour rechercher les annonces publiées.",
-      loading: "Recherche…",
-      empty: "Aucune annonce publiée ne correspond à cette recherche.",
-      error: "Impossible de charger les annonces. Réessayez.",
-      shadchanim_heading: "Shadchanim",
-      singles_heading: "Célibataires",
-      shadchan_card: {
-        contact_label: "Contact",
+    // Story 14.1 — Legal surfaces (terms/privacy/sub-processors).
+    legal: {
+      terms: {
+        title: "Conditions d'utilisation",
+        last_updated: "Dernière mise à jour : 2026-08-09 (v1)",
+        acceptance: {
+          title: "1. Acceptation des conditions",
+          body: "En accédant à MyShadchan ou en l'utilisant, vous acceptez d'être lié par ces conditions. Si vous n'êtes pas d'accord, n'utilisez pas le service.",
+        },
+        accounts: {
+          title: "2. Comptes",
+          body: "Vous devez avoir 18 ans ou plus pour créer un compte. Vous êtes responsable de la sécurité de vos identifiants et de toute activité sous votre compte. Les comptes sont par famille/foyer ; vous pouvez inviter des membres supplémentaires.",
+        },
+        data: {
+          title: "3. Vos données",
+          body: "Vous êtes propriétaire des enregistrements que vous créez. MyShadchan ne met pas vos données en commun avec d'autres familles, ne les utilise pas pour entraîner des modèles et ne les vend pas. Vous pouvez exporter ou supprimer vos données à tout moment depuis Paramètres → Confidentialité.",
+        },
+        usage: {
+          title: "4. Utilisation acceptable",
+          body: "Vous ne pouvez pas utiliser le service à des fins illégales, pour harceler qui que ce soit, ou pour interférer avec son fonctionnement. Nous pouvons suspendre ou résilier l'accès en cas de violation.",
+        },
+        availability: {
+          title: "5. Disponibilité et modifications",
+          body: 'Le service est fourni "tel quel" sans garanties. Nous pouvons modifier ou interrompre des fonctionnalités avec un préavis raisonnable. Ces conditions peuvent être mises à jour ; l\'utilisation continue vaut acceptation.',
+        },
+        limitation: {
+          title: "6. Limitation de responsabilité",
+          body: "Dans toute la mesure permise par la loi, MyShadchan et ses opérateurs ne sont pas responsables des dommages indirects, accessoires ou consécutifs découlant de votre utilisation du service.",
+        },
+        contact: {
+          title: "7. Contact",
+          body: "Des questions sur ces conditions ? Contactez-nous via le canal de commentaires dans l'application ou à legal@myshadchan.example.",
+        },
+        footer_note:
+          "Le code est public. Le service est gratuit, assuré à prix coûtant.",
       },
-      single_card: {
-        age_label: "Âge",
+      privacy: {
+        title: "Politique de confidentialité",
+        last_updated: "Dernière mise à jour : 2026-08-09 (v1)",
+        controller: {
+          title: "1. Responsable du traitement",
+          body: "MyShadchan (exploité par le projet MyShadchan) est le responsable du traitement des données personnelles que vous fournissez en utilisant le service. Contact : legal@myshadchan.example.",
+        },
+        data_collected: {
+          title: "2. Données collectées",
+          body: "Nous ne collectons que ce que vous fournissez explicitement : email du compte, noms des membres de la famille, dossiers de shidduch, personnes de référence, notes, tâches et fichiers téléversés. Nous ne collectons pas d'analytiques, de pixels de suivi, ni de cookies tiers.",
+        },
+        purpose: {
+          title: "3. Finalité et base légale",
+          body: "Vos données sont traitées uniquement pour fournir le service de gestion des shidduchim (exécution du contrat) et respecter les obligations légales (ex. vérification de l'âge). Aucun profilage, prise de décision automatisée ou utilisation marketing n'a lieu.",
+        },
+        sharing: {
+          title: "4. Partage et sous-traitants",
+          body: "Vos données ne sont jamais vendues. Elles sont partagées uniquement avec les sous-traitants listés sur notre page Sous-traitants (infrastructure, livraison d'email, paiements, inférence IA) et seulement si nécessaire pour faire fonctionner le service. Chacun a un accord de traitement des données en place.",
+        },
+        rights: {
+          title: "5. Vos droits",
+          body: "Vous pouvez accéder, rectifier, exporter ou supprimer vos données à tout moment depuis Paramètres → Confidentialité. Vous pouvez aussi vous opposer au traitement ou en demander la limitation. Nous répondons sous 30 jours.",
+        },
+        retention: {
+          title: "6. Conservation",
+          body: "Les données sont conservées tant que votre compte est actif. À la suppression, elles sont retirées du stockage principal sous 30 jours et des sauvegardes sous 90 jours.",
+        },
+        security: {
+          title: "7. Sécurité",
+          body: "Les données sont chiffrées en transit (TLS 1.2+) et au repos (AES-256). L'accès est limité au personnel autorisé. Nous effectuons des analyses de vulnérabilité régulières et maintenons un plan de réponse aux incidents.",
+        },
+        contact: {
+          title: "8. Contact",
+          body: "Questions ou demandes de confidentialité : legal@myshadchan.example. Vous avez également le droit d'introduire une réclamation auprès de votre autorité de contrôle.",
+        },
+        footer_note:
+          "Le code est public. Le service est gratuit, assuré à prix coûtant.",
       },
-    },
-    // Story 9.5 — voir la même note dans englishCrmMessages.ts.
-    sharing: {
-      share_dialog: {
-        title: "Partager le profil de %{name}",
-      },
-      create_dialog: {
-        expiry_label: "Le lien expire après",
-        expiry_7: "7 jours",
-        expiry_30: "30 jours",
-        expiry_90: "90 jours",
-        include_photo_label: "Inclure la photo",
-        create_button: "Créer un lien de partage",
-        create_another_button: "Créer un autre lien",
-        create_error: "Impossible de créer le lien de partage. Réessayez.",
-        link_ready:
-          "Partagez ce lien — toute personne qui le détient peut voir le profil partagé jusqu'à son expiration ou sa révocation.",
-        copy_button: "Copier",
-      },
-      link_list: {
-        empty: "Aucun lien de partage pour l'instant.",
-        status_active: "Actif",
-        status_revoked: "Révoqué",
-        status_expired: "Expiré",
-        expires_at: "Expire le %{date}",
-        revoke_button: "Révoquer",
-        revoke_success: "Le lien a été révoqué.",
-        revoke_error: "Impossible de révoquer ce lien. Réessayez.",
-        view_access_button: "Journal d'accès",
-        access_log_title: "Qui a accédé à ce lien",
-        access_log_empty: "Aucun accès enregistré pour l'instant.",
-      },
-      shared_profile: {
-        loading: "Chargement",
-        inactive_title: "Ce lien n'est plus actif",
-        inactive_body:
-          "Si vous attendiez de voir quelque chose ici, demandez à la personne qui a partagé ce lien de vous en envoyer un nouveau.",
-        heading: "Profil partagé",
-        heading_named: "Profil de %{name}",
-        no_files: "Aucun CV n'a encore été partagé ici.",
-        resume_file: "CV",
-        download: "Télécharger",
-        footer:
-          "Ceci est un lien privé qui vous a été partagé. Seul ce qui a été choisi pour être partagé apparaît ici.",
+      subprocessors: {
+        title: "Sous-traitants",
+        version: "v1 · 2026-08-09",
+        note: "Dérivé du déploiement — à mettre à jour si l'infrastructure change.",
+        intro:
+          "Les sous-traitants suivants traitent des données personnelles pour notre compte afin de fournir le service MyShadchan. Chacun a un accord de traitement des données (DPA) en place incorporant des clauses contractuelles types lorsque requis.",
+        purpose_label: "Finalité",
+        location_label: "Localisation des données",
+        dpa_badge: "DPA en place",
+        changes: {
+          title: "Modifications de cette liste",
+          body: "Nous vous informerons via une bannière dans l'application et par email au moins 30 jours avant l'ajout d'un nouveau sous-traitant. Vous pouvez vous opposer en contactant legal@myshadchan.example ; si nous ne pouvons pas donner suite à l'opposition, vous pouvez résilier votre compte et exporter vos données.",
+        },
+        footer_note:
+          "Le code est public. Le service est gratuit, assuré à prix coûtant.",
       },
     },
   },

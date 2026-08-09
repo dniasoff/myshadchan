@@ -1,6 +1,7 @@
 import { BookUser, Handshake, Heart, Users } from "lucide-react";
 import { useDataProvider, useGetList, useTranslate } from "ra-core";
 import { useState } from "react";
+import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 
@@ -108,6 +109,27 @@ export const PrivacySection = () => {
           </Button>
           <DeleteDataDialog />
         </div>
+
+        <nav className="flex flex-wrap items-center gap-4 pt-4 border-t text-sm text-muted-foreground">
+          <Link to="/terms" className="hover:text-foreground hover:underline">
+            {translate("crm.settings.privacy.terms_link", {
+              _: "Terms of Service",
+            })}
+          </Link>
+          <Link to="/privacy" className="hover:text-foreground hover:underline">
+            {translate("crm.settings.privacy.privacy_link", {
+              _: "Privacy Policy",
+            })}
+          </Link>
+          <Link
+            to="/sub-processors"
+            className="hover:text-foreground hover:underline"
+          >
+            {translate("crm.settings.privacy.subprocessors_link", {
+              _: "Sub-processors",
+            })}
+          </Link>
+        </nav>
       </div>
     </div>
   );

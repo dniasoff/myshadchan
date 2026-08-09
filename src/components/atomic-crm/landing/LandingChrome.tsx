@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { LandingBrand } from "./LandingBrand";
 import { REGISTER_PATH, SIGN_IN_PATH } from "./landingLinks";
+import { Link } from "react-router";
 import { translateLanding } from "./landingTranslate";
 
 /**
@@ -43,6 +44,23 @@ export const LandingFooter = () => (
           "The code is public. The service is free, run at cost.",
         )}
       </p>
+      <nav className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+        <Link to="/terms" className="hover:text-foreground hover:underline">
+          {translateLanding("crm.landing.footer.terms", "Terms of Service")}
+        </Link>
+        <Link to="/privacy" className="hover:text-foreground hover:underline">
+          {translateLanding("crm.landing.footer.privacy", "Privacy Policy")}
+        </Link>
+        <Link
+          to="/sub-processors"
+          className="hover:text-foreground hover:underline"
+        >
+          {translateLanding(
+            "crm.landing.footer.subprocessors",
+            "Sub-processors",
+          )}
+        </Link>
+      </nav>
     </div>
   </footer>
 );

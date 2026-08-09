@@ -1216,6 +1216,18 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/legal/TermsOfService.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/legal/SubProcessors.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/legal/PrivacyPolicy.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/layout/navItems.ts",
           "type": "registry:component"
         },

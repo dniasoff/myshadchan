@@ -1,6 +1,7 @@
 import { render } from "vitest-browser-react";
 import { LandingGate } from "./LandingGate";
 import { isPublicEntryUrl, type LandingUrl } from "./landingEntryUrl";
+import { TestMemoryRouter } from "ra-core";
 
 /**
  * These tests pin the front-door split: `/` without a session is the only URL
@@ -21,14 +22,17 @@ const renderGate = (props: {
   checkSession?: () => Promise<boolean>;
 }) =>
   render(
-    <LandingGate
-      url={props.url ?? url()}
-      checkSession={
-        props.checkSession ?? (() => Promise.resolve(props.hasSession ?? false))
-      }
-    >
-      <div>The signed-in app</div>
-    </LandingGate>,
+    <TestMemoryRouter initialEntries={[props.url?.pathname ?? "/"]}>
+      <LandingGate
+        url={props.url ?? url()}
+        checkSession={
+          props.checkSession ??
+          (() => Promise.resolve(props.hasSession ?? false))
+        }
+      >
+        <div>The signed-in app</div>
+      </LandingGate>
+    </TestMemoryRouter>,
   );
 
 describe("isPublicEntryUrl", () => {

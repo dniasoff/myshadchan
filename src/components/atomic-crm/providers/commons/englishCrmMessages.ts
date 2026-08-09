@@ -200,6 +200,11 @@ export const englishCrmMessages = {
         persona_validation: "Pick at least one to continue.",
         persona_done_shadchan_body: "Your shadchanus book is ready.",
       },
+      footer: {
+        terms: "Terms of Service",
+        privacy: "Privacy Policy",
+        subprocessors: "Sub-processors",
+      },
     },
     landing: {
       nav: {
@@ -291,6 +296,9 @@ export const englishCrmMessages = {
       },
       footer: {
         note: "The code is public. The service is free, run at cost.",
+        terms: "Terms of Service",
+        privacy: "Privacy Policy",
+        subprocessors: "Sub-processors",
       },
     },
     common: {
@@ -550,6 +558,11 @@ export const englishCrmMessages = {
           categories: "categories",
           stages: "stages",
         },
+      },
+      privacy: {
+        terms_link: "Terms of Service",
+        privacy_link: "Privacy Policy",
+        subprocessors_link: "Sub-processors",
       },
     },
     theme: {
@@ -1296,72 +1309,92 @@ export const englishCrmMessages = {
         error: "Couldn't end that connection. Try again.",
       },
     },
-    // Story 9.4 — the unauthenticated public search page (`/find`,
-    // listings/PublicSearchPage.tsx). Read via publicSearchTranslate.ts,
-    // not useTranslate() — this page renders outside <Admin> (Task 3).
-    public_search: {
-      title: "Find a shadchan or a single",
-      subtitle: "Search only shows what each family has chosen to publish.",
-      search_placeholder: "Search by name, area, or community",
-      idle_hint: "Start typing to search published listings.",
-      loading: "Searching…",
-      empty: "No published listings match this search.",
-      error: "Couldn't load listings. Please try again.",
-      shadchanim_heading: "Shadchanim",
-      singles_heading: "Singles",
-      shadchan_card: {
-        contact_label: "Contact",
+    // Story 14.1 — Legal surfaces (terms/privacy/sub-processors).
+    legal: {
+      terms: {
+        title: "Terms of Service",
+        last_updated: "Last updated: 2026-08-09 (v1)",
+        acceptance: {
+          title: "1. Acceptance of Terms",
+          body: "By accessing or using MyShadchan, you agree to be bound by these Terms. If you do not agree, do not use the service.",
+        },
+        accounts: {
+          title: "2. Accounts",
+          body: "You must be 18 or older to create an account. You are responsible for keeping your credentials secure and for all activity under your account. Accounts are per family/household; you may invite additional members.",
+        },
+        data: {
+          title: "3. Your Data",
+          body: "You own the records you create. MyShadchan does not pool your data with other families, does not use it to train models, and does not sell it. You can export or delete your data at any time from Settings → Privacy.",
+        },
+        usage: {
+          title: "4. Acceptable Use",
+          body: "You may not use the service for unlawful purposes, to harass anyone, or to interfere with the service's operation. We may suspend or terminate access for violations.",
+        },
+        availability: {
+          title: "5. Availability & Changes",
+          body: 'The service is provided "as is" without warranties. We may modify or discontinue features with reasonable notice. These Terms may be updated; continued use constitutes acceptance.',
+        },
+        limitation: {
+          title: "6. Limitation of Liability",
+          body: "To the fullest extent permitted by law, MyShadchan and its operators are not liable for any indirect, incidental, or consequential damages arising from your use of the service.",
+        },
+        contact: {
+          title: "7. Contact",
+          body: "Questions about these Terms? Contact us through the in-app feedback channel or at legal@myshadchan.example.",
+        },
+        footer_note: "The code is public. The service is free, run at cost.",
       },
-      single_card: {
-        age_label: "Age",
+      privacy: {
+        title: "Privacy Policy",
+        last_updated: "Last updated: 2026-08-09 (v1)",
+        controller: {
+          title: "1. Data Controller",
+          body: "MyShadchan (operated by the MyShadchan project) is the data controller for the personal data you provide when using the service. Contact: legal@myshadchan.example.",
+        },
+        data_collected: {
+          title: "2. Data We Collect",
+          body: "We collect only what you explicitly provide: account email, family member names, shidduch records, reference people, notes, tasks, and uploaded files. We do not collect analytics, tracking pixels, or third-party cookies.",
+        },
+        purpose: {
+          title: "3. Purpose & Legal Basis",
+          body: "Your data is processed solely to provide the shidduch management service (contract performance) and to meet legal obligations (e.g., age verification). No profiling, automated decision-making, or marketing use occurs.",
+        },
+        sharing: {
+          title: "4. Sharing & Sub-processors",
+          body: "Your data is never sold. It is shared only with the sub-processors listed on our Sub-processors page (infrastructure, email delivery, payments, AI inference) and only as needed to operate the service. Each has a data processing agreement in place.",
+        },
+        rights: {
+          title: "5. Your Rights",
+          body: "You may access, rectify, export, or delete your data at any time from Settings → Privacy. You may also object to processing or request restriction. We respond within 30 days.",
+        },
+        retention: {
+          title: "6. Retention",
+          body: "Data is retained while your account is active. On deletion, it is removed from primary storage within 30 days and from backups within 90 days.",
+        },
+        security: {
+          title: "7. Security",
+          body: "Data is encrypted in transit (TLS 1.2+) and at rest (AES-256). Access is limited to authorized personnel. We run regular vulnerability scans and maintain an incident response plan.",
+        },
+        contact: {
+          title: "8. Contact",
+          body: "Privacy questions or requests: legal@myshadchan.example. You also have the right to lodge a complaint with your supervisory authority.",
+        },
+        footer_note: "The code is public. The service is free, run at cost.",
       },
-    },
-    // Story 9.5 — revocable share links (FR107). `create_dialog`/`link_list`/
-    // `share_dialog` render inside Settings (inside <Admin>, useTranslate()).
-    // `shared_profile` renders OUTSIDE <Admin> (App.tsx's pre-CRM `/share`
-    // branch) — read via sharedProfileTranslate.ts, not useTranslate().
-    sharing: {
-      share_dialog: {
-        title: "Share %{name}'s profile",
-      },
-      create_dialog: {
-        expiry_label: "Link expires after",
-        expiry_7: "7 days",
-        expiry_30: "30 days",
-        expiry_90: "90 days",
-        include_photo_label: "Include photo",
-        create_button: "Create share link",
-        create_another_button: "Create another link",
-        create_error: "Couldn't create the share link. Try again.",
-        link_ready:
-          "Share this link — anyone who has it can view the shared profile until it expires or you revoke it.",
-        copy_button: "Copy",
-      },
-      link_list: {
-        empty: "No share links yet.",
-        status_active: "Active",
-        status_revoked: "Revoked",
-        status_expired: "Expired",
-        expires_at: "Expires %{date}",
-        revoke_button: "Revoke",
-        revoke_success: "The link has been revoked.",
-        revoke_error: "Couldn't revoke that link. Try again.",
-        view_access_button: "Access log",
-        access_log_title: "Who accessed this link",
-        access_log_empty: "No access recorded yet.",
-      },
-      shared_profile: {
-        loading: "Loading",
-        inactive_title: "This link is no longer active",
-        inactive_body:
-          "If you were expecting to see something here, please ask the person who shared this link to send you a new one.",
-        heading: "Shared profile",
-        heading_named: "%{name}'s profile",
-        no_files: "No resume has been shared here yet.",
-        resume_file: "Resume",
-        download: "Download",
-        footer:
-          "This is a private link shared with you. Only what was chosen to share appears here.",
+      subprocessors: {
+        title: "Sub-processors",
+        version: "v1 · 2026-08-09",
+        note: "Derived from deployment — amend when infra changes.",
+        intro:
+          "The following sub-processors process personal data on our behalf to deliver the MyShadchan service. Each has a Data Processing Agreement (DPA) in place incorporating Standard Contractual Clauses where required.",
+        purpose_label: "Purpose",
+        location_label: "Data location",
+        dpa_badge: "DPA in place",
+        changes: {
+          title: "Changes to this list",
+          body: "We will notify you via in-app banner and email at least 30 days before adding a new sub-processor. You may object by contacting legal@myshadchan.example; if we cannot accommodate the objection, you may terminate your account and export your data.",
+        },
+        footer_note: "The code is public. The service is free, run at cost.",
       },
     },
   },

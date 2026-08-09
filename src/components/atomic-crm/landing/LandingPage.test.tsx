@@ -1,6 +1,7 @@
 import { render } from "vitest-browser-react";
 import { LandingPage } from "./LandingPage";
 import { REGISTER_PATH, SIGN_IN_PATH } from "./landingLinks";
+import { TestMemoryRouter } from "ra-core";
 
 /**
  * The landing page is the one public surface of the product, so these tests pin
@@ -11,7 +12,11 @@ import { REGISTER_PATH, SIGN_IN_PATH } from "./landingLinks";
 describe("LandingPage", () => {
   it("states what the product is in a single top-level heading", async () => {
     // Arrange / Act
-    const screen = await render(<LandingPage />);
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/"]}>
+        <LandingPage />
+      </TestMemoryRouter>,
+    );
 
     // Assert
     await expect
@@ -21,7 +26,11 @@ describe("LandingPage", () => {
 
   it("offers a keyboard-reachable way into the app", async () => {
     // Arrange / Act
-    const screen = await render(<LandingPage />);
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/"]}>
+        <LandingPage />
+      </TestMemoryRouter>,
+    );
 
     // Assert
     const links = screen.getByRole("link", { name: /^sign in$/i });
@@ -30,7 +39,11 @@ describe("LandingPage", () => {
 
   it("offers a visible way to create an account, not only to sign in", async () => {
     // Arrange / Act
-    const screen = await render(<LandingPage />);
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/"]}>
+        <LandingPage />
+      </TestMemoryRouter>,
+    );
 
     // Assert: a visitor with no account yet has an explicit, named route to
     // /register — not just a sign-in button that happens to lead there
@@ -41,7 +54,11 @@ describe("LandingPage", () => {
 
   it("names each of the four things it stores", async () => {
     // Arrange / Act
-    const screen = await render(<LandingPage />);
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/"]}>
+        <LandingPage />
+      </TestMemoryRouter>,
+    );
 
     // Assert
     for (const heading of [
@@ -58,7 +75,11 @@ describe("LandingPage", () => {
 
   it("lists the three steps in order", async () => {
     // Arrange / Act
-    const screen = await render(<LandingPage />);
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/"]}>
+        <LandingPage />
+      </TestMemoryRouter>,
+    );
 
     // Assert
     for (const heading of [
@@ -75,7 +96,11 @@ describe("LandingPage", () => {
 
   it("states what happens to the data without addressing the reader", async () => {
     // Arrange / Act
-    const screen = await render(<LandingPage />);
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/"]}>
+        <LandingPage />
+      </TestMemoryRouter>,
+    );
 
     // Assert
     await expect
@@ -95,7 +120,11 @@ describe("LandingPage", () => {
 
   it("describes the licence honestly rather than claiming to be open source today", async () => {
     // Arrange / Act
-    const screen = await render(<LandingPage />);
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/"]}>
+        <LandingPage />
+      </TestMemoryRouter>,
+    );
 
     // Assert
     await expect
@@ -112,7 +141,11 @@ describe("LandingPage", () => {
 
   it("shows the seven pipeline states", async () => {
     // Arrange / Act
-    const screen = await render(<LandingPage />);
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/"]}>
+        <LandingPage />
+      </TestMemoryRouter>,
+    );
 
     // Assert
     await expect.element(screen.getByText("For-sure-not")).toBeVisible();
@@ -120,7 +153,11 @@ describe("LandingPage", () => {
 
   it("uses landmarks a screen reader can navigate", async () => {
     // Arrange / Act
-    const screen = await render(<LandingPage />);
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/"]}>
+        <LandingPage />
+      </TestMemoryRouter>,
+    );
 
     // Assert
     await expect.element(screen.getByRole("banner")).toBeInTheDocument();
@@ -147,7 +184,11 @@ describe("LandingPage", () => {
     ];
 
     // Act
-    await render(<LandingPage />);
+    await render(
+      <TestMemoryRouter initialEntries={["/"]}>
+        <LandingPage />
+      </TestMemoryRouter>,
+    );
     const copy = document.body.innerText;
 
     // Assert

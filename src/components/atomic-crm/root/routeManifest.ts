@@ -11,6 +11,9 @@ import { ShareTarget } from "../inbox/ShareTarget";
 import type { ContextKind } from "../layout/navItems";
 import { InviteAcceptance } from "../login/InviteAcceptance";
 import { RegisterFlow } from "../login/RegisterFlow";
+import { PrivacyPolicy } from "../legal/PrivacyPolicy";
+import { SubProcessors } from "../legal/SubProcessors";
+import { TermsOfService } from "../legal/TermsOfService";
 import references from "../references";
 import { RemindersPage } from "../reminders/RemindersPage";
 import members from "../members";
@@ -80,6 +83,25 @@ export const CUSTOM_ROUTES: CustomRouteEntry[] = [
   {
     path: RegisterFlow.path,
     Component: RegisterFlow,
+    surface: "both",
+    chrome: "bare",
+  },
+  // Legal pages — bare routes reachable without authentication.
+  {
+    path: TermsOfService.path,
+    Component: TermsOfService,
+    surface: "both",
+    chrome: "bare",
+  },
+  {
+    path: PrivacyPolicy.path,
+    Component: PrivacyPolicy,
+    surface: "both",
+    chrome: "bare",
+  },
+  {
+    path: SubProcessors.path,
+    Component: SubProcessors,
     surface: "both",
     chrome: "bare",
   },

@@ -159,9 +159,28 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
               _: "Private to your family",
             })}
           </span>
-          <a href="/" className="hover:text-foreground hover:underline">
-            {translate("crm.auth.back_to_home", { _: "Back to home" })}
-          </a>
+          <nav className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+            <Link to="/terms" className="hover:text-foreground hover:underline">
+              {translate("crm.auth.footer.terms", { _: "Terms of Service" })}
+            </Link>
+            <Link
+              to="/privacy"
+              className="hover:text-foreground hover:underline"
+            >
+              {translate("crm.auth.footer.privacy", { _: "Privacy Policy" })}
+            </Link>
+            <Link
+              to="/sub-processors"
+              className="hover:text-foreground hover:underline"
+            >
+              {translate("crm.auth.footer.subprocessors", {
+                _: "Sub-processors",
+              })}
+            </Link>
+            <Link to="/" className="hover:text-foreground hover:underline">
+              {translate("crm.auth.back_to_home", { _: "Back to home" })}
+            </Link>
+          </nav>
         </>
       }
     >
