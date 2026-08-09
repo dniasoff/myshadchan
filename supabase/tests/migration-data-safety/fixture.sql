@@ -299,10 +299,21 @@ values (
     'female', date '2003-04-11', 'Yeshivish', 'active', 9000002
 );
 
+-- Story 8.2: a user and membership for the shadchanus account (for connections)
+-- The shadchanus account (9000002) is created later in this fixture (line 743).
+-- The membership insert is deferred to after account creation to avoid
+-- trigger errors. For now, we skip this insert; the shadchanus membership
+-- is added in the to_regclass-guarded block below where the account exists.
+
 insert into public.shadchanim (id, account_id, name, name_he, location)
 values (
     9000001, 9000001, 'Mrs. Bracha Katz', 'מרת ברכה כץ', 'Lakewood'
 );
+
+-- Story 13.1: a user and membership for the second household (grantee side)
+-- The grantee household account (9000003) is created later in this fixture (line 747).
+-- The membership insert is deferred to after account creation to avoid
+-- trigger errors. For now, we skip this insert.
 
 -- `invites`, in EVERY shape the baseline schema admits. This table was the
 -- one Epic 6 alters structurally (`target_single_id`, plus two constraints)
@@ -694,6 +705,10 @@ begin
       insert into public.accounts (id, name, kind, transparency_level, demo)
       values (9000002, 'Migration Guard Shadchanus', 'shadchanus', 'full', false);
 
+      -- Story 13.1: a second household account for the grantee side of child grants
+      insert into public.accounts (id, name, kind, transparency_level, demo)
+      values (9000003, 'Migration Guard Household 2', 'household', 'full', false);
+
       -- Story 8.2 columns (proposed_by_account_id, accepted_at,
       -- household_account_name): this insert predates 8.2 and was never
       -- updated when that story made the first two NOT NULL and the third
@@ -754,6 +769,35 @@ values (
     encode(extensions.digest('migration-guard-connection-invite', 'sha256'), 'hex'),
     'pending', now() + interval '7 days'
 );
+
+-- Story 13.1: child_grants fixture rows — one pending, one accepted, one
+-- severed (to exercise the partial unique index on live state and the
+-- re-grant path). The table is created by this story's migration, so from
+-- the next baseline onward it seeds and captures like every other table.
+do $$
+begin
+  if to_regclass('public.child_grants') is not null then
+    execute $seed$
+      insert into public.child_grants (
+          id, proposer_account_id, target_single_id, token_hash, status,
+          expires_at, grantee_account_id, accepted_at, severed_at, severed_by_account_id
+      )
+      values
+          -- 1. Pending grant (proposer 9000001 -> grantee 9000003 for single 9000001)
+          (9000001, 9000001, 9000001,
+           encode(extensions.digest('migration-guard-child-grant-pending', 'sha256'), 'hex'),
+           'pending', now() + interval '7 days', null, null, null, null),
+          -- 2. Accepted grant (live — exercises child_grants_live_triple_idx)
+          (9000002, 9000001, 9000001,
+           encode(extensions.digest('migration-guard-child-grant-accepted', 'sha256'), 'hex'),
+           'accepted', now() + interval '7 days', 9000003, now(), null, null),
+          -- 3. Severed grant (history — re-grant permitted by partial index)
+          (9000003, 9000001, 9000001,
+           encode(extensions.digest('migration-guard-child-grant-severed', 'sha256'), 'hex'),
+           'severed', now() - interval '1 day', 9000003, now() - interval '2 days', now() - interval '1 day', 9000003);
+    $seed$;
+  end if;
+end $$;
 
 -- Story 7.5 (message_notifications, push_subscriptions). Same `to_regclass`
 -- guard, same reasoning as the block above: THIS story's own migration is
@@ -1025,6 +1069,9 @@ insert into migration_guard.empty_by_design (table_name, reason) values
     ('date_records', 'Schema-ready dating-history table (01_tables.sql: "powers dedupe later, '
                       'Epic-4; no logic is built now"). No UI reads or writes it, and no migration '
                       'or seed inserts a row. Seed once a story wires it up.');
+insert into migration_guard.empty_by_design (table_name, reason) values
+    ('analytics_events', 'Story 15.2 analytics event table. Seeded by the analytics worker in production; '
+                      'no realistic synthetic event data exists for the fixture. Seed once a story wires it up.');
 -- `stripe_events` (Story 12.4 billing) is a KNOWN, still-open gap: it has no
 -- captured row and no declaration here either, so this guard cannot reach
 -- its ASSERT phase for ANY change today, not just this one — confirmed by

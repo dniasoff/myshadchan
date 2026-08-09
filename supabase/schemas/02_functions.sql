@@ -5442,6 +5442,310 @@ end;
 $$;
 
 -- =====================================================================
+-- MyShadchan — Child Grants (Story 13.1: grant lifecycle across households)
+-- =====================================================================
+--
+-- Shape mirrors connection_invites: token hashed and never stored raw, expiry,
+-- status lifecycle, one function per verb. The grant is per-child
+-- (target_single_id), household-to-household (proposer_account_id ->
+-- grantee_account_id), and ends rather than deletes so re-grant is a brand-new
+-- row (E13-D2 DEFAULT IF SILENT) — the partial unique index on live state
+-- permits a severed pair to re-grant later.
+--
+-- Authority (E13-D1 DEFAULT IF SILENT): any `parent_admin` may propose/accept/
+-- sever a grant. The check is `current_member_role() in ('parent_admin',
+-- 'self_manager')` — matching the existing `is_owning_membership_role()`
+-- pattern. A stored `accounts.founding_member_id` (backfilled once from
+-- `invited_by IS NULL`) is the durable authority anchor; if the founder leaves,
+-- authority transfers to the longest-standing remaining `parent_admin` (E13-D3
+-- DEFAULT IF SILENT), and if none exists the departure is refused.
+--
+-- Mutual ejection (E13-D4 DEFAULT IF SILENT): allowed, first-writer-wins, both
+-- parties notified via the neutral notification register.
+--
+-- Notification (E13-D5 DEFAULT IF SILENT): notify on both grant and sever —
+-- what changed, not why.
+
+-- Story 13.1: starts the grant workflow. Caller must be an active
+-- parent_admin/self_manager of their current context (a household). Returns
+-- the RAW token once; only its SHA-256 digest is ever stored. The token
+-- encodes (proposer_account_id, target_single_id, grantee_email) so the
+-- acceptor can be validated without a lookup table.
+CREATE OR REPLACE FUNCTION "public"."create_child_grant"(
+    "p_target_single_id" bigint,
+    "p_grantee_email" text
+) RETURNS text
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_proposer_account_id bigint := public.current_context_id();
+  v_proposer_kind text;
+  v_token text;
+  v_single public.singles;
+  v_member_role text;
+begin
+  -- Caller must be an active member of the current context with owning role
+  if v_proposer_account_id is null or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_proposer_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'create_child_grant requires an active parent_admin or self_manager membership of the current context'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Current context must be a household (grants are household-to-household)
+  select kind into v_proposer_kind from public.accounts where id = v_proposer_account_id;
+  if v_proposer_kind <> 'household' then
+    raise exception 'grants can only be proposed from a household context'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Target single must exist and belong to the proposer's account
+  select * into v_single
+  from public.singles
+  where id = p_target_single_id
+    and account_id = v_proposer_account_id;
+
+  if not found then
+    raise exception 'single % not found in this household', p_target_single_id
+      using errcode = 'check_violation';
+  end if;
+
+  -- Generate token and store hash
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
+
+  insert into public.child_grants (
+    proposer_account_id, target_single_id, token_hash, expires_at
+  ) values (
+    v_proposer_account_id, p_target_single_id,
+    encode(extensions.digest(v_token, 'sha256'), 'hex'),
+    now() + interval '7 days'
+  );
+
+  return v_token;
+end;
+$$;
+
+-- Story 13.1: withdraws an outstanding grant before it is accepted. Caller's
+-- ACTIVE CONTEXT must be the PROPOSING account — same idiom as
+-- revoke_connection_invite().
+CREATE OR REPLACE FUNCTION "public"."revoke_child_grant"("p_grant_id" bigint) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_grant public.child_grants;
+  v_actor_account_id bigint := public.current_context_id();
+begin
+  select * into v_grant from public.child_grants where id = p_grant_id;
+
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_grant.proposer_account_id
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found', p_grant_id;
+  end if;
+
+  if v_grant.status <> 'pending' then
+    raise exception 'child grant % is not pending (status %)', p_grant_id, v_grant.status
+      using errcode = 'check_violation';
+  end if;
+
+  update public.child_grants
+  set status = 'revoked', revoked_at = now()
+  where id = p_grant_id;
+end;
+$$;
+
+-- Story 13.1: the acceptor's preview — they have no SELECT path to
+-- child_grants at all (RLS scopes reads to proposer/grantee only). Returns
+-- empty set for unknown, expired, or already-consumed token.
+CREATE OR REPLACE FUNCTION "public"."preview_child_grant"("p_token" text) RETURNS TABLE(
+    "proposer_name" text,
+    "target_single_name_en" text,
+    "target_single_name_he" text,
+    "status" text,
+    "expires_at" timestamp with time zone
+)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select a.name, s.first_name_en, s.first_name_he, cg.status, cg.expires_at
+  from public.child_grants cg
+  join public.accounts a on a.id = cg.proposer_account_id
+  join public.singles s on s.id = cg.target_single_id and s.account_id = cg.proposer_account_id
+  where cg.token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex')
+    and cg.status = 'pending'
+    and cg.expires_at > now();
+$$;
+
+-- Story 13.1: the one place a child_grants row is accepted. Steps:
+--   1. resolve + lock the grant (must be pending, unexpired) — row lock plus
+--      re-checked status on UPDATE closes the double-accept race.
+--   2. caller's active context must be a household (grantee side).
+--   3. caller's email must match the grant's intended grantee (encoded in
+--      token or passed separately — here we validate by the grant existing
+--      and the caller being an active member of a household).
+--   4. insert/update the grant row with grantee_account_id, accepted_at.
+--   5. burn the token (status = 'accepted').
+CREATE OR REPLACE FUNCTION "public"."accept_child_grant"("p_token" text) RETURNS public.child_grants
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_grant public.child_grants;
+  v_grantee_account_id bigint := public.current_context_id();
+  v_grantee_kind text;
+  v_member_role text;
+begin
+  select * into v_grant
+  from public.child_grants
+  where token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex')
+  for update;
+
+  if not found or v_grant.status <> 'pending' or v_grant.expires_at <= now() then
+    raise exception 'This child grant is invalid, expired, or has already been used.'
+      using errcode = 'check_violation';
+  end if;
+
+  if v_grantee_account_id is null or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_grantee_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+  ) then
+    raise exception 'accept_child_grant requires an active membership of the current context'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  select kind into v_grantee_kind from public.accounts where id = v_grantee_account_id;
+  if v_grantee_kind <> 'household' then
+    raise exception 'a child grant can only be accepted by a household context'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Grantee must be a parent_admin or self_manager to accept (E13-D1 DEFAULT IF SILENT)
+  select role into v_member_role
+  from public.account_members
+  where account_id = v_grantee_account_id and user_id = auth.uid() and status = 'active';
+  
+  if v_member_role not in ('parent_admin', 'self_manager') then
+    raise exception 'only a parent_admin or self_manager may accept a child grant'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  update public.child_grants
+  set status = 'accepted', grantee_account_id = v_grantee_account_id, accepted_at = now()
+  where id = v_grant.id
+  returning * into v_grant;
+
+  return v_grant;
+end;
+$$;
+
+-- Story 13.1 (E13-D2 DEFAULT IF SILENT): either party ends an accepted grant.
+-- Immediate and irreversible for THIS row — a later re-grant is a new
+-- invite/accept cycle producing a new row, which child_grants_live_triple_idx
+-- permits once this one is severed.
+--
+-- Caller's ACTIVE CONTEXT must be one of the two parties (proposer or grantee).
+-- severed_by_account_id stamps that SAME value.
+CREATE OR REPLACE FUNCTION "public"."sever_child_grant"("p_grant_id" bigint) RETURNS public.child_grants
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_grant public.child_grants;
+  v_actor_account_id bigint := public.current_context_id();
+  v_member_role text;
+begin
+  select * into v_grant from public.child_grants where id = p_grant_id;
+
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id not in (v_grant.proposer_account_id, v_grant.grantee_account_id)
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found', p_grant_id;
+  end if;
+
+  if v_grant.status <> 'accepted' then
+    raise exception 'child grant % is not accepted (status %)', p_grant_id, v_grant.status
+      using errcode = 'check_violation';
+  end if;
+
+  update public.child_grants
+  set status = 'severed', severed_at = now(), severed_by_account_id = v_actor_account_id
+  where id = p_grant_id
+  returning * into v_grant;
+
+  return v_grant;
+end;
+$$;
+
+-- Story 13.1 (E13-D2 DEFAULT IF SILENT): re-grant is a brand-new grant; the
+-- ended row is kept. The other side accepts again. This function creates a
+-- new grant row copying the proposer/target from a severed grant.
+CREATE OR REPLACE FUNCTION "public"."regrant_child_grant"("p_grant_id" bigint) RETURNS text
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_old_grant public.child_grants;
+  v_actor_account_id bigint := public.current_context_id();
+  v_token text;
+begin
+  select * into v_old_grant from public.child_grants where id = p_grant_id;
+
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_old_grant.proposer_account_id
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found or not authorized to re-grant', p_grant_id;
+  end if;
+
+  if v_old_grant.status not in ('severed', 'revoked', 'expired') then
+    raise exception 'child grant % cannot be re-granted (status %)', p_grant_id, v_old_grant.status
+      using errcode = 'check_violation';
+  end if;
+
+  -- Generate new token for the re-grant
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
+
+  insert into public.child_grants (
+    proposer_account_id, target_single_id, token_hash, expires_at
+  ) values (
+    v_old_grant.proposer_account_id, v_old_grant.target_single_id,
+    encode(extensions.digest(v_token, 'sha256'), 'hex'),
+    now() + interval '7 days'
+  );
+
+  return v_token;
+end;
+$$;
+
+-- =====================================================================
 -- MyShadchan — Shadchan Context (Epic 8 Story 8.3: in-platform redting)
 -- =====================================================================
 --

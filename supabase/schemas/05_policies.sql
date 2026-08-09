@@ -1449,6 +1449,28 @@ create policy "Connection invites visible to their issuer" on public.connection_
     for select to authenticated
     using (inviter_account_id = public.current_context_id());
 
+-- Story 13.1: child_grants RLS — the grant lifecycle table.
+-- Proposer (granting household) manages their own grants (create/revoke/sever).
+-- Grantee (receiving household) can SELECT accepted grants where they are the grantee.
+-- No insert/update/delete policy for `authenticated` — all writes go through
+-- SECURITY DEFINER functions (create_child_grant, revoke_child_grant,
+-- accept_child_grant, sever_child_grant, regrant_child_grant).
+-- The acceptor has NO direct select path to pending grants — they authenticate
+-- via the token in preview_child_grant() (SECURITY DEFINER).
+alter table public.child_grants enable row level security;
+alter table public.child_grants force row level security;
+
+create policy "Child grants visible to proposer" on public.child_grants
+    for select to authenticated
+    using (proposer_account_id = public.current_context_id());
+
+create policy "Child grants visible to grantee when accepted" on public.child_grants
+    for select to authenticated
+    using (
+        grantee_account_id = public.current_context_id()
+        and status = 'accepted'
+    );
+
 -- =====================================================================
 -- MyShadchan — Listings & Sharing (Epic 9 Story 9.1: publish a shadchan
 -- listing)

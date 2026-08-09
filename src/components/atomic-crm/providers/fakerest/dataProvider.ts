@@ -11,6 +11,8 @@ import type {
   AddRedtInput,
   AddSchoolInput,
   AiEntitlementInfo,
+  ChildGrant,
+  ChildGrantPreview,
   Connection,
   ConnectionInvitePreview,
   ContextMember,
@@ -104,12 +106,20 @@ import { removePersona } from "./internal/removePersona";
 import { getMyContexts, switchActiveContext } from "./internal/contexts";
 import { createInvite, revokeInvite } from "./internal/invites";
 import {
-  acceptConnectionInvite,
   createConnectionInvite,
-  endConnection,
-  previewConnectionInvite,
   revokeConnectionInvite,
+  previewConnectionInvite,
+  acceptConnectionInvite,
+  endConnection,
 } from "./internal/connections";
+import {
+  createChildGrant as createChildGrantImpl,
+  revokeChildGrant as revokeChildGrantImpl,
+  previewChildGrant as previewChildGrantImpl,
+  acceptChildGrant as acceptChildGrantImpl,
+  severChildGrant as severChildGrantImpl,
+  regrantChildGrant as regrantChildGrantImpl,
+} from "./internal/grants";
 import {
   createMessage,
   createThread,
@@ -1483,6 +1493,48 @@ export const createDataProvider = ({
         getIdentity,
         () => activeAccountId,
         connectionId,
+      ),
+    // Story 13.1 (grant lifecycle) -- FakeRest mirrors of
+    // ./internal/grants.ts. Mirrors the connection_invite shape: per-child,
+    // household-to-household, with a status lifecycle.
+    // ---------------------------------------------------------------------
+    createChildGrant: (singleId: Identifier, email: string): Promise<string> =>
+      createChildGrantImpl(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId as number,
+        singleId,
+        email,
+      ),
+    revokeChildGrant: (id: Identifier): Promise<void> =>
+      revokeChildGrantImpl(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId as number,
+        id,
+      ),
+    previewChildGrant: (token: string): Promise<ChildGrantPreview | null> =>
+      previewChildGrantImpl(baseDataProvider, getIdentity, token),
+    acceptChildGrant: (token: string): Promise<ChildGrant> =>
+      acceptChildGrantImpl(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId as number,
+        token,
+      ),
+    severChildGrant: (id: Identifier): Promise<ChildGrant> =>
+      severChildGrantImpl(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId as number,
+        id,
+      ),
+    regrantChildGrant: (id: Identifier): Promise<string> =>
+      regrantChildGrantImpl(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId as number,
+        id,
       ),
     // Story 8.3 (Task 5) -- FakeRest mirror of ./internal/redting.ts.
     redtViaConnection: (input: RedtViaConnectionInput): Promise<InboxItem> =>

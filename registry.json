@@ -176,6 +176,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/singles/SingleGrantManagement.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/singles/SingleEdit.tsx",
           "type": "registry:component"
         },
@@ -901,6 +905,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/internal/inboxAttachments.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/grants.ts",
           "type": "registry:component"
         },
         {

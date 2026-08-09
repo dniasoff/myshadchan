@@ -10,6 +10,8 @@ import type {
   AddRedtInput,
   AddSchoolInput,
   AiEntitlementInfo,
+  ChildGrant,
+  ChildGrantPreview,
   Connection,
   ConnectionInvitePreview,
   CreateShidduchInput,
@@ -383,6 +385,88 @@ const endConnectionViaRpc = async (
   return row as Connection;
 };
 
+// Story 13.1: child grant lifecycle RPC wrappers — same shape as
+// connection_invites (create/revoke/preview/accept/sever/regrant). All writes
+// go through these SECURITY DEFINER functions; the client has no direct DML
+// access to child_grants (06_grants.sql).
+const createChildGrantViaRpc = async (
+  targetSingleId: Identifier,
+  granteeEmail: string,
+): Promise<string> => {
+  const { data, error } = await getSupabaseClient().rpc("create_child_grant", {
+    p_target_single_id: targetSingleId,
+    p_grantee_email: granteeEmail,
+  });
+  if (error) {
+    console.error("createChildGrant.error", error);
+    throw new Error(error.message || "Failed to create that grant");
+  }
+  return data as string;
+};
+
+const revokeChildGrantViaRpc = async (grantId: Identifier): Promise<void> => {
+  const { error } = await getSupabaseClient().rpc("revoke_child_grant", {
+    p_grant_id: grantId,
+  });
+  if (error) {
+    console.error("revokeChildGrant.error", error);
+    throw new Error(error.message || "Failed to revoke that grant");
+  }
+};
+
+const previewChildGrantViaRpc = async (
+  token: string,
+): Promise<ChildGrantPreview | null> => {
+  const { data, error } = await getSupabaseClient().rpc("preview_child_grant", {
+    p_token: token,
+  });
+  if (error) {
+    console.error("previewChildGrant.error", error);
+    throw new Error("Failed to look up this grant");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return (row ?? null) as ChildGrantPreview | null;
+};
+
+const acceptChildGrantViaRpc = async (token: string): Promise<ChildGrant> => {
+  const { data, error } = await getSupabaseClient().rpc("accept_child_grant", {
+    p_token: token,
+  });
+  if (error) {
+    console.error("acceptChildGrant.error", error);
+    throw new Error(error.message || "Failed to accept that grant");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return row as ChildGrant;
+};
+
+const severChildGrantViaRpc = async (
+  grantId: Identifier,
+): Promise<ChildGrant> => {
+  const { data, error } = await getSupabaseClient().rpc("sever_child_grant", {
+    p_grant_id: grantId,
+  });
+  if (error) {
+    console.error("severChildGrant.error", error);
+    throw new Error(error.message || "Failed to sever that grant");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return row as ChildGrant;
+};
+
+const regrantChildGrantViaRpc = async (
+  grantId: Identifier,
+): Promise<string> => {
+  const { data, error } = await getSupabaseClient().rpc("regrant_child_grant", {
+    p_grant_id: grantId,
+  });
+  if (error) {
+    console.error("regrantChildGrant.error", error);
+    throw new Error(error.message || "Failed to re-grant that grant");
+  }
+  return data as string;
+};
+
 // Story 8.3 (AC-1, AC-2, AC-3, AC-5): a connected shadchan's redt — inbound
 // capture (AD-6), scoped by connection, never a direct write into the
 // household's inbox_items (05_policies.sql's "Inbox items scoped to
@@ -520,6 +604,13 @@ export const getDataProviderWithCustomMethods = () => {
     previewConnectionInvite: previewConnectionInviteViaRpc,
     acceptConnectionInvite: acceptConnectionInviteViaRpc,
     endConnection: endConnectionViaRpc,
+    // Story 13.1: child grant lifecycle — see the six wrappers above.
+    createChildGrant: createChildGrantViaRpc,
+    revokeChildGrant: revokeChildGrantViaRpc,
+    previewChildGrant: previewChildGrantViaRpc,
+    acceptChildGrant: acceptChildGrantViaRpc,
+    severChildGrant: severChildGrantViaRpc,
+    regrantChildGrant: regrantChildGrantViaRpc,
     // Story 8.3 (Task 5) — see redtViaConnectionViaRpc above.
     redtViaConnection: redtViaConnectionViaRpc,
     // Story 9.3 (AC-4) — see consentToRepublishListingViaRpc above.

@@ -1114,6 +1114,39 @@ export type ConnectionInvitePreview = {
 };
 
 /**
+ * Story 13.1: a grant giving another household access to a specific child.
+ * Shape mirrors `ConnectionInvite` — per-child, household-to-household, with
+ * a status lifecycle that ends rather than deletes (so re-grant is a new row).
+ */
+export type ChildGrant = {
+  proposer_account_id: Identifier;
+  target_single_id: Identifier;
+  token_hash: string;
+  status: "pending" | "accepted" | "revoked" | "expired" | "severed";
+  expires_at: string;
+  grantee_account_id?: Identifier | null;
+  accepted_at?: string | null;
+  revoked_at?: string | null;
+  severed_by_account_id?: Identifier | null;
+  severed_at?: string | null;
+  copy_on_sever: boolean;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
+ * `public.preview_child_grant()`'s return shape: the one purpose-built read
+ * letting the acceptor see who is granting access to which child before
+ * committing. Mirrors `ConnectionInvitePreview`'s narrow shape.
+ */
+export type ChildGrantPreview = {
+  proposer_name: string;
+  target_single_name_en: string | null;
+  target_single_name_he: string | null;
+  status: "pending" | "accepted" | "revoked" | "expired" | "severed";
+  expires_at: string;
+};
+
+/**
  * Story 7.1 (AC-1, AC-3, AC-5): a structured, subject-scoped conversation.
  * Carries BOTH `account_id` and `connection_id` (exactly one non-null, AD-1)
  * from the moment the schema exists. Story 7.4 opens the connection axis at

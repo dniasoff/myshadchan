@@ -21,7 +21,14 @@
     "supabase/tests/members_rename.sql",
     "src/components/atomic-crm/providers/commons/i18nProvider.test.ts",
     "src/components/atomic-crm/providers/fakerest/dataGenerator/assets_base64.ts",
-    "supabase/functions/seed_demo/assets/manifest_base64.ts"
+    "supabase/functions/seed_demo/assets/manifest_base64.ts",
+    "src/components/atomic-crm/providers/fakerest/dataProvider.ts",
+    "src/components/atomic-crm/providers/fakerest/internal/grants.ts",
+    "src/components/atomic-crm/providers/supabase/dataProvider.ts",
+    "src/components/atomic-crm/singles/SingleGrantManagement.tsx",
+    "supabase/schemas/02_functions.sql",
+    "supabase/schemas/05_policies.sql",
+    "supabase/tests/migration-data-safety/fixture.sql"
   ],
   "patterns": [
     {
