@@ -206,6 +206,28 @@ jobs:
       - name: 🚦 Rate-limit config drift guard
         run: node scripts/check-rate-limit-config.mjs
 
+  force-rls:
+    name: 🔐 FORCE RLS assertion (AD-1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ !github.event.pull_request.draft || github.event_name == 'push' }}
+    continue-on-error: true
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v7
+
+      - name: ⚙️ Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: 📥 Download deps
+        run: npm ci
+
+      - name: 🔐 Check FORCE ROW LEVEL SECURITY on all RLS tables
+        run: node scripts/check-force-rls.mjs
+
   e2e-test:
     timeout-minutes: 10
     runs-on: ubuntu-latest

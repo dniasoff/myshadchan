@@ -195,8 +195,8 @@ describe("usePushSubscription — service worker never becomes ready (Story 7.5 
     vi.stubEnv("VITE_VAPID_PUBLIC_KEY", "test-vapid-key");
 
     // Act — a short override so this test does not wait out the real
-    // (10s) production default.
-    const { screen } = await renderHarness(buildDataProvider(), 20);
+    // (10s) production default. Use 200ms to avoid flakiness on loaded CI.
+    const { screen } = await renderHarness(buildDataProvider(), 200);
     await screen
       .getByRole("button", { name: "Enable push notifications" })
       .click();

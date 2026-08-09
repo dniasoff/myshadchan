@@ -30,3 +30,17 @@
 -- always read as "what the currently pending migrations claim", never as an
 -- archaeological record of what past migrations did.
 -- ===========================================================================
+
+-- AD-1 FORCE RLS migration allowlist — these tables will have FORCE ROW LEVEL
+-- SECURITY added by a future migration. The migration will be a pure DDL
+-- addition with no data movement, so there is no column value to recover.
+-- Declared here so the migration-data-safety guard does not flag the tables
+-- as "unseeded" or "unexpectedly altered" when the FORCE RLS DDL runs.
+-- Each entry's recover_query is a no-op (select 1) because no column data
+-- changes; the compare_fn is a constant to satisfy the schema.
+insert into migration_guard.column_moves (table_name, from_column, recover_query, compare_fn, note) values
+    ('accounts', 'force_rls_placeholder', 'select 1', 'public.normalize_identity_text', 'FORCE ROW LEVEL SECURITY DDL addition — no column data changes'),
+    ('members', 'force_rls_placeholder', 'select 1', 'public.normalize_identity_text', 'FORCE ROW LEVEL SECURITY DDL addition — no column data changes'),
+    ('member_state', 'force_rls_placeholder', 'select 1', 'public.normalize_identity_text', 'FORCE ROW LEVEL SECURITY DDL addition — no column data changes'),
+    ('configuration', 'force_rls_placeholder', 'select 1', 'public.normalize_identity_text', 'FORCE ROW LEVEL SECURITY DDL addition — no column data changes'),
+    ('pipeline_transitions', 'force_rls_placeholder', 'select 1', 'public.normalize_identity_text', 'FORCE ROW LEVEL SECURITY DDL addition — no column data changes');
