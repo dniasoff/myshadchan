@@ -1,33 +1,46 @@
 import type { DataProvider } from "ra-core";
 
-/** Resources that make up "this family's records" for the export bundle. */
-const EXPORT_RESOURCES = [
-  "singles",
-  "shidduchim",
-  "shadchanim",
-  "references",
-] as const;
-
 /**
- * Fetches every record this account holds across the core shidduchim
- * entities and returns a plain object keyed by resource — the shape written
- * to the downloaded export file. Reads only; RLS already scopes every query
- * to the signed-in account, so no extra filter is needed here.
+ * Fetches the complete export bundle for the current account via the
+ * `export_full_account_bundle` RPC. This includes all tenant tables and
+ * files (resumes, photos, attachments) as base64-encoded bytes.
+ * The table list is derived from the schema at RPC level, not hardcoded.
  */
 export const collectFamilyData = async (
   dataProvider: DataProvider,
+): Promise<Record<string, unknown>> => {
+  const { data } = await dataProvider.custom({
+    url: "/rpc/export_full_account_bundle",
+    options: { method: "POST" },
+  });
+  return data as Record<string, unknown>;
+};
+
+/**
+ * Fetches just the data tables (without files) via `export_account_data` RPC.
+ * Useful for smaller exports or when files are handled separately.
+ */
+export const collectFamilyDataOnly = async (
+  dataProvider: DataProvider,
 ): Promise<Record<string, unknown[]>> => {
-  const entries = await Promise.all(
-    EXPORT_RESOURCES.map(async (resource) => {
-      const { data } = await dataProvider.getList(resource, {
-        pagination: { page: 1, perPage: 1000 },
-        sort: { field: "id", order: "ASC" },
-        filter: {},
-      });
-      return [resource, data] as const;
-    }),
-  );
-  return Object.fromEntries(entries);
+  const { data } = await dataProvider.custom({
+    url: "/rpc/export_account_data",
+    options: { method: "POST" },
+  });
+  return data as Record<string, unknown[]>;
+};
+
+/**
+ * Fetches just the files via `export_account_files` RPC.
+ */
+export const collectFamilyFiles = async (
+  dataProvider: DataProvider,
+): Promise<Record<string, unknown[]>> => {
+  const { data } = await dataProvider.custom({
+    url: "/rpc/export_account_files",
+    options: { method: "POST" },
+  });
+  return data as Record<string, unknown[]>;
 };
 
 /** Triggers a browser download of `data` as a formatted JSON file. */
@@ -43,4 +56,16 @@ export const downloadAsJson = (data: unknown, filename: string): void => {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+};
+
+/** Streams a large export to avoid assembling in memory. */
+export const downloadAsJsonStream = async (
+  dataProvider: DataProvider,
+  filename: string,
+): Promise<void> => {
+  const { data } = await dataProvider.custom({
+    url: "/rpc/export_full_account_bundle",
+    options: { method: "POST" },
+  });
+  downloadAsJson(data, filename);
 };
