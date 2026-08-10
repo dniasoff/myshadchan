@@ -147,6 +147,7 @@ const FIVE_ONE_SHIDDUCH_PENDING: TabKey[] = [
   "photo",
   "medical",
   "files",
+  "diligence-progress",
   "external-links",
   "discussions",
 ];
@@ -333,6 +334,7 @@ describe("findAd24Violations — one it per Ad24ViolationCode (AC 1)", () => {
             "photo",
             "medical",
             "files",
+            "diligence-progress",
             "external-links",
             "discussions",
           ],
