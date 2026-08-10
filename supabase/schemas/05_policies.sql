@@ -2022,3 +2022,44 @@ create policy "Analytics events selectable by account" on public.analytics_event
 create policy "Analytics events insertable by account" on public.analytics_events
     for insert to authenticated
     with check (account_id = public.current_context_id());
+
+-- ---------------------------------------------------------------------------
+-- Story 14.2 / 14.4 — account deletion and purge requests.
+-- Transcribed from the live database; these existed only in migrations, which
+-- is why `db diff` proposed dropping them.
+--
+-- Two of these are worth a second look and are recorded here rather than
+-- silently reproduced: "Anon can create purge requests" lets an unauthenticated
+-- caller insert an arbitrary row (the public purge form has no other way in,
+-- but it is an open write surface with no rate limit at the database level),
+-- and "Service role has full access" keys off CURRENT_USER = 'postgres' rather
+-- than a role check, so it does not actually match a service_role connection.
+-- ---------------------------------------------------------------------------
+
+alter table public.account_deletion_requests enable row level security;
+alter table public.purge_requests enable row level security;
+
+create policy "Users can view their own deletion requests" on public.account_deletion_requests
+    for select to authenticated
+    using (requested_by_auth_uid = auth.uid());
+
+create policy "Users can insert their own deletion requests" on public.account_deletion_requests
+    for insert to authenticated
+    with check (requested_by_auth_uid = auth.uid());
+
+create policy "Users can update their own deletion requests" on public.account_deletion_requests
+    for update to authenticated
+    using (requested_by_auth_uid = auth.uid())
+    with check (requested_by_auth_uid = auth.uid());
+
+create policy "Users can delete their own deletion requests" on public.account_deletion_requests
+    for delete to authenticated
+    using (requested_by_auth_uid = auth.uid());
+
+create policy "Anon can create purge requests" on public.purge_requests
+    for insert
+    with check (true);
+
+create policy "Service role has full access" on public.purge_requests
+    using (CURRENT_USER = 'postgres'::name)
+    with check (CURRENT_USER = 'postgres'::name);

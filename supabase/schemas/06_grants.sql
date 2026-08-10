@@ -1511,3 +1511,16 @@ grant all on table public.signup_intents to service_role;
 revoke all on sequence public.signup_intents_id_seq from anon, authenticated;
 grant all on sequence public.signup_intents_id_seq to service_role;
 
+
+-- Story 14.2 / 14.4 — transcribed from the live database (these tables were
+-- declared only in migrations). Note purge_requests grants NO select/insert to
+-- authenticated or anon, so its "Anon can create purge requests" policy cannot
+-- fire: grants are checked before RLS. Reproduced faithfully here so the
+-- declarative schema matches reality; whether that is the intended privilege
+-- set is a separate question.
+revoke all on table public.account_deletion_requests from anon;
+revoke all on table public.purge_requests from anon;
+grant select, insert, references, delete, trigger, truncate, update on table public.account_deletion_requests to authenticated;
+grant select, insert, references, delete, trigger, truncate, update on table public.account_deletion_requests to service_role;
+grant references, trigger, truncate on table public.purge_requests to authenticated;
+grant references, trigger, truncate on table public.purge_requests to service_role;
