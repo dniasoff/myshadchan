@@ -13,14 +13,43 @@ import worker from "./index";
  */
 
 // Mock ExecutionContext for Cloudflare Workers
-const mockExecutionContext = {
-  waitUntil: (promise: Promise<any>) => {
-    // Execute the promise and handle errors to avoid unhandled promise rejections
+const mockExecutionContext: ExecutionContext = {
+  waitUntil: (promise: Promise<unknown>) => {
     promise.catch((error) => {
       console.error("Error in waitUntil promise:", error);
     });
   },
+  passThroughOnException: () => {},
+  exports: {},
+  props: undefined,
+  tracing: {
+    enterSpan<T, A extends unknown[]>(
+      _name: string,
+      callback: (span: TracingSpan, ...args: A) => T,
+      ...args: A
+    ): T {
+      return callback({} as TracingSpan, ...args);
+    },
+    startActiveSpan<T, A extends unknown[]>(
+      _name: string,
+      callback: (span: TracingSpan, ...args: A) => T,
+      ...args: A
+    ): T {
+      return callback({} as TracingSpan, ...args);
+    },
+    Span: class {
+      isTraced = false;
+      setAttribute(_key: string, _value?: boolean | number | string): void {}
+      end(): void {}
+    },
+  },
 };
+
+interface TracingSpan {
+  isTraced: boolean;
+  setAttribute(key: string, value?: boolean | number | string): void;
+  end(): void;
+}
 
 const rpc = vi.fn();
 const sendEmail = vi.fn();

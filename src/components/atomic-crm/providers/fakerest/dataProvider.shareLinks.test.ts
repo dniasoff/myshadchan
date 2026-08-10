@@ -132,6 +132,8 @@ describe("FakeRest wiring — revokeShareLink() (Story 9.5, AC-6)", () => {
         ).toISOString(),
         revoked_at: null,
         created_at: "2026-01-01T00:00:00Z",
+        recipient_name: "Test Recipient",
+        watermark: false,
       },
     ];
     const dataProvider = makeProvider(db);
@@ -164,6 +166,8 @@ describe("FakeRest wiring — revokeShareLink() (Story 9.5, AC-6)", () => {
         ).toISOString(),
         revoked_at: revokedAt,
         created_at: "2026-01-01T00:00:00Z",
+        recipient_name: "Test Recipient",
+        watermark: false,
       },
     ];
     const dataProvider = makeProvider(db);

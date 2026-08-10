@@ -179,11 +179,10 @@ export const CreateShareLinkDialog = ({
           })}
         </label>
         <Select
-          value={expiryDays}
-          onValueChange={setExpiryDays}
-          className="w-full"
+          value={String(expiryDays)}
+          onValueChange={(v) => setExpiryDays(Number(v) as ShareLinkExpiryDays)}
         >
-          <SelectTrigger>
+          <SelectTrigger className="w-full">
             <SelectValue
               placeholder={translate(
                 "crm.sharing.create_dialog.select_expiry",
@@ -195,7 +194,7 @@ export const CreateShareLinkDialog = ({
           </SelectTrigger>
           <SelectContent>
             {EXPIRY_OPTIONS.map((days) => (
-              <SelectItem key={days} value={days}>
+              <SelectItem key={days} value={String(days)}>
                 {translate(`crm.sharing.create_dialog.expiry_${days}`, {
                   _: `${days} days`,
                 })}
@@ -245,7 +244,6 @@ export const CreateShareLinkDialog = ({
           variant="outline"
           type="submit"
           disabled={isSaving || recipientName.trim() === ""}
-          loading={isSaving}
         >
           {isSaving
             ? translate("crm.sharing.create_dialog.creating", {

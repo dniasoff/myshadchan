@@ -108,12 +108,7 @@ export const PurgeRequestVerifyPage = () => {
             >
               {translate("ra.action.reset")}
             </Button>
-            <Button
-              variant="outline"
-              type="submit"
-              disabled={loading}
-              loading={loading}
-            >
+            <Button variant="outline" type="submit" disabled={loading}>
               {loading
                 ? translate("ra.action.submitting")
                 : translate("crm.profile.privacy.verify_request", {
