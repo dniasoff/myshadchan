@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRecordContext } from "ra-core";
 import { useDataProvider } from "ra-core";
 import type { Identifier } from "ra-core";
@@ -272,13 +272,14 @@ export function SingleGrantManagement(): React.ReactElement | null {
   const [grants, setGrants] = useState<ChildGrant[]>([]);
   const [loading, setLoading] = useState(true);
 
-  if (!record) return null;
+  const recordId = record?.id;
 
-  const loadGrants = async () => {
+  const loadGrants = useCallback(async () => {
+    if (recordId == null) return;
     setLoading(true);
     try {
       const { data } = await dataProvider.getList<ChildGrant>("child_grants", {
-        filter: { target_single_id: record.id },
+        filter: { target_single_id: recordId },
         sort: { field: "created_at", order: "DESC" },
         pagination: { page: 1, perPage: 50 },
       });
@@ -288,12 +289,22 @@ export function SingleGrantManagement(): React.ReactElement | null {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dataProvider, recordId]);
 
-  // Load grants on mount
-  if (loading && grants.length === 0) {
-    loadGrants();
-  }
+  // Load grants on mount and whenever the record changes.
+  //
+  // This was previously a bare `if (loading && grants.length === 0)
+  // loadGrants()` in the render body. loadGrants() calls setLoading(true)
+  // synchronously, so it updated state during render, the guard stayed true
+  // on the re-render, and it looped until React threw "Too many re-renders".
+  // That took the whole singles 360 down — every one of the 19 tests in
+  // entityDescriptor.test.tsx failed on it, not just the grant ones, because
+  // the throw escaped to the router's error boundary and replaced the page.
+  useEffect(() => {
+    void loadGrants();
+  }, [loadGrants]);
+
+  if (!record) return null;
 
   return (
     <div className="space-y-4">
