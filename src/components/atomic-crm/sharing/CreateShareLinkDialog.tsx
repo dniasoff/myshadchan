@@ -212,20 +212,41 @@ export const CreateShareLinkDialog = ({
         <Switch
           checked={includePhoto}
           onCheckedChange={setIncludePhoto}
+          aria-label={translate("crm.sharing.create_dialog.include_photo", {
+            _: "Include photo",
+          })}
           className="w-full"
         />
       </div>
+      {/*
+       * Story 14.6 / PRV-8 — this control is deliberately disabled and
+       * relabelled. `applyWatermark()` (workers/share/index.ts:42) is a
+       * pass-through stub that returns the blob unchanged, so a switch reading
+       * "Add watermark" promised a protection the code never applied, which is
+       * a worse failure mode for a privacy control than one that is visibly
+       * absent. Re-enable it in the same change that makes applyWatermark()
+       * actually composite a watermark — never before.
+       */}
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-foreground">
+        <label className="block text-sm font-medium text-muted-foreground">
           {translate("crm.sharing.create_dialog.watermark", {
-            _: "Add watermark",
+            _: "Add watermark — not available yet",
           })}
         </label>
         <Switch
           checked={watermark}
           onCheckedChange={setWatermark}
+          disabled
+          aria-label={translate("crm.sharing.create_dialog.watermark", {
+            _: "Add watermark — not available yet",
+          })}
           className="w-full"
         />
+        <p className="text-xs text-muted-foreground">
+          {translate("crm.sharing.create_dialog.watermarkUnavailable", {
+            _: "Shared files are not watermarked yet. This option turns on when watermarking ships.",
+          })}
+        </p>
       </div>
       <div className="flex justify-end space-x-3">
         <Button

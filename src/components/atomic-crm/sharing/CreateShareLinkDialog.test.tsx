@@ -75,13 +75,24 @@ const renderDialog = async (
   return { screen, dataProvider, create };
 };
 
+// Story 14.6 made recipient name required — the submit button stays disabled
+// until it is filled, so every test that creates a link must supply one first.
+const fillAndSubmit = async (
+  screen: Awaited<ReturnType<typeof renderDialog>>["screen"],
+) => {
+  await screen
+    .getByPlaceholder("Enter recipient's name (e.g., shadchan name)")
+    .fill("Test Recipient");
+  await screen.getByRole("button", { name: "Create link" }).click();
+};
+
 describe("CreateShareLinkDialog", () => {
   it("sends only single_id, expires_at (~7 days ahead) and include_photo — never token/account_id/created_by_member_id", async () => {
     // Arrange
     const { screen, create } = await renderDialog();
 
     // Act
-    await screen.getByRole("button", { name: "Create share link" }).click();
+    await fillAndSubmit(screen);
 
     // Assert
     await expect
@@ -110,7 +121,7 @@ describe("CreateShareLinkDialog", () => {
     );
 
     // Act
-    await screen.getByRole("button", { name: "Create share link" }).click();
+    await fillAndSubmit(screen);
 
     // Assert
     await expect
@@ -124,7 +135,7 @@ describe("CreateShareLinkDialog", () => {
     const { screen } = await renderDialog(undefined, onCreated);
 
     // Act
-    await screen.getByRole("button", { name: "Create share link" }).click();
+    await fillAndSubmit(screen);
 
     // Assert
     await expect.poll(() => onCreated.mock.calls.length).toBeGreaterThan(0);
@@ -135,8 +146,8 @@ describe("CreateShareLinkDialog", () => {
     const { screen, create } = await renderDialog();
 
     // Act
-    await screen.getByRole("switch").click();
-    await screen.getByRole("button", { name: "Create share link" }).click();
+    await screen.getByRole("switch", { name: "Include photo" }).click();
+    await fillAndSubmit(screen);
 
     // Assert
     await expect
@@ -153,7 +164,7 @@ describe("CreateShareLinkDialog", () => {
     // Act
     await screen.getByRole("combobox").click();
     await screen.getByRole("option", { name: "30 days" }).click();
-    await screen.getByRole("button", { name: "Create share link" }).click();
+    await fillAndSubmit(screen);
 
     // Assert
     await expect
@@ -172,7 +183,7 @@ describe("CreateShareLinkDialog", () => {
     );
 
     // Act
-    await screen.getByRole("button", { name: "Create share link" }).click();
+    await fillAndSubmit(screen);
 
     // Assert
     await expect
