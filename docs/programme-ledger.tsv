@@ -17,12 +17,12 @@ story-id	wave	status	commit-sha	blocked-on	default-if-silent
 5.12	-	done	0730a4f	-	-
 13.3	-	blocked	-	-	E13-D6:person-level-read-or-readwrite, E13-D8:separate-section
 13.4	-	blocked	-	13.3	-
-14.4	-	partial	-	PurgeRequestPage-placeholder, verify_purge_request-RPC-missing, anon-insert-grant-missing	-
-15.6	-	in-progress	-	S-item-reconciliation-in-epics-md, 15.6-1:A-delete-french, 15.6-2:execute-S16-and-S17, 15.6-3:A-hash-sha256	-
+14.4	-	done	07ca360	-	-
+15.6	-	in-progress	-	S-item-reconciliation-in-epics-md, 15.6-2:execute-or-retire-S16, 15.6-3:A-hash-sha256	-
 16.1	-	done	7953efa	-	-
-16.2	-	planned	-	-	-
-16.3	-	planned	-	-	-
-16.4	-	planned	-	-	-
-S16	-	planned	-	-	execute-per-owner-2026-08-10
-S17	-	partial	-	create_reference_for_shidduch-RPC-missing, orphan-guard-missing	-
+16.2	-	done	07ca360	-	-
+16.3	-	done	f6fb40d	-	-
+16.4	-	done	4f0bbb5	-	-
+S16	-	planned	-	owner-decision-required:default-contradicts-orchestrator-prompt-557-561	execute-per-owner-2026-08-10
+S17	-	done	7d020c3	-	-
 13.R	-	planned	-	-	person-level-grants-rework
