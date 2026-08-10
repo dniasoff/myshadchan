@@ -352,44 +352,44 @@ unreachable**:
 
 ## Tasks / Subtasks
 
-- [ ] **Task 0 — Verify the world this story is written against** (prerequisite)
-  - [ ] `references/ReferenceShow.tsx`'s bespoke `<Tabs>` block is gone and the reference renders
+- [x] **Task 0 — Verify the world this story is written against** (prerequisite)
+  - [x] `references/ReferenceShow.tsx`'s bespoke `<Tabs>` block is gone and the reference renders
         on `Entity360` with a `conversations` tab (5.10 AC-4). If not, **stop** — the entry point
         has no host yet.
-  - [ ] `references/repeatRecognition.ts` exports `countOtherConversations` (5.10 Task 1). If not,
+  - [x] `references/repeatRecognition.ts` exports `countOtherConversations` (5.10 Task 1). If not,
         stop and report; do not re-extract the predicate.
-  - [ ] `CallCaptureSheet.tsx` renders the tailored questions with no `useAiEntitlement` import
+  - [x] `CallCaptureSheet.tsx` renders the tailored questions with no `useAiEntitlement` import
         (5.11 AC-1). If not, 5.11 has not landed and the paywall boundary this story assumes is
         not yet in force.
-  - [ ] `grep -rn '"assistant"' src/ --include='*.ts*' | grep -v test` still shows **no writer** of
+  - [x] `grep -rn '"assistant"' src/ --include='*.ts*' | grep -v test` still shows **no writer** of
         that source value. If some other story has since written one, re-verify AC-3 before
         assuming it is this story's to introduce.
-  - [ ] Confirm `log_reference_call`'s signature is still `(bigint, text, text, text)` in
+  - [x] Confirm `log_reference_call`'s signature is still `(bigint, text, text, text)` in
         `06_grants.sql:551-553`. If a fifth parameter has appeared, the "schema-free" decision
         above needs revisiting before Task 3.
 
-- [ ] **Task 1 — The script** (AC: 2, 14)
-  - [ ] New `references/callScript.ts`: `buildCallScript(relationship?: string | null):
+- [x] **Task 1 — The script** (AC: 2, 14)
+  - [x] New `references/callScript.ts`: `buildCallScript(relationship?: string | null):
         CallScriptStep[]`, where `CallScriptStep = { id: string; question: string }` and `id` is a
         deterministic `` `${set?.id ?? "universal"}.${index}` ``. It calls
         `getQuestionsForRelationship` and maps — **it defines no question text**. Pure, no imports
         beyond `./relationshipQuestions`.
-  - [ ] The ids are session-scoped by design (nothing persists them), so they need no stability
+  - [x] The ids are session-scoped by design (nothing persists them), so they need no stability
         guarantee across releases. Say so in the module's doc comment, or the next author will add
         a migration to store them.
-  - [ ] New `references/callScript.test.ts`: relationship-specific set comes first and universal
+  - [x] New `references/callScript.test.ts`: relationship-specific set comes first and universal
         last; a blank/unrecognised relationship yields exactly the three universal steps; ids are
         unique within a script; the function is referentially stable for the same input. **Reuse
         `relationshipQuestions.test.ts`'s existing relationship fixtures** ("seminary teacher",
         "CHAVRUSA", "dog walker", `""`) — do not invent new relationship strings.
 
-- [ ] **Task 2 — The cursor** (AC: 1, 6)
-  - [ ] New `references/useCallSession.ts`: reads/writes `?call=<link id>&step=<n>` with
+- [x] **Task 2 — The cursor** (AC: 1, 6)
+  - [x] New `references/useCallSession.ts`: reads/writes `?call=<link id>&step=<n>` with
         `useSearchParams` from `react-router` (the hash-aware path —
         `ReferenceCreate.tsx:118-126` is the worked precedent and the bug it fixed); exposes
         `{ activeLinkId, step, open(linkId), goTo(step), close() }`. `close()` removes **both**
         params. Out-of-range or non-numeric `step` clamps to 1 rather than throwing.
-  - [ ] New `references/useCallSession.test.tsx` — drive `TestMemoryRouter`'s `initialEntries`.
+  - [x] New `references/useCallSession.test.tsx` — drive `TestMemoryRouter`'s `initialEntries`.
         Cases: `?call=7&step=3` restores step 3; `?call=7&step=99` on a 7-step script clamps;
         `?call=abc` opens nothing; `close()` leaves the pathname untouched and both params gone.
 

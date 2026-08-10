@@ -41,6 +41,9 @@ const FREE_FEATURES_THAT_MUST_NOT_GATE = [
   "Reminder",
   "Timeline",
   "NoteInputs",
+  // Story 5.12 AC-9: Guided Call mode is free forever — this list is the
+  // mechanical enforcement of that product ruling.
+  "GuidedCall",
 ];
 
 const referencingFiles = Object.entries(sources)

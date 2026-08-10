@@ -7,7 +7,9 @@ import { EmptyState } from "../misc/EmptyState";
 import type { ReferenceLinkSummary } from "../types";
 import { CallStatusChip } from "./CallStatusChip";
 import { CallCaptureSheet } from "./CallCaptureSheet";
+import { GuidedCallSession } from "./GuidedCallSession";
 import { sortConversationLog } from "./callStatus";
+import { useCallSession } from "./useCallSession";
 
 /**
  * The per-shidduch call log (§5b): one card per shidduch this reference has been
@@ -20,7 +22,13 @@ import { sortConversationLog } from "./callStatus";
  * own visibility flag.
  */
 
-const LinkCard = ({ link }: { link: ReferenceLinkSummary }) => {
+const LinkCard = ({
+  link,
+  onOpenCallMode,
+}: {
+  link: ReferenceLinkSummary;
+  onOpenCallMode: (linkId: string) => void;
+}) => {
   const translate = useTranslate();
   const [isCapturing, setIsCapturing] = useState(false);
   const log = sortConversationLog(link.conversation_log);
@@ -95,7 +103,7 @@ const LinkCard = ({ link }: { link: ReferenceLinkSummary }) => {
           </details>
         ) : null}
 
-        <div>
+        <div className="flex gap-2">
           <Button
             type="button"
             variant="outline"
@@ -105,6 +113,17 @@ const LinkCard = ({ link }: { link: ReferenceLinkSummary }) => {
           >
             {translate("crm.references.callLog.capture", {
               _: "Log a call",
+            })}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="transition-transform duration-[160ms]
+              ease-[var(--ease-spring)] active:scale-[0.97]"
+            onClick={() => onOpenCallMode(String(link.id))}
+          >
+            {translate("crm.references.callMode.launch", {
+              _: "Call mode",
             })}
           </Button>
         </div>
@@ -125,6 +144,9 @@ export const ReferenceCallLog = ({
   links: ReferenceLinkSummary[];
 }) => {
   const translate = useTranslate();
+  const { open } = useCallSession();
+  const { activeLinkId } = useCallSession();
+  const activeLink = links.find((l) => String(l.id) === activeLinkId);
 
   if (links.length === 0) {
     return (
@@ -142,8 +164,9 @@ export const ReferenceCallLog = ({
   return (
     <div className="flex flex-col gap-3">
       {links.map((link) => (
-        <LinkCard key={String(link.id)} link={link} />
+        <LinkCard key={String(link.id)} link={link} onOpenCallMode={open} />
       ))}
+      {activeLink && <GuidedCallSession links={links} />}
     </div>
   );
 };

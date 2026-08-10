@@ -973,6 +973,23 @@ export const englishCrmMessages = {
         capture: "Log a call",
         empty: "This person is not linked to any single yet.",
       },
+      callMode: {
+        launch: "Call mode",
+        coverage: "%{done} of %{total} covered",
+        askThem: "Ask them",
+        comingUp: "Coming up",
+        answerPlaceholder: "Type their answer here…",
+        saveNext: "Save and next",
+        skip: "Skip",
+        askedBefore: "Already asked",
+        alreadyLogged: "%{smart_count} answers already logged",
+        wrapTitle: "Finish call",
+        callBack: "Not finished — call back",
+        end: "End call",
+        guardrail:
+          "Call mode helps you not miss a question; it never judges whether this is a good match.",
+        stepOf: "Step %{current} of %{total}",
+      },
       repeat: {
         none: "No other conversations with this person yet.",
         title: "You have spoken to %{name} about %{smart_count} other singles",

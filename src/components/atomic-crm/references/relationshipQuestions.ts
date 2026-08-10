@@ -19,7 +19,7 @@ export type RelationshipQuestionSet = {
   questions: readonly string[];
 };
 
-const UNIVERSAL_QUESTIONS = [
+export const UNIVERSAL_QUESTIONS = [
   "How long have you known them, and in what setting?",
   "How would you describe them to someone who has never met them?",
   "Is there anything you think we should know that we have not asked about?",
