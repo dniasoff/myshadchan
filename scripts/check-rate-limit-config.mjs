@@ -47,6 +47,15 @@
 // parser stops matching, `runRateLimitConfigCheck` reports that explicitly
 // (see the "found no createRateLimitMiddleware(...) call" / missing-binding
 // branches below) rather than silently passing with nothing checked.
+//
+// analytics is deliberately absent: workers/analytics/index.ts inlines its
+// rate-limit config (`{ limit: 100, periodSeconds: 60 }`) directly in the
+// `createRateLimitMiddleware` call instead of referencing a named export from
+// workers/shared/rateLimit.ts. This guard extracts the config name from the
+// `config:` field to cross-check against rateLimit.ts and wrangler.toml; an
+// inline object has no name, so the guard cannot verify analytics at all.
+// Adding analytics back requires moving its limits into rateLimit.ts as a
+// named export first — a deliberate design change for a human to approve.
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
@@ -60,6 +69,16 @@ const WORKERS = [
     worker: "ai",
     wranglerToml: "workers/ai/wrangler.toml",
     workerDir: "workers/ai",
+  },
+  {
+    worker: "share",
+    wranglerToml: "workers/share/wrangler.toml",
+    workerDir: "workers/share",
+  },
+  {
+    worker: "ingest",
+    wranglerToml: "workers/ingest/wrangler.toml",
+    workerDir: "workers/ingest",
   },
 ];
 

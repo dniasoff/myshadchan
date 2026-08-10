@@ -15,3 +15,29 @@ compatibility_flags = ["nodejs_compat"]
 
 # Secrets (set via `wrangler secret put <NAME> --config workers/share/wrangler.toml`,
 # or the CI job in .github/workflows/deploy.yml): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
+
+# Story 15.4: Rate limiting enforcement marker (workers/shared/rateLimit.ts).
+# Declared as a [vars] entry so it ships with every deploy automatically — no
+# separate secret-push step can be dropped. See workers/shared/rateLimit.ts
+# header comment for the fail-closed / fail-open decision table this drives.
+[vars]
+RATE_LIMITING_ENFORCED = "true"
+
+# Story 15.4: three Cloudflare native rate-limit bindings for share-link access —
+# IP-scoped pre-auth backstop + per-account post-auth backstop + per-token bucket.
+# All are fail-closed (PRV-8 paid path). namespace_id is an arbitrary string
+# unique per binding within the Cloudflare account.
+[[ratelimits]]
+name = "SHARE_IP_RATE_LIMITER"
+namespace_id = "1401"
+simple = { limit = 30, period = 60 }
+
+[[ratelimits]]
+name = "SHARE_ACCOUNT_RATE_LIMITER"
+namespace_id = "1402"
+simple = { limit = 60, period = 60 }
+
+[[ratelimits]]
+name = "SHARE_TOKEN_RATE_LIMITER"
+namespace_id = "1403"
+simple = { limit = 30, period = 60 }
