@@ -18,7 +18,7 @@ story-id	wave	status	commit-sha	blocked-on	default-if-silent
 13.3	-	blocked	-	-	E13-D6:person-level-read-or-readwrite, E13-D8:separate-section
 13.4	-	blocked	-	13.3	-
 14.4	-	planned	-	-	-
-15.6	-	blocked	-	-	15.6-1:A-delete-french, 15.6-2:execute-S16-and-S17, 15.6-3:A-hash-sha256
+15.6	-	decided	-	-	15.6-1:A-delete-french, 15.6-2:execute-S16-and-S17, 15.6-3:A-hash-sha256
 16.1	-	planned	-	-	-
 16.2	-	planned	-	-	-
 16.3	-	planned	-	-	-
