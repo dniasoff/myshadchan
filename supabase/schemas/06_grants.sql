@@ -216,6 +216,10 @@ revoke all on sequence public.medical_notes_id_seq from anon;
 grant all on sequence public.medical_notes_id_seq to authenticated;
 grant all on sequence public.medical_notes_id_seq to service_role;
 
+revoke all on sequence public.single_preferences_id_seq from anon;
+grant all on sequence public.single_preferences_id_seq to authenticated;
+grant all on sequence public.single_preferences_id_seq to service_role;
+
 revoke all on sequence public.reference_links_id_seq from anon;
 grant all on sequence public.reference_links_id_seq to authenticated;
 grant all on sequence public.reference_links_id_seq to service_role;
@@ -769,6 +773,10 @@ grant all on table public.resume_photos to service_role;
 revoke all on table public.medical_notes from anon, authenticated;
 grant select, insert, update, delete on table public.medical_notes to authenticated;
 grant all on table public.medical_notes to service_role;
+
+revoke all on table public.single_preferences from anon, authenticated;
+grant select, insert, update, delete on table public.single_preferences to authenticated;
+grant all on table public.single_preferences to service_role;
 
 revoke all on table public.reference_links from anon, authenticated;
 grant select, insert, update, delete on table public.reference_links to authenticated;

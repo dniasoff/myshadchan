@@ -13,6 +13,7 @@ import {
   SingleTasksTab,
 } from "./entityDescriptorRegions";
 import { SingleOverviewTab } from "./SingleOverviewTab";
+import { SinglePreferencesTab } from "./SinglePreferencesTab";
 
 /**
  * Story 5.8 — replaces the 3.9 stub (`singles/entityDescriptor.ts`, deleted
@@ -62,6 +63,10 @@ export const singlesDescriptor: EntityDescriptor<Single> = {
   actions: SingleActions,
   tabs: [
     { key: "overview", render: () => <SingleOverviewTab /> },
+    // Story 16.1 / FR67: Preferences is the single's primary surface —
+    // intentionally no visibleTo so it stays on the dignity floor with
+    // Overview, Resume, Photo, Shidduchim. RLS governs row access.
+    { key: "preferences", render: () => <SinglePreferencesTab /> },
     { key: "resume", render: () => <SingleResumeTab /> },
     { key: "photo", render: () => <SinglePhotoTab /> },
     {

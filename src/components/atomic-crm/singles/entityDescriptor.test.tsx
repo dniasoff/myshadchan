@@ -104,7 +104,7 @@ const renderSingleShow = async (
 };
 
 describe("singlesDescriptor — tab strip order (Story 5.8, AC 6)", () => {
-  it("renders all eight canonical tabs, in canonical order, on the rendered strip (not merely the descriptor literal)", async () => {
+  it("renders all nine canonical tabs, in canonical order, on the rendered strip (not merely the descriptor literal)", async () => {
     // Act
     const { screen } = await renderSingleShow();
     await expect
@@ -118,6 +118,7 @@ describe("singlesDescriptor — tab strip order (Story 5.8, AC 6)", () => {
       .map((element) => element.textContent?.trim());
     expect(names).toEqual([
       "Overview",
+      "Preferences",
       "Resume",
       "Photo",
       "Files",
@@ -222,13 +223,16 @@ describe("singlesDescriptor — the real Files/Notes/Activity tabs' visibleTo (S
     },
   );
 
-  it("a single viewer still sees the dignity-floor tabs (Overview, Resume, Photo, Shidduchim)", async () => {
+  it("a single viewer still sees the dignity-floor tabs (Overview, Preferences, Resume, Photo, Shidduchim)", async () => {
     // Act
     const { screen } = await renderSingleShow(undefined, "single");
 
     // Assert
     await expect
       .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("tab", { name: "Preferences" }))
       .toBeInTheDocument();
     await expect
       .element(screen.getByRole("tab", { name: "Resume" }))

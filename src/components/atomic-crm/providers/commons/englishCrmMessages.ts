@@ -635,6 +635,7 @@ export const englishCrmMessages = {
         conversations: "Conversations",
         discussions: "Discussions",
         assistant: "Assistant",
+        preferences: "Preferences",
       },
       overview: {
         empty: "No details on file yet.",

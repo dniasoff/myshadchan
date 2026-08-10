@@ -80,6 +80,8 @@ alter table public.invites enable row level security;
 alter table public.invites force row level security;
 alter table public.singles enable row level security;
 alter table public.singles force row level security;
+alter table public.single_preferences enable row level security;
+alter table public.single_preferences force row level security;
 alter table public.shadchanim enable row level security;
 alter table public.shadchanim force row level security;
 alter table public."references" enable row level security;
@@ -300,6 +302,43 @@ create policy "Singles visible to self" on public.singles
         account_id = public.current_context_id()
         and public.current_member_role() = 'single'
         and member_id = public.current_member_id()
+    );
+
+-- Single preferences (Story 16.1 / FR67): a single owns her preferences with
+-- full CRUD; a manager (parent_admin or self_manager — the two roles this
+-- schema already treats as "manages the process", see the medical-notes policy
+-- above) may read only the rows the single has explicitly shared via
+-- visible_to_manager = true. Every policy is account-scoped via
+-- current_context_id() because the table carries account_id directly.
+-- Do NOT grant helper or any other role access — this would be the first
+-- table in the schema to do so, which is a product decision.
+create policy "Single preferences owned by single" on public.single_preferences
+    for all to authenticated
+    using (
+        account_id = public.current_context_id()
+        and exists (
+            select 1 from public.singles s
+            where s.id = single_preferences.single_id
+              and s.account_id = public.current_context_id()
+              and s.member_id = public.current_member_id()
+        )
+    )
+    with check (
+        account_id = public.current_context_id()
+        and exists (
+            select 1 from public.singles s
+            where s.id = single_preferences.single_id
+              and s.account_id = public.current_context_id()
+              and s.member_id = public.current_member_id()
+        )
+    );
+
+create policy "Single preferences readable by manager when shared" on public.single_preferences
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and visible_to_manager = true
+        and public.current_member_role() in ('parent_admin', 'self_manager')
     );
 
 -- Story 6.3 (AC 3): writes stay denied to a `single`; reads are carved out

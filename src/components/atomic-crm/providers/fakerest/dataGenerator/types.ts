@@ -29,6 +29,7 @@ import type {
   ShidduchExternalLink,
   ShidduchSchool,
   Single,
+  SinglePreferences,
   Task,
   Thread,
   ThreadParticipant,
@@ -45,6 +46,11 @@ export interface Db {
   accounts: Account[];
   account_members: AccountMember[];
   singles: Single[];
+  // Single preferences (Story 16.1) — seeded empty: the single herself is the
+  // only author, through the Preferences tab's own create form. No demo row
+  // is pre-written; an empty collection is correct (fabricated personal
+  // statements would put invented words in every demo account).
+  single_preferences: SinglePreferences[];
   shadchanim: Shadchan[];
   references: Reference[];
   shidduchim: Shidduch[];

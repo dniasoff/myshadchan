@@ -62,6 +62,12 @@ create or replace trigger set_singles_account_id
     before insert on public.singles
     for each row execute function public.set_account_id_default();
 
+-- Story 16.1: server-set account_id on insert (AD-1), same shape as
+-- set_singles_account_id above.
+create or replace trigger set_single_preferences_account_id
+    before insert on public.single_preferences
+    for each row execute function public.set_account_id_default();
+
 create or replace trigger set_shadchanim_account_id
     before insert on public.shadchanim
     for each row execute function public.set_account_id_default();

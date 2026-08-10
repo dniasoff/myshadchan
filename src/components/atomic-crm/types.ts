@@ -287,6 +287,22 @@ export type Single = {
 } & Pick<RaRecord, "id">;
 
 /**
+ * One row of `public.single_preferences` (Story 16.1) — a single's own words
+ * about what she will not compromise on. Written only by the single herself
+ * through the Preferences tab (never seeded, never manager-writable). The
+ * `visible_to_manager` default is true (AC: a preference nobody reads is not
+ * participation); the single can flip it per-row.
+ */
+export type SinglePreferences = {
+  account_id: Identifier;
+  single_id: Identifier;
+  body: string;
+  visible_to_manager: boolean;
+  created_at: string;
+  updated_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
  * singles_summary — per-single pipeline counts (E6). Every Single field plus a
  * total suggestion count and an "open" (still-in-triage) count, so the roster
  * card shows "N in pipeline" without an N+1 fetch.

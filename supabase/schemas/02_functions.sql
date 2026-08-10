@@ -384,3 +384,21 @@ begin
   return v_bundle;
 end;
 $$;
+
+-- ============================================================================
+-- SHIDDUCH CLOSE REASON (Story 8.x — close_reason column privilege)
+-- ============================================================================
+
+-- Read a shidduch's close_reason, tenant-scoped and hidden from the `single`
+-- role. Called by 03_views.sql; declared here because `db diff` seeds this
+-- file before the views and fails to provision its shadow database otherwise.
+CREATE OR REPLACE FUNCTION "public"."shidduch_close_reason"(p_shidduchim_id bigint) RETURNS text
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select s.close_reason
+  from public.shidduchim s
+  where s.id = p_shidduchim_id
+    and s.account_id = public.current_context_id()
+    and public.current_member_role() <> 'single';
+$$;

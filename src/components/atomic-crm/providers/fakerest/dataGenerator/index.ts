@@ -24,6 +24,11 @@ export default (): Db => {
   // Files tab (Story 3.7) — no file is uploaded by default; FilesTab's own
   // upload/delete calls are the only writers.
   db.entity_files = [];
+  // Single preferences (Story 16.1) — no preference is pre-written; the single
+  // herself is the only author, through the Preferences tab's own create form.
+  // An empty collection is correct: fabricated personal statements would put
+  // invented words in every demo account.
+  db.single_preferences = [];
   // Communication (Story 7.1) — no discussion exists by default; the
   // Discussions tab's own createThread()/message-composer calls are the
   // only writers. `connections` has no client write path at all (AC-6) —
