@@ -290,12 +290,32 @@ async function seedDemoData(req: Request, accountId: number) {
     shadchanIdByKey.set(s.key, row.id);
   }
 
-  const { data: references, error: referencesError } = await db
-    .from("references")
-    .insert(REFERENCES.map(({ key: _key, ...rest }) => rest))
-    .select("id, name_en");
-  if (referencesError || !references) {
-    throw new Error(`insert references failed: ${referencesError?.message}`);
+  const references: Array<{ id: number; name_en: string }> = [];
+  for (const r of REFERENCES) {
+    const firstLink = REFERENCE_LINKS.find(
+      (link) => link.referenceKey === r.key,
+    );
+    if (!firstLink) {
+      throw new Error(
+        `reference ${r.key} cannot be seeded without a shidduch to attach it to`,
+      );
+    }
+    const { data, error } = await db.rpc("create_reference_for_shidduch", {
+      p_shidduchim_id: suggestionIdByKey.get(firstLink.suggestionKey),
+      p_name_en: r.name_en,
+      p_name_he: null,
+      p_relationship: r.relationship,
+      p_phone: r.phone,
+      p_school: r.school ?? null,
+      p_grad_year: null,
+      p_relationship_override: null,
+    });
+    if (error || !data?.[0]) {
+      throw new Error(
+        `create_reference_for_shidduch failed for ${r.key}: ${error?.message}`,
+      );
+    }
+    references.push({ id: data[0].id as number, name_en: data[0].name_en });
   }
   const referenceIdByKey = new Map<string, number>();
   for (const r of REFERENCES) {

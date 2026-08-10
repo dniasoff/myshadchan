@@ -1417,7 +1417,7 @@ end;
 $$;
 
 CREATE OR REPLACE FUNCTION "public"."create_reference_for_shidduch"("p_shidduchim_id" bigint, "p_name_en" "text" DEFAULT NULL::"text", "p_name_he" "text" DEFAULT NULL::"text", "p_relationship" "text" DEFAULT NULL::"text", "p_phone" "text" DEFAULT NULL::"text", "p_school" "text" DEFAULT NULL::"text", "p_grad_year" integer DEFAULT NULL::integer, "p_relationship_override" "text" DEFAULT NULL::"text") RETURNS SETOF "public"."references"
-    LANGUAGE "plpgsql"
+    LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
@@ -1429,11 +1429,25 @@ begin
   -- two-call client path (insert, then link_reference_to_shidduch) could mint
   -- an orphan whenever the second call failed. Both inserts happen here, in
   -- one statement, so the orphan state is unreachable by construction rather
-  -- than merely discouraged. Invoker rights, like its sibling below: the RLS
-  -- `with check` on both tables must apply to the caller, not be bypassed.
+  -- than merely discouraged.
+  --
+  -- SECURITY DEFINER, deliberately, so that direct INSERT on "references" can
+  -- be revoked from `authenticated` and this becomes the only door. That
+  -- turns the two checks below from belt-and-braces into the ONLY enforcement
+  -- there is: under DEFINER the RLS policies on "references" and
+  -- reference_links (05_policies.sql:423-431 and :641-650) no longer apply to
+  -- this function, and BOTH of their conjuncts have to be re-stated here.
+  -- The account scope was already re-implemented; the role check was not, and
+  -- omitting it would have let a `single` write to the reference book that
+  -- Story 6.3 denies them. Do not remove either check.
   v_account_id := public.current_context_id();
   if v_account_id is null then
     raise exception 'no account context for create_reference_for_shidduch';
+  end if;
+
+  if public.current_member_role() = 'single' then
+    raise exception 'a single cannot create references'
+      using errcode = 'insufficient_privilege';
   end if;
 
   if not exists (
