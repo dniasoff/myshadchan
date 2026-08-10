@@ -648,6 +648,10 @@ grant execute on function public.sync_task_target() to authenticated;
 grant execute on function public.sync_task_target() to service_role;
 
 -- Reference write paths.
+revoke all on function public.create_reference_for_shidduch(bigint, text, text, text, text, text, integer, text) from public, anon;
+grant execute on function public.create_reference_for_shidduch(bigint, text, text, text, text, text, integer, text) to authenticated;
+grant execute on function public.create_reference_for_shidduch(bigint, text, text, text, text, text, integer, text) to service_role;
+
 revoke all on function public.link_reference_to_shidduch(bigint, bigint, text) from public, anon;
 grant execute on function public.link_reference_to_shidduch(bigint, bigint, text) to authenticated;
 grant execute on function public.link_reference_to_shidduch(bigint, bigint, text) to service_role;

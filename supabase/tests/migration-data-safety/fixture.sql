@@ -911,11 +911,15 @@ do $$
 begin
   if to_regclass('public.share_links') is not null then
     execute $seed$
-      insert into public.share_links (id, account_id, single_id, created_by_member_id, token, include_photo, expires_at)
+      -- `recipient_name` is NOT NULL as of Story 14.6 (per-recipient shares).
+      -- It is listed explicitly rather than left to a default because there is
+      -- no default: omitting it is what silently disabled this whole guard
+      -- once that migration deployed. See .claude/rules/migration-guard-integrity.md.
+      insert into public.share_links (id, account_id, single_id, created_by_member_id, token, include_photo, expires_at, recipient_name)
       values (
           9000001, 9000001, 9000001, 9000001,
           encode(extensions.digest('migration-guard-share-link', 'sha256'), 'hex'),
-          true, now() + interval '7 days'
+          true, now() + interval '7 days', 'Migration Guard Recipient'
       );
 
       insert into public.share_access_log (id, share_link_id, resource, ip_hash, user_agent, duration_ms)
@@ -974,6 +978,62 @@ values (
     '00000000-0000-4000-8000-000000009001',
     null, null
 );
+    $seed$;
+  end if;
+end $$;
+
+-- Story 16.1 (single_preferences) and Story 16.3 (single_notes): her own
+-- words about what she will not compromise on, and her own private notes.
+-- Both hold real, irreplaceable, user-authored text in production — the
+-- single herself is the only author — so they are seeded rather than
+-- declared empty_by_design. A migration that blanked either would destroy
+-- the one thing in this schema nobody else can retype. `visible_to_manager`
+-- is seeded on BOTH sides of its meaning on purpose: true for a preference
+-- (its default — a preference nobody reads is not participation) and false
+-- for a note (its default — a note nobody reads is still hers), so a
+-- migration that flipped either default is visible to the assert phase.
+do $$
+begin
+  if to_regclass('public.single_preferences') is not null then
+    execute $seed$
+      insert into public.single_preferences (id, account_id, single_id, body, visible_to_manager)
+      values (
+          9000001, 9000001, 9000001,
+          'Migration guard: she will not compromise on a home where learning comes first.',
+          true
+      );
+    $seed$;
+  end if;
+end $$;
+
+do $$
+begin
+  if to_regclass('public.single_notes') is not null then
+    execute $seed$
+      insert into public.single_notes (id, account_id, single_id, body, visible_to_manager)
+      values (
+          9000001, 9000001, 9000001,
+          'Migration guard: a note that is hers alone until she says otherwise.',
+          false
+      );
+    $seed$;
+  end if;
+end $$;
+
+-- Story 14.4 (purge_requests). Deliberately NOT account-scoped: a
+-- data-subject purge request arrives from outside every tenant, so the table
+-- has no account_id column and this needs no anchor row from the seeds
+-- above. Seeded rather than declared empty_by_design because a pending purge
+-- request is a live legal obligation — losing one silently is the worst
+-- available outcome for this particular table.
+do $$
+begin
+  if to_regclass('public.purge_requests') is not null then
+    execute $seed$
+      insert into public.purge_requests (id, single_name, single_email, status)
+      values (
+          9000001, 'Migration Guard Subject', 'migration.guard@example.test', 'pending'
+      );
     $seed$;
   end if;
 end $$;

@@ -1416,6 +1416,58 @@ begin
 end;
 $$;
 
+CREATE OR REPLACE FUNCTION "public"."create_reference_for_shidduch"("p_shidduchim_id" bigint, "p_name_en" "text" DEFAULT NULL::"text", "p_name_he" "text" DEFAULT NULL::"text", "p_relationship" "text" DEFAULT NULL::"text", "p_phone" "text" DEFAULT NULL::"text", "p_school" "text" DEFAULT NULL::"text", "p_grad_year" integer DEFAULT NULL::integer, "p_relationship_override" "text" DEFAULT NULL::"text") RETURNS SETOF "public"."references"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+  v_reference_id bigint;
+  v_link_id bigint;
+begin
+  -- RULING 7 / R7: a reference exists only inside a shidduch's context. The
+  -- two-call client path (insert, then link_reference_to_shidduch) could mint
+  -- an orphan whenever the second call failed. Both inserts happen here, in
+  -- one statement, so the orphan state is unreachable by construction rather
+  -- than merely discouraged. Invoker rights, like its sibling below: the RLS
+  -- `with check` on both tables must apply to the caller, not be bypassed.
+  v_account_id := public.current_context_id();
+  if v_account_id is null then
+    raise exception 'no account context for create_reference_for_shidduch';
+  end if;
+
+  if not exists (
+    select 1 from public.shidduchim s
+    where s.id = p_shidduchim_id and s.account_id = v_account_id
+  ) then
+    raise exception 'shidduch % not found in current account', p_shidduchim_id;
+  end if;
+
+  insert into public."references" (
+    account_id, name_en, name_he, relationship, phone, school, grad_year
+  ) values (
+    v_account_id, p_name_en, p_name_he, p_relationship, p_phone, p_school, p_grad_year
+  )
+  returning id into v_reference_id;
+
+  insert into public.reference_links (
+    account_id, reference_id, shidduchim_id, call_status, relationship_override
+  ) values (
+    v_account_id, v_reference_id, p_shidduchim_id, 'not_started', p_relationship_override
+  )
+  returning id into v_link_id;
+
+  insert into public.interactions (
+    account_id, target_type, target_id, scope, reference_link_id, kind, body, metadata
+  ) values (
+    v_account_id, 'reference', v_reference_id, 'shidduch', v_link_id, 'link_created',
+    null, jsonb_build_object('shidduchim_id', p_shidduchim_id)
+  );
+
+  return query select * from public."references" where id = v_reference_id;
+end;
+$$;
+
 CREATE OR REPLACE FUNCTION "public"."create_shidduch"("p_single_id" bigint, "p_shadchan_id" bigint DEFAULT NULL::bigint, "p_name_en" "text" DEFAULT NULL::"text", "p_name_he" "text" DEFAULT NULL::"text", "p_father_en" "text" DEFAULT NULL::"text", "p_father_he" "text" DEFAULT NULL::"text", "p_mother_en" "text" DEFAULT NULL::"text", "p_mother_he" "text" DEFAULT NULL::"text", "p_dob" "date" DEFAULT NULL::"date", "p_background" "text" DEFAULT NULL::"text", "p_marital_status" "text" DEFAULT NULL::"text", "p_existing_children_note" "text" DEFAULT NULL::"text", "p_seminary_en" "text" DEFAULT NULL::"text", "p_seminary_he" "text" DEFAULT NULL::"text", "p_shul_en" "text" DEFAULT NULL::"text", "p_shul_he" "text" DEFAULT NULL::"text", "p_location_en" "text" DEFAULT NULL::"text", "p_location_he" "text" DEFAULT NULL::"text", "p_age" integer DEFAULT NULL::integer, "p_height" "text" DEFAULT NULL::"text", "p_origin" "text" DEFAULT 'manual'::"text", "p_initial_state" "public"."pipeline_state" DEFAULT 'new'::"public"."pipeline_state", "p_visibility" "text" DEFAULT 'shared'::"text", "p_redt_date" "date" DEFAULT NULL::"date") RETURNS SETOF "public"."shidduchim"
     LANGUAGE "plpgsql"
     SET "search_path" TO ''
