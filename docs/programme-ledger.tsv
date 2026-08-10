@@ -11,3 +11,15 @@ story-id	wave	status	commit-sha	blocked-on	default-if-silent
 13.2	8	done	f30c8ef	-	E13-D11:c, E13-D12:mark, E13-D13:a, E13-D14:b, E13-D15:one
 15.3(b)	9	done	8b0116a	-	-
 14.5	-	decided	-	14.5-PRV10:B	-
+14.2	-	done	7b3d239	-	-
+14.3	-	done	4647fd7	-	-
+14.6	-	done	364c8a9	-	-
+5.12	-	planned	-	-	-
+13.3	-	blocked	-	-	E13-D6:person-level-read-or-readwrite, E13-D8:separate-section
+13.4	-	blocked	-	13.3	-
+14.4	-	planned	-	-	-
+15.6	-	blocked	-	15.6-2	15.6-1:A, 15.6-3:A
+16.1	-	planned	-	-	-
+16.2	-	planned	-	-	-
+16.3	-	planned	-	-	-
+16.4	-	planned	-	-	-
