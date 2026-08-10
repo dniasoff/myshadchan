@@ -2,6 +2,7 @@ import type { DataProvider } from "ra-core";
 
 import type {
   ConversationLogEntry,
+  CreateReferenceForShidduchInput,
   LinkReferenceInput,
   LogReferenceCallInput,
   Reference,
@@ -130,6 +131,82 @@ export async function linkReferenceToShidduch(
   });
 
   return link;
+}
+
+/**
+ * FakeRest mirror of `create_reference_for_shidduch` (RULING 7 R7): create the
+ * reference and attach it to the shidduch as one operation, so the demo build
+ * cannot produce the orphan the two-call path could. Unlike
+ * `linkReferenceToShidduch` above, `account_id` is taken from the SHIDDUCH —
+ * there is no reference yet to take it from.
+ */
+export async function createReferenceForShidduch(
+  baseDataProvider: DataProvider,
+  input: CreateReferenceForShidduchInput,
+): Promise<Reference> {
+  const { data: shidduchMatches } = await baseDataProvider.getList<Shidduch>(
+    "shidduchim",
+    {
+      filter: { id: input.shidduchim_id },
+      pagination: PAGE_ONE,
+      sort: BY_ID_ASC,
+    },
+  );
+  const shidduch = shidduchMatches[0];
+  if (!shidduch) {
+    throw new Error(`shidduch ${input.shidduchim_id} not found`);
+  }
+
+  const now = new Date().toISOString();
+  const { data: reference } = await baseDataProvider.create<Reference>(
+    "references",
+    {
+      data: {
+        account_id: shidduch.account_id,
+        name_en: input.name_en ?? null,
+        name_he: input.name_he ?? null,
+        relationship: input.relationship ?? null,
+        phone: input.phone ?? null,
+        school: input.school ?? null,
+        grad_year: input.grad_year ?? null,
+        created_at: now,
+      },
+    },
+  );
+
+  const { data: link } = await baseDataProvider.create<ReferenceLink>(
+    "reference_links",
+    {
+      data: {
+        account_id: reference.account_id,
+        reference_id: reference.id,
+        shidduchim_id: input.shidduchim_id,
+        resume_id: null,
+        call_status: "not_started",
+        what_they_said: null,
+        conversation_log: [],
+        relationship_override: input.relationship_override ?? null,
+        created_at: now,
+      },
+    },
+  );
+
+  await baseDataProvider.create("interactions", {
+    data: {
+      account_id: reference.account_id,
+      target_type: "reference",
+      target_id: reference.id,
+      scope: "shidduch" as const,
+      reference_link_id: link.id,
+      actor_member_id: null,
+      kind: "link_created",
+      body: null,
+      metadata: { shidduchim_id: input.shidduchim_id },
+      created_at: now,
+    },
+  });
+
+  return reference;
 }
 
 /**

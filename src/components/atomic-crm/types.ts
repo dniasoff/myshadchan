@@ -981,6 +981,24 @@ export type LinkReferenceInput = {
   relationship_override?: string | null;
 };
 
+/**
+ * Input to `public.create_reference_for_shidduch` — the atomic replacement for
+ * "create a reference, then link it". Only `shidduchim_id` is required; the
+ * RPC defaults every other parameter to NULL. RULING 7 R7: a reference exists
+ * only inside a shidduch's context, so there is deliberately no variant of
+ * this that omits the shidduch.
+ */
+export type CreateReferenceForShidduchInput = {
+  shidduchim_id: Identifier;
+  name_en?: string | null;
+  name_he?: string | null;
+  relationship?: string | null;
+  phone?: string | null;
+  school?: string | null;
+  grad_year?: number | null;
+  relationship_override?: string | null;
+};
+
 export type LogReferenceCallInput = {
   reference_link_id: Identifier;
   call_status?: CallStatus | null;

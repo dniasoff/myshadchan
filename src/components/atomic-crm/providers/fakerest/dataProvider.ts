@@ -16,6 +16,7 @@ import type {
   Connection,
   ConnectionInvitePreview,
   ContextMember,
+  CreateReferenceForShidduchInput,
   CreateShidduchInput,
   CreateThreadInput,
   EntityFile,
@@ -36,6 +37,7 @@ import type {
   Persona,
   PipelineState,
   RedtViaConnectionInput,
+  Reference,
   ReferenceLink,
   ReferenceMatchCandidate,
   ReferenceMergePreview,
@@ -97,6 +99,7 @@ import type { Db } from "./dataGenerator/types";
 import { withSupabaseFilterAdapter } from "./internal/supabaseAdapter";
 import { resolveContextMembership } from "./internal/accountMemberships";
 import {
+  createReferenceForShidduch,
   linkReferenceToShidduch,
   logReferenceCall,
   computeDiligenceProgress,
@@ -1341,6 +1344,10 @@ export const createDataProvider = ({
       input: LinkReferenceInput,
     ): Promise<ReferenceLink> =>
       linkReferenceToShidduch(baseDataProvider, input),
+    createReferenceForShidduch: (
+      input: CreateReferenceForShidduchInput,
+    ): Promise<Reference> =>
+      createReferenceForShidduch(baseDataProvider, input),
     logReferenceCall: (input: LogReferenceCallInput): Promise<ReferenceLink> =>
       logReferenceCall(baseDataProvider, input),
     previewReferenceMerge: (

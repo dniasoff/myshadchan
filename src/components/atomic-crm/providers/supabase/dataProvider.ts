@@ -14,6 +14,7 @@ import type {
   ChildGrantPreview,
   Connection,
   ConnectionInvitePreview,
+  CreateReferenceForShidduchInput,
   CreateShidduchInput,
   CreateThreadInput,
   EntityFile,
@@ -33,6 +34,7 @@ import type {
   PipelineState,
   RAFile,
   RedtViaConnectionInput,
+  Reference,
   ReferenceLink,
   ReferenceMatchCandidate,
   ReferenceMergePreview,
@@ -777,6 +779,35 @@ export const getDataProviderWithCustomMethods = () => {
       }
       const row = Array.isArray(data) ? data[0] : data;
       return row as ReferenceLink;
+    },
+
+    /**
+     * Creates a reference and attaches it to a shidduch in ONE statement
+     * (RULING 7 R7). Replaces create-then-link, where a failure between the
+     * two calls left an orphan reference attached to nothing.
+     */
+    async createReferenceForShidduch(
+      input: CreateReferenceForShidduchInput,
+    ): Promise<Reference> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "create_reference_for_shidduch",
+        {
+          p_shidduchim_id: input.shidduchim_id,
+          p_name_en: input.name_en ?? null,
+          p_name_he: input.name_he ?? null,
+          p_relationship: input.relationship ?? null,
+          p_phone: input.phone ?? null,
+          p_school: input.school ?? null,
+          p_grad_year: input.grad_year ?? null,
+          p_relationship_override: input.relationship_override ?? null,
+        },
+      );
+      if (error) {
+        console.error("createReferenceForShidduch.error", error);
+        throw new Error(error.message || "Failed to create the reference");
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return row as Reference;
     },
 
     /**
