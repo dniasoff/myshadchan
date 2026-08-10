@@ -303,6 +303,22 @@ export type SinglePreferences = {
 } & Pick<RaRecord, "id">;
 
 /**
+ * One row of `public.single_notes` (Story 16.3, FR69 / PRV-4) — a single's
+ * private notes in her own space. She sees every row of hers; a manager
+ * (parent_admin / self_manager) sees only rows where `visible_to_manager` is
+ * true. Unlike `SinglePreferences`, that flag defaults to FALSE: a note
+ * nobody reads is still hers, and sharing is an intentional act.
+ */
+export type SingleNote = {
+  account_id: Identifier;
+  single_id: Identifier;
+  body: string;
+  visible_to_manager: boolean;
+  created_at: string;
+  updated_at: string;
+} & Pick<RaRecord, "id">;
+
+/**
  * singles_summary — per-single pipeline counts (E6). Every Single field plus a
  * total suggestion count and an "open" (still-in-triage) count, so the roster
  * card shows "N in pipeline" without an N+1 fetch.

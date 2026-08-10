@@ -160,6 +160,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/singles/SinglePrivateNotesTab.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/singles/SinglePreferencesTab.tsx",
           "type": "registry:component"
         },

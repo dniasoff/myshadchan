@@ -14,6 +14,7 @@ import {
 } from "./entityDescriptorRegions";
 import { SingleOverviewTab } from "./SingleOverviewTab";
 import { SinglePreferencesTab } from "./SinglePreferencesTab";
+import { SinglePrivateNotesTab } from "./SinglePrivateNotesTab";
 
 /**
  * Story 5.8 — replaces the 3.9 stub (`singles/entityDescriptor.ts`, deleted
@@ -67,6 +68,11 @@ export const singlesDescriptor: EntityDescriptor<Single> = {
     // intentionally no visibleTo so it stays on the dignity floor with
     // Overview, Resume, Photo, Shidduchim. RLS governs row access.
     { key: "preferences", render: () => <SinglePreferencesTab /> },
+    // Story 16.3 / FR69, PRV-4: her own private notes. Like Preferences,
+    // intentionally NO visibleTo — an allow-list here would hide the tab
+    // from the single herself, the exact inverse of the story. RLS governs
+    // which rows anyone sees.
+    { key: "private-notes", render: () => <SinglePrivateNotesTab /> },
     { key: "resume", render: () => <SingleResumeTab /> },
     { key: "photo", render: () => <SinglePhotoTab /> },
     {

@@ -224,6 +224,7 @@ export const CANONICAL_TAB_SETS: Partial<Record<string, readonly TabKey[]>> = {
   singles: [
     "overview",
     "preferences",
+    "private-notes",
     "resume",
     "photo",
     "files",

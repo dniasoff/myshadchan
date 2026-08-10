@@ -29,6 +29,8 @@ export default (): Db => {
   // An empty collection is correct: fabricated personal statements would put
   // invented words in every demo account.
   db.single_preferences = [];
+  // Story 16.3 — same as single_preferences: no note is pre-written.
+  db.single_notes = [];
   // Communication (Story 7.1) — no discussion exists by default; the
   // Discussions tab's own createThread()/message-composer calls are the
   // only writers. `connections` has no client write path at all (AC-6) —

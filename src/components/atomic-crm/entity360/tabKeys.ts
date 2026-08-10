@@ -31,6 +31,7 @@ export const TAB_KEYS = [
   "discussions",
   "assistant",
   "preferences",
+  "private-notes",
 ] as const;
 
 export type TabKey = (typeof TAB_KEYS)[number];
@@ -59,6 +60,7 @@ export const TAB_LABELS: Record<TabKey, string> = {
   discussions: "Discussions",
   assistant: "Assistant",
   preferences: "Preferences",
+  "private-notes": "Private notes",
 };
 
 /** Narrows a URL segment (or any string) to `TabKey`. Used by 3.2 to guard

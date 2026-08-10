@@ -637,6 +637,7 @@ export const englishCrmMessages = {
         discussions: "Discussions",
         assistant: "Assistant",
         preferences: "Preferences",
+        "private-notes": "Private notes",
       },
       overview: {
         empty: "No details on file yet.",

@@ -29,6 +29,7 @@ import type {
   ShidduchExternalLink,
   ShidduchSchool,
   Single,
+  SingleNote,
   SinglePreferences,
   Task,
   Thread,
@@ -51,6 +52,10 @@ export interface Db {
   // is pre-written; an empty collection is correct (fabricated personal
   // statements would put invented words in every demo account).
   single_preferences: SinglePreferences[];
+  // Single private notes (Story 16.3) — seeded empty for the same reason as
+  // single_preferences above: the single herself is the only author, through
+  // the Private notes tab's own create form.
+  single_notes: SingleNote[];
   shadchanim: Shadchan[];
   references: Reference[];
   shidduchim: Shidduch[];
