@@ -78,7 +78,23 @@
         "only-child",
         "nth-child",
         "no key beyond resource/id/children/className/style",
-        "\"resource\" | \"id\" | \"children\" | \"className\" | \"style\""
+        "\"resource\" | \"id\" | \"children\" | \"className\" | \"style\"",
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts",
+          "term": "child_grants"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts",
+          "term": "ChildGrant"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/dataGenerator/types.ts",
+          "term": "child_grants"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/dataGenerator/types.ts",
+          "term": "ChildGrant"
+        }
       ],
       "exemptReasons": {
         "node:child_process": "Node's own module specifier.",
@@ -89,7 +105,9 @@
         "only-child": "CSS pseudo-class.",
         "nth-child": "CSS pseudo-class.",
         "no key beyond resource/id/children/className/style": "RecordLink.test.tsx's closed-prop-list test title; `children` here is React's own prop, one of RecordLinkProps' five legitimate keys.",
-        "\"resource\" | \"id\" | \"children\" | \"className\" | \"style\"": "RecordLink.test.tsx's ExpectedKeys union, which must spell React's `children` prop literally to assert RecordLinkProps has exactly those five keys."
+        "\"resource\" | \"id\" | \"children\" | \"className\" | \"style\"": "RecordLink.test.tsx's ExpectedKeys union, which must spell React's `children` prop literally to assert RecordLinkProps has exactly those five keys.",
+        "child_grants": "Story 13.1: the real `child_grants` table key, which the FakeRest generator must spell exactly as the database does or the demo provider stops matching the Supabase one. Same status as the already-allowlisted grants.ts/dataProvider.ts; scoped per-file-per-term rather than whole-file so these two generator files stay covered by every other retired-name pattern.",
+        "ChildGrant": "Story 13.1: the TS row type for the `child_grants` table (and the `createChildGrant` action it names). Mirrors a real database identifier, not a retired `children` resource reference."
       },
       "exampleFragments": ["child", "_", "id"]
     },
@@ -120,11 +138,29 @@
         {
           "file": "src/components/atomic-crm/root/adminRouteBuilders.tsx",
           "term": "createRoutesFromChildren"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts",
+          "term": "child_grants"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts",
+          "term": "ChildGrant"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/dataGenerator/types.ts",
+          "term": "child_grants"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/dataGenerator/types.ts",
+          "term": "ChildGrant"
         }
       ],
       "exemptReasons": {
         "Children": "adminRouteBuilders.tsx imports React's own Children API bare (`import { Children } from \"react\"`), not namespaced as `React.Children` like the rest of this list already assumes — same real API, different import style. Kept file-scoped rather than added to the global list above: blanking a bare word that short everywhere would blind this pattern to a genuine future fossil compound containing the same letters (e.g. a hypothetical ChildrenList/useChildren), which the global entries above (all dotted or compound forms) don't risk.",
-        "createRoutesFromChildren": "adminRouteBuilders.tsx's own doc comment names react-router's real internal function createRoutesFromChildren (in node_modules/react-router) to explain an invariant it throws — a third-party identifier quoted for documentation, not a MyShadchan identifier. File-scoped for the same reason as Children above: naming the one file that quotes it costs nothing, and there is no reason to risk a global exemption for a fragment this specific."
+        "createRoutesFromChildren": "adminRouteBuilders.tsx's own doc comment names react-router's real internal function createRoutesFromChildren (in node_modules/react-router) to explain an invariant it throws — a third-party identifier quoted for documentation, not a MyShadchan identifier. File-scoped for the same reason as Children above: naming the one file that quotes it costs nothing, and there is no reason to risk a global exemption for a fragment this specific.",
+        "child_grants": "Story 13.1: the real `child_grants` table key, which the FakeRest generator must spell exactly as the database does or the demo provider stops matching the Supabase one. Same status as the already-allowlisted grants.ts/dataProvider.ts; scoped per-file-per-term rather than whole-file so these two generator files stay covered by every other retired-name pattern.",
+        "ChildGrant": "Story 13.1: the TS row type for the `child_grants` table (and the `createChildGrant` action it names). Mirrors a real database identifier, not a retired `children` resource reference."
       },
       "exampleFragments": ["selecte", "d", "Child", "Id"]
     },

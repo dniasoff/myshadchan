@@ -275,6 +275,13 @@ describe("runRetiredNameCheck", () => {
           const violations = runRetiredNameCheck(tempRoot, config);
 
           expect(violations).toEqual([`${file}:1: matches "${patternId}"`]);
+
+          // Each iteration must start clean. `writeFixture` accumulates, so a
+          // pattern with more than one file-scoped exempt file would otherwise
+          // still see the previous iteration's fossil and fail the strict
+          // equality above. Blanking the file keeps that equality — which is
+          // what proves no OTHER file is reported — rather than weakening it.
+          await writeFixture(file, "\n");
         }
       },
     );

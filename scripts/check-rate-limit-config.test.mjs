@@ -65,6 +65,16 @@ export const PARSE_USER_RATE_LIMIT: RateLimitConfig = {
   limit: 10,
   periodSeconds: 60,
 };
+
+export const SHARE_IP_RATE_LIMIT: RateLimitConfig = {
+  limit: 30,
+  periodSeconds: 60,
+};
+
+export const INGEST_IP_RATE_LIMIT: RateLimitConfig = {
+  limit: 50,
+  periodSeconds: 60,
+};
 `;
 
 function parseWranglerToml({ ipLimit = 20, ipPeriod = 10 } = {}) {
@@ -142,6 +152,52 @@ app.use(
 );
 `,
   );
+  // Story 15.4 widened runRateLimitConfigCheck's WORKERS list from two to
+  // four. Every worker in that list is always read, so "share" and "ingest"
+  // need trivially-consistent fixtures here for the same reason "ai" does —
+  // without them every case in this file dies on ENOENT before it can assert
+  // anything about "parse".
+  for (const { dir, binding, config, limiter, limit } of [
+    {
+      dir: "share",
+      binding: "SHARE_IP_RATE_LIMITER",
+      config: "SHARE_IP_RATE_LIMIT",
+      limiter: "share-ip",
+      limit: 30,
+    },
+    {
+      dir: "ingest",
+      binding: "INGEST_IP_RATE_LIMITER",
+      config: "INGEST_IP_RATE_LIMIT",
+      limiter: "ingest-ip",
+      limit: 50,
+    },
+  ]) {
+    await writeFixture(
+      `workers/${dir}/wrangler.toml`,
+      `
+[[ratelimits]]
+name = "${binding}"
+namespace_id = "1501"
+simple = { limit = ${limit}, period = 60 }
+`,
+    );
+    await writeFixture(
+      `workers/${dir}/index.ts`,
+      `
+import { ${config}, createRateLimitMiddleware } from "../shared/rateLimit";
+app.use(
+  "*",
+  createRateLimitMiddleware<${dir === "share" ? "ShareEnvContext" : "IngestEnvContext"}>({
+    limiterName: "${limiter}",
+    config: ${config},
+    getBinding: (env) => env.${binding},
+    deriveKey: (c) => deriveIpKey(c.req.header("CF-Connecting-IP")),
+  }),
+);
+`,
+    );
+  }
 }
 
 describe("runRateLimitConfigCheck", () => {
@@ -399,6 +455,8 @@ describe("parseRateLimitConfigs", () => {
     expect(result).toEqual({
       AI_WORKER_IP_RATE_LIMIT: { limit: 20, periodSeconds: 10 },
       PARSE_USER_RATE_LIMIT: { limit: 10, periodSeconds: 60 },
+      SHARE_IP_RATE_LIMIT: { limit: 30, periodSeconds: 60 },
+      INGEST_IP_RATE_LIMIT: { limit: 50, periodSeconds: 60 },
     });
   });
 });
