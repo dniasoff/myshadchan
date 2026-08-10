@@ -341,6 +341,46 @@ create policy "Single preferences readable by manager when shared" on public.sin
         and public.current_member_role() in ('parent_admin', 'self_manager')
     );
 
+-- Single notes (Story 16.3 / FR69, PRV-4): a single owns her notes with
+-- full CRUD; a manager (parent_admin or self_manager) may read only the
+-- rows the single has explicitly shared via visible_to_manager = true.
+-- Every policy is account-scoped via current_context_id() because the
+-- table carries account_id directly. Do NOT grant helper or any other
+-- role access -- this would be the first table in the schema to do so,
+-- which is a product decision (precedent: single_preferences).
+
+alter table public.single_notes enable row level security;
+alter table public.single_notes force row level security;
+
+create policy "Single notes owned by single" on public.single_notes
+    for all to authenticated
+    using (
+        account_id = public.current_context_id()
+        and exists (
+            select 1 from public.singles s
+            where s.id = single_notes.single_id
+              and s.account_id = public.current_context_id()
+              and s.member_id = public.current_member_id()
+        )
+    )
+    with check (
+        account_id = public.current_context_id()
+        and exists (
+            select 1 from public.singles s
+            where s.id = single_notes.single_id
+              and s.account_id = public.current_context_id()
+              and s.member_id = public.current_member_id()
+        )
+    );
+
+create policy "Single notes readable by manager when shared" on public.single_notes
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and visible_to_manager = true
+        and public.current_member_role() in ('parent_admin', 'self_manager')
+    );
+
 -- Story 6.3 (AC 3): writes stay denied to a `single`; reads are carved out
 -- into a second, SELECT-only policy below rather than added here — the same
 -- two-policy pattern Story 6.2 established for `accounts`/`account_members`

@@ -220,6 +220,10 @@ revoke all on sequence public.single_preferences_id_seq from anon;
 grant all on sequence public.single_preferences_id_seq to authenticated;
 grant all on sequence public.single_preferences_id_seq to service_role;
 
+revoke all on sequence public.single_notes_id_seq from anon;
+grant all on sequence public.single_notes_id_seq to authenticated;
+grant all on sequence public.single_notes_id_seq to service_role;
+
 revoke all on sequence public.reference_links_id_seq from anon;
 grant all on sequence public.reference_links_id_seq to authenticated;
 grant all on sequence public.reference_links_id_seq to service_role;
@@ -786,6 +790,10 @@ grant all on table public.medical_notes to service_role;
 revoke all on table public.single_preferences from anon, authenticated;
 grant select, insert, update, delete on table public.single_preferences to authenticated;
 grant all on table public.single_preferences to service_role;
+
+revoke all on table public.single_notes from anon, authenticated;
+grant select, insert, update, delete on table public.single_notes to authenticated;
+grant all on table public.single_notes to service_role;
 
 revoke all on table public.reference_links from anon, authenticated;
 grant select, insert, update, delete on table public.reference_links to authenticated;
@@ -1524,6 +1532,7 @@ grant all on sequence public.signup_intents_id_seq to service_role;
 -- Story 14.2 / 14.4 — transcribed from the live database (these tables were
 -- declared only in migrations).
 revoke all on table public.account_deletion_requests from anon;
+revoke all on table public.purge_requests from anon;
 grant insert on table public.purge_requests to anon;
 grant usage, select on sequence public.purge_requests_id_seq to anon;
 grant select, insert, references, delete, trigger, truncate, update on table public.account_deletion_requests to authenticated;
