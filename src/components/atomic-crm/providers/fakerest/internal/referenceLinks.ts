@@ -7,10 +7,39 @@ import type {
   Reference,
   ReferenceLink,
   Shidduch,
+  ShidduchDiligenceProgress,
 } from "../../../types";
 
 const PAGE_ONE = { page: 1, perPage: 1 } as const;
 const BY_ID_ASC = { field: "id", order: "ASC" as const };
+
+/**
+ * Computes the diligence progress for a shidduch (FakeRest mirror of
+ * shidduch_diligence_progress RPC). Returns counts only — no reference
+ * names, relationships, phone numbers, or notes.
+ */
+export async function computeDiligenceProgress(
+  baseDataProvider: DataProvider,
+  shidduchimId: number,
+): Promise<ShidduchDiligenceProgress> {
+  const { data: links } = await baseDataProvider.getList<ReferenceLink>(
+    "reference_links",
+    {
+      filter: { shidduchim_id: shidduchimId },
+      pagination: { page: 1, perPage: 1000 },
+      sort: BY_ID_ASC,
+    },
+  );
+
+  const total = links.length;
+  const contacted = links.filter(
+    (link) =>
+      link.call_status === "answered" ||
+      link.call_status === "they_will_call_back",
+  ).length;
+
+  return { contacted, total, outstanding: total - contacted };
+}
 
 /**
  * The confirm half of match-on-entry (FakeRest mirror of

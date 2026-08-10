@@ -2029,11 +2029,13 @@ create policy "Analytics events insertable by account" on public.analytics_event
 -- is why `db diff` proposed dropping them.
 --
 -- Two of these are worth a second look and are recorded here rather than
--- silently reproduced: "Anon can create purge requests" lets an unauthenticated
--- caller insert an arbitrary row (the public purge form has no other way in,
--- but it is an open write surface with no rate limit at the database level),
--- and "Service role has full access" keys off CURRENT_USER = 'postgres' rather
--- than a role check, so it does not actually match a service_role connection.
+-- silently reproduced: the original "Anon can create purge requests" policy
+-- let an unauthenticated caller insert an arbitrary row, and "Service role
+-- has full access" keyed off CURRENT_USER = 'postgres' (which never matches
+-- a service_role connection). Both were fixed: the anon policy is now scoped
+-- to `with check (status = 'pending' and verified_at is null)`, and the
+-- service_role policy was removed (purge_requests has relforcerowsecurity =
+-- false and service_role has rolbypassrls = true, so it was dead code).
 -- ---------------------------------------------------------------------------
 
 alter table public.account_deletion_requests enable row level security;
@@ -2057,9 +2059,8 @@ create policy "Users can delete their own deletion requests" on public.account_d
     using (requested_by_auth_uid = auth.uid());
 
 create policy "Anon can create purge requests" on public.purge_requests
-    for insert
-    with check (true);
-
-create policy "Service role has full access" on public.purge_requests
-    using (CURRENT_USER = 'postgres'::name)
-    with check (CURRENT_USER = 'postgres'::name);
+    for insert to anon
+    with check (
+        status = 'pending'
+        and verified_at is null
+    );

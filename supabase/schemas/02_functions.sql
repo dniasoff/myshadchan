@@ -4758,3 +4758,35 @@ begin
   return new;
 end;
 $$;
+
+CREATE OR REPLACE FUNCTION "public"."verify_purge_request"("p_token" "text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_row public.purge_requests;
+begin
+  select * into v_row
+  from public.purge_requests
+  where verification_token = p_token
+  for update;
+
+  if not found then
+    return jsonb_build_object('verified', false);
+  end if;
+
+  if v_row.expires_at <= now() then
+    return jsonb_build_object('verified', false);
+  end if;
+
+  if v_row.status <> 'pending' or v_row.verified_at is not null then
+    return jsonb_build_object('verified', false);
+  end if;
+
+  update public.purge_requests
+  set status = 'verified', verified_at = now()
+  where id = v_row.id;
+
+  return jsonb_build_object('verified', true);
+end;
+$$;

@@ -375,6 +375,16 @@ export type ReferenceSummary = Reference & {
   open_task_count: number;
 };
 
+/**
+ * Response from the shidduch_diligence_progress RPC (FR68/Story 16.2).
+ * Counts only — never reference names, relationships, phone numbers, or notes.
+ */
+export type ShidduchDiligenceProgress = {
+  contacted: number;
+  total: number;
+  outstanding: number;
+};
+
 /** The central object (AD-4): one single, one canonical pipeline_state. */
 export type Shidduch = {
   account_id: Identifier;

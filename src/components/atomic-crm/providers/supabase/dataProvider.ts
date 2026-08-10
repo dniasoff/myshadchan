@@ -1195,6 +1195,15 @@ export const getDataProviderWithCustomMethods = () => {
     async getCurrentAccountId(): Promise<number> {
       return getCurrentAccountId();
     },
+    // Generic RPC handler for calling Postgres functions.
+    async rpc(fnName: string, args: Record<string, unknown>) {
+      const { data, error } = await getSupabaseClient().rpc(fnName, args);
+      if (error) {
+        console.error(`rpc(${fnName}).error`, error);
+        throw new Error(error.message || `RPC ${fnName} failed`);
+      }
+      return data;
+    },
   } satisfies DataProvider;
 };
 

@@ -630,6 +630,7 @@ export const englishCrmMessages = {
         photo: "Photo",
         medical: "Medical",
         diligence: "Diligence",
+        "diligence-progress": "Diligence progress",
         "external-links": "External links",
         shidduchim: "Shidduchim",
         conversations: "Conversations",

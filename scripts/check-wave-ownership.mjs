@@ -280,15 +280,6 @@ export const SHARED_ARTIFACTS = [
       "src/components/admin/**/*.tsx",
     ],
   },
-  {
-    artifact:
-      "src/components/atomic-crm/providers/commons/frenchCrmMessages.ts",
-    regeneratedBy: "hand-maintained catalogue every user-facing label lands in",
-    feeders: [
-      "src/components/atomic-crm/**/*.tsx",
-      "src/components/admin/**/*.tsx",
-    ],
-  },
 ];
 
 /** Agent labels whose declared paths can match at least one of `targets`. */

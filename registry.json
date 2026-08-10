@@ -252,6 +252,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/SingleDiligenceProgressTab.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/ShidduchimViewSwitch.tsx",
           "type": "registry:component"
         },

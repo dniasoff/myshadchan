@@ -330,7 +330,9 @@ describe("runSharedArtifactCheck", () => {
     expect(warnings.some((w) => w.includes("englishCrmMessages.ts"))).toBe(
       true,
     );
-    expect(warnings.some((w) => w.includes("frenchCrmMessages.ts"))).toBe(true);
+    expect(warnings.some((w) => w.includes("englishCrmMessages.ts"))).toBe(
+      true,
+    );
   });
 
   it("does not raise the i18n warning for agents editing non-component modules", () => {

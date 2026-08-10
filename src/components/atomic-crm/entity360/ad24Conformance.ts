@@ -214,6 +214,7 @@ export const CANONICAL_TAB_SETS: Partial<Record<string, readonly TabKey[]>> = {
     "medical",
     "files",
     "diligence",
+    "diligence-progress",
     "external-links",
     "notes",
     "tasks",

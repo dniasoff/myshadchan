@@ -16,6 +16,7 @@ import {
   ShidduchNotesTab,
   ShidduchTasksTab,
 } from "./entityDescriptorRegions";
+import { SingleDiligenceProgressTab } from "./SingleDiligenceProgressTab";
 import type { ShidduchSummary } from "../types";
 
 /**
@@ -136,6 +137,13 @@ export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
       // the database.
       visibleTo: ["parent_admin", "self_manager", "helper", "shadchan"],
       render: () => <ShidduchDiligenceTab />,
+    },
+    {
+      key: "diligence-progress",
+      // Story 16.2 (FR68): single role only — shows progress of reference
+      // conversations without revealing any content.
+      visibleTo: ["single"],
+      render: () => <SingleDiligenceProgressTab />,
     },
     {
       key: "external-links",

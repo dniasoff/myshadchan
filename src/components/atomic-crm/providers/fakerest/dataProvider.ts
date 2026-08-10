@@ -99,6 +99,7 @@ import { resolveContextMembership } from "./internal/accountMemberships";
 import {
   linkReferenceToShidduch,
   logReferenceCall,
+  computeDiligenceProgress,
 } from "./internal/referenceLinks";
 import { matchReferenceOnEntry } from "./internal/referenceMatch";
 import { addPersona, getMyPersonas } from "./internal/personas";
@@ -920,6 +921,16 @@ export const createDataProvider = ({
         return { data: enriched };
       }
       return baseDataProvider.getOne(resource, params);
+    },
+    // Generic RPC handler for FakeRest — mirrors the Supabase provider's
+    // ability to call Postgres functions via rpc(). Currently only handles
+    // shidduch_diligence_progress (FR68/Story 16.2).
+    async rpc(fnName: string, args: Record<string, unknown>) {
+      if (fnName === "shidduch_diligence_progress") {
+        const shidduchimId = args.p_shidduchim_id as number;
+        return computeDiligenceProgress(baseDataProvider, shidduchimId);
+      }
+      throw new Error(`FakeRest RPC not implemented: ${fnName}`);
     },
     async create(resource: string, params: any) {
       if (resource === "interactions") {
