@@ -1,0 +1,124 @@
+name: 🗄️ Nightly database backup
+
+# There is no PITR and no other backup on the Supabase free tier, so this is
+# the only recovery path that will exist. It deliberately does NOT run on
+# push: it is scheduled, plus manually dispatchable for a restore drill.
+#
+# INERT UNTIL CONFIGURED. R2 is not yet enabled on the Cloudflare account and
+# the deploy token has no R2 scope, so every step is guarded and the job exits
+# 0 with an explanation when secrets are absent. A backup job that fails every
+# night is a backup job people mute.
+#
+# Secrets required before this does anything:
+#   SUPABASE_PROJECT_ID     (already used by deploy.yml)
+#   SUPABASE_DB_PASSWORD    (already used by deploy.yml)
+#   R2_ACCOUNT_ID           NEW - Cloudflare account id
+#   R2_ACCESS_KEY_ID        NEW - R2 API token, S3-compatible credentials
+#   R2_SECRET_ACCESS_KEY    NEW
+#   R2_BUCKET               NEW - e.g. myshadchan-db-backups
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 🔐 Check configuration
+        id: cfg
+        env:
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          missing=""
+          for v in SUPABASE_PROJECT_ID SUPABASE_DB_PASSWORD R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do
+            [ -z "${!v}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::warning::Backup skipped - not configured yet. Missing:$missing"
+            echo "See docs/runbooks/database-restore.md for what to set."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.cfg.outputs.ready == 'true'
+        uses: actions/checkout@v4
+
+      - if: steps.cfg.outputs.ready == 'true'
+        name: ⚙️ Setup supabase
+        uses: supabase/setup-cli@v3
+        with:
+          # Pinned to match deploy.yml: 2.112.0 rejects the hosted Management
+          # API's inserted_at shape during `supabase link`.
+          version: 2.111.0
+
+      - if: steps.cfg.outputs.ready == 'true'
+        name: 🔗 Link project
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID }}"
+
+      - if: steps.cfg.outputs.ready == 'true'
+        name: 🗄️ Dump roles, schema and data
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p dump
+          # Three files, per Supabase's own documented restore procedure. A
+          # data-only dump cannot be restored without the roles and schema
+          # that precede it, so all three or none.
+          supabase db dump --linked -f dump/roles.sql --role-only
+          supabase db dump --linked -f dump/schema.sql
+          supabase db dump --linked -f dump/data.sql --data-only
+          for f in roles schema data; do
+            test -s "dump/$f.sql" || { echo "::error::dump/$f.sql is empty - refusing to upload a useless backup"; exit 1; }
+          done
+          gzip dump/*.sql
+          ls -la dump/
+
+      - if: steps.cfg.outputs.ready == 'true'
+        name: ☁️ Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          stamp="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+          endpoint="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          aws s3 cp dump/ "s3://${{ secrets.R2_BUCKET }}/$stamp/" \
+            --recursive --endpoint-url "$endpoint"
+          echo "Uploaded to s3://${{ secrets.R2_BUCKET }}/$stamp/"
+
+      - if: steps.cfg.outputs.ready == 'true'
+        name: 🧹 Prune backups older than 30 days
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          endpoint="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          cutoff="$(date -u -d '30 days ago' +%Y-%m-%d)"
+          aws s3 ls "s3://${{ secrets.R2_BUCKET }}/" --endpoint-url "$endpoint" \
+            | awk '{print $2}' | tr -d '/' | while read -r prefix; do
+              [ -z "$prefix" ] && continue
+              day="${prefix%%T*}"
+              if [[ "$day" < "$cutoff" ]]; then
+                echo "Pruning $prefix (older than $cutoff)"
+                aws s3 rm "s3://${{ secrets.R2_BUCKET }}/$prefix/" --recursive --endpoint-url "$endpoint"
+              fi
+            done
