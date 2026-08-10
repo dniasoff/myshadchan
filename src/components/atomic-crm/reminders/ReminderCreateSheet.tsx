@@ -30,9 +30,9 @@ import { Textarea } from "@/components/ui/textarea";
 
 import { TaskAssigneeSelect } from "../tasks/TaskAssigneeSelect";
 import type {
+  DeliveryChannel,
   ShidduchSummary,
   Task,
-  TaskDeliveryChannel,
   TaskTargetType,
 } from "../types";
 import {
@@ -50,7 +50,7 @@ export interface ReminderCreateSheetProps {
   onOpenChange: (open: boolean) => void;
 }
 
-const BASE_DELIVERY_CHANNELS: TaskDeliveryChannel[] = ["in_app", "email"];
+const BASE_DELIVERY_CHANNELS: DeliveryChannel[] = ["in_app", "email"];
 
 /** The shidduchim offered as the scope for a reference-linked reminder
  * (RULING 7 — see `useReminderTargetOptions`). Shidduchim are browsable, so a

@@ -143,8 +143,8 @@ insert into ids values ('single_self', :single_self), ('single_sibling', :single
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"59550000-0000-0000-0000-000000000001","role":"authenticated"}';
 
-insert into public.share_links (single_id, token, include_photo, expires_at)
-values (:single_sibling, 'attacker-supplied-token', false, now() + interval '7 days')
+insert into public.share_links (single_id, token, include_photo, expires_at, recipient_name)
+values (:single_sibling, 'attacker-supplied-token', false, now() + interval '7 days', 'Mrs Cohen')
 returning id as link_a \gset
 
 reset role;
@@ -179,8 +179,8 @@ from public.share_links where id = :link_a;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"59550000-0000-0000-0000-000000000001","role":"authenticated"}';
 
-insert into public.share_links (single_id, expires_at)
-values (:single_sibling, now() + interval '30 days')
+insert into public.share_links (single_id, expires_at, recipient_name)
+values (:single_sibling, now() + interval '30 days', 'Rabbi Weiss')
 returning id as link_a2, token as link_a2_token \gset
 
 reset role;
@@ -376,8 +376,8 @@ declare
   v_single_sibling bigint;
 begin
   select value into v_single_sibling from ids where name = 'single_sibling';
-  insert into public.share_links (single_id, expires_at)
-  values (v_single_sibling, now() + interval '7 days');
+  insert into public.share_links (single_id, expires_at, recipient_name)
+  values (v_single_sibling, now() + interval '7 days', 'Shadchan Klein');
   perform pg_temp.unexpected_raise(v_name, null, 'insert unexpectedly succeeded');
 exception when others then
   perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
@@ -408,8 +408,8 @@ declare
   v_single_sibling bigint;
 begin
   select value into v_single_sibling from ids where name = 'single_sibling';
-  insert into public.share_links (single_id, expires_at)
-  values (v_single_sibling, now() + interval '7 days');
+  insert into public.share_links (single_id, expires_at, recipient_name)
+  values (v_single_sibling, now() + interval '7 days', 'Mrs Levi');
   perform pg_temp.unexpected_raise(v_name, null, 'insert unexpectedly succeeded');
 exception when others then
   perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
@@ -443,8 +443,8 @@ declare
   v_single_sibling bigint;
 begin
   select value into v_single_sibling from ids where name = 'single_sibling';
-  insert into public.share_links (single_id, expires_at)
-  values (v_single_sibling, now() + interval '7 days');
+  insert into public.share_links (single_id, expires_at, recipient_name)
+  values (v_single_sibling, now() + interval '7 days', 'Rabbi Schwartz');
   perform pg_temp.unexpected_raise(v_name, null, 'insert unexpectedly succeeded');
 exception when others then
   perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
@@ -474,8 +474,8 @@ declare
   v_single_sibling bigint;
 begin
   select value into v_single_sibling from ids where name = 'single_sibling';
-  insert into public.share_links (single_id, expires_at)
-  values (v_single_sibling, now() + interval '7 days');
+  insert into public.share_links (single_id, expires_at, recipient_name)
+  values (v_single_sibling, now() + interval '7 days', 'Mrs Goldstein');
   perform pg_temp.unexpected_raise(v_name, null, 'insert unexpectedly succeeded');
 exception when others then
   perform pg_temp.denied_row_security(v_name, sqlstate, sqlerrm);
@@ -484,8 +484,8 @@ end $$;
 -- Positive control, same session: the self-manager creating a link for
 -- THEIR OWN record succeeds — proves the refusal above is a real authority
 -- boundary, not a blanket denial of every self-manager insert.
-insert into public.share_links (single_id, expires_at)
-values (:single_self, now() + interval '7 days')
+insert into public.share_links (single_id, expires_at, recipient_name)
+values (:single_self, now() + interval '7 days', 'Rabbi Friedman')
 returning id as link_self \gset
 
 reset role;

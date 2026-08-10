@@ -4,6 +4,8 @@ import type { BaseEnv } from "../shared/env";
 import { summarizeErrorForLog } from "../shared/safeLog";
 import { sweepAiParseAttempts } from "./sweepAiParseAttempts";
 import { sweepGraceWindow } from "./sweepGraceWindow";
+import { sweepMessages, SweepMessagesError } from "./sweepMessages";
+import type { MessageCronEnv } from "./sweepMessages";
 import { sweepReminders, SweepRemindersError } from "./sweepReminders";
 import type { CronEnv, SweepRemindersErrorCode } from "./sweepReminders";
 import { alertOnSilence, createErrorAlerter } from "../shared/alerting";
@@ -15,18 +17,24 @@ import { alertOnSilence, createErrorAlerter } from "../shared/alerting";
 //
 //   - REMINDER_SWEEP_CRON ("*/15 * * * *"): Story 12.2's reminder-delivery
 //     sweep (AD-13) — sweepReminders.ts, claiming due/overdue tasks and
-//     emailing their owner.
+//     emailing their owner — and, on that same tick and sharing Story 12.2's
+//     single recordHeartbeat, Story 16.4 (part 2)'s queued
+//     message-notification sweep (sweepMessages.ts).
 //   - GRACE_SWEEP_CRON ("0 3 * * *"): Story 12.6's grace window sweep
 //     (FR75) — lapses expired grace windows, starts new ones for freshly
 //     past_due subscriptions, sends dunning emails.
 //   - every other scheduled tick: R2 (Epic 11 external review, Finding 11
 //     closure)'s daily PII-retention sweep, sweepAiParseAttempts().
 //
-// Story 7.5 ("Communication", the post-Amendment-A2 Epic 7) will eventually
-// add a FOURTH concern — sweepMessages.ts, queued message notifications —
-// sharing this same Worker and this same scheduled() tick, per that story's
-// own Dev Notes ("The AD-13 'E7' naming trap"). Not wired here: this
-// story's declared file set does not include it.
+// Story 7.5 ("Communication", the post-Amendment-A2 Epic 7) had planned
+// sweepMessages.ts as a future FOURTH concern sharing this same Worker and
+// this same scheduled() tick, per that story's own Dev Notes ("The AD-13
+// 'E7' naming trap"). Story 16.4 (part 2) has now wired it: sweepMessages()
+// runs on the REMINDER_SWEEP_CRON branch below alongside sweepReminders() —
+// no schedule of its own (wrangler.toml's [triggers] is unchanged) and no
+// heartbeat of its own (it shares Story 12.2's recordHeartbeat; a failure is
+// surfaced through the error alerter, so a dead message sweep is never
+// mistaken for a healthy reminders tick).
 const app = createWorkerApp<BaseEnv>("cron");
 
 // Kept as exported constants, not literals repeated in two places, so
@@ -98,6 +106,28 @@ export default {
     const alerter = createErrorAlerter(env, "cron", "scheduled", requestId);
 
     if (event.cron === REMINDER_SWEEP_CRON) {
+      // Story 16.4 (part 2): the queued message-notification sweep shares
+      // this same tick but stays a SEPARATE concern from the reminders sweep
+      // that owns it — each runs in its own try/catch so one throwing never
+      // strands the other. It gets NO heartbeat of its own: Story 12.2's
+      // single recordHeartbeat below stays the tick's only record (its
+      // staleness threshold is sized to the reminders cadence), so a failure
+      // here is surfaced through the error alerter instead of being written
+      // into — or masked by — the reminders heartbeat.
+      try {
+        const messagesResult = await sweepMessages(env as MessageCronEnv);
+        console.warn("[cron] sweepMessages.ok", messagesResult);
+      } catch (error) {
+        const code =
+          error instanceof SweepMessagesError ? error.code : "unknown";
+        console.error(
+          "[cron] sweepMessages.failed",
+          code,
+          summarizeErrorForLog(error),
+        );
+        await alerter(error, "critical");
+      }
+
       try {
         const result = await sweepReminders(env as CronEnv);
         console.warn("[cron] sweepReminders.ok", result);

@@ -4404,6 +4404,34 @@ CREATE OR REPLACE FUNCTION "public"."shidduch_close_reason"("p_shidduchim_id" bi
     and public.current_member_role() <> 'single';
 $$;
 
+-- FR63 — aggregate counts only, never used to filter, rank, score or match.
+CREATE OR REPLACE FUNCTION "public"."shidduch_diligence_progress"("p_shidduchim_id" bigint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_total bigint;
+  v_contacted bigint;
+begin
+  select count(*) into v_total
+  from public.reference_links
+  where account_id = public.current_context_id()
+    and shidduchim_id = p_shidduchim_id;
+
+  select count(*) into v_contacted
+  from public.reference_links
+  where account_id = public.current_context_id()
+    and shidduchim_id = p_shidduchim_id
+    and call_status = 'answered';
+
+  return jsonb_build_object(
+    'contacted', v_contacted,
+    'total', v_total,
+    'outstanding', v_total - v_contacted
+  );
+end;
+$$;
+
 CREATE OR REPLACE FUNCTION "public"."shidduch_row"("p_shidduchim_id" bigint) RETURNS SETOF "public"."shidduchim"
     LANGUAGE "sql" STABLE
     SET "search_path" TO ''

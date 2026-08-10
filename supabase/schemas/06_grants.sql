@@ -474,6 +474,15 @@ revoke all on function public.shidduch_row(bigint) from public, anon;
 grant execute on function public.shidduch_row(bigint) to authenticated;
 grant execute on function public.shidduch_row(bigint) to service_role;
 
+-- FR68: reference-call progress counts only (02_functions.sql). SECURITY
+-- DEFINER, so anon must never execute it; `single` may see THAT calls are
+-- happening and how many are done, but no name, relationship, phone or note
+-- text ever leaves reference_links through it.
+revoke all on function public.shidduch_diligence_progress(bigint) from public;
+revoke all on function public.shidduch_diligence_progress(bigint) from anon;
+grant execute on function public.shidduch_diligence_progress(bigint) to authenticated;
+grant execute on function public.shidduch_diligence_progress(bigint) to service_role;
+
 revoke all on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) from public, anon;
 grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) to authenticated;
 grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) to service_role;

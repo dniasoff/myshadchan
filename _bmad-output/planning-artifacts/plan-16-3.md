@@ -1,3 +1,14 @@
+## Correction 2026-08-10 (cross-reconciliation pass)
+
+A cross-reconciliation pass measured the working tree and found four false claims in the original frontend section. The DATABASE half (the `single_notes` table, RLS policies, grants, tests, tenant isolation, the role visibility table) was checked separately and is sound — untouched.
+
+| # | Wrong claim (as written) | What replaced it |
+|---|--------------------------|------------------|
+| 1 | i18n catalogue is `src/components/atomic-crm/locales/en.json`. | That directory does not exist. The catalogue is `src/components/atomic-crm/providers/commons/englishCrmMessages.ts`, and tab labels are keyed `crm.entity360.tab.<key>` → `crm.entity360.tab.private-notes`. |
+| 2 | Tabs get their own descriptor file in `src/components/atomic-crm/singles/descriptors/`. | That directory does not exist. Convention is ONE descriptor per entity directory (`singles/entityDescriptor.tsx`) with a colocated `entityDescriptor.test.tsx` → tab registered in `singles/entityDescriptor.tsx`. |
+| 3 | A conformance registry `TAB_KEY_REGISTRY` exists in `ad24Conformance.ts`. | It does not. The registries there are `NO_BROWSE_SURFACE_ENTITIES` and `CANONICAL_TAB_SETS` → the key goes into `CANONICAL_TAB_SETS.singles`. |
+| 4 | Tab key is camelCase `'privateNotes'`, added to the `NO_BROWSE_SURFACE_ENTITIES` allowlist (tab has no list route). | Category error: that registry names RESOURCES with no list route and the guard rejects any non-resource (`ad24Conformance.ts:872`); a tab key is not a resource, and tab keys are kebab-case (`"external-links"` precedent) → key is `"private-notes"`, no `NO_BROWSE_SURFACE_ENTITIES` row. |
+
 # Story 16.3 "A space that is hers" — Plan (FR69, PRV-4)
 
 ## 1. Acceptance Criteria & Mechanical Verification
@@ -37,13 +48,18 @@
 
 ### New Tab: "Private Notes" on Single 360 (5 files)
 
-| File | Purpose |
-|------|---------|
-| `src/components/atomic-crm/singles/descriptors/singlePrivateNotesDescriptor.ts` | EntityDescriptor for the tab: `label: 'Private Notes'`, `icon: LockIcon`, `tabKey: 'privateNotes'`, `visibleTo: ['single']` (single sees tab; manager sees tab only if any shared rows exist — computed, not static). |
-| `src/components/atomic-crm/singles/descriptors/singlePrivateNotesDescriptor.test.ts` | Unit test: descriptor renders, tabKey unique, visibleTo logic correct for each role. |
-| `src/components/atomic-crm/entity360/tabKeys.ts` | Add `'privateNotes'` to `TabKey` union. |
-| `src/components/atomic-crm/locales/en.json` | Add `crm.single.tabs.privateNotes`, `crm.single.privateNotes.empty`, `crm.single.privateNotes.share`, `crm.single.privateNotes.unshare`. |
-| `src/components/atomic-crm/entity360/ad24Conformance.ts` | Add `'privateNotes'` to `NO_BROWSE_SURFACE_ENTITIES` allowlist (it has no list route) and to `TAB_KEY_REGISTRY` conformance check. |
+The **real mechanism** for adding a 360 tab, from the header comment of `src/components/atomic-crm/entity360/tabKeys.ts`:
+> "Adding a tab is a **one-line edit to `TAB_KEYS`, one to `TAB_LABELS`, and one `crm.entity360.tab.<key>` entry in `providers/commons/englishCrmMessages.ts`**, made in the same diff as the story that needs it."
+
+Full procedure: (a) add the key to `TAB_KEYS` in `entity360/tabKeys.ts`; (b) add its label to `TAB_LABELS` in the same file (typed `Record<TabKey, string>`, so `tsc` enforces it); (c) add `crm.entity360.tab.<key>` to `providers/commons/englishCrmMessages.ts`; (d) add the key to the entity's row in `CANONICAL_TAB_SETS` in `entity360/ad24Conformance.ts`, in the right position in the array; (e) register the tab in that entity's `entityDescriptor.tsx`.
+
+| Step | File | Purpose |
+|------|------|---------|
+| a, b | `src/components/atomic-crm/entity360/tabKeys.ts` | Add `"private-notes"` to the `TAB_KEYS` array and its label (`"Private notes"`) to `TAB_LABELS`. Missing or misspelt label is a `tsc` error. |
+| c | `src/components/atomic-crm/providers/commons/englishCrmMessages.ts` | Add `crm.entity360.tab.private-notes: "Private notes"`. This file (not `locales/en.json`) is the i18n catalogue; the tab's empty-state and share/unshare strings live here too. |
+| d | `src/components/atomic-crm/entity360/ad24Conformance.ts` | Add `"private-notes"` to the `singles` row of `CANONICAL_TAB_SETS`, in its canonical position (after `notes`). No `NO_BROWSE_SURFACE_ENTITIES` entry — that registry names resources and would reject a tab key; no `TAB_KEY_REGISTRY` exists. |
+| e | `src/components/atomic-crm/singles/entityDescriptor.tsx` | Register the tab in the descriptor's `tabs` array: `{ key: "private-notes", render: () => <SinglePrivateNotesTab /> }`. One descriptor per entity directory (`singles/entityDescriptor.tsx`), colocated `entityDescriptor.test.tsx` extended. |
+| — | `src/components/atomic-crm/singles/SinglePrivateNotesTab.tsx` | New tab component. For `single`: own notes with the per-note share toggle. For manager roles: shared rows only, or the empty state when none are shared. Tab is always present (no `visibleTo`) — decision 6 resolves to §7 option (i). |
 
 ## 4. Tenant Isolation
 
@@ -61,8 +77,8 @@
 | T4 | `06_grants.sql` — table + sequence grants | Full CRUD to authenticated, revoke anon. |
 | T5 | Migration generation | `npx supabase db diff --local -f single_notes_private_space` → verify no phantom drops. |
 | T6 | `single_notes_rls.sql` — negative test suite | Control rows + 5 assertions (single sees all, manager sees shared only, outsider sees 0, single cannot write sibling, manager cannot write). |
-| T7 | Descriptor + test | `visibleTo: ['single']` only; manager tab visibility computed at render time. |
-| T8 | `tabKeys.ts` + i18n + `ad24Conformance.ts` | Registry updates only. |
+| T7 | `singles/entityDescriptor.tsx` + `SinglePrivateNotesTab.tsx` + `entityDescriptor.test.tsx` | Tab registered in the descriptor, always present (no `visibleTo`); render shows an empty state for manager roles when no rows are shared (decision 6 → §7 option i). |
+| T8 | `tabKeys.ts` + i18n + `ad24Conformance.ts` | Registry updates only: `TAB_KEYS`/`TAB_LABELS`, `crm.entity360.tab.private-notes`, `CANONICAL_TAB_SETS.singles`. |
 | T9 | Parent private notes symmetry | **Owner decision**: reuse `interactions` (scope='account', kind='note') with RLS denying `single`, or new `parent_notes` table. Story 6.3 already denies single on interactions via scope join — verify coverage. |
 
 ## 6. Owner Decisions (Flagged, Not Resolved)
@@ -74,4 +90,17 @@
 | 3 | Parent's "working notes" storage: reuse `interactions` (scope='account') or new `parent_notes` table? | Interactions already has `scope='account'` + `kind='note'` + RLS denying single (Story 6.3). | Reuse `interactions` if RLS already blocks single; otherwise new table mirroring single_notes shape. |
 | 4 | Sharing granularity: boolean `visible_to_manager` (per-note) or per-role? | single_preferences: boolean per-row. | Boolean per-row (simpler, matches precedent). |
 | 5 | Transparency posture dial-up: account-level `transparency_level` widens single→parent visibility? | `accounts.transparency_level` exists; PRV-4 says "family may dial UP to fully open but NEVER below dignity floor". | RLS policies check `transparency_level='open'` only to *add* visibility (e.g., parent sees single's notes without explicit share). Never removes dignity floor (live prospects + single input). |
-| 6 | Single's private notes tab visibility for manager: show tab only when shared rows exist, or always show empty? | Precedent: single_preferences has no tab (preferences are inline). | Show tab for single always; for manager, show only if `exists(select 1 from single_notes where visible_to_manager=true and single_id=...)` — computed, not static `visibleTo`. |
+| 6 | Single's private notes tab visibility for manager: show tab only when shared rows exist, or always show empty? | Precedent: single_preferences has no tab (preferences are inline). | Show tab for single always; for manager, show only if `exists(select 1 from single_notes where visible_to_manager=true and single_id=...)` — computed, not static `visibleTo`. (Resolved via §7 — option (i): framework has no data-aware visibility, so always-present tab with empty state.) |
+
+## 7. Cross-Story Gap (unowned): `data-aware-tab-visibility`
+
+Two plans need a 360 tab hidden based on **data** — "hide when there is nothing to show" — but the framework supports only **role-based** visibility via `visibleTo`. Neither story owns the framework change:
+
+- **plan-16-2** (§ambiguity 3): hide the single's diligence tab when `total = 0` ("does not appear at all").
+- **This plan** (§decision 6): show the Private Notes tab for a manager only when `visible_to_manager = true` rows exist.
+
+Options:
+1. **(i) RECOMMENDED — no framework change.** Both stories keep their tab always present and render a neutral empty state inside it ("No reference conversations started yet"; "No notes shared with you yet"). `EntityRelationshipDescriptor.visibleTo` stays role-only; the empty-state-on-nothing-to-show pattern already exists (`ShidduchReferencesSection`). Both stories land independently.
+2. **(ii) Framework work.** `visibleTo` (or a sibling `visibleWhen`) gains data-aware predicates — an async `(record, viewer) => boolean` evaluated per row. Needs one owner, a contract §3 change in `entity360/tabKeys.ts` / `ad24Conformance.ts`, and accompaniment in both stories' descriptors.
+
+**Recommendation: option (i).** No contract surface grows; empty-state rendering is the existing convention; no cross-story sequencing/ownership needed.

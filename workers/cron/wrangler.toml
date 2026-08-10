@@ -24,8 +24,9 @@ compatibility_flags = ["nodejs_compat"]
 #     (./sweepAiParseAttempts.ts), account-agnostic, unrelated to reminders.
 #     Unchanged by this story.
 #
-# Story 7.5 tightens the retention schedule to */1 for message notifications
-# if it lands; reminders would then simply sweep more often too — harmless,
+# Story 16.4 (part 2) has wired the queued message-notification sweep
+# (sweepMessages.ts) onto the */15 REMINDER tick above — no schedule of its
+# own, and no heartbeat of its own: it shares Story 12.2's recordHeartbeat
 # and the 30-minute staleness threshold above still holds regardless.
 [triggers]
 # RE-ARMED 2026-08-07 (Epic 12 adversarial review fixes, R1 and R2 — see

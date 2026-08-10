@@ -385,4 +385,96 @@ describe("cron worker — reminders sweep (event.cron === REMINDER_SWEEP_CRON)",
       p_failed_count: 1,
     });
   });
+
+  // Story 16.4 (part 2): the queued message-notification sweep
+  // (sweepMessages.ts) shares this same tick with the reminders sweep — no
+  // schedule of its own, no heartbeat of its own. These tests assert the
+  // wiring: both sweeps fire on the REMINDER tick, the message sweep never
+  // fires on the GRACE tick, and a throwing message sweep stays contained
+  // (alerted, never rethrown) so the reminders heartbeat is still recorded.
+  it("invokes BOTH sweepReminders and sweepMessages on the REMINDER_SWEEP_CRON tick", async () => {
+    // Arrange
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    rpc.mockImplementation((name: string) => {
+      if (name === "claim_due_task_notifications") {
+        return Promise.resolve({ data: [], error: null });
+      }
+      if (name === "claim_message_notifications") {
+        return Promise.resolve({ data: [], error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    // Act
+    await worker.scheduled(REMINDER_EVENT, env, mockExecutionContext);
+
+    // Assert — both claims carry their own p_limit argument.
+    expect(rpc).toHaveBeenCalledWith(
+      "claim_due_task_notifications",
+      expect.anything(),
+    );
+    expect(rpc).toHaveBeenCalledWith(
+      "claim_message_notifications",
+      expect.anything(),
+    );
+  });
+
+  it("does NOT invoke sweepMessages on the GRACE_SWEEP_CRON tick", async () => {
+    // Arrange
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    rpc.mockImplementation((name: string) => {
+      if (name === "find_grace_subscriptions") {
+        return Promise.resolve({ data: [], error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    // Act
+    await worker.scheduled(RETENTION_EVENT, env, mockExecutionContext);
+
+    // Assert
+    const calledNames = rpc.mock.calls.map((call) => call[0]);
+    expect(calledNames).not.toContain("claim_message_notifications");
+  });
+
+  it("sweepMessages throwing is contained and alerted, and the tick still records the reminders heartbeat", async () => {
+    // Arrange
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    rpc.mockImplementation((name: string) => {
+      if (name === "claim_message_notifications") {
+        return Promise.resolve({
+          data: null,
+          error: { message: "claim_message_notifications blew up" },
+        });
+      }
+      if (name === "claim_due_task_notifications") {
+        return Promise.resolve({ data: [], error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    // Act — the message sweep throws (rpc_failed), is caught, never
+    // rethrown: the tick must not fail, and the reminders heartbeat must
+    // still be recorded as a healthy reminders result.
+    await worker.scheduled(REMINDER_EVENT, env, mockExecutionContext);
+
+    // Assert
+    const heartbeatCalls = rpc.mock.calls.filter(
+      (call) => call[0] === "record_cron_heartbeat",
+    );
+    expect(heartbeatCalls).toHaveLength(1);
+    expect(heartbeatCalls[0][1]).toEqual({
+      p_worker: "cron",
+      p_error: null,
+      p_failed_count: 0,
+    });
+    // The failure did not silently vanish — it was logged.
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[cron] sweepMessages.failed",
+      "rpc_failed",
+      expect.anything(),
+    );
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
 });

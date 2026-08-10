@@ -104,7 +104,7 @@ export type EntityTargetType = (typeof ENTITY_TARGET_TYPES)[number];
 export type TaskTargetType = EntityTargetType;
 
 /** Delivery is in-app + email (primary) + push. There is deliberately no SMS. */
-export type TaskDeliveryChannel = "in_app" | "email" | "push";
+export type DeliveryChannel = "in_app" | "email" | "push";
 
 export type Task = {
   type: string;
@@ -141,7 +141,7 @@ export type Task = {
   account_id?: Identifier;
   target_type?: TaskTargetType;
   target_id?: Identifier;
-  delivery_channels?: TaskDeliveryChannel[];
+  delivery_channels?: DeliveryChannel[];
 } & Pick<RaRecord, "id">;
 
 export interface RAFile {
@@ -1243,18 +1243,13 @@ export type CreateThreadInput = {
 // =====================================================================
 
 /**
- * The two channels `message_notifications.channel` admits (AC-6) — no
- * outbound SMS, structurally, not by omission. Deliberately reuses the same
- * two string literals `TaskDeliveryChannel` (`:102` above) already uses for
- * `email`/`push`, for vocabulary consistency across the two delivery
- * features — but this is its OWN type. Do not fold the two into a shared
- * `DeliveryChannel` as a side effect of this story: `TaskDeliveryChannel`
- * belongs to the already-shipped reminders feature (Story 12.2 concurrently
- * edits its create sheet), and unifying the types is a deliberate, separate
- * cross-epic refactor with its own review surface (Dev Notes, "Do not
- * refactor `TaskDeliveryChannel`").
+ * `message_notifications.channel` admits only `email` and `push` (AC-6 — no
+ * outbound SMS, structurally, not by omission). S11 (Story 16.4) unified what
+ * used to be two separate channel unions here into the single `DeliveryChannel`
+ * at `:107` above. A site that genuinely cannot mean `in_app` writes
+ * `Exclude<DeliveryChannel, "in_app">` at the use site rather than
+ * re-declaring a second named type.
  */
-export type MessageNotificationChannel = "email" | "push";
 
 /**
  * `message_notifications.status` (AC-9, AC-4): `sending` is the
