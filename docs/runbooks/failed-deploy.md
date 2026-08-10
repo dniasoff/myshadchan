@@ -30,7 +30,7 @@ A failure in ANY phase leaves production in a mixed state. The workflow's `needs
 | 2 | `deploy-workers` (any leg) | `🔑 Push base secrets` | Worker deployed but missing `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`. |
 | 3 | `trigger-frontend` | `🚀 Trigger the Vercel production build` | Backend is live; frontend still on previous build. |
 
-> **UNVERIFIED — confirm with the owner:** The exact Vercel Deploy Hook UI name ("Deploy Hooks" vs "Git Integration" vs "Build Hooks") and whether a manual "Redeploy" button in the Vercel dashboard achieves the same result as POSTing the hook URL. The workflow uses a Deploy Hook URL secret (`VERCEL_DEPLOY_HOOK_URL`).
+> **VERIFIED:** The workflow's failure message at `deploy.yml:655` documents the exact path: **Vercel → Project → Settings → Git → Deploy Hooks**, branch `main`, stored as the `VERCEL_DEPLOY_HOOK_URL` repo secret. `vercel.json` sets `git.deploymentEnabled.main = false` — **pushing to main does NOT build anything**. The CI deploy hook is the only trigger for a production build. If the secret is missing, the workflow warns (not fails) and production silently keeps serving the previous build (`deploy.yml:652-656`). A dashboard "Redeploy" re-runs an **existing** deployment; it does NOT pick up a new commit because git builds are disabled. It is useful only for retrying a failed build of the same commit, and useless for shipping new code.
 
 ---
 
@@ -113,6 +113,8 @@ make check-migration-safety BASE_REF=<last-known-good-deploy-sha>
 - Job summary shows `:rotating_light: **Cloudflare Workers deployment FAILED**`
 - Common markers: `wrangler deploy` failed, `versions upload` failed, `versions deploy` failed, or required-secrets check failed
 
+> **FACT (Cloudflare API, 2026-08-10):** **Seven workers are deployed** — `myshadchan-ai`, `-billing`, `-cron`, `-ingest`, `-match`, `-parse`, `-share`. The `deploy-workers` matrix covers all seven. This runbook's "Diagnosis by Worker" table covers six; **`myshadchan-match` appears in no runbook** — this is a documentation gap, not an indication that it doesn't exist.
+
 ### Immediate Triage
 
 ```bash
@@ -158,10 +160,10 @@ make check-migration-safety BASE_REF=<last-known-good-deploy-sha>
    ```
 3. Verify in Cloudflare Dashboard → Workers → the worker → Versions
 
-#### D. `share` Worker — R2 Not Enabled (UNVERIFIED — confirm with owner)
-- The `share` worker was re-added after Story 9.5 dropped its R2 binding
-- If it fails with "R2 bucket not enabled", verify `workers/share/wrangler.toml` has NO `[[r2_buckets]]` block
-- If it still fails, check Cloudflare account has R2 enabled or the binding was fully removed
+#### D. `share` Worker — R2 Not Enabled (RULING, not unknown)
+- `workers/share/wrangler.toml:6-14` states it outright: **"NO R2 binding. R2 is not enabled on this Cloudflare account (10042 'Please enable R2 through the Cloudflare Dashboard')"** — every upload writes to Supabase Storage's `documents` bucket via the ordinary `@supabase/supabase-js` client.
+- The deployed worker's bindings confirm this: only `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are present.
+- If a deploy fails on a missing R2 binding, it means someone re-introduced an `[[r2_buckets]]` block against the ruling. Remove it.
 
 ### Verification
 - All 7 `deploy-workers` legs show green (or skipped with warning)
@@ -207,9 +209,8 @@ make check-migration-safety BASE_REF=<last-known-good-deploy-sha>
    - Missing env var in Vercel Project Settings → Environment Variables
 3. Fix code / add env var / ensure migration applied, then re-run hook
 
-#### C. Manual Redeploy (UNVERIFIED — confirm with owner)
-- Vercel Dashboard → Deployments → "..." menu → "Redeploy"
-- May bypass `vercel.json` git.deploymentEnabled = false — verify before relying on it
+#### C. Manual Redeploy — Useless for New Code
+- Vercel Dashboard → Deployments → "..." menu → "Redeploy" re-runs an **existing** deployment. It does NOT pick up a new commit because `vercel.json` sets `git.deploymentEnabled.main = false`. It is useful only for retrying a failed build of the same commit, and useless for shipping new code. To deploy a new commit, you must POST the Deploy Hook URL (or push a commit once the hook secret is configured).
 
 ### Verification
 - `trigger-frontend` job green

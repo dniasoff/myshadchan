@@ -7,6 +7,8 @@
 
 ---
 
+> **MODE:** Stripe is in **TEST mode** (owner-confirmed, 2026-08-10). No live payments, no real customers. This changes the urgency of everything below from "revenue is broken" to "a pre-launch integration is broken".
+
 ## Overview
 
 This runbook covers **Stripe webhooks failing, delayed, or being rejected** — causing the `public.subscription` table in our database to drift from Stripe's actual subscription state. The billing Worker (`workers/billing/index.ts`) is the **only** component that writes to `subscription`; it is a writer, never a decider. Entitlement is server-authoritative via `public.ai_entitlement()` — the `accounts.plan` columns are user-writable and **must never be trusted** to diagnose whether someone should have access.
@@ -17,8 +19,8 @@ This runbook covers **Stripe webhooks failing, delayed, or being rejected** — 
 |-----------|------|
 | `workers/billing/index.ts` | Webhook endpoint — signature verification, idempotency via `stripe_events`, applies patches to `subscription` |
 | `workers/billing/subscriptionState.ts` | Pure functions: Stripe status → our `plan`/`status`, event → patch, ordering guard |
-| `public.stripe_events` | Idempotency/replay ledger (PK = `event_id`, status = `received` | `done`) |
-| `public.subscription` | One row per account; `status` CHECK permits only `active`, `past_due`, `lapsed`, `none` |
+| `public.stripe_events` | Idempotency/replay ledger (PK = `event_id`, status = `received` \| `done`) |
+| `public.subscription` | One row per account; `status` CHECK permits `active`, `past_due`, `lapsed`, `none` |
 | `public.ai_entitlement()` | Single source of truth for entitlement — reads `subscription`, ignores `accounts.*` |
 
 ---
@@ -28,7 +30,7 @@ This runbook covers **Stripe webhooks failing, delayed, or being rejected** — 
 - Users report AI features (resume parse, auto-fill) **stopped working** despite active Stripe subscription
 - `public.ai_entitlement()` returns `is_entitled: false` for accounts that should be entitled
 - `public.subscription` row shows `status = 'lapsed'` or `status = 'none'` while Stripe Dashboard shows `active` or `past_due`
-- Worker logs show **constraint-violation errors** on `subscription_status_check` — a webhook tried to write a status the CHECK does not permit (e.g., `past_due` was rejected for weeks in this project; no grace window ever started)
+- Worker logs show **constraint-violation errors** on `subscription_status_check` — a webhook tried to write a status the CHECK does not permit (e.g., `past_due` was rejected for weeks in this project; no grace window ever started). **Migration `20260810000001_allow_past_due_subscription_status.sql` fixes the CHECK but is NOT YET PUSHED to production.** Until deployed, `past_due` still cannot be written.
 - `stripe_events` has rows stuck at `status = 'received'` (mutation failed, never marked `done`)
 - Stripe Dashboard → Webhooks shows **retries exhausted** or endpoint **disabled**
 - `cron_heartbeat` for `worker = 'billing'` goes stale (if the Worker crashed entirely)
@@ -50,6 +52,8 @@ ORDER BY received_at DESC
 LIMIT 50;
 
 # 3. Find subscriptions whose updated_at is older than the latest Stripe event for that account
+#    This is the key symptom of a CHECK-constraint rejection: the webhook arrived,
+#    the Worker tried to write, the DB rejected it, and the row never updated.
 WITH latest_event AS (
   SELECT se.account_id, max(se.received_at) AS latest_received
   FROM public.stripe_events se
@@ -76,7 +80,7 @@ WHERE s.updated_at < le.latest_received - interval '5 minutes';
 | Worker log: `error: new row for relation "subscription" violates check constraint "subscription_status_check"` | Webhook tried to write a status value not in `('active','past_due','lapsed','none')` |
 | `subscription.updated_at` **older** than `stripe_events.received_at` for same account | The mutation failed silently; row never updated |
 
-**Root cause in this repo:** `mapStripeStatus()` in `subscriptionState.ts` maps Stripe `past_due` → our `past_due`, but the CHECK constraint **permits** `past_due` — the actual shipped bug was a mismatch between what the code produced and what the constraint allowed at that moment (a migration added the CHECK before the code handled the value). If the CHECK is missing a value the code emits, the write fails and the ledger row stays `received`.
+**Root cause in this repo:** `mapStripeStatus()` in `subscriptionState.ts` maps Stripe `past_due` → our `past_due`, but the CHECK constraint **did not permit** `past_due` until migration `20260810000001_allow_past_due_subscription_status.sql` is deployed. That migration is **NOT YET PUSHED to production**. Until it is, every `past_due` write fails with error code 23514, the ledger row stays `received`, no grace window starts (`grace_ends_at` never set), and no dunning email is sent. The symptom is exactly the query in Immediate Triage #3: `subscription.updated_at` older than the Stripe event that should have updated it.
 
 ### B. Signature Verification Failure
 
@@ -85,11 +89,15 @@ WHERE s.updated_at < le.latest_received - interval '5 minutes';
 | Worker returns `400 { "error": "invalid signature" }` | `STRIPE_WEBHOOK_SECRET` in Worker env ≠ secret in Stripe Dashboard |
 | Stripe Dashboard shows **400** responses, no retries | Stripe treats 4xx as "don't retry" — events are lost unless manually resent |
 
+**Confirmed (2026-08-10):** `STRIPE_WEBHOOK_SECRET` and `STRIPE_SECRET_KEY` are both set as secrets on the deployed `myshadchan-billing` Worker (names confirmed via Cloudflare API; values not readable, which is correct). **"The secret is missing" is not a candidate cause.** A *wrong* or *rotated* secret still is, and looks exactly like a signature-verification failure.
+
 ### C. Livemode Mismatch
 
 | Evidence | Meaning |
 |----------|---------|
 | Worker log: `billing.webhook.modeMismatch` with `eventLivemode !== workerIsLive` | Test-mode event sent to live Worker (or vice versa). Worker answers 200 and records event, but **does not process it** — subscription never updated |
+
+**Reframed for pre-launch:** The Worker runs against Stripe **test mode** today. The risk is the reverse of what this table assumes — the danger is flipping `STRIPE_SECRET_KEY` to a live key (`sk_live_...`) at launch **without re-registering the webhook endpoint in Stripe live mode**. If the live Stripe account sends webhooks to the test endpoint (or vice versa), the mode mismatch will silently drop every event. Treat this as a **launch-time hazard**, not a current outage cause.
 
 ### D. Account Resolution Failure (Operational Error)
 
@@ -111,9 +119,9 @@ WHERE s.updated_at < le.latest_received - interval '5 minutes';
 
 | Cause | Action |
 |-------|--------|
-| Constraint violation (A) | If CHECK is missing a valid status: generate migration to add it to `subscription_status_check` in `01_tables.sql`, run `make check-migration-safety`, deploy. If code emits invalid value: fix `mapStripeStatus()` in `subscriptionState.ts`, deploy Worker. |
-| Signature mismatch (B) | **UNVERIFIED — confirm with the owner:** The production `STRIPE_WEBHOOK_SECRET` value. Rotate in Stripe Dashboard → Webhooks → Signing secret → "Reveal" → update GitHub secret `STRIPE_WEBHOOK_SECRET` → re-deploy `billing` Worker. |
-| Livemode mismatch (C) | Ensure Worker's `STRIPE_SECRET_KEY` prefix (`sk_live_` vs `sk_test_`) matches the Stripe account mode the webhook is configured for. **UNVERIFIED — confirm with the owner:** Which Stripe account (test/live) the production webhook endpoint is registered against. |
+| Constraint violation (A) | If CHECK is missing a valid status: generate migration to add it to `subscription_status_check` in `01_tables.sql`, run `make check-migration-safety`, deploy. **Migration `20260810000001_allow_past_due_subscription_status.sql` exists locally but is NOT YET PUSHED to production.** Until deployed, `past_due` writes fail. If code emits invalid value: fix `mapStripeStatus()` in `subscriptionState.ts`, deploy Worker. |
+| Signature mismatch (B) | `STRIPE_WEBHOOK_SECRET` and `STRIPE_SECRET_KEY` are confirmed set on the `myshadchan-billing` Worker. If signature fails, the secret was rotated in Stripe but not updated in the Worker. Fix: Stripe Dashboard → Webhooks → Signing secret → "Reveal" → update GitHub secret `STRIPE_WEBHOOK_SECRET` → re-deploy `billing` Worker. |
+| Livemode mismatch (C) | Ensure Worker's `STRIPE_SECRET_KEY` prefix (`sk_live_` vs `sk_test_`) matches the Stripe account mode the webhook is configured for. **Confirmed (2026-08-10):** Production webhook endpoint is registered against the **test mode** Stripe account. At launch, when switching to live keys, you **must** register a new webhook endpoint in Stripe live mode pointing to the same Worker URL. |
 | Account resolution (D) | Check Supabase status. If DB was down, wait for recovery — Stripe retries will reprocess once `resolveAccountForCustomer` succeeds. |
 
 ### 2. Replay Missed Events (Safe, Idempotent)
@@ -125,10 +133,14 @@ The `stripe_events` ledger is the source of truth for what has been **fully proc
 2. For real events: Stripe Dashboard → **Developers → Events** → filter by date/type → click event → **"Resend"**
 3. Resend each event that corresponds to a `stripe_events` row with `status = 'received'` (or events Stripe shows as failed)
 4. Worker will re-claim (`outcome: "retry"`), reprocess, and mark `done`
-
 #### Option B: Bulk Replay via Stripe API (If Many Events)
+
 ```bash
-# UNVERIFIED — confirm with the owner: The live webhook endpoint URL (e.g. https://billing.myshadchan.workers.dev/webhook)
+# Confirmed (2026-08-10): The live webhook endpoint is
+# https://myshadchan-billing.myshadchan.workers.dev/webhook
+# Derived from workers_dev = true in workers/billing/wrangler.toml,
+# the account's myshadchan workers.dev subdomain, and the route at
+# workers/billing/index.ts:288.
 # List failed events via Stripe CLI (requires STRIPE_SECRET_KEY):
 stripe events list --limit 100 --webhook-endpoint <WEBHOOK_ENDPOINT_ID> | jq '.data[] | select(.livemode==true) | .id'
 
@@ -202,7 +214,7 @@ WHERE account_id = <account_id>;
 ## Escalation
 
 1. **Stripe Support** — If endpoint is disabled and cannot be re-enabled via Dashboard, or if events are missing from Stripe's event log (retention: 30 days).
-   - **UNVERIFIED — confirm with the owner:** Stripe account ID and support plan level.
+   - **Not applicable pre-launch:** Stripe is in TEST mode with no live customers. There is no production support escalation path to document. At launch, update this with the live Stripe account ID and support plan.
 
 2. **Supabase Support** — If `stripe_events` or `subscription` tables show corruption, or if RLS/policies block service_role writes.
    - Check `supabase/schemas/06_grants.sql:883-896` for grants on `subscription`; `912-919` for `stripe_events`.
@@ -235,10 +247,12 @@ WHERE account_id = <account_id>;
 
 ---
 
-## UNVERIFIED Items Flagged in This Runbook
+## Previously Unverified Items — Now Confirmed
 
-1. **The production webhook signing secret** — `STRIPE_WEBHOOK_SECRET` value in production Worker env vs Stripe Dashboard
-2. **Whether the Stripe Dashboard shows retries exhausted** — exact state of the webhook endpoint in Stripe Dashboard
-3. **The live endpoint URL** — e.g. `https://billing.myshadchan.workers.dev/webhook` or similar
-4. **Which Stripe account (test/live) the production webhook endpoint is registered against**
-5. **Stripe account ID and support plan level** (for escalation)
+**None.** All five previously unverified items are now confirmed (2026-08-10):
+
+1. **Stripe mode** — TEST mode confirmed. No live payments, no real customers.
+2. **Worker secrets** — `STRIPE_WEBHOOK_SECRET` and `STRIPE_SECRET_KEY` both set on `myshadchan-billing` Worker (Cloudflare API confirmed).
+3. **Webhook endpoint URL** — `https://myshadchan-billing.myshadchan.workers.dev/webhook` (derived from `wrangler.toml` and `index.ts:288`).
+4. **Livemode mismatch** — Re-framed as launch-time hazard: register new webhook in Stripe live mode when switching keys at launch.
+5. **Stripe account ID / support plan** — Not applicable pre-launch (TEST mode, no customers).
