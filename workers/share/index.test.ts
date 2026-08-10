@@ -297,6 +297,30 @@ describe("share worker", () => {
       expect(typeof insertedLogs[0].duration_ms).toBe("number");
     });
 
+    it("Story 14.6: the access-log row carries the link's recipient details", async () => {
+      // Arrange — the fixture has always set recipient_name, but nothing
+      // asserted it reached the log, and resolveShareLink's select did not
+      // request the column. The fake honours `.select()` faithfully, so the
+      // value arrived as `undefined` and every logged row recorded null
+      // recipient details. This assertion fails against that select.
+      const link = seedShareLink({
+        recipient_name: "Mrs Goldstein",
+        recipient_shadchan_id: 7,
+      });
+      seedSingle();
+      seedResume();
+
+      // Act
+      await app.request(`/r/${link.token}`, {}, env);
+
+      // Assert
+      expect(insertedLogs).toHaveLength(1);
+      expect(insertedLogs[0]).toMatchObject({
+        recipient_name: "Mrs Goldstein",
+        recipient_shadchan_id: 7,
+      });
+    });
+
     it("AC-5: a profile view followed by a file download writes TWO share_access_log rows with distinct resource values and a non-null duration_ms on each", async () => {
       // Arrange
       const link = seedShareLink();

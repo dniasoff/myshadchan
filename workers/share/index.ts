@@ -85,6 +85,15 @@ interface ShareLinkRow {
   include_photo: boolean;
   expires_at: string;
   revoked_at: string | null;
+  // Story 14.6. These three were read at the call sites below but were in
+  // neither this interface nor resolveShareLink's select, so at runtime they
+  // were `undefined`: `watermark && recipient_name` was always falsy and no
+  // file was ever watermarked, and every access-log row recorded null
+  // recipient details. The `data as ShareLinkRow` cast is what let the select
+  // and the interface disagree silently.
+  recipient_name: string | null;
+  recipient_shadchan_id: number | null;
+  watermark: boolean;
 }
 
 interface ResumeFileRow {
@@ -169,7 +178,7 @@ async function resolveShareLink(
   const { data, error } = await getServiceRoleClient(env)
     .from("share_links")
     .select(
-      "id, account_id, single_id, token, include_photo, expires_at, revoked_at",
+      "id, account_id, single_id, token, include_photo, expires_at, revoked_at, recipient_name, recipient_shadchan_id, watermark",
     )
     .eq("token", token)
     .maybeSingle();
@@ -489,7 +498,15 @@ app.get("/r/:token/file/:fileKey", async (c) => {
   // Apply watermark if watermarking is enabled and we have a recipient name
   let processedBlob = blob;
   if (shareLink.watermark && shareLink.recipient_name) {
-    const fileType = entry.mimeType.startsWith("image/") ? "image" : "pdf";
+    // `mimeType` is null for the photo entry (buildManifest sets it so), and
+    // the photo is always an image — so key off fileKey first, the same way
+    // the access-log label above does, and only then fall back to the mime
+    // type. Dereferencing mimeType directly here would have thrown on every
+    // photo download the moment watermarking started working.
+    const fileType =
+      entry.fileKey === "photo" || entry.mimeType?.startsWith("image/")
+        ? "image"
+        : "pdf";
     processedBlob = await applyWatermark(
       blob,
       shareLink.recipient_name,
