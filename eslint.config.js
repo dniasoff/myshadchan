@@ -8,7 +8,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".supabase-e2e", ".supabase-e2e-*"] },
+  { ignores: ["dist", ".supabase-e2e", ".supabase-e2e-*", "supabase/.temp"] },
   {
     // A suppression that no longer suppresses anything fails the lint gate
     // instead of rotting silently (AC-10).
@@ -25,6 +25,7 @@ export default tseslint.config(
       "**/.astro/**",
       "**/.supabase-e2e/**",
       "**/.supabase-e2e-*/**",
+      "**/supabase/.temp/**",
     ],
     languageOptions: {
       ecmaVersion: 2020,
