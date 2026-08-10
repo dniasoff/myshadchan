@@ -270,8 +270,7 @@ app). Legal specifics → confirm with counsel.
   access-logged** links — never static files that spread uncontrolled.
 - **PRV-9 · Authentication.** Passwordless (magic-link / passkeys) for non-technical, sometimes
   phone-less users; safe recovery; secure sessions on both surfaces.
-- **PRV-10 · Encryption & hosting.** In transit + at rest; **field-level encryption for the most
-  sensitive fields (health, photos)**; **US region**.
+- **PRV-10 · Encryption & hosting.** *(Amended 2026-08-10 — see §Amendment A2. Previously: "In transit + at rest; field-level encryption for the most sensitive fields (health, photos); US region".)* In transit (TLS 1.2+) and at rest (volume-level AES-256, provided by hosted Supabase, US region). **No application-layer field or object encryption** — the share Worker (Story 8.5) and account-data export (Story 14.3) both read plaintext, so encryption would have to be undone at exactly the boundaries where data leaves the system. Encrypted fields cannot be searched or sorted by the database; key management would become a new and significant failure domain; RLS predicates must read the values they filter on. A "sensitive tier" defined field-by-field would not contain all sensitive data anyway — a resume PDF can embed a photo and health text.
 - **PRV-11 · The data subject (the single).** Singles never consented to being in the CRM. Stance
   (voluntary — not required under US law): never sell/share/train on their data; honour a **purge
   request** if a single asks to be removed. Kept as a values differentiator.

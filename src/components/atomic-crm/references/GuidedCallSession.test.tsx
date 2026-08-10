@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { page } from "@vitest/browser/context";
 import {
   CoreAdminContext,
   ResourceContextProvider,
@@ -9,6 +10,12 @@ import { GuidedCallSession } from "./GuidedCallSession";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { ReferenceLinkSummary } from "../types";
 import type { CrmDataProvider } from "../providers/types";
+
+// Real Tailwind stylesheet must apply for computed geometry assertions
+import "@/index.css";
+
+/** Default viewport restored after each test so suites stay isolated. */
+const DEFAULT_VIEWPORT = { width: 1280, height: 720 } as const;
 
 const mockLink: ReferenceLinkSummary = {
   id: "123",
@@ -141,5 +148,77 @@ describe("GuidedCallSession", () => {
       what_they_said: "They said something important",
       source: "assistant",
     });
+  });
+});
+
+describe("GuidedCallSession responsive layout (AC-11)", () => {
+  afterEach(async () => {
+    await page.viewport(DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height);
+  });
+
+  it("shows the current question at 390px", async () => {
+    await page.viewport(390, 720);
+    const { dataProvider } = createFakeDataProvider();
+    const screen = await renderWithRouter(
+      "/references/1?call=123&step=1",
+      links,
+      dataProvider,
+    );
+
+    const question = screen.getByTestId("current-question");
+    await expect.element(question).toBeVisible();
+  });
+
+  it("shows the answer textarea at 390px", async () => {
+    await page.viewport(390, 720);
+    const { dataProvider } = createFakeDataProvider();
+    const screen = await renderWithRouter(
+      "/references/1?call=123&step=1",
+      links,
+      dataProvider,
+    );
+
+    const textarea = screen.getByPlaceholder("Type their answer here…");
+    await expect.element(textarea).toBeVisible();
+  });
+
+  it("shows the primary action button at 390px", async () => {
+    await page.viewport(390, 720);
+    const { dataProvider } = createFakeDataProvider();
+    const screen = await renderWithRouter(
+      "/references/1?call=123&step=1",
+      links,
+      dataProvider,
+    );
+
+    const saveButton = screen.getByRole("button", { name: /save and next/i });
+    await expect.element(saveButton).toBeVisible();
+  });
+
+  it("has no horizontal overflow at 390px", async () => {
+    await page.viewport(390, 720);
+    const { dataProvider } = createFakeDataProvider();
+    const screen = await renderWithRouter(
+      "/references/1?call=123&step=1",
+      links,
+      dataProvider,
+    );
+
+    const question = screen.getByTestId("current-question");
+    await expect.element(question).toBeVisible();
+
+    // scrollWidth on the sheet content does NOT detect horizontal overflow here:
+    // the sheet has className "max-h-[92vh] overflow-y-auto" (vertical only),
+    // so overflow-x remains visible. Descendants wider than the viewport simply
+    // spill out without growing the scroll container's scrollWidth.
+    const sheet = document.body.querySelector('[data-slot="sheet-content"]');
+    expect(sheet).toBeInTheDocument();
+    const rect = sheet!.getBoundingClientRect();
+    let maxRight = 0;
+    sheet!.querySelectorAll("*").forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.right > maxRight) maxRight = r.right;
+    });
+    expect(maxRight).toBeLessThanOrEqual(rect.right + 1);
   });
 });

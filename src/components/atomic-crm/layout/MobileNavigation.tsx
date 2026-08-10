@@ -264,7 +264,6 @@ const CreateButton = () => {
           <DropdownMenuItem asChild>
             <Link to={buildNewPath("shidduchim")}>Add a suggestion</Link>
           </DropdownMenuItem>
-          <DropdownMenuItem disabled>Log a call (coming soon)</DropdownMenuItem>
           <DropdownMenuItem disabled>
             Scan a resume (coming soon)
           </DropdownMenuItem>
