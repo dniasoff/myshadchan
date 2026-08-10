@@ -1,10 +1,14 @@
 import { useState } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
-import type { Identifier, RaRecord } from "ra-core";
-import { useDataProvider, useNotify, useRedirect, useTranslate } from "ra-core";
+import type { Identifier } from "ra-core";
+import {
+  Form,
+  useDataProvider,
+  useNotify,
+  useRedirect,
+  useTranslate,
+} from "ra-core";
 import { Link, useSearchParams } from "react-router";
-import { Create } from "@/components/admin/create";
-import { SimpleForm } from "@/components/admin/simple-form";
 import type { CrmDataProvider } from "../providers/types";
 import type { ReferenceMatchCandidate } from "../types";
 import { redirectToRecord } from "../entity360/routeConvention";
@@ -186,45 +190,45 @@ export const ReferenceCreate = () => {
     return <RequiresShidduch />;
   }
 
-  return (
-    <Create
-      redirect={redirectToRecord}
-      // The default breadcrumb renders "Home / References / <name>", where
-      // "References" is a LINK to the list — a browse entry RULING 7 forbids.
-      disableBreadcrumb
-      mutationOptions={{
-        onSuccess: async (data: RaRecord) => {
-          try {
-            await dataProvider.linkReferenceToShidduch({
-              reference_id: data.id,
-              shidduchim_id: shidduchimId,
-            });
-            notify("crm.references.create.linked", {
-              type: "success",
-              messageArgs: {
-                _: "Reference saved and linked to this shidduch.",
-              },
-            });
-          } catch (error) {
-            // The reference itself was saved; only the link failed. Notify
-            // rather than swallow — the record is still reachable from its
-            // own page (which is where a future repair action belongs), it
-            // just is not yet linked to the shidduch the user came from.
-            notify(
-              error instanceof Error
-                ? error.message
-                : translate("ra.notification.http_error"),
-              { type: "error" },
-            );
-          }
-          redirect(redirectToRecord, "references", data.id, data);
+  // RULING 7 R7. This used to be `<Create>` plus an onSuccess that called
+  // linkReferenceToShidduch afterwards — two round trips, so a failure between
+  // them left a reference attached to no shidduch. One RPC now does both
+  // inserts, which is why there is no longer a partial-failure branch to
+  // handle: it cannot happen. Shape follows ShidduchCreate.tsx, the existing
+  // precedent for an RPC-backed create (`<Create>` cannot replace its own
+  // insert, only react after it).
+  const onSubmit = async (values: Record<string, unknown>) => {
+    try {
+      const reference = await dataProvider.createReferenceForShidduch({
+        shidduchim_id: shidduchimId,
+        name_en: (values.name_en as string | undefined) ?? null,
+        relationship: (values.relationship as string | undefined) ?? null,
+        phone: (values.phone as string | undefined) ?? null,
+        school: (values.school as string | undefined) ?? null,
+        grad_year: (values.grad_year as number | undefined) ?? null,
+      });
+      notify("crm.references.create.linked", {
+        type: "success",
+        messageArgs: {
+          _: "Reference saved and linked to this shidduch.",
         },
-      }}
-    >
-      <SimpleForm toolbar={<FormToolbar />}>
-        <ReferenceInputs />
-        <MatchOnEntry shidduchimId={shidduchimId} />
-      </SimpleForm>
-    </Create>
+      });
+      redirect(redirectToRecord, "references", reference.id, reference);
+    } catch (error) {
+      notify(
+        error instanceof Error
+          ? error.message
+          : translate("ra.notification.http_error"),
+        { type: "error" },
+      );
+    }
+  };
+
+  return (
+    <Form onSubmit={onSubmit} mode="onBlur">
+      <ReferenceInputs />
+      <MatchOnEntry shidduchimId={shidduchimId} />
+      <FormToolbar />
+    </Form>
   );
 };

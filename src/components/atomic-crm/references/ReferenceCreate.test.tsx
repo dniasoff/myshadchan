@@ -51,6 +51,7 @@ const buildDataProvider = (
       .fn()
       .mockResolvedValue({ data: { id: 100, name_en: "Chaya Cohen" } }),
     linkReferenceToShidduch: vi.fn().mockResolvedValue({ id: 1 }),
+    createReferenceForShidduch: vi.fn().mockResolvedValue({ id: 100 }),
     ...overrides,
   }) as unknown as CrmDataProvider;
 
@@ -165,40 +166,25 @@ describe("ReferenceCreate — no orphan can be produced on save (Ruling 7 / §2 
     // Act
     await screen.getByRole("button", { name: "Save" }).click();
 
-    // Assert — created, then linked with the SAME id the create call
-    // returned (the exact invariant that rules out a zero-link orphan).
+    // Assert — one atomic RPC did the reference insert AND the shidduch
+    // link in a single statement: the exact invariant that rules out a
+    // zero-link orphan.
     await expect.poll(() => getPathname()).toBe("/references/100");
-    expect(dataProvider.create).toHaveBeenCalledTimes(1);
-    expect(dataProvider.linkReferenceToShidduch).toHaveBeenCalledTimes(1);
-    expect(dataProvider.linkReferenceToShidduch).toHaveBeenCalledWith({
-      reference_id: 100,
-      shidduchim_id: 42,
-    });
-  });
-
-  it("still redirects to the record when the link call fails, and notifies the error", async () => {
-    // Arrange
-    const { screen, dataProvider, getPathname } = await renderReferenceCreate(
-      "/references/new?shidduchim_id=42",
-      {
-        linkReferenceToShidduch: vi
-          .fn()
-          .mockRejectedValue(new Error("shidduch 42 not found")),
-      },
+    expect(dataProvider.createReferenceForShidduch).toHaveBeenCalledTimes(1);
+    expect(dataProvider.createReferenceForShidduch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shidduchim_id: 42,
+        name_en: "Chaya Cohen",
+      }),
     );
-    await screen.getByLabelText("Name").fill("Chaya Cohen");
-
-    // Act
-    await screen.getByRole("button", { name: "Save" }).click();
-
-    // Assert — the user is not stranded on a dead form: the reference was
-    // created and they land on it, even though the link failed.
-    await expect.poll(() => getPathname()).toBe("/references/100");
-    expect(dataProvider.linkReferenceToShidduch).toHaveBeenCalledTimes(1);
-    await expect
-      .element(screen.getByText("shidduch 42 not found"))
-      .toBeInTheDocument();
+    expect(dataProvider.create).not.toHaveBeenCalled();
+    expect(dataProvider.linkReferenceToShidduch).not.toHaveBeenCalled();
   });
+
+  // The old "reference saved but link failed" test lived here. It is deleted
+  // rather than adapted because create_reference_for_shidduch makes that
+  // state unreachable: both inserts are one statement, so there is no partial
+  // success to redirect from. Its premise is gone, not just its wiring.
 });
 
 describe("ReferenceCreate — match-on-entry confirm redirects to the linked record, not a bare show route (Story 5.10 review fix)", () => {
