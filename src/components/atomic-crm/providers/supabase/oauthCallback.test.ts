@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { englishCrmMessages } from "../commons/englishCrmMessages";
-import { frenchCrmMessages } from "../commons/frenchCrmMessages";
 import { readOAuthCallbackError } from "./oauthCallback";
 
 describe("readOAuthCallbackError", () => {
@@ -170,31 +169,6 @@ describe("crm.auth.oauth_callback.* catalogue entries", () => {
 
       // Assert
       expect(catalogueText).toBe(result.defaultMessage);
-    },
-  );
-
-  it.each(cases)(
-    "$label: the French catalogue carries its own, non-empty translation (not a copy-paste gap)",
-    ({ location }) => {
-      // Arrange
-      const result = readOAuthCallbackError(location);
-      if (!result) {
-        throw new Error("expected a mapped OAuth callback error");
-      }
-      const catalogueKey = result.messageKey.replace(
-        "crm.auth.oauth_callback.",
-        "",
-      );
-
-      // Act
-      const frenchText =
-        frenchCrmMessages.crm.auth.oauth_callback[
-          catalogueKey as keyof typeof frenchCrmMessages.crm.auth.oauth_callback
-        ];
-
-      // Assert
-      expect(frenchText).toBeTruthy();
-      expect(frenchText).not.toBe(result.defaultMessage);
     },
   );
 });

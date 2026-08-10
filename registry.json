@@ -648,6 +648,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/references/useCallSession.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/references/useAiEntitlement.ts",
           "type": "registry:component"
         },
@@ -673,6 +677,10 @@
         },
         {
           "path": "src/components/atomic-crm/references/callStatus.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/references/callScript.ts",
           "type": "registry:component"
         },
         {
@@ -729,6 +737,10 @@
         },
         {
           "path": "src/components/atomic-crm/references/ReferenceAttachToShidduch.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/references/GuidedCallSession.tsx",
           "type": "registry:component"
         },
         {
@@ -981,10 +993,6 @@
         },
         {
           "path": "src/components/atomic-crm/providers/commons/i18nProvider.ts",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/providers/commons/frenchCrmMessages.ts",
           "type": "registry:component"
         },
         {
