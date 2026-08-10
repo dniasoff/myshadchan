@@ -47,6 +47,7 @@ const importsDialog = (content: string): boolean =>
 const ALLOWED = new Set([
   "ReferenceMergeButton.tsx", // a merge confirmation, not a record surface — permanent
   "TaskEdit.tsx", // AC 4's recorded exemption — see the doc comment on the file itself
+  "SingleGrantManagement.tsx", // Story 13.1's grant lifecycle UI; it is an action dialog (propose / accept / sever / re-grant), not a record surface, so UX-DR3 does not govern it
 ]);
 
 const dialogWrappedFiles = Object.entries(sources)
