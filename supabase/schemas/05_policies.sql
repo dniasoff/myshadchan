@@ -1560,15 +1560,35 @@ create policy "Connection invites visible to their issuer" on public.connection_
 alter table public.child_grants enable row level security;
 alter table public.child_grants force row level security;
 
+-- Both policies were DEAD from Story 13.1 until 2026-08-11: `authenticated`
+-- held no SELECT grant on this table (06_grants.sql never mentioned it), and
+-- grants are checked before RLS, so SingleGrantManagement.tsx:281's
+-- getList("child_grants") failed with "permission denied for table
+-- child_grants" for every caller, parent_admin included. The grant that
+-- revives them is in 06_grants.sql; the role guard below is what makes
+-- reviving them safe.
+--
+-- The `<> 'single'` conjunct matches the posture every other account-scoped
+-- policy in this file takes, and it is load-bearing here rather than
+-- decorative: these policies are scoped to the ACCOUNT, so without it a
+-- single-role member of the proposing household would read every grant that
+-- household has made — including grants concerning their siblings. Failing
+-- closed is the reversible direction. If a single should be able to see a
+-- grant naming *herself*, that is a product decision and wants its own
+-- policy keyed on target_single_id, not the removal of this guard.
 create policy "Child grants visible to proposer" on public.child_grants
     for select to authenticated
-    using (proposer_account_id = public.current_context_id());
+    using (
+        proposer_account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
 
 create policy "Child grants visible to grantee when accepted" on public.child_grants
     for select to authenticated
     using (
         grantee_account_id = public.current_context_id()
         and status = 'accepted'
+        and public.current_member_role() <> 'single'
     );
 
 -- =====================================================================

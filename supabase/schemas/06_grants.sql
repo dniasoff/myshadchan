@@ -1585,3 +1585,21 @@ grant all on sequence public.analytics_events_id_seq to service_role;
 revoke all on table public.analytics_events_summary from anon, authenticated;
 grant select on table public.analytics_events_summary to authenticated;
 grant all on table public.analytics_events_summary to service_role;
+
+-- Story 13.1 — child_grants. Third instance of the same omission as the
+-- 14.2/14.4 and 15.2 blocks above: the table was declared only in
+-- 20260809093159_grant_lifecycle.sql and never transcribed here, so
+-- `authenticated` held no SELECT and both of its RLS policies
+-- (05_policies.sql) were dead code. Measured: a parent_admin selecting from
+-- child_grants got "permission denied for table child_grants", which is
+-- exactly what SingleGrantManagement.tsx:281's getList("child_grants") does.
+--
+-- SELECT only, deliberately. Every write goes through a SECURITY DEFINER RPC
+-- (create/accept/revoke/sever/regrant_child_grant) and
+-- providers/supabase/dataProvider.ts:392 documents that design — "the client
+-- has no direct DML access to child_grants". That comment cited this file
+-- while this file said nothing about the table; it is true now.
+revoke all on table public.child_grants from anon;
+grant select on table public.child_grants to authenticated;
+grant all on table public.child_grants to service_role;
+grant all on sequence public.child_grants_id_seq to service_role;
