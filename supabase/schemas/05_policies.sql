@@ -487,6 +487,29 @@ create policy "Shidduchim visible to single" on public.shidduchim
         )
     );
 
+-- Child grants (Epic 14): a grantee household that has accepted a grant for a
+-- proposer's single may SELECT the proposer's shidduchim rows for that single.
+-- Additive SELECT-only policy alongside the two above — ADDITIVE, the existing
+-- policies are untouched. `status = 'accepted'` is literal (a severed grant
+-- keeps grantee_account_id set, so keying on the id alone would leak), and the
+-- `<> 'single'` guard closes the read-only-structural boundary (an accepted
+-- grantee's OWN single-persona members still see zero rows, mirroring the
+-- singles increment). Note this opens the BASE shidduchim row only — see the
+-- column-by-column grant in 06_grants.sql for why `close_reason` stays NULL
+-- here (the only reader is the SECURITY DEFINER shidduch_close_reason(), whose
+-- account_id guard is proposer-scoped and intentionally stays so).
+create policy "Shidduchim readable via accepted grant" on public.shidduchim
+    for select to authenticated
+    using (
+        exists (
+            select 1 from public.child_grants g
+            where g.target_single_id = shidduchim.single_id
+              and g.grantee_account_id = public.current_context_id()
+              and g.status = 'accepted'
+        )
+        and public.current_member_role() <> 'single'
+    );
+
 create policy "Resumes scoped to account" on public.resumes
     for all to authenticated
     using (
