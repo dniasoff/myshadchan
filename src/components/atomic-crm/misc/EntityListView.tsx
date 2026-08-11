@@ -22,6 +22,12 @@ export interface EntityListViewProps {
   renderList: (data: RaRecord[]) => ReactNode;
   renderCards: (data: RaRecord[]) => ReactNode;
   /**
+   * Passed straight through to `useEntityListStatus` so a resource with its
+   * own default filter (e.g. `singles`' "hide archived") can still resolve
+   * a true `"empty"` state — see that hook's doc comment.
+   */
+  filterDefaultValues?: Record<string, unknown>;
+  /**
    * Lifted from the parent (Story 4.2 AC 4) — this component stays a pure
    * function of its props, never reading any persistence mechanism itself,
    * so it works unmodified for any caller's chosen mode (today's sibling
@@ -49,9 +55,10 @@ export const EntityListView = ({
   renderList,
   renderCards,
   viewMode,
+  filterDefaultValues,
 }: EntityListViewProps) => {
   const translate = useTranslate();
-  const status = useEntityListStatus();
+  const status = useEntityListStatus(filterDefaultValues);
 
   if (status.status === "loading") {
     return <>{skeleton}</>;

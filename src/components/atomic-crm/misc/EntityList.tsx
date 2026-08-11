@@ -148,6 +148,7 @@ export const EntityList = ({
           renderList={renderList}
           renderCards={renderCards}
           viewMode={viewMode}
+          filterDefaultValues={filterDefaultValues}
         />
       </List>
     </>

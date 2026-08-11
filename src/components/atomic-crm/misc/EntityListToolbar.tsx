@@ -2,7 +2,6 @@ import type { ReactElement, ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { Link } from "react-router";
 
-import { FilterButton } from "@/components/admin/filter-form";
 import { SortButton } from "@/components/admin/sort-button";
 
 import { TopToolbar } from "../layout/TopToolbar";
@@ -25,16 +24,22 @@ export interface EntityListToolbarProps {
   createTo?: string;
   createLabel?: string;
   /**
-   * Task 3, verbatim: render `<FilterButton/>` "only when `extraFilters` is
-   * non-empty". Review fix (F8): `FilterButton` does NOT self-hide for this
-   * case — its own guard only suppresses when there are zero togglable
-   * filters AND zero saved queries AND no active filter value at all, so
-   * the moment the always-on search box gets a value (`filterValues.q` is
-   * set), `hasFilterValues` flips true and the button un-hides mid-typing,
-   * opening onto a dropdown with nothing in it but "Save current
-   * query…"/"Remove all filters". Neither retrofitted list passes
-   * `extraFilters` today, so this prop being unset renders no button at
-   * all — the literal Task 3 instruction, not `FilterButton`'s own guard.
+   * Rendered inline, directly, one button per entry (Story 13.2's "Past
+   * members" `ToggleFilterButton` is the first and only caller so far).
+   *
+   * Originally routed through `@/components/admin/filter-form`'s generic
+   * `<FilterButton/>` dropdown (Task 3's literal instruction) — that
+   * component reads each filter element's `source`/`defaultValue` props to
+   * drive its own show/hide plumbing, which `ToggleFilterButton` does not
+   * have: it manages its own click handling and `filterValues` entirely
+   * through `useListContext()`. Routed through `FilterButton` anyway, the
+   * dropdown displayed a correctly-labelled menu item that, on click, called
+   * the WRONG handler (`showFilter(undefined, undefined)`) — the toggle
+   * never fired and `ToggleFilterButton` itself was never mounted. Measured
+   * empirically: clicking "Past members" in the "Add filter" dropdown never
+   * revealed an archived single. Rendering the elements directly sidesteps
+   * that mismatch entirely — each element is `ToggleFilterButton`'s real
+   * button, always visible, self-contained.
    */
   extraFilters?: ReactElement[];
   /**
@@ -47,11 +52,10 @@ export interface EntityListToolbarProps {
 }
 
 /**
- * The `<List actions>` slot every retrofitted list shares (AC 1): a
- * filter-toggle button (rendered only when there is an `extraFilters` entry
- * beyond the always-on search box to toggle — Task 3, F8), an optional sort
- * button, the reserved view-toggle slot, and the single gradient create
- * CTA — one visual, not one per entity (AC 7).
+ * The `<List actions>` slot every retrofitted list shares (AC 1): any
+ * `extraFilters` entries rendered inline, an optional sort button, the
+ * reserved view-toggle slot, and the single gradient create CTA — one
+ * visual, not one per entity (AC 7).
  */
 export const EntityListToolbar = ({
   sortFields,
@@ -75,7 +79,7 @@ export const EntityListToolbar = ({
   // no page-level horizontal scroll at any width (carried by
   // `e2e/entity-list-view-toggle.spec.ts`'s "no horizontal scroll" checks).
   <TopToolbar className="flex-wrap justify-end gap-y-2">
-    {extraFilters && extraFilters.length > 0 ? <FilterButton /> : null}
+    {extraFilters}
     {sortFields && sortFields.length > 0 ? (
       <SortButton fields={sortFields} />
     ) : null}

@@ -53,11 +53,12 @@ const buildListContextValue = (
 
 async function captureStatus(
   overrides: Partial<ListControllerResult>,
+  filterDefaultValues?: Record<string, unknown>,
 ): Promise<EntityListStatus> {
   let captured: EntityListStatus | undefined;
 
   function Probe() {
-    captured = useEntityListStatus();
+    captured = useEntityListStatus(filterDefaultValues);
     return null;
   }
 
@@ -155,5 +156,78 @@ describe("useEntityListStatus — the four-state decision (AC 6)", () => {
 
     // Assert
     expect(status).toEqual({ status: "ready", data: [FIXTURE_ROW] });
+  });
+
+  // Story 13.2 regression (SingleList's "hide archived" default filter):
+  // `filterDefaultValues` seeds `filterValues` from the very first render,
+  // so a bare presence check can never see a true empty roster again. These
+  // four cases are `hasFilterBeyondDefaults`'s own decision table.
+  describe("with a resource-level filterDefaultValues", () => {
+    const FILTER_DEFAULTS = { "status@neq": "archived" };
+
+    it("returns empty when filterValues holds only the declared defaults", async () => {
+      // Arrange / Act
+      const status = await captureStatus(
+        {
+          isPending: false,
+          error: null,
+          data: [],
+          filterValues: { "status@neq": "archived" },
+        },
+        FILTER_DEFAULTS,
+      );
+
+      // Assert
+      expect(status).toEqual({ status: "empty" });
+    });
+
+    it("returns no-matches when a value beyond the defaults is also set", async () => {
+      // Arrange / Act — the always-on search box's `q`.
+      const status = await captureStatus(
+        {
+          isPending: false,
+          error: null,
+          data: [],
+          filterValues: { "status@neq": "archived", q: "chaim" },
+        },
+        FILTER_DEFAULTS,
+      );
+
+      // Assert
+      expect(status).toEqual({ status: "no-matches" });
+    });
+
+    it("returns no-matches when a default value is overridden to something else", async () => {
+      // Arrange / Act
+      const status = await captureStatus(
+        {
+          isPending: false,
+          error: null,
+          data: [],
+          filterValues: { "status@neq": "active" },
+        },
+        FILTER_DEFAULTS,
+      );
+
+      // Assert
+      expect(status).toEqual({ status: "no-matches" });
+    });
+
+    it("returns no-matches when the viewer clears a default filter back out", async () => {
+      // Arrange / Act — e.g. toggling "Past members" off removes the key
+      // entirely rather than setting it to some other value.
+      const status = await captureStatus(
+        {
+          isPending: false,
+          error: null,
+          data: [],
+          filterValues: {},
+        },
+        FILTER_DEFAULTS,
+      );
+
+      // Assert
+      expect(status).toEqual({ status: "no-matches" });
+    });
   });
 });

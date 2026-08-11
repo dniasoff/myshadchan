@@ -6,6 +6,7 @@ import { QueryClient } from "@tanstack/react-query";
 import fakeDataProvider from "ra-data-fakerest";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
+import { withSupabaseFilterAdapter } from "../providers/fakerest/internal/supabaseAdapter";
 import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import { MY_PERSONAS_QUERY_KEY } from "../root/useMyPersonas";
 import type { MyContext, MyPersona } from "../types";
@@ -19,6 +20,16 @@ import { SingleList } from "./SingleList";
 const SINGLES = [
   { id: 1, first_name_en: "Chaim", last_name_en: "Cohen", status: "active" },
   { id: 2, first_name_en: "Devorah", last_name_en: "Levi", status: "active" },
+];
+
+const SINGLES_WITH_ARCHIVED = [
+  ...SINGLES,
+  {
+    id: 3,
+    first_name_en: "Archie",
+    last_name_en: "Archived",
+    status: "archived",
+  },
 ];
 
 // Story 6.5 (AC 4): SingleList branches its subtitle/empty-state copy on
@@ -89,14 +100,22 @@ const renderSingleList = (
         store={store}
         queryClient={queryClient}
         dataProvider={{
-          ...fakeDataProvider({
-            singles,
-            singles_summary: singles.map((single) => ({
-              ...single,
-              total_shidduchim: 0,
-              open_shidduchim: 0,
-            })),
-          }),
+          ...withSupabaseFilterAdapter(
+            fakeDataProvider({
+              // `withSupabaseFilterAdapter` (the same shim the real FakeRest
+              // provider uses, dataProvider.ts's `enrichSinglesSummary`)
+              // strips the "_summary" suffix before the request reaches
+              // `fakeDataProvider`, so a "singles_summary" read resolves
+              // against this same "singles" collection — decorate it
+              // directly rather than registering a separate collection that
+              // would never be reached.
+              singles: singles.map((single) => ({
+                ...single,
+                total_shidduchim: 0,
+                open_shidduchim: 0,
+              })),
+            }),
+          ),
           getMyPersonas: async () => personas,
           getMyContexts: async () => contexts,
         }}
@@ -125,22 +144,42 @@ describe("SingleList — retrofitted onto EntityList, search filters the roster 
       .not.toBeInTheDocument();
   });
 
-  // Review fix (F8): `EntityListToolbar` only renders `<FilterButton/>` when
-  // `extraFilters` is non-empty (Task 3's literal instruction) — SingleList
-  // passes none, so no "Add filter" control should ever appear, including
-  // once the always-on search box has a value (`FilterButton`'s own guard
-  // un-hides on any active filter value, `q` included, which is exactly
-  // what used to pop an "Add filter" dropdown open mid-typing).
-  it("never shows an 'Add filter' control — SingleList has no extraFilters (AC 1, F8)", async () => {
+  // Story 13.2 added the "Past members" toggle as SingleList's first
+  // `extraFilters` entry. Routed through `@/components/admin/filter-form`'s
+  // generic `<FilterButton/>` dropdown (the pre-13.2 mechanism this test
+  // used to pin the ABSENCE of), that dropdown reads each filter's
+  // `source`/`defaultValue` props to drive its own show/hide — props
+  // `ToggleFilterButton` does not have, since it manages its own click and
+  // `filterValues` through `useListContext()` directly. Measured before this
+  // fix: the dropdown displayed a correctly-labelled "Past members" menu
+  // item that, on click, called the WRONG handler and never revealed an
+  // archived single — `ToggleFilterButton` itself was never mounted.
+  // `EntityListToolbar` now renders `extraFilters` inline instead (real
+  // buttons, not menu items), which is what this asserts.
+  it("renders the Past members toggle inline, and it actually reveals archived singles (13.2)", async () => {
     // Arrange
-    const screen = await renderSingleList();
-    await screen.getByPlaceholder("Search by name").fill("Devorah");
-    await expect.element(screen.getByText("Devorah Levi")).toBeInTheDocument();
+    const screen = await renderSingleList(undefined, {
+      singles: SINGLES_WITH_ARCHIVED,
+    });
+    await expect.element(screen.getByText("Chaim Cohen")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Archie Archived"))
+      .not.toBeInTheDocument();
 
-    // Assert
+    // Assert — no dropdown to open first; the toggle is its own button.
+    const pastToggle = screen.getByRole("button", { name: "Past members" });
+    await expect.element(pastToggle).toBeInTheDocument();
     await expect
       .element(screen.getByRole("button", { name: "Add filter" }))
       .not.toBeInTheDocument();
+
+    // Act
+    await pastToggle.click();
+
+    // Assert — clicking it actually changes what the list shows.
+    await expect
+      .element(screen.getByText("Archie Archived"))
+      .toBeInTheDocument();
   });
 
   // Review fix (F3): `@/components/admin/list`'s `ListView` renders its
