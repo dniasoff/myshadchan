@@ -1891,6 +1891,39 @@ create policy "Listings readable via accepted grant" on public.listings
         and public.current_member_role() <> 'single'
     );
 
+-- Story 13.3's grant surface stops here at 9 tables (singles,
+-- singles_summary, shidduchim, resumes, resume_photos, shidduch_education,
+-- redts, listings, plus singles_summary's shared flag) — the remaining six
+-- tables of the original 15-increment plan are DELIBERATE exclusions, not
+-- unfinished work, decided against the same test this file already applies
+-- via `close_reason` (public.shidduchim's one column `authenticated` may
+-- never select at all): is this candid family deliberation, a live
+-- credential, or a capability a grantee never holds in the first place?
+--
+--   - reference_links   — candid diligence content (call_status,
+--     what_they_said, conversation_log); denied even to the granting
+--     household's OWN `single` member by design (AD-3/F3: "no row-subset is
+--     safe to expose... no visibility column may ever be added").
+--   - interactions      — the CRM's primary candid-deliberation surface
+--     (parent notes, the status-change timeline, shadchan commentary); even
+--     the household's own single sees only her own `single_input` rows.
+--   - tasks             — household reminders / free-text follow-through,
+--     explicitly named out of scope in Story 13.3's own acceptance criteria.
+--   - share_links       — `token` is a LIVE bearer credential the sharing
+--     Worker honours with service-role rights; reading it via SELECT
+--     bypasses the Worker's own revocation/expiry entirely. Also 3rd-party
+--     PII (`recipient_name` etc.) — who else the proposer is sharing with.
+--   - share_access_log  — inherits share_links' exact boundary one hop
+--     removed, plus its own PII (`ip_hash`, `user_agent`).
+--   - listing_withdrawal_locks — not sensitive by content, but structurally
+--     orphaned: E13-D10 already forbids a collaborator from ever
+--     publishing/withdrawing a listing, so no grantee action this table's
+--     read would ever inform exists.
+--
+-- If a future story wants any of these, that is a product decision to make
+-- explicitly (see E13-D6/E13-D9 in the epic's own open-decisions doc), not a
+-- gap to fill by extending this pattern mechanically.
+
 -- The `shadchan` branch only (AC-1, AC-2, AC-6, AC-7). Story 9.2 adds
 -- separate, named `single`-branch policies for insert/update; Story 9.3
 -- replaces the single-branch delete policy with the dignity-floor lock —
