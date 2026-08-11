@@ -1850,6 +1850,47 @@ create policy "Listings readable by owner" on public.listings
     for select to authenticated
     using (account_id = public.current_context_id());
 
+-- Child grants (Epic 14), RLS increment 9: a grantee household that has
+-- accepted a grant for a proposer's single may read that single's listing
+-- row(s) as an `authenticated` caller. Additive SELECT-only policy — the
+-- policy above is untouched.
+--
+-- Worth adding despite "Listings readable by anon" above already granting
+-- full read access to EVERYONE, including unauthenticated visitors (AD-21):
+-- Postgres RLS policies are role-scoped, so a policy `to anon` does not
+-- apply to an `authenticated` session. Without this policy a logged-in
+-- accepted grantee would have LESS listings visibility than an anonymous
+-- visitor browsing the public listings page — a real gap this closes.
+--
+-- listings.single_id is a DIRECT column (unlike shidduch_education/redts,
+-- which carry only shidduchim_id and need the SECURITY DEFINER
+-- shidduch_single_id() helper to resolve it) — no join/helper needed here,
+-- the same shape as "Singles readable via accepted grant" above. The column
+-- is also NULLABLE: a `shadchan`-type listing always has single_id = NULL
+-- (listings_single_id_presence, 01_tables.sql). `g.target_single_id =
+-- listings.single_id` evaluates to NULL, not TRUE, whenever single_id is
+-- NULL, so `exists (...)` finds no row and this policy correctly denies —
+-- no explicit `is not null` guard is needed, and no shadchan-type listing
+-- can ever falsely match a grant.
+--
+-- `status = 'accepted'` is literal (a severed grant keeps grantee_account_id
+-- set, so keying on the id alone would leak), and the `<> 'single'` guard
+-- closes the read-only-structural boundary (an accepted grantee's OWN
+-- single-persona members still see zero rows THROUGH THIS POLICY — as
+-- authenticated callers they are not reached by the anon-only policy above
+-- either, so this mirrors every other increment's guard exactly).
+create policy "Listings readable via accepted grant" on public.listings
+    for select to authenticated
+    using (
+        exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = listings.single_id
+        )
+        and public.current_member_role() <> 'single'
+    );
+
 -- The `shadchan` branch only (AC-1, AC-2, AC-6, AC-7). Story 9.2 adds
 -- separate, named `single`-branch policies for insert/update; Story 9.3
 -- replaces the single-branch delete policy with the dignity-floor lock —
