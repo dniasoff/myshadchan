@@ -100,6 +100,18 @@
           "term": "child_grant"
         },
         {
+          "file": "supabase/schemas/03_views.sql",
+          "term": "child_grant"
+        },
+        {
+          "file": "supabase/tests/child_grant_singles_summary_flag.sql",
+          "term": "child_grant"
+        },
+        {
+          "file": "supabase/tests/child_grant_singles_summary_flag.test.ts",
+          "term": "child_grant"
+        },
+        {
           "file": "supabase/tests/child_grants_visibility.sql",
           "term": "child_grant"
         },
