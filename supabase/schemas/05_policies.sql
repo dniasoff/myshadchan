@@ -842,6 +842,43 @@ create policy "Shidduch schools visible to single" on public.shidduch_schools
         )
     );
 
+-- Child grants (Epic 14), RLS increment 6: a grantee household that has accepted
+-- a grant for a proposer's single may read that single's shidduch_schools rows.
+-- DELIBERATELY BROADER than every prior grant-consuming increment (E13-D6): an
+-- accepted grantee reads EVERYTHING about the granted single, not the narrower
+-- subset a single sees about their own suggestion. The policy immediately above
+-- (and the base `shidduch_schools` table) carries two ADDITIONAL gates —
+-- `visibility = 'shared'` and `is_single_visible_state(pipeline_state)` — that
+-- exist because a SINGLE should only see schools for suggestions that have
+-- progressed to a shareable state. A GRANTEE is a second parent-figure the
+-- proposer household has vouched for, not the single, so this policy MUST NOT
+-- copy either gate: a school attached to a 'private_parent' or non-single-visible
+-- suggestion is INVISIBLE to the single but must be VISIBLE to the accepted
+-- grantee. The negative test's assertion (c) proves this deliberately-broader
+-- behavior — a wrong (narrower, gate-copying) policy makes exactly that
+-- assertion fail.
+--
+-- Additive SELECT-only policy — the two policies above are untouched.
+-- `status = 'accepted'` is literal (a severed grant keeps grantee_account_id set,
+-- so keying on the id alone would leak), and the `<> 'single'` guard closes the
+-- read-only-structural boundary (an accepted grantee's OWN single-persona members
+-- still see zero rows, mirroring every prior increment).
+create policy "Shidduch schools readable via accepted grant" on public.shidduch_schools
+    for select to authenticated
+    using (
+        exists (
+            select 1 from public.shidduchim s
+            where s.id = shidduch_schools.shidduchim_id
+              and exists (
+                  select 1 from public.child_grants g
+                  where g.status = 'accepted'
+                    and g.grantee_account_id = public.current_context_id()
+                    and g.target_single_id = s.single_id
+              )
+        )
+        and public.current_member_role() <> 'single'
+    );
+
 -- Story 5.6: same shape as "Shidduch schools scoped to account" above — a
 -- URL bookmark is not sensitive data, so there is no sensitivity tier and no
 -- role check, only account scoping.
