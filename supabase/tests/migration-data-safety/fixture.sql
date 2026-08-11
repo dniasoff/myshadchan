@@ -496,19 +496,14 @@ values (
     'https://example.test/guard-writeup', 'Community writeup'
 );
 
--- shidduch_schools (Story 3.x era, ShidduchOverviewTab.tsx; renamed to
--- shidduch_education by a migration NOT YET part of this fixture's baseline
--- — see the "the empty-table trap" / rename-vs-column_moves note in
--- .claude/rules/: fixture.sql seeds PRE-migration state, so this must stay
--- the pre-rename name until the rename migration itself is deployed and
--- becomes part of the baseline this fixture seeds against; verified by
--- running the guard, not asserted (`relation "public.shidduch_education"
--- does not exist` is what happens if this is renamed prematurely). A
--- seminary / yeshiva / school entry attached to a shidduch. Never seeded
--- before this — one of the 7 tables the completeness check below found with
--- real production traffic (see .claude/rules/ for the incident) but zero
--- rows in this fixture.
-insert into public.shidduch_schools (id, account_id, shidduchim_id, kind, name_en, name_he, start_year, end_year)
+-- shidduch_education (renamed from shidduch_schools by migration
+-- 20260811150000, deployed on main as of commit 43e59db — now part of this
+-- fixture's baseline, so this seeds under the NEW name). A seminary / yeshiva
+-- / school entry attached to a shidduch. Never seeded before the rename
+-- landed — one of the 7 tables the completeness check below found with real
+-- production traffic (see .claude/rules/ for the incident) but zero rows in
+-- this fixture.
+insert into public.shidduch_education (id, account_id, shidduchim_id, kind, name_en, name_he, start_year, end_year)
 values (
     9000001, 9000001, 9000001, 'seminary', 'Bais Yaakov Seminary', 'בית יעקב', 2019, 2021
 );
