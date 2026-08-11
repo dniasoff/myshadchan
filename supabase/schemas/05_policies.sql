@@ -812,6 +812,43 @@ create policy "Redts scoped to account" on public.redts
         and public.current_member_role() <> 'single'
     );
 
+-- Child grants (Epic 14), RLS increment 7: a grantee household that has
+-- accepted a grant for a proposer's single may read that single's redts rows.
+-- A clean single-hop join: redts.shidduchim_id -> shidduchim.single_id, then
+-- the accepted-grant lookup — the same shape as increment 6 (shidduch_schools).
+--
+-- Additive SELECT-only policy — the "Redts scoped to account" policy above is
+-- untouched and still governs every normal read. No visibility/pipeline_state
+-- gates are added here: this table has neither column (a redt carries only
+-- shidduchim_id/shadchan_id/redt_date/note), and unlike increment 6 it has no
+-- existing single-facing narrowing to deliberately-not-mirror; a redt is candid
+-- parent/shadchan commentary (a single never sees this table at all), so the
+-- grant policy needs no per-row single-visibility axis to guard.
+--
+-- `status = 'accepted'` is literal (a severed grant keeps grantee_account_id
+-- set, so keying on the id alone would leak), and the `<> 'single'` guard
+-- closes the read-only-structural boundary (an accepted grantee's OWN
+-- single-persona members still see zero rows, mirroring every prior
+-- increment). `shadchan_id` is returned AS-IS (not hidden/nulled): whether a
+-- grantee may later resolve that id to a shadchan's name is a separate,
+-- explicitly-deferred owner decision — deferring it here means no
+-- column-hiding logic on this policy.
+create policy "Redts readable via accepted grant" on public.redts
+    for select to authenticated
+    using (
+        exists (
+            select 1 from public.shidduchim s
+            where s.id = redts.shidduchim_id
+              and exists (
+                  select 1 from public.child_grants g
+                  where g.status = 'accepted'
+                    and g.grantee_account_id = public.current_context_id()
+                    and g.target_single_id = s.single_id
+              )
+        )
+        and public.current_member_role() <> 'single'
+    );
+
 create policy "Shidduch schools scoped to account" on public.shidduch_schools
     for all to authenticated
     using (
