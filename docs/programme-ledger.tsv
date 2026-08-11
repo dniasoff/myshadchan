@@ -25,4 +25,4 @@ story-id	wave	status	commit-sha	blocked-on	default-if-silent
 16.4	-	done	4f0bbb5	-	-
 S16	-	retired	-	-	-
 S17	-	done	7d020c3	-	-
-13.R	-	blocked	-	definition-not-found-in-repo:13.R-and-person-level-grants-match-nothing	-
+13.R	-	retired	b8539ce	-	-
