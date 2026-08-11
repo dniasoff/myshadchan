@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 /**
- * Runs the child-grant singles-read-across guard against the local Supabase
+ * Runs the child_grants singles-read-across guard against the local Supabase
  * stack.
  *
  * The assertions live in child_grant_singles_access.sql because they can only
@@ -68,7 +68,7 @@ function runSuite(): { checks: Check[]; error?: string } {
 
 const { checks, error } = runSuite();
 
-describe("child-grant singles read access (database)", () => {
+describe("child_grants singles read access (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   // A vacuous run — the SQL erroring early and emitting a short report — must
