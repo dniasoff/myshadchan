@@ -129,7 +129,7 @@ describe("shadchanimDescriptor — tab strip order (Story 5.9, AC 3)", () => {
     // Act
     const { screen } = await renderShadchanShow();
     await expect
-      .element(screen.getByRole("tab", { name: "Overview" }))
+      .element(screen.getByRole("tab", { name: "Overview", exact: true }))
       .toBeInTheDocument();
 
     // Assert
@@ -158,7 +158,7 @@ describe("shadchanimDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC
 
     // Assert
     await expect
-      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .element(screen.getByRole("tab", { name: "Tasks", exact: true }))
       .toBeInTheDocument();
   });
 
@@ -169,10 +169,10 @@ describe("shadchanimDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC
     // Assert — the Overview anchor proves the tab strip has actually
     // mounted before the negative assertion runs.
     await expect
-      .element(screen.getByRole("tab", { name: "Overview" }))
+      .element(screen.getByRole("tab", { name: "Overview", exact: true }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .element(screen.getByRole("tab", { name: "Tasks", exact: true }))
       .not.toBeInTheDocument();
     expect(screen.container.textContent ?? "").not.toContain("Tasks");
   });
@@ -257,7 +257,7 @@ describe("shadchanimDescriptor — the Overview tab renders Last redt / Working 
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Overview" }).click();
+    await screen.getByRole("tab", { name: "Overview", exact: true }).click();
 
     // Assert
     await expect.element(screen.getByText("Last redt")).toBeInTheDocument();
@@ -279,7 +279,7 @@ describe("shadchanimDescriptor — the Overview tab renders Last redt / Working 
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Overview" }).click();
+    await screen.getByRole("tab", { name: "Overview", exact: true }).click();
 
     // Assert — "Working on now" still renders (0 is a real fact, not
     // absence), but no redt date is ever fabricated.
@@ -310,7 +310,7 @@ describe("shadchanimDescriptor — the Overview tab renders Last redt / Working 
     }));
 
     // Act
-    await screen.getByRole("tab", { name: "Overview" }).click();
+    await screen.getByRole("tab", { name: "Overview", exact: true }).click();
 
     // Assert — never silently swallowed as "no details on file yet."
     await expect
@@ -366,7 +366,7 @@ describe("shadchanimDescriptor — the real Notes tab is scoped to targetType='s
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Notes" }).click();
+    await screen.getByRole("tab", { name: "Notes", exact: true }).click();
 
     // Assert
     await expect
@@ -418,7 +418,7 @@ describe("shadchanimDescriptor — the real Tasks tab is scoped to targetType='s
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Tasks" }).click();
+    await screen.getByRole("tab", { name: "Tasks", exact: true }).click();
 
     // Assert
     await expect
@@ -466,7 +466,7 @@ describe("shadchanimDescriptor — the Shidduchim tab renders ShadchanSuggestion
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Shidduchim" }).click();
+    await screen.getByRole("tab", { name: "Shidduchim", exact: true }).click();
 
     // Assert
     const link = screen.getByRole("link", {

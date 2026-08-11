@@ -121,7 +121,7 @@ describe("connectionsDescriptor — tab strip order (Story 8.5, AC-3)", () => {
     // Act
     const { screen } = await renderConnectionShow(1);
     await expect
-      .element(screen.getByRole("tab", { name: "Overview" }))
+      .element(screen.getByRole("tab", { name: "Overview", exact: true }))
       .toBeInTheDocument();
 
     // Assert
@@ -368,7 +368,7 @@ describe("connectionsDescriptor — the real Notes tab is scoped to targetType='
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Notes" }).click();
+    await screen.getByRole("tab", { name: "Notes", exact: true }).click();
 
     // Assert
     await expect
@@ -418,7 +418,7 @@ describe("connectionsDescriptor — the real Tasks tab is scoped to targetType='
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Tasks" }).click();
+    await screen.getByRole("tab", { name: "Tasks", exact: true }).click();
 
     // Assert
     await expect
@@ -438,7 +438,7 @@ describe("connectionsDescriptor — the Discussions tab reuses ThreadList, scope
     const { screen, dataProvider } = await renderConnectionShow(1);
 
     // Act
-    await screen.getByRole("tab", { name: "Discussions" }).click();
+    await screen.getByRole("tab", { name: "Discussions", exact: true }).click();
     await screen.getByRole("button", { name: "Start a discussion" }).click();
 
     // Assert

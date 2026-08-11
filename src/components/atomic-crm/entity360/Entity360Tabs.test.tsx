@@ -87,8 +87,14 @@ describe("Entity360Tabs — triggers are real links (AC 4)", () => {
       [`${recordPath(1)}/overview`],
       tabs,
     );
-    const overviewTrigger = screen.getByRole("tab", { name: "Overview" });
-    const notesTrigger = screen.getByRole("tab", { name: "Notes" });
+    const overviewTrigger = screen.getByRole("tab", {
+      name: "Overview",
+      exact: true,
+    });
+    const notesTrigger = screen.getByRole("tab", {
+      name: "Notes",
+      exact: true,
+    });
     await expect.element(overviewTrigger).toBeInTheDocument();
     await expect.element(notesTrigger).toBeInTheDocument();
 
@@ -122,7 +128,7 @@ describe("Entity360Tabs — triggers are real links (AC 4)", () => {
         navigate = nav;
       },
     );
-    await screen.getByRole("tab", { name: "Notes" }).click();
+    await screen.getByRole("tab", { name: "Notes", exact: true }).click();
 
     // Assert (b)
     await expect.element(screen.getByText("NOTES_PANEL")).toBeInTheDocument();

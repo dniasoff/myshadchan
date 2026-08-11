@@ -135,7 +135,7 @@ describe("referencesDescriptor — tab strip order (Story 5.10, AC 4)", () => {
     // Act
     const { screen } = await renderReferenceShow();
     await expect
-      .element(screen.getByRole("tab", { name: "Overview" }))
+      .element(screen.getByRole("tab", { name: "Overview", exact: true }))
       .toBeInTheDocument();
 
     // Assert — Shidduchim renders THIRD, not last: `mergeEntityTabs` would
@@ -165,7 +165,7 @@ describe("referencesDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC
 
     // Assert
     await expect
-      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .element(screen.getByRole("tab", { name: "Tasks", exact: true }))
       .toBeInTheDocument();
   });
 
@@ -176,10 +176,10 @@ describe("referencesDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC
     // Assert — the Overview anchor proves the tab strip has actually
     // mounted before the negative assertion runs.
     await expect
-      .element(screen.getByRole("tab", { name: "Overview" }))
+      .element(screen.getByRole("tab", { name: "Overview", exact: true }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .element(screen.getByRole("tab", { name: "Tasks", exact: true }))
       .not.toBeInTheDocument();
     expect(screen.container.textContent ?? "").not.toContain("Tasks");
   });
@@ -223,7 +223,7 @@ describe("referencesDescriptor — the Overview tab renders the identity-fact bl
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Overview" }).click();
+    await screen.getByRole("tab", { name: "Overview", exact: true }).click();
 
     // Assert
     await expect.element(screen.getByText("Rebbi")).toBeInTheDocument();
@@ -260,7 +260,7 @@ describe("referencesDescriptor — the Shidduchim tab renders RelatedRecordsTab 
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Shidduchim" }).click();
+    await screen.getByRole("tab", { name: "Shidduchim", exact: true }).click();
 
     // Assert
     const linkA = screen.getByRole("link", { name: "Distinctive Shidduch A" });
@@ -323,7 +323,7 @@ describe("referencesDescriptor — the real Notes tab is scoped to targetType='r
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Notes" }).click();
+    await screen.getByRole("tab", { name: "Notes", exact: true }).click();
 
     // Assert
     await expect
@@ -375,7 +375,7 @@ describe("referencesDescriptor — the real Tasks tab is scoped to targetType='r
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Tasks" }).click();
+    await screen.getByRole("tab", { name: "Tasks", exact: true }).click();
 
     // Assert
     await expect
@@ -407,7 +407,9 @@ describe("referencesDescriptor — the Conversations tab renders RepeatRecogniti
 
     // Act — Conversations is the default second tab; click it explicitly to
     // be independent of default-tab selection.
-    await screen.getByRole("tab", { name: "Conversations" }).click();
+    await screen
+      .getByRole("tab", { name: "Conversations", exact: true })
+      .click();
 
     // Assert
     await expect
@@ -421,7 +423,7 @@ describe("referencesDescriptor — the Assistant tab renders ResearchAssistantPa
     const { screen } = await renderReferenceShow();
 
     // Act
-    await screen.getByRole("tab", { name: "Assistant" }).click();
+    await screen.getByRole("tab", { name: "Assistant", exact: true }).click();
 
     // Assert
     await expect
