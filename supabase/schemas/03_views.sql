@@ -212,6 +212,13 @@ select
     c.community,
     c.status,
     c.member_id,
+    exists (
+        select 1 from public.child_grants g
+        where g.target_single_id = c.id
+          and g.grantee_account_id = public.current_context_id()
+          and g.status = 'accepted'
+          and g.proposer_account_id <> public.current_context_id()
+    ) as is_shared_with_me,
     count(s.id) as total_shidduchim,
     count(s.id) filter (
         where s.pipeline_state in ('new', 'look_into', 'not_sure')
