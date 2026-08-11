@@ -19,11 +19,14 @@ import type { TabKey } from "./tabKeys";
  * moved `photo`, 5.5 moved `medical`, 5.6 moved `files` and
  * `external-links` — each from `pendingTabs` into `tabs`, in canonical
  * position; Story 7.1 appended an eleventh, `discussions`, straight into
- * `tabs` with no `pendingTabs` interim): the bare AD-24 path, its full
- * eleven-key `tabs`, and an empty `pendingTabs`.
+ * `tabs` with no `pendingTabs` interim; Story 16.2 appended a twelfth,
+ * `diligence-progress`): the bare AD-24 path, its full twelve-key `tabs`,
+ * and an empty `pendingTabs`.
  * `singles` is Story 5.8's real descriptor, migrated the same way in one
- * diff: the bare AD-24 path, its full eight-key `tabs`, and an empty
- * `pendingTabs`. `shadchanim` is Story 5.9's real descriptor, migrated the
+ * diff — Story 16.1 (`preferences`) and Story 16.3 (`private-notes`) each
+ * appended a key since, both straight into `tabs`: the bare AD-24 path,
+ * its full ten-key `tabs`, and an empty `pendingTabs`. `shadchanim` is
+ * Story 5.9's real descriptor, migrated the
  * same way in one diff: the bare AD-24 path, its full five-key `tabs`, and
  * an empty `pendingTabs`. `references` is Story 5.10's real descriptor —
  * Epic 5's last of the four AD-24 entities to migrate — the bare AD-24
@@ -59,6 +62,7 @@ const CASES: StubCase[] = [
       "medical",
       "files",
       "diligence",
+      "diligence-progress",
       "external-links",
       "notes",
       "tasks",
@@ -72,6 +76,8 @@ const CASES: StubCase[] = [
     buildRecordPath: "/singles/1",
     tabs: [
       "overview",
+      "preferences",
+      "private-notes",
       "resume",
       "photo",
       "files",
