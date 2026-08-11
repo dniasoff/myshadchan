@@ -478,6 +478,18 @@ revoke all on function public.shidduch_row(bigint) from public, anon;
 grant execute on function public.shidduch_row(bigint) to authenticated;
 grant execute on function public.shidduch_row(bigint) to service_role;
 
+-- child_grants RLS decoupling (02_functions.sql): the four sibling
+-- "readable via accepted grant" policies (resumes, resume_photos,
+-- shidduch_education, redts) call this SECURITY DEFINER lookup instead of a
+-- raw subquery against shidduchim, so a future narrowing of shidduchim's OWN
+-- grant policy cannot silently cascade into those four. It returns only a
+-- bare FK integer, never row content, so `authenticated` holding execute is
+-- not a new data-exposure surface. `anon` is denied, like every other
+-- domain function here.
+revoke all on function public.shidduch_single_id(bigint) from public, anon;
+grant execute on function public.shidduch_single_id(bigint) to authenticated;
+grant execute on function public.shidduch_single_id(bigint) to service_role;
+
 -- FR68: reference-call progress counts only (02_functions.sql). SECURITY
 -- DEFINER, so anon must never execute it; `single` may see THAT calls are
 -- happening and how many are done, but no name, relationship, phone or note

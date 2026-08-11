@@ -572,6 +572,13 @@ create policy "Resumes visible to single" on public.resumes
 -- resumes in the same proposer household, not just the granted one. The
 -- sibling-leak test (child_grant_resumes_access.sql, assertion (c)) proves the
 -- exact single, not the household.
+--
+-- The shidduchim_id branch resolves single_id via the SECURITY DEFINER
+-- shidduch_single_id() (02_functions.sql) rather than a raw subquery against
+-- shidduchim — a raw subquery runs under the CALLER's shidduchim RLS, so it
+-- would silently inherit any future narrowing of shidduchim's own grant
+-- policy. Pure refactor: shidduchim's grant policy is unrestricted today, so
+-- both forms return identical results.
 create policy "Resumes readable via accepted grant" on public.resumes
     for select to authenticated
     using (
@@ -581,9 +588,7 @@ create policy "Resumes readable via accepted grant" on public.resumes
               and g.grantee_account_id = public.current_context_id()
               and (
                   g.target_single_id = resumes.single_id
-                  or g.target_single_id = (
-                      select s.single_id from public.shidduchim s where s.id = resumes.shidduchim_id
-                  )
+                  or g.target_single_id = public.shidduch_single_id(resumes.shidduchim_id)
               )
         )
         and public.current_member_role() <> 'single'
@@ -719,6 +724,13 @@ create policy "Resume photos scoped to account, single sees only own shared" on 
 -- household, grant or no grant. The sibling-leak test
 -- (child_grant_resume_photos_access.sql, assertion (c)) proves the join is
 -- pinned to the exact single, not the account.
+--
+-- The shidduchim_id branch resolves single_id via the SECURITY DEFINER
+-- shidduch_single_id() (02_functions.sql) rather than a raw subquery against
+-- shidduchim — a raw subquery runs under the CALLER's shidduchim RLS, so it
+-- would silently inherit any future narrowing of shidduchim's own grant
+-- policy. Pure refactor: shidduchim's grant policy is unrestricted today, so
+-- both forms return identical results.
 create policy "Resume photos readable via accepted grant" on public.resume_photos
     for select to authenticated
     using (
@@ -732,9 +744,7 @@ create policy "Resume photos readable via accepted grant" on public.resume_photo
                     and g.grantee_account_id = public.current_context_id()
                     and (
                         g.target_single_id = r.single_id
-                        or g.target_single_id = (
-                            select s.single_id from public.shidduchim s where s.id = r.shidduchim_id
-                        )
+                        or g.target_single_id = public.shidduch_single_id(r.shidduchim_id)
                     )
               )
         )
@@ -833,18 +843,22 @@ create policy "Redts scoped to account" on public.redts
 -- grantee may later resolve that id to a shadchan's name is a separate,
 -- explicitly-deferred owner decision — deferring it here means no
 -- column-hiding logic on this policy.
+--
+-- single_id is resolved via the SECURITY DEFINER shidduch_single_id()
+-- (02_functions.sql) rather than an `exists (select 1 from shidduchim s
+-- where … and exists (…))` shape that runs its shidduchim lookup under the
+-- CALLER's own shidduchim RLS — that raw subquery would silently inherit any
+-- future narrowing of shidduchim's own grant policy. Pure refactor, same
+-- logic, flattened to one exists(): shidduchim's grant policy is
+-- unrestricted today, so both forms return identical results.
 create policy "Redts readable via accepted grant" on public.redts
     for select to authenticated
     using (
         exists (
-            select 1 from public.shidduchim s
-            where s.id = redts.shidduchim_id
-              and exists (
-                  select 1 from public.child_grants g
-                  where g.status = 'accepted'
-                    and g.grantee_account_id = public.current_context_id()
-                    and g.target_single_id = s.single_id
-              )
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = public.shidduch_single_id(redts.shidduchim_id)
         )
         and public.current_member_role() <> 'single'
     );
@@ -900,18 +914,22 @@ create policy "Shidduch education visible to single" on public.shidduch_educatio
 -- so keying on the id alone would leak), and the `<> 'single'` guard closes the
 -- read-only-structural boundary (an accepted grantee's OWN single-persona members
 -- still see zero rows, mirroring every prior increment).
+--
+-- single_id is resolved via the SECURITY DEFINER shidduch_single_id()
+-- (02_functions.sql) rather than an `exists (select 1 from shidduchim s
+-- where … and exists (…))` shape that runs its shidduchim lookup under the
+-- CALLER's own shidduchim RLS — that raw subquery would silently inherit any
+-- future narrowing of shidduchim's own grant policy. Pure refactor, same
+-- logic, flattened to one exists(): shidduchim's grant policy is
+-- unrestricted today, so both forms return identical results.
 create policy "Shidduch education readable via accepted grant" on public.shidduch_education
     for select to authenticated
     using (
         exists (
-            select 1 from public.shidduchim s
-            where s.id = shidduch_education.shidduchim_id
-              and exists (
-                  select 1 from public.child_grants g
-                  where g.status = 'accepted'
-                    and g.grantee_account_id = public.current_context_id()
-                    and g.target_single_id = s.single_id
-              )
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = public.shidduch_single_id(shidduch_education.shidduchim_id)
         )
         and public.current_member_role() <> 'single'
     );

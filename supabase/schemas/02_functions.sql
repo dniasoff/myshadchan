@@ -4540,6 +4540,27 @@ CREATE OR REPLACE FUNCTION "public"."shidduch_row"("p_shidduchim_id" bigint) RET
   where s.id = p_shidduchim_id;
 $$;
 
+-- Child grants RLS decoupling (Story 13.3 follow-up): resolves a shidduchim
+-- row's single_id via SECURITY DEFINER, bypassing the CALLER's own RLS on
+-- shidduchim. The four sibling "readable via accepted grant" policies (on
+-- resumes, resume_photos, shidduch_education, redts) used to resolve this FK
+-- with a raw subquery against public.shidduchim — since that subquery ran
+-- under the caller's shidduchim RLS, any future narrowing of shidduchim's OWN
+-- grant policy would silently cascade and narrow all four sibling policies
+-- too, with no test failure pointing at the actual cause. Pure refactor, no
+-- behavior change: shidduchim's grant policy is unrestricted today, so the
+-- raw subquery and this lookup return identical results. It returns only the
+-- bare single_id FK, never row content, so granting `authenticated` execute
+-- on it is not a new data-exposure surface.
+CREATE OR REPLACE FUNCTION "public"."shidduch_single_id"("p_shidduchim_id" bigint) RETURNS bigint
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select s.single_id
+  from public.shidduchim s
+  where s.id = p_shidduchim_id;
+$$;
+
 CREATE OR REPLACE FUNCTION "public"."sweep_expired_ai_parse_attempts"() RETURNS integer
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
