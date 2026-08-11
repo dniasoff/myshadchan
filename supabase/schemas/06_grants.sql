@@ -1555,3 +1555,33 @@ revoke all on function public.verify_purge_request(text) from public;
 grant execute on function public.verify_purge_request(text) to anon;
 grant execute on function public.verify_purge_request(text) to authenticated;
 grant execute on function public.verify_purge_request(text) to service_role;
+
+-- Story 15.2 — analytics. Same omission as the 14.2/14.4 block above: the
+-- table and its summary view were declared only in
+-- 20260809053943_analytics_events.sql and never transcribed here, so no app
+-- role held SELECT or INSERT on either and the whole feature was dead in both
+-- directions. Measured on a stack before this block existed: `service_role`
+-- INSERT failed with "permission denied for table analytics_events", and the
+-- frontend read path (providers/supabase/analytics.ts:9) failed the same way.
+--
+-- SELECT + INSERT only for authenticated: 05_policies.sql declares exactly
+-- those two policies and states "events are immutable once stored", so
+-- UPDATE/DELETE would be grants with no policy behind them.
+revoke all on table public.analytics_events from anon;
+grant select, insert on table public.analytics_events to authenticated;
+grant usage, select on sequence public.analytics_events_id_seq to authenticated;
+grant all on table public.analytics_events to service_role;
+grant all on sequence public.analytics_events_id_seq to service_role;
+
+-- The summary view: SELECT only, matching the aggregate-view posture used for
+-- singles_summary/interactions_summary above.
+--
+-- This grant is safe ONLY because the view now carries `security_invoker = on`
+-- (migration 20260811090000). Without it the view runs as its owner and
+-- bypasses the `account_id = current_context_id()` policy entirely: measured
+-- in a rolled-back transaction on a stack seeded with two accounts, adding
+-- this one line alone let a single authenticated user belonging to NEITHER
+-- account read BOTH accounts' aggregates. Never re-order these two changes.
+revoke all on table public.analytics_events_summary from anon, authenticated;
+grant select on table public.analytics_events_summary to authenticated;
+grant all on table public.analytics_events_summary to service_role;

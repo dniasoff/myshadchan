@@ -2074,12 +2074,16 @@ create policy "Analytics events insertable by account" on public.analytics_event
 -- has full access" keyed off CURRENT_USER = 'postgres' (which never matches
 -- a service_role connection). Both were fixed: the anon policy is now scoped
 -- to `with check (status = 'pending' and verified_at is null)`, and the
--- service_role policy was removed (purge_requests has relforcerowsecurity =
--- false and service_role has rolbypassrls = true, so it was dead code).
+-- service_role policy was removed (service_role has rolbypassrls = true, so
+-- it was dead code). That reasoning originally also cited purge_requests
+-- having relforcerowsecurity = false; FORCE is now on (below), which does not
+-- revive the policy — BYPASSRLS beats FORCE, so service_role still bypasses.
 -- ---------------------------------------------------------------------------
 
 alter table public.account_deletion_requests enable row level security;
+alter table public.account_deletion_requests force row level security;
 alter table public.purge_requests enable row level security;
+alter table public.purge_requests force row level security;
 
 create policy "Users can view their own deletion requests" on public.account_deletion_requests
     for select to authenticated
