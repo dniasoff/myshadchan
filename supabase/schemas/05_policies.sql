@@ -304,6 +304,28 @@ create policy "Singles visible to self" on public.singles
         and member_id = public.current_member_id()
     );
 
+-- Child grants, RLS increment 1 (read-across): a grantee household that has
+-- ACCEPTED a grant for one of the proposer's singles may read exactly that
+-- single's row. Additive — the two policies above still govern every other
+-- read. The status = 'accepted' conjunct is load-bearing and LITERAL:
+-- sever_child_grant() (02_functions.sql) sets status = 'severed' but never
+-- NULLs grantee_account_id, so checking only grantee_account_id would keep a
+-- severed grant leak-open. The `<> 'single'` role guard closes the
+-- read-only-structural boundary: a single-role member inside the grantee's
+-- OWN household still sees zero rows for this single (mirrors the guard on
+-- every other account-scoped policy).
+create policy "Singles readable via accepted grant" on public.singles
+    for select to authenticated
+    using (
+        exists (
+            select 1 from public.child_grants g
+            where g.target_single_id = singles.id
+              and g.grantee_account_id = public.current_context_id()
+              and g.status = 'accepted'
+        )
+        and public.current_member_role() <> 'single'
+    );
+
 -- Single preferences (Story 16.1 / FR67): a single owns her preferences with
 -- full CRUD; a manager (parent_admin or self_manager — the two roles this
 -- schema already treats as "manages the process", see the medical-notes policy
