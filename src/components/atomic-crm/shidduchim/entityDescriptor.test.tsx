@@ -275,9 +275,18 @@ describe("shidduchimDescriptor — the real diligence/external-links/files/notes
         .element(screen.getByRole("tab", { name: "Overview" }))
         .toBeInTheDocument();
       await expect
-        .element(screen.getByRole("tab", { name: tabName }))
+        .element(screen.getByRole("tab", { name: tabName, exact: true }))
         .not.toBeInTheDocument();
-      expect(screen.container.textContent ?? "").not.toContain(tabName);
+      // Story 16.2 adds a "Diligence progress" tab that a single viewer IS
+      // allowed to see, so the whole-page substring check above would now
+      // trip on the word "Diligence" with the hidden Diligence tab still
+      // absent. Scope the label check to the tab strip and match the exact
+      // label instead.
+      const tabLabels = screen
+        .getByRole("tab")
+        .elements()
+        .map((element) => element.textContent?.trim());
+      expect(tabLabels).not.toContain(tabName);
     },
   );
 

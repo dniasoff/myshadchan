@@ -104,7 +104,7 @@ const renderSingleShow = async (
 };
 
 describe("singlesDescriptor — tab strip order (Story 5.8, AC 6)", () => {
-  it("renders all nine canonical tabs, in canonical order, on the rendered strip (not merely the descriptor literal)", async () => {
+  it("renders all ten canonical tabs, in canonical order, on the rendered strip (not merely the descriptor literal)", async () => {
     // Act
     const { screen } = await renderSingleShow();
     await expect
@@ -119,6 +119,7 @@ describe("singlesDescriptor — tab strip order (Story 5.8, AC 6)", () => {
     expect(names).toEqual([
       "Overview",
       "Preferences",
+      "Private notes",
       "Resume",
       "Photo",
       "Files",
@@ -200,7 +201,7 @@ describe("singlesDescriptor — the real Files/Notes/Activity tabs' visibleTo (S
 
       // Assert
       await expect
-        .element(screen.getByRole("tab", { name: tabName }))
+        .element(screen.getByRole("tab", { name: tabName, exact: true }))
         .toBeInTheDocument();
     },
   );
@@ -217,9 +218,18 @@ describe("singlesDescriptor — the real Files/Notes/Activity tabs' visibleTo (S
         .element(screen.getByRole("tab", { name: "Overview" }))
         .toBeInTheDocument();
       await expect
-        .element(screen.getByRole("tab", { name: tabName }))
+        .element(screen.getByRole("tab", { name: tabName, exact: true }))
         .not.toBeInTheDocument();
-      expect(screen.container.textContent ?? "").not.toContain(tabName);
+      // A whole-page substring check can no longer rule out the tab: "Notes"
+      // is a substring of the always-present "Private notes" label (Story
+      // 16.3). Assert over the tab strip labels only — the label list must
+      // not contain the exact tab name, so a single viewer still cannot see
+      // the hidden tab, not merely an inactive shell of it.
+      const tabLabels = screen
+        .getByRole("tab")
+        .elements()
+        .map((element) => element.textContent?.trim());
+      expect(tabLabels).not.toContain(tabName);
     },
   );
 
@@ -402,7 +412,7 @@ describe("singlesDescriptor — the real Notes tab is scoped to targetType='sing
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Notes" }).click();
+    await screen.getByRole("tab", { name: "Notes", exact: true }).click();
 
     // Assert
     await expect

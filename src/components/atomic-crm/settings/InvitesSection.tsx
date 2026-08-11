@@ -245,7 +245,22 @@ export const InvitesSection = () => {
 
         {createdLink ? (
           <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-2">
-            <Input readOnly value={createdLink} className="text-xs" />
+            {/* The label is not decoration: this input had no accessible name,
+             * so it was reachable only as `input[readonly]` — and Settings now
+             * renders a second unlabelled readonly input (the inbound capture
+             * address, CaptureSection.tsx:98), which made that selector
+             * ambiguous and failed invite-sending.spec.ts with a Playwright
+             * strict-mode violation. Naming it fixes the a11y gap and gives the
+             * test a role-based handle, which is this repo's e2e convention
+             * (e2e/ uses no getByTestId at all). */}
+            <Input
+              readOnly
+              value={createdLink}
+              className="text-xs"
+              aria-label={translate("crm.settings.invites_link_label", {
+                _: "Invite link",
+              })}
+            />
             <Button
               type="button"
               variant="outline"

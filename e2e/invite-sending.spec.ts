@@ -68,7 +68,14 @@ test("a parent_admin sends an invite from Settings, sees the link, then revokes 
   await page.getByRole("button", { name: "Send invite" }).click();
 
   // AC-2: the invite link is shown inline (shareable, not auto-emailed).
-  const linkField = page.locator("input[readonly]");
+  //
+  // Located by accessible name, not `input[readonly]`: the Settings page also
+  // renders the inbound capture address as an unlabelled readonly input
+  // (CaptureSection.tsx:98), so the bare attribute selector resolved to two
+  // elements and this failed on a Playwright strict-mode violation rather than
+  // on the behaviour under test. The sibling assertion at the Single 360 (below)
+  // keeps the attribute selector deliberately: that page has only one.
+  const linkField = page.getByRole("textbox", { name: "Invite link" });
   await expect(linkField).toBeVisible();
   await expect(linkField).toHaveValue(/\/#\/accept-invite\//);
 

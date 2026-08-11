@@ -140,6 +140,13 @@ test("every tab restricted by 6.2 AC-10 / 6.3 AC-9 renders for a self-manager vi
   await signIn(page, member.email!);
 
   // Assert — singles/entityDescriptor.tsx's four restricted tabs.
+  //
+  // Both tab loops below pass `exact: true`. Playwright matches an accessible
+  // name by SUBSTRING, and Story 16.3 added a "Private notes" tab to the
+  // singles descriptor, so a bare name of "Notes" resolves to two tabs and the
+  // assertion dies on a strict-mode violation before it tests anything. Every
+  // label in these two maps is a full tab name, so exact matching is what was
+  // always meant — the substring behaviour was load-bearing by accident.
   const SINGLES_TAB_LABELS: Record<string, string> = {
     files: "Files",
     notes: "Notes",
@@ -155,7 +162,7 @@ test("every tab restricted by 6.2 AC-10 / 6.3 AC-9 renders for a self-manager vi
     // first avoids that race (found live: a `self_manager`-dropped mutation
     // here made `toHaveURL` pass on the pre-redirect URL while the tab
     // assertion below correctly failed).
-    const tabTrigger = page.getByRole("tab", { name: label });
+    const tabTrigger = page.getByRole("tab", { name: label, exact: true });
     await expect(tabTrigger).toBeVisible();
     await expect(tabTrigger).toHaveAttribute("aria-selected", "true");
     await expect(page).toHaveURL(new RegExp(`#/singles/${single.id}/${tab}$`));
@@ -175,7 +182,7 @@ test("every tab restricted by 6.2 AC-10 / 6.3 AC-9 renders for a self-manager vi
   };
   for (const [tab, label] of Object.entries(SHIDDUCH_TAB_LABELS)) {
     await page.goto(`${APP_URL}/#/shidduchim/${shidduch.id}/${tab}`);
-    const tabTrigger = page.getByRole("tab", { name: label });
+    const tabTrigger = page.getByRole("tab", { name: label, exact: true });
     await expect(tabTrigger).toBeVisible();
     await expect(tabTrigger).toHaveAttribute("aria-selected", "true");
     await expect(page).toHaveURL(
