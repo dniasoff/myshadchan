@@ -663,7 +663,7 @@ select 'AC-4: subscription and ai_usage carry the documented carve-out comment',
 
 -- ---------------------------------------------------------------------------
 -- AC-3a: the ordering proof — an ordinary authenticated insert with NO
--- account_id supplied still succeeds on all 11 household-only tables while
+-- account_id supplied still succeeds on all 10 household-only tables while
 -- the caller's active context is a household (set_account_id_default() runs
 -- first, enforce_household_scope() validates the value it set, never a
 -- NULL). interactions/tasks are inserted here too (below) and still checked
@@ -679,11 +679,25 @@ insert into ids values ('acct_owner', :acct_owner);
 insert into public.account_members (account_id, user_id, role, status)
 values (:acct_owner, 'd1d1d1d1-1111-1111-1111-111111111111', 'parent_admin', 'active');
 
+-- The reference row is a fixture here, created privileged before the switch
+-- to authenticated: INSERT on "references" is revoked from authenticated
+-- (06_grants.sql), so the table has left the bare-insert list below. Its
+-- dependents (reference_links, interactions, identity_signals, tasks) still
+-- need a real parent to target, and the sync trigger still proves the same
+-- account_id-ordering fact for identity_signals via this same route.
+insert into public."references" (account_id, name_en)
+values (:acct_owner, 'AC-3a Reference') returning id as ac3a_reference \gset
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"d1d1d1d1-1111-1111-1111-111111111111","role":"authenticated"}';
 
+-- 10, not 11: "references" left this set when INSERT on it was revoked from
+-- authenticated (06_grants.sql). The trigger-ordering guarantee it used to
+-- demonstrate is not weakened, it is moot for that table —
+-- create_reference_for_shidduch supplies account_id explicitly, so
+-- set_account_id_default never fires for a reference any more. The remaining
+-- ten still prove the ordering.
 insert into public.singles (first_name_en) values ('AC-3a Single') returning id as ac3a_single \gset
-insert into public."references" (name_en) values ('AC-3a Reference') returning id as ac3a_reference \gset
 insert into public.shadchanim (name) values ('AC-3a Shadchan') returning id as ac3a_shadchan \gset
 insert into public.shidduchim (single_id, name_en) values (:ac3a_single, 'AC-3a Shidduch') returning id as ac3a_shidduch \gset
 insert into public.resumes (shidduchim_id) values (:ac3a_shidduch) returning id as ac3a_resume \gset
@@ -703,9 +717,8 @@ insert into public.inbox_items (source) values ('upload') returning id as ac3a_i
 insert into public.tasks (target_type, target_id, text) values ('reference', :ac3a_reference, 'AC-3a Task') returning id as ac3a_task \gset
 
 insert into results (name, passed)
-select 'AC-3a: all 11 household-only tables accept an insert with no account_id while the active context is a household (trigger ordering proof)',
+select 'AC-3a: all 10 household-only tables accept an insert with no account_id while the active context is a household (trigger ordering proof)',
        (select count(*) from public.singles where id = :ac3a_single and account_id = :acct_owner) = 1
-   and (select count(*) from public."references" where id = :ac3a_reference and account_id = :acct_owner) = 1
    and (select count(*) from public.shadchanim where id = :ac3a_shadchan and account_id = :acct_owner) = 1
    and (select count(*) from public.shidduchim where id = :ac3a_shidduch and account_id = :acct_owner) = 1
    and (select count(*) from public.resumes where id = :ac3a_resume and account_id = :acct_owner) = 1

@@ -706,7 +706,12 @@ revoke all on table public.shadchanim from anon, authenticated;
 grant select, insert, update, delete on table public.shadchanim to authenticated;
 
 revoke all on table public."references" from anon, authenticated;
-grant select, insert, update, delete on table public."references" to authenticated;
+-- INSERT is deliberately absent. public.create_reference_for_shidduch is now
+-- SECURITY DEFINER and is the ONLY way to create a reference, which is what
+-- makes an orphan — a reference attached to no shidduch — unreachable rather
+-- than merely discouraged (RULING 7 R7). Restoring insert here reopens that
+-- hole silently, because nothing about the RPC stops working when you do.
+grant select, update, delete on table public."references" to authenticated;
 
 -- The ONE table in this schema whose SELECT is granted COLUMN BY COLUMN, and
 -- the only reason it is: `close_reason` (Story 6.3, AC-4) must always read

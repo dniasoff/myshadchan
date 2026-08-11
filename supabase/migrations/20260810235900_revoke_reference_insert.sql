@@ -1,0 +1,21 @@
+-- RULING 7 R7, the last step: an orphan reference becomes unreachable.
+--
+-- Until now an authenticated, provisioned, non-single member could POST
+-- directly to /rest/v1/references and create a reference attached to no
+-- shidduch, bypassing create_reference_for_shidduch entirely. The RLS policy
+-- checks account and role but never required a link, and the table-level
+-- INSERT grant let the request through. Removing that grant makes the RPC —
+-- SECURITY DEFINER as of migration 20260810233125, with the account and role
+-- checks re-stated in its body — the only door.
+--
+-- reference_links keeps its INSERT grant on purpose: linking an EXISTING
+-- reference to another shidduch is a legitimate client action, and
+-- ReferenceAttachToShidduch.tsx is the repair path for orphans that already
+-- exist.
+--
+-- supabase/tests/references_entity.sql carries the test that proves this:
+-- 'a provisioned member cannot bare-insert a reference'. It fails on the
+-- schema immediately before this migration and passes immediately after, so
+-- it cannot go quietly vacuous.
+
+revoke insert on table "public"."references" from "authenticated";

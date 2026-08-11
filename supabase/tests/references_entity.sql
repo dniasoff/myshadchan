@@ -119,9 +119,7 @@ insert into results (name, passed) values
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
-insert into public."references" (name_en, relationship, phone, school)
-values ('Rabbi Chaim Cohen', 'shul rabbi', '054-123-4567', 'Yeshivas Ohr')
-returning id as ref1 \gset
+select id as ref1 from public.create_reference_for_shidduch(:shid1, 'Rabbi Chaim Cohen', null, 'shul rabbi', '054-123-4567', 'Yeshivas Ohr') \gset
 insert into ids values ('ref1', :ref1);
 
 insert into results (name, passed)
@@ -267,9 +265,13 @@ end $$;
 -- ---------------------------------------------------------------------------
 -- Merge, including the collision case (§4)
 -- ---------------------------------------------------------------------------
-insert into public."references" (name_en, relationship, phone, school)
-values ('Chaim Cohen', 'rabbi', '0541234567', 'Yeshivas Ohr')
+-- Fixture, not the write path under test: created privileged because INSERT on "references" is revoked from authenticated.
+reset role;
+insert into public."references" (account_id, name_en, relationship, phone, school)
+values (:acct_a, 'Chaim Cohen', 'rabbi', '0541234567', 'Yeshivas Ohr')
 returning id as ref2 \gset
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 insert into ids values ('ref2', :ref2);
 
 select id as dup_link from public.link_reference_to_shidduch(:ref2, :shid1, null) \gset
@@ -359,8 +361,12 @@ select 'reminders follow the reference across the merge', count(*) = 2
 from public.tasks t where t.target_type = 'reference' and t.target_id = :ref1;
 
 -- Deleting a reference must take its polymorphic children with it.
-insert into public."references" (name_en, phone) values ('Temp Person', '03-111-2222')
+-- Fixture, not the write path under test: created privileged because INSERT on "references" is revoked from authenticated.
+reset role;
+insert into public."references" (account_id, name_en, phone) values (:acct_a, 'Temp Person', '03-111-2222')
 returning id as ref3 \gset
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 insert into public.tasks (target_type, target_id, text) values ('reference', :ref3, 'Temp task');
 insert into public.interactions (target_type, target_id, kind, body) values ('reference', :ref3, 'note', 'Temp note');
 delete from public."references" where id = :ref3;
@@ -447,6 +453,20 @@ exception when others then
   insert into results values ('identity_signals is not client-writable', true, sqlerrm);
 end $$;
 
+-- The bare-insert door, closed. This is the test that did not exist while an
+-- authenticated, provisioned, non-single member could POST straight to
+-- /rest/v1/references and create a reference attached to no shidduch. It FAILS
+-- until `revoke insert on public."references" from authenticated` lands, and
+-- that is the point: it is falsifiable by construction rather than green by
+-- default.
+do $$
+begin
+  insert into public."references" (name_en) values ('Bare insert by a provisioned member');
+  insert into results values ('a provisioned member cannot bare-insert a reference', false, 'insert succeeded - the grant is still open');
+exception when others then
+  insert into results values ('a provisioned member cannot bare-insert a reference', true, sqlerrm);
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- Fail-closed membership: a user with no account_members row is nobody.
 -- Previously the fork's first-row resolver (the `order by am.id limit 1`
@@ -468,7 +488,8 @@ insert into results (name, passed) select 'unprovisioned user sees no shidduchim
 
 do $$
 begin
-  insert into public."references" (name_en) values ('Planted by a stranger');
+  -- Retargeted at the RPC: after INSERT was revoked from authenticated, a bare insert would fail with "permission denied" regardless of provisioning, which is not what this test is about.
+  perform public.create_reference_for_shidduch(1, 'Planted by a stranger');
   insert into results values ('an unprovisioned user cannot create anything', false, 'insert succeeded');
 exception when others then
   insert into results values ('an unprovisioned user cannot create anything', true, sqlerrm);
@@ -482,8 +503,12 @@ end $$;
 -- ---------------------------------------------------------------------------
 set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
 
-insert into public."references" (name_en, phone) values ('Tenant B Person', '02-555-1111')
+-- Fixture, not the write path under test: created privileged because INSERT on "references" is revoked from authenticated.
+reset role;
+insert into public."references" (account_id, name_en, phone) values (:acct_b, 'Tenant B Person', '02-555-1111')
 returning id as ref_b \gset
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
 insert into ids values ('ref_b', :ref_b);
 
 do $$
