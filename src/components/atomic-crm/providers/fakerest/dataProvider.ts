@@ -8,8 +8,8 @@ import fakeRestDataProvider from "ra-data-fakerest";
 import type {
   Account,
   AccountMember,
+  AddEducationInput,
   AddRedtInput,
-  AddSchoolInput,
   AiEntitlementInfo,
   ChildGrant,
   ChildGrantPreview,
@@ -47,7 +47,7 @@ import type {
   ShareLink,
   Shidduch,
   ShidduchCatch,
-  ShidduchSchool,
+  ShidduchEducation,
   Thread,
   ThreadParticipant,
   ThreadVisibility,
@@ -762,7 +762,7 @@ export const createDataProvider = ({
     });
     // Record the headline seminary/yeshiva as the first school (kind by gender).
     if (input.seminary_en || input.seminary_he) {
-      await baseDataProvider.create("shidduch_schools", {
+      await baseDataProvider.create("shidduch_education", {
         data: {
           account_id: single?.account_id ?? 1,
           shidduchim_id: (data as Shidduch).id,
@@ -1302,8 +1302,10 @@ export const createDataProvider = ({
       });
       return refreshed as Shidduch;
     },
-    // Link a school/seminary/yeshiva to a shidduch — FakeRest mirror of add_school.
-    addSchool: async (input: AddSchoolInput): Promise<ShidduchSchool> => {
+    // Link a school/seminary/yeshiva to a shidduch — FakeRest mirror of add_education.
+    addEducation: async (
+      input: AddEducationInput,
+    ): Promise<ShidduchEducation> => {
       const { data: matches } = await baseDataProvider.getList("shidduchim", {
         filter: { id: input.shidduchim_id },
         pagination: { page: 1, perPage: 1 },
@@ -1313,7 +1315,7 @@ export const createDataProvider = ({
       if (!shidduch) {
         throw new Error(`shidduch ${input.shidduchim_id} not found`);
       }
-      const { data } = await baseDataProvider.create("shidduch_schools", {
+      const { data } = await baseDataProvider.create("shidduch_education", {
         data: {
           account_id: shidduch.account_id,
           shidduchim_id: input.shidduchim_id,
@@ -1325,7 +1327,7 @@ export const createDataProvider = ({
           created_at: new Date().toISOString(),
         },
       });
-      return data as ShidduchSchool;
+      return data as ShidduchEducation;
     },
     // Dedupe "catch" (E3) -- FakeRest mirror of catch_shidduch(). Read-only,
     // nothing merges. FREE, never entitlement-gated (same as the Supabase side).

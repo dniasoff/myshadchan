@@ -100,8 +100,8 @@ alter table public.date_records enable row level security;
 alter table public.date_records force row level security;
 alter table public.redts enable row level security;
 alter table public.redts force row level security;
-alter table public.shidduch_schools enable row level security;
-alter table public.shidduch_schools force row level security;
+alter table public.shidduch_education enable row level security;
+alter table public.shidduch_education force row level security;
 alter table public.shidduchim_external_links enable row level security;
 alter table public.shidduchim_external_links force row level security;
 alter table public.pipeline_transitions enable row level security;
@@ -612,7 +612,7 @@ create policy "Resumes readable via accepted grant" on public.resumes
 -- suggestion is itself `private_parent` (a suggestion AC-1 says must be
 -- wholly invisible to them). That was consistent with Story 5.4's
 -- household-wide "single" model, but every OTHER single-adjacent table this
--- story touches (`resumes`, `shidduch_schools`, `shidduchim`) is scoped to
+-- story touches (`resumes`, `shidduch_education`, `shidduchim`) is scoped to
 -- the caller's OWN suggestion via a `singles.member_id` join — leaving this
 -- one table household-wide reopened exactly the sibling leak AC-1/AC-8 exist
 -- to close, and made it a write hole too (`hide_resume_photo()` is SECURITY
@@ -815,7 +815,7 @@ create policy "Redts scoped to account" on public.redts
 -- Child grants (Epic 14), RLS increment 7: a grantee household that has
 -- accepted a grant for a proposer's single may read that single's redts rows.
 -- A clean single-hop join: redts.shidduchim_id -> shidduchim.single_id, then
--- the accepted-grant lookup — the same shape as increment 6 (shidduch_schools).
+-- the accepted-grant lookup — the same shape as increment 6 (shidduch_education).
 --
 -- Additive SELECT-only policy — the "Redts scoped to account" policy above is
 -- untouched and still governs every normal read. No visibility/pipeline_state
@@ -849,7 +849,7 @@ create policy "Redts readable via accepted grant" on public.redts
         and public.current_member_role() <> 'single'
     );
 
-create policy "Shidduch schools scoped to account" on public.shidduch_schools
+create policy "Shidduch education scoped to account" on public.shidduch_education
     for all to authenticated
     using (
         account_id = public.current_context_id()
@@ -863,7 +863,7 @@ create policy "Shidduch schools scoped to account" on public.shidduch_schools
 -- Story 6.2 (AC 2): the resume-adjacent facts a single may see — a school
 -- tied to a suggestion that passes AC-1's three-part test. SELECT-only,
 -- additive to the policy above (the two-policy pattern, Dev Notes).
-create policy "Shidduch schools visible to single" on public.shidduch_schools
+create policy "Shidduch education visible to single" on public.shidduch_education
     for select to authenticated
     using (
         account_id = public.current_context_id()
@@ -872,7 +872,7 @@ create policy "Shidduch schools visible to single" on public.shidduch_schools
             select 1
             from public.shidduchim s
                 join public.singles c on c.id = s.single_id
-            where s.id = shidduch_schools.shidduchim_id
+            where s.id = shidduch_education.shidduchim_id
               and s.visibility = 'shared'
               and public.is_single_visible_state(s.pipeline_state)
               and c.member_id = public.current_member_id()
@@ -880,11 +880,11 @@ create policy "Shidduch schools visible to single" on public.shidduch_schools
     );
 
 -- Child grants (Epic 14), RLS increment 6: a grantee household that has accepted
--- a grant for a proposer's single may read that single's shidduch_schools rows.
+-- a grant for a proposer's single may read that single's shidduch_education rows.
 -- DELIBERATELY BROADER than every prior grant-consuming increment (E13-D6): an
 -- accepted grantee reads EVERYTHING about the granted single, not the narrower
 -- subset a single sees about their own suggestion. The policy immediately above
--- (and the base `shidduch_schools` table) carries two ADDITIONAL gates —
+-- (and the base `shidduch_education` table) carries two ADDITIONAL gates —
 -- `visibility = 'shared'` and `is_single_visible_state(pipeline_state)` — that
 -- exist because a SINGLE should only see schools for suggestions that have
 -- progressed to a shareable state. A GRANTEE is a second parent-figure the
@@ -900,12 +900,12 @@ create policy "Shidduch schools visible to single" on public.shidduch_schools
 -- so keying on the id alone would leak), and the `<> 'single'` guard closes the
 -- read-only-structural boundary (an accepted grantee's OWN single-persona members
 -- still see zero rows, mirroring every prior increment).
-create policy "Shidduch schools readable via accepted grant" on public.shidduch_schools
+create policy "Shidduch education readable via accepted grant" on public.shidduch_education
     for select to authenticated
     using (
         exists (
             select 1 from public.shidduchim s
-            where s.id = shidduch_schools.shidduchim_id
+            where s.id = shidduch_education.shidduchim_id
               and exists (
                   select 1 from public.child_grants g
                   where g.status = 'accepted'
@@ -916,7 +916,7 @@ create policy "Shidduch schools readable via accepted grant" on public.shidduch_
         and public.current_member_role() <> 'single'
     );
 
--- Story 5.6: same shape as "Shidduch schools scoped to account" above — a
+-- Story 5.6: same shape as "Shidduch education scoped to account" above — a
 -- URL bookmark is not sensitive data, so there is no sensitivity tier and no
 -- role check, only account scoping.
 --

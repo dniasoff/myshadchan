@@ -365,9 +365,9 @@ insert into public.resumes (account_id, shidduchim_id)
 values (:${h}_account_id, :${h}_visible_id)
 returning id as ${h}_resume_id \\gset
 
-insert into public.shidduch_schools (account_id, shidduchim_id, kind, name_en)
+insert into public.shidduch_education (account_id, shidduchim_id, kind, name_en)
 values (:${h}_account_id, :${h}_visible_id, 'seminary', 'Household ${h.toUpperCase()} Seminary')
-returning id as ${h}_school_id \\gset
+returning id as ${h}_education_id \\gset
 
 insert into public.resume_photos (account_id, resume_id, path, visibility)
 values (

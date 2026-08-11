@@ -1,20 +1,20 @@
 --
--- Standing guard: consuming an ACCEPTED child grant to read `public.shidduch_schools`
+-- Standing guard: consuming an ACCEPTED child grant to read `public.shidduch_education`
 -- via a cross-household SELECT — database suite.
 --
 -- WHY IT EXISTS. This is RLS increment 6 of the child_grants plan (Epic 14):
 -- a grantee household that has accepted a grant for a proposer's single may read
--- that single's shidduch_schools rows through the policy "Shidduch schools
+-- that single's shidduch_education rows through the policy "Shidduch education
 -- readable via accepted grant" (05_policies.sql).
 --
 -- DELIBERATELY BROADER (E13-D6) — this increment exists specifically to prove a
 -- GRANTEE is NOT treated like a SINGLE. The table already has a "visible to
 -- single" SELECT policy that gates on `visibility = 'shared'` AND
--- `is_single_visible_state(pipeline_state)` (a single should only see schools
--- for suggestions that have progressed to a shareable state). A grantee is a
+-- `is_single_visible_state(pipeline_state)` (a single should only see education
+-- entries for suggestions that have progressed to a shareable state). A grantee is a
 -- second parent-figure the proposer household has vouched for, not the single,
 -- so the new grant policy MUST NOT copy either gate. Assertion (c) below is the
--- whole point of this increment: it proves a school attached to a suggestion
+-- whole point of this increment: it proves an education entry attached to a suggestion
 -- that a single would NOT see (private_parent / non-single-visible state) IS
 -- visible to the accepted grantee. A wrong (narrower, gate-copying) policy makes
 -- exactly assertion (c) fail.
@@ -31,7 +31,7 @@
 -- `current_member_role() <> 'single'` conjunct, the grantee household's own
 -- single would suddenly see a record that was never theirs.
 --
--- The runner is child_grant_shidduch_schools_access.test.ts.
+-- The runner is child_grant_shidduch_education_access.test.ts.
 --
 
 create temporary table results (
@@ -81,8 +81,8 @@ insert into ids values ('single_a', :single_a);
 
 -- Shidduch B: the ORDINARY, single-VISIBLE case — visibility 'shared' and a
 -- pipeline_state that is_single_visible_state() returns TRUE for ('look_into'
--- is explicitly single-visible in 02_functions.sql). A school on this shidduch
--- is seen by the single AND by the grantee.
+-- is explicitly single-visible in 02_functions.sql). An education entry on this
+-- shidduch is seen by the single AND by the grantee.
 insert into public.shidduchim
   (account_id, single_id, name_en, visibility, pipeline_state)
 values
@@ -93,9 +93,10 @@ insert into ids values ('shidduch_b', :shidduch_b);
 
 -- Shidduch C: the CRITICAL case — visibility 'private_parent' (NOT 'shared'),
 -- so this suggestion is INVISIBLE to a single looking at their own suggestion
--- ("Shidduch schools visible to single" gates on visibility='shared'). A school
--- on this shidduch must still be VISIBLE to the accepted grantee. This kills the
--- 'private_parent'-gate-copying variant of a wrong policy.
+-- ("Shidduch education visible to single" gates on visibility='shared'). An
+-- education entry on this shidduch must still be VISIBLE to the accepted
+-- grantee. This kills the 'private_parent'-gate-copying variant of a wrong
+-- policy.
 insert into public.shidduchim
   (account_id, single_id, name_en, visibility, pipeline_state)
 values
@@ -104,20 +105,20 @@ returning id as shidduch_c \gset
 
 insert into ids values ('shidduch_c', :shidduch_c);
 
--- A school each, so (b) and (c) can be asserted independently by id.
-insert into public.shidduch_schools (account_id, shidduchim_id, kind, name_en)
+-- An education entry each, so (b) and (c) can be asserted independently by id.
+insert into public.shidduch_education (account_id, shidduchim_id, kind, name_en)
 values
   (:acct_a, :shidduch_b, 'seminary', 'Shared Semantic School')
-returning id as school_b \gset
+returning id as education_b \gset
 
-insert into ids values ('school_b', :school_b);
+insert into ids values ('education_b', :education_b);
 
-insert into public.shidduch_schools (account_id, shidduchim_id, kind, name_en)
+insert into public.shidduch_education (account_id, shidduchim_id, kind, name_en)
 values
   (:acct_a, :shidduch_c, 'seminary', 'Private Semantic School')
-returning id as school_c \gset
+returning id as education_c \gset
 
-insert into ids values ('school_c', :school_c);
+insert into ids values ('education_c', :education_c);
 
 -- One grant, driven through its true lifecycle in this test. grantee_account_id
 -- stays POPULATED from the first insert onward — the leak-prone shape the
@@ -133,30 +134,30 @@ insert into ids values ('grant_row', :grant_row);
 
 -- ---------------------------------------------------------------------------
 -- (a) NEGATIVE: an unrelated household (no grant at all) cannot select any of
--- the target single's shidduch_schools rows — by id, or in a list scan.
+-- the target single's shidduch_education rows — by id, or in a list scan.
 -- ---------------------------------------------------------------------------
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"1ccccc33-3333-3333-3333-333333333333","role":"authenticated"}';
 
 insert into results (name, passed, detail)
-select 'stranger cannot read the shared-visible school by id',
+select 'stranger cannot read the shared-visible education entry by id',
        count(*) = 0,
        format('rows = %s (expected 0)', count(*))
-from public.shidduch_schools
-where id = (select v from ids where k = 'school_b');
+from public.shidduch_education
+where id = (select v from ids where k = 'education_b');
 
 insert into results (name, passed, detail)
-select 'stranger cannot read the private_parent school by id',
+select 'stranger cannot read the private_parent education entry by id',
        count(*) = 0,
        format('rows = %s (expected 0)', count(*))
-from public.shidduch_schools
-where id = (select v from ids where k = 'school_c');
+from public.shidduch_education
+where id = (select v from ids where k = 'education_c');
 
 insert into results (name, passed, detail)
-select 'stranger sees zero shidduch_schools rows for the target single in a list scan',
+select 'stranger sees zero shidduch_education rows for the target single in a list scan',
        count(*) = 0,
        format('rows = %s (expected 0)', count(*))
-from public.shidduch_schools
+from public.shidduch_education
 where shidduchim_id in ((select v from ids where k = 'shidduch_b'), (select v from ids where k = 'shidduch_c'));
 
 reset role;
@@ -173,7 +174,7 @@ insert into results (name, passed, detail)
 select 'grantee sees nothing while the grant is pending (status not accepted)',
        count(*) = 0,
        format('rows = %s (expected 0)', count(*))
-from public.shidduch_schools
+from public.shidduch_education
 where shidduchim_id in ((select v from ids where k = 'shidduch_b'), (select v from ids where k = 'shidduch_c'));
 
 reset role;
@@ -189,71 +190,71 @@ set status = 'accepted', accepted_at = now()
 where id = (select v from ids where k = 'grant_row');
 
 -- ---------------------------------------------------------------------------
--- (b) POSITIVE (ordinary case): the accepted grantee reads the school attached
--- to the shidduch whose visibility IS 'shared' and whose pipeline_state IS
--- single-visible — the same row a single would be allowed to see, opened here
--- through the grant path.
+-- (b) POSITIVE (ordinary case): the accepted grantee reads the education entry
+-- attached to the shidduch whose visibility IS 'shared' and whose pipeline_state
+-- IS single-visible — the same row a single would be allowed to see, opened
+-- here through the grant path.
 -- ---------------------------------------------------------------------------
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"1bbbbbbb-2222-2222-2222-222222222222","role":"authenticated"}';
 
 insert into results (name, passed, detail)
-select 'accepted grantee reads the shared-visible school by id',
+select 'accepted grantee reads the shared-visible education entry by id',
        count(*) = 1,
        format('rows = %s (expected 1)', count(*))
-from public.shidduch_schools
-where id = (select v from ids where k = 'school_b');
+from public.shidduch_education
+where id = (select v from ids where k = 'education_b');
 
 insert into results (name, passed, detail)
-select 'accepted grantee sees both schools for the granted single in a list scan',
+select 'accepted grantee sees both education entries for the granted single in a list scan',
        count(*) = 2,
-       format('rows = %s (expected both schools: shared-visible AND private_parent)', count(*))
-from public.shidduch_schools
+       format('rows = %s (expected both education entries: shared-visible AND private_parent)', count(*))
+from public.shidduch_education
 where shidduchim_id in ((select v from ids where k = 'shidduch_b'), (select v from ids where k = 'shidduch_c'));
 
 -- ---------------------------------------------------------------------------
 -- (c) THE SPECIFIC, MOST IMPORTANT ASSERTION: the accepted grantee ALSO reads
--- the school attached to the shidduch whose visibility is 'private_parent' (NOT
--- 'shared') — a suggestion a single would be INVISIBLE to. If the policy had
--- accidentally copied the `visibility = 'shared'` / `is_single_visible_state()`
--- gates from "Shidduch schools visible to single", this row would disappear for
--- the grantee and THIS assertion fails. Passing it is the whole point of this
--- increment.
+-- the education entry attached to the shidduch whose visibility is
+-- 'private_parent' (NOT 'shared') — a suggestion a single would be INVISIBLE
+-- to. If the policy had accidentally copied the `visibility = 'shared'` /
+-- `is_single_visible_state()` gates from "Shidduch education visible to
+-- single", this row would disappear for the grantee and THIS assertion
+-- fails. Passing it is the whole point of this increment.
 -- ---------------------------------------------------------------------------
 insert into results (name, passed, detail)
-select 'accepted grantee reads the private_parent (single-invisible) school by id',
+select 'accepted grantee reads the private_parent (single-invisible) education entry by id',
        count(*) = 1,
        format('rows = %s (expected 1 — must stay visible to the grantee, proving the single-only gates were NOT copied)', count(*))
-from public.shidduch_schools
-where id = (select v from ids where k = 'school_c');
+from public.shidduch_education
+where id = (select v from ids where k = 'education_c');
 
 insert into results (name, passed, detail)
-select 'accepted grantee sees the private_parent school in a list scan over the granted single',
+select 'accepted grantee sees the private_parent education entry in a list scan over the granted single',
        count(*) = 1,
-       format('rows = %s (expected the single-invisible private_parent school row)', count(*))
-from public.shidduch_schools
+       format('rows = %s (expected the single-invisible private_parent education row)', count(*))
+from public.shidduch_education
 where shidduchim_id = (select v from ids where k = 'shidduch_c');
 
 -- ---------------------------------------------------------------------------
 -- (d) NEGATIVE: a single-role member of the ACCEPTED grantee's OWN household
--- still sees zero shidduch_schools rows for the granted single — the grant opens
--- read for the household, not for its own single-persona members.
+-- still sees zero shidduch_education rows for the granted single — the grant
+-- opens read for the household, not for its own single-persona members.
 -- ---------------------------------------------------------------------------
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"1dddd444-4444-4444-4444-444444444444","role":"authenticated"}';
 
 insert into results (name, passed, detail)
-select 'a single-role member of the grantee household still sees zero schools by id',
+select 'a single-role member of the grantee household still sees zero education entries by id',
        count(*) = 0,
        format('rows = %s (expected 0)', count(*))
-from public.shidduch_schools
-where id = (select v from ids where k = 'school_b');
+from public.shidduch_education
+where id = (select v from ids where k = 'education_b');
 
 insert into results (name, passed, detail)
-select 'a single-role member of the grantee household sees no granted schools in a list',
+select 'a single-role member of the grantee household sees no granted education entries in a list',
        count(*) = 0,
        format('rows = %s (expected 0)', count(*))
-from public.shidduch_schools
+from public.shidduch_education
 where shidduchim_id in ((select v from ids where k = 'shidduch_b'), (select v from ids where k = 'shidduch_c'));
 
 reset role;

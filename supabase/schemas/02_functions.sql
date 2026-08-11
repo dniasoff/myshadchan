@@ -261,7 +261,7 @@ CREATE OR REPLACE FUNCTION "public"."account_has_domain_data"("p_account_id" big
     or exists (select 1 from public.reference_links where account_id = p_account_id)
     or exists (select 1 from public.date_records where account_id = p_account_id)
     or exists (select 1 from public.redts where account_id = p_account_id)
-    or exists (select 1 from public.shidduch_schools where account_id = p_account_id)
+    or exists (select 1 from public.shidduch_education where account_id = p_account_id)
     or exists (select 1 from public.shidduchim_external_links where account_id = p_account_id)
     or exists (select 1 from public.interactions where account_id = p_account_id)
     or exists (select 1 from public.identity_signals where account_id = p_account_id)
@@ -304,6 +304,37 @@ begin
   end if;
 
   return new;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."add_education"("p_shidduchim_id" bigint, "p_kind" "text" DEFAULT 'seminary'::"text", "p_name_en" "text" DEFAULT NULL::"text", "p_name_he" "text" DEFAULT NULL::"text", "p_start_year" integer DEFAULT NULL::integer, "p_end_year" integer DEFAULT NULL::integer) RETURNS SETOF "public"."shidduch_education"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+begin
+  v_account_id := public.current_context_id();
+
+  if not exists (
+    select 1 from public.shidduchim s
+    where s.id = p_shidduchim_id and s.account_id = v_account_id
+  ) then
+    raise exception 'shidduch % not found in current account', p_shidduchim_id;
+  end if;
+
+  if coalesce(p_kind, 'seminary') not in ('seminary', 'yeshiva', 'school', 'college', 'other') then
+    raise exception 'invalid school kind: %', p_kind using errcode = 'check_violation';
+  end if;
+
+  return query
+  insert into public.shidduch_education (
+    account_id, shidduchim_id, kind, name_en, name_he, start_year, end_year
+  ) values (
+    v_account_id, p_shidduchim_id, coalesce(p_kind, 'seminary'),
+    p_name_en, p_name_he, p_start_year, p_end_year
+  )
+  returning *;
 end;
 $$;
 
@@ -586,37 +617,6 @@ begin
   return query
   insert into public.resume_photos (account_id, resume_id, path, visibility)
   values (v_account_id, v_resume_id, p_path, coalesce(p_visibility, 'shared'))
-  returning *;
-end;
-$$;
-
-CREATE OR REPLACE FUNCTION "public"."add_school"("p_shidduchim_id" bigint, "p_kind" "text" DEFAULT 'seminary'::"text", "p_name_en" "text" DEFAULT NULL::"text", "p_name_he" "text" DEFAULT NULL::"text", "p_start_year" integer DEFAULT NULL::integer, "p_end_year" integer DEFAULT NULL::integer) RETURNS SETOF "public"."shidduch_schools"
-    LANGUAGE "plpgsql"
-    SET "search_path" TO ''
-    AS $$
-declare
-  v_account_id bigint;
-begin
-  v_account_id := public.current_context_id();
-
-  if not exists (
-    select 1 from public.shidduchim s
-    where s.id = p_shidduchim_id and s.account_id = v_account_id
-  ) then
-    raise exception 'shidduch % not found in current account', p_shidduchim_id;
-  end if;
-
-  if coalesce(p_kind, 'seminary') not in ('seminary', 'yeshiva', 'school', 'college', 'other') then
-    raise exception 'invalid school kind: %', p_kind using errcode = 'check_violation';
-  end if;
-
-  return query
-  insert into public.shidduch_schools (
-    account_id, shidduchim_id, kind, name_en, name_he, start_year, end_year
-  ) values (
-    v_account_id, p_shidduchim_id, coalesce(p_kind, 'seminary'),
-    p_name_en, p_name_he, p_start_year, p_end_year
-  )
   returning *;
 end;
 $$;
@@ -1555,12 +1555,13 @@ begin
   insert into public.redts (account_id, shidduchim_id, shadchan_id, redt_date)
   values (v_account_id, v_id, p_shadchan_id, v_redt_date);
 
-  -- Record the headline seminary/yeshiva as the first school entry. The prospect
-  -- is the opposite gender of the single (a match for a girl is a boy -> yeshiva;
-  -- a match for a boy is a girl -> seminary). Additional schools via add_school().
+  -- Record the headline seminary/yeshiva as the first education entry. The
+  -- prospect is the opposite gender of the single (a match for a girl is a
+  -- boy -> yeshiva; a match for a boy is a girl -> seminary). Additional
+  -- education entries via add_education().
   if p_seminary_en is not null or p_seminary_he is not null then
     select gender into v_gender from public.singles where id = p_single_id;
-    insert into public.shidduch_schools (account_id, shidduchim_id, kind, name_en, name_he)
+    insert into public.shidduch_education (account_id, shidduchim_id, kind, name_en, name_he)
     values (
       v_account_id, v_id,
       case when v_gender = 'male' then 'seminary' else 'yeshiva' end,

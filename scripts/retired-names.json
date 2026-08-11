@@ -28,7 +28,8 @@
     "src/components/atomic-crm/singles/SingleGrantManagement.tsx",
     "supabase/schemas/02_functions.sql",
     "supabase/schemas/05_policies.sql",
-    "supabase/tests/migration-data-safety/fixture.sql"
+    "supabase/tests/migration-data-safety/fixture.sql",
+    "supabase/tests/migration-data-safety/declared-moves.sql"
   ],
   "patterns": [
     {
@@ -136,11 +137,11 @@
           "term": "child_grant"
         },
         {
-          "file": "supabase/tests/child_grant_shidduch_schools_access.sql",
+          "file": "supabase/tests/child_grant_shidduch_education_access.sql",
           "term": "child_grant"
         },
         {
-          "file": "supabase/tests/child_grant_shidduch_schools_access.test.ts",
+          "file": "supabase/tests/child_grant_shidduch_education_access.test.ts",
           "term": "child_grant"
         },
         {
@@ -243,6 +244,13 @@
       "regex": "child_portal_tokens|get_child_portal|set_child_portal_token_defaults",
       "flags": "i",
       "exampleFragments": ["get_child_", "portal"]
+    },
+    {
+      "id": "1.5-shidduch-schools",
+      "description": "The retired shidduch_schools resource, renamed to shidduch_education (table, RLS policies, and the add_school RPC renamed to add_education) — every TS/React identifier built on the old name. Deliberately specific compounds/snake_case, case-sensitive, rather than a bare \"school\" word: a bare word would also catch the legitimate 'school' kind-enum value (one of seminary/yeshiva/school/college/other, still a real value on shidduch_education.kind) and the unrelated references entity's own 'school' field.",
+      "regex": "shidduch_schools|ShidduchSchool|shidduchSchool|add_school|addSchool|SchoolKind",
+      "flags": "",
+      "exampleFragments": ["add_", "school"]
     }
   ]
 }

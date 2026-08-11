@@ -19,7 +19,7 @@
 -- entries (never one overwriting the other), and the first entry's `path`
 -- and `uploaded_at` are byte-identical after the second call — nothing
 -- mutates or removes an existing array element (c/d). (e) is the same
--- account-ownership guard `add_redt`/`add_school` already carry, proven
+-- account-ownership guard `add_redt`/`add_education` already carry, proven
 -- here for the new function.
 --
 -- (f) reads each of the three policies' own predicate text out of
@@ -297,7 +297,7 @@ select '(d) add_resume_file: the newest entry carries the second upload''s filen
 
 -- ---------------------------------------------------------------------------
 -- (e) add_resume_file: account-ownership guard, same shape add_redt /
--- add_school already carry. Switch active to B; A's shidduch must not be
+-- add_education already carry. Switch active to B; A's shidduch must not be
 -- reachable.
 -- ---------------------------------------------------------------------------
 select public.set_active_context((select value::bigint from ids where name = 'acct_b'));

@@ -14,7 +14,7 @@ import {
  * against the local Supabase stack.
  *
  * The assertions live in single_row_scoping.sql, because what they check —
- * RLS narrowing shidduchim/resumes/shidduch_schools/singles/accounts/
+ * RLS narrowing shidduchim/resumes/shidduch_education/singles/accounts/
  * account_members to a `single` role, the eight zero-row tables, and the
  * SECURITY INVOKER fence around every domain RPC — only exists inside
  * Postgres and cannot be meaningfully exercised through a mock. The SQL

@@ -3,7 +3,7 @@
 --
 -- Covers AC 1-6, AC 8: the three-part shidduchim visibility test (own
 -- singles row + visibility='shared' + is_single_visible_state), the
--- resume/shidduch_schools resume-adjacent facts (AC 2), the singles
+-- resume/shidduch_education resume-adjacent facts (AC 2), the singles
 -- own-row-only read (AC 3), the accounts read-but-not-write split (AC 4),
 -- the eight zero-row tables plus account_members' own-rows-only shape
 -- (AC 5), and the RPC fence (AC 6) — a `single` caller gets a raised
@@ -17,7 +17,7 @@
 -- build on the exact same fixture, so its shape is decided once, in one
 -- place. This file only adds what is specific to THIS story's assertions:
 -- six shidduchim (one look_into+shared, one new, one look_into+private_parent
--- per sibling), the resumes/shidduch_schools rows that hang off them, one row
+-- per sibling), the resumes/shidduch_education rows that hang off them, one row
 -- in each of the eight AC-5 zero-row tables, and a reference row for the
 -- link_reference_to_shidduch() RPC check.
 --
@@ -181,18 +181,18 @@ insert into ids values
   ('leah_own_resume_id', :'leah_own_resume_id'),
   ('rivka_own_resume_id', :'rivka_own_resume_id');
 
--- Shidduch schools: same visible/invisible pairing as the resumes above.
-insert into public.shidduch_schools (account_id, shidduchim_id, kind, name_en)
+-- Shidduch education: same visible/invisible pairing as the resumes above.
+insert into public.shidduch_education (account_id, shidduchim_id, kind, name_en)
 values (:sibling_fixture_account_id, :leah_visible_id, 'seminary', 'Visible Seminary')
-returning id as leah_visible_school_id \gset
+returning id as leah_visible_education_id \gset
 
-insert into public.shidduch_schools (account_id, shidduchim_id, kind, name_en)
+insert into public.shidduch_education (account_id, shidduchim_id, kind, name_en)
 values (:sibling_fixture_account_id, :leah_new_id, 'seminary', 'Invisible Seminary')
-returning id as leah_new_school_id \gset
+returning id as leah_new_education_id \gset
 
 insert into ids values
-  ('leah_visible_school_id', :'leah_visible_school_id'),
-  ('leah_new_school_id', :'leah_new_school_id');
+  ('leah_visible_education_id', :'leah_visible_education_id'),
+  ('leah_new_education_id', :'leah_new_education_id');
 
 -- One row in each AC-5 zero-row table, seeded as postgres (several of these
 -- have no client insert policy at all — tasks/date_records/redts/inbox_items
@@ -374,7 +374,7 @@ select 'AC8: Rivka cannot see her sibling Leah''s visible suggestion (sibling ex
        not exists (select 1 from public.shidduchim where id = (select value::bigint from ids where name = 'leah_visible_id'));
 
 -- ---------------------------------------------------------------------------
--- AC 2: resumes / shidduch_schools — Leah's resume-adjacent facts.
+-- AC 2: resumes / shidduch_education — Leah's resume-adjacent facts.
 -- ---------------------------------------------------------------------------
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"51810000-0000-0000-0000-000000000002","role":"authenticated"}';
@@ -396,12 +396,12 @@ select 'AC2: Leah does NOT read her sibling Rivka''s own outbound resume',
        not exists (select 1 from public.resumes where id = (select value::bigint from ids where name = 'rivka_own_resume_id'));
 
 insert into results (name, passed)
-select 'AC2: Leah reads the shidduch_schools row tied to her own visible suggestion',
-       exists (select 1 from public.shidduch_schools where id = (select value::bigint from ids where name = 'leah_visible_school_id'));
+select 'AC2: Leah reads the shidduch_education row tied to her own visible suggestion',
+       exists (select 1 from public.shidduch_education where id = (select value::bigint from ids where name = 'leah_visible_education_id'));
 
 insert into results (name, passed)
-select 'AC2: Leah does NOT read the shidduch_schools row tied to her own invisible ''new'' suggestion',
-       not exists (select 1 from public.shidduch_schools where id = (select value::bigint from ids where name = 'leah_new_school_id'));
+select 'AC2: Leah does NOT read the shidduch_education row tied to her own invisible ''new'' suggestion',
+       not exists (select 1 from public.shidduch_education where id = (select value::bigint from ids where name = 'leah_new_education_id'));
 
 -- ---------------------------------------------------------------------------
 -- Review finding #2's own fix: resume_photos ownership. `resume_photos` was
@@ -588,7 +588,7 @@ exception when others then
   perform pg_temp.unexpected_raise(v_name, sqlstate, sqlerrm);
 end $$;
 
--- add_redt()/add_school()/create_shidduch()/add_resume_file()/
+-- add_redt()/add_education()/create_shidduch()/add_resume_file()/
 -- add_resume_photo() all clear their own account-scope check (Leah's context
 -- IS the household) and are then stopped by the INSERT half of RLS on the
 -- table they write. The expected error is therefore the row-security
@@ -610,15 +610,15 @@ end $$;
 
 do $$
 declare
-  v_name constant text := 'AC6: add_school() is denied for a single by row-level security on public.shidduch_schools';
+  v_name constant text := 'AC6: add_education() is denied for a single by row-level security on public.shidduch_education';
   v_id bigint; v_count int;
 begin
   select value::bigint into v_id from ids where name = 'leah_visible_id';
-  select count(*) into v_count from public.add_school(v_id);
+  select count(*) into v_count from public.add_education(v_id);
   insert into results values (v_name, false, format('call unexpectedly succeeded, rows: %s', v_count));
 exception when others then
   perform pg_temp.denied(
-    v_name, '42501', 'new row violates row-level security policy for table "shidduch_schools"', sqlstate, sqlerrm);
+    v_name, '42501', 'new row violates row-level security policy for table "shidduch_education"', sqlstate, sqlerrm);
 end $$;
 
 do $$

@@ -7,8 +7,8 @@ import {
   type ResourceCallbacks,
 } from "ra-core";
 import type {
+  AddEducationInput,
   AddRedtInput,
-  AddSchoolInput,
   AiEntitlementInfo,
   ChildGrant,
   ChildGrantPreview,
@@ -43,7 +43,7 @@ import type {
   ShareAccessLog,
   Shidduch,
   ShidduchCatch,
-  ShidduchSchool,
+  ShidduchEducation,
   Thread,
   ThreadParticipant,
   ThreadVisibility,
@@ -686,9 +686,9 @@ export const getDataProviderWithCustomMethods = () => {
       return row as Shidduch;
     },
     // Link a school/seminary/yeshiva (with optional years) to a shidduch. A
-    // single can have several. Returns the created school row.
-    async addSchool(input: AddSchoolInput): Promise<ShidduchSchool> {
-      const { data, error } = await getSupabaseClient().rpc("add_school", {
+    // single can have several. Returns the created education row.
+    async addEducation(input: AddEducationInput): Promise<ShidduchEducation> {
+      const { data, error } = await getSupabaseClient().rpc("add_education", {
         p_shidduchim_id: input.shidduchim_id,
         p_kind: input.kind ?? "seminary",
         p_name_en: input.name_en ?? null,
@@ -697,11 +697,11 @@ export const getDataProviderWithCustomMethods = () => {
         p_end_year: input.end_year ?? null,
       });
       if (error) {
-        console.error("addSchool.error", error);
+        console.error("addEducation.error", error);
         throw new Error(error.message || "Failed to add school");
       }
       const row = Array.isArray(data) ? data[0] : data;
-      return row as ShidduchSchool;
+      return row as ShidduchEducation;
     },
 
     /**

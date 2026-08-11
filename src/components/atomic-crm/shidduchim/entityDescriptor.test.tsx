@@ -37,7 +37,7 @@ import "./entityDescriptor";
  * carries `visibleTo: ["parent_admin", "self_manager"]`. Mounted through the
  * real FakeRest data provider (not a mock) because the shidduch's Overview
  * tab — the default landing tab — performs several of its own fetches
- * (`ShidduchOverviewTab.tsx`: redts, shadchanim, shidduch_schools), the same
+ * (`ShidduchOverviewTab.tsx`: redts, shadchanim, shidduch_education), the same
  * "real provider, not a mock" reasoning `PhotoTab.test.tsx` and
  * `MedicalTab.test.tsx` use for their own deep component trees.
  */

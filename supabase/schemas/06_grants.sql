@@ -155,9 +155,9 @@ revoke all on table public.redts from anon;
 grant all on table public.redts to authenticated;
 grant all on table public.redts to service_role;
 
-revoke all on table public.shidduch_schools from anon;
-grant all on table public.shidduch_schools to authenticated;
-grant all on table public.shidduch_schools to service_role;
+revoke all on table public.shidduch_education from anon;
+grant all on table public.shidduch_education to authenticated;
+grant all on table public.shidduch_education to service_role;
 
 revoke all on table public.shidduchim_external_links from anon;
 grant all on table public.shidduchim_external_links to authenticated;
@@ -236,9 +236,9 @@ revoke all on sequence public.redts_id_seq from anon;
 grant all on sequence public.redts_id_seq to authenticated;
 grant all on sequence public.redts_id_seq to service_role;
 
-revoke all on sequence public.shidduch_schools_id_seq from anon;
-grant all on sequence public.shidduch_schools_id_seq to authenticated;
-grant all on sequence public.shidduch_schools_id_seq to service_role;
+revoke all on sequence public.shidduch_education_id_seq from anon;
+grant all on sequence public.shidduch_education_id_seq to authenticated;
+grant all on sequence public.shidduch_education_id_seq to service_role;
 
 revoke all on sequence public.shidduchim_external_links_id_seq from anon;
 grant all on sequence public.shidduchim_external_links_id_seq to authenticated;
@@ -503,9 +503,9 @@ revoke all on function public.add_redt(bigint, bigint, date, text) from public, 
 grant execute on function public.add_redt(bigint, bigint, date, text) to authenticated;
 grant execute on function public.add_redt(bigint, bigint, date, text) to service_role;
 
-revoke all on function public.add_school(bigint, text, text, text, integer, integer) from public, anon;
-grant execute on function public.add_school(bigint, text, text, text, integer, integer) to authenticated;
-grant execute on function public.add_school(bigint, text, text, text, integer, integer) to service_role;
+revoke all on function public.add_education(bigint, text, text, text, integer, integer) from public, anon;
+grant execute on function public.add_education(bigint, text, text, text, integer, integer) to authenticated;
+grant execute on function public.add_education(bigint, text, text, text, integer, integer) to service_role;
 
 -- Story 5.3: the sole write path into resumes.files (AC 2). Story 5.8
 -- widened the argument list to also accept a single (p_shidduchim_id/
@@ -813,10 +813,10 @@ grant select, insert, update, delete on table public.date_records to authenticat
 revoke all on table public.redts from anon, authenticated;
 grant select, insert, update, delete on table public.redts to authenticated;
 
-revoke all on table public.shidduch_schools from anon, authenticated;
-grant select, insert, update, delete on table public.shidduch_schools to authenticated;
+revoke all on table public.shidduch_education from anon, authenticated;
+grant select, insert, update, delete on table public.shidduch_education to authenticated;
 
--- Story 5.6: same full-CRUD-at-the-grant-layer shape as shidduch_schools
+-- Story 5.6: same full-CRUD-at-the-grant-layer shape as shidduch_education
 -- above. RLS (05_policies.sql) is the real gate — account-scoped only, no
 -- sensitivity tier — and the grant only makes the table reachable at all.
 revoke all on table public.shidduchim_external_links from anon, authenticated;

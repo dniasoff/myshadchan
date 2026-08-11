@@ -6,21 +6,21 @@ import { describe, expect, it } from "vitest";
 import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 /**
- * Runs the child_grants shidduch_schools read-across guard against the local
+ * Runs the child_grants shidduch_education read-across guard against the local
  * Supabase stack.
  *
- * The assertions live in child_grant_shidduch_schools_access.sql because they
- * can only be expressed by reading `public.shidduch_schools` as five different
+ * The assertions live in child_grant_shidduch_education_access.sql because they
+ * can only be expressed by reading `public.shidduch_education` as five different
  * callers — an unrelated household, a grantee through a pending and then the
  * accepted status, the accepted grantee again to pin the single-INVISIBLE
- * (private_parent / non-single-visible-state) school as assertion (c), and a
- * single-role member inside the grantee household — which no mock reproduces:
- * the grant, the RLS policy, current_context_id() and current_member_role() all
- * have to be simultaneously right for (b)/(c) to pass and for every negative
- * case to stay closed. Assertion (c) is the increment's point: it only passes
- * if the grant policy deliberately does NOT copy the `visibility = 'shared'`
- * and `is_single_visible_state()` gates from "Shidduch schools visible to
- * single".
+ * (private_parent / non-single-visible-state) education entry as assertion (c),
+ * and a single-role member inside the grantee household — which no mock
+ * reproduces: the grant, the RLS policy, current_context_id() and
+ * current_member_role() all have to be simultaneously right for (b)/(c) to
+ * pass and for every negative case to stay closed. Assertion (c) is the
+ * increment's point: it only passes if the grant policy deliberately does NOT
+ * copy the `visibility = 'shared'` and `is_single_visible_state()` gates from
+ * "Shidduch education visible to single".
  *
  * Needs a running stack (`make start`, or `make start-supabase-e2e STACK_ID=n`).
  * If the database is unreachable the suite reports a single skipped test rather
@@ -29,7 +29,7 @@ import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 const SQL_FILE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  "child_grant_shidduch_schools_access.sql",
+  "child_grant_shidduch_education_access.sql",
 );
 
 type Check = { name: string; passed: boolean; detail: string | null };
@@ -72,7 +72,7 @@ function runSuite(): { checks: Check[]; error?: string } {
 
 const { checks, error } = runSuite();
 
-describe("child_grants shidduch_schools read access (database)", () => {
+describe("child_grants shidduch_education read access (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   // A vacuous run — the SQL erroring early and emitting a short report — must

@@ -671,7 +671,7 @@ do $$
 declare v_shid_a bigint;
 begin
   select value into v_shid_a from ids where name = 'shid1';
-  insert into public.shidduch_schools (shidduchim_id, kind, name_en) values (v_shid_a, 'seminary', 'X');
+  insert into public.shidduch_education (shidduchim_id, kind, name_en) values (v_shid_a, 'seminary', 'X');
   insert into results values ('cannot attach a school to another account''s shidduch', false, 'insert succeeded');
 exception when others then
   insert into results values ('cannot attach a school to another account''s shidduch', true, sqlerrm);
@@ -888,7 +888,7 @@ from pg_constraint c
 where c.contype = 'f'
   and c.conrelid in (
     'public.shidduchim'::regclass, 'public.resumes'::regclass,
-    'public.redts'::regclass, 'public.shidduch_schools'::regclass,
+    'public.redts'::regclass, 'public.shidduch_education'::regclass,
     'public.date_records'::regclass, 'public.reference_links'::regclass,
     'public.interactions'::regclass
   )

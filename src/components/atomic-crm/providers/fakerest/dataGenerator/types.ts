@@ -26,8 +26,8 @@ import type {
   ShareAccessLog,
   ShareLink,
   Shidduch,
+  ShidduchEducation,
   ShidduchExternalLink,
-  ShidduchSchool,
   Single,
   SingleNote,
   SinglePreferences,
@@ -74,7 +74,7 @@ export interface Db {
   reference_links: ReferenceLink[];
   date_records: DateRecord[];
   redts: Redt[];
-  shidduch_schools: ShidduchSchool[];
+  shidduch_education: ShidduchEducation[];
   // External links tab (Story 5.6) — seeded empty, same reasoning as
   // medical_notes above: the demo build must not crash on this tab. Plain
   // CRUD through dataProvider.create/getList/delete (no custom method).

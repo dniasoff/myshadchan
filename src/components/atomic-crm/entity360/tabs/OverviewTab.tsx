@@ -6,7 +6,7 @@ import { OverviewFactGrid, type OverviewFact } from "./OverviewFactGrid";
 /**
  * The tab-level wrapper every entity's Overview composes from: the shared
  * fact grid followed by the entity-specific sections passed as `children`
- * (`ShidduchSchoolsSection` / `ShidduchCatchSection` for 5.1, the
+ * (`ShidduchEducationSection` / `ShidduchCatchSection` for 5.1, the
  * `singles_summary` block for 5.8, and so on).
  *
  * An entity whose Overview is entirely custom sections is not "empty" —

@@ -110,12 +110,12 @@ create or replace trigger set_redts_account_id
     before insert on public.redts
     for each row execute function public.set_account_id_default();
 
-create or replace trigger set_shidduch_schools_account_id
-    before insert on public.shidduch_schools
+create or replace trigger set_shidduch_education_account_id
+    before insert on public.shidduch_education
     for each row execute function public.set_account_id_default();
 
 -- Story 5.6: server-set account_id on insert (AD-1), same shape as
--- set_shidduch_schools_account_id above.
+-- set_shidduch_education_account_id above.
 create or replace trigger set_shidduchim_external_links_account_id
     before insert on public.shidduchim_external_links
     for each row execute function public.set_account_id_default();
@@ -293,8 +293,8 @@ create or replace trigger validate_redts_household_scope
     before insert or update of account_id on public.redts
     for each row execute function public.enforce_household_scope();
 
-create or replace trigger validate_shidduch_schools_household_scope
-    before insert or update of account_id on public.shidduch_schools
+create or replace trigger validate_shidduch_education_household_scope
+    before insert or update of account_id on public.shidduch_education
     for each row execute function public.enforce_household_scope();
 
 -- Story 5.6: a shidduch is household-only, so its child table is too — no

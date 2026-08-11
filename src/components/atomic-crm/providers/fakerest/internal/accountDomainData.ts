@@ -25,7 +25,7 @@ const DOMAIN_RESOURCES = [
   "reference_links",
   "date_records",
   "redts",
-  "shidduch_schools",
+  "shidduch_education",
   "shidduchim_external_links",
   "interactions",
   "inbox_items",

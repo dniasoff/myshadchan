@@ -125,7 +125,7 @@ select
 
 -- ---------------------------------------------------------------------------
 -- AC-1 / AC-3 / AC-5: full, unfiltered read counts — every table AC-3 names
--- (Story 6.2's row-narrowing: shidduchim/resumes/shidduch_schools/singles;
+-- (Story 6.2's row-narrowing: shidduchim/resumes/shidduch_education/singles;
 -- Story 6.2's wholesale denies: tasks/invites/date_records/redts/
 -- identity_signals/inbox_items/subscription/ai_usage/account_members;
 -- Story 6.3's candid-content denies: reference_links/references/
@@ -139,7 +139,7 @@ set local request.jwt.claims = '{"sub":"51820000-0000-0000-0000-000000000001","r
 insert into ids (name, value) values
   ('s_count_shidduchim', (select count(*) from public.shidduchim)::text),
   ('s_count_resumes', (select count(*) from public.resumes)::text),
-  ('s_count_shidduch_schools', (select count(*) from public.shidduch_schools)::text),
+  ('s_count_shidduch_education', (select count(*) from public.shidduch_education)::text),
   ('s_count_singles', (select count(*) from public.singles)::text),
   ('s_count_accounts', (select count(*) from public.accounts)::text),
   ('s_count_resume_photos', (select count(*) from public.resume_photos)::text),
@@ -183,7 +183,7 @@ set local request.jwt.claims = '{"sub":"51820000-0000-0000-0000-000000000002","r
 insert into ids (name, value) values
   ('p_count_shidduchim', (select count(*) from public.shidduchim)::text),
   ('p_count_resumes', (select count(*) from public.resumes)::text),
-  ('p_count_shidduch_schools', (select count(*) from public.shidduch_schools)::text),
+  ('p_count_shidduch_education', (select count(*) from public.shidduch_education)::text),
   ('p_count_singles', (select count(*) from public.singles)::text),
   ('p_count_accounts', (select count(*) from public.accounts)::text),
   ('p_count_resume_photos', (select count(*) from public.resume_photos)::text),
@@ -231,7 +231,7 @@ reset role;
 do $$
 declare
   v_keys text[] := array[
-    'shidduchim', 'resumes', 'shidduch_schools', 'singles', 'accounts', 'resume_photos',
+    'shidduchim', 'resumes', 'shidduch_education', 'singles', 'accounts', 'resume_photos',
     'tasks', 'invites', 'date_records', 'redts', 'identity_signals', 'inbox_items',
     'subscription', 'ai_usage', 'account_members', 'reference_links', 'references',
     'interactions', 'entity_files', 'shidduchim_external_links', 'medical_notes',

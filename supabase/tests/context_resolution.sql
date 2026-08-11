@@ -550,7 +550,7 @@ declare
   v_table text;
   v_tables text[] := array[
     'singles', 'shadchanim', 'references', 'shidduchim', 'resumes',
-    'reference_links', 'date_records', 'redts', 'shidduch_schools',
+    'reference_links', 'date_records', 'redts', 'shidduch_education',
     'identity_signals', 'inbox_items'
   ];
   v_shad_id bigint;
@@ -704,7 +704,7 @@ insert into public.resumes (shidduchim_id) values (:ac3a_shidduch) returning id 
 insert into public.reference_links (reference_id) values (:ac3a_reference) returning id as ac3a_link \gset
 insert into public.date_records (single_id) values (:ac3a_single) returning id as ac3a_date_record \gset
 insert into public.redts (shidduchim_id) values (:ac3a_shidduch) returning id as ac3a_redt \gset
-insert into public.shidduch_schools (shidduchim_id) values (:ac3a_shidduch) returning id as ac3a_school \gset
+insert into public.shidduch_education (shidduchim_id) values (:ac3a_shidduch) returning id as ac3a_education \gset
 insert into public.interactions (target_type, target_id) values ('reference', :ac3a_reference) returning id as ac3a_interaction \gset
 -- identity_signals is deliberately SELECT-only for authenticated
 -- (06_grants.sql) — written only by the SECURITY DEFINER sync triggers, so
@@ -725,7 +725,7 @@ select 'AC-3a: all 10 household-only tables accept an insert with no account_id 
    and (select count(*) from public.reference_links where id = :ac3a_link and account_id = :acct_owner) = 1
    and (select count(*) from public.date_records where id = :ac3a_date_record and account_id = :acct_owner) = 1
    and (select count(*) from public.redts where id = :ac3a_redt and account_id = :acct_owner) = 1
-   and (select count(*) from public.shidduch_schools where id = :ac3a_school and account_id = :acct_owner) = 1
+   and (select count(*) from public.shidduch_education where id = :ac3a_education and account_id = :acct_owner) = 1
    and (select count(*) from public.identity_signals where id = :ac3a_signal and account_id = :acct_owner) = 1
    and (select count(*) from public.inbox_items where id = :ac3a_inbox and account_id = :acct_owner) = 1;
 

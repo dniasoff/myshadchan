@@ -284,10 +284,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/shidduchim/ShidduchSchoolsSection.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/shidduchim/ShidduchRow.tsx",
           "type": "registry:component"
         },
@@ -309,6 +305,10 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/ShidduchFactsCard.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchEducationSection.tsx",
           "type": "registry:component"
         },
         {

@@ -10,8 +10,8 @@ import type {
   ResumePhoto,
   Shadchan,
   Shidduch,
+  ShidduchEducation,
   ShidduchExternalLink,
-  ShidduchSchool,
   Single,
 } from "../../../types";
 import { PIPELINE_TRANSITIONS } from "../../../shidduchim/pipelineStates";
@@ -539,11 +539,11 @@ export const generateShidduchimDomain = (db: Db) => {
   // (kind = opposite of the single's gender), plus an extra school with years on
   // one shidduch to show multiple institutions.
   const singleGenderById = new Map(singlesSeed.map((c) => [c.id, c.gender]));
-  let schoolId = 1;
-  const shidduchSchools: ShidduchSchool[] = shidduchim
+  let educationId = 1;
+  const shidduchEducation: ShidduchEducation[] = shidduchim
     .filter((s) => s.seminary_en)
     .map((s) => ({
-      id: schoolId++,
+      id: educationId++,
       account_id: ACCOUNT_ID,
       shidduchim_id: s.id,
       kind:
@@ -554,8 +554,8 @@ export const generateShidduchimDomain = (db: Db) => {
       end_year: null,
       created_at: s.created_at,
     }));
-  shidduchSchools.push({
-    id: schoolId++,
+  shidduchEducation.push({
+    id: educationId++,
     account_id: ACCOUNT_ID,
     shidduchim_id: 4, // Dovid Berkowitz — also attended a mesivta (with years)
     kind: "school",
@@ -600,6 +600,6 @@ export const generateShidduchimDomain = (db: Db) => {
   // so it can point reference_links.shidduchim_id at real shidduchim ids.
   db.date_records = [] as DateRecord[];
   db.redts = redts;
-  db.shidduch_schools = shidduchSchools;
+  db.shidduch_education = shidduchEducation;
   db.pipeline_transitions = PIPELINE_TRANSITIONS.map((t) => ({ ...t }));
 };

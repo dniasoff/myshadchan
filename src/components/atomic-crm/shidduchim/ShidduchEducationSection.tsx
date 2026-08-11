@@ -8,9 +8,9 @@ import { TextInput } from "@/components/admin/text-input";
 import { Badge } from "@/components/ui/badge";
 
 import type { CrmDataProvider } from "../providers/types";
-import type { SchoolKind, ShidduchSchool } from "../types";
+import type { EducationKind, ShidduchEducation } from "../types";
 
-const SCHOOL_KIND_CHOICES = [
+const EDUCATION_KIND_CHOICES = [
   { id: "seminary", name: "Seminary" },
   { id: "yeshiva", name: "Yeshiva" },
   { id: "school", name: "School" },
@@ -18,19 +18,21 @@ const SCHOOL_KIND_CHOICES = [
   { id: "other", name: "Other" },
 ];
 
-const formatSchoolYears = (school: ShidduchSchool): string => {
-  if (school.start_year && school.end_year)
-    return `${school.start_year}–${school.end_year}`;
-  return school.end_year?.toString() ?? school.start_year?.toString() ?? "";
+const formatEducationYears = (education: ShidduchEducation): string => {
+  if (education.start_year && education.end_year)
+    return `${education.start_year}–${education.end_year}`;
+  return (
+    education.end_year?.toString() ?? education.start_year?.toString() ?? ""
+  );
 };
 
 /** Schools & seminaries + "add a school" (Screen 18 body). */
-export const ShidduchSchoolsSection = ({
+export const ShidduchEducationSection = ({
   shidduchimId,
   schools,
 }: {
   shidduchimId: Identifier;
-  schools: ShidduchSchool[];
+  schools: ShidduchEducation[];
 }) => {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
@@ -38,9 +40,9 @@ export const ShidduchSchoolsSection = ({
 
   const onAddSchool = async (values: Record<string, unknown>) => {
     try {
-      await dataProvider.addSchool({
+      await dataProvider.addEducation({
         shidduchim_id: shidduchimId,
-        kind: (values.kind as SchoolKind) ?? "seminary",
+        kind: (values.kind as EducationKind) ?? "seminary",
         name_en: (values.name_en as string) ?? null,
         name_he: (values.name_he as string) ?? null,
         start_year:
@@ -91,7 +93,7 @@ export const ShidduchSchoolsSection = ({
                 </span>
               </span>
               <span className="shrink-0 tabular-nums text-muted-foreground">
-                {formatSchoolYears(school)}
+                {formatEducationYears(school)}
               </span>
             </li>
           ))}
@@ -107,7 +109,7 @@ export const ShidduchSchoolsSection = ({
             <SelectInput
               source="kind"
               label="Type"
-              choices={SCHOOL_KIND_CHOICES}
+              choices={EDUCATION_KIND_CHOICES}
               helperText={false}
             />
             <TextInput source="name_en" label="Name (EN)" helperText={false} />

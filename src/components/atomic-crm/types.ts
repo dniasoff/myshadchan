@@ -475,7 +475,7 @@ export type AddRedtInput = {
   note?: string | null;
 };
 
-export type SchoolKind =
+export type EducationKind =
   "seminary" | "yeshiva" | "school" | "college" | "other";
 
 /**
@@ -483,10 +483,10 @@ export type SchoolKind =
  * (seminaries for a girl, yeshivas for a boy, plus schools), each with optional
  * years.
  */
-export type ShidduchSchool = {
+export type ShidduchEducation = {
   account_id: Identifier;
   shidduchim_id: Identifier;
-  kind: SchoolKind;
+  kind: EducationKind;
   name_en?: string | null;
   name_he?: string | null;
   start_year?: number | null;
@@ -494,10 +494,10 @@ export type ShidduchSchool = {
   created_at: string;
 } & Pick<RaRecord, "id">;
 
-/** Input accepted by addSchool() — mirrors the add_school RPC. */
-export type AddSchoolInput = {
+/** Input accepted by addEducation() — mirrors the add_education RPC. */
+export type AddEducationInput = {
   shidduchim_id: Identifier;
-  kind?: SchoolKind;
+  kind?: EducationKind;
   name_en?: string | null;
   name_he?: string | null;
   start_year?: number | null;

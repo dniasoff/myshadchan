@@ -13,7 +13,7 @@
 -- (`resume_photos_visibility_check`, `resume_photos_storage_path_scope_check`)
 -- and (f) `add_resume_photo()` / `hide_resume_photo()` themselves — the
 -- upsert-the-parent-resume-row behaviour, the account-ownership guard both
--- share with `add_resume_file`/`add_redt`/`add_school`, and the soft-hide
+-- share with `add_resume_file`/`add_redt`/`add_education`, and the soft-hide
 -- contract (AC 2: `hidden_at` is set, the row is never deleted).
 --
 -- Story 6.2 review fix (ownership excursion, disclosed): `05_policies.sql`'s
@@ -229,7 +229,7 @@ set local request.jwt.claims = '{"sub":"e5111111-1111-1111-1111-111111111111","r
 
 -- ---------------------------------------------------------------------------
 -- (f) continued — the account-ownership guard, same shape add_resume_file /
--- add_redt / add_school already carry. Switch active to B; A's shidduch
+-- add_redt / add_education already carry. Switch active to B; A's shidduch
 -- must not be reachable.
 -- ---------------------------------------------------------------------------
 select public.set_active_context((select value::bigint from ids where name = 'acct_b'));

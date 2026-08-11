@@ -97,7 +97,7 @@ const DELETE_ORDER = [
   "tasks",
   "reference_links",
   "redts",
-  "shidduch_schools",
+  "shidduch_education",
   "resume_photos",
   "resumes",
   "entity_files",

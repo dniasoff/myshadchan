@@ -31,6 +31,19 @@
 -- archaeological record of what past migrations did.
 -- ===========================================================================
 
+-- shidduch_schools -> shidduch_education (migration
+-- 20260811150000_rename_shidduch_schools_to_shidduch_education.sql). A pure
+-- rename: every row, the identity sequence, and every constraint/index/
+-- trigger/policy is carried over by `ALTER TABLE ... RENAME TO` and the
+-- follow-up ALTERs in that migration — nothing is dropped or recreated.
+-- Without this declaration, assert.sql's check A sees `shidduch_schools` stop
+-- resolving at the baseline name and reports it as TABLE DROPPED, which is
+-- not what happened; this redirects the check to `shidduch_education`, where
+-- checks B/C/D still verify the seeded row and every column survived intact.
+insert into migration_guard.table_renames (from_table, to_table, reason) values
+    ('shidduch_schools', 'shidduch_education',
+     'Renamed in place by migration 20260811150000; every row and constraint carried over via ALTER TABLE RENAME.');
+
 -- AD-1 FORCE RLS migration allowlist — these tables will have FORCE ROW LEVEL
 -- SECURITY added by a future migration. The migration will be a pure DDL
 -- addition with no data movement, so there is no column value to recover.

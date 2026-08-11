@@ -26,7 +26,7 @@ type Db = {
   reference_links: Record<string, unknown>[];
   date_records: Record<string, unknown>[];
   redts: Record<string, unknown>[];
-  shidduch_schools: Record<string, unknown>[];
+  shidduch_education: Record<string, unknown>[];
   shidduchim_external_links: Record<string, unknown>[];
   interactions: Record<string, unknown>[];
   inbox_items: Record<string, unknown>[];
@@ -45,7 +45,7 @@ const emptyDb = (): Db => ({
   reference_links: [],
   date_records: [],
   redts: [],
-  shidduch_schools: [],
+  shidduch_education: [],
   shidduchim_external_links: [],
   interactions: [],
   inbox_items: [],

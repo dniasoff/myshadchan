@@ -8,7 +8,9 @@
 --
 -- Four checks, in increasing order of subtlety:
 --
---   A. the table still exists;
+--   A. the table still exists — or, if not, was declared RENAMED in
+--      `migration_guard.table_renames`, in which case every check below runs
+--      against the new name instead;
 --   B. every seeded row still exists (the `member_state` shape: correct DDL,
 --      no backfill, HTTP 200 with zero rows on every surface);
 --   C. every value in a SURVIVING column is unchanged, unless declared in
@@ -19,8 +21,9 @@
 --      `migration_guard.column_moves` saying where the data went, and that
 --      declaration reproduces the old value for every affected row.
 --
--- Nothing here is specific to one migration. D is the only part that needs
--- per-migration input, and it demands it: an undeclared drop fails.
+-- Nothing here is specific to one migration. D (and, for a renamed table, A)
+-- are the only parts that need per-migration input, and both demand it: an
+-- undeclared drop fails, and an undeclared disappearance is read as a drop.
 --
 -- HOW A SNAPSHOT ROW IS FOUND AGAIN. Through `to_jsonb(t) @> s.key_json`,
 -- where `key_json` is the table's primary key as `capture()` read it out of
@@ -41,6 +44,14 @@ do $$
 declare
     v_failures text[] := '{}';
     v_table text;
+    -- The table to actually QUERY (`public.%I`) in checks B/C/D. Equal to
+    -- v_table except for a declared rename, where it becomes `to_table` —
+    -- v_table itself stays the snapshot/declaration KEY throughout (every
+    -- row in migration_guard.snapshot, column_moves, discarded_columns and
+    -- expected_rewrites is keyed by the BASELINE name, never the renamed
+    -- one).
+    v_live_table text;
+    v_rename_target text;
     v_col text;
     v_recover text;
     v_cmp text;
@@ -56,13 +67,36 @@ begin
     for v_table in
         select distinct s.table_name from migration_guard.snapshot s order by 1
     loop
-        -- A. Does the table still exist at all?
+        v_live_table := v_table;
+
+        -- A. Does the table still exist at all? A declared rename means
+        -- "look for these rows under the new name", never "skip this table"
+        -- — checks B/C/D below still run in full, just against
+        -- v_live_table instead of v_table.
         if to_regclass('public.' || quote_ident(v_table)) is null then
-            v_failures := v_failures || format(
-                'TABLE DROPPED: public.%I held %s seeded row(s) and no longer exists.',
-                v_table,
-                (select count(*) from migration_guard.snapshot s where s.table_name = v_table));
-            continue;
+            select r.to_table into v_rename_target
+              from migration_guard.table_renames r
+             where r.from_table = v_table;
+
+            if v_rename_target is null then
+                v_failures := v_failures || format(
+                    'TABLE DROPPED: public.%I held %s seeded row(s) and no longer exists.',
+                    v_table,
+                    (select count(*) from migration_guard.snapshot s where s.table_name = v_table));
+                continue;
+            end if;
+
+            if to_regclass('public.' || quote_ident(v_rename_target)) is null then
+                v_failures := v_failures || format(
+                    'TABLE DROPPED: public.%I held %s seeded row(s); declared renamed to public.%I '
+                    'in migration_guard.table_renames, but that table does not exist either.',
+                    v_table,
+                    (select count(*) from migration_guard.snapshot s where s.table_name = v_table),
+                    v_rename_target);
+                continue;
+            end if;
+
+            v_live_table := v_rename_target;
         end if;
 
         -- B. Are all the seeded rows still there? Counted rather than merely
@@ -74,7 +108,7 @@ begin
               where s.table_name = %L
                 and (select count(*) from public.%I t where to_jsonb(t) @> s.key_json)
                     < s.multiplicity',
-            v_table, v_table)
+            v_table, v_live_table)
         into v_missing;
 
         if array_length(v_missing, 1) > 0 then
@@ -96,13 +130,13 @@ begin
                     where to_jsonb(t) @> s.key_json limit 1
                ) m on true
               where s.table_name = %L',
-            v_table, v_table)
+            v_live_table, v_table)
         into v_now;
 
         select array_agg(a.attname order by a.attname)
           into v_live_cols
           from pg_attribute a
-         where a.attrelid = ('public.' || quote_ident(v_table))::regclass
+         where a.attrelid = ('public.' || quote_ident(v_live_table))::regclass
            and a.attnum > 0
            and not a.attisdropped;
 
@@ -203,7 +237,7 @@ begin
                           from lateral (%s) as recovered(value)
                          where %s(recovered.value) is not distinct from %s(s.row_json ->> %L)
                     )',
-                v_table, v_table, v_col, v_recover, v_cmp, v_cmp, v_col)
+                v_live_table, v_table, v_col, v_recover, v_cmp, v_cmp, v_col)
             into v_bad_rows;
 
             if array_length(v_bad_rows, 1) > 0 then

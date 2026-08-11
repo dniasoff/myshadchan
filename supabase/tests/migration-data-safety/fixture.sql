@@ -81,6 +81,26 @@ create table migration_guard.snapshot (
 create unique index snapshot_identity
     on migration_guard.snapshot (table_name, md5(row_key));
 
+-- The author's declaration that a table was RENAMED, not dropped. Every
+-- snapshot row is keyed by the BASELINE table name (`capture()` runs before
+-- the pending migrations, so it can never know the new name) — `assert.sql`'s
+-- check A normally reads "the baseline name no longer resolves" as a drop.
+-- A row here redirects that check instead: "the rows moved to `to_table`, go
+-- look there", never "skip this table". Every subsequent check (B/C/D) still
+-- runs, against `to_table` — a rename that also lost rows, changed a
+-- surviving value, or dropped a column undeclared still fails exactly as it
+-- would for a table that kept its name. `assert.sql` fails closed if
+-- `to_table` doesn't exist either (a bad declaration is not an escape hatch).
+--
+-- LIFECYCLE: same as `column_moves` — written while the rename migration is
+-- PENDING, deleted once it is DEPLOYED (i.e. once `capture()` starts reading
+-- the table under its NEW name at baseline, this row can never match again).
+create table migration_guard.table_renames (
+    from_table text primary key,
+    to_table text not null,
+    reason text not null
+);
+
 -- The author's declaration of intent for a column the pending migrations
 -- DROP. `assert.sql` treats an undeclared drop of a column that held data as
 -- a failure, and a declared one as a claim it then verifies: for every row
@@ -476,11 +496,18 @@ values (
     'https://example.test/guard-writeup', 'Community writeup'
 );
 
--- shidduch_schools (Story 3.x era, ShidduchOverviewTab.tsx): a seminary /
--- yeshiva / school entry attached to a shidduch. Never seeded before this —
--- one of the 7 tables the completeness check below found with real
--- production traffic (see .claude/rules/ for the incident) but zero rows in
--- this fixture.
+-- shidduch_schools (Story 3.x era, ShidduchOverviewTab.tsx; renamed to
+-- shidduch_education by a migration NOT YET part of this fixture's baseline
+-- — see the "the empty-table trap" / rename-vs-column_moves note in
+-- .claude/rules/: fixture.sql seeds PRE-migration state, so this must stay
+-- the pre-rename name until the rename migration itself is deployed and
+-- becomes part of the baseline this fixture seeds against; verified by
+-- running the guard, not asserted (`relation "public.shidduch_education"
+-- does not exist` is what happens if this is renamed prematurely). A
+-- seminary / yeshiva / school entry attached to a shidduch. Never seeded
+-- before this — one of the 7 tables the completeness check below found with
+-- real production traffic (see .claude/rules/ for the incident) but zero
+-- rows in this fixture.
 insert into public.shidduch_schools (id, account_id, shidduchim_id, kind, name_en, name_he, start_year, end_year)
 values (
     9000001, 9000001, 9000001, 'seminary', 'Bais Yaakov Seminary', 'בית יעקב', 2019, 2021

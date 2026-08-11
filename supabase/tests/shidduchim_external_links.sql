@@ -2,7 +2,7 @@
 -- External links tab (Story 5.6) — database test suite.
 --
 -- AC 6's own falsifiable: `shidduchim_external_links` is scoped to
--- `account_id = current_context_id()` exactly like `shidduch_schools` — no
+-- `account_id = current_context_id()` exactly like `shidduch_education` — no
 -- sensitivity tier, and no role check among the household's working roles.
 -- Two logins inside the SAME household account (a parent_admin and a helper)
 -- both read and write the same row — proving the absence of a role
@@ -41,7 +41,7 @@
 -- AC 7's own falsifiable: the composite FK rejects attaching a link to a
 -- shidduch that belongs to a different account (mirroring
 -- `references_entity.sql`'s "cannot attach a school to another account's
--- shidduch" coverage of `shidduch_schools`), and the trigger catalog facts
+-- shidduch" coverage of `shidduch_education`), and the trigger catalog facts
 -- (`set_..._account_id`, `validate_..._household_scope`) are asserted
 -- directly.
 --
@@ -293,7 +293,7 @@ select '(d) select: a parent_admin of a different account sees zero rows (accoun
 
 -- ---------------------------------------------------------------------------
 -- (e) AC 7: the composite FK rejects attaching a link to a shidduch owned by
--- a DIFFERENT account, mirroring references_entity.sql's shidduch_schools
+-- a DIFFERENT account, mirroring references_entity.sql's shidduch_education
 -- coverage. u3 is active in account B; foreign_shidduch_id belongs to B, so
 -- this specific insert must succeed (same-account attach)...
 -- ---------------------------------------------------------------------------

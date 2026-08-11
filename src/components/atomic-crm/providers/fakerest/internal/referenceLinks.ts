@@ -50,7 +50,7 @@ export async function computeDiligenceProgress(
  * rather than creating a second one.
  *
  * Uses getList (not getOne) for the existence checks so a missing id yields
- * [] instead of throwing a generic error -- mirrors the addRedt/addSchool
+ * [] instead of throwing a generic error -- mirrors the addRedt/addEducation
  * idiom in dataProvider.ts.
  */
 export async function linkReferenceToShidduch(

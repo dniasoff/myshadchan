@@ -5,7 +5,7 @@
 -- WHY IT EXISTS. This is RLS increment 7 of the child_grants plan (Epic 14):
 -- a grantee household that has accepted a grant for a proposer's single may
 -- SELECT that single's redts rows through the policy "Redts readable via
--- accepted grant" (05_policies.sql). Unlike increment 6 (shidduch_schools),
+-- accepted grant" (05_policies.sql). Unlike increment 6 (shidduch_education),
 -- this table carries NO visibility/pipeline_state columns and NO existing
 -- single-facing narrowing to mirror — a redt is candid parent/shadchan
 -- commentary that a single never sees, so nothing needs to be deliberately
