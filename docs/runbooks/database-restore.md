@@ -1,28 +1,54 @@
 # Database Restore Runbook
 
 **Status:** Active
-**Last Updated:** 2026-08-10
+**Last Updated:** 2026-08-11
 **Story:** 15.5 (NFR-8 Operational Runbooks)
 **Related:** S19 (Epic 15 unowned-work ledger)
 
 ---
 
-## ⚠️ THERE IS NO BACKUP AND NO RECOVERY PATH TODAY
+## ✅ THERE IS A BACKUP — nightly, off-platform, never yet restored
 
-**This project runs on the Supabase FREE tier. Point-in-Time Recovery is NOT enabled. There are NO automatic daily backups. There is NO custom pg_dump. A bad migration, a wrong DELETE, or a dropped table is permanent.**
+`.github/workflows/backup.yml` dumps the production database every night at
+03:00 UTC and uploads it to Cloudflare R2, bucket `myshadchan-db-backups`,
+under a timestamped prefix. Thirty days are retained; older prefixes are
+pruned by the same job.
 
-This is a **deliberate pre-launch decision**, not an oversight. The product has no users yet, so the data has little value and the owner has chosen not to pay for backups. When the first real user arrives, this changes.
+Three gzipped files per run, which is Supabase's documented restore shape:
 
----
+| file | what it is |
+| --- | --- |
+| `roles.sql.gz` | role definitions — restore FIRST |
+| `schema.sql.gz` | DDL — restore SECOND |
+| `data.sql.gz` | rows — restore LAST |
 
-## 🚨 LAUNCH BLOCKER: BACKUPS MUST BE ENABLED BEFORE FIRST USER
+A data-only dump cannot be restored without the roles and schema that precede
+it. Take all three from the same prefix; never mix prefixes.
 
-**Before the first real user signs up, one of the following MUST be enabled:**
+First successful run: 2026-08-11T01:48Z (schema 57,523 bytes, data 19,588
+bytes, roles 187 bytes, gzipped).
 
-- **Supabase PITR (Point-in-Time Recovery)** — requires upgrading to a paid Supabase plan (Pro or higher). Provides continuous WAL archiving with a configurable retention window (default 7 days, up to 30+). Restores create a new project; you then switch DNS/connection strings.
-- **Scheduled logical backups (pg_dump via cron/edge function)** — can be implemented on the free tier. Must include `public` schema and `auth` schema. Must be stored off-platform (e.g., S3, R2, Supabase Storage in a different project). Must be tested with a full restore drill.
+### What is still NOT true
 
-**This is the single item that has to change.** Until it does, data loss is irreversible.
+- **No restore has ever been performed.** The recovery *path* exists; the
+  recovery *time* is unmeasured. Story 15.5 wanted an RTO figure and could not
+  have one while there was nothing to restore from. There is now — so the
+  drill is worth doing before it is needed rather than during.
+- **The nightly schedule is not yet confirmed.** Every successful run so far
+  was triggered by hand. To check, look for a run whose event is `schedule`:
+  `gh run list --workflow=backup.yml`. If only `workflow_dispatch` runs ever
+  appear, the cron is not firing and this is a manual tool wearing a schedule.
+- **Point-in-Time Recovery is still off.** This is the Supabase free tier, so
+  recovery granularity is one day, not one moment. Anything written since the
+  last nightly run is still lost.
+
+### To restore
+
+1. Pick a prefix from R2 and download all three files.
+2. `gunzip` them.
+3. Apply in order: `roles.sql`, then `schema.sql`, then `data.sql`.
+4. Verify before declaring success — count rows in `singles`, `shidduchim` and
+   `accounts` and compare against what the dump claimed.
 
 ---
 
