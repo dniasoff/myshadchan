@@ -687,6 +687,60 @@ create policy "Resume photos scoped to account, single sees only own shared" on 
         )
     );
 
+-- Resume photos readable via an ACCEPTED child grant (increment 5 of the
+-- child_grants plan; additive SELECT-only, the household policy above is
+-- untouched). This table carries a REAL historical sibling-leak incident:
+-- an earlier, looser version of the "Resume photos scoped to account"
+-- policy above let a `single`-role caller see ANY shared photo in their
+-- household because the check was account-wide instead of per-row-ownership.
+-- It was fixed by re-deriving the exact "is this resume mine" join that
+-- `resumes`' own policy uses (own visible suggestion via
+-- `singles.member_id`, or the single's own outbound resume).
+--
+-- This increment consumes an accepted grant on the GRANTEE axis, and the
+-- same lesson applies in mirror image: the `child_grants` join below is
+-- pinned to the exact RESOLVED single_id, never to `resumes.account_id` or
+-- `resume_photos.account_id`. A widening that matched on the proposer's
+-- `account_id` would leak EVERY OTHER single's shared photos in the same
+-- proposer household, not just the granted one's — the sibling-leak shape
+-- this table already proved itself vulnerable to once. The join re-derives
+-- the SAME two-branch ownership predicate increment 4 used on `resumes`
+-- (`resume_photos.resume_id` -> `resumes.single_id`, OR via
+-- `resumes.shidduchim_id` -> `shidduchim.single_id`), gated on an accepted
+-- grant for that resolved single_id.
+--
+-- `status = 'accepted'` is literal (a severed grant keeps grantee_account_id
+-- set, so keying on the id alone would leak), the `<> 'single'` guard closes
+-- the read-only-structural boundary (an accepted grantee's OWN single-persona
+-- members still see zero rows), and `visibility = 'shared'` mirrors what the
+-- household policy already requires of a `single` caller: a grantee should
+-- not see MORE than the household's own single would see, so a
+-- `private_parent` photo stays invisible to everyone outside the proposer
+-- household, grant or no grant. The sibling-leak test
+-- (child_grant_resume_photos_access.sql, assertion (c)) proves the join is
+-- pinned to the exact single, not the account.
+create policy "Resume photos readable via accepted grant" on public.resume_photos
+    for select to authenticated
+    using (
+        visibility = 'shared'
+        and exists (
+            select 1 from public.resumes r
+            where r.id = resume_photos.resume_id
+              and exists (
+                  select 1 from public.child_grants g
+                  where g.status = 'accepted'
+                    and g.grantee_account_id = public.current_context_id()
+                    and (
+                        g.target_single_id = r.single_id
+                        or g.target_single_id = (
+                            select s.single_id from public.shidduchim s where s.id = r.shidduchim_id
+                        )
+                    )
+              )
+        )
+        and public.current_member_role() <> 'single'
+    );
+
 -- Medical tab (Story 5.5, AC-3): readable and writable ONLY by a caller whose
 -- ACTIVE membership role is 'parent_admin' or 'self_manager' — the two roles
 -- that actually run a household's shidduch process. `helper` and `single`
