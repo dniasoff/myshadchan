@@ -120,6 +120,14 @@
           "term": "child_grant"
         },
         {
+          "file": "supabase/tests/child_grant_resumes_access.sql",
+          "term": "child_grant"
+        },
+        {
+          "file": "supabase/tests/child_grant_resumes_access.test.ts",
+          "term": "child_grant"
+        },
+        {
           "file": "supabase/tests/child_grants_visibility.sql",
           "term": "child_grant"
         },

@@ -551,6 +551,44 @@ create policy "Resumes visible to single" on public.resumes
         )
     );
 
+-- Child grants (Epic 14), RLS increment 4: a grantee household that has
+-- accepted a grant for a proposer's single may read exactly that single's
+-- resumes. Covers BOTH resume shapes — the single's own outbound resume
+-- (single_id branch) and a resume attached to one of that single's shidduchim
+-- suggestions (shidduchim_id branch, joined through shidduchim.single_id).
+-- resumes_owner_check (01_tables.sql) guarantees exactly one of
+-- shidduchim_id/single_id is set, so the two branches of the OR are mutually
+-- exclusive and can never both match the same row.
+--
+-- Additive SELECT-only policy — the two existing policies above are untouched.
+-- `status = 'accepted'` is literal (a severed grant keeps grantee_account_id
+-- set, so keying on the id alone would leak), and the `<> 'single'` guard
+-- closes the read-only-structural boundary (an accepted grantee's OWN
+-- single-persona members still see zero rows, mirroring every prior
+-- increment).
+--
+-- The join is pinned to `target_single_id`, NOT `account_id`: a widening that
+-- matched on the proposer's `account_id` would leak every OTHER single's
+-- resumes in the same proposer household, not just the granted one. The
+-- sibling-leak test (child_grant_resumes_access.sql, assertion (c)) proves the
+-- exact single, not the household.
+create policy "Resumes readable via accepted grant" on public.resumes
+    for select to authenticated
+    using (
+        exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.grantee_account_id = public.current_context_id()
+              and (
+                  g.target_single_id = resumes.single_id
+                  or g.target_single_id = (
+                      select s.single_id from public.shidduchim s where s.id = resumes.shidduchim_id
+                  )
+              )
+        )
+        and public.current_member_role() <> 'single'
+    );
+
 -- Photo tab (Story 5.4, AC-3). Unlike every plain "scoped to account"
 -- policy in this file, this one narrows further: a caller whose ACTIVE
 -- membership role is 'single' must never read (or write) a 'private_parent'
