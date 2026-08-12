@@ -225,7 +225,7 @@ test: ## run the unit test suites (STACK_ID=<n> targets that stack's database)
 override BASE_REF := $(value BASE_REF)
 
 check-migration-safety: ## verify the pending migrations do not destroy production data (honours STACK_ID)
-	@node scripts/check-migration-data-safety.mjs $(if $(BASE_REF),--base-ref '$(BASE_REF)',)
+	@$(STACK_ENV); node scripts/check-migration-data-safety.mjs $(if $(BASE_REF),--base-ref '$(BASE_REF)',)
 
 test-e2e: start-e2e ## run the e2e suite with the Playwright UI (honours STACK_ID)
 	npx playwright test --ui
