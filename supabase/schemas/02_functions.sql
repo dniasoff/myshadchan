@@ -448,6 +448,25 @@ begin
     order by am.id
     limit 1;
 
+    -- A 2-parent household can never also have a self-managed shidduch
+    -- profile: `self_manager` exists specifically for a SINGLE-parent
+    -- household where that one parent IS the shidduch candidate. Without
+    -- this check, a parent_admin in an existing 2-parent household (reached
+    -- via create_invite('parent_admin')/accept_invite() — a real path, not a
+    -- hypothetical) could attach their own self-managed singles row here.
+    -- Only checked when attaching to an EXISTING owning membership — the
+    -- fresh-household branch below is guaranteed exactly one parent by
+    -- construction and can never trip this.
+    if v_membership_id is not null and (
+      select count(*) from public.account_members am2
+      where am2.account_id = v_account_id
+        and am2.status = 'active'
+        and public.is_owning_membership_role(am2.role)
+    ) >= 2 then
+      raise exception 'a 2-parent household cannot also have a self-managed shidduch profile'
+        using errcode = 'check_violation';
+    end if;
+
     if v_membership_id is null then
       insert into public.accounts (name, kind)
       values (coalesce(nullif(v_first_name, 'Pending') || '''s Family', 'My Account'), 'household')
