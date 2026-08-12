@@ -1615,3 +1615,16 @@ revoke all on table public.child_grants from anon;
 grant select on table public.child_grants to authenticated;
 grant all on table public.child_grants to service_role;
 grant all on sequence public.child_grants_id_seq to service_role;
+
+-- Story 13.x (access tiers) — update_child_grant_access(). The other five
+-- child_grants RPCs (accept/create/regrant/revoke/sever_child_grant) and
+-- preview_child_grant() predate this file's "revoke all ... from public,
+-- anon; grant execute ... to authenticated" convention (see
+-- shidduch_single_id above) and were never brought under it, so they still
+-- run on Postgres's bare default (EXECUTE to PUBLIC, including anon) — a
+-- pre-existing gap this change does not widen or fix, since it touches none
+-- of those five. The new function gets the file's real convention from the
+-- start: anon is denied like every other domain function here.
+revoke all on function public.update_child_grant_access(bigint, text) from public, anon;
+grant execute on function public.update_child_grant_access(bigint, text) to authenticated;
+grant execute on function public.update_child_grant_access(bigint, text) to service_role;

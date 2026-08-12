@@ -863,6 +863,78 @@ create policy "Redts readable via accepted grant" on public.redts
         and public.current_member_role() <> 'single'
     );
 
+-- Child grants (Epic 14, access tiers): the edit-tier structural write on
+-- `redts` — one of exactly two tables the edit tier reaches (the other is
+-- `shidduch_education`, immediately below), UPDATE only (these are existing
+-- rows the household already created; edit tier never adds an INSERT path).
+--
+-- `access_level = 'edit'` (not `in ('comment', 'edit')`): edit is a superset
+-- of comment (01_tables.sql), so this alone is the narrower gate — a
+-- comment-tier grantee reaches "Redts readable via accepted grant" above but
+-- never this policy.
+--
+-- Role is TIGHTER than every other grant-consuming policy in this file, per
+-- explicit owner decision: `current_member_role() in ('parent_admin',
+-- 'self_manager')` only — a helper in the grantee's account may view (the
+-- SELECT policy above) and, if the grant is comment-or-edit, add commentary
+-- (the interactions policies above), but may never make a structural edit.
+--
+-- `using` repeats the SAME shape as "Redts readable via accepted grant"
+-- above (evaluated against the OLD row) — an UPDATE first needs OLD to be a
+-- row this grantee may touch at all.
+--
+-- `with check` needs TWO conjuncts, not one (Review fix F1's own reasoning,
+-- "Single listings update" above: `with check` alone evaluates the
+-- ATTACKER-CONTROLLED NEW row):
+--   (a) the SAME grant-exists check, now evaluated against NEW.shidduchim_id
+--       — so a grantee cannot repoint `shidduchim_id` onto a DIFFERENT
+--       shidduch (even one belonging to the same proposer) that is not
+--       itself covered by an edit-tier grant for ITS single.
+--   (b) NEW.account_id must equal the SAME grant's proposer_account_id —
+--       without this, a grantee could `UPDATE ... SET account_id = <their
+--       own account>` (leaving shidduchim_id untouched, so (a)'s exists()
+--       still finds the same grant and still passes) and silently ANNEX the
+--       row into their own household: (a)'s exists() check is keyed off
+--       shidduchim_id, a column entirely separate from account_id, so it
+--       cannot by itself notice account_id being repointed.
+--
+-- `using` does NOT need conjunct (b): a row already gated by (a) as visible
+-- via this table's OWN grant policy (redts) already has a correctly-set
+-- account_id by construction — the only write path that could de-sync
+-- account_id from the true owning household is THIS policy's own `with
+-- check`, which (b) closes. Mirrors the "Single listings update" precedent's
+-- own division of labour between `using` (OLD-row authorization only) and
+-- `with check` (adds the NEW-row repointing guard) exactly.
+create policy "Redts updatable via accepted edit grant" on public.redts
+    for update to authenticated
+    using (
+        exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level = 'edit'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = public.shidduch_single_id(redts.shidduchim_id)
+        )
+        and public.current_member_role() in ('parent_admin', 'self_manager')
+    )
+    with check (
+        exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level = 'edit'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = public.shidduch_single_id(redts.shidduchim_id)
+        )
+        and public.current_member_role() in ('parent_admin', 'self_manager')
+        and account_id = (
+            select g.proposer_account_id from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level = 'edit'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = public.shidduch_single_id(redts.shidduchim_id)
+        )
+    );
+
 create policy "Shidduch education scoped to account" on public.shidduch_education
     for all to authenticated
     using (
@@ -932,6 +1004,45 @@ create policy "Shidduch education readable via accepted grant" on public.shidduc
               and g.target_single_id = public.shidduch_single_id(shidduch_education.shidduchim_id)
         )
         and public.current_member_role() <> 'single'
+    );
+
+-- Child grants (Epic 14, access tiers): the edit-tier structural write on
+-- `shidduch_education` — the second (and last) of exactly two tables the
+-- edit tier reaches. Identical shape to "Redts updatable via accepted edit
+-- grant" above, same two-conjunct `with check` reasoning (see that policy's
+-- own comment for the full account_id-repointing hazard this closes) — this
+-- comment does not repeat it verbatim, only the deltas: table name, and that
+-- this table's own SELECT-additive "Shidduch education visible to single"
+-- policy above is a THIRD policy unaffected by (and unrelated to) this one,
+-- exactly as it is already unaffected by the grant-consuming SELECT policy.
+create policy "Shidduch education updatable via accepted edit grant" on public.shidduch_education
+    for update to authenticated
+    using (
+        exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level = 'edit'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = public.shidduch_single_id(shidduch_education.shidduchim_id)
+        )
+        and public.current_member_role() in ('parent_admin', 'self_manager')
+    )
+    with check (
+        exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level = 'edit'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = public.shidduch_single_id(shidduch_education.shidduchim_id)
+        )
+        and public.current_member_role() in ('parent_admin', 'self_manager')
+        and account_id = (
+            select g.proposer_account_id from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level = 'edit'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = public.shidduch_single_id(shidduch_education.shidduchim_id)
+        )
     );
 
 -- Story 5.6: same shape as "Shidduch education scoped to account" above — a
@@ -1118,12 +1229,20 @@ create policy "Interactions readable within account and parent visibility" on pu
 -- never this general one. Without this clause a `parent_admin`/`helper`
 -- could plant words into a single's own input feed, which is exactly the
 -- forgery AC 2's attribution guarantee exists to rule out.
+--
+-- Story 13.x (access tiers): `'grantee_input'` joins the same exclusion, same
+-- reasoning, same precedent — that kind has exactly one INSERT path too, the
+-- narrow "Grantee inserts commentary via accepted grant" policy below. This
+-- policy is scoped to `account_id = current_context_id()`, i.e. the CALLER's
+-- OWN account — without the exclusion, a member of the PROPOSER's own
+-- household could insert a `kind = 'grantee_input'` row into their own
+-- account and forge apparent grantee commentary the grantee never wrote.
 create policy "Interactions insertable within account and parent visibility" on public.interactions
     for insert to authenticated
     with check (
         account_id = public.current_context_id()
         and public.current_member_role() <> 'single'
-        and kind <> 'single_input'
+        and kind not in ('single_input', 'grantee_input')
         and (
             (
                 scope = 'account'
@@ -1237,6 +1356,128 @@ create policy "Single adds input on a visible suggestion" on public.interactions
         )
     );
 
+-- Child grants (Epic 14, access tiers): the comment-tier hole in the deny-
+-- the-rest wall, mirroring "Single adds input on a visible suggestion" /
+-- "Single reads own input" immediately above — same additive two-policy
+-- shape (INSERT + SELECT, append-only, author-scoped read-back), same
+-- reasoning. What differs is WHO the author is and WHOSE account the row
+-- lives in.
+--
+-- This is a genuinely new cross-account write shape (nothing else in this
+-- schema does this): the row's `account_id` is the PROPOSER's account, not
+-- the inserting caller's own `current_context_id()` (the grantee's account).
+-- Every other write policy in this file pins `account_id = current_context_id()`
+-- — this one pins it to the OTHER party's account instead, gated entirely by
+-- the accepted-grant join below. `target_type = 'single'` / `scope =
+-- 'account'` (rather than `target_type = 'shidduch'` / `scope = 'shidduch'`,
+-- single_input's shape) because a child grant is per-SINGLE
+-- (`child_grants.target_single_id`), not per-suggestion — a grantee comments
+-- on the single as a whole, and `target_id` is the single's OWN id directly
+-- (no `shidduch_single_id()` derivation needed, unlike the shidduch_education/
+-- redts grant policies below, which resolve single_id FROM a shidduchim_id
+-- column those tables carry instead of a direct single_id column).
+--
+-- `access_level in ('comment', 'edit')`: edit is a strict superset of comment
+-- (01_tables.sql's own comment on the column) — an edit-tier grantee may
+-- insert commentary too, not only make structural writes.
+--
+-- `current_member_role() <> 'single'` (not the tighter parent_admin/
+-- self_manager-only rule the edit-tier structural UPDATE policies use below):
+-- per owner decision, EVERY tier's comment/read-back reach follows the same
+-- role rule every other read-via-grant policy in this file uses — a helper in
+-- the grantee's account may view and comment, the edit-tier's extra tightness
+-- is reserved for the structural UPDATE policies alone.
+--
+-- `actor_member_id = current_member_id()` is satisfied BY CONSTRUCTION, not
+-- verified live: `set_interaction_actor_member_id` (04_triggers.sql) is a
+-- BEFORE INSERT trigger that overwrites whatever the client sent before this
+-- WITH CHECK evaluates — the clause pins the policy against a future
+-- weakening of that trigger, mirroring "Single adds input on a visible
+-- suggestion"'s own identical clause and comment.
+--
+-- actor_member_id CROSS-ACCOUNT NOTE: the trigger stamps `current_member_id()`,
+-- which resolves through the CALLER's own `current_context_id()` — for this
+-- policy the caller's active context is the GRANTEE's account, so the stored
+-- `actor_member_id` points at an `account_members` row in a DIFFERENT account
+-- than `interactions.account_id` (the proposer's). This is safe structurally
+-- (the FK is `account_members(id)`, a global PK with no account_id co-
+-- constraint) but has one real, confirmed, and DELIBERATELY UNFIXED
+-- consequence: `interactions_summary`'s `left join account_members am on
+-- am.id = i.actor_member_id` resolves `author_name` under the READER's own
+-- RLS on `account_members` (`user_id = auth.uid() or account_id =
+-- current_context_id()`) — the grantee reading their OWN row matches the
+-- first disjunct and sees their name; the PROPOSER's family reading the same
+-- row matches NEITHER disjunct (the grantee's membership row lives in a
+-- foreign account) and sees a NULL `author_name`. Nothing crashes and nothing
+-- leaks — the row's own content (body, kind, created_at) is unaffected — but
+-- a comment UI built on `interactions_summary` will show the family a
+-- blank/unnamed author for this one kind until that view (or a definer name-
+-- resolver) is deliberately widened, which is a product/security decision
+-- for whoever builds that UI, not made here.
+create policy "Grantee inserts commentary via accepted grant" on public.interactions
+    for insert to authenticated
+    with check (
+        kind = 'grantee_input'
+        and actor_member_id = public.current_member_id()
+        and target_type = 'single'
+        and scope = 'account'
+        and public.current_member_role() <> 'single'
+        and exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level in ('comment', 'edit')
+              and g.grantee_account_id = public.current_context_id()
+              and g.proposer_account_id = interactions.account_id
+              and g.target_single_id = interactions.target_id
+        )
+    );
+
+-- SELECT: a grantee reads back only their OWN `grantee_input` rows — not a
+-- fellow grantee-household member's, not any other `kind`, and not the
+-- family's own private notes/call logs (those stay governed exclusively by
+-- the general "Interactions readable within account and parent visibility"
+-- policy above, which requires `account_id = current_context_id()` — never
+-- true for a grantee, whose context is their OWN account, not the proposer's).
+--
+-- Unlike "Single reads own input" (which compares `actor_member_id`
+-- directly, with no extra existence check, because a single's own membership
+-- never lapses the way a grant does), this policy ALSO re-checks the accepted
+-- grant on every read: a severed/revoked grant, or one downgraded to `'read'`,
+-- stops the grantee from reading back their own historical comment through
+-- this policy the moment that happens — matching the `status = 'accepted'`
+-- literal-check convention every other read-via-grant policy in this file
+-- uses, rather than treating a past comment as a permanent read grant.
+create policy "Grantee reads own input via accepted grant" on public.interactions
+    for select to authenticated
+    using (
+        kind = 'grantee_input'
+        and actor_member_id = public.current_member_id()
+        and public.current_member_role() <> 'single'
+        and exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level in ('comment', 'edit')
+              and g.grantee_account_id = public.current_context_id()
+              and g.proposer_account_id = interactions.account_id
+              and g.target_single_id = interactions.target_id
+        )
+    );
+
+-- The FAMILY side (the proposer's own account members) needs no new policy
+-- to see a `grantee_input` row: the general "Interactions readable within
+-- account and parent visibility" policy above has no `kind` bucketing on
+-- SELECT at all (unlike UPDATE's moderation bucket, immediately below) — its
+-- `account_id = current_context_id() and current_member_role() <> 'single'
+-- and target_type = 'single' and ...` branch already covers a
+-- `grantee_input` row exactly like any other `target_type = 'single'` row,
+-- the moment `account_id` (the proposer's) and `target_id` (the single's own
+-- id) resolve under the family's own context. This mirrors how `single_input`
+-- was never added to that policy's predicate either (Story 6.4's own Dev
+-- Notes) — the general SELECT policy's silence on `kind` is what already
+-- grants the family visibility, precisely the reasoning 05_policies.sql:1258
+-- (the review-fix F2 comment on `single_input`'s UPDATE-only kind bucketing)
+-- describes for the sibling case.
+--
 -- The UPDATE policy alone gains AC 3's author-or-owning-role clause,
 -- `and (kind not in ('note', 'single_input') or (kind = 'note' and
 -- public.can_moderate_note(actor_member_id)))`, ANDed onto the same
@@ -1279,6 +1520,20 @@ create policy "Single adds input on a visible suggestion" on public.interactions
 -- never allowed to target). Moot for `single_input` specifically now that no
 -- role reaches it through this policy at all, but the `single` role is
 -- still denied on every OTHER kind through this exact clause, so it stays.
+--
+-- Story 13.x (access tiers): `grantee_input` joins `single_input` in the SAME
+-- bucket, same reasoning — append-only for every role, including its own
+-- author and the family's owning-role members. Without this addition a
+-- `parent_admin`/`self_manager` in the PROPOSER's own household could revise
+-- or soft-delete the grantee's words through the general path above (the
+-- base predicate's `account_id = current_context_id()` matches the family
+-- fine, since the row genuinely lives in their account); adding
+-- `grantee_input` here closes that the same way it was already closed for
+-- `single_input`. `can_moderate_note()` is never reached for either kind —
+-- both are carved out before that function is ever called, not routed
+-- through it. `interactions_summary.can_moderate` (03_views.sql) restates
+-- this exact bucket and must stay in sync with it — see that view's own
+-- comment.
 create policy "Interactions updatable by author or owning role" on public.interactions
     for update to authenticated
     using (
@@ -1330,7 +1585,7 @@ create policy "Interactions updatable by author or owning role" on public.intera
                 )
             )
         )
-        and (kind not in ('note', 'single_input')
+        and (kind not in ('note', 'single_input', 'grantee_input')
              or (kind = 'note' and public.can_moderate_note(actor_member_id)))
     )
     with check (
@@ -1382,7 +1637,7 @@ create policy "Interactions updatable by author or owning role" on public.intera
                 )
             )
         )
-        and (kind not in ('note', 'single_input')
+        and (kind not in ('note', 'single_input', 'grantee_input')
              or (kind = 'note' and public.can_moderate_note(actor_member_id)))
     );
 

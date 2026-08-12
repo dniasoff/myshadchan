@@ -6,27 +6,25 @@ import { describe, expect, it } from "vitest";
 import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 /**
- * Runs the child_grants redts read-across guard against the local Supabase
- * stack.
+ * Runs the child_grants comment-tier interactions guard against the local
+ * Supabase stack.
  *
- * The assertions live in child_grant_redts_access.sql because they can only be
- * expressed by reading `public.redts` as different callers — an unrelated
- * household, a grantee through a pending and then the accepted status, the
- * accepted grantee again to pin that shadchan_id passes through the grant
- * policy unchanged and non-null as assertion (c), and a single-role member
- * inside the grantee household — which no mock reproduces: the grant, the RLS
- * policy, current_context_id() and current_member_role() all have to be
- * simultaneously right for (b)/(c) to pass and for every negative case to stay
- * closed. Assertion (c) is the increment's point: it only passes if the grant
- * policy returns the redt's real, non-null shadchan_id rather than nulling or
- * hiding it.
+ * The assertions live in child_grant_interactions_comment_access.sql because
+ * they can only be expressed by writing and reading `public.interactions` as
+ * five different callers — a stranger household, grantees at each of the
+ * three access tiers, a single-role member inside a comment-tier grantee
+ * household, and the proposer's own family — which no mock reproduces: the
+ * grant, the new INSERT/SELECT policies, the general policies' kind
+ * exclusions, `current_context_id()` and `current_member_role()` all have to
+ * be simultaneously right for the positive cases to pass and, more
+ * importantly, for the family's own private notes to stay invisible to every
+ * grantee at every tier. That negative (d)/(e)/(h) is this suite's single
+ * most important assertion.
  *
- * Story 13.x (access tiers) adds (e)-(i): UPDATE permission via "Redts
- * updatable via accepted edit grant" — a read-tier and a comment-tier
- * accepted grantee cannot UPDATE, an edit-tier accepted grantee
- * (parent_admin) can and the write persists, a helper member of the
- * edit-tier grantee's own household cannot, and the account_id-repointing
- * attack (WITH CHECK's second conjunct) is explicitly denied.
+ * Also covers: cross-grantee isolation (a grantee cannot read a DIFFERENT
+ * grantee's own commentary), append-only enforcement for both the author and
+ * an owning-role family member, and that `interactions_summary.can_moderate`
+ * stays in sync with the UPDATE policy's own kind exclusion.
  *
  * Needs a running stack (`make start`, or `make start-supabase-e2e STACK_ID=n`).
  * If the database is unreachable the suite reports a single skipped test rather
@@ -35,7 +33,7 @@ import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 const SQL_FILE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  "child_grant_redts_access.sql",
+  "child_grant_interactions_comment_access.sql",
 );
 
 type Check = { name: string; passed: boolean; detail: string | null };
@@ -78,14 +76,14 @@ function runSuite(): { checks: Check[]; error?: string } {
 
 const { checks, error } = runSuite();
 
-describe("child_grants redts read access (database)", () => {
+describe("child_grants comment-tier interactions access (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   // A vacuous run — the SQL erroring early and emitting a short report — must
   // fail here rather than look like a pass, which is the failure mode this
   // whole suite exists to catch one level down.
   it("runs the full set of checks", () => {
-    expect(checks.length).toBe(16);
+    expect(checks.length).toBe(23);
   });
 
   for (const check of checks) {

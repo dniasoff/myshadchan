@@ -11,6 +11,7 @@ import type {
   AddRedtInput,
   AiEntitlementInfo,
   ChildGrant,
+  ChildGrantAccessLevel,
   ChildGrantPreview,
   Connection,
   ConnectionInvitePreview,
@@ -394,16 +395,36 @@ const endConnectionViaRpc = async (
 const createChildGrantViaRpc = async (
   targetSingleId: Identifier,
   granteeEmail: string,
+  accessLevel: ChildGrantAccessLevel,
 ): Promise<string> => {
   const { data, error } = await getSupabaseClient().rpc("create_child_grant", {
     p_target_single_id: targetSingleId,
     p_grantee_email: granteeEmail,
+    p_access_level: accessLevel,
   });
   if (error) {
     console.error("createChildGrant.error", error);
     throw new Error(error.message || "Failed to create that grant");
   }
   return data as string;
+};
+
+// New RPC: lets the proposer change an already-accepted grant's tier
+// without severing and re-granting.
+const updateChildGrantAccessViaRpc = async (
+  grantId: Identifier,
+  accessLevel: ChildGrantAccessLevel,
+): Promise<void> => {
+  const { error } = await getSupabaseClient().rpc("update_child_grant_access", {
+    p_grant_id: grantId,
+    p_access_level: accessLevel,
+  });
+  if (error) {
+    console.error("updateChildGrantAccess.error", error);
+    throw new Error(
+      error.message || "Failed to update that grant's access level",
+    );
+  }
 };
 
 const revokeChildGrantViaRpc = async (grantId: Identifier): Promise<void> => {
@@ -613,6 +634,7 @@ export const getDataProviderWithCustomMethods = () => {
     acceptChildGrant: acceptChildGrantViaRpc,
     severChildGrant: severChildGrantViaRpc,
     regrantChildGrant: regrantChildGrantViaRpc,
+    updateChildGrantAccess: updateChildGrantAccessViaRpc,
     // Story 8.3 (Task 5) — see redtViaConnectionViaRpc above.
     redtViaConnection: redtViaConnectionViaRpc,
     // Story 9.3 (AC-4) — see consentToRepublishListingViaRpc above.

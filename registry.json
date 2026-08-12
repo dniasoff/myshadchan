@@ -152,6 +152,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/singles/childGrantAccessLevel.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/singles/SingleRow.tsx",
           "type": "registry:component"
         },
@@ -201,6 +205,10 @@
         },
         {
           "path": "src/components/atomic-crm/singles/SingleCard.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/singles/GrantAccept.tsx",
           "type": "registry:component"
         },
         {

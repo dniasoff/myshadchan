@@ -22,6 +22,7 @@ import shidduchim from "../shidduchim";
 import { SettingsPage } from "../settings/SettingsPage";
 import { SettingsPageMobile } from "../settings/SettingsPageMobile";
 import singles from "../singles";
+import { GrantAccept } from "../singles/GrantAccept";
 import { TasksListPage } from "../tasks/TasksListPage";
 
 /**
@@ -154,6 +155,21 @@ export const CUSTOM_ROUTES: CustomRouteEntry[] = [
   {
     path: ConnectionAccept.path,
     Component: ConnectionAccept,
+    surface: "both",
+    chrome: "shell",
+  },
+  // Story 13.1's missing half (see GrantAccept.tsx's own header comment):
+  // the accept half of the child_grants consent workflow, at
+  // /accept-grant/:token, the exact path ProposeGrantDialog already hands
+  // out. Deliberately no `contextKind` — unlike a `child_grants` row's own
+  // household-only *creation* surface, a mismatched active context here
+  // must not silently `<Navigate>` away and swallow the token: an
+  // `accept_child_grant()` failure (wrong context, wrong household) is
+  // already reported through this screen's own error state, the same way
+  // `ConnectionAccept` leaves itself unguarded for the analogous reason.
+  {
+    path: GrantAccept.path,
+    Component: GrantAccept,
     surface: "both",
     chrome: "shell",
   },

@@ -1272,7 +1272,7 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."create_child_grant"("p_target_single_id" bigint, "p_grantee_email" "text") RETURNS "text"
+CREATE OR REPLACE FUNCTION "public"."create_child_grant"("p_target_single_id" bigint, "p_grantee_email" "text", "p_access_level" "text" DEFAULT 'read'::"text") RETURNS "text"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -1283,6 +1283,15 @@ declare
   v_single public.singles;
   v_member_role text;
 begin
+  -- Validated early, ahead of the authorization checks below: a malformed
+  -- access_level is a caller bug, not an authorization question, and the
+  -- CHECK constraint on child_grants would otherwise report it as an opaque
+  -- constraint-violation instead of this clear message.
+  if p_access_level not in ('read', 'comment', 'edit') then
+    raise exception 'access_level must be one of read, comment, edit (got %)', p_access_level
+      using errcode = 'check_violation';
+  end if;
+
   -- Caller must be an active member of the current context with owning role
   if v_proposer_account_id is null or not exists (
     select 1 from public.account_members am
@@ -1317,11 +1326,12 @@ begin
   v_token := encode(extensions.gen_random_bytes(32), 'hex');
 
   insert into public.child_grants (
-    proposer_account_id, target_single_id, token_hash, expires_at
+    proposer_account_id, target_single_id, token_hash, expires_at, access_level
   ) values (
     v_proposer_account_id, p_target_single_id,
     encode(extensions.digest(v_token, 'sha256'), 'hex'),
-    now() + interval '7 days'
+    now() + interval '7 days',
+    p_access_level
   );
 
   return v_token;
@@ -3183,11 +3193,11 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."preview_child_grant"("p_token" "text") RETURNS TABLE("proposer_name" "text", "target_single_name_en" "text", "target_single_name_he" "text", "status" "text", "expires_at" timestamp with time zone)
+CREATE OR REPLACE FUNCTION "public"."preview_child_grant"("p_token" "text") RETURNS TABLE("proposer_name" "text", "target_single_name_en" "text", "target_single_name_he" "text", "status" "text", "expires_at" timestamp with time zone, "access_level" "text")
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
-  select a.name, s.first_name_en, s.first_name_he, cg.status, cg.expires_at
+  select a.name, s.first_name_en, s.first_name_he, cg.status, cg.expires_at, cg.access_level
   from public.child_grants cg
   join public.accounts a on a.id = cg.proposer_account_id
   join public.singles s on s.id = cg.target_single_id and s.account_id = cg.proposer_account_id
@@ -3479,8 +3489,17 @@ begin
 end;
 $$;
 
+-- SECURITY DEFINER (not the invoker's RLS): this trigger's UPDATE writes 4
+-- denormalized columns derived entirely from redts (never client-supplied),
+-- so it doesn't widen what any caller can directly do -- it only makes the
+-- trigger's own bookkeeping work regardless of who fired it. Without this,
+-- a caller who can write redts but lacks a corresponding UPDATE policy on
+-- shidduchim (e.g. a future grant-scoped redts writer) causes this UPDATE to
+-- silently match zero rows -- no error, just a stale summary. See
+-- redt_summary_trigger_security.sql for the reproduction and regression
+-- guard.
 CREATE OR REPLACE FUNCTION "public"."refresh_shidduch_redt_summary"() RETURNS "trigger"
-    LANGUAGE "plpgsql"
+    LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
@@ -3553,11 +3572,12 @@ begin
   v_token := encode(extensions.gen_random_bytes(32), 'hex');
 
   insert into public.child_grants (
-    proposer_account_id, target_single_id, token_hash, expires_at
+    proposer_account_id, target_single_id, token_hash, expires_at, access_level
   ) values (
     v_old_grant.proposer_account_id, v_old_grant.target_single_id,
     encode(extensions.digest(v_token, 'sha256'), 'hex'),
-    now() + interval '7 days'
+    now() + interval '7 days',
+    v_old_grant.access_level
   );
 
   return v_token;
@@ -4844,6 +4864,51 @@ begin
     and plan is not null;
 
   return round((v_active_subscriptions::numeric / v_trial_started::numeric) * 100, 2);
+end;
+$$;
+
+-- Story 13.x (access tiers): lets a proposer upgrade/downgrade an existing
+-- collaborator's access_level without a full sever+regrant+re-accept round
+-- trip. Proposer-only (mirrors revoke_child_grant/sever_child_grant's
+-- ownership check) and restricted to status = 'accepted' — changing the
+-- level of a pending, severed, revoked or expired grant makes no sense,
+-- mirroring sever_child_grant's own status guard.
+CREATE OR REPLACE FUNCTION "public"."update_child_grant_access"("p_grant_id" bigint, "p_access_level" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_grant public.child_grants;
+  v_actor_account_id bigint := public.current_context_id();
+begin
+  if p_access_level not in ('read', 'comment', 'edit') then
+    raise exception 'access_level must be one of read, comment, edit (got %)', p_access_level
+      using errcode = 'check_violation';
+  end if;
+
+  select * into v_grant from public.child_grants where id = p_grant_id;
+
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_grant.proposer_account_id
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found', p_grant_id;
+  end if;
+
+  if v_grant.status <> 'accepted' then
+    raise exception 'child grant % is not accepted (status %)', p_grant_id, v_grant.status
+      using errcode = 'check_violation';
+  end if;
+
+  update public.child_grants
+  set access_level = p_access_level
+  where id = p_grant_id;
 end;
 $$;
 

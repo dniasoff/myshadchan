@@ -12,6 +12,7 @@ import type {
   AddRedtInput,
   AiEntitlementInfo,
   ChildGrant,
+  ChildGrantAccessLevel,
   ChildGrantPreview,
   Connection,
   ConnectionInvitePreview,
@@ -127,6 +128,7 @@ import {
   acceptChildGrant as acceptChildGrantImpl,
   severChildGrant as severChildGrantImpl,
   regrantChildGrant as regrantChildGrantImpl,
+  updateChildGrantAccess as updateChildGrantAccessImpl,
 } from "./internal/grants";
 import {
   createMessage,
@@ -1545,13 +1547,18 @@ export const createDataProvider = ({
     // ./internal/grants.ts. Mirrors the connection_invite shape: per-child,
     // household-to-household, with a status lifecycle.
     // ---------------------------------------------------------------------
-    createChildGrant: (singleId: Identifier, email: string): Promise<string> =>
+    createChildGrant: (
+      singleId: Identifier,
+      email: string,
+      accessLevel: ChildGrantAccessLevel,
+    ): Promise<string> =>
       createChildGrantImpl(
         baseDataProvider,
         getIdentity,
         () => activeAccountId as number,
         singleId,
         email,
+        accessLevel,
       ),
     revokeChildGrant: (id: Identifier): Promise<void> =>
       revokeChildGrantImpl(
@@ -1582,6 +1589,17 @@ export const createDataProvider = ({
         getIdentity,
         () => activeAccountId as number,
         id,
+      ),
+    updateChildGrantAccess: (
+      id: Identifier,
+      accessLevel: ChildGrantAccessLevel,
+    ): Promise<void> =>
+      updateChildGrantAccessImpl(
+        baseDataProvider,
+        getIdentity,
+        () => activeAccountId as number,
+        id,
+        accessLevel,
       ),
     // Story 8.3 (Task 5) -- FakeRest mirror of ./internal/redting.ts.
     redtViaConnection: (input: RedtViaConnectionInput): Promise<InboxItem> =>

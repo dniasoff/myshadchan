@@ -1181,6 +1181,17 @@ export type ConnectionInvitePreview = {
 };
 
 /**
+ * The three tiers a child grant can carry (added alongside
+ * `update_child_grant_access`): `read` is the original, default tier
+ * (view only); `comment` additionally lets the grantee add their own
+ * commentary but never see the proposer household's private notes;
+ * `edit` additionally lets the grantee modify two specific record types.
+ * Shared between `ChildGrant`, `ChildGrantPreview`, and every UI surface
+ * that offers or displays a tier, so the three literals are declared once.
+ */
+export type ChildGrantAccessLevel = "read" | "comment" | "edit";
+
+/**
  * Story 13.1: a grant giving another household access to a specific child.
  * Shape mirrors `ConnectionInvite` — per-child, household-to-household, with
  * a status lifecycle that ends rather than deletes (so re-grant is a new row).
@@ -1190,6 +1201,7 @@ export type ChildGrant = {
   target_single_id: Identifier;
   token_hash: string;
   status: "pending" | "accepted" | "revoked" | "expired" | "severed";
+  access_level: ChildGrantAccessLevel;
   expires_at: string;
   grantee_account_id?: Identifier | null;
   accepted_at?: string | null;
@@ -1203,13 +1215,17 @@ export type ChildGrant = {
 /**
  * `public.preview_child_grant()`'s return shape: the one purpose-built read
  * letting the acceptor see who is granting access to which child before
- * committing. Mirrors `ConnectionInvitePreview`'s narrow shape.
+ * committing. Mirrors `ConnectionInvitePreview`'s narrow shape. Carries
+ * `access_level` so the acceptor sees exactly what tier they are about to
+ * consent to before committing — this is a real consent moment, not just a
+ * display detail.
  */
 export type ChildGrantPreview = {
   proposer_name: string;
   target_single_name_en: string | null;
   target_single_name_he: string | null;
   status: "pending" | "accepted" | "revoked" | "expired" | "severed";
+  access_level: ChildGrantAccessLevel;
   expires_at: string;
 };
 

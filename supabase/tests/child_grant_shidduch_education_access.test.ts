@@ -22,6 +22,13 @@ import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
  * copy the `visibility = 'shared'` and `is_single_visible_state()` gates from
  * "Shidduch education visible to single".
  *
+ * Story 13.x (access tiers) adds (e)-(i): UPDATE permission via "Shidduch
+ * education updatable via accepted edit grant" — a read-tier and a
+ * comment-tier accepted grantee cannot UPDATE, an edit-tier accepted grantee
+ * (parent_admin) can and the write persists, a helper member of the
+ * edit-tier grantee's own household cannot, and the account_id-repointing
+ * attack (WITH CHECK's second conjunct) is explicitly denied.
+ *
  * Needs a running stack (`make start`, or `make start-supabase-e2e STACK_ID=n`).
  * If the database is unreachable the suite reports a single skipped test rather
  * than failing the whole run, matching the other db suites.
@@ -79,7 +86,7 @@ describe("child_grants shidduch_education read access (database)", () => {
   // fail here rather than look like a pass, which is the failure mode this
   // whole suite exists to catch one level down.
   it("runs the full set of checks", () => {
-    expect(checks.length).toBe(10);
+    expect(checks.length).toBe(18);
   });
 
   for (const check of checks) {

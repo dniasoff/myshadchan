@@ -342,6 +342,20 @@ group by sh.id;
 -- kind (Story 6.5's self-manager parity work is the live candidate), this
 -- column starts over-reporting for that role the moment it does, and
 -- `and public.current_member_role() <> 'single'` has to be ANDed in here.
+--
+-- Story 13.x (access tiers) adds a THIRD SELECT policy in the same shape as
+-- "Single reads own input": "Grantee reads own input via accepted grant"
+-- restricts a grantee to `kind = 'grantee_input'` rows they authored, and
+-- `grantee_input` joins `single_input` in the `kind not in (...)` exclusion
+-- below (05_policies.sql's UPDATE policy carries the identical bucket, and
+-- MUST stay in sync with this expression — that is the whole point of (g3)
+-- in interaction_note_authorship.sql, cited above). The same coincidence
+-- argument applies: on `grantee_input` the clause below already evaluates to
+-- false, so the role conjunct the UPDATE policy separately carries
+-- (`current_member_role() <> 'single'`, both there and on this new SELECT
+-- policy) has nothing left to decide — a grantee reading back their own
+-- comment is correctly told `can_moderate = false`, matching the UPDATE
+-- policy's own append-only refusal.
 create or replace view public.interactions_summary with (security_invoker = on) as
 select
     i.id,
@@ -357,7 +371,7 @@ select
     i.metadata,
     i.deleted_at,
     nullif(btrim(coalesce(m.first_name, '') || ' ' || coalesce(m.last_name, '')), '') as author_name,
-    (i.kind not in ('note', 'single_input') or (i.kind = 'note' and public.can_moderate_note(i.actor_member_id))) as can_moderate
+    (i.kind not in ('note', 'single_input', 'grantee_input') or (i.kind = 'note' and public.can_moderate_note(i.actor_member_id))) as can_moderate
 from public.interactions i
     left join public.account_members am on am.id = i.actor_member_id
     left join public.members m on m.user_id = am.user_id;

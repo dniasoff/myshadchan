@@ -128,8 +128,15 @@ select 'AC 5(i): interactions_summary is created with security_invoker = on',
 -- Split into (a) the invariant that is genuinely permanent and is what the
 -- append-only audit-trail rule rests on, and (b) an exact name→cmd set,
 -- which is strictly STRONGER than the old assertion: it still fails on a
--- `for all` remnant, on a `for delete` policy, on an unexpected sixth
+-- `for all` remnant, on a `for delete` policy, on an unexpected extra
 -- policy, AND on a rename the old check would have slept through.
+--
+-- Story 13.x (access tiers) adds two MORE by the identical reasoning:
+-- `"Grantee reads own input via accepted grant"` SELECT, `"Grantee inserts
+-- commentary via accepted grant"` INSERT — the comment-tier's own narrow
+-- carve-out, mirroring the single-role one exactly (same additive shape,
+-- different author population and account_id relationship — 05_policies.sql
+-- carries the full reasoning). Seven named policies now, not five.
 -- ---------------------------------------------------------------------------
 insert into results (name, passed, detail)
 select 'AC 2(a): interactions carries no ALL policy and no DELETE policy (append-only audit trail; unaffected by Story 6.4)',
@@ -146,12 +153,14 @@ select 'AC 2(a): interactions carries no ALL policy and no DELETE policy (append
        ), 'none');
 
 insert into results (name, passed, detail)
-select 'AC 2(b): interactions carries exactly the five expected named policies — the three account-scoped ones plus Story 6.4''s two single-role carve-outs, and nothing else',
+select 'AC 2(b): interactions carries exactly the seven expected named policies — the three account-scoped ones, Story 6.4''s two single-role carve-outs, and Story 13.x''s two comment-tier grant carve-outs, and nothing else',
        (
          select array_agg(policyname || ':' || cmd order by policyname)
          from pg_policies
          where schemaname = 'public' and tablename = 'interactions'
        ) = array[
+         'Grantee inserts commentary via accepted grant:INSERT',
+         'Grantee reads own input via accepted grant:SELECT',
          'Interactions insertable within account and parent visibility:INSERT',
          'Interactions readable within account and parent visibility:SELECT',
          'Interactions updatable by author or owning role:UPDATE',

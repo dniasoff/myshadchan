@@ -1,16 +1,26 @@
 import type { DataProvider, Identifier } from "ra-core";
-import type { ChildGrant, ChildGrantPreview } from "../../../types";
-
-function generateTokenHash(): string {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
-}
+import type {
+  ChildGrant,
+  ChildGrantAccessLevel,
+  ChildGrantPreview,
+} from "../../../types";
 
 function generateToken(): string {
   const array = new Uint8Array(24);
   crypto.getRandomValues(array);
   return Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Deterministic, one-way-in-spirit derivation of a stand-in "hash" from the
+// plaintext token — NOT the real hashing algorithm the Supabase RPCs use
+// server-side (irrelevant here since FakeRest never leaves the browser).
+// Bugfix: this used to be `generateTokenHash()`, a SECOND call to a random
+// generator unrelated to the token just minted — so `previewChildGrant`/
+// `acceptChildGrant` filtered on a value that could never match what
+// `createChildGrant` had stored, and every lookup silently returned "not
+// found". Deterministic hashing is what makes the token round-trip at all.
+function hashToken(token: string): string {
+  return `hash:${token}`;
 }
 
 export async function createChildGrant(
@@ -19,10 +29,11 @@ export async function createChildGrant(
   getActiveAccountId: () => number,
   singleId: Identifier,
   _email: string,
+  accessLevel: ChildGrantAccessLevel,
 ): Promise<string> {
   const activeAccountId = getActiveAccountId();
   const token = generateToken();
-  const tokenHash = generateTokenHash();
+  const tokenHash = hashToken(token);
   const expiresAt = new Date(
     Date.now() + 7 * 24 * 60 * 60 * 1000,
   ).toISOString(); // 7 days
@@ -35,6 +46,7 @@ export async function createChildGrant(
         target_single_id: singleId,
         token_hash: tokenHash,
         status: "pending",
+        access_level: accessLevel,
         expires_at: expiresAt,
         grantee_account_id: null,
         accepted_at: null,
@@ -78,9 +90,9 @@ export async function revokeChildGrant(
 export async function previewChildGrant(
   baseDataProvider: DataProvider,
   _getIdentity: () => Promise<unknown>,
-  _token: string,
+  token: string,
 ): Promise<ChildGrantPreview | null> {
-  const tokenHash = generateTokenHash(); // In real impl, we'd hash the token
+  const tokenHash = hashToken(token);
 
   const { data: grants } = await baseDataProvider.getList<ChildGrant>(
     "child_grants",
@@ -122,6 +134,7 @@ export async function previewChildGrant(
     target_single_name_en: single?.first_name_en ?? null,
     target_single_name_he: single?.first_name_he ?? null,
     status: grant.status,
+    access_level: grant.access_level,
     expires_at: grant.expires_at,
   };
 }
@@ -130,10 +143,10 @@ export async function acceptChildGrant(
   baseDataProvider: DataProvider,
   _getIdentity: () => Promise<unknown>,
   getActiveAccountId: () => number,
-  _token: string,
+  token: string,
 ): Promise<ChildGrant> {
   const activeAccountId = getActiveAccountId();
-  const tokenHash = generateTokenHash(); // In real impl, we'd hash the token
+  const tokenHash = hashToken(token);
 
   const { data: grants } = await baseDataProvider.getList<ChildGrant>(
     "child_grants",
@@ -244,7 +257,7 @@ export async function regrantChildGrant(
   }
 
   const token = generateToken();
-  const tokenHash = generateTokenHash();
+  const tokenHash = hashToken(token);
   const expiresAt = new Date(
     Date.now() + 7 * 24 * 60 * 60 * 1000,
   ).toISOString();
@@ -255,6 +268,9 @@ export async function regrantChildGrant(
       target_single_id: oldGrant.target_single_id,
       token_hash: tokenHash,
       status: "pending",
+      // Carry the previous tier forward — a re-grant re-opens the same
+      // relationship, not a reset to the "read" default.
+      access_level: oldGrant.access_level,
       expires_at: expiresAt,
       grantee_account_id: null,
       accepted_at: null,
@@ -266,4 +282,34 @@ export async function regrantChildGrant(
   });
 
   return token;
+}
+
+// New RPC: lets the proposer change an already-accepted grant's tier
+// without severing and re-granting. Mirrors the other lifecycle actions'
+// "load, check who may act, write" shape.
+export async function updateChildGrantAccess(
+  baseDataProvider: DataProvider,
+  _getIdentity: () => Promise<unknown>,
+  getActiveAccountId: () => number,
+  id: Identifier,
+  accessLevel: ChildGrantAccessLevel,
+): Promise<void> {
+  const activeAccountId = getActiveAccountId();
+
+  const { data: grant } = await baseDataProvider.getOne<ChildGrant>(
+    "child_grants",
+    { id },
+  );
+  if (grant.proposer_account_id !== activeAccountId) {
+    throw new Error("Only the proposer may change a grant's access level");
+  }
+  if (grant.status !== "accepted") {
+    throw new Error("Only accepted grants may have their access level changed");
+  }
+
+  await baseDataProvider.update("child_grants", {
+    id,
+    data: { access_level: accessLevel },
+    previousData: grant,
+  });
 }

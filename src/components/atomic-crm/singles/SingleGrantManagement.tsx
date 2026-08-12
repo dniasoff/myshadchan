@@ -5,6 +5,14 @@ import type { Identifier } from "ra-core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +27,16 @@ import {
   Share2,
   Loader2,
 } from "lucide-react";
-import type { Single, ChildGrant } from "../types";
+import { pickActiveContext } from "../providers/commons/roleAuthority";
+import type { CrmDataProvider } from "../providers/types";
+import { useMyContexts } from "../root/useMyContexts";
+import type { Single, ChildGrant, ChildGrantAccessLevel } from "../types";
+import {
+  ACCESS_LEVEL_DESCRIPTIONS,
+  ACCESS_LEVEL_ICONS,
+  ACCESS_LEVEL_LABELS,
+  ACCESS_LEVEL_ORDER,
+} from "./childGrantAccessLevel";
 
 interface GrantListItemProps {
   grant: ChildGrant;
@@ -27,8 +44,12 @@ interface GrantListItemProps {
 }
 
 function GrantListItem({ grant, onRefresh }: GrantListItemProps) {
-  const dataProvider = useDataProvider();
+  const dataProvider = useDataProvider<CrmDataProvider>();
+  const { data: contexts } = useMyContexts();
+  const activeAccountId = pickActiveContext(contexts)?.account_id;
+  const isProposer = grant.proposer_account_id === activeAccountId;
   const [loading, setLoading] = useState(false);
+  const [accessLevelSaving, setAccessLevelSaving] = useState(false);
 
   const handleAction = async (
     action: "revoke" | "sever" | "regrant",
@@ -37,11 +58,11 @@ function GrantListItem({ grant, onRefresh }: GrantListItemProps) {
     setLoading(true);
     try {
       if (action === "revoke") {
-        await dataProvider.revokeChildGrant!(grantId);
+        await dataProvider.revokeChildGrant(grantId);
       } else if (action === "sever") {
-        await dataProvider.severChildGrant!(grantId);
+        await dataProvider.severChildGrant(grantId);
       } else if (action === "regrant") {
-        await dataProvider.regrantChildGrant!(grantId);
+        await dataProvider.regrantChildGrant(grantId);
       }
       onRefresh();
     } catch (error) {
@@ -49,6 +70,25 @@ function GrantListItem({ grant, onRefresh }: GrantListItemProps) {
       alert(error instanceof Error ? error.message : "Action failed");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAccessLevelChange = async (value: string) => {
+    const accessLevel = value as ChildGrantAccessLevel;
+    if (accessLevel === grant.access_level) return;
+    setAccessLevelSaving(true);
+    try {
+      await dataProvider.updateChildGrantAccess(grant.id, accessLevel);
+      onRefresh();
+    } catch (error) {
+      console.error("updateChildGrantAccess error", error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to update access level",
+      );
+    } finally {
+      setAccessLevelSaving(false);
     }
   };
 
@@ -92,6 +132,13 @@ function GrantListItem({ grant, onRefresh }: GrantListItemProps) {
     }
   };
 
+  const AccessLevelIcon = ACCESS_LEVEL_ICONS[grant.access_level];
+
+  // Editable only by the proposer, and only once the grant is live — an
+  // offer still pending acceptance carries the tier the grantee is about to
+  // consent to (update_child_grant_access is scoped to accepted grants).
+  const canEditAccessLevel = isProposer && grant.status === "accepted";
+
   return (
     <div className="flex items-center justify-between p-4 border rounded-lg bg-card">
       <div className="flex items-center gap-4">
@@ -100,7 +147,7 @@ function GrantListItem({ grant, onRefresh }: GrantListItemProps) {
           <div>
             <p className="font-medium">Grant to another household</p>
             <p className="text-sm text-muted-foreground">
-              {grant.proposer_account_id === grant.grantee_account_id
+              {grant.grantee_account_id == null
                 ? "Awaiting acceptance"
                 : `With household #${grant.grantee_account_id}`}
             </p>
@@ -114,6 +161,34 @@ function GrantListItem({ grant, onRefresh }: GrantListItemProps) {
       </div>
       <div className="flex items-center gap-3">
         {getStatusBadge()}
+        {canEditAccessLevel ? (
+          <Select
+            value={grant.access_level}
+            onValueChange={handleAccessLevelChange}
+            disabled={accessLevelSaving}
+          >
+            <SelectTrigger
+              size="sm"
+              aria-label="Change access level"
+              className="h-7 gap-1 border-none bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800 shadow-none hover:bg-blue-200"
+            >
+              <AccessLevelIcon className="size-3" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ACCESS_LEVEL_ORDER.map((level) => (
+                <SelectItem key={level} value={level}>
+                  {ACCESS_LEVEL_LABELS[level]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
+            <AccessLevelIcon className="size-3" />
+            {ACCESS_LEVEL_LABELS[grant.access_level]}
+          </span>
+        )}
         <div className="flex items-center gap-2">
           {grant.status === "pending" && (
             <>
@@ -178,9 +253,10 @@ interface ProposeGrantDialogProps {
 }
 
 function ProposeGrantDialog({ single, onSuccess }: ProposeGrantDialogProps) {
-  const dataProvider = useDataProvider();
+  const dataProvider = useDataProvider<CrmDataProvider>();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
+  const [accessLevel, setAccessLevel] = useState<ChildGrantAccessLevel>("read");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -189,9 +265,14 @@ function ProposeGrantDialog({ single, onSuccess }: ProposeGrantDialogProps) {
     setLoading(true);
     setError(null);
     try {
-      const token = await dataProvider.createChildGrant!(single.id, email);
+      const token = await dataProvider.createChildGrant(
+        single.id,
+        email,
+        accessLevel,
+      );
       setOpen(false);
       setEmail("");
+      setAccessLevel("read");
       alert(
         `Grant created! Share this link with the other parent:\n\n${window.location.origin}/accept-grant/${token}`,
       );
@@ -214,13 +295,12 @@ function ProposeGrantDialog({ single, onSuccess }: ProposeGrantDialogProps) {
         </DialogTrigger>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Share this child's record</DialogTitle>
+            <DialogTitle>Share this single's record</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <p className="text-sm text-muted-foreground">
               Enter the email address of the parent you want to share this
-              child's record with. They will receive an invitation to accept
-              access.
+              record with. They will receive an invitation to accept access.
             </p>
             <div className="space-y-2">
               <Label htmlFor="grantee-email">Email address</Label>
@@ -233,6 +313,36 @@ function ProposeGrantDialog({ single, onSuccess }: ProposeGrantDialogProps) {
                 required
                 disabled={loading}
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Access level</Label>
+              <RadioGroup
+                value={accessLevel}
+                onValueChange={(value) =>
+                  setAccessLevel(value as ChildGrantAccessLevel)
+                }
+                disabled={loading}
+                className="gap-2"
+              >
+                {ACCESS_LEVEL_ORDER.map((level) => (
+                  <div key={level} className="flex items-start gap-2">
+                    <RadioGroupItem
+                      value={level}
+                      id={`grant-access-level-${level}`}
+                      className="mt-0.5"
+                    />
+                    <Label
+                      htmlFor={`grant-access-level-${level}`}
+                      className="flex flex-col items-start gap-0.5 font-normal"
+                    >
+                      <span>{ACCESS_LEVEL_LABELS[level]}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {ACCESS_LEVEL_DESCRIPTIONS[level]}
+                      </span>
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
             </div>
             {error && (
               <div className="text-sm text-destructive flex items-center gap-2">
@@ -268,7 +378,7 @@ function ProposeGrantDialog({ single, onSuccess }: ProposeGrantDialogProps) {
 
 export function SingleGrantManagement(): React.ReactElement | null {
   const record = useRecordContext<Single>();
-  const dataProvider = useDataProvider();
+  const dataProvider = useDataProvider<CrmDataProvider>();
   const [grants, setGrants] = useState<ChildGrant[]>([]);
   const [loading, setLoading] = useState(true);
 

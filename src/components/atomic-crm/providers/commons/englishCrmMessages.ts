@@ -1197,6 +1197,23 @@ export const englishCrmMessages = {
         "It may have expired, already been used, or been revoked. Ask the person who sent it for a new one.",
       error: "Couldn't accept that invite. Try again.",
     },
+    // Story 13.1's missing half: the accept screen at /accept-grant/:token
+    // — see GrantAccept.tsx's own header comment for why it mirrors
+    // connection_accept above rather than sharing keys with it (a distinct
+    // entity, `child_grants`, with its own access-level consent step).
+    child_grant_accept: {
+      title: "Share access to %{name}",
+      description:
+        "%{proposer} would like to share %{name}'s record with your household.",
+      access_level_label: "You're being offered: %{level}",
+      fallback_name: "this single",
+      accept_button: "Accept",
+      invalid_title: "This link isn't valid",
+      invalid_description:
+        "It may have expired, already been used, or been revoked. Ask the person who sent it for a new one.",
+      error:
+        "Couldn't accept that grant. It may already be used or something changed — try the link again.",
+    },
     // Story 8.3 (Task 4): the inbox source label for a shadchan-originated
     // redt — the one new INBOX_SOURCE_META entry (inbox/inboxMeta.ts) routed
     // through the i18nProvider; the other five sources stay plain literal

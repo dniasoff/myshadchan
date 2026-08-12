@@ -6,27 +6,15 @@ import { describe, expect, it } from "vitest";
 import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 /**
- * Runs the child_grants redts read-across guard against the local Supabase
- * stack.
+ * Runs the child_grants access_level guard against the local Supabase stack.
  *
- * The assertions live in child_grant_redts_access.sql because they can only be
- * expressed by reading `public.redts` as different callers — an unrelated
- * household, a grantee through a pending and then the accepted status, the
- * accepted grantee again to pin that shadchan_id passes through the grant
- * policy unchanged and non-null as assertion (c), and a single-role member
- * inside the grantee household — which no mock reproduces: the grant, the RLS
- * policy, current_context_id() and current_member_role() all have to be
- * simultaneously right for (b)/(c) to pass and for every negative case to stay
- * closed. Assertion (c) is the increment's point: it only passes if the grant
- * policy returns the redt's real, non-null shadchan_id rather than nulling or
- * hiding it.
- *
- * Story 13.x (access tiers) adds (e)-(i): UPDATE permission via "Redts
- * updatable via accepted edit grant" — a read-tier and a comment-tier
- * accepted grantee cannot UPDATE, an edit-tier accepted grantee
- * (parent_admin) can and the write persists, a helper member of the
- * edit-tier grantee's own household cannot, and the account_id-repointing
- * attack (WITH CHECK's second conjunct) is explicitly denied.
+ * The assertions live in child_grant_access_level.sql because they can only
+ * be expressed by calling the real RPCs (create_child_grant,
+ * regrant_child_grant, preview_child_grant, update_child_grant_access) as
+ * four different callers through the real grant lifecycle (create -> accept
+ * -> sever -> regrant) — no mock reproduces the SECURITY DEFINER
+ * authorization checks, the CHECK constraint, and current_context_id() all
+ * being simultaneously right.
  *
  * Needs a running stack (`make start`, or `make start-supabase-e2e STACK_ID=n`).
  * If the database is unreachable the suite reports a single skipped test rather
@@ -35,7 +23,7 @@ import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 const SQL_FILE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  "child_grant_redts_access.sql",
+  "child_grant_access_level.sql",
 );
 
 type Check = { name: string; passed: boolean; detail: string | null };
@@ -78,7 +66,7 @@ function runSuite(): { checks: Check[]; error?: string } {
 
 const { checks, error } = runSuite();
 
-describe("child_grants redts read access (database)", () => {
+describe("child_grants access_level (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   // A vacuous run — the SQL erroring early and emitting a short report — must
