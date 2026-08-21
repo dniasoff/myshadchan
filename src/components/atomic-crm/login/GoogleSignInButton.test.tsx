@@ -7,7 +7,10 @@ import {
   useNotificationContext,
 } from "ra-core";
 import { testI18nProvider } from "@/components/atomic-crm/providers/commons/i18nProvider";
-import { GoogleSignInButton } from "./GoogleSignInButton";
+import {
+  GoogleSignInButton,
+  GOOGLE_OAUTH_REDIRECT_TIMEOUT_MS,
+} from "./GoogleSignInButton";
 
 const NotificationProbe = () => {
   const { notifications } = useNotificationContext();
@@ -149,5 +152,37 @@ describe("GoogleSignInButton", () => {
     await expect
       .element(screen.getByRole("button", { name: "Continue with Google" }))
       .not.toBeDisabled();
+  });
+
+  it("re-enables the button when the browser never starts the OAuth redirect", async () => {
+    // Arrange: a stalled provider call represents a blocked or interrupted
+    // browser hand-off. It must not leave the visitor with an infinite spinner.
+    vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
+    let timeoutCallback: (() => void) | undefined;
+    const setTimeoutSpy = vi
+      .spyOn(window, "setTimeout")
+      .mockImplementation((handler) => {
+        timeoutCallback = handler as () => void;
+        return 1 as unknown as ReturnType<typeof window.setTimeout>;
+      });
+    const login = vi.fn(() => new Promise<void>(() => undefined));
+    const screen = await renderGoogleSignInButton(login);
+    const button = screen.getByRole("button", { name: "Continue with Google" });
+
+    // Act
+    await button.click();
+    await expect.element(button).toBeDisabled();
+    expect(setTimeoutSpy).toHaveBeenCalledWith(
+      expect.any(Function),
+      GOOGLE_OAUTH_REDIRECT_TIMEOUT_MS,
+    );
+    expect(timeoutCallback).toBeDefined();
+    timeoutCallback?.();
+
+    // Assert
+    await expect.element(button).not.toBeDisabled();
+    await expect
+      .element(screen.getByText(/Google sign-in did not open/i))
+      .toBeVisible();
   });
 });

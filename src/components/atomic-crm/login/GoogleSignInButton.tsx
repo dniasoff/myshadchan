@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useAuthProvider, useNotify, useTranslate } from "ra-core";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,8 @@ export type GoogleSignInButtonProps = {
   /** @deprecated Supabase owns the OAuth callback and external navigation. */
   redirect?: string;
 };
+
+export const GOOGLE_OAUTH_REDIRECT_TIMEOUT_MS = 10_000;
 
 /**
  * "Continue with Google" on `LoginPage` — a plain OAuth button. Clicking it
@@ -44,6 +46,25 @@ export const GoogleSignInButton = (_props: GoogleSignInButtonProps) => {
   const notify = useNotify();
   const translate = useTranslate();
   const [isPending, setIsPending] = useState(false);
+  const attemptRef = useRef(0);
+  const timeoutRef = useRef<number | null>(null);
+
+  const clearRedirectTimeout = () => {
+    if (timeoutRef.current !== null) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  };
+
+  useEffect(
+    () => () => {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    },
+    [],
+  );
 
   if (!isGoogleOAuthEnabled()) {
     return null;
@@ -70,13 +91,35 @@ export const GoogleSignInButton = (_props: GoogleSignInButtonProps) => {
       notifyError();
       return;
     }
+    const attempt = ++attemptRef.current;
     setIsPending(true);
-    authProvider.login({ oauthProvider: "google" }).catch((error: unknown) => {
+    clearRedirectTimeout();
+    timeoutRef.current = window.setTimeout(() => {
+      if (attemptRef.current !== attempt) {
+        return;
+      }
+      timeoutRef.current = null;
       setIsPending(false);
-      notifyError(error);
-    });
-    // No `.finally` resetting `isPending` on success: the browser is about
-    // to navigate to Google, so there is no "after" to reset it in.
+      notify("crm.auth.google_oauth_timeout", {
+        type: "error",
+        messageArgs: {
+          _: "Google sign-in did not open. Check your browser settings and try again.",
+        },
+      });
+    }, GOOGLE_OAUTH_REDIRECT_TIMEOUT_MS);
+    void authProvider
+      .login({ oauthProvider: "google" })
+      .catch((error: unknown) => {
+        if (attemptRef.current !== attempt) {
+          return;
+        }
+        clearRedirectTimeout();
+        setIsPending(false);
+        notifyError(error);
+      });
+    // On success the browser normally navigates away to Google. The timeout
+    // above covers blocked or stalled navigation so the button never spins
+    // forever when that hand-off does not happen.
   };
 
   return (
