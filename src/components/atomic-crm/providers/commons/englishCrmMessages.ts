@@ -219,6 +219,7 @@ export const englishCrmMessages = {
     },
     landing: {
       nav: {
+        create_account: "Create an account",
         sign_in: "Sign in",
       },
       hero: {
@@ -226,7 +227,7 @@ export const englishCrmMessages = {
         title_lead: "A record of the shidduch process",
         title_accent: "for your singles.",
         lead: "Suggestions, shadchanim, reference calls and dates, kept in one place.",
-        cta: "Sign in",
+        cta: "Create an account",
         cta_secondary: "What it does",
         note: "Records are held per family. They are not shared with other families.",
       },
@@ -303,7 +304,8 @@ export const englishCrmMessages = {
         title_lead: "Sign in",
         title_accent: "to the record.",
         lead: "Accounts are created with an email address.",
-        cta: "Sign in",
+        cta: "Create an account",
+        cta_secondary: "Sign in",
       },
       footer: {
         note: "The code is public. The service is free, run at cost.",

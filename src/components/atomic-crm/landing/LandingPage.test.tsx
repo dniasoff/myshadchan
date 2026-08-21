@@ -52,6 +52,23 @@ describe("LandingPage", () => {
     await expect.element(links.first()).toHaveAttribute("href", REGISTER_PATH);
   });
 
+  it("keeps registration and sign-in calls to action distinct", async () => {
+    // Arrange / Act
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/"]}>
+        <LandingPage />
+      </TestMemoryRouter>,
+    );
+
+    // Assert: the primary buttons must describe the route they actually open.
+    await expect
+      .element(screen.getByRole("link", { name: "Create an account" }).last())
+      .toHaveAttribute("href", REGISTER_PATH);
+    await expect
+      .element(screen.getByRole("link", { name: "Sign in" }).last())
+      .toHaveAttribute("href", SIGN_IN_PATH);
+  });
+
   it("names each of the four things it stores", async () => {
     // Arrange / Act
     const screen = await render(
