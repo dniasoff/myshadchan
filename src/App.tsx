@@ -1,5 +1,5 @@
+import { lazy, Suspense } from "react";
 import { LandingGate } from "@/components/atomic-crm/landing";
-import { CRM } from "@/components/atomic-crm/root/CRM";
 import {
   isPublicSearchUrl,
   type PublicSearchUrl,
@@ -20,6 +20,27 @@ import { PublicSearchPage } from "@/components/atomic-crm/listings/PublicSearchP
 import { SharedProfilePage } from "@/components/atomic-crm/sharing/SharedProfilePage";
 import { PurgeRequestPage } from "@/components/atomic-crm/listings/PurgeRequestPage";
 import { PurgeRequestVerifyPage } from "@/components/atomic-crm/listings/PurgeRequestVerifyPage";
+
+// Keep the pre-auth entry chunk small. The CRM imports every authenticated
+// resource and dashboard, but a visitor at `/login` only needs the auth shell.
+// Loading it lazily also gives the user a visible state while the browser
+// downloads and evaluates that larger chunk instead of showing a blank page.
+const LazyCRM = lazy(async () => {
+  const { CRM } = await import("@/components/atomic-crm/root/CRM");
+  return { default: CRM };
+});
+
+const AppLoading = () => (
+  <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+    <div className="flex flex-col items-center gap-4" role="status">
+      <div
+        className="size-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary"
+        aria-hidden="true"
+      />
+      <span className="text-sm text-muted-foreground">Loading MyShadchan…</span>
+    </div>
+  </div>
+);
 
 /** Union of the URL shapes all pre-CRM predicates accept. `window.location`
  * has `pathname`, `search`, `hash` (and more), so it is assignable. */
@@ -88,7 +109,9 @@ const App = ({ url = window.location }: AppProps = {}) => {
 
   return (
     <LandingGate>
-      <CRM disableTelemetry />
+      <Suspense fallback={<AppLoading />}>
+        <LazyCRM disableTelemetry />
+      </Suspense>
     </LandingGate>
   );
 };
