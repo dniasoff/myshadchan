@@ -187,13 +187,25 @@ export const RawExtractionSchema = z.object({
     value: null,
     confidence: 0,
   }),
+  person_gender: TextFieldValueSchema.nullable().default({
+    value: null,
+    confidence: 0,
+  }),
+  kohen_status: TextFieldValueSchema.nullable().default({
+    value: null,
+    confidence: 0,
+  }),
+  marital_status: TextFieldValueSchema.nullable().default({
+    value: null,
+    confidence: 0,
+  }),
   sections: SectionsSchema.default({ learningHistory: [], references: [] }),
 });
 
 export type RawExtraction = z.infer<typeof RawExtractionSchema>;
 
 /**
- * The fourteen bilingual fields a resume may fill in the shidduch create
+ * The seventeen fields a resume may fill in the shidduch create
  * form. Finding 13: narrowed to ONE type per field — `age` is `number`
  * (`public.shidduchim.age integer`), every other field (including `height`,
  * `public.shidduchim.height text`) is `string`. This now matches
@@ -217,6 +229,9 @@ export type ParsedResumeFields = {
   location_he: string | null;
   age: number | null;
   height: string | null;
+  person_gender: string | null;
+  kohen_status: string | null;
+  marital_status: string | null;
 };
 
 export type ParsedResumeDraft = {
@@ -225,7 +240,7 @@ export type ParsedResumeDraft = {
   sections: RawExtraction["sections"];
 };
 
-/** Order matches the fourteen fields above; `age` is the one field
+/** Order matches the seventeen fields above; `age` is the one field
  * validated against `NumericFieldValueSchema` — see the loop in `toDraft`. */
 export const FIELD_KEYS: readonly (keyof ParsedResumeFields)[] = [
   "name_en",
@@ -242,6 +257,9 @@ export const FIELD_KEYS: readonly (keyof ParsedResumeFields)[] = [
   "location_he",
   "age",
   "height",
+  "person_gender",
+  "kohen_status",
+  "marital_status",
 ];
 
 /**
@@ -291,6 +309,9 @@ export function toDraft(raw: unknown): ParsedResumeDraft {
     location_he: null,
     age: null,
     height: null,
+    person_gender: null,
+    kohen_status: null,
+    marital_status: null,
   };
   const lowConfidenceFields: string[] = [];
 

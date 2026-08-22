@@ -1,6 +1,7 @@
 import {
   withLifecycleCallbacks,
   type Identifier,
+  type RaRecord,
   type ResourceCallbacks,
 } from "ra-core";
 import fakeRestDataProvider from "ra-data-fakerest";
@@ -86,6 +87,7 @@ import {
   INITIAL_PIPELINE_STATES,
   isValidTransition,
   PIPELINE_TRANSITIONS,
+  SINGLE_VISIBLE_STATES,
 } from "../../shidduchim/pipelineStates";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
@@ -95,6 +97,7 @@ import {
   USER_STORAGE_KEY,
 } from "./authProvider";
 import generateData from "./dataGenerator";
+import { generateShowcaseData } from "./dataGenerator/showcase";
 import { SEEDED_FILE_BLOBS } from "./dataGenerator/fileAssets";
 import type { Db } from "./dataGenerator/types";
 import { withSupabaseFilterAdapter } from "./internal/supabaseAdapter";
@@ -153,6 +156,10 @@ import {
   catchShidduch,
   computeShidduchCatchCount,
 } from "./internal/shidduchCatch";
+import {
+  assertNoKnownHalachicConflict,
+  hasKnownHalachicConflict,
+} from "./internal/halachicEligibility";
 import {
   mergeReferences,
   previewReferenceMerge,
@@ -345,7 +352,13 @@ export const createDataProvider = ({
         nb_references: refLinks.filter((rl: any) => rl.shidduchim_id === row.id)
           .length,
         nb_redts: redts.filter((r: any) => r.shidduchim_id === row.id).length,
-        catch_count: computeShidduchCatchCount(row, allShidduchim as any[]),
+        catch_count: computeShidduchCatchCount(
+          row,
+          (allShidduchim as any[]).filter(
+            (candidate: any) =>
+              String(candidate.account_id) === String(row.account_id),
+          ),
+        ),
       };
     });
   };
@@ -377,6 +390,230 @@ export const createDataProvider = ({
   const resolveCurrentAccountId = async (): Promise<Identifier> => {
     const caller = await resolveCallerMembership();
     return caller?.membership?.account_id ?? activeAccountId ?? 1;
+  };
+
+  const requireCallerMembership = async (): Promise<{
+    userId: string;
+    membership: AccountMember;
+  }> => {
+    const caller = await resolveCallerMembership();
+    if (!caller?.membership) {
+      throw new Error("No active account context");
+    }
+    return { userId: caller.userId, membership: caller.membership };
+  };
+
+  const getAcceptedGrantSingleIds = async (
+    accountId: Identifier,
+  ): Promise<Set<string>> => {
+    const { data: grants } = await baseDataProvider.getList<ChildGrant>(
+      "child_grants",
+      {
+        filter: {
+          grantee_account_id: accountId,
+          status: "accepted",
+        },
+        pagination: { page: 1, perPage: 10_000 },
+        sort: { field: "id", order: "ASC" },
+      },
+    );
+    return new Set(grants.map((grant) => String(grant.target_single_id)));
+  };
+
+  const assertCanViewShidduch = async (current: any): Promise<void> => {
+    const caller = await requireCallerMembership();
+    const sameAccount =
+      String(current.account_id) === String(caller.membership.account_id);
+    if (sameAccount) {
+      if (caller.membership.role !== "single") return;
+      const { data: single } = await baseDataProvider.getOne("singles", {
+        id: current.single_id,
+      });
+      if (
+        String(single?.account_id) === String(caller.membership.account_id) &&
+        String(single?.member_id) === String(caller.membership.id)
+      ) {
+        return;
+      }
+    } else if (caller.membership.role !== "single") {
+      const grantedSingleIds = await getAcceptedGrantSingleIds(
+        caller.membership.account_id,
+      );
+      if (grantedSingleIds.has(String(current.single_id))) return;
+    }
+    throw new Error("shidduch not found in the active context");
+  };
+
+  const pageRows = <T>(rows: T[], params: any) => {
+    const page = params.pagination?.page ?? 1;
+    const perPage = params.pagination?.perPage ?? 25;
+    const start = (page - 1) * perPage;
+    return { data: rows.slice(start, start + perPage), total: rows.length };
+  };
+
+  const findBaseRow = async <T extends RaRecord<Identifier>>(
+    resource: string,
+    id: Identifier,
+  ): Promise<T | undefined> => {
+    const { data } = await baseDataProvider.getList<T>(resource, {
+      filter: { id },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    });
+    return data[0];
+  };
+
+  // FakeRest has no database RLS, so these readers deliberately reconstruct
+  // the account/accepted-grant boundaries before any summary enrichment. This
+  // keeps the demo honest about the same standalone shadchan, household, and
+  // child-grant contexts that Postgres enforces.
+  const getVisibleShidduchim = async (params: any) => {
+    const caller = await resolveCallerMembership();
+    if (!caller?.membership) return { data: [] as any[], total: 0 };
+    const membership = caller.membership;
+    const { data: rows } = await baseDataProvider.getList("shidduchim", {
+      ...params,
+      pagination: { page: 1, perPage: 10_000 },
+    });
+    const [{ data: singles }, grantedSingleIds] = await Promise.all([
+      baseDataProvider.getList("singles", {
+        filter: {},
+        pagination: { page: 1, perPage: 10_000 },
+        sort: { field: "id", order: "ASC" },
+      }),
+      getAcceptedGrantSingleIds(membership.account_id),
+    ]);
+    const ownSingleIds = new Set(
+      singles
+        .filter(
+          (single: any) =>
+            String(single.account_id) === String(membership.account_id) &&
+            String(single.member_id) === String(membership.id),
+        )
+        .map((single: any) => String(single.id)),
+    );
+    const singleById = new Map(
+      singles.map((single: any) => [String(single.id), single]),
+    );
+    const visible = rows.filter((row: any) => {
+      if (
+        membership.role === "single" &&
+        (row.visibility !== "shared" ||
+          !SINGLE_VISIBLE_STATES[row.pipeline_state as PipelineState])
+      ) {
+        return false;
+      }
+      const single = singleById.get(String(row.single_id));
+      if (
+        single &&
+        hasKnownHalachicConflict(single, {
+          gender: row.person_gender,
+          kohen_status: row.kohen_status,
+          marital_status: row.marital_status,
+        })
+      ) {
+        return false;
+      }
+      if (String(row.account_id) === String(membership.account_id)) {
+        return (
+          membership.role !== "single" ||
+          ownSingleIds.has(String(row.single_id))
+        );
+      }
+      return (
+        membership.role !== "single" &&
+        grantedSingleIds.has(String(row.single_id))
+      );
+    });
+    return pageRows(visible, params);
+  };
+
+  const getVisibleSingles = async (params: any) => {
+    const caller = await resolveCallerMembership();
+    if (!caller?.membership) return { data: [] as any[], total: 0 };
+    const membership = caller.membership;
+    const { data: rows } = await baseDataProvider.getList("singles", {
+      ...params,
+      pagination: { page: 1, perPage: 10_000 },
+    });
+    const grantedSingleIds = await getAcceptedGrantSingleIds(
+      membership.account_id,
+    );
+    const visible = rows.filter((row: any) => {
+      if (String(row.account_id) === String(membership.account_id)) {
+        return membership.role !== "single"
+          ? true
+          : String(row.member_id) === String(membership.id);
+      }
+      return (
+        membership.role !== "single" && grantedSingleIds.has(String(row.id))
+      );
+    });
+    return pageRows(visible, params);
+  };
+
+  const getVisibleAccountRows = async (resource: string, params: any) => {
+    const caller = await resolveCallerMembership();
+    if (!caller?.membership) return { data: [] as any[], total: 0 };
+    if (
+      caller.membership.role === "single" &&
+      (resource === "references" ||
+        resource === "references_summary" ||
+        resource === "reference_links" ||
+        resource === "reference_links_summary")
+    ) {
+      return { data: [] as any[], total: 0 };
+    }
+    const accountId = caller.membership.account_id;
+    const { data: rows } = await baseDataProvider.getList(resource, {
+      ...params,
+      pagination: { page: 1, perPage: 10_000 },
+    });
+    const visible = rows.filter(
+      (row: any) => String(row.account_id) === String(accountId),
+    );
+    return pageRows(visible, params);
+  };
+
+  const filterVisibleSingleOwnedRows = async <
+    T extends {
+      account_id: Identifier;
+      single_id: Identifier;
+      visible_to_manager: boolean;
+    },
+  >(
+    rows: T[],
+  ): Promise<T[]> => {
+    const caller = await resolveCallerMembership();
+    const membership = caller?.membership;
+    if (!membership) return [];
+
+    const { data: singles } = await baseDataProvider.getList("singles", {
+      filter: {},
+      pagination: { page: 1, perPage: 10_000 },
+      sort: { field: "id", order: "ASC" },
+    });
+    const ownSingleIds = new Set(
+      singles
+        .filter(
+          (single: any) =>
+            String(single.account_id) === String(membership.account_id) &&
+            String(single.member_id) === String(membership.id),
+        )
+        .map((single: any) => String(single.id)),
+    );
+
+    return rows.filter((row) => {
+      if (String(row.account_id) !== String(membership.account_id)) {
+        return false;
+      }
+      if (ownSingleIds.has(String(row.single_id))) return true;
+      return (
+        row.visible_to_manager === true &&
+        (membership.role === "parent_admin" ||
+          membership.role === "self_manager")
+      );
+    });
   };
 
   // Story 12.3 (AD-10 FakeRest mirror): emulates `public.context_members` —
@@ -599,14 +836,16 @@ export const createDataProvider = ({
   ]);
   const enrichSinglesSummary = async (rows: any[]) => {
     if (rows.length === 0) return rows;
-    const { data: shidduchim } = await baseDataProvider.getList("shidduchim", {
+    const { data: shidduchim } = await getVisibleShidduchim({
       filter: {},
       pagination: { page: 1, perPage: 10_000 },
       sort: { field: "id", order: "ASC" },
     });
     return rows.map((single: any) => {
       const forSingle = shidduchim.filter(
-        (s: any) => s.single_id === single.id,
+        (s: any) =>
+          s.single_id === single.id &&
+          String(s.account_id) === String(single.account_id),
       );
       return {
         ...single,
@@ -631,14 +870,16 @@ export const createDataProvider = ({
   // enrichSinglesSummary above uses, never a second "open" definition).
   const computeShadchanStats = async (shadchanim: any[]) => {
     if (shadchanim.length === 0) return shadchanim;
-    const { data: shidduchim } = await baseDataProvider.getList("shidduchim", {
+    const { data: shidduchim } = await getVisibleShidduchim({
       filter: {},
       pagination: { page: 1, perPage: 10_000 },
       sort: { field: "id", order: "ASC" },
     });
     return shadchanim.map((sh: any) => {
       const forShadchan = shidduchim.filter(
-        (s: any) => s.shadchan_id === sh.id,
+        (s: any) =>
+          s.shadchan_id === sh.id &&
+          String(s.account_id) === String(sh.account_id),
       );
       const openSingleIds = new Set(
         forShadchan
@@ -706,6 +947,7 @@ export const createDataProvider = ({
   const createShidduchImpl = async (
     input: CreateShidduchInput,
   ): Promise<Shidduch> => {
+    const caller = await requireCallerMembership();
     const initialState: PipelineState = input.initial_state ?? "new";
     if (!INITIAL_PIPELINE_STATES.includes(initialState)) {
       throw new Error(
@@ -715,10 +957,45 @@ export const createDataProvider = ({
     const { data: single } = await baseDataProvider.getOne("singles", {
       id: input.single_id,
     });
+    if (
+      !single ||
+      String(single.account_id) !== String(caller.membership.account_id)
+    ) {
+      throw new Error("single not found in the active account");
+    }
+    if (
+      caller.membership.role === "single" &&
+      String(single.member_id) !== String(caller.membership.id)
+    ) {
+      throw new Error("a single may only manage their own profile");
+    }
+    if (input.shadchan_id != null) {
+      const { data: shadchan } = await baseDataProvider.getOne("shadchanim", {
+        id: input.shadchan_id,
+      });
+      if (
+        !shadchan ||
+        String(shadchan.account_id) !== String(caller.membership.account_id)
+      ) {
+        throw new Error("shadchan not found in the active account");
+      }
+    }
+    assertNoKnownHalachicConflict(
+      {
+        gender: single.gender,
+        kohen_status: single.kohen_status,
+        marital_status: single.marital_status,
+      },
+      {
+        gender: input.person_gender,
+        kohen_status: input.kohen_status,
+        marital_status: input.marital_status,
+      },
+    );
     const now = new Date().toISOString();
     const { data } = await baseDataProvider.create("shidduchim", {
       data: {
-        account_id: single?.account_id ?? 1,
+        account_id: caller.membership.account_id,
         single_id: input.single_id,
         shadchan_id: input.shadchan_id ?? null,
         name_en: input.name_en ?? null,
@@ -730,6 +1007,8 @@ export const createDataProvider = ({
         dob: input.dob ?? null,
         background: input.background ?? null,
         marital_status: input.marital_status ?? null,
+        person_gender: input.person_gender ?? null,
+        kohen_status: input.kohen_status ?? "unknown",
         existing_children_note: input.existing_children_note ?? null,
         seminary_en: input.seminary_en ?? null,
         seminary_he: input.seminary_he ?? null,
@@ -754,7 +1033,7 @@ export const createDataProvider = ({
     // Record the first redt event so the redt history starts at creation.
     await baseDataProvider.create("redts", {
       data: {
-        account_id: single?.account_id ?? 1,
+        account_id: caller.membership.account_id,
         shidduchim_id: (data as Shidduch).id,
         shadchan_id: input.shadchan_id ?? null,
         redt_date: input.redt_date ?? now.split("T")[0],
@@ -766,7 +1045,7 @@ export const createDataProvider = ({
     if (input.seminary_en || input.seminary_he) {
       await baseDataProvider.create("shidduch_education", {
         data: {
-          account_id: single?.account_id ?? 1,
+          account_id: caller.membership.account_id,
           shidduchim_id: (data as Shidduch).id,
           kind: single?.gender === "male" ? "seminary" : "yeshiva",
           name_en: input.seminary_en ?? null,
@@ -780,21 +1059,158 @@ export const createDataProvider = ({
     return data as Shidduch;
   };
 
+  const assertCanEditShidduch = async (
+    current: any,
+    next: any,
+  ): Promise<void> => {
+    const caller = await requireCallerMembership();
+    const sameAccount =
+      String(current.account_id) === String(caller.membership.account_id);
+    let allowed = false;
+
+    if (sameAccount) {
+      if (caller.membership.role === "single") {
+        const { data: single } = await baseDataProvider.getOne("singles", {
+          id: current.single_id,
+        });
+        allowed =
+          String(single?.member_id) === String(caller.membership.id) &&
+          String(single?.account_id) === String(caller.membership.account_id);
+      } else {
+        allowed = true;
+      }
+    } else if (caller.membership.role !== "single") {
+      const { data: grants } = await baseDataProvider.getList<ChildGrant>(
+        "child_grants",
+        {
+          filter: {
+            target_single_id: current.single_id,
+            grantee_account_id: caller.membership.account_id,
+            status: "accepted",
+            access_level: "edit",
+          },
+          pagination: { page: 1, perPage: 100 },
+          sort: { field: "id", order: "ASC" },
+        },
+      );
+      allowed = grants.some(
+        (grant) =>
+          String(grant.proposer_account_id) === String(current.account_id),
+      );
+    }
+
+    if (!allowed) {
+      throw new Error("You do not have permission to edit this suggestion");
+    }
+    if (
+      (next.account_id !== undefined &&
+        String(next.account_id) !== String(current.account_id)) ||
+      (next.single_id !== undefined &&
+        String(next.single_id) !== String(current.single_id))
+    ) {
+      throw new Error(
+        "A suggestion cannot be moved between accounts or singles",
+      );
+    }
+
+    const { data: single } = await baseDataProvider.getOne("singles", {
+      id: current.single_id,
+    });
+    if (!single) throw new Error("single not found for this suggestion");
+    for (const field of ["shadchan_id", "first_suggested_by"] as const) {
+      const shadchanId = next[field];
+      if (shadchanId == null) continue;
+      const { data: shadchan } = await baseDataProvider.getOne("shadchanim", {
+        id: shadchanId,
+      });
+      if (
+        !shadchan ||
+        String(shadchan.account_id) !== String(current.account_id)
+      ) {
+        throw new Error(`${field} must belong to the current account`);
+      }
+    }
+    assertNoKnownHalachicConflict(
+      {
+        gender: single.gender,
+        kohen_status: single.kohen_status,
+        marital_status: single.marital_status,
+      },
+      {
+        gender: next.person_gender,
+        kohen_status: next.kohen_status,
+        marital_status: next.marital_status,
+      },
+    );
+  };
+
+  const assertCanEditSingle = async (
+    current: any,
+    next: any,
+  ): Promise<void> => {
+    const caller = await requireCallerMembership();
+    const sameAccount =
+      String(current.account_id) === String(caller.membership.account_id);
+    if (!sameAccount) throw new Error("single not found in the active account");
+    if (
+      caller.membership.role === "single" &&
+      String(current.member_id) !== String(caller.membership.id)
+    ) {
+      throw new Error("a single may only manage their own profile");
+    }
+    if (
+      next.account_id !== undefined &&
+      String(next.account_id) !== String(current.account_id)
+    ) {
+      throw new Error("a single cannot be moved between accounts");
+    }
+
+    const changedEligibilityFact = [
+      "gender",
+      "kohen_status",
+      "marital_status",
+    ].some(
+      (field) => next[field] !== undefined && next[field] !== current[field],
+    );
+    if (!changedEligibilityFact) return;
+
+    const { data: linked } = await baseDataProvider.getList("shidduchim", {
+      filter: { single_id: current.id },
+      pagination: { page: 1, perPage: 10_000 },
+      sort: { field: "id", order: "ASC" },
+    });
+    const target = { ...current, ...next };
+    for (const shidduch of linked) {
+      assertNoKnownHalachicConflict(target, shidduch);
+    }
+  };
+
   const dataProviderWithCustomMethod: CrmDataProvider = {
     ...baseDataProvider,
     async getList(resource: string, params: any) {
+      if (resource === "single_notes" || resource === "single_preferences") {
+        const page = params.pagination?.page ?? 1;
+        const perPage = params.pagination?.perPage ?? 25;
+        const { data } = await baseDataProvider.getList(resource, {
+          ...params,
+          pagination: { page: 1, perPage: 10_000 },
+        });
+        const visible = await filterVisibleSingleOwnedRows(data);
+        const start = (page - 1) * perPage;
+        return {
+          data: visible.slice(start, start + perPage),
+          total: visible.length,
+        };
+      }
       if (resource === "shidduchim" || resource === "shidduchim_summary") {
-        const { data, total } = await baseDataProvider.getList(
-          "shidduchim",
-          params,
-        );
+        const { data, total } = await getVisibleShidduchim(params);
         return { data: await enrichShidduchim(data), total };
       }
       // Emulate the references_summary / reference_links_summary views
       // (AD-10 FakeRest mirror) the same way shidduchim_summary is emulated
       // above: fetch the raw rows, then join in the computed fields.
       if (resource === "references" || resource === "references_summary") {
-        const { data, total } = await baseDataProvider.getList(
+        const { data, total } = await getVisibleAccountRows(
           "references",
           params,
         );
@@ -804,7 +1220,7 @@ export const createDataProvider = ({
         resource === "reference_links" ||
         resource === "reference_links_summary"
       ) {
-        const { data, total } = await baseDataProvider.getList(
+        const { data, total } = await getVisibleAccountRows(
           "reference_links",
           params,
         );
@@ -817,16 +1233,16 @@ export const createDataProvider = ({
       // singles_summary view, which the adapter has already collapsed to
       // "singles" here (see enrichSinglesSummary).
       if (resource === "singles") {
-        const { data, total } = await baseDataProvider.getList(
-          "singles",
-          params,
-        );
+        const { data, total } = await getVisibleSingles(params);
         return { data: await enrichSinglesSummary(data), total };
+      }
+      if (resource === "shadchanim") {
+        return getVisibleAccountRows("shadchanim", params);
       }
       // Per-shadchan productivity counts (E5). "shadchan_stats" does not end in
       // "_summary", so the adapter leaves it intact and it arrives here as-is.
       if (resource === "shadchan_stats") {
-        const { data, total } = await baseDataProvider.getList(
+        const { data, total } = await getVisibleAccountRows(
           "shadchanim",
           params,
         );
@@ -835,11 +1251,32 @@ export const createDataProvider = ({
       // Emulate the interactions_summary view (Story 3.6 AD-10 FakeRest
       // mirror) the same way references_summary is emulated above.
       if (resource === "interactions" || resource === "interactions_summary") {
-        const { data, total } = await baseDataProvider.getList(
-          "interactions",
-          params,
+        const { data: rows } = await baseDataProvider.getList("interactions", {
+          ...params,
+          filter: params.filter ?? {},
+          pagination: { page: 1, perPage: 10_000 },
+        });
+        const caller = await resolveCallerMembership();
+        if (!caller?.membership) return { data: [], total: 0 };
+        const accountRows = rows.filter(
+          (row: any) =>
+            String(row.account_id) === String(caller.membership?.account_id),
         );
-        return { data: await enrichInteractions(data), total };
+        const visible =
+          caller.membership.role === "single"
+            ? accountRows.filter(
+                (row: any) =>
+                  row.kind === "single_input" &&
+                  String(row.actor_member_id) === String(caller.membership?.id),
+              )
+            : accountRows;
+        const page = params.pagination?.page ?? 1;
+        const perPage = params.pagination?.perPage ?? 25;
+        const start = (page - 1) * perPage;
+        return {
+          data: await enrichInteractions(visible.slice(start, start + perPage)),
+          total: visible.length,
+        };
       }
       // Emulate entity_files_summary (Story 3.7 AD-10 FakeRest mirror) the
       // same way interactions_summary is emulated above.
@@ -873,6 +1310,53 @@ export const createDataProvider = ({
       return baseDataProvider.getList(resource, params);
     },
     async getMany(resource: string, params: any) {
+      if (resource === "single_notes" || resource === "single_preferences") {
+        const { data } = await baseDataProvider.getMany(resource, params);
+        return { data: await filterVisibleSingleOwnedRows(data) } as any;
+      }
+      if (resource === "shidduchim" || resource === "shidduchim_summary") {
+        const { data: rows } = await getVisibleShidduchim({
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        });
+        const wantedIds = new Set(
+          (params.ids ?? []).map((id: Identifier) => String(id)),
+        );
+        return {
+          data: rows.filter((row: any) => wantedIds.has(String(row.id))),
+        };
+      }
+      if (resource === "singles") {
+        const { data: rows } = await getVisibleSingles({
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        });
+        const wantedIds = new Set(
+          (params.ids ?? []).map((id: Identifier) => String(id)),
+        );
+        return {
+          data: rows.filter((row: any) => wantedIds.has(String(row.id))),
+        };
+      }
+      if (
+        resource === "shadchanim" ||
+        resource === "references" ||
+        resource === "reference_links"
+      ) {
+        const { data: rows } = await getVisibleAccountRows(resource, {
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        });
+        const wantedIds = new Set(
+          (params.ids ?? []).map((id: Identifier) => String(id)),
+        );
+        return {
+          data: rows.filter((row: any) => wantedIds.has(String(row.id))),
+        };
+      }
       // Story 12.3 (Task 6): `useGetList`'s own cache warm-up can issue a
       // `getMany` for a resource it already holds a `getList` result for —
       // "context_members" has no `db` table for the default `getMany` to
@@ -889,30 +1373,57 @@ export const createDataProvider = ({
       return baseDataProvider.getMany(resource, params);
     },
     async getOne(resource: string, params: any) {
+      if (resource === "single_notes" || resource === "single_preferences") {
+        const { data } = await baseDataProvider.getOne(resource, params);
+        const [visible] = await filterVisibleSingleOwnedRows([data]);
+        if (!visible) throw new Error(`${resource} record not found`);
+        return { data: visible } as any;
+      }
       if (resource === "shidduchim" || resource === "shidduchim_summary") {
-        const { data } = await baseDataProvider.getOne("shidduchim", params);
-        const [enriched] = await enrichShidduchim([data]);
+        const { data: rows } = await getVisibleShidduchim({
+          filter: { id: params.id },
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "id", order: "ASC" },
+        });
+        const row = rows[0];
+        if (!row) throw new Error("shidduch record not found");
+        const [enriched] = await enrichShidduchim([row]);
         return { data: enriched };
       }
       if (resource === "references" || resource === "references_summary") {
-        const { data } = await baseDataProvider.getOne("references", params);
-        const [enriched] = await enrichReferences(baseDataProvider, [data]);
+        const { data: rows } = await getVisibleAccountRows("references", {
+          filter: { id: params.id },
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "id", order: "ASC" },
+        });
+        const row = rows[0];
+        if (!row) throw new Error("references record not found");
+        const [enriched] = await enrichReferences(baseDataProvider, [row]);
         return { data: enriched };
       }
       if (
         resource === "reference_links" ||
         resource === "reference_links_summary"
       ) {
-        const { data } = await baseDataProvider.getOne(
-          "reference_links",
-          params,
-        );
-        const [enriched] = await enrichReferenceLinks(baseDataProvider, [data]);
+        const { data: rows } = await getVisibleAccountRows("reference_links", {
+          filter: { id: params.id },
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "id", order: "ASC" },
+        });
+        const row = rows[0];
+        if (!row) throw new Error("reference link record not found");
+        const [enriched] = await enrichReferenceLinks(baseDataProvider, [row]);
         return { data: enriched };
       }
       if (resource === "shadchan_stats") {
-        const { data } = await baseDataProvider.getOne("shadchanim", params);
-        const [stats] = await computeShadchanStats([data]);
+        const { data: rows } = await getVisibleAccountRows("shadchanim", {
+          filter: { id: params.id },
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "id", order: "ASC" },
+        });
+        const row = rows[0];
+        if (!row) throw new Error("shadchan record not found");
+        const [stats] = await computeShadchanStats([row]);
         return { data: stats };
       }
       if (resource === "interactions" || resource === "interactions_summary") {
@@ -938,6 +1449,9 @@ export const createDataProvider = ({
       throw new Error(`FakeRest RPC not implemented: ${fnName}`);
     },
     async create(resource: string, params: any) {
+      if (resource === "shidduchim") {
+        return { data: await createShidduchImpl(params.data ?? {}) } as any;
+      }
       if (resource === "interactions") {
         assertValidInteraction(params.data ?? {});
         // Server-set, unconditionally overwritten — mirrors
@@ -1055,6 +1569,45 @@ export const createDataProvider = ({
       return baseDataProvider.create(resource, params);
     },
     async update(resource: string, params: any) {
+      if (resource === "accounts") {
+        const caller = await requireCallerMembership();
+        const { data: current } = await baseDataProvider.getOne("accounts", {
+          id: params.id,
+        });
+        if (
+          !current ||
+          caller.membership.role === "single" ||
+          String(current.id) !== String(caller.membership.account_id)
+        ) {
+          throw new Error("You do not have permission to update this account");
+        }
+        return baseDataProvider.update(resource, {
+          ...params,
+          previousData: current,
+        });
+      }
+      if (resource === "shidduchim") {
+        const { data: current } = await baseDataProvider.getOne("shidduchim", {
+          id: params.id,
+        });
+        const next = { ...current, ...(params.data ?? {}) };
+        await assertCanEditShidduch(current, next);
+        return baseDataProvider.update(resource, {
+          ...params,
+          previousData: current,
+        });
+      }
+      if (resource === "singles") {
+        const { data: current } = await baseDataProvider.getOne("singles", {
+          id: params.id,
+        });
+        const next = { ...current, ...(params.data ?? {}) };
+        await assertCanEditSingle(current, next);
+        return baseDataProvider.update(resource, {
+          ...params,
+          previousData: current,
+        });
+      }
       if (resource === "interactions") {
         const previous = params.previousData ?? {};
         // Story 6.4 (AC 3): a `single_input` row is append-only for every
@@ -1093,7 +1646,23 @@ export const createDataProvider = ({
       }
       return baseDataProvider.update(resource, params);
     },
+    async updateMany(resource: string, params: any) {
+      if (resource === "shidduchim" || resource === "singles") {
+        throw new Error("bulk updates are not supported for this resource");
+      }
+      return baseDataProvider.updateMany(resource, params);
+    },
     async delete(resource: string, params: any) {
+      if (resource === "shidduchim" || resource === "singles") {
+        const { data: current } = await baseDataProvider.getOne(resource, {
+          id: params.id,
+        });
+        if (resource === "shidduchim") {
+          await assertCanEditShidduch(current, current);
+        } else {
+          await assertCanEditSingle(current, current);
+        }
+      }
       if (resource === "interactions") {
         // DELETE is revoked on interactions in Postgres: the diligence timeline
         // is append-only. Removing a whole conversation means deleting its
@@ -1248,6 +1817,7 @@ export const createDataProvider = ({
       if (!current) {
         throw new Error(`shidduch ${id} not found`);
       }
+      await assertCanEditShidduch(current, current);
       if (current.pipeline_state !== from) {
         throw new Error(
           `stale transition: shidduch ${id} is in state ${current.pipeline_state}, not ${from}`,
@@ -1287,6 +1857,18 @@ export const createDataProvider = ({
       if (!shidduch) {
         throw new Error(`shidduch ${input.shidduchim_id} not found`);
       }
+      await assertCanEditShidduch(shidduch, shidduch);
+      if (input.shadchan_id != null) {
+        const { data: shadchan } = await baseDataProvider.getOne("shadchanim", {
+          id: input.shadchan_id,
+        });
+        if (
+          !shadchan ||
+          String(shadchan.account_id) !== String(shidduch.account_id)
+        ) {
+          throw new Error("shadchan not found in the active context");
+        }
+      }
       const now = new Date().toISOString();
       await baseDataProvider.create("redts", {
         data: {
@@ -1317,6 +1899,7 @@ export const createDataProvider = ({
       if (!shidduch) {
         throw new Error(`shidduch ${input.shidduchim_id} not found`);
       }
+      await assertCanEditShidduch(shidduch, shidduch);
       const { data } = await baseDataProvider.create("shidduch_education", {
         data: {
           account_id: shidduch.account_id,
@@ -1333,38 +1916,128 @@ export const createDataProvider = ({
     },
     // Dedupe "catch" (E3) -- FakeRest mirror of catch_shidduch(). Read-only,
     // nothing merges. FREE, never entitlement-gated (same as the Supabase side).
-    catchShidduch: (id: Identifier): Promise<ShidduchCatch> =>
-      catchShidduch(baseDataProvider, id),
+    catchShidduch: async (id: Identifier): Promise<ShidduchCatch> => {
+      const shidduch = await findBaseRow<Shidduch>("shidduchim", id);
+      if (!shidduch) throw new Error(`shidduch ${id} not found`);
+      await assertCanViewShidduch(shidduch);
+      return catchShidduch(baseDataProvider, id);
+    },
     // ---------------------------------------------------------------------
     // References (FR20, FR39-43) -- FakeRest mirrors of the RPCs/edge function
     // in providers/supabase/dataProvider.ts. Match-on-entry is FREE and never
     // gated by subscription state, same as the Supabase side.
     // ---------------------------------------------------------------------
-    matchReferenceOnEntry: (
+    matchReferenceOnEntry: async (
       input: MatchReferenceInput,
-    ): Promise<ReferenceMatchCandidate[]> =>
-      matchReferenceOnEntry(baseDataProvider, input),
-    linkReferenceToShidduch: (
+    ): Promise<ReferenceMatchCandidate[]> => {
+      const caller = await requireCallerMembership();
+      return matchReferenceOnEntry(
+        baseDataProvider,
+        input,
+        caller.membership.account_id,
+      );
+    },
+    linkReferenceToShidduch: async (
       input: LinkReferenceInput,
-    ): Promise<ReferenceLink> =>
-      linkReferenceToShidduch(baseDataProvider, input),
-    createReferenceForShidduch: (
+    ): Promise<ReferenceLink> => {
+      const shidduch = await findBaseRow<Shidduch>(
+        "shidduchim",
+        input.shidduchim_id,
+      );
+      if (!shidduch) {
+        throw new Error(`shidduch ${input.shidduchim_id} not found`);
+      }
+      await assertCanEditShidduch(shidduch, shidduch);
+      const reference = await findBaseRow<Reference>(
+        "references",
+        input.reference_id,
+      );
+      if (
+        !reference ||
+        String(reference.account_id) !== String(shidduch.account_id)
+      ) {
+        throw new Error("reference not found in the active context");
+      }
+      return linkReferenceToShidduch(baseDataProvider, input);
+    },
+    createReferenceForShidduch: async (
       input: CreateReferenceForShidduchInput,
-    ): Promise<Reference> =>
-      createReferenceForShidduch(baseDataProvider, input),
-    logReferenceCall: (input: LogReferenceCallInput): Promise<ReferenceLink> =>
-      logReferenceCall(baseDataProvider, input),
-    previewReferenceMerge: (
+    ): Promise<Reference> => {
+      const shidduch = await findBaseRow<Shidduch>(
+        "shidduchim",
+        input.shidduchim_id,
+      );
+      if (!shidduch) {
+        throw new Error(`shidduch ${input.shidduchim_id} not found`);
+      }
+      await assertCanEditShidduch(shidduch, shidduch);
+      return createReferenceForShidduch(baseDataProvider, input);
+    },
+    logReferenceCall: async (
+      input: LogReferenceCallInput,
+    ): Promise<ReferenceLink> => {
+      const link = await findBaseRow<ReferenceLink>(
+        "reference_links",
+        input.reference_link_id,
+      );
+      if (!link) {
+        throw new Error(`reference link ${input.reference_link_id} not found`);
+      }
+      if (link.shidduchim_id == null) {
+        throw new Error("reference link not found in the active context");
+      }
+      const shidduch = await findBaseRow<Shidduch>(
+        "shidduchim",
+        link.shidduchim_id,
+      );
+      if (
+        !shidduch ||
+        String(link.account_id) !== String(shidduch.account_id)
+      ) {
+        throw new Error("reference link not found in the active context");
+      }
+      await assertCanEditShidduch(shidduch, shidduch);
+      return logReferenceCall(baseDataProvider, input);
+    },
+    previewReferenceMerge: async (
       loserId: Identifier,
       winnerId: Identifier,
-    ): Promise<ReferenceMergePreview> =>
-      previewReferenceMerge(baseDataProvider, loserId, winnerId),
-    mergeReferences: (
+    ): Promise<ReferenceMergePreview> => {
+      const caller = await requireCallerMembership();
+      const [loser, winner] = await Promise.all([
+        findBaseRow<Reference>("references", loserId),
+        findBaseRow<Reference>("references", winnerId),
+      ]);
+      if (
+        !loser ||
+        !winner ||
+        String(loser.account_id) !== String(caller.membership.account_id) ||
+        String(winner.account_id) !== String(caller.membership.account_id)
+      ) {
+        throw new Error("reference not found in the active context");
+      }
+      return previewReferenceMerge(baseDataProvider, loserId, winnerId);
+    },
+    mergeReferences: async (
       loserId: Identifier,
       winnerId: Identifier,
       resolutions: Record<string, MergeResolution> = {},
-    ): Promise<Identifier> =>
-      mergeReferences(baseDataProvider, loserId, winnerId, resolutions),
+    ): Promise<Identifier> => {
+      const caller = await requireCallerMembership();
+      const [loser, winner] = await Promise.all([
+        findBaseRow<Reference>("references", loserId),
+        findBaseRow<Reference>("references", winnerId),
+      ]);
+      if (
+        !loser ||
+        !winner ||
+        String(loser.account_id) !== String(caller.membership.account_id) ||
+        String(winner.account_id) !== String(caller.membership.account_id)
+      ) {
+        throw new Error("reference not found in the active context");
+      }
+      return mergeReferences(baseDataProvider, loserId, winnerId, resolutions);
+    },
     // ---------------------------------------------------------------------
     // Demo / onboarding (Stage B) -- FakeRest stubs so demos/tests don't
     // break. `fakeDemo` is module-level so the flag stays self-consistent
@@ -1807,7 +2480,7 @@ export const createDataProvider = ({
   return dataProvider;
 };
 
-export const dataProvider = createDataProvider();
+export const dataProvider = createDataProvider({ db: generateShowcaseData() });
 
 /**
  * Convert a `File` object returned by the upload input into a base 64 string.

@@ -100,15 +100,10 @@ export const PRIMARY_NAV: NavItem[] = [
 export type ContextKind = MyContext["kind"];
 
 /**
- * The shadchanus-context nav set (Story 8.1, AC-1): Dashboard, Connections,
- * Settings — in that order, and nothing else. Deliberately excludes every
- * household-domain destination (Inbox, Shidduchim, Shadchanim — AD-2: a
- * shadchanus account never holds those rows) AND Tasks/Reminders (no
- * taskable target exists in a shadchanus account yet — see the story's Dev
- * Notes "Why no Tasks or Reminders"). "Conversations" is deliberately not
- * here either — UX-DR8/UX-DR10: a connection's threads are reached from the
- * Connection 360 (Story 8.5), never from primary nav, the same way
- * `references` never got a `PRIMARY_NAV` slot (RULING 7).
+ * The shadchanus-context nav set. Shadchanus accounts own their own singles,
+ * suggestions, and shadchan book, so those account-scoped surfaces stay
+ * available alongside connections. Household-only inbox/tasks/reminders
+ * remain excluded.
  */
 export const SHADCHANUS_NAV: NavItem[] = [
   {
@@ -124,6 +119,27 @@ export const SHADCHANUS_NAV: NavItem[] = [
     labelDefault: "Connections",
     icon: Handshake,
     tourId: "connections",
+  },
+  {
+    to: "/shidduchim",
+    labelKey: "crm.navigation.shidduchim",
+    labelDefault: "Shidduchim",
+    icon: KanbanSquare,
+    tourId: "pipeline",
+  },
+  {
+    to: "/singles",
+    labelKey: "resources.singles.name",
+    labelDefault: "Singles",
+    icon: Users,
+    tourId: "singles",
+  },
+  {
+    to: "/shadchanim",
+    labelKey: "resources.shadchanim.name",
+    labelDefault: "Shadchanim",
+    icon: Users,
+    tourId: "shadchanim",
   },
   {
     to: "/settings",

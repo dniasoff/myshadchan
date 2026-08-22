@@ -4,9 +4,9 @@ import type { MemberRole } from "../../types";
 import { canAccess } from "./canAccess";
 
 /**
- * Story 3.4 AC 8 — the three rules, table-driven: `role === undefined`
- * fails closed for every resource; `resource === "members"` is gated on
- * `canManageMembers`; every other resource is open to any resolved role.
+ * Role decisions stay aligned with the active-context database policies:
+ * unresolved roles fail closed, members are manager-only, and a single role
+ * is limited to its self-managed surfaces.
  */
 
 const ROLES: MemberRole[] = [
@@ -38,7 +38,7 @@ describe("canAccess — the members resource", () => {
   });
 });
 
-describe("canAccess — every other resource", () => {
+describe("canAccess — self-managed single surfaces", () => {
   it.each(ROLES)("allows %s on shidduchim", (role) => {
     expect(canAccess(role, { resource: "shidduchim", action: "list" })).toBe(
       true,
@@ -49,5 +49,27 @@ describe("canAccess — every other resource", () => {
     expect(
       canAccess(undefined, { resource: "shidduchim", action: "list" }),
     ).toBe(false);
+  });
+
+  it.each(["singles", "shidduchim", "single_preferences", "single_notes"])(
+    "allows a single to use %s",
+    (resource) => {
+      expect(canAccess("single", { resource, action: "list" })).toBe(true);
+    },
+  );
+
+  it("keeps candid and household-only surfaces out of the single role", () => {
+    expect(
+      canAccess("single", { resource: "references", action: "list" }),
+    ).toBe(false);
+    expect(
+      canAccess("single", { resource: "inbox_items", action: "list" }),
+    ).toBe(false);
+  });
+
+  it("allows a single to browse the shadchan book", () => {
+    expect(
+      canAccess("single", { resource: "shadchanim", action: "list" }),
+    ).toBe(true);
   });
 });

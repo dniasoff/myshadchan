@@ -5,7 +5,7 @@ import { useActiveContextKind, type ContextKind } from "./navItems";
 
 export interface RequireContextKindProps {
   /** The context kind this route requires to render. */
-  kind: ContextKind;
+  kind: ContextKind | readonly ContextKind[];
   /** Where to send the user when the active context's kind does not match. */
   redirectTo: string;
   children: ReactNode;
@@ -40,8 +40,9 @@ export const RequireContextKind = ({
   children,
 }: RequireContextKindProps) => {
   const activeKind = useActiveContextKind();
+  const allowedKinds = Array.isArray(kind) ? kind : [kind];
 
-  if (activeKind !== undefined && activeKind !== kind) {
+  if (activeKind !== undefined && !allowedKinds.includes(activeKind)) {
     return <Navigate to={redirectTo} replace />;
   }
 

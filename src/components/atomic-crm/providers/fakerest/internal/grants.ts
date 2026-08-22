@@ -38,6 +38,13 @@ export async function createChildGrant(
     Date.now() + 7 * 24 * 60 * 60 * 1000,
   ).toISOString(); // 7 days
 
+  const { data: single } = await baseDataProvider.getOne("singles", {
+    id: singleId,
+  });
+  if (!single || String(single.account_id) !== String(activeAccountId)) {
+    throw new Error("That single is not in the active account");
+  }
+
   const { data: _grant } = await baseDataProvider.create<ChildGrant>(
     "child_grants",
     {
@@ -141,7 +148,7 @@ export async function previewChildGrant(
 
 export async function acceptChildGrant(
   baseDataProvider: DataProvider,
-  _getIdentity: () => Promise<unknown>,
+  getIdentity: () => Promise<unknown>,
   getActiveAccountId: () => number,
   token: string,
 ): Promise<ChildGrant> {
@@ -169,8 +176,35 @@ export async function acceptChildGrant(
     throw new Error("Grant has expired");
   }
 
-  // Verify the grantee is a member of the accepting account
-  // In FakeRest, we'll just accept if the account matches
+  const identity = (await getIdentity()) as { id?: unknown } | null;
+  const { data: memberships } = await baseDataProvider.getList(
+    "account_members",
+    {
+      filter: {
+        account_id: activeAccountId,
+        user_id: identity?.id == null ? "__missing__" : String(identity.id),
+        status: "active",
+      },
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "id", order: "ASC" },
+    },
+  );
+  const membership = memberships[0] as { role?: string } | undefined;
+  if (
+    !membership ||
+    !["parent_admin", "self_manager", "helper", "shadchan"].includes(
+      membership.role ?? "",
+    )
+  ) {
+    throw new Error("This account cannot accept child access");
+  }
+  const { data: account } = await baseDataProvider.getOne("accounts", {
+    id: activeAccountId,
+  });
+  if (account?.kind !== "household" && account?.kind !== "shadchanus") {
+    throw new Error("This account cannot accept child access");
+  }
+
   if (
     grant.grantee_account_id !== null &&
     grant.grantee_account_id !== activeAccountId

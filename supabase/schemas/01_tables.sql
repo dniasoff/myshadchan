@@ -177,6 +177,10 @@ create table public.task_notifications (
     -- (workers/cron/sweepReminders.ts computes the backoff). NULL means
     -- "eligible immediately" — every row's normal state on first enqueue.
     next_attempt_at timestamp with time zone,
+    -- Official onboarding demo delivery is a real queue row, but the
+    -- provider boundary must never be crossed. Workers settle these rows as
+    -- successful simulated events and retain the flag for honest history.
+    simulated boolean not null default false,
     -- AC-3: push is structurally excluded — the same closed-enumeration
     -- style as tasks_delivery_channels_check, so a future "just add push
     -- here" cannot be a one-word edit that silently queues undeliverable
@@ -350,6 +354,11 @@ create table public.accounts (
     -- no backfill path until the migration runs; the migration backfills and
     -- then the unique index enforces at-most-one going forward.
     founding_member_id bigint,
+    -- Photo privacy preference: when true, PhotoRevealCard keeps each photo
+    -- behind an explicit click. Default off preserves ordinary photo previews.
+    -- Appended at the physical TAIL after founding_member_id; see the
+    -- COLUMN-ORDER TRAP note above.
+    photo_reveal_on_click boolean not null default false,
     constraint accounts_kind_check check (kind in ('household', 'shadchanus')),
     constraint accounts_default_thread_visibility_check check (
         default_thread_visibility in ('open', 'private')
@@ -473,6 +482,10 @@ create table public.singles (
     community text,
     status text not null default 'active',
     member_id bigint,
+    -- Optional, explicit facts used only to block clear conflicts. Unknown
+    -- values remain valid and do not claim halachic certification.
+    kohen_status text not null default 'unknown',
+    marital_status text not null default 'unknown',
     constraint singles_status_check check (
         status in ('active', 'paused', 'archived')
     )
@@ -596,6 +609,10 @@ create table public.shidduchim (
     marital_status text,
     mother_en text,
     mother_he text,
+    -- Explicit candidate facts used only for clear-conflict enforcement.
+    -- NULL/unknown/non-standard values remain permitted.
+    kohen_status text not null default 'unknown',
+    person_gender text,
     constraint shidduchim_origin_check check (origin in ('channel', 'manual', 'shadchan')),
     constraint shidduchim_visibility_check check (
         visibility in ('shared', 'private_parent', 'private_single')
@@ -1497,7 +1514,8 @@ create table public.message_notifications (
     -- AD-1's XOR, the same shape as threads_scope_check/messages_scope_check
     -- above: a notification inherits its message's scope on whichever axis
     -- produced it (AC-8).
-    constraint message_notifications_scope_check check ((account_id is not null) <> (connection_id is not null))
+    constraint message_notifications_scope_check check ((account_id is not null) <> (connection_id is not null)),
+    simulated boolean not null default false
 );
 
 -- Story 7.5 (AC-5, AC-12): a device registered for Web Push (RFC 8291/8292).
@@ -1628,7 +1646,10 @@ create table public.share_access_log (
     -- Story 14.6: denormalised onto the log row so a recipient-specific access
     -- query does not have to join back through share_links.
     recipient_name text,
-    recipient_shadchan_id bigint references public.shadchanim(id) on delete set null
+    recipient_shadchan_id bigint references public.shadchanim(id) on delete set null,
+    -- A demo share is an honest synthetic access event, never a claim that a
+    -- real recipient received or downloaded anything.
+    simulated boolean not null default false
 );
 
 -- Epic 11 (inbound email capture): an address a household has explicitly
@@ -1829,6 +1850,8 @@ alter table public.single_notes
 
 alter table public.shadchanim
     add constraint shadchanim_account_id_fkey foreign key (account_id) references public.accounts(id) on delete cascade;
+alter table public.shadchanim
+    add constraint shadchanim_account_id_id_key unique (account_id, id);
 -- Story 8.2 (AC-1): the book entry's optional back-reference to the
 -- connections row that created it, set only by accept_connection_invite().
 -- No ON DELETE action: a connections row is never deleted — end_connection()
@@ -1855,9 +1878,11 @@ alter table public.shidduchim
     add constraint shidduchim_single_id_fkey
     foreign key (account_id, single_id) references public.singles(account_id, id) on delete cascade;
 alter table public.shidduchim
-    add constraint shidduchim_shadchan_id_fkey foreign key (shadchan_id) references public.shadchanim(id) on delete set null;
+    add constraint shidduchim_shadchan_id_fkey
+    foreign key (account_id, shadchan_id) references public.shadchanim(account_id, id) on delete set null (shadchan_id);
 alter table public.shidduchim
-    add constraint shidduchim_first_suggested_by_fkey foreign key (first_suggested_by) references public.shadchanim(id) on delete set null;
+    add constraint shidduchim_first_suggested_by_fkey
+    foreign key (account_id, first_suggested_by) references public.shadchanim(account_id, id) on delete set null (first_suggested_by);
 alter table public.shidduchim
     add constraint shidduchim_owner_member_id_fkey foreign key (owner_member_id) references public.account_members(id) on delete set null;
 
@@ -1912,7 +1937,8 @@ alter table public.redts
     add constraint redts_shidduchim_id_fkey
     foreign key (account_id, shidduchim_id) references public.shidduchim(account_id, id) on delete cascade;
 alter table public.redts
-    add constraint redts_shadchan_id_fkey foreign key (shadchan_id) references public.shadchanim(id) on delete set null;
+    add constraint redts_shadchan_id_fkey
+    foreign key (account_id, shadchan_id) references public.shadchanim(account_id, id) on delete set null (shadchan_id);
 
 alter table public.shidduch_education
     add constraint shidduch_education_account_id_fkey foreign key (account_id) references public.accounts(id) on delete cascade;
@@ -2331,7 +2357,110 @@ create index purge_requests_expires_at_idx on public.purge_requests using btree 
 create index purge_requests_status_idx on public.purge_requests using btree (status);
 create index purge_requests_verification_token_idx on public.purge_requests using btree (verification_token);
 
+-- =====================================================================
+-- Official onboarding demo bundle manifest
+-- =====================================================================
+-- These tables are deliberately server-owned. They register every account,
+-- synthetic actor, storage object and immutable share snapshot created by one
+-- onboarding run so clear/reseed can be complete even after a partial seed.
+-- No browser query is allowed to read these tables; the only customer-facing
+-- projection is demo_delivery_history().
+create table public.demo_runs (
+    id bigint generated by default as identity primary key,
+    created_at timestamp with time zone not null default now(),
+    updated_at timestamp with time zone not null default now(),
+    root_account_id bigint not null,
+    status text not null default 'active',
+    seed_version text not null default 'official-onboarding-v1',
+    cleanup_started_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    constraint demo_runs_status_check check (status in ('seeding', 'active', 'clearing', 'cleared', 'failed'))
+);
+
+create table public.demo_run_accounts (
+    id bigint generated by default as identity primary key,
+    run_id bigint not null,
+    account_id bigint not null,
+    context_key text not null,
+    context_kind text not null,
+    is_root boolean not null default false,
+    created_at timestamp with time zone not null default now(),
+    constraint demo_run_accounts_kind_check check (context_kind in ('household', 'shadchanus')),
+    constraint demo_run_accounts_root_check check ((is_root and context_key = 'primary-household') or not is_root),
+    constraint demo_run_accounts_run_account_key unique (run_id, account_id),
+    constraint demo_run_accounts_run_context_key unique (run_id, context_key)
+);
+
+create table public.demo_run_users (
+    id bigint generated by default as identity primary key,
+    run_id bigint not null,
+    user_id uuid not null,
+    actor_key text not null,
+    email_domain text not null default 'invalid',
+    created_at timestamp with time zone not null default now(),
+    constraint demo_run_users_actor_key unique (run_id, actor_key),
+    constraint demo_run_users_user_key unique (run_id, user_id),
+    constraint demo_run_users_invalid_domain check (email_domain = 'invalid')
+);
+
+create table public.demo_run_storage (
+    id bigint generated by default as identity primary key,
+    run_id bigint not null,
+    bucket text not null,
+    storage_path text not null,
+    resource_key text not null,
+    created_at timestamp with time zone not null default now(),
+    constraint demo_run_storage_path_key unique (bucket, storage_path)
+);
+
+create table public.demo_share_snapshots (
+    id bigint generated by default as identity primary key,
+    run_id bigint not null,
+    share_link_id bigint not null,
+    token_hash text not null,
+    snapshot jsonb not null,
+    created_at timestamp with time zone not null default now(),
+    expires_at timestamp with time zone not null,
+    revoked_at timestamp with time zone,
+    constraint demo_share_snapshots_link_key unique (share_link_id),
+    constraint demo_share_snapshots_token_key unique (token_hash),
+    constraint demo_share_snapshots_immutable_check check (jsonb_typeof(snapshot) = 'object')
+);
+
+create index demo_runs_root_account_idx on public.demo_runs (root_account_id);
+create unique index demo_runs_active_root_idx on public.demo_runs (root_account_id)
+    where status in ('seeding', 'active', 'clearing');
+create index demo_run_accounts_account_idx on public.demo_run_accounts (account_id);
+create index demo_run_users_user_idx on public.demo_run_users (user_id);
+create index demo_run_storage_run_idx on public.demo_run_storage (run_id);
+create index demo_share_snapshots_run_idx on public.demo_share_snapshots (run_id);
+
 create index share_links_recipient_name_idx on public.share_links using btree (recipient_name);
 create index share_links_recipient_shadchan_id_idx on public.share_links using btree (recipient_shadchan_id);
 create index share_access_log_recipient_name_idx on public.share_access_log using btree (recipient_name);
 create index share_access_log_recipient_shadchan_id_idx on public.share_access_log using btree (recipient_shadchan_id);
+
+alter table public.demo_runs
+    add constraint demo_runs_root_account_id_fkey
+    foreign key (root_account_id) references public.accounts(id) on delete cascade;
+alter table public.demo_run_accounts
+    add constraint demo_run_accounts_run_id_fkey
+    foreign key (run_id) references public.demo_runs(id) on delete cascade;
+alter table public.demo_run_accounts
+    add constraint demo_run_accounts_account_id_fkey
+    foreign key (account_id) references public.accounts(id) on delete cascade;
+alter table public.demo_run_users
+    add constraint demo_run_users_run_id_fkey
+    foreign key (run_id) references public.demo_runs(id) on delete cascade;
+alter table public.demo_run_users
+    add constraint demo_run_users_user_id_fkey
+    foreign key (user_id) references auth.users(id) on delete cascade;
+alter table public.demo_run_storage
+    add constraint demo_run_storage_run_id_fkey
+    foreign key (run_id) references public.demo_runs(id) on delete cascade;
+alter table public.demo_share_snapshots
+    add constraint demo_share_snapshots_run_id_fkey
+    foreign key (run_id) references public.demo_runs(id) on delete cascade;
+alter table public.demo_share_snapshots
+    add constraint demo_share_snapshots_share_link_id_fkey
+    foreign key (share_link_id) references public.share_links(id) on delete cascade;

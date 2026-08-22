@@ -48,6 +48,26 @@ describe("ShidduchReferencesSection — first conversation vs one of several (St
           // present (even empty) or FakeRest throws "Undefined collection".
           shidduchim: [],
           singles: [],
+          accounts: [
+            {
+              id: 1,
+              name: "Test household",
+              kind: "household",
+              transparency_level: "private",
+              default_thread_visibility: "open",
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+          account_members: [
+            {
+              id: 1,
+              account_id: 1,
+              user_id: "0",
+              role: "parent_admin",
+              status: "active",
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ],
         }}
       >
         <ShidduchReferencesSection shidduchimId={100} />
@@ -77,6 +97,26 @@ describe("ShidduchReferencesSection — first conversation vs one of several (St
           ],
           shidduchim: [],
           singles: [],
+          accounts: [
+            {
+              id: 1,
+              name: "Test household",
+              kind: "household",
+              transparency_level: "private",
+              default_thread_visibility: "open",
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+          account_members: [
+            {
+              id: 1,
+              account_id: 1,
+              user_id: "0",
+              role: "parent_admin",
+              status: "active",
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ],
         }}
       >
         <ShidduchReferencesSection shidduchimId={100} />

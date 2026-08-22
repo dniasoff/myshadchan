@@ -3,7 +3,7 @@ import { callAiWorker } from "../providers/commons/aiWorkerClient";
 import type { InboxAttachment, InboxItem } from "../types";
 
 /**
- * The fourteen bilingual fields a resume may fill in the shidduch create form.
+ * The seventeen fields a resume may fill in the shidduch create form.
  * Defined here (mirroring the Worker's `ParsedResumeFields`) so the SPA does not
  * import runtime code from `workers/`.
  *
@@ -39,6 +39,9 @@ export type ParsedResumeFields = {
   location_he: string | null;
   age: number | null;
   height: string | null;
+  person_gender: string | null;
+  kohen_status: string | null;
+  marital_status: string | null;
 };
 
 export type ParsedResumeResponse = {

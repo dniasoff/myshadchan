@@ -53,12 +53,8 @@ describe("PRIMARY_NAV", () => {
   });
 });
 
-/** The 7 household-only paths Story 8.1's route guard covers (AC-3) — a
- * shadchanus-context nav must never surface any of them. */
+/** Household-only paths — a shadchanus-context nav must never surface them. */
 const GUARDED_HOUSEHOLD_PATHS = [
-  "/shidduchim",
-  "/singles",
-  "/shadchanim",
   "/references",
   "/inbox_items",
   "/tasks",
@@ -66,10 +62,13 @@ const GUARDED_HOUSEHOLD_PATHS = [
 ];
 
 describe("SHADCHANUS_NAV (Story 8.1, AC-1)", () => {
-  it("contains exactly Dashboard, Connections and Settings, in that order", () => {
+  it("contains the shadchanus work surfaces in order", () => {
     expect(SHADCHANUS_NAV.map((item) => item.to)).toEqual([
       "/",
       "/connections",
+      "/shidduchim",
+      "/singles",
+      "/shadchanim",
       "/settings",
     ]);
   });
@@ -81,7 +80,7 @@ describe("SHADCHANUS_NAV (Story 8.1, AC-1)", () => {
     }
   });
 
-  it("never contains any of the 7 guarded household-only paths", () => {
+  it("never contains a household-only path", () => {
     for (const guardedPath of GUARDED_HOUSEHOLD_PATHS) {
       expect(SHADCHANUS_NAV.map((item) => item.to)).not.toContain(guardedPath);
     }

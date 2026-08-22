@@ -39,7 +39,15 @@ from public.identity_signals a
             or (a.shul_norm is not null and b.shul_norm = a.shul_norm)
             or (a.location_norm is not null and b.location_norm = a.location_norm)
         )
+    join public.shidduchim ash on ash.id = a.target_id
+    join public.shidduchim bsh on bsh.id = b.target_id
 where a.target_type = 'shidduch'
+    and not coalesce(public.shidduch_has_known_halachic_conflict(
+        ash.single_id, ash.person_gender, ash.kohen_status, ash.marital_status
+    ), false)
+    and not coalesce(public.shidduch_has_known_halachic_conflict(
+        bsh.single_id, bsh.person_gender, bsh.kohen_status, bsh.marital_status
+    ), false)
 group by a.target_id, a.account_id;
 
 -- Board list/detail read path for the shidduchim pipeline (AD-10). Joins the
@@ -115,13 +123,24 @@ select
     c.last_name_he as single_last_name_he,
     count(distinct rl.id) as nb_references,
     count(distinct r.id) as nb_redts,
-    coalesce(max(cat.catch_count), 0) as catch_count
+    coalesce(max(cat.catch_count), 0) as catch_count,
+    s.person_gender,
+    s.kohen_status
 from public.shidduchim s
     left join public.shadchanim sh on sh.id = s.shadchan_id
     left join public.singles c on c.id = s.single_id
     left join public.reference_links rl on rl.shidduchim_id = s.id
     left join public.redts r on r.shidduchim_id = s.id
     left join public.shidduchim_catch_summary cat on cat.shidduchim_id = s.id
+where not coalesce(
+    public.shidduch_has_known_halachic_conflict(
+        s.single_id,
+        s.person_gender,
+        s.kohen_status,
+        s.marital_status
+    ),
+    false
+)
 group by s.id, sh.name, sh.name_he, c.first_name_en, c.first_name_he, c.last_name_en, c.last_name_he;
 
 -- The reference book's list read path (AD-10, mirrors shidduchim_summary).
@@ -219,10 +238,19 @@ select
           and g.status = 'accepted'
           and g.proposer_account_id <> public.current_context_id()
     ) as is_shared_with_me,
-    count(s.id) as total_shidduchim,
+    count(s.id) filter (
+        where not coalesce(public.shidduch_has_known_halachic_conflict(
+            s.single_id, s.person_gender, s.kohen_status, s.marital_status
+        ), false)
+    ) as total_shidduchim,
     count(s.id) filter (
         where s.pipeline_state in ('new', 'look_into', 'not_sure')
-    ) as open_shidduchim
+          and not coalesce(public.shidduch_has_known_halachic_conflict(
+              s.single_id, s.person_gender, s.kohen_status, s.marital_status
+          ), false)
+    ) as open_shidduchim,
+    c.kohen_status,
+    c.marital_status
 from public.singles c
     left join public.shidduchim s on s.single_id = c.id
 group by c.id;

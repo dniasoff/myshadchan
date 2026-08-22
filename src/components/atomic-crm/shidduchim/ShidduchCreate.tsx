@@ -63,6 +63,8 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
         dob: (values.dob as string) ?? null,
         background: (values.background as string) ?? null,
         marital_status: (values.marital_status as string) ?? null,
+        person_gender: (values.person_gender as string) ?? null,
+        kohen_status: (values.kohen_status as string) ?? "unknown",
         existing_children_note:
           (values.existing_children_note as string) ?? null,
         origin: "manual",

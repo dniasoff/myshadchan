@@ -160,6 +160,8 @@ const createShidduchViaRpc = async (
     p_initial_state: input.initial_state ?? "new",
     p_visibility: input.visibility ?? "shared",
     p_redt_date: input.redt_date ?? null,
+    p_person_gender: input.person_gender ?? null,
+    p_kohen_status: input.kohen_status ?? "unknown",
   });
   if (error) {
     console.error("createShidduch.error", error);
@@ -578,6 +580,12 @@ export const getDataProviderWithCustomMethods = () => {
         return baseDataProvider.getMany("shidduchim_summary", params);
       }
       return baseDataProvider.getMany(resource, params);
+    },
+    async create(resource: string, params: any) {
+      if (resource === "shidduchim") {
+        return { data: await createShidduchViaRpc(params.data ?? {}) } as any;
+      }
+      return baseDataProvider.create(resource, params);
     },
 
     async memberUpdate(id: Identifier, data: Partial<MemberFormData>) {

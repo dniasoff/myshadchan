@@ -321,7 +321,29 @@ export const ShidduchInputs = ({
           <TextInput
             source="marital_status"
             label="Marital status"
-            helperText={false}
+            helperText="Optional — record only when explicitly known"
+          />
+          <SelectInput
+            source="person_gender"
+            label="Gender"
+            choices={[
+              { id: "unknown", name: "Unknown" },
+              { id: "female", name: "Female" },
+              { id: "male", name: "Male" },
+            ]}
+            defaultValue="unknown"
+            helperText="Optional — record only when explicitly known"
+          />
+          <SelectInput
+            source="kohen_status"
+            label="Kohen status"
+            choices={[
+              { id: "unknown", name: "Unknown" },
+              { id: "yes", name: "Yes" },
+              { id: "no", name: "No" },
+            ]}
+            defaultValue="unknown"
+            helperText="Optional — record only when explicitly known"
           />
         </div>
         <div className="grid grid-cols-1 gap-4">

@@ -87,6 +87,9 @@ export const GEMINI_RESUME_RESPONSE_SCHEMA: GeminiSchema = {
     location_he: fieldSchema("STRING"),
     age: fieldSchema("NUMBER"),
     height: fieldSchema("STRING"),
+    person_gender: fieldSchema("STRING"),
+    kohen_status: fieldSchema("STRING"),
+    marital_status: fieldSchema("STRING"),
     sections: {
       type: "OBJECT",
       properties: {

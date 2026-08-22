@@ -34,6 +34,7 @@ import { TasksListPage } from "../tasks/TasksListPage";
 
 /** Which admin surface(s) an entry is registered on. Always explicit — never omitted. */
 export type Surface = "desktop" | "mobile" | "both";
+export type ContextKindRequirement = ContextKind | readonly ContextKind[];
 
 export interface CustomRouteEntry {
   path: string;
@@ -50,7 +51,7 @@ export interface CustomRouteEntry {
    * from `surface` (desktop/mobile/both) — that field is already taken by
    * the 1.5 manifest for a different axis.
    */
-  contextKind?: ContextKind;
+  contextKind?: ContextKindRequirement;
 }
 
 export interface ResourceEntry {
@@ -60,7 +61,7 @@ export interface ResourceEntry {
   /** Story 8.1 (AC-3): see `CustomRouteEntry.contextKind` — same field,
    * same wrapping mechanism, applied to `<Resource>`'s `list` slot by
    * `root/CRM.tsx`'s `renderResources` instead of a `<Route>` element. */
-  contextKind?: ContextKind;
+  contextKind?: ContextKindRequirement;
 }
 
 export const CUSTOM_ROUTES: CustomRouteEntry[] = [
@@ -180,13 +181,13 @@ export const RESOURCES: ResourceEntry[] = [
     name: "shidduchim",
     surface: "both",
     definition: shidduchim,
-    contextKind: "household",
+    contextKind: ["household", "shadchanus"],
   },
   {
     name: "singles",
     surface: "both",
     definition: singles,
-    contextKind: "household",
+    contextKind: ["household", "shadchanus"],
   },
   {
     name: "inbox_items",
@@ -198,13 +199,13 @@ export const RESOURCES: ResourceEntry[] = [
     name: "shadchanim",
     surface: "both",
     definition: shadchanim,
-    contextKind: "household",
+    contextKind: ["household", "shadchanus"],
   },
   {
     name: "references",
     surface: "both",
     definition: references,
-    contextKind: "household",
+    contextKind: ["household", "shadchanus"],
   },
   {
     name: "tasks",

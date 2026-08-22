@@ -21,7 +21,9 @@ type CanAccessParams<
  *    at all (or the resolving RPC/query errored); either way, nothing is
  *    granted.
  * 2. `resource === "members"` -> `canManageMembers(role)`.
- * 3. every other resource -> `true`.
+ * 3. a `single` role gets only the self-managed resources exposed by its
+ *    account policies; all other roles retain the broad resource decision and
+ *    rely on database row-level authorization.
  *
  * `role` is resolved by both authProviders from the active context
  * (`pickActiveRole`, `providers/commons/roleAuthority.ts`) — never from
@@ -40,6 +42,24 @@ export const canAccess = <
 
   if (params.resource === "members") {
     return canManageMembers(role);
+  }
+
+  if (role === "single") {
+    const selfManagedResources = new Set([
+      "singles",
+      "shidduchim",
+      "single_preferences",
+      "single_notes",
+    ]);
+    if (selfManagedResources.has(params.resource)) {
+      return ["list", "show", "create", "edit", "update", "delete"].includes(
+        params.action,
+      );
+    }
+    return (
+      params.resource === "shadchanim" &&
+      ["list", "show"].includes(params.action)
+    );
   }
 
   return true;

@@ -198,7 +198,7 @@ export const InboxResolveDialog = ({
         // value a resume extraction could have supplied. A resume draft
         // never touches either field (`ParsedResumeFields` has no
         // `single_id` / `shadchan_id`), so this assertion is sound;
-        // Finding 13 concerns only the fourteen resume-fillable fields
+        // Finding 13 concerns only the resume-fillable fields
         // below, all read through `readTextField` / `readNumberField`.
         single_id: values.single_id as Identifier,
         shadchan_id: (values.shadchan_id as Identifier) ?? null,
@@ -219,6 +219,8 @@ export const InboxResolveDialog = ({
         dob: readTextField(values.dob),
         background: readTextField(values.background),
         marital_status: readTextField(values.marital_status),
+        person_gender: readTextField(values.person_gender),
+        kohen_status: readTextField(values.kohen_status) ?? "unknown",
         existing_children_note: readTextField(values.existing_children_note),
         // Story 8.3 (AC-4): a shadchan-sourced item enters via
         // create_shidduch() with origin: 'shadchan', never 'channel' or

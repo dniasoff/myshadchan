@@ -105,7 +105,7 @@ function toElement(elementOrComponent: ResourceSlotValue): ReactElement {
  */
 function guardDescendantRoutes(
   node: ReactNode,
-  kind: ContextKind,
+  kind: ContextKind | readonly ContextKind[],
   redirectTo: string,
 ): ReactNode {
   return Children.map(node, (child) => {

@@ -113,6 +113,23 @@ describe("ContextSwitcher", () => {
       .toBeInTheDocument();
   });
 
+  it("labels bundle contexts as a preview", async () => {
+    const previewContext: MyContext = {
+      ...household,
+      is_demo: true,
+    };
+
+    const { screen } = await renderSwitcher([previewContext, shadchanus]);
+
+    await expect
+      .element(
+        screen.getByRole("button", {
+          name: "Switch context: The Klein Family · Household · Preview",
+        }),
+      )
+      .toBeInTheDocument();
+  });
+
   it("lists every context, including the one not currently active", async () => {
     // Arrange
     const { screen } = await renderSwitcher([household, shadchanus]);

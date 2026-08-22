@@ -22,7 +22,7 @@ describe("ParseResultPayloadSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects a payload missing one of the fourteen required fields (Finding 12 — a corrupted or partial cached row must not pass)", () => {
+  it("rejects a payload missing one of the seventeen required fields (Finding 12 — a corrupted or partial cached row must not pass)", () => {
     // Arrange — the pre-fix shape: a partial `fields` object.
     const partial = {
       fields: { name_en: "Rivky" },

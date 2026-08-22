@@ -53,18 +53,20 @@ begin
   end if;
 
   select kind into v_grantee_kind from public.accounts where id = v_grantee_account_id;
-  if v_grantee_kind <> 'household' then
-    raise exception 'a child grant can only be accepted by a household context'
+  if v_grantee_kind not in ('household', 'shadchanus') then
+    raise exception 'a child grant can only be accepted by a household or shadchanus context'
       using errcode = 'check_violation';
   end if;
 
-  -- Grantee must be a parent_admin or self_manager to accept (E13-D1 DEFAULT IF SILENT)
+  -- The recipient may be a household owner, helper, or standalone shadchan.
+  -- The grant remains scoped to the one target child in every read/write
+  -- policy after acceptance.
   select role into v_member_role
   from public.account_members
   where account_id = v_grantee_account_id and user_id = auth.uid() and status = 'active';
   
-  if v_member_role not in ('parent_admin', 'self_manager') then
-    raise exception 'only a parent_admin or self_manager may accept a child grant'
+  if v_member_role not in ('parent_admin', 'self_manager', 'helper', 'shadchan') then
+    raise exception 'only an authorized household member or shadchan may accept a child grant'
       using errcode = 'insufficient_privilege';
   end if;
 
@@ -763,7 +765,7 @@ end;
 $$;
 
 CREATE OR REPLACE FUNCTION "public"."can_moderate_note"("p_actor_member_id" bigint) RETURNS boolean
-    LANGUAGE "sql" STABLE SECURITY DEFINER
+    LANGUAGE "sql" STABLE
     SET "search_path" TO ''
     AS $$
   select exists (
@@ -858,6 +860,12 @@ begin
       join public.shidduchim ps on ps.id = m.target_id
       left join public.singles c on c.id = ps.single_id
       left join public.shadchanim sh on sh.id = ps.shadchan_id
+    where not coalesce(public.shidduch_has_known_halachic_conflict(
+      ps.single_id,
+      ps.person_gender,
+      ps.kohen_status,
+      ps.marital_status
+    ), false)
   ) cand;
 
   -- Prior dating (honest, corroborated, never fabricated). date_records is not in
@@ -1097,7 +1105,7 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."claim_due_task_notifications"("p_limit" integer) RETURNS TABLE("id" bigint, "task_id" bigint, "account_id" bigint, "recipient_email" "text", "task_text" "text", "due_date" timestamp with time zone, "target_type" "text", "target_id" bigint, "attempts" integer, "claimed_at" timestamp with time zone)
+CREATE OR REPLACE FUNCTION "public"."claim_due_task_notifications"("p_limit" integer) RETURNS TABLE("id" bigint, "task_id" bigint, "account_id" bigint, "recipient_email" "text", "task_text" "text", "due_date" timestamp with time zone, "target_type" "text", "target_id" bigint, "attempts" integer, "claimed_at" timestamp with time zone, "simulated" boolean)
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -1133,13 +1141,14 @@ begin
     t.target_type,
     t.target_id,
     claimed.attempts,
-    claimed.claimed_at
+    claimed.claimed_at,
+    claimed.simulated
   from claimed
   join public.tasks t on t.id = claimed.task_id;
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."claim_message_notifications"("p_limit" integer) RETURNS TABLE("id" bigint, "channel" "text", "recipient_member_id" bigint, "recipient_email" "text", "thread_id" bigint, "message_body" "text", "subject_type" "text", "subject_id" bigint, "push_subscriptions" "jsonb")
+CREATE OR REPLACE FUNCTION "public"."claim_message_notifications"("p_limit" integer) RETURNS TABLE("id" bigint, "channel" "text", "recipient_member_id" bigint, "recipient_email" "text", "thread_id" bigint, "message_body" "text", "subject_type" "text", "subject_id" bigint, "push_subscriptions" "jsonb", "simulated" boolean)
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -1175,7 +1184,8 @@ begin
       select jsonb_agg(jsonb_build_object('endpoint', ps.endpoint, 'p256dh', ps.p256dh, 'auth', ps.auth))
       from public.push_subscriptions ps
       where ps.member_id = claimed.recipient_member_id
-    ) else null end
+    ) else null end,
+    claimed.simulated
   from claimed
   join public.messages m on m.id = claimed.message_id
   join public.threads t on t.id = m.thread_id;
@@ -1511,7 +1521,7 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."create_shidduch"("p_single_id" bigint, "p_shadchan_id" bigint DEFAULT NULL::bigint, "p_name_en" "text" DEFAULT NULL::"text", "p_name_he" "text" DEFAULT NULL::"text", "p_father_en" "text" DEFAULT NULL::"text", "p_father_he" "text" DEFAULT NULL::"text", "p_mother_en" "text" DEFAULT NULL::"text", "p_mother_he" "text" DEFAULT NULL::"text", "p_dob" "date" DEFAULT NULL::"date", "p_background" "text" DEFAULT NULL::"text", "p_marital_status" "text" DEFAULT NULL::"text", "p_existing_children_note" "text" DEFAULT NULL::"text", "p_seminary_en" "text" DEFAULT NULL::"text", "p_seminary_he" "text" DEFAULT NULL::"text", "p_shul_en" "text" DEFAULT NULL::"text", "p_shul_he" "text" DEFAULT NULL::"text", "p_location_en" "text" DEFAULT NULL::"text", "p_location_he" "text" DEFAULT NULL::"text", "p_age" integer DEFAULT NULL::integer, "p_height" "text" DEFAULT NULL::"text", "p_origin" "text" DEFAULT 'manual'::"text", "p_initial_state" "public"."pipeline_state" DEFAULT 'new'::"public"."pipeline_state", "p_visibility" "text" DEFAULT 'shared'::"text", "p_redt_date" "date" DEFAULT NULL::"date") RETURNS SETOF "public"."shidduchim"
+CREATE OR REPLACE FUNCTION "public"."create_shidduch"("p_single_id" bigint, "p_shadchan_id" bigint DEFAULT NULL::bigint, "p_name_en" "text" DEFAULT NULL::"text", "p_name_he" "text" DEFAULT NULL::"text", "p_father_en" "text" DEFAULT NULL::"text", "p_father_he" "text" DEFAULT NULL::"text", "p_mother_en" "text" DEFAULT NULL::"text", "p_mother_he" "text" DEFAULT NULL::"text", "p_dob" "date" DEFAULT NULL::"date", "p_background" "text" DEFAULT NULL::"text", "p_marital_status" "text" DEFAULT NULL::"text", "p_existing_children_note" "text" DEFAULT NULL::"text", "p_seminary_en" "text" DEFAULT NULL::"text", "p_seminary_he" "text" DEFAULT NULL::"text", "p_shul_en" "text" DEFAULT NULL::"text", "p_shul_he" "text" DEFAULT NULL::"text", "p_location_en" "text" DEFAULT NULL::"text", "p_location_he" "text" DEFAULT NULL::"text", "p_age" integer DEFAULT NULL::integer, "p_height" "text" DEFAULT NULL::"text", "p_origin" "text" DEFAULT 'manual'::"text", "p_initial_state" "public"."pipeline_state" DEFAULT 'new'::"public"."pipeline_state", "p_visibility" "text" DEFAULT 'shared'::"text", "p_redt_date" "date" DEFAULT NULL::"date", "p_person_gender" "text" DEFAULT NULL::"text", "p_kohen_status" "text" DEFAULT 'unknown'::"text") RETURNS SETOF "public"."shidduchim"
     LANGUAGE "plpgsql"
     SET "search_path" TO ''
     AS $$
@@ -1565,7 +1575,8 @@ begin
     shul_en, shul_he, location_en, location_he,
     age, height,
     pipeline_state, first_suggested_by, first_suggested_at, redt_date,
-    origin, owner_member_id, visibility
+    origin, owner_member_id, visibility,
+    person_gender, kohen_status
   ) values (
     v_account_id, p_single_id, p_shadchan_id,
     p_name_en, p_name_he,
@@ -1575,7 +1586,8 @@ begin
     p_shul_en, p_shul_he, p_location_en, p_location_he,
     p_age, p_height,
     p_initial_state, p_shadchan_id, v_redt_date, v_redt_date,
-    p_origin, v_owner_member_id, p_visibility
+    p_origin, v_owner_member_id, p_visibility,
+    p_person_gender, p_kohen_status
   )
   returning id into v_id;
 
@@ -1748,16 +1760,6 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."current_account_demo"() RETURNS boolean
-    LANGUAGE "sql" STABLE SECURITY DEFINER
-    SET "search_path" TO ''
-    AS $$
-  select coalesce(
-    (select a.demo from public.accounts a where a.id = public.current_context_id()),
-    false
-  );
-$$;
-
 CREATE OR REPLACE FUNCTION "public"."current_context_id"() RETURNS bigint
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
@@ -1778,6 +1780,167 @@ begin
 
   return v_account_id;
 end;
+$$;
+
+-- These containment helpers are intentionally declared immediately after
+-- current_context_id(): later functions in this pg_dump-ordered file (the
+-- notification enqueue/trigger functions and my_contexts()) call them, and
+-- PostgreSQL resolves SQL-language function bodies when they are created.
+CREATE OR REPLACE FUNCTION "public"."demo_run_for_account"("p_account_id" bigint DEFAULT NULL::bigint) RETURNS bigint
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select dra.run_id
+  from public.demo_run_accounts dra
+  join public.demo_runs dr on dr.id = dra.run_id
+  where dra.account_id = coalesce(p_account_id, public.current_context_id())
+    and dr.status in ('seeding', 'active', 'clearing')
+  order by dr.id desc
+  limit 1;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."demo_root_account_for"("p_account_id" bigint) RETURNS bigint
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select dr.root_account_id
+  from public.demo_run_accounts dra
+  join public.demo_runs dr on dr.id = dra.run_id
+  where dra.account_id = p_account_id
+    -- A failed run is still a live cleanup handle. Keep mapping a caller's
+    -- companion context to its root until clear_demo removes the manifest.
+    and dr.status in ('seeding', 'active', 'clearing', 'failed')
+  order by dr.id desc
+  limit 1;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."demo_bundle_contains_account"("p_run_id" bigint, "p_account_id" bigint) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select exists (
+    select 1
+    from public.demo_run_accounts dra
+    join public.demo_runs dr on dr.id = dra.run_id
+    where dra.run_id = p_run_id
+      and dra.account_id = p_account_id
+      and dr.status in ('seeding', 'active', 'clearing')
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."demo_account_is_previewable"("p_account_id" bigint) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select public.demo_bundle_contains_account(
+    public.demo_run_for_account(), p_account_id
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."demo_account_in_active_run"("p_account_id" bigint) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select exists (
+    select 1
+    from public.demo_run_accounts dra
+    join public.demo_runs dr on dr.id = dra.run_id
+    where dra.account_id = p_account_id
+      and dr.status in ('seeding', 'active', 'clearing')
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."demo_scope_is_simulated"("p_account_id" bigint DEFAULT NULL::bigint, "p_connection_id" bigint DEFAULT NULL::bigint) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  -- If both axes are supplied they must belong to the SAME active run. The
+  -- old OR-shaped predicate could mark a production account as simulated
+  -- merely because its connection happened to touch a different bundle.
+  select case
+    when p_account_id is null and p_connection_id is null then false
+    else exists (
+      select 1
+      from public.demo_runs dr
+      where dr.status in ('seeding', 'active', 'clearing')
+        and (
+          p_account_id is null
+          or exists (
+            select 1
+            from public.demo_run_accounts dra
+            where dra.run_id = dr.id and dra.account_id = p_account_id
+          )
+        )
+        and (
+          p_connection_id is null
+          or exists (
+            select 1
+            from public.connections c
+            join public.demo_run_accounts dra
+              on dra.run_id = dr.id
+             and dra.account_id in (c.household_account_id, c.shadchanus_account_id)
+            where c.id = p_connection_id
+          )
+        )
+    )
+  end;
+$$;
+
+-- Sanitized delivery history for the Settings/reminders surfaces. It never
+-- returns an address, message body, token, IP, or storage path, and every
+-- relation is joined to the caller's exact active run.
+CREATE OR REPLACE FUNCTION "public"."demo_delivery_history"() RETURNS TABLE("event_type" text, "status" text, "simulated" boolean, "occurred_at" timestamp with time zone, "resource" text)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  with current_run as (
+    select public.demo_run_for_account() as run_id
+  )
+  select 'message'::text, mn.status, mn.simulated,
+    coalesce(mn.sent_at, mn.created_at) as occurred_at, 'message'::text
+  from public.message_notifications mn
+  cross join current_run cr
+  left join public.connections c on c.id = mn.connection_id
+  where cr.run_id is not null
+    and exists (
+      select 1
+      from public.demo_run_accounts dra
+      where dra.run_id = cr.run_id
+        and dra.account_id in (mn.account_id, c.household_account_id, c.shadchanus_account_id)
+    )
+  union all
+  select 'reminder'::text, tn.status, tn.simulated,
+    coalesce(tn.sent_at, tn.created_at), 'task'::text
+  from public.task_notifications tn
+  cross join current_run cr
+  where cr.run_id is not null
+    and exists (
+      select 1 from public.demo_run_accounts dra
+      where dra.run_id = cr.run_id and dra.account_id = tn.account_id
+    )
+  union all
+  select 'share'::text, 'accessed'::text, sal.simulated, sal.accessed_at, sal.resource
+  from public.share_access_log sal
+  join public.share_links sl on sl.id = sal.share_link_id
+  cross join current_run cr
+  where cr.run_id is not null
+    and exists (
+      select 1 from public.demo_run_accounts dra
+      where dra.run_id = cr.run_id and dra.account_id = sl.account_id
+    )
+  order by occurred_at desc;
+$$;
+
+-- The root is the only account carrying accounts.demo=true. Companion
+-- contexts still need the existing demo banner and status surfaces.
+CREATE OR REPLACE FUNCTION "public"."current_account_demo"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select coalesce(
+    (select a.demo from public.accounts a where a.id = public.current_context_id()),
+    false
+  ) or public.demo_account_is_previewable(public.current_context_id());
 $$;
 
 CREATE OR REPLACE FUNCTION "public"."current_member_id"() RETURNS bigint
@@ -1910,9 +2073,147 @@ CREATE OR REPLACE FUNCTION "public"."enforce_household_scope"() RETURNS "trigger
 begin
   if not exists (
     select 1 from public.accounts
-    where id = new.account_id and kind = 'household'
+    where id = new.account_id
+      and (
+        kind = 'household'
+        or (
+          kind = 'shadchanus'
+          and tg_table_name in (
+            'singles',
+            'shadchanim',
+            'shidduchim',
+            'resumes',
+            'resume_photos',
+            'references',
+            'reference_links',
+            'date_records',
+            'redts',
+            'shidduch_education',
+            'shidduchim_external_links',
+            'identity_signals'
+          )
+        )
+      )
   ) then
-    raise exception 'account % is not a household-kind account', new.account_id
+    raise exception 'account % cannot own % domain rows', new.account_id, tg_table_name
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+-- Clear-conflict predicate for the straight-shidduch boundary. This is
+-- deliberately narrow: only exact, explicit values block a write. NULL,
+-- unknown, and non-standard values remain allowed and are not treated as a
+-- certification either way.
+CREATE OR REPLACE FUNCTION "public"."has_known_halachic_conflict"(
+  "p_target_gender" text,
+  "p_target_kohen_status" text,
+  "p_target_marital_status" text,
+  "p_person_gender" text,
+  "p_person_kohen_status" text,
+  "p_person_marital_status" text
+) RETURNS boolean
+    LANGUAGE "sql" IMMUTABLE
+    SET "search_path" TO ''
+    AS $$
+  with facts as (
+    select
+      lower(trim(coalesce(p_target_gender, ''))) as target_gender,
+      lower(trim(coalesce(p_target_kohen_status, ''))) as target_kohen,
+      lower(trim(coalesce(p_target_marital_status, ''))) as target_marital,
+      lower(trim(coalesce(p_person_gender, ''))) as person_gender,
+      lower(trim(coalesce(p_person_kohen_status, ''))) as person_kohen,
+      lower(trim(coalesce(p_person_marital_status, ''))) as person_marital
+  )
+  select
+    (
+      target_gender in ('male', 'female')
+      and person_gender in ('male', 'female')
+      and target_gender = person_gender
+    )
+    or (
+      target_kohen in ('yes', 'true', 'kohen')
+      and person_marital in ('divorced', 'divorcee', 'gerushah', 'gerushin')
+    )
+    or (
+      person_kohen in ('yes', 'true', 'kohen')
+      and target_marital in ('divorced', 'divorcee', 'gerushah', 'gerushin')
+    )
+  from facts;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."shidduch_has_known_halachic_conflict"(
+  "p_single_id" bigint,
+  "p_person_gender" text,
+  "p_person_kohen_status" text,
+  "p_person_marital_status" text
+) RETURNS boolean
+    LANGUAGE "sql" STABLE
+    SET "search_path" TO ''
+    AS $$
+  select coalesce(public.has_known_halachic_conflict(
+    s.gender,
+    s.kohen_status,
+    s.marital_status,
+    p_person_gender,
+    p_person_kohen_status,
+    p_person_marital_status
+  ), false)
+  from public.singles s
+  where s.id = p_single_id;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."validate_shidduch_halachic_eligibility"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  -- Serialize candidate writes with edits to the target single's recorded
+  -- facts. The lock is transaction-scoped; the following SELECT therefore
+  -- observes the committed facts after a concurrent writer releases it.
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('myshadchan.halachic.single:' || new.single_id::text, 0)
+  );
+
+  if coalesce(public.shidduch_has_known_halachic_conflict(
+    new.single_id,
+    new.person_gender,
+    new.kohen_status,
+    new.marital_status
+  ), false) then
+    raise exception 'This suggestion conflicts with a recorded detail.'
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."validate_single_halachic_eligibility"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('myshadchan.halachic.single:' || new.id::text, 0)
+  );
+
+  if exists (
+    select 1
+    from public.shidduchim s
+    where s.single_id = new.id
+      and public.has_known_halachic_conflict(
+        new.gender,
+        new.kohen_status,
+        new.marital_status,
+        s.person_gender,
+        s.kohen_status,
+        s.marital_status
+      )
+  ) then
+    raise exception 'This change conflicts with a recorded detail.'
       using errcode = 'check_violation';
   end if;
 
@@ -2020,8 +2321,9 @@ begin
       and 'email' = any (t.delivery_channels)
   ),
   inserted as (
-    insert into public.task_notifications (account_id, task_id, channel, due_date, status, recipient_email, error)
-    select candidates.account_id, candidates.task_id, 'email', candidates.due_date, candidates.status, candidates.recipient_email, candidates.error
+    insert into public.task_notifications (account_id, task_id, channel, due_date, status, recipient_email, error, simulated)
+    select candidates.account_id, candidates.task_id, 'email', candidates.due_date, candidates.status, candidates.recipient_email, candidates.error,
+      public.demo_scope_is_simulated(candidates.account_id, null)
     from candidates
     on conflict (task_id, channel, due_date) do nothing
     returning 1
@@ -2244,11 +2546,12 @@ begin
 
     if v_user_id is null then
       insert into public.message_notifications (
-        account_id, connection_id, message_id, recipient_member_id, channel, status, error
+        account_id, connection_id, message_id, recipient_member_id, channel, status, error, simulated
       )
       values (
         new.account_id, new.connection_id, new.id, v_participant.member_id, 'email', 'skipped',
-        'recipient membership has no accepted login (account_members.user_id is null)'
+        'recipient membership has no accepted login (account_members.user_id is null)',
+        public.demo_scope_is_simulated(new.account_id, new.connection_id)
       )
       on conflict (message_id, recipient_member_id, channel) do nothing;
     else
@@ -2258,22 +2561,24 @@ begin
 
       if v_email is null or v_disabled then
         insert into public.message_notifications (
-          account_id, connection_id, message_id, recipient_member_id, channel, status, error
+          account_id, connection_id, message_id, recipient_member_id, channel, status, error, simulated
         )
         values (
           new.account_id, new.connection_id, new.id, v_participant.member_id, 'email', 'failed',
           case
             when v_email is null then 'no public.members row for this login'
             else 'recipient member is disabled'
-          end
+          end,
+          public.demo_scope_is_simulated(new.account_id, new.connection_id)
         )
         on conflict (message_id, recipient_member_id, channel) do nothing;
       else
         insert into public.message_notifications (
-          account_id, connection_id, message_id, recipient_member_id, channel, status, recipient_email
+          account_id, connection_id, message_id, recipient_member_id, channel, status, recipient_email, simulated
         )
         values (
-          new.account_id, new.connection_id, new.id, v_participant.member_id, 'email', 'pending', v_email
+          new.account_id, new.connection_id, new.id, v_participant.member_id, 'email', 'pending', v_email,
+          public.demo_scope_is_simulated(new.account_id, new.connection_id)
         )
         on conflict (message_id, recipient_member_id, channel) do nothing;
       end if;
@@ -2284,10 +2589,11 @@ begin
       where ps.member_id = v_participant.member_id
     ) then
       insert into public.message_notifications (
-        account_id, connection_id, message_id, recipient_member_id, channel, status
+        account_id, connection_id, message_id, recipient_member_id, channel, status, simulated
       )
       values (
-        new.account_id, new.connection_id, new.id, v_participant.member_id, 'push', 'pending'
+        new.account_id, new.connection_id, new.id, v_participant.member_id, 'push', 'pending',
+        public.demo_scope_is_simulated(new.account_id, new.connection_id)
       )
       on conflict (message_id, recipient_member_id, channel) do nothing;
     end if;
@@ -2834,9 +3140,24 @@ begin
       (v_shul_norm is not null and s.shul_norm = v_shul_norm) as shul_hit,
       (v_location_norm is not null and s.location_norm = v_location_norm) as location_hit
     from public.identity_signals s
+    left join public.shidduchim candidate
+      on p_target_type = 'shidduch'
+     and candidate.id = s.target_id
     where s.account_id = v_account_id
       and s.target_type = p_target_type
       and (p_exclude_target_id is null or s.target_id <> p_exclude_target_id)
+      and (
+        p_target_type <> 'shidduch'
+        or (
+          candidate.id is not null
+          and not coalesce(public.shidduch_has_known_halachic_conflict(
+            candidate.single_id,
+            candidate.person_gender,
+            candidate.kohen_status,
+            candidate.marital_status
+          ), false)
+        )
+      )
   ),
   weighted as (
     select
@@ -3089,7 +3410,7 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."my_contexts"() RETURNS TABLE("account_id" bigint, "kind" "text", "name" "text", "role" "text", "is_active" boolean)
+CREATE OR REPLACE FUNCTION "public"."my_contexts"() RETURNS TABLE("account_id" bigint, "kind" "text", "name" "text", "role" "text", "is_active" boolean, "is_demo" boolean)
     LANGUAGE "sql" STABLE
     SET "search_path" TO ''
     AS $$
@@ -3098,7 +3419,8 @@ CREATE OR REPLACE FUNCTION "public"."my_contexts"() RETURNS TABLE("account_id" b
     a.kind,
     a.name,
     am.role,
-    coalesce(am.account_id = public.current_context_id(), false) as is_active
+    coalesce(am.account_id = public.current_context_id(), false) as is_active,
+    public.demo_account_is_previewable(am.account_id) as is_demo
   from public.account_members am
   join public.accounts a on a.id = am.account_id
   where am.user_id = auth.uid() and am.status = 'active';
@@ -4574,7 +4896,9 @@ CREATE OR REPLACE FUNCTION "public"."shidduch_row"("p_shidduchim_id" bigint) RET
     s.father_he,
     s.marital_status,
     s.mother_en,
-    s.mother_he
+    s.mother_he,
+    s.kohen_status,
+    s.person_gender
   from public.shidduchim s
   where s.id = p_shidduchim_id;
 $$;

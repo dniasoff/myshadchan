@@ -31,13 +31,31 @@ export const SingleInputs = () => (
         <SelectInput
           source="gender"
           choices={[
+            { id: "unknown", name: "Unknown" },
             { id: "female", name: "Female" },
             { id: "male", name: "Male" },
           ]}
+          defaultValue="unknown"
           helperText={false}
         />
         <TextInput source="community" helperText={false} />
         <DateInput source="dob" label="Date of birth" helperText={false} />
+        <SelectInput
+          source="kohen_status"
+          label="Kohen status"
+          choices={[
+            { id: "unknown", name: "Unknown" },
+            { id: "yes", name: "Yes" },
+            { id: "no", name: "No" },
+          ]}
+          defaultValue="unknown"
+          helperText="Optional — record only when explicitly known"
+        />
+        <TextInput
+          source="marital_status"
+          label="Marital status"
+          helperText="Optional — record only when explicitly known"
+        />
         <SelectInput
           source="status"
           choices={[

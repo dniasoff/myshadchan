@@ -11,6 +11,7 @@ import type {
   Single,
 } from "../../../types";
 import { normalizeIdentityText } from "./referenceIdentity";
+import { hasKnownHalachicConflict } from "./halachicEligibility";
 
 const PAGE_ALL = { page: 1, perPage: 10_000 } as const;
 
@@ -185,6 +186,16 @@ export async function catchShidduch(
       if (!facts) continue;
       const single =
         ps.single_id != null ? singleById.get(String(ps.single_id)) : undefined;
+      if (
+        single &&
+        hasKnownHalachicConflict(single, {
+          gender: ps.person_gender,
+          kohen_status: ps.kohen_status,
+          marital_status: ps.marital_status,
+        })
+      ) {
+        continue;
+      }
       const shadchan =
         ps.shadchan_id != null
           ? shadchanById.get(String(ps.shadchan_id))

@@ -14,9 +14,9 @@
 /** SELECT examples embedded in the `query` description. Must all validate. */
 export const QUERY_EXAMPLES = [
   "SELECT id, name_en, name_he FROM shidduchim_summary WHERE pipeline_state = 'look_into'",
-  "SELECT name_en, pipeline_state, redt_date FROM shidduchim WHERE created_at > NOW() - INTERVAL '30 days' ORDER BY redt_date DESC",
+  "SELECT name_en, pipeline_state, redt_date FROM shidduchim_summary WHERE created_at > NOW() - INTERVAL '30 days' ORDER BY redt_date DESC",
   "SELECT COUNT(*) as total_tasks, type FROM tasks WHERE done_date IS NULL GROUP BY type",
-  "SELECT s.name_en, sh.name as shadchan_name FROM shidduchim s JOIN shadchanim sh ON s.shadchan_id = sh.id WHERE s.pipeline_state = 'yes'",
+  "SELECT s.name_en, sh.name as shadchan_name FROM shidduchim_summary s JOIN shadchanim sh ON s.shadchan_id = sh.id WHERE s.pipeline_state = 'yes'",
   // The references serving one shidduch — reached through the shidduch.
   "SELECT reference_name_en, effective_relationship, call_status FROM reference_links_summary WHERE shidduchim_id = 42",
   // The cross-shidduch view: every match one reference has been consulted on.

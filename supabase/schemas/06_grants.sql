@@ -322,6 +322,22 @@ revoke all on function public.enforce_household_scope() from public, anon;
 grant execute on function public.enforce_household_scope() to authenticated;
 grant execute on function public.enforce_household_scope() to service_role;
 
+revoke all on function public.has_known_halachic_conflict(text, text, text, text, text, text) from public, anon;
+grant execute on function public.has_known_halachic_conflict(text, text, text, text, text, text) to authenticated;
+grant execute on function public.has_known_halachic_conflict(text, text, text, text, text, text) to service_role;
+
+revoke all on function public.shidduch_has_known_halachic_conflict(bigint, text, text, text) from public, anon;
+grant execute on function public.shidduch_has_known_halachic_conflict(bigint, text, text, text) to authenticated;
+grant execute on function public.shidduch_has_known_halachic_conflict(bigint, text, text, text) to service_role;
+
+revoke all on function public.validate_shidduch_halachic_eligibility() from public, anon;
+grant execute on function public.validate_shidduch_halachic_eligibility() to authenticated;
+grant execute on function public.validate_shidduch_halachic_eligibility() to service_role;
+
+revoke all on function public.validate_single_halachic_eligibility() from public, anon;
+grant execute on function public.validate_single_halachic_eligibility() to authenticated;
+grant execute on function public.validate_single_halachic_eligibility() to service_role;
+
 -- Story 2.2 (AC-5): enforce_membership_role_matches_context() is AC-3's
 -- mirror case on account_members itself; same posture as
 -- enforce_household_scope().
@@ -499,9 +515,9 @@ revoke all on function public.shidduch_diligence_progress(bigint) from anon;
 grant execute on function public.shidduch_diligence_progress(bigint) to authenticated;
 grant execute on function public.shidduch_diligence_progress(bigint) to service_role;
 
-revoke all on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) from public, anon;
-grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) to authenticated;
-grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date) to service_role;
+revoke all on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date, text, text) from public, anon;
+grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date, text, text) to authenticated;
+grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date, text, text) to service_role;
 
 revoke all on function public.transition_shidduch(bigint, public.pipeline_state, public.pipeline_state, text) from public, anon;
 grant execute on function public.transition_shidduch(bigint, public.pipeline_state, public.pipeline_state, text) to authenticated;
@@ -787,7 +803,9 @@ grant select (
     father_he,
     marital_status,
     mother_en,
-    mother_he
+    mother_he,
+    person_gender,
+    kohen_status
 ) on table public.shidduchim to authenticated;
 
 revoke all on table public.resumes from anon, authenticated;
@@ -907,7 +925,13 @@ grant execute on function public.rehome_reference_interactions(bigint, bigint) t
 -- anon already has ALL privileges revoked on accounts (above), so it holds no
 -- UPDATE to narrow.
 revoke update on table public.accounts from authenticated;
-grant update (name, transparency_level, data_region, default_thread_visibility)
+grant update (
+  name,
+  transparency_level,
+  data_region,
+  default_thread_visibility,
+  photo_reveal_on_click
+)
   on public.accounts to authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -1628,3 +1652,41 @@ grant all on sequence public.child_grants_id_seq to service_role;
 revoke all on function public.update_child_grant_access(bigint, text) from public, anon;
 grant execute on function public.update_child_grant_access(bigint, text) to authenticated;
 grant execute on function public.update_child_grant_access(bigint, text) to service_role;
+
+-- Official onboarding demo bundle: manifest tables are never browser-readable
+-- or writable. The sanitized history projection is the only customer-facing
+-- surface and is still filtered to the caller's active bundle in SQL.
+revoke all on table public.demo_runs from anon, authenticated;
+revoke all on table public.demo_run_accounts from anon, authenticated;
+revoke all on table public.demo_run_users from anon, authenticated;
+revoke all on table public.demo_run_storage from anon, authenticated;
+revoke all on table public.demo_share_snapshots from anon, authenticated;
+grant all on table public.demo_runs to service_role;
+grant all on table public.demo_run_accounts to service_role;
+grant all on table public.demo_run_users to service_role;
+grant all on table public.demo_run_storage to service_role;
+grant all on table public.demo_share_snapshots to service_role;
+grant all on sequence public.demo_runs_id_seq to service_role;
+grant all on sequence public.demo_run_accounts_id_seq to service_role;
+grant all on sequence public.demo_run_users_id_seq to service_role;
+grant all on sequence public.demo_run_storage_id_seq to service_role;
+grant all on sequence public.demo_share_snapshots_id_seq to service_role;
+
+-- These low-level helpers accept arbitrary IDs and are only used by
+-- SECURITY DEFINER policy/function composition or server-side maintenance.
+-- Do not expose them to browser sessions: a caller-scoped preview check is
+-- the only manifest predicate the UI needs.
+revoke all on function public.demo_run_for_account(bigint) from public, anon, authenticated;
+grant execute on function public.demo_run_for_account(bigint) to service_role;
+revoke all on function public.demo_root_account_for(bigint) from public, anon, authenticated;
+grant execute on function public.demo_root_account_for(bigint) to service_role;
+revoke all on function public.demo_bundle_contains_account(bigint, bigint) from public, anon, authenticated;
+grant execute on function public.demo_bundle_contains_account(bigint, bigint) to service_role;
+revoke all on function public.demo_account_is_previewable(bigint) from public, anon;
+grant execute on function public.demo_account_is_previewable(bigint) to authenticated, service_role;
+revoke all on function public.demo_account_in_active_run(bigint) from public;
+grant execute on function public.demo_account_in_active_run(bigint) to anon;
+revoke all on function public.demo_scope_is_simulated(bigint, bigint) from public, anon, authenticated;
+grant execute on function public.demo_scope_is_simulated(bigint, bigint) to service_role;
+revoke all on function public.demo_delivery_history() from public, anon;
+grant execute on function public.demo_delivery_history() to authenticated, service_role;

@@ -14,11 +14,11 @@ import { RawExtractionSchema } from "./parsedResumeDraft";
  * already paid for one extraction of the document, and a re-parse forced by
  * OUR OWN contract change must not charge it again.
  *
- * This table has never been deployed anywhere (see the migration's own
- * header), so version 1 is simply "the current, narrowed (Finding 13) field
- * contract" — the first real bump will be whatever changes this shape next.
+ * Version 2 adds three optional, explicitly stated candidate facts used by
+ * the app's narrow eligibility guard. Older cached results are deliberately
+ * re-parsed rather than guessed at.
  */
-export const CURRENT_PARSE_RESULT_SCHEMA_VERSION = 1;
+export const CURRENT_PARSE_RESULT_SCHEMA_VERSION = 2;
 
 /**
  * Mirrors `ParsedResumeFields` (`parsedResumeDraft.ts`, Finding 13 closure)
@@ -47,6 +47,9 @@ const ParseResultFieldsSchema = z.object({
   location_he: z.string().nullable(),
   age: z.number().nullable(),
   height: z.string().nullable(),
+  person_gender: z.string().nullable(),
+  kohen_status: z.string().nullable(),
+  marital_status: z.string().nullable(),
 });
 
 /**

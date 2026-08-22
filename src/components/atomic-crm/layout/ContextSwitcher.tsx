@@ -35,7 +35,10 @@ const contextLabel = (context: MyContext, translate: Translate) =>
   translate("crm.context_switcher.label", {
     name: context.name,
     kind: kindLabel(context.kind, translate),
-    _: "%{name} · %{kind}",
+    demo: context.is_demo
+      ? ` · ${translate("crm.context_switcher.demo_label", { _: "Preview" })}`
+      : "",
+    _: "%{name} · %{kind}%{demo}",
   });
 
 /**

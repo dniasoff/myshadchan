@@ -22,6 +22,7 @@ const PAGE_ALL = { page: 1, perPage: 10_000 } as const;
 export async function matchReferenceOnEntry(
   baseDataProvider: DataProvider,
   input: MatchReferenceInput,
+  accountId?: Identifier,
 ): Promise<ReferenceMatchCandidate[]> {
   const nameEnNorm = normalizeIdentityText(input.name_en);
   const nameHeNorm = normalizeIdentityText(input.name_he);
@@ -35,12 +36,12 @@ export async function matchReferenceOnEntry(
 
   const [{ data: references }, { data: links }] = await Promise.all([
     baseDataProvider.getList<Reference>("references", {
-      filter: {},
+      filter: accountId == null ? {} : { account_id: accountId },
       pagination: PAGE_ALL,
       sort: { field: "id", order: "ASC" },
     }),
     baseDataProvider.getList<ReferenceLink>("reference_links", {
-      filter: {},
+      filter: accountId == null ? {} : { account_id: accountId },
       pagination: PAGE_ALL,
       sort: { field: "id", order: "ASC" },
     }),

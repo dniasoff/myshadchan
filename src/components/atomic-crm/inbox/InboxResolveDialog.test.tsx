@@ -389,6 +389,27 @@ describe("InboxResolveDialog — attachment links are re-signed at click time (r
     );
   });
 
+  it("opens a committed local demo data URL without calling the remote signer", async () => {
+    // Arrange
+    vi.spyOn(window, "open").mockImplementation(() => null);
+    const localUrl = "data:application/pdf;base64,JVBERi0xLjQKJSVFT0Y=";
+    const item = buildItem({
+      attachments: [buildAttachment({ src: localUrl })],
+    });
+    const { screen } = await renderDialog(item);
+
+    // Act
+    await screen.getByRole("button", { name: "resume.pdf" }).click();
+
+    // Assert
+    expect(signInboxAttachmentUrl).not.toHaveBeenCalled();
+    expect(window.open).toHaveBeenCalledWith(
+      localUrl,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
+
   it("shows an error notification and never opens a window when signing fails", async () => {
     // Arrange
     vi.spyOn(window, "open").mockImplementation(() => null);
@@ -446,6 +467,9 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
       location_he: null,
       age: 24,
       height: "5'6\"",
+      person_gender: null,
+      kohen_status: null,
+      marital_status: null,
     },
     lowConfidenceFields: ["age"],
     sections: { learningHistory: [], references: [] },

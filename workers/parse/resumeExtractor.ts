@@ -137,7 +137,8 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
                   // fields in the target form (ShidduchInputs.tsx) and in
                   // public.shidduchim — a combined "parents" field had
                   // nothing downstream that read it, so extract them split.
-                  "Fields: name_en, name_he, father_en, father_he, mother_en, mother_he, seminary_en, seminary_he, shul_en, shul_he, location_en, location_he, age, height. " +
+                  "Fields: name_en, name_he, father_en, father_he, mother_en, mother_he, seminary_en, seminary_he, shul_en, shul_he, location_en, location_he, age, height, person_gender, kohen_status, marital_status. " +
+                  "For person_gender, kohen_status, and marital_status, extract only an explicitly stated fact; never infer one from a name, pronoun, family detail, or context. " +
                   "Also include sections.learningHistory as [{label, value}] and sections.references as [{name, relationship, phone}]. " +
                   "Do not invent information. Return only valid JSON.",
               },

@@ -2,7 +2,11 @@ import { createElement, type ComponentType } from "react";
 
 import { PRIMARY_NAV, SHADCHANUS_NAV } from "../layout/navItems";
 import { RegisterFlow } from "../login/RegisterFlow";
-import type { CustomRouteEntry, ResourceEntry } from "./routeManifest";
+import type {
+  ContextKindRequirement,
+  CustomRouteEntry,
+  ResourceEntry,
+} from "./routeManifest";
 import {
   CUSTOM_ROUTES,
   RECORD_FLAG_EXEMPTIONS,
@@ -294,13 +298,13 @@ describe("contextKind (Story 8.1, AC-3; Story 8.5, AC-8)", () => {
   // silently matching "undefined".
   const RESOURCE_CONTEXT_KINDS: Record<
     string,
-    "household" | "shadchanus" | undefined
+    ContextKindRequirement | undefined
   > = {
-    shidduchim: "household",
-    singles: "household",
+    shidduchim: ["household", "shadchanus"],
+    singles: ["household", "shadchanus"],
     inbox_items: "household",
-    shadchanim: "household",
-    references: "household",
+    shadchanim: ["household", "shadchanus"],
+    references: ["household", "shadchanus"],
     tasks: "household",
     members: undefined,
     connections: "shadchanus",
@@ -308,7 +312,9 @@ describe("contextKind (Story 8.1, AC-3; Story 8.5, AC-8)", () => {
 
   it("sets the expected contextKind on every resource, and no others", () => {
     for (const resource of RESOURCES) {
-      expect(resource.contextKind).toBe(RESOURCE_CONTEXT_KINDS[resource.name]);
+      expect(resource.contextKind).toEqual(
+        RESOURCE_CONTEXT_KINDS[resource.name],
+      );
     }
   });
 

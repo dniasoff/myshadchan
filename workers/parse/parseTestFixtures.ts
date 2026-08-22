@@ -114,6 +114,9 @@ export function makeExtract(
     location_he: { value: null, confidence: 0 },
     age: { value: 24, confidence: 0.92 },
     height: { value: "5'6\"", confidence: 0.8 },
+    person_gender: { value: null, confidence: 0 },
+    kohen_status: { value: null, confidence: 0 },
+    marital_status: { value: null, confidence: 0 },
     sections: { learningHistory: [], references: [] },
     ...overrides,
   };
@@ -121,7 +124,7 @@ export function makeExtract(
 
 /**
  * Finding 12 closure: `ParseResultPayloadSchema` requires every one of the
- * fourteen fields to be present (each nullable, none optional) — a partial
+ * seventeen fields to be present (each nullable, none optional) — a partial
  * `fields` object like the old `{ name_en: "Cached Rivky" }` fixture fails
  * validation and is treated as corruption by `resolveParseClaim.ts` /
  * `resolveConfirmOutcome.ts`. This builds a fully-shaped, schema-valid
@@ -145,6 +148,9 @@ export function makeParseResultFields(
     location_he: null,
     age: null,
     height: null,
+    person_gender: null,
+    kohen_status: null,
+    marital_status: null,
     ...overrides,
   };
 }

@@ -321,7 +321,7 @@ describe("toDraft", () => {
 });
 
 describe("RawExtractionSchema (shape reference for GEMINI_RESUME_RESPONSE_SCHEMA's conformance test)", () => {
-  it("has exactly the fourteen field keys plus sections", () => {
+  it("has exactly the seventeen field keys plus sections", () => {
     // Act
     const keys = Object.keys(RawExtractionSchema.shape);
 

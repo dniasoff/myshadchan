@@ -264,14 +264,7 @@ describe("renderResources — children guard (Story 8.1 review F2) — mechanism
 });
 
 describe("CRM route wiring — real manifest (Story 8.1 review F1/AC-7), redirect direction", () => {
-  it.each([
-    "/shidduchim",
-    "/singles",
-    "/inbox_items",
-    "/shadchanim",
-    "/references",
-    "/tasks",
-  ])(
+  it.each(["/inbox_items", "/tasks"])(
     "redirects %s to / when the active context is shadchanus",
     async (path) => {
       // Act — the real routeManifest.ts entries, exactly as root/CRM.tsx's
@@ -308,33 +301,10 @@ describe("CRM route wiring — real manifest (Story 8.1 review F1/AC-7), redirec
     },
   );
 
-  it.each([
-    "/singles/new",
-    // Built from parts, never spelled as a quoted literal
-    // (`entity360/routeConvention.routes.test.tsx`'s own convention):
-    // `check-route-convention`'s `create-path-literal` pattern scans this
-    // file too, and the whole point of this case is to mount the one
-    // `/{resource}/create` shape the guard is meant to keep alive — the
-    // legacy compatibility redirect's input.
-    `/singles${"/create"}`,
-    "/shadchanim/new",
-    "/references/new",
-  ])(
-    "redirects %s (review F2's create-route gap) to / when the active context is shadchanus",
-    async (path) => {
-      // Act
-      const { screen, getPathname } = await renderRoutes(
-        [shadchanus],
-        routesFor("desktop", "shell"),
-        resourcesFor("desktop"),
-        [path],
-      );
-
-      // Assert
-      await expect.element(screen.getByText(HOME)).toBeInTheDocument();
-      expect(getPathname()).toBe("/");
-    },
-  );
+  // The singles, shadchanim, references, and shidduchim create/list routes
+  // are intentionally reachable from a standalone shadchanus context. Their
+  // context arrays are asserted in routeManifest.test.ts; this suite keeps
+  // the redirect-direction assertion for household-only routes only.
 
   // Story 8.5 (AC-8): the mirror direction of every case above — 8.1 left
   // `/connections` unguarded (a rendered placeholder, no `contextKind`

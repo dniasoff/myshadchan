@@ -304,6 +304,22 @@ create policy "Singles visible to self" on public.singles
         and member_id = public.current_member_id()
     );
 
+-- A single may manage only the single profile attached to their active
+-- membership. This is intentionally additive: the existing manager policy
+-- remains the account-wide path for household/shadchan operators.
+create policy "Singles writable by self" on public.singles
+    for all to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() = 'single'
+        and member_id = public.current_member_id()
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() = 'single'
+        and member_id = public.current_member_id()
+    );
+
 -- Child grants, RLS increment 1 (read-across): a grantee household that has
 -- ACCEPTED a grant for one of the proposer's singles may read exactly that
 -- single's row. Additive — the two policies above still govern every other
@@ -458,10 +474,16 @@ create policy "Shidduchim scoped to account" on public.shidduchim
     using (
         account_id = public.current_context_id()
         and public.current_member_role() <> 'single'
+        and not coalesce(public.shidduch_has_known_halachic_conflict(
+            single_id, person_gender, kohen_status, marital_status
+        ), false)
     )
     with check (
         account_id = public.current_context_id()
         and public.current_member_role() <> 'single'
+        and not coalesce(public.shidduch_has_known_halachic_conflict(
+            single_id, person_gender, kohen_status, marital_status
+        ), false)
     );
 
 -- Story 6.2 (AC 1): a single sees a suggestion only when all three are
@@ -480,11 +502,46 @@ create policy "Shidduchim visible to single" on public.shidduchim
         and public.current_member_role() = 'single'
         and visibility = 'shared'
         and public.is_single_visible_state(pipeline_state)
+        and not coalesce(public.shidduch_has_known_halachic_conflict(
+            single_id, person_gender, kohen_status, marital_status
+        ), false)
         and exists (
             select 1 from public.singles c
             where c.id = shidduchim.single_id
               and c.member_id = public.current_member_id()
         )
+    );
+
+-- A self-managed single may create and maintain only suggestions attached to
+-- their own single row. The database eligibility trigger remains authoritative
+-- for any candidate fact changes.
+create policy "Shidduchim writable by self" on public.shidduchim
+    for all to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() = 'single'
+        and exists (
+            select 1 from public.singles c
+            where c.id = shidduchim.single_id
+              and c.account_id = public.current_context_id()
+              and c.member_id = public.current_member_id()
+        )
+        and not coalesce(public.shidduch_has_known_halachic_conflict(
+            single_id, person_gender, kohen_status, marital_status
+        ), false)
+    )
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() = 'single'
+        and exists (
+            select 1 from public.singles c
+            where c.id = shidduchim.single_id
+              and c.account_id = public.current_context_id()
+              and c.member_id = public.current_member_id()
+        )
+        and not coalesce(public.shidduch_has_known_halachic_conflict(
+            single_id, person_gender, kohen_status, marital_status
+        ), false)
     );
 
 -- Child grants (Epic 14): a grantee household that has accepted a grant for a
@@ -502,12 +559,56 @@ create policy "Shidduchim readable via accepted grant" on public.shidduchim
     for select to authenticated
     using (
         exists (
-            select 1 from public.child_grants g
+        select 1 from public.child_grants g
             where g.target_single_id = shidduchim.single_id
               and g.grantee_account_id = public.current_context_id()
               and g.status = 'accepted'
         )
         and public.current_member_role() <> 'single'
+        and not coalesce(public.shidduch_has_known_halachic_conflict(
+            single_id, person_gender, kohen_status, marital_status
+        ), false)
+    );
+
+-- Edit-tier grants may update the existing suggestion for exactly the granted
+-- child. They cannot repoint the row to another child or account, and the
+-- halachic trigger still rejects a clear explicit conflict.
+create policy "Shidduchim updatable via accepted edit grant" on public.shidduchim
+    for update to authenticated
+    using (
+        exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level = 'edit'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = shidduchim.single_id
+        )
+        and public.current_member_role() <> 'single'
+        and not coalesce(public.shidduch_has_known_halachic_conflict(
+            single_id, person_gender, kohen_status, marital_status
+        ), false)
+    )
+    with check (
+        account_id = (
+            select g.proposer_account_id
+            from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level = 'edit'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = shidduchim.single_id
+            limit 1
+        )
+        and exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level = 'edit'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = shidduchim.single_id
+        )
+        and public.current_member_role() <> 'single'
+        and not coalesce(public.shidduch_has_known_halachic_conflict(
+            single_id, person_gender, kohen_status, marital_status
+        ), false)
     );
 
 create policy "Resumes scoped to account" on public.resumes
@@ -2089,14 +2190,20 @@ create policy "Child grants visible to grantee when accepted" on public.child_gr
 alter table public.listings enable row level security;
 alter table public.listings force row level security;
 
--- "Listings readable by anon" (AC-4, AC-5) — deliberate `using (true)`, the
--- entire point of AD-21: a row's existence IS what "published" means, so
--- every column in every row is safe for `anon` to read by construction (no
--- private column exists on this table at all, and none may ever be added —
--- see this story's Dev Notes "Security / RLS").
+-- "Listings readable by anon" (AC-4, AC-5) — published rows remain public,
+-- except for accounts registered in an active official demo run. The
+-- caller-independent helper is important here: anon has no auth.uid(), so
+-- the authenticated preview helper must not be used for this policy.
 create policy "Listings readable by anon" on public.listings
     for select to anon
-    using (true);
+    using (not public.demo_account_in_active_run(account_id));
+
+-- Demo listings are deliberately not part of the anonymous marketplace. The
+-- signed-in customer can preview every listing in their own registered
+-- bundle, including companion-context listings, through the same table.
+create policy "Demo listings readable in bundle preview" on public.listings
+    for select to authenticated
+    using (public.demo_account_is_previewable(account_id));
 
 -- "Listings readable by owner" (shared by both branches — this story owns
 -- it so 9.2 does not duplicate it): lets a shadchan, or 9.2's household
@@ -2640,6 +2747,23 @@ create policy "Analytics events selectable by account" on public.analytics_event
 create policy "Analytics events insertable by account" on public.analytics_events
     for insert to authenticated
     with check (account_id = public.current_context_id());
+
+-- =====================================================================
+-- Official onboarding demo manifest (service-only)
+-- =====================================================================
+alter table public.demo_runs enable row level security;
+alter table public.demo_runs force row level security;
+alter table public.demo_run_accounts enable row level security;
+alter table public.demo_run_accounts force row level security;
+alter table public.demo_run_users enable row level security;
+alter table public.demo_run_users force row level security;
+alter table public.demo_run_storage enable row level security;
+alter table public.demo_run_storage force row level security;
+alter table public.demo_share_snapshots enable row level security;
+alter table public.demo_share_snapshots force row level security;
+
+-- There are intentionally no anon/authenticated policies. Service role owns
+-- manifest lifecycle; customers receive only demo_delivery_history().
 
 -- ---------------------------------------------------------------------------
 -- Story 14.2 / 14.4 — account deletion and purge requests.

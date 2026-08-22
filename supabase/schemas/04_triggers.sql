@@ -246,6 +246,12 @@ create or replace trigger validate_singles_household_scope
     before insert or update of account_id on public.singles
     for each row execute function public.enforce_household_scope();
 
+-- Clear-conflict eligibility is checked on every shidduch write, including
+-- direct PostgREST/MCP mutations and updates that do not use the RPC.
+create or replace trigger validate_single_halachic_eligibility
+    before update of gender, kohen_status, marital_status on public.singles
+    for each row execute function public.validate_single_halachic_eligibility();
+
 create or replace trigger validate_shadchanim_household_scope
     before insert or update of account_id on public.shadchanim
     for each row execute function public.enforce_household_scope();
@@ -257,6 +263,11 @@ create or replace trigger validate_references_household_scope
 create or replace trigger validate_shidduchim_household_scope
     before insert or update of account_id on public.shidduchim
     for each row execute function public.enforce_household_scope();
+
+create or replace trigger validate_shidduch_halachic_eligibility
+    before insert or update of single_id, person_gender, kohen_status, marital_status
+    on public.shidduchim
+    for each row execute function public.validate_shidduch_halachic_eligibility();
 
 create or replace trigger validate_resumes_household_scope
     before insert or update of account_id on public.resumes

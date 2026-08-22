@@ -60,6 +60,9 @@ export async function getMyContexts(
       name: account.name,
       role: membership.role,
       is_active: String(membership.account_id) === String(activeAccountId),
+      ...(account.demo === true || account.demo_bundle_context === true
+        ? { is_demo: true }
+        : {}),
     });
   }
   return contexts;
