@@ -44,10 +44,12 @@ const MAX_CLEAR_SEED_ATTEMPTS = 2;
  */
 export class ClearSeedError extends Error {
   readonly cleared: boolean;
-  constructor(cleared: boolean, message: string) {
+  readonly lastClearedAt?: string;
+  constructor(cleared: boolean, message: string, lastClearedAt?: string) {
     super(message);
     this.name = "ClearSeedError";
     this.cleared = cleared;
+    this.lastClearedAt = lastClearedAt;
   }
 }
 
@@ -70,9 +72,11 @@ export async function clearAndSeedWithRetry(accessToken: string): Promise<{
   cleared: true;
   seeded: true;
   summary: Record<string, unknown>;
+  lastClearedAt?: string;
 }> {
   let lastCleared = false;
   let lastMessage = "clear_demo/seed_demo did not run";
+  let lastClearedAt: string | undefined;
 
   for (let attempt = 1; attempt <= MAX_CLEAR_SEED_ATTEMPTS; attempt++) {
     let cleared = false;
@@ -89,6 +93,9 @@ export async function clearAndSeedWithRetry(accessToken: string): Promise<{
         releaseDemoFlag: false,
       });
       cleared = clearResult.cleared === true;
+      if (typeof clearResult.lastClearedAt === "string") {
+        lastClearedAt = clearResult.lastClearedAt;
+      }
       if (!cleared) {
         throw new Error("clear_demo did not report cleared: true");
       }
@@ -101,7 +108,12 @@ export async function clearAndSeedWithRetry(accessToken: string): Promise<{
           )})`,
         );
       }
-      return { cleared: true, seeded: true, summary: seedResult };
+      return {
+        cleared: true,
+        seeded: true,
+        summary: seedResult,
+        ...(lastClearedAt ? { lastClearedAt } : {}),
+      };
     } catch (e) {
       lastCleared = cleared;
       lastMessage = e instanceof Error ? e.message : String(e);
@@ -114,5 +126,5 @@ export async function clearAndSeedWithRetry(accessToken: string): Promise<{
     }
   }
 
-  throw new ClearSeedError(lastCleared, lastMessage);
+  throw new ClearSeedError(lastCleared, lastMessage, lastClearedAt);
 }

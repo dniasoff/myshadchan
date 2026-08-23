@@ -41,6 +41,7 @@ const buildDataProvider = (
 const renderCard = async (
   photo: ResumePhoto,
   dataProviderOverrides: Partial<CrmDataProvider> = {},
+  revealOnClick = true,
 ) => {
   const dataProvider = buildDataProvider(dataProviderOverrides);
   const onHidden = vi.fn();
@@ -51,7 +52,11 @@ const renderCard = async (
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <PhotoRevealCard photo={photo} onHidden={onHidden} />
+        <PhotoRevealCard
+          photo={photo}
+          onHidden={onHidden}
+          revealOnClick={revealOnClick}
+        />
         <Notification />
       </CoreAdminContext>
     </TestMemoryRouter>,
@@ -120,6 +125,64 @@ describe("PhotoRevealCard — reveal click (AC 1)", () => {
 
     // Assert
     await expect.element(screen.getByText("boom")).toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Reveal" }))
+      .toBeInTheDocument();
+    expect(screen.container.querySelector("img")).toBeNull();
+  });
+});
+
+describe("PhotoRevealCard — immediate display", () => {
+  it("signs and shows the photo on mount when reveal-on-click is disabled", async () => {
+    // Arrange
+    const signResumePhotoUrl = vi
+      .fn()
+      .mockResolvedValue("https://signed.example/immediate.jpg");
+
+    // Act
+    const { screen } = await renderCard(
+      buildPhoto(),
+      { signResumePhotoUrl },
+      false,
+    );
+
+    await expect
+      .poll(() => screen.container.querySelector("img"))
+      .not.toBeNull();
+    expect(signResumePhotoUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards an in-flight automatic URL when reveal-on-click is enabled", async () => {
+    let resolveAutomatic!: (url: string) => void;
+    const signResumePhotoUrl = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveAutomatic = resolve;
+        }),
+    );
+    const { screen, dataProvider } = await renderCard(
+      buildPhoto(),
+      { signResumePhotoUrl },
+      false,
+    );
+
+    await screen.rerender(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <PhotoRevealCard
+            photo={buildPhoto()}
+            onHidden={vi.fn()}
+            revealOnClick
+          />
+          <Notification />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+    resolveAutomatic("https://signed.example/stale.jpg");
+
     await expect
       .element(screen.getByRole("button", { name: "Reveal" }))
       .toBeInTheDocument();

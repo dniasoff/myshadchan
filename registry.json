@@ -660,6 +660,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/reminders/DemoDeliveryHistory.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/references/useReferenceMatch.ts",
           "type": "registry:component"
         },
@@ -944,6 +948,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/fakerest/internal/halachicEligibility.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/fakerest/internal/grants.ts",
           "type": "registry:component"
         },
@@ -977,6 +985,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/fakerest/dataGenerator/types.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/fakerest/dataGenerator/showcase.ts",
           "type": "registry:component"
         },
         {
@@ -1025,6 +1037,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/commons/billingClient.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/commons/authErrors.ts",
           "type": "registry:component"
         },
         {
@@ -1237,6 +1253,10 @@
         },
         {
           "path": "src/components/atomic-crm/listings/publicListingsClient.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/listings/demoListingsClient.ts",
           "type": "registry:component"
         },
         {

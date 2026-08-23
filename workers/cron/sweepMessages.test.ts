@@ -51,6 +51,7 @@ function claimedRow(overrides: Partial<Record<string, unknown>> = {}) {
     subject_type: "shidduch",
     subject_id: 55,
     push_subscriptions: null,
+    simulated: false,
     ...overrides,
   };
 }
@@ -92,6 +93,35 @@ describe("sweepMessages", () => {
     expect(JSON.stringify(sendEmail.mock.calls)).not.toContain(
       "SECRET_BODY_TEXT",
     );
+  });
+
+  it("settles a simulated notification without calling email or push providers", async () => {
+    rpc.mockImplementation((name: string) => {
+      if (name === "claim_message_notifications") {
+        return Promise.resolve({
+          data: [
+            claimedRow({
+              id: 99,
+              simulated: true,
+              channel: "email",
+            }),
+          ],
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    const result = await sweepMessages(env);
+
+    expect(result).toEqual({ claimed: 1, sent: 1, failed: 0 });
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(sendWebPush).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith("settle_message_notification", {
+      p_id: 99,
+      p_status: "sent",
+      p_error: null,
+    });
   });
 
   it("sends a push to EACH subscription of a push-channel row", async () => {

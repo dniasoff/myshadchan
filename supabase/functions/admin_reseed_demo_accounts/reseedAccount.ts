@@ -111,6 +111,9 @@ export async function reseedAccount(
         cleared: result.cleared,
         seeded: result.seeded,
         summary: result.summary,
+        ...(result.lastClearedAt
+          ? { lastClearedAt: result.lastClearedAt }
+          : {}),
       };
     } catch (e) {
       console.error(
@@ -118,7 +121,10 @@ export async function reseedAccount(
         e,
       );
       if (e instanceof ClearSeedError) {
-        return failedOutcome(e.cleared, e.message);
+        return {
+          ...failedOutcome(e.cleared, e.message),
+          ...(e.lastClearedAt ? { lastClearedAt: e.lastClearedAt } : {}),
+        };
       }
       // Anything else (temp user creation, sign-in, membership setup)
       // failed before clear_demo/seed_demo were ever invoked — the account

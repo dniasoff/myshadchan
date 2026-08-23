@@ -15,3 +15,6 @@
  */
 export const ONBOARDING_JUST_SEEDED_KEY = "onboarding.justSeeded";
 export const TOUR_COMPLETED_KEY = "tour.completed";
+export const DEMO_ONBOARDING_INTENT_QUERY_KEY = [
+  "demo-onboarding-intent",
+] as const;

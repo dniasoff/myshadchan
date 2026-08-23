@@ -211,6 +211,54 @@
         {
           "file": "supabase/tests/child_grant_interactions_comment_access.test.ts",
           "term": "child_grant"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/dataGenerator/showcase.test.ts",
+          "term": "child_grant"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/dataGenerator/showcase.ts",
+          "term": "child_grant"
+        },
+        {
+          "file": "supabase/functions/clear_demo/index.test.ts",
+          "term": "child_grant"
+        },
+        {
+          "file": "supabase/functions/clear_demo/index.ts",
+          "term": "child_grant"
+        },
+        {
+          "file": "supabase/functions/seed_demo/index.ts",
+          "term": "child_grant"
+        },
+        {
+          "file": "supabase/functions/seed_demo/index.ts",
+          "term": "child-grant"
+        },
+        {
+          "file": "supabase/functions/_shared/demoDataset.ts",
+          "term": "child-grant"
+        },
+        {
+          "file": "supabase/schemas/04_triggers.sql",
+          "term": "child_grant"
+        },
+        {
+          "file": "supabase/tests/official_demo_bundle.sql",
+          "term": "child_grant"
+        },
+        {
+          "file": "supabase/tests/official_demo_lifecycle_source.test.ts",
+          "term": "child_grant"
+        },
+        {
+          "file": "supabase/tests/official_demo_r21_activation.sql",
+          "term": "child_grant"
+        },
+        {
+          "file": "supabase/tests/shadchan_privacy_boundary.sql",
+          "term": "child_grant"
         }
       ],
       "exemptReasons": {
@@ -225,7 +273,8 @@
         "\"resource\" | \"id\" | \"children\" | \"className\" | \"style\"": "RecordLink.test.tsx's ExpectedKeys union, which must spell React's `children` prop literally to assert RecordLinkProps has exactly those five keys.",
         "child_grants": "Story 13.1: the real `child_grants` table key, which the FakeRest generator must spell exactly as the database does or the demo provider stops matching the Supabase one. Same status as the already-allowlisted grants.ts/dataProvider.ts; scoped per-file-per-term rather than whole-file so these two generator files stay covered by every other retired-name pattern.",
         "ChildGrant": "Story 13.1: the TS row type for the `child_grants` table (and the `createChildGrant` action it names). Mirrors a real database identifier, not a retired `children` resource reference.",
-        "child_grant": "Story 13.1: the real `child_grants` table and its five SECURITY DEFINER lifecycle RPCs (create/accept/revoke/sever/regrant_child_grant), which the grants file and every child_grants-consuming test suite must spell exactly as the database does. Same status as the already-allowlisted 05_policies.sql / 02_functions.sql, but scoped per-file-per-term rather than whole-file so these files stay covered by every other retired-name pattern. The stem is singular so it blanks the RPC names as well as the table name. Story 13.3 increment 1 added the fourth/fifth pair (child_grant_singles_access.{sql,test.ts}) for the same reason as the visibility suite before it — a new RLS-consuming test file, same table name. Story 13.3 increment 9 added child_grant_listings_access.{sql,test.ts} for the same reason — the `listings` grant-consuming policy's own standing guard. The access-level/accept-grant increment added `GrantAccept.tsx` (the accept screen at /accept-grant/:token, calling `preview_child_grant()`/`accept_child_grant()` by name), `routeManifest.ts` (registering that screen's route and doc-commenting the workflow it belongs to), `englishCrmMessages.ts` (the `child_grant_accept` i18n key namespace), and that screen's own test, `GrantAccept.test.tsx` (mocks `previewChildGrant`/`acceptChildGrant` and asserts against the `child_grants` check-constraint name a rejected accept must never leak) — same real identifiers, new call sites."
+        "child_grant": "Story 13.1: the real `child_grants` table and its five SECURITY DEFINER lifecycle RPCs (create/accept/revoke/sever/regrant_child_grant), which the grants file and every child_grants-consuming test suite must spell exactly as the database does. Same status as the already-allowlisted 05_policies.sql / 02_functions.sql, but scoped per-file-per-term rather than whole-file so these files stay covered by every other retired-name pattern. The stem is singular so it blanks the RPC names as well as the table name. Story 13.3 increment 1 added the fourth/fifth pair (child_grant_singles_access.{sql,test.ts}) for the same reason as the visibility suite before it — a new RLS-consuming test file, same table name. Story 13.3 increment 9 added child_grant_listings_access.{sql,test.ts} for the same reason — the `listings` grant-consuming policy's own standing guard. The access-level/accept-grant increment added `GrantAccept.tsx` (the accept screen at /accept-grant/:token, calling `preview_child_grant()`/`accept_child_grant()` by name), `routeManifest.ts` (registering that screen's route and doc-commenting the workflow it belongs to), `englishCrmMessages.ts` (the `child_grant_accept` i18n key namespace), and that screen's own test, `GrantAccept.test.tsx` (mocks `previewChildGrant`/`acceptChildGrant` and asserts against the `child_grants` check-constraint name a rejected accept must never leak) — same real identifiers, new call sites.",
+        "child-grant": "The live child_grants resource in hyphenated key/slug form (demo dataset keys, prose) - the table survives the 1.3 rename; only the retired `children` resource was removed."
       },
       "exampleFragments": ["child", "_", "id"]
     },
@@ -288,6 +337,10 @@
         {
           "file": "src/components/atomic-crm/singles/GrantAccept.test.tsx",
           "term": "ChildGrant"
+        },
+        {
+          "file": "supabase/functions/seed_demo/index.ts",
+          "term": "childGrant"
         }
       ],
       "exemptReasons": {

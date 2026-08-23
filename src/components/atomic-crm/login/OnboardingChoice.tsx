@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 
 import type { CrmDataProvider } from "../providers/types";
 import {
+  DEMO_ONBOARDING_INTENT_QUERY_KEY,
   ONBOARDING_JUST_SEEDED_KEY,
   TOUR_COMPLETED_KEY,
 } from "../root/onboardingKeys";
@@ -49,6 +50,8 @@ export const OnboardingChoice = () => {
   const [accountId, setAccountId] = useState<Identifier | null>(null);
   const [donePersonas, setDonePersonas] = useState<Persona[]>([]);
   const queryClient = useQueryClient();
+  const dataProvider = useDataProvider<CrmDataProvider>();
+  const notify = useNotify();
 
   // `OnboardingGate` shares this exact query key (root/useMyPersonas.ts) and
   // is mounted throughout this whole flow. Invalidating it right after
@@ -57,8 +60,28 @@ export const OnboardingChoice = () => {
   // immediately, unmounting `FirstRunSetup` (or this screen's own done
   // step) before the user ever sees it. Deferred to here: the one point
   // every branch of "own family" eventually reaches.
-  const handleOnboardingFinished = () => {
-    void queryClient.invalidateQueries({ queryKey: MY_PERSONAS_QUERY_KEY });
+  const handleOnboardingFinished = async () => {
+    // If the user switches from a failed/abandoned demo attempt to the
+    // ordinary own-family path, consume that exact intent. Otherwise refresh
+    // would keep showing onboarding forever and a future seed could reuse it.
+    try {
+      if (typeof dataProvider.cancelDemoOnboarding === "function") {
+        await dataProvider.cancelDemoOnboarding();
+      }
+    } catch {
+      notify(
+        "Couldn't close the demo setup. Your family setup is still available.",
+        {
+          type: "warning",
+        },
+      );
+    } finally {
+      queryClient.setQueryData(DEMO_ONBOARDING_INTENT_QUERY_KEY, null);
+      await queryClient.invalidateQueries({
+        queryKey: DEMO_ONBOARDING_INTENT_QUERY_KEY,
+      });
+      await queryClient.invalidateQueries({ queryKey: MY_PERSONAS_QUERY_KEY });
+    }
   };
 
   return (
@@ -114,21 +137,85 @@ const OnboardingChoiceCard = ({ onChooseOwn }: { onChooseOwn: () => void }) => {
       // the caller's ACTIVE context, so provision one before seeding into
       // it. Idempotent — no-ops if the caller already holds a parent_admin
       // membership (2.2 AC-6).
+      // Persist the explicit demo intent before provisioning anything. If the
+      // next call fails, refresh can recover from this server-owned state.
+      if (typeof dataProvider.prepareDemoOnboarding === "function") {
+        await dataProvider.prepareDemoOnboarding();
+      }
       await dataProvider.addPersona("parent");
-      // A `{ seeded: false, reason: "account_not_empty" }` no-op still means
-      // the account already has demo (or real) data — treat it the same as
-      // a fresh seed and just move on.
-      await dataProvider.seedDemo();
+      const seedResult = await dataProvider.seedDemo();
+      if (seedResult.seeded !== true) {
+        if (typeof dataProvider.cancelDemoOnboarding === "function") {
+          await dataProvider.cancelDemoOnboarding();
+        }
+        queryClient.setQueryData(DEMO_ONBOARDING_INTENT_QUERY_KEY, null);
+        await queryClient.invalidateQueries({
+          queryKey: DEMO_ONBOARDING_INTENT_QUERY_KEY,
+        });
+        notify("This account already has data. No demo data was added.", {
+          type: "info",
+        });
+        setSeeding(false);
+        return;
+      }
       setJustSeeded(true);
       setTourCompleted(false);
       await queryClient.invalidateQueries();
     } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Couldn't load the demo data. Try again.",
-        { type: "error" },
-      );
+      // A lost seed response may already have activated the run.  Reconcile
+      // the server-owned onboarding intent first; never clear an active or
+      // completed run merely because this browser request failed.
+      let onboardingState: {
+        state?: string;
+        account_id?: Identifier | null;
+      } | null = null;
+      try {
+        if (typeof dataProvider.getDemoOnboardingState === "function") {
+          onboardingState = await dataProvider.getDemoOnboardingState();
+        }
+      } catch {
+        // An unreadable state is not proof that cleanup is safe.
+      }
+      if (onboardingState?.state === "completed") {
+        setJustSeeded(true);
+        setTourCompleted(false);
+        await queryClient.invalidateQueries();
+        setSeeding(false);
+        return;
+      }
+      const cleanupIsProvenOwned =
+        onboardingState?.state === "failed" ||
+        (onboardingState?.state === "pending" &&
+          onboardingState.account_id != null);
+      if (
+        cleanupIsProvenOwned &&
+        typeof dataProvider.clearDemo === "function"
+      ) {
+        try {
+          await dataProvider.clearDemo(false);
+          queryClient.setQueryData(DEMO_ONBOARDING_INTENT_QUERY_KEY, null);
+          await queryClient.invalidateQueries({
+            queryKey: DEMO_ONBOARDING_INTENT_QUERY_KEY,
+          });
+          notify(
+            "The interrupted demo was cleared. Choose Explore again to retry.",
+            {
+              type: "warning",
+            },
+          );
+        } catch {
+          notify("Demo cleanup is still needed. Try again to resume safely.", {
+            type: "error",
+          });
+        }
+      } else {
+        notify(
+          cleanupIsProvenOwned && error instanceof Error
+            ? error.message
+            : "The demo request did not complete. Your data was left untouched; retry when ready.",
+          { type: "error" },
+        );
+      }
       setSeeding(false);
     }
   };
@@ -382,7 +469,7 @@ const PersonaOnboardingDone = ({
   onFinished,
 }: {
   personas: Persona[];
-  onFinished: () => void;
+  onFinished: () => void | Promise<void>;
 }) => {
   const translate = useTranslate();
   const navigate = useNavigate();
@@ -432,9 +519,12 @@ const PersonaOnboardingDone = ({
         <Button
           type="button"
           className={cn("w-full cursor-pointer gap-2", PRIMARY_CTA_CLASSNAME)}
-          onClick={() => {
-            onFinished();
-            navigate("/");
+          onClick={async () => {
+            try {
+              await onFinished();
+            } finally {
+              navigate("/");
+            }
           }}
         >
           <Sparkles className="size-4" aria-hidden="true" />

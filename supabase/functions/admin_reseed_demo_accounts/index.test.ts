@@ -37,6 +37,20 @@ function stubDemoAccounts(rows: Array<{ id: number; kind: string }>) {
         }),
       };
     }
+    if (table === "demo_run_accounts") {
+      return {
+        select: () => ({
+          in: () => Promise.resolve({ data: [], error: null }),
+        }),
+      };
+    }
+    if (table === "demo_runs") {
+      return {
+        select: () => ({
+          in: () => Promise.resolve({ data: [], error: null }),
+        }),
+      };
+    }
     throw new Error(`unexpected table in test double: ${table}`);
   });
 }
@@ -260,5 +274,124 @@ describe("handleReseed", () => {
       }),
     );
     expect(res.status).toBe(405);
+  });
+
+  it("reseeds each active manifest root once when a companion is also demo-flagged", async () => {
+    // Arrange
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "accounts") {
+        return {
+          select: () => ({
+            eq: () =>
+              Promise.resolve({
+                data: [
+                  { id: 10, kind: "household" },
+                  { id: 11, kind: "shadchanus" },
+                ],
+                error: null,
+              }),
+          }),
+        };
+      }
+      if (table === "demo_run_accounts") {
+        return {
+          select: () => ({
+            in: () =>
+              Promise.resolve({
+                data: [
+                  { account_id: 10, run_id: 99 },
+                  { account_id: 11, run_id: 99 },
+                ],
+                error: null,
+              }),
+          }),
+        };
+      }
+      if (table === "demo_runs") {
+        return {
+          select: () => ({
+            in: () =>
+              Promise.resolve({
+                data: [{ id: 99, root_account_id: 10, status: "active" }],
+                error: null,
+              }),
+          }),
+        };
+      }
+      throw new Error(`unexpected table in test double: ${table}`);
+    });
+    mockReseedAccount.mockResolvedValue({
+      accountId: 10,
+      accountKind: "household",
+      status: "ok",
+      dataState: "seeded",
+      cleared: true,
+      seeded: true,
+    });
+
+    // Act
+    const res = await handleReseed(postRequest(`Bearer ${ADMIN_SECRET}`));
+    const body = await res.json();
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(body.processed).toBe(1);
+    expect(mockReseedAccount).toHaveBeenCalledTimes(1);
+    expect(mockReseedAccount).toHaveBeenCalledWith(10, "household");
+  });
+
+  it("includes a retained failed-run root even when accounts.demo is already false", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "accounts") {
+        return {
+          select: () => ({
+            eq: () => Promise.resolve({ data: [], error: null }),
+            in: () =>
+              Promise.resolve({
+                data: [{ id: 44, kind: "household" }],
+                error: null,
+              }),
+          }),
+        };
+      }
+      if (table === "demo_runs") {
+        return {
+          select: () => ({
+            in: () =>
+              Promise.resolve({
+                data: [{ id: 144, root_account_id: 44, status: "failed" }],
+                error: null,
+              }),
+          }),
+        };
+      }
+      if (table === "demo_run_accounts") {
+        return {
+          select: () => ({
+            in: () =>
+              Promise.resolve({
+                data: [{ account_id: 44, run_id: 144 }],
+                error: null,
+              }),
+          }),
+        };
+      }
+      throw new Error(`unexpected table in test double: ${table}`);
+    });
+    mockReseedAccount.mockResolvedValue({
+      accountId: 44,
+      accountKind: "household",
+      status: "ok",
+      dataState: "seeded",
+      cleared: true,
+      seeded: true,
+    });
+
+    const res = await handleReseed(postRequest(`Bearer ${ADMIN_SECRET}`));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.processed).toBe(1);
+    expect(mockReseedAccount).toHaveBeenCalledWith(44, "household");
   });
 });

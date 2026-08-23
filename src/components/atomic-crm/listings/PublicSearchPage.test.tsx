@@ -2,6 +2,7 @@ import { render } from "vitest-browser-react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { PublicListing } from "./publicListingsClient";
+import { DemoPreviewDeniedError } from "./demoListingsClient";
 import { PublicSearchPage } from "./PublicSearchPage";
 import type { PublicSearchUrl } from "./publicSearchUrl";
 
@@ -81,6 +82,52 @@ describe("PublicSearchPage — idle state (AC-6)", () => {
       .toHaveTextContent(/start typing to search/i);
     await sleep(400);
     expect(loadListings).not.toHaveBeenCalled();
+  });
+});
+
+describe("PublicSearchPage — authenticated demo preview", () => {
+  it("labels the sandbox, offers a back action, and loads the showcase without a query", async () => {
+    const loadListings = vi.fn(() =>
+      Promise.resolve([shadchanListing({ shadchan_name: "Leah Feldman" })]),
+    );
+    const screen = await render(
+      <PublicSearchPage
+        url={url({ search: "?demo=1" })}
+        demoPreview
+        loadListings={loadListings}
+      />,
+    );
+
+    await expect
+      .element(screen.getByTestId("demo-preview-label"))
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("link", { name: /back to myshadchan/i }))
+      .toHaveAttribute("href", "/");
+    await expect
+      .poll(() => loadListings.mock.calls.length, { timeout: 2000 })
+      .toBe(1);
+    expect(loadListings).toHaveBeenCalledWith({ text: undefined });
+    await expect.element(screen.getByText("Leah Feldman")).toBeVisible();
+  });
+
+  it("does not fall back to ordinary listings when the caller's bundle is inactive", async () => {
+    const loadListings = vi.fn(() =>
+      Promise.reject(new DemoPreviewDeniedError("inactive")),
+    );
+    const screen = await render(
+      <PublicSearchPage demoPreview loadListings={loadListings} url={url()} />,
+    );
+
+    await expect
+      .element(screen.getByTestId("demo-preview-denied"))
+      .toBeVisible();
+    await expect
+      .element(screen.getByText(/inactive or belongs to another account/i))
+      .toBeVisible();
+    expect(
+      screen.container.querySelector('[data-testid="public-search-empty"]'),
+    ).toBeNull();
   });
 });
 

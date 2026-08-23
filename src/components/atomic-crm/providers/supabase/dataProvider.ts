@@ -15,6 +15,7 @@ import type {
   ChildGrantPreview,
   Connection,
   ConnectionInvitePreview,
+  DemoOnboardingState,
   CreateReferenceForShidduchInput,
   CreateShidduchInput,
   CreateThreadInput,
@@ -981,6 +982,34 @@ export const getDataProviderWithCustomMethods = () => {
         console.error("set_active_context.error", error);
         throw new Error("Couldn't switch context. Try again.");
       }
+    },
+    async prepareDemoOnboarding(): Promise<DemoOnboardingState> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "prepare_demo_onboarding",
+      );
+      if (error || !data) {
+        console.error("prepare_demo_onboarding.error", error);
+        throw new Error("Couldn't prepare the demo. Try again.");
+      }
+      return data as DemoOnboardingState;
+    },
+    async cancelDemoOnboarding(): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("cancel_demo_onboarding");
+      if (error) {
+        console.error("cancel_demo_onboarding.error", error);
+        throw new Error("Couldn't finish onboarding. Try again.");
+      }
+    },
+    async getDemoOnboardingState(): Promise<DemoOnboardingState | null> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "get_demo_onboarding_state",
+      );
+      if (error) {
+        console.error("get_demo_onboarding_state.error", error);
+        throw new Error("Failed to load onboarding state");
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return row ? (row as DemoOnboardingState) : null;
     },
     // "What am I" (2.2 AC-8, 2.3 AC-9): the one read `OnboardingGate` and the
     // onboarding screen both call. Fail-loud, unlike `currentAccountDemo`

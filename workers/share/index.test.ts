@@ -17,22 +17,37 @@ const env = {
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
 };
 
-const { tables, insertedLogs, storageDownload, storageFrom, resetFakeDb } =
-  vi.hoisted(() => {
-    const tables: Tables = {};
-    const insertedLogs: Row[] = [];
-    const storageDownload = vi.fn();
-    const storageFrom = vi.fn(() => ({ download: storageDownload }));
+const {
+  tables,
+  insertedLogs,
+  storageDownload,
+  storageFrom,
+  queryErrors,
+  resetFakeDb,
+} = vi.hoisted(() => {
+  const tables: Tables = {};
+  const insertedLogs: Row[] = [];
+  const storageDownload = vi.fn();
+  const storageFrom = vi.fn(() => ({ download: storageDownload }));
+  const queryErrors: Record<string, { message: string } | null> = {};
 
-    function resetFakeDb() {
-      for (const key of Object.keys(tables)) delete tables[key];
-      insertedLogs.length = 0;
-      storageDownload.mockReset();
-      storageFrom.mockClear();
-    }
+  function resetFakeDb() {
+    for (const key of Object.keys(tables)) delete tables[key];
+    for (const key of Object.keys(queryErrors)) delete queryErrors[key];
+    insertedLogs.length = 0;
+    storageDownload.mockReset();
+    storageFrom.mockClear();
+  }
 
-    return { tables, insertedLogs, storageDownload, storageFrom, resetFakeDb };
-  });
+  return {
+    tables,
+    insertedLogs,
+    storageDownload,
+    storageFrom,
+    queryErrors,
+    resetFakeDb,
+  };
+});
 
 function matches(row: Row, filters: Array<[string, unknown]>): boolean {
   // Loose (`==`) equality, not strict: real PostgREST compares over HTTP
@@ -69,6 +84,10 @@ function makeQuery(tableName: string) {
       filters.push([col, val]);
       return builder;
     },
+    in: (col: string, values: unknown[]) => {
+      filters.push([col, values]);
+      return builder;
+    },
     is: (col: string, val: unknown) => {
       filters.push([col, val]);
       return builder;
@@ -76,8 +95,15 @@ function makeQuery(tableName: string) {
     order: () => builder,
     limit: () => builder,
     async maybeSingle() {
+      if (queryErrors[tableName]) {
+        return { data: null, error: queryErrors[tableName] };
+      }
       const rows = (tables[tableName] ?? []).filter((row) =>
-        matches(row, filters),
+        filters.every(([col, val]) =>
+          Array.isArray(val)
+            ? val.includes(row[col])
+            : matches(row, [[col, val]]),
+        ),
       );
       const row = rows[0];
       return { data: row ? project(row, columns) : null, error: null };
@@ -155,6 +181,60 @@ function seedPhoto(overrides: Partial<Row> = {}): void {
     visibility: "shared",
     hidden_at: null,
     uploaded_at: new Date().toISOString(),
+    ...overrides,
+  });
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const bytes = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(bytes), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+const DEMO_SNAPSHOT_BYTES =
+  "%PDF-1.4\nDemo copy - prepared for Leah Feldman\n%%EOF";
+const DEMO_SNAPSHOT_BASE64 = btoa(DEMO_SNAPSHOT_BYTES);
+
+function seedDemoRun(
+  accountId = 1,
+  runId = 7,
+  status: "seeding" | "active" | "clearing" | "failed" = "active",
+): void {
+  (tables.demo_run_accounts ??= []).push({
+    account_id: accountId,
+    run_id: runId,
+  });
+  (tables.demo_runs ??= []).push({ id: runId, status });
+}
+
+async function seedDemoSnapshot(
+  token: string,
+  overrides: Partial<Row> = {},
+): Promise<void> {
+  (tables.demo_share_snapshots ??= []).push({
+    run_id: 7,
+    share_link_id: 1,
+    token_hash: await sha256Hex(token),
+    snapshot: {
+      single: { first_name_en: "Snapshot Rivky", first_name_he: "" },
+      files: [
+        {
+          fileKey: "resume-0",
+          filename: "snapshot.pdf",
+          mimeType: "application/pdf",
+          size: DEMO_SNAPSHOT_BYTES.length,
+          bytesBase64: DEMO_SNAPSHOT_BASE64,
+          sha256: await sha256Hex(DEMO_SNAPSHOT_BYTES),
+          preWatermarked: true,
+        },
+      ],
+    },
+    expires_at: new Date(Date.now() + 60_000).toISOString(),
+    revoked_at: null,
     ...overrides,
   });
 }
@@ -250,6 +330,137 @@ describe("share worker", () => {
   });
 
   describe("GET /r/:token", () => {
+    it("serves an active demo link from its immutable pre-watermarked snapshot", async () => {
+      // Arrange
+      const link = seedShareLink();
+      seedDemoRun(1, 7, "active");
+      await seedDemoSnapshot(link.token as string);
+      seedSingle({ first_name_en: "Live replacement" });
+      seedResume({
+        files: [
+          {
+            path: "1/live/replacement.pdf",
+            filename: "live-replacement.pdf",
+            mime_type: "application/pdf",
+            size: 999,
+          },
+        ],
+      });
+
+      // Act
+      const res = await app.request(`/r/${link.token}`, {}, env);
+      const body = (await res.json()) as {
+        data: {
+          single: { first_name_en: string | null };
+          files: Array<{ filename: string | null }>;
+        };
+      };
+
+      // Assert
+      expect(res.status).toBe(200);
+      expect(body.data.single.first_name_en).toBe("Snapshot Rivky");
+      expect(body.data.files[0]).toEqual({
+        fileKey: "resume-0",
+        filename: "snapshot.pdf",
+        mimeType: "application/pdf",
+        size: DEMO_SNAPSHOT_BYTES.length,
+        downloadUrl: `/r/${link.token}/file/resume-0`,
+      });
+      const publicManifest = JSON.stringify(body.data);
+      expect(publicManifest).not.toContain("bytesBase64");
+      expect(publicManifest).not.toContain("immutablePath");
+      expect(publicManifest).not.toContain("sha256");
+      expect(publicManifest).not.toContain("preWatermarked");
+      expect(publicManifest).not.toContain("storagePath");
+      expect(publicManifest).not.toContain("1/live/replacement.pdf");
+      expect(storageFrom).not.toHaveBeenCalled();
+    });
+
+    it.each(["seeding", "clearing", "failed"] as const)(
+      "fails closed while the exact demo run is %s",
+      async (status) => {
+        const link = seedShareLink();
+        seedDemoRun(1, 7, status);
+        await seedDemoSnapshot(link.token as string);
+
+        const res = await app.request(`/r/${link.token}`, {}, env);
+
+        expect(res.status).toBe(404);
+        expect(storageFrom).not.toHaveBeenCalled();
+      },
+    );
+
+    it("fails closed for an unfinished demo link with no immutable snapshot", async () => {
+      // Arrange
+      const link = seedShareLink();
+      seedDemoRun();
+      seedSingle();
+      seedResume();
+
+      // Act
+      const res = await app.request(`/r/${link.token}`, {}, env);
+
+      // Assert
+      expect(res.status).toBe(404);
+      expect(storageFrom).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when immutable snapshot lookup errors and never reads live storage", async () => {
+      // Arrange
+      const link = seedShareLink();
+      seedDemoRun();
+      seedSingle();
+      seedResume();
+      queryErrors.demo_share_snapshots = {
+        message: "snapshot store unavailable",
+      };
+
+      // Act
+      const res = await app.request(`/r/${link.token}`, {}, env);
+
+      // Assert
+      expect(res.status).toBe(404);
+      expect(storageFrom).not.toHaveBeenCalled();
+    });
+
+    it("binds a snapshot to the exact share link and run", async () => {
+      const link = seedShareLink();
+      seedDemoRun(1, 7, "active");
+      await seedDemoSnapshot(link.token as string, { share_link_id: 999 });
+
+      const res = await app.request(`/r/${link.token}`, {}, env);
+
+      expect(res.status).toBe(404);
+      expect(storageFrom).not.toHaveBeenCalled();
+    });
+
+    it("rejects demo snapshots that carry an immutable Storage path", async () => {
+      const link = seedShareLink();
+      seedDemoRun(1, 7, "active");
+      await seedDemoSnapshot(link.token as string, {
+        snapshot: {
+          single: { first_name_en: "Snapshot Rivky", first_name_he: "" },
+          files: [
+            {
+              fileKey: "resume-0",
+              filename: "snapshot.pdf",
+              mimeType: "application/pdf",
+              size: DEMO_SNAPSHOT_BYTES.length,
+              bytesBase64: DEMO_SNAPSHOT_BASE64,
+              immutablePath: "live/should-never-be-used.pdf",
+              sha256: await sha256Hex(DEMO_SNAPSHOT_BYTES),
+              preWatermarked: true,
+            },
+          ],
+        },
+      });
+
+      const res = await app.request(`/r/${link.token}`, {}, env);
+
+      expect(res.status).toBe(404);
+      expect(storageFrom).not.toHaveBeenCalled();
+    });
+
     it("returns 200 + the envelope for a valid, unexpired, unrevoked token", async () => {
       // Arrange
       const link = seedShareLink();
@@ -591,6 +802,46 @@ describe("share worker", () => {
   });
 
   describe("GET /r/:token/file/:fileKey", () => {
+    it("serves embedded immutable demo bytes and never reads live Storage", async () => {
+      const link = seedShareLink({ watermark: true });
+      seedDemoRun(1, 7, "active");
+      await seedDemoSnapshot(link.token as string);
+
+      const res = await app.request(`/r/${link.token}/file/resume-0`, {}, env);
+
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain(
+        "Demo copy - prepared for Leah Feldman",
+      );
+      expect(storageFrom).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when embedded demo bytes do not match their recorded digest", async () => {
+      const link = seedShareLink();
+      seedDemoRun(1, 7, "active");
+      await seedDemoSnapshot(link.token as string, {
+        snapshot: {
+          single: { first_name_en: "Snapshot Rivky", first_name_he: "" },
+          files: [
+            {
+              fileKey: "resume-0",
+              filename: "snapshot.pdf",
+              mimeType: "application/pdf",
+              size: DEMO_SNAPSHOT_BYTES.length,
+              bytesBase64: DEMO_SNAPSHOT_BASE64,
+              sha256: "0".repeat(64),
+              preWatermarked: true,
+            },
+          ],
+        },
+      });
+
+      const res = await app.request(`/r/${link.token}/file/resume-0`, {}, env);
+
+      expect(res.status).toBe(404);
+      expect(storageFrom).not.toHaveBeenCalled();
+    });
+
     it("streams the resume bytes through the Worker's own response, never a redirect", async () => {
       // Arrange
       const link = seedShareLink();
@@ -613,6 +864,24 @@ describe("share worker", () => {
       );
       const text = await res.text();
       expect(text).toContain("fake bytes");
+    });
+
+    it("keeps ordinary production storage semantics when watermark is enabled", async () => {
+      const link = seedShareLink({ watermark: true });
+      seedSingle();
+      seedResume();
+      const blob = new Blob(["production-bytes"], {
+        type: "application/pdf",
+      });
+      storageDownload.mockResolvedValue({ data: blob, error: null });
+
+      const res = await app.request(`/r/${link.token}/file/resume-0`, {}, env);
+
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("production-bytes");
+      expect(storageDownload).toHaveBeenCalledExactlyOnceWith(
+        "1/resumes/single-1/abc-resume.pdf",
+      );
     });
 
     it("writes a share_access_log row with resource 'resume:<fileKey>' and a non-null duration_ms", async () => {

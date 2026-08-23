@@ -26,9 +26,11 @@ const buildDataProvider = (overrides: {
   getMyPersonas: () => Promise<unknown[]>;
   currentAccountDemo: () => Promise<boolean>;
   getMyContexts?: () => Promise<unknown[]>;
+  getDemoOnboardingState?: () => Promise<unknown>;
 }): DataProvider =>
   ({
     getMyContexts: () => Promise.resolve([]),
+    getDemoOnboardingState: () => Promise.resolve(null),
     ...overrides,
   }) as unknown as DataProvider;
 
@@ -187,6 +189,77 @@ describe("OnboardingGate", () => {
     const screen = await renderGate(dataProvider);
 
     // Assert
+    await expect.element(screen.getByText("The signed-in app")).toBeVisible();
+    await expect
+      .element(screen.getByText("Welcome to MyShadchan"))
+      .not.toBeInTheDocument();
+  });
+
+  it("holds the shell during a pending onboarding-intent read", async () => {
+    const dataProvider = buildDataProvider({
+      getMyPersonas: () => Promise.resolve([{ persona: "parent" }]),
+      currentAccountDemo: () => Promise.resolve(false),
+      getDemoOnboardingState: () => new Promise(() => {}),
+    });
+
+    const screen = await renderGate(dataProvider);
+
+    await expect
+      .element(screen.getByTestId("onboarding-gate-loading"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("The signed-in app"))
+      .not.toBeInTheDocument();
+  });
+
+  it("fails toward the shell when the onboarding-intent read errors", async () => {
+    let intentSettled = false;
+    const dataProvider = buildDataProvider({
+      getMyPersonas: () => Promise.resolve([]),
+      currentAccountDemo: () => Promise.resolve(false),
+      getDemoOnboardingState: async () => {
+        intentSettled = true;
+        throw new Error("intent unavailable");
+      },
+    });
+
+    const screen = await renderGate(dataProvider);
+
+    await vi.waitFor(() => expect(intentSettled).toBe(true));
+    await expect.element(screen.getByText("The signed-in app")).toBeVisible();
+    await expect
+      .element(screen.getByText("Welcome to MyShadchan"))
+      .not.toBeInTheDocument();
+  });
+
+  it("reopens onboarding for a failed seed after the parent persona exists", async () => {
+    const dataProvider = buildDataProvider({
+      getMyPersonas: () => Promise.resolve([{ persona: "parent" }]),
+      currentAccountDemo: () => Promise.resolve(false),
+      getDemoOnboardingState: () =>
+        Promise.resolve({ state: "failed", account_id: 42, attempts: 1 }),
+    });
+
+    const screen = await renderGate(dataProvider);
+
+    await expect
+      .element(screen.getByText("Welcome to MyShadchan"))
+      .toBeVisible();
+    await expect
+      .element(screen.getByText("The signed-in app"))
+      .not.toBeInTheDocument();
+  });
+
+  it("does not treat an established customer’s unlinked pending intent as onboarding", async () => {
+    const dataProvider = buildDataProvider({
+      getMyPersonas: () => Promise.resolve([{ persona: "parent" }]),
+      currentAccountDemo: () => Promise.resolve(false),
+      getDemoOnboardingState: () =>
+        Promise.resolve({ state: "pending", account_id: null, attempts: 1 }),
+    });
+
+    const screen = await renderGate(dataProvider);
+
     await expect.element(screen.getByText("The signed-in app")).toBeVisible();
     await expect
       .element(screen.getByText("Welcome to MyShadchan"))

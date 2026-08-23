@@ -29,7 +29,9 @@ export const InboxCapturePreview = ({ item }: { item: InboxItem }) => {
 
   const handleOpenAttachment = async (attachment: InboxAttachment) => {
     try {
-      const url = await signInboxAttachmentUrl(attachment.path);
+      const url = attachment.src.startsWith("data:")
+        ? attachment.src
+        : await signInboxAttachmentUrl(attachment.path);
       window.open(url, "_blank", "noopener,noreferrer");
     } catch (error) {
       notify(

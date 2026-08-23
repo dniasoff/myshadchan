@@ -30,6 +30,19 @@ describe("App — the public search route (Story 9.4, AC-1)", () => {
       )
       .toBeVisible();
   });
+
+  it("renders the explicit authenticated demo preview mode for /find?demo=1", async () => {
+    const screen = await render(
+      <App url={{ pathname: "/find", search: "?demo=1", hash: "" }} />,
+    );
+
+    await expect
+      .element(screen.getByTestId("demo-preview-label"))
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("link", { name: /back to myshadchan/i }))
+      .toBeVisible();
+  });
 });
 
 /**

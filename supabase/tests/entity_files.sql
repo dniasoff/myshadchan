@@ -283,13 +283,21 @@ exception when others then
 end $$;
 
 do $$
+declare v_id bigint; v_account_id bigint;
 begin
-  insert into public.singles (first_name_en) values ('EF Single (should never land)');
-  insert into results values ('(c) contrast control: insert into public.singles still raises with C active', false, 'insert succeeded');
+  insert into public.singles (first_name_en, gender)
+  values ('EF Shadchanus Single', 'female')
+  returning id into v_id;
+  select account_id into v_account_id from public.singles where id = v_id;
+  insert into results values (
+    '(c) actor-scope control: standalone shadchanus may own a singles row',
+    v_account_id = (select value::bigint from ids where name = 'acct_c'),
+    format('account_id=%s', v_account_id)
+  );
 exception when others then
   insert into results values (
-    '(c) contrast control: insert into public.singles still raises with C active',
-    sqlerrm like '%is not a household-kind account%', sqlerrm
+    '(c) actor-scope control: standalone shadchanus may own a singles row',
+    false, sqlerrm
   );
 end $$;
 

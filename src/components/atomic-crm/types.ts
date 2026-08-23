@@ -250,6 +250,12 @@ export type MyPersona = {
   role: MemberRole;
 };
 
+export type DemoOnboardingState = {
+  state: "pending" | "failed" | "completed";
+  account_id: number | null;
+  attempts: number;
+};
+
 /** One row of `public.my_contexts()`'s return shape (2.4 AC-5) — "which
  * context can I switch to, and is it the one I'm in now." One row per
  * account regardless of how many personas the caller holds within it —
@@ -1579,4 +1585,6 @@ export type ShareAccessLog = {
   duration_ms?: number | null;
   recipient_name?: string;
   recipient_shadchan_id?: Identifier | null;
+  /** True for local/demo receipts; production rows are provider-owned. */
+  simulated?: boolean;
 } & Pick<RaRecord, "id">;

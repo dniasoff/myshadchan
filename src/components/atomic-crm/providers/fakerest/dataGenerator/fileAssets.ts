@@ -32,16 +32,105 @@ export const SEEDED_FILE_BLOBS: unique symbol = Symbol("seededFileBlobs");
 
 type SeededDb = Db & { [SEEDED_FILE_BLOBS]?: SeededFileBlobs };
 
+const DEMO_ASSET_TIMESTAMP = "2026-08-01T00:00:00.000Z";
+const DEMO_REFERENCE_TIME = new Date(DEMO_ASSET_TIMESTAMP).getTime();
+
+type DemoProfileSubject =
+  | { singleId: number; shidduchimId?: never }
+  | { singleId?: never; shidduchimId: number };
+
+export interface DemoProfileAsset {
+  name: string;
+  slug: string;
+  subject: DemoProfileSubject;
+  sex: "female" | "male";
+  targetSingleId: 1 | 2 | null;
+  resumeAsset: AssetKey;
+  previousResumeAssets?: readonly AssetKey[];
+  photoAsset: AssetKey;
+  visibility: ResumePhoto["visibility"];
+}
+
+/**
+ * Canonical identity-to-asset contract for the rich demo. Shidduch ids 1-13
+ * are men suggested to Rivky; ids 14-20 are women suggested to Yaakov.
+ */
+export const DEMO_PROFILE_ASSETS: readonly DemoProfileAsset[] = [
+  {
+    name: "Rivky Klein",
+    slug: "rivky-klein",
+    subject: { singleId: 1 },
+    sex: "female",
+    targetSingleId: null,
+    resumeAsset: "resumes/rivky-klein.pdf",
+    previousResumeAssets: ["resumes/rivky-klein-2025.pdf"],
+    photoAsset: "portraits/rivky-klein.jpg",
+    visibility: "shared",
+  },
+  {
+    name: "Yaakov Klein",
+    slug: "yaakov-klein",
+    subject: { singleId: 2 },
+    sex: "male",
+    targetSingleId: null,
+    resumeAsset: "resumes/yaakov-klein.pdf",
+    previousResumeAssets: ["resumes/yaakov-klein-2025.pdf"],
+    photoAsset: "portraits/yaakov-klein.jpg",
+    visibility: "shared",
+  },
+  ...[
+    [1, 1, "Ari Rosenberg", "ari-rosenberg", "shared"],
+    [2, 1, "Menachem Stern", "menachem-stern", "shared"],
+    [3, 1, "Boruch Sofer", "boruch-sofer", "shared"],
+    [4, 1, "Dovid Berkowitz", "dovid-berkowitz", "shared"],
+    [5, 1, "Shmuli Katz", "shmuli-katz", "shared"],
+    [6, 1, "Yisroel Fried", "yisroel-fried", "private_parent"],
+    [7, 1, "Yehuda Klein", "yehuda-klein", "shared"],
+    [8, 1, "Moshe Diamond", "moshe-diamond", "shared"],
+    [9, 1, "Eli Traube", "eli-traube", "shared"],
+    [10, 1, "Chaim Landau", "chaim-landau", "shared"],
+    [11, 1, "Yosef Gross", "yosef-gross", "shared"],
+    [12, 1, "Tzvi Adler", "tzvi-adler", "shared"],
+    [13, 1, "Naftali Berger", "naftali-berger", "shared"],
+    [14, 2, "Leah Steinberg", "leah-steinberg", "shared"],
+    [15, 2, "Miriam Roth", "miriam-roth", "shared"],
+    [16, 2, "Sara Weinberg", "sara-weinberg", "shared"],
+    [17, 2, "Tamar Weiss", "tamar-weiss", "shared"],
+    [18, 2, "Ariella Cohen", "ariella-cohen", "private_parent"],
+    [19, 2, "Chani Levine", "chani-levine", "shared"],
+    [20, 2, "Miriam Kaplan", "miriam-kaplan", "shared"],
+  ].map(([id, targetSingleId, name, slug, visibility]) => ({
+    name: name as string,
+    slug: slug as string,
+    subject: { shidduchimId: id as number },
+    sex: (targetSingleId === 1 ? "male" : "female") as "male" | "female",
+    targetSingleId: targetSingleId as 1 | 2,
+    resumeAsset: `resumes/${slug}.pdf` as AssetKey,
+    previousResumeAssets:
+      slug === "menachem-stern"
+        ? (["resumes/menachem-stern-2025.pdf"] as readonly AssetKey[])
+        : undefined,
+    photoAsset: `portraits/${slug}.jpg` as AssetKey,
+    visibility: visibility as ResumePhoto["visibility"],
+  })),
+];
+
+const BASELINE_PROFILE_ASSETS = DEMO_PROFILE_ASSETS.filter(
+  (profile) =>
+    profile.subject.singleId != null ||
+    (profile.subject.shidduchimId != null && profile.subject.shidduchimId <= 6),
+);
+
 function createResumeFileEntry(
   accountId: number,
   file: File,
   ownerSegment: string,
 ): { path: string; entry: ResumeFileVersion } {
-  const path = `${accountId}/resumes/${ownerSegment}/${crypto.randomUUID()}-${file.name}`;
+  const path = `${accountId}/resumes/${ownerSegment}/demo-${file.name}`;
   const entry: ResumeFileVersion = {
     path,
     filename: file.name,
-    uploaded_at: new Date().toISOString(),
+    uploaded_at: DEMO_ASSET_TIMESTAMP,
     uploaded_by: null,
     mime_type: file.type || "application/octet-stream",
     size: file.size,
@@ -55,7 +144,7 @@ function createResumePhotoEntry(
   visibility: ResumePhoto["visibility"],
   ownerSegment: string,
 ): { path: string } {
-  const path = `${accountId}/photos/${visibility}/${ownerSegment}/${crypto.randomUUID()}-${file.name}`;
+  const path = `${accountId}/photos/${visibility}/${ownerSegment}/demo-${file.name}`;
   return { path };
 }
 
@@ -65,9 +154,7 @@ function createEntityFileEntry(
   targetType: EntityFile["target_type"],
   targetId: number,
 ): { path: string } {
-  const ext = file.name.split(".").pop();
-  const suffix = ext ? `.${ext}` : "";
-  const path = `${accountId}/${targetType}/${targetId}/${crypto.randomUUID()}${suffix}`;
+  const path = `${accountId}/${targetType}/${targetId}/demo-${file.name}`;
   return { path };
 }
 
@@ -89,7 +176,104 @@ function ownerSegmentForResume(subject: {
 }
 
 function daysAgoIso(days: number): string {
-  return new Date(Date.now() - days * 86_400_000).toISOString();
+  return new Date(DEMO_REFERENCE_TIME - days * 86_400_000).toISOString();
+}
+
+function profileResume(db: Db, subject: DemoProfileSubject) {
+  return db.resumes.find(
+    (resume) =>
+      (subject.singleId != null && resume.single_id === subject.singleId) ||
+      (subject.shidduchimId != null &&
+        resume.shidduchim_id === subject.shidduchimId),
+  );
+}
+
+function seedProfileAssets(
+  db: Db,
+  blobs: SeededFileBlobs,
+  profiles: readonly DemoProfileAsset[],
+): void {
+  const accountId = Number(db.accounts?.[0]?.id ?? 1);
+
+  for (const profile of profiles) {
+    let resume = profileResume(db, profile.subject);
+    const resumeAssets = [
+      ...(profile.previousResumeAssets ?? []),
+      profile.resumeAsset,
+    ];
+
+    for (const resumeAsset of resumeAssets) {
+      const expectedName = assetFileName(resumeAsset);
+      if (resume?.files?.some((file) => file.filename === expectedName)) {
+        continue;
+      }
+
+      const file = base64ToFile(resumeAsset);
+      const segment = ownerSegmentForResume(profile.subject);
+      const { path, entry } = createResumeFileEntry(accountId, file, segment);
+      blobs.resumeFiles.set(path, URL.createObjectURL(file));
+
+      if (resume) {
+        resume.files = [...(resume.files ?? []), entry];
+      } else {
+        resume = {
+          id: nextId(db.resumes),
+          account_id: accountId,
+          single_id: profile.subject.singleId ?? null,
+          shidduchim_id: profile.subject.shidduchimId ?? null,
+          files: [entry],
+          extracted: null,
+          sections: null,
+          created_at: DEMO_ASSET_TIMESTAMP,
+        };
+        db.resumes.push(resume);
+      }
+    }
+
+    if (!resume) {
+      throw new Error(`resume was not created for ${profile.slug}`);
+    }
+
+    const expectedPhotoName = assetFileName(profile.photoAsset);
+    const alreadyHasPhoto = db.resume_photos.some(
+      (photo) =>
+        photo.resume_id === resume.id &&
+        photo.path.endsWith(`-${expectedPhotoName}`),
+    );
+    if (alreadyHasPhoto) continue;
+
+    const photoFile = base64ToFile(profile.photoAsset);
+    const segment = ownerSegmentForResume(profile.subject);
+    const { path } = createResumePhotoEntry(
+      accountId,
+      photoFile,
+      profile.visibility,
+      segment,
+    );
+    blobs.resumePhotos.set(path, URL.createObjectURL(photoFile));
+    db.resume_photos.push({
+      id: nextId(db.resume_photos),
+      account_id: accountId,
+      resume_id: resume.id,
+      path,
+      uploaded_at: DEMO_ASSET_TIMESTAMP,
+      visibility: profile.visibility,
+      hidden_at: null,
+    });
+  }
+}
+
+/** Add the full profile asset set after the showcase overlay adds ids 17-20. */
+export function seedShowcaseProfileAssets(db: Db): SeededDb {
+  const seededDb = db as SeededDb;
+  const blobs = seededDb[SEEDED_FILE_BLOBS] ?? {
+    resumeFiles: new Map<string, string>(),
+    resumePhotos: new Map<string, string>(),
+    entityFiles: new Map<string, string>(),
+  };
+  seedProfileAssets(db, blobs, DEMO_PROFILE_ASSETS);
+  seededDb[SEEDED_FILE_BLOBS] = blobs;
+  return seededDb;
 }
 
 /**
@@ -110,90 +294,6 @@ export function seedFileAssetsAndRelatedData(db: Db): SeededDb {
   };
 
   const accountId = Number(db.accounts?.[0]?.id ?? 1);
-
-  // Helper: ensure a resumes row exists for a subject and append a file.
-  function appendResumeFile(
-    subject: { singleId?: number; shidduchimId?: number },
-    assetKey: AssetKey,
-  ): void {
-    const file = base64ToFile(assetKey);
-    const segment = ownerSegmentForResume(subject);
-    const { path, entry } = createResumeFileEntry(accountId, file, segment);
-    blobs.resumeFiles.set(path, URL.createObjectURL(file));
-
-    let resume = db.resumes.find(
-      (r) =>
-        (subject.singleId != null && r.single_id === subject.singleId) ||
-        (subject.shidduchimId != null &&
-          r.shidduchim_id === subject.shidduchimId),
-    );
-    if (resume) {
-      resume.files = [...(resume.files ?? []), entry];
-    } else {
-      const id = nextId(db.resumes);
-      resume = {
-        id,
-        account_id: accountId,
-        single_id: subject.singleId ?? null,
-        shidduchim_id: subject.shidduchimId ?? null,
-        files: [entry],
-        extracted: null,
-        sections: null,
-        created_at: new Date().toISOString(),
-      };
-      db.resumes.push(resume);
-    }
-  }
-
-  // Helper: ensure a resumes row exists for a subject and insert a photo row.
-  function insertResumePhoto(
-    subject: { singleId?: number; shidduchimId?: number },
-    assetKey: AssetKey,
-    visibility: ResumePhoto["visibility"],
-  ): void {
-    const file = base64ToFile(assetKey);
-    const segment = ownerSegmentForResume(subject);
-    const { path } = createResumePhotoEntry(
-      accountId,
-      file,
-      visibility,
-      segment,
-    );
-    blobs.resumePhotos.set(path, URL.createObjectURL(file));
-
-    let resume = db.resumes.find(
-      (r) =>
-        (subject.singleId != null && r.single_id === subject.singleId) ||
-        (subject.shidduchimId != null &&
-          r.shidduchim_id === subject.shidduchimId),
-    );
-    if (!resume) {
-      const id = nextId(db.resumes);
-      resume = {
-        id,
-        account_id: accountId,
-        single_id: subject.singleId ?? null,
-        shidduchim_id: subject.shidduchimId ?? null,
-        files: [],
-        extracted: null,
-        sections: null,
-        created_at: new Date().toISOString(),
-      };
-      db.resumes.push(resume);
-    }
-
-    const photoId = nextId(db.resume_photos);
-    const photo: ResumePhoto = {
-      id: photoId,
-      account_id: accountId,
-      resume_id: resume.id,
-      path,
-      uploaded_at: new Date().toISOString(),
-      visibility,
-      hidden_at: null,
-    };
-    db.resume_photos.push(photo);
-  }
 
   // Helper: insert an entity_files row and register the blob.
   function insertEntityFile(
@@ -228,35 +328,9 @@ export function seedFileAssetsAndRelatedData(db: Db): SeededDb {
     db.entity_files.push(entityFile);
   }
 
-  // Resume files: the two singles + six representative shidduchim.
-  appendResumeFile({ singleId: 1 }, "resumes/rivky-stern.pdf");
-  appendResumeFile({ singleId: 2 }, "resumes/yaakov-stern.pdf");
-  appendResumeFile({ shidduchimId: 1 }, "resumes/ahron-klein.pdf");
-  appendResumeFile({ shidduchimId: 2 }, "resumes/eliezer-katz.pdf");
-  appendResumeFile({ shidduchimId: 3 }, "resumes/yosef-mandel.pdf");
-  appendResumeFile({ shidduchimId: 4 }, "resumes/esther-malka-weiss.pdf");
-  appendResumeFile({ shidduchimId: 5 }, "resumes/devora-leah-gross.pdf");
-  appendResumeFile({ shidduchimId: 6 }, "resumes/shira-feldman.pdf");
-
-  // Resume photos: the two singles + four representative shidduchim.
-  insertResumePhoto({ singleId: 1 }, "portraits/rivky-stern.jpg", "shared");
-  insertResumePhoto({ singleId: 2 }, "portraits/yaakov-stern.jpg", "shared");
-  insertResumePhoto({ shidduchimId: 1 }, "portraits/ahron-klein.jpg", "shared");
-  insertResumePhoto(
-    { shidduchimId: 2 },
-    "portraits/eliezer-katz.jpg",
-    "shared",
-  );
-  insertResumePhoto(
-    { shidduchimId: 6 },
-    "portraits/shira-feldman.jpg",
-    "private_parent",
-  );
-  insertResumePhoto(
-    { shidduchimId: 4 },
-    "portraits/devora-leah-gross.jpg",
-    "shared",
-  );
+  // Keep the baseline fixture compact; the app-only showcase overlay fills
+  // the remaining profiles after it creates the final four suggestions.
+  seedProfileAssets(db, blobs, BASELINE_PROFILE_ASSETS);
 
   // Entity files: two shidduch files + one reference file.
   insertEntityFile("shidduch", 1, "misc/family-notes.pdf", "shared");

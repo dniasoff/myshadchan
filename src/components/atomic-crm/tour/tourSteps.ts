@@ -78,7 +78,7 @@ export const buildTourSteps = ({
     popover: {
       title: "You're exploring a sample family",
       description:
-        "Everything you see is realistic demo data — nothing here is real. This tour shows you around; you can clear the sample anytime from this banner.",
+        "Everything you see is realistic demo data — nothing here is real. Use Preview listings for the contained listing showcase, switch between Klein, Feldman, and Gross from Context, and open Sharing or Reminders for the simulated outcomes. You can clear the sample anytime from this banner.",
       side: "bottom",
       align: "start",
     },

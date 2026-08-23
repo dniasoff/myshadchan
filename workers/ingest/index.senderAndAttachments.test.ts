@@ -4,8 +4,10 @@ import {
   createSignedUrl,
   insertedRows,
   makeMessage,
+  remove,
   resetFakeDb,
   seedDefaultTables,
+  setInsertError,
   storageFrom,
   tables,
   upload,
@@ -127,6 +129,32 @@ describe("ingest worker: sender classification, attachments, forwarded-sender re
       // Assert
       expect(message.rejected).toHaveLength(1);
       expect(insertedRows.inbox_items).toBeUndefined();
+      errorSpy.mockRestore();
+    });
+
+    it("keeps the inbox insert failure visible when attachment removal also fails", async () => {
+      setInsertError({ message: "inbox write is down" });
+      remove.mockResolvedValueOnce({ error: { message: "remove is down" } });
+      const message = makeMessage({
+        raw: buildRawEmail({ attachmentFilename: "resume.pdf" }),
+      });
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await worker.email(message, TEST_ENV, {} as ExecutionContext);
+
+      expect(message.rejected).toEqual(["Could not process this email"]);
+      expect(errorSpy).toHaveBeenCalledWith(
+        "ingest.attachmentCompensation.error",
+        expect.objectContaining({
+          message: "Failed to compensate attachment upload: remove is down",
+        }),
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        "ingest.email.error",
+        expect.objectContaining({
+          message: "Failed to file inbox item: inbox write is down",
+        }),
+      );
       errorSpy.mockRestore();
     });
   });

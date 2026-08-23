@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockCreateUser = vi.hoisted(() => vi.fn());
+const mockListUsers = vi.hoisted(() => vi.fn());
 const mockDeleteUser = vi.hoisted(() => vi.fn());
 const mockFrom = vi.hoisted(() => vi.fn());
 
@@ -13,6 +14,7 @@ vi.mock("../_shared/supabaseAdmin.ts", () => ({
     auth: {
       admin: {
         createUser: (...args: [unknown]) => mockCreateUser(...args),
+        listUsers: (...args: [unknown]) => mockListUsers(...args),
         deleteUser: (...args: [string]) => mockDeleteUser(...args),
       },
     },
@@ -57,14 +59,214 @@ describe("createTempUser", () => {
 
     // Act / Assert
     await expect(createTempUser()).rejects.toThrow("quota exceeded");
+    expect(mockListUsers).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a committed user after a retryable returned 5xx create error", async () => {
+    mockCreateUser.mockResolvedValue({
+      data: { user: null },
+      error: { status: 503, message: "upstream response lost after commit" },
+    });
+    mockListUsers.mockImplementation(async () => {
+      const request = mockCreateUser.mock.calls[0]?.[0] as {
+        email: string;
+        app_metadata: Record<string, unknown>;
+      };
+      return {
+        data: {
+          users: [
+            {
+              id: "recovered-5xx-user",
+              email: request.email,
+              app_metadata: request.app_metadata,
+            },
+          ],
+        },
+        error: null,
+      };
+    });
+
+    await expect(createTempUser()).resolves.toMatchObject({
+      id: "recovered-5xx-user",
+    });
+    expect(mockListUsers).toHaveBeenCalled();
+  });
+
+  it("does not reconcile validation/auth errors returned by createUser", async () => {
+    mockCreateUser.mockImplementation(async (request: { email: string }) => ({
+      data: { user: null },
+      error: { status: 422, message: `invalid email ${request.email}` },
+    }));
+
+    let caught: unknown;
+    try {
+      await createTempUser();
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect(mockListUsers).not.toHaveBeenCalled();
+    const request = mockCreateUser.mock.calls[0]?.[0] as {
+      email: string;
+      password: string;
+    };
+    const message = (caught as Error).message;
+    expect(message).not.toContain(request.email);
+    expect(message).not.toContain(request.password);
   });
 
   it("throws a useful message instead of the literal string 'undefined' when the API returns no user and no error", async () => {
     // Arrange
     mockCreateUser.mockResolvedValue({ data: { user: null }, error: null });
+    mockListUsers.mockResolvedValue({ data: { users: [] }, error: null });
 
     // Act / Assert
     await expect(createTempUser()).rejects.toThrow("no user returned");
+  });
+
+  it("reconciles a committed Auth user when createUser loses its response", async () => {
+    // Arrange: GoTrue committed the row but the edge runtime received an
+    // empty success payload. The generated email plus server-managed marker
+    // identifies only the user created by this invocation.
+    mockCreateUser.mockResolvedValue({ data: { user: null }, error: null });
+    mockListUsers.mockResolvedValue({
+      data: {
+        users: [
+          {
+            id: "unrelated-user",
+            email: "other@atomic-crm-demo.internal",
+            app_metadata: { source: "admin_reseed_demo_accounts" },
+          },
+          {
+            id: "recovered-user",
+            email: "RECOVER-ME@ATOMIC-CRM-DEMO.INTERNAL",
+            app_metadata: { source: "admin_reseed_demo_accounts" },
+          },
+        ],
+      },
+      error: null,
+    });
+
+    // The email is generated inside createTempUser; make the list response
+    // match it by extracting it from the create request.
+    mockListUsers.mockImplementation(async () => {
+      const request = mockCreateUser.mock.calls[0]?.[0] as {
+        email: string;
+        app_metadata: Record<string, unknown>;
+      };
+      return {
+        data: {
+          users: [
+            {
+              id: "recovered-user",
+              email: request.email.toUpperCase(),
+              app_metadata: request.app_metadata,
+            },
+          ],
+        },
+        error: null,
+      };
+    });
+
+    // Act
+    const result = await createTempUser();
+
+    // Assert
+    expect(result.id).toBe("recovered-user");
+    const createArgs = mockCreateUser.mock.calls[0]?.[0] as {
+      email: string;
+      app_metadata: Record<string, unknown>;
+      user_metadata?: unknown;
+    };
+    expect(createArgs.email).toMatch(
+      /^demo-reseed-[0-9a-f-]+@atomic-crm-demo\.internal$/,
+    );
+    expect(createArgs.app_metadata).toEqual({
+      source: "admin_reseed_demo_accounts",
+    });
+    expect(createArgs.user_metadata).toBeUndefined();
+    expect(mockListUsers).toHaveBeenCalledWith({ page: 1, perPage: 1000 });
+  });
+
+  it("reconciles a thrown create response only to the exact trusted user", async () => {
+    mockCreateUser.mockRejectedValue(new Error("transport closed"));
+    mockListUsers.mockImplementation(async () => {
+      const request = mockCreateUser.mock.calls[0]?.[0] as {
+        email: string;
+      };
+      return {
+        data: {
+          users: [
+            {
+              id: "writable-metadata-user",
+              email: request.email,
+              app_metadata: { source: "untrusted" },
+              user_metadata: { source: "admin_reseed_demo_accounts" },
+            },
+            {
+              id: "wrong-email-user",
+              email: "different@atomic-crm-demo.internal",
+              app_metadata: { source: "admin_reseed_demo_accounts" },
+            },
+            {
+              id: "thrown-response-user",
+              email: request.email.toUpperCase(),
+              app_metadata: { source: "admin_reseed_demo_accounts" },
+            },
+          ],
+        },
+        error: null,
+      };
+    });
+
+    const result = await createTempUser();
+
+    expect(result.id).toBe("thrown-response-user");
+    expect(mockListUsers).toHaveBeenCalledWith({ page: 1, perPage: 1000 });
+  });
+
+  it("fails safely when a thrown create response has no trusted match", async () => {
+    mockCreateUser.mockImplementation(async (request: { email: string }) => {
+      throw new Error(`transport closed for ${request.email}`);
+    });
+    mockListUsers.mockImplementation(async () => {
+      const request = mockCreateUser.mock.calls[0]?.[0] as {
+        email: string;
+      };
+      return {
+        data: {
+          users: [
+            {
+              id: "writable-metadata-user",
+              email: request.email,
+              app_metadata: { source: "untrusted" },
+              user_metadata: { source: "admin_reseed_demo_accounts" },
+            },
+          ],
+        },
+        error: null,
+      };
+    });
+
+    let caught: unknown;
+    try {
+      await createTempUser();
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    const message = (caught as Error).message;
+    expect(message).toContain(
+      "failed to create temp user after response loss: transport closed for",
+    );
+    const request = mockCreateUser.mock.calls[0]?.[0] as {
+      email: string;
+      password: string;
+    };
+    expect(message).not.toContain(request.password);
+    expect(message).not.toContain(request.email);
   });
 });
 

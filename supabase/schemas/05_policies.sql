@@ -304,22 +304,10 @@ create policy "Singles visible to self" on public.singles
         and member_id = public.current_member_id()
     );
 
--- A single may manage only the single profile attached to their active
--- membership. This is intentionally additive: the existing manager policy
--- remains the account-wide path for household/shadchan operators.
-create policy "Singles writable by self" on public.singles
-    for all to authenticated
-    using (
-        account_id = public.current_context_id()
-        and public.current_member_role() = 'single'
-        and member_id = public.current_member_id()
-    )
-    with check (
-        account_id = public.current_context_id()
-        and public.current_member_role() = 'single'
-        and member_id = public.current_member_id()
-    );
-
+-- An invited `single` is intentionally read-only. The owning `self_manager`
+-- role is covered by the existing account-scoped manager policy above, while
+-- this SELECT-only policy gives an invited single the one profile row they
+-- are allowed to see.
 -- Child grants, RLS increment 1 (read-across): a grantee household that has
 -- ACCEPTED a grant for one of the proposer's singles may read exactly that
 -- single's row. Additive — the two policies above still govern every other
@@ -510,38 +498,6 @@ create policy "Shidduchim visible to single" on public.shidduchim
             where c.id = shidduchim.single_id
               and c.member_id = public.current_member_id()
         )
-    );
-
--- A self-managed single may create and maintain only suggestions attached to
--- their own single row. The database eligibility trigger remains authoritative
--- for any candidate fact changes.
-create policy "Shidduchim writable by self" on public.shidduchim
-    for all to authenticated
-    using (
-        account_id = public.current_context_id()
-        and public.current_member_role() = 'single'
-        and exists (
-            select 1 from public.singles c
-            where c.id = shidduchim.single_id
-              and c.account_id = public.current_context_id()
-              and c.member_id = public.current_member_id()
-        )
-        and not coalesce(public.shidduch_has_known_halachic_conflict(
-            single_id, person_gender, kohen_status, marital_status
-        ), false)
-    )
-    with check (
-        account_id = public.current_context_id()
-        and public.current_member_role() = 'single'
-        and exists (
-            select 1 from public.singles c
-            where c.id = shidduchim.single_id
-              and c.account_id = public.current_context_id()
-              and c.member_id = public.current_member_id()
-        )
-        and not coalesce(public.shidduch_has_known_halachic_conflict(
-            single_id, person_gender, kohen_status, marital_status
-        ), false)
     );
 
 -- Child grants (Epic 14): a grantee household that has accepted a grant for a
@@ -2210,7 +2166,13 @@ create policy "Demo listings readable in bundle preview" on public.listings
 -- manager, see their own listing regardless of listing_type.
 create policy "Listings readable by owner" on public.listings
     for select to authenticated
-    using (account_id = public.current_context_id());
+    using (
+        account_id = public.current_context_id()
+        and (
+            not public.demo_account_in_active_run(account_id)
+            or public.demo_account_is_previewable(account_id)
+        )
+    );
 
 -- Child grants (Epic 14), RLS increment 9: a grantee household that has
 -- accepted a grant for a proposer's single may read that single's listing
@@ -2251,6 +2213,10 @@ create policy "Listings readable via accepted grant" on public.listings
               and g.target_single_id = listings.single_id
         )
         and public.current_member_role() <> 'single'
+        and (
+            not public.demo_account_in_active_run(listings.account_id)
+            or public.demo_account_is_previewable(listings.account_id)
+        )
     );
 
 -- Story 13.3's grant surface stops here at 9 tables (singles,
@@ -2761,6 +2727,20 @@ alter table public.demo_run_storage enable row level security;
 alter table public.demo_run_storage force row level security;
 alter table public.demo_share_snapshots enable row level security;
 alter table public.demo_share_snapshots force row level security;
+alter table public.demo_run_actor_intents enable row level security;
+alter table public.demo_run_actor_intents force row level security;
+alter table public.demo_run_member_state enable row level security;
+alter table public.demo_run_member_state force row level security;
+alter table public.demo_run_resources enable row level security;
+alter table public.demo_run_resources force row level security;
+alter table public.demo_run_auth_cleanup enable row level security;
+alter table public.demo_run_auth_cleanup force row level security;
+alter table public.demo_onboarding_intents enable row level security;
+alter table public.demo_onboarding_intents force row level security;
+alter table public.demo_clear_receipts enable row level security;
+alter table public.demo_clear_receipts force row level security;
+alter table public.demo_run_ingest_claims enable row level security;
+alter table public.demo_run_ingest_claims force row level security;
 
 -- There are intentionally no anon/authenticated policies. Service role owns
 -- manifest lifecycle; customers receive only demo_delivery_history().

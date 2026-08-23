@@ -1,5 +1,12 @@
 import { Moon, Smartphone, Sun } from "lucide-react";
-import { useLocaleState, useLocales, useTranslate } from "ra-core";
+import {
+  useGetOne,
+  useLocaleState,
+  useLocales,
+  useNotify,
+  useTranslate,
+  useUpdate,
+} from "ra-core";
 
 import { useTheme } from "@/components/admin/use-theme";
 import {
@@ -18,9 +25,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Switch } from "@/components/ui/switch";
 
+import { hasVisibility } from "../entity360/visibility";
 import { ReminderDeliveryStatus } from "../reminders/ReminderDeliveryStatus";
+import { DemoDeliveryHistory } from "../reminders/DemoDeliveryHistory";
+import { pickActiveContext } from "../providers/commons/roleAuthority";
+import { useMyContexts } from "../root/useMyContexts";
+import { useViewerRole } from "../entity360/useViewerRole";
+import type { Account, MemberRole } from "../types";
 import { SectionLabel } from "./SectionLabel";
+
+const CAN_SET_ACCOUNT_PREFERENCES: MemberRole[] = [
+  "parent_admin",
+  "helper",
+  "self_manager",
+  "shadchan",
+];
 
 /** Language (prominent, first-class per the ticket) + appearance theme +
  * (Story 12.2, AC-9) the reminder-email delivery heartbeat. */
@@ -37,9 +58,86 @@ export const PreferencesSection = () => {
         <ItemSeparator />
         <ThemeRow />
         <ItemSeparator />
+        <PhotoPrivacyRow />
+        <ItemSeparator />
         <ReminderDeliveryStatus />
+        <DemoDeliveryHistory />
       </ItemGroup>
     </div>
+  );
+};
+
+/** Account-wide photo display preference. It intentionally follows the same
+ * role boundary as CommunicationSection's account default: singles can read
+ * the setting through the account row but cannot be offered a control that
+ * the database would reject. */
+export const PhotoPrivacyRow = () => {
+  const translate = useTranslate();
+  const notify = useNotify();
+  const { role, isPending: isRolePending } = useViewerRole();
+  const { data: contexts } = useMyContexts();
+  const activeContext = pickActiveContext(contexts);
+  const { data: account, refetch } = useGetOne<Account>(
+    "accounts",
+    { id: activeContext?.account_id },
+    { enabled: activeContext?.account_id != null },
+  );
+  const [update, { isPending: isSaving }] = useUpdate();
+
+  const canConfigure =
+    !isRolePending &&
+    hasVisibility(CAN_SET_ACCOUNT_PREFERENCES, role) &&
+    account != null;
+
+  if (!canConfigure || !account) return null;
+
+  const handleChange = (enabled: boolean) => {
+    if (enabled === (account.photo_reveal_on_click === true)) return;
+
+    update(
+      "accounts",
+      {
+        id: account.id,
+        data: { photo_reveal_on_click: enabled },
+        previousData: { id: account.id },
+      },
+      {
+        onSuccess: () => refetch(),
+        onError: () => {
+          notify("crm.settings.photo_privacy.save_error", {
+            type: "error",
+            messageArgs: { _: "Couldn't save that. Try again." },
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Item size="sm">
+      <ItemContent>
+        <ItemTitle className="font-normal">
+          {translate("crm.settings.photo_privacy.title", {
+            _: "Photo privacy",
+          })}
+        </ItemTitle>
+        <p className="text-sm text-muted-foreground">
+          {translate("crm.settings.photo_privacy.reveal_on_click_hint", {
+            _: "Keep photos hidden until you choose to reveal each one.",
+          })}
+        </p>
+      </ItemContent>
+      <ItemActions>
+        <Switch
+          checked={account.photo_reveal_on_click === true}
+          onCheckedChange={handleChange}
+          disabled={isSaving}
+          aria-label={translate("crm.settings.photo_privacy.reveal_on_click", {
+            _: "Require click to reveal photos",
+          })}
+        />
+      </ItemActions>
+    </Item>
   );
 };
 

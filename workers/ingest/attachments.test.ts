@@ -5,39 +5,47 @@ import { uploadAttachments } from "./attachments";
 
 /**
  * A minimal in-memory fake of the Storage surface `attachments.ts` touches:
- * `.storage.from(bucket).upload(path, content, opts)` and
- * `.createSignedUrl(path, ttl)`. Same "mock the client entirely" idiom
+ * `.storage.from(bucket).upload(path, content, opts)`,
+ * `.createSignedUrl(path, ttl)`, and compensating `.remove(paths)`. Same
+ * "mock the client entirely" idiom
  * `forAccount.test.ts` and `share/index.test.ts` already use in this repo.
  */
-const { uploads, upload, createSignedUrl, storageFrom } = vi.hoisted(() => {
-  const uploads: Array<{ path: string; contentType?: string }> = [];
-  const upload = vi.fn(
-    async (
-      path: string,
-      _content: unknown,
-      opts?: { contentType?: string },
-    ): Promise<{
-      data: { path: string } | null;
-      error: { message: string } | null;
-    }> => {
-      uploads.push({ path, contentType: opts?.contentType });
-      return { data: { path }, error: null };
-    },
-  );
-  const createSignedUrl = vi.fn(
-    async (
-      path: string,
-    ): Promise<{
-      data: { signedUrl: string } | null;
-      error: { message: string } | null;
-    }> => ({
-      data: { signedUrl: `https://example.supabase.co/signed/${path}` },
-      error: null,
-    }),
-  );
-  const storageFrom = vi.fn(() => ({ upload, createSignedUrl }));
-  return { uploads, upload, createSignedUrl, storageFrom };
-});
+const { uploads, upload, createSignedUrl, remove, storageFrom } = vi.hoisted(
+  () => {
+    const uploads: Array<{ path: string; contentType?: string }> = [];
+    const upload = vi.fn(
+      async (
+        path: string,
+        _content: unknown,
+        opts?: { contentType?: string },
+      ): Promise<{
+        data: { path: string } | null;
+        error: { message: string } | null;
+      }> => {
+        uploads.push({ path, contentType: opts?.contentType });
+        return { data: { path }, error: null };
+      },
+    );
+    const createSignedUrl = vi.fn(
+      async (
+        path: string,
+      ): Promise<{
+        data: { signedUrl: string } | null;
+        error: { message: string } | null;
+      }> => ({
+        data: { signedUrl: `https://example.supabase.co/signed/${path}` },
+        error: null,
+      }),
+    );
+    const remove = vi.fn(
+      async (
+        _paths: string[],
+      ): Promise<{ error: { message: string } | null }> => ({ error: null }),
+    );
+    const storageFrom = vi.fn(() => ({ upload, createSignedUrl, remove }));
+    return { uploads, upload, createSignedUrl, remove, storageFrom };
+  },
+);
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({ storage: { from: storageFrom } }),
@@ -169,5 +177,49 @@ describe("uploadAttachments", () => {
     await expect(uploadAttachments([attachment], 1, TEST_ENV)).rejects.toThrow(
       /Failed to sign attachment URL/,
     );
+  });
+
+  it("keeps the original signing error when compensating removal also fails", async () => {
+    createSignedUrl.mockResolvedValueOnce({
+      data: null,
+      error: { message: "signing is down" },
+    });
+    remove.mockResolvedValueOnce({ error: { message: "remove is down" } });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      uploadAttachments([makeAttachment()], 1, TEST_ENV),
+    ).rejects.toThrow("Failed to sign attachment URL");
+    expect(remove).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "ingest.uploadAttachments.cleanup.error",
+      expect.objectContaining({ message: "remove is down" }),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("keeps the original signing error when compensation is unavailable", async () => {
+    createSignedUrl.mockResolvedValueOnce({
+      data: null,
+      error: { message: "signing is down" },
+    });
+    const originalStorageFrom = storageFrom.getMockImplementation();
+    storageFrom.mockImplementation(
+      () => ({ upload, createSignedUrl }) as never,
+    );
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await expect(
+        uploadAttachments([makeAttachment()], 1, TEST_ENV),
+      ).rejects.toThrow("Failed to sign attachment URL");
+      expect(errorSpy).toHaveBeenCalledWith(
+        "ingest.uploadAttachments.cleanup.error",
+        expect.anything(),
+      );
+    } finally {
+      storageFrom.mockImplementation(originalStorageFrom!);
+      errorSpy.mockRestore();
+    }
   });
 });

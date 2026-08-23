@@ -939,19 +939,35 @@ from pg_policies
 where schemaname = 'public'
   and tablename in ('interactions', 'reference_links', 'date_records', 'singles', 'shidduchim', 'resumes', 'redts');
 
+-- Redts has three permissive policies today (the account policy plus the
+-- accepted-grant read/edit policies). Drop the complete policy set so this
+-- mutation really removes the table's authorization boundary; dropping only
+-- the account policy no longer proves absence because the grant policies
+-- remain legitimate policies on the same relation.
+drop policy "Redts readable via accepted grant" on public.redts;
 drop policy "Redts scoped to account" on public.redts;
+drop policy "Redts updatable via accepted edit grant" on public.redts;
 
 insert into results (name, passed)
-select 'F1 MUTATION-PROOF (policy presence): dropping the sole policy on one of the seven tables flips the guard to NOT clean, even though every remaining policy''s own text stays innocent',
+select 'F1 MUTATION-PROOF (policy presence): dropping every policy on one of the seven tables flips the guard to NOT clean, even though the other tables'' policies stay innocent',
        count(distinct tablename) < 7
 from pg_policies
 where schemaname = 'public'
   and tablename in ('interactions', 'reference_links', 'date_records', 'singles', 'shidduchim', 'resumes', 'redts');
 
--- Recreated verbatim from 05_policies.sql — the one policy this file drops
--- outright rather than capturing/restoring through pg_temp.restore_policy,
--- because the point of this probe is a table with genuinely ZERO policies,
--- not a widened one.
+-- Recreated verbatim from 05_policies.sql so the mutation is fully reversible.
+create policy "Redts readable via accepted grant" on public.redts
+    for select to authenticated
+    using (
+        exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = public.shidduch_single_id(redts.shidduchim_id)
+        )
+        and public.current_member_role() <> 'single'
+    );
+
 create policy "Redts scoped to account" on public.redts
     for all to authenticated
     using (
@@ -961,6 +977,36 @@ create policy "Redts scoped to account" on public.redts
     with check (
         account_id = public.current_context_id()
         and public.current_member_role() <> 'single'
+    );
+
+create policy "Redts updatable via accepted edit grant" on public.redts
+    for update to authenticated
+    using (
+        exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level = 'edit'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = public.shidduch_single_id(redts.shidduchim_id)
+        )
+        and public.current_member_role() in ('parent_admin', 'self_manager')
+    )
+    with check (
+        exists (
+            select 1 from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level = 'edit'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = public.shidduch_single_id(redts.shidduchim_id)
+        )
+        and public.current_member_role() in ('parent_admin', 'self_manager')
+        and account_id = (
+            select g.proposer_account_id from public.child_grants g
+            where g.status = 'accepted'
+              and g.access_level = 'edit'
+              and g.grantee_account_id = public.current_context_id()
+              and g.target_single_id = public.shidduch_single_id(redts.shidduchim_id)
+        )
     );
 
 insert into results (name, passed)

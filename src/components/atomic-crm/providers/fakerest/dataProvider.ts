@@ -17,6 +17,7 @@ import type {
   ChildGrantPreview,
   Connection,
   ConnectionInvitePreview,
+  DemoOnboardingState,
   ContextMember,
   CreateReferenceForShidduchInput,
   CreateShidduchInput,
@@ -97,7 +98,7 @@ import {
   USER_STORAGE_KEY,
 } from "./authProvider";
 import generateData from "./dataGenerator";
-import { generateShowcaseData } from "./dataGenerator/showcase";
+import { applyShowcaseOverlay } from "./dataGenerator/showcase";
 import { SEEDED_FILE_BLOBS } from "./dataGenerator/fileAssets";
 import type { Db } from "./dataGenerator/types";
 import { withSupabaseFilterAdapter } from "./internal/supabaseAdapter";
@@ -183,7 +184,65 @@ export interface CreateFakeRestDataProviderOptions {
   latency?: number;
   authProvider?: Pick<typeof defaultAuthProvider, "getIdentity">;
   silent?: boolean;
+  /** Start this isolated provider with the full official showcase graph. */
+  showcase?: boolean;
 }
+
+const cloneFakeRestValue = <T>(value: T): T => {
+  if (typeof structuredClone === "function") return structuredClone(value);
+  return JSON.parse(JSON.stringify(value)) as T;
+};
+
+const cloneDbCollections = (source: Db): Db => {
+  const copy = { ...source } as Db;
+  const target = copy as unknown as Record<string, unknown>;
+  for (const key of Object.keys(source)) {
+    const value = (source as unknown as Record<string, unknown>)[key];
+    if (Array.isArray(value)) target[key] = value.map(cloneFakeRestValue);
+  }
+  return copy;
+};
+
+const randomShowcaseToken = (): string => {
+  const cryptoApi = globalThis.crypto;
+  if (!cryptoApi?.randomUUID) {
+    throw new Error("FakeRest showcase requires Web Crypto for bearer tokens");
+  }
+  return `${cryptoApi.randomUUID()}${cryptoApi.randomUUID()}`;
+};
+
+const randomShowcaseHash = (): string =>
+  randomShowcaseToken().replaceAll("-", "").slice(0, 64);
+
+const prepareShowcaseInstance = (showcaseDb: Db): void => {
+  const now = Date.now();
+  const expiresInDays = (days: number): string =>
+    new Date(now + days * 24 * 60 * 60 * 1000).toISOString();
+
+  showcaseDb.invites = showcaseDb.invites.map((invite) => ({
+    ...invite,
+    token: randomShowcaseToken(),
+    expires_at: expiresInDays(invite.status === "pending" ? 14 : 30),
+    email: invite.email.replace(/@[^@]+$/, "@demo.invalid"),
+  }));
+  showcaseDb.connection_invites = showcaseDb.connection_invites.map(
+    (invite) => ({
+      ...invite,
+      token_hash: randomShowcaseHash(),
+      expires_at: expiresInDays(invite.status === "pending" ? 14 : 30),
+    }),
+  );
+  showcaseDb.child_grants = showcaseDb.child_grants.map((grant) => ({
+    ...grant,
+    token_hash: randomShowcaseHash(),
+    expires_at: expiresInDays(grant.status === "pending" ? 14 : 30),
+  }));
+  showcaseDb.share_links = showcaseDb.share_links.map((share) => ({
+    ...share,
+    token: randomShowcaseToken(),
+    expires_at: expiresInDays(21),
+  }));
+};
 
 const processConfigLogo = async (logo: any): Promise<string> => {
   if (typeof logo === "string") return logo;
@@ -245,17 +304,32 @@ export const createDataProvider = ({
   latency = 300,
   authProvider,
   silent = false,
+  showcase = false,
 }: CreateFakeRestDataProviderOptions = {}): CrmDataProvider => {
+  const baselineSnapshot = cloneDbCollections(db);
+  const createPreparedShowcaseSnapshot = (): Db => {
+    const snapshot = applyShowcaseOverlay(baselineSnapshot);
+    prepareShowcaseInstance(snapshot);
+    return snapshot;
+  };
+  if (showcase) db = cloneDbCollections(createPreparedShowcaseSnapshot());
   const baseDataProvider = fakeRestDataProvider(db, !silent, latency);
   // Demo / onboarding (Stage B): mirrors accounts.demo for the FakeRest
-  // session. Starts false; flipped by seedDemo/clearDemo below.
-  let fakeDemo = false;
+  // session. A showcase provider is already seeded; ordinary test providers
+  // remain a clean baseline until seedDemo() is called.
+  let fakeDemo = showcase;
+  let demoOnboardingState: DemoOnboardingState | null = null;
   // Context switcher (2.4 AC-6): mirrors member_state.active_account_id for
   // the FakeRest session. Story 2.1 added no fakerest member_state
   // emulation ("it changes no src/ file"), so this story is the first
   // consumer and adds the minimal fake state itself — no fake table, just
   // this closure-local variable, written only by switchActiveContext below.
   let activeAccountId: Identifier | null = null;
+  const primaryAccountId = (nextDb: Db): Identifier =>
+    nextDb.accounts.find((account) => Number(account.id) === 1)?.id ??
+    nextDb.accounts.find((account) => account.kind === "household")?.id ??
+    1;
+  if (showcase) activeAccountId = primaryAccountId(db);
   const getIdentity = async () =>
     authProvider?.getIdentity?.() ?? defaultAuthProvider.getIdentity?.();
 
@@ -289,6 +363,149 @@ export const createDataProvider = ({
       entityFileBlobUrls.set(path, url),
     );
   }
+
+  const fakeRestResources = Object.keys(baselineSnapshot).filter((key) =>
+    Array.isArray(
+      (baselineSnapshot as unknown as Record<string, unknown>)[key],
+    ),
+  );
+
+  const resetBlobMap = (map: Map<string, string>, nextDb: Db, key: string) => {
+    for (const url of map.values()) {
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    }
+    map.clear();
+    const nextBlobs = (nextDb as any)[SEEDED_FILE_BLOBS];
+    nextBlobs?.[key]?.forEach((url: string, path: string) =>
+      map.set(path, url),
+    );
+  };
+
+  const restoreBlobMap = (
+    map: Map<string, string>,
+    snapshot: Map<string, string>,
+  ) => {
+    map.clear();
+    for (const [path, url] of snapshot) map.set(path, url);
+  };
+
+  // Demo seed/clear is a lifecycle transaction from the app's perspective.
+  // The underlying FakeRest provider is asynchronous, so a second call must
+  // wait for the first one instead of interleaving collection replacement.
+  let demoLifecycleTail: Promise<void> = Promise.resolve();
+  const withDemoLifecycleLock = async <T>(operation: () => Promise<T>) => {
+    const previous = demoLifecycleTail;
+    let release!: () => void;
+    demoLifecycleTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  };
+
+  /**
+   * FakeRest's Database copies rows into private Collections at construction,
+   * so changing the source Db arrays alone is not a lifecycle operation.
+   * Rebuild every collection through the underlying provider while retaining
+   * the provider/database instance used by the mounted app.
+   */
+  const applyFakeRestGraph = async (nextDb: Db): Promise<void> => {
+    for (const resource of fakeRestResources) {
+      const current = await baseDataProvider.getList(resource, {
+        filter: {},
+        pagination: { page: 1, perPage: 100_000 },
+        sort: { field: "id", order: "ASC" },
+      });
+      if (current.data.length > 0) {
+        await baseDataProvider.deleteMany(resource, {
+          ids: current.data.map((row: any) => row.id),
+        });
+      }
+    }
+    const nextRecord = nextDb as unknown as Record<string, unknown>;
+    for (const resource of fakeRestResources) {
+      for (const row of (nextRecord[resource] as any[]) ?? []) {
+        await baseDataProvider.create(resource, {
+          data: cloneFakeRestValue(row),
+        });
+      }
+    }
+
+    const currentRecord = db as unknown as Record<string, unknown>;
+    for (const resource of fakeRestResources) {
+      currentRecord[resource] = ((nextRecord[resource] as any[]) ?? []).map(
+        cloneFakeRestValue,
+      );
+    }
+  };
+
+  const snapshotFakeRestGraph = async (): Promise<Db> => {
+    const snapshot = cloneDbCollections(db);
+    const snapshotRecord = snapshot as unknown as Record<string, unknown>;
+    const currentCollections = await Promise.all(
+      fakeRestResources.map(
+        async (resource) =>
+          [
+            resource,
+            await baseDataProvider.getList(resource, {
+              filter: {},
+              pagination: { page: 1, perPage: 100_000 },
+              sort: { field: "id", order: "ASC" },
+            }),
+          ] as const,
+      ),
+    );
+    for (const [resource, current] of currentCollections) {
+      snapshotRecord[resource] = current.data.map((row: any) =>
+        cloneFakeRestValue(row),
+      );
+    }
+    return snapshot;
+  };
+
+  const replaceFakeRestGraph = async (nextDb: Db): Promise<void> => {
+    // Snapshot the live FakeRest collections, not only the source arrays. The
+    // mounted provider may contain customer-created rows and those must be
+    // part of an atomic lifecycle rollback too.
+    const previousDb = await snapshotFakeRestGraph();
+    const previousEntityFiles = new Map(entityFileBlobUrls);
+    const previousResumeFiles = new Map(resumeFileBlobUrls);
+    const previousResumePhotos = new Map(resumePhotoBlobUrls);
+    const previousActiveAccountId = activeAccountId;
+    try {
+      // Stage the complete target graph before changing lifecycle flags. If a
+      // collection mutation rejects, the old graph and all session state are
+      // restored before the error reaches the caller.
+      const stagedDb = cloneDbCollections(nextDb);
+      await applyFakeRestGraph(stagedDb);
+      resetBlobMap(entityFileBlobUrls, stagedDb, "entityFiles");
+      resetBlobMap(resumeFileBlobUrls, stagedDb, "resumeFiles");
+      resetBlobMap(resumePhotoBlobUrls, stagedDb, "resumePhotos");
+      activeAccountId = primaryAccountId(stagedDb);
+    } catch (error) {
+      try {
+        await applyFakeRestGraph(previousDb);
+      } catch (rollbackError) {
+        console.error("fakerest.demoLifecycle.rollback.error", rollbackError);
+      }
+      const currentRecord = db as unknown as Record<string, unknown>;
+      const previousRecord = previousDb as unknown as Record<string, unknown>;
+      for (const resource of fakeRestResources) {
+        currentRecord[resource] = (
+          (previousRecord[resource] as any[]) ?? []
+        ).map(cloneFakeRestValue);
+      }
+      restoreBlobMap(entityFileBlobUrls, previousEntityFiles);
+      restoreBlobMap(resumeFileBlobUrls, previousResumeFiles);
+      restoreBlobMap(resumePhotoBlobUrls, previousResumePhotos);
+      activeAccountId = previousActiveAccountId;
+      throw error;
+    }
+  };
 
   // Emulate the shidduchim_summary view (AD-10 FakeRest mirror): enrich each
   // shidduch with its shadchan name ("via {shadchan}"), single names, and
@@ -1439,12 +1656,46 @@ export const createDataProvider = ({
       return baseDataProvider.getOne(resource, params);
     },
     // Generic RPC handler for FakeRest — mirrors the Supabase provider's
-    // ability to call Postgres functions via rpc(). Currently only handles
-    // shidduch_diligence_progress (FR68/Story 16.2).
+    // ability to call Postgres functions via rpc().
     async rpc(fnName: string, args: Record<string, unknown>) {
       if (fnName === "shidduch_diligence_progress") {
         const shidduchimId = args.p_shidduchim_id as number;
         return computeDiligenceProgress(baseDataProvider, shidduchimId);
+      }
+      if (fnName === "demo_delivery_history") {
+        // Match the server RPC's active-run/simulated-only contract. FakeRest
+        // has no worker queue, so these are local receipts, never dispatches.
+        if (!fakeDemo) return [];
+        const messageEvents = (db.message_notifications ?? [])
+          .filter((row) => row.simulated)
+          .map((row) => ({
+            event_type: "message" as const,
+            status: row.status,
+            simulated: true,
+            occurred_at: row.sent_at ?? row.created_at,
+            resource: "message",
+          }));
+        const reminderEvents = (db.task_notifications ?? [])
+          .filter((row) => row.simulated)
+          .map((row) => ({
+            event_type: "reminder" as const,
+            status: row.status,
+            simulated: true,
+            occurred_at: row.sent_at ?? row.created_at,
+            resource: "task",
+          }));
+        const shareEvents = (db.share_access_log ?? [])
+          .filter((row) => row.simulated === true)
+          .map((row) => ({
+            event_type: "share" as const,
+            status: "accessed",
+            simulated: true,
+            occurred_at: row.accessed_at,
+            resource: row.resource,
+          }));
+        return [...messageEvents, ...reminderEvents, ...shareEvents].sort(
+          (a, b) => String(b.occurred_at).localeCompare(String(a.occurred_at)),
+        );
       }
       throw new Error(`FakeRest RPC not implemented: ${fnName}`);
     },
@@ -2039,31 +2290,75 @@ export const createDataProvider = ({
       return mergeReferences(baseDataProvider, loserId, winnerId, resolutions);
     },
     // ---------------------------------------------------------------------
-    // Demo / onboarding (Stage B) -- FakeRest stubs so demos/tests don't
-    // break. `fakeDemo` is module-level so the flag stays self-consistent
-    // across the three methods within one browser session.
+    // Demo / onboarding (Stage B) -- the lifecycle mutates the existing
+    // FakeRest Database rather than only toggling a flag.
     // ---------------------------------------------------------------------
     seedDemo: async (): Promise<{ seeded: boolean }> => {
-      fakeDemo = true;
-      return { seeded: true };
+      return withDemoLifecycleLock(async () => {
+        // Build and prepare a new graph for every seed. Tokens, invite hashes,
+        // and expiries are per-run state; retaining one prepared snapshot would
+        // make a reseed reuse stale bearer material and timestamps.
+        const previousDemo = fakeDemo;
+        const previousOnboarding = demoOnboardingState;
+        try {
+          await replaceFakeRestGraph(createPreparedShowcaseSnapshot());
+          fakeDemo = true;
+          if (demoOnboardingState) {
+            demoOnboardingState = {
+              ...demoOnboardingState,
+              state: "completed",
+            };
+          }
+          return { seeded: true };
+        } catch (error) {
+          fakeDemo = previousDemo;
+          demoOnboardingState = previousOnboarding;
+          throw error;
+        }
+      });
     },
-    // `_releaseDemoFlag` mirrors the Supabase provider's now-required
-    // parameter so `CrmDataProvider`'s signature matches on both providers,
-    // but is otherwise unused: FakeRest has no second, opt-out caller
-    // (there is no reseed orchestrator here, just one in-browser session),
-    // so it always resets `fakeDemo` — the same unconditional behaviour this
-    // stub always had. `personaWarning` is never returned here either: this
-    // stub never deletes any FakeRest resource row (unlike the real
-    // clear_demo edge function) and never calls the FakeRest
-    // removePersona() mirror, so there is nothing here that could fail —
-    // only the return SHAPE needs to match `CrmDataProvider`.
     clearDemo: async (
       _releaseDemoFlag: boolean,
     ): Promise<{ cleared: boolean; personaWarning?: string }> => {
-      fakeDemo = false;
-      return { cleared: true };
+      return withDemoLifecycleLock(async () => {
+        const previousDemo = fakeDemo;
+        const previousOnboarding = demoOnboardingState;
+        try {
+          await replaceFakeRestGraph(baselineSnapshot);
+          fakeDemo = false;
+          demoOnboardingState = null;
+          return { cleared: true };
+        } catch (error) {
+          fakeDemo = previousDemo;
+          demoOnboardingState = previousOnboarding;
+          throw error;
+        }
+      });
     },
     currentAccountDemo: async (): Promise<boolean> => fakeDemo,
+    prepareDemoOnboarding: async (): Promise<DemoOnboardingState> => {
+      if (!demoOnboardingState) {
+        demoOnboardingState = {
+          state: "pending",
+          account_id: null,
+          attempts: 1,
+        };
+      } else {
+        demoOnboardingState = {
+          ...demoOnboardingState,
+          state:
+            demoOnboardingState.state === "completed" ? "completed" : "pending",
+          attempts: demoOnboardingState.attempts + 1,
+        };
+      }
+      return demoOnboardingState;
+    },
+    cancelDemoOnboarding: async (): Promise<void> => {
+      if (demoOnboardingState?.state !== "completed")
+        demoOnboardingState = null;
+    },
+    getDemoOnboardingState: async (): Promise<DemoOnboardingState | null> =>
+      demoOnboardingState,
     // "What am I" (2.2 AC-8, 2.3 AC-9) -- FakeRest mirrors of
     // my_personas()/add_persona() in ./internal/personas.ts. Derive from the
     // in-memory account_members/singles tables, never a stub.
@@ -2480,7 +2775,7 @@ export const createDataProvider = ({
   return dataProvider;
 };
 
-export const dataProvider = createDataProvider({ db: generateShowcaseData() });
+export const dataProvider = createDataProvider({ showcase: true });
 
 /**
  * Convert a `File` object returned by the upload input into a base 64 string.

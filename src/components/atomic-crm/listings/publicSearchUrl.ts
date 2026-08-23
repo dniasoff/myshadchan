@@ -23,6 +23,15 @@ export interface PublicSearchUrl {
 export const PUBLIC_SEARCH_PATH = "/find";
 
 /**
+ * The authenticated official-demo listing preview shares `/find`'s visual
+ * surface but has an explicit opt-in mode. The exact `demo=1` value keeps
+ * ordinary public links and anonymous search behavior unchanged.
+ */
+export const isDemoPreviewUrl = (url: PublicSearchUrl): boolean =>
+  url.pathname === PUBLIC_SEARCH_PATH &&
+  new URLSearchParams(url.search).get("demo") === "1";
+
+/**
  * True when the URL is the public search entry point — `/find` EXACTLY,
  * no trailing slash (Story 9.4 review finding F9). `vite.config.ts` builds
  * with `base: "./"`, so this page's asset URLs resolve relative to the

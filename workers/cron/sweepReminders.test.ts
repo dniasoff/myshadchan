@@ -47,6 +47,7 @@ function claimedRow(overrides: Partial<Record<string, unknown>> = {}) {
     target_id: 55,
     attempts: 1,
     claimed_at: "2026-08-07T12:05:00Z",
+    simulated: false,
     ...overrides,
   };
 }
@@ -115,6 +116,30 @@ describe("sweepReminders", () => {
       subject: "Reminder: Follow up with the Cohens",
       text: expect.stringContaining("https://www.myshadchan.space/#/reminders"),
       idempotencyKey: "task-notification:10:email:2026-08-07T12:00:00Z",
+    });
+  });
+
+  it("settles a simulated reminder without calling the email provider", async () => {
+    rpc.mockImplementation((name: string) => {
+      if (name === "claim_due_task_notifications") {
+        return Promise.resolve({
+          data: [claimedRow({ id: 77, simulated: true })],
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    const result = await sweepReminders(env);
+
+    expect(result).toEqual({ claimed: 1, sent: 1, failed: 0 });
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith("settle_task_notification", {
+      p_id: 77,
+      p_status: "sent",
+      p_error: null,
+      p_next_attempt_at: null,
+      p_claimed_at: "2026-08-07T12:05:00Z",
     });
   });
 

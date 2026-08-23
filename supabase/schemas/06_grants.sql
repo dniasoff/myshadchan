@@ -288,6 +288,14 @@ revoke all on function public.current_account_demo() from public, anon;
 grant execute on function public.current_account_demo() to authenticated;
 grant execute on function public.current_account_demo() to service_role;
 
+-- The banner/status boolean above deliberately includes unfinished cleanup
+-- runs. This companion boolean is the active-only gate for browser preview.
+revoke all on function public.current_account_demo_previewable() from public, anon;
+grant execute on function public.current_account_demo_previewable() to authenticated;
+grant execute on function public.current_account_demo_previewable() to service_role;
+revoke all on function public.current_demo_preview_accounts() from public, anon;
+grant execute on function public.current_demo_preview_accounts() to authenticated, service_role;
+
 -- my_contexts() (Story 2.4) is SECURITY INVOKER, but Postgres still grants
 -- EXECUTE to PUBLIC by default on every new function, so the revoke below is
 -- the deny, not a formality.
@@ -463,6 +471,8 @@ grant execute on function public.check_signup_age(jsonb) to supabase_auth_admin;
 revoke all on function public.accept_invite(uuid) from public, anon;
 grant execute on function public.accept_invite(uuid) to authenticated;
 grant execute on function public.accept_invite(uuid) to service_role;
+revoke all on function public.accept_demo_invite(bigint, text, uuid, uuid) from public, anon, authenticated;
+grant execute on function public.accept_demo_invite(bigint, text, uuid, uuid) to service_role;
 
 -- Story 2.8 (AC-3): revoke_invite() is SECURITY DEFINER and the sole
 -- authenticated write path that transitions an invite to 'revoked' — same
@@ -1661,16 +1671,48 @@ revoke all on table public.demo_run_accounts from anon, authenticated;
 revoke all on table public.demo_run_users from anon, authenticated;
 revoke all on table public.demo_run_storage from anon, authenticated;
 revoke all on table public.demo_share_snapshots from anon, authenticated;
+revoke all on table public.demo_run_actor_intents from anon, authenticated;
+revoke all on table public.demo_run_member_state from anon, authenticated;
+revoke all on table public.demo_run_resources from anon, authenticated;
+revoke all on table public.demo_run_auth_cleanup from anon, authenticated;
+revoke all on table public.demo_onboarding_intents from anon, authenticated;
+revoke all on table public.demo_clear_receipts from anon, authenticated;
+revoke all on table public.demo_run_ingest_claims from anon, authenticated;
 grant all on table public.demo_runs to service_role;
 grant all on table public.demo_run_accounts to service_role;
 grant all on table public.demo_run_users to service_role;
 grant all on table public.demo_run_storage to service_role;
 grant all on table public.demo_share_snapshots to service_role;
+grant all on table public.demo_run_actor_intents to service_role;
+grant all on table public.demo_run_member_state to service_role;
+grant all on table public.demo_run_resources to service_role;
+grant all on table public.demo_run_auth_cleanup to service_role;
+grant all on table public.demo_onboarding_intents to service_role;
+grant all on table public.demo_clear_receipts to service_role;
+grant all on table public.demo_run_ingest_claims to service_role;
 grant all on sequence public.demo_runs_id_seq to service_role;
 grant all on sequence public.demo_run_accounts_id_seq to service_role;
 grant all on sequence public.demo_run_users_id_seq to service_role;
 grant all on sequence public.demo_run_storage_id_seq to service_role;
 grant all on sequence public.demo_share_snapshots_id_seq to service_role;
+grant all on sequence public.demo_run_actor_intents_id_seq to service_role;
+grant all on sequence public.demo_run_member_state_id_seq to service_role;
+grant all on sequence public.demo_run_resources_id_seq to service_role;
+grant all on sequence public.demo_run_auth_cleanup_id_seq to service_role;
+grant all on sequence public.demo_onboarding_intents_id_seq to service_role;
+grant all on sequence public.demo_clear_receipts_id_seq to service_role;
+grant all on sequence public.demo_run_ingest_claims_id_seq to service_role;
+
+revoke all on function public.prepare_demo_onboarding() from public, anon;
+grant execute on function public.prepare_demo_onboarding() to authenticated, service_role;
+revoke all on function public.link_demo_onboarding_intent(uuid, bigint, boolean) from public, anon, authenticated;
+grant execute on function public.link_demo_onboarding_intent(uuid, bigint, boolean) to service_role;
+revoke all on function public.cancel_demo_onboarding() from public, anon;
+grant execute on function public.cancel_demo_onboarding() to authenticated, service_role;
+revoke all on function public.get_demo_onboarding_state() from public, anon;
+grant execute on function public.get_demo_onboarding_state() to authenticated, service_role;
+revoke all on function public.get_demo_release_receipt(uuid) from public, anon, authenticated;
+grant execute on function public.get_demo_release_receipt(uuid) to service_role;
 
 -- These low-level helpers accept arbitrary IDs and are only used by
 -- SECURITY DEFINER policy/function composition or server-side maintenance.
@@ -1678,6 +1720,22 @@ grant all on sequence public.demo_share_snapshots_id_seq to service_role;
 -- the only manifest predicate the UI needs.
 revoke all on function public.demo_run_for_account(bigint) from public, anon, authenticated;
 grant execute on function public.demo_run_for_account(bigint) to service_role;
+revoke all on function public.demo_seed_service_authorized(bigint) from public, anon, authenticated;
+grant execute on function public.demo_seed_service_authorized(bigint) to service_role;
+revoke all on function public.resolve_demo_listing_id(bigint, text, bigint, text, bigint, bigint) from public, anon, authenticated;
+grant execute on function public.resolve_demo_listing_id(bigint, text, bigint, text, bigint, bigint) to service_role;
+revoke all on function public.demo_seed_request_marked() from public, anon, authenticated;
+revoke all on function public.enforce_demo_member_state_write() from public, anon, authenticated;
+revoke all on function public.demo_storage_write_allowed(bigint) from public, anon;
+grant execute on function public.demo_storage_write_allowed(bigint) to authenticated, service_role;
+revoke all on function public.demo_storage_write_fence(bigint) from public, anon, authenticated;
+grant execute on function public.demo_storage_write_fence(bigint) to service_role;
+revoke all on function public.demo_assert_same_active_run(bigint[], text) from public, anon, authenticated;
+grant execute on function public.demo_assert_same_active_run(bigint[], text) to service_role;
+revoke all on function public.demo_assert_registered_actor(bigint, uuid, text) from public, anon, authenticated;
+grant execute on function public.demo_assert_registered_actor(bigint, uuid, text) to service_role;
+revoke all on function public.demo_register_seed_resource(text, bigint, bigint) from public, anon, authenticated;
+grant execute on function public.demo_register_seed_resource(text, bigint, bigint) to service_role;
 revoke all on function public.demo_root_account_for(bigint) from public, anon, authenticated;
 grant execute on function public.demo_root_account_for(bigint) to service_role;
 revoke all on function public.demo_bundle_contains_account(bigint, bigint) from public, anon, authenticated;
@@ -1685,8 +1743,81 @@ grant execute on function public.demo_bundle_contains_account(bigint, bigint) to
 revoke all on function public.demo_account_is_previewable(bigint) from public, anon;
 grant execute on function public.demo_account_is_previewable(bigint) to authenticated, service_role;
 revoke all on function public.demo_account_in_active_run(bigint) from public;
-grant execute on function public.demo_account_in_active_run(bigint) to anon;
+grant execute on function public.demo_account_in_active_run(bigint) to anon, authenticated, service_role;
 revoke all on function public.demo_scope_is_simulated(bigint, bigint) from public, anon, authenticated;
 grant execute on function public.demo_scope_is_simulated(bigint, bigint) to service_role;
 revoke all on function public.demo_delivery_history() from public, anon;
 grant execute on function public.demo_delivery_history() to authenticated, service_role;
+
+-- Demo lifecycle mutation is service-role-only. Browser sessions receive only
+-- the no-argument, caller-scoped preview/status projections above.
+revoke all on function public.demo_assert_empty_account(bigint) from public, anon, authenticated;
+grant execute on function public.demo_assert_empty_account(bigint) to service_role;
+revoke all on function public.begin_demo_seed(bigint, text) from public, anon, authenticated;
+grant execute on function public.begin_demo_seed(bigint, text) to service_role;
+revoke all on function public.demo_run_lease_is_current(bigint, text, text) from public, anon, authenticated;
+grant execute on function public.demo_run_lease_is_current(bigint, text, text) to service_role;
+revoke all on function public.heartbeat_demo_run(bigint, text, text) from public, anon, authenticated;
+grant execute on function public.heartbeat_demo_run(bigint, text, text) to service_role;
+revoke all on function public.create_demo_companion_context(bigint, text, text, text, text) from public, anon, authenticated;
+grant execute on function public.create_demo_companion_context(bigint, text, text, text, text) to service_role;
+revoke all on function public.create_demo_actor_intent(bigint, text, text, text) from public, anon, authenticated;
+grant execute on function public.create_demo_actor_intent(bigint, text, text, text) to service_role;
+revoke all on function public.reconcile_demo_actor(bigint, text, text, uuid, text) from public, anon, authenticated;
+grant execute on function public.reconcile_demo_actor(bigint, text, text, uuid, text) to service_role;
+revoke all on function public.confirm_demo_actor_absent(bigint, text, text, text) from public, anon, authenticated;
+grant execute on function public.confirm_demo_actor_absent(bigint, text, text, text) to service_role;
+revoke all on function public.register_demo_auth_cleanup(bigint, text, text, uuid, text, text) from public, anon, authenticated;
+grant execute on function public.register_demo_auth_cleanup(bigint, text, text, uuid, text, text) to service_role;
+revoke all on function public.mark_demo_auth_deleted(bigint, text, text, uuid, text) from public, anon, authenticated;
+grant execute on function public.mark_demo_auth_deleted(bigint, text, text, uuid, text) to service_role;
+revoke all on function public.register_demo_resource(bigint, text, text, bigint) from public, anon, authenticated;
+grant execute on function public.register_demo_resource(bigint, text, text, bigint) to service_role;
+revoke all on function public.demo_lock_account_axes(bigint[], text) from public, anon, authenticated;
+grant execute on function public.demo_lock_account_axes(bigint[], text) to service_role;
+revoke all on function public.assert_demo_resource_ownership(bigint, text, bigint, boolean) from public, anon, authenticated;
+grant execute on function public.assert_demo_resource_ownership(bigint, text, bigint, boolean) to service_role;
+revoke all on function public.seed_demo_single_private_content(bigint, text, bigint, bigint, text, boolean, text, boolean) from public, anon, authenticated;
+grant execute on function public.seed_demo_single_private_content(bigint, text, bigint, bigint, text, boolean, text, boolean) to service_role;
+revoke all on function public.register_demo_storage(bigint, text, bigint, text, text, text) from public, anon, authenticated;
+grant execute on function public.register_demo_storage(bigint, text, bigint, text, text, text) to service_role;
+revoke all on function public.restore_demo_member_state(bigint, text, text) from public, anon, authenticated;
+grant execute on function public.restore_demo_member_state(bigint, text, text) to service_role;
+revoke all on function public.activate_demo_run(bigint, text, text) from public, anon, authenticated;
+grant execute on function public.activate_demo_run(bigint, text, text) to service_role;
+revoke all on function public.claim_demo_clear(bigint, text) from public, anon, authenticated;
+grant execute on function public.claim_demo_clear(bigint, text) to service_role;
+revoke all on function public.fail_demo_run(bigint, text, text) from public, anon, authenticated;
+grant execute on function public.fail_demo_run(bigint, text, text) to service_role;
+revoke all on function public.fail_demo_onboarding_seed(bigint, text, text) from public, anon, authenticated;
+grant execute on function public.fail_demo_onboarding_seed(bigint, text, text) to service_role;
+revoke all on function public.delete_demo_companion_contexts(bigint, text, text) from public, anon, authenticated;
+grant execute on function public.delete_demo_companion_contexts(bigint, text, text) to service_role;
+revoke all on function public.finalize_demo_seed_cleanup(bigint, text) from public, anon, authenticated;
+grant execute on function public.finalize_demo_seed_cleanup(bigint, text) to service_role;
+revoke all on function public.finalize_demo_clear(bigint, text, boolean, boolean, uuid) from public, anon, authenticated;
+grant execute on function public.finalize_demo_clear(bigint, text, boolean, boolean, uuid) to service_role;
+revoke all on function public.claim_demo_ingest(bigint, text, integer) from public, anon, authenticated;
+grant execute on function public.claim_demo_ingest(bigint, text, integer) to service_role;
+revoke all on function public.heartbeat_demo_ingest_claim(bigint, text, integer) from public, anon, authenticated;
+grant execute on function public.heartbeat_demo_ingest_claim(bigint, text, integer) to service_role;
+revoke all on function public.release_demo_ingest_claim(bigint, text) from public, anon, authenticated;
+grant execute on function public.release_demo_ingest_claim(bigint, text) to service_role;
+revoke all on function public.wait_for_demo_ingest_claims(bigint, text, integer) from public, anon, authenticated;
+grant execute on function public.wait_for_demo_ingest_claims(bigint, text, integer) to service_role;
+revoke all on function public.wait_for_demo_ingest_account_claims(bigint, integer) from public, anon, authenticated;
+grant execute on function public.wait_for_demo_ingest_account_claims(bigint, integer) to service_role;
+revoke all on function public.assert_official_demo_inventory(bigint, boolean) from public, anon, authenticated;
+grant execute on function public.assert_official_demo_inventory(bigint, boolean) to service_role;
+revoke all on function public.release_demo_orphan_for_onboarding() from public, anon;
+grant execute on function public.release_demo_orphan_for_onboarding() to authenticated, service_role;
+revoke all on function public.withdraw_demo_listing(bigint, text, bigint, bigint, bigint) from public, anon, authenticated;
+grant execute on function public.withdraw_demo_listing(bigint, text, bigint, bigint, bigint) to service_role;
+revoke all on function public.fence_demo_cleanup(bigint, text, text) from public, anon, authenticated;
+grant execute on function public.fence_demo_cleanup(bigint, text, text) to service_role;
+revoke all on function public.delete_demo_cleanup_rows(bigint, text, text, text) from public, anon, authenticated;
+grant execute on function public.delete_demo_cleanup_rows(bigint, text, text, text) to service_role;
+revoke all on function public.delete_demo_actor_rows(bigint, text, text, uuid, text) from public, anon, authenticated;
+grant execute on function public.delete_demo_actor_rows(bigint, text, text, uuid, text) to service_role;
+revoke all on function public.delete_demo_resource(bigint, text, text, bigint, text) from public, anon, authenticated;
+grant execute on function public.delete_demo_resource(bigint, text, text, bigint, text) to service_role;

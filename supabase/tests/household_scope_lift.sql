@@ -156,18 +156,26 @@ exception when others then
 end $$;
 
 -- ---------------------------------------------------------------------------
--- AC 4(c): singles is untouched by this story — still raises, matching the
--- exact enforce_household_scope() message (not merely "something raised":
--- singles has other constraints that could raise just as happily).
+-- AC 4(c): standalone shadchanus actor scope includes singles. This positive
+-- control is deliberately a valid row, so it proves the allowlist rather than
+-- merely observing a later constraint error.
 -- ---------------------------------------------------------------------------
 do $$
+declare v_id bigint; v_account_id bigint;
 begin
-  insert into public.singles (first_name_en) values ('HSL Single (should never land)');
-  insert into results values ('AC 4(c): insert into public.singles still raises with a shadchanus context active', false, 'insert succeeded');
+  insert into public.singles (first_name_en, gender)
+  values ('HSL Shadchanus Single', 'female')
+  returning id into v_id;
+  select account_id into v_account_id from public.singles where id = v_id;
+  insert into results values (
+    'AC 4(c): standalone shadchanus may own a singles row',
+    v_account_id = (select value::bigint from ids where name = 'acct_b'),
+    format('account_id=%s', v_account_id)
+  );
 exception when others then
   insert into results values (
-    'AC 4(c): insert into public.singles still raises with a shadchanus context active',
-    sqlerrm like '%is not a household-kind account%', sqlerrm
+    'AC 4(c): standalone shadchanus may own a singles row',
+    false, sqlerrm
   );
 end $$;
 

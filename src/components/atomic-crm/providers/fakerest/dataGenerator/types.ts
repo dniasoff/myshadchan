@@ -36,7 +36,28 @@ import type {
   ThreadParticipant,
   TrustedSender,
 } from "../../../types";
+import type { Identifier, RaRecord } from "ra-core";
 import type { ConfigurationContextValue } from "../../../root/ConfigurationContext";
+
+export type DemoMessageNotification = {
+  account_id: Identifier;
+  connection_id?: Identifier | null;
+  status: "pending" | "sending" | "sent" | "failed" | "skipped";
+  simulated: boolean;
+  sent_at?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+export type DemoTaskNotification = {
+  account_id: Identifier;
+  task_id: Identifier;
+  channel: "email";
+  due_date: string;
+  status: "pending" | "sending" | "sent" | "failed" | "skipped";
+  simulated: boolean;
+  sent_at?: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
 
 export interface Db {
   members: Member[];
@@ -105,6 +126,9 @@ export interface Db {
   threads: Thread[];
   thread_participants: ThreadParticipant[];
   messages: Message[];
+  /** FakeRest-only delivery fixtures; the real tables are service-owned. */
+  message_notifications: DemoMessageNotification[];
+  task_notifications: DemoTaskNotification[];
   // Story 9.1 — seeded empty; the demo build must not crash on the
   // "Publish my listing" settings panel. Written only through
   // PublishShadchanListingSection.tsx's own create/update calls and

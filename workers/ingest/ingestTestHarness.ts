@@ -87,6 +87,27 @@ function makeQuery(tableName: string) {
  * `share/index.test.ts` already use in this repo. */
 export const from = vi.fn((tableName: string) => makeQuery(tableName));
 
+export const rpc = vi.fn(async (fn: string, args: Row) => {
+  if (fn === "claim_demo_ingest") {
+    const accountId = args.p_account_id;
+    return {
+      data: (tables.demo_simulated_accounts ?? []).some(
+        (row) => row.account_id == accountId,
+      )
+        ? { outcome: "blocked" }
+        : { outcome: "claimed", run_id: null },
+      error: null,
+    };
+  }
+  if (
+    fn === "heartbeat_demo_ingest_claim" ||
+    fn === "release_demo_ingest_claim"
+  ) {
+    return { data: true, error: null };
+  }
+  return { data: null, error: null };
+});
+
 export const upload = vi.fn(
   async (): Promise<{ error: { message: string } | null }> => ({
     error: null,
@@ -103,15 +124,22 @@ export const createSignedUrl = vi.fn(
     error: null,
   }),
 );
-export const storageFrom = vi.fn(() => ({ upload, createSignedUrl }));
+export const remove = vi.fn(
+  async (): Promise<{ error: { message: string } | null }> => ({
+    error: null,
+  }),
+);
+export const storageFrom = vi.fn(() => ({ upload, createSignedUrl, remove }));
 
 export function resetFakeDb(): void {
   for (const key of Object.keys(tables)) delete tables[key];
   for (const key of Object.keys(insertedRows)) delete insertedRows[key];
   insertError = null;
   from.mockClear();
+  rpc.mockClear();
   upload.mockClear();
   createSignedUrl.mockClear();
+  remove.mockClear();
   storageFrom.mockClear();
 }
 
@@ -120,7 +148,7 @@ export function setInsertError(err: { message: string } | null): void {
 }
 
 vi.mock("@supabase/supabase-js", () => ({
-  createClient: () => ({ from, storage: { from: storageFrom } }),
+  createClient: () => ({ from, rpc, storage: { from: storageFrom } }),
 }));
 
 /** The fixture data both test files seed before every test: one household

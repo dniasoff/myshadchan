@@ -154,4 +154,17 @@ describe("DemoBanner — the live read is always authoritative", () => {
     );
     expect(bannerHeight).toBeGreaterThan(0);
   });
+
+  it("guides demo customers to the contained listing and outcome scenarios", async () => {
+    const dataProvider = buildResolvedDataProvider(true);
+
+    const { screen } = await renderBanner(dataProvider, true);
+
+    await expect
+      .element(screen.getByRole("link", { name: "Preview listings" }))
+      .toHaveAttribute("href", "/find?demo=1");
+    await expect
+      .element(screen.getByText(/Feldman or Gross.*Sharing and Reminders/i))
+      .toBeInTheDocument();
+  });
 });

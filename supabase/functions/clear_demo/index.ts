@@ -1,13 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { type SupabaseClient, type User } from "jsr:@supabase/supabase-js@2";
+import { type User } from "jsr:@supabase/supabase-js@2";
 import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { corsHeaders, OptionsMiddleware } from "../_shared/cors.ts";
 import { createErrorResponse } from "../_shared/utils.ts";
 import { AuthMiddleware, UserMiddleware } from "../_shared/authentication.ts";
-import {
-  resolveAccountId,
-  userScopedClient,
-} from "../_shared/resolveDemoAccount.ts";
+import { resolveAccountId } from "../_shared/resolveDemoAccount.ts";
 
 /**
  * Wipes every tenant row in the CALLER'S OWN account. Destructive and
@@ -22,17 +19,21 @@ import {
  *     check is authoritative regardless of RLS) and fails CLOSED — 403,
  *     zero deletes — unless it is exactly `true`. This runs before any
  *     delete or storage removal.
- *  3. Every delete runs on the USER-scoped client `db`, so RLS confines each
- *     statement to current_context_id() regardless of the WHERE clause.
- *  4. Every delete also carries an explicit `.eq('account_id', accountId)`
- *     filter (belt + braces) — there is no unfiltered/blanket delete here.
+ *  3. The lifecycle is service-role-only after an exact run/clear lease is
+ *     claimed.  The manifest is authoritative for every relationship,
+ *     actor, account, and storage prefix; no browser-supplied row ID is
+ *     trusted as a delete scope.
+ *  4. Every delete is checked against the run's exact account axes and the
+ *     service-owned SQL lease fence.  This is deliberately not a claim that
+ *     the delete statements rely on a user JWT/RLS session.
  *
  * Storage objects are removed via the service-role client before row deletion
  * so repeated seed/clear cycles do not leave orphaned files in the `documents`,
  * `entity-files`, or `attachments` buckets — the last of these backs
  * inbox_items.attachments (ShareTarget.tsx's shared-file capture and
  * postmark/extractAndUploadAttachments.ts's emailed attachments); inbox_items
- * rows are otherwise a plain member of DELETE_ORDER below.
+ * rows are otherwise deleted by the explicit account/connection discussion
+ * passes in `clearOfficialDemoBundle` below.
  *
  * interactions and identity_signals are never deleted directly (authenticated
  * holds no DELETE grant on either) — they are removed by the
@@ -41,8 +42,8 @@ import {
  * Deletion order is FK-safe: every dependent of shidduchim/references is
  * removed before the parent, and singles go last because
  * shidduchim.single_id/date_records.single_id cascade from singles.
- * inbox_items carries no enforced foreign key to any of these (see
- * DELETE_ORDER's own comment) so it needs no particular position among them.
+ * inbox_items carries no enforced foreign key to any of these, so it needs no
+ * particular position among the explicit account-scoped deletes.
  *
  * accounts.demo release is OPT-IN, via the request body's `releaseDemoFlag`
  * (default `false`/absent — see `parseReleaseDemoFlag`). This function has
@@ -83,33 +84,6 @@ import {
 
 // Deliberately explicit rather than looped over a table-name array — keeping
 // the FK-safe order visible in the code is the whole point of this function.
-const DELETE_ORDER = [
-  // inbox_items has no enforced foreign key to (or from) any other table
-  // here: single_id/shadchan_id/resolved_shidduchim_id are plain bigint
-  // columns with no `references` clause (01_tables.sql), connection_id's
-  // real FK points OUT to connections — a table this function never touches
-  // — and no table holds a foreign key INTO inbox_items. It is a leaf with
-  // nothing upstream or downstream to sequence against, so its position here
-  // is about logical order, not FK enforcement: first, because it is the
-  // "front door" — a capture exists before anything is ever resolved from
-  // it, never after.
-  "inbox_items",
-  "tasks",
-  "reference_links",
-  "redts",
-  "shidduch_education",
-  "resume_photos",
-  "resumes",
-  "entity_files",
-  "medical_notes",
-  "shidduchim_external_links",
-  "date_records",
-  "shidduchim",
-  "references",
-  "shadchanim",
-  "singles",
-] as const;
-
 /** Thrown by `assertDemoAccount` — caught explicitly by the handler and
  * mapped to 403, kept distinct from the generic 500 every other failure in
  * this function reports. */
@@ -118,6 +92,55 @@ class NotDemoAccountError extends Error {
     super(message);
     this.name = "NotDemoAccountError";
   }
+}
+
+class DemoRunBusyError extends Error {
+  constructor() {
+    super(
+      "Demo lifecycle is already owned by another operation; please retry.",
+    );
+    this.name = "DemoRunBusyError";
+  }
+}
+
+function isAuthUserNotFoundError(error: unknown): boolean {
+  const candidate = error as { status?: number; code?: string } | null;
+  return (
+    candidate?.status === 404 ||
+    candidate?.code === "user_not_found" ||
+    (error instanceof Error && /user.?not.?found/i.test(error.message))
+  );
+}
+
+type DemoActorAuthUser = {
+  id: string;
+  email?: string;
+  app_metadata?: Record<string, unknown>;
+};
+
+async function listAllAuthUsers(): Promise<DemoActorAuthUser[]> {
+  const users: DemoActorAuthUser[] = [];
+  for (let page = 1; page <= 1000; page += 1) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+      page,
+      perPage: 1000,
+    });
+    if (error) throw new Error(`list Auth users failed: ${error.message}`);
+    users.push(...(data.users as DemoActorAuthUser[]));
+    if (data.users.length < 1000) return users;
+  }
+  throw new Error("list Auth users exceeded pagination safety limit");
+}
+
+async function getReleaseReceipt(userId: string): Promise<number | null> {
+  const { data, error } = await supabaseAdmin.rpc("get_demo_release_receipt", {
+    p_user_id: userId,
+  });
+  if (error)
+    throw new Error(`read demo release receipt failed: ${error.message}`);
+  if (!data || typeof data !== "object") return null;
+  const rootAccountId = (data as { root_account_id?: unknown }).root_account_id;
+  return typeof rootAccountId === "number" ? rootAccountId : null;
 }
 
 /**
@@ -138,11 +161,31 @@ async function assertDemoAccount(accountId: number): Promise<void> {
     .eq("id", accountId)
     .maybeSingle();
 
-  if (error || !data || data.demo !== true) {
+  if (error || !data) {
     throw new NotDemoAccountError(
       "This account is not a demo account. Clearing demo data is only available for demo accounts.",
     );
   }
+  if (data.demo === true) return;
+
+  // A failed/seeding bundle can legitimately reach this guard before the
+  // final accounts.demo=true transition. Its caller-scoped manifest is the
+  // stronger proof that this is the sandbox's compensating-clear path.
+  try {
+    const { data: run, error: runError } = await supabaseAdmin
+      .from("demo_runs")
+      .select("id")
+      .eq("root_account_id", accountId)
+      .in("status", ["seeding", "active", "clearing", "failed"])
+      .limit(1)
+      .maybeSingle();
+    if (!runError && run) return;
+  } catch {
+    // Older stacks may not have the manifest table. Fail closed below.
+  }
+  throw new NotDemoAccountError(
+    "This account is not a demo account. Clearing demo data is only available for demo accounts.",
+  );
 }
 
 /** Defensive parse of one `inbox_items.attachments` cell. The column is
@@ -229,17 +272,77 @@ async function listInboxAttachmentPaths(accountId: number): Promise<string[]> {
   );
 }
 
+/** Recursively enumerate an exact numeric account prefix with pagination.
+ * Storage metadata can be committed after a row/manifest response is lost,
+ * so the clear pass must discover objects independently of domain rows. */
+async function listStoragePrefixPaths(
+  bucket: "documents" | "entity-files" | "attachments",
+  accountId: number,
+): Promise<string[]> {
+  const paths: string[] = [];
+  const walk = async (prefix: string): Promise<void> => {
+    for (let offset = 0; ; offset += 100) {
+      const { data, error } = await supabaseAdmin.storage
+        .from(bucket)
+        .list(prefix, { limit: 100, offset });
+      if (error)
+        throw new Error(`failed to list ${bucket} storage: ${error.message}`);
+      for (const entry of data ?? []) {
+        if (!entry?.name || entry.name === "." || entry.name === "..") continue;
+        const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.id == null && entry.metadata == null) {
+          await walk(path);
+        } else {
+          paths.push(path);
+        }
+      }
+      if (!data || data.length < 100) break;
+    }
+  };
+  await walk(String(accountId));
+  return paths.filter(
+    (path) =>
+      path.startsWith(`${accountId}/`) && !path.split("/").includes(".."),
+  );
+}
+
 async function collectStoragePaths(accountId: number): Promise<{
   documentPaths: string[];
   entityFilePaths: string[];
   attachmentPaths: string[];
 }> {
-  const [documentPaths, entityFilePaths, attachmentPaths] = await Promise.all([
+  const [
+    documentPaths,
+    entityFilePaths,
+    attachmentPaths,
+    listedDocuments,
+    listedEntityFiles,
+    listedAttachments,
+  ] = await Promise.all([
     listDocumentPaths(accountId),
     listEntityFilePaths(accountId),
     listInboxAttachmentPaths(accountId),
+    listStoragePrefixPaths("documents", accountId),
+    listStoragePrefixPaths("entity-files", accountId),
+    listStoragePrefixPaths("attachments", accountId),
   ]);
-  return { documentPaths, entityFilePaths, attachmentPaths };
+  return {
+    documentPaths: [...new Set([...documentPaths, ...listedDocuments])],
+    entityFilePaths: [...new Set([...entityFilePaths, ...listedEntityFiles])],
+    attachmentPaths: [...new Set([...attachmentPaths, ...listedAttachments])],
+  };
+}
+
+async function removeStoragePathsInChunks(
+  bucket: "documents" | "entity-files" | "attachments",
+  paths: string[],
+): Promise<void> {
+  for (let offset = 0; offset < paths.length; offset += 100) {
+    const chunk = paths.slice(offset, offset + 100);
+    if (chunk.length === 0) continue;
+    const { error } = await supabaseAdmin.storage.from(bucket).remove(chunk);
+    if (error) throw new Error(`failed to remove ${bucket}: ${error.message}`);
+  }
 }
 
 async function removeStorageObjects(
@@ -248,28 +351,13 @@ async function removeStorageObjects(
   attachmentPaths: string[],
 ): Promise<void> {
   if (documentPaths.length > 0) {
-    const { error } = await supabaseAdmin.storage
-      .from("documents")
-      .remove(documentPaths);
-    if (error) {
-      throw new Error(`failed to remove documents: ${error.message}`);
-    }
+    await removeStoragePathsInChunks("documents", documentPaths);
   }
   if (attachmentPaths.length > 0) {
-    const { error } = await supabaseAdmin.storage
-      .from("attachments")
-      .remove(attachmentPaths);
-    if (error) {
-      throw new Error(`failed to remove attachments: ${error.message}`);
-    }
+    await removeStoragePathsInChunks("attachments", attachmentPaths);
   }
   if (entityFilePaths.length > 0) {
-    const { error } = await supabaseAdmin.storage
-      .from("entity-files")
-      .remove(entityFilePaths);
-    if (error) {
-      throw new Error(`failed to remove entity-files: ${error.message}`);
-    }
+    await removeStoragePathsInChunks("entity-files", entityFilePaths);
   }
 }
 
@@ -321,140 +409,1228 @@ async function parseReleaseDemoFlag(req: Request): Promise<boolean> {
   return value;
 }
 
-/**
- * Counts the account's currently-active memberships via supabaseAdmin — the
- * authoritative, RLS-bypassing read, exactly like `assertDemoAccount` above
- * — because this is the one thing standing between a solo demo explorer's
- * exit flow and stripping a real, shared household's admin membership out
- * from under it. See `releaseBootstrapPersona` for why this check exists
- * independently of `guard_persona_removal()`.
- */
-async function countActiveMembers(accountId: number): Promise<number> {
-  const { count, error } = await supabaseAdmin
-    .from("account_members")
-    .select("id", { count: "exact", head: true })
-    .eq("account_id", accountId)
-    .eq("status", "active");
-  if (error) {
-    throw new Error(`failed to count active members: ${error.message}`);
-  }
-  return count ?? 0;
+type DemoRunRecord = { id: number; status: string; updated_at: string };
+
+export async function findActiveDemoRun(
+  rootAccountId: number,
+): Promise<DemoRunRecord | null> {
+  const { data, error } = await supabaseAdmin
+    .from("demo_runs")
+    .select("id, status, updated_at")
+    .eq("root_account_id", rootAccountId)
+    .in("status", ["seeding", "active", "clearing", "failed"])
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`failed to inspect demo run: ${error.message}`);
+  if (!data) return null;
+  return {
+    id: data.id as number,
+    status: data.status as string,
+    updated_at: data.updated_at as string,
+  };
 }
 
-/**
- * Releases the auto-assigned bootstrap `parent` persona OnboardingChoice.tsx
- * silently provisions for a brand-new demo explorer, purely so seed_demo's
- * writes pass RLS — that comment says as much; it is never a role the user
- * chose. Nothing else ever removes it (see the module docstring's
- * OnboardingGate discussion), so without this release `my_personas()`/
- * `my_contexts()` stay permanently non-empty and the welcome screen never
- * returns after a clear.
- *
- * SAFETY: this must NEVER strip the caller's admin access from an account
- * that has another active member. `remove_persona()`'s own
- * `guard_persona_removal()` (02_functions.sql) only refuses archiving when
- * the caller is the account's LAST active member AND the account still
- * holds domain data — it does not, and was never meant to, stop a member of
- * a MULTI-member household from voluntarily giving up their own persona.
- * That is a legitimate, user-initiated action on a real account; it must
- * never happen as a silent side effect of a demo-data clear. So this
- * function adds its own, independent gate — `countActiveMembers` — and
- * releases the persona only when the caller is the account's sole active
- * member, never relying on the guard alone.
- *
- * Runs `remove_persona` as an RPC on the CALLER's OWN scoped client `db`
- * (never `supabaseAdmin`), so RLS and the function's own `auth.uid()`-keyed
- * queries apply exactly as they would for a real, user-driven persona
- * removal. This performs no privilege bypass of its own — it only decides
- * WHETHER to invoke something the caller could otherwise invoke themselves.
- *
- * Never throws: any failure — the member count, or the RPC itself — is
- * returned as a warning string instead of failing the surrounding clear.
- * The caller's data is already gone by this point (called last, after every
- * delete/storage-removal/flag-release above has succeeded); losing sight of
- * that behind an unrelated persona-release hiccup would be worse than a
- * visible warning (mirrors admin_reseed_demo_accounts's `cleanupWarning`).
- */
-async function releaseBootstrapPersona(
-  db: SupabaseClient,
-  accountId: number,
-): Promise<string | null> {
-  try {
-    const activeMembers = await countActiveMembers(accountId);
-    if (activeMembers !== 1) {
-      // A multi-member household (or, defensively, zero — should be
-      // unreachable, since the caller's own active membership is what
-      // resolved this accountId in the first place): never touch the
-      // persona. Not a failure — a correct, silent no-op.
-      return null;
-    }
-
-    const { error } = await db.rpc("remove_persona", { p_persona: "parent" });
-    if (error) {
-      throw new Error(error.message);
-    }
-    return null;
-  } catch (e) {
-    const message = `failed to release the bootstrap persona: ${
-      (e as Error).message
-    }`;
-    console.error(`clear_demo: ${message}`);
-    return message;
+async function validateDemoActorsBeforeCleanup(
+  runId: number,
+  leaseToken: string,
+  accountIds: readonly number[],
+): Promise<{
+  actorIds: string[];
+  actors: Array<{ actorKey: string; userId: string; expectedEmail: string }>;
+  authIdsPresent: Set<string>;
+}> {
+  const [manifestUsersResult, actorIntentsResult] = await Promise.all([
+    supabaseAdmin
+      .from("demo_run_users")
+      .select("user_id, actor_key")
+      .eq("run_id", runId),
+    supabaseAdmin
+      .from("demo_run_actor_intents")
+      .select("actor_key, expected_email, auth_user_id, state")
+      .eq("run_id", runId),
+  ]);
+  if (manifestUsersResult.error) {
+    throw new Error(
+      `list demo actors failed: ${manifestUsersResult.error.message}`,
+    );
   }
+  if (actorIntentsResult.error) {
+    throw new Error(
+      `list demo actor intents failed: ${actorIntentsResult.error.message}`,
+    );
+  }
+
+  const actors = new Map<string, { userId: string; expectedEmail: string }>();
+  const confirmedAbsentActors = new Set<string>();
+  for (const row of (manifestUsersResult.data ?? []) as Array<{
+    user_id?: unknown;
+    actor_key?: unknown;
+  }>) {
+    if (
+      typeof row.user_id !== "string" ||
+      typeof row.actor_key !== "string" ||
+      row.user_id.length === 0 ||
+      row.actor_key.length === 0 ||
+      actors.has(row.actor_key)
+    ) {
+      throw new Error(
+        "demo actor manifest has an invalid or duplicate identity",
+      );
+    }
+    actors.set(row.actor_key, { userId: row.user_id, expectedEmail: "" });
+  }
+  for (const intent of (actorIntentsResult.data ?? []) as Array<{
+    actor_key?: unknown;
+    expected_email?: unknown;
+    auth_user_id?: unknown;
+    state?: unknown;
+  }>) {
+    if (
+      typeof intent.actor_key !== "string" ||
+      typeof intent.expected_email !== "string"
+    ) {
+      throw new Error("demo actor intent lacks deterministic identity");
+    }
+    const existing = actors.get(intent.actor_key);
+    if (existing?.expectedEmail) {
+      throw new Error(`duplicate demo actor intent ${intent.actor_key}`);
+    }
+    if (
+      existing &&
+      typeof intent.auth_user_id === "string" &&
+      existing.userId !== intent.auth_user_id
+    ) {
+      throw new Error(`demo actor identity mismatch ${intent.actor_key}`);
+    }
+    actors.set(intent.actor_key, {
+      userId:
+        typeof intent.auth_user_id === "string"
+          ? intent.auth_user_id
+          : (existing?.userId ?? ""),
+      expectedEmail: intent.expected_email,
+    });
+    if (intent.state === "confirmed_absent") {
+      confirmedAbsentActors.add(intent.actor_key);
+      actors.get(intent.actor_key)!.userId = "";
+    }
+  }
+
+  let authUsers: DemoActorAuthUser[];
+  try {
+    authUsers = actors.size > 0 ? await listAllAuthUsers() : [];
+  } catch (error) {
+    throw new Error(
+      `enumerate demo actor Auth identities failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const authIdsPresent = new Set<string>();
+  for (const [actorKey, actor] of actors) {
+    if (!actor.expectedEmail) {
+      throw new Error(`demo actor ${actorKey} is missing an exact identity`);
+    }
+    // Auth creation can commit after the Edge response is lost, before the
+    // reconcile RPC commits.  The durable intent is the only recovery key:
+    // match the exact lower-cased email and the complete run-scoped metadata,
+    // reject ambiguity, then reconcile before any deletion tombstone exists.
+    if (!actor.userId) {
+      const exactCandidates = authUsers.filter((candidate) => {
+        const metadata = candidate.app_metadata ?? {};
+        return (
+          candidate.email?.toLowerCase() ===
+            actor.expectedEmail.toLowerCase() &&
+          metadata.demo === true &&
+          metadata.demo_run_id === runId &&
+          metadata.demo_actor_key === actorKey
+        );
+      });
+      if (exactCandidates.length > 1) {
+        throw new Error(
+          `ambiguous synthetic actor Auth reconciliation ${actorKey}`,
+        );
+      }
+      if (confirmedAbsentActors.has(actorKey) && exactCandidates.length > 0) {
+        throw new Error(
+          `confirmed-absent synthetic actor ${actorKey} reappeared in Auth`,
+        );
+      }
+      if (exactCandidates[0]) {
+        actor.userId = exactCandidates[0].id;
+        const { error: reconcileError } = await supabaseAdmin.rpc(
+          "reconcile_demo_actor",
+          {
+            p_run_id: runId,
+            p_lease_token: leaseToken,
+            p_actor_key: actorKey,
+            p_user_id: actor.userId,
+            p_operation: "clear",
+          },
+        );
+        if (reconcileError) {
+          throw new Error(
+            `reconcile synthetic actor ${actorKey} failed: ${reconcileError.message}`,
+          );
+        }
+      }
+    }
+    if (!actor.userId) {
+      const { error: absentError } = await supabaseAdmin.rpc(
+        "confirm_demo_actor_absent",
+        {
+          p_run_id: runId,
+          p_lease_token: leaseToken,
+          p_actor_key: actorKey,
+          p_operation: "clear",
+        },
+      );
+      if (absentError) {
+        throw new Error(
+          `confirm synthetic actor ${actorKey} absent failed: ${absentError.message}`,
+        );
+      }
+      continue;
+    }
+    const authUser = authUsers.find((candidate) => {
+      const metadata = candidate.app_metadata ?? {};
+      return (
+        candidate.id === actor.userId &&
+        candidate.email?.toLowerCase() === actor.expectedEmail.toLowerCase() &&
+        metadata.demo === true &&
+        metadata.demo_run_id === runId &&
+        metadata.demo_actor_key === actorKey
+      );
+    });
+    const conflictingAuthUser = authUsers.some((candidate) => {
+      const metadata = candidate.app_metadata ?? {};
+      return (
+        candidate.id !== actor.userId &&
+        candidate.email?.toLowerCase() === actor.expectedEmail.toLowerCase() &&
+        metadata.demo === true &&
+        metadata.demo_run_id === runId &&
+        metadata.demo_actor_key === actorKey
+      );
+    });
+    if (authUser) {
+      authIdsPresent.add(authUser.id);
+    } else if (
+      authUsers.some((candidate) => candidate.id === actor.userId) ||
+      conflictingAuthUser
+    ) {
+      throw new Error(`demo actor ${actorKey} has mismatched Auth identity`);
+    }
+  }
+
+  for (const actorId of [...actors.values()]
+    .map((actor) => actor.userId)
+    .filter((id): id is string => id.length > 0)) {
+    const { data: memberships, error } = await supabaseAdmin
+      .from("account_members")
+      .select("account_id, user_id")
+      .eq("user_id", actorId);
+    if (
+      error ||
+      (memberships ?? []).some(
+        (membership) =>
+          membership.user_id !== actorId ||
+          !accountIds.includes(membership.account_id as number),
+      )
+    ) {
+      throw new Error(
+        `demo actor ${actorId} has membership outside the exact run`,
+      );
+    }
+  }
+  return {
+    actorIds: [
+      ...new Set(
+        [...actors.values()]
+          .map((actor) => actor.userId)
+          .filter((id): id is string => id.length > 0),
+      ),
+    ],
+    actors: [...actors.entries()]
+      .filter(([, actor]) => actor.userId.length > 0)
+      .map(([actorKey, actor]) => ({
+        actorKey,
+        userId: actor.userId,
+        expectedEmail: actor.expectedEmail,
+      })),
+    authIdsPresent,
+  };
+}
+
+async function clearOfficialDemoBundle(
+  rootAccountId: number,
+  run: DemoRunRecord & { leaseToken: string },
+  releaseDemoFlag: boolean,
+  userId: string,
+  partialRun = false,
+): Promise<{
+  cleared: true;
+  accountId: number;
+  runId: number;
+  companionAccounts: number;
+  syntheticActors: number;
+  lastClearedAt?: string;
+}> {
+  const runId = run.id;
+  const leaseToken = run.leaseToken;
+
+  const heartbeat = async (phase: string) => {
+    const { error } = await supabaseAdmin.rpc("heartbeat_demo_run", {
+      p_run_id: runId,
+      p_lease_token: leaseToken,
+      p_operation: "clear",
+    });
+    if (error)
+      throw new Error(
+        `demo clear heartbeat failed after ${phase}: ${error.message}`,
+      );
+  };
+  await heartbeat("claim");
+
+  // Clearing owns the account update lock before it reaches this point, so
+  // new demo ingest claims are fenced. Wait for claims acquired before the
+  // clear to finish (or expire safely) before sweeping storage/finalizing.
+  const { data: ingestClaimsReady, error: ingestClaimsError } =
+    await supabaseAdmin.rpc("wait_for_demo_ingest_claims", {
+      p_run_id: runId,
+      p_lease_token: leaseToken,
+      p_timeout_seconds: 30,
+    });
+  if (ingestClaimsError || ingestClaimsReady !== true) {
+    throw new Error(
+      `demo ingest claim fence failed: ${ingestClaimsError?.message ?? "active claims remain"}`,
+    );
+  }
+  await heartbeat("ingest claim fence");
+
+  const { data: runAccounts, error: runAccountsError } = await supabaseAdmin
+    .from("demo_run_accounts")
+    .select("account_id, context_key, context_kind, is_root")
+    .eq("run_id", runId);
+  if (runAccountsError)
+    throw new Error(`list demo contexts failed: ${runAccountsError.message}`);
+  const manifestRows = (runAccounts ?? []) as Array<{
+    account_id?: unknown;
+    context_key?: unknown;
+    context_kind?: unknown;
+    is_root?: unknown;
+  }>;
+  const expectedKinds: Record<string, "household" | "shadchanus"> = {
+    "primary-household": "household",
+    "feldman-shadchanus": "shadchanus",
+    "gross-household": "household",
+  };
+  const allAccountIds = manifestRows.map((row) => row.account_id);
+  const rootRows = manifestRows.filter((row) => row.is_root === true);
+  const manifestContextKeys = new Set(
+    manifestRows.map((row) => row.context_key),
+  );
+  if (
+    manifestRows.length < 1 ||
+    (partialRun ? manifestRows.length > 3 : manifestRows.length !== 3) ||
+    rootRows.length !== 1 ||
+    rootRows[0]?.account_id !== rootAccountId ||
+    manifestRows.some(
+      (row) =>
+        typeof row.account_id !== "number" ||
+        row.account_id <= 0 ||
+        typeof row.context_key !== "string" ||
+        expectedKinds[row.context_key] !== row.context_kind ||
+        (row.context_key === "primary-household") !== (row.is_root === true),
+    ) ||
+    new Set(allAccountIds).size !== allAccountIds.length ||
+    manifestContextKeys.size !== manifestRows.length ||
+    (!partialRun &&
+      !Object.keys(expectedKinds).every((contextKey) =>
+        manifestContextKeys.has(contextKey),
+      ))
+  ) {
+    throw new Error(
+      partialRun
+        ? "partial demo manifest has an invalid account key/kind graph"
+        : "demo manifest has an invalid account key/kind graph",
+    );
+  }
+  const accountIds = allAccountIds as number[];
+  const { data: actualAccounts, error: actualAccountsError } =
+    await supabaseAdmin
+      .from("accounts")
+      .select("id, kind")
+      .in("id", accountIds);
+  if (
+    actualAccountsError ||
+    !actualAccounts ||
+    actualAccounts.length !== accountIds.length ||
+    actualAccounts.some((account) => {
+      const manifest = manifestRows.find(
+        (row) => row.account_id === account.id,
+      );
+      return (
+        !manifest ||
+        expectedKinds[manifest.context_key as string] !== account.kind
+      );
+    })
+  ) {
+    throw new Error(
+      "demo manifest account kind does not match the account row",
+    );
+  }
+  const companionAccountIds = accountIds.filter(
+    (id): id is number => typeof id === "number" && id !== rootAccountId,
+  );
+
+  // Validate every manifest-owned relationship before deleting any storage
+  // or tenant row. In particular, a child grant's target single is itself an
+  // account axis; validating after deleting singles would turn a retryable
+  // clear into a permanently missing-owner failure.
+  const { data: resources, error: resourceError } = await supabaseAdmin
+    .from("demo_run_resources")
+    .select("resource_type, resource_id")
+    .eq("run_id", runId);
+  if (resourceError) {
+    throw new Error(`list demo resources failed: ${resourceError.message}`);
+  }
+  const relationshipTables: Record<string, string> = {
+    connection: "connections",
+    connection_invite: "connection_invites",
+    child_grant: "child_grants",
+    invite: "invites",
+  };
+  const allowedResourceTypes = new Set([
+    "invite",
+    "connection_invite",
+    "child_grant",
+    "connection",
+    "thread",
+    "message",
+    "listing",
+    "share_link",
+    "task",
+    "share_access_log",
+    "inbox_item",
+    "analytics_event",
+    "message_notification",
+    "task_notification",
+    "trusted_sender",
+    "single_preference",
+    "single_note",
+    "listing_withdrawal",
+  ]);
+  const bundleAccountSet = new Set(accountIds);
+  const ownedRelationshipResources: Array<{ table: string; id: number }> = [];
+  const registeredThreadIds = new Set<number>();
+  const registeredMessageIds = new Set<number>();
+  for (const resource of resources ?? []) {
+    if (!allowedResourceTypes.has(resource.resource_type as string)) {
+      throw new Error(
+        `refusing to delete unknown demo resource type ${resource.resource_type}`,
+      );
+    }
+    const { error: ownershipError } = await supabaseAdmin.rpc(
+      "assert_demo_resource_ownership",
+      {
+        p_run_id: runId,
+        p_resource_type: resource.resource_type,
+        p_resource_id: resource.resource_id,
+        p_require_present: false,
+      },
+    );
+    if (ownershipError) {
+      throw new Error(
+        `refusing to delete ${resource.resource_type} ${resource.resource_id}: ${ownershipError.message}`,
+      );
+    }
+    if (resource.resource_type === "thread") {
+      registeredThreadIds.add(resource.resource_id as number);
+      continue;
+    }
+    if (resource.resource_type === "message") {
+      registeredMessageIds.add(resource.resource_id as number);
+      continue;
+    }
+    const table = relationshipTables[resource.resource_type as string];
+    if (!table) continue;
+
+    const ownershipColumns: Record<string, string> = {
+      connections: "household_account_id, shadchanus_account_id, status",
+      connection_invites: "inviter_account_id, accepted_by_account_id, status",
+      child_grants:
+        "proposer_account_id, target_single_id, grantee_account_id, status",
+      invites: "account_id, status",
+    };
+    const { data: relationship, error: relationshipError } = await supabaseAdmin
+      .from(table)
+      .select(ownershipColumns[table])
+      .eq("id", resource.resource_id)
+      .maybeSingle();
+    if (relationshipError) {
+      throw new Error(
+        `verify demo ${table} ownership failed: ${relationshipError.message}`,
+      );
+    }
+    if (!relationship) continue;
+
+    let endpoints: unknown[];
+    if (table === "connections") {
+      endpoints = [
+        relationship.household_account_id,
+        relationship.shadchanus_account_id,
+      ];
+    } else if (table === "connection_invites") {
+      endpoints = [
+        relationship.inviter_account_id,
+        relationship.accepted_by_account_id,
+      ];
+    } else if (table === "child_grants") {
+      const { data: targetSingle, error: targetSingleError } =
+        await supabaseAdmin
+          .from("singles")
+          .select("account_id")
+          .eq("id", relationship.target_single_id)
+          .maybeSingle();
+      if (targetSingleError) {
+        throw new Error(
+          `verify demo child grant target ownership failed: ${targetSingleError.message}`,
+        );
+      }
+      if (!targetSingle || targetSingle.account_id == null) {
+        throw new Error(
+          `refusing to delete ${table} ${resource.resource_id}: grant target single is missing its owner`,
+        );
+      }
+      endpoints = [
+        relationship.proposer_account_id,
+        targetSingle.account_id,
+        relationship.grantee_account_id,
+      ];
+    } else {
+      endpoints = [relationship.account_id];
+    }
+    const requiredEndpoints = endpoints.filter(
+      (endpoint): endpoint is number =>
+        endpoint !== null && endpoint !== undefined,
+    );
+    if (
+      requiredEndpoints.length === 0 ||
+      requiredEndpoints.some((endpoint) => !bundleAccountSet.has(endpoint))
+    ) {
+      throw new Error(
+        `refusing to delete ${table} ${resource.resource_id}: relationship endpoint is outside demo run ${runId}`,
+      );
+    }
+    if (
+      table === "connection_invites" &&
+      relationship.status === "accepted" &&
+      relationship.accepted_by_account_id == null
+    ) {
+      throw new Error(
+        `refusing to delete accepted connection invite ${resource.resource_id}: missing accepting endpoint`,
+      );
+    }
+    if (
+      table === "child_grants" &&
+      relationship.status === "accepted" &&
+      relationship.grantee_account_id == null
+    ) {
+      throw new Error(
+        `refusing to delete accepted child grant ${resource.resource_id}: missing grantee endpoint`,
+      );
+    }
+    ownedRelationshipResources.push({
+      table,
+      id: resource.resource_id as number,
+    });
+  }
+
+  // Validate every actor's exact Auth identity and every membership before
+  // storage/domain cleanup begins. A synthetic actor must have no membership
+  // outside this manifest; otherwise deleting Auth globally could erase a
+  // real account's access.
+  const { actorIds, actors, authIdsPresent } =
+    await validateDemoActorsBeforeCleanup(runId, leaseToken, accountIds);
+  const { error: restoreError } = await supabaseAdmin.rpc(
+    "restore_demo_member_state",
+    {
+      p_run_id: runId,
+      p_lease_token: leaseToken,
+      p_operation: "clear",
+    },
+  );
+  if (restoreError) {
+    throw new Error(
+      `restore demo member state before cleanup failed: ${restoreError.message}`,
+    );
+  }
+
+  const { data: storageRows, error: storageError } = await supabaseAdmin
+    .from("demo_run_storage")
+    .select("bucket, storage_path, resource_key")
+    .eq("run_id", runId);
+  if (storageError)
+    throw new Error(`list demo storage failed: ${storageError.message}`);
+  const pathsByBucket = new Map<string, string[]>();
+  for (const row of storageRows ?? []) {
+    if (
+      !["documents", "entity-files", "attachments"].includes(row.bucket) ||
+      !accountIds.some(
+        (accountId) =>
+          row.storage_path.startsWith(`${accountId}/`) &&
+          !row.storage_path.split("/").includes(".."),
+      ) ||
+      !["resume", "photo", "entity-file", "inbox-attachment"].includes(
+        row.resource_key,
+      )
+    ) {
+      throw new Error(
+        `refusing to remove demo storage outside the exact manifest: ${row.bucket}/${row.storage_path}`,
+      );
+    }
+    const paths = pathsByBucket.get(row.bucket) ?? [];
+    paths.push(row.storage_path);
+    pathsByBucket.set(row.bucket, paths);
+  }
+
+  // Core seeding happens before the official bundle manifest is populated.
+  // If that phase fails after an upload, demo_run_storage is empty; enumerate
+  // every manifest account's domain rows before deleting any of them and union
+  // those paths with the registered manifest. Listing or removal failure is
+  // intentionally fatal, leaving the failed run retryable with its rows intact.
+  const documentPaths = new Set<string>();
+  const entityFilePaths = new Set<string>();
+  const attachmentPaths = new Set<string>();
+  for (const accountId of accountIds) {
+    const discovered = await collectStoragePaths(accountId);
+    const addDiscovered = (target: Set<string>, path: string) => {
+      if (!path.startsWith(`${accountId}/`) || path.split("/").includes("..")) {
+        throw new Error(
+          `refusing to remove storage outside demo account ${accountId}: ${path}`,
+        );
+      }
+      target.add(path);
+    };
+    discovered.documentPaths.forEach((path) =>
+      addDiscovered(documentPaths, path),
+    );
+    discovered.entityFilePaths.forEach((path) =>
+      addDiscovered(entityFilePaths, path),
+    );
+    discovered.attachmentPaths.forEach((path) =>
+      addDiscovered(attachmentPaths, path),
+    );
+  }
+  for (const [bucket, paths] of pathsByBucket) {
+    const target =
+      bucket === "documents"
+        ? documentPaths
+        : bucket === "entity-files"
+          ? entityFilePaths
+          : bucket === "attachments"
+            ? attachmentPaths
+            : null;
+    if (target) {
+      paths.forEach((path) => target.add(path));
+    }
+  }
+  const { data: leaseValid, error: leaseError } = await supabaseAdmin.rpc(
+    "demo_run_lease_is_current",
+    { p_run_id: runId, p_lease_token: leaseToken, p_operation: "clear" },
+  );
+  if (leaseError || leaseValid !== true) {
+    throw new Error(
+      `demo clear lease fenced before storage cleanup: ${leaseError?.message ?? "stale lease"}`,
+    );
+  }
+  await removeStorageObjects(
+    [...documentPaths],
+    [...entityFilePaths],
+    [...attachmentPaths],
+  );
+  await heartbeat("storage cleanup");
+  // Preserve fail-closed cleanup for any future manifest bucket without
+  // silently dropping it into one of the known bucket sets above.
+  for (const [bucket, paths] of pathsByBucket) {
+    if (
+      bucket === "documents" ||
+      bucket === "entity-files" ||
+      bucket === "attachments"
+    ) {
+      continue;
+    }
+    const uniquePaths = [...new Set(paths)];
+    if (uniquePaths.length === 0) continue;
+    const { error } = await supabaseAdmin.storage
+      .from(bucket)
+      .remove(uniquePaths);
+    if (error) throw new Error(`remove demo storage failed: ${error.message}`);
+  }
+
+  const deleteByAccount = [
+    "analytics_events",
+    "inbox_items",
+    "message_notifications",
+    "task_notifications",
+    "tasks",
+    "reference_links",
+    "redts",
+    "shidduch_education",
+    "resume_photos",
+    "resumes",
+    "entity_files",
+    "medical_notes",
+    "shidduchim_external_links",
+    "date_records",
+    "listing_withdrawal_locks",
+    "trusted_senders",
+    "listings",
+    "share_links",
+    "single_preferences",
+    "single_notes",
+    "shidduchim",
+    "references",
+    "shadchanim",
+    "singles",
+  ];
+  for (const table of deleteByAccount) {
+    const { error } = await supabaseAdmin
+      .from(table)
+      .delete()
+      .in("account_id", accountIds);
+    if (error) throw new Error(`delete demo ${table} failed: ${error.message}`);
+  }
+  // Account-axis discussions are runtime customer data and therefore may not
+  // rely on the seed manifest.  Connection-axis discussions are deleted from
+  // the exact registered connection endpoints.  The order is explicit:
+  // notifications/messages, participants, then threads.
+  const ownedConnectionIds = ownedRelationshipResources
+    .filter((resource) => resource.table === "connections")
+    .map((resource) => resource.id);
+  const discussionDelete = async (
+    table:
+      "message_notifications" | "messages" | "thread_participants" | "threads",
+    column: "account_id" | "connection_id",
+    ids: number[],
+  ) => {
+    if (ids.length === 0) return;
+    const { error } = await supabaseAdmin.from(table).delete().in(column, ids);
+    if (error) throw new Error(`delete demo ${table} failed: ${error.message}`);
+  };
+  await discussionDelete("message_notifications", "account_id", accountIds);
+  await discussionDelete("messages", "account_id", accountIds);
+  await discussionDelete("thread_participants", "account_id", accountIds);
+  await discussionDelete("threads", "account_id", accountIds);
+  await discussionDelete(
+    "message_notifications",
+    "connection_id",
+    ownedConnectionIds,
+  );
+  await discussionDelete("messages", "connection_id", ownedConnectionIds);
+  await discussionDelete(
+    "thread_participants",
+    "connection_id",
+    ownedConnectionIds,
+  );
+  await discussionDelete("threads", "connection_id", ownedConnectionIds);
+  if (registeredMessageIds.size > 0) {
+    const { error } = await supabaseAdmin
+      .from("messages")
+      .delete()
+      .in("id", [...registeredMessageIds]);
+    if (error)
+      throw new Error(
+        `delete registered demo messages failed: ${error.message}`,
+      );
+  }
+  if (registeredThreadIds.size > 0) {
+    const { error: participantError } = await supabaseAdmin
+      .from("thread_participants")
+      .delete()
+      .in("thread_id", [...registeredThreadIds]);
+    if (participantError) {
+      throw new Error(
+        `delete registered demo participants failed: ${participantError.message}`,
+      );
+    }
+    const { error: threadError } = await supabaseAdmin
+      .from("threads")
+      .delete()
+      .in("id", [...registeredThreadIds]);
+    if (threadError)
+      throw new Error(
+        `delete registered demo threads failed: ${threadError.message}`,
+      );
+  }
+  await heartbeat("account data cleanup");
+
+  // Relationship rows have two account axes. Only IDs registered in this
+  // run's manifest are eligible for deletion; an external connection/grant/
+  // invite touching one bundle endpoint is deliberately left untouched.
+  for (const resource of ownedRelationshipResources) {
+    const { error } = await supabaseAdmin
+      .from(resource.table)
+      .delete()
+      .eq("id", resource.id);
+    if (error) {
+      throw new Error(`delete demo ${resource.table} failed: ${error.message}`);
+    }
+  }
+  await heartbeat("relationship cleanup");
+
+  const orphanChecks = await Promise.all([
+    supabaseAdmin
+      .from("message_notifications")
+      .select("id")
+      .in("account_id", accountIds),
+    supabaseAdmin.from("threads").select("id").in("account_id", accountIds),
+    supabaseAdmin.from("messages").select("id").in("account_id", accountIds),
+    supabaseAdmin
+      .from("thread_participants")
+      .select("id")
+      .in("account_id", accountIds),
+    ownedConnectionIds.length === 0
+      ? Promise.resolve({ data: [], error: null })
+      : supabaseAdmin
+          .from("message_notifications")
+          .select("id")
+          .in("connection_id", ownedConnectionIds),
+    ownedConnectionIds.length === 0
+      ? Promise.resolve({ data: [], error: null })
+      : supabaseAdmin
+          .from("threads")
+          .select("id")
+          .in("connection_id", ownedConnectionIds),
+    ownedConnectionIds.length === 0
+      ? Promise.resolve({ data: [], error: null })
+      : supabaseAdmin
+          .from("messages")
+          .select("id")
+          .in("connection_id", ownedConnectionIds),
+    ownedConnectionIds.length === 0
+      ? Promise.resolve({ data: [], error: null })
+      : supabaseAdmin
+          .from("thread_participants")
+          .select("id")
+          .in("connection_id", ownedConnectionIds),
+  ]);
+  if (
+    orphanChecks.some(
+      (result) => result.error || (result.data ?? []).length > 0,
+    )
+  ) {
+    throw new Error(
+      "demo clear left discussion rows outside the cleanup manifest",
+    );
+  }
+  // A response-loss upload may have become visible while the first storage
+  // listing was in flight. Re-fence, sweep every exact account prefix again,
+  // and prove the prefixes are empty before Auth/finalization can release the
+  // run.
+  await heartbeat("pre-final storage sweep");
+  const finalStorage = await Promise.all(
+    accountIds.map((id) => collectStoragePaths(id)),
+  );
+  await removeStorageObjects(
+    [...new Set(finalStorage.flatMap((row) => row.documentPaths))],
+    [...new Set(finalStorage.flatMap((row) => row.entityFilePaths))],
+    [...new Set(finalStorage.flatMap((row) => row.attachmentPaths))],
+  );
+  await heartbeat("final storage sweep");
+  const remainingStorage = await Promise.all(
+    accountIds.map((id) => collectStoragePaths(id)),
+  );
+  if (
+    remainingStorage.some(
+      (row) =>
+        row.documentPaths.length ||
+        row.entityFilePaths.length ||
+        row.attachmentPaths.length,
+    )
+  ) {
+    throw new Error(
+      "demo clear left storage objects under an exact manifest prefix",
+    );
+  }
+
+  // Claims are server-owned lifecycle receipts, not customer data. The
+  // account lock and claim wait fence new ordinary work, so successful clear
+  // removes every terminal/remaining claim before finalization.
+  const { error: ingestClaimCleanupError } = await supabaseAdmin
+    .from("demo_run_ingest_claims")
+    .delete()
+    .in("account_id", accountIds);
+  if (ingestClaimCleanupError) {
+    throw new Error(
+      `delete demo ingest claims failed: ${ingestClaimCleanupError.message}`,
+    );
+  }
+  const { data: remainingIngestClaims, error: remainingIngestClaimsError } =
+    await supabaseAdmin
+      .from("demo_run_ingest_claims")
+      .select("id")
+      .in("account_id", accountIds);
+  if (remainingIngestClaimsError || (remainingIngestClaims ?? []).length > 0) {
+    throw new Error("demo clear left ingest lifecycle claims");
+  }
+
+  // Actors may have accepted a normal membership invitation into the root
+  // household. Remove every membership/profile row by the manifest-owned
+  // actor identity before deleting auth.users; otherwise the account_members
+  // row would be nulled by its FK and survive as an unexplained active slot.
+  if (actorIds.length > 0) {
+    const { error: actorMemberStateError } = await supabaseAdmin
+      .from("member_state")
+      .delete()
+      .in("user_id", actorIds);
+    if (actorMemberStateError) {
+      throw new Error(
+        `delete demo actor member state failed: ${actorMemberStateError.message}`,
+      );
+    }
+    const { data: remainingActorMemberState, error: remainingActorStateError } =
+      await supabaseAdmin
+        .from("member_state")
+        .select("user_id")
+        .in("user_id", actorIds);
+    if (
+      remainingActorStateError ||
+      (remainingActorMemberState ?? []).length > 0
+    ) {
+      throw new Error(
+        remainingActorStateError?.message ??
+          "demo clear left synthetic actor member_state rows",
+      );
+    }
+  }
+  for (const actorId of actorIds) {
+    const { error: actorMembershipError } = await supabaseAdmin
+      .from("account_members")
+      .delete()
+      .eq("user_id", actorId)
+      .in("account_id", accountIds);
+    if (actorMembershipError) {
+      throw new Error(
+        `delete demo actor memberships failed: ${actorMembershipError.message}`,
+      );
+    }
+    const { error: actorProfileError } = await supabaseAdmin
+      .from("members")
+      .delete()
+      .eq("user_id", actorId);
+    if (actorProfileError) {
+      throw new Error(
+        `delete demo actor profiles failed: ${actorProfileError.message}`,
+      );
+    }
+  }
+
+  // Companion accounts deliberately remain visible in the manifest until the
+  // atomic SQL finalizer. This keeps strict account validation retryable after
+  // any Auth or heartbeat/finalization failure.
+  for (const actor of actors) {
+    const actorId = actor.userId;
+    const { error: tombstoneError } = await supabaseAdmin.rpc(
+      "register_demo_auth_cleanup",
+      {
+        p_run_id: runId,
+        p_lease_token: leaseToken,
+        p_actor_key: actor.actorKey,
+        p_resolved_user_id: actorId,
+        p_expected_email: actor.expectedEmail,
+        p_operation: "clear",
+      },
+    );
+    if (tombstoneError) {
+      throw new Error(
+        `register synthetic actor deletion failed: ${tombstoneError.message}`,
+      );
+    }
+    if (!authIdsPresent.has(actorId)) {
+      const { error: markMissingError } = await supabaseAdmin.rpc(
+        "mark_demo_auth_deleted",
+        {
+          p_run_id: runId,
+          p_lease_token: leaseToken,
+          p_actor_key: actor.actorKey,
+          p_resolved_user_id: actorId,
+          p_operation: "clear",
+        },
+      );
+      if (markMissingError) throw new Error(markMissingError.message);
+      continue;
+    }
+    try {
+      const { error } = await supabaseAdmin.auth.admin.deleteUser(actorId);
+      const authError = error as
+        ({ status?: number; code?: string } & Error) | null;
+      // A previous compensating cleanup may already have removed one actor
+      // before retaining the failed manifest. Treat that exact idempotent
+      // outcome as success; every other auth failure keeps the run retryable.
+      if (authError && !isAuthUserNotFoundError(authError)) {
+        throw new Error(`delete synthetic actor failed: ${authError.message}`);
+      }
+    } catch (error) {
+      if (isAuthUserNotFoundError(error)) {
+        // Exact missing Auth is idempotent only because the actor identity was
+        // validated against this run's durable manifest above.
+      } else {
+        throw error;
+      }
+    }
+    const { error: markDeletedError } = await supabaseAdmin.rpc(
+      "mark_demo_auth_deleted",
+      {
+        p_run_id: runId,
+        p_lease_token: leaseToken,
+        p_actor_key: actor.actorKey,
+        p_resolved_user_id: actorId,
+        p_operation: "clear",
+      },
+    );
+    if (markDeletedError) throw new Error(markDeletedError.message);
+  }
+  await heartbeat("auth cleanup");
+
+  // The finalizer is the only operation allowed to restore the root name and
+  // real users' member_state, release the optional demo persona/flag, and
+  // remove the run manifest. It runs last so every earlier failure retains
+  // the run, snapshots, persona, and demo identity for a retry.
+  let finalized: unknown = null;
+  let finalizeError: { message: string } | null = null;
+  try {
+    const result = await supabaseAdmin.rpc("finalize_demo_clear", {
+      p_run_id: runId,
+      p_lease_token: leaseToken,
+      p_release_demo: releaseDemoFlag,
+      p_release_persona: releaseDemoFlag,
+      p_actor_user_id: userId,
+    });
+    finalized = result.data;
+    finalizeError = result.error;
+  } catch (error) {
+    finalizeError = {
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+  let finalizedResult = finalized as {
+    outcome?: string;
+    completed_at?: unknown;
+  } | null;
+  if (finalizeError) {
+    // Finalization deletes the run as its last statement. If the response was
+    // lost, only an exact service-role read proving that this run is absent
+    // can turn the error into success; an unreadable or still-present run is
+    // retained for retry.
+    const { data: remainingRun, error: inspectError } = await supabaseAdmin
+      .from("demo_runs")
+      .select("id")
+      .eq("id", runId)
+      .maybeSingle();
+    if (inspectError || remainingRun) {
+      throw new Error(`finalize demo clear failed: ${finalizeError.message}`);
+    }
+    finalizedResult = { outcome: "finalized" };
+  }
+  if (!finalizedResult || finalizedResult.outcome !== "finalized") {
+    throw new Error("finalize demo clear returned an invalid result");
+  }
+  const summary = {
+    cleared: true,
+    accountId: rootAccountId,
+    runId,
+    companionAccounts: companionAccountIds.length,
+    syntheticActors: actorIds.length,
+  } as const;
+  return typeof finalizedResult.completed_at === "string"
+    ? { ...summary, lastClearedAt: finalizedResult.completed_at }
+    : summary;
+}
+
+export async function claimDemoClearWithReconciliation(
+  rootAccountId: number,
+): Promise<{
+  outcome?: string;
+  run_id?: number;
+  lease_token?: string;
+  status?: string;
+}> {
+  const leaseToken = crypto.randomUUID();
+  let result: {
+    data?: unknown;
+    error?: { code?: string; message: string } | null;
+  };
+  let rpcFailure: unknown = null;
+  try {
+    result = await supabaseAdmin.rpc("claim_demo_clear", {
+      p_root_account_id: rootAccountId,
+      p_lease_token: leaseToken,
+    });
+  } catch (caught) {
+    rpcFailure = caught;
+    result = {
+      data: null,
+      error: {
+        message: caught instanceof Error ? caught.message : String(caught),
+      },
+    };
+  }
+  const row = (Array.isArray(result.data) ? result.data[0] : result.data) as {
+    outcome?: string;
+    run_id?: number;
+    lease_token?: string;
+    status?: string;
+  } | null;
+  if (
+    !result.error &&
+    row &&
+    (row.outcome === "no_run" ||
+      (row.outcome === "claimed" &&
+        typeof row.run_id === "number" &&
+        row.lease_token === leaseToken &&
+        row.status === "clearing"))
+  ) {
+    return row;
+  }
+  if (
+    result.error &&
+    (result.error.code === "lock_not_available" ||
+      /already owns|busy|in progress/i.test(result.error.message))
+  ) {
+    throw result.error;
+  }
+
+  // Adopt a response-loss claim only when the exact caller-generated token is
+  // visible on the expected root in clearing state. A generic RPC error or a
+  // different lease never becomes ownership by inference.
+  const { data: reconciled, error: readError } = await supabaseAdmin
+    .from("demo_runs")
+    .select("id, lease_token, status")
+    .eq("root_account_id", rootAccountId)
+    .eq("lease_token", leaseToken)
+    .eq("operation", "clear")
+    .eq("status", "clearing")
+    .maybeSingle();
+  if (
+    !readError &&
+    reconciled &&
+    typeof reconciled.id === "number" &&
+    reconciled.lease_token === leaseToken &&
+    reconciled.status === "clearing"
+  ) {
+    return {
+      outcome: "claimed",
+      run_id: reconciled.id as number,
+      lease_token: reconciled.lease_token as string,
+      status: reconciled.status as string,
+    };
+  }
+  throw (
+    rpcFailure ??
+    result.error ??
+    new Error("claim_demo_clear returned no result")
+  );
 }
 
 async function clearDemoData(
-  req: Request,
   accountId: number,
   releaseDemoFlag: boolean,
+  userId: string,
 ) {
   // Server-side tenancy gate: must run before ANY delete or storage removal.
   // See the module docstring and NotDemoAccountError for why this refuses
   // rather than proceeding on any doubt.
   await assertDemoAccount(accountId);
+  // Capture the authoritative phase before claim_demo_clear changes an
+  // active run to clearing. Failed/seeding partial runs intentionally use
+  // the tolerant compensating cleanup path below.
+  const preClaimRun = await findActiveDemoRun(accountId);
 
-  const db = userScopedClient(req);
-
-  // Clean up storage objects before row deletion so the deletion order stays
-  // FK-safe and no orphans are left behind if a later step fails.
-  const { documentPaths, entityFilePaths, attachmentPaths } =
-    await collectStoragePaths(accountId);
-  await removeStorageObjects(documentPaths, entityFilePaths, attachmentPaths);
-
-  for (const table of DELETE_ORDER) {
-    const { error } = await db.from(table).delete().eq("account_id", accountId);
-    if (error) {
-      throw new Error(`delete from ${table} failed: ${error.message}`);
+  let claim: unknown;
+  let claimError: { code?: string; message: string } | null = null;
+  try {
+    claim = await claimDemoClearWithReconciliation(accountId);
+  } catch (error) {
+    claimError = error as { code?: string; message: string };
+  }
+  if (claimError) {
+    if (
+      claimError.code === "lock_not_available" ||
+      /already owns|busy|in progress/i.test(claimError.message)
+    ) {
+      throw new DemoRunBusyError();
     }
+    throw new Error(`claim demo clear failed: ${claimError.message}`);
   }
 
-  // Opt-in release of the demo flag (module docstring) — deliberately the
-  // LAST thing this function does, and only when the caller asked for it.
-  // Never runs before every delete above has succeeded: a half-finished
-  // clear must never also lose the account's demo identity, or the account
-  // becomes unclearable AND un-reseedable (seed_demo refuses a non-empty
-  // account; assertDemoAccount refuses a non-demo one).
-  let personaWarning: string | null = null;
-  if (releaseDemoFlag) {
-    const { error: flagError } = await supabaseAdmin
-      .from("accounts")
-      .update({ demo: false })
-      .eq("id", accountId);
-    if (flagError) {
-      throw new Error(`failed to release accounts.demo: ${flagError.message}`);
+  const claimRow = (Array.isArray(claim) ? claim[0] : claim) as {
+    outcome?: string;
+    run_id?: number;
+    lease_token?: string;
+    status?: string;
+  } | null;
+  if (!claimRow || claimRow.outcome === "no_run") {
+    // Receipt reconciliation happens only after the atomic claim attempt and
+    // only the SQL proof (released account, no live run, no live membership)
+    // can turn a lost finalizer response into success.
+    if (releaseDemoFlag) {
+      const receiptRootAccountId = await getReleaseReceipt(userId);
+      if (receiptRootAccountId === accountId) {
+        return { cleared: true as const, accountId, alreadyCleared: true };
+      }
+      throw new Error("no active demo run and no release proof");
     }
-
-    // Last of all: only after data, storage, and the demo flag are gone.
-    // See releaseBootstrapPersona's own docstring for the multi-member
-    // safety check and its never-throws contract.
-    personaWarning = await releaseBootstrapPersona(db, accountId);
+    // A non-release clear is idempotent only after the server-side demo gate
+    // above; it never creates a new destructive scope.
+    return { cleared: true as const, accountId, alreadyCleared: true };
+  }
+  if (
+    claimRow.outcome !== "claimed" ||
+    !Number.isFinite(Number(claimRow.run_id)) ||
+    typeof claimRow.lease_token !== "string" ||
+    claimRow.status !== "clearing"
+  ) {
+    throw new Error("claim demo clear returned an invalid result");
   }
 
-  return {
-    cleared: true as const,
-    accountId,
-    ...(personaWarning ? { personaWarning } : {}),
+  const run = {
+    id: Number(claimRow.run_id),
+    status: "clearing",
+    updated_at: new Date().toISOString(),
+    leaseToken: claimRow.lease_token,
   };
+  try {
+    if (preClaimRun?.status === "active") {
+      const { error: inventoryError } = await supabaseAdmin.rpc(
+        "assert_official_demo_inventory",
+        { p_run_id: run.id, p_require_active: true },
+      );
+      if (inventoryError) {
+        throw new Error(
+          `official demo inventory assertion failed: ${inventoryError.message}`,
+        );
+      }
+    }
+    return await clearOfficialDemoBundle(
+      accountId,
+      run,
+      releaseDemoFlag,
+      userId,
+      preClaimRun?.status !== "active",
+    );
+  } catch (error) {
+    const { error: retainError } = await supabaseAdmin.rpc("fail_demo_run", {
+      p_run_id: run.id,
+      p_lease_token: run.leaseToken,
+      p_operation: "clear",
+    });
+    if (retainError) {
+      console.error(
+        "clear_demo: failed to retain failed demo run",
+        retainError,
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -473,20 +1649,37 @@ export async function handleClearDemo(
   }
   if (!user) return createErrorResponse(401, "Unauthorized");
 
-  const accountId = await resolveAccountId(user.id);
-  if (!accountId) {
-    return createErrorResponse(409, "No active account for user");
-  }
-
   let releaseDemoFlag: boolean;
   try {
     releaseDemoFlag = await parseReleaseDemoFlag(req);
-  } catch (e) {
-    return createErrorResponse(400, (e as Error).message);
+  } catch {
+    return createErrorResponse(400, "Invalid clear request");
+  }
+
+  const accountId = await resolveAccountId(user.id);
+  if (!accountId) {
+    if (releaseDemoFlag) {
+      try {
+        const receiptRootAccountId = await getReleaseReceipt(user.id);
+        if (receiptRootAccountId !== null) {
+          return new Response(
+            JSON.stringify({
+              cleared: true,
+              accountId: receiptRootAccountId,
+              alreadyCleared: true,
+            }),
+            { headers: { "Content-Type": "application/json", ...corsHeaders } },
+          );
+        }
+      } catch (error) {
+        console.error("clear_demo: release receipt lookup failed", error);
+      }
+    }
+    return createErrorResponse(409, "No active account for user");
   }
 
   try {
-    const summary = await clearDemoData(req, accountId, releaseDemoFlag);
+    const summary = await clearDemoData(accountId, releaseDemoFlag, user.id);
     return new Response(JSON.stringify(summary), {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
@@ -494,11 +1687,11 @@ export async function handleClearDemo(
     if (e instanceof NotDemoAccountError) {
       return createErrorResponse(403, e.message);
     }
+    if (e instanceof DemoRunBusyError) {
+      return createErrorResponse(409, e.message);
+    }
     console.error("clear_demo failed:", e);
-    return createErrorResponse(
-      500,
-      (e as Error).message || "Failed to clear demo data",
-    );
+    return createErrorResponse(500, "Couldn't clear the demo data. Try again.");
   }
 }
 

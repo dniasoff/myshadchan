@@ -45,6 +45,21 @@ describe("clearAndSeedWithRetry", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("reports the clear finalizer timestamp only when clear returned one", async () => {
+    const lastClearedAt = "2026-08-23T03:31:00.000Z";
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ cleared: true, lastClearedAt }))
+        .mockResolvedValueOnce(jsonResponse({ seeded: true })),
+    );
+
+    await expect(clearAndSeedWithRetry("token")).resolves.toMatchObject({
+      lastClearedAt,
+    });
+  });
+
   it("retries the whole clear+seed pair (not seed_demo alone) after a transient seed_demo failure, and succeeds", async () => {
     // Arrange: attempt 1 clears fine but seed_demo fails; attempt 2 clears
     // again (proving clear_demo is re-invoked, not skipped) and seeds fine.

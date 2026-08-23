@@ -534,13 +534,11 @@ where n.nspname = 'public'
 
 -- ---------------------------------------------------------------------------
 -- AC-3: enforce_household_scope() rejects a shadchanus-kind account_id on
--- every one of the 11 household-only domain tables (13 originally; Story
--- 3.14 dropped interactions/tasks from the set — household_scope_lift.sql
--- proves the two departed tables now accept it instead). The BEFORE ROW
--- trigger raises before any other column/FK constraint is ever checked, so a
--- minimal (account_id)-only insert is enough to prove it — no other column
--- needs to be valid, because the raise aborts the statement before those
--- checks run.
+-- the household-only tables that remain outside the standalone-shadchan
+-- allowlist. The actor-scope migration deliberately permits shadchanus-owned
+-- singles, shadchanim, suggestions and their attached records; this check
+-- keeps the negative boundary on inbox_items instead of asserting the old
+-- household-only contract against those now-supported actor rows.
 -- ---------------------------------------------------------------------------
 insert into public.accounts (name, kind) values ('Persona Test Shadchanus', 'shadchanus') returning id as acct_shad \gset
 insert into ids values ('acct_shad', :acct_shad);
@@ -548,11 +546,7 @@ insert into ids values ('acct_shad', :acct_shad);
 do $$
 declare
   v_table text;
-  v_tables text[] := array[
-    'singles', 'shadchanim', 'references', 'shidduchim', 'resumes',
-    'reference_links', 'date_records', 'redts', 'shidduch_education',
-    'identity_signals', 'inbox_items'
-  ];
+  v_tables text[] := array['inbox_items'];
   v_shad_id bigint;
   v_raised boolean;
   v_detail text;
@@ -586,6 +580,44 @@ begin
       v_detail
     );
   end loop;
+end $$;
+
+-- Positive actor-scope controls: standalone shadchanus may own the rows that
+-- the allowlist names. These are valid rows, so the assertions cannot pass
+-- merely because a later NOT NULL/FK constraint rejected a probe insert.
+do $$
+declare
+  v_shad_id bigint;
+  v_single_id bigint;
+begin
+  select value::bigint into v_shad_id from ids where name = 'acct_shad';
+
+  insert into public.singles (account_id, first_name_en, gender)
+  values (v_shad_id, 'Shadchanus Single', 'female')
+  returning id into v_single_id;
+
+  insert into public.shadchanim (account_id, name)
+  values (v_shad_id, 'Standalone Shadchan');
+
+  insert into public.shidduchim (
+    account_id, single_id, name_en, person_gender, kohen_status,
+    pipeline_state, visibility
+  ) values (
+    v_shad_id, v_single_id, 'Eligible Candidate', 'male', 'unknown',
+    'new', 'shared'
+  );
+
+  insert into results values (
+    'AC-3 positive: standalone shadchanus may own its single, shadchan, and eligible suggestion rows',
+    true,
+    null
+  );
+exception when others then
+  insert into results values (
+    'AC-3 positive: standalone shadchanus may own its single, shadchan, and eligible suggestion rows',
+    false,
+    sqlerrm
+  );
 end $$;
 
 -- ---------------------------------------------------------------------------
@@ -641,11 +673,21 @@ select 'AC-3: enforce_household_scope is attached to exactly 15 tables',
 insert into results (name, passed)
 select 'AC-3a: validate_singles_household_scope sorts after every set_/sync_ BEFORE trigger on singles',
        (
-         select tgname from pg_trigger
-         where tgrelid = 'public.singles'::regclass and not tgisinternal and tgtype & 2 = 2
-         order by tgname desc
-         limit 1
-       ) = 'validate_singles_household_scope';
+         select tgname = 'validate_singles_household_scope'
+         from pg_trigger
+         where tgrelid = 'public.singles'::regclass
+           and tgname = 'validate_singles_household_scope'
+           and not tgisinternal
+           and tgtype & 2 = 2
+           and tgname > all (
+             select tgname
+             from pg_trigger
+             where tgrelid = 'public.singles'::regclass
+               and not tgisinternal
+               and tgtype & 2 = 2
+               and (left(tgname, 4) = 'set_' or left(tgname, 5) = 'sync_')
+           )
+       ) is true;
 
 insert into results (name, passed)
 select 'AC-4: enforce_household_scope is NOT attached to subscription or ai_usage',

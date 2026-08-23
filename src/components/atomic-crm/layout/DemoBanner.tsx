@@ -114,15 +114,22 @@ export const DemoBanner = () => {
       }}
     >
       <div
-        className="flex items-center gap-2 text-sm font-medium"
+        className="flex min-w-0 flex-1 flex-col gap-1 text-sm font-medium"
         style={{ color: "var(--attention-foreground)" }}
       >
-        <Sparkles
-          className="size-4 shrink-0"
-          style={{ color: "var(--attention-strong)" }}
-          aria-hidden="true"
-        />
-        You're exploring demo data — nothing here is real.
+        <div className="flex items-center gap-2">
+          <Sparkles
+            className="size-4 shrink-0"
+            style={{ color: "var(--attention-strong)" }}
+            aria-hidden="true"
+          />
+          You&apos;re exploring demo data — nothing here is real.
+        </div>
+        <p className="ps-6 text-xs font-normal text-muted-foreground">
+          Start in Klein, switch to Feldman or Gross from Context, then use
+          Sharing and Reminders for the demo listing, share, and delivery
+          history scenarios.
+        </p>
       </div>
       <DemoBannerActions />
     </div>
@@ -135,6 +142,11 @@ const DemoBannerActions = () => {
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 sm:ms-auto">
+      <Button type="button" variant="ghost" size="sm" asChild>
+        <a href="/find?demo=1" data-tour="demo-listings-link">
+          Preview listings
+        </a>
+      </Button>
       <Button type="button" variant="ghost" size="sm" onClick={startTour}>
         Take the tour
       </Button>

@@ -22,11 +22,27 @@ import { PhotoTab } from "./PhotoTab";
  * `resume_photos` lookup and the upload/hide round trip.
  */
 
-const renderTab = async (shidduchimId: number) => {
+const renderTab = async (
+  shidduchimId: number,
+  photoRevealOnClick = false,
+  failure: "account" | "contexts" | "none" = "none",
+) => {
   const db = generateData();
   db.resumes = [] as Resume[];
   db.resume_photos = [] as ResumePhoto[];
+  db.accounts[0].photo_reveal_on_click = photoRevealOnClick;
   const dataProvider = createDataProvider({ db, latency: 0, silent: true });
+  if (failure === "account") {
+    dataProvider.getOne = vi.fn(async (resource: string) => {
+      if (resource === "accounts") throw new Error("account lookup failed");
+      throw new Error(`unexpected getOne(${resource})`);
+    }) as typeof dataProvider.getOne;
+  }
+  if (failure === "contexts") {
+    dataProvider.getMyContexts = vi.fn(async () => {
+      throw new Error("context lookup failed");
+    });
+  }
 
   const screen = await render(
     <TestMemoryRouter>
@@ -70,8 +86,8 @@ describe("PhotoTab — empty state and visibility default (AC 1 / AC 2)", () => 
   });
 });
 
-describe("PhotoTab — reveal-on-click, never before (AC 1)", () => {
-  it("uploads a photo behind a Reveal affordance, with no image request before the click", async () => {
+describe("PhotoTab — configurable photo display", () => {
+  it("shows uploaded photos immediately by default", async () => {
     // Arrange
     const file = new File(["bytes"], "photo.jpg", { type: "image/jpeg" });
 
@@ -80,8 +96,27 @@ describe("PhotoTab — reveal-on-click, never before (AC 1)", () => {
     const signResumePhotoUrl = vi.spyOn(dataProvider, "signResumePhotoUrl");
     await screen.getByLabelText("Upload a photo").upload(file);
 
-    // Assert — AC 1's own falsifiable: reveal not yet clicked, so no <img>
-    // in the DOM and no signed URL requested.
+    // Assert — the new default is ordinary photo display.
+    await expect
+      .poll(() => screen.container.querySelector("img"))
+      .not.toBeNull();
+    expect(signResumePhotoUrl).toHaveBeenCalledTimes(1);
+    await expect
+      .element(screen.getByRole("button", { name: "Reveal" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps photos behind Reveal when the account preference is enabled", async () => {
+    // Arrange
+    const file = new File(["bytes"], "photo.jpg", { type: "image/jpeg" });
+
+    // Act
+    const { screen, dataProvider } = await renderTab(8, true);
+    const signResumePhotoUrl = vi.spyOn(dataProvider, "signResumePhotoUrl");
+    await screen.getByLabelText("Upload a photo").upload(file);
+
+    // Assert — enabled preference preserves the original deliberate-friction
+    // behavior and does not sign before the click.
     await expect
       .element(screen.getByRole("button", { name: "Reveal" }))
       .toBeInTheDocument();
@@ -96,9 +131,26 @@ describe("PhotoTab — reveal-on-click, never before (AC 1)", () => {
       .poll(() => screen.container.querySelector("img"))
       .not.toBeNull();
     expect(signResumePhotoUrl).toHaveBeenCalledExactlyOnceWith({
-      storagePath: expect.stringContaining("/photos/shared/7/"),
+      storagePath: expect.stringContaining("/photos/shared/8/"),
     });
   });
+
+  it.each(["account", "contexts"] as const)(
+    "fails closed when the %s privacy lookup errors",
+    async (failure) => {
+      const file = new File(["bytes"], "photo.jpg", { type: "image/jpeg" });
+      const { screen, dataProvider } = await renderTab(10, false, failure);
+      const signResumePhotoUrl = vi.spyOn(dataProvider, "signResumePhotoUrl");
+
+      await screen.getByLabelText("Upload a photo").upload(file);
+
+      await expect
+        .element(screen.getByRole("button", { name: "Reveal" }))
+        .toBeInTheDocument();
+      expect(screen.container.querySelector("img")).toBeNull();
+      expect(signResumePhotoUrl).not.toHaveBeenCalled();
+    },
+  );
 
   it("uploads with the private_parent visibility option when selected", async () => {
     // Arrange
@@ -129,8 +181,8 @@ describe("PhotoTab — hide removes a photo from the grid (AC 2)", () => {
     const { screen, dataProvider } = await renderTab(3);
     await screen.getByLabelText("Upload a photo").upload(file);
     await expect
-      .element(screen.getByRole("button", { name: "Reveal" }))
-      .toBeInTheDocument();
+      .poll(() => screen.container.querySelector("img"))
+      .not.toBeNull();
 
     await screen.getByRole("button", { name: "Hide" }).click();
 

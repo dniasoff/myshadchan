@@ -1,44 +1,32 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type User } from "jsr:@supabase/supabase-js@2";
-import { handleClearDemo } from "./index.ts";
-
-/**
- * Closes a live production gap: the deployed `clear_demo` performed an
- * unconditional 16-table wipe of the caller's own account with no check
- * that the account was actually a demo account. `handleClearDemo` is tested
- * directly here — bypassing real JWT verification (`AuthMiddleware`) —
- * exactly like `postmark/index.test.ts` tests `handleInboundEmail` directly;
- * only `../_shared/supabaseAdmin.ts` and `../_shared/resolveDemoAccount.ts`
- * are mocked, so the guard, the delete loop, and the error mapping all run
- * for real against these doubles.
- */
+import { claimDemoClearWithReconciliation, handleClearDemo } from "./index.ts";
 
 const mockAdminFrom = vi.hoisted(() => vi.fn());
+const mockAdminRpc = vi.hoisted(() => vi.fn());
 const mockAdminStorageFrom = vi.hoisted(() => vi.fn());
 const mockResolveAccountId = vi.hoisted(() => vi.fn());
-const mockUserScopedClient = vi.hoisted(() => vi.fn());
+
+let fakeState: FakeLifecycleState;
 
 vi.mock("../_shared/supabaseAdmin.ts", () => ({
   supabaseAdmin: {
     from: (...args: [string]) => mockAdminFrom(...args),
+    rpc: (...args: [string, Record<string, unknown>]) => mockAdminRpc(...args),
     storage: { from: (...args: [string]) => mockAdminStorageFrom(...args) },
+    auth: {
+      admin: {
+        deleteUser: (...args: [string]) => fakeState.authDelete(...args),
+        listUsers: (...args: unknown[]) => fakeState.authList(...args),
+      },
+    },
   },
 }));
 
 vi.mock("../_shared/resolveDemoAccount.ts", () => ({
   resolveAccountId: (...args: [string]) => mockResolveAccountId(...args),
-  userScopedClient: (...args: [Request]) => mockUserScopedClient(...args),
 }));
 
-// `handleClearDemo` (the thing under test) never calls AuthMiddleware or
-// UserMiddleware itself — they only wrap it inside `Deno.serve`, exactly
-// like `postmark/index.test.ts` tests `handleInboundEmail` beneath its own
-// wrapping middleware. But merely IMPORTING "./index.ts" still statically
-// imports "../_shared/authentication.ts", which imports the real
-// "jsr:@panva/jose@6" — a specifier the "functions" Vitest project has no
-// alias for (unlike "jsr:@supabase/supabase-js@2"), so it fails to resolve
-// under Node. Stubbing the module here avoids ever loading the real file,
-// with no change needed to `vitest.config.ts` or `authentication.ts`.
 vi.mock("../_shared/authentication.ts", () => ({
   AuthMiddleware: (req: Request, next: (req: Request) => Promise<Response>) =>
     next(req),
@@ -48,178 +36,363 @@ vi.mock("../_shared/authentication.ts", () => ({
   ) => next(req),
 }));
 
-const DEMO_ACCOUNT_ID = 42;
-const FAKE_USER = {
-  id: "11111111-1111-1111-1111-111111111111",
-} as unknown as User;
+const ROOT_ID = 42;
+const COMPANION_ID = 43;
+const GROSS_ID = 44;
+const ACTOR_ID = "11111111-1111-1111-1111-111111111111";
+const FAKE_USER = { id: ACTOR_ID } as unknown as User;
 
-type AdminOptions = {
-  demo?: boolean | null;
-  noRow?: boolean;
-  selectError?: string;
-  /** Shared with `buildFakeDb` so tests can assert relative ORDER between
-   * the delete loop and the accounts.demo release, not just that both
-   * happened. */
-  callOrder?: string[];
-  updateError?: string;
-  /** `inbox_items.attachments` cells `collectStoragePaths` should read back
-   * for this account — defaults to none (no attachments anywhere). */
-  inboxItems?: Array<{ attachments: unknown }>;
-  /** How many active `account_members` rows exist for this account —
-   * defaults to 1 (a solo demo explorer: only the caller's own membership,
-   * the same one that resolved this accountId in the first place). */
-  activeMemberCount?: number;
-  memberCountError?: string;
+type Resource = { resource_type: string; resource_id: number };
+type RelationshipRow = Record<string, unknown>;
+
+type FakeLifecycleState = {
+  demo: boolean;
+  runId: number | null;
+  resources: Resource[];
+  relationshipRows: Record<string, RelationshipRow>;
+  actorIds: string[];
+  authError: { status?: number; code?: string; message: string } | null;
+  authList: (
+    ...args: unknown[]
+  ) => Promise<{ data: { users: unknown[] }; error: unknown | null }>;
+  finalizeError: string | null;
+  completedAt: string | null;
+  heartbeatError: string | null;
+  claimBusy: boolean;
+  calls: Array<{ fn: string; params: Record<string, unknown> }>;
+  deletedRelationships: Array<{ table: string; id: number }>;
+  deletedAccounts: number[];
+  authDelete: (userId: string) => Promise<{ error: unknown | null }>;
 };
 
-/** Wires `supabaseAdmin.from("accounts")` (the guard's own read, plus the
- * conditional `.update` — only called when `releaseDemoFlag` is true), the
- * three `collectStoragePaths` reads (`resumes`/`resume_photos`/
- * `entity_files`), each returning no files so storage removal is a no-op by
- * default, the `inbox_items` read (`collectStoragePaths`'s fourth source),
- * and the `account_members` count `releaseBootstrapPersona` runs before ever
- * calling `remove_persona`. */
-function buildFakeAdmin(options: AdminOptions) {
-  const accountsSelectCalls: number[] = [];
-  const accountsUpdateAttempts: unknown[] = [];
-  const callOrder = options.callOrder ?? [];
-  const adminCallsByTable: Record<string, number> = {};
-  const storageRemoveCalls: Array<{ bucket: string; paths: string[] }> = [];
+function newState(
+  overrides: Partial<FakeLifecycleState> = {},
+): FakeLifecycleState {
+  const state = {
+    demo: true,
+    runId: 7001,
+    resources: [
+      { resource_type: "connection", resource_id: 9001 },
+      { resource_type: "invite", resource_id: 9002 },
+    ],
+    relationshipRows: {
+      connections: {
+        household_account_id: ROOT_ID,
+        shadchanus_account_id: COMPANION_ID,
+        status: "accepted",
+      },
+      child_grants: {
+        proposer_account_id: ROOT_ID,
+        target_single_id: 7007,
+        grantee_account_id: COMPANION_ID,
+        status: "accepted",
+      },
+      invites: { account_id: ROOT_ID, status: "accepted" },
+    },
+    actorIds: [],
+    authError: null,
+    authList: async () => ({ data: { users: [] }, error: null }),
+    finalizeError: null,
+    completedAt: null,
+    heartbeatError: null,
+    claimBusy: false,
+    calls: [],
+    deletedRelationships: [],
+    deletedAccounts: [],
+  } as FakeLifecycleState;
+  state.authDelete = async () => ({ error: state.authError });
+  return Object.assign(state, overrides);
+}
 
+function buildFromDoubles() {
   mockAdminFrom.mockImplementation((table: string) => {
-    adminCallsByTable[table] = (adminCallsByTable[table] ?? 0) + 1;
     if (table === "accounts") {
       return {
-        select: () => ({
-          eq: (_col: string, id: number) => ({
-            maybeSingle: () => {
-              accountsSelectCalls.push(id);
-              if (options.selectError) {
-                return Promise.resolve({
-                  data: null,
-                  error: { message: options.selectError },
-                });
-              }
-              if (options.noRow) {
-                return Promise.resolve({ data: null, error: null });
-              }
-              return Promise.resolve({
-                data: { demo: options.demo ?? null },
-                error: null,
-              });
-            },
-          }),
-        }),
-        update: (patch: unknown) => {
-          accountsUpdateAttempts.push(patch);
-          callOrder.push("update:accounts");
-          return {
-            eq: () =>
-              Promise.resolve(
-                options.updateError
-                  ? { error: { message: options.updateError } }
-                  : { error: null },
-              ),
-          };
+        select: () => {
+          const query: Record<string, (...args: unknown[]) => unknown> = {};
+          query.eq = () => query;
+          query.in = () =>
+            Promise.resolve({
+              data: [
+                { id: ROOT_ID, kind: "household" },
+                { id: COMPANION_ID, kind: "shadchanus" },
+                { id: GROSS_ID, kind: "household" },
+              ],
+              error: null,
+            });
+          query.maybeSingle = () =>
+            Promise.resolve({
+              data: { demo: fakeState.demo, kind: "household" },
+              error: null,
+            });
+          return query;
         },
+        delete: () => ({
+          in: (column: string, ids: number[]) => {
+            if (column === "id") fakeState.deletedAccounts.push(...ids);
+            return Promise.resolve({ error: null });
+          },
+        }),
       };
     }
-    if (
-      table === "resumes" ||
-      table === "resume_photos" ||
-      table === "entity_files"
-    ) {
+
+    if (table === "demo_runs") {
+      const query: Record<string, (...args: unknown[]) => unknown> = {};
+      query.select = () => query;
+      query.eq = () => query;
+      query.in = () => query;
+      query.order = () => query;
+      query.limit = () => query;
+      query.maybeSingle = () =>
+        Promise.resolve({
+          data: fakeState.runId
+            ? { id: fakeState.runId, status: "active" }
+            : null,
+          error: null,
+        });
+      return query;
+    }
+
+    if (table === "demo_run_accounts") {
+      return {
+        select: () => ({
+          eq: () =>
+            Promise.resolve({
+              data: fakeState.runId
+                ? [
+                    {
+                      account_id: ROOT_ID,
+                      context_key: "primary-household",
+                      context_kind: "household",
+                      is_root: true,
+                    },
+                    {
+                      account_id: COMPANION_ID,
+                      context_key: "feldman-shadchanus",
+                      context_kind: "shadchanus",
+                      is_root: false,
+                    },
+                    {
+                      account_id: GROSS_ID,
+                      context_key: "gross-household",
+                      context_kind: "household",
+                      is_root: false,
+                    },
+                  ]
+                : [],
+              error: null,
+            }),
+        }),
+      };
+    }
+
+    if (table === "demo_run_storage") {
       return {
         select: () => ({
           eq: () => Promise.resolve({ data: [], error: null }),
         }),
       };
     }
-    if (table === "inbox_items") {
+
+    if (table === "demo_run_resources") {
       return {
         select: () => ({
-          eq: () =>
-            Promise.resolve({ data: options.inboxItems ?? [], error: null }),
+          eq: () => Promise.resolve({ data: fakeState.resources, error: null }),
         }),
       };
     }
+
+    if (table === "demo_run_users") {
+      return {
+        select: () => ({
+          eq: () =>
+            Promise.resolve({
+              data: fakeState.actorIds.map((user_id) => ({
+                user_id,
+                actor_key: "test-actor",
+              })),
+              error: null,
+            }),
+        }),
+      };
+    }
+
+    if (table === "demo_run_actor_intents") {
+      return {
+        select: () => ({
+          eq: () =>
+            Promise.resolve({
+              data: fakeState.actorIds.map((user_id) => ({
+                actor_key: "test-actor",
+                expected_email: "demo-test-actor@demo.invalid",
+                auth_user_id: user_id,
+                state: "reconciled",
+              })),
+              error: null,
+            }),
+        }),
+      };
+    }
+
     if (table === "account_members") {
       return {
         select: () => ({
+          eq: () => Promise.resolve({ data: [], error: null }),
+        }),
+        delete: () => ({
+          in: () => Promise.resolve({ error: null }),
           eq: () => ({
-            eq: () =>
-              Promise.resolve(
-                options.memberCountError
-                  ? {
-                      count: null,
-                      error: { message: options.memberCountError },
-                    }
-                  : { count: options.activeMemberCount ?? 1, error: null },
-              ),
+            in: () => Promise.resolve({ error: null }),
           }),
         }),
       };
     }
-    throw new Error(`Unexpected admin table in test: ${table}`);
+
+    if (
+      table === "resumes" ||
+      table === "resume_photos" ||
+      table === "entity_files" ||
+      table === "inbox_items"
+    ) {
+      return {
+        select: () => ({
+          in: () => Promise.resolve({ data: [], error: null }),
+          eq: () => Promise.resolve({ data: [], error: null }),
+        }),
+        delete: () => ({ in: () => Promise.resolve({ error: null }) }),
+      };
+    }
+
+    if (
+      table === "connections" ||
+      table === "connection_invites" ||
+      table === "child_grants" ||
+      table === "invites"
+    ) {
+      return {
+        select: (columns: string) => ({
+          eq: (_column: string, _id: number) => ({
+            maybeSingle: () => {
+              const row = fakeState.relationshipRows[table];
+              return Promise.resolve({
+                data: row && columns ? row : null,
+                error: null,
+              });
+            },
+          }),
+        }),
+        delete: () => ({
+          eq: (_column: string, id: number) => {
+            fakeState.deletedRelationships.push({ table, id });
+            return Promise.resolve({ error: null });
+          },
+        }),
+      };
+    }
+
+    if (table === "singles") {
+      return {
+        select: () => ({
+          eq: () => ({
+            maybeSingle: () =>
+              Promise.resolve({ data: { account_id: 999 }, error: null }),
+          }),
+        }),
+        delete: () => ({
+          in: () => Promise.resolve({ error: null }),
+        }),
+      };
+    }
+
+    return {
+      select: () => ({
+        in: () => Promise.resolve({ data: [], error: null }),
+      }),
+      delete: () => ({
+        in: () => Promise.resolve({ error: null }),
+        eq: () => Promise.resolve({ error: null }),
+      }),
+    };
   });
 
-  mockAdminStorageFrom.mockImplementation((bucket: string) => ({
-    remove: (paths: string[]) => {
-      storageRemoveCalls.push({ bucket, paths });
-      return Promise.resolve({ error: null });
-    },
+  mockAdminStorageFrom.mockImplementation(() => ({
+    list: () => Promise.resolve({ data: [], error: null }),
+    remove: () => Promise.resolve({ error: null }),
   }));
 
-  return {
-    accountsSelectCalls,
-    accountsUpdateAttempts,
-    callOrder,
-    adminCallsByTable,
-    storageRemoveCalls,
-  };
-}
-
-type DbOptions = {
-  /** Table whose delete should fail, simulating a mid-loop failure. */
-  failTable?: string;
-  /** Shared with `buildFakeAdmin` — see its `callOrder` doc. */
-  callOrder?: string[];
-  /** Error message the `remove_persona` RPC should fail with — omit for a
-   * successful call. */
-  rpcError?: string;
-};
-
-/** Wires the USER-scoped client the DELETE_ORDER loop AND
- * `releaseBootstrapPersona`'s `remove_persona` RPC both run on. */
-function buildFakeDb(options: DbOptions = {}) {
-  const deleteCalls: Array<{ table: string; accountId: unknown }> = [];
-  const rpcCalls: Array<{ fn: string; params: unknown }> = [];
-  const callOrder = options.callOrder ?? [];
-  const from = vi.fn((table: string) => ({
-    delete: () => ({
-      eq: (_col: string, value: unknown) => {
-        deleteCalls.push({ table, accountId: value });
-        callOrder.push(`delete:${table}`);
-        if (options.failTable === table) {
-          return Promise.resolve({ error: { message: "delete failed" } });
+  mockAdminRpc.mockImplementation(
+    (fn: string, params: Record<string, unknown>) => {
+      fakeState.calls.push({ fn, params });
+      if (fn === "claim_demo_clear") {
+        if (fakeState.claimBusy) {
+          return Promise.resolve({
+            data: null,
+            error: { code: "lock_not_available", message: "demo run is busy" },
+          });
         }
-        return Promise.resolve({ error: null });
-      },
-    }),
-  }));
-  const rpc = vi.fn((fn: string, params: unknown) => {
-    rpcCalls.push({ fn, params });
-    return Promise.resolve(
-      options.rpcError
-        ? { data: null, error: { message: options.rpcError } }
-        : { data: null, error: null },
-    );
+        if (fakeState.runId == null) {
+          return Promise.resolve({ data: { outcome: "no_run" }, error: null });
+        }
+        return Promise.resolve({
+          data: {
+            outcome: "claimed",
+            run_id: fakeState.runId,
+            lease_token: params.p_lease_token,
+            status: "clearing",
+          },
+          error: null,
+        });
+      }
+      if (fn === "get_demo_release_receipt") {
+        return Promise.resolve({
+          data: { root_account_id: ROOT_ID },
+          error: null,
+        });
+      }
+      if (fn === "heartbeat_demo_run" && fakeState.heartbeatError) {
+        return Promise.resolve({
+          data: null,
+          error: { message: fakeState.heartbeatError },
+        });
+      }
+      if (fn === "finalize_demo_clear" && fakeState.finalizeError) {
+        return Promise.resolve({
+          data: null,
+          error: { message: fakeState.finalizeError },
+        });
+      }
+      return Promise.resolve({
+        data:
+          fn === "finalize_demo_clear"
+            ? {
+                outcome: "finalized",
+                run_id: fakeState.runId,
+                ...(fakeState.completedAt
+                  ? { completed_at: fakeState.completedAt }
+                  : {}),
+              }
+            : true,
+        error: null,
+      });
+    },
+  );
+  fakeState.authList = async () => ({
+    data: {
+      users: fakeState.actorIds.map((id) => ({
+        id,
+        email: "demo-test-actor@demo.invalid",
+        app_metadata: {
+          demo: true,
+          demo_run_id: fakeState.runId,
+          demo_actor_key: "test-actor",
+        },
+      })),
+    },
+    error: null,
   });
-  mockUserScopedClient.mockReturnValue({ from, rpc });
-  return { deleteCalls, from, rpc, rpcCalls, callOrder };
 }
 
-function buildRequest(body: unknown = { accountId: 999999 }): Request {
+function buildRequest(body: unknown = {}): Request {
   return new Request("http://localhost/functions/v1/clear_demo", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -227,584 +400,393 @@ function buildRequest(body: unknown = { accountId: 999999 }): Request {
   });
 }
 
-describe("clear_demo handleClearDemo", () => {
+describe("clear_demo manifest lifecycle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockResolveAccountId.mockResolvedValue(DEMO_ACCOUNT_ID);
+    fakeState = newState();
+    buildFromDoubles();
+    mockResolveAccountId.mockResolvedValue(ROOT_ID);
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
+  it("claims, heartbeats, deletes only owned relationship IDs, and finalizes atomically", async () => {
+    const response = await handleClearDemo(
+      buildRequest({ releaseDemoFlag: true }),
+      FAKE_USER,
+    );
 
-  describe("guard allows a demo account", () => {
-    it("clears every table, scoped to the resolved account, and does not touch accounts.demo when releaseDemoFlag is omitted", async () => {
-      // Arrange
-      const admin = buildFakeAdmin({ demo: true });
-      const db = buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(buildRequest(), FAKE_USER);
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({
-        cleared: true,
-        accountId: DEMO_ACCOUNT_ID,
-      });
-      expect(db.deleteCalls.length).toBeGreaterThan(0);
-      expect(db.deleteCalls.every((c) => c.accountId === DEMO_ACCOUNT_ID)).toBe(
-        true,
-      );
-      // Regression guard for the bricking trap: an omitted/false
-      // releaseDemoFlag (the reseeder's shape) must never write
-      // accounts.demo — writing `false` here is what made a demo account
-      // permanently unclearable the next time a seed_demo run failed before
-      // reaching its own final `demo = true` write. The true-flag path is
-      // covered separately below in "releaseDemoFlag opt-in".
-      expect(admin.accountsUpdateAttempts).toHaveLength(0);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      cleared: true,
+      accountId: ROOT_ID,
+      runId: 7001,
     });
+    expect(fakeState.deletedRelationships).toEqual([
+      { table: "connections", id: 9001 },
+      { table: "invites", id: 9002 },
+    ]);
+    expect(fakeState.calls[0]?.fn).toBe("claim_demo_clear");
+    expect(
+      fakeState.calls.some(({ fn }) => fn === "get_demo_release_receipt"),
+    ).toBe(false);
+    expect(fakeState.calls.some(({ fn }) => fn === "heartbeat_demo_run")).toBe(
+      true,
+    );
+    expect(fakeState.calls.at(-1)).toMatchObject({
+      fn: "finalize_demo_clear",
+      params: {
+        p_release_demo: true,
+        p_release_persona: true,
+        p_actor_user_id: ACTOR_ID,
+      },
+    });
+    expect(fakeState.calls.some(({ fn }) => fn === "fail_demo_run")).toBe(
+      false,
+    );
   });
 
-  describe("guard refuses a non-demo account", () => {
-    it("returns 403 and performs zero deletes when demo is false", async () => {
-      // Arrange
-      const admin = buildFakeAdmin({ demo: false });
-      const db = buildFakeDb();
+  it("reports the finalizer timestamp without inventing one", async () => {
+    fakeState.completedAt = "2026-08-23T03:41:00.000Z";
 
-      // Act
-      const response = await handleClearDemo(buildRequest(), FAKE_USER);
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
 
-      // Assert
-      expect(response.status).toBe(403);
-      expect(db.from).not.toHaveBeenCalled();
-      // The guard's read of `accounts` must be the ONLY admin read that ever
-      // happened — proving the check runs before any other table is touched.
-      expect(mockAdminFrom).toHaveBeenCalledTimes(1);
-      expect(mockAdminStorageFrom).not.toHaveBeenCalled();
-      const body = await response.json();
-      expect(body.message).toMatch(/not a demo account/i);
-      // Must not leak account data in the error response.
-      expect(JSON.stringify(body)).not.toContain(String(DEMO_ACCOUNT_ID));
-      expect(admin.accountsUpdateAttempts).toHaveLength(0);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      cleared: true,
+      lastClearedAt: fakeState.completedAt,
     });
   });
 
-  describe("guard fails closed when the demo flag is unreadable", () => {
-    it("returns 403 and performs zero deletes when demo is NULL", async () => {
-      // Arrange
-      buildFakeAdmin({ demo: null });
-      const db = buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(buildRequest(), FAKE_USER);
-
-      // Assert
-      expect(response.status).toBe(403);
-      expect(db.from).not.toHaveBeenCalled();
-    });
-
-    it("returns 403 and performs zero deletes when the account row cannot be read (query error)", async () => {
-      // Arrange
-      buildFakeAdmin({ selectError: "connection reset" });
-      const db = buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(buildRequest(), FAKE_USER);
-
-      // Assert
-      expect(response.status).toBe(403);
-      expect(db.from).not.toHaveBeenCalled();
-    });
-
-    it("returns 403 and performs zero deletes when no account row exists", async () => {
-      // Arrange
-      buildFakeAdmin({ noRow: true });
-      const db = buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(buildRequest(), FAKE_USER);
-
-      // Assert
-      expect(response.status).toBe(403);
-      expect(db.from).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("re-clearability invariant", () => {
-    it("lets a demo account be cleared again even after a run where the flag was never flipped in between", async () => {
-      // Arrange — simulates the trap: seed_demo is not transactional with
-      // clear_demo and can fail before ever reaching its own final
-      // `demo = true` write. Because clear_demo no longer resets `demo` to
-      // false, an account that was ever legitimately seeded stays
-      // demo=true no matter how the next seed/clear cycle goes.
-      const admin = buildFakeAdmin({ demo: true });
-      buildFakeDb();
-
-      // Act — first clear.
-      const first = await handleClearDemo(buildRequest(), FAKE_USER);
-      // Nothing re-seeded and nothing flipped the flag between calls — the
-      // account is still exactly demo=true, as it would be after a
-      // seed_demo run that failed partway through.
-      const secondDb = buildFakeDb();
-      const second = await handleClearDemo(buildRequest(), FAKE_USER);
-
-      // Assert — both calls succeed; the guard was re-checked (and passed)
-      // both times, and neither call wrote accounts.demo.
-      expect(first.status).toBe(200);
-      expect(second.status).toBe(200);
-      expect(secondDb.deleteCalls.length).toBeGreaterThan(0);
-      expect(admin.accountsSelectCalls).toEqual([
-        DEMO_ACCOUNT_ID,
-        DEMO_ACCOUNT_ID,
-      ]);
-      expect(admin.accountsUpdateAttempts).toHaveLength(0);
-    });
-
-    it("never becomes unclearable after a clear, unlike the naive guard-plus-flip design", async () => {
-      // Arrange — the exact bad combination the trap warns against would
-      // guard on demo===true AND still flip it false at the end, bricking
-      // the account for every subsequent call. Assert the SECOND call still
-      // sees demo=true and still succeeds.
-      const admin = buildFakeAdmin({ demo: true });
-      buildFakeDb();
-      await handleClearDemo(buildRequest(), FAKE_USER);
-
-      // Act — a second, independent clear attempt.
-      buildFakeDb();
-      const response = await handleClearDemo(buildRequest(), FAKE_USER);
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(admin.accountsUpdateAttempts).toHaveLength(0);
-    });
-  });
-
-  describe("tenancy scoping", () => {
-    it("uses the server-resolved accountId for every delete, never a value from the request body", async () => {
-      // Arrange
-      buildFakeAdmin({ demo: true });
-      const db = buildFakeDb();
-
-      // Act — the body carries a different, attacker-controlled accountId.
-      const response = await handleClearDemo(
-        buildRequest({ accountId: 999999 }),
-        FAKE_USER,
-      );
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(db.deleteCalls.length).toBeGreaterThan(0);
-      expect(db.deleteCalls.some((c) => c.accountId === 999999)).toBe(false);
-      expect(db.deleteCalls.every((c) => c.accountId === DEMO_ACCOUNT_ID)).toBe(
-        true,
-      );
-    });
-  });
-
-  describe("request validation, unchanged", () => {
-    it("returns 401 and never resolves an account when there is no authenticated user", async () => {
-      // Arrange
-      buildFakeAdmin({ demo: true });
-      buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(buildRequest(), undefined);
-
-      // Assert
-      expect(response.status).toBe(401);
-      expect(mockResolveAccountId).not.toHaveBeenCalled();
-    });
-
-    it("returns 405 for a non-POST/DELETE method", async () => {
-      // Arrange
-      buildFakeAdmin({ demo: true });
-      buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(
-        new Request("http://localhost/functions/v1/clear_demo", {
-          method: "GET",
-        }),
-        FAKE_USER,
-      );
-
-      // Assert
-      expect(response.status).toBe(405);
-    });
-  });
-
-  // The opt-in `releaseDemoFlag` request param — see the module docstring's
-  // "TWO callers with opposite intent" section. These tests are the
-  // decisive evidence for that contract; the earlier describe blocks above
-  // already assert `accountsUpdateAttempts` stays empty for every
-  // flag-omitted call, so this block focuses on what's NEW: the true case,
-  // ordering, failure handling, and strict validation.
-  describe("releaseDemoFlag opt-in", () => {
-    it("clears data without releasing accounts.demo when releaseDemoFlag is omitted from the body", async () => {
-      // Arrange — mirrors admin_reseed_demo_accounts's plain POST with no
-      // JSON body at all (invokeDemoFunction.ts's clear_demo call before
-      // this change), not just a body missing the key.
-      const admin = buildFakeAdmin({ demo: true });
-      const db = buildFakeDb();
-      const bodylessRequest = new Request(
-        "http://localhost/functions/v1/clear_demo",
-        { method: "POST" },
-      );
-
-      // Act
-      const response = await handleClearDemo(bodylessRequest, FAKE_USER);
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(db.deleteCalls.length).toBeGreaterThan(0);
-      expect(admin.accountsUpdateAttempts).toHaveLength(0);
-    });
-
-    it("clears data AND releases accounts.demo when releaseDemoFlag is true, only after every delete succeeds", async () => {
-      // Arrange — a single shared callOrder array lets us assert relative
-      // ordering, not just that both things eventually happened.
-      const callOrder: string[] = [];
-      const admin = buildFakeAdmin({ demo: true, callOrder });
-      const db = buildFakeDb({ callOrder });
-
-      // Act
-      const response = await handleClearDemo(
-        buildRequest({ releaseDemoFlag: true }),
-        FAKE_USER,
-      );
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(db.deleteCalls.length).toBeGreaterThan(0);
-      expect(admin.accountsUpdateAttempts).toEqual([{ demo: false }]);
-      // The update must be the LAST entry — every delete recorded first.
-      expect(callOrder.at(-1)).toBe("update:accounts");
-      expect(callOrder.filter((c) => c === "update:accounts")).toHaveLength(1);
-      expect(callOrder.slice(0, -1).every((c) => c.startsWith("delete:"))).toBe(
-        true,
-      );
-    });
-
-    it("does NOT release accounts.demo when a delete fails after releaseDemoFlag is true (no half-exit)", async () => {
-      // Arrange — the second table in DELETE_ORDER fails; the flag release
-      // must never run if any delete in the loop errors.
-      const admin = buildFakeAdmin({ demo: true });
-      buildFakeDb({ failTable: "reference_links" });
-
-      // Act
-      const response = await handleClearDemo(
-        buildRequest({ releaseDemoFlag: true }),
-        FAKE_USER,
-      );
-
-      // Assert
-      expect(response.status).toBe(500);
-      expect(admin.accountsUpdateAttempts).toHaveLength(0);
-    });
-
-    it("rejects a non-boolean releaseDemoFlag rather than coercing it, and performs zero deletes", async () => {
-      // Arrange — a truthy STRING must not silently enable the release.
-      const admin = buildFakeAdmin({ demo: true });
-      const db = buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(
-        buildRequest({ releaseDemoFlag: "true" }),
-        FAKE_USER,
-      );
-
-      // Assert
-      expect(response.status).toBe(400);
-      expect(db.from).not.toHaveBeenCalled();
-      expect(admin.accountsUpdateAttempts).toHaveLength(0);
-      const body = await response.json();
-      expect(body.message).toMatch(/releaseDemoFlag must be a boolean/i);
-    });
-
-    it("still refuses a non-demo account with zero deletes and zero flag writes, even when releaseDemoFlag is true", async () => {
-      // Arrange — the tenancy guard must run and refuse BEFORE the flag is
-      // ever considered, regardless of what the caller asked for.
-      const admin = buildFakeAdmin({ demo: false });
-      const db = buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(
-        buildRequest({ releaseDemoFlag: true }),
-        FAKE_USER,
-      );
-
-      // Assert
-      expect(response.status).toBe(403);
-      expect(db.from).not.toHaveBeenCalled();
-      expect(admin.accountsUpdateAttempts).toHaveLength(0);
-    });
-
-    it("leaves a reseeder-style clear (flag omitted) re-clearable indefinitely — the deadlock regression", async () => {
-      // Arrange — simulates admin_reseed_demo_accounts calling clear_demo
-      // repeatedly across refresh cycles, never releasing the flag.
-      const admin = buildFakeAdmin({ demo: true });
-      buildFakeDb();
-
-      // Act — three consecutive reseeder-style clears.
-      const first = await handleClearDemo(
-        buildRequest({ releaseDemoFlag: false }),
-        FAKE_USER,
-      );
-      buildFakeDb();
-      const second = await handleClearDemo(
-        buildRequest({ releaseDemoFlag: false }),
-        FAKE_USER,
-      );
-      buildFakeDb();
-      const third = await handleClearDemo(
-        buildRequest({ releaseDemoFlag: false }),
-        FAKE_USER,
-      );
-
-      // Assert — every call succeeds, the guard keeps re-passing (demo
-      // stays true throughout because nothing ever released it), and the
-      // account is never bricked the way an unconditional flip would brick
-      // it.
-      expect([first, second, third].map((r) => r.status)).toEqual([
-        200, 200, 200,
-      ]);
-      expect(admin.accountsSelectCalls).toEqual([
-        DEMO_ACCOUNT_ID,
-        DEMO_ACCOUNT_ID,
-        DEMO_ACCOUNT_ID,
-      ]);
-      expect(admin.accountsUpdateAttempts).toHaveLength(0);
-    });
-  });
-
-  // Story: inbox_items is the "front door" — the fresh-account promise
-  // ("gives you a fresh, empty account to start with", DemoBanner.tsx) is
-  // false if a captured redt or its storage-backed attachment survives.
-  describe("inbox_items purge", () => {
-    it("deletes inbox_items rows scoped to the resolved account", async () => {
-      // Arrange
-      buildFakeAdmin({ demo: true });
-      const db = buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(buildRequest(), FAKE_USER);
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(db.deleteCalls).toContainEqual({
-        table: "inbox_items",
-        accountId: DEMO_ACCOUNT_ID,
-      });
-    });
-
-    it("collects and removes inbox capture attachments from the attachments bucket, scoped to the resolved account", async () => {
-      // Arrange — one inbox_items row carries a real attachment (the
-      // `{title, type, path, src}` shape ShareTarget.tsx/
-      // extractAndUploadAttachments.ts both write), one has none (the
-      // AddToInboxDialog.tsx manual-paste path, which leaves the column
-      // NULL) and one has an empty array — neither of the latter two should
-      // contribute a path.
-      const admin = buildFakeAdmin({
-        demo: true,
-        inboxItems: [
-          {
-            attachments: [
-              {
-                title: "resume.pdf",
-                type: "application/pdf",
-                path: `${DEMO_ACCOUNT_ID}/inbox/1/uuid-1.pdf`,
-                src: "https://signed-url.example/1",
-              },
-            ],
+  it("reconciles a committed clear claim after its RPC response is lost", async () => {
+    let callerToken = "";
+    mockAdminRpc.mockImplementation(
+      (fn: string, params: Record<string, unknown>) => {
+        if (fn !== "claim_demo_clear")
+          return Promise.resolve({ data: null, error: null });
+        callerToken = params.p_lease_token as string;
+        return Promise.reject(new Error("claim response lost"));
+      },
+    );
+    const baseFrom = mockAdminFrom.getMockImplementation()!;
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table !== "demo_runs") return baseFrom(table);
+      const query: Record<string, (...args: unknown[]) => unknown> = {};
+      query.select = () => query;
+      query.eq = () => query;
+      query.maybeSingle = () =>
+        Promise.resolve({
+          data: {
+            id: fakeState.runId,
+            lease_token: callerToken,
+            status: "clearing",
           },
-          { attachments: null },
-          { attachments: [] },
-        ],
-      });
-      buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(buildRequest(), FAKE_USER);
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(admin.storageRemoveCalls).toContainEqual({
-        bucket: "attachments",
-        paths: [`${DEMO_ACCOUNT_ID}/inbox/1/uuid-1.pdf`],
-      });
+          error: null,
+        });
+      return query;
     });
 
-    it("never calls the attachments bucket when no inbox_items carry a storage path", async () => {
-      // Arrange
-      const admin = buildFakeAdmin({
-        demo: true,
-        inboxItems: [{ attachments: null }, { attachments: [] }],
-      });
-      buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(buildRequest(), FAKE_USER);
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(
-        admin.storageRemoveCalls.some((c) => c.bucket === "attachments"),
-      ).toBe(false);
-    });
-
-    it("skips a malformed attachments cell rather than throwing", async () => {
-      // Arrange — a cell that is neither an array nor null: defensive
-      // parsing (extractInboxAttachmentPaths) must skip it, not blow up the
-      // whole clear over one bad row.
-      const admin = buildFakeAdmin({
-        demo: true,
-        inboxItems: [
-          { attachments: "not-an-array" },
-          { attachments: [{ noPath: true }] },
-        ],
-      });
-      buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(buildRequest(), FAKE_USER);
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(
-        admin.storageRemoveCalls.some((c) => c.bucket === "attachments"),
-      ).toBe(false);
+    await expect(
+      claimDemoClearWithReconciliation(ROOT_ID),
+    ).resolves.toMatchObject({
+      outcome: "claimed",
+      run_id: fakeState.runId,
+      lease_token: callerToken,
+      status: "clearing",
     });
   });
 
-  // Story: releasing the bootstrap `parent` persona so OnboardingGate
-  // re-arms after a demo clear — gated on releaseDemoFlag AND on the caller
-  // being the account's SOLE active member (guard_persona_removal() alone
-  // does not protect a multi-member household — see
-  // releaseBootstrapPersona's docstring).
-  describe("bootstrap persona release", () => {
-    it("releases the persona via remove_persona when releaseDemoFlag is true and the caller is the account's sole active member", async () => {
-      // Arrange
-      buildFakeAdmin({ demo: true, activeMemberCount: 1 });
-      const db = buildFakeDb();
-
-      // Act
-      const response = await handleClearDemo(
-        buildRequest({ releaseDemoFlag: true }),
-        FAKE_USER,
-      );
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(db.rpcCalls).toEqual([
-        { fn: "remove_persona", params: { p_persona: "parent" } },
-      ]);
-      const body = await response.json();
-      expect(body.personaWarning).toBeUndefined();
+  it("accepts finalize response loss only after the exact run is absent", async () => {
+    fakeState.finalizeError = "finalize response lost";
+    const baseFrom = mockAdminFrom.getMockImplementation()!;
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table !== "demo_runs") return baseFrom(table);
+      const query: Record<string, (...args: unknown[]) => unknown> = {};
+      query.select = () => query;
+      query.eq = () => query;
+      query.in = () => query;
+      query.order = () => query;
+      query.limit = () => query;
+      query.maybeSingle = () => Promise.resolve({ data: null, error: null });
+      return query;
     });
 
-    it("does NOT release the persona when the account has another active member — the lockout regression test", async () => {
-      // Arrange — a household with the caller PLUS at least one other
-      // active member. guard_persona_removal() alone would happily let this
-      // through (it only refuses on the LAST member); this is the check
-      // that must refuse on its own.
-      buildFakeAdmin({ demo: true, activeMemberCount: 2 });
-      const db = buildFakeDb();
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
 
-      // Act
-      const response = await handleClearDemo(
-        buildRequest({ releaseDemoFlag: true }),
-        FAKE_USER,
-      );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ cleared: true });
+  });
 
-      // Assert — the clear itself still succeeds; only the persona release
-      // is skipped.
-      expect(response.status).toBe(200);
-      expect(db.rpcCalls).toHaveLength(0);
-      const body = await response.json();
-      expect(body.personaWarning).toBeUndefined();
+  it("fails closed when a manifest resource points outside the exact run", async () => {
+    fakeState.resources = [{ resource_type: "connection", resource_id: 9001 }];
+    fakeState.relationshipRows.connections = {
+      household_account_id: ROOT_ID,
+      shadchanus_account_id: 999,
+      status: "accepted",
+    };
+
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+    expect(response.status).toBe(500);
+    expect(fakeState.deletedRelationships).toEqual([]);
+    expect(fakeState.calls.at(-1)?.fn).toBe("fail_demo_run");
+    expect(fakeState.calls.some(({ fn }) => fn === "finalize_demo_clear")).toBe(
+      false,
+    );
+  });
+
+  it("accepts and clears an official single-row listing withdrawal tombstone", async () => {
+    fakeState.resources = [
+      { resource_type: "connection", resource_id: 9001 },
+      { resource_type: "invite", resource_id: 9002 },
+      { resource_type: "listing_withdrawal", resource_id: 7007 },
+    ];
+
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      cleared: true,
+      accountId: ROOT_ID,
+      runId: 7001,
+    });
+    expect(fakeState.calls).toContainEqual(
+      expect.objectContaining({
+        fn: "assert_demo_resource_ownership",
+        params: expect.objectContaining({
+          p_resource_type: "listing_withdrawal",
+          p_resource_id: 7007,
+          p_require_present: false,
+        }),
+      }),
+    );
+    expect(fakeState.calls.at(-1)?.fn).toBe("finalize_demo_clear");
+  });
+
+  it("retains the run when a manifested grant targets a production single", async () => {
+    fakeState.resources = [{ resource_type: "child_grant", resource_id: 9003 }];
+
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+    expect(response.status).toBe(500);
+    expect(fakeState.deletedRelationships).toEqual([]);
+    expect(fakeState.calls.at(-1)?.fn).toBe("fail_demo_run");
+    expect(fakeState.calls.some(({ fn }) => fn === "finalize_demo_clear")).toBe(
+      false,
+    );
+  });
+
+  it("rejects an unknown manifest resource before restore or deletion", async () => {
+    fakeState.resources = [
+      { resource_type: "future_resource", resource_id: 9004 },
+    ];
+
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+    expect(response.status).toBe(500);
+    expect(
+      fakeState.calls.some(({ fn }) => fn === "assert_demo_resource_ownership"),
+    ).toBe(false);
+    expect(
+      fakeState.calls.some(({ fn }) => fn === "restore_demo_member_state"),
+    ).toBe(false);
+    expect(fakeState.calls.some(({ fn }) => fn === "finalize_demo_clear")).toBe(
+      false,
+    );
+  });
+
+  it("rejects a manifest kind mismatch before touching the bundle", async () => {
+    const baseFrom = mockAdminFrom.getMockImplementation()!;
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === "demo_run_accounts") {
+        return {
+          select: () => ({
+            eq: () =>
+              Promise.resolve({
+                data: [
+                  {
+                    account_id: ROOT_ID,
+                    context_key: "primary-household",
+                    context_kind: "shadchanus",
+                    is_root: true,
+                  },
+                ],
+                error: null,
+              }),
+          }),
+        };
+      }
+      return baseFrom(table);
     });
 
-    it("never releases the persona when releaseDemoFlag is omitted (the reseeder path)", async () => {
-      // Arrange
-      const admin = buildFakeAdmin({ demo: true });
-      const db = buildFakeDb();
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
 
-      // Act — mirrors admin_reseed_demo_accounts's plain POST, no
-      // releaseDemoFlag at all.
-      const response = await handleClearDemo(buildRequest(), FAKE_USER);
+    expect(response.status).toBe(500);
+    expect(
+      fakeState.calls.some(({ fn }) => fn === "restore_demo_member_state"),
+    ).toBe(false);
+    expect(fakeState.deletedRelationships).toEqual([]);
+  });
 
-      // Assert — the persona-release path never even reads account_members:
-      // proof this is gated on releaseDemoFlag, not merely a lucky no-op.
-      expect(response.status).toBe(200);
-      expect(db.rpcCalls).toHaveLength(0);
-      expect(admin.adminCallsByTable["account_members"] ?? 0).toBe(0);
+  it("rejects a mismatched Auth identity before actor deletion", async () => {
+    fakeState.actorIds = [ACTOR_ID];
+    fakeState.authList = async () => ({
+      data: {
+        users: [
+          {
+            id: ACTOR_ID,
+            email: "demo-test-actor@demo.invalid",
+            app_metadata: {
+              demo: true,
+              demo_run_id: 9999,
+              demo_actor_key: "test-actor",
+            },
+          },
+        ],
+      },
+      error: null,
     });
 
-    it("surfaces a persona-release RPC failure as a warning without failing the clear", async () => {
-      // Arrange
-      buildFakeAdmin({ demo: true, activeMemberCount: 1 });
-      const db = buildFakeDb({
-        rpcError: "cannot remove your last active membership of this account",
-      });
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
 
-      // Act
-      const response = await handleClearDemo(
-        buildRequest({ releaseDemoFlag: true }),
-        FAKE_USER,
-      );
+    expect(response.status).toBe(500);
+    expect(
+      fakeState.calls.some(({ fn }) => fn === "restore_demo_member_state"),
+    ).toBe(false);
+    expect(fakeState.calls.some(({ fn }) => fn === "finalize_demo_clear")).toBe(
+      false,
+    );
+  });
 
-      // Assert — the data IS gone (200, cleared: true), but the failure is
-      // surfaced, not swallowed.
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.cleared).toBe(true);
-      expect(body.personaWarning).toMatch(
-        /cannot remove your last active membership/,
-      );
-      expect(db.rpcCalls).toHaveLength(1);
+  it("rejects a registered storage path outside every manifest account", async () => {
+    const baseFrom = mockAdminFrom.getMockImplementation()!;
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === "demo_run_storage") {
+        return {
+          select: () => ({
+            eq: () =>
+              Promise.resolve({
+                data: [
+                  {
+                    bucket: "documents",
+                    storage_path: "999/not-owned.pdf",
+                    resource_key: "resume",
+                  },
+                ],
+                error: null,
+              }),
+          }),
+        };
+      }
+      return baseFrom(table);
     });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    mockAdminStorageFrom.mockReturnValue({ remove });
 
-    it("surfaces an active-member-count read failure as a warning without failing the clear", async () => {
-      // Arrange
-      buildFakeAdmin({
-        demo: true,
-        memberCountError: "connection reset",
-      });
-      const db = buildFakeDb();
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
 
-      // Act
-      const response = await handleClearDemo(
-        buildRequest({ releaseDemoFlag: true }),
-        FAKE_USER,
-      );
+    expect(response.status).toBe(500);
+    expect(remove).not.toHaveBeenCalled();
+    expect(fakeState.calls.some(({ fn }) => fn === "finalize_demo_clear")).toBe(
+      false,
+    );
+  });
 
-      // Assert
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.cleared).toBe(true);
-      expect(body.personaWarning).toMatch(/failed to count active members/);
-      // The count read failed closed: remove_persona was never attempted.
-      expect(db.rpcCalls).toHaveLength(0);
+  it("maps an active lifecycle lease conflict to 409 without cleanup", async () => {
+    fakeState.claimBusy = true;
+
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+    expect(response.status).toBe(409);
+    expect(fakeState.deletedRelationships).toEqual([]);
+    expect(fakeState.calls.map(({ fn }) => fn)).toEqual(["claim_demo_clear"]);
+  });
+
+  it("treats a successful no-run claim as an idempotent response-loss retry", async () => {
+    fakeState.runId = null;
+
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      cleared: true,
+      accountId: ROOT_ID,
+      alreadyCleared: true,
     });
+    expect(fakeState.deletedRelationships).toEqual([]);
+  });
 
-    it("still refuses a non-demo account with zero deletes even when a persona release would otherwise apply", async () => {
-      // Arrange — the existing tenancy guard must still refuse first, before
-      // any of the new inbox/persona-release logic ever runs.
-      const admin = buildFakeAdmin({ demo: false, activeMemberCount: 1 });
-      const db = buildFakeDb();
+  it("looks up the release receipt only after a no-run claim", async () => {
+    fakeState.runId = null;
 
-      // Act
-      const response = await handleClearDemo(
-        buildRequest({ releaseDemoFlag: true }),
-        FAKE_USER,
-      );
+    const response = await handleClearDemo(
+      buildRequest({ releaseDemoFlag: true }),
+      FAKE_USER,
+    );
 
-      // Assert
-      expect(response.status).toBe(403);
-      expect(db.from).not.toHaveBeenCalled();
-      expect(db.rpcCalls).toHaveLength(0);
-      expect(admin.adminCallsByTable["account_members"] ?? 0).toBe(0);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      cleared: true,
+      accountId: ROOT_ID,
+      alreadyCleared: true,
     });
+    expect(fakeState.calls.map(({ fn }) => fn)).toEqual([
+      "claim_demo_clear",
+      "get_demo_release_receipt",
+    ]);
+  });
+
+  it("keeps a failed clear retryable after an Auth error, then succeeds on retry", async () => {
+    fakeState.actorIds = [ACTOR_ID];
+    fakeState.authError = { status: 500, message: "Auth unavailable" };
+
+    const first = await handleClearDemo(buildRequest(), FAKE_USER);
+    expect(first.status).toBe(500);
+    expect(fakeState.calls.at(-1)?.fn).toBe("fail_demo_run");
+    expect(fakeState.calls.some(({ fn }) => fn === "finalize_demo_clear")).toBe(
+      false,
+    );
+
+    fakeState.authError = null;
+    const second = await handleClearDemo(buildRequest(), FAKE_USER);
+    expect(second.status).toBe(200);
+    expect(fakeState.calls.at(-1)?.fn).toBe("finalize_demo_clear");
+  });
+
+  it("treats an already-deleted Auth actor as success during compensation", async () => {
+    fakeState.actorIds = [ACTOR_ID];
+    fakeState.authError = {
+      status: 404,
+      code: "user_not_found",
+      message: "User not found",
+    };
+
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+    expect(response.status).toBe(200);
+    expect(fakeState.calls.at(-1)?.fn).toBe("finalize_demo_clear");
+  });
+
+  it("treats a thrown Auth not-found as idempotent during clear", async () => {
+    fakeState.actorIds = [ACTOR_ID];
+    fakeState.authDelete = async () => {
+      throw { status: 404, code: "user_not_found", message: "User not found" };
+    };
+
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+    expect(response.status).toBe(200);
+    expect(fakeState.calls.at(-1)?.fn).toBe("finalize_demo_clear");
+  });
+
+  it("retains the run when heartbeat or finalization fails", async () => {
+    fakeState.heartbeatError = "lease expired";
+    const heartbeatFailure = await handleClearDemo(buildRequest(), FAKE_USER);
+    expect(heartbeatFailure.status).toBe(500);
+    expect(fakeState.calls.at(-1)?.fn).toBe("fail_demo_run");
+
+    fakeState.heartbeatError = null;
+    fakeState.finalizeError = "finalizer unavailable";
+    const finalizerFailure = await handleClearDemo(buildRequest(), FAKE_USER);
+    expect(finalizerFailure.status).toBe(500);
+    expect(fakeState.calls.at(-1)?.fn).toBe("fail_demo_run");
   });
 });

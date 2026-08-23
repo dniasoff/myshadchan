@@ -1,9 +1,13 @@
 import type { ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useDataProvider } from "ra-core";
 
 import { OnboardingChoice } from "../login/OnboardingChoice";
 import { useAccountDemo } from "./useAccountDemo";
 import { useMyContexts } from "./useMyContexts";
 import { useMyPersonas } from "./useMyPersonas";
+import type { CrmDataProvider } from "../providers/supabase/dataProvider";
+import { DEMO_ONBOARDING_INTENT_QUERY_KEY } from "./onboardingKeys";
 
 /**
  * Wraps the ENTIRE authenticated shell (Layout / MobileLayout render this
@@ -52,6 +56,7 @@ import { useMyPersonas } from "./useMyPersonas";
  * error through its own data fetching.
  */
 export const OnboardingGate = ({ children }: { children: ReactNode }) => {
+  const dataProvider = useDataProvider<CrmDataProvider>();
   const {
     data: personas,
     isPending: personasPending,
@@ -63,6 +68,12 @@ export const OnboardingGate = ({ children }: { children: ReactNode }) => {
     isError: contextsErrored,
   } = useMyContexts();
   const { data: isDemo, isPending: demoPending } = useAccountDemo();
+  const demoIntentQuery = useQuery({
+    queryKey: DEMO_ONBOARDING_INTENT_QUERY_KEY,
+    queryFn: () => dataProvider.getDemoOnboardingState(),
+    enabled: typeof dataProvider.getDemoOnboardingState === "function",
+    retry: false,
+  });
 
   if (
     personasPending ||
@@ -74,8 +85,41 @@ export const OnboardingGate = ({ children }: { children: ReactNode }) => {
     return <>{children}</>;
   }
 
+  // Do not flash the full shell while the server-owned retry intent is still
+  // being resolved. An actual intent read error remains fail-toward-shell via
+  // the guard above, so a migration/transient outage cannot show onboarding.
+  if (
+    typeof dataProvider.getDemoOnboardingState === "function" &&
+    demoIntentQuery.isPending
+  ) {
+    return (
+      <div
+        className="min-h-screen"
+        aria-busy="true"
+        data-testid="onboarding-gate-loading"
+      />
+    );
+  }
+
+  // An intent read is advisory retry state, never a reason to replace the
+  // authenticated shell. Keep this explicit and after settlement so an
+  // error cannot fall through to the zero-persona onboarding branch.
+  if (
+    typeof dataProvider.getDemoOnboardingState === "function" &&
+    demoIntentQuery.isError
+  ) {
+    return <>{children}</>;
+  }
+
+  const demoIntentCanRetry =
+    demoIntentQuery.data?.state === "failed" ||
+    (demoIntentQuery.data?.state === "pending" &&
+      demoIntentQuery.data.account_id != null);
   const showOnboarding =
-    personas.length === 0 && contexts.length === 0 && isDemo !== true;
+    isDemo !== true &&
+    (personas.length === 0 && contexts.length === 0
+      ? true
+      : demoIntentCanRetry);
 
   if (showOnboarding) {
     return <OnboardingChoice />;

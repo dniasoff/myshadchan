@@ -1,8 +1,11 @@
 import { render } from "vitest-browser-react";
+import { QueryClient } from "@tanstack/react-query";
 import { CoreAdminContext, type DataProvider } from "ra-core";
 import fakeDataProvider from "ra-data-fakerest";
+import { MemoryRouter, useLocation } from "react-router";
 
 import { OnboardingChoice } from "./OnboardingChoice";
+import { DEMO_ONBOARDING_INTENT_QUERY_KEY } from "../root/onboardingKeys";
 import type { MyPersona, Persona } from "../types";
 
 /**
@@ -46,6 +49,10 @@ const buildDataProvider = (
 
   return {
     ...base,
+    prepareDemoOnboarding: async () => {
+      calls.push("prepareDemoOnboarding");
+      return { state: "pending", account_id: null, attempts: 1 };
+    },
     addPersona: async (persona: Persona) => {
       calls.push(`addPersona:${persona}`);
     },
@@ -69,6 +76,11 @@ const goToPersonaSelect = async (
   screen: Awaited<ReturnType<typeof renderOnboarding>>,
 ) => {
   await screen.getByText("Start with my own family").click();
+};
+
+const LocationProbe = () => {
+  const location = useLocation();
+  return <output data-testid="location">{location.pathname}</output>;
 };
 
 describe("OnboardingChoice — persona multi-select", () => {
@@ -178,7 +190,11 @@ describe("OnboardingChoice — persona multi-select", () => {
 
     // Assert
     await vi.waitFor(() => {
-      expect(calls).toEqual(["addPersona:parent", "seedDemo"]);
+      expect(calls).toEqual([
+        "prepareDemoOnboarding",
+        "addPersona:parent",
+        "seedDemo",
+      ]);
     });
   });
 
@@ -266,5 +282,106 @@ describe("OnboardingChoice — persona multi-select", () => {
     await expect
       .element(screen.getByText("Name your family's record"))
       .not.toBeInTheDocument();
+  });
+
+  it("cancels an abandoned demo intent when the user chooses own family", async () => {
+    const cancelDemoOnboarding = vi.fn().mockResolvedValue(undefined);
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(DEMO_ONBOARDING_INTENT_QUERY_KEY, {
+      state: "failed",
+      account_id: 42,
+      attempts: 1,
+    });
+    const base = fakeDataProvider({
+      members: [{ id: 0, first_name: "Jane", last_name: "Doe" }],
+      accounts: [{ id: 42, name: "My Account" }],
+      account_members: [],
+      singles: [],
+    });
+    const dataProvider = {
+      ...base,
+      addPersona: vi.fn().mockResolvedValue(undefined),
+      getMyPersonas: vi.fn().mockResolvedValue([]),
+      cancelDemoOnboarding,
+      currentAccountDemo: async () => false,
+    } as unknown as DataProvider;
+
+    const screen = await render(
+      <MemoryRouter>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={i18nProvider}
+          queryClient={queryClient}
+        >
+          <OnboardingChoice />
+        </CoreAdminContext>
+      </MemoryRouter>,
+    );
+    await goToPersonaSelect(screen);
+    await screen
+      .getByRole("checkbox", { name: PERSONA_LABELS.shadchan })
+      .click();
+    await screen.getByRole("button", { name: "Continue" }).click();
+    await screen.getByRole("button", { name: "Go to my dashboard" }).click();
+
+    await vi.waitFor(() => {
+      expect(cancelDemoOnboarding).toHaveBeenCalledTimes(1);
+      expect(
+        queryClient.getQueryData(DEMO_ONBOARDING_INTENT_QUERY_KEY),
+      ).toBeNull();
+    });
+  });
+
+  it("waits for ordinary-family cancellation before navigating, including a fail-soft rejection", async () => {
+    let rejectCancellation!: (error: Error) => void;
+    const cancelDemoOnboarding = vi.fn(
+      () =>
+        new Promise<void>((_, reject) => {
+          rejectCancellation = reject;
+        }),
+    );
+    const queryClient = new QueryClient();
+    const base = fakeDataProvider({
+      members: [{ id: 0, first_name: "Jane", last_name: "Doe" }],
+      accounts: [{ id: 42, name: "My Account" }],
+      account_members: [],
+      singles: [],
+    });
+    const dataProvider = {
+      ...base,
+      addPersona: vi.fn().mockResolvedValue(undefined),
+      getMyPersonas: vi.fn().mockResolvedValue([]),
+      cancelDemoOnboarding,
+      currentAccountDemo: async () => false,
+    } as unknown as DataProvider;
+
+    const screen = await render(
+      <MemoryRouter initialEntries={["/onboarding"]}>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={i18nProvider}
+          queryClient={queryClient}
+        >
+          <OnboardingChoice />
+          <LocationProbe />
+        </CoreAdminContext>
+      </MemoryRouter>,
+    );
+    await goToPersonaSelect(screen);
+    await screen
+      .getByRole("checkbox", { name: PERSONA_LABELS.shadchan })
+      .click();
+    await screen.getByRole("button", { name: "Continue" }).click();
+    await screen.getByRole("button", { name: "Go to my dashboard" }).click();
+
+    await vi.waitFor(() => {
+      expect(cancelDemoOnboarding).toHaveBeenCalledTimes(1);
+    });
+    await expect
+      .element(screen.getByTestId("location"))
+      .toHaveTextContent("/onboarding");
+
+    rejectCancellation(new Error("simulated cancellation failure"));
+    await expect.element(screen.getByTestId("location")).toHaveTextContent("/");
   });
 });

@@ -44,6 +44,8 @@ public/r/
 
 !supabase/functions/.env
 .claude/settings.local.json
+.serena/
+.codex-tmp/
 
 # Playwright
 node_modules/

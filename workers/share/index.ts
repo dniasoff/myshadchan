@@ -34,18 +34,15 @@ export type ShareEnv = BaseEnv & {
  * from it, and only ever as a proxied stream, never a signed URL. */
 const DOCUMENTS_BUCKET = "documents";
 
-/**
- * Apply a watermark to a blob (PDF or image) with the recipient name.
- * In a real implementation, this would use a library like PDF-Lib for PDFs and Canvas for images.
- * For this exercise, we return the original blob as a placeholder.
- */
+/** The normal production path still uses the existing runtime hook. Demo
+ * snapshots never call it: their bytes are pre-watermarked before seeding. */
 async function applyWatermark(
   blob: Blob,
   _recipientName: string,
   _fileType: string,
 ): Promise<Blob> {
-  // Placeholder: in a real implementation, we would watermark the blob here.
-  // For now, we just return the original blob.
+  // Keep ordinary production-share semantics unchanged until the existing
+  // runtime watermark implementation is replaced by a real compositor.
   return blob;
 }
 
@@ -94,6 +91,24 @@ interface ShareLinkRow {
   recipient_name: string | null;
   recipient_shadchan_id: number | null;
   watermark: boolean;
+  /** Immutable bundle snapshot, when this is an official demo link. */
+  demoSnapshot?: DemoShareSnapshot | null;
+}
+
+interface DemoShareSnapshot {
+  single: SharedSingleProfile;
+  files: Array<{
+    fileKey: string;
+    filename: string | null;
+    mimeType: string | null;
+    size: number | null;
+    /** Demo artifacts are embedded so serving never falls back to live Storage. */
+    bytesBase64: string;
+    /** SHA-256 of the immutable object bytes, recorded at seed time. */
+    sha256: string;
+    /** The bytes are already watermarked before this Worker serves them. */
+    preWatermarked: true;
+  }>;
 }
 
 interface ResumeFileRow {
@@ -134,13 +149,18 @@ interface SharedFileManifestEntry {
 /** The internal manifest entry, WITH the real Storage path — never sent to
  * the client directly (`toPublicManifest` below strips it). */
 interface ManifestEntry extends SharedFileManifestEntry {
-  storagePath: string;
+  storagePath?: string;
+  bytesBase64?: string;
+  sha256?: string;
+  preWatermarked?: true;
 }
 
 interface SharedProfileResponse {
   single: SharedSingleProfile;
   files: SharedFileManifestEntry[];
 }
+
+type DemoScope = false | { runId: number } | null;
 
 /**
  * Raw service-role client — the ONE place this Worker touches Postgres
@@ -155,6 +175,76 @@ interface SharedProfileResponse {
 function getServiceRoleClient(env: BaseEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false },
+  });
+}
+
+/**
+ * Resolve demo scope independently of the share row. A manifest-backed demo
+ * account is allowed to share only through its immutable snapshot; resolving
+ * this before snapshot lookup prevents a partial seed from falling through to
+ * live singles/resumes. `false` is reserved for an account with no manifest
+ * membership at all. A stale membership, missing run, non-active run, or
+ * lookup error returns `null` and is deliberately fail-closed by
+ * `resolveShareLink`.
+ */
+async function isDemoScopedAccount(
+  accountId: number,
+  env: BaseEnv,
+): Promise<DemoScope> {
+  const client = getServiceRoleClient(env);
+  const { data: membership, error: membershipError } = await client
+    .from("demo_run_accounts")
+    .select("run_id")
+    .eq("account_id", accountId)
+    .order("run_id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (membershipError) {
+    console.error("share.demoScope.membershipLookupFailed", membershipError);
+    return null;
+  }
+  if (!membership) return false;
+
+  const runId = Number(membership.run_id);
+  if (!Number.isSafeInteger(runId)) return null;
+
+  const { data: run, error: runError } = await client
+    .from("demo_runs")
+    .select("id, status")
+    .eq("id", runId)
+    .eq("status", "active")
+    .maybeSingle();
+  if (runError) {
+    console.error("share.demoScope.runLookupFailed", runError);
+    return null;
+  }
+  if (!run) return null;
+  return { runId };
+}
+
+function isDemoShareSnapshot(value: unknown): value is DemoShareSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<DemoShareSnapshot>;
+  if (!candidate.single || !Array.isArray(candidate.files)) return false;
+  const single = candidate.single as Partial<SharedSingleProfile>;
+  if (!("first_name_en" in single) || !("first_name_he" in single)) {
+    return false;
+  }
+  return candidate.files.every((file) => {
+    if (!file || typeof file !== "object") return false;
+    const entry = file as Partial<DemoShareSnapshot["files"][number]>;
+    const rawEntry = entry as Record<string, unknown>;
+    return (
+      typeof entry.fileKey === "string" &&
+      (entry.filename === null || typeof entry.filename === "string") &&
+      (entry.mimeType === null || typeof entry.mimeType === "string") &&
+      (entry.size === null || typeof entry.size === "number") &&
+      typeof entry.bytesBase64 === "string" &&
+      entry.bytesBase64.length > 0 &&
+      !("immutablePath" in rawEntry) &&
+      /^[a-f0-9]{64}$/i.test(entry.sha256 ?? "") &&
+      entry.preWatermarked === true
+    );
   });
 }
 
@@ -192,7 +282,77 @@ async function resolveShareLink(
   const row = data as ShareLinkRow;
   if (row.revoked_at !== null) return null;
   if (new Date(row.expires_at).getTime() <= Date.now()) return null;
+
+  const demoScope = await isDemoScopedAccount(row.account_id, env);
+  if (demoScope === null) return null;
+  if (demoScope === false) return row;
+
+  // Demo links are served from the immutable snapshot registered by the
+  // seed, never by re-reading live singles/resumes after the fact. The
+  // snapshot lookup is service-role-only and token-hash based; raw bearer
+  // tokens are not copied into the manifest tables. Any error, missing row,
+  // malformed payload, revoke, or expiry is a hard 404 — never a live-data
+  // fallback.
+  const tokenHash = await sha256Hex(token);
+  const { data: snapshot, error: snapshotError } = await getServiceRoleClient(
+    env,
+  )
+    .from("demo_share_snapshots")
+    .select("run_id, share_link_id, snapshot, expires_at, revoked_at")
+    .eq("token_hash", tokenHash)
+    .eq("share_link_id", row.id)
+    .maybeSingle();
+  if (snapshotError || !snapshot) {
+    if (snapshotError) {
+      console.error("share.demoSnapshot.lookupFailed", snapshotError);
+    }
+    return null;
+  }
+  if (
+    Number(snapshot.share_link_id) !== row.id ||
+    Number(snapshot.run_id) !== demoScope.runId ||
+    snapshot.revoked_at !== null ||
+    new Date(snapshot.expires_at).getTime() <= Date.now() ||
+    !isDemoShareSnapshot(snapshot.snapshot)
+  ) {
+    return null;
+  }
+
+  // The snapshot is tied to one manifest run. A newer/older run for the same
+  // account must not authorize it; only that exact run may be active.
+  const { data: snapshotRun, error: snapshotRunError } =
+    await getServiceRoleClient(env)
+      .from("demo_runs")
+      .select("id, status")
+      .eq("id", demoScope.runId)
+      .eq("status", "active")
+      .maybeSingle();
+  if (snapshotRunError || !snapshotRun) return null;
+  const { data: snapshotMembership, error: snapshotMembershipError } =
+    await getServiceRoleClient(env)
+      .from("demo_run_accounts")
+      .select("account_id")
+      .eq("run_id", demoScope.runId)
+      .eq("account_id", row.account_id)
+      .maybeSingle();
+  if (snapshotMembershipError || !snapshotMembership) return null;
+  row.demoSnapshot = snapshot.snapshot;
   return row;
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+async function sha256Bytes(bytes: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
 /**
@@ -224,6 +384,15 @@ async function buildManifest(
   shareLink: ShareLinkRow,
   env: BaseEnv,
 ): Promise<{ single: SharedSingleProfile; entries: ManifestEntry[] }> {
+  if (shareLink.demoSnapshot) {
+    return {
+      single: shareLink.demoSnapshot.single,
+      entries: shareLink.demoSnapshot.files.map((file) => ({
+        ...file,
+        downloadUrl: `/r/${shareLink.token}/file/${file.fileKey}`,
+      })),
+    };
+  }
   const scoped = forAccount(String(shareLink.account_id), env);
 
   const { data: singleData } = await scoped
@@ -287,10 +456,18 @@ async function buildManifest(
   return { single, entries };
 }
 
-/** Strips `storagePath` — the real Storage path is never sent to the
- * client (AC-13). */
+/** Strips every internal immutable-artifact field — real Storage details and
+ * embedded bytes are never sent to the client (AC-13). */
 function toPublicManifest(entries: ManifestEntry[]): SharedFileManifestEntry[] {
-  return entries.map(({ storagePath: _storagePath, ...rest }) => rest);
+  return entries.map(
+    ({
+      storagePath: _storagePath,
+      bytesBase64: _bytesBase64,
+      sha256: _sha256,
+      preWatermarked: _preWatermarked,
+      ...rest
+    }) => rest,
+  );
 }
 
 /**
@@ -344,6 +521,7 @@ async function logAccess(
   userAgent: string | null,
   recipientName: string | null = null,
   recipientShadchanId: number | null = null,
+  simulated = false,
 ): Promise<void> {
   const { error } = await getServiceRoleClient(env)
     .from("share_access_log")
@@ -354,6 +532,7 @@ async function logAccess(
       user_agent: userAgent,
       recipient_name: recipientName,
       recipient_shadchan_id: recipientShadchanId,
+      simulated,
     });
   if (error) {
     console.error("share.logAccess.error", error);
@@ -444,6 +623,7 @@ app.get("/r/:token", async (c) => {
     c.req.header("user-agent") ?? null,
     shareLink.recipient_name,
     shareLink.recipient_shadchan_id,
+    shareLink.demoSnapshot != null,
   );
 
   return c.json(ok(data));
@@ -469,9 +649,40 @@ app.get("/r/:token/file/:fileKey", async (c) => {
     return c.json(fail("not found"), 404);
   }
 
-  const { data: blob, error } = await getServiceRoleClient(c.env)
-    .storage.from(DOCUMENTS_BUCKET)
-    .download(entry.storagePath);
+  let blob: Blob | null = null;
+  let error: { message: string } | null = null;
+  if (entry.bytesBase64 != null) {
+    try {
+      const binary = atob(entry.bytesBase64);
+      const bytes = Uint8Array.from(binary, (character) =>
+        character.charCodeAt(0),
+      );
+      const digest = await sha256Bytes(bytes.buffer);
+      if (shareLink.demoSnapshot && digest !== entry.sha256) {
+        console.error("share.demoSnapshot.digestMismatch");
+        return c.json(fail("not found"), 404);
+      }
+      blob = new Blob([bytes], {
+        type: entry.mimeType ?? "application/octet-stream",
+      });
+    } catch (cause) {
+      console.error("share.demoSnapshot.bytesInvalid", cause);
+      return c.json(fail("not found"), 404);
+    }
+  } else if (entry.storagePath) {
+    const downloaded = await getServiceRoleClient(c.env)
+      .storage.from(DOCUMENTS_BUCKET)
+      .download(entry.storagePath);
+    blob = downloaded.data;
+    error = downloaded.error;
+    if (!error && blob && shareLink.demoSnapshot) {
+      const digest = await sha256Bytes(await blob.arrayBuffer());
+      if (digest !== entry.sha256) {
+        console.error("share.demoSnapshot.digestMismatch");
+        return c.json(fail("not found"), 404);
+      }
+    }
+  }
 
   // Review fix (F8): logged regardless of whether the storage read itself
   // succeeded. `entry` above is already a member of THIS freshly-rebuilt,
@@ -488,6 +699,7 @@ app.get("/r/:token/file/:fileKey", async (c) => {
     c.req.header("user-agent") ?? null,
     shareLink.recipient_name,
     shareLink.recipient_shadchan_id,
+    shareLink.demoSnapshot != null,
   );
 
   if (error || !blob) {
@@ -495,22 +707,21 @@ app.get("/r/:token/file/:fileKey", async (c) => {
     return c.json(fail("not found"), 404);
   }
 
-  // Apply watermark if watermarking is enabled and we have a recipient name
   let processedBlob = blob;
-  if (shareLink.watermark && shareLink.recipient_name) {
-    // `mimeType` is null for the photo entry (buildManifest sets it so), and
-    // the photo is always an image — so key off fileKey first, the same way
-    // the access-log label above does, and only then fall back to the mime
-    // type. Dereferencing mimeType directly here would have thrown on every
-    // photo download the moment watermarking started working.
-    const fileType =
+  if (!processedBlob) {
+    return c.json(fail("not found"), 404);
+  }
+  if (
+    !shareLink.demoSnapshot &&
+    shareLink.watermark &&
+    shareLink.recipient_name
+  ) {
+    processedBlob = await applyWatermark(
+      processedBlob,
+      shareLink.recipient_name,
       entry.fileKey === "photo" || entry.mimeType?.startsWith("image/")
         ? "image"
-        : "pdf";
-    processedBlob = await applyWatermark(
-      blob,
-      shareLink.recipient_name,
-      fileType,
+        : "pdf",
     );
   }
 

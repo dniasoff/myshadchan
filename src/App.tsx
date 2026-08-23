@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { LandingGate } from "@/components/atomic-crm/landing";
 import {
   isPublicSearchUrl,
+  isDemoPreviewUrl,
   type PublicSearchUrl,
 } from "@/components/atomic-crm/listings/publicSearchUrl";
 import {
@@ -17,6 +18,7 @@ import {
   type PurgeRequestVerifyUrl,
 } from "@/components/atomic-crm/listings/purgeRequestVerifyUrl";
 import { PublicSearchPage } from "@/components/atomic-crm/listings/PublicSearchPage";
+import { loadDemoPreviewListings } from "@/components/atomic-crm/listings/demoListingsClient";
 import { SharedProfilePage } from "@/components/atomic-crm/sharing/SharedProfilePage";
 import { PurgeRequestPage } from "@/components/atomic-crm/listings/PurgeRequestPage";
 import { PurgeRequestVerifyPage } from "@/components/atomic-crm/listings/PurgeRequestVerifyPage";
@@ -62,7 +64,8 @@ export interface AppProps {
 /**
  * Application entry point
  *
- * The public search page (`/find`, Story 9.4) is checked FIRST, before
+ * The public search page (`/find`, Story 9.4), including its explicit
+ * authenticated demo-preview mode (`/find?demo=1`), is checked FIRST, before
  * `<LandingGate>`/`<CRM>` ever mount — the same pre-CRM position the
  * retired pre-Epic-1 token-based public page occupied (deleted by Epic 1
  * Story 1.4). No authenticated route mounts for this request.
@@ -91,6 +94,16 @@ export interface AppProps {
  * );
  */
 const App = ({ url = window.location }: AppProps = {}) => {
+  if (isDemoPreviewUrl(url)) {
+    return (
+      <PublicSearchPage
+        url={url}
+        demoPreview
+        loadListings={loadDemoPreviewListings}
+      />
+    );
+  }
+
   if (isPublicSearchUrl(url)) {
     return <PublicSearchPage />;
   }

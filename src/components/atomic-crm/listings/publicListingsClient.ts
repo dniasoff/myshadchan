@@ -1,3 +1,6 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Identifier } from "ra-core";
+
 import type { Listing, ListingType } from "../types";
 import { getAnonSupabaseClient } from "../providers/supabase/supabase";
 
@@ -105,13 +108,25 @@ const buildIlikeValue = (text: string): string =>
  * so `PublicSearchPage` can present it as a calm error state rather than a
  * stack trace (AC-6).
  */
-export const loadPublicListings = async (
+/**
+ * Shared read implementation for the anonymous marketplace and the
+ * authenticated demo preview. The caller supplies the already-scoped client;
+ * RLS remains the authority over which rows that client may see.
+ */
+export const loadListingsFromClient = async (
+  client: SupabaseClient,
   query: PublicListingsQuery,
+  accountIds?: readonly Identifier[],
 ): Promise<PublicListing[]> => {
-  let builder = getAnonSupabaseClient()
+  let builder = client
     .from("listings")
     .select(GRANTED_LISTING_COLUMNS.join(","))
     .order("created_at", { ascending: false });
+
+  if (accountIds) {
+    if (accountIds.length === 0) return [];
+    builder = builder.in("account_id", accountIds);
+  }
 
   if (query.type) {
     builder = builder.eq("listing_type", query.type);
@@ -136,3 +151,8 @@ export const loadPublicListings = async (
   // shape `GRANTED_LISTING_COLUMNS` guarantees at runtime.
   return (data ?? []) as unknown as PublicListing[];
 };
+
+export const loadPublicListings = async (
+  query: PublicListingsQuery,
+): Promise<PublicListing[]> =>
+  loadListingsFromClient(getAnonSupabaseClient(), query);

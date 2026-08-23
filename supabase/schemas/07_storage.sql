@@ -38,6 +38,7 @@ create policy "Attachments writable within account" on storage.objects
     with check (
         bucket_id = 'attachments'
         and (storage.foldername(name))[1] = public.current_context_id()::text
+        and public.demo_storage_write_allowed((storage.foldername(name))[1]::bigint)
     );
 
 create policy "Attachments deletable within account" on storage.objects
@@ -91,6 +92,7 @@ create policy "Entity files writable within account" on storage.objects
         bucket_id = 'entity-files'
         and (storage.foldername(name))[1] = public.current_context_id()::text
         and public.current_member_role() <> 'single'
+        and public.demo_storage_write_allowed((storage.foldername(name))[1]::bigint)
     );
 
 create policy "Entity files deletable within account" on storage.objects
@@ -156,6 +158,7 @@ create policy "Documents resumes writable within account" on storage.objects
         and (storage.foldername(name))[1] = public.current_context_id()::text
         and (storage.foldername(name))[2] = 'resumes'
         and public.current_member_role() <> 'single'
+        and public.demo_storage_write_allowed((storage.foldername(name))[1]::bigint)
     );
 
 create policy "Documents resumes deletable within account" on storage.objects
@@ -217,6 +220,7 @@ create policy "Documents photos writable within account" on storage.objects
         and (storage.foldername(name))[1] = public.current_context_id()::text
         and (storage.foldername(name))[2] = 'photos'
         and (storage.foldername(name))[3] in ('shared', 'private_parent')
+        and public.demo_storage_write_allowed((storage.foldername(name))[1]::bigint)
     );
 
 create policy "Documents photos deletable within account" on storage.objects

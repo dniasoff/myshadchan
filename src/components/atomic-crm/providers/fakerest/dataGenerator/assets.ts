@@ -10,6 +10,10 @@ import { ASSETS_BASE64 } from "./assets_base64";
 
 export type AssetKey = keyof typeof ASSETS_BASE64;
 
+/** Canonical immutable, pre-watermarked demo share artifact. */
+export const DEMO_SHARE_ASSET_KEY: AssetKey =
+  "misc/rivky-klein-for-leah-feldman.pdf";
+
 export function assetBase64(key: AssetKey): string {
   const data = ASSETS_BASE64[key];
   if (!data) throw new Error(`Unknown asset key: ${key}`);

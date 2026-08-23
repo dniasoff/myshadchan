@@ -353,7 +353,8 @@ export const englishCrmMessages = {
     // Story 2.4: switching which context (household vs. shadchanus) is
     // active — a different axis from resources.singles above.
     context_switcher: {
-      label: "%{name} · %{kind}",
+      label: "%{name} · %{kind}%{demo}",
+      demo_label: "Preview",
       kind_household: "Household",
       kind_shadchanus: "Shadchanus",
       switch_error: "Couldn't switch context. Try again.",
@@ -426,6 +427,13 @@ export const englishCrmMessages = {
       // Postgres text. persona_remove_error_last_access is review finding
       // #1's added guard_persona_removal() guard.
       personas_title: "Personas",
+      photo_privacy: {
+        title: "Photo privacy",
+        reveal_on_click: "Require click to reveal photos",
+        reveal_on_click_hint:
+          "Keep photos hidden until you choose to reveal each one.",
+        save_error: "Couldn't save that. Try again.",
+      },
       persona_add_error: "Couldn't set that up. Try again.",
       persona_remove_error_ask_admin:
         "This record is managed by your household admin — ask them to make this change.",
@@ -771,6 +779,7 @@ export const englishCrmMessages = {
         upload: "Upload a photo",
         uploadError: "Failed to upload the photo",
         reveal: "Reveal",
+        retry: "Retry",
         revealError: "Failed to reveal the photo",
         hide: "Hide",
         hideError: "Failed to hide the photo",

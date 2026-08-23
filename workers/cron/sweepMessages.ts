@@ -88,6 +88,8 @@ interface ClaimedMessageNotification {
   subject_type: string;
   subject_id: number;
   push_subscriptions: WebPushSubscription[] | null;
+  /** Official onboarding rows are settled locally; no provider call. */
+  simulated: boolean;
 }
 
 type ServiceRoleClient = SupabaseClient;
@@ -193,6 +195,10 @@ async function processNotification(
   env: MessageCronEnv,
   notification: ClaimedMessageNotification,
 ): Promise<"sent" | "failed"> {
+  if (notification.simulated) {
+    await settle(client, notification.id, "sent", null);
+    return "sent";
+  }
   if (notification.channel === "email") {
     if (!notification.recipient_email) {
       await settle(

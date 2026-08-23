@@ -46,6 +46,8 @@ export default (): Db => {
   db.threads = [];
   db.thread_participants = [];
   db.messages = [];
+  db.message_notifications = [];
+  db.task_notifications = [];
   // Story 9.1 — no shadchan listing is published by default (AC-1's
   // opt-in requirement applies here too); the "Publish my listing" settings
   // panel's own create/update/delete calls are the only writers. Overwritten
@@ -80,8 +82,8 @@ export default (): Db => {
     {
       id: "cron",
       worker: "cron",
-      last_run_at: new Date().toISOString(),
-      last_ok_at: new Date().toISOString(),
+      last_run_at: "2026-08-01T00:00:00.000Z",
+      last_ok_at: "2026-08-01T00:00:00.000Z",
       last_error: null,
       // Epic 12 review fix (R3): 0, matching a healthy tick — see this
       // block's own comment above for why the demo seeds "Sending" rather

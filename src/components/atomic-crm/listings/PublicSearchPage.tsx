@@ -1,9 +1,15 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { ArrowLeft, ShieldCheck } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 
 import type { ListingType } from "../types";
+import {
+  DemoPreviewDeniedError,
+  type DemoPreviewDeniedReason,
+} from "./demoListingsClient";
 import { loadPublicListings, type PublicListing } from "./publicListingsClient";
 import { ShadchanListingCard } from "./ShadchanListingCard";
 import { SingleListingCard } from "./SingleListingCard";
@@ -18,6 +24,7 @@ type SearchPhase =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "error" }
+  | { status: "denied"; reason: DemoPreviewDeniedReason }
   | { status: "results"; listings: PublicListing[] };
 
 export interface PublicSearchPageProps {
@@ -28,6 +35,8 @@ export interface PublicSearchPageProps {
     text?: string;
     type?: ListingType;
   }) => Promise<PublicListing[]>;
+  /** Explicit authenticated `/find?demo=1` mode. */
+  demoPreview?: boolean;
 }
 
 /** Reads the shareable `?q=` param (Task 1's rationale for a plain query
@@ -68,6 +77,7 @@ const SearchShell = ({ children }: { children: ReactNode }) => (
 export const PublicSearchPage = ({
   url = window.location,
   loadListings = loadPublicListings,
+  demoPreview = false,
 }: PublicSearchPageProps) => {
   const [rawQuery, setRawQuery] = useState(() => initialQueryFrom(url));
   const [debouncedQuery, setDebouncedQuery] = useState(() =>
@@ -90,32 +100,36 @@ export const PublicSearchPage = ({
 
   useEffect(() => {
     const trimmed = debouncedQuery.trim();
-    if (!trimmed) {
+    if (!trimmed && !demoPreview) {
       // AC-6: no query yet — a distinct calm state, and no fetch at all.
       setPhase({ status: "idle" });
       return;
     }
     let isStale = false;
     setPhase({ status: "loading" });
-    loadListings({ text: trimmed })
+    loadListings({ text: trimmed || undefined })
       .then((listings) => {
         if (!isStale) {
           setPhase({ status: "results", listings });
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         // AC-6: a network/config failure reads as a calm error state, never
         // an unhandled exception boundary or a raw error message (nothing
         // here is sensitive enough to withhold, but nothing useful enough
         // to a visitor to show either).
         if (!isStale) {
-          setPhase({ status: "error" });
+          if (demoPreview && error instanceof DemoPreviewDeniedError) {
+            setPhase({ status: "denied", reason: error.reason });
+          } else {
+            setPhase({ status: "error" });
+          }
         }
       });
     return () => {
       isStale = true;
     };
-  }, [debouncedQuery, loadListings]);
+  }, [debouncedQuery, demoPreview, loadListings]);
 
   const shadchanListings =
     phase.status === "results"
@@ -138,19 +152,51 @@ export const PublicSearchPage = ({
   return (
     <SearchShell>
       <header className="mb-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          MyShadchan
-        </p>
+        {demoPreview ? (
+          <div
+            className="flex flex-col gap-3 rounded-xl border border-amber-500/40
+              bg-amber-500/10 p-4 sm:flex-row sm:items-center"
+            data-testid="demo-preview-label"
+          >
+            <div className="flex items-start gap-3">
+              <ShieldCheck
+                className="mt-0.5 size-5 shrink-0 text-amber-700 dark:text-amber-300"
+                aria-hidden="true"
+              />
+              <div>
+                <p className="font-semibold">Demo sandbox preview</p>
+                <p className="text-sm text-muted-foreground">
+                  Authenticated preview of this customer&apos;s fictional demo
+                  bundle. It is never part of public search.
+                </p>
+              </div>
+            </div>
+            <Button asChild variant="outline" size="sm" className="sm:ms-auto">
+              <a href="/">
+                <ArrowLeft aria-hidden="true" />
+                Back to MyShadchan
+              </a>
+            </Button>
+          </div>
+        ) : (
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            MyShadchan
+          </p>
+        )}
         <h1 className="mt-3 font-display text-3xl font-bold tracking-tight">
           {translatePublicSearch(
             "crm.public_search.title",
-            "Find a shadchan or a single",
+            demoPreview
+              ? "Explore the demo listings"
+              : "Find a shadchan or a single",
           )}
         </h1>
         <p className="mt-2 text-base text-muted-foreground">
           {translatePublicSearch(
             "crm.public_search.subtitle",
-            "Search only shows what each family has chosen to publish.",
+            demoPreview
+              ? "See the Klein, Feldman, and Gross showcase listings while you walk through the app."
+              : "Search only shows what each family has chosen to publish.",
           )}
         </p>
       </header>
@@ -202,6 +248,27 @@ export const PublicSearchPage = ({
               "Couldn't load listings. Please try again.",
             )}
           </p>
+        )}
+
+        {phase.status === "denied" && (
+          <section
+            role="alert"
+            className="rounded-xl border border-border bg-card p-5 shadow-sm"
+            data-testid="demo-preview-denied"
+          >
+            <h2 className="font-semibold">Demo sandbox preview unavailable</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {phase.reason === "anonymous"
+                ? "Sign in to your MyShadchan account to open its demo bundle."
+                : "This demo run is inactive or belongs to another account. No listings were loaded."}
+            </p>
+            <Button asChild variant="outline" size="sm" className="mt-4">
+              <a href="/">
+                <ArrowLeft aria-hidden="true" />
+                Back to MyShadchan
+              </a>
+            </Button>
+          </section>
         )}
 
         {phase.status === "results" && phase.listings.length === 0 && (

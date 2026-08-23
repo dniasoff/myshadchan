@@ -105,6 +105,8 @@ interface ClaimedReminder {
    * settle_task_notification() as its fencing p_claimed_at — see this
    * file's own header. */
   claimed_at: string;
+  /** Official onboarding rows are settled locally; no provider call. */
+  simulated: boolean;
 }
 
 type ServiceRoleClient = SupabaseClient;
@@ -256,6 +258,10 @@ async function processReminder(
   env: CronEnv,
   reminder: ClaimedReminder,
 ): Promise<"sent" | "failed"> {
+  if (reminder.simulated) {
+    await settle(client, reminder, "sent", null);
+    return "sent";
+  }
   if (!reminder.recipient_email) {
     // Should not happen — claim only ever selects 'pending' rows, and
     // enqueue_due_task_notifications() never writes 'pending' without a

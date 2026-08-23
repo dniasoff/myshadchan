@@ -447,3 +447,136 @@ create or replace trigger set_account_inbound_email_token_default
 create or replace trigger validate_trusted_senders_household_scope
     before insert or update of account_id on public.trusted_senders
     for each row execute function public.enforce_household_scope();
+
+-- Official demo lifecycle write barrier. The trigger is deliberately named
+-- with a late sort key so all account_id/default and parent-copy triggers
+-- have populated the row before the generic ownership check runs. Service
+-- role writes are bypassed only when unmarked; marked seed writes must carry
+-- the exact live lease headers (see enforce_demo_write_barrier()).
+create or replace trigger z_enforce_demo_write_barrier_accounts
+    before insert or update or delete on public.accounts
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_singles
+    before insert or update or delete on public.singles
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_single_preferences
+    before insert or update or delete on public.single_preferences
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_single_notes
+    before insert or update or delete on public.single_notes
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_shadchanim
+    before insert or update or delete on public.shadchanim
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_references
+    before insert or update or delete on public."references"
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_shidduchim
+    before insert or update or delete on public.shidduchim
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_tasks
+    before insert or update or delete on public.tasks
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_interactions
+    before insert or update or delete on public.interactions
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_resumes
+    before insert or update or delete on public.resumes
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_resume_photos
+    before insert or update or delete on public.resume_photos
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_medical_notes
+    before insert or update or delete on public.medical_notes
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_reference_links
+    before insert or update or delete on public.reference_links
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_redts
+    before insert or update or delete on public.redts
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_shidduch_education
+    before insert or update or delete on public.shidduch_education
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_external_links
+    before insert or update or delete on public.shidduchim_external_links
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_date_records
+    before insert or update or delete on public.date_records
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_inbox_items
+    before insert or update or delete on public.inbox_items
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_entity_files
+    before insert or update or delete on public.entity_files
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_analytics_events
+    before insert or update or delete on public.analytics_events
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_listings
+    before insert or update or delete on public.listings
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_share_links
+    before insert or update or delete on public.share_links
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_connections
+    before insert or update or delete on public.connections
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_connection_invites
+    before insert or update or delete on public.connection_invites
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_child_grants
+    before insert or update or delete on public.child_grants
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_invites
+    before insert or update or delete on public.invites
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_threads
+    before insert or update or delete on public.threads
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_thread_participants
+    before insert or update or delete on public.thread_participants
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_messages
+    before insert or update or delete on public.messages
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_message_notifications
+    before insert or update or delete on public.message_notifications
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_task_notifications
+    before insert or update or delete on public.task_notifications
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_share_access_log
+    before insert or update or delete on public.share_access_log
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_trusted_senders
+    before insert or update or delete on public.trusted_senders
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_listing_locks
+    before insert or update or delete on public.listing_withdrawal_locks
+    for each row execute function public.enforce_demo_write_barrier();
+
+-- These triggers are the transaction boundary for runtime simulated receipts.
+create or replace trigger register_demo_runtime_message_notification
+    after insert or update of simulated on public.message_notifications
+    for each row execute function public.register_demo_runtime_resource();
+create or replace trigger register_demo_runtime_task_notification
+    after insert or update of simulated on public.task_notifications
+    for each row execute function public.register_demo_runtime_resource();
+create or replace trigger register_demo_runtime_share_access
+    after insert or update of simulated on public.share_access_log
+    for each row execute function public.register_demo_runtime_resource();
+-- Browser persona/account lifecycle changes are fenced for the duration of
+-- every official demo phase. Service-owned seed membership writes have no
+-- auth.uid() and are separately lease-fenced by the lifecycle RPCs.
+drop trigger if exists z_block_demo_persona_mutation on public.account_members;
+create trigger z_block_demo_persona_mutation
+before insert or update or delete on public.account_members
+for each row execute function public.block_demo_persona_mutation();
+
+-- member_state has no account_id column for the generic barrier to inspect.
+-- Seed context changes therefore use a dedicated lease-aware trigger.
+drop trigger if exists z_enforce_demo_member_state_write on public.member_state;
+create trigger z_enforce_demo_member_state_write
+before insert or update or delete on public.member_state
+for each row execute function public.enforce_demo_member_state_write();

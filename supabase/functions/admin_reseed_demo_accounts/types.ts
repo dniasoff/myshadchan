@@ -54,6 +54,9 @@ export interface AccountResult {
   dataState: DataState;
   cleared: boolean;
   seeded: boolean;
+  /** Timestamp returned by the successful clear finalizer. It is omitted
+   * when clear never completed; callers must not synthesize one locally. */
+  lastClearedAt?: string;
   summary?: Record<string, unknown>;
   error?: string;
   /** Non-fatal: the account's own data is whatever `dataState` says, but

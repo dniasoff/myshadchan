@@ -54,44 +54,81 @@ export async function uploadAttachments(
   env: BaseEnv,
 ): Promise<UploadedAttachment[]> {
   const client = getServiceRoleClient(env);
+  const uploadedPaths: string[] = [];
 
-  const uploaded = await Promise.all(
-    attachments.map(async (attachment) => {
-      if (!attachment.filename || !attachment.mimeType) {
-        console.warn(
-          "ingest.uploadAttachments: attachment missing filename or mimeType, skipping",
-        );
-        return null;
+  try {
+    const uploaded = await Promise.all(
+      attachments.map(async (attachment) => {
+        if (!attachment.filename || !attachment.mimeType) {
+          console.warn(
+            "ingest.uploadAttachments: attachment missing filename or mimeType, skipping",
+          );
+          return null;
+        }
+
+        const fileExt = deriveSafeExtension(attachment.filename);
+        const path = `${accountId}/${crypto.randomUUID()}${fileExt}`;
+
+        const { error: uploadError } = await client.storage
+          .from(ATTACHMENTS_BUCKET)
+          .upload(path, attachment.content, {
+            contentType: attachment.mimeType,
+          });
+        if (uploadError) {
+          throw new Error(
+            `Failed to upload attachment: ${uploadError.message}`,
+          );
+        }
+        uploadedPaths.push(path);
+
+        const { data: signed, error: signError } = await client.storage
+          .from(ATTACHMENTS_BUCKET)
+          .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+        if (signError || !signed) {
+          throw new Error("Failed to sign attachment URL");
+        }
+
+        const entry: UploadedAttachment = {
+          title: attachment.filename,
+          type: attachment.mimeType,
+          path,
+          src: signed.signedUrl,
+        };
+        return entry;
+      }),
+    );
+
+    return uploaded.filter(
+      (entry): entry is UploadedAttachment => entry !== null,
+    );
+  } catch (error) {
+    if (uploadedPaths.length > 0) {
+      try {
+        const { error: cleanupError } = await client.storage
+          .from(ATTACHMENTS_BUCKET)
+          .remove([...new Set(uploadedPaths)]);
+        if (cleanupError) {
+          console.error("ingest.uploadAttachments.cleanup.error", cleanupError);
+        }
+      } catch (cleanupError) {
+        // Compensation is best effort. Preserve the upload/signing failure as
+        // the causal error even when the storage mock/client cannot remove.
+        console.error("ingest.uploadAttachments.cleanup.error", cleanupError);
       }
+    }
+    throw error;
+  }
+}
 
-      const fileExt = deriveSafeExtension(attachment.filename);
-      const path = `${accountId}/${crypto.randomUUID()}${fileExt}`;
-
-      const { error: uploadError } = await client.storage
-        .from(ATTACHMENTS_BUCKET)
-        .upload(path, attachment.content, { contentType: attachment.mimeType });
-      if (uploadError) {
-        throw new Error(`Failed to upload attachment: ${uploadError.message}`);
-      }
-
-      const { data: signed, error: signError } = await client.storage
-        .from(ATTACHMENTS_BUCKET)
-        .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
-      if (signError || !signed) {
-        throw new Error("Failed to sign attachment URL");
-      }
-
-      const entry: UploadedAttachment = {
-        title: attachment.filename,
-        type: attachment.mimeType,
-        path,
-        src: signed.signedUrl,
-      };
-      return entry;
-    }),
-  );
-
-  return uploaded.filter(
-    (entry): entry is UploadedAttachment => entry !== null,
-  );
+/** Remove a completed upload when a later lifecycle heartbeat fails. */
+export async function removeUploadedAttachments(
+  paths: string[],
+  env: BaseEnv,
+): Promise<void> {
+  if (paths.length === 0) return;
+  const { error } = await getServiceRoleClient(env)
+    .storage.from(ATTACHMENTS_BUCKET)
+    .remove([...new Set(paths)]);
+  if (error)
+    throw new Error(`Failed to compensate attachment upload: ${error.message}`);
 }

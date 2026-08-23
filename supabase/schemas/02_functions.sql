@@ -19,8 +19,485 @@
 --
 -- To regenerate after changing a function: write the migration as usual, apply
 -- it, then re-dump. Do not hand-edit a definition here.
-
 SET check_function_bodies = false;
+-- Mutating a relationship or exporting a context must not bridge a demo
+-- bundle and production (or two different bundles). A caller may operate on
+-- synthetic endpoints only while every endpoint resolves to the same active
+-- run. Ordinary production-only operations remain unchanged.
+CREATE OR REPLACE FUNCTION public.demo_assert_same_active_run(p_account_ids bigint[], p_action text DEFAULT 'operation'::text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_requested_count integer;
+  v_mapped_count integer;
+  v_run_count integer;
+  v_all_active boolean;
+  v_has_unfinished boolean;
+begin
+  with requested as (
+    select distinct account_id
+    from unnest(coalesce(p_account_ids, array[]::bigint[])) as ids(account_id)
+    where account_id is not null
+  )
+  select count(*) into v_requested_count from requested;
+
+  if v_requested_count = 0 then
+    return;
+  end if;
+
+  select exists (
+    select 1
+    from public.demo_run_accounts dra
+    join public.demo_runs dr on dr.id = dra.run_id
+    where dra.account_id = any(p_account_ids)
+      and dr.status in ('seeding', 'active', 'clearing', 'failed')
+  ) into v_has_unfinished;
+
+  -- A production-only operation is not on the demo boundary at all.
+  if not v_has_unfinished then
+    return;
+  end if;
+
+  with requested as (
+    select distinct account_id
+    from unnest(coalesce(p_account_ids, array[]::bigint[])) as ids(account_id)
+    where account_id is not null
+  ), mapped as (
+    select r.account_id, latest.run_id, latest.status
+    from requested r
+    left join lateral (
+      select dr.id as run_id, dr.status
+      from public.demo_run_accounts dra
+      join public.demo_runs dr on dr.id = dra.run_id
+      where dra.account_id = r.account_id
+        and dr.status in ('seeding', 'active', 'clearing', 'failed')
+      order by dr.id desc
+      limit 1
+    ) latest on true
+  )
+  select
+    count(*) filter (where run_id is not null),
+    count(distinct run_id),
+    coalesce(bool_and(
+      status = 'active'
+      or (
+        status = 'seeding'
+        and (
+          public.demo_seed_service_authorized(mapped.account_id)
+          or exists (
+          select 1
+          from public.demo_run_users dru
+          where dru.run_id = mapped.run_id
+            and dru.user_id = auth.uid()
+          )
+        )
+      )
+    ), false)
+  into v_mapped_count, v_run_count, v_all_active
+  from mapped;
+
+  if v_mapped_count <> v_requested_count
+     or v_run_count <> 1
+     or not v_all_active then
+    raise exception 'demo boundary violation: % requires one active run for every endpoint',
+      coalesce(p_action, 'operation')
+      using errcode = 'check_violation';
+  end if;
+end;
+$function$
+;
+-- Membership invites have only one account endpoint. If that account belongs
+-- to a demo run, the not-yet-member caller must still be a synthetic actor
+-- registered in that exact run; an active account membership alone is not an
+-- acceptable proof because the invite is precisely what would create it.
+CREATE OR REPLACE FUNCTION "public"."demo_assert_registered_actor"("p_account_id" bigint, "p_user_id" uuid, "p_action" text DEFAULT 'operation'::text) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_run_id bigint;
+  v_status text;
+begin
+  select dr.id, dr.status
+  into v_run_id, v_status
+  from public.demo_run_accounts dra
+  join public.demo_runs dr on dr.id = dra.run_id
+  where dra.account_id = p_account_id
+    and dr.status in ('seeding', 'active', 'clearing', 'failed')
+  order by dr.id desc
+  limit 1;
+
+  if not found then
+    return;
+  end if;
+
+  if v_status = 'seeding' and public.demo_seed_service_authorized(p_account_id) then
+    return;
+  end if;
+
+  if v_status not in ('seeding', 'active')
+     or p_user_id is null
+     or not exists (
+       select 1
+       from public.demo_run_users dru
+       where dru.run_id = v_run_id and dru.user_id = p_user_id
+     ) then
+    raise exception 'demo boundary violation: % requires a registered synthetic actor',
+      coalesce(p_action, 'operation')
+      using errcode = 'check_violation';
+  end if;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.withdraw_demo_listing(p_run_id bigint, p_lease_token text, p_account_id bigint, p_single_id bigint, p_published_by_member_id bigint)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_headers jsonb;
+  v_run public.demo_runs%rowtype;
+  v_listing_count integer;
+  v_listing_id bigint;
+  v_deleted_id bigint;
+begin
+  begin
+    v_headers := coalesce(nullif(current_setting('request.headers', true), ''), '{}')::jsonb;
+  exception when others then
+    raise exception 'demo listing withdrawal requires valid seed request headers' using errcode = 'insufficient_privilege';
+  end;
+  if coalesce(auth.role(), '') <> 'service_role'
+     or p_run_id is null or p_run_id <= 0 or p_lease_token is null or p_lease_token = ''
+     or p_account_id is null or p_account_id <= 0 or p_single_id is null or p_single_id <= 0
+     or p_published_by_member_id is null or p_published_by_member_id <= 0
+     or coalesce(v_headers->>'x-demo-run-id', '') <> p_run_id::text
+     or coalesce(v_headers->>'x-demo-lease-token', '') <> p_lease_token then
+    raise exception 'demo listing withdrawal requires the exact seed service lease' using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Account UPDATE serializes against the write barrier's FOR KEY SHARE. The
+  -- run lock and subject lock remain held until delete + tombstone commit.
+  perform public.demo_lock_account_axes(array[p_account_id], 'update');
+  select dr.* into strict v_run from public.demo_runs dr where dr.id = p_run_id for update;
+  if v_run.lease_token is distinct from p_lease_token or v_run.operation is distinct from 'seed'
+     or v_run.status is distinct from 'seeding' or v_run.lease_expires_at is null
+     or v_run.lease_expires_at <= clock_timestamp()
+     or not exists (select 1 from public.demo_run_accounts dra where dra.run_id = p_run_id and dra.account_id = p_account_id) then
+    raise exception 'demo seed lease or account ownership was not found' using errcode = 'insufficient_privilege';
+  end if;
+  if not exists (
+    select 1
+    from public.account_members am
+    join public.demo_run_users dru on dru.run_id = p_run_id and dru.user_id = am.user_id
+    join public.demo_run_actor_intents dai on dai.run_id = dru.run_id and dai.actor_key = dru.actor_key and dai.auth_user_id = dru.user_id and dai.state = 'reconciled'
+    where am.id = p_published_by_member_id and am.account_id = p_account_id and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'demo listing publisher is not registered in this run' using errcode = 'insufficient_privilege';
+  end if;
+  perform 1 from public.singles where id = p_single_id and account_id = p_account_id for update;
+  if not found then
+    raise exception 'demo withdrawal single is not owned by the registered account' using errcode = 'foreign_key_violation';
+  end if;
+  select count(*), min(l.id) into v_listing_count, v_listing_id
+  from public.listings l
+  where l.account_id = p_account_id and l.listing_type = 'single'
+    and l.single_id = p_single_id and l.published_by_member_id = p_published_by_member_id;
+  if v_listing_count = 0 then
+    if exists (select 1 from public.listing_withdrawal_locks ll where ll.account_id = p_account_id and ll.single_id = p_single_id) then
+      return jsonb_build_object('outcome', 'already_withdrawn', 'single_id', p_single_id);
+    end if;
+    raise exception 'demo listing withdrawal deleted zero rows' using errcode = 'check_violation';
+  elsif v_listing_count > 1 then
+    raise exception 'demo listing withdrawal was ambiguous' using errcode = 'cardinality_violation';
+  end if;
+  if not exists (select 1 from public.demo_run_resources where run_id = p_run_id and resource_type = 'listing' and resource_id = v_listing_id) then
+    raise exception 'demo listing withdrawal is missing its registered listing resource' using errcode = 'check_violation';
+  end if;
+  delete from public.listings where id = v_listing_id and account_id = p_account_id and listing_type = 'single' and single_id = p_single_id returning id into v_deleted_id;
+  if v_deleted_id is null then raise exception 'demo listing withdrawal deleted zero rows' using errcode = 'check_violation'; end if;
+  if exists (select 1 from public.listings where account_id = p_account_id and listing_type = 'single' and single_id = p_single_id) then
+    raise exception 'demo listing withdrawal left a same-subject listing' using errcode = 'check_violation';
+  end if;
+  insert into public.listing_withdrawal_locks (account_id, single_id) values (p_account_id, p_single_id) on conflict (single_id) do nothing;
+  if not exists (select 1 from public.listing_withdrawal_locks where account_id = p_account_id and single_id = p_single_id) then
+    raise exception 'demo listing withdrawal lock was not created' using errcode = 'check_violation';
+  end if;
+  delete from public.demo_run_resources where run_id = p_run_id and resource_type = 'listing' and resource_id = v_listing_id;
+  insert into public.demo_run_resources (run_id, resource_type, resource_id) values (p_run_id, 'listing_withdrawal', p_single_id) on conflict (run_id, resource_type, resource_id) do nothing;
+  return jsonb_build_object('outcome', 'withdrawn', 'listing_id', v_deleted_id, 'single_id', p_single_id);
+exception when no_data_found then
+  raise exception 'demo seed lease or account ownership was not found' using errcode = 'insufficient_privilege';
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fence_demo_cleanup(p_run_id bigint, p_lease_token text, p_operation text DEFAULT 'seed'::text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare v_run public.demo_runs%rowtype; v_accounts bigint[];
+begin
+  if coalesce(auth.role(), '') <> 'service_role' or p_operation <> 'seed' then raise exception 'demo cleanup requires the seed service role' using errcode = 'insufficient_privilege'; end if;
+  select array_agg(account_id order by account_id) into v_accounts from public.demo_run_accounts where run_id = p_run_id;
+  perform public.demo_lock_account_axes(v_accounts, 'update');
+  select dr.* into strict v_run from public.demo_runs dr where dr.id = p_run_id for update;
+  if v_run.lease_token is distinct from p_lease_token or v_run.operation is distinct from p_operation or v_run.status is distinct from 'seeding' or v_run.lease_expires_at is null or v_run.lease_expires_at <= clock_timestamp() then raise exception 'demo run % lease is stale or fenced', p_run_id using errcode = 'serialization_failure'; end if;
+  return true;
+exception when no_data_found then raise exception 'demo run % lease is stale or fenced', p_run_id using errcode = 'serialization_failure';
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.delete_demo_cleanup_rows(p_run_id bigint, p_lease_token text, p_table_name text, p_operation text DEFAULT 'seed'::text)
+ RETURNS bigint
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare v_run public.demo_runs%rowtype; v_accounts bigint[]; v_deleted bigint;
+begin
+  if coalesce(auth.role(), '') <> 'service_role' or p_operation <> 'seed' or p_table_name not in ('inbox_items','message_notifications','task_notifications','tasks','reference_links','redts','shidduch_education','resume_photos','resumes','entity_files','medical_notes','shidduchim_external_links','date_records','listing_withdrawal_locks','shidduchim','references','shadchanim','single_preferences','single_notes','singles','invites','listings','share_links','analytics_events','trusted_senders') then
+    raise exception 'invalid or unauthorized demo cleanup table' using errcode = 'insufficient_privilege';
+  end if;
+  select array_agg(account_id order by account_id) into v_accounts from public.demo_run_accounts where run_id = p_run_id;
+  perform public.demo_lock_account_axes(v_accounts, 'update');
+  select dr.* into strict v_run from public.demo_runs dr where dr.id = p_run_id for update;
+  if v_run.lease_token is distinct from p_lease_token or v_run.operation is distinct from p_operation or v_run.status is distinct from 'seeding' or v_run.lease_expires_at is null or v_run.lease_expires_at <= clock_timestamp() then raise exception 'demo run % lease is stale or fenced', p_run_id using errcode = 'serialization_failure'; end if;
+  execute format('delete from public.%I where account_id = any($1)', p_table_name) using v_accounts;
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
+exception when no_data_found then raise exception 'demo run % lease is stale or fenced', p_run_id using errcode = 'serialization_failure';
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.delete_demo_actor_rows(p_run_id bigint, p_lease_token text, p_actor_key text, p_user_id uuid, p_operation text DEFAULT 'seed'::text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare v_run public.demo_runs%rowtype; v_accounts bigint[];
+begin
+  if coalesce(auth.role(), '') <> 'service_role' or p_operation <> 'seed' then raise exception 'demo actor cleanup requires the seed service role' using errcode = 'insufficient_privilege'; end if;
+  select array_agg(account_id order by account_id) into v_accounts from public.demo_run_accounts where run_id = p_run_id;
+  perform public.demo_lock_account_axes(v_accounts, 'update');
+  select dr.* into strict v_run from public.demo_runs dr where dr.id = p_run_id for update;
+  if v_run.lease_token is distinct from p_lease_token or v_run.operation is distinct from p_operation or v_run.status is distinct from 'seeding' or v_run.lease_expires_at is null or v_run.lease_expires_at <= clock_timestamp() or not exists (select 1 from public.demo_run_users where run_id = p_run_id and actor_key = p_actor_key and user_id = p_user_id) or not exists (select 1 from public.demo_run_actor_intents where run_id = p_run_id and actor_key = p_actor_key and auth_user_id = p_user_id and state = 'reconciled') then
+    raise exception 'demo actor cleanup identity is stale or fenced' using errcode = 'serialization_failure';
+  end if;
+  delete from public.account_members where user_id = p_user_id and account_id = any(v_accounts);
+  delete from public.member_state where user_id = p_user_id;
+  delete from public.members where user_id = p_user_id;
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.delete_demo_resource(p_run_id bigint, p_lease_token text, p_resource_type text, p_resource_id bigint, p_operation text DEFAULT 'seed'::text)
+ RETURNS bigint
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare v_run public.demo_runs%rowtype; v_accounts bigint[]; v_table_name text; v_deleted bigint;
+begin
+  if coalesce(auth.role(), '') <> 'service_role' or p_operation <> 'seed' then raise exception 'demo resource cleanup requires the seed service role' using errcode = 'insufficient_privilege'; end if;
+  select array_agg(account_id order by account_id) into v_accounts from public.demo_run_accounts where run_id = p_run_id;
+  perform public.demo_lock_account_axes(v_accounts, 'update');
+  select dr.* into strict v_run from public.demo_runs dr where dr.id = p_run_id for update;
+  if v_run.lease_token is distinct from p_lease_token or v_run.operation is distinct from p_operation or v_run.status is distinct from 'seeding' or v_run.lease_expires_at is null or v_run.lease_expires_at <= clock_timestamp() then raise exception 'demo run % lease is stale or fenced', p_run_id using errcode = 'serialization_failure'; end if;
+  perform public.assert_demo_resource_ownership(p_run_id, p_resource_type, p_resource_id, false);
+  v_table_name := case p_resource_type when 'connection' then 'connections' when 'connection_invite' then 'connection_invites' when 'child_grant' then 'child_grants' when 'invite' then 'invites' when 'single_preference' then 'single_preferences' when 'single_note' then 'single_notes' else null end;
+  if v_table_name is null then return 0; end if;
+  execute format('delete from public.%I where id = $1', v_table_name) using p_resource_id;
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
+exception when no_data_found then raise exception 'demo run % lease is stale or fenced', p_run_id using errcode = 'serialization_failure';
+end;
+$function$;
+
+-- Domain RPCs call this while the official bundle is still seeding. Keeping
+-- the registration in the same transaction as the relationship INSERT closes
+-- the response-loss window between a successful token/relationship write and
+-- the edge function's separate manifest request. Ordinary production calls
+-- have no matching seeding run and remain unchanged.
+CREATE OR REPLACE FUNCTION "public"."demo_register_seed_resource"("p_resource_type" text, "p_resource_id" bigint, "p_account_id" bigint) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_run_id bigint;
+begin
+  select dr.id into v_run_id
+  from public.demo_runs dr
+  join public.demo_run_accounts dra on dra.run_id = dr.id
+  join public.demo_run_users dru on dru.run_id = dr.id
+  where dr.status = 'seeding'
+    and dra.account_id = p_account_id
+    and (
+      (auth.uid() is not null and dru.user_id = auth.uid())
+      or (auth.uid() is null and public.demo_seed_service_authorized(p_account_id))
+    )
+  order by dr.id desc
+  limit 1;
+
+  if v_run_id is null then
+    return;
+  end if;
+
+  perform public.assert_demo_resource_ownership(
+    v_run_id, p_resource_type, p_resource_id, true
+  );
+  insert into public.demo_run_resources (run_id, resource_type, resource_id)
+  values (v_run_id, p_resource_type, p_resource_id)
+  on conflict (run_id, resource_type, resource_id) do nothing;
+end;
+$$;
+
+-- A marked service request is a seed write only when the database can still
+-- prove the exact run lease. Header presence alone is not authorization; it
+-- merely tells the write barrier to evaluate the lease-fenced branch below.
+CREATE OR REPLACE FUNCTION "public"."demo_seed_request_marked"() RETURNS boolean
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_headers jsonb;
+begin
+  if coalesce(auth.role(), '') <> 'service_role' then
+    return false;
+  end if;
+  v_headers := coalesce(nullif(current_setting('request.headers', true), ''), '{}')::jsonb;
+  return (
+    nullif(coalesce(v_headers->>'x-demo-run-id', v_headers->>'X-Demo-Run-Id'), '') is not null
+    and nullif(coalesce(v_headers->>'x-demo-lease-token', v_headers->>'X-Demo-Lease-Token'), '') is not null
+  );
+exception when others then
+  return false;
+end;
+$$;
+
+-- member_state has no account_id column, so it needs its own marker-aware
+-- trigger. A seed may set or clear a synthetic actor's context only for the
+-- exact live run that owns both the old and new account endpoints.
+CREATE OR REPLACE FUNCTION "public"."enforce_demo_member_state_write"() RETURNS trigger
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if not public.demo_seed_request_marked() then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+
+  if exists (
+    select 1
+    from unnest(array_remove(array[
+      case when tg_op <> 'INSERT' then old.active_account_id else null end,
+      case when tg_op <> 'DELETE' then new.active_account_id else null end
+    ], null::bigint)) requested(account_id)
+    join public.demo_run_accounts dra on dra.account_id = requested.account_id
+    join public.demo_runs dr on dr.id = dra.run_id
+    where dr.status in ('seeding', 'active', 'clearing', 'failed')
+      and not public.demo_seed_service_authorized(requested.account_id)
+  ) then
+    raise exception 'demo member state write is stale or fenced'
+      using errcode = 'serialization_failure';
+  end if;
+
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+-- Runtime simulated receipts are registered in the same transaction as the
+-- row that creates them. Edge registration remains idempotent proof, but
+-- clear never depends on a second HTTP round trip.
+CREATE OR REPLACE FUNCTION "public"."register_demo_runtime_resource"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_row jsonb := to_jsonb(new);
+  v_resource_type text;
+  v_resource_id bigint;
+  v_account_id bigint;
+  v_connection_id bigint;
+  v_run_id bigint;
+  v_demo_endpoint_count integer;
+  v_demo_run_count integer;
+begin
+  if coalesce((v_row->>'simulated')::boolean, false) is not true then return new; end if;
+  v_resource_id := (v_row->>'id')::bigint;
+  v_resource_type := case tg_table_name
+    when 'share_access_log' then 'share_access_log'
+    when 'message_notifications' then 'message_notification'
+    when 'task_notifications' then 'task_notification'
+    else null
+  end;
+  if v_resource_type is null or v_resource_id is null then return new; end if;
+
+  if tg_table_name = 'share_access_log' then
+    select sl.account_id into v_account_id from public.share_links sl
+    where sl.id = (v_row->>'share_link_id')::bigint;
+  elsif tg_table_name = 'task_notifications' then
+    v_account_id := (v_row->>'account_id')::bigint;
+  else
+    v_account_id := nullif(v_row->>'account_id', '')::bigint;
+    v_connection_id := nullif(v_row->>'connection_id', '')::bigint;
+  end if;
+
+  if v_connection_id is not null then
+    select count(distinct dra.account_id), count(distinct dr.id)
+      into v_demo_endpoint_count, v_demo_run_count
+    from public.demo_run_accounts dra
+    join public.demo_runs dr on dr.id = dra.run_id
+    join public.connections c on c.id = v_connection_id
+    where dr.status in ('seeding', 'active', 'clearing', 'failed')
+      and dra.account_id in (c.household_account_id, c.shadchanus_account_id);
+    if v_demo_endpoint_count = 1 then
+      raise exception 'demo runtime notification cannot cross a production connection'
+        using errcode = 'check_violation';
+    end if;
+    if v_demo_endpoint_count > 1 and v_demo_run_count <> 1 then
+      raise exception 'demo runtime notification cannot cross different demo runs'
+        using errcode = 'check_violation';
+    end if;
+    select dr.id into v_run_id
+    from public.connections c
+    join public.demo_run_accounts d1 on d1.account_id = c.household_account_id
+    join public.demo_run_accounts d2 on d2.run_id = d1.run_id
+                                      and d2.account_id = c.shadchanus_account_id
+    join public.demo_runs dr on dr.id = d1.run_id
+    where c.id = v_connection_id
+      and dr.status in ('seeding', 'active', 'clearing', 'failed')
+    limit 1;
+    if v_demo_endpoint_count > 1 and v_run_id is null then
+      raise exception 'demo runtime notification requires one exact demo run'
+        using errcode = 'check_violation';
+    end if;
+  elsif v_account_id is not null then
+    select dr.id into v_run_id
+    from public.demo_run_accounts dra
+    join public.demo_runs dr on dr.id = dra.run_id
+    where dra.account_id = v_account_id
+      and dr.status in ('seeding', 'active', 'clearing', 'failed')
+    order by dr.id desc
+    limit 1;
+  end if;
+
+  if v_run_id is not null then
+    insert into public.demo_run_resources (run_id, resource_type, resource_id)
+    values (v_run_id, v_resource_type, v_resource_id)
+    on conflict (run_id, resource_type, resource_id) do nothing;
+  elsif v_connection_id is not null and v_demo_endpoint_count > 0 then
+    raise exception 'demo runtime notification was not registered to an exact run'
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end;
+$$;
 
 CREATE OR REPLACE FUNCTION "public"."accept_child_grant"("p_token" "text") RETURNS "public"."child_grants"
     LANGUAGE "plpgsql" SECURITY DEFINER
@@ -29,6 +506,7 @@ CREATE OR REPLACE FUNCTION "public"."accept_child_grant"("p_token" "text") RETUR
 declare
   v_grant public.child_grants;
   v_grantee_account_id bigint := public.current_context_id();
+  v_target_account_id bigint;
   v_grantee_kind text;
   v_member_role text;
 begin
@@ -51,6 +529,7 @@ begin
     raise exception 'accept_child_grant requires an active membership of the current context'
       using errcode = 'insufficient_privilege';
   end if;
+  perform public.demo_assert_registered_actor(v_grantee_account_id, auth.uid(), 'child grant acceptance');
 
   select kind into v_grantee_kind from public.accounts where id = v_grantee_account_id;
   if v_grantee_kind not in ('household', 'shadchanus') then
@@ -58,13 +537,22 @@ begin
       using errcode = 'check_violation';
   end if;
 
+  select account_id into v_target_account_id
+  from public.singles
+  where id = v_grant.target_single_id;
+
+  perform public.demo_assert_same_active_run(
+    array[v_grant.proposer_account_id, v_target_account_id, v_grantee_account_id],
+    'child grant acceptance'
+  );
+
   -- The recipient may be a household owner, helper, or standalone shadchan.
   -- The grant remains scoped to the one target child in every read/write
   -- policy after acceptance.
   select role into v_member_role
   from public.account_members
   where account_id = v_grantee_account_id and user_id = auth.uid() and status = 'active';
-  
+
   if v_member_role not in ('parent_admin', 'self_manager', 'helper', 'shadchan') then
     raise exception 'only an authorized household member or shadchan may accept a child grant'
       using errcode = 'insufficient_privilege';
@@ -109,8 +597,14 @@ begin
     raise exception 'accept_connection_invite requires an active membership of the current context'
       using errcode = 'insufficient_privilege';
   end if;
+  perform public.demo_assert_registered_actor(v_acceptor_account_id, auth.uid(), 'connection invite acceptance');
 
   select kind into v_acceptor_kind from public.accounts where id = v_acceptor_account_id;
+
+  perform public.demo_assert_same_active_run(
+    array[v_invite.inviter_account_id, v_acceptor_account_id],
+    'connection invite acceptance'
+  );
 
   if v_acceptor_kind = v_invite.inviter_kind then
     raise exception 'a connection links a household and a shadchanus context, not two of the same kind'
@@ -140,6 +634,10 @@ begin
     (select name from public.accounts where id = v_household_account_id)
   )
   returning * into v_connection;
+
+  perform public.demo_register_seed_resource(
+    'connection', v_connection.id, v_acceptor_account_id
+  );
 
   insert into public.shadchanim (account_id, name, connection_id)
   values (v_household_account_id, v_shadchanus_name, v_connection.id);
@@ -208,6 +706,16 @@ begin
       using errcode = 'check_violation';
   end if;
 
+  perform public.demo_assert_same_active_run(
+    array[v_invite.account_id],
+    'membership invite acceptance'
+  );
+  perform public.demo_assert_registered_actor(
+    v_invite.account_id,
+    v_user_id,
+    'membership invite acceptance'
+  );
+
   -- Review finding #4 (2.8): claim the invite atomically BEFORE inserting
   -- the membership, re-checking `status = 'pending'` in the UPDATE's WHERE
   -- clause rather than relying on the plain SELECT read above (which a
@@ -235,6 +743,123 @@ begin
   -- `singles.member_id` is ever set from an invite. Fails closed even if the
   -- target became linked in the window between invite and acceptance (e.g.
   -- via add_persona('single')) — never silently reassigned.
+  if v_invite.target_single_id is not null then
+    update public.singles
+    set member_id = v_membership_id
+    where id = v_invite.target_single_id
+      and account_id = v_invite.account_id
+      and member_id is null;
+
+    if not found then
+      raise exception 'single % is already linked to a login, or does not belong to this household', v_invite.target_single_id
+        using errcode = 'check_violation';
+    end if;
+  end if;
+end;
+$$;
+
+-- The official seed accepts a membership invite for a synthetic actor that
+-- already belongs to another demo context.  The browser-facing accept_invite
+-- path must retain its global active-demo persona fence, so this separate
+-- service-only route proves the exact seed headers, run lease, invite account,
+-- and registered actor before performing the same atomic invite transition.
+CREATE OR REPLACE FUNCTION "public"."accept_demo_invite"("p_run_id" bigint, "p_lease_token" text, "p_token" "uuid", "p_actor_user_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_headers jsonb;
+  v_invite public.invites;
+  v_actor_email text;
+  v_membership_id bigint;
+begin
+  v_headers := coalesce(nullif(current_setting('request.headers', true), ''), '{}')::jsonb;
+  if coalesce(auth.role(), '') <> 'service_role'
+     or p_run_id is null
+     or p_lease_token is null
+     or p_token is null
+     or p_actor_user_id is null
+     or coalesce(v_headers->>'x-demo-run-id', v_headers->>'X-Demo-Run-Id', '') <> p_run_id::text
+     or coalesce(v_headers->>'x-demo-lease-token', v_headers->>'X-Demo-Lease-Token', '') <> p_lease_token
+     or not public.demo_seed_service_authorized() then
+    raise exception 'demo invite acceptance requires the exact seed service lease'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  select i.* into v_invite
+  from public.invites i
+  where i.token = p_token;
+
+  if not found then
+    raise exception 'This invite is invalid, expired, or has already been used.'
+      using errcode = 'check_violation';
+  end if;
+
+  if not exists (
+    select 1
+    from public.demo_run_accounts dra
+    where dra.run_id = p_run_id and dra.account_id = v_invite.account_id
+  ) then
+    raise exception 'demo invite does not belong to the exact seed run'
+      using errcode = 'check_violation';
+  end if;
+
+  select email into v_actor_email
+  from auth.users
+  where id = p_actor_user_id;
+  if v_actor_email is null or lower(v_actor_email) <> lower(v_invite.email) then
+    raise exception 'demo invite actor email does not match the invite'
+      using errcode = 'check_violation';
+  end if;
+
+  if not exists (
+    select 1
+    from public.demo_run_users dru
+    where dru.run_id = p_run_id and dru.user_id = p_actor_user_id
+  ) then
+    raise exception 'demo invite actor is not registered in the exact seed run'
+      using errcode = 'check_violation';
+  end if;
+
+  if v_invite.status = 'accepted' and exists (
+    select 1 from public.account_members
+    where account_id = v_invite.account_id
+      and user_id = p_actor_user_id
+      and status = 'active'
+  ) then
+    return;
+  end if;
+
+  if v_invite.expires_at <= clock_timestamp() then
+    raise exception 'This invite is invalid, expired, or has already been used.'
+      using errcode = 'check_violation';
+  end if;
+
+  if v_invite.role = 'single' and v_invite.target_single_id is null then
+    raise exception 'This invite is invalid, expired, or has already been used.'
+      using errcode = 'check_violation';
+  end if;
+
+  perform public.demo_assert_same_active_run(
+    array[v_invite.account_id],
+    'demo membership invite acceptance'
+  );
+
+  update public.invites
+  set status = 'accepted', accepted_at = now()
+  where id = v_invite.id
+    and status = 'pending'
+    and expires_at > clock_timestamp();
+
+  if not found then
+    raise exception 'This invite is invalid, expired, or has already been used.'
+      using errcode = 'check_violation';
+  end if;
+
+  insert into public.account_members (account_id, user_id, role, invited_by, status)
+  values (v_invite.account_id, p_actor_user_id, v_invite.role, v_invite.invited_by, 'active')
+  returning id into v_membership_id;
+
   if v_invite.target_single_id is not null then
     update public.singles
     set member_id = v_membership_id
@@ -340,6 +965,299 @@ begin
 end;
 $$;
 
+-- The demo intent is created before the browser asks add_persona() to create
+-- anything. Linking it here closes the add_persona-success/seed-failure
+-- refresh gap without making ordinary persona provisioning a demo request.
+CREATE OR REPLACE FUNCTION "public"."link_demo_onboarding_intent"(
+  "p_user_id" uuid,
+  "p_account_id" bigint,
+  "p_allow_new_account" boolean DEFAULT false
+) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_intent public.demo_onboarding_intents;
+begin
+  if p_user_id is distinct from auth.uid() then
+    raise exception 'demo onboarding intent caller mismatch'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  select * into v_intent
+  from public.demo_onboarding_intents
+  where user_id = p_user_id
+  for update;
+  if not found then
+    return;
+  end if;
+
+  if v_intent.account_id is null then
+    if not p_allow_new_account then
+      raise exception 'demo onboarding intent must link only to a fresh household'
+        using errcode = 'check_violation';
+    end if;
+    update public.demo_onboarding_intents
+    set account_id = p_account_id, updated_at = now()
+    where user_id = p_user_id;
+  elsif v_intent.account_id <> p_account_id then
+    raise exception 'demo onboarding intent account mismatch'
+      using errcode = 'unique_violation';
+  end if;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."prepare_demo_onboarding"() RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_user_id uuid := auth.uid();
+  v_intent public.demo_onboarding_intents;
+begin
+  if v_user_id is null then
+    raise exception 'prepare_demo_onboarding requires an authenticated caller'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- A release completion receipt is a one-shot retry proof, not a new
+  -- onboarding identity. Starting onboarding again retires it atomically.
+  delete from public.demo_clear_receipts where user_id = v_user_id;
+
+  select * into v_intent
+  from public.demo_onboarding_intents
+  where user_id = v_user_id
+  for update;
+  if found then
+    if v_intent.state in ('pending', 'failed') and v_intent.account_id is not null then
+      -- Never clear an active/successful run here.  This proof-bound helper
+      -- only releases an empty orphan whose ownership is already recorded by
+      -- this exact onboarding intent.
+      perform public.release_demo_orphan_for_onboarding();
+      select * into v_intent
+      from public.demo_onboarding_intents
+      where user_id = v_user_id;
+    end if;
+    if v_intent.state = 'completed' and not exists (
+      select 1 from public.account_members
+      where user_id = v_user_id and status = 'active'
+    ) then
+      update public.demo_onboarding_intents
+      set state = 'pending', account_id = null, demo_run_id = null,
+          last_error = null, attempts = attempts + 1, updated_at = now()
+      where user_id = v_user_id
+      returning * into v_intent;
+    end if;
+    return jsonb_build_object(
+      'state', v_intent.state,
+      'account_id', v_intent.account_id,
+      'attempts', v_intent.attempts
+    );
+  end if;
+
+  -- A caller with any live context/persona is an established customer unless
+  -- this exact durable intent already exists. Never manufacture a seed intent
+  -- for an established account merely because its tables happen to be empty.
+  if exists (
+    select 1 from public.account_members
+    where user_id = v_user_id and status = 'active'
+  ) or exists (
+    select 1
+    from public.singles s
+    join public.account_members am on am.id = s.member_id
+    where am.user_id = v_user_id and am.status = 'active' and s.status = 'active'
+  ) then
+    raise exception 'demo onboarding is only available to a first-run login'
+      using errcode = 'check_violation';
+  end if;
+
+  insert into public.demo_onboarding_intents (user_id, state, attempts)
+  values (v_user_id, 'pending', 1)
+  returning * into v_intent;
+
+  return jsonb_build_object(
+    'state', v_intent.state,
+    'account_id', v_intent.account_id,
+    'attempts', v_intent.attempts
+  );
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."get_demo_release_receipt"("p_user_id" uuid) RETURNS "jsonb"
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select jsonb_build_object(
+    'root_account_id', root_account_id,
+    'completed_at', completed_at,
+    'release_demo', release_demo
+  )
+  from public.demo_clear_receipts
+  where user_id = p_user_id and release_demo is true
+    and not exists (
+      select 1 from public.demo_runs dr
+      where dr.root_account_id = demo_clear_receipts.root_account_id
+        and dr.status in ('seeding', 'active', 'clearing', 'failed')
+    )
+    and exists (
+      select 1 from public.accounts a
+      where a.id = demo_clear_receipts.root_account_id and a.demo is false
+    )
+    and not exists (
+      select 1 from public.account_members am
+      where am.account_id = demo_clear_receipts.root_account_id
+        and am.user_id = p_user_id and am.status = 'active'
+    )
+  order by completed_at desc
+  limit 1;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."cancel_demo_onboarding"() RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_intent public.demo_onboarding_intents;
+  v_demo_account boolean;
+  v_released boolean;
+begin
+  if auth.uid() is null then
+    raise exception 'cancel_demo_onboarding requires an authenticated caller'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  select * into v_intent
+  from public.demo_onboarding_intents
+  where user_id = auth.uid() and state in ('pending', 'failed')
+  for update;
+  if not found then
+    return;
+  end if;
+
+  -- A linked demo account is not disposable merely because the browser has
+  -- chosen the ordinary onboarding path. Release it only through the exact
+  -- orphan proof; if any run, membership, or data remains, retain the intent
+  -- so refresh/retry still has a cleanup handle.
+  if v_intent.account_id is not null then
+    select exists (
+      select 1 from public.accounts
+      where id = v_intent.account_id and demo is true
+    ) into v_demo_account;
+    if v_demo_account then
+      v_released := public.release_demo_orphan_for_onboarding();
+      if not v_released then
+        return;
+      end if;
+    end if;
+  end if;
+
+  delete from public.demo_onboarding_intents
+  where user_id = auth.uid() and state in ('pending', 'failed');
+end;
+$$;
+
+-- Proof-bound recovery for the only safe no-run/demo=true onboarding dead
+-- end: the caller must own the exact durable onboarding intent, be the sole
+-- active member of an empty household, and have no live lifecycle run.
+CREATE OR REPLACE FUNCTION "public"."release_demo_orphan_for_onboarding"() RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_user_id uuid := auth.uid();
+  v_intent public.demo_onboarding_intents;
+  v_account_id bigint;
+  v_member_id bigint;
+  v_member_count integer;
+begin
+  if v_user_id is null then
+    raise exception 'release_demo_orphan_for_onboarding requires an authenticated caller'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  select * into v_intent
+  from public.demo_onboarding_intents
+  where user_id = v_user_id and state in ('pending', 'failed')
+  for update;
+  if not found or v_intent.account_id is null then
+    return false;
+  end if;
+  v_account_id := v_intent.account_id;
+
+  if exists (
+    select 1 from public.demo_runs
+    where root_account_id = v_account_id
+      and status in ('seeding', 'active', 'clearing', 'failed')
+  ) then
+    return false;
+  end if;
+  if not exists (
+    select 1 from public.accounts
+    where id = v_account_id and kind = 'household' and demo is true
+  ) then
+    return false;
+  end if;
+  select count(*)::integer, min(am.id) into v_member_count, v_member_id
+  from public.account_members am
+  where am.account_id = v_account_id and am.status = 'active';
+  if v_member_id is null or v_member_count <> 1
+     or not exists (
+       select 1 from public.account_members
+       where id = v_member_id and user_id = v_user_id and role in ('parent_admin', 'self_manager')
+     ) then
+    return false;
+  end if;
+
+  perform public.demo_assert_empty_account(v_account_id);
+  update public.account_members set status = 'archived' where id = v_member_id;
+  update public.accounts set demo = false where id = v_account_id;
+  update public.member_state
+  set active_account_id = null, updated_at = now()
+  where user_id = v_user_id and active_account_id = v_account_id;
+  delete from public.demo_clear_receipts
+  where user_id = v_user_id and root_account_id = v_account_id;
+  return true;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."block_demo_persona_mutation"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+begin
+  v_account_id := case when tg_op = 'DELETE' then old.account_id else new.account_id end;
+  if auth.uid() is null and public.demo_seed_request_marked() then
+    if exists (
+      select 1
+      from public.demo_run_accounts dra
+      join public.demo_runs dr on dr.id = dra.run_id
+      where dra.account_id = v_account_id
+        and dr.status in ('seeding', 'active', 'clearing', 'failed')
+        and not public.demo_seed_service_authorized(v_account_id)
+    ) then
+      raise exception 'demo persona write is stale or fenced'
+        using errcode = 'serialization_failure';
+    end if;
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+  if auth.uid() is not null and exists (
+    select 1
+    from public.account_members am
+    join public.demo_run_accounts dra on dra.account_id = am.account_id
+    join public.demo_runs dr on dr.id = dra.run_id
+    where am.user_id = auth.uid()
+      and am.status = 'active'
+      and dr.status in ('seeding', 'active', 'clearing', 'failed')
+  ) then
+    raise exception 'persona changes are unavailable while the official demo is active'
+      using errcode = 'lock_not_available';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
 CREATE OR REPLACE FUNCTION "public"."add_persona"("p_persona" "text") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -349,6 +1267,7 @@ declare
   v_first_name text;
   v_account_id bigint;
   v_membership_id bigint;
+  v_created_household boolean := false;
 begin
   -- Review finding #2: fail closed on an unauthenticated caller. Without
   -- this, service_role (which holds EXECUTE for legitimate server-side
@@ -367,6 +1286,19 @@ begin
       using errcode = 'invalid_parameter_value';
   end if;
 
+  if exists (
+    select 1
+    from public.account_members am
+    join public.demo_run_accounts dra on dra.account_id = am.account_id
+    join public.demo_runs dr on dr.id = dra.run_id
+    where am.user_id = v_user_id
+      and am.status = 'active'
+      and dr.status in ('seeding', 'active', 'clearing', 'failed')
+  ) then
+    raise exception 'persona changes are unavailable while the official demo is active'
+      using errcode = 'lock_not_available';
+  end if;
+
   select m.first_name into v_first_name
   from public.members m
   where m.user_id = v_user_id;
@@ -377,6 +1309,11 @@ begin
       select 1 from public.account_members
       where user_id = v_user_id and status = 'active' and role = 'parent_admin'
     ) then
+      select account_id into v_account_id
+      from public.account_members
+      where user_id = v_user_id and status = 'active' and role = 'parent_admin'
+      order by id limit 1;
+      perform public.link_demo_onboarding_intent(v_user_id, v_account_id, false);
       return;
     end if;
 
@@ -393,6 +1330,11 @@ begin
     );
 
     if found then
+      select account_id into v_account_id
+      from public.account_members
+      where user_id = v_user_id and status = 'active' and role = 'parent_admin'
+      order by id limit 1;
+      perform public.link_demo_onboarding_intent(v_user_id, v_account_id, false);
       return;
     end if;
 
@@ -411,9 +1353,12 @@ begin
     insert into public.accounts (name, kind)
     values (coalesce(nullif(v_first_name, 'Pending') || '''s Family', 'My Account'), 'household')
     returning id into v_account_id;
+    v_created_household := true;
 
     insert into public.account_members (account_id, user_id, role, status)
     values (v_account_id, v_user_id, 'parent_admin', 'active');
+
+    perform public.link_demo_onboarding_intent(v_user_id, v_account_id, v_created_household);
 
     return;
   end if;
@@ -1119,12 +2064,16 @@ begin
     where tn.id in (
       select tn2.id from public.task_notifications tn2
       where (
-        tn2.status = 'pending'
-        and (tn2.next_attempt_at is null or tn2.next_attempt_at <= now())
-      ) or (
-        tn2.status = 'sending'
-        and tn2.claimed_at < now() - interval '10 minutes'
-      )
+        (
+          tn2.status = 'pending'
+          and (tn2.next_attempt_at is null or tn2.next_attempt_at <= now())
+        ) or (
+          tn2.status = 'sending'
+          and tn2.claimed_at < now() - interval '10 minutes'
+        )
+        )
+        and tn2.simulated is not true
+        and not public.demo_scope_is_simulated(tn2.account_id, null)
       order by tn2.created_at
       limit p_limit
       for update skip locked
@@ -1165,6 +2114,8 @@ begin
     where mn.id in (
       select mn2.id from public.message_notifications mn2
       where mn2.status = 'pending'
+        and mn2.simulated is not true
+        and not public.demo_scope_is_simulated(mn2.account_id, mn2.connection_id)
       order by mn2.created_at
       limit p_limit
       for update skip locked
@@ -1313,6 +2264,7 @@ begin
     raise exception 'create_child_grant requires an active parent_admin or self_manager membership of the current context'
       using errcode = 'insufficient_privilege';
   end if;
+  perform public.demo_assert_registered_actor(v_proposer_account_id, auth.uid(), 'child grant creation');
 
   -- Current context must be a household (grants are household-to-household)
   select kind into v_proposer_kind from public.accounts where id = v_proposer_account_id;
@@ -1344,6 +2296,13 @@ begin
     p_access_level
   );
 
+  perform public.demo_register_seed_resource(
+    'child_grant',
+    (select id from public.child_grants
+     where token_hash = encode(extensions.digest(v_token, 'sha256'), 'hex')),
+    v_proposer_account_id
+  );
+
   return v_token;
 end;
 $$;
@@ -1356,6 +2315,7 @@ declare
   v_account_id bigint := public.current_context_id();
   v_kind text;
   v_token text;
+  v_invite_id bigint;
 begin
   if v_account_id is null or not exists (
     select 1 from public.account_members am
@@ -1364,6 +2324,7 @@ begin
     raise exception 'create_connection_invite requires an active membership of the current context'
       using errcode = 'insufficient_privilege';
   end if;
+  perform public.demo_assert_registered_actor(v_account_id, auth.uid(), 'connection invite creation');
 
   select kind into v_kind from public.accounts where id = v_account_id;
   v_token := encode(extensions.gen_random_bytes(32), 'hex');
@@ -1374,6 +2335,10 @@ begin
     v_account_id, v_kind,
     encode(extensions.digest(v_token, 'sha256'), 'hex'),
     now() + interval '7 days'
+  ) returning id into v_invite_id;
+
+  perform public.demo_register_seed_resource(
+    'connection_invite', v_invite_id, v_account_id
   );
 
   return v_token;
@@ -1392,12 +2357,27 @@ declare
   v_invite public.invites;
 begin
   v_account_id := public.current_context_id();
+  perform public.demo_assert_registered_actor(v_account_id, auth.uid(), 'membership invite creation');
 
-  select am.id, am.role into v_membership_id, v_caller_role
-  from public.account_members am
-  where am.account_id = v_account_id
-    and am.user_id = auth.uid()
-    and am.status = 'active';
+  if public.demo_seed_service_authorized(v_account_id) then
+    -- The first official invite is created by the service-owned seed lease
+    -- before the synthetic root actor has accepted membership.  Resolve the
+    -- already-existing real owner, never a browser-supplied identity.
+    select am.id, am.role into v_membership_id, v_caller_role
+    from public.account_members am
+    where am.account_id = v_account_id
+      and am.status = 'active'
+    order by am.id
+    limit 1;
+  else
+    select am.id, am.role into v_membership_id, v_caller_role
+    from public.account_members am
+    where am.account_id = v_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+    order by am.id
+    limit 1;
+  end if;
 
   if v_membership_id is null then
     raise exception 'no active membership of the current context'
@@ -1450,6 +2430,10 @@ begin
   insert into public.invites (email, account_id, role, invited_by, target_single_id)
   values (p_email, v_account_id, p_role, v_membership_id, p_target_single_id)
   returning * into v_invite;
+
+  perform public.demo_register_seed_resource(
+    'invite', v_invite.id, v_account_id
+  );
 
   return v_invite;
 end;
@@ -1760,6 +2744,150 @@ begin
 end;
 $$;
 
+-- The official seed runs as the service role, but it still needs the same
+-- account-default and trigger semantics as an authenticated owner.  The
+-- request headers below are only accepted together with the service role and
+-- an unexpired seed lease; a customer JWT can never opt into this path.
+CREATE OR REPLACE FUNCTION "public"."demo_seed_service_authorized"("p_account_id" bigint DEFAULT NULL::bigint) RETURNS boolean
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_headers jsonb;
+  v_run_id bigint;
+  v_lease_token text;
+begin
+  if coalesce(auth.role(), '') <> 'service_role' then
+    return false;
+  end if;
+
+  v_headers := coalesce(nullif(current_setting('request.headers', true), ''), '{}')::jsonb;
+  v_run_id := nullif(coalesce(v_headers->>'x-demo-run-id', v_headers->>'X-Demo-Run-Id'), '')::bigint;
+  v_lease_token := nullif(coalesce(v_headers->>'x-demo-lease-token', v_headers->>'X-Demo-Lease-Token'), '');
+  if v_run_id is null or v_lease_token is null then
+    return false;
+  end if;
+
+  return exists (
+    select 1
+    from public.demo_runs dr
+    where dr.id = v_run_id
+      and dr.lease_token = v_lease_token
+      and dr.operation = 'seed'
+      and dr.status = 'seeding'
+      and dr.lease_expires_at > now()
+      and (
+        p_account_id is null
+        or dr.root_account_id = p_account_id
+        or exists (
+          select 1 from public.demo_run_accounts dra
+          where dra.run_id = dr.id and dra.account_id = p_account_id
+        )
+      )
+  );
+exception when others then
+  -- Header parsing must fail closed, never turn a malformed service request
+  -- into a seed authorization.
+  return false;
+end;
+$$;
+
+-- Actor-authenticated listing inserts intentionally use return=minimal while
+-- a run is still seeding: active-only preview RLS correctly hides those rows
+-- from every browser SELECT. Resolve the inserted row through the marked
+-- service client instead, but keep that lookup fenced to the exact live seed
+-- lease so it cannot become a generic service-role listing enumerator.
+CREATE OR REPLACE FUNCTION public.resolve_demo_listing_id(p_run_id bigint, p_lease_token text, p_account_id bigint, p_listing_type text, p_single_id bigint, p_published_by_member_id bigint)
+ RETURNS bigint
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_headers jsonb;
+  v_run public.demo_runs%rowtype;
+  v_listing_count integer;
+  v_listing_id bigint;
+begin
+  begin
+    v_headers := coalesce(nullif(current_setting('request.headers', true), ''), '{}')::jsonb;
+  exception when others then
+    raise exception 'demo listing resolution requires valid seed request headers'
+      using errcode = 'insufficient_privilege';
+  end;
+  if coalesce(auth.role(), '') <> 'service_role'
+     or p_run_id is null or p_run_id <= 0
+     or p_lease_token is null or p_lease_token = ''
+     or p_account_id is null or p_account_id <= 0
+     or p_published_by_member_id is null or p_published_by_member_id <= 0
+     or p_listing_type not in ('shadchan', 'single')
+     or (p_listing_type = 'single' and (p_single_id is null or p_single_id <= 0))
+     or (p_listing_type = 'shadchan' and p_single_id is not null)
+     or coalesce(v_headers->>'x-demo-run-id', '') <> p_run_id::text
+     or coalesce(v_headers->>'x-demo-lease-token', '') <> p_lease_token then
+    raise exception 'demo listing resolution requires the exact seed service lease'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Hold the exact run lock through the final manifest insert.
+  select dr.* into strict v_run from public.demo_runs dr
+  where dr.id = p_run_id for update;
+  if v_run.lease_token is distinct from p_lease_token
+     or v_run.operation is distinct from 'seed'
+     or v_run.status is distinct from 'seeding'
+     or v_run.lease_expires_at is null
+     or v_run.lease_expires_at <= clock_timestamp()
+     or not exists (select 1 from public.demo_run_accounts dra where dra.run_id = p_run_id and dra.account_id = p_account_id) then
+    raise exception 'demo seed lease or account ownership was not found' using errcode = 'insufficient_privilege';
+  end if;
+  if not exists (
+    select 1
+    from public.account_members am
+    join public.demo_run_users dru on dru.run_id = p_run_id and dru.user_id = am.user_id
+    join public.demo_run_actor_intents dai on dai.run_id = dru.run_id and dai.actor_key = dru.actor_key and dai.auth_user_id = dru.user_id and dai.state = 'reconciled'
+    where am.id = p_published_by_member_id and am.account_id = p_account_id and am.status = 'active'
+      and ((p_listing_type = 'shadchan' and am.role = 'shadchan') or (p_listing_type = 'single' and am.role in ('parent_admin', 'self_manager')))
+  ) then
+    raise exception 'demo listing publisher is not registered in this run' using errcode = 'insufficient_privilege';
+  end if;
+  if not exists (
+    select 1 from public.accounts a
+    where a.id = p_account_id
+      and ((p_listing_type = 'shadchan' and a.kind = 'shadchanus') or (p_listing_type = 'single' and a.kind = 'household'))
+  ) or (p_listing_type = 'single' and not exists (select 1 from public.singles s where s.id = p_single_id and s.account_id = p_account_id)) then
+    raise exception 'demo listing context does not match the registered account' using errcode = 'check_violation';
+  end if;
+
+  -- Recheck the lease, exact headers, account manifest and publisher at the
+  -- point immediately before resolution/registration.
+  select dr.* into strict v_run from public.demo_runs dr
+  where dr.id = p_run_id and dr.lease_token = p_lease_token and dr.operation = 'seed'
+    and dr.status = 'seeding' and dr.lease_expires_at > clock_timestamp() for update;
+  if coalesce(v_headers->>'x-demo-run-id', '') <> p_run_id::text
+     or coalesce(v_headers->>'x-demo-lease-token', '') <> p_lease_token
+     or not exists (select 1 from public.demo_run_accounts dra where dra.run_id = p_run_id and dra.account_id = p_account_id) then
+    raise exception 'demo seed lease or account ownership was not found' using errcode = 'insufficient_privilege';
+  end if;
+  select count(*), min(l.id) into v_listing_count, v_listing_id
+  from public.listings l
+  where l.account_id = p_account_id and l.listing_type = p_listing_type
+    and l.single_id is not distinct from p_single_id
+    and l.published_by_member_id = p_published_by_member_id;
+  if v_listing_count = 0 then
+    raise exception 'demo listing was not found for the exact seed context' using errcode = 'check_violation';
+  elsif v_listing_count > 1 then
+    raise exception 'demo listing resolution was ambiguous' using errcode = 'cardinality_violation';
+  end if;
+  perform public.assert_demo_resource_ownership(p_run_id, 'listing', v_listing_id, true);
+  insert into public.demo_run_resources (run_id, resource_type, resource_id)
+  values (p_run_id, 'listing', v_listing_id)
+  on conflict (run_id, resource_type, resource_id) do nothing;
+  return v_listing_id;
+exception when no_data_found then
+  raise exception 'demo seed lease or account ownership was not found' using errcode = 'insufficient_privilege';
+end;
+$function$;
+
 CREATE OR REPLACE FUNCTION "public"."current_context_id"() RETURNS bigint
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
@@ -1775,11 +2903,61 @@ begin
       from public.account_members am
       where am.user_id = ms.user_id
         and am.account_id = ms.active_account_id
-        and am.status = 'active'
+      and am.status = 'active'
     );
+
+  if v_account_id is null and public.demo_seed_service_authorized() then
+    select dr.root_account_id into v_account_id
+    from public.demo_runs dr
+    where dr.id = nullif(coalesce(
+      (current_setting('request.headers', true)::jsonb)->>'x-demo-run-id',
+      (current_setting('request.headers', true)::jsonb)->>'X-Demo-Run-Id'
+    ), '')::bigint
+      and dr.status = 'seeding'
+      and dr.operation = 'seed';
+  end if;
 
   return v_account_id;
 end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.demo_storage_write_fence(p_account_id bigint)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_account_id bigint;
+begin
+  select id into v_account_id
+  from public.accounts
+  where id = p_account_id
+  for key share;
+  if v_account_id is null then
+    return false;
+  end if;
+  return public.demo_seed_service_authorized(p_account_id)
+    or not exists (
+      select 1 from public.demo_run_accounts dra
+      join public.demo_runs dr on dr.id = dra.run_id
+      where dra.account_id = p_account_id
+        and dr.status in ('seeding', 'active', 'clearing', 'failed')
+    )
+    or exists (
+      select 1 from public.demo_run_accounts dra
+      join public.demo_runs dr on dr.id = dra.run_id
+      where dra.account_id = p_account_id and dr.status = 'active'
+    );
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION "public"."demo_storage_write_allowed"("p_account_id" bigint) RETURNS boolean
+    LANGUAGE "sql" VOLATILE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select public.demo_storage_write_fence(p_account_id);
 $$;
 
 -- These containment helpers are intentionally declared immediately after
@@ -1794,7 +2972,7 @@ CREATE OR REPLACE FUNCTION "public"."demo_run_for_account"("p_account_id" bigint
   from public.demo_run_accounts dra
   join public.demo_runs dr on dr.id = dra.run_id
   where dra.account_id = coalesce(p_account_id, public.current_context_id())
-    and dr.status in ('seeding', 'active', 'clearing')
+    and dr.status in ('seeding', 'active', 'clearing', 'failed')
   order by dr.id desc
   limit 1;
 $$;
@@ -1824,7 +3002,7 @@ CREATE OR REPLACE FUNCTION "public"."demo_bundle_contains_account"("p_run_id" bi
     join public.demo_runs dr on dr.id = dra.run_id
     where dra.run_id = p_run_id
       and dra.account_id = p_account_id
-      and dr.status in ('seeding', 'active', 'clearing')
+      and dr.status in ('seeding', 'active', 'clearing', 'failed')
   );
 $$;
 
@@ -1832,8 +3010,20 @@ CREATE OR REPLACE FUNCTION "public"."demo_account_is_previewable"("p_account_id"
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
-  select public.demo_bundle_contains_account(
-    public.demo_run_for_account(), p_account_id
+  -- Preview is intentionally narrower than the broader manifest helpers:
+  -- seeding/clearing/failed runs remain mapped for compensating cleanup and
+  -- simulated dispatch, but browser listing preview is active-only. Requiring
+  -- both the caller's active context and the requested target account to be
+  -- members of the same active run closes cross-bundle and stale-run access.
+  select exists (
+    select 1
+    from public.demo_run_accounts caller_scope
+    join public.demo_runs dr on dr.id = caller_scope.run_id
+    join public.demo_run_accounts target_scope
+      on target_scope.run_id = dr.id
+     and target_scope.account_id = p_account_id
+    where caller_scope.account_id = public.current_context_id()
+      and dr.status = 'active'
   );
 $$;
 
@@ -1846,7 +3036,7 @@ CREATE OR REPLACE FUNCTION "public"."demo_account_in_active_run"("p_account_id" 
     from public.demo_run_accounts dra
     join public.demo_runs dr on dr.id = dra.run_id
     where dra.account_id = p_account_id
-      and dr.status in ('seeding', 'active', 'clearing')
+      and dr.status in ('seeding', 'active', 'clearing', 'failed')
   );
 $$;
 
@@ -1854,47 +3044,52 @@ CREATE OR REPLACE FUNCTION "public"."demo_scope_is_simulated"("p_account_id" big
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
-  -- If both axes are supplied they must belong to the SAME active run. The
-  -- old OR-shaped predicate could mark a production account as simulated
-  -- merely because its connection happened to touch a different bundle.
+  -- Any unfinished demo endpoint is a provider boundary. A mixed
+  -- production/demo connection is therefore settled locally as simulated;
+  -- the runtime receipt trigger rejects it before a row can be dispatched.
   select case
     when p_account_id is null and p_connection_id is null then false
     else exists (
       select 1
       from public.demo_runs dr
-      where dr.status in ('seeding', 'active', 'clearing')
+      where dr.status in ('seeding', 'active', 'clearing', 'failed')
         and (
-          p_account_id is null
-          or exists (
-            select 1
-            from public.demo_run_accounts dra
+          (p_account_id is not null and exists (
+            select 1 from public.demo_run_accounts dra
             where dra.run_id = dr.id and dra.account_id = p_account_id
-          )
-        )
-        and (
-          p_connection_id is null
-          or exists (
-            select 1
-            from public.connections c
-            join public.demo_run_accounts dra
-              on dra.run_id = dr.id
-             and dra.account_id in (c.household_account_id, c.shadchanus_account_id)
+          ))
+          or (p_connection_id is not null and exists (
+            select 1 from public.connections c
             where c.id = p_connection_id
-          )
+              and (c.household_account_id in (
+                select dra.account_id from public.demo_run_accounts dra where dra.run_id = dr.id
+              ) or c.shadchanus_account_id in (
+                select dra.account_id from public.demo_run_accounts dra where dra.run_id = dr.id
+              ))
+          ))
         )
     )
   end;
 $$;
 
 -- Sanitized delivery history for the Settings/reminders surfaces. It never
--- returns an address, message body, token, IP, or storage path, and every
--- relation is joined to the caller's exact active run.
+-- returns an address, message body, token, IP, or storage path. The caller's
+-- context must resolve to one ACTIVE run; failed/seeding/clearing runs remain
+-- cleanup handles but are not browser history. Every non-null message axis,
+-- including both endpoints of a connection axis, must resolve to that exact
+-- same run.
 CREATE OR REPLACE FUNCTION "public"."demo_delivery_history"() RETURNS TABLE("event_type" text, "status" text, "simulated" boolean, "occurred_at" timestamp with time zone, "resource" text)
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
   with current_run as (
-    select public.demo_run_for_account() as run_id
+    select dr.id as run_id
+    from public.demo_run_accounts caller_scope
+    join public.demo_runs dr on dr.id = caller_scope.run_id
+    where caller_scope.account_id = public.current_context_id()
+      and dr.status = 'active'
+    order by dr.id desc
+    limit 1
   )
   select 'message'::text, mn.status, mn.simulated,
     coalesce(mn.sent_at, mn.created_at) as occurred_at, 'message'::text
@@ -1902,11 +3097,31 @@ CREATE OR REPLACE FUNCTION "public"."demo_delivery_history"() RETURNS TABLE("eve
   cross join current_run cr
   left join public.connections c on c.id = mn.connection_id
   where cr.run_id is not null
-    and exists (
-      select 1
-      from public.demo_run_accounts dra
-      where dra.run_id = cr.run_id
-        and dra.account_id in (mn.account_id, c.household_account_id, c.shadchanus_account_id)
+    and mn.simulated is true
+    and (mn.account_id is not null or mn.connection_id is not null)
+    and (
+      mn.account_id is null
+      or exists (
+        select 1
+        from public.demo_run_accounts dra
+        where dra.run_id = cr.run_id and dra.account_id = mn.account_id
+      )
+    )
+    and (
+      mn.connection_id is null
+      or (
+        c.id is not null
+        and exists (
+          select 1
+          from public.demo_run_accounts dra
+          where dra.run_id = cr.run_id and dra.account_id = c.household_account_id
+        )
+        and exists (
+          select 1
+          from public.demo_run_accounts dra
+          where dra.run_id = cr.run_id and dra.account_id = c.shadchanus_account_id
+        )
+      )
     )
   union all
   select 'reminder'::text, tn.status, tn.simulated,
@@ -1914,6 +3129,7 @@ CREATE OR REPLACE FUNCTION "public"."demo_delivery_history"() RETURNS TABLE("eve
   from public.task_notifications tn
   cross join current_run cr
   where cr.run_id is not null
+    and tn.simulated is true
     and exists (
       select 1 from public.demo_run_accounts dra
       where dra.run_id = cr.run_id and dra.account_id = tn.account_id
@@ -1924,6 +3140,7 @@ CREATE OR REPLACE FUNCTION "public"."demo_delivery_history"() RETURNS TABLE("eve
   join public.share_links sl on sl.id = sal.share_link_id
   cross join current_run cr
   where cr.run_id is not null
+    and sal.simulated is true
     and exists (
       select 1 from public.demo_run_accounts dra
       where dra.run_id = cr.run_id and dra.account_id = sl.account_id
@@ -1940,7 +3157,43 @@ CREATE OR REPLACE FUNCTION "public"."current_account_demo"() RETURNS boolean
   select coalesce(
     (select a.demo from public.accounts a where a.id = public.current_context_id()),
     false
-  ) or public.demo_account_is_previewable(public.current_context_id());
+  ) or public.demo_account_in_active_run(public.current_context_id());
+$$;
+
+-- Identity/clearability stays visible for a caller stranded in a retained
+-- seeding/clearing/failed run, while the listing preview itself remains
+-- active-only through demo_account_is_previewable(). This is a sanitized,
+-- caller-scoped boolean; it never accepts an account id from the browser.
+CREATE OR REPLACE FUNCTION "public"."current_account_demo_previewable"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select public.demo_account_is_previewable(public.current_context_id());
+$$;
+
+-- Sanitized listing projection for the active demo bundle visible to the
+-- caller's current context. This deliberately returns only account ids: no
+-- run, root, context, user, lease, or credential columns cross the browser
+-- boundary. Ordinary callers receive an empty projection.
+CREATE OR REPLACE FUNCTION "public"."current_demo_preview_accounts"()
+RETURNS TABLE("account_id" bigint)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  with caller_run as (
+    select dra.run_id
+    from public.demo_run_accounts dra
+    join public.demo_runs dr on dr.id = dra.run_id
+    where dra.account_id = public.current_context_id()
+      and dr.status = 'active'
+    order by dra.run_id desc
+    limit 1
+  )
+  select distinct dra.account_id
+  from public.demo_run_accounts dra
+  join caller_run cr on cr.run_id = dra.run_id
+  join public.demo_runs dr on dr.id = dra.run_id
+  where dr.status = 'active';
 $$;
 
 CREATE OR REPLACE FUNCTION "public"."current_member_id"() RETURNS bigint
@@ -1957,6 +3210,15 @@ begin
     and am.status = 'active'
   order by am.id
   limit 1;
+
+  if v_member_id is null and public.demo_seed_service_authorized() then
+    select am.id into v_member_id
+    from public.account_members am
+    where am.account_id = public.current_context_id()
+      and am.status = 'active'
+    order by am.id
+    limit 1;
+  end if;
 
   return v_member_id;
 end;
@@ -2095,7 +3357,9 @@ begin
         )
       )
   ) then
-    raise exception 'account % cannot own % domain rows', new.account_id, tg_table_name
+    -- Preserve the established denial vocabulary for cross-account probes
+    -- while still allowing the explicit standalone-shadchanus allowlist.
+    raise exception 'account % is not a household-kind account or cannot own % domain rows', new.account_id, tg_table_name
       using errcode = 'check_violation';
   end if;
 
@@ -2302,6 +3566,7 @@ begin
       t.account_id,
       t.due_date,
       m.email::text as recipient_email,
+      public.demo_scope_is_simulated(t.account_id, null) as simulated,
       case
         when t.member_id is null then 'skipped'
         when m.email is null then 'failed'
@@ -2321,9 +3586,13 @@ begin
       and 'email' = any (t.delivery_channels)
   ),
   inserted as (
-    insert into public.task_notifications (account_id, task_id, channel, due_date, status, recipient_email, error, simulated)
-    select candidates.account_id, candidates.task_id, 'email', candidates.due_date, candidates.status, candidates.recipient_email, candidates.error,
-      public.demo_scope_is_simulated(candidates.account_id, null)
+    insert into public.task_notifications (account_id, task_id, channel, due_date, status, recipient_email, error, simulated, sent_at)
+    select candidates.account_id, candidates.task_id, 'email', candidates.due_date,
+      case when candidates.simulated then 'sent' else candidates.status end,
+      candidates.recipient_email,
+      case when candidates.simulated then 'simulated demo delivery' else candidates.error end,
+      candidates.simulated,
+      case when candidates.simulated then now() else null end
     from candidates
     on conflict (task_id, channel, due_date) do nothing
     returning 1
@@ -2350,6 +3619,8 @@ begin
     raise exception 'export_account_data: must be called by authenticated user'
       using errcode = 'insufficient_privilege';
   end if;
+
+  perform public.demo_assert_same_active_run(array[v_account_id], 'account export');
 
   -- Explicitly list each table to avoid dynamic SQL issues
   -- This is maintainable because schema changes require migrations anyway
@@ -2469,6 +3740,11 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
+  perform public.demo_assert_same_active_run(
+    array[public.current_context_id()],
+    'file export'
+  );
+
   -- Resume photos (have file_bytes in DB)
   select coalesce(jsonb_agg(to_jsonb(t)), '[]'::jsonb) into v_rows
   from (
@@ -2512,6 +3788,10 @@ declare
   v_files jsonb;
   v_bundle jsonb;
 begin
+  perform public.demo_assert_same_active_run(
+    array[public.current_context_id()],
+    'full account export'
+  );
   v_data := public.export_account_data();
   v_files := public.export_account_files();
   v_bundle := jsonb_build_object(
@@ -2533,7 +3813,9 @@ declare
   v_user_id uuid;
   v_email text;
   v_disabled boolean;
+  v_simulated boolean;
 begin
+  v_simulated := public.demo_scope_is_simulated(new.account_id, new.connection_id);
   for v_participant in
     select tp.member_id
     from public.thread_participants tp
@@ -2546,12 +3828,15 @@ begin
 
     if v_user_id is null then
       insert into public.message_notifications (
-        account_id, connection_id, message_id, recipient_member_id, channel, status, error, simulated
+        account_id, connection_id, message_id, recipient_member_id, channel, status, error, simulated, sent_at
       )
       values (
-        new.account_id, new.connection_id, new.id, v_participant.member_id, 'email', 'skipped',
-        'recipient membership has no accepted login (account_members.user_id is null)',
-        public.demo_scope_is_simulated(new.account_id, new.connection_id)
+        new.account_id, new.connection_id, new.id, v_participant.member_id, 'email',
+        case when v_simulated then 'sent' else 'skipped' end,
+        case when v_simulated then 'simulated demo delivery'
+          else 'recipient membership has no accepted login (account_members.user_id is null)' end,
+        v_simulated,
+        case when v_simulated then now() else null end
       )
       on conflict (message_id, recipient_member_id, channel) do nothing;
     else
@@ -2561,24 +3846,31 @@ begin
 
       if v_email is null or v_disabled then
         insert into public.message_notifications (
-          account_id, connection_id, message_id, recipient_member_id, channel, status, error, simulated
+          account_id, connection_id, message_id, recipient_member_id, channel, status, error, simulated, sent_at
         )
         values (
-          new.account_id, new.connection_id, new.id, v_participant.member_id, 'email', 'failed',
-          case
-            when v_email is null then 'no public.members row for this login'
-            else 'recipient member is disabled'
+          new.account_id, new.connection_id, new.id, v_participant.member_id, 'email',
+          case when v_simulated then 'sent' else 'failed' end,
+          case when v_simulated then 'simulated demo delivery'
+            else case
+              when v_email is null then 'no public.members row for this login'
+              else 'recipient member is disabled'
+            end
           end,
-          public.demo_scope_is_simulated(new.account_id, new.connection_id)
+          v_simulated,
+          case when v_simulated then now() else null end
         )
         on conflict (message_id, recipient_member_id, channel) do nothing;
       else
         insert into public.message_notifications (
-          account_id, connection_id, message_id, recipient_member_id, channel, status, recipient_email, simulated
+          account_id, connection_id, message_id, recipient_member_id, channel, status, recipient_email, simulated, sent_at
         )
         values (
-          new.account_id, new.connection_id, new.id, v_participant.member_id, 'email', 'pending', v_email,
-          public.demo_scope_is_simulated(new.account_id, new.connection_id)
+          new.account_id, new.connection_id, new.id, v_participant.member_id, 'email',
+          case when v_simulated then 'sent' else 'pending' end,
+          v_email,
+          v_simulated,
+          case when v_simulated then now() else null end
         )
         on conflict (message_id, recipient_member_id, channel) do nothing;
       end if;
@@ -2589,11 +3881,13 @@ begin
       where ps.member_id = v_participant.member_id
     ) then
       insert into public.message_notifications (
-        account_id, connection_id, message_id, recipient_member_id, channel, status, simulated
+        account_id, connection_id, message_id, recipient_member_id, channel, status, simulated, sent_at
       )
       values (
-        new.account_id, new.connection_id, new.id, v_participant.member_id, 'push', 'pending',
-        public.demo_scope_is_simulated(new.account_id, new.connection_id)
+        new.account_id, new.connection_id, new.id, v_participant.member_id, 'push',
+        case when v_simulated then 'sent' else 'pending' end,
+        v_simulated,
+        case when v_simulated then now() else null end
       )
       on conflict (message_id, recipient_member_id, channel) do nothing;
     end if;
@@ -3459,6 +4753,16 @@ CREATE OR REPLACE FUNCTION "public"."my_personas"() RETURNS TABLE("persona" "tex
     and (am.role = 'single' or public.is_owning_membership_role(am.role));
 $$;
 
+CREATE OR REPLACE FUNCTION "public"."get_demo_onboarding_state"() RETURNS TABLE("state" text, "account_id" bigint, "attempts" integer)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select state, account_id, attempts
+  from public.demo_onboarding_intents
+  where user_id = auth.uid()
+  limit 1;
+$$;
+
 CREATE OR REPLACE FUNCTION "public"."normalize_identity_text"("p_input" "text") RETURNS "text"
     LANGUAGE "sql" IMMUTABLE
     SET "search_path" TO ''
@@ -3861,51 +5165,6 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."regrant_child_grant"("p_grant_id" bigint) RETURNS "text"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO ''
-    AS $$
-declare
-  v_old_grant public.child_grants;
-  v_actor_account_id bigint := public.current_context_id();
-  v_token text;
-begin
-  select * into v_old_grant from public.child_grants where id = p_grant_id;
-
-  if not found
-     or v_actor_account_id is null
-     or v_actor_account_id <> v_old_grant.proposer_account_id
-     or not exists (
-    select 1 from public.account_members am
-    where am.account_id = v_actor_account_id
-      and am.user_id = auth.uid()
-      and am.status = 'active'
-      and am.role in ('parent_admin', 'self_manager')
-  ) then
-    raise exception 'child grant % not found or not authorized to re-grant', p_grant_id;
-  end if;
-
-  if v_old_grant.status not in ('severed', 'revoked', 'expired') then
-    raise exception 'child grant % cannot be re-granted (status %)', p_grant_id, v_old_grant.status
-      using errcode = 'check_violation';
-  end if;
-
-  -- Generate new token for the re-grant
-  v_token := encode(extensions.gen_random_bytes(32), 'hex');
-
-  insert into public.child_grants (
-    proposer_account_id, target_single_id, token_hash, expires_at, access_level
-  ) values (
-    v_old_grant.proposer_account_id, v_old_grant.target_single_id,
-    encode(extensions.digest(v_token, 'sha256'), 'hex'),
-    now() + interval '7 days',
-    v_old_grant.access_level
-  );
-
-  return v_token;
-end;
-$$;
-
 CREATE OR REPLACE FUNCTION "public"."rehome_reference_interactions"("p_from_reference_id" bigint, "p_to_reference_id" bigint) RETURNS integer
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -4052,6 +5311,19 @@ begin
   if p_persona not in ('single', 'parent', 'shadchan') then
     raise exception 'unknown persona: %', p_persona
       using errcode = 'invalid_parameter_value';
+  end if;
+
+  if exists (
+    select 1
+    from public.account_members am
+    join public.demo_run_accounts dra on dra.account_id = am.account_id
+    join public.demo_runs dr on dr.id = dra.run_id
+    where am.user_id = v_user_id
+      and am.status = 'active'
+      and dr.status in ('seeding', 'active', 'clearing', 'failed')
+  ) then
+    raise exception 'persona changes are unavailable while the official demo is active'
+      using errcode = 'lock_not_available';
   end if;
 
   -- shadchan: archive the caller's shadchan-role membership outright. No-op
@@ -4631,6 +5903,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION "public"."set_message_defaults"() RETURNS "trigger"
     LANGUAGE "plpgsql"
+    SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
@@ -4642,6 +5915,15 @@ begin
     from public.threads t where t.id = new.thread_id;
     new.account_id := v_account_id;
     new.connection_id := v_connection_id;
+  end if;
+  if new.connection_id is not null then
+    perform public.demo_assert_same_active_run(
+      array[
+        (select household_account_id from public.connections where id = new.connection_id),
+        (select shadchanus_account_id from public.connections where id = new.connection_id)
+      ],
+      'message'
+    );
   end if;
   new.sender_member_id := public.current_member_id();
   return new;
@@ -4675,11 +5957,21 @@ $$;
 
 CREATE OR REPLACE FUNCTION "public"."set_thread_defaults"() RETURNS "trigger"
     LANGUAGE "plpgsql"
+    SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 begin
   if new.account_id is null and new.connection_id is null then
     new.account_id := public.current_context_id();
+  end if;
+  if new.connection_id is not null then
+    perform public.demo_assert_same_active_run(
+      array[
+        (select household_account_id from public.connections where id = new.connection_id),
+        (select shadchanus_account_id from public.connections where id = new.connection_id)
+      ],
+      'message thread'
+    );
   end if;
   new.created_by_member_id := public.current_member_id();
   return new;
@@ -5284,5 +6576,1694 @@ begin
   where id = v_row.id;
 
   return jsonb_build_object('verified', true);
+end;
+$$;
+
+-- =====================================================================
+-- Official onboarding demo lifecycle fencing
+-- =====================================================================
+-- These functions are the only lifecycle writers. Edge Functions call them
+-- through the service-role client; authenticated callers receive no execute
+-- grant. Row locks plus token/epoch compare-and-swap close the race between a
+-- long seed, a clear, and an admin reseed.
+
+CREATE OR REPLACE FUNCTION public.demo_assert_empty_account(p_account_id bigint)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+begin
+  if not exists (
+    select 1 from public.accounts
+    where id = p_account_id and kind = 'household'
+  ) then
+    raise exception 'demo root account % must be a household context', p_account_id
+      using errcode = 'check_violation';
+  end if;
+
+  if exists (select 1 from public.singles where account_id = p_account_id)
+     or exists (select 1 from public.single_preferences where account_id = p_account_id)
+     or exists (select 1 from public.single_notes where account_id = p_account_id)
+     or exists (select 1 from public.shadchanim where account_id = p_account_id)
+     or exists (select 1 from public.references where account_id = p_account_id)
+     or exists (select 1 from public.shidduchim where account_id = p_account_id)
+     or exists (select 1 from public.inbox_items where account_id = p_account_id)
+     or exists (select 1 from public.message_notifications where account_id = p_account_id)
+     or exists (select 1 from public.task_notifications where account_id = p_account_id)
+     or exists (select 1 from public.messages where account_id = p_account_id)
+     or exists (select 1 from public.threads where account_id = p_account_id)
+     or exists (select 1 from public.thread_participants where account_id = p_account_id)
+     or exists (select 1 from public.tasks where account_id = p_account_id)
+     or exists (select 1 from public.reference_links where account_id = p_account_id)
+     or exists (select 1 from public.redts where account_id = p_account_id)
+     or exists (select 1 from public.shidduch_education where account_id = p_account_id)
+     or exists (select 1 from public.resume_photos where account_id = p_account_id)
+     or exists (select 1 from public.resumes where account_id = p_account_id)
+     or exists (select 1 from public.entity_files where account_id = p_account_id)
+     or exists (select 1 from public.medical_notes where account_id = p_account_id)
+     or exists (select 1 from public.shidduchim_external_links where account_id = p_account_id)
+     or exists (select 1 from public.date_records where account_id = p_account_id)
+     or exists (select 1 from public.interactions where account_id = p_account_id)
+     or exists (select 1 from public.identity_signals where account_id = p_account_id)
+     or exists (select 1 from public.listing_withdrawal_locks where account_id = p_account_id)
+     or exists (select 1 from public.listings where account_id = p_account_id)
+     or exists (select 1 from public.invites where account_id = p_account_id)
+     or exists (select 1 from public.analytics_events where account_id = p_account_id)
+     or exists (select 1 from public.trusted_senders where account_id = p_account_id)
+     or exists (select 1 from public.share_links where account_id = p_account_id)
+     or exists (
+       select 1 from public.connections
+       where household_account_id = p_account_id
+          or shadchanus_account_id = p_account_id
+     )
+     or exists (
+       select 1 from public.connection_invites
+       where inviter_account_id = p_account_id
+          or accepted_by_account_id = p_account_id
+     )
+     or exists (
+       select 1 from public.child_grants
+       where proposer_account_id = p_account_id
+          or grantee_account_id = p_account_id
+     )
+     or exists (
+       select 1 from public.messages m
+       join public.connections c on c.id = m.connection_id
+       where c.household_account_id = p_account_id
+          or c.shadchanus_account_id = p_account_id
+     )
+     or exists (
+       select 1 from public.threads t
+       join public.connections c on c.id = t.connection_id
+       where c.household_account_id = p_account_id
+          or c.shadchanus_account_id = p_account_id
+     )
+     or exists (
+       select 1 from public.thread_participants tp
+       join public.connections c on c.id = tp.connection_id
+       where c.household_account_id = p_account_id
+          or c.shadchanus_account_id = p_account_id
+     )
+     or exists (
+       select 1 from public.message_notifications mn
+       join public.connections c on c.id = mn.connection_id
+       where c.household_account_id = p_account_id
+          or c.shadchanus_account_id = p_account_id
+     )
+     or exists (
+       select 1
+       from storage.objects
+       where bucket_id in ('documents', 'entity-files', 'attachments')
+         and (name = p_account_id::text or name like p_account_id::text || '/%')
+     ) then
+    raise exception 'demo root account % is not empty', p_account_id
+      using errcode = 'check_violation';
+  end if;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION "public"."demo_run_lease_is_current"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_operation" text DEFAULT NULL::text
+) RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select exists (
+    select 1 from public.demo_runs
+    where id = p_run_id
+      and lease_token = p_lease_token
+      and (p_operation is null or operation = p_operation)
+      and status in ('seeding', 'clearing')
+      and lease_expires_at > now()
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."heartbeat_demo_run"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_operation" text
+) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_run public.demo_runs;
+begin
+  update public.demo_runs
+  set updated_at = now(), lease_expires_at = now() + interval '15 minutes'
+  where id = p_run_id
+    and lease_token = p_lease_token
+    and operation = p_operation
+    and status in ('seeding', 'clearing')
+    and lease_expires_at > now()
+  returning * into v_run;
+
+  if not found then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+
+  return jsonb_build_object(
+    'run_id', v_run.id,
+    'lease_epoch', v_run.lease_epoch,
+    'lease_expires_at', v_run.lease_expires_at
+  );
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.create_demo_companion_context(p_run_id bigint, p_lease_token text, p_context_key text, p_name text, p_kind text)
+ RETURNS bigint
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_run public.demo_runs;
+  v_account_id bigint;
+begin
+  select * into v_run from public.demo_runs where id = p_run_id for update;
+  if not found or v_run.lease_token is distinct from p_lease_token
+     or v_run.operation <> 'seed' or v_run.status <> 'seeding'
+     or v_run.lease_expires_at <= now() then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+
+  select account_id into v_account_id
+  from public.demo_run_accounts
+  where run_id = p_run_id and context_key = p_context_key;
+  if found then
+    return v_account_id;
+  end if;
+
+  if p_kind not in ('household', 'shadchanus') then
+    raise exception 'invalid demo companion kind %', p_kind
+      using errcode = 'check_violation';
+  end if;
+
+  insert into public.accounts (name, kind)
+  values (p_name, p_kind)
+  returning id into v_account_id;
+
+  insert into public.demo_run_accounts (
+    run_id, account_id, context_key, context_kind, is_root
+  ) values (
+    p_run_id, v_account_id, p_context_key, p_kind, false
+  );
+  return v_account_id;
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION "public"."create_demo_actor_intent"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_actor_key" text,
+  "p_expected_email" text
+) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_intent public.demo_run_actor_intents;
+begin
+  if not public.demo_run_lease_is_current(p_run_id, p_lease_token, 'seed') then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+
+  insert into public.demo_run_actor_intents (
+    run_id, actor_key, expected_email, state
+  ) values (p_run_id, p_actor_key, p_expected_email, 'pending')
+  on conflict (run_id, actor_key) do update
+    set expected_email = excluded.expected_email,
+        updated_at = now()
+    where public.demo_run_actor_intents.state = 'pending'
+  returning * into v_intent;
+
+  if not found then
+    select * into v_intent
+    from public.demo_run_actor_intents
+    where run_id = p_run_id and actor_key = p_actor_key;
+  end if;
+
+  return jsonb_build_object(
+    'intent_id', v_intent.id,
+    'actor_key', v_intent.actor_key,
+    'expected_email', v_intent.expected_email,
+    'state', v_intent.state,
+    'auth_user_id', v_intent.auth_user_id
+  );
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."reconcile_demo_actor"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_actor_key" text,
+  "p_user_id" uuid,
+  "p_operation" text DEFAULT 'seed'::text
+) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_intent public.demo_run_actor_intents;
+begin
+  if p_operation not in ('seed', 'clear')
+     or not public.demo_run_lease_is_current(p_run_id, p_lease_token, p_operation) then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+
+  select * into v_intent
+  from public.demo_run_actor_intents
+  where run_id = p_run_id and actor_key = p_actor_key
+  for update;
+  if not found then
+    raise exception 'demo actor intent % not found', p_actor_key
+      using errcode = 'foreign_key_violation';
+  end if;
+
+  if v_intent.auth_user_id is not null
+     and v_intent.auth_user_id is distinct from p_user_id then
+    raise exception 'demo actor intent % already reconciled', p_actor_key
+      using errcode = 'unique_violation';
+  end if;
+
+  update public.demo_run_actor_intents
+  set auth_user_id = p_user_id, state = 'reconciled', updated_at = now()
+  where id = v_intent.id;
+
+  insert into public.demo_run_users (run_id, user_id, actor_key)
+  values (p_run_id, p_user_id, p_actor_key)
+  on conflict (run_id, actor_key) do update set user_id = excluded.user_id;
+
+  return jsonb_build_object(
+    'run_id', p_run_id,
+    'actor_key', p_actor_key,
+    'user_id', p_user_id
+  );
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."confirm_demo_actor_absent"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_actor_key" text,
+  "p_operation" text DEFAULT 'clear'::text
+) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if p_operation not in ('seed', 'clear')
+     or not public.demo_run_lease_is_current(p_run_id, p_lease_token, p_operation) then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+
+  update public.demo_run_actor_intents
+  set state = 'confirmed_absent', auth_user_id = null, updated_at = now()
+  where run_id = p_run_id
+    and actor_key = p_actor_key
+    and state = 'pending'
+    and auth_user_id is null;
+  if not found then
+    -- A prior retry may already have durably confirmed absence.  Any other
+    -- state is not silently rewritten because it could identify a real actor.
+    if not exists (
+      select 1 from public.demo_run_actor_intents
+      where run_id = p_run_id and actor_key = p_actor_key and state = 'confirmed_absent'
+    ) then
+      raise exception 'demo actor intent % is not pending', p_actor_key
+        using errcode = 'unique_violation';
+    end if;
+  end if;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."register_demo_auth_cleanup"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_actor_key" text,
+  "p_resolved_user_id" uuid,
+  "p_expected_email" text,
+  "p_operation" text DEFAULT 'clear'::text
+) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_run public.demo_runs;
+  v_expected_email extensions.citext;
+begin
+  select * into v_run from public.demo_runs where id = p_run_id for update;
+  if not found
+     or p_operation not in ('seed', 'clear')
+     or v_run.lease_token is distinct from p_lease_token
+     or v_run.operation is distinct from p_operation
+     or (p_operation = 'seed' and v_run.status <> 'seeding')
+     or (p_operation = 'clear' and v_run.status <> 'clearing')
+     or v_run.lease_expires_at is null or v_run.lease_expires_at <= now() then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+
+  select expected_email into v_expected_email
+  from public.demo_run_actor_intents
+  where run_id = p_run_id and actor_key = p_actor_key;
+  if not found or lower(v_expected_email::text) <> lower(p_expected_email)
+     or not exists (
+       select 1 from public.demo_run_users
+       where run_id = p_run_id and actor_key = p_actor_key
+         and user_id = p_resolved_user_id
+     ) and not exists (
+       select 1 from public.demo_run_actor_intents
+       where run_id = p_run_id and actor_key = p_actor_key
+         and auth_user_id = p_resolved_user_id
+     ) then
+    raise exception 'demo auth cleanup identity is not exactly registered'
+      using errcode = 'foreign_key_violation';
+  end if;
+
+  insert into public.demo_run_auth_cleanup (
+    run_id, actor_key, resolved_user_id, expected_email, state
+  ) values (
+    p_run_id, p_actor_key, p_resolved_user_id, p_expected_email, 'deleting'
+  )
+  on conflict (run_id, actor_key) do update
+    set resolved_user_id = excluded.resolved_user_id,
+        expected_email = excluded.expected_email,
+        state = case when public.demo_run_auth_cleanup.state = 'deleted'
+          then 'deleted' else 'deleting' end,
+        updated_at = now();
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."mark_demo_auth_deleted"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_actor_key" text,
+  "p_resolved_user_id" uuid,
+  "p_operation" text DEFAULT 'clear'::text
+) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if not public.demo_run_lease_is_current(p_run_id, p_lease_token, p_operation) then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+  update public.demo_run_auth_cleanup
+  set state = 'deleted', deleted_at = coalesce(deleted_at, now()), updated_at = now()
+  where run_id = p_run_id and actor_key = p_actor_key
+    and resolved_user_id = p_resolved_user_id;
+  if not found then
+    raise exception 'demo auth cleanup tombstone % is not registered', p_actor_key
+      using errcode = 'foreign_key_violation';
+  end if;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."register_demo_storage"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_account_id" bigint,
+  "p_bucket" text,
+  "p_storage_path" text,
+  "p_resource_key" text
+) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_run public.demo_runs;
+begin
+  select * into v_run
+  from public.demo_runs
+  where id = p_run_id
+  for update;
+
+  if not found
+     or v_run.lease_token is distinct from p_lease_token
+     or v_run.operation <> 'seed'
+     or v_run.status <> 'seeding'
+     or v_run.lease_expires_at is null
+     or v_run.lease_expires_at <= now() then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+
+  if p_bucket not in ('documents', 'entity-files', 'attachments') then
+    raise exception 'invalid demo storage bucket %', p_bucket
+      using errcode = 'check_violation';
+  end if;
+  if p_resource_key not in ('resume', 'photo', 'entity-file', 'inbox-attachment') then
+    raise exception 'invalid demo storage resource %', p_resource_key
+      using errcode = 'check_violation';
+  end if;
+  if p_storage_path is null
+     or p_storage_path not like p_account_id::text || '/%'
+     or p_storage_path ~ '(^|/)\.\.(/|$)' then
+    raise exception 'demo storage path is outside manifest account %', p_account_id
+      using errcode = 'check_violation';
+  end if;
+  if not exists (
+    select 1
+    from public.demo_run_accounts
+    where run_id = p_run_id and account_id = p_account_id
+  ) then
+    raise exception 'demo storage account % is not in run %', p_account_id, p_run_id
+      using errcode = 'foreign_key_violation';
+  end if;
+
+  insert into public.demo_run_storage (run_id, bucket, storage_path, resource_key)
+  values (p_run_id, p_bucket, p_storage_path, p_resource_key)
+  on conflict (bucket, storage_path) do nothing;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."restore_demo_member_state"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_operation" text DEFAULT 'clear'::text
+) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_run public.demo_runs;
+begin
+  select * into v_run
+  from public.demo_runs
+  where id = p_run_id
+  for update;
+
+  if not found
+     or p_operation not in ('seed', 'clear')
+     or v_run.lease_token is distinct from p_lease_token
+     or v_run.operation is distinct from p_operation
+     or (p_operation = 'seed' and v_run.status <> 'seeding')
+     or (p_operation = 'clear' and v_run.status <> 'clearing')
+     or v_run.lease_expires_at is null
+     or v_run.lease_expires_at <= now() then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+
+  insert into public.member_state (user_id, active_account_id, updated_at)
+  select s.user_id,
+         case
+           when s.original_active_account_id is null then null
+           when exists (
+             select 1 from public.account_members am
+             where am.user_id = s.user_id
+               and am.account_id = s.original_active_account_id
+               and am.status = 'active'
+           ) then s.original_active_account_id
+           else null
+         end,
+         coalesce(original_updated_at, now())
+  from public.demo_run_member_state s
+  where s.run_id = p_run_id
+  on conflict (user_id) do update
+    set active_account_id = excluded.active_account_id,
+        updated_at = excluded.updated_at;
+end;
+$$;
+
+-- Service-owned activation/clear inventory.  It requires the exact official
+-- three-context graph and the baseline scenario receipts, while allowing
+-- additional registered runtime rows after activation.
+CREATE OR REPLACE FUNCTION public.assert_official_demo_inventory(p_run_id bigint, p_require_active boolean DEFAULT false)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare v_status text; v_operation text; v_cleanup_started_at timestamptz; v_root bigint; v_resource record;
+begin
+  select status, operation, cleanup_started_at, root_account_id into v_status, v_operation, v_cleanup_started_at, v_root from public.demo_runs where id = p_run_id;
+  if not found or (p_require_active and (v_status not in ('active','clearing') or (v_status = 'clearing' and (v_operation <> 'clear' or v_cleanup_started_at is null)))) or (not p_require_active and v_status <> 'seeding') then raise exception 'official demo run % is not in the expected inventory phase', p_run_id using errcode = 'check_violation'; end if;
+  if (select count(*) from public.demo_run_accounts where run_id = p_run_id) <> 3 or not exists (select 1 from public.demo_run_accounts where run_id = p_run_id and context_key = 'primary-household' and context_kind = 'household' and is_root) or not exists (select 1 from public.demo_run_accounts where run_id = p_run_id and context_key = 'feldman-shadchanus' and context_kind = 'shadchanus' and not is_root) or not exists (select 1 from public.demo_run_accounts where run_id = p_run_id and context_key = 'gross-household' and context_kind = 'household' and not is_root) or (select count(*) from public.demo_run_accounts where run_id = p_run_id and is_root) <> 1 or not exists (select 1 from public.demo_run_accounts where run_id = p_run_id and account_id = v_root and is_root) then raise exception 'official demo run % has an incomplete context graph', p_run_id using errcode = 'check_violation'; end if;
+  if (select count(*) from public.demo_run_actor_intents where run_id = p_run_id) <> 3 or exists (select 1 from public.demo_run_actor_intents where run_id = p_run_id and state <> 'reconciled') or (select count(*) from public.demo_run_users where run_id = p_run_id) <> 3 or not exists (select 1 from public.demo_run_users where run_id = p_run_id and actor_key = 'dovid-klein') or not exists (select 1 from public.demo_run_users where run_id = p_run_id and actor_key = 'leah-feldman') or not exists (select 1 from public.demo_run_users where run_id = p_run_id and actor_key = 'miriam-gross') or exists (select 1 from public.demo_run_actor_intents dai where dai.run_id = p_run_id and not exists (select 1 from public.demo_run_users dru where dru.run_id = dai.run_id and dru.actor_key = dai.actor_key and dru.user_id = dai.auth_user_id)) then raise exception 'official demo run % has an incomplete synthetic actor graph', p_run_id using errcode = 'check_violation'; end if;
+  if not p_require_active then
+    if (select count(*) from public.demo_run_resources where run_id = p_run_id) <> 29 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'invite') <> 3 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'connection_invite') <> 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'child_grant') <> 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'connection') <> 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'thread') <> 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'message') <> 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'listing') <> 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'listing_withdrawal') <> 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'share_link') <> 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'task') <> 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'share_access_log') <> 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'inbox_item') <> 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'analytics_event') <> 3 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'message_notification') <> 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'task_notification') <> 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'trusted_sender') <> 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'single_preference') <> 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'single_note') <> 2 or (select count(*) from public.demo_run_storage where run_id = p_run_id) <> 50 or (select count(*) from public.demo_run_storage where run_id = p_run_id and bucket = 'documents') <> 47 or (select count(*) from public.demo_run_storage where run_id = p_run_id and bucket = 'entity-files') <> 3 or exists (select 1 from public.demo_run_storage where run_id = p_run_id and bucket not in ('documents','entity-files')) then raise exception 'official demo run % is missing its exact baseline inventory', p_run_id using errcode = 'check_violation'; end if;
+  else
+    if (select count(*) from public.demo_run_resources where run_id = p_run_id) < 29 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'invite') < 3 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'connection_invite') < 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'child_grant') < 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'connection') < 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'thread') < 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'message') < 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'listing') < 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'listing_withdrawal') < 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'share_link') < 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'task') < 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'share_access_log') < 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'inbox_item') < 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'analytics_event') < 3 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'message_notification') < 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'task_notification') < 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'trusted_sender') < 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'single_preference') < 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'single_note') < 2 or (select count(*) from public.demo_run_storage where run_id = p_run_id) < 50 or (select count(*) from public.demo_run_storage where run_id = p_run_id and bucket = 'documents') < 47 or (select count(*) from public.demo_run_storage where run_id = p_run_id and bucket = 'entity-files') < 3 or exists (select 1 from public.demo_run_storage where run_id = p_run_id and bucket not in ('documents','entity-files')) then raise exception 'official demo run % is missing a baseline resource or storage receipt', p_run_id using errcode = 'check_violation'; end if;
+  end if;
+  if not p_require_active and ((select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'message_notification') <> 2 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'task_notification') <> 1 or (select count(*) from public.demo_run_resources where run_id = p_run_id and resource_type = 'share_access_log') <> 1 or not exists (select 1 from public.singles where account_id = v_root) or (select count(*) from public.single_preferences where account_id = v_root) <> 2 or (select count(*) from public.single_notes where account_id = v_root) <> 2 or not exists (select 1 from public.shidduchim where account_id = v_root) or not exists (select 1 from public.message_notifications mn join public.demo_run_resources drr on drr.resource_type = 'message_notification' and drr.resource_id = mn.id and drr.run_id = p_run_id where mn.simulated and mn.status = 'sent') or not exists (select 1 from public.task_notifications tn join public.demo_run_resources drr on drr.resource_type = 'task_notification' and drr.resource_id = tn.id and drr.run_id = p_run_id where tn.simulated and tn.status = 'sent') or not exists (select 1 from public.share_access_log sal join public.demo_run_resources drr on drr.resource_type = 'share_access_log' and drr.resource_id = sal.id and drr.run_id = p_run_id where sal.simulated) or exists (select 1 from public.demo_run_resources drr join public.message_notifications mn on mn.id = drr.resource_id where drr.run_id = p_run_id and drr.resource_type = 'message_notification' and (mn.simulated is not true or mn.status <> 'sent')) or exists (select 1 from public.demo_run_resources drr join public.task_notifications tn on tn.id = drr.resource_id where drr.run_id = p_run_id and drr.resource_type = 'task_notification' and (tn.simulated is not true or tn.status <> 'sent')) ) then raise exception 'official demo run % is missing a simulated outcome', p_run_id using errcode = 'check_violation'; end if;
+  for v_resource in select resource_type, resource_id from public.demo_run_resources where run_id = p_run_id loop perform public.assert_demo_resource_ownership(p_run_id, v_resource.resource_type, v_resource.resource_id, not p_require_active); end loop;
+end;
+$function$;
+CREATE OR REPLACE FUNCTION public.activate_demo_run(p_run_id bigint, p_lease_token text, p_active_root_name text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare v_run public.demo_runs;
+begin
+  select * into v_run from public.demo_runs where id = p_run_id for update;
+  if not found or v_run.lease_token is distinct from p_lease_token or v_run.operation <> 'seed' or v_run.status <> 'seeding' or v_run.lease_expires_at is null or v_run.lease_expires_at <= clock_timestamp() then raise exception 'demo run % lease is stale or fenced', p_run_id using errcode = 'serialization_failure'; end if;
+  perform public.assert_official_demo_inventory(p_run_id, false);
+  update public.accounts set name = p_active_root_name, demo = true where id = v_run.root_account_id;
+  update public.demo_runs set status = 'active', operation = null, lease_token = null, lease_expires_at = null, updated_at = now() where id = p_run_id;
+  update public.demo_onboarding_intents set state = 'completed', demo_run_id = p_run_id, last_error = null, updated_at = now() where account_id = v_run.root_account_id;
+  return jsonb_build_object('run_id', p_run_id, 'status', 'active');
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION "public"."fail_demo_run"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_operation" text
+) RETURNS boolean
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  update public.demo_runs
+  set status = 'failed', operation = null, lease_token = null,
+      lease_expires_at = null, updated_at = now()
+  where id = p_run_id
+    and lease_token = p_lease_token
+    and operation = p_operation
+    and status in ('seeding', 'clearing')
+  returning true;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."fail_demo_onboarding_seed"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_error" text DEFAULT NULL::text
+) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_root_account_id bigint;
+begin
+  select root_account_id into v_root_account_id
+  from public.demo_runs
+  where id = p_run_id;
+  if not found or not public.demo_run_lease_is_current(p_run_id, p_lease_token, 'seed') then
+    return;
+  end if;
+  update public.demo_onboarding_intents
+  set state = 'failed', demo_run_id = p_run_id,
+      last_error = left(coalesce(p_error, 'demo seed failed'), 500),
+      updated_at = now()
+  where account_id = v_root_account_id and state <> 'completed';
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."delete_demo_companion_contexts"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_operation" text DEFAULT 'seed'::text
+) RETURNS void
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_run public.demo_runs;
+begin
+  select * into v_run from public.demo_runs where id = p_run_id for update;
+  if not found or p_operation not in ('seed', 'clear')
+     or v_run.lease_token is distinct from p_lease_token
+     or v_run.operation is distinct from p_operation
+     or (p_operation = 'seed' and v_run.status <> 'seeding')
+     or (p_operation = 'clear' and v_run.status <> 'clearing')
+     or v_run.lease_expires_at is null or v_run.lease_expires_at <= now() then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+
+  delete from public.account_members am
+  where am.account_id in (
+    select dra.account_id from public.demo_run_accounts dra
+    where dra.run_id = p_run_id and not dra.is_root
+  );
+  delete from public.accounts a
+  where a.id in (
+    select dra.account_id from public.demo_run_accounts dra
+    where dra.run_id = p_run_id and not dra.is_root
+  );
+end;
+$$;
+
+-- The final seed compensation delete must remain lease-fenced in SQL.  The
+-- preceding cleanup RPC commits before this one, so a direct client delete
+-- would let a clear/reseed claim the run between those two transactions.
+CREATE OR REPLACE FUNCTION public.finalize_demo_seed_cleanup(p_run_id bigint, p_lease_token text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_run public.demo_runs;
+  v_accounts bigint[];
+  v_deleted boolean;
+begin
+  if coalesce(auth.role(), '') <> 'service_role' then
+    raise exception 'demo seed finalization requires the seed service role'
+      using errcode = 'insufficient_privilege';
+  end if;
+  select array_agg(account_id order by account_id) into v_accounts
+  from public.demo_run_accounts where run_id = p_run_id;
+  perform public.demo_lock_account_axes(v_accounts, 'update');
+  select * into strict v_run from public.demo_runs where id = p_run_id for update;
+  if v_run.lease_token is distinct from p_lease_token
+     or v_run.operation is distinct from 'seed'
+     or v_run.status is distinct from 'seeding'
+     or v_run.lease_expires_at is null
+     or v_run.lease_expires_at <= clock_timestamp() then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+  delete from public.demo_runs
+  where id = p_run_id and lease_token = p_lease_token
+    and operation = 'seed' and status = 'seeding'
+  returning true into v_deleted;
+  if not found then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+  return true;
+exception when no_data_found then
+  raise exception 'demo run % lease is stale or fenced', p_run_id
+    using errcode = 'serialization_failure';
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION "public"."finalize_demo_clear"(
+  "p_run_id" bigint,
+  "p_lease_token" text,
+  "p_release_demo" boolean DEFAULT false,
+  "p_release_persona" boolean DEFAULT false,
+  "p_actor_user_id" uuid DEFAULT NULL::uuid
+) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_run public.demo_runs;
+  v_active_members integer;
+  v_completed_at timestamp with time zone := now();
+begin
+  select * into v_run from public.demo_runs where id = p_run_id for update;
+  if not found or v_run.status <> 'clearing'
+     or v_run.operation <> 'clear'
+     or v_run.lease_token is distinct from p_lease_token
+     or v_run.lease_expires_at is null
+     or v_run.lease_expires_at <= now() then
+    raise exception 'demo run % clear lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+
+  if p_release_persona and p_actor_user_id is not null then
+    select count(*) into v_active_members
+    from public.account_members
+    where account_id = v_run.root_account_id and status = 'active';
+    if v_active_members = 1 then
+      update public.account_members
+      set status = 'archived'
+      where account_id = v_run.root_account_id
+        and user_id = p_actor_user_id
+        and role = 'parent_admin'
+        and status = 'active';
+    end if;
+  end if;
+
+  if exists (
+    select 1
+    from public.demo_run_users dru
+    where dru.run_id = p_run_id
+      and not exists (
+        select 1 from public.demo_run_auth_cleanup dac
+        where dac.run_id = dru.run_id
+          and dac.actor_key = dru.actor_key
+          and dac.resolved_user_id = dru.user_id
+          and dac.state = 'deleted'
+      )
+  ) then
+    raise exception 'demo clear cannot finalize before every exact Auth actor is deleted'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Companion accounts stay present until this transaction. That keeps a
+  -- failed clear's manifest strictly valid after every external/Auth step and
+  -- makes account removal atomic with finalization.
+  delete from public.account_members am
+  where am.account_id in (
+    select dra.account_id
+    from public.demo_run_accounts dra
+    where dra.run_id = p_run_id and not dra.is_root
+  );
+  delete from public.accounts a
+  where a.id in (
+    select dra.account_id
+    from public.demo_run_accounts dra
+    where dra.run_id = p_run_id and not dra.is_root
+  );
+
+  -- Restore only a live membership. In particular, when release_persona
+  -- archived the sole bootstrap membership above, active_account_id becomes
+  -- NULL rather than pointing at that archived row.
+  insert into public.member_state (user_id, active_account_id, updated_at)
+  select s.user_id,
+         case
+           when s.original_active_account_id is null then null
+           when exists (
+             select 1 from public.account_members am
+             where am.user_id = s.user_id
+               and am.account_id = s.original_active_account_id
+               and am.status = 'active'
+           ) then s.original_active_account_id
+           else null
+         end,
+         coalesce(s.original_updated_at, now())
+  from public.demo_run_member_state s
+  where s.run_id = p_run_id
+  on conflict (user_id) do update
+    set active_account_id = excluded.active_account_id,
+        updated_at = excluded.updated_at;
+
+  update public.accounts
+  set name = coalesce(v_run.original_root_name, name),
+      demo = case when p_release_demo then false else demo end
+  where id = v_run.root_account_id;
+
+  if (p_release_persona or p_release_demo) and p_actor_user_id is not null then
+    delete from public.demo_onboarding_intents
+    where user_id = p_actor_user_id
+      and account_id = v_run.root_account_id;
+  end if;
+
+  if p_release_demo and p_actor_user_id is not null then
+    insert into public.demo_clear_receipts
+      (user_id, root_account_id, completed_at, release_demo)
+    values (p_actor_user_id, v_run.root_account_id, v_completed_at, true)
+    on conflict (user_id, root_account_id) do update
+      set completed_at = excluded.completed_at,
+          release_demo = excluded.release_demo;
+  end if;
+
+  delete from public.demo_runs where id = p_run_id;
+  return jsonb_build_object(
+    'outcome', 'finalized',
+    'run_id', p_run_id,
+    'completed_at', v_completed_at
+  );
+end;
+$$;
+
+-- Final official demo audit repairs; kept at the end so schema replay uses
+-- the same definitions as the final migration.
+CREATE OR REPLACE FUNCTION "public"."demo_lock_account_axes"("p_accounts" bigint[], "p_lock_mode" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+begin
+  if p_lock_mode not in ('key share', 'update') then
+    raise exception 'invalid demo account lock mode %', p_lock_mode
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  -- Every caller uses this same ordered lock acquisition.  Never replace
+  -- this with a single unordered ANY() lock: two multi-account rows could
+  -- otherwise deadlock while a seed/clear operation is in flight.
+  for v_account_id in
+    select distinct account_id
+    from unnest(coalesce(p_accounts, array[]::bigint[])) as requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    execute format(
+      'select id from public.accounts where id = $1 for %s',
+      p_lock_mode
+    ) using v_account_id;
+  end loop;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.assert_demo_resource_ownership(p_run_id bigint, p_resource_type text, p_resource_id bigint, p_require_present boolean DEFAULT true)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_row jsonb;
+  v_parent jsonb;
+  v_single_account bigint;
+  v_account_id bigint;
+  v_connection_id bigint;
+  v_parent_account_id bigint;
+  v_parent_connection_id bigint;
+  v_accounts bigint[] := array[]::bigint[];
+  v_table_name text;
+begin
+  if p_resource_id is null or p_resource_id <= 0 then
+    raise exception 'demo resource id must be positive'
+      using errcode = 'check_violation';
+  end if;
+
+  v_table_name := case p_resource_type
+    when 'invite' then 'invites'
+    when 'connection_invite' then 'connection_invites'
+    when 'child_grant' then 'child_grants'
+    when 'connection' then 'connections'
+    when 'thread' then 'threads'
+    when 'message' then 'messages'
+    when 'listing' then 'listings'
+    when 'share_link' then 'share_links'
+    when 'task' then 'tasks'
+    when 'share_access_log' then 'share_access_log'
+    when 'inbox_item' then 'inbox_items'
+    when 'analytics_event' then 'analytics_events'
+    when 'message_notification' then 'message_notifications'
+    when 'task_notification' then 'task_notifications'
+    when 'trusted_sender' then 'trusted_senders'
+    when 'single_preference' then 'single_preferences'
+    when 'single_note' then 'single_notes'
+    else null
+  end;
+  if p_resource_type = 'listing_withdrawal' then
+    select to_jsonb(row) into v_row
+    from (
+      select * from public.listing_withdrawal_locks
+      where single_id = p_resource_id
+    ) row;
+  elsif v_table_name is null then
+    raise exception 'invalid demo resource type %', p_resource_type
+      using errcode = 'check_violation';
+  else
+    execute format(
+      'select to_jsonb(row) from (select * from public.%I where id = $1) row',
+      v_table_name
+    ) into v_row using p_resource_id;
+  end if;
+  if v_row is null then
+    if p_require_present then
+      raise exception 'demo resource %/% does not exist', p_resource_type, p_resource_id
+        using errcode = 'foreign_key_violation';
+    end if;
+    return;
+  end if;
+
+  if p_resource_type = 'connection' then
+    v_accounts := array[
+      nullif(v_row->>'household_account_id', '')::bigint,
+      nullif(v_row->>'shadchanus_account_id', '')::bigint
+    ];
+  elsif p_resource_type = 'connection_invite' then
+    v_account_id := nullif(v_row->>'inviter_account_id', '')::bigint;
+    if v_account_id is null then
+      raise exception 'demo connection invite % has no inviter owner', p_resource_id
+        using errcode = 'foreign_key_violation';
+    end if;
+    v_accounts := array[v_account_id];
+    if nullif(v_row->>'accepted_by_account_id', '') is not null then
+      v_accounts := array_append(v_accounts, (v_row->>'accepted_by_account_id')::bigint);
+    elsif v_row->>'status' = 'accepted' then
+      raise exception 'demo accepted connection invite % has no accepting endpoint', p_resource_id
+        using errcode = 'check_violation';
+    end if;
+  elsif p_resource_type = 'child_grant' then
+    v_account_id := nullif(v_row->>'proposer_account_id', '')::bigint;
+    if v_account_id is null then
+      raise exception 'demo child grant % has no proposer owner', p_resource_id
+        using errcode = 'foreign_key_violation';
+    end if;
+    v_accounts := array[v_account_id];
+    select account_id into v_single_account
+    from public.singles
+    where id = (v_row->>'target_single_id')::bigint;
+    if v_single_account is null then
+      raise exception 'demo child grant % has no owned target single', p_resource_id
+        using errcode = 'foreign_key_violation';
+    end if;
+    v_accounts := array_append(v_accounts, v_single_account);
+    if nullif(v_row->>'grantee_account_id', '') is not null then
+      v_accounts := array_append(v_accounts, (v_row->>'grantee_account_id')::bigint);
+    elsif v_row->>'status' = 'accepted' then
+      raise exception 'demo accepted child grant % has no grantee endpoint', p_resource_id
+        using errcode = 'check_violation';
+    end if;
+    if nullif(v_row->>'severed_by_account_id', '') is not null then
+      v_accounts := array_append(v_accounts, (v_row->>'severed_by_account_id')::bigint);
+    end if;
+  elsif p_resource_type in ('thread', 'message') then
+    v_account_id := nullif(v_row->>'account_id', '')::bigint;
+    v_connection_id := nullif(v_row->>'connection_id', '')::bigint;
+    if p_resource_type = 'thread' then
+      if (v_account_id is null) = (v_connection_id is null) then
+        raise exception 'demo thread % must have exactly one ownership axis', p_resource_id
+          using errcode = 'check_violation';
+      end if;
+      if v_connection_id is not null then
+        select household_account_id, shadchanus_account_id
+          into v_parent_account_id, v_single_account
+        from public.connections where id = v_connection_id;
+        if v_parent_account_id is null or v_single_account is null then
+          raise exception 'demo thread % has a missing connection owner', p_resource_id
+            using errcode = 'foreign_key_violation';
+        end if;
+        v_accounts := array[v_parent_account_id, v_single_account];
+        if exists (
+          select 1 from public.thread_participants tp
+          where tp.thread_id = p_resource_id
+            and tp.connection_id is distinct from v_connection_id
+        ) then
+          raise exception 'demo thread % has an inconsistent participant axis', p_resource_id
+            using errcode = 'check_violation';
+        end if;
+      else
+        v_accounts := array[v_account_id];
+        if exists (
+          select 1 from public.thread_participants tp
+          where tp.thread_id = p_resource_id
+            and (tp.connection_id is not null or tp.account_id is distinct from v_account_id)
+        ) then
+          raise exception 'demo thread % has an inconsistent account owner', p_resource_id
+            using errcode = 'check_violation';
+        end if;
+      end if;
+    else
+      select to_jsonb(row) into v_parent
+      from (select * from public.threads where id = (v_row->>'thread_id')::bigint) row;
+      if v_parent is null then
+        raise exception 'demo message % has no owned parent thread', p_resource_id
+          using errcode = 'foreign_key_violation';
+      end if;
+      v_parent_account_id := nullif(v_parent->>'account_id', '')::bigint;
+      v_parent_connection_id := nullif(v_parent->>'connection_id', '')::bigint;
+      if v_account_id is distinct from v_parent_account_id
+         or v_connection_id is distinct from v_parent_connection_id then
+        raise exception 'demo message % crosses its parent thread axis', p_resource_id
+          using errcode = 'check_violation';
+      end if;
+      if v_connection_id is not null then
+        select household_account_id, shadchanus_account_id
+          into v_parent_account_id, v_single_account
+        from public.connections where id = v_connection_id;
+        v_accounts := array[v_parent_account_id, v_single_account];
+      else
+        v_accounts := array[v_account_id];
+      end if;
+    end if;
+  elsif p_resource_type = 'message_notification' then
+    v_accounts := array[nullif(v_row->>'account_id', '')::bigint];
+    v_connection_id := nullif(v_row->>'connection_id', '')::bigint;
+    if v_connection_id is not null then
+      select household_account_id, shadchanus_account_id
+        into v_parent_account_id, v_single_account
+      from public.connections where id = v_connection_id;
+      v_accounts := array[v_parent_account_id, v_single_account];
+    end if;
+    select to_jsonb(row) into v_parent
+    from (select * from public.messages where id = (v_row->>'message_id')::bigint) row;
+    if v_parent is null
+       or v_connection_id is distinct from nullif(v_parent->>'connection_id', '')::bigint then
+      raise exception 'demo message notification % has an inconsistent message owner', p_resource_id
+        using errcode = 'check_violation';
+    end if;
+  elsif p_resource_type = 'task_notification' then
+    select account_id into v_account_id from public.tasks where id = (v_row->>'task_id')::bigint;
+    v_accounts := array[v_account_id];
+  elsif p_resource_type = 'share_access_log' then
+    select account_id into v_account_id from public.share_links where id = (v_row->>'share_link_id')::bigint;
+    v_accounts := array[v_account_id];
+  elsif p_resource_type in ('invite', 'listing', 'listing_withdrawal', 'share_link', 'task',
+                            'inbox_item', 'analytics_event', 'trusted_sender',
+                            'single_preference', 'single_note') then
+    v_account_id := nullif(v_row->>'account_id', '')::bigint;
+    v_accounts := array[v_account_id];
+    if p_resource_type in ('single_preference', 'single_note') then
+      select account_id into v_single_account from public.singles
+      where id = (v_row->>'single_id')::bigint;
+      if v_single_account is distinct from v_account_id then
+        raise exception 'demo private single content %/% crosses its single owner', p_resource_type, p_resource_id
+          using errcode = 'check_violation';
+      end if;
+    end if;
+  end if;
+
+  v_accounts := array_remove(v_accounts, null);
+  if exists (
+    select 1 from unnest(v_accounts) requested(account_id)
+    where requested.account_id is null
+       or not exists (
+         select 1 from public.demo_run_accounts dra
+         where dra.run_id = p_run_id and dra.account_id = requested.account_id
+       )
+  ) then
+    raise exception 'demo resource %/% is not owned by run %', p_resource_type, p_resource_id, p_run_id
+      using errcode = 'foreign_key_violation';
+  end if;
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION "public"."enforce_demo_write_barrier"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_row jsonb;
+  v_accounts bigint[] := array[]::bigint[];
+  v_run_id bigint;
+  v_status text;
+  v_target_single_id bigint;
+begin
+  if auth.uid() is null and not public.demo_seed_request_marked() then
+    if tg_op = 'DELETE' then return old; else return new; end if;
+  end if;
+
+  -- UPDATE contributes both axes.  Locking only NEW lets a move from one
+  -- account/connection to another evade the lifecycle fence.
+  if tg_op <> 'INSERT' then
+    v_row := to_jsonb(old);
+    if v_row ? 'account_id' then
+      v_accounts := array_append(v_accounts, nullif(v_row->>'account_id', '')::bigint);
+    end if;
+    if tg_table_name = 'connections' then
+      v_accounts := v_accounts || array[
+        (v_row->>'household_account_id')::bigint,
+        (v_row->>'shadchanus_account_id')::bigint
+      ];
+    elsif tg_table_name = 'connection_invites' then
+      v_accounts := array_append(
+        v_accounts, nullif(v_row->>'inviter_account_id', '')::bigint
+      );
+      if v_row->>'status' = 'accepted'
+         and nullif(v_row->>'accepted_by_account_id', '') is null then
+        raise exception 'demo accepted connection invite has no accepting endpoint'
+          using errcode = 'check_violation';
+      end if;
+      if nullif(v_row->>'accepted_by_account_id', '') is not null then
+        v_accounts := array_append(
+          v_accounts, (v_row->>'accepted_by_account_id')::bigint
+        );
+      end if;
+    elsif tg_table_name = 'child_grants' then
+      v_accounts := array_append(
+        v_accounts, nullif(v_row->>'proposer_account_id', '')::bigint
+      );
+      if v_row->>'status' = 'accepted'
+         and nullif(v_row->>'grantee_account_id', '') is null then
+        raise exception 'demo accepted child grant has no grantee endpoint'
+          using errcode = 'check_violation';
+      end if;
+      if nullif(v_row->>'grantee_account_id', '') is not null then
+        v_accounts := array_append(
+          v_accounts, (v_row->>'grantee_account_id')::bigint
+        );
+      end if;
+      v_target_single_id := nullif(v_row->>'target_single_id', '')::bigint;
+      if v_target_single_id is null
+         or not exists (
+           select 1 from public.singles s
+           where s.id = v_target_single_id and s.account_id is not null
+         ) then
+        raise exception 'demo child grant has no owned target single'
+          using errcode = 'foreign_key_violation';
+      end if;
+      v_accounts := array_append(
+        v_accounts,
+        (select s.account_id from public.singles s where s.id = v_target_single_id)
+      );
+      if nullif(v_row->>'severed_by_account_id', '') is not null then
+        v_accounts := array_append(
+          v_accounts, (v_row->>'severed_by_account_id')::bigint
+        );
+      end if;
+    elsif tg_table_name in ('threads', 'thread_participants', 'messages', 'message_notifications')
+          and nullif(v_row->>'connection_id', '') is not null then
+      v_accounts := v_accounts || array(
+        select x.account_id from (
+          select c.household_account_id account_id from public.connections c where c.id = (v_row->>'connection_id')::bigint
+          union all
+          select c.shadchanus_account_id from public.connections c where c.id = (v_row->>'connection_id')::bigint
+        ) x where x.account_id is not null
+      );
+    elsif tg_table_name = 'share_access_log' then
+      v_accounts := v_accounts || array(
+        select sl.account_id from public.share_links sl
+        where sl.id = nullif(v_row->>'share_link_id', '')::bigint
+      );
+    end if;
+  end if;
+  if tg_op <> 'DELETE' then
+    v_row := to_jsonb(new);
+    if v_row ? 'account_id' then
+      v_accounts := array_append(v_accounts, nullif(v_row->>'account_id', '')::bigint);
+    end if;
+    if tg_table_name = 'connections' then
+      v_accounts := v_accounts || array[
+        (v_row->>'household_account_id')::bigint,
+        (v_row->>'shadchanus_account_id')::bigint
+      ];
+    elsif tg_table_name = 'connection_invites' then
+      v_accounts := array_append(
+        v_accounts, nullif(v_row->>'inviter_account_id', '')::bigint
+      );
+      if v_row->>'status' = 'accepted'
+         and nullif(v_row->>'accepted_by_account_id', '') is null then
+        raise exception 'demo accepted connection invite has no accepting endpoint'
+          using errcode = 'check_violation';
+      end if;
+      if nullif(v_row->>'accepted_by_account_id', '') is not null then
+        v_accounts := array_append(
+          v_accounts, (v_row->>'accepted_by_account_id')::bigint
+        );
+      end if;
+    elsif tg_table_name = 'child_grants' then
+      v_accounts := array_append(
+        v_accounts, nullif(v_row->>'proposer_account_id', '')::bigint
+      );
+      if v_row->>'status' = 'accepted'
+         and nullif(v_row->>'grantee_account_id', '') is null then
+        raise exception 'demo accepted child grant has no grantee endpoint'
+          using errcode = 'check_violation';
+      end if;
+      if nullif(v_row->>'grantee_account_id', '') is not null then
+        v_accounts := array_append(
+          v_accounts, (v_row->>'grantee_account_id')::bigint
+        );
+      end if;
+      v_target_single_id := nullif(v_row->>'target_single_id', '')::bigint;
+      if v_target_single_id is null
+         or not exists (
+           select 1 from public.singles s
+           where s.id = v_target_single_id and s.account_id is not null
+         ) then
+        raise exception 'demo child grant has no owned target single'
+          using errcode = 'foreign_key_violation';
+      end if;
+      v_accounts := array_append(v_accounts, (select s.account_id from public.singles s where s.id = v_target_single_id));
+    elsif tg_table_name in ('threads', 'thread_participants', 'messages', 'message_notifications')
+          and nullif(v_row->>'connection_id', '') is not null then
+      v_accounts := v_accounts || array(
+        select x.account_id from (
+          select c.household_account_id account_id from public.connections c where c.id = (v_row->>'connection_id')::bigint
+          union all
+          select c.shadchanus_account_id from public.connections c where c.id = (v_row->>'connection_id')::bigint
+        ) x where x.account_id is not null
+      );
+    elsif tg_table_name = 'share_access_log' then
+      v_accounts := v_accounts || array(
+        select sl.account_id from public.share_links sl
+        where sl.id = nullif(v_row->>'share_link_id', '')::bigint
+      );
+    end if;
+  end if;
+
+  -- Nullable relationship endpoints are optional history axes, not NULL
+  -- account owners. Required axes and accepted-state endpoints are checked
+  -- above; removing NULLs keeps pending/revoked rows seedable while every
+  -- present endpoint still participates in the same-run check below.
+  if tg_table_name = 'connection_invites' then
+    if nullif(v_row->>'inviter_account_id', '') is null then
+      raise exception 'demo connection invite has no inviter owner'
+        using errcode = 'foreign_key_violation';
+    end if;
+    if v_row->>'status' = 'accepted'
+       and nullif(v_row->>'accepted_by_account_id', '') is null then
+      raise exception 'demo accepted connection invite has no accepting endpoint'
+        using errcode = 'check_violation';
+    end if;
+  elsif tg_table_name = 'child_grants' then
+    if nullif(v_row->>'proposer_account_id', '') is null
+       or nullif(v_row->>'target_single_id', '') is null
+       or not exists (
+         select 1 from public.singles s
+         where s.id = nullif(v_row->>'target_single_id', '')::bigint
+           and s.account_id is not null
+       ) then
+      raise exception 'demo child grant has no owned target single'
+        using errcode = 'foreign_key_violation';
+    end if;
+    if v_row->>'status' = 'accepted'
+       and nullif(v_row->>'grantee_account_id', '') is null then
+      raise exception 'demo accepted child grant has no grantee endpoint'
+        using errcode = 'check_violation';
+    end if;
+  end if;
+  v_accounts := array_remove(v_accounts, null);
+
+  -- The lifecycle path takes FOR UPDATE; customer writes take FOR KEY SHARE.
+  -- This is the single ordering boundary for seed-start and active-clear.
+  perform public.demo_lock_account_axes(v_accounts, 'key share');
+
+  select dr.id, dr.status into v_run_id, v_status
+  from public.demo_runs dr
+  join public.demo_run_accounts dra on dra.run_id = dr.id
+  where dr.status in ('seeding', 'active', 'clearing', 'failed')
+    and dra.account_id = any(v_accounts)
+  order by dr.id desc
+  limit 1
+  for share of dr;
+  if v_run_id is null then
+    if tg_op = 'DELETE' then return old; else return new; end if;
+  end if;
+
+  if exists (
+    select 1 from unnest(v_accounts) requested(account_id)
+    where requested.account_id is not null
+      and not exists (
+        select 1 from public.demo_run_accounts dra
+        where dra.run_id = v_run_id and dra.account_id = requested.account_id
+      )
+  ) then
+    raise exception 'demo boundary violation: customer write crosses the demo bundle'
+      using errcode = 'check_violation';
+  end if;
+  if v_status = 'seeding' and auth.uid() is null and coalesce((
+    select bool_and(public.demo_seed_service_authorized(requested.account_id))
+    from unnest(v_accounts) requested(account_id)
+    where requested.account_id is not null
+  ), false) then
+    if tg_op = 'DELETE' then return old; else return new; end if;
+  end if;
+  if v_status = 'seeding' and exists (
+    select 1 from public.demo_run_users dru
+    where dru.run_id = v_run_id and dru.user_id = auth.uid()
+  ) then
+    if tg_op = 'DELETE' then return old; else return new; end if;
+  end if;
+  if v_status = 'active' then
+    if tg_op = 'DELETE' then return old; else return new; end if;
+  end if;
+  raise exception 'demo lifecycle is busy; customer writes are temporarily blocked'
+    using errcode = 'lock_not_available';
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."begin_demo_seed"("p_root_account_id" bigint, "p_lease_token" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account public.accounts;
+  v_run public.demo_runs;
+  v_token text;
+begin
+  perform public.demo_lock_account_axes(array[p_root_account_id], 'update');
+  perform public.wait_for_demo_ingest_account_claims(p_root_account_id, 30);
+  select * into v_account from public.accounts where id = p_root_account_id;
+  if not found then
+    raise exception 'demo root account % not found', p_root_account_id
+      using errcode = 'foreign_key_violation';
+  end if;
+  perform public.demo_assert_empty_account(p_root_account_id);
+  if exists (
+    select 1 from public.demo_runs
+    where root_account_id = p_root_account_id
+      and status in ('seeding', 'active', 'clearing', 'failed')
+  ) then
+    raise exception 'demo run already exists for root account %', p_root_account_id
+      using errcode = 'unique_violation';
+  end if;
+  v_token := coalesce(nullif(p_lease_token, ''), gen_random_uuid()::text);
+  insert into public.demo_runs (
+    root_account_id, status, lease_token, lease_epoch, operation,
+    lease_expires_at, original_root_name
+  ) values (
+    p_root_account_id, 'seeding', v_token, 1, 'seed',
+    now() + interval '15 minutes', v_account.name
+  ) returning * into v_run;
+  insert into public.demo_run_accounts (
+    run_id, account_id, context_key, context_kind, is_root
+  ) values (
+    v_run.id, p_root_account_id, 'primary-household', 'household', true
+  );
+  insert into public.demo_run_member_state (
+    run_id, user_id, original_active_account_id, original_updated_at
+  )
+  select distinct on (am.user_id)
+    v_run.id, am.user_id, ms.active_account_id, ms.updated_at
+  from public.account_members am
+  left join public.member_state ms on ms.user_id = am.user_id
+  where am.account_id = p_root_account_id
+    and am.status = 'active'
+    and am.user_id is not null
+  order by am.user_id, am.id;
+  return jsonb_build_object(
+    'run_id', v_run.id, 'lease_token', v_token,
+    'lease_epoch', v_run.lease_epoch, 'original_root_name', v_account.name
+  );
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."claim_demo_clear"("p_root_account_id" bigint, "p_lease_token" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_run public.demo_runs;
+  v_run_id bigint;
+  v_accounts bigint[];
+  v_token text;
+begin
+  -- Resolve first, then lock every account axis before locking the run.  This
+  -- is the same order used by begin_demo_seed and the write barrier.
+  select id into v_run_id
+  from public.demo_runs
+  where root_account_id = p_root_account_id
+    and status in ('seeding', 'active', 'clearing', 'failed')
+  order by id desc limit 1;
+  if v_run_id is null then
+    return jsonb_build_object('outcome', 'no_run');
+  end if;
+  select array_agg(account_id order by account_id) into v_accounts
+  from public.demo_run_accounts where run_id = v_run_id;
+  perform public.demo_lock_account_axes(v_accounts, 'update');
+  select * into v_run from public.demo_runs where id = v_run_id for update;
+  if not found or v_run.root_account_id <> p_root_account_id
+     or v_run.status not in ('seeding', 'active', 'clearing', 'failed') then
+    return jsonb_build_object('outcome', 'no_run');
+  end if;
+  if v_run.status in ('seeding', 'clearing')
+     and v_run.lease_expires_at > now() then
+    raise exception 'demo run % is busy', v_run.id
+      using errcode = 'lock_not_available';
+  end if;
+  v_token := coalesce(nullif(p_lease_token, ''), gen_random_uuid()::text);
+  update public.demo_runs
+  set status = 'clearing', operation = 'clear', lease_token = v_token,
+      lease_epoch = lease_epoch + 1,
+      lease_expires_at = now() + interval '15 minutes',
+      cleanup_started_at = coalesce(cleanup_started_at, now()), updated_at = now()
+  where id = v_run.id returning * into v_run;
+  return jsonb_build_object(
+    'outcome', 'claimed', 'run_id', v_run.id, 'lease_token', v_token,
+    'lease_epoch', v_run.lease_epoch, 'root_account_id', v_run.root_account_id,
+    'original_root_name', v_run.original_root_name, 'status', v_run.status
+  );
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."register_demo_resource"("p_run_id" bigint, "p_lease_token" "text", "p_resource_type" "text", "p_resource_id" bigint) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if not public.demo_run_lease_is_current(p_run_id, p_lease_token, 'seed') then
+    raise exception 'demo run % lease is stale or fenced', p_run_id
+      using errcode = 'serialization_failure';
+  end if;
+  perform public.assert_demo_resource_ownership(p_run_id, p_resource_type, p_resource_id, true);
+  insert into public.demo_run_resources (run_id, resource_type, resource_id)
+  values (p_run_id, p_resource_type, p_resource_id)
+  on conflict (run_id, resource_type, resource_id) do nothing;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."seed_demo_single_private_content"("p_run_id" bigint, "p_lease_token" "text", "p_account_id" bigint, "p_single_id" bigint, "p_preference_body" "text", "p_preference_visible_to_manager" boolean, "p_note_body" "text", "p_note_visible_to_manager" boolean) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_preference_id bigint;
+  v_note_id bigint;
+begin
+  if not public.demo_run_lease_is_current(p_run_id, p_lease_token, 'seed')
+     or not exists (
+       select 1 from public.demo_run_accounts dra
+       join public.demo_runs dr on dr.id = dra.run_id
+       where dra.run_id = p_run_id and dra.account_id = p_account_id
+         and dra.is_root and dr.status = 'seeding'
+     ) then
+    raise exception 'demo private content seed is stale or outside the root run'
+      using errcode = 'serialization_failure';
+  end if;
+  if not exists (
+    select 1 from public.singles s
+    where s.id = p_single_id and s.account_id = p_account_id
+  ) then
+    raise exception 'demo private content single % is not owned by account %', p_single_id, p_account_id
+      using errcode = 'foreign_key_violation';
+  end if;
+  insert into public.single_preferences (account_id, single_id, body, visible_to_manager)
+  values (p_account_id, p_single_id, p_preference_body, p_preference_visible_to_manager)
+  returning id into v_preference_id;
+  insert into public.single_notes (account_id, single_id, body, visible_to_manager)
+  values (p_account_id, p_single_id, p_note_body, p_note_visible_to_manager)
+  returning id into v_note_id;
+  perform public.assert_demo_resource_ownership(p_run_id, 'single_preference', v_preference_id, true);
+  perform public.assert_demo_resource_ownership(p_run_id, 'single_note', v_note_id, true);
+  insert into public.demo_run_resources (run_id, resource_type, resource_id)
+  values (p_run_id, 'single_preference', v_preference_id),
+         (p_run_id, 'single_note', v_note_id);
+  return jsonb_build_object('preference_id', v_preference_id, 'note_id', v_note_id);
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."regrant_child_grant"("p_grant_id" bigint) RETURNS "text"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_old_grant public.child_grants;
+  v_new_grant public.child_grants;
+  v_actor_account_id bigint := public.current_context_id();
+  v_target_account_id bigint;
+  v_run_id bigint;
+  v_token text;
+begin
+  select * into v_old_grant from public.child_grants where id = p_grant_id for update;
+  select account_id into v_target_account_id
+  from public.singles where id = v_old_grant.target_single_id;
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_old_grant.proposer_account_id
+     or v_target_account_id is null
+     or not exists (
+       select 1 from public.account_members am
+       where am.account_id = v_actor_account_id and am.user_id = auth.uid()
+         and am.status = 'active' and am.role in ('parent_admin', 'self_manager')
+     ) then
+    raise exception 'child grant % not found or not authorized to re-grant', p_grant_id;
+  end if;
+  if v_old_grant.status not in ('severed', 'revoked', 'expired') then
+    raise exception 'child grant % cannot be re-granted (status %)', p_grant_id, v_old_grant.status
+      using errcode = 'check_violation';
+  end if;
+
+  -- An active demo regrant is an interaction on a manifest-owned graph.  The
+  -- actor and both endpoints must resolve to the same run before the new row
+  -- is inserted; the row and manifest receipt then commit together.
+  select dr.id into v_run_id
+  from public.demo_runs dr
+  join public.demo_run_accounts dra on dra.run_id = dr.id
+  where dr.status = 'active' and dra.account_id = v_actor_account_id
+  order by dr.id desc limit 1;
+  if v_run_id is not null then
+    perform public.demo_assert_same_active_run(
+      array[v_actor_account_id, v_old_grant.proposer_account_id, v_target_account_id],
+      'child grant re-grant'
+    );
+  end if;
+
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
+  insert into public.child_grants (
+    proposer_account_id, target_single_id, token_hash, expires_at, access_level
+  ) values (
+    v_old_grant.proposer_account_id, v_old_grant.target_single_id,
+    encode(extensions.digest(v_token, 'sha256'), 'hex'), now() + interval '7 days',
+    v_old_grant.access_level
+  ) returning * into v_new_grant;
+  if v_run_id is not null then
+    insert into public.demo_run_resources (run_id, resource_type, resource_id)
+    values (v_run_id, 'child_grant', v_new_grant.id);
+  end if;
+  return v_token;
+end;
+$$;
+
+-- Inbound email/attachment workers use a durable claim instead of an
+-- unlocked demo-status read. The claim is acquired before the first external
+-- write, is token-bound and idempotent, and is held through inbox insertion.
+CREATE OR REPLACE FUNCTION public.claim_demo_ingest(p_account_id bigint, p_claim_token text, p_ttl_seconds integer DEFAULT 300)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_account_id bigint;
+  v_run_id bigint;
+  v_status text;
+  v_hash text;
+  v_expires_at timestamp with time zone;
+  v_ttl integer := greatest(30, least(coalesce(p_ttl_seconds, 300), 900));
+begin
+  if p_claim_token is null or length(p_claim_token) < 16 or length(p_claim_token) > 256 then
+    raise exception 'invalid demo ingest claim token' using errcode = '22023';
+  end if;
+  select id into v_account_id
+  from public.accounts
+  where id = p_account_id
+  for key share;
+  if v_account_id is null then
+    raise exception 'demo ingest account does not exist' using errcode = 'foreign_key_violation';
+  end if;
+  select dr.id, dr.status
+    into v_run_id, v_status
+  from public.demo_run_accounts dra
+  join public.demo_runs dr on dr.id = dra.run_id
+  where dra.account_id = p_account_id
+    and dr.status in ('seeding', 'active', 'clearing', 'failed')
+  order by dr.id desc
+  limit 1;
+  if v_run_id is not null then
+    return jsonb_build_object('outcome', 'blocked');
+  end if;
+  v_hash := encode(extensions.digest(p_claim_token, 'sha256'), 'hex');
+  v_expires_at := clock_timestamp() + make_interval(secs => v_ttl);
+  insert into public.demo_run_ingest_claims (
+    run_id, account_id, claim_token_hash, state, updated_at, expires_at, released_at
+  ) values (
+    null, p_account_id, v_hash, 'active', clock_timestamp(), v_expires_at, null
+  )
+  on conflict (account_id, claim_token_hash) do update
+    set account_id = excluded.account_id,
+        state = 'active',
+        updated_at = excluded.updated_at,
+        expires_at = excluded.expires_at,
+        released_at = null;
+  return jsonb_build_object('outcome', 'claimed', 'run_id', null, 'expires_at', v_expires_at);
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION "public"."heartbeat_demo_ingest_claim"(
+    "p_account_id" bigint,
+    "p_claim_token" text,
+    "p_ttl_seconds" integer DEFAULT 300
+) RETURNS boolean
+    LANGUAGE "plpgsql" VOLATILE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_hash text;
+  v_ttl integer := greatest(30, least(coalesce(p_ttl_seconds, 300), 900));
+begin
+  if p_claim_token is null or length(p_claim_token) < 16 or length(p_claim_token) > 256 then
+    return false;
+  end if;
+  v_hash := encode(extensions.digest(p_claim_token, 'sha256'), 'hex');
+  update public.demo_run_ingest_claims
+  set updated_at = clock_timestamp(), expires_at = clock_timestamp() + make_interval(secs => v_ttl)
+  where account_id = p_account_id and claim_token_hash = v_hash
+    and state = 'active' and expires_at > clock_timestamp();
+  return found;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."release_demo_ingest_claim"(
+    "p_account_id" bigint,
+    "p_claim_token" text
+) RETURNS boolean
+    LANGUAGE "plpgsql" VOLATILE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_hash text;
+begin
+  if p_claim_token is null or length(p_claim_token) < 16 or length(p_claim_token) > 256 then
+    return false;
+  end if;
+  v_hash := encode(extensions.digest(p_claim_token, 'sha256'), 'hex');
+  delete from public.demo_run_ingest_claims
+  where account_id = p_account_id and claim_token_hash = v_hash;
+  return true;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.wait_for_demo_ingest_claims(p_run_id bigint, p_lease_token text, p_timeout_seconds integer DEFAULT 30)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_deadline timestamp with time zone := clock_timestamp()
+    + make_interval(secs => greatest(1, least(coalesce(p_timeout_seconds, 30), 120)));
+  v_active integer;
+begin
+  loop
+    if not public.demo_run_lease_is_current(p_run_id, p_lease_token, 'clear') then
+      raise exception 'demo ingest wait lost the clear lease' using errcode = '55000';
+    end if;
+    if exists (
+      select 1 from public.demo_run_ingest_claims
+      where state = 'active' and expires_at <= clock_timestamp()
+        and (run_id = p_run_id or account_id in (
+          select account_id from public.demo_run_accounts where run_id = p_run_id
+        ))
+    ) then
+      raise exception 'stale demo ingest claim blocks clear' using errcode = '55P03';
+    end if;
+    select count(*)::integer into v_active
+    from public.demo_run_ingest_claims
+    where state = 'active' and (run_id = p_run_id or account_id in (
+      select account_id from public.demo_run_accounts where run_id = p_run_id
+    ));
+    delete from public.demo_run_ingest_claims
+    where state in ('released', 'expired')
+      and (run_id = p_run_id or account_id in (
+        select account_id from public.demo_run_accounts where run_id = p_run_id
+      ));
+    if v_active = 0 then return true; end if;
+    if clock_timestamp() >= v_deadline then
+      raise exception 'demo ingest claims are still active' using errcode = '55P03';
+    end if;
+    perform pg_sleep(0.05);
+  end loop;
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION "public"."wait_for_demo_ingest_account_claims"(
+    "p_account_id" bigint,
+    "p_timeout_seconds" integer DEFAULT 30
+) RETURNS boolean
+    LANGUAGE "plpgsql" VOLATILE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_deadline timestamp with time zone := clock_timestamp()
+    + make_interval(secs => greatest(1, least(coalesce(p_timeout_seconds, 30), 120)));
+  v_active integer;
+begin
+  loop
+    if exists (
+      select 1 from public.demo_run_ingest_claims
+      where account_id = p_account_id
+        and state = 'active'
+        and expires_at <= clock_timestamp()
+    ) then
+      raise exception 'stale ordinary ingest claim blocks demo seed' using errcode = '55P03';
+    end if;
+    delete from public.demo_run_ingest_claims
+    where account_id = p_account_id and state in ('released', 'expired');
+    select count(*)::integer into v_active
+    from public.demo_run_ingest_claims
+    where account_id = p_account_id and state = 'active';
+    if v_active = 0 then return true; end if;
+    if clock_timestamp() >= v_deadline then
+      raise exception 'ordinary ingest claims are still active' using errcode = '55P03';
+    end if;
+    perform pg_sleep(0.05);
+  end loop;
 end;
 $$;

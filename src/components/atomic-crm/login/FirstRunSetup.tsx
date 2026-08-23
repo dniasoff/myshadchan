@@ -40,7 +40,7 @@ export interface FirstRunSetupProps {
    * `addPersona('parent')` already made `my_personas()` non-empty) would
    * flip it to the real app shell and unmount this component before the
    * user finishes it. */
-  onFinished: () => void;
+  onFinished: () => void | Promise<void>;
 }
 
 /**
@@ -331,9 +331,12 @@ export const FirstRunSetup = ({
                 "w-full cursor-pointer gap-2",
                 PRIMARY_CTA_CLASSNAME,
               )}
-              onClick={() => {
-                onFinished();
-                navigate("/");
+              onClick={async () => {
+                try {
+                  await onFinished();
+                } finally {
+                  navigate("/");
+                }
               }}
             >
               <Sparkles className="size-4" aria-hidden="true" />

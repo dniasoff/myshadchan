@@ -107,6 +107,22 @@ insert into ids values
   ('leah_single_id', :'sibling_fixture_leah_single_id'),
   ('rivka_single_id', :'sibling_fixture_rivka_single_id');
 
+-- Focused actor-role regression: the invited `single` role is read-only on
+-- the domain rows.  A permissive FOR ALL policy for that role would OR with
+-- the normal manager policy and silently re-open private suggestions or
+-- transitions, even though the visible-to-single SELECT policy is correct.
+insert into results (name, passed, detail)
+select
+  'actor boundary: invited single has no direct singles/shidduchim write policy; self_manager uses the existing manager path',
+  not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename in ('singles', 'shidduchim')
+      and policyname in ('Singles writable by self', 'Shidduchim writable by self')
+  ),
+  'the role=single FOR ALL policies must remain absent';
+
 -- `location_en` is not decoration: it is the ONE corroborator that lifts an
 -- exact name match above match_identity()'s NULL-confidence floor, which is
 -- what gives the catch twin below (and therefore catch_shidduch()'s

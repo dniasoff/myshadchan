@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { ChangeEvent, ReactElement, ReactNode } from "react";
 import {
   useDataProvider,
+  useGetOne,
   useGetList,
   useNotify,
   useRecordContext,
@@ -16,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import type { CrmDataProvider } from "../providers/types";
 import type {
+  Account,
   Resume,
   ResumePhoto,
   ResumePhotoVisibility,
@@ -23,6 +25,8 @@ import type {
 } from "../types";
 import { PhotoRevealCard } from "./PhotoRevealCard";
 import { resumeSubjectFilter, type ResumeSubject } from "./resumeSubject";
+import { pickActiveContext } from "../providers/commons/roleAuthority";
+import { useMyContexts } from "../root/useMyContexts";
 
 const VISIBILITY_OPTIONS: readonly ResumePhotoVisibility[] = [
   "shared",
@@ -166,6 +170,24 @@ function PhotoTabContent({
   subject: ResumeSubject;
 }): ReactElement {
   const refresh = useRefresh();
+  const {
+    data: contexts,
+    isPending: isContextsPending,
+    isError: isContextsError,
+  } = useMyContexts();
+  const activeContext = pickActiveContext(contexts);
+  const accountId = activeContext?.account_id;
+  const {
+    data: account,
+    isPending: isAccountPending,
+    isError: isAccountError,
+  } = useGetOne<Account>(
+    "accounts",
+    { id: accountId },
+    {
+      enabled: accountId != null,
+    },
+  );
 
   const {
     data: resumes,
@@ -195,6 +217,18 @@ function PhotoTabContent({
   const isPending = isResumePending || (resumeId != null && isPhotosPending);
   const error = resumeError ?? photosError;
   const items = resumeId == null ? [] : (photos ?? []);
+  const isPhotoPreferencePending =
+    isContextsPending || (accountId != null && isAccountPending);
+  const isPhotoPreferenceUnavailable =
+    isContextsError ||
+    isAccountError ||
+    (!isContextsPending && (accountId == null || account == null));
+  // Privacy defaults fail closed: a missing/failed context or account read
+  // must never be interpreted as the ordinary immediate-display preference.
+  const revealOnClick =
+    isPhotoPreferencePending || isPhotoPreferenceUnavailable
+      ? true
+      : account?.photo_reveal_on_click === true;
 
   return (
     <div className="flex flex-col gap-4">
@@ -213,6 +247,7 @@ function PhotoTabContent({
               key={String(photo.id)}
               photo={photo}
               onHidden={refresh}
+              revealOnClick={revealOnClick}
             />
           ))}
         </div>

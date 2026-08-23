@@ -8,12 +8,14 @@ import { timingSafeEqual } from "./timingSafeEqual.ts";
 import type { AccountResult } from "./types.ts";
 
 /**
- * Admin bulk reseed: clears and re-seeds every account flagged as `demo = true`.
+ * Admin bulk reseed: clears and re-seeds every demo root, including roots
+ * whose retained failed run has already restored `accounts.demo = false`.
  *
  * Safety layers:
  *  - Gated by `ADMIN_RESEED_SECRET` env var (Bearer token in Authorization),
  *    compared in constant time (timingSafeEqual.ts).
- *  - Only processes rows where `accounts.demo = true`.
+ *  - Processes flagged roots plus every root of an unfinished manifest run;
+ *    a retained failed run is itself the cleanup/reseed handle.
  *  - Reuses the existing `clear_demo` and `seed_demo` edge functions rather
  *    than duplicating their logic, so any future seed/clear changes apply here.
  *  - Operates via a BRAND-NEW temp user PER ACCOUNT (tempUser.ts), never one
@@ -101,6 +103,88 @@ function jsonResponse(body: unknown): Response {
   });
 }
 
+type DemoAccountRow = { id: number; kind: string };
+type DemoRunRow = { id: number; root_account_id: number; status: string };
+type DemoRunAccountRow = { account_id: number; run_id: number };
+
+/**
+ * Enumerates the reseed set once and normalizes any accidental demo flag on a
+ * companion context back to its manifest root. Legacy demo accounts without a
+ * manifest remain valid roots. The resulting list is de-duplicated before any
+ * destructive clear+seed attempt starts.
+ */
+async function enumerateDemoRoots(): Promise<DemoAccountRow[]> {
+  const { data: demoAccounts, error: accountError } = await supabaseAdmin
+    .from("accounts")
+    .select("id, kind")
+    .eq("demo", true);
+  if (accountError) throw accountError;
+
+  const flaggedAccounts = (demoAccounts ?? []) as DemoAccountRow[];
+  const { data: runs, error: runError } = await supabaseAdmin
+    .from("demo_runs")
+    .select("id, root_account_id, status")
+    .in("status", ["seeding", "active", "clearing", "failed"]);
+  if (runError) throw runError;
+  const activeRuns = (runs ?? []) as DemoRunRow[];
+  const runIds = [...new Set(activeRuns.map((run) => run.id))];
+
+  const manifestRows: DemoRunAccountRow[] = [];
+  if (runIds.length > 0) {
+    const { data: runAccounts, error: runAccountError } = await supabaseAdmin
+      .from("demo_run_accounts")
+      .select("account_id, run_id")
+      .in("run_id", runIds);
+    if (runAccountError) throw runAccountError;
+    manifestRows.push(...((runAccounts ?? []) as DemoRunAccountRow[]));
+  }
+
+  const candidateRootIds = [
+    ...new Set([
+      ...flaggedAccounts.map((account) => account.id),
+      ...activeRuns.map((run) => run.root_account_id),
+    ]),
+  ];
+  const knownAccounts = new Map(
+    flaggedAccounts.map((account) => [account.id, account]),
+  );
+  const missingRootIds = candidateRootIds.filter(
+    (accountId) => !knownAccounts.has(accountId),
+  );
+  if (missingRootIds.length > 0) {
+    const { data: rootAccounts, error: rootAccountError } = await supabaseAdmin
+      .from("accounts")
+      .select("id, kind")
+      .in("id", missingRootIds);
+    if (rootAccountError) throw rootAccountError;
+    for (const account of (rootAccounts ?? []) as DemoAccountRow[]) {
+      knownAccounts.set(account.id, account);
+    }
+  }
+
+  const rootByAccount = new Map<number, number>();
+  for (const run of [...activeRuns].sort((a, b) => b.id - a.id)) {
+    for (const row of manifestRows.filter(
+      (candidate) => candidate.run_id === run.id,
+    )) {
+      if (!rootByAccount.has(row.account_id)) {
+        rootByAccount.set(row.account_id, run.root_account_id);
+      }
+    }
+  }
+
+  const accountById = knownAccounts;
+  const roots = new Map<number, DemoAccountRow>();
+  for (const account of knownAccounts.values()) {
+    const rootId = rootByAccount.get(account.id) ?? account.id;
+    roots.set(
+      rootId,
+      accountById.get(rootId) ?? { id: rootId, kind: account.kind },
+    );
+  }
+  return [...roots.values()];
+}
+
 // Read HERE — inside the request handler, not at module scope — mirrors
 // postmark/index.ts's `readWebhookSecrets`: a missing/rotated secret then
 // produces a per-request, log-visible 500 instead of an import-time
@@ -125,19 +209,16 @@ export async function handleReseed(req: Request): Promise<Response> {
     return createErrorResponse(500, "Missing Supabase environment variables");
   }
 
-  const { data: accounts, error: accountsError } = await supabaseAdmin
-    .from("accounts")
-    .select("id, kind")
-    .eq("demo", true);
-  if (accountsError) {
-    return createErrorResponse(500, accountsError.message);
+  let accountList: DemoAccountRow[];
+  try {
+    accountList = await enumerateDemoRoots();
+  } catch (error) {
+    return createErrorResponse(500, getErrorMessage(error));
   }
-
-  const accountList = (accounts ?? []) as Array<{ id: number; kind: string }>;
   if (accountList.length === 0) {
     return jsonResponse({
       ...summarize(0, []),
-      message: "no demo-flagged accounts found",
+      message: "no demo roots found",
     });
   }
 
