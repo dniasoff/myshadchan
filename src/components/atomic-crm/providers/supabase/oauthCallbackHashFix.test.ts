@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { fixDoubleHashOAuthCallback } from "./oauthCallbackHashFix";
+import {
+  fixDoubleHashOAuthCallback,
+  fixOAuthErrorRedirect,
+} from "./oauthCallbackHashFix";
 
 describe("fixDoubleHashOAuthCallback", () => {
   it("returns null for a plain URL with no fragment at all", () => {
@@ -69,5 +72,57 @@ describe("fixDoubleHashOAuthCallback", () => {
     expect(result).toBe(
       "https://www.myshadchan.space/some/path?foo=bar#access_token=abc123",
     );
+  });
+});
+
+describe("fixOAuthErrorRedirect", () => {
+  it("moves GoTrue's query-plus-fragment error back onto the callback route", () => {
+    // Arrange
+    const href =
+      "https://www.myshadchan.space/?auth_flow=sign-in&error=server_error&error_description=You+must+confirm+you+are+18+years+of+age+or+older+to+sign+up.#error=server_error&error_description=You+must+confirm+you+are+18+years+of+age+or+older+to+sign+up.&sb=";
+
+    // Act
+    const result = fixOAuthErrorRedirect(href);
+
+    // Assert
+    expect(result).toBe(
+      "https://www.myshadchan.space/?auth_flow=sign-in&error=server_error&error_description=You+must+confirm+you+are+18+years+of+age+or+older+to+sign+up.#/auth-callback",
+    );
+  });
+
+  it("turns a hash-only error into a route query", () => {
+    // Arrange
+    const href =
+      "https://www.myshadchan.space/#error=access_denied&error_description=Cancelled&sb=";
+
+    // Act
+    const result = fixOAuthErrorRedirect(href);
+
+    // Assert
+    expect(result).toBe(
+      "https://www.myshadchan.space/#/auth-callback?error=access_denied&error_description=Cancelled&sb=",
+    );
+  });
+
+  it("normalizes the ampersand-appended callback shape", () => {
+    // Arrange
+    const href =
+      "https://www.myshadchan.space/#/auth-callback&error=access_denied&error_description=Cancelled";
+
+    // Act
+    const result = fixOAuthErrorRedirect(href);
+
+    // Assert
+    expect(result).toBe(
+      "https://www.myshadchan.space/#/auth-callback?error=access_denied&error_description=Cancelled",
+    );
+  });
+
+  it("leaves an already-correct callback route untouched", () => {
+    expect(
+      fixOAuthErrorRedirect(
+        "https://www.myshadchan.space/?error=access_denied#/auth-callback",
+      ),
+    ).toBeNull();
   });
 });

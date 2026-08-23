@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, type AuthProvider } from "ra-core";
 import { testI18nProvider } from "@/components/atomic-crm/providers/commons/i18nProvider";
+import { NoAccountFoundError } from "../providers/commons/authErrors";
 import { LoginPage } from "./LoginPage";
 import type { TurnstileWidgetHandle } from "./TurnstileWidget";
 
@@ -88,6 +89,35 @@ describe("LoginPage", () => {
       requestOtp: true,
       captchaToken: FAKE_CAPTCHA_TOKEN,
     });
+  });
+
+  it("offers account creation instead of entering a code step for an unknown email", async () => {
+    // Arrange
+    const login = vi.fn().mockRejectedValue(new NoAccountFoundError());
+    const screen = await renderLoginPage(login);
+
+    // Act
+    await screen.getByLabelText(/email/i).fill("nobody@example.com");
+    await screen.getByRole("button", { name: "Send code" }).click();
+
+    // Assert: no code can arrive for this address, so the visitor stays on the
+    // email step and gets a direct, accessible route to registration.
+    await expect
+      .element(
+        screen.getByText(
+          "No account has been found. Would you like to create a new account?",
+        ),
+      )
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("link", { name: "Create a new account" }))
+      .toHaveAttribute("href", expect.stringContaining("/register"));
+    await expect
+      .element(screen.getByRole("button", { name: "Send code" }))
+      .not.toBeDisabled();
+    await expect
+      .element(screen.getByRole("button", { name: "Sign in" }))
+      .not.toBeInTheDocument();
   });
 
   it("verifies the typed code against the same email that requested it", async () => {
@@ -182,6 +212,35 @@ describe("LoginPage", () => {
     await expect
       .element(screen.getByRole("button", { name: "Sign in" }))
       .toBeInTheDocument();
+  });
+
+  it("disables resend while a resend request is pending", async () => {
+    // Arrange
+    let resolveResend: () => void = () => undefined;
+    const resendPending = new Promise<void>((resolve) => {
+      resolveResend = resolve;
+    });
+    const login = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockReturnValueOnce(resendPending);
+    const screen = await renderLoginPage(login);
+    await screen.getByLabelText(/email/i).fill("ada@example.com");
+    await screen.getByRole("button", { name: "Send code" }).click();
+    await expect
+      .element(screen.getByRole("button", { name: "Sign in" }))
+      .toBeInTheDocument();
+
+    // Act
+    const resend = screen.getByRole("button", { name: "Resend code" });
+    await resend.click();
+
+    // Assert: a second click cannot create a concurrent request or a second
+    // misleading "Code sent again" notification.
+    await expect.element(resend).toBeDisabled();
+    expect(login).toHaveBeenCalledTimes(2);
+    resolveResend();
+    await expect.element(resend).not.toBeDisabled();
   });
 
   it("does not render the Google sign-in entry point when Google OAuth is disabled", async () => {

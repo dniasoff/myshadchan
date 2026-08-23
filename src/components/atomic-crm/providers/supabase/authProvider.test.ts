@@ -6,8 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // minimal `auth` surface is enough. `vi.hoisted` is required here (not plain
 // module-scope `const`) because `vi.mock`'s factory itself is hoisted above
 // every import/declaration in this file.
-const { signInWithOtp, verifyOtp, rpc } = vi.hoisted(() => ({
+const { signInWithOtp, signInWithOAuth, verifyOtp, rpc } = vi.hoisted(() => ({
   signInWithOtp: vi.fn(),
+  signInWithOAuth: vi.fn(),
   verifyOtp: vi.fn(),
   // Story 3.4 AC 8 — `canAccess`'s role source (`my_contexts()`).
   rpc: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("./supabase", () => ({
   getSupabaseClient: () => ({
     auth: {
       signInWithOtp,
+      signInWithOAuth,
       verifyOtp,
       getSession: vi
         .fn()
@@ -34,7 +36,9 @@ import { getAuthProvider } from "./authProvider";
 describe("getAuthProvider().login", () => {
   beforeEach(() => {
     signInWithOtp.mockReset();
+    signInWithOAuth.mockReset();
     verifyOtp.mockReset();
+    window.sessionStorage.clear();
   });
 
   it("requests an OTP without creating a user by default", async () => {
@@ -72,7 +76,7 @@ describe("getAuthProvider().login", () => {
     });
   });
 
-  it("swallows GoTrue's otp_disabled rejection so an unknown email is indistinguishable from a known one", async () => {
+  it("converts GoTrue's otp_disabled rejection into the no-account outcome for sign-in", async () => {
     // Arrange: verified live against the local stack — `shouldCreateUser:
     // false` against an unknown email rejects with exactly this code
     // ("Signups not allowed for otp"), not the more obviously-named
@@ -83,11 +87,14 @@ describe("getAuthProvider().login", () => {
     });
     const authProvider = getAuthProvider();
 
-    // Act / Assert: resolves like a known email would — no account-existence
-    // oracle.
+    // Act / Assert: the UI needs a stable app-level signal so it can offer
+    // account creation rather than advancing to an impossible code step.
     await expect(
       authProvider.login({ email: "nobody@example.com", requestOtp: true }),
-    ).resolves.toBeUndefined();
+    ).rejects.toMatchObject({
+      code: "no_account_found",
+      name: "NoAccountFoundError",
+    });
   });
 
   it("swallows GoTrue's over_email_send_rate_limit rejection so a second Resend click cannot distinguish a known address from an unknown one", async () => {
@@ -127,6 +134,34 @@ describe("getAuthProvider().login", () => {
     await expect(
       authProvider.login({ email: "ada@example.com", requestOtp: true }),
     ).rejects.toBe(error);
+  });
+
+  it("marks the returning-user Google callback so an unknown account can be recovered", async () => {
+    // Arrange
+    signInWithOAuth.mockResolvedValue({
+      data: { url: "https://google.test" },
+      error: null,
+    });
+    const authProvider = getAuthProvider();
+
+    // Act
+    await authProvider.login({
+      oauthProvider: "google",
+      oauthFlow: "sign-in",
+    });
+
+    // Assert: the callback URL stays on the existing allow-listed shape, while
+    // the marker lives only in this browser session and never reaches Google.
+    expect(signInWithOAuth).toHaveBeenCalledExactlyOnceWith({
+      provider: "google",
+      options: {
+        redirectTo: expect.stringContaining("/#/auth-callback"),
+        queryParams: undefined,
+      },
+    });
+    expect(
+      window.sessionStorage.getItem("myshadchan.oauth.sign_in_flow"),
+    ).not.toBeNull();
   });
 
   it("verifies a code with type 'email'", async () => {

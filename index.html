@@ -163,13 +163,50 @@
       (function () {
         var href = window.location.href;
         var firstHash = href.indexOf("#");
-        if (firstHash === -1) return;
-        var afterFirstHash = href.slice(firstHash + 1);
-        var secondHash = afterFirstHash.indexOf("#");
-        if (secondHash === -1) return;
-        var tokenFragment = afterFirstHash.slice(secondHash + 1);
-        var fixedHref = href.slice(0, firstHash) + "#" + tokenFragment;
-        window.history.replaceState(window.history.state, "", fixedHref);
+        if (firstHash !== -1) {
+          var afterFirstHash = href.slice(firstHash + 1);
+          var secondHash = afterFirstHash.indexOf("#");
+          if (secondHash !== -1) {
+            var tokenFragment = afterFirstHash.slice(secondHash + 1);
+            href = href.slice(0, firstHash) + "#" + tokenFragment;
+            window.history.replaceState(window.history.state, "", href);
+          }
+        }
+
+        // GoTrue mirrors OAuth errors into the query and fragment. A
+        // redirect such as `...?error=...#error=...` makes HashRouter see an
+        // `error=...` route instead of `/auth-callback`, so normalize it
+        // before the module script (and Supabase's URL parser) runs.
+        var hashIndex = href.indexOf("#");
+        var prefix = hashIndex === -1 ? href : href.slice(0, hashIndex);
+        var rawHash = hashIndex === -1 ? "" : href.slice(hashIndex + 1);
+        var search = window.location.search;
+        var hasErrorParam = function (value) {
+          return /(?:^|[?&])(?:error|error_code|error_description)=/.test(
+            value,
+          );
+        };
+        var hasSearchError = hasErrorParam(search);
+        var hashErrorParams = null;
+        if (rawHash.indexOf("/auth-callback&") === 0) {
+          hashErrorParams = rawHash.slice("/auth-callback&".length);
+        } else if (hasErrorParam(rawHash)) {
+          hashErrorParams = rawHash;
+        }
+        var callbackRouteAlreadyValid =
+          rawHash === "/auth-callback" ||
+          rawHash.indexOf("/auth-callback?") === 0;
+        if (
+          !callbackRouteAlreadyValid &&
+          (hasSearchError || hashErrorParams !== null)
+        ) {
+          var callbackHash =
+            !hasSearchError && hashErrorParams !== null
+              ? "#/auth-callback?" + hashErrorParams
+              : "#/auth-callback";
+          var fixedErrorHref = prefix + callbackHash;
+          window.history.replaceState(window.history.state, "", fixedErrorHref);
+        }
       })();
     </script>
     <script type="module" src="<%= mainScript %>"></script>

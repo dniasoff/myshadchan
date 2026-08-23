@@ -130,6 +130,9 @@ export const englishCrmMessages = {
         code_resent: "Code sent again",
         use_different_email: "Use a different email",
         invalid_code: "That code is incorrect or has expired.",
+        no_account_found:
+          "No account has been found. Would you like to create a new account?",
+        create_new_account: "Create a new account",
         // Google sign-in entry point + the link to the open register flow
         // (RegisterFlow) — both previously built but wired into nothing.
         continue_with_google: "Continue with Google",
@@ -157,6 +160,8 @@ export const englishCrmMessages = {
       // its own fallback, so these catalogue entries — not the strings in
       // oauthCallback.ts — are what a turned-away visitor actually sees.
       oauth_callback: {
+        no_account:
+          "No account has been found. Would you like to create a new account?",
         cancelled:
           "You closed the Google sign-in window before finishing. No account was created — come back and try again whenever you're ready.",
         not_configured:

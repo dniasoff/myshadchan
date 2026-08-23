@@ -108,7 +108,7 @@ export const GoogleSignInButton = (_props: GoogleSignInButtonProps) => {
       });
     }, GOOGLE_OAUTH_REDIRECT_TIMEOUT_MS);
     void authProvider
-      .login({ oauthProvider: "google" })
+      .login({ oauthProvider: "google", oauthFlow: "sign-in" })
       .catch((error: unknown) => {
         if (attemptRef.current !== attempt) {
           return;

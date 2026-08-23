@@ -57,3 +57,46 @@ export function fixDoubleHashOAuthCallback(href: string): string | null {
   const tokenFragment = afterFirstHash.slice(secondHash + 1);
   return `${href.slice(0, firstHash)}#${tokenFragment}`;
 }
+
+/**
+ * Repairs GoTrue's OAuth error redirect before HashRouter sees it.
+ *
+ * GoTrue mirrors OAuth errors into both the URL query and the fragment. When
+ * the original redirect target has a hash route, the browser can therefore
+ * arrive at `/?auth_flow=sign-in&error=...#error=...` (or at
+ * `#/auth-callback&error=...`). In both shapes HashRouter sees a route other
+ * than `/auth-callback`, so the callback component never gets a chance to
+ * map the error. Move the fragment-side error parameters behind the callback
+ * route's query delimiter and keep any query-side parameters untouched.
+ */
+export function fixOAuthErrorRedirect(href: string): string | null {
+  const hashIndex = href.indexOf("#");
+  const prefix = hashIndex === -1 ? href : href.slice(0, hashIndex);
+  const rawHash = hashIndex === -1 ? "" : href.slice(hashIndex + 1);
+  const search = new URL(href, "http://localhost").search;
+  const hasErrorParam = (value: string) =>
+    /(?:^|[?&])(?:error|error_code|error_description)=/.test(value);
+  const hasSearchError = hasErrorParam(search);
+
+  if (rawHash === "/auth-callback" || rawHash.startsWith("/auth-callback?")) {
+    return null;
+  }
+
+  let hashErrorParams: string | null = null;
+  if (rawHash.startsWith("/auth-callback&")) {
+    hashErrorParams = rawHash.slice("/auth-callback&".length);
+  } else if (hasErrorParam(rawHash)) {
+    hashErrorParams = rawHash;
+  }
+
+  if (!hasSearchError && hashErrorParams == null) {
+    return null;
+  }
+
+  const callbackHash =
+    !hasSearchError && hashErrorParams != null
+      ? `#/auth-callback?${hashErrorParams}`
+      : "#/auth-callback";
+  const fixedHref = `${prefix}${callbackHash}`;
+  return fixedHref === href ? null : fixedHref;
+}

@@ -22,6 +22,7 @@ import { isGoogleOAuthEnabled } from "./googleOAuth";
 import { resolveAuthErrorNotification } from "./resolveAuthError";
 import { TurnstileWidget, type TurnstileWidgetHandle } from "./TurnstileWidget";
 import { TURNSTILE_SITE_KEY } from "./turnstileConfig";
+import { isNoAccountFoundError } from "../providers/commons/authErrors";
 
 type LoginStep = "email" | "code";
 
@@ -82,8 +83,10 @@ export const LoginPage = (props: { redirectTo?: string }) => {
   const [email, setEmail] = useState("");
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isResending, setIsResending] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [wantsOtp, setWantsOtp] = useState(false);
+  const [noAccountFound, setNoAccountFound] = useState(false);
   const turnstileRef = useRef<TurnstileWidgetHandle>(null);
   const authProvider = useAuthProvider();
   const login = useLogin();
@@ -112,8 +115,14 @@ export const LoginPage = (props: { redirectTo?: string }) => {
     });
   };
 
+  const resetCaptcha = () => {
+    setCaptchaToken(null);
+    turnstileRef.current?.reset();
+  };
+
   const handleRequestCode: SubmitHandler<FieldValues> = (values) => {
     const submittedEmail = String(values.email ?? "").trim();
+    setNoAccountFound(false);
     setIsRequesting(true);
     requestCode(submittedEmail)
       .then(() => {
@@ -125,6 +134,11 @@ export const LoginPage = (props: { redirectTo?: string }) => {
         turnstileRef.current?.reset();
       })
       .catch((error: unknown) => {
+        resetCaptcha();
+        if (isNoAccountFoundError(error)) {
+          setNoAccountFound(true);
+          return;
+        }
         notifyError(error, {
           id: "ra.auth.sign_in_error",
           defaultMessage: "Authentication failed, please retry",
@@ -146,6 +160,10 @@ export const LoginPage = (props: { redirectTo?: string }) => {
   };
 
   const handleResend = () => {
+    if (isResending) {
+      return;
+    }
+    setIsResending(true);
     requestCode(email)
       .then(() => {
         notify("crm.auth.login.code_resent", {
@@ -154,11 +172,13 @@ export const LoginPage = (props: { redirectTo?: string }) => {
         turnstileRef.current?.reset();
       })
       .catch((error: unknown) => {
+        resetCaptcha();
         notifyError(error, {
           id: "ra.auth.sign_in_error",
           defaultMessage: "Authentication failed, please retry",
         });
-      });
+      })
+      .finally(() => setIsResending(false));
   };
 
   return (
@@ -225,6 +245,27 @@ export const LoginPage = (props: { redirectTo?: string }) => {
                 {translate("crm.auth.login.send_code", { _: "Send code" })}
               </Button>
             </Form>
+
+            {noAccountFound ? (
+              <div
+                role="alert"
+                className="space-y-3 rounded-lg border border-border/60 bg-muted/30 p-4 text-sm"
+              >
+                <p className="font-medium">
+                  {translate("crm.auth.login.no_account_found", {
+                    _: "No account has been found. Would you like to create a new account?",
+                  })}
+                </p>
+                <Link
+                  to="/register"
+                  className="inline-flex font-medium text-foreground underline-offset-4 hover:underline"
+                >
+                  {translate("crm.auth.login.create_new_account", {
+                    _: "Create a new account",
+                  })}
+                </Link>
+              </div>
+            ) : null}
 
             {isGoogleOAuthEnabled() ? (
               <div className="space-y-4">
@@ -294,8 +335,15 @@ export const LoginPage = (props: { redirectTo?: string }) => {
               <button
                 type="button"
                 onClick={handleResend}
+                disabled={isResending}
                 className="text-muted-foreground hover:text-foreground hover:underline"
               >
+                {isResending ? (
+                  <Loader2
+                    className="me-1 inline size-3 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : null}
                 {translate("crm.auth.login.resend_code", {
                   _: "Resend code",
                 })}

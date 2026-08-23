@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { englishCrmMessages } from "../commons/englishCrmMessages";
-import { readOAuthCallbackError } from "./oauthCallback";
+import {
+  readOAuthCallbackError,
+  SIGNUP_AGE_REJECTION_MESSAGE,
+} from "./oauthCallback";
 
 describe("readOAuthCallbackError", () => {
   it("returns null when the URL carries no error at all", () => {
@@ -85,6 +88,26 @@ describe("readOAuthCallbackError", () => {
     expect(result?.defaultMessage).toBe(ageMessage);
   });
 
+  it("maps a marked returning-user age rejection to account creation recovery", () => {
+    // Arrange
+    const location = {
+      search: `?auth_flow=sign-in&error=server_error&error_description=${encodeURIComponent(
+        SIGNUP_AGE_REJECTION_MESSAGE,
+      )}`,
+      hash: "#/auth-callback",
+    };
+
+    // Act
+    const result = readOAuthCallbackError(location, "sign-in");
+
+    // Assert: the sign-up page still receives the age message, while the
+    // returning-user Google path gets the no-account recovery choice.
+    expect(result?.messageKey).toBe("crm.auth.oauth_callback.no_account");
+    expect(result?.defaultMessage).toBe(
+      "No account has been found. Would you like to create a new account?",
+    );
+  });
+
   it("falls back to the generic calm message for an unrecognized cause", () => {
     // Arrange
     const location = {
@@ -94,6 +117,22 @@ describe("readOAuthCallbackError", () => {
 
     // Act
     const result = readOAuthCallbackError(location);
+
+    // Assert
+    expect(result?.messageKey).toBe("crm.auth.oauth_callback.generic");
+  });
+
+  it("does not call an unrelated age-related provider error no-account recovery", () => {
+    // Arrange
+    const location = {
+      search: `?error=server_error&error_description=${encodeURIComponent(
+        "You must be 18 years of age to use this provider.",
+      )}`,
+      hash: "#/auth-callback",
+    };
+
+    // Act
+    const result = readOAuthCallbackError(location, "sign-in");
 
     // Assert
     expect(result?.messageKey).toBe("crm.auth.oauth_callback.generic");
@@ -144,6 +183,14 @@ describe("crm.auth.oauth_callback.* catalogue entries", () => {
       location: {
         search: "?error=server_error&error_description=Something+odd",
         hash: "",
+      },
+    },
+    {
+      label: "no_account",
+      location: {
+        search:
+          "?auth_flow=sign-in&error=server_error&error_description=You+must+confirm+you+are+18+years+of+age+or+older+to+sign+up.",
+        hash: "#/auth-callback",
       },
     },
   ];

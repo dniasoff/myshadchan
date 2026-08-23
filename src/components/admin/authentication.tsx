@@ -63,6 +63,7 @@ export const AuthError = (props: AuthErrorProps) => {
   } = props;
 
   const translate = useTranslate();
+  const isNoAccountError = message === "crm.auth.oauth_callback.no_account";
   return (
     <div
       className={cn(
@@ -76,11 +77,22 @@ export const AuthError = (props: AuthErrorProps) => {
         <Translate i18nKey={title} />
       </h1>
       <p className="my-5">{translate(message, { _: message })}</p>
-      <Button asChild>
-        <Link to="/login">
-          <LockIcon /> {translate("ra.auth.sign_in", { _: "Sign in" })}
-        </Link>
-      </Button>
+      <div className="flex flex-wrap justify-center gap-3">
+        {isNoAccountError ? (
+          <Button asChild>
+            <Link to="/register">
+              {translate("crm.auth.login.create_new_account", {
+                _: "Create a new account",
+              })}
+            </Link>
+          </Button>
+        ) : null}
+        <Button asChild variant={isNoAccountError ? "outline" : "default"}>
+          <Link to="/login">
+            <LockIcon /> {translate("ra.auth.sign_in", { _: "Sign in" })}
+          </Link>
+        </Button>
+      </div>
     </div>
   );
 };

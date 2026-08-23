@@ -100,6 +100,7 @@ describe("GoogleSignInButton", () => {
     await vi.waitFor(() => {
       expect(login).toHaveBeenCalledExactlyOnceWith({
         oauthProvider: "google",
+        oauthFlow: "sign-in",
       });
     });
     expect(pushState).not.toHaveBeenCalled();

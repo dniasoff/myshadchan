@@ -2,6 +2,7 @@ import type { AuthProvider } from "ra-core";
 import { supabaseAuthProvider } from "ra-supabase-core";
 
 import type { MemberRole, MyContext } from "../../types";
+import { NoAccountFoundError } from "../commons/authErrors";
 import { canAccess } from "../commons/canAccess";
 import { pickActiveRole } from "../commons/roleAuthority";
 import { readOAuthCallbackError } from "./oauthCallback";
@@ -15,6 +16,44 @@ import { getSupabaseClient } from "./supabase";
 // matches, so `handleCallback()` below gets a chance to run at all instead of
 // the browser showing whatever an unmatched `#error=...` hash resolves to.
 const AUTH_CALLBACK_PATH = "/auth-callback";
+const SIGN_IN_OAUTH_FLOW_STORAGE_KEY = "myshadchan.oauth.sign_in_flow";
+const SIGN_IN_OAUTH_FLOW_MAX_AGE_MS = 15 * 60 * 1000;
+
+function markSignInOAuthFlow() {
+  try {
+    window.sessionStorage.setItem(
+      SIGN_IN_OAUTH_FLOW_STORAGE_KEY,
+      String(Date.now()),
+    );
+  } catch {
+    // A blocked sessionStorage must not stop the provider handoff. The
+    // callback still has the generic OAuth recovery path if this happens.
+  }
+}
+
+function clearSignInOAuthFlow() {
+  try {
+    window.sessionStorage.removeItem(SIGN_IN_OAUTH_FLOW_STORAGE_KEY);
+  } catch {
+    // Ignore storage cleanup failures; the marker is time-bounded.
+  }
+}
+
+function consumeSignInOAuthFlow(): boolean {
+  try {
+    const startedAt = Number(
+      window.sessionStorage.getItem(SIGN_IN_OAUTH_FLOW_STORAGE_KEY),
+    );
+    window.sessionStorage.removeItem(SIGN_IN_OAUTH_FLOW_STORAGE_KEY);
+    if (!Number.isFinite(startedAt)) {
+      return false;
+    }
+    const age = Date.now() - startedAt;
+    return age >= 0 && age <= SIGN_IN_OAUTH_FLOW_MAX_AGE_MS;
+  } catch {
+    return false;
+  }
+}
 
 const getBaseAuthProvider = () =>
   supabaseAuthProvider(getSupabaseClient(), {
@@ -112,20 +151,13 @@ async function resolveActiveRole(): Promise<MemberRole | undefined> {
   }
 }
 
-// GoTrue error codes that must never surface to the login UI: an unknown
-// email must be indistinguishable from a known one at every step of the
-// OTP request flow, including resends (see the `requestOtp` branch below).
+// GoTrue error codes that are safe to treat as a successful resend. The
+// `otp_disabled` response is handled separately: the sign-in screen needs to
+// tell an unregistered visitor why it cannot advance to a code step.
 const SILENT_OTP_ERROR_CODES = new Set([
-  // `shouldCreateUser: false` against an email with no existing account
-  // ("Signups not allowed for otp" — verified against the local stack;
-  // despite the name this is unrelated to project-level signup settings).
-  "otp_disabled",
   // GoTrue's per-address send-frequency guard. A *known* email hits this on
-  // a second request inside `max_frequency` while an unknown email keeps
-  // returning `otp_disabled` — surfacing the raw 429 to the UI (e.g. via
-  // the Resend button) would itself become the account-existence oracle
-  // AC-1 forbids. The caller already holds a valid code from the first
-  // request, so silently no-oping here is safe.
+  // a second request inside `max_frequency`; the caller already holds a valid
+  // code from the first request, so silently no-oping here is safe.
   "over_email_send_rate_limit",
 ]);
 
@@ -168,8 +200,17 @@ export const getAuthProvider = (): AuthProvider => {
             captchaToken: params.captchaToken,
           },
         });
-        if (error && !SILENT_OTP_ERROR_CODES.has(error.code ?? "")) {
-          throw error;
+        if (error) {
+          // GoTrue reports an unregistered email as `otp_disabled` when
+          // account creation is disabled for this request. Convert that
+          // backend-specific result into a stable app error only for the
+          // sign-in path; signup and invite flows retain their own handling.
+          if (error.code === "otp_disabled" && params.allowSignup !== true) {
+            throw new NoAccountFoundError();
+          }
+          if (!SILENT_OTP_ERROR_CODES.has(error.code ?? "")) {
+            throw error;
+          }
         }
         return;
       }
@@ -199,9 +240,26 @@ export const getAuthProvider = (): AuthProvider => {
       // `check_signup_age()`'s own email match is still the real guarantee,
       // not this hint.
       if (params.oauthProvider) {
+        if (params.oauthFlow === "sign-in") {
+          // Keep the callback URL byte-for-byte compatible with the existing
+          // Supabase redirect allow-list. GoTrue does not preserve arbitrary
+          // client metadata through OAuth, so the short-lived browser marker
+          // is the reliable way to distinguish this returning-user flow from
+          // the explicit register flow after the redirect.
+          markSignInOAuthFlow();
+        } else {
+          // A visitor may abandon sign-in and immediately choose the explicit
+          // register flow in the same tab. Never let the old marker relabel
+          // that signup callback.
+          clearSignInOAuthFlow();
+        }
         const { error } = await getSupabaseClient().auth.signInWithOAuth({
           provider: params.oauthProvider,
           options: {
+            // The sign-in entry point cannot create an account. Its
+            // short-lived flow marker is stored in sessionStorage above;
+            // keeping this URL unchanged avoids an exact redirect allow-list
+            // rejection in Supabase Auth.
             redirectTo: `${window.location.origin}/#${AUTH_CALLBACK_PATH}`,
             queryParams: params.loginHint
               ? { login_hint: params.loginHint }
@@ -209,6 +267,9 @@ export const getAuthProvider = (): AuthProvider => {
           },
         });
         if (error) {
+          if (params.oauthFlow === "sign-in") {
+            clearSignInOAuthFlow();
+          }
           throw error;
         }
         return;
@@ -226,14 +287,22 @@ export const getAuthProvider = (): AuthProvider => {
       // cause-accurate message BEFORE falling through to the base
       // provider's recovery/invite handling, which knows nothing about
       // OAuth and would silently resolve as if nothing happened.
-      const callbackError = readOAuthCallbackError(window.location);
-      if (callbackError) {
-        throw new Error(callbackError.messageKey);
+      const isSignInOAuthFlow = consumeSignInOAuthFlow();
+      try {
+        const callbackError = readOAuthCallbackError(
+          window.location,
+          isSignInOAuthFlow ? "sign-in" : undefined,
+        );
+        if (callbackError) {
+          throw new Error(callbackError.messageKey);
+        }
+        // `baseAuthProvider.handleCallback` is always defined at runtime (the
+        // base `supabaseAuthProvider()` always sets it) — the `?.` is only to
+        // satisfy `AuthProvider`'s own optional-property typing.
+        return baseAuthProvider.handleCallback?.(params);
+      } finally {
+        clearSignInOAuthFlow();
       }
-      // `baseAuthProvider.handleCallback` is always defined at runtime (the
-      // base `supabaseAuthProvider()` always sets it) — the `?.` is only to
-      // satisfy `AuthProvider`'s own optional-property typing.
-      return baseAuthProvider.handleCallback?.(params);
     },
     logout: async (params) => {
       clearCache();
