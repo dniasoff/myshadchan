@@ -160,7 +160,7 @@ describe("RegisterFlow", () => {
       requestOtp: true,
       allowSignup: true,
       meta: { age_affirmed: true },
-      captchaToken: FAKE_CAPTCHA_TOKEN,
+      captchaToken: undefined,
     });
   });
 

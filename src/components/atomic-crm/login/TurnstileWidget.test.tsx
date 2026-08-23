@@ -86,10 +86,11 @@ describe("TurnstileWidget", () => {
       remove: vi.fn(),
     });
     const ref = createRef<TurnstileWidgetHandle>();
+    const onToken = vi.fn();
 
     // Act
     render(
-      <TurnstileWidget ref={ref} siteKey="test-site-key" onToken={vi.fn()} />,
+      <TurnstileWidget ref={ref} siteKey="test-site-key" onToken={onToken} />,
     );
     await vi.waitFor(() => {
       expect(ref.current).not.toBeNull();
@@ -97,6 +98,7 @@ describe("TurnstileWidget", () => {
     ref.current?.reset();
 
     // Assert
+    expect(onToken).toHaveBeenLastCalledWith(null);
     expect(reset).toHaveBeenCalledWith("widget-3");
   });
 });

@@ -92,6 +92,11 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
     });
   };
 
+  const resetCaptcha = () => {
+    setCaptchaToken(null);
+    turnstileRef.current?.reset();
+  };
+
   const handleContinue = () => {
     if (isRequesting) {
       return;
@@ -109,9 +114,10 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
       .then(() => {
         setEmail(trimmedEmail);
         setStep("code");
-        turnstileRef.current?.reset();
+        resetCaptcha();
       })
       .catch((error: unknown) => {
+        resetCaptcha();
         notifyError(error, {
           id: "ra.auth.sign_in_error",
           defaultMessage: "Authentication failed, please retry",
@@ -139,9 +145,10 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
         notify("crm.auth.login.code_resent", {
           messageArgs: { _: "Code sent again" },
         });
-        turnstileRef.current?.reset();
+        resetCaptcha();
       })
       .catch((error: unknown) => {
+        resetCaptcha();
         notifyError(error, {
           id: "ra.auth.sign_in_error",
           defaultMessage: "Authentication failed, please retry",

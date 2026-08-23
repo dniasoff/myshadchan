@@ -17,6 +17,8 @@ import { getSupabaseClient } from "./supabase";
 // the browser showing whatever an unmatched `#error=...` hash resolves to.
 const AUTH_CALLBACK_PATH = "/auth-callback";
 const SIGN_IN_OAUTH_FLOW_STORAGE_KEY = "myshadchan.oauth.sign_in_flow";
+const SIGN_IN_OAUTH_FLOW_FALLBACK_STORAGE_KEY =
+  "myshadchan.oauth.sign_in_flow.fallback";
 const SIGN_IN_OAUTH_FLOW_MAX_AGE_MS = 15 * 60 * 1000;
 
 function markSignInOAuthFlow() {
@@ -25,9 +27,22 @@ function markSignInOAuthFlow() {
       SIGN_IN_OAUTH_FLOW_STORAGE_KEY,
       String(Date.now()),
     );
+    return;
   } catch {
-    // A blocked sessionStorage must not stop the provider handoff. The
-    // callback still has the generic OAuth recovery path if this happens.
+    // Fall through to localStorage for browsers that block sessionStorage
+    // but still permit a same-origin persistent store. The marker remains
+    // short-lived and is removed on callback, provider failure, or a later
+    // auth-flow start.
+  }
+  try {
+    window.localStorage.setItem(
+      SIGN_IN_OAUTH_FLOW_FALLBACK_STORAGE_KEY,
+      String(Date.now()),
+    );
+  } catch {
+    // A fully storage-blocked browser cannot carry client flow identity
+    // across the OAuth navigation. The callback mapper has a safe generic
+    // age-restriction fallback and never relays the hook implementation text.
   }
 }
 
@@ -37,22 +52,53 @@ function clearSignInOAuthFlow() {
   } catch {
     // Ignore storage cleanup failures; the marker is time-bounded.
   }
+  try {
+    window.localStorage.removeItem(SIGN_IN_OAUTH_FLOW_FALLBACK_STORAGE_KEY);
+  } catch {
+    // Ignore storage cleanup failures; the marker is time-bounded.
+  }
+}
+
+function readOAuthFlowTimestamp(
+  getStorage: () => Storage,
+  key: string,
+): number | null {
+  try {
+    const storage = getStorage();
+    const raw = storage.getItem(key);
+    storage.removeItem(key);
+    if (raw == null) {
+      return null;
+    }
+    const timestamp = Number(raw);
+    return Number.isFinite(timestamp) ? timestamp : null;
+  } catch {
+    return null;
+  }
 }
 
 function consumeSignInOAuthFlow(): boolean {
-  try {
-    const startedAt = Number(
-      window.sessionStorage.getItem(SIGN_IN_OAUTH_FLOW_STORAGE_KEY),
-    );
-    window.sessionStorage.removeItem(SIGN_IN_OAUTH_FLOW_STORAGE_KEY);
-    if (!Number.isFinite(startedAt)) {
-      return false;
-    }
-    const age = Date.now() - startedAt;
+  const sessionStartedAt = readOAuthFlowTimestamp(
+    () => window.sessionStorage,
+    SIGN_IN_OAUTH_FLOW_STORAGE_KEY,
+  );
+  if (sessionStartedAt != null) {
+    const age = Date.now() - sessionStartedAt;
+    clearSignInOAuthFlow();
     return age >= 0 && age <= SIGN_IN_OAUTH_FLOW_MAX_AGE_MS;
-  } catch {
-    return false;
   }
+
+  const fallbackStartedAt = readOAuthFlowTimestamp(
+    () => window.localStorage,
+    SIGN_IN_OAUTH_FLOW_FALLBACK_STORAGE_KEY,
+  );
+  if (fallbackStartedAt != null) {
+    const age = Date.now() - fallbackStartedAt;
+    clearSignInOAuthFlow();
+    return age >= 0 && age <= SIGN_IN_OAUTH_FLOW_MAX_AGE_MS;
+  }
+
+  return false;
 }
 
 const getBaseAuthProvider = () =>

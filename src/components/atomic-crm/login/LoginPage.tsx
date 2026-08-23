@@ -131,7 +131,7 @@ export const LoginPage = (props: { redirectTo?: string }) => {
         // A Turnstile token is single-use — force a fresh one now that this
         // one has been consumed, so a resend on the code step (below) never
         // reuses an already-spent token.
-        turnstileRef.current?.reset();
+        resetCaptcha();
       })
       .catch((error: unknown) => {
         resetCaptcha();
@@ -169,10 +169,15 @@ export const LoginPage = (props: { redirectTo?: string }) => {
         notify("crm.auth.login.code_resent", {
           messageArgs: { _: "Code sent again" },
         });
-        turnstileRef.current?.reset();
+        resetCaptcha();
       })
       .catch((error: unknown) => {
         resetCaptcha();
+        if (isNoAccountFoundError(error)) {
+          setStep("email");
+          setNoAccountFound(true);
+          return;
+        }
         notifyError(error, {
           id: "ra.auth.sign_in_error",
           defaultMessage: "Authentication failed, please retry",

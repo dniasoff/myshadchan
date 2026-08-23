@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mocks the Supabase client entirely so `login()`'s two OTP branches can be
 // exercised without a real backend. `getBaseAuthProvider()` only touches
@@ -39,6 +39,11 @@ describe("getAuthProvider().login", () => {
     signInWithOAuth.mockReset();
     verifyOtp.mockReset();
     window.sessionStorage.clear();
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("requests an OTP without creating a user by default", async () => {
@@ -161,6 +166,32 @@ describe("getAuthProvider().login", () => {
     });
     expect(
       window.sessionStorage.getItem("myshadchan.oauth.sign_in_flow"),
+    ).not.toBeNull();
+  });
+
+  it("falls back to localStorage when sessionStorage is blocked", async () => {
+    // Arrange: privacy settings can deny sessionStorage while leaving the
+    // same-origin persistent store available. The callback still needs to
+    // know this was the returning-user sign-in flow.
+    vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
+      throw new Error("sessionStorage blocked");
+    });
+    signInWithOAuth.mockResolvedValue({
+      data: { url: "https://google.test" },
+      error: null,
+    });
+    const authProvider = getAuthProvider();
+
+    // Act
+    await authProvider.login({
+      oauthProvider: "google",
+      oauthFlow: "sign-in",
+    });
+
+    // Assert: the marker survives without changing the allow-listed callback
+    // URL or leaking a flow parameter to Google.
+    expect(
+      window.localStorage.getItem("myshadchan.oauth.sign_in_flow.fallback"),
     ).not.toBeNull();
   });
 

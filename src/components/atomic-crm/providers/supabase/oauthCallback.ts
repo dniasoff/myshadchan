@@ -9,15 +9,15 @@ export interface CallbackLocation {
 export interface OAuthCallbackError {
   /** Used as BOTH the i18n lookup key and the `_` fallback default, exactly
    * like `LoginPage.tsx`'s `resolveErrorNotification` — a real catalogue
-   * entry wins when one exists (the three named cases below), and the
-   * fallback text renders unchanged when it doesn't (the age-gate
-   * passthrough case, whose text comes from the database, not a catalogue). */
+   * entry wins when one exists. */
   messageKey: string;
   defaultMessage: string;
 }
 
 export const SIGNUP_AGE_REJECTION_MESSAGE =
   "You must confirm you are 18 years of age or older to sign up.";
+export const AGE_RESTRICTION_MESSAGE_KEY =
+  "crm.auth.oauth_callback.age_restricted";
 
 /**
  * Reads one query-string-shaped param from either the real query string or
@@ -98,12 +98,17 @@ function mapOAuthCallbackError({
   }
 
   // Our own before_user_created age gate (check_signup_age(), 02_functions.sql)
-  // rejects with a message written to be shown to a person already — safe
-  // to relay verbatim. Matched by content, not by error/error_code: GoTrue
-  // relays every Auth Hook rejection the same generic way regardless of
-  // which hook raised it, so there is no structured code to switch on here.
+  // rejects with this exact message. Use a catalogue key rather than relaying
+  // the hook text as an error key, especially when storage was unavailable and
+  // the callback cannot prove whether this was signup or sign-in. Matched by
+  // content, not by error/error_code: GoTrue relays every Auth Hook rejection
+  // the same generic way regardless of which hook raised it.
   if (description === SIGNUP_AGE_REJECTION_MESSAGE) {
-    return { messageKey: description, defaultMessage: description };
+    return {
+      messageKey: AGE_RESTRICTION_MESSAGE_KEY,
+      defaultMessage:
+        "You must be 18 years of age or older to create an account.",
+    };
   }
 
   // The visitor closed Google's consent screen, or pressed "Cancel" —

@@ -207,7 +207,7 @@ describe("LoginPage", () => {
     expect(login).toHaveBeenLastCalledWith({
       email: "ada@example.com",
       requestOtp: true,
-      captchaToken: FAKE_CAPTCHA_TOKEN,
+      captchaToken: undefined,
     });
     await expect
       .element(screen.getByRole("button", { name: "Sign in" }))
@@ -241,6 +241,39 @@ describe("LoginPage", () => {
     expect(login).toHaveBeenCalledTimes(2);
     resolveResend();
     await expect.element(resend).not.toBeDisabled();
+  });
+
+  it("returns to account recovery if the account disappears before a resend", async () => {
+    // Arrange
+    const login = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new NoAccountFoundError());
+    const screen = await renderLoginPage(login);
+    await screen.getByLabelText(/email/i).fill("ada@example.com");
+    await screen.getByRole("button", { name: "Send code" }).click();
+    await expect
+      .element(screen.getByRole("button", { name: "Sign in" }))
+      .toBeInTheDocument();
+
+    // Act
+    await screen.getByRole("button", { name: "Resend code" }).click();
+
+    // Assert: the account may have been removed after the first request, so
+    // the same recovery choice must be available from the resend path too.
+    await expect
+      .element(
+        screen.getByText(
+          "No account has been found. Would you like to create a new account?",
+        ),
+      )
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("link", { name: "Create a new account" }))
+      .toHaveAttribute("href", expect.stringContaining("/register"));
+    await expect
+      .element(screen.getByRole("button", { name: "Sign in" }))
+      .not.toBeInTheDocument();
   });
 
   it("does not render the Google sign-in entry point when Google OAuth is disabled", async () => {

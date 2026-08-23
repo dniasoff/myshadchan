@@ -10,7 +10,8 @@ import { loadTurnstile, type TurnstileApi } from "./turnstileLoader";
 export interface TurnstileWidgetHandle {
   /** Forces a fresh challenge/token — call after every request that
    * consumed the current token (a send or a resend), since a Turnstile
-   * token is single-use. */
+   * token is single-use. The parent is synchronously told that the old token
+   * is gone before the new challenge begins. */
   reset: () => void;
 }
 
@@ -86,6 +87,10 @@ export const TurnstileWidget = forwardRef<
 
   useImperativeHandle(ref, () => ({
     reset: () => {
+      // `turnstile.reset()` does not guarantee that its expired callback runs
+      // synchronously. Clear the parent's token first so a second request can
+      // never reuse the just-consumed value while a fresh challenge starts.
+      onTokenRef.current(null);
       if (apiRef.current && widgetIdRef.current) {
         apiRef.current.reset(widgetIdRef.current);
       }

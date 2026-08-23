@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { englishCrmMessages } from "../commons/englishCrmMessages";
 import {
+  AGE_RESTRICTION_MESSAGE_KEY,
   readOAuthCallbackError,
   SIGNUP_AGE_REJECTION_MESSAGE,
 } from "./oauthCallback";
@@ -71,7 +72,7 @@ describe("readOAuthCallbackError", () => {
     expect(result?.messageKey).toBe("crm.auth.oauth_callback.not_configured");
   });
 
-  it("passes the backend's own age-affirmation rejection through verbatim", () => {
+  it("maps an unmarked age rejection to a stable catalogue message", () => {
     // Arrange
     const ageMessage =
       "You must confirm you are 18 years of age or older to sign up.";
@@ -84,8 +85,10 @@ describe("readOAuthCallbackError", () => {
     const result = readOAuthCallbackError(location);
 
     // Assert
-    expect(result?.messageKey).toBe(ageMessage);
-    expect(result?.defaultMessage).toBe(ageMessage);
+    expect(result?.messageKey).toBe(AGE_RESTRICTION_MESSAGE_KEY);
+    expect(result?.defaultMessage).toBe(
+      "You must be 18 years of age or older to create an account.",
+    );
   });
 
   it("maps a marked returning-user age rejection to account creation recovery", () => {
@@ -190,6 +193,14 @@ describe("crm.auth.oauth_callback.* catalogue entries", () => {
       location: {
         search:
           "?auth_flow=sign-in&error=server_error&error_description=You+must+confirm+you+are+18+years+of+age+or+older+to+sign+up.",
+        hash: "#/auth-callback",
+      },
+    },
+    {
+      label: "age_restricted",
+      location: {
+        search:
+          "?error=server_error&error_description=You+must+confirm+you+are+18+years+of+age+or+older+to+sign+up.",
         hash: "#/auth-callback",
       },
     },

@@ -162,6 +162,8 @@ export const englishCrmMessages = {
       oauth_callback: {
         no_account:
           "No account has been found. Would you like to create a new account?",
+        age_restricted:
+          "You must be 18 years of age or older to create an account.",
         cancelled:
           "You closed the Google sign-in window before finishing. No account was created — come back and try again whenever you're ready.",
         not_configured:
