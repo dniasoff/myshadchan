@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { DB_URL } from "./dbSuiteHelpers";
+import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const schema = readFileSync(
@@ -85,7 +85,6 @@ from (values
 ) requested(signature);
 `;
 
-const stack2Only = process.env.STACK_ID === "2";
 let deployed: Array<{
   signature: string;
   definition: string;
@@ -94,28 +93,20 @@ let deployed: Array<{
   authenticated: boolean;
 }> = [];
 let databaseError: string | undefined;
-if (stack2Only) {
-  try {
-    deployed = JSON.parse(
-      execFileSync("psql", ["-X", "-At", DB_URL, "-c", sql], {
-        env: { ...process.env, PGPASSWORD: "postgres" },
-        encoding: "utf8",
-        timeout: 120_000,
-      }).trim(),
-    ) as typeof deployed;
-  } catch (error) {
-    databaseError = error instanceof Error ? error.message : String(error);
-  }
+try {
+  deployed = JSON.parse(
+    execFileSync("psql", ["-X", "-At", DB_URL, "-c", sql], {
+      env: { ...process.env, PGPASSWORD: "postgres" },
+      encoding: "utf8",
+      timeout: 120_000,
+    }).trim(),
+  ) as typeof deployed;
+} catch (error) {
+  databaseError = error instanceof Error ? error.message : String(error);
 }
 
 describe("official demo r21 declarative/deployed parity", () => {
-  if (!stack2Only) {
-    it.skipIf(!stack2Only)(
-      "requires explicit STACK_ID=2 / PostgreSQL port 54362",
-      () => {},
-    );
-    return;
-  }
+  if (bailIfDbUnreachable(databaseError)) return;
 
   it("has one canonical source definition and one deployed definition per signature", () => {
     expect(databaseError).toBeUndefined();

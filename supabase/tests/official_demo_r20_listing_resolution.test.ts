@@ -4,6 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
+
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const schemaFile = path.join(testDirectory, "../schemas/02_functions.sql");
 const grantsFile = path.join(testDirectory, "../schemas/06_grants.sql");
@@ -17,9 +19,6 @@ const sqlFile = path.join(
   testDirectory,
   "official_demo_r20_listing_resolution.sql",
 );
-const stack2Only = process.env.STACK_ID === "2";
-const stack2DbUrl =
-  "postgresql://postgres@127.0.0.1:54362/postgres?sslmode=disable";
 
 const schema = readFileSync(schemaFile, "utf8");
 const grants = readFileSync(grantsFile, "utf8");
@@ -120,41 +119,28 @@ describe("official demo listing resolver source", () => {
 let databaseError: string | undefined;
 let checks: Array<{ name: string; passed: boolean; detail: string | null }> =
   [];
-if (stack2Only) {
-  try {
-    const stdout = execFileSync(
-      "psql",
-      ["-X", "-q", "-f", sqlFile, stack2DbUrl],
-      {
-        env: { ...process.env, PGPASSWORD: "postgres" },
-        encoding: "utf8",
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: 120_000,
-      },
-    );
-    const reportLine = stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .reverse()
-      .find((line) => line.startsWith("[") && line.endsWith("]"));
-    if (!reportLine) databaseError = `no report emitted:\n${stdout}`;
-    else checks = JSON.parse(reportLine) as typeof checks;
-  } catch (error) {
-    databaseError = error instanceof Error ? error.message : String(error);
-  }
+try {
+  const stdout = execFileSync("psql", ["-X", "-q", "-f", sqlFile, DB_URL], {
+    env: { ...process.env, PGPASSWORD: "postgres" },
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+    timeout: 120_000,
+  });
+  const reportLine = stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .reverse()
+    .find((line) => line.startsWith("[") && line.endsWith("]"));
+  if (!reportLine) databaseError = `no report emitted:\n${stdout}`;
+  else checks = JSON.parse(reportLine) as typeof checks;
+} catch (error) {
+  databaseError = error instanceof Error ? error.message : String(error);
 }
 
 describe("official demo r20 listing resolver Stack 2 proof", () => {
-  if (!stack2Only) {
-    it.skipIf(!stack2Only)(
-      "requires explicit STACK_ID=2 / PostgreSQL ports 54361-54362",
-      () => {},
-    );
-    return;
-  }
+  if (bailIfDbUnreachable(databaseError)) return;
 
   it("runs the rollback-safe Stack 2 proof", () => {
-    expect(stack2DbUrl).toContain(":54362/");
     expect(databaseError).toBeUndefined();
     expect(checks).toHaveLength(22);
     for (const check of checks) {

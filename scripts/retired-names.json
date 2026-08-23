@@ -259,6 +259,10 @@
         {
           "file": "supabase/tests/shadchan_privacy_boundary.sql",
           "term": "child_grant"
+        },
+        {
+          "file": "scripts/hosted-demo-smoke.mjs",
+          "term": "child_grant"
         }
       ],
       "exemptReasons": {
@@ -340,6 +344,10 @@
         },
         {
           "file": "supabase/functions/seed_demo/index.ts",
+          "term": "childGrant"
+        },
+        {
+          "file": "scripts/hosted-demo-smoke.mjs",
           "term": "childGrant"
         }
       ],

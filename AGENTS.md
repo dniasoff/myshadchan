@@ -101,6 +101,34 @@ Before trusting any empty diff, confirm the check can fail — inject a throwawa
 column into the scratch copy and watch it appear. An empty diff from a command
 that cannot see your schema looks exactly like a converged one.
 
+#### The pinned-CLI trap (a deploy that re-applies live migrations)
+
+`.github/workflows/deploy.yml` pins the Supabase CLI via `supabase/setup-cli`
+because **2.112.0 and later misread the hosted migration history** during
+`supabase link`. That pin is only real if the steps call the binary setup-cli
+installed. They used to call `npx supabase`, which ignores `PATH` and installs
+`supabase@latest` from npm — so the pin never applied.
+
+On 2026-08-23 that resolved to 2.115.0 and reported ~90 **already-applied**
+migrations as pending. `db push` re-applied the first and failed with
+`column "deleted_at" of relation "interactions" already exists`, aborting the
+deploy before the function, worker and frontend steps. Production's history was
+correct throughout (165/165) — only the CLI's reading of it was wrong.
+
+Two consequences worth keeping:
+
+- **Never `npx supabase` for linked/remote history operations** (`link`,
+  `db push`, `migration list --linked`) in CI or by hand. Use the pinned
+  binary. The deploy workflow now prints `supabase --version` so a future
+  drift is visible in the log rather than inferred from a failure.
+- **Two migration versions have invalid minute fields** —
+  `20260823176000` (17:**60**) and `20260823177000` (17:**70**). They are
+  already applied remotely under exactly those names, so they must **not** be
+  renamed: a rename makes them look like new, unapplied migrations and
+  `db push` would try to run them again. 2.111.0 matches them correctly;
+  newer CLIs are where they become a problem. Generate migration names with
+  `db diff -f <name>` (which timestamps correctly) rather than by hand.
+
 #### The column-order trap (`db diff` never converges)
 
 If `db diff` emits `drop view` + `create or replace view` for views you did not

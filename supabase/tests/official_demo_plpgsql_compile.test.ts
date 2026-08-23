@@ -4,15 +4,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
+
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const schemaFile = path.join(testDirectory, "../schemas/02_functions.sql");
 const migrationFile = path.join(
   testDirectory,
   "../migrations/20260823180000_official_demo_plpgsql_repairs.sql",
 );
-const stack2Only = process.env.STACK_ID === "2";
-const stack2DbUrl =
-  "postgresql://postgres@127.0.0.1:54362/postgres?sslmode=disable";
 const staleRunError = "demo run -1 lease is stale or fenced";
 const repairedFunctions = [
   "register_demo_auth_cleanup",
@@ -71,18 +70,16 @@ rollback;
 `;
 
 let executionError: string | undefined;
-if (stack2Only) {
-  try {
-    execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", stack2DbUrl], {
-      env: { ...process.env, PGPASSWORD: "postgres" },
-      input: compileInput,
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 120_000,
-    });
-  } catch (error) {
-    executionError = error instanceof Error ? error.message : String(error);
-  }
+try {
+  execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", DB_URL], {
+    env: { ...process.env, PGPASSWORD: "postgres" },
+    input: compileInput,
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+    timeout: 120_000,
+  });
+} catch (error) {
+  executionError = error instanceof Error ? error.message : String(error);
 }
 
 describe("official demo PL/pgSQL repairs", () => {
@@ -109,16 +106,9 @@ describe("official demo PL/pgSQL repairs", () => {
     ).toHaveLength(3);
   });
 
-  if (!stack2Only) {
-    it.skipIf(!stack2Only)(
-      "requires explicit STACK_ID=2 / PostgreSQL port 54362",
-      () => {},
-    );
-    return;
-  }
+  if (bailIfDbUnreachable(executionError)) return;
 
   it("forces PostgreSQL compilation and execution of all repaired guards", () => {
-    expect(stack2DbUrl).toContain(":54362/");
     expect(executionError).toBeUndefined();
   });
 });
