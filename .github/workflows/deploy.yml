@@ -46,13 +46,26 @@ jobs:
       - name: 📥 Download deps
         run: npm ci
 
+      # The `version:` pin on setup-cli above is only real if these steps call
+      # the binary it installed. They used to call `npx supabase`, which
+      # ignores PATH and installs supabase@latest from npm — on 2026-08-23
+      # that silently ran 2.115.0 against the pin's back, and `link` then
+      # misread the remote migration history and reported ~90 already-applied
+      # migrations as pending. `db push` duly re-applied the first one and
+      # died on `column "deleted_at" ... already exists`, failing the deploy
+      # and skipping the frontend. Print the resolved version so a future
+      # drift is visible in the log instead of inferred from a failure.
+      - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+        name: 🏷️ Report the pinned Supabase CLI version
+        run: supabase --version
+
       - if: ${{ env.IS_SUPABASE_CONFIGURED }}
         name: 🔗 Supabase Link
-        run: npx supabase link --project-ref $SUPABASE_PROJECT_ID
+        run: supabase link --project-ref $SUPABASE_PROJECT_ID
 
       - if: ${{ env.IS_SUPABASE_CONFIGURED }}
         name: 📡 Push supabase migrations
-        run: npx supabase db push
+        run: supabase db push
 
       # Story 2.7 review finding #1: `[auth.hook.before_user_created]` in
       # supabase/config.toml is never synced to the hosted project, so
@@ -164,9 +177,9 @@ jobs:
       - if: ${{ env.IS_SUPABASE_CONFIGURED && env.RESEND_API_KEY }}
         name: 📡 Push supabase function secrets
         run: |
-          npx supabase secrets set RESEND_API_KEY=${{ env.RESEND_API_KEY }}
-          npx supabase secrets set UPSTASH_REDIS_REST_URL=${{ env.UPSTASH_REDIS_REST_URL }}
-          npx supabase secrets set UPSTASH_REDIS_REST_TOKEN=${{ env.UPSTASH_REDIS_REST_TOKEN }}
+          supabase secrets set RESEND_API_KEY=${{ env.RESEND_API_KEY }}
+          supabase secrets set UPSTASH_REDIS_REST_URL=${{ env.UPSTASH_REDIS_REST_URL }}
+          supabase secrets set UPSTASH_REDIS_REST_TOKEN=${{ env.UPSTASH_REDIS_REST_TOKEN }}
 
       # Bulk demo-account reseed function. The secret is operator-chosen,
       # so route it through a temp file rather than interpolating it into
@@ -179,7 +192,7 @@ jobs:
           secrets_file="$(mktemp)"
           trap 'rm -f "$secrets_file"' EXIT
           printf 'ADMIN_RESEED_SECRET=%s\n' "$ADMIN_RESEED_SECRET" > "$secrets_file"
-          npx supabase secrets set --env-file "$secrets_file"
+          supabase secrets set --env-file "$secrets_file"
           echo "✅ ADMIN_RESEED_SECRET pushed — the admin_reseed_demo_accounts function is protected." >> "$GITHUB_STEP_SUMMARY"
 
       - if: ${{ env.IS_SUPABASE_CONFIGURED && !env.ADMIN_RESEED_SECRET }}
@@ -190,7 +203,7 @@ jobs:
 
       - if: ${{ env.IS_SUPABASE_CONFIGURED }}
         name: 📡 Deploy supabase functions
-        run: npx supabase functions deploy
+        run: supabase functions deploy
 
       # `supabase functions deploy` only ever pushes. Delete a function's
       # directory from the repo and it keeps serving in production forever,
