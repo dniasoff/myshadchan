@@ -91,7 +91,11 @@ export interface ParentFocusCardsProps {
  * family). Those measure whether the PRODUCT is working and belong to whoever
  * runs it; they told a parent nothing about their own child's shidduchim, and
  * they were account-wide on a page that is otherwise entirely per-single. They
- * now render for administrators only (`Dashboard.tsx`).
+ * now live in Settings (`settings/PlatformMetricsSection.tsx`), behind the
+ * `members` list permission — moved off this page entirely rather than merely
+ * hidden from non-administrators, because the first login in a fresh database
+ * is made an administrator by `handle_new_user()`, so a permission gate here
+ * would have kept showing them to exactly the parent they confuse.
  *
  * Reads the same `shidduchim` list `PipelineSnapshot` already fetches for this
  * single, so React Query serves both from one request — no second round trip,
