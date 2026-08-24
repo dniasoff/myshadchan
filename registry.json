@@ -1800,6 +1800,14 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/attachments/attachmentPreview.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/attachments/AttachmentViewerDialog.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/analytics/types.ts",
           "type": "registry:component"
         },

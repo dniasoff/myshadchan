@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { ChangeEvent, ReactElement } from "react";
 import {
   useDataProvider,
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { AttachmentViewerDialog } from "../../attachments/AttachmentViewerDialog";
 import type { CrmDataProvider } from "../../providers/types";
 import type {
   EntityFileSummary,
@@ -183,13 +184,23 @@ function FileRowView({
   const translate = useTranslate();
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
+
+  // Stable across renders so the viewer's mint-on-open effect does not
+  // re-sign the URL on every parent render while the dialog is open.
+  const signUrl = useCallback(
+    ({ inline }: { inline: boolean }) =>
+      dataProvider.signEntityFileUrl({
+        storagePath: file.storage_path,
+        fileName: file.file_name,
+        inline,
+      }),
+    [dataProvider, file.storage_path, file.file_name],
+  );
 
   const handleDownload = async () => {
     try {
-      const url = await dataProvider.signEntityFileUrl({
-        storagePath: file.storage_path,
-        fileName: file.file_name,
-      });
+      const url = await signUrl({ inline: false });
       window.open(url, "_blank", "noopener,noreferrer");
     } catch (error) {
       notify(
@@ -280,6 +291,23 @@ function FileRowView({
         {isVisibilityEligible(targetType) ? (
           <FileVisibilityControl file={file} onChanged={onChanged} />
         ) : null}
+        {/*
+         * Offered on every row, not only on rows whose `mime_type` says they
+         * can be previewed. That column is client-supplied and frequently
+         * `application/octet-stream`, so gating the button on it would hide
+         * "View" from real PDFs; the dialog resolves the type itself and
+         * explains when it cannot show one, which is the more useful answer
+         * than a button that quietly is not there.
+         */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={isBusy}
+          onClick={() => setIsViewerOpen(true)}
+        >
+          {translate("crm.entity360.files.view", { _: "View" })}
+        </Button>
         <Button
           type="button"
           variant="ghost"
@@ -317,6 +345,13 @@ function FileRowView({
           {translate("crm.entity360.files.delete", { _: "Delete" })}
         </Button>
       </div>
+      <AttachmentViewerDialog
+        open={isViewerOpen}
+        onOpenChange={setIsViewerOpen}
+        fileName={file.file_name}
+        mimeType={file.mime_type}
+        signUrl={signUrl}
+      />
     </li>
   );
 }

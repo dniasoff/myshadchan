@@ -745,6 +745,7 @@ export const englishCrmMessages = {
         error: "Could not load the files.",
         upload: "Upload a file",
         uploadError: "Failed to upload the file",
+        view: "View",
         download: "Download",
         downloadError: "Failed to get a download link",
         replace: "Replace",
@@ -767,6 +768,7 @@ export const englishCrmMessages = {
         error: "Could not load the resume.",
         upload: "Upload a new version",
         uploadError: "Failed to upload the resume",
+        view: "View",
         download: "Download",
         downloadError: "Failed to get a download link",
       },
@@ -1086,6 +1088,19 @@ export const englishCrmMessages = {
     // their own top-level namespace rather than nesting under `entity360`,
     // since ThreadList/ThreadPanel are a standalone domain (`threads/`), not
     // a universal tab component.
+    // The in-page attachment viewer (`attachments/AttachmentViewerDialog`),
+    // shared by the Resume tab and the universal Files tab. Its own top-level
+    // namespace for the same reason `threads` has one: it is a standalone
+    // domain folder, not a universal tab component.
+    attachments: {
+      viewer: {
+        description:
+          "Opened for reading. Nothing has been saved to your computer.",
+        download: "Download a copy",
+        error: "Could not open this file for reading.",
+        noPreview: "This file type cannot be shown here — PDFs and images can.",
+      },
+    },
     threads: {
       list: {
         empty: "No discussions yet.",

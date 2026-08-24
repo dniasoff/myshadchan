@@ -182,9 +182,13 @@ describe("ResumeVersionList — signed URL minted per click, never cached (AC 5)
     // Assert — an implementation that caches the URL in component state
     // fails this: it would call signResumeFileUrl once and reuse the value.
     await expect.poll(() => signResumeFileUrl.mock.calls.length).toBe(2);
+    // `inline: false` is what keeps `Content-Disposition: attachment` on the
+    // signed URL. Download must stay a download now that "View" sits next to
+    // it asking for `inline: true` from this same call.
     expect(signResumeFileUrl).toHaveBeenCalledWith({
       storagePath: version.path,
       fileName: version.filename,
+      inline: false,
     });
   });
 

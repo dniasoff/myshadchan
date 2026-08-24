@@ -1,9 +1,11 @@
+import { useCallback, useState } from "react";
 import type { ReactElement } from "react";
 import { useDataProvider, useGetList, useNotify, useTranslate } from "ra-core";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { AttachmentViewerDialog } from "../attachments/AttachmentViewerDialog";
 import { formatTimelineDate } from "../entity360/tabs/interactionLabels";
 import type { CrmDataProvider } from "../providers/types";
 import type { Resume, ResumeFileVersion } from "../types";
@@ -44,7 +46,14 @@ function ResumeError(): ReactElement {
 }
 
 /** AC 5: a per-click signed URL, minted fresh on every download — never
- * cached in component state, never persisted on the row. */
+ * cached in component state, never persisted on the row.
+ *
+ * "View" opens the file in the page; "Download" still saves it. Both mint
+ * their own URL through the same call, differing only in `inline` — the flag
+ * that decides whether the signed URL carries `Content-Disposition:
+ * attachment`. Reading a resume was previously only possible by downloading
+ * it first, which is a strange thing to have to do to the document this
+ * whole page is about. */
 function ResumeVersionRow({
   version,
 }: {
@@ -53,13 +62,23 @@ function ResumeVersionRow({
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const translate = useTranslate();
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
+
+  // Stable across renders so the viewer's mint-on-open effect does not
+  // re-fire (and re-sign) on every parent render while the dialog is open.
+  const signUrl = useCallback(
+    ({ inline }: { inline: boolean }) =>
+      dataProvider.signResumeFileUrl({
+        storagePath: version.path,
+        fileName: version.filename,
+        inline,
+      }),
+    [dataProvider, version.path, version.filename],
+  );
 
   const handleDownload = async () => {
     try {
-      const url = await dataProvider.signResumeFileUrl({
-        storagePath: version.path,
-        fileName: version.filename,
-      });
+      const url = await signUrl({ inline: false });
       window.open(url, "_blank", "noopener,noreferrer");
     } catch (error) {
       notify(
@@ -81,9 +100,31 @@ function ResumeVersionRow({
           {formatTimelineDate(version.uploaded_at)}
         </p>
       </div>
-      <Button type="button" variant="ghost" size="sm" onClick={handleDownload}>
-        {translate("crm.entity360.resume.download", { _: "Download" })}
-      </Button>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setIsViewerOpen(true)}
+        >
+          {translate("crm.entity360.resume.view", { _: "View" })}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={handleDownload}
+        >
+          {translate("crm.entity360.resume.download", { _: "Download" })}
+        </Button>
+      </div>
+      <AttachmentViewerDialog
+        open={isViewerOpen}
+        onOpenChange={setIsViewerOpen}
+        fileName={version.filename}
+        mimeType={version.mime_type}
+        signUrl={signUrl}
+      />
     </li>
   );
 }

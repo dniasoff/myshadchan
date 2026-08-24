@@ -26,6 +26,11 @@ const DOCUMENTS_BUCKET = "documents";
  */
 export const RESUME_FILE_URL_TTL_SECONDS = 60;
 
+/** The viewing counterpart — see `entityFiles.ts`'s
+ * `ENTITY_FILE_VIEW_TTL_SECONDS` for why a previewed PDF needs a longer
+ * window than a downloaded one. */
+export const RESUME_FILE_VIEW_TTL_SECONDS = 600;
+
 /**
  * The caller's ACTIVE account id, resolved the same way `dataProvider.ts`'s
  * `getCurrentAccountId` and `entityFiles.ts`'s own copy do
@@ -49,6 +54,9 @@ export type UploadResumeFileParams = ResumeSubject & {
 export type SignResumeFileUrlParams = {
   storagePath: string;
   fileName: string;
+  /** Serve for viewing in the page rather than saving to disk — mirrors
+   * `entityFiles.ts`'s `SignEntityFileUrlParams.inline`. */
+  inline?: boolean;
 };
 
 /**
@@ -214,9 +222,13 @@ export async function signResumeFileUrl(
 ): Promise<string> {
   const { data, error } = await getSupabaseClient()
     .storage.from(DOCUMENTS_BUCKET)
-    .createSignedUrl(params.storagePath, RESUME_FILE_URL_TTL_SECONDS, {
-      download: params.fileName,
-    });
+    .createSignedUrl(
+      params.storagePath,
+      params.inline
+        ? RESUME_FILE_VIEW_TTL_SECONDS
+        : RESUME_FILE_URL_TTL_SECONDS,
+      params.inline ? undefined : { download: params.fileName },
+    );
   if (error || !data) {
     console.error("signResumeFileUrl.error", error);
     throw new Error("Failed to sign the file URL");

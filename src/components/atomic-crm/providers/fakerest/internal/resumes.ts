@@ -89,6 +89,13 @@ export async function signResumeFileUrl(
   blobUrls: ResumeFileBlobUrls,
   storagePath: string,
 ): Promise<string> {
+  // The Supabase mirror takes an `inline` flag, which decides whether the
+  // signed URL carries `Content-Disposition: attachment`. There is no
+  // equivalent here and none is needed: a `blob:` object URL carries no
+  // disposition at all, so the demo's files already open in the viewer and
+  // still save from the Download button. The flag is accepted and ignored at
+  // the data-provider boundary rather than being absent from it, so the two
+  // providers keep the same shape.
   const url = blobUrls.get(storagePath);
   if (!url) {
     throw new Error("Failed to sign the file URL");

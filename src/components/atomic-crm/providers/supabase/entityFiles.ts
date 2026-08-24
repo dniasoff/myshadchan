@@ -27,6 +27,17 @@ const ENTITY_FILES_BUCKET = "entity-files";
 export const ENTITY_FILE_URL_TTL_SECONDS = 60;
 
 /**
+ * Longer than the download TTL, and for a concrete reason rather than
+ * caution: a browser's built-in PDF viewer does not fetch the file once. It
+ * issues HTTP range requests lazily as the reader scrolls, so a URL that
+ * expires 60 seconds after it was minted starts returning 401 to a document
+ * still open on screen — the failure looks like a corrupt PDF, not an
+ * expiry. Ten minutes covers reading a resume; the URL is still minted per
+ * open and still never persisted.
+ */
+export const ENTITY_FILE_VIEW_TTL_SECONDS = 600;
+
+/**
  * The caller's ACTIVE account id, resolved the same way
  * `dataProvider.ts`'s `getCurrentAccountId` does (`current_context_id` RPC,
  * never client state) — duplicated rather than imported to avoid a circular
@@ -57,6 +68,13 @@ export type UploadEntityFileParams = {
 export type SignEntityFileUrlParams = {
   storagePath: string;
   fileName: string;
+  /**
+   * Serve the bytes for viewing in the page instead of saving them to disk.
+   * `download` is what sets `Content-Disposition: attachment` on the signed
+   * URL, so omitting it is the whole difference between a preview and a
+   * download — there is no separate "preview" API.
+   */
+  inline?: boolean;
 };
 
 export type DeleteEntityFileParams = {
@@ -132,9 +150,13 @@ export async function signEntityFileUrl(
 ): Promise<string> {
   const { data, error } = await getSupabaseClient()
     .storage.from(ENTITY_FILES_BUCKET)
-    .createSignedUrl(params.storagePath, ENTITY_FILE_URL_TTL_SECONDS, {
-      download: params.fileName,
-    });
+    .createSignedUrl(
+      params.storagePath,
+      params.inline
+        ? ENTITY_FILE_VIEW_TTL_SECONDS
+        : ENTITY_FILE_URL_TTL_SECONDS,
+      params.inline ? undefined : { download: params.fileName },
+    );
   if (error || !data) {
     console.error("signEntityFileUrl.error", error);
     throw new Error("Failed to sign the file URL");

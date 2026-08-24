@@ -2667,6 +2667,7 @@ export const createDataProvider = ({
     signEntityFileUrl: (params: {
       storagePath: string;
       fileName: string;
+      inline?: boolean;
     }): Promise<string> =>
       signEntityFileUrlImpl(entityFileBlobUrls, params.storagePath),
     deleteEntityFile: (params: {
@@ -2710,6 +2711,7 @@ export const createDataProvider = ({
     signResumeFileUrl: (params: {
       storagePath: string;
       fileName: string;
+      inline?: boolean;
     }): Promise<string> =>
       signResumeFileUrlImpl(resumeFileBlobUrls, params.storagePath),
     // ---------------------------------------------------------------------

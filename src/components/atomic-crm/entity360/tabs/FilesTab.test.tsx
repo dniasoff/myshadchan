@@ -287,9 +287,13 @@ describe("FilesTab — signed URL minted per click, never cached (AC 5a)", () =>
     // Assert — an implementation that caches the URL in component state
     // fails this: it would call signEntityFileUrl once and reuse the value.
     await expect.poll(() => signEntityFileUrl.mock.calls.length).toBe(2);
+    // `inline: false` is what keeps `Content-Disposition: attachment` on the
+    // signed URL. Download must stay a download now that "View" sits next to
+    // it asking for `inline: true` from this same call.
     expect(signEntityFileUrl).toHaveBeenCalledWith({
       storagePath: "1/shidduch/1/y.pdf",
       fileName: row.file_name,
+      inline: false,
     });
   });
 });
