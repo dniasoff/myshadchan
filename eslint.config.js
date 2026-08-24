@@ -95,5 +95,68 @@ export default tseslint.config(
       "no-console": "off",
     },
   },
+  {
+    // `supabase/functions/**` is a Deno runtime and is deliberately excluded
+    // from every tsconfig (see tsconfig.node.json's own comment), so tsc never
+    // sees it — and typescript-eslint turns `no-undef` OFF by default because
+    // it normally trusts tsc to catch this. The result was a hole nothing
+    // covered: a reference to a variable that no longer exists compiles,
+    // lints, passes 208 unit tests, deploys, and fails at runtime in
+    // production. That is not hypothetical — removing the demo's two-party
+    // discussion left `connectionId` referenced two places further down and
+    // the first anyone knew was `seed_demo failed: connectionId is not
+    // defined` from a live seed.
+    //
+    // Turning it back on for exactly this directory restores the check tsc
+    // would have made. Deno's own globals have to be declared, since there is
+    // no tsconfig lib to supply them.
+    files: ["supabase/functions/**/*.ts"],
+    languageOptions: {
+      globals: {
+        Deno: "readonly",
+        crypto: "readonly",
+        fetch: "readonly",
+        Request: "readonly",
+        Response: "readonly",
+        Headers: "readonly",
+        URL: "readonly",
+        URLSearchParams: "readonly",
+        TextEncoder: "readonly",
+        TextDecoder: "readonly",
+        Blob: "readonly",
+        File: "readonly",
+        FormData: "readonly",
+        AbortController: "readonly",
+        AbortSignal: "readonly",
+        ReadableStream: "readonly",
+        atob: "readonly",
+        btoa: "readonly",
+        console: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        queueMicrotask: "readonly",
+        structuredClone: "readonly",
+        performance: "readonly",
+        EventTarget: "readonly",
+        Event: "readonly",
+      },
+    },
+    rules: {
+      "no-undef": "error",
+    },
+  },
+  {
+    // These two run under NODE, not Deno: the vitest suite and the shim that
+    // lets it stand in for Deno.env. They need Node's globals, not Deno's.
+    files: [
+      "supabase/functions/**/*.test.ts",
+      "supabase/functions/_shared/denoEnvTestShim.ts",
+    ],
+    languageOptions: {
+      globals: { Buffer: "readonly", process: "readonly" },
+    },
+  },
   storybook.configs["flat/recommended"],
 );

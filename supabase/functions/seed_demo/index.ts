@@ -40,7 +40,11 @@ import {
   validateOfficialDemoBundle,
   type DemoSuggestion,
 } from "../_shared/demoDataset.ts";
-import { DEMO_SHARE_ASSET_KEY, getAssetBytes } from "./assets/manifest.ts";
+import {
+  type AssetKey,
+  DEMO_SHARE_ASSET_KEY,
+  getAssetBytes,
+} from "./assets/manifest.ts";
 
 /**
  * Plants the curated realistic demo dataset (singles/shadchanim/references/
@@ -2437,48 +2441,9 @@ async function seedOfficialDemoBundle(
         requireSafePositiveBigintId(row.id, "demo analytics event id"),
       );
     }
-    const { data: messageNotificationRows, error: messageNotificationError } =
-      await rootDb
-        .from("message_notifications")
-        .update({
-          simulated: true,
-          status: "sent",
-          sent_at: new Date().toISOString(),
-        })
-        .eq("connection_id", connectionId)
-        .in("message_id", [firstMessageId, replyMessageId])
-        .select("id, message_id");
-    if (messageNotificationError) {
-      throw new Error(
-        `settle demo message notifications failed: ${messageNotificationError.message}`,
-      );
-    }
-    const canonicalMessageNotificationRows =
-      canonicalizeMessageNotificationRows(messageNotificationRows ?? []);
-    const settledMessageIds = new Set(
-      canonicalMessageNotificationRows.map((row) =>
-        requireSafePositiveBigintId(
-          row.message_id,
-          "demo message notification message id",
-        ),
-      ),
-    );
-    if (
-      !settledMessageIds.has(firstMessageId) ||
-      !settledMessageIds.has(replyMessageId)
-    ) {
-      throw new Error(
-        "settle demo message notifications returned incomplete IDs",
-      );
-    }
-    for (const row of canonicalMessageNotificationRows) {
-      await registerDemoResource(
-        runId,
-        leaseToken,
-        "message_notification",
-        requireSafePositiveBigintId(row.id, "demo message notification id"),
-      );
-    }
+    // No message notifications: the demo has no discussion to notify about.
+    // The reminder and share deliveries below are the product mailing THIS
+    // family, which needs no correspondent.
     const { data: taskNotificationRows, error: taskNotificationError } =
       await rootDb
         .from("task_notifications")
@@ -2527,31 +2492,19 @@ async function seedOfficialDemoBundle(
       );
     }
 
-    const [messageReceiptResult, reminderReceiptResult, shareReceiptResult] =
-      await Promise.all([
-        rootDb
-          .from("message_notifications")
-          .select("message_id")
-          .eq("connection_id", connectionId)
-          .eq("simulated", true)
-          .eq("status", "sent"),
-        rootDb
-          .from("task_notifications")
-          .select("id")
-          .eq("task_id", demoTaskId)
-          .eq("simulated", true)
-          .eq("status", "sent"),
-        rootDb
-          .from("share_access_log")
-          .select("id")
-          .eq("share_link_id", shareId)
-          .eq("simulated", true),
-      ]);
-    if (messageReceiptResult.error) {
-      throw new Error(
-        `count demo message receipts failed: ${messageReceiptResult.error.message}`,
-      );
-    }
+    const [reminderReceiptResult, shareReceiptResult] = await Promise.all([
+      rootDb
+        .from("task_notifications")
+        .select("id")
+        .eq("task_id", demoTaskId)
+        .eq("simulated", true)
+        .eq("status", "sent"),
+      rootDb
+        .from("share_access_log")
+        .select("id")
+        .eq("share_link_id", shareId)
+        .eq("simulated", true),
+    ]);
     if (reminderReceiptResult.error) {
       throw new Error(
         `count demo reminder receipts failed: ${reminderReceiptResult.error.message}`,
@@ -2562,23 +2515,19 @@ async function seedOfficialDemoBundle(
         `count demo share receipts failed: ${shareReceiptResult.error.message}`,
       );
     }
-    // Fan-out creates one notification row per recipient/channel. Count the
-    // two distinct messages rather than multiplying the showcase receipt by
-    // the number of real customer observers in the thread.
+    // Two simulated deliveries, both from the product TO this family: the
+    // reminder email and the share access. The message receipt went with the
+    // two-party discussion — there is nobody to exchange messages with in a
+    // one-family demo.
     const receiptCounts = computeSimulatedReceiptCounts(
-      messageReceiptResult.data ?? [],
+      [],
       reminderReceiptResult.data ?? [],
       shareReceiptResult.data ?? [],
     );
-    const { messageReceiptCount, reminderReceiptCount, shareReceiptCount } =
-      receiptCounts;
-    if (
-      messageReceiptCount !== 2 ||
-      reminderReceiptCount !== 1 ||
-      shareReceiptCount !== 1
-    ) {
+    const { reminderReceiptCount, shareReceiptCount } = receiptCounts;
+    if (reminderReceiptCount !== 1 || shareReceiptCount !== 1) {
       throw new Error(
-        `demo receipt graph is incomplete: messages=${messageReceiptCount}, reminders=${reminderReceiptCount}, shares=${shareReceiptCount}`,
+        `demo receipt graph is incomplete: reminders=${reminderReceiptCount}, shares=${shareReceiptCount}`,
       );
     }
 
