@@ -55,6 +55,17 @@ export const ListPagination = ({
     setPage,
   } = useListPaginationContext();
 
+  // A single page of results has nothing to paginate: no previous, no next,
+  // and a rows-per-page selector that cannot reveal a row that is not there.
+  // Rendering the furniture anyway is how a shidduch's Activity tab came to
+  // print "Rows per page: 20 · 1-1 of 1 · ‹ 1 ›" under one note — three
+  // controls, all inert, occupying more of the page than the note did.
+  // Deliberately in the shared component rather than at any one call site:
+  // every single-page list in the product had the same problem.
+  if (!hasPreviousPage && !hasNextPage) {
+    return null;
+  }
+
   const pageStart = (page - 1) * perPage + 1;
   const pageEnd = hasNextPage ? page * perPage : total;
 

@@ -151,9 +151,32 @@ export function Entity360TabStrip({
 
   return (
     <Tabs value={activeKey}>
-      <TabsList className="w-full justify-start overflow-x-auto">
+      {/*
+       * Wraps; it does not scroll. `overflow-x-auto` was the previous
+       * treatment and it failed twice over on a 12-tab entity like a
+       * shidduch. The visible failure was cosmetic and specific: per CSS
+       * Overflow §3, an `overflow-x` other than `visible` forces the
+       * unspecified `overflow-y` to compute to `auto` as well, so the
+       * strip grew a SECOND, vertical scrollbar — on Linux, a stepper with
+       * up/down arrows — sitting on top of the last tab. The failure that
+       * actually mattered was that the overflowing tabs were simply gone:
+       * a horizontal scroll region inside a vertically-scrolling page is
+       * close to undiscoverable with a mouse, so "Discussions" existed and
+       * could not be found.
+       *
+       * `h-auto` is load-bearing — `TabsList`'s own `h-9` would clip the
+       * second row to nothing — and `flex-none` on the triggers cancels
+       * the primitive's `flex-1`, which in a wrapping container stretches
+       * a short final row across the full width.
+       */}
+      <TabsList className="h-auto w-full flex-wrap justify-start gap-1">
         {tabs.map((tab) => (
-          <TabsTrigger key={tab.key} value={tab.key} asChild>
+          <TabsTrigger
+            key={tab.key}
+            value={tab.key}
+            className="flex-none"
+            asChild
+          >
             <Link to={buildTabPath(resource, recordId, tab.key)}>
               <TabLabel tabKey={tab.key} override={tab.label} />
             </Link>
