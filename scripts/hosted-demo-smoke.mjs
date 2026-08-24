@@ -1,6 +1,6 @@
 // Hosted acceptance harness for the official demo lifecycle.
 //
-// Drives the REAL deployed project end to end — onboarding, seed, all three
+// Drives the REAL deployed project end to end — onboarding, seed, the one
 // contexts, public/share containment, admin reseed, clear, a second
 // onboard/seed/clear retry, and a final proof that the project is empty again.
 // It creates and then removes a disposable Auth user, so it is destructive by
@@ -28,10 +28,11 @@ const TRUSTED_SENDER_EMAILS = new Set([
   "mrs.feldman@demo.invalid",
   "goldenmatches@demo.invalid",
 ]);
+// One family. The demo used to seed a shadchanus office and a second
+// household so the connection, cross-household grant and two-party discussion
+// had a counterparty; that also put a context switcher in the app bar.
 const CONTEXTS = new Map([
   ["primary-household", { kind: "household", root: true }],
-  ["feldman-shadchanus", { kind: "shadchanus", root: false }],
-  ["gross-household", { kind: "household", root: false }],
 ]);
 const PIPELINE_STATES = new Set([
   "new",
@@ -568,10 +569,7 @@ async function verifyContextSurfaces({ normal, accountIds, rootAccountId }) {
         rows(
           "connections",
           "id,status",
-          (query) =>
-            query.or(
-              `household_account_id.eq.${rootAccountId},shadchanus_account_id.eq.${accountIds["feldman-shadchanus"]}`,
-            ),
+          (query) => query.eq("household_account_id", rootAccountId),
           `context.${contextKey}.connections`,
         ),
         rows("threads", "id", undefined, `context.${contextKey}.threads`),
@@ -637,71 +635,13 @@ async function verifyContextSurfaces({ normal, accountIds, rootAccountId }) {
         shidduchim.map((row) => row.pipeline_state),
         PIPELINE_STATES,
       );
-    } else if (contextKey === "feldman-shadchanus") {
-      const [listings, connections, threads, messages] = await Promise.all([
-        ownedRows("listings", "id", `context.${contextKey}.listing_surface`),
-        rows(
-          "connections",
-          "id,status",
-          (query) =>
-            query.or(
-              `household_account_id.eq.${rootAccountId},shadchanus_account_id.eq.${accountId}`,
-            ),
-          `context.${contextKey}.connection_surface`,
-        ),
-        rows(
-          "threads",
-          "id",
-          undefined,
-          `context.${contextKey}.discussion_threads`,
-        ),
-        rows(
-          "messages",
-          "id",
-          undefined,
-          `context.${contextKey}.discussion_messages`,
-        ),
-      ]);
-      assertPass(
-        `context.${contextKey}.shadchan_graph`,
-        listings.length === 1 && connections.length >= 1,
-      );
-      assertPass(
-        `context.${contextKey}.discussion_graph`,
-        threads.length >= 1 && messages.length >= 2,
-      );
     } else {
-      const [grants, singles, trustedSenders] = await Promise.all([
-        rows(
-          "child_grants",
-          "id,status",
-          undefined,
-          `context.${contextKey}.grant_surface`,
-        ),
-        rows(
-          "singles",
-          "id",
-          undefined,
-          `context.${contextKey}.shared_single_surface`,
-        ),
-        ownedRows(
-          "trusted_senders",
-          "id,email",
-          `context.${contextKey}.trusted_senders`,
-        ),
-      ]);
-      assertPass(
-        `context.${contextKey}.grant_graph`,
-        grants.some((row) => row.status === "accepted"),
-      );
-      assertPass(
-        `context.${contextKey}.shared_single_graph`,
-        singles.length >= 1,
-      );
-      assertPass(
-        `context.${contextKey}.trusted_sender_graph`,
-        trustedSenders.length >= 1,
-      );
+      // The demo is one family, so `primary-household` is the only context.
+      // The shadchanus office and second household branches lived here and
+      // verified the connection, the cross-household grant and the two-party
+      // discussion — all of which need a second account. See
+      // supabase/functions/_shared/demoDataset.ts for why they are gone.
+      throw new HarnessFailure(`context.${contextKey}.unexpected_context`);
     }
 
     const deniedRootInbox = await rootRows(
@@ -879,7 +819,7 @@ async function verifySeed({ admin, anon, normal, runId, rootAccountId }) {
   assertExactSet(
     "seed.synthetic_actor_keys",
     runUsers.map((row) => row.actor_key),
-    new Set(["dovid-klein", "leah-feldman", "miriam-gross"]),
+    new Set(["dovid-klein", "sarah-klein"]),
   );
   state.syntheticUserIds = runUsers.map((row) => row.user_id);
   const authUsers = await listAuthUsers(admin);
@@ -914,7 +854,7 @@ async function verifySeed({ admin, anon, normal, runId, rootAccountId }) {
   );
   const expectedTrustedSenderAccounts = new Map([
     ["mrs.feldman@demo.invalid", accountIdByContext.get("primary-household")],
-    ["goldenmatches@demo.invalid", accountIdByContext.get("gross-household")],
+    ["goldenmatches@demo.invalid", accountIdByContext.get("primary-household")],
   ]);
   const actorUserIdByKey = new Map(
     runUsers.map((row) => [row.actor_key, row.user_id]),
@@ -932,8 +872,8 @@ async function verifySeed({ admin, anon, normal, runId, rootAccountId }) {
       "goldenmatches@demo.invalid",
       memberships.find(
         (row) =>
-          row.account_id === accountIdByContext.get("gross-household") &&
-          row.user_id === actorUserIdByKey.get("miriam-gross"),
+          row.account_id === accountIdByContext.get("primary-household") &&
+          row.user_id === actorUserIdByKey.get("dovid-klein"),
       )?.id,
     ],
   ]);

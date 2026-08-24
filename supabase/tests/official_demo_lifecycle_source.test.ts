@@ -409,11 +409,15 @@ describe("official demo lifecycle SQL source", () => {
       expect(source).toContain("grantee_account_id");
     }
     expect(barrier).toContain("array_remove(v_accounts, null)");
-    for (const source of [seedSource, databaseSuite]) {
-      expect(source).toContain("pending");
-      expect(source).toContain("accepted");
-      expect(source).toContain("revoked");
-    }
+    // The ownership rules still cover every relationship state — they guard a
+    // real product feature. The SEED no longer exercises `revoked`, because
+    // revoking a connection or a child grant needs a second account and the
+    // demo is one family; the database suite is where those states are
+    // proven now.
+    expect(databaseSuite).toContain("pending");
+    expect(databaseSuite).toContain("accepted");
+    expect(databaseSuite).toContain("revoked");
+    expect(seedSource).toContain("pending");
     expect(databaseSuite).toContain(
       "foreign relationship invite registration fails closed",
     );
@@ -718,7 +722,10 @@ describe("official demo lifecycle SQL source", () => {
   });
 
   it("keeps the phase-sensitive storage baseline exact before activation", () => {
-    expect(functions).toContain("<> 29");
+    // 19, not 29: the six cross-account resource types went with the
+    // companion contexts. Storage is untouched — every file already belonged
+    // to this family.
+    expect(functions).toContain("<> 19");
     expect(functions).toContain("<> 50");
     expect(functions).toContain("bucket = 'documents') <> 47");
     expect(functions).toContain("bucket = 'documents') < 47");

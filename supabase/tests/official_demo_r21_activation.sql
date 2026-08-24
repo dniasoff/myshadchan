@@ -61,20 +61,19 @@ values (
 returning id as run_id \gset
 insert into public.demo_run_accounts (run_id, account_id, context_key, context_kind, is_root)
 values
-  (:'run_id', :'root_account_id', 'primary-household', 'household', true),
-  (:'run_id', :'shadchan_account_id', 'feldman-shadchanus', 'shadchanus', false),
-  (:'run_id', :'gross_account_id', 'gross-household', 'household', false);
+  (:'run_id', :'root_account_id', 'primary-household', 'household', true);
+-- Two synthetic actors, both parents of the ONE household. `leah_user` and
+-- `miriam_user` remain as ordinary non-demo logins so the ownership fences
+-- below still have a genuine outsider to be fenced against.
 insert into public.demo_run_users (run_id, user_id, actor_key, email_domain)
 values
   (:'run_id', :'root_user', 'dovid-klein', 'invalid'),
-  (:'run_id', :'leah_user', 'leah-feldman', 'invalid'),
-  (:'run_id', :'miriam_user', 'miriam-gross', 'invalid');
+  (:'run_id', :'leah_user', 'sarah-klein', 'invalid');
 insert into public.demo_run_actor_intents
   (run_id, actor_key, expected_email, auth_user_id, state)
 values
   (:'run_id', 'dovid-klein', 'r21-dovid@test.invalid', :'root_user', 'reconciled'),
-  (:'run_id', 'leah-feldman', 'r21-leah@test.invalid', :'leah_user', 'reconciled'),
-  (:'run_id', 'miriam-gross', 'r21-miriam@test.invalid', :'miriam_user', 'reconciled');
+  (:'run_id', 'sarah-klein', 'r21-sarah@test.invalid', :'leah_user', 'reconciled');
 insert into public.demo_onboarding_intents (user_id, account_id, state)
 values (:'root_user', :'root_account_id', 'pending');
 
@@ -91,15 +90,9 @@ select set_config(
   true
 );
 
-insert into public.connections (
-  household_account_id, shadchanus_account_id, status,
-  proposed_by_account_id, accepted_at, household_account_name
-)
-values (
-  :'root_account_id', :'shadchan_account_id', 'accepted',
-  :'root_account_id', now(), 'r21 root household'
-)
-returning id as connection_id \gset
+-- No connection, connection invites, child grants, thread or messages: every
+-- one of them needs a SECOND account, and this run is one family. The demo
+-- write barrier now refuses such a write outright, which is the point.
 
 insert into public.invites (
   email, account_id, role, invited_by, status, expires_at, accepted_at, target_single_id
@@ -110,22 +103,6 @@ values
   ('r21-c@test.invalid', :'root_account_id', 'single', :'root_member_id', 'pending', now() + interval '14 days', null, :'withdrawn_single_id');
 select array_agg(id order by id) as invite_ids
 from public.invites where account_id = :'root_account_id' \gset
-
-insert into public.connection_invites (
-  inviter_account_id, inviter_kind, token_hash, status, expires_at,
-  accepted_by_account_id, accepted_at
-)
-values
-  (:'root_account_id', 'household', 'r21-pending-connection', 'pending', now() + interval '7 days', null, null),
-  (:'root_account_id', 'household', 'r21-accepted-connection', 'accepted', now() + interval '7 days', :'shadchan_account_id', now());
-
-insert into public.child_grants (
-  proposer_account_id, target_single_id, token_hash, status, expires_at,
-  grantee_account_id, accepted_at
-)
-values
-  (:'root_account_id', :'withdrawn_single_id', 'r21-pending-grant', 'pending', now() + interval '7 days', null, null),
-  (:'root_account_id', :'second_single_id', 'r21-accepted-grant', 'accepted', now() + interval '7 days', :'gross_account_id', now());
 
 insert into public.single_preferences (account_id, single_id, body, visible_to_manager)
 values
@@ -140,29 +117,18 @@ insert into public.shidduchim (account_id, single_id, name_en, owner_member_id)
 values (:'root_account_id', :'withdrawn_single_id', 'Rivky R21', :'root_member_id')
 returning id as shidduch_id \gset
 
-insert into public.threads (connection_id, subject_type, visibility)
-values (:'connection_id', 'relationship', 'open')
-returning id as thread_id \gset
-insert into public.thread_participants (connection_id, thread_id, member_id)
-values
-  (:'connection_id', :'thread_id', :'root_member_id'),
-  (:'connection_id', :'thread_id', :'leah_member_id');
-insert into public.messages (connection_id, thread_id, sender_member_id, body)
-values
-  (:'connection_id', :'thread_id', :'root_member_id', 'R21 introduction'),
-  (:'connection_id', :'thread_id', :'leah_member_id', 'R21 follow-up');
-
--- The live shadchan listing and the root single listing both use the exact
--- publisher memberships required by resolver ownership.
+-- Both listings belong to THIS family, using the exact publisher membership
+-- resolver ownership requires. The live one used to be a shadchanus office's,
+-- which is the only reason this fixture ever needed a second account.
 insert into public.listings (
-  account_id, listing_type, published_by_member_id,
-  shadchan_name, shadchan_area, shadchan_contact_info
+  account_id, listing_type, single_id, published_by_member_id,
+  single_first_name_en, single_age, single_location
 )
 values (
-  :'shadchan_account_id', 'shadchan', :'leah_member_id',
-  'R21 Feldman Office', 'Stack 2', 'Synthetic office'
+  :'root_account_id', 'single', :'second_single_id', :'root_member_id',
+  'Yaakov', 27, 'Stack 2'
 )
-returning id as shadchan_listing_id \gset
+returning id as live_listing_id \gset
 insert into public.listings (
   account_id, listing_type, single_id, published_by_member_id,
   single_first_name_en, single_age, single_location
@@ -173,9 +139,9 @@ values (
 );
 
 select public.resolve_demo_listing_id(
-  :'run_id', 'r21-activation-lease', :'shadchan_account_id',
-  'shadchan', null, :'leah_member_id'
-) as resolved_shadchan_listing_id \gset
+  :'run_id', 'r21-activation-lease', :'root_account_id',
+  'single', :'second_single_id', :'root_member_id'
+) as resolved_live_listing_id \gset
 select public.resolve_demo_listing_id(
   :'run_id', 'r21-activation-lease', :'root_account_id',
   'single', :'withdrawn_single_id', :'root_member_id'
@@ -241,23 +207,13 @@ from (
   select 'invite'::text as resource_type, id as resource_id
   from public.invites where account_id = :'root_account_id'
 ) invites_rows
-union all
-select :run_id, 'connection_invite', id
-from public.connection_invites where inviter_account_id = :'root_account_id'
-union all
-select :run_id, 'child_grant', id
-from public.child_grants where proposer_account_id = :'root_account_id'
-union all select :run_id, 'connection', :connection_id
-union all select :run_id, 'thread', :thread_id
-union all select :run_id, 'message', id from public.messages where thread_id = :thread_id
-union all select :run_id, 'listing', :shadchan_listing_id
+union all select :run_id, 'listing', :live_listing_id
 union all select :run_id, 'listing_withdrawal', :withdrawn_single_id
 union all select :run_id, 'share_link', :share_id
 union all select :run_id, 'task', :task_id
 union all select :run_id, 'share_access_log', :share_access_id
 union all select :run_id, 'inbox_item', :inbox_id
 union all select :run_id, 'analytics_event', id from public.analytics_events where account_id = :root_account_id
-union all select :run_id, 'message_notification', id from public.message_notifications where connection_id = :connection_id
 union all select :run_id, 'task_notification', :task_notification_id
 union all select :run_id, 'trusted_sender', id from public.trusted_senders where account_id = :root_account_id
 union all select :run_id, 'single_preference', id from public.single_preferences where account_id = :root_account_id
@@ -290,11 +246,10 @@ select 'exact official baseline inventory is registered',
   (
     with expected(resource_type, expected_count) as (
       values
-        ('invite', 3), ('connection_invite', 2), ('child_grant', 2),
-        ('connection', 1), ('thread', 1), ('message', 2), ('listing', 1),
+        ('invite', 3), ('listing', 1),
         ('listing_withdrawal', 1), ('share_link', 1), ('task', 1),
         ('share_access_log', 1), ('inbox_item', 1), ('analytics_event', 3),
-        ('message_notification', 2), ('task_notification', 1),
+        ('task_notification', 1),
         ('trusted_sender', 2), ('single_preference', 2), ('single_note', 2)
     ), actual as (
       select resource_type, count(*)::bigint
@@ -309,7 +264,7 @@ select 'exact official baseline inventory is registered',
       where coalesce(a.count, 0) <> e.expected_count
     )
   )
-  and (select count(*) = 29 from public.demo_run_resources where run_id = :run_id)
+  and (select count(*) = 19 from public.demo_run_resources where run_id = :run_id)
   and (select count(*) = 50 from public.demo_run_storage where run_id = :run_id)
   and (select count(*) = 47 from public.demo_run_storage where run_id = :run_id and bucket = 'documents')
   and (select count(*) = 3 from public.demo_run_storage where run_id = :run_id and bucket = 'entity-files'),
@@ -366,10 +321,15 @@ select set_config(
 insert into r21_checks
 select 'authenticated active bundle preview contains only the live listing',
   public.demo_account_is_previewable(:'root_account_id'::bigint)
-  and public.demo_account_is_previewable(:'shadchan_account_id'::bigint)
-  and (select count(*) = 3 from public.current_demo_preview_accounts())
-  and (select count(*) = 1 from public.listings where id = :'shadchan_listing_id'::bigint)
-  and not exists (select 1 from public.listings where id = :'withdrawn_single_id'::bigint),
+  -- One previewable account, because the bundle is one family.
+  and (select count(*) = 1 from public.current_demo_preview_accounts())
+  and (select count(*) = 1 from public.listings where id = :'live_listing_id'::bigint)
+  and not exists (
+    select 1 from public.listings
+    where account_id = :'root_account_id'::bigint
+      and listing_type = 'single'
+      and single_id = :'withdrawn_single_id'::bigint
+  ),
   'preview_accounts=' || (select count(*) from public.current_demo_preview_accounts())
   || ' listings=' || (select count(*) from public.listings);
 

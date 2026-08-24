@@ -102,22 +102,26 @@ describe("official demo final repair source", () => {
     expect(triggers).toContain("z_block_demo_persona_mutation");
     expect(functions).toContain("block_demo_persona_mutation");
     expect(functions).toContain("assert_official_demo_inventory");
-    for (const key of [
-      "primary-household",
-      "feldman-shadchanus",
-      "gross-household",
+    // One context, because the demo is one family. The gate must also assert
+    // the cross-account resource types are ABSENT, not merely uncounted — a
+    // reintroduced companion has to fail activation loudly rather than seed a
+    // demo nobody designed.
+    expect(functions).toContain("primary-household");
+    expect(functions).not.toContain("feldman-shadchanus");
+    expect(functions).not.toContain("gross-household");
+    for (const goneType of [
+      "connection_invite",
+      "child_grant",
+      "message_notification",
     ]) {
-      expect(functions).toContain(key);
-    }
-    for (const actor of ["dovid-klein", "leah-feldman", "miriam-gross"]) {
-      expect(functions).toContain(actor);
+      expect(functions).toContain(`resource_type = '${goneType}')`);
     }
     expect(seed).toContain("activateDemoRunWithReconciliation");
     expect(functions).toContain(
       "assert_official_demo_inventory(p_run_id, false)",
     );
     expect(clear).toContain("assert_official_demo_inventory");
-    expect(functions).toContain("<> 29");
+    expect(functions).toContain("<> 19");
     expect(functions).toContain("<> 50");
     expect(functions).toContain("bucket = 'documents') <> 47");
   });
@@ -161,13 +165,13 @@ describe("official demo final repair source", () => {
     expect(trustedSenderBlock).toContain(
       "created_by_member_id: dovidMembershipId",
     );
-    expect(trustedSenderBlock).toContain(
-      'account_id: accountIdByContext.get("gross-household")',
-    );
-    expect(trustedSenderBlock).toContain(
-      "created_by_member_id: miriamMembershipId",
-    );
-    expect(trustedSenderBlock).not.toContain("feldman-shadchanus");
+    // BOTH rows sit on this family's own account now: a household whitelists
+    // the shadchanim who email it. The second used to live on the companion
+    // household, which was the only reason it was ever on another account.
+    expect(trustedSenderBlock).not.toContain("accountIdByContext");
+    expect(
+      trustedSenderBlock?.match(/account_id: rootAccountId/g),
+    ).toHaveLength(2);
     expect(seed).toContain('"mrs.feldman@demo.invalid"');
     expect(seed).toContain('"goldenmatches@demo.invalid"');
     expect(triggers).toContain("validate_trusted_senders_household_scope");

@@ -713,10 +713,11 @@ export async function cleanupPartialBundle(
     context_kind?: unknown;
     is_root?: unknown;
   }>;
+  // Single tenant: the demo is one family. See demoDataset.ts's scenario
+  // inventory for why the shadchanus office and second household are gone
+  // rather than hidden.
   const expectedKinds: Record<string, "household" | "shadchanus"> = {
     "primary-household": "household",
-    "feldman-shadchanus": "shadchanus",
-    "gross-household": "household",
   };
   const manifestRootIds: number[] = [];
   for (const row of manifestAccountRows.filter(
@@ -1872,41 +1873,6 @@ async function seedOfficialDemoBundle(
     }
     requireSafePositiveBigintId(rootMembership.id, "root membership id");
 
-    const realRootMembers = await listRealRootMembers(rootAccountId);
-    const feldmanAccountId = requireSafePositiveBigintId(
-      accountIdByContext.get("feldman-shadchanus"),
-      "Feldman shadchanus account id",
-    );
-    const grossAccountId = requireSafePositiveBigintId(
-      accountIdByContext.get("gross-household"),
-      "Gross household account id",
-    );
-    const companionMembershipRows = realRootMembers.flatMap((member) => [
-      {
-        account_id: feldmanAccountId,
-        user_id: member.userId,
-        role: "shadchan",
-        status: "active",
-      },
-      {
-        account_id: grossAccountId,
-        user_id: member.userId,
-        role: "parent_admin",
-        status: "active",
-      },
-    ]);
-    if (companionMembershipRows.length > 0) {
-      const { error: companionMembershipError } = await rootDb
-        .from("account_members")
-        .insert(companionMembershipRows);
-      if (companionMembershipError) {
-        throw new Error(
-          `create companion memberships failed: ${companionMembershipError.message}`,
-        );
-      }
-    }
-    await heartbeatDemoRun(runId, leaseToken, "companion membership setup");
-
     const actorMembershipByKey = new Map<string, number>();
     const actorEmailByKey = new Map<string, string>();
     const actorUserIdByKey = new Map<string, string>();
@@ -2048,23 +2014,18 @@ async function seedOfficialDemoBundle(
       actorMembershipByKey.get("dovid-klein"),
       "Dovid trusted sender membership id",
     );
-    const miriamMembershipId = requireSafePositiveBigintId(
-      actorMembershipByKey.get("miriam-gross"),
-      "Miriam trusted sender membership id",
-    );
+    // Both belong to THIS household: a family whitelists the shadchanim who
+    // email them. The second row used to sit on the companion household,
+    // which is the only reason it was ever on another account.
     const trustedSenderRows = [
-      // created_by_member_id: actorMembershipByKey.get("dovid-klein")
-      // created_by_member_id: actorMembershipByKey.get("miriam-gross")
-      // created_by_member_id: dovidMembershipId
-      // created_by_member_id: miriamMembershipId
       {
         account_id: rootAccountId,
         created_by_member_id: dovidMembershipId,
         email: "mrs.feldman@demo.invalid",
       },
       {
-        account_id: accountIdByContext.get("gross-household"),
-        created_by_member_id: miriamMembershipId,
+        account_id: rootAccountId,
+        created_by_member_id: dovidMembershipId,
         email: "goldenmatches@demo.invalid",
       },
     ];
@@ -2130,27 +2091,25 @@ async function seedOfficialDemoBundle(
       .single();
     if (singleError || !rootSingle)
       throw new Error("root demo single disappeared");
-    const shadchanusAccountId = requireSafePositiveBigintId(
-      accountIdByContext.get("feldman-shadchanus"),
-      "Feldman shadchanus account id",
-    );
-    const collaboratorAccountId = requireSafePositiveBigintId(
-      accountIdByContext.get("gross-household"),
-      "Gross household account id",
-    );
-    const actorMembershipId = requireSafePositiveBigintId(
-      actorMembershipByKey.get("leah-feldman"),
-      "Leah listing publisher membership id",
-    );
+    // The family's other child, whose listing is the one they took down.
+    const { data: secondSingle, error: secondSingleError } = await supabaseAdmin
+      .from("singles")
+      .select("id, first_name_en")
+      .eq("account_id", rootAccountId)
+      .eq("gender", "male")
+      .limit(1)
+      .single();
+    if (secondSingleError || !secondSingle) {
+      throw new Error("second demo single disappeared");
+    }
     const rootSingleId = requireSafePositiveBigintId(
       rootSingle.id,
       "root demo single id",
     );
-    const leahClient = actorClientByKey.get("leah-feldman");
-    const miriamClient = actorClientByKey.get("miriam-gross");
-    if (!leahClient || !miriamClient) {
-      throw new Error("synthetic actor clients were not initialized");
-    }
+    const secondSingleId = requireSafePositiveBigintId(
+      secondSingle.id,
+      "second demo single id",
+    );
 
     // Use the public invitation lifecycle for both a completed and a pending
     // membership invitation. The actor credentials exist only in this server
@@ -2159,8 +2118,8 @@ async function seedOfficialDemoBundle(
       dovidClient,
       "create_invite",
       {
-        p_email: actorEmailByKey.get("miriam-gross"),
-        p_role: "helper",
+        p_email: actorEmailByKey.get("sarah-klein"),
+        p_role: "parent_admin",
       },
     );
     createdResourceIds.invitations.add(
@@ -2177,19 +2136,8 @@ async function seedOfficialDemoBundle(
       p_run_id: runId,
       p_lease_token: leaseToken,
       p_token: acceptedMembershipInvite.token,
-      p_actor_user_id: actorUserIdByKey.get("miriam-gross"),
+      p_actor_user_id: actorUserIdByKey.get("sarah-klein"),
     });
-    const { error: miriamContextError } = await rootDb
-      .from("member_state")
-      .upsert({
-        user_id: actorUserIdByKey.get("miriam-gross"),
-        active_account_id: collaboratorAccountId,
-      });
-    if (miriamContextError) {
-      throw new Error(
-        `restore miriam demo context failed: ${miriamContextError.message}`,
-      );
-    }
     const pendingInvite = await rpcRow<{ token: string }>(
       dovidClient,
       "create_invite",
@@ -2209,213 +2157,51 @@ async function seedOfficialDemoBundle(
       ),
     );
 
-    // Create the accepted connection through the real token exchange. The
-    // acceptance RPC creates the connection and the shadchan directory row.
-    const acceptedConnectionToken = await rpcValue<string>(
-      dovidClient,
-      "create_connection_invite",
-      {},
-    );
-    await registerTokenResource(
-      runId,
-      leaseToken,
-      "connection_invites",
-      "token_hash",
-      acceptedConnectionToken,
-      "connection_invite",
-    );
-    const connection = await rpcRow<{ id: number }>(
-      leahClient,
-      "accept_connection_invite",
-      { p_token: acceptedConnectionToken },
-    );
-    const connectionId = requireSafePositiveBigintId(
-      connection.id,
-      "accepted connection id",
-    );
-    createdResourceIds.connections.add(connectionId);
-    await registerDemoResource(runId, leaseToken, "connection", connectionId);
+    // Connections, cross-household child grants and the two-party discussion
+    // used to be seeded here. They all need a SECOND account to be real, and
+    // this demo is one family — see demoDataset.ts's scenario inventory. The
+    // features themselves are unchanged and still covered by their own RLS
+    // suites; they are simply not part of a one-family demo.
 
-    const revokedConnectionToken = await rpcValue<string>(
-      dovidClient,
-      "create_connection_invite",
-      {},
-    );
-    const revokedConnectionInvite = await dovidClient
-      .from("connection_invites")
-      .select("id")
-      .eq("token_hash", await sha256Hex(revokedConnectionToken))
-      .single();
-    if (revokedConnectionInvite.error || !revokedConnectionInvite.data) {
-      throw new Error(
-        `find revoked connection invite failed: ${revokedConnectionInvite.error?.message}`,
-      );
-    }
-    const revokedConnectionInviteId = requireSafePositiveBigintId(
-      revokedConnectionInvite.data.id,
-      "revoked connection invite id",
-    );
-    await registerDemoResource(
-      runId,
-      leaseToken,
-      "connection_invite",
-      revokedConnectionInviteId,
-    );
-    await rpcValue<void>(dovidClient, "revoke_connection_invite", {
-      p_invite_id: revokedConnectionInvite.data.id,
-    });
-
-    // Likewise exercise the household-to-household child-grant lifecycle.
-    const acceptedGrantToken = await rpcValue<string>(
-      dovidClient,
-      "create_child_grant",
-      {
-        p_target_single_id: rootSingleId,
-        p_grantee_email: actorEmailByKey.get("miriam-gross"),
-        p_access_level: "comment",
-      },
-    );
-    await registerTokenResource(
-      runId,
-      leaseToken,
-      "child_grants",
-      "token_hash",
-      acceptedGrantToken,
-      "child_grant",
-    );
-    const acceptedGrant = await dovidClient
-      .from("child_grants")
-      .select("id")
-      .eq("token_hash", await sha256Hex(acceptedGrantToken))
-      .single();
-    if (acceptedGrant.error || !acceptedGrant.data) {
-      throw new Error(
-        `find accepted child grant failed: ${acceptedGrant.error?.message}`,
-      );
-    }
-    const acceptedGrantId = requireSafePositiveBigintId(
-      acceptedGrant.data.id,
-      "accepted child grant id",
-    );
-    createdResourceIds.grants.add(acceptedGrantId);
-    await rpcRow(miriamClient, "accept_child_grant", {
-      p_token: acceptedGrantToken,
-    });
-
-    const revokedGrantToken = await rpcValue<string>(
-      dovidClient,
-      "create_child_grant",
-      {
-        p_target_single_id: rootSingleId,
-        p_grantee_email: `revoked+${crypto.randomUUID()}@demo.invalid`,
-        p_access_level: "read",
-      },
-    );
-    const revokedGrant = await dovidClient
-      .from("child_grants")
-      .select("id")
-      .eq("token_hash", await sha256Hex(revokedGrantToken))
-      .single();
-    if (revokedGrant.error || !revokedGrant.data) {
-      throw new Error(
-        `find revoked child grant failed: ${revokedGrant.error?.message}`,
-      );
-    }
-    const revokedGrantId = requireSafePositiveBigintId(
-      revokedGrant.data.id,
-      "revoked child grant id",
-    );
-    createdResourceIds.grants.add(revokedGrantId);
-    await registerDemoResource(
-      runId,
-      leaseToken,
-      "child_grant",
-      revokedGrantId,
-    );
-    await rpcValue<void>(dovidClient, "revoke_child_grant", {
-      p_grant_id: revokedGrant.data.id,
-    });
-
-    const thread = await rpcRow<{ id: number }>(dovidClient, "create_thread", {
-      p_subject_type: "relationship",
-      p_subject_id: null,
-      p_participant_member_ids: [actorMembershipId],
-      p_visibility: "open",
-      p_connection_id: connectionId,
-    });
-    const threadId = requireSafePositiveBigintId(thread.id, "demo thread id");
-    createdResourceIds.discussions.add(threadId);
-    await registerDemoResource(runId, leaseToken, "thread", threadId);
-    const { data: firstMessage, error: messageError } = await dovidClient
-      .from("messages")
-      .insert({
-        thread_id: threadId,
-        body: "The Feldman office checked in — the Klein family is ready to review the next suggestion.",
-      })
-      .select("id")
-      .single();
-    if (messageError) {
-      throw new Error(`create demo message failed: ${messageError.message}`);
-    }
-    if (!firstMessage) throw new Error("create demo message returned no row");
-    const firstMessageId = requireSafePositiveBigintId(
-      firstMessage.id,
-      "first demo message id",
-    );
-    createdResourceIds.messages.add(firstMessageId);
-    await registerDemoResource(runId, leaseToken, "message", firstMessageId);
-    const { data: replyMessage, error: replyError } = await leahClient
-      .from("messages")
-      .insert({
-        thread_id: threadId,
-        body: "Absolutely — I will send over the family notes so we can keep the introduction moving.",
-      })
-      .select("id")
-      .single();
-    if (replyError) {
-      throw new Error(
-        `create demo message reply failed: ${replyError.message}`,
-      );
-    }
-    if (!replyMessage) throw new Error("create demo reply returned no row");
-    const replyMessageId = requireSafePositiveBigintId(
-      replyMessage.id,
-      "reply demo message id",
-    );
-    createdResourceIds.messages.add(replyMessageId);
-    await registerDemoResource(runId, leaseToken, "message", replyMessageId);
-
+    // Two listings, both this family's own: the son's is published and then
+    // withdrawn (leaving the r21 tombstone), the daughter's stays live so the
+    // marketplace surface has something real to show. The live one used to be
+    // a shadchanus office's, which is the only reason it needed a second
+    // account.
+    //
     // Demo listings are deliberately invisible to authenticated SELECT while
-    // the run is still seeding. Keep the real shadchan actor INSERT path, but
-    // use PostgREST's return=minimal default so INSERT ... RETURNING does not
-    // cross that active-only preview boundary.
-    const shadchanListingId = await insertAndResolveDemoListing(
-      leahClient,
+    // the run is still seeding, so this uses PostgREST's return=minimal
+    // default and resolves the id through the service RPC rather than letting
+    // INSERT ... RETURNING cross that active-only preview boundary.
+    const publisherMembershipId = requireSafePositiveBigintId(
+      actorMembershipByKey.get("dovid-klein"),
+      "Dovid listing publisher membership id",
+    );
+    const withdrawnListingId = await insertAndResolveDemoListing(
+      dovidClient,
       rootDb,
       {
-        account_id: shadchanusAccountId,
-        listing_type: "shadchan",
-        published_by_member_id: actorMembershipId,
-        shadchan_name: "Leah Feldman",
-        shadchan_area: "Lakewood, NJ",
-        shadchan_contact_info: "Contact through the Feldman office",
+        account_id: rootAccountId,
+        listing_type: "single",
+        single_id: secondSingleId,
+        published_by_member_id: publisherMembershipId,
+        single_first_name_en: secondSingle.first_name_en,
+        single_age: 27,
+        single_community: "Lakewood",
+        single_location: "Lakewood, NJ",
+        single_summary: "A steady, good-humoured young man learning full time.",
       },
       {
         p_run_id: runId,
         p_lease_token: leaseToken,
-        p_account_id: shadchanusAccountId,
-        p_listing_type: "shadchan",
-        p_single_id: null,
-        p_published_by_member_id: actorMembershipId,
+        p_account_id: rootAccountId,
+        p_listing_type: "single",
+        p_single_id: secondSingleId,
+        p_published_by_member_id: publisherMembershipId,
       },
-      "create demo shadchan",
+      "create demo withdrawn single",
     );
-    createdResourceIds.listings.add(shadchanListingId);
-    // Keep the shadchanus listing published: the owning demo bundle can
-    // preview it through authenticated listing access, while ordinary anon
-    // search remains excluded by the demo containment policy.
-    //
-    // The next listing follows the same actor-insert/service-resolution path.
+    createdResourceIds.listings.add(withdrawnListingId);
     const singleListingId = await insertAndResolveDemoListing(
       dovidClient,
       rootDb,
@@ -2452,11 +2238,8 @@ async function seedOfficialDemoBundle(
       p_run_id: runId,
       p_lease_token: leaseToken,
       p_account_id: rootAccountId,
-      p_single_id: rootSingleId,
-      p_published_by_member_id: requireSafePositiveBigintId(
-        actorMembershipByKey.get("dovid-klein"),
-        "Dovid listing publisher membership id",
-      ),
+      p_single_id: secondSingleId,
+      p_published_by_member_id: publisherMembershipId,
     };
     let withdrawalData: unknown = null;
     let withdrawalError: { message: string } | null = null;

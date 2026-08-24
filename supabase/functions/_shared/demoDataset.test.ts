@@ -30,64 +30,85 @@ describe("persistent demo dataset", () => {
     expect(OFFICIAL_DEMO_BUNDLE.scenarios).toEqual(
       OFFICIAL_DEMO_SCENARIO_INVENTORY,
     );
+    // A message delivery needs a correspondent, and there is nobody to
+    // message in a one-family demo. The deliveries that remain are the ones
+    // the product sends TO this family.
+    expect(
+      OFFICIAL_DEMO_BUNDLE.scenarios.some(
+        (scenario) => scenario.kind === "message",
+      ),
+    ).toBe(false);
     expect(
       OFFICIAL_DEMO_BUNDLE.scenarios.find(
-        (scenario) => scenario.key === "simulated-message-email",
+        (scenario) => scenario.key === "simulated-reminder-email",
       ),
-    ).toMatchObject({ kind: "message", state: "sent" });
+    ).toMatchObject({ kind: "reminder", state: "sent" });
   });
 
   it("keeps synthetic actor display names separate from their private credentials", () => {
-    expect(OFFICIAL_DEMO_BUNDLE.actors).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          key: "dovid-klein",
-          firstName: "Dovid",
-          lastName: "Klein",
-          contextKey: "primary-household",
-          address: "dovid.klein@demo.invalid",
-        }),
-        expect.objectContaining({
-          key: "leah-feldman",
-          firstName: "Leah",
-          lastName: "Feldman",
-          address: "leah.feldman@demo.invalid",
-        }),
-        expect.objectContaining({
-          key: "miriam-gross",
-          firstName: "Miriam",
-          lastName: "Gross",
-          address: "miriam.gross@demo.invalid",
-        }),
-      ]),
-    );
+    expect(OFFICIAL_DEMO_BUNDLE.actors).toEqual([
+      expect.objectContaining({
+        key: "dovid-klein",
+        firstName: "Dovid",
+        lastName: "Klein",
+        contextKey: "primary-household",
+        address: "dovid.klein@demo.invalid",
+        role: "parent_admin",
+      }),
+      expect.objectContaining({
+        key: "sarah-klein",
+        firstName: "Sarah",
+        lastName: "Klein",
+        contextKey: "primary-household",
+        address: "sarah.klein@demo.invalid",
+        role: "parent_admin",
+      }),
+    ]);
+  });
+
+  it("is a single-tenant demo: one household, one synthetic actor", () => {
+    // The demo is one family trying the product. It used to seed a shadchanus
+    // office and a second household so the connection, cross-household grant
+    // and two-party discussion scenarios had a counterparty — which also put a
+    // context switcher in the app bar, because ContextSwitcher renders for any
+    // login holding two or more contexts.
+    //
+    // Asserted as an exact list rather than `arrayContaining`, so a companion
+    // context cannot be reintroduced without this failing. That matters: the
+    // activation gate counts contexts, so a silent extra one fails a demo run
+    // in production rather than here.
+    expect(OFFICIAL_DEMO_BUNDLE.contexts).toEqual([
+      {
+        key: "primary-household",
+        kind: "household",
+        name: "The Klein Family",
+        root: true,
+      },
+    ]);
+    // Both actors sit in the ONE household: a second parent is the same
+    // family, not a second tenant.
+    expect(OFFICIAL_DEMO_BUNDLE.actors).toHaveLength(2);
     expect(
-      OFFICIAL_DEMO_BUNDLE.actors.map(({ key, role }) => ({ key, role })),
-    ).toEqual(
-      expect.arrayContaining([
-        { key: "dovid-klein", role: "parent_admin" },
-        { key: "leah-feldman", role: "shadchan" },
-        { key: "miriam-gross", role: "parent_admin" },
-      ]),
+      OFFICIAL_DEMO_BUNDLE.actors.every(
+        (actor) => actor.contextKey === "primary-household",
+      ),
+    ).toBe(true);
+  });
+
+  it("declares no scenario that would need a second account", () => {
+    // Connections, child grants and two-party discussions are all real
+    // product features with their own RLS suites — they are simply not part
+    // of a one-family demo, and a scenario listed here with no counterparty
+    // to seed it against would be a promise the seed cannot keep.
+    const kinds = new Set(
+      OFFICIAL_DEMO_BUNDLE.scenarios.map((scenario) => scenario.kind),
     );
-    expect(OFFICIAL_DEMO_BUNDLE.contexts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          key: "primary-household",
-          kind: "household",
-          name: "The Klein Family",
-          root: true,
-        }),
-        expect.objectContaining({
-          key: "feldman-shadchanus",
-          kind: "shadchanus",
-        }),
-        expect.objectContaining({
-          key: "gross-household",
-          kind: "household",
-        }),
-      ]),
-    );
+    expect(kinds.has("connection")).toBe(false);
+    expect(kinds.has("grant")).toBe(false);
+    expect(kinds.has("discussion")).toBe(false);
+    expect(
+      OFFICIAL_DEMO_BUNDLE.scenarios.some((scenario) => scenario.dependsOn),
+    ).toBe(false);
   });
 
   it("keeps the complete straight-only pipeline contract", () => {

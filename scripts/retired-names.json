@@ -263,6 +263,10 @@
         {
           "file": "scripts/hosted-demo-smoke.mjs",
           "term": "child_grant"
+        },
+        {
+          "file": "supabase/tests/official_demo_review_source.test.ts",
+          "term": "child_grant"
         }
       ],
       "exemptReasons": {

@@ -775,7 +775,21 @@ export type DemoBundleManifest = {
 
 /** The complete scenario contract is intentionally explicit: seed and UI
  * review code use these keys as a stable inventory, not as an open-ended bag
- * of illustrative rows. */
+ * of illustrative rows.
+ *
+ * SINGLE TENANT. The demo is one family — the Klein household — and nothing
+ * else. It used to seed two more contexts (a shadchanus office and a second
+ * household) so the connection, cross-household child-grant and two-party
+ * discussion scenarios had a real counterparty; that also put a context
+ * switcher in the app bar, because ContextSwitcher renders for any login with
+ * two or more contexts. A person trying the product is one family, so those
+ * five scenarios (connection-accepted, connection-revoked, child-grant-accepted,
+ * child-grant-revoked, two-party-discussion) and both companion contexts are
+ * gone rather than hidden. `simulated-message-email` went with them: a
+ * message delivery needs a correspondent, and there is nobody to message in a
+ * one-family demo. The reminder and inbox deliveries stay, because those are
+ * the product mailing THIS family. Those product features are unchanged and
+ * still tested by the RLS suites — they simply are not part of the demo. */
 export const OFFICIAL_DEMO_SCENARIO_INVENTORY = [
   {
     key: "membership-invite-accepted",
@@ -783,22 +797,11 @@ export const OFFICIAL_DEMO_SCENARIO_INVENTORY = [
     state: "accepted",
   },
   { key: "membership-invite-pending", kind: "invitation", state: "pending" },
-  { key: "connection-accepted", kind: "connection", state: "accepted" },
-  { key: "connection-revoked", kind: "connection", state: "revoked" },
-  { key: "child-grant-accepted", kind: "grant", state: "accepted" },
-  { key: "child-grant-revoked", kind: "grant", state: "revoked" },
-  {
-    key: "two-party-discussion",
-    kind: "discussion",
-    state: "active",
-    dependsOn: ["connection-accepted"],
-  },
   { key: "shadchan-listing-preview", kind: "listing", state: "published" },
   { key: "single-listing-withdrawn", kind: "listing", state: "withdrawn" },
   { key: "synthetic-share-active", kind: "share", state: "active" },
   { key: "synthetic-share-accessed", kind: "share", state: "accessed" },
   { key: "simulated-reminder-email", kind: "reminder", state: "sent" },
-  { key: "simulated-message-email", kind: "message", state: "sent" },
   { key: "inbox-captured-simulated", kind: "inbox", state: "resolved" },
 ] as const;
 
@@ -811,16 +814,6 @@ export const OFFICIAL_DEMO_BUNDLE: DemoBundleManifest = {
       name: "The Klein Family",
       root: true,
     },
-    {
-      key: "feldman-shadchanus",
-      kind: "shadchanus",
-      name: "Feldman Shidduch Office",
-    },
-    {
-      key: "gross-household",
-      kind: "household",
-      name: "The Gross Family",
-    },
   ],
   actors: [
     {
@@ -832,20 +825,16 @@ export const OFFICIAL_DEMO_BUNDLE: DemoBundleManifest = {
       lastName: "Klein",
     },
     {
-      key: "leah-feldman",
-      contextKey: "feldman-shadchanus",
-      role: "shadchan",
-      address: "leah.feldman@demo.invalid",
-      firstName: "Leah",
-      lastName: "Feldman",
-    },
-    {
-      key: "miriam-gross",
-      contextKey: "gross-household",
+      // The second parent. A household is one or two parents (the product's
+      // own model), so the accepted membership invitation has a real, local
+      // invitee — it used to be sent to the second household's parent, which
+      // is exactly the cross-account dependency this demo no longer has.
+      key: "sarah-klein",
+      contextKey: "primary-household",
       role: "parent_admin",
-      address: "miriam.gross@demo.invalid",
-      firstName: "Miriam",
-      lastName: "Gross",
+      address: "sarah.klein@demo.invalid",
+      firstName: "Sarah",
+      lastName: "Klein",
     },
   ],
   scenarios: OFFICIAL_DEMO_SCENARIO_INVENTORY,

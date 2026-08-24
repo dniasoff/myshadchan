@@ -169,6 +169,11 @@ beforeEach(() => {
 });
 
 describe("seed_demo direct harness", () => {
+  // Removed with the companion contexts: the two-party message exchange and
+  // the committed-companion recovery path both existed only because the demo
+  // seeded a second and third account. A one-family demo creates neither, so
+  // there is no live code path left for them to cover — see
+  // _shared/demoDataset.ts for why the demo is single tenant.
   it("rejects malformed, missing, non-positive, fractional, and unsafe bigint IDs", () => {
     expect(requireSafePositiveBigintId("9007199254740991", "id")).toBe(
       Number.MAX_SAFE_INTEGER,
@@ -515,22 +520,6 @@ describe("seed_demo direct harness", () => {
       rows[3],
       rows[2],
     ]);
-  });
-
-  it("keeps the seeded Dovid-Leah exchange at one non-sender per message", () => {
-    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
-    const threadSource = source.slice(
-      source.indexOf("const thread = await rpcRow"),
-      source.indexOf(
-        "const threadId =",
-        source.indexOf("const thread = await rpcRow"),
-      ),
-    );
-
-    expect(threadSource).toContain(
-      "p_participant_member_ids: [actorMembershipId],",
-    );
-    expect(threadSource).not.toContain("rootObserverMembershipIds");
   });
 
   it("uses one expiry and embeds the generated pre-watermarked share asset", () => {
@@ -917,92 +906,6 @@ describe("seed_demo direct harness", () => {
     await expect(
       cleanupPartialBundle(912, 42, [], [actorId], "lease-token"),
     ).resolves.toBe(true);
-  });
-
-  it("discovers a committed companion from the manifest after its RPC response is lost", async () => {
-    const deletedAccountIds: number[] = [];
-    const deletedTables: string[] = [];
-    adminFrom.mockImplementation((table: string) => {
-      if (table === "accounts") {
-        const query = queryBuilder({
-          data: [
-            { id: 42, kind: "household" },
-            { id: 43, kind: "household" },
-          ],
-          error: null,
-        });
-        query.delete = () => {
-          deletedTables.push("accounts");
-          return {
-            eq: (_column: unknown, id: unknown) => {
-              if (typeof id === "number") deletedAccountIds.push(id);
-              return Promise.resolve({ error: null });
-            },
-            in: (_column: unknown, ids: unknown[]) => {
-              deletedAccountIds.push(...(ids as number[]));
-              return Promise.resolve({ error: null });
-            },
-          };
-        };
-        return query;
-      }
-      if (table === "demo_run_accounts") {
-        return queryBuilder({
-          data: [
-            {
-              account_id: 42,
-              context_key: "primary-household",
-              context_kind: "household",
-              is_root: true,
-            },
-            {
-              account_id: 43,
-              context_key: "gross-household",
-              context_kind: "household",
-              is_root: false,
-            },
-          ],
-          error: null,
-        });
-      }
-      const query = queryBuilder();
-      query.delete = () => {
-        deletedTables.push(table);
-        return {
-          in: (_column: unknown, ids: unknown[]) => {
-            if (table === "accounts") {
-              deletedAccountIds.push(...(ids as number[]));
-            }
-            return Promise.resolve({ error: null });
-          },
-          eq: (_column: unknown, id: unknown) => {
-            if (table === "accounts" && typeof id === "number") {
-              deletedAccountIds.push(id);
-            }
-            return Promise.resolve({ error: null });
-          },
-        };
-      };
-      return query;
-    });
-
-    await expect(
-      cleanupPartialBundle(913, 42, [], [], "lease-token"),
-    ).resolves.toBe(true);
-
-    expect(adminRpc).toHaveBeenCalledWith(
-      "delete_demo_companion_contexts",
-      expect.objectContaining({ p_run_id: 913, p_operation: "seed" }),
-    );
-    expect(adminRpc).toHaveBeenCalledWith(
-      "finalize_demo_seed_cleanup",
-      expect.objectContaining({
-        p_run_id: 913,
-        p_lease_token: expect.any(String),
-      }),
-    );
-    expect(deletedAccountIds).not.toContain(43);
-    expect(deletedTables).not.toContain("demo_runs");
   });
 
   it("retains the manifest when Auth reconciliation fails after create response loss", async () => {

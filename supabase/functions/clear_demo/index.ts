@@ -717,10 +717,10 @@ async function clearOfficialDemoBundle(
     context_kind?: unknown;
     is_root?: unknown;
   }>;
+  // Single tenant: the demo is one family. See demoDataset.ts's scenario
+  // inventory for why the companion contexts are gone rather than hidden.
   const expectedKinds: Record<string, "household" | "shadchanus"> = {
     "primary-household": "household",
-    "feldman-shadchanus": "shadchanus",
-    "gross-household": "household",
   };
   const allAccountIds = manifestRows.map((row) => row.account_id);
   const rootRows = manifestRows.filter((row) => row.is_root === true);
@@ -729,7 +729,12 @@ async function clearOfficialDemoBundle(
   );
   if (
     manifestRows.length < 1 ||
-    (partialRun ? manifestRows.length > 3 : manifestRows.length !== 3) ||
+    // One context, because the demo is one family. `partialRun` still allows
+    // fewer than the full set, which is what a compensating clear of a seed
+    // that died mid-build sees.
+    (partialRun
+      ? manifestRows.length > Object.keys(expectedKinds).length
+      : manifestRows.length !== Object.keys(expectedKinds).length) ||
     rootRows.length !== 1 ||
     rootRows[0]?.account_id !== rootAccountId ||
     manifestRows.some(

@@ -38,7 +38,6 @@ vi.mock("../_shared/authentication.ts", () => ({
 
 const ROOT_ID = 42;
 const COMPANION_ID = 43;
-const GROSS_ID = 44;
 const ACTOR_ID = "11111111-1111-1111-1111-111111111111";
 const FAKE_USER = { id: ACTOR_ID } as unknown as User;
 
@@ -71,10 +70,15 @@ function newState(
   const state = {
     demo: true,
     runId: 7001,
-    resources: [
-      { resource_type: "connection", resource_id: 9001 },
-      { resource_type: "invite", resource_id: 9002 },
-    ],
+    // A one-family demo run: no connection and no child grant, because both
+    // need a second account. `invites` still exercises the same
+    // owned-vs-foreign relationship axis the deletion path is built around.
+    resources: [{ resource_type: "invite", resource_id: 9002 }],
+    // Row bank for the ownership lookups. A test can point a manifest at any
+    // of these; the DEFAULT run above contains only what a one-family demo
+    // really produces. `connections`/`child_grants` stay because clear_demo's
+    // fences around them are live code — see "retains the run when a
+    // manifested grant targets a production single".
     relationshipRows: {
       connections: {
         household_account_id: ROOT_ID,
@@ -113,11 +117,7 @@ function buildFromDoubles() {
           query.eq = () => query;
           query.in = () =>
             Promise.resolve({
-              data: [
-                { id: ROOT_ID, kind: "household" },
-                { id: COMPANION_ID, kind: "shadchanus" },
-                { id: GROSS_ID, kind: "household" },
-              ],
+              data: [{ id: ROOT_ID, kind: "household" }],
               error: null,
             });
           query.maybeSingle = () =>
@@ -165,18 +165,6 @@ function buildFromDoubles() {
                       context_key: "primary-household",
                       context_kind: "household",
                       is_root: true,
-                    },
-                    {
-                      account_id: COMPANION_ID,
-                      context_key: "feldman-shadchanus",
-                      context_kind: "shadchanus",
-                      is_root: false,
-                    },
-                    {
-                      account_id: GROSS_ID,
-                      context_key: "gross-household",
-                      context_kind: "household",
-                      is_root: false,
                     },
                   ]
                 : [],
@@ -420,8 +408,8 @@ describe("clear_demo manifest lifecycle", () => {
       accountId: ROOT_ID,
       runId: 7001,
     });
+    // Only the invite: a one-family demo run has no connection to delete.
     expect(fakeState.deletedRelationships).toEqual([
-      { table: "connections", id: 9001 },
       { table: "invites", id: 9002 },
     ]);
     expect(fakeState.calls[0]?.fn).toBe("claim_demo_clear");
@@ -535,7 +523,6 @@ describe("clear_demo manifest lifecycle", () => {
 
   it("accepts and clears an official single-row listing withdrawal tombstone", async () => {
     fakeState.resources = [
-      { resource_type: "connection", resource_id: 9001 },
       { resource_type: "invite", resource_id: 9002 },
       { resource_type: "listing_withdrawal", resource_id: 7007 },
     ];
