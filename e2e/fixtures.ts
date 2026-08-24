@@ -124,30 +124,25 @@ async function createSingle({
   // RLS, so this provisions the household + membership directly, mirroring
   // the platform-ops genesis-seed runbook story 2.7's Dev Notes describe —
   // two inserts, not a lookup of something a trigger used to create.
-  const { data: account, error: accountError } = await adminSupabase
-    .from("accounts")
-    .insert({ name: "E2E Household" })
-    .select()
-    .single();
+  // ONE call, not two inserts. assert_account_not_orphaned() rejects a
+  // committed account with no active membership, and PostgREST gives each
+  // request its own transaction — so insert-then-insert commits an orphan in
+  // between and is rejected. That is the invariant working: if the second
+  // request never landed, this household would be stranded forever.
+  const { data: created, error: accountError } = await adminSupabase.rpc(
+    "create_account_with_owner",
+    {
+      p_name: "E2E Household",
+      p_kind: "household",
+      p_user_id: member.user_id,
+      p_role: "parent_admin",
+    },
+  );
 
-  if (accountError || !account) {
+  if (accountError || !created) {
     throw new Error(`Failed to create account: ${accountError?.message}`);
   }
-
-  const { error: membershipError } = await adminSupabase
-    .from("account_members")
-    .insert({
-      account_id: account.id,
-      user_id: member.user_id,
-      role: "parent_admin",
-      status: "active",
-    });
-
-  if (membershipError) {
-    throw new Error(
-      `Failed to create account membership for member ${member.user_id}: ${membershipError.message}`,
-    );
-  }
+  const account = { id: (created as { account_id: number }).account_id };
 
   const { data, error } = await adminSupabase
     .from("singles")
@@ -186,32 +181,25 @@ async function createSelfManagedSingle({
   member: { user_id: string };
   first_name_en: string;
 }) {
-  const { data: account, error: accountError } = await adminSupabase
-    .from("accounts")
-    .insert({ name: "E2E Self-Managed Household" })
-    .select()
-    .single();
+  // Same reasoning as createHousehold(): atomic, or the intermediate state is
+  // an orphan the database now refuses. The RPC hands back both ids.
+  const { data: created, error: accountError } = await adminSupabase.rpc(
+    "create_account_with_owner",
+    {
+      p_name: "E2E Self-Managed Household",
+      p_kind: "household",
+      p_user_id: member.user_id,
+      p_role: "self_manager",
+    },
+  );
 
-  if (accountError || !account) {
+  if (accountError || !created) {
     throw new Error(`Failed to create account: ${accountError?.message}`);
   }
-
-  const { data: membership, error: membershipError } = await adminSupabase
-    .from("account_members")
-    .insert({
-      account_id: account.id,
-      user_id: member.user_id,
-      role: "self_manager",
-      status: "active",
-    })
-    .select()
-    .single();
-
-  if (membershipError || !membership) {
-    throw new Error(
-      `Failed to create self-manager membership for member ${member.user_id}: ${membershipError?.message}`,
-    );
-  }
+  const account = { id: (created as { account_id: number }).account_id };
+  const membership = {
+    id: (created as { membership_id: number }).membership_id,
+  };
 
   const { data, error } = await adminSupabase
     .from("singles")
@@ -308,15 +296,31 @@ async function createListing({
   shadchan_name: string;
   shadchan_area?: string;
 }) {
-  const { data: account, error: accountError } = await adminSupabase
-    .from("accounts")
-    .insert({ name: "E2E Public Listing Household" })
-    .select()
-    .single();
+  // This household deliberately belongs to nobody the test signs in as — that
+  // is the point of the fixture (see the docblock above). It still needs an
+  // OWNER, though: an account with no active membership is unreachable
+  // forever, and the database now refuses to commit one. In production a
+  // listing always hangs off a household somebody actually administers, so
+  // giving it one makes the fixture more faithful, not less.
+  const owner = await createMember({
+    first_name: "Listing",
+    last_name: "Owner",
+    email: `e2e-listing-owner-${Date.now()}@example.test`,
+  });
+  const { data: created, error: accountError } = await adminSupabase.rpc(
+    "create_account_with_owner",
+    {
+      p_name: "E2E Public Listing Household",
+      p_kind: "household",
+      p_user_id: owner.user_id,
+      p_role: "parent_admin",
+    },
+  );
 
-  if (accountError || !account) {
+  if (accountError || !created) {
     throw new Error(`Failed to create account: ${accountError?.message}`);
   }
+  const account = { id: (created as { account_id: number }).account_id };
 
   const { data, error } = await adminSupabase
     .from("listings")
@@ -382,32 +386,24 @@ async function createSecondContext({
   member: { user_id: string };
   name: string;
 }) {
-  const { data: account, error: accountError } = await adminSupabase
-    .from("accounts")
-    .insert({ name, kind: "shadchanus" })
-    .select()
-    .single();
+  // Atomic: a shadchanus context committed without its member would be an
+  // orphan, which the database now refuses. See createHousehold().
+  const { data: created, error: accountError } = await adminSupabase.rpc(
+    "create_account_with_owner",
+    {
+      p_name: name,
+      p_kind: "shadchanus",
+      p_user_id: member.user_id,
+      p_role: "shadchan",
+    },
+  );
 
-  if (accountError || !account) {
+  if (accountError || !created) {
     throw new Error(
       `Failed to create second-context account: ${accountError?.message}`,
     );
   }
-
-  const { error: membershipError } = await adminSupabase
-    .from("account_members")
-    .insert({
-      account_id: account.id,
-      user_id: member.user_id,
-      role: "shadchan",
-      status: "active",
-    });
-
-  if (membershipError) {
-    throw new Error(
-      `Failed to create second-context membership for member ${member.user_id}: ${membershipError.message}`,
-    );
-  }
+  const account = { id: (created as { account_id: number }).account_id };
 
   return account;
 }
@@ -422,15 +418,32 @@ async function createSecondContext({
  * this admin client is.
  */
 async function createInvite({ email, role }: { email: string; role: string }) {
-  const { data: account, error: accountError } = await adminSupabase
-    .from("accounts")
-    .insert({ name: "E2E Invite Household" })
-    .select()
-    .single();
+  // The inviting household needs an owner: `invited_by` stays null (the
+  // genesis-seed shape this fixture models), but an account with no active
+  // membership is unreachable forever and the database now refuses to commit
+  // one. A real household that sends an invite always has an administrator.
+  const inviter = await createMember({
+    first_name: "Invite",
+    last_name: "Owner",
+    email: `e2e-invite-owner-${Date.now()}@example.test`,
+  });
+  const { data: created, error: accountError } = await adminSupabase.rpc(
+    "create_account_with_owner",
+    {
+      p_name: "E2E Invite Household",
+      p_kind: "household",
+      p_user_id: inviter.user_id,
+      p_role: "parent_admin",
+    },
+  );
 
-  if (accountError || !account) {
+  if (accountError || !created) {
     throw new Error(`Failed to create account: ${accountError?.message}`);
   }
+  const account = {
+    id: (created as { account_id: number }).account_id,
+    name: "E2E Invite Household",
+  };
 
   const { data: invite, error: inviteError } = await adminSupabase
     .from("invites")

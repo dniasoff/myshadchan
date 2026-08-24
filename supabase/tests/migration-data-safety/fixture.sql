@@ -1063,21 +1063,29 @@ begin
       insert into public.signup_intents (id, email, expires_at)
       values (9000001, 'oauth.guard@example.test', now() + interval '10 minutes');
 
--- Account deletion requests (Story 14.2: Deletion that deletes)
+    $seed$;
+  end if;
+end $$;
+
+-- Account deletion requests (Story 14.2: Deletion that deletes).
+--
+-- Deliberately OUTSIDE the `to_regclass('public.signup_intents')` block above:
+-- it was swallowed into it when signup_intents was retired, and because that
+-- guard is now false the seed stopped running entirely — which the fixture's
+-- own completeness check caught as "account_deletion_requests has NO captured
+-- row". This table has nothing to do with signup intents and must be seeded
+-- unconditionally.
 insert into public.account_deletion_requests (
-    id, account_id, requested_at, expires_at, status, 
+    id, account_id, requested_at, expires_at, status,
     export_completed, export_data, requested_by_auth_uid,
     cancelled_at, deleted_at
 )
 values (
-    9000001, 9000001, now() - interval '1 day', 
+    9000001, 9000001, now() - interval '1 day',
     now() + interval '29 days', 'pending', false, null,
     '00000000-0000-4000-8000-000000009001',
     null, null
 );
-    $seed$;
-  end if;
-end $$;
 
 -- Story 16.1 (single_preferences) and Story 16.3 (single_notes): her own
 -- words about what she will not compromise on, and her own private notes.

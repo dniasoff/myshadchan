@@ -158,11 +158,26 @@ insert into public.account_members (account_id, user_id, role) values
 -- member is NOT role='shadchan'. Re-enabled immediately after, inside this
 -- suite's own rolled-back transaction, exactly like
 -- context_rls_hardening.sql's own disable/re-enable pair.
-alter table public.account_members disable trigger enforce_membership_role_matches_context_trigger;
+-- `session_replication_role`, not `alter table ... disable trigger`. The
+-- no-orphan invariant (assert_account_not_orphaned) is a DEFERRED constraint
+-- trigger on account_members, and the bulk `delete from public.account_members`
+-- above leaves it with pending events for the rest of this transaction --
+-- PostgreSQL then refuses ALTER TABLE on that relation ("cannot ALTER TABLE
+-- ... because it has pending trigger events"), for the disable AND the
+-- re-enable. `set local session_replication_role` needs no lock on the table
+-- and is undone by this suite's own rollback either way.
+--
+-- It suppresses every trigger on the insert, not just the one this shape has
+-- to dodge, so activate_first_context_trigger is replayed by hand below --
+-- user ...004's active context is load-bearing for the AC-6(b) assertions.
+set local session_replication_role = replica;
 insert into public.account_members (account_id, user_id, role) values
   (:account_c, '51910000-0000-0000-0000-000000000004', 'helper')
   returning id as member_c \gset
-alter table public.account_members enable trigger enforce_membership_role_matches_context_trigger;
+set local session_replication_role = origin;
+insert into public.member_state (user_id, active_account_id)
+values ('51910000-0000-0000-0000-000000000004', :account_c)
+on conflict (user_id) do update set active_account_id = excluded.active_account_id;
 
 insert into ids values
   ('account_a', :account_a), ('account_b', :account_b),
