@@ -81,7 +81,7 @@ function mapOAuthCallbackError({
     return {
       messageKey: "crm.auth.oauth_callback.cancelled",
       defaultMessage:
-        "You closed the Google sign-in window before finishing. No account was created — come back and try again whenever you're ready.",
+        "You closed the Google sign-in window before finishing. No account was created.",
     };
   }
 

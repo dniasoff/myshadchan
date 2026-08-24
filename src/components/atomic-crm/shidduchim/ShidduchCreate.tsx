@@ -90,7 +90,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
     <FormPageFrame
       eyebrow="Pipeline"
       heading="Add a suggestion"
-      description="A calm start — fill in what you know now, add the rest later."
+      description="Fill in what you know now. The rest can be added later."
     >
       <Form
         onSubmit={onSubmit}

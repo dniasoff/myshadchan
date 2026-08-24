@@ -74,7 +74,7 @@ export const ShadchanList = () => {
         _: "Matchmaker book",
       })}
       subtitle={translate("crm.shadchanim.list.subtitle", {
-        _: "Every matchmaker your family has worked with, in one calm book.",
+        _: "Shadchanim your family has worked with.",
       })}
       createTo={buildNewPath("shadchanim")}
       createLabel={translate("crm.shadchanim.list.createLabel", {
@@ -95,7 +95,7 @@ export const ShadchanList = () => {
           _: "Add your first shadchan",
         }),
         description: translate("crm.shadchanim.list.emptyDescription", {
-          _: "Every redt comes from somewhere — keep a book of the matchmakers your family works with.",
+          _: "Shadchanim your family works with are listed here.",
         }),
         actionLabel: translate("crm.shadchanim.list.createLabel", {
           _: "Add a shadchan",

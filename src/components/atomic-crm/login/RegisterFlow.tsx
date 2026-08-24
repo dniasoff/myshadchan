@@ -209,7 +209,7 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
             </p>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               {translate("crm.auth.signup_privacy_note", {
-                _: "MyShadchan holds private, sensitive family records. It's built for parents and guardians managing the shidduchim process on behalf of their household.",
+                _: "Records are held per family. They are not shared with other families.",
               })}
             </p>
           </div>

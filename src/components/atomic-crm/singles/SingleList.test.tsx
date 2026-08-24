@@ -310,9 +310,7 @@ describe("SingleList — self-manager copy branch (Story 6.5, AC 4)", () => {
 
     // Assert — the self-managed subtitle renders, never the parent-shaped one.
     await expect
-      .element(
-        screen.getByText("Your own shidduchim pipeline, all in one place."),
-      )
+      .element(screen.getByText("Your own shidduchim pipeline."))
       .toBeInTheDocument();
     await expect
       .element(
@@ -358,9 +356,7 @@ describe("SingleList — self-manager copy branch (Story 6.5, AC 4)", () => {
       )
       .toBeInTheDocument();
     await expect
-      .element(
-        screen.getByText("Your own shidduchim pipeline, all in one place."),
-      )
+      .element(screen.getByText("Your own shidduchim pipeline."))
       .not.toBeInTheDocument();
   });
 
@@ -408,9 +404,7 @@ describe("SingleList — self-manager copy branch (Story 6.5, AC 4)", () => {
       )
       .toBeInTheDocument();
     await expect
-      .element(
-        screen.getByText("Your own shidduchim pipeline, all in one place."),
-      )
+      .element(screen.getByText("Your own shidduchim pipeline."))
       .not.toBeInTheDocument();
   });
 
@@ -438,9 +432,7 @@ describe("SingleList — self-manager copy branch (Story 6.5, AC 4)", () => {
 
     // Assert
     await expect
-      .element(
-        screen.getByText("Your own shidduchim pipeline, all in one place."),
-      )
+      .element(screen.getByText("Your own shidduchim pipeline."))
       .toBeInTheDocument();
     await expect
       .element(

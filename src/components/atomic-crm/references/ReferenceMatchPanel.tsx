@@ -61,7 +61,7 @@ export const ReferenceMatchPanel = ({
           </p>
           <p className="text-sm text-amber-900/80 dark:text-amber-200/80">
             {translate("crm.references.match.subtitle", {
-              _: "Linking keeps everything you already know about them in one place.",
+              _: "Linking uses the existing record instead of creating a second one.",
             })}
           </p>
         </div>

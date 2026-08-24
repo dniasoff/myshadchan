@@ -76,7 +76,7 @@ const ReferencesIndexEmpty = () => {
     <div className="rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
       <p>
         {translate("crm.references.index.empty", {
-          _: "Nothing to sort out — every reference belongs to a shidduch. References are reached from the shidduch they were asked about, never browsed on their own.",
+          _: "Every reference belongs to a shidduch. References are reached from the shidduch they were asked about, not browsed on their own.",
         })}
       </p>
       <Link

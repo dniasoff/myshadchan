@@ -237,8 +237,8 @@ const OnboardingChoiceCard = ({ onChooseOwn }: { onChooseOwn: () => void }) => {
               Welcome to MyShadchan
             </h1>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              A calm, private place to track every shadchan, suggestion and
-              reference call for your family. How would you like to begin?
+              Suggestions, shadchanim, reference calls and dates for your
+              family, kept in one place. Choose how to start.
             </p>
           </div>
 

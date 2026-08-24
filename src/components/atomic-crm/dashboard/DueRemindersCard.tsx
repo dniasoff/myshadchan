@@ -177,7 +177,7 @@ export const DueRemindersCard = () => {
           <div className="flex h-full flex-col items-center justify-center text-center">
             <p className="text-sm text-muted-foreground">
               {translate("crm.reminders.dueCard.empty", {
-                _: "Nothing due — you're on top of it",
+                _: "Nothing due.",
               })}
             </p>
           </div>

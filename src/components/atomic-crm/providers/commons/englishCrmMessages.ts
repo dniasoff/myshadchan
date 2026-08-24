@@ -163,7 +163,7 @@ export const englishCrmMessages = {
         no_account:
           "No account has been found. Would you like to create a new account?",
         cancelled:
-          "You closed the Google sign-in window before finishing. No account was created — come back and try again whenever you're ready.",
+          "You closed the Google sign-in window before finishing. No account was created.",
         not_configured:
           "Google sign-in isn't available right now. Please sign in with your email instead.",
         generic:
@@ -204,7 +204,7 @@ export const englishCrmMessages = {
       age_notice:
         "By creating an account, you confirm you are 18 years of age or older.",
       signup_privacy_note:
-        "MyShadchan holds private, sensitive family records. It's built for parents and guardians managing the shidduchim process on behalf of their household.",
+        "Records are held per family. They are not shared with other families.",
       continue: "Continue",
       // 2.3 (AC-10): the onboarding persona multi-select. The other
       // `crm.auth.onboarding.*` keys FirstRunSetup/OnboardingChoice read
@@ -863,7 +863,7 @@ export const englishCrmMessages = {
         // above when the viewer holds the `single` persona WITHOUT `parent`
         // (SingleList.tsx) — a self-manager's own pipeline is their own, not
         // someone else's they are redting for.
-        subtitleSelfManaged: "Your own shidduchim pipeline, all in one place.",
+        subtitleSelfManaged: "Your own shidduchim pipeline.",
         emptyDescriptionSelfManaged:
           "This is where your own shidduchim pipeline will live. Add your record to start tracking suggestions.",
         noMatches: "No singles match this search.",
@@ -889,13 +889,11 @@ export const englishCrmMessages = {
     shadchanim: {
       list: {
         eyebrow: "Matchmaker book",
-        subtitle:
-          "Every matchmaker your family has worked with, in one calm book.",
+        subtitle: "Shadchanim your family has worked with.",
         createLabel: "Add a shadchan",
         searchPlaceholder: "Search by name",
         emptyTitle: "Add your first shadchan",
-        emptyDescription:
-          "Every redt comes from somewhere — keep a book of the matchmakers your family works with.",
+        emptyDescription: "Shadchanim your family works with are listed here.",
         noMatches: "No shadchanim match this search.",
       },
       // Story 4.2, AC 5 — `ShadchanRow`'s count label. AD-23 vocabulary
@@ -928,7 +926,7 @@ export const englishCrmMessages = {
         subtitle:
           "People recorded without a shidduch. Attach each one to the shidduch you spoke to them about, and they will be reached from there instead.",
         empty:
-          "Nothing to sort out — every reference belongs to a shidduch. References are reached from the shidduch they were asked about, never browsed on their own.",
+          "Every reference belongs to a shidduch. References are reached from the shidduch they were asked about, not browsed on their own.",
         emptyLink: "Go to the pipeline",
       },
       attach: {
@@ -958,7 +956,7 @@ export const englishCrmMessages = {
       match: {
         title: "You may have spoken to this person before",
         subtitle:
-          "Linking keeps everything you already know about them in one place.",
+          "Linking uses the existing record instead of creating a second one.",
         confirm: "Yes, this is %{name}",
         dismiss: "No, different person",
         why: "Why we think so",
@@ -984,7 +982,7 @@ export const englishCrmMessages = {
         questionsToggle: "Show questions",
         questionsToggleHide: "Hide questions",
         whatTheySaid: "What they said",
-        placeholder: "Type as much or as little as you like.",
+        placeholder: "What was said on the call",
         save: "Save and add to log",
         saved: "Saved to the call log.",
         onACall: "On a call",
@@ -1070,7 +1068,7 @@ export const englishCrmMessages = {
         covered: "Covered",
         nothingCovered: "Nothing recorded yet.",
         gaps: "Still missing",
-        noGaps: "Every topic has been touched on.",
+        noGaps: "All topics have been asked about.",
         // Story 11-1 review fix (Finding 13): renamed from `contradiction`
         // ("References differ") to match `DossierResponse.hasMixedSentiment`
         // — the flag is a whole-corpus warm-vs-hesitant split, not a claim
@@ -1138,7 +1136,7 @@ export const englishCrmMessages = {
       dueCard: {
         title: "Due now",
         subtitle: "What's due across your family, soonest first.",
-        empty: "Nothing due — you're on top of it",
+        empty: "Nothing due.",
         since: "Since %{when}",
         due: "Due %{when}",
         about: "about",
@@ -1343,7 +1341,7 @@ export const englishCrmMessages = {
     connections: {
       list: {
         eyebrow: "Shadchanus",
-        subtitle: "Every family you're connected with, in one place.",
+        subtitle: "Families you are connected with.",
         searchPlaceholder: "Search by family name",
         emptyTitle: "No connections yet",
         emptyDescription:
@@ -1474,7 +1472,7 @@ export const englishCrmMessages = {
       privacy: {
         title: "Analytics Collection",
         description:
-          "We collect anonymous, first-party usage metrics to understand how families use MyShadchan. No personal data, names, contact details, or note contents are ever included. This helps us improve the service while respecting your privacy.",
+          "First-party usage metrics are collected. Names, contact details and note contents are not included.",
         collection: "Collect anonymous usage metrics",
         collection_hint:
           "Counts things like suggestions filed, reference calls logged, and inbox captures. Never names, phones, or note content.",

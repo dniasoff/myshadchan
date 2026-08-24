@@ -68,7 +68,7 @@ export const ReminderList = ({
   if (isEmpty) {
     return (
       <EmptyState
-        title="Nothing due — you're on top of it"
+        title="Nothing due."
         description="This is where overdue reference calls and follow-ups surface, grouped by when they're due, so nothing gets missed."
       />
     );

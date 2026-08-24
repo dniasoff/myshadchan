@@ -180,8 +180,8 @@ const InboxContent = () => {
             Inbox
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Redts you've captured, waiting for one confirm step. We won't guess
-            who they're for.
+            Captured redts, waiting for one confirm step. Who each redt is for
+            is not inferred.
           </p>
         </div>
         <button

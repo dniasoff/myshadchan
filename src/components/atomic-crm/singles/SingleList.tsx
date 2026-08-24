@@ -109,7 +109,7 @@ export const SingleList = () => {
       subtitle={
         isSelfManagedOnly
           ? translate("crm.singles.list.subtitleSelfManaged", {
-              _: "Your own shidduchim pipeline, all in one place.",
+              _: "Your own shidduchim pipeline.",
             })
           : translate("crm.singles.list.subtitle", {
               _: "Every single you are redting for, each with their own pipeline.",

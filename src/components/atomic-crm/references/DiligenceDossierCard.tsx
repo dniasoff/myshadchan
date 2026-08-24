@@ -125,7 +125,7 @@ function DossierCardContent({ data }: { data: DossierResponse }) {
             <p className="text-sm text-muted-foreground">
               {data.gaps.length === 0
                 ? translate("crm.diligence.dossier.noGaps", {
-                    _: "Every topic has been touched on.",
+                    _: "All topics have been asked about.",
                   })
                 : data.gaps.join(", ")}
             </p>

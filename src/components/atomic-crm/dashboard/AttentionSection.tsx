@@ -48,7 +48,7 @@ export const AttentionSection = () => {
           </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {isPending || catches.length === 0
-              ? "Nothing to review — you're on top of it."
+              ? "Nothing to review."
               : catches.length === 1
                 ? "One suggestion looks like someone you've come across before."
                 : `${catches.length} suggestions look like people you've come across before.`}

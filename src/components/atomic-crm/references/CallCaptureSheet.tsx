@@ -191,7 +191,7 @@ export const CallCaptureSheet = ({
               rows={5}
               className="mt-2 text-base"
               placeholder={translate("crm.references.call.placeholder", {
-                _: "Type as much or as little as you like.",
+                _: "What was said on the call",
               })}
             />
           </div>

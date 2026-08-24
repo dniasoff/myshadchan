@@ -173,9 +173,7 @@ describe("DueRemindersCard — identical height across states (AC-2)", () => {
       createDataProvider({ db: buildDb([]), latency: 0, silent: true }),
     );
     await expect
-      .element(
-        emptyScreen.locator.getByText("Nothing due — you're on top of it"),
-      )
+      .element(emptyScreen.locator.getByText("Nothing due."))
       .toBeVisible();
     const emptyHeight = listRegion(
       emptyScreen.container,

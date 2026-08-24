@@ -23,8 +23,7 @@ const desktopNavSteps: DriveStep[] = [
     element: '[data-tour="nav-reminders"]',
     popover: {
       title: "Reminders",
-      description:
-        "Follow-ups and calls you don't want to forget, so nothing slips.",
+      description: "Follow-ups and calls with a due date.",
       side: "right",
       align: "start",
     },
@@ -88,7 +87,7 @@ export const buildTourSteps = ({
     popover: {
       title: "Your dashboard",
       description:
-        "Your calm home base — a snapshot of where every single's shidduchim stand, and what needs your attention.",
+        "A snapshot of where every single's shidduchim stand, and what needs attention.",
       side: "right",
       align: "start",
     },
@@ -163,7 +162,7 @@ export const buildTourSteps = ({
     popover: {
       title: "A suggestion",
       description:
-        "Each card is one redt. Click it to see the full story — the shadchan, references, notes and reminders.",
+        "Each card is one redt. Open it for the shadchan, references, notes and reminders.",
       side: "right",
       align: "start",
     },
@@ -172,8 +171,7 @@ export const buildTourSteps = ({
     element: '[data-tour="add-suggestion"]',
     popover: {
       title: "Add a suggestion",
-      description:
-        "Got a new redt? Add it here and it lands at the start of the pipeline.",
+      description: "New redts are added here, at the start of the pipeline.",
       side: "bottom",
       align: "end",
     },
@@ -181,9 +179,9 @@ export const buildTourSteps = ({
   {
     element: '[data-tour="demo-banner"]',
     popover: {
-      title: "Ready when you are",
+      title: "Clearing the sample",
       description:
-        "When you're ready to start with your own family, clear the sample from here — you'll get a fresh, empty account. Enjoy exploring!",
+        "Clearing the sample from here deletes the demo family and leaves an empty account.",
       side: "bottom",
       align: "start",
     },

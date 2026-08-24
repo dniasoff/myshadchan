@@ -65,7 +65,7 @@ export const ConnectionList = () => {
         _: "Shadchanus",
       })}
       subtitle={translate("crm.connections.list.subtitle", {
-        _: "Every family you're connected with, in one place.",
+        _: "Families you are connected with.",
       })}
       searchPlaceholder={translate("crm.connections.list.searchPlaceholder", {
         _: "Search by family name",

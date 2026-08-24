@@ -69,11 +69,10 @@ export const AddToInboxDialog = ({
       <DialogContent className="bg-popover border-border shadow-lg sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-display text-2xl font-semibold tracking-tight">
-            Drop it in your inbox
+            Add to inbox
           </DialogTitle>
           <DialogDescription>
-            Paste a message or note now — decide who it's for later. Nothing is
-            lost.
+            Paste a message or note now. Who it is for can be set later.
           </DialogDescription>
         </DialogHeader>
 
