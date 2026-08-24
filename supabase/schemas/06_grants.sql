@@ -1811,6 +1811,15 @@ revoke all on function public.assert_official_demo_inventory(bigint, boolean) fr
 grant execute on function public.assert_official_demo_inventory(bigint, boolean) to service_role;
 revoke all on function public.release_demo_orphan_for_onboarding() from public, anon;
 grant execute on function public.release_demo_orphan_for_onboarding() to authenticated, service_role;
+
+-- Internal-only. prepare_demo_onboarding calls this as its own SECURITY
+-- DEFINER owner, so no client role needs execute -- and this one DELETES an
+-- account, so it gets the narrowest grant that still works rather than the
+-- `authenticated, service_role` its siblings above carry. `authenticated` is
+-- named in the revoke because the schema's default privileges would otherwise
+-- hand it execute on every new function.
+revoke all on function public.discard_completed_demo_onboarding_root() from public, anon, authenticated;
+grant execute on function public.discard_completed_demo_onboarding_root() to service_role;
 revoke all on function public.withdraw_demo_listing(bigint, text, bigint, bigint, bigint) from public, anon, authenticated;
 grant execute on function public.withdraw_demo_listing(bigint, text, bigint, bigint, bigint) to service_role;
 revoke all on function public.fence_demo_cleanup(bigint, text, text) from public, anon, authenticated;
