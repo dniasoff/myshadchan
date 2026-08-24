@@ -12,10 +12,18 @@ import {
 
 /**
  * The state-transition control (Screen 18 body). Renders all 7 states via
- * `PipelineStateOptions` (Task 5) — the same vertical, group-labelled list
- * `ShidduchMoveSheet` uses, replacing the pre-story `flex flex-wrap` row of
- * 7 chips (which rendered the pipeline's own order across 3 ragged rows at
- * 52-115px). Legality still comes from `isValidTransition()`
+ * `PipelineStateOptions` (Task 5) — the same group-labelled options
+ * `ShidduchMoveSheet` uses, in its `row` orientation.
+ *
+ * Row, not list: the list form stacked seven full-width rows and cost ~750px
+ * on this page, so the Shidduch facts, the resume and the single's input all
+ * began below the fold on a laptop — a control you touch a handful of times
+ * per suggestion pushing down everything you actually read. This is NOT a
+ * return to the pre-story `flex flex-wrap` row of 7 chips that AC-8 replaced:
+ * that one lost the TRIAGE/DECISION grouping and the "· final" marking, and
+ * ran the pipeline's order across 3 ragged rows. Both survive here — the
+ * groups are still labelled and still ordered, `· final` is still shown
+ * before the tap, and legality still never hides a row. Legality still comes from `isValidTransition()`
  * (`useShidduchTransition` → `pipelineStates.ts`) — the DB's
  * `transition_shidduch()` RPC remains the enforcing authority, this is the
  * friendly client mirror. Public props are unchanged (Story 5.1 mounts this
@@ -70,6 +78,7 @@ export const ShidduchStateControl = ({
         options={options}
         pendingTo={pendingTo}
         onSelect={handleSelect}
+        orientation="row"
       />
       <TerminalMoveConfirm
         toState={confirmState}
