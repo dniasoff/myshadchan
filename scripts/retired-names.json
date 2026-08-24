@@ -267,6 +267,10 @@
         {
           "file": "supabase/tests/official_demo_review_source.test.ts",
           "term": "child_grant"
+        },
+        {
+          "file": "scripts/verify-demo-inventory.mjs",
+          "term": "child_grant"
         }
       ],
       "exemptReasons": {
