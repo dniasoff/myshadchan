@@ -717,10 +717,22 @@ async function clearOfficialDemoBundle(
     context_kind?: unknown;
     is_root?: unknown;
   }>;
-  // Single tenant: the demo is one family. See demoDataset.ts's scenario
+  // What the seed builds TODAY: one family. See demoDataset.ts's scenario
   // inventory for why the companion contexts are gone rather than hidden.
-  const expectedKinds: Record<string, "household" | "shadchanus"> = {
+  const requiredKinds: Record<string, "household" | "shadchanus"> = {
     "primary-household": "household",
+  };
+  // What clear must be able to TAKE APART. A run seeded before the demo became
+  // single tenant still has the two companion contexts, and it is still live
+  // in somebody's browser — clear has to finish those, or a real customer is
+  // left with a demo that refuses to end. Recognising a key here does not mean
+  // the seed can still produce it: `requiredKinds` above is the contract new
+  // runs are held to, and assert_official_demo_inventory rejects a companion
+  // outright at activation.
+  const expectedKinds: Record<string, "household" | "shadchanus"> = {
+    ...requiredKinds,
+    "feldman-shadchanus": "shadchanus",
+    "gross-household": "household",
   };
   const allAccountIds = manifestRows.map((row) => row.account_id);
   const rootRows = manifestRows.filter((row) => row.is_root === true);
@@ -729,12 +741,11 @@ async function clearOfficialDemoBundle(
   );
   if (
     manifestRows.length < 1 ||
-    // One context, because the demo is one family. `partialRun` still allows
-    // fewer than the full set, which is what a compensating clear of a seed
-    // that died mid-build sees.
-    (partialRun
-      ? manifestRows.length > Object.keys(expectedKinds).length
-      : manifestRows.length !== Object.keys(expectedKinds).length) ||
+    // Any subset of the recognised contexts, one root, no duplicates — which
+    // covers a one-family run, a legacy three-context run, and the partial
+    // manifest a compensating clear of a half-built seed sees. An exact arity
+    // here would strand exactly the runs that most need clearing.
+    manifestRows.length > Object.keys(expectedKinds).length ||
     rootRows.length !== 1 ||
     rootRows[0]?.account_id !== rootAccountId ||
     manifestRows.some(
@@ -748,7 +759,7 @@ async function clearOfficialDemoBundle(
     new Set(allAccountIds).size !== allAccountIds.length ||
     manifestContextKeys.size !== manifestRows.length ||
     (!partialRun &&
-      !Object.keys(expectedKinds).every((contextKey) =>
+      !Object.keys(requiredKinds).every((contextKey) =>
         manifestContextKeys.has(contextKey),
       ))
   ) {

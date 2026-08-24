@@ -561,6 +561,76 @@ describe("clear_demo manifest lifecycle", () => {
     );
   });
 
+  it("still finishes a legacy three-context run seeded before the demo became one family", async () => {
+    // A run seeded under the old contract is live in somebody's browser when
+    // the single-tenant seed deploys. Clear has to be able to take it apart:
+    // holding it to the NEW arity would leave a real customer with a demo
+    // that refuses to end. Recognising the companion keys here is not a way
+    // back in — assert_official_demo_inventory rejects a companion outright
+    // at activation, so no new run can have one.
+    // Keep every other double; override only the context manifest.
+    buildFromDoubles();
+    const standardFrom = mockAdminFrom.getMockImplementation()!;
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === "demo_run_accounts") {
+        return {
+          select: () => ({
+            eq: () =>
+              Promise.resolve({
+                data: [
+                  {
+                    account_id: ROOT_ID,
+                    context_key: "primary-household",
+                    context_kind: "household",
+                    is_root: true,
+                  },
+                  {
+                    account_id: COMPANION_ID,
+                    context_key: "feldman-shadchanus",
+                    context_kind: "shadchanus",
+                    is_root: false,
+                  },
+                  {
+                    account_id: 44,
+                    context_key: "gross-household",
+                    context_kind: "household",
+                    is_root: false,
+                  },
+                ],
+                error: null,
+              }),
+          }),
+        };
+      }
+      if (table === "accounts") {
+        const base = standardFrom(table) as {
+          select: () => Record<string, (...args: unknown[]) => unknown>;
+        };
+        return {
+          select: () => {
+            const query = base.select();
+            query.in = () =>
+              Promise.resolve({
+                data: [
+                  { id: ROOT_ID, kind: "household" },
+                  { id: COMPANION_ID, kind: "shadchanus" },
+                  { id: 44, kind: "household" },
+                ],
+                error: null,
+              });
+            return query;
+          },
+        };
+      }
+      return standardFrom(table);
+    });
+
+    const response = await handleClearDemo(buildRequest(), FAKE_USER);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ cleared: true });
+  });
+
   it("rejects an unknown manifest resource before restore or deletion", async () => {
     fakeState.resources = [
       { resource_type: "future_resource", resource_id: 9004 },
