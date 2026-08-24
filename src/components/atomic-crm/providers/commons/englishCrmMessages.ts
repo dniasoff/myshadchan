@@ -768,7 +768,8 @@ export const englishCrmMessages = {
         error: "Could not load the resume.",
         upload: "Upload a new version",
         uploadError: "Failed to upload the resume",
-        view: "View",
+        show: "Show",
+        shownNow: "· shown",
         download: "Download",
         downloadError: "Failed to get a download link",
       },
@@ -1098,8 +1099,11 @@ export const englishCrmMessages = {
           "Opened for reading. Nothing has been saved to your computer.",
         download: "Download a copy",
         downloadError: "Failed to get a download link",
+        docxError: "Could not read this Word document here.",
+        docxEmpty: "This Word document has no text to show.",
         error: "Could not open this file for reading.",
-        noPreview: "This file type cannot be shown here — PDFs and images can.",
+        noPreview:
+          "This file type cannot be shown here — PDFs, images and Word documents can.",
       },
     },
     threads: {

@@ -18,11 +18,30 @@
  * allow-list of exactly what is known-safe is the control, and anything
  * absent from it (including anything added to the product later) falls
  * through to a download link rather than to a guess.
+ *
+ * `docx` is a third mode with a different containment story: it is never
+ * handed to the browser as a document at all. It is converted to HTML in this
+ * tab and sanitised against a narrow tag allow-list before it reaches the DOM
+ * — see `DocxPreview.tsx`. `.doc`, the pre-2007 binary format, stays absent.
  */
-export type AttachmentPreviewMode = "pdf" | "image" | "none";
+export type AttachmentPreviewMode = "pdf" | "image" | "docx" | "none";
 
 /** The one document type browsers render natively and safely in a frame. */
 const PDF_MIME_TYPES: ReadonlySet<string> = new Set(["application/pdf"]);
+
+/**
+ * Word documents, rendered by converting them to sanitised HTML inside this
+ * tab (`DocxPreview.tsx`) — never by handing a signed URL to Google Docs
+ * Viewer or Office Online, which is the usual approach and would send a
+ * family's resume to a third party on every open.
+ *
+ * `.doc` (the pre-2007 binary format) is deliberately absent: `mammoth` reads
+ * the OOXML `.docx` package only, and admitting `.doc` here would render an
+ * empty document rather than an honest "download this one".
+ */
+const DOCX_MIME_TYPES: ReadonlySet<string> = new Set([
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
 
 /**
  * Raster formats only. Every entry here is decoded by the image pipeline and
@@ -60,6 +79,7 @@ const EXTENSION_MODES: Readonly<Record<string, AttachmentPreviewMode>> = {
   bmp: "image",
   heic: "image",
   heif: "image",
+  docx: "docx",
 };
 
 /** Mime types that carry no information — treat as "unknown", not as a type. */
@@ -82,9 +102,8 @@ function extensionOf(fileName: string | null | undefined): string {
 
 /**
  * Resolves how a file may be shown. `"none"` is the default for everything
- * not explicitly allowed — Word documents included, which is why the viewer
- * offers an honest download rather than routing a family's resume through a
- * third-party document-rendering service.
+ * not explicitly allowed, so a type the product gains later gets an honest
+ * download link rather than a guess.
  */
 export function resolveAttachmentPreviewMode(
   mimeType: string | null | undefined,
@@ -94,6 +113,7 @@ export function resolveAttachmentPreviewMode(
 
   if (PDF_MIME_TYPES.has(normalized)) return "pdf";
   if (IMAGE_MIME_TYPES.has(normalized)) return "image";
+  if (DOCX_MIME_TYPES.has(normalized)) return "docx";
 
   if (UNINFORMATIVE_MIME_TYPES.has(normalized)) {
     return EXTENSION_MODES[extensionOf(fileName)] ?? "none";

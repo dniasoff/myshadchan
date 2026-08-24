@@ -82,12 +82,11 @@ describe("AttachmentViewerDialog — reading without downloading", () => {
 });
 
 describe("AttachmentViewerDialog — types that cannot be shown", () => {
-  it("offers an honest download for a Word document instead of a preview", async () => {
-    // Arrange / Act
+  it("offers an honest download for a type nothing can render", async () => {
+    // Arrange / Act — a zip: not a document, not an image, not convertible.
     const { screen, signUrl } = await renderViewer({
-      fileName: "a-docx-case.docx",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      fileName: "a-zip-case.zip",
+      mimeType: "application/zip",
     });
 
     // Assert — no frame, no image, and no URL minted at all: a file that
@@ -95,13 +94,28 @@ describe("AttachmentViewerDialog — types that cannot be shown", () => {
     await expect
       .element(
         screen.getByText(
-          "This file type cannot be shown here — PDFs and images can.",
+          "This file type cannot be shown here — PDFs, images and Word documents can.",
         ),
       )
       .toBeVisible();
+    expect(frameFor("a-zip-case.zip")).toBeNull();
+    expect(imageFor("a-zip-case.zip")).toBeNull();
+    expect(signUrl).not.toHaveBeenCalledWith({ inline: true });
+  });
+
+  it("never puts a Word document in the frame — it takes the converted path", async () => {
+    // Arrange / Act — a `.docx` IS previewable now, but only by conversion
+    // inside this tab. Reaching the iframe would mean the browser was handed
+    // the raw file, which is the thing this must never do.
+    await renderViewer({
+      fileName: "a-docx-case.docx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+
+    // Assert
     expect(frameFor("a-docx-case.docx")).toBeNull();
     expect(imageFor("a-docx-case.docx")).toBeNull();
-    expect(signUrl).not.toHaveBeenCalledWith({ inline: true });
   });
 
   it("never frames an HTML file that claimed to be one", async () => {
@@ -170,8 +184,8 @@ describe("AttachmentViewerDialog — failures and closing", () => {
       // Act — a Word document, so the no-preview panel renders; its Download
       // is the second of the two on screen, so scope rather than guess.
       const { screen } = await renderViewer({
-        fileName: "a-dl-error-case.docx",
-        mimeType: "application/msword",
+        fileName: "a-dl-error-case.zip",
+        mimeType: "application/zip",
         signUrl,
       });
       await screen

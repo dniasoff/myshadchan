@@ -628,6 +628,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/resumes/ResumeDocument.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/resumes/PhotoTab.tsx",
           "type": "registry:component"
         },
@@ -1800,11 +1804,23 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/attachments/docxSanitizer.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/attachments/attachmentPreview.ts",
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/attachments/DocxPreview.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/attachments/AttachmentViewerDialog.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/attachments/AttachmentPreview.tsx",
           "type": "registry:component"
         },
         {

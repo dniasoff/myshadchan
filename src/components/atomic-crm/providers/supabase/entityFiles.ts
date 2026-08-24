@@ -30,12 +30,19 @@ export const ENTITY_FILE_URL_TTL_SECONDS = 60;
  * Longer than the download TTL, and for a concrete reason rather than
  * caution: a browser's built-in PDF viewer does not fetch the file once. It
  * issues HTTP range requests lazily as the reader scrolls, so a URL that
- * expires 60 seconds after it was minted starts returning 401 to a document
- * still open on screen — the failure looks like a corrupt PDF, not an
- * expiry. Ten minutes covers reading a resume; the URL is still minted per
- * open and still never persisted.
+ * expires while the document is still on screen starts returning 401 — and
+ * that failure looks like a corrupt PDF, not an expiry.
+ *
+ * An hour, not the ten minutes this started at, because the viewer is no
+ * longer only a dialog. `resumes/ResumeDocument` embeds it in the page, so
+ * its lifetime is however long someone leaves the Resume tab open, not how
+ * long they keep a modal up. Ten minutes was sized for open-read-close and
+ * would have started failing on a tab left open over a phone call. Matches
+ * `dataProvider.ts`'s `ATTACHMENT_URL_TTL_SECONDS`, which is already an hour;
+ * the URL is still minted per mount and still never persisted, so the
+ * privacy posture is unchanged.
  */
-export const ENTITY_FILE_VIEW_TTL_SECONDS = 600;
+export const ENTITY_FILE_VIEW_TTL_SECONDS = 3600;
 
 /**
  * The caller's ACTIVE account id, resolved the same way

@@ -89,21 +89,31 @@ describe("resolveAttachmentPreviewMode — the security boundary", () => {
     ).toBe("none");
   });
 
-  it("offers no preview for Word documents", () => {
-    // Arrange / Act / Assert — deliberate: previewing these means handing a
-    // signed URL for a family's resume to a third-party rendering service.
-    expect(resolveAttachmentPreviewMode("application/msword", "cv.doc")).toBe(
-      "none",
-    );
+  it("gives a .docx its own mode, never the frame", () => {
+    // Arrange / Act / Assert — `docx` is rendered by converting it to
+    // sanitised HTML in this tab (`DocxPreview.tsx`), never by handing a
+    // signed URL to a third-party document viewer, and never by putting the
+    // file in an iframe. Returning a distinct mode is what keeps those apart.
     expect(
       resolveAttachmentPreviewMode(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "cv.docx",
       ),
-    ).toBe("none");
-    // ...and the extension fallback must not quietly re-admit them.
+    ).toBe("docx");
     expect(
       resolveAttachmentPreviewMode("application/octet-stream", "cv.docx"),
+    ).toBe("docx");
+  });
+
+  it("still refuses the pre-2007 binary .doc", () => {
+    // Arrange / Act / Assert — `mammoth` reads the OOXML package only, so
+    // admitting `.doc` would render an empty document instead of an honest
+    // download link.
+    expect(resolveAttachmentPreviewMode("application/msword", "cv.doc")).toBe(
+      "none",
+    );
+    expect(
+      resolveAttachmentPreviewMode("application/octet-stream", "cv.doc"),
     ).toBe("none");
   });
 });

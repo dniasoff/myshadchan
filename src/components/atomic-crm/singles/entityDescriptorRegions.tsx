@@ -12,7 +12,7 @@ import type { EntityRelationshipDescriptor } from "../entity360/relationshipDesc
 import { TopToolbar } from "../layout/TopToolbar";
 import { PhotoTabContent } from "../resumes/PhotoTab";
 import { ResumeUpload } from "../resumes/ResumeUpload";
-import { ResumeVersionList } from "../resumes/ResumeVersionList";
+import { ResumeDocument } from "../resumes/ResumeDocument";
 import type { Single } from "../types";
 import { SingleGrantManagement } from "./SingleGrantManagement";
 import { SingleLoginInvite } from "./SingleLoginInvite";
@@ -73,7 +73,7 @@ export function SingleResumeTab(): ReactNode {
   return (
     <div className="flex flex-col gap-4">
       <ResumeUpload singleId={record.id} />
-      <ResumeVersionList singleId={record.id} />
+      <ResumeDocument singleId={record.id} />
     </div>
   );
 }

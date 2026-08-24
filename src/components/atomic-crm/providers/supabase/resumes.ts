@@ -28,8 +28,9 @@ export const RESUME_FILE_URL_TTL_SECONDS = 60;
 
 /** The viewing counterpart — see `entityFiles.ts`'s
  * `ENTITY_FILE_VIEW_TTL_SECONDS` for why a previewed PDF needs a longer
- * window than a downloaded one. */
-export const RESUME_FILE_VIEW_TTL_SECONDS = 600;
+ * window than a downloaded one, and why an embedded viewer needs a longer
+ * one than a modal. This is the constant the embedded resume actually uses. */
+export const RESUME_FILE_VIEW_TTL_SECONDS = 3600;
 
 /**
  * The caller's ACTIVE account id, resolved the same way `dataProvider.ts`'s

@@ -9,13 +9,26 @@ import { translateLanding } from "./landingTranslate";
  * account" sits beside it in the quieter ghost treatment, since the header's
  * job is navigation for someone who already knows what they want, not
  * persuasion — that is the hero's job.
+ *
+ * On a phone only "Sign in" survives, and that follows from the same
+ * sentence. Brand plus both buttons needs roughly 440px of a 360px screen, so
+ * the row overflowed: "Create an account" filled the width and "Sign in" was
+ * clipped off the right edge. Dropping the persuasion button is the correct
+ * half to lose, because the hero directly below carries "Create an account"
+ * as its full-size primary action — the header is not the only door, and on a
+ * phone it is not even the first one the eye reaches.
  */
 export const LandingHeader = () => (
-  <header className="relative px-6 py-5 sm:px-8 sm:py-6">
-    <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
+  <header className="relative px-4 py-4 sm:px-8 sm:py-6">
+    <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
       <LandingBrand />
-      <div className="flex items-center gap-1 sm:gap-2">
-        <Button asChild size="sm" variant="ghost" className="h-10 px-4">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+        <Button
+          asChild
+          size="sm"
+          variant="ghost"
+          className="hidden h-10 px-4 sm:inline-flex"
+        >
           <a href={REGISTER_PATH}>
             {translateLanding(
               "crm.landing.nav.create_account",

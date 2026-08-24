@@ -1,11 +1,9 @@
-import { useCallback, useState } from "react";
 import type { ReactElement } from "react";
 import { useDataProvider, useGetList, useNotify, useTranslate } from "ra-core";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { AttachmentViewerDialog } from "../attachments/AttachmentViewerDialog";
 import { formatTimelineDate } from "../entity360/tabs/interactionLabels";
 import type { CrmDataProvider } from "../providers/types";
 import type { Resume, ResumeFileVersion } from "../types";
@@ -48,37 +46,32 @@ function ResumeError(): ReactElement {
 /** AC 5: a per-click signed URL, minted fresh on every download — never
  * cached in component state, never persisted on the row.
  *
- * "View" opens the file in the page; "Download" still saves it. Both mint
- * their own URL through the same call, differing only in `inline` — the flag
- * that decides whether the signed URL carries `Content-Disposition:
- * attachment`. Reading a resume was previously only possible by downloading
- * it first, which is a strange thing to have to do to the document this
- * whole page is about. */
+ * There is no "View" here any more, and no dialog. The resume is embedded
+ * above this list (`ResumeDocument`), so a row's job is to say which version
+ * this is, let you swap the embed to it, and let you keep a copy. "Show"
+ * appears only when there is more than one version — with a single version
+ * there is nothing to swap to, and a button that cannot change anything is
+ * the same defect as pagination on a one-page list. */
 function ResumeVersionRow({
   version,
+  isShown,
+  onShow,
 }: {
   version: ResumeFileVersion;
+  isShown: boolean;
+  onShow?: (path: string) => void;
 }): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const translate = useTranslate();
-  const [isViewerOpen, setIsViewerOpen] = useState(false);
-
-  // Stable across renders so the viewer's mint-on-open effect does not
-  // re-fire (and re-sign) on every parent render while the dialog is open.
-  const signUrl = useCallback(
-    ({ inline }: { inline: boolean }) =>
-      dataProvider.signResumeFileUrl({
-        storagePath: version.path,
-        fileName: version.filename,
-        inline,
-      }),
-    [dataProvider, version.path, version.filename],
-  );
 
   const handleDownload = async () => {
     try {
-      const url = await signUrl({ inline: false });
+      const url = await dataProvider.signResumeFileUrl({
+        storagePath: version.path,
+        fileName: version.filename,
+        inline: false,
+      });
       window.open(url, "_blank", "noopener,noreferrer");
     } catch (error) {
       notify(
@@ -93,22 +86,34 @@ function ResumeVersionRow({
   };
 
   return (
-    <li className="flex items-center justify-between gap-2 border-b border-border pb-3 last:border-b-0">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium">{version.filename}</p>
+    <li
+      className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3 last:border-b-0"
+      aria-current={isShown ? "true" : undefined}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">
+          {version.filename}
+          {isShown ? (
+            <span className="ms-2 text-xs font-normal text-muted-foreground">
+              {translate("crm.entity360.resume.shownNow", { _: "· shown" })}
+            </span>
+          ) : null}
+        </p>
         <p className="text-xs text-muted-foreground">
           {formatTimelineDate(version.uploaded_at)}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => setIsViewerOpen(true)}
-        >
-          {translate("crm.entity360.resume.view", { _: "View" })}
-        </Button>
+        {onShow && !isShown ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => onShow(version.path)}
+          >
+            {translate("crm.entity360.resume.show", { _: "Show" })}
+          </Button>
+        ) : null}
         <Button
           type="button"
           variant="ghost"
@@ -118,13 +123,6 @@ function ResumeVersionRow({
           {translate("crm.entity360.resume.download", { _: "Download" })}
         </Button>
       </div>
-      <AttachmentViewerDialog
-        open={isViewerOpen}
-        onOpenChange={setIsViewerOpen}
-        fileName={version.filename}
-        mimeType={version.mime_type}
-        signUrl={signUrl}
-      />
     </li>
   );
 }
@@ -136,9 +134,21 @@ function ResumeVersionRow({
  * The array is append-only (`add_resume_file`, AC 2), not stored sorted, so
  * this sorts client-side rather than trusting insertion order.
  */
-export function ResumeVersionList(subject: ResumeSubject): ReactElement {
+export type ResumeVersionListProps = ResumeSubject & {
+  /** Which version the embed above is currently showing, so the list can
+   * mark it rather than leaving the reader to guess. */
+  shownPath?: string;
+  /** Omitted when there is only one version — see `ResumeVersionRow`. */
+  onShow?: (path: string) => void;
+};
+
+export function ResumeVersionList({
+  shownPath,
+  onShow,
+  ...subject
+}: ResumeVersionListProps): ReactElement {
   const { data, error, isPending } = useGetList<Resume>("resumes", {
-    filter: resumeSubjectFilter(subject),
+    filter: resumeSubjectFilter(subject as ResumeSubject),
     pagination: { page: 1, perPage: 1 },
     sort: { field: "id", order: "ASC" },
   });
@@ -153,7 +163,12 @@ export function ResumeVersionList(subject: ResumeSubject): ReactElement {
   return (
     <ul className="flex flex-col gap-3">
       {versions.map((version) => (
-        <ResumeVersionRow key={version.path} version={version} />
+        <ResumeVersionRow
+          key={version.path}
+          version={version}
+          isShown={version.path === shownPath}
+          onShow={onShow}
+        />
       ))}
     </ul>
   );

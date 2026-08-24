@@ -3,7 +3,7 @@ import { useRecordContext } from "ra-core";
 
 import type { ShidduchSummary } from "../types";
 import { ResumeUpload } from "./ResumeUpload";
-import { ResumeVersionList } from "./ResumeVersionList";
+import { ResumeDocument } from "./ResumeDocument";
 
 /**
  * The shidduch descriptor's `resume` tab entry point (Story 5.3, AC 1 / AC 3
@@ -23,7 +23,7 @@ export function ResumeTab(): ReactNode {
   return (
     <div className="flex flex-col gap-4">
       <ResumeUpload shidduchimId={record.id} />
-      <ResumeVersionList shidduchimId={record.id} />
+      <ResumeDocument shidduchimId={record.id} />
     </div>
   );
 }
