@@ -1,14 +1,11 @@
 import { Users } from "lucide-react";
 
-import { CanAccess } from "ra-core";
-
 import { buildNewPath } from "../entity360/entityPaths";
 import { EmptyState } from "../misc/EmptyState";
 import { AttentionSection } from "./AttentionSection";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardStat } from "./DashboardStat";
 import { DueRemindersCard } from "./DueRemindersCard";
-import { MetricsCards } from "./MetricsCards";
 import { ParentFocusCards } from "./ParentFocusCards";
 import { PipelineSnapshot } from "./PipelineSnapshot";
 import { RecentSuggestions } from "./RecentSuggestions";
@@ -19,6 +16,19 @@ import { useDashboardData } from "./useDashboardData";
  * switcher, the pipeline snapshot "moment", recent suggestions, directory
  * stats, and a calm "needs your attention" section — all driven from the
  * seeded shidduchim data for the selected single.
+ *
+ * Every box here answers a question a PARENT or a SINGLE actually has about
+ * their own shidduchim. Story 15.2's platform metrics (cross-account leaks,
+ * mis-routed items, duplicate false-positive rate, trial-to-paid conversion,
+ * AI cost per active family) used to sit second on this page; they measure
+ * whether the PRODUCT is working, which is the operator's question, not the
+ * family's. They now live in Settings -> Platform metrics, admin-only.
+ *
+ * Gating them here by role was tried first and was the wrong fix: the first
+ * login in a fresh database is made `administrator = true` by
+ * handle_new_user(), so the operator IS the parent on a small deployment and
+ * the gate let exactly the wrong person keep seeing them on exactly the wrong
+ * page. Relevance here is about the PAGE, not the viewer.
  */
 export const Dashboard = () => {
   const {
@@ -65,15 +75,6 @@ export const Dashboard = () => {
           {/* The four questions a parent opens this page to answer. See
               parentFocus.ts for why these four, in this order. */}
           <ParentFocusCards singleId={selectedSingleId} />
-          {/* Story 15.2's north-star and counter-metrics (cross-account leaks,
-              mis-routed items, duplicate false-positive rate, trial-to-paid,
-              AI cost per family) measure whether the PRODUCT is working. They
-              used to render for every family, which told a parent nothing
-              about their own child and was account-wide on an otherwise
-              per-single page. Same admin gate TopBar uses for the Users menu. */}
-          <CanAccess resource="members" action="list">
-            <MetricsCards />
-          </CanAccess>
           <PipelineSnapshot singleId={selectedSingleId} />
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
             <div className="lg:col-span-8">
