@@ -1900,53 +1900,18 @@ async function seedOfficialDemoBundle(
         p_actor_key: actor.key,
         p_user_id: created.id,
       });
-      if (actor.key !== "dovid-klein") {
-        const actorAccountId = requireSafePositiveBigintId(
-          accountIdByContext.get(actor.contextKey),
-          `${actor.key} actor account id`,
-        );
-        const { data: membership, error: actorMembershipError } = await rootDb
-          .from("account_members")
-          .insert({
-            account_id: actorAccountId,
-            user_id: created.id,
-            role: actor.role,
-            status: "active",
-          })
-          .select("id")
-          .single();
-        if (actorMembershipError || !membership) {
-          throw new Error(
-            `create actor membership failed: ${actorMembershipError?.message}`,
-          );
-        }
-        actorMembershipByKey.set(
-          actor.key,
-          requireSafePositiveBigintId(
-            membership.id,
-            `${actor.key} membership id`,
-          ),
-        );
-      }
+      // No membership is inserted here. Every actor in this demo belongs to
+      // the ONE household, and a household is joined through the real
+      // invitation lifecycle — create_invite then accept_demo_invite, exactly
+      // as Dovid does below. Inserting one up front AND sending an invite to
+      // the same household is a duplicate active membership, which is what
+      // `account_members_account_user_active_uq` refused when the second
+      // parent was first added. This block existed for the companion
+      // contexts, whose actors had no invite to accept.
       actorEmailByKey.set(actor.key, email);
       actorUserIdByKey.set(actor.key, created.id);
-      if (actor.key !== "dovid-klein") {
-        const actorAccountId = requireSafePositiveBigintId(
-          accountIdByContext.get(actor.contextKey),
-          `${actor.key} actor account id`,
-        );
-        const { error: actorStateError } = await rootDb
-          .from("member_state")
-          .upsert({
-            user_id: created.id,
-            active_account_id: actorAccountId,
-          });
-        if (actorStateError) {
-          throw new Error(
-            `create actor active context failed: ${actorStateError.message}`,
-          );
-        }
-      }
+      // Likewise no active context: accepting the invitation activates the
+      // household as their first live context (activate_first_context_trigger).
       actorClientByKey.set(
         actor.key,
         await signInSyntheticActor(email, password),
