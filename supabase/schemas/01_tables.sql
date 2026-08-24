@@ -76,7 +76,20 @@ create table public.members (
     administrator boolean not null,
     user_id uuid not null,
     avatar jsonb,
-    disabled boolean not null default false
+    disabled boolean not null default false,
+    -- When this login affirmed being 18 or older, or NULL if it never has.
+    --
+    -- The affirmation used to be a pre-creation gate: a checkbox whose state
+    -- had to reach `check_signup_age()`, the `before_user_created` Auth Hook,
+    -- either through `user_metadata` (email/OTP) or a `signup_intents` row
+    -- keyed on the email (Google). `signInWithOAuth()` can carry neither, and
+    -- 20260824122333 retired the whole mechanism for that reason.
+    --
+    -- Recording it HERE, after the account exists, needs no such channel: the
+    -- caller is already authenticated, so `affirm_age()` can simply write it.
+    -- Nullable and NOT backfilled on purpose — no login has ever affirmed
+    -- through a recorded control, so every one of them is genuinely pending.
+    age_affirmed_at timestamp with time zone
 );
 
 create unique index uq__members__user_id on public.members using btree (user_id);

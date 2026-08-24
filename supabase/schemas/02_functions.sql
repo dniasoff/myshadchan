@@ -4383,6 +4383,70 @@ begin
 end;
 $$;
 
+CREATE OR REPLACE FUNCTION "public"."age_affirmation_pending"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  -- Whether this login still owes the 18+ affirmation.
+  --
+  -- True only when there is a members row to record it ON and that row has
+  -- never been affirmed. An unauthenticated caller, or one with no members
+  -- row, gets FALSE: an affirmation we could not record is one we must not
+  -- pretend to hold, and blocking on it would strand the caller in a screen
+  -- whose only button cannot succeed.
+  select exists (
+    select 1 from public.members
+    where user_id = auth.uid() and age_affirmed_at is null
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."affirm_age"() RETURNS timestamp with time zone
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_user_id uuid := auth.uid();
+  v_affirmed_at timestamp with time zone;
+begin
+  -- Records the 18+ affirmation for the calling login, once.
+  --
+  -- SECURITY DEFINER because `authenticated` holds no UPDATE policy on
+  -- `members` (05_policies.sql grants it self-READ only), and because this
+  -- must write exactly one column of exactly one row — the caller's. The
+  -- account id is never a parameter: it is `auth.uid()`, so there is no shape
+  -- of this call that can affirm on somebody else's behalf.
+  --
+  -- Idempotent by `coalesce`: a double-submit, a retried request, or a second
+  -- tab all return the ORIGINAL timestamp rather than moving it forward. When
+  -- this was asked matters — overwriting it would quietly rewrite the record
+  -- of consent every time the caller signed in.
+  if v_user_id is null then
+    raise exception 'affirm_age requires an authenticated caller'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- `clock_timestamp()`, not `now()`: `now()` is the TRANSACTION timestamp, so
+  -- two calls inside one transaction return the same value and the
+  -- idempotence above becomes unobservable — a test cannot tell `coalesce`
+  -- from a plain overwrite, which is exactly what the fail-first check on
+  -- supabase/tests/age_affirmation.sql caught. Wall-clock at the moment of
+  -- the call is also the more accurate thing to record for a consent.
+  update public.members
+  set age_affirmed_at = coalesce(age_affirmed_at, clock_timestamp())
+  where user_id = v_user_id
+  returning age_affirmed_at into v_affirmed_at;
+
+  if v_affirmed_at is null then
+    -- handle_new_user() creates this row on every signup, so its absence is
+    -- a broken invariant, not a state to paper over.
+    raise exception 'affirm_age found no member record for this login'
+      using errcode = 'check_violation';
+  end if;
+
+  return v_affirmed_at;
+end;
+$$;
+
 CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''

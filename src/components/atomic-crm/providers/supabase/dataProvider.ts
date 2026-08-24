@@ -1015,6 +1015,40 @@ export const getDataProviderWithCustomMethods = () => {
     // onboarding screen both call. Fail-loud, unlike `currentAccountDemo`
     // above — a swallowed error here would read as "no personas yet" and
     // silently re-run onboarding for an existing user.
+    /**
+     * Whether this login still owes the 18+ affirmation (`OnboardingGate`).
+     *
+     * Fails toward NOT blocking, deliberately, and unlike its neighbours: a
+     * transient RPC failure must not lock every signed-in user out behind a
+     * consent screen whose button also needs the network. `OnboardingGate`
+     * holds the same posture for personas/contexts ("fails TOWARD the
+     * shell"). The affirmation is a self-declaration, so the cost of missing
+     * one on a broken read is far below the cost of a global lockout — and
+     * `age_affirmation_pending()` stays true until `affirm_age()` actually
+     * writes, so the ask simply returns on the next successful read.
+     */
+    async ageAffirmationPending(): Promise<boolean> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "age_affirmation_pending",
+      );
+      if (error) {
+        console.error("age_affirmation_pending.error", error);
+        return false;
+      }
+      return data === true;
+    },
+    /**
+     * Records the 18+ affirmation for this login. Fail-loud: the caller is
+     * about to be let into the app on the strength of it, so a swallowed
+     * failure would admit them having recorded nothing.
+     */
+    async affirmAge(): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("affirm_age");
+      if (error) {
+        console.error("affirm_age.error", error);
+        throw new Error("Couldn't save your confirmation. Please try again.");
+      }
+    },
     async getMyPersonas(): Promise<MyPersona[]> {
       const { data, error } = await getSupabaseClient().rpc("my_personas");
       if (error) {

@@ -512,6 +512,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/settings/PlatformMetricsSection.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/settings/PersonasSection.tsx",
           "type": "registry:component"
         },
@@ -549,6 +553,10 @@
         },
         {
           "path": "src/components/atomic-crm/root/useConfigurationLoader.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/root/useAgeAffirmation.ts",
           "type": "registry:component"
         },
         {
@@ -1209,6 +1217,10 @@
         },
         {
           "path": "src/components/atomic-crm/login/FirstRunSetup.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/login/ConfirmNewAccount.tsx",
           "type": "registry:component"
         },
         {

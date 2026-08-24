@@ -318,6 +318,11 @@ export const createDataProvider = ({
   // session. A showcase provider is already seeded; ordinary test providers
   // remain a clean baseline until seedDemo() is called.
   let fakeDemo = showcase;
+  // Starts affirmed in the browser demo: `make start-demo` exists to show the
+  // product, and a consent screen in front of it teaches nothing. The real
+  // client is the one that must ask, and `age_affirmation_pending()` is what
+  // makes it.
+  let fakeAgeAffirmed = true;
   let demoOnboardingState: DemoOnboardingState | null = null;
   // Context switcher (2.4 AC-6): mirrors member_state.active_account_id for
   // the FakeRest session. Story 2.1 added no fakerest member_state
@@ -2362,6 +2367,17 @@ export const createDataProvider = ({
     // "What am I" (2.2 AC-8, 2.3 AC-9) -- FakeRest mirrors of
     // my_personas()/add_persona() in ./internal/personas.ts. Derive from the
     // in-memory account_members/singles tables, never a stub.
+    // FakeRest mirror of the 18+ affirmation. Session-local rather than a
+    // `members` column: the browser demo has no auth.users, and the property
+    // worth mirroring is the SEQUENCE the gate depends on — pending until
+    // affirmed, never pending again afterwards — not where the timestamp is
+    // stored.
+    ageAffirmationPending: (): Promise<boolean> =>
+      Promise.resolve(!fakeAgeAffirmed),
+    affirmAge: (): Promise<void> => {
+      fakeAgeAffirmed = true;
+      return Promise.resolve();
+    },
     getMyPersonas: (): Promise<MyPersona[]> =>
       getMyPersonas(baseDataProvider, getIdentity),
     addPersona: (persona: Persona): Promise<void> =>

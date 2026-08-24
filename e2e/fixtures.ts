@@ -97,7 +97,18 @@ async function createMember({
 
   const { data, error } = await adminSupabase
     .from("members")
-    .update({ first_name, last_name, administrator: false })
+    .update({
+      first_name,
+      last_name,
+      administrator: false,
+      // Fabricated members skip the real signup, so they would otherwise meet
+      // the 18+ affirmation gate (`OnboardingGate` -> `ConfirmNewAccount`) on
+      // their first authenticated render and never reach the screen under
+      // test. Affirming here keeps that gate out of every spec that is not
+      // about it; `e2e/invite-acceptance.spec.ts` exercises the real ask, on
+      // a login that goes through the real signup.
+      age_affirmed_at: new Date().toISOString(),
+    })
     .eq("user_id", userData.user?.id)
     .select()
     .single();

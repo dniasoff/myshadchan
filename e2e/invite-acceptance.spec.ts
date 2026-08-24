@@ -40,6 +40,18 @@ test("an invitee previews, affirms 18+, and signs in through an invite", async (
   await page.getByLabel("Code").fill(code);
   await page.getByRole("button", { name: "Sign in" }).click();
 
+  // A brand-new login — however it was created — meets the 18+ affirmation
+  // once, before the app. This is the real ask, on a login that went through
+  // the real signup, so it is the end-to-end proof that the gate works and
+  // that it is passable.
+  await expect(
+    page.getByText("signing in has just created one for you"),
+  ).toBeVisible();
+  await page
+    .getByLabel("I confirm that I am 18 years of age or older.")
+    .check();
+  await page.getByRole("button", { name: "Continue" }).click();
+
   // AC-6/AC-7: the invite actually bound a real membership — the invitee
   // lands inside the app (not bounced back to a login/invite screen) and
   // can reach a resource scoped to the household they were invited into.

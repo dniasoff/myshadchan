@@ -1,9 +1,14 @@
 import type { ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDataProvider } from "ra-core";
 
+import { ConfirmNewAccount } from "../login/ConfirmNewAccount";
 import { OnboardingChoice } from "../login/OnboardingChoice";
 import { useAccountDemo } from "./useAccountDemo";
+import {
+  AGE_AFFIRMATION_QUERY_KEY,
+  useAgeAffirmation,
+} from "./useAgeAffirmation";
 import { useMyContexts } from "./useMyContexts";
 import { useMyPersonas } from "./useMyPersonas";
 import type { CrmDataProvider } from "../providers/supabase/dataProvider";
@@ -68,6 +73,12 @@ export const OnboardingGate = ({ children }: { children: ReactNode }) => {
     isError: contextsErrored,
   } = useMyContexts();
   const { data: isDemo, isPending: demoPending } = useAccountDemo();
+  const {
+    data: ageAffirmationPending,
+    isPending: agePending,
+    isError: ageErrored,
+  } = useAgeAffirmation();
+  const queryClient = useQueryClient();
   const demoIntentQuery = useQuery({
     queryKey: DEMO_ONBOARDING_INTENT_QUERY_KEY,
     queryFn: () => dataProvider.getDemoOnboardingState(),
@@ -79,10 +90,30 @@ export const OnboardingGate = ({ children }: { children: ReactNode }) => {
     personasPending ||
     contextsPending ||
     demoPending ||
+    agePending ||
     personasErrored ||
     contextsErrored
   ) {
     return <>{children}</>;
+  }
+
+  // The 18+ affirmation, ahead of every other branch — including the demo
+  // one, so "Explore the demo" cannot become a way past it.
+  //
+  // Fails toward the shell exactly like the reads above (`ageErrored`): a
+  // transient RPC failure must not lock every signed-in user behind a consent
+  // screen whose own button also needs the network. `age_affirmation_pending()`
+  // keeps reporting true until `affirm_age()` actually writes, so a missed ask
+  // simply returns on the next successful read — whereas a global lockout
+  // would need a deploy to undo.
+  if (!ageErrored && ageAffirmationPending === true) {
+    return (
+      <ConfirmNewAccount
+        onConfirmed={() =>
+          queryClient.invalidateQueries({ queryKey: AGE_AFFIRMATION_QUERY_KEY })
+        }
+      />
+    );
   }
 
   // Do not flash the full shell while the server-owned retry intent is still

@@ -382,6 +382,20 @@ revoke all on function public.my_personas() from public, anon;
 grant execute on function public.my_personas() to authenticated;
 grant execute on function public.my_personas() to service_role;
 
+-- The 18+ affirmation. Both are scoped to `auth.uid()` and take no
+-- parameters, so `authenticated` is the correct grantee: there is no shape of
+-- either call that can read or write another login's record. `anon` is named
+-- in the revoke because the schema's default privileges would otherwise hand
+-- execute to every role on each new function — and an anonymous caller has no
+-- members row to affirm against in any case.
+revoke all on function public.age_affirmation_pending() from public, anon;
+grant execute on function public.age_affirmation_pending() to authenticated;
+grant execute on function public.age_affirmation_pending() to service_role;
+
+revoke all on function public.affirm_age() from public, anon;
+grant execute on function public.affirm_age() to authenticated;
+grant execute on function public.affirm_age() to service_role;
+
 -- Review finding #1 (2.5): account_has_domain_data() is a plain read-only
 -- predicate used by guard_persona_removal(); safe to grant broadly (RLS
 -- still applies unless called from within a SECURITY DEFINER caller).
