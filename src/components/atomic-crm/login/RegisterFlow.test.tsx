@@ -9,19 +9,7 @@ import { render } from "vitest-browser-react";
 import { CoreAdminContext, type AuthProvider } from "ra-core";
 import { testI18nProvider } from "@/components/atomic-crm/providers/commons/i18nProvider";
 import { RegisterFlow } from "./RegisterFlow";
-import * as signupIntentModule from "./signupIntent";
 import type { TurnstileWidgetHandle } from "./TurnstileWidget";
-
-// GoogleSignUpButton (rendered here when Google OAuth is enabled) records a
-// signup_intents row directly through the Supabase client — mocked for the
-// same reason GoogleSignUpButton.test.tsx mocks it: no real network call.
-vi.mock("./signupIntent", () => ({
-  recordSignupIntent: vi.fn(),
-}));
-
-const mockedRecordSignupIntent = vi.mocked(
-  signupIntentModule.recordSignupIntent,
-);
 
 // Same deterministic fake as LoginPage.test.tsx — RegisterFlow keeps one
 // TurnstileWidget mounted across both its steps and forwards whatever token
@@ -60,23 +48,21 @@ const renderRegisterFlow = (login: AuthProvider["login"]) => {
   return render(<RegisterFlow />, { wrapper: Wrapper });
 };
 
-/** Fills the email field and checks the 18+ box, without pressing Continue —
- * every test that needs to reach the code step starts from here. */
+/** Fills the email field, without pressing Continue — every test that needs
+ * to reach the code step starts from here. */
 const fillDetailsStep = async (
   screen: Awaited<ReturnType<typeof renderRegisterFlow>>,
   email: string,
 ) => {
   await screen.getByLabelText(/email/i).fill(email);
-  await screen.getByRole("checkbox").click();
 };
 
 describe("RegisterFlow", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
-    mockedRecordSignupIntent.mockReset();
   });
 
-  it("requests a code with allowSignup and the age affirmation, plus a captcha token", async () => {
+  it("requests a code with allowSignup plus a captcha token", async () => {
     // Arrange
     const login = vi.fn().mockResolvedValue(undefined);
     const screen = await renderRegisterFlow(login);
@@ -86,8 +72,10 @@ describe("RegisterFlow", () => {
     await screen.getByRole("button", { name: "Continue" }).click();
 
     // Assert: this is the one screen allowed to create a user (mirroring
-    // InviteAcceptance) — allowSignup, the age affirmation in meta, AND the
-    // captcha token, all forwarded on the same call.
+    // InviteAcceptance) — allowSignup AND the captcha token, forwarded on
+    // the same call. No `meta.age_affirmed`: nothing reads it now that
+    // check_signup_age()'s Auth Hook is retired, and sending it would
+    // record an affirmation nobody made.
     await expect
       .element(screen.getByRole("button", { name: "Sign in" }))
       .toBeInTheDocument();
@@ -95,25 +83,44 @@ describe("RegisterFlow", () => {
       email: "ada@example.com",
       requestOtp: true,
       allowSignup: true,
-      meta: { age_affirmed: true },
       captchaToken: FAKE_CAPTCHA_TOKEN,
     });
   });
 
-  it("does not request a code until the age checkbox is checked", async () => {
+  it("states the 18+ affirmation as a consequence of creating an account", async () => {
+    // Arrange: it used to be a checkbox that gated this screen's Continue
+    // button. The gate is gone — what remains has to still SAY what
+    // creating an account affirms, or the affirmation is nowhere at all.
+    const login = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    const screen = await renderRegisterFlow(login);
+
+    // Assert
+    await expect.element(screen.getByRole("checkbox")).not.toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "By creating an account, you confirm you are 18 years of age or older.",
+        ),
+      )
+      .toBeVisible();
+  });
+
+  it("refuses to request a code with an empty email, and says so", async () => {
     // Arrange
     const login = vi.fn().mockResolvedValue(undefined);
     const screen = await renderRegisterFlow(login);
 
-    // Act: fill the email but never check the box — AgeAffirmation disables
-    // its own Continue button until checked (see AgeAffirmation.tsx), so
-    // there is no click that could ever reach handleContinue here.
-    await screen.getByLabelText(/email/i).fill("ada@example.com");
+    // Act: press Continue having typed nothing. The button is no longer
+    // disabled by an affirmation checkbox, so this path is reachable now
+    // and handleContinue's own guard is what has to hold.
+    await screen.getByRole("button", { name: "Continue" }).click();
 
     // Assert
     await expect
-      .element(screen.getByRole("button", { name: "Continue" }))
-      .toBeDisabled();
+      .element(screen.getByText("Enter your email to continue."))
+      .toBeVisible();
     expect(login).not.toHaveBeenCalled();
   });
 
@@ -140,7 +147,7 @@ describe("RegisterFlow", () => {
     });
   });
 
-  it("resends a code reusing the same email, allowSignup and age affirmation", async () => {
+  it("resends a code reusing the same email and allowSignup", async () => {
     // Arrange
     const login = vi.fn().mockResolvedValue(undefined);
     const screen = await renderRegisterFlow(login);
@@ -159,7 +166,6 @@ describe("RegisterFlow", () => {
       email: "ada@example.com",
       requestOtp: true,
       allowSignup: true,
-      meta: { age_affirmed: true },
       captchaToken: undefined,
     });
   });
@@ -188,9 +194,7 @@ describe("RegisterFlow", () => {
   });
 
   it("does not offer a 'use a different email' link on the code step", async () => {
-    // Arrange — restarting means re-affirming age, not just picking a new
-    // email (RegisterFlow's own doc comment; OtpCodeStep's own doc comment
-    // records the same reasoning).
+    // Arrange — see OtpCodeStep's own doc comment for the reasoning.
     const login = vi.fn().mockResolvedValue(undefined);
     const screen = await renderRegisterFlow(login);
     await fillDetailsStep(screen, "ada@example.com");
@@ -259,33 +263,23 @@ describe("RegisterFlow", () => {
       .not.toBeInTheDocument();
   });
 
-  it("keeps the Google button disabled until the age box is checked, then redirects with the typed email", async () => {
-    // Arrange: confirm first, then Google — same one affirmation gates both
-    // the OTP "Continue" button and this one.
+  it("redirects via Google with no email typed and nothing ticked", async () => {
+    // Arrange: this is the whole point of the change. Both an email and a
+    // ticked box used to be mandatory here, because the affirmation had to
+    // reach the server and a Google redirect's only channel for it was a
+    // signup_intents row keyed on an email we therefore had to collect.
     vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
-    mockedRecordSignupIntent.mockResolvedValue(undefined);
     const login = vi.fn().mockResolvedValue(undefined);
     const screen = await renderRegisterFlow(login);
-    await screen.getByLabelText(/email/i).fill("ada@example.com");
-
-    // Assert: unchecked box, button still disabled.
-    await expect
-      .element(screen.getByRole("button", { name: "Continue with Google" }))
-      .toBeDisabled();
 
     // Act
-    await screen.getByRole("checkbox").click();
     await screen.getByRole("button", { name: "Continue with Google" }).click();
 
     // Assert
     await vi.waitFor(() => {
       expect(login).toHaveBeenCalledExactlyOnceWith({
         oauthProvider: "google",
-        loginHint: "ada@example.com",
       });
     });
-    expect(mockedRecordSignupIntent).toHaveBeenCalledExactlyOnceWith(
-      "ada@example.com",
-    );
   });
 });

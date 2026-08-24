@@ -98,14 +98,16 @@ enable_confirmations = false
 subject = "Your MyShadchan sign-in code"
 content_path = "./supabase/templates/magic_link.html"
 
-# Open signup: see supabase/config.toml's own comment — kept in sync so
-# e2e behaves identically to dev. The function is check_signup_age (renamed
-# from check_signup_invite, which 20260804214603_open_signup.sql DROPS): a
-# stack built from a config still naming the old one answers every signup
-# with a GoTrue 500, "Error running hook URI".
-[auth.hook.before_user_created]
-enabled = true
-uri = "pg-functions://postgres/public/check_signup_age"
+# No before_user_created Auth Hook. The 18+ affirmation is made by the act of
+# creating an account and stated as such in the UI (`AgeNotice`), so there is
+# nothing left for a hook to verify — check_signup_age() and the
+# public.signup_intents table it read are both dropped.
+#
+# Keep this block absent rather than `enabled = false`-with-a-uri: a config
+# still NAMING a dropped function answers every signup with a GoTrue 500,
+# "Error running hook URI". deploy.yml PATCHes the hosted project's own copy
+# of this setting off BEFORE `db push` drops the function, for exactly that
+# reason.
 
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.

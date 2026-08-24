@@ -169,37 +169,24 @@ test("Google sign-in performs one clean external OAuth handoff", async ({
   expect(probe.authorizeUrl()?.searchParams.get("provider")).toBe("google");
 });
 
-test("Google signup records intent, then performs one clean OAuth handoff", async ({
+test("Google signup performs one clean OAuth handoff, with no email typed", async ({
   page,
 }) => {
-  const requestOrder: string[] = [];
-  const probe = await installNavigationProbe(page, () => {
-    requestOrder.push("authorize");
-  });
-  await page.route("**/rest/v1/signup_intents*", async (route) => {
-    requestOrder.push("signup-intent:start");
-    await route.fulfill({
-      status: 201,
-      contentType: "application/json",
-      body: "",
-    });
-    requestOrder.push("signup-intent:complete");
-  });
+  const probe = await installNavigationProbe(page);
   await page.goto(`${APP_URL}/#/register`);
-  await page.getByLabel(/email/i).fill("ada@example.com");
-  await page.getByRole("checkbox").check();
+  // Nothing is filled in and nothing is ticked. Both used to be required
+  // before this button would even redirect: the 18+ affirmation had to
+  // reach the server, and a Google redirect's only channel for it was a
+  // `signup_intents` row keyed on an email we therefore had to collect
+  // first. The affirmation is a notice now (`AgeNotice`), so the button
+  // stands on its own.
   await expect(
     page.getByRole("button", { name: "Continue with Google" }),
   ).toBeEnabled();
 
   await expectCleanOAuthHandoff(page, probe);
 
-  expect(requestOrder).toEqual([
-    "signup-intent:start",
-    "signup-intent:complete",
-    "authorize",
-  ]);
   const authorizeUrl = probe.authorizeUrl();
   expect(authorizeUrl?.searchParams.get("provider")).toBe("google");
-  expect(authorizeUrl?.searchParams.get("login_hint")).toBe("ada@example.com");
+  expect(authorizeUrl?.searchParams.get("login_hint")).toBeNull();
 });

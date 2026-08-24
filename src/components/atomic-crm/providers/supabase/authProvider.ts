@@ -16,91 +16,6 @@ import { getSupabaseClient } from "./supabase";
 // matches, so `handleCallback()` below gets a chance to run at all instead of
 // the browser showing whatever an unmatched `#error=...` hash resolves to.
 const AUTH_CALLBACK_PATH = "/auth-callback";
-const SIGN_IN_OAUTH_FLOW_STORAGE_KEY = "myshadchan.oauth.sign_in_flow";
-const SIGN_IN_OAUTH_FLOW_FALLBACK_STORAGE_KEY =
-  "myshadchan.oauth.sign_in_flow.fallback";
-const SIGN_IN_OAUTH_FLOW_MAX_AGE_MS = 15 * 60 * 1000;
-
-function markSignInOAuthFlow() {
-  try {
-    window.sessionStorage.setItem(
-      SIGN_IN_OAUTH_FLOW_STORAGE_KEY,
-      String(Date.now()),
-    );
-    return;
-  } catch {
-    // Fall through to localStorage for browsers that block sessionStorage
-    // but still permit a same-origin persistent store. The marker remains
-    // short-lived and is removed on callback, provider failure, or a later
-    // auth-flow start.
-  }
-  try {
-    window.localStorage.setItem(
-      SIGN_IN_OAUTH_FLOW_FALLBACK_STORAGE_KEY,
-      String(Date.now()),
-    );
-  } catch {
-    // A fully storage-blocked browser cannot carry client flow identity
-    // across the OAuth navigation. The callback mapper has a safe generic
-    // age-restriction fallback and never relays the hook implementation text.
-  }
-}
-
-function clearSignInOAuthFlow() {
-  try {
-    window.sessionStorage.removeItem(SIGN_IN_OAUTH_FLOW_STORAGE_KEY);
-  } catch {
-    // Ignore storage cleanup failures; the marker is time-bounded.
-  }
-  try {
-    window.localStorage.removeItem(SIGN_IN_OAUTH_FLOW_FALLBACK_STORAGE_KEY);
-  } catch {
-    // Ignore storage cleanup failures; the marker is time-bounded.
-  }
-}
-
-function readOAuthFlowTimestamp(
-  getStorage: () => Storage,
-  key: string,
-): number | null {
-  try {
-    const storage = getStorage();
-    const raw = storage.getItem(key);
-    storage.removeItem(key);
-    if (raw == null) {
-      return null;
-    }
-    const timestamp = Number(raw);
-    return Number.isFinite(timestamp) ? timestamp : null;
-  } catch {
-    return null;
-  }
-}
-
-function consumeSignInOAuthFlow(): boolean {
-  const sessionStartedAt = readOAuthFlowTimestamp(
-    () => window.sessionStorage,
-    SIGN_IN_OAUTH_FLOW_STORAGE_KEY,
-  );
-  if (sessionStartedAt != null) {
-    const age = Date.now() - sessionStartedAt;
-    clearSignInOAuthFlow();
-    return age >= 0 && age <= SIGN_IN_OAUTH_FLOW_MAX_AGE_MS;
-  }
-
-  const fallbackStartedAt = readOAuthFlowTimestamp(
-    () => window.localStorage,
-    SIGN_IN_OAUTH_FLOW_FALLBACK_STORAGE_KEY,
-  );
-  if (fallbackStartedAt != null) {
-    const age = Date.now() - fallbackStartedAt;
-    clearSignInOAuthFlow();
-    return age >= 0 && age <= SIGN_IN_OAUTH_FLOW_MAX_AGE_MS;
-  }
-
-  return false;
-}
-
 const getBaseAuthProvider = () =>
   supabaseAuthProvider(getSupabaseClient(), {
     getIdentity: async () => {
@@ -275,47 +190,23 @@ export const getAuthProvider = (): AuthProvider => {
         }
         return;
       }
-      // Standard social OAuth ("Continue with Google" — GoogleSignInButton).
-      // `redirectTo` points at the framework's dedicated auth-callback route
-      // (see AUTH_CALLBACK_PATH above), not the bare app root: that is what
-      // lets a rejected/cancelled attempt land somewhere `handleCallback()`
-      // below can turn into a calm message instead of an unmatched route.
-      // `loginHint` (Google's own `login_hint` OAuth param) steers the
-      // consent screen toward the email GoogleSignInButton already recorded
-      // a signup intent for — it does not force that email, so
-      // `check_signup_age()`'s own email match is still the real guarantee,
-      // not this hint.
+      // Standard social OAuth ("Continue with Google" — GoogleSignInButton
+      // on /login, GoogleSignUpButton on /register; the two are the same
+      // call, since with `check_signup_age()` retired neither can refuse to
+      // create an account). `redirectTo` points at the framework's dedicated
+      // auth-callback route (see AUTH_CALLBACK_PATH above), not the bare app
+      // root: that is what lets a rejected/cancelled attempt land somewhere
+      // `handleCallback()` below can turn into a calm message instead of an
+      // unmatched route. Keep this URL byte-for-byte as it is — it has to
+      // match Supabase Auth's exact redirect allow-list.
       if (params.oauthProvider) {
-        if (params.oauthFlow === "sign-in") {
-          // Keep the callback URL byte-for-byte compatible with the existing
-          // Supabase redirect allow-list. GoTrue does not preserve arbitrary
-          // client metadata through OAuth, so the short-lived browser marker
-          // is the reliable way to distinguish this returning-user flow from
-          // the explicit register flow after the redirect.
-          markSignInOAuthFlow();
-        } else {
-          // A visitor may abandon sign-in and immediately choose the explicit
-          // register flow in the same tab. Never let the old marker relabel
-          // that signup callback.
-          clearSignInOAuthFlow();
-        }
         const { error } = await getSupabaseClient().auth.signInWithOAuth({
           provider: params.oauthProvider,
           options: {
-            // The sign-in entry point cannot create an account. Its
-            // short-lived flow marker is stored in sessionStorage above;
-            // keeping this URL unchanged avoids an exact redirect allow-list
-            // rejection in Supabase Auth.
             redirectTo: `${window.location.origin}/#${AUTH_CALLBACK_PATH}`,
-            queryParams: params.loginHint
-              ? { login_hint: params.loginHint }
-              : undefined,
           },
         });
         if (error) {
-          if (params.oauthFlow === "sign-in") {
-            clearSignInOAuthFlow();
-          }
           throw error;
         }
         return;
@@ -325,30 +216,22 @@ export const getAuthProvider = (): AuthProvider => {
       throw new Error("Unsupported login request.");
     },
     handleCallback: async (params) => {
-      // An OAuth rejection (the visitor cancelled, the provider is
-      // misconfigured, or our own age gate 403'd the signup) lands here as
+      // An OAuth rejection (the visitor cancelled, or the provider is
+      // misconfigured) lands here as
       // `error`/`error_code`/`error_description` in the URL — never as a
       // rejected promise, since `signInWithOAuth()` already navigated the
       // browser away before any of this could be known. Map it to a calm,
       // cause-accurate message BEFORE falling through to the base
       // provider's recovery/invite handling, which knows nothing about
       // OAuth and would silently resolve as if nothing happened.
-      const isSignInOAuthFlow = consumeSignInOAuthFlow();
-      try {
-        const callbackError = readOAuthCallbackError(
-          window.location,
-          isSignInOAuthFlow ? "sign-in" : undefined,
-        );
-        if (callbackError) {
-          throw new Error(callbackError.messageKey);
-        }
-        // `baseAuthProvider.handleCallback` is always defined at runtime (the
-        // base `supabaseAuthProvider()` always sets it) — the `?.` is only to
-        // satisfy `AuthProvider`'s own optional-property typing.
-        return baseAuthProvider.handleCallback?.(params);
-      } finally {
-        clearSignInOAuthFlow();
+      const callbackError = readOAuthCallbackError(window.location);
+      if (callbackError) {
+        throw new Error(callbackError.messageKey);
       }
+      // `baseAuthProvider.handleCallback` is always defined at runtime (the
+      // base `supabaseAuthProvider()` always sets it) — the `?.` is only to
+      // satisfy `AuthProvider`'s own optional-property typing.
+      return baseAuthProvider.handleCallback?.(params);
     },
     logout: async (params) => {
       clearCache();

@@ -105,20 +105,30 @@ describe("InviteAcceptance", () => {
       .not.toBeInTheDocument();
   });
 
-  it("does not request a code until the 18+ box is checked", async () => {
+  it("states the 18+ affirmation as a consequence of accepting, with no box to tick", async () => {
     // Arrange
     const login = vi.fn().mockResolvedValue(undefined);
+
+    // Act
     const screen = await renderInviteAcceptance({
       invite: PENDING_INVITE,
       login,
     });
 
-    // Assert: the affirmation gate is present and login has not fired yet.
-    await expect.element(screen.getByRole("checkbox")).toBeInTheDocument();
+    // Assert: the checkbox that used to gate this screen is gone, the
+    // sentence it carried is not, and nothing has fired on mere arrival.
+    await expect.element(screen.getByRole("checkbox")).not.toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "By creating an account, you confirm you are 18 years of age or older.",
+        ),
+      )
+      .toBeVisible();
     expect(login).not.toHaveBeenCalled();
   });
 
-  it("requests a code with allowSignup and the invite token/affirmation once affirmed", async () => {
+  it("requests a code with allowSignup and the invite token on Continue", async () => {
     // Arrange
     const login = vi.fn().mockResolvedValue(undefined);
     const screen = await renderInviteAcceptance({
@@ -128,11 +138,11 @@ describe("InviteAcceptance", () => {
     });
 
     // Act
-    await screen.getByRole("checkbox").click();
     await screen.getByRole("button", { name: "Continue" }).click();
 
     // Assert (AC-4) — the only caller in the product that ever passes
-    // allowSignup: true, with the token/affirmation in meta.
+    // allowSignup: true, with the token in meta. No `age_affirmed`:
+    // check_signup_age()'s Auth Hook is retired, so nothing reads it.
     await expect
       .element(screen.getByRole("button", { name: "Sign in" }))
       .toBeInTheDocument();
@@ -140,7 +150,7 @@ describe("InviteAcceptance", () => {
       email: "ada@example.com",
       requestOtp: true,
       allowSignup: true,
-      meta: { invite_token: "the-real-token", age_affirmed: true },
+      meta: { invite_token: "the-real-token" },
     });
   });
 
@@ -151,7 +161,6 @@ describe("InviteAcceptance", () => {
       invite: PENDING_INVITE,
       login,
     });
-    await screen.getByRole("checkbox").click();
     await screen.getByRole("button", { name: "Continue" }).click();
     await expect
       .element(screen.getByRole("button", { name: "Sign in" }))
@@ -179,7 +188,6 @@ describe("InviteAcceptance", () => {
       acceptInvite,
       token: "the-real-token",
     });
-    await screen.getByRole("checkbox").click();
     await screen.getByRole("button", { name: "Continue" }).click();
 
     // Act
@@ -204,7 +212,6 @@ describe("InviteAcceptance", () => {
       login,
       acceptInvite,
     });
-    await screen.getByRole("checkbox").click();
     await screen.getByRole("button", { name: "Continue" }).click();
 
     // Act
@@ -232,7 +239,6 @@ describe("InviteAcceptance", () => {
       login,
       acceptInvite,
     });
-    await screen.getByRole("checkbox").click();
     await screen.getByRole("button", { name: "Continue" }).click();
 
     // Act
@@ -257,7 +263,9 @@ describe("InviteAcceptance", () => {
     await expect
       .element(screen.getByText("This invite has expired"))
       .toBeInTheDocument();
-    await expect.element(screen.getByRole("checkbox")).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Continue" }))
+      .not.toBeInTheDocument();
   });
 
   it("shows a clear, specific message for an invite with no matching row", async () => {

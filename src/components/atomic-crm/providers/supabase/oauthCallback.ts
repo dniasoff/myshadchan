@@ -14,11 +14,6 @@ export interface OAuthCallbackError {
   defaultMessage: string;
 }
 
-export const SIGNUP_AGE_REJECTION_MESSAGE =
-  "You must confirm you are 18 years of age or older to sign up.";
-export const AGE_RESTRICTION_MESSAGE_KEY =
-  "crm.auth.oauth_callback.age_restricted";
-
 /**
  * Reads one query-string-shaped param from either the real query string or
  * a HashRouter's fragment — GoTrue redirects with the error in whichever of
@@ -49,7 +44,6 @@ function readParam(location: CallbackLocation, key: string): string | null {
  */
 export function readOAuthCallbackError(
   location: CallbackLocation,
-  authFlowOverride?: string,
 ): OAuthCallbackError | null {
   const error = readParam(location, "error");
   const errorDescription = readParam(location, "error_description");
@@ -57,9 +51,7 @@ export function readOAuthCallbackError(
   if (error == null && errorDescription == null && errorCode == null) {
     return null;
   }
-  const authFlow = authFlowOverride ?? readParam(location, "auth_flow");
   return mapOAuthCallbackError({
-    authFlow,
     error,
     errorCode,
     errorDescription,
@@ -67,7 +59,6 @@ export function readOAuthCallbackError(
 }
 
 interface RawOAuthError {
-  authFlow: string | null;
   error: string | null;
   errorCode: string | null;
   errorDescription: string | null;
@@ -79,37 +70,10 @@ interface RawOAuthError {
  * away sees something a person would actually say to them.
  */
 function mapOAuthCallbackError({
-  authFlow,
   error,
   errorDescription,
 }: RawOAuthError): OAuthCallbackError {
   const description = errorDescription ?? "";
-
-  // The returning-user Google button cannot create an account. Its callback
-  // marker distinguishes this age-hook rejection from the separately
-  // approved signup flow, so the visitor gets a useful create-account choice
-  // instead of seeing the hook's implementation detail.
-  if (authFlow === "sign-in" && description === SIGNUP_AGE_REJECTION_MESSAGE) {
-    return {
-      messageKey: "crm.auth.oauth_callback.no_account",
-      defaultMessage:
-        "No account has been found. Would you like to create a new account?",
-    };
-  }
-
-  // Our own before_user_created age gate (check_signup_age(), 02_functions.sql)
-  // rejects with this exact message. Use a catalogue key rather than relaying
-  // the hook text as an error key, especially when storage was unavailable and
-  // the callback cannot prove whether this was signup or sign-in. Matched by
-  // content, not by error/error_code: GoTrue relays every Auth Hook rejection
-  // the same generic way regardless of which hook raised it.
-  if (description === SIGNUP_AGE_REJECTION_MESSAGE) {
-    return {
-      messageKey: AGE_RESTRICTION_MESSAGE_KEY,
-      defaultMessage:
-        "You must be 18 years of age or older to create an account.",
-    };
-  }
 
   // The visitor closed Google's consent screen, or pressed "Cancel" —
   // nothing went wrong, they just didn't finish.

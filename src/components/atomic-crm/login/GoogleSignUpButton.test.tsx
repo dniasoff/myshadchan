@@ -8,20 +8,6 @@ import {
 } from "ra-core";
 import { testI18nProvider } from "@/components/atomic-crm/providers/commons/i18nProvider";
 import { GoogleSignUpButton } from "./GoogleSignUpButton";
-import * as signupIntentModule from "./signupIntent";
-
-// GoogleSignUpButton records a signup_intents row directly through the
-// Supabase client (recordSignupIntent) before ever calling login() — mocking
-// this module is what lets these tests assert that ordering without a real
-// network call. See signupIntent.ts's own doc comment for why this must
-// happen before signInWithOAuth() redirects the browser away.
-vi.mock("./signupIntent", () => ({
-  recordSignupIntent: vi.fn(),
-}));
-
-const mockedRecordSignupIntent = vi.mocked(
-  signupIntentModule.recordSignupIntent,
-);
 
 const NotificationProbe = () => {
   const { notifications } = useNotificationContext();
@@ -46,10 +32,7 @@ const buildAuthProvider = (login: AuthProvider["login"]): AuthProvider => ({
   checkError: async () => undefined,
 });
 
-const renderGoogleSignUpButton = (
-  login: AuthProvider["login"] | undefined,
-  props: { email: string; disabled: boolean },
-) => {
+const renderGoogleSignUpButton = (login: AuthProvider["login"] | undefined) => {
   const Wrapper = ({ children }: { children: ReactNode }) => (
     <CoreAdminContext
       authProvider={login ? buildAuthProvider(login) : undefined}
@@ -60,14 +43,13 @@ const renderGoogleSignUpButton = (
     </CoreAdminContext>
   );
 
-  return render(<GoogleSignUpButton {...props} />, { wrapper: Wrapper });
+  return render(<GoogleSignUpButton />, { wrapper: Wrapper });
 };
 
 describe("GoogleSignUpButton", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
-    mockedRecordSignupIntent.mockReset();
   });
 
   it("renders nothing when Google OAuth is not enabled", async () => {
@@ -75,10 +57,7 @@ describe("GoogleSignUpButton", () => {
     const login = vi.fn().mockResolvedValue(undefined);
 
     // Act
-    const screen = await renderGoogleSignUpButton(login, {
-      email: "ada@example.com",
-      disabled: false,
-    });
+    const screen = await renderGoogleSignUpButton(login);
 
     // Assert
     await expect
@@ -86,35 +65,15 @@ describe("GoogleSignUpButton", () => {
       .not.toBeInTheDocument();
   });
 
-  it("stays disabled until the age affirmation above it is confirmed", async () => {
-    // Arrange: RegisterFlow passes disabled={!ageAffirmed} — a genuinely
-    // disabled button cannot be clicked by a real visitor, so a real
-    // disabled attribute (asserted below) is the proof itself; attempting a
-    // click on it would just time out waiting for it to become actionable.
+  it("redirects via OAuth without collecting anything first", async () => {
+    // Arrange: nothing is typed and nothing is ticked. This button used to
+    // require both — the 18+ affirmation had to reach the server, and its
+    // only channel across an OAuth redirect was a signup_intents row keyed
+    // on an email we therefore had to ask for. That gate is retired, so
+    // there is no email, no affirmation state, and no pre-redirect write.
     vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
     const login = vi.fn().mockResolvedValue(undefined);
-    const screen = await renderGoogleSignUpButton(login, {
-      email: "ada@example.com",
-      disabled: true,
-    });
-
-    // Assert
-    await expect
-      .element(screen.getByRole("button", { name: "Continue with Google" }))
-      .toBeDisabled();
-    expect(mockedRecordSignupIntent).not.toHaveBeenCalled();
-    expect(login).not.toHaveBeenCalled();
-  });
-
-  it("records a signup intent for the already-entered email before redirecting via OAuth", async () => {
-    // Arrange
-    vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
-    mockedRecordSignupIntent.mockResolvedValue(undefined);
-    const login = vi.fn().mockResolvedValue(undefined);
-    const screen = await renderGoogleSignUpButton(login, {
-      email: "ada@example.com",
-      disabled: false,
-    });
+    const screen = await renderGoogleSignUpButton(login);
     const pushState = vi.spyOn(window.history, "pushState");
     const replaceState = vi.spyOn(window.history, "replaceState");
     const initialUrl = window.location.href;
@@ -122,72 +81,23 @@ describe("GoogleSignUpButton", () => {
     // Act
     await screen.getByRole("button", { name: "Continue with Google" }).click();
 
-    // Assert: recordSignupIntent must be called (and settle) before login()
-    // — signInWithOAuth() navigates the browser away, so there is no
-    // "after" to record anything in once that happens (signupIntent.ts).
+    // Assert: no `loginHint` either — it only ever existed to steer Google's
+    // consent screen toward the email the intent row was keyed on.
     await vi.waitFor(() => {
       expect(login).toHaveBeenCalledExactlyOnceWith({
         oauthProvider: "google",
-        loginHint: "ada@example.com",
       });
     });
-    expect(mockedRecordSignupIntent).toHaveBeenCalledExactlyOnceWith(
-      "ada@example.com",
-    );
     expect(pushState).not.toHaveBeenCalled();
     expect(replaceState).not.toHaveBeenCalled();
     expect(window.location.href).toBe(initialUrl);
-    const recordOrder = mockedRecordSignupIntent.mock.invocationCallOrder[0];
-    const loginOrder = login.mock.invocationCallOrder[0];
-    expect(recordOrder).toBeLessThan(loginOrder);
   });
 
-  it("does not redirect via OAuth when recording the signup intent fails", async () => {
+  it("restores retry when OAuth rejects", async () => {
     // Arrange
     vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
-    mockedRecordSignupIntent.mockRejectedValue(
-      new Error("Could not reach the server"),
-    );
-    const login = vi.fn().mockResolvedValue(undefined);
-    const screen = await renderGoogleSignUpButton(login, {
-      email: "ada@example.com",
-      disabled: false,
-    });
-
-    // Act
-    await screen.getByRole("button", { name: "Continue with Google" }).click();
-
-    // Assert: never falls through to login() when the intent could not be
-    // recorded, and the visitor is left able to retry.
-    await vi.waitFor(() => {
-      expect(mockedRecordSignupIntent).toHaveBeenCalledExactlyOnceWith(
-        "ada@example.com",
-      );
-    });
-    await expect
-      .element(screen.getByRole("button", { name: "Continue with Google" }))
-      .not.toBeDisabled();
-    expect(login).not.toHaveBeenCalled();
-    await expect
-      .element(screen.getByText("Could not reach the server"))
-      .toBeVisible();
-    await expect
-      .element(screen.getByTestId("notification"))
-      .toHaveAttribute("data-message", "Could not reach the server");
-    await expect
-      .element(screen.getByTestId("notification"))
-      .toHaveAttribute("data-type", "error");
-  });
-
-  it("restores retry when OAuth rejects after recording the signup intent", async () => {
-    // Arrange
-    vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
-    mockedRecordSignupIntent.mockResolvedValue(undefined);
     const login = vi.fn().mockRejectedValue(new Error("provider disabled"));
-    const screen = await renderGoogleSignUpButton(login, {
-      email: "ada@example.com",
-      disabled: false,
-    });
+    const screen = await renderGoogleSignUpButton(login);
 
     // Act
     await screen.getByRole("button", { name: "Continue with Google" }).click();
@@ -196,7 +106,6 @@ describe("GoogleSignUpButton", () => {
     await vi.waitFor(() => {
       expect(login).toHaveBeenCalledExactlyOnceWith({
         oauthProvider: "google",
-        loginHint: "ada@example.com",
       });
     });
     await expect.element(screen.getByText("provider disabled")).toBeVisible();
@@ -205,13 +114,10 @@ describe("GoogleSignUpButton", () => {
       .not.toBeDisabled();
   });
 
-  it("does not record an intent and shows the configuration error when no auth provider exists", async () => {
+  it("shows the configuration error when no auth provider exists", async () => {
     // Arrange
     vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
-    const screen = await renderGoogleSignUpButton(undefined, {
-      email: "ada@example.com",
-      disabled: false,
-    });
+    const screen = await renderGoogleSignUpButton(undefined);
     const pushState = vi.spyOn(window.history, "pushState");
     const initialUrl = window.location.href;
 
@@ -219,7 +125,6 @@ describe("GoogleSignUpButton", () => {
     await screen.getByRole("button", { name: "Continue with Google" }).click();
 
     // Assert
-    expect(mockedRecordSignupIntent).not.toHaveBeenCalled();
     expect(pushState).not.toHaveBeenCalled();
     expect(window.location.href).toBe(initialUrl);
     await expect

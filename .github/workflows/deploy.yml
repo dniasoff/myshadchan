@@ -63,31 +63,37 @@ jobs:
         name: 🔗 Supabase Link
         run: supabase link --project-ref $SUPABASE_PROJECT_ID
 
-      - if: ${{ env.IS_SUPABASE_CONFIGURED }}
-        name: 📡 Push supabase migrations
-        run: supabase db push
-
-      # Story 2.7 review finding #1: `[auth.hook.before_user_created]` in
-      # supabase/config.toml is never synced to the hosted project, so
-      # check_signup_age() exists in the database but GoTrue never calls
-      # it in production — the signup gate is enforced locally only.
+      # The before_user_created Auth Hook is RETIRED. It ran check_signup_age()
+      # to 403 a signup that had not affirmed 18+; the affirmation is now made
+      # by the act of creating an account and stated as such in the UI
+      # (`AgeNotice`), so the hook — and public.signup_intents, the only way
+      # the Google OAuth path could ever carry an affirmation to it — are both
+      # dropped by migration.
       #
-      # The function name here is load-bearing and must track the migration
-      # that owns it. This step runs AFTER `db push`, so a stale name is not
-      # a no-op: 20260804214603_open_signup.sql DROPs check_signup_invite,
-      # and re-pinning that dropped name would leave GoTrue answering every
-      # signup with a 500 ("Error running hook URI"), re-applied on every
-      # subsequent deploy. Sign-in is unaffected — before_user_created only
-      # fires when a user is actually created.
+      # This step therefore turns the hook OFF, and it runs BEFORE `db push`
+      # rather than after. That order is load-bearing in both directions:
+      # `db push` is what drops the function, and a hosted project still
+      # calling a dropped function answers every signup with a GoTrue 500
+      # ("Error running hook URI"). Disabling first means the PATCH failing
+      # aborts the deploy before the drop, and the PATCH succeeding but a
+      # later step failing leaves the hook off with the function still
+      # present — which is the intended end state anyway.
+      #
+      # The step STAYS, permanently, rather than simply being deleted: every
+      # earlier deploy PATCHed this setting ON, so the hosted project holds
+      # `enabled = true` until something explicitly says otherwise. Deleting
+      # the step would leave that stale `true` pointing at a dropped function
+      # forever. supabase/config.toml is never synced (Story 2.7 review
+      # finding #1), so this Management API PATCH is the only channel there is.
+      #
       # Deliberately a SCOPED Management API patch, not `supabase config
       # push`: config.toml's `[auth]` block also carries this repo's local
       # dev values (`site_url = "http://localhost:5173"`,
       # `additional_redirect_urls = ["https://localhost:5173/..."]`) —
       # `config push` sends the whole auth config and would overwrite the
       # hosted project's real production site_url/redirect allow-list with
-      # those localhost values on every deploy. This PATCHes only the two
-      # hook fields, leaving everything else the dashboard already has
-      # untouched.
+      # those localhost values on every deploy. This PATCHes only the hook
+      # field, leaving everything else the dashboard already has untouched.
       #
       # Story 6.6: the retry-with-backoff on a transient failure, and the
       # redaction that keeps a successful PATCH's response (242 keys,
@@ -97,15 +103,17 @@ jobs:
       # full behaviour. It is the same script the mailer step below calls,
       # so the retry logic exists once, not as two inline copies.
       - if: ${{ env.IS_SUPABASE_CONFIGURED }}
-        name: 📡 Enable the signup age-gate Auth Hook (before_user_created)
+        name: 📡 Retire the signup age-gate Auth Hook (before_user_created)
         run: |
-          jq -n '{
-              hook_before_user_created_enabled: true,
-              hook_before_user_created_uri: "pg-functions://postgres/public/check_signup_age"
-          }' > /tmp/hook-payload.json
+          jq -n '{ hook_before_user_created_enabled: false }' \
+              > /tmp/hook-payload.json
 
           scripts/ci/patch-supabase-auth-config.sh /tmp/hook-payload.json \
-              "invite-signup Auth Hook PATCH rejected"
+              "before_user_created Auth Hook disable PATCH rejected"
+
+      - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+        name: 📡 Push supabase migrations
+        run: supabase db push
 
       # `[auth.email.template.*]` in supabase/config.toml is a LOCAL-ONLY
       # block — `supabase db push` ships migrations, not auth config, so

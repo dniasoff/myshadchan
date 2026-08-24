@@ -169,7 +169,6 @@ const EMPTY_PUBLIC_TABLES = [
   "demo_run_auth_cleanup",
   "demo_onboarding_intents",
   "demo_clear_receipts",
-  "signup_intents",
 ];
 const RESOURCE_TABLES = {
   invite: "invites",

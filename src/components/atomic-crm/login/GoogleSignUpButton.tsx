@@ -5,30 +5,26 @@ import { Button } from "@/components/ui/button";
 import { GoogleIcon } from "./GoogleIcon";
 import { isGoogleOAuthEnabled } from "./googleOAuth";
 import { resolveAuthErrorNotification } from "./resolveAuthError";
-import { recordSignupIntent } from "./signupIntent";
 
 export type GoogleSignUpButtonProps = {
-  /** The email already typed into `RegisterFlow`'s own field. */
-  email: string;
-  /** True until the age-affirmation checkbox above this button is checked. */
-  disabled: boolean;
   /** @deprecated Supabase owns the OAuth callback and external navigation. */
   redirect?: string;
 };
 
 /**
  * "Continue with Google" on `RegisterFlow` — the signup counterpart to
- * `LoginPage`'s plain `GoogleSignInButton`. `signInWithOAuth()` navigates the
- * browser away before anything about the visitor is known, so there is no
- * "after the redirect" moment left to collect the 18+ affirmation
- * `check_signup_age()` (02_functions.sql) requires for a brand-new signup —
- * `RegisterFlow` collects it first (the `disabled` prop tracks its
- * `AgeAffirmation` checkbox) and this button stays inert until it's checked.
- * Once clicked, it records a `signup_intents` row for the already-entered
- * email (`recordSignupIntent`) and only then redirects to Google, with that
- * same email passed as `login_hint` so the consent screen defaults to it (a
- * hint, not an enforcement — `check_signup_age()`'s own email match is what
- * actually matters).
+ * `LoginPage`'s `GoogleSignInButton`. Redirects to Google immediately: the
+ * 18+ affirmation is made by the act of creating an account (`AgeNotice`,
+ * rendered once below this button), so nothing has to be collected — and
+ * therefore transmitted — before the browser navigates away.
+ *
+ * It did once, and that is the whole reason this button previously demanded
+ * an email. The retired `check_signup_age()` Auth Hook read the affirmation
+ * out of the signup's `user_metadata`, which `signInWithOAuth()` cannot set
+ * (its `queryParams` go to Google, not to Supabase), so the only channel
+ * left was a `signup_intents` row keyed on an email the visitor had to type
+ * first — for a button whose entire point is that Google already knows who
+ * they are. With the hook gone the requirement goes with it.
  *
  * Calls `authProvider.login()` directly for the same reason as
  * `GoogleSignInButton`: Supabase owns the external navigation, so ra-core's
@@ -36,10 +32,7 @@ export type GoogleSignUpButtonProps = {
  * OAuth promise resolves. The deprecated `redirect` prop remains in the
  * public registry API as a no-op for downstream compatibility.
  */
-export const GoogleSignUpButton = ({
-  email,
-  disabled,
-}: GoogleSignUpButtonProps) => {
+export const GoogleSignUpButton = (_props: GoogleSignUpButtonProps) => {
   const authProvider = useAuthProvider();
   const notify = useNotify();
   const translate = useTranslate();
@@ -63,15 +56,7 @@ export const GoogleSignUpButton = ({
   };
 
   const handleClick = () => {
-    if (isPending || disabled) {
-      return;
-    }
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail) {
-      notify("crm.auth.register.email_required", {
-        type: "error",
-        messageArgs: { _: "Enter your email to continue." },
-      });
+    if (isPending) {
       return;
     }
     if (!authProvider) {
@@ -79,17 +64,10 @@ export const GoogleSignUpButton = ({
       return;
     }
     setIsPending(true);
-    recordSignupIntent(trimmedEmail)
-      .then(() =>
-        authProvider.login({
-          oauthProvider: "google",
-          loginHint: trimmedEmail,
-        }),
-      )
-      .catch((error: unknown) => {
-        setIsPending(false);
-        notifyError(error);
-      });
+    authProvider.login({ oauthProvider: "google" }).catch((error: unknown) => {
+      setIsPending(false);
+      notifyError(error);
+    });
     // No `.finally` resetting `isPending` on success: the browser is about
     // to navigate to Google, so there is no "after" to reset it in.
   };
@@ -100,7 +78,7 @@ export const GoogleSignUpButton = ({
       variant="outline"
       className="w-full cursor-pointer"
       onClick={handleClick}
-      disabled={isPending || disabled}
+      disabled={isPending}
     >
       {isPending ? (
         <Loader2 className="size-4 animate-spin" aria-hidden="true" />

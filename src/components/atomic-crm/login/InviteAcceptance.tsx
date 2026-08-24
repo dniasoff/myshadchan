@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 
 import type { CrmDataProvider } from "../providers/types";
 import type { InvitePreview } from "../types";
-import { AgeAffirmation } from "./AgeAffirmation";
+import { AgeNotice } from "./AgeNotice";
 import { AuthLayout } from "./AuthLayout";
 import { LoginSkeleton } from "./LoginSkeleton";
 import { AUTH_FIELD_CLASSNAME } from "./authFieldClassName";
@@ -29,10 +29,8 @@ type InviteStep = "affirm" | "code";
  * The invitee's ONLY path into the product (Story 2.7, AD-11/FR119). Reached
  * at /accept-invite/:token, unauthenticated. Looks up the invite via the
  * anon-callable get_invite_preview() (never the inviting account's own
- * data), gates on the 18+ affirmation (AgeAffirmation, compact — its box
- * IS the trigger that requests the code, there is no separate "send code"
- * step), then completes Story 2.6's email-OTP signup with
- * `allowSignup: true` and the invite token / affirmation riding in `meta` —
+ * data), then completes Story 2.6's email-OTP signup with
+ * `allowSignup: true` and the invite token riding in `meta` —
  * the only caller in the product that ever passes `allowSignup: true`
  * (2.6's LoginPage hard-defaults `shouldCreateUser` to false). `email` is
  * read-only, taken from the invite, never typed by the invitee — there is
@@ -84,7 +82,7 @@ export const InviteAcceptance = () => {
       email: invite.email,
       requestOtp: true,
       allowSignup: true,
-      meta: { invite_token: token, age_affirmed: true },
+      meta: { invite_token: token },
     });
   };
 
@@ -194,7 +192,15 @@ export const InviteAcceptance = () => {
       {step === "affirm" ? (
         <div className="space-y-6">
           <InvitePreviewSummary invite={invite} />
-          <AgeAffirmation onContinue={handleAffirm} compact />
+          <Button
+            type="button"
+            className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
+            disabled={isRequesting}
+            onClick={handleAffirm}
+          >
+            {translate("crm.auth.continue", { _: "Continue" })}
+          </Button>
+          <AgeNotice />
           {isRequesting ? (
             <p className="flex items-center justify-center gap-2 text-center text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" aria-hidden="true" />

@@ -1093,6 +1093,57 @@ CREATE OR REPLACE FUNCTION "public"."account_is_disposable"("p_account_id" bigin
   );
 $$;
 
+CREATE OR REPLACE FUNCTION "public"."create_account_with_owner"(
+  "p_name" "text",
+  "p_kind" "text",
+  "p_user_id" "uuid",
+  "p_role" "text" DEFAULT 'parent_admin'::"text"
+) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+  v_membership_id bigint;
+begin
+  -- The atomic way for a service-role caller to create an account.
+  --
+  -- assert_account_not_orphaned() rejects a COMMITTED account with no active
+  -- membership, and PostgREST gives a REST client one transaction per
+  -- request -- so `insert accounts` followed by `insert account_members` is
+  -- two commits and the first one is an orphan. That is not a technicality:
+  -- if the second request never lands (a crash, a dropped connection, a bug
+  -- in between) the account is stranded forever, which is the exact defect
+  -- the invariant exists to prevent.
+  --
+  -- An invariant that forbids a state must come with a way to reach the good
+  -- one, or it just makes a legitimate operation impossible. This is that
+  -- way: one statement, one transaction, both rows or neither.
+  --
+  -- In-product account creation does NOT go through here -- add_persona()
+  -- and create_demo_companion_context() are already single SQL transactions
+  -- -- so this is for service-role callers (ops tooling, e2e fixtures) that
+  -- can only speak REST.
+  if p_user_id is null then
+    raise exception 'create_account_with_owner requires an owner'
+      using errcode = 'check_violation';
+  end if;
+
+  insert into public.accounts (name, kind)
+  values (p_name, coalesce(p_kind, 'household'))
+  returning id into v_account_id;
+
+  insert into public.account_members (account_id, user_id, role, status)
+  values (v_account_id, p_user_id, p_role, 'active')
+  returning id into v_membership_id;
+
+  return jsonb_build_object(
+    'account_id', v_account_id,
+    'membership_id', v_membership_id
+  );
+end;
+$$;
+
 CREATE OR REPLACE FUNCTION "public"."dispose_orphaned_account"("p_account_id" bigint) RETURNS boolean
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -2218,47 +2269,6 @@ begin
     'suggestions', v_suggestions,
     'dates', v_dates
   );
-end;
-$$;
-
-CREATE OR REPLACE FUNCTION "public"."check_signup_age"("event" "jsonb") RETURNS "jsonb"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO ''
-    AS $$
-declare
-  v_email text;
-  v_age_affirmed boolean;
-begin
-  v_email := event -> 'user' ->> 'email';
-
-  begin
-    v_age_affirmed := (event -> 'user' -> 'user_metadata' ->> 'age_affirmed')::boolean;
-  exception when others then
-    v_age_affirmed := null;
-  end;
-
-  if v_age_affirmed is distinct from true and v_email is not null then
-    update public.signup_intents
-    set consumed_at = now()
-    where email = v_email
-      and consumed_at is null
-      and expires_at > now();
-
-    if found then
-      v_age_affirmed := true;
-    end if;
-  end if;
-
-  delete from public.signup_intents where expires_at <= now();
-
-  if v_age_affirmed is distinct from true then
-    return jsonb_build_object('error', jsonb_build_object(
-      'http_code', 403,
-      'message', 'You must confirm you are 18 years of age or older to sign up.'
-    ));
-  end if;
-
-  return '{}'::jsonb;
 end;
 $$;
 

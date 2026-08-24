@@ -1,8 +1,8 @@
 --
 -- Invite-only signup with 18+ affirmation (Epic 2, Story 2.7), extended by
--- Story 2.8 (invites as the one membership mechanism), and by open signup
--- (removing the invite requirement while keeping the age gate — see
--- check_signup_age()'s own comment, 02_functions.sql) — database test suite.
+-- Story 2.8 (invites as the one membership mechanism), by open signup
+-- (removing the invite requirement), and by the retirement of the age gate
+-- itself — database test suite.
 --
 -- Covers: the RLS/grant posture on `invites` (AC-2's escalation case — a
 -- direct `authenticated` write must be refused even when it hand-crafts a
@@ -10,13 +10,10 @@
 -- invite-binding rewrite (AC-6/AC-7 — binds on a matching signup, creates
 -- NO membership on an unmatched or malformed one), `create_invite()`'s
 -- authority/kind checks (AC-3), `get_invite_preview()`'s five-field,
--- effective-status shape (AC-4), `check_signup_age()`'s Auth Hook contract
--- (originally AC-5, renamed from check_signup_invite() when open signup
--- dropped the invite requirement — verified against the real event shape
--- empirically confirmed by running the stack, see story 2.7's Dev Notes)
--- including its `public.signup_intents` fallback for a Google OAuth signup
--- (a matching, unconsumed, unexpired intent satisfies the age gate exactly
--- once; a consumed, expired, or wrong-email one does not), and (Story 2.8
+-- effective-status shape (AC-4), the absence of the retired
+-- `check_signup_age()` Auth Hook and its `public.signup_intents` table
+-- (originally AC-5 — see that section's own comment for what they did and
+-- why nothing replaces them), and (Story 2.8
 -- AC-3) `revoke_invite()`'s guard cases: a non-owning caller can never
 -- revoke, an already-accepted invite can never be revoked, a pending
 -- invite in a different context (not the caller's active one) is invisible
@@ -384,88 +381,37 @@ from public.get_invite_preview(:'expired_token'::uuid) p;
 reset role;
 
 -- ---------------------------------------------------------------------------
--- check_signup_age() — the Auth Hook contract, exercised directly (event
--- shape verified empirically against the running stack, see Dev Notes).
--- Allow returns `{}`; refuse returns `{"error": {"http_code", ...}}`. Open
--- signup dropped the invite requirement this function used to enforce
--- (renamed from check_signup_invite — see its own comment, 02_functions.sql):
--- age affirmed and no invite at all is now the ALLOWED case, not a rejection.
+-- The signup age-gate is RETIRED, and these assert that it really is gone
+-- rather than merely unused. It was a `before_user_created` Auth Hook,
+-- check_signup_age(), that 403'd any signup which had not affirmed 18+ —
+-- either directly in the email/OTP signup's user_metadata, or via a
+-- short-lived public.signup_intents row, which was the ONLY way an
+-- affirmation could cross a Google OAuth redirect (signInWithOAuth() cannot
+-- set user_metadata). Requiring that row is what forced /register's Google
+-- button to demand a typed email before redirecting, for a button whose
+-- whole point is that Google already knows who you are.
+--
+-- The affirmation is now made by the act of creating an account and stated
+-- as such in the UI (`AgeNotice`), so there is nothing left to transmit and
+-- nothing left for a hook to verify. Both objects are dropped — the table
+-- especially, because check_signup_age() was also its only sweeper (no
+-- pg_cron in this repo), so an orphaned anon-INSERTable table with no
+-- consumer would grow without bound.
+--
+-- .github/workflows/deploy.yml PATCHes the hosted project's hook setting
+-- OFF before `db push` drops the function; a project still naming a dropped
+-- function answers every signup with a GoTrue 500.
 -- ---------------------------------------------------------------------------
 insert into results (name, passed)
-select 'check_signup_age allows a signup with age affirmed and NO invite token at all (open signup)',
-       public.check_signup_age(jsonb_build_object(
-         'user', jsonb_build_object(
-           'email', 'open-signup-probe@test.local',
-           'user_metadata', jsonb_build_object('age_affirmed', true)
-         )
-       )) = '{}'::jsonb;
+select 'the check_signup_age() Auth Hook function no longer exists',
+       not exists (
+         select 1 from pg_proc p
+           join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and p.proname = 'check_signup_age');
 
 insert into results (name, passed)
-select 'check_signup_age rejects with a 403 when age is not affirmed and no signup intent covers it',
-       (public.check_signup_age(jsonb_build_object(
-         'user', jsonb_build_object(
-           'email', 'open-signup-probe@test.local',
-           'user_metadata', jsonb_build_object('age_affirmed', false)
-         )
-       )) -> 'error' ->> 'http_code')::int = 403;
-
-insert into results (name, passed)
-select 'check_signup_age is unreachable by anon or authenticated directly',
-       not has_function_privilege('anon', 'public.check_signup_age(jsonb)', 'execute')
-   and not has_function_privilege('authenticated', 'public.check_signup_age(jsonb)', 'execute');
-
-insert into results (name, passed)
-select 'check_signup_age is reachable by supabase_auth_admin (the GoTrue hook role)',
-       has_function_privilege('supabase_auth_admin', 'public.check_signup_age(jsonb)', 'execute');
-
--- ---------------------------------------------------------------------------
--- public.signup_intents — the Google OAuth fallback (signInWithOAuth()
--- cannot set user_metadata, so check_signup_age() falls back to a matching,
--- unconsumed, unexpired row here). Every case below omits `age_affirmed`
--- from user_metadata entirely, matching a real OAuth event shape.
--- ---------------------------------------------------------------------------
-insert into public.signup_intents (email, expires_at)
-values ('oauth-intent@test.local', now() + interval '10 minutes');
-
-insert into results (name, passed)
-select 'a valid, unconsumed, unexpired signup intent satisfies the age gate',
-       public.check_signup_age(jsonb_build_object(
-         'user', jsonb_build_object('email', 'oauth-intent@test.local', 'user_metadata', '{}'::jsonb)
-       )) = '{}'::jsonb;
-
-insert into results (name, passed)
-select 'a signup intent is consumed by the allow above and cannot satisfy the gate a second time',
-       (public.check_signup_age(jsonb_build_object(
-         'user', jsonb_build_object('email', 'oauth-intent@test.local', 'user_metadata', '{}'::jsonb)
-       )) -> 'error' ->> 'http_code')::int = 403;
-
-insert into public.signup_intents (email, expires_at)
-values ('oauth-expired@test.local', now() - interval '1 minute');
-
-insert into results (name, passed)
-select 'an expired signup intent does not satisfy the age gate',
-       (public.check_signup_age(jsonb_build_object(
-         'user', jsonb_build_object('email', 'oauth-expired@test.local', 'user_metadata', '{}'::jsonb)
-       )) -> 'error' ->> 'http_code')::int = 403;
-
-insert into public.signup_intents (email, expires_at)
-values ('oauth-owner@test.local', now() + interval '10 minutes');
-
-insert into results (name, passed)
-select 'a signup intent for a different email does not satisfy the age gate',
-       (public.check_signup_age(jsonb_build_object(
-         'user', jsonb_build_object('email', 'oauth-stranger@test.local', 'user_metadata', '{}'::jsonb)
-       )) -> 'error' ->> 'http_code')::int = 403;
-
-insert into results (name, passed)
-select 'the unrelated-email intent above is still there, untouched, for its real owner',
-       public.check_signup_age(jsonb_build_object(
-         'user', jsonb_build_object('email', 'oauth-owner@test.local', 'user_metadata', '{}'::jsonb)
-       )) = '{}'::jsonb;
-
-insert into results (name, passed)
-select 'check_signup_age() sweeps expired signup intents as a side effect',
-       not exists (select 1 from public.signup_intents where email = 'oauth-expired@test.local');
+select 'public.signup_intents no longer exists, so nothing anon-writable is left unswept',
+       to_regclass('public.signup_intents') is null;
 
 -- ---------------------------------------------------------------------------
 -- AC-6/AC-7 + review finding #4: handle_new_user() creates ONLY the members
@@ -478,7 +424,7 @@ values (
   'b0000000-0000-0000-0000-00000000b001',
   '00000000-0000-0000-0000-000000000000',
   'authenticated', 'authenticated', 'hook-probe@test.local',
-  jsonb_build_object('invite_token', :'hook_token', 'age_affirmed', true)
+  jsonb_build_object('invite_token', :'hook_token')
 );
 
 insert into results (name, passed)

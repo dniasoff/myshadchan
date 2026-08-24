@@ -456,14 +456,6 @@ grant execute on function public.get_invite_preview(uuid) to anon;
 grant execute on function public.get_invite_preview(uuid) to authenticated;
 grant execute on function public.get_invite_preview(uuid) to service_role;
 
--- check_signup_age() (renamed from check_signup_invite() when open signup
--- dropped the invite requirement — see the function's own comment,
--- 02_functions.sql) backs the before_user_created Auth Hook — GoTrue
--- invokes it as `supabase_auth_admin`, never `anon` or `authenticated`
--- directly.
-revoke all on function public.check_signup_age(jsonb) from public, anon, authenticated;
-grant execute on function public.check_signup_age(jsonb) to supabase_auth_admin;
-
 -- Story 2.7 review finding #4: accept_invite() is SECURITY DEFINER and
 -- requires a real authenticated session (auth.uid()) — never anon, since a
 -- bare, unauthenticated caller can never satisfy its own "requires an
@@ -1562,28 +1554,6 @@ revoke all on sequence public.trusted_senders_id_seq from anon;
 grant usage, select on sequence public.trusted_senders_id_seq to authenticated;
 grant all on sequence public.trusted_senders_id_seq to service_role;
 
--- ---------------------------------------------------------------------------
--- Signup intents (open signup: carries the 18+ affirmation across a Google
--- OAuth redirect, which signInWithOAuth() cannot put in user_metadata).
--- `anon` gets INSERT only — never SELECT, so this table can never become an
--- oracle for which email addresses have attempted signup — and nothing else
--- touches it directly: check_signup_age() (02_functions.sql) reads, consumes
--- and sweeps it running as the table owner, not through a grant.
-revoke all on table public.signup_intents from anon, authenticated;
-grant insert on table public.signup_intents to anon;
-grant all on table public.signup_intents to service_role;
-
--- Review finding F4 (Story 9.1)'s lesson applies here too: a `generated ...
--- as identity` column does not consult the sequence ACL to generate a
--- value, so `anon` needs no sequence grant to insert successfully — these
--- three statements are declared anyway for the same reason
--- `listings_id_seq`/`members_id_seq` are above: a schema file asserting
--- less than the database actually grants is exactly the drift `db diff`
--- cannot catch on its own.
-revoke all on sequence public.signup_intents_id_seq from anon, authenticated;
-grant all on sequence public.signup_intents_id_seq to service_role;
-
-
 -- Story 14.2 / 14.4 — transcribed from the live database (these tables were
 -- declared only in migrations).
 revoke all on table public.account_deletion_requests from anon;
@@ -1833,6 +1803,13 @@ grant execute on function public.account_is_disposable(bigint) to service_role;
 
 revoke all on function public.dispose_orphaned_account(bigint) from public, anon, authenticated;
 grant execute on function public.dispose_orphaned_account(bigint) to service_role;
+
+-- Creates an account and its owning membership in ONE transaction, which is
+-- the only way a REST caller can satisfy assert_account_not_orphaned().
+-- service_role only: it creates a membership for an arbitrary user, so no
+-- client role may ever call it.
+revoke all on function public.create_account_with_owner(text, text, uuid, text) from public, anon, authenticated;
+grant execute on function public.create_account_with_owner(text, text, uuid, text) to service_role;
 
 -- Trigger function: invoked by the constraint triggers, never by a caller.
 revoke all on function public.assert_account_not_orphaned() from public, anon, authenticated;

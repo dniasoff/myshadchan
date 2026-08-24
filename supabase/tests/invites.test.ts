@@ -12,10 +12,9 @@ import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
  * to directly by `authenticated` even with a hand-crafted privileged role
  * (AC-2), that `create_invite()`'s authority/kind checks actually refuse
  * (AC-3), that `get_invite_preview()` is anon-callable and narrow (AC-4),
- * that `check_signup_age()` (renamed from check_signup_invite() when open
- * signup dropped the invite requirement) allows/refuses per its Auth Hook
- * contract, including its `signup_intents` fallback for a Google OAuth
- * signup, and that `accept_invite()` binds from a matching, AUTHENTICATED
+ * that the retired `check_signup_age()` Auth Hook and its `signup_intents`
+ * table are actually gone rather than merely unused, and that
+ * `accept_invite()` binds from a matching, AUTHENTICATED
  * caller and creates NO membership otherwise (AC-6/AC-7, review finding #4:
  * `handle_new_user()` no longer binds anything at signup, only
  * `accept_invite()` does, gated on a real verified session) — only exists

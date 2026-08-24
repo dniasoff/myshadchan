@@ -15,21 +15,19 @@ export const GOOGLE_OAUTH_REDIRECT_TIMEOUT_MS = 10_000;
 
 /**
  * "Continue with Google" on `LoginPage` — a plain OAuth button. Clicking it
- * redirects to Google immediately: signing in never creates an account (see
- * `LoginPage`'s own doc comment on `allowSignup`), so the 18+ affirmation
- * `check_signup_age()` (02_functions.sql) enforces only matters for a brand
- * new signup, and that gate lives entirely on `RegisterFlow`'s
- * `GoogleSignUpButton` instead. Renders nothing unless
+ * redirects to Google immediately. Renders nothing unless
  * `VITE_ENABLE_GOOGLE_OAUTH` is explicitly `"true"` (`isGoogleOAuthEnabled`,
  * `googleOAuth.ts`), so a deployment without the provider configured shows
  * no dead control.
  *
- * A visitor who is not actually registered yet and reaches for this button
- * anyway still lands on Google, but `check_signup_age()` then 403s the
- * account creation for lack of an affirmation — `resolveAuthErrorNotification`
- * surfaces that rejection once GoTrue redirects back with it. That is the
- * intended outcome: this button is for signing back in, `RegisterFlow`'s
- * `GoogleSignUpButton` is for creating an account.
+ * A visitor who is not registered yet and reaches for this button anyway
+ * now gets an account, where the retired `check_signup_age()` Auth Hook
+ * used to 403 the creation for lack of an affirmation. `signInWithOAuth()`
+ * has no `shouldCreateUser` equivalent, so that hook was the only thing
+ * holding the line and there is no longer a line to hold — `LoginPage`
+ * therefore renders `AgeNotice` next to this button. What still separates
+ * this component from `RegisterFlow`'s `GoogleSignUpButton` is only the
+ * stalled-navigation timeout below, not whether an account can be created.
  *
  * Calls `authProvider.login()` directly rather than ra-core's `useLogin()`:
  * Supabase's `signInWithOAuth()` already owns the browser navigation via
@@ -108,7 +106,7 @@ export const GoogleSignInButton = (_props: GoogleSignInButtonProps) => {
       });
     }, GOOGLE_OAUTH_REDIRECT_TIMEOUT_MS);
     void authProvider
-      .login({ oauthProvider: "google", oauthFlow: "sign-in" })
+      .login({ oauthProvider: "google" })
       .catch((error: unknown) => {
         if (attemptRef.current !== attempt) {
           return;

@@ -79,8 +79,23 @@ begin
              where r.from_table = v_table;
 
             if v_rename_target is null then
+                select d.reason into v_discard_reason
+                  from migration_guard.discarded_tables d
+                 where d.table_name = v_table;
+
+                if v_discard_reason is not null then
+                    raise notice 'migration data-safety guard: public.% dropped WITH its % seeded row(s), declared intentional — %',
+                        v_table,
+                        (select count(*) from migration_guard.snapshot s where s.table_name = v_table),
+                        v_discard_reason;
+                    continue;
+                end if;
+
                 v_failures := v_failures || format(
-                    'TABLE DROPPED: public.%I held %s seeded row(s) and no longer exists.',
+                    'TABLE DROPPED: public.%I held %s seeded row(s) and no longer exists. If that '
+                    'loss is intentional, declare it in migration_guard.discarded_tables '
+                    '(supabase/tests/migration-data-safety/declared-moves.sql) with the reason; if '
+                    'the table was renamed, declare it in migration_guard.table_renames instead.',
                     v_table,
                     (select count(*) from migration_guard.snapshot s where s.table_name = v_table));
                 continue;
@@ -247,6 +262,24 @@ begin
                     v_table, v_col, v_recover, array_to_string(v_bad_rows, ', '));
             end if;
         end loop;
+    end loop;
+
+    -- A declaration that authorises no actual drop. Checked OUTSIDE the loop
+    -- above on purpose: that loop only ever visits tables the fixture
+    -- captured, so a declaration naming a table that was never dropped would
+    -- otherwise sit unnoticed and pre-authorise a future accidental drop of
+    -- it. Either the migration does not do what the declaration says, or the
+    -- declaration is stale and belongs deleted (see its LIFECYCLE note).
+    for v_table in
+        select d.table_name from migration_guard.discarded_tables d order by 1
+    loop
+        if to_regclass('public.' || quote_ident(v_table)) is not null then
+            v_failures := v_failures || format(
+                'DISCARD DECLARED BUT NOT PERFORMED: public.%I is declared in '
+                'migration_guard.discarded_tables but still exists after the pending '
+                'migrations ran. Drop it, or delete the declaration.',
+                v_table);
+        end if;
     end loop;
 
     if array_length(v_failures, 1) > 0 then

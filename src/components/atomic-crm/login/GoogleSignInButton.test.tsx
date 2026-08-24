@@ -84,8 +84,8 @@ describe("GoogleSignInButton", () => {
   });
 
   it("redirects to Google immediately on click, with no email or age step", async () => {
-    // Arrange: signing in never creates an account, so there is nothing to
-    // collect first — see GoogleSignInButton.tsx's own doc comment.
+    // Arrange: nothing is collected before the redirect — see
+    // GoogleSignInButton.tsx's own doc comment.
     vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
     const login = vi.fn().mockResolvedValue(undefined);
     const screen = await renderGoogleSignInButton(login);
@@ -100,7 +100,6 @@ describe("GoogleSignInButton", () => {
     await vi.waitFor(() => {
       expect(login).toHaveBeenCalledExactlyOnceWith({
         oauthProvider: "google",
-        oauthFlow: "sign-in",
       });
     });
     expect(pushState).not.toHaveBeenCalled();

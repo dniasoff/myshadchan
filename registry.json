@@ -1144,10 +1144,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/login/signupIntent.ts",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/login/resolveAuthError.ts",
           "type": "registry:component"
         },
@@ -1224,7 +1220,7 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/login/AgeAffirmation.tsx",
+          "path": "src/components/atomic-crm/login/AgeNotice.tsx",
           "type": "registry:component"
         },
         {

@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { englishCrmMessages } from "../commons/englishCrmMessages";
-import {
-  AGE_RESTRICTION_MESSAGE_KEY,
-  readOAuthCallbackError,
-  SIGNUP_AGE_REJECTION_MESSAGE,
-} from "./oauthCallback";
+import { readOAuthCallbackError } from "./oauthCallback";
 
 describe("readOAuthCallbackError", () => {
   it("returns null when the URL carries no error at all", () => {
@@ -72,43 +68,24 @@ describe("readOAuthCallbackError", () => {
     expect(result?.messageKey).toBe("crm.auth.oauth_callback.not_configured");
   });
 
-  it("maps an unmarked age rejection to a stable catalogue message", () => {
-    // Arrange
-    const ageMessage =
-      "You must confirm you are 18 years of age or older to sign up.";
+  it("maps the retired age hook's old rejection text to the generic message", () => {
+    // Arrange: the before_user_created hook that produced this exact
+    // description is retired, so nothing emits it any more. If it somehow
+    // reappears it is an unrecognized cause like any other, not a special
+    // case — this asserts the special cases really are gone rather than
+    // merely untested.
     const location = {
-      search: `?error=server_error&error_description=${encodeURIComponent(ageMessage)}`,
-      hash: "",
+      search: `?error=server_error&error_description=${encodeURIComponent(
+        "You must confirm you are 18 years of age or older to sign up.",
+      )}`,
+      hash: "#/auth-callback",
     };
 
     // Act
     const result = readOAuthCallbackError(location);
 
     // Assert
-    expect(result?.messageKey).toBe(AGE_RESTRICTION_MESSAGE_KEY);
-    expect(result?.defaultMessage).toBe(
-      "You must be 18 years of age or older to create an account.",
-    );
-  });
-
-  it("maps a marked returning-user age rejection to account creation recovery", () => {
-    // Arrange
-    const location = {
-      search: `?auth_flow=sign-in&error=server_error&error_description=${encodeURIComponent(
-        SIGNUP_AGE_REJECTION_MESSAGE,
-      )}`,
-      hash: "#/auth-callback",
-    };
-
-    // Act
-    const result = readOAuthCallbackError(location, "sign-in");
-
-    // Assert: the sign-up page still receives the age message, while the
-    // returning-user Google path gets the no-account recovery choice.
-    expect(result?.messageKey).toBe("crm.auth.oauth_callback.no_account");
-    expect(result?.defaultMessage).toBe(
-      "No account has been found. Would you like to create a new account?",
-    );
+    expect(result?.messageKey).toBe("crm.auth.oauth_callback.generic");
   });
 
   it("falls back to the generic calm message for an unrecognized cause", () => {
@@ -120,22 +97,6 @@ describe("readOAuthCallbackError", () => {
 
     // Act
     const result = readOAuthCallbackError(location);
-
-    // Assert
-    expect(result?.messageKey).toBe("crm.auth.oauth_callback.generic");
-  });
-
-  it("does not call an unrelated age-related provider error no-account recovery", () => {
-    // Arrange
-    const location = {
-      search: `?error=server_error&error_description=${encodeURIComponent(
-        "You must be 18 years of age to use this provider.",
-      )}`,
-      hash: "#/auth-callback",
-    };
-
-    // Act
-    const result = readOAuthCallbackError(location, "sign-in");
 
     // Assert
     expect(result?.messageKey).toBe("crm.auth.oauth_callback.generic");
@@ -186,22 +147,6 @@ describe("crm.auth.oauth_callback.* catalogue entries", () => {
       location: {
         search: "?error=server_error&error_description=Something+odd",
         hash: "",
-      },
-    },
-    {
-      label: "no_account",
-      location: {
-        search:
-          "?auth_flow=sign-in&error=server_error&error_description=You+must+confirm+you+are+18+years+of+age+or+older+to+sign+up.",
-        hash: "#/auth-callback",
-      },
-    },
-    {
-      label: "age_restricted",
-      location: {
-        search:
-          "?error=server_error&error_description=You+must+confirm+you+are+18+years+of+age+or+older+to+sign+up.",
-        hash: "#/auth-callback",
       },
     },
   ];

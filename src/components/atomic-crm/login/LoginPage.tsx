@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { TextInput } from "@/components/admin/text-input";
 import { cn } from "@/lib/utils";
+import { AgeNotice } from "./AgeNotice";
 import { AuthLayout } from "./AuthLayout";
 import { AUTH_FIELD_CLASSNAME } from "./authFieldClassName";
 import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
@@ -73,6 +74,16 @@ type LoginStep = "email" | "code";
  * and a link to `/register` (`RegisterFlow`) — the open self-service signup
  * path now that the invite gate is gone. Both were previously built but
  * wired into nothing; this is their entry point into the visible app.
+ *
+ * "Signing in never creates an account" still holds for the email path and
+ * only for it: `shouldCreateUser` defaults to false, so an unknown address
+ * gets `NoAccountFoundError` rather than a new user. It is no longer true
+ * of `GoogleSignInButton` — `signInWithOAuth()` has no such switch, and the
+ * `check_signup_age()` Auth Hook that used to 403 an unaffirmed OAuth
+ * signup is retired. A visitor without an account who reaches for Google
+ * here now gets one, which is why `AgeNotice` renders beside that button:
+ * this is an account-creating surface, and every account-creating surface
+ * has to say what creating an account affirms.
  *
  * @see {@link https://marmelab.com/shadcn-admin-kit/docs/loginpage LoginPage documentation}
  * @see {@link https://marmelab.com/shadcn-admin-kit/docs/security Security documentation}
@@ -282,6 +293,7 @@ export const LoginPage = (props: { redirectTo?: string }) => {
                   <Separator className="flex-1" />
                 </div>
                 <GoogleSignInButton redirect={redirectTo} />
+                <AgeNotice />
               </div>
             ) : null}
 

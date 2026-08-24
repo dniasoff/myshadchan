@@ -101,6 +101,34 @@ create table migration_guard.table_renames (
     reason text not null
 );
 
+-- The table-level counterpart to `discarded_columns` below: a pending
+-- migration DROPS this table outright and its rows go nowhere, on purpose.
+--
+-- Without this, `assert.sql`'s check A has exactly one escape hatch for a
+-- table that stops existing — `table_renames` — so retiring a table honestly
+-- was impossible: the choices were to declare a rename that never happened,
+-- or to quietly stop seeding the table and declare it `empty_by_design`,
+-- which claims something false about the baseline and ALSO switches off the
+-- protection for every row it does hold. Keeping the seed and declaring the
+-- discard is the honest shape: the guard still proves the table held data at
+-- baseline, and the reason is what authorises losing it.
+--
+-- Nothing here is verified — as with `discarded_columns`, the reason IS the
+-- artifact, and `assert.sql` prints it on every run so a reviewer sees what
+-- is being thrown away. `assert.sql` also fails if a declared table still
+-- EXISTS after the pending migrations run: a declaration that authorises no
+-- actual drop is either a mistake or stale, and either way it must not be
+-- left lying around to pre-authorise some future accidental drop.
+--
+-- LIFECYCLE: same as `column_moves` and `table_renames` — written while the
+-- dropping migration is PENDING, deleted once it is DEPLOYED (the table no
+-- longer exists at baseline, so nothing captures it and this row can never
+-- match again).
+create table migration_guard.discarded_tables (
+    table_name text primary key,
+    reason text not null
+);
+
 -- The author's declaration of intent for a column the pending migrations
 -- DROP. `assert.sql` treats an undeclared drop of a column that held data as
 -- a failure, and a declared one as a claim it then verifies: for every row
@@ -319,21 +347,17 @@ values (
     'female', date '2003-04-11', 'Yeshivish', 'active', 9000002
 );
 
--- Story 8.2: a user and membership for the shadchanus account (for connections)
--- The shadchanus account (9000002) is created later in this fixture (line 743).
--- The membership insert is deferred to after account creation to avoid
--- trigger errors. For now, we skip this insert; the shadchanus membership
--- is added in the to_regclass-guarded block below where the account exists.
+-- Story 8.2: the shadchanus account (9000002) is created further down, inside
+-- the `to_regclass('public.connections')` block, so its user and membership
+-- are seeded there too — see that block.
 
 insert into public.shadchanim (id, account_id, name, name_he, location)
 values (
     9000001, 9000001, 'Mrs. Bracha Katz', 'מרת ברכה כץ', 'Lakewood'
 );
 
--- Story 13.1: a user and membership for the second household (grantee side)
--- The grantee household account (9000003) is created later in this fixture (line 747).
--- The membership insert is deferred to after account creation to avoid
--- trigger errors. For now, we skip this insert.
+-- Story 13.1: the grantee household account (9000003) is likewise created
+-- inside that same block, with its own user and membership.
 
 -- `invites`, in EVERY shape the baseline schema admits. This table was the
 -- one Epic 6 alters structurally (`target_single_id`, plus two constraints)
@@ -730,6 +754,57 @@ begin
       -- Story 13.1: a second household account for the grantee side of child grants
       insert into public.accounts (id, name, kind, transparency_level, demo)
       values (9000003, 'Migration Guard Household 2', 'household', 'full', false);
+
+      -- ...and one ACTIVE membership each, which neither account had until
+      -- now. `20260824115601_no_orphaned_accounts.sql` made a committed
+      -- account with no active membership a hard error
+      -- (assert_account_not_orphaned(), a DEFERRED constraint trigger, so it
+      -- fires at the end of THIS block), and these two were exactly that.
+      -- The fixture failing to seed is the loudest possible failure mode for
+      -- this guard and the one .claude/rules/migration-guard-integrity.md
+      -- exists about: it means nothing was verified, for every migration
+      -- after it, until someone looks.
+      --
+      -- These are not a workaround for the trigger; they are what production
+      -- actually looks like. An account is only ever created alongside the
+      -- membership that reaches it (add_persona(),
+      -- accept_connection_invite()), so an account here without one was
+      -- never production-shaped in the first place. Roles are the ones
+      -- enforce_membership_role_matches_context() admits for each kind:
+      -- `shadchan` on a shadchanus account, `parent_admin` on a household.
+      insert into auth.users (
+          id, instance_id, aud, role, email, encrypted_password,
+          email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+          created_at, updated_at
+      )
+      values
+      (
+          '00000000-0000-4000-8000-000000009003',
+          '00000000-0000-0000-0000-000000000000',
+          'authenticated', 'authenticated',
+          'guard.shadchan@example.test',
+          extensions.crypt('guard-password', extensions.gen_salt('bf')),
+          now(),
+          '{"provider": "email", "providers": ["email"]}'::jsonb,
+          '{"first_name": "Bracha", "last_name": "Katz"}'::jsonb,
+          now(), now()
+      ),
+      (
+          '00000000-0000-4000-8000-000000009004',
+          '00000000-0000-0000-0000-000000000000',
+          'authenticated', 'authenticated',
+          'guard.grantee@example.test',
+          extensions.crypt('guard-password', extensions.gen_salt('bf')),
+          now(),
+          '{"provider": "email", "providers": ["email"]}'::jsonb,
+          '{"first_name": "Rivka", "last_name": "Grantstein"}'::jsonb,
+          now(), now()
+      );
+
+      insert into public.account_members (id, account_id, user_id, role, status)
+      values
+      (9000003, 9000002, '00000000-0000-4000-8000-000000009003', 'shadchan', 'active'),
+      (9000004, 9000003, '00000000-0000-4000-8000-000000009004', 'parent_admin', 'active');
 
       -- Story 8.2 columns (proposed_by_account_id, accepted_at,
       -- household_account_name): this insert predates 8.2 and was never

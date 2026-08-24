@@ -3,14 +3,17 @@ import { Loader2, Lock } from "lucide-react";
 import { useAuthProvider, useLogin, useNotify, useTranslate } from "ra-core";
 import type { SubmitHandler, FieldValues } from "react-hook-form";
 import { Link } from "react-router";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { AgeAffirmation } from "./AgeAffirmation";
+import { cn } from "@/lib/utils";
+import { AgeNotice } from "./AgeNotice";
 import { AuthLayout } from "./AuthLayout";
 import { AUTH_FIELD_CLASSNAME } from "./authFieldClassName";
 import { GoogleSignUpButton } from "./GoogleSignUpButton";
 import { isGoogleOAuthEnabled } from "./googleOAuth";
 import { OtpCodeStep } from "./OtpCodeStep";
+import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
 import { resolveAuthErrorNotification } from "./resolveAuthError";
 import { TurnstileWidget, type TurnstileWidgetHandle } from "./TurnstileWidget";
 import { TURNSTILE_SITE_KEY } from "./turnstileConfig";
@@ -20,12 +23,16 @@ type RegisterStep = "details" | "code";
 /**
  * The open self-service signup path (`/register`), the counterpart to
  * `LoginPage`'s sign-in form now that the invite gate is gone
- * (`20260804214603_open_signup.sql`; `check_signup_age()`, 02_functions.sql,
- * is the server-side enforcement of the 18+ affirmation this screen
- * collects). Composes exactly the pieces already built for this: an email
- * field, `AgeAffirmation` (compact — its own "Continue" button IS the
- * submit trigger, there is no separate button here), `TurnstileWidget`, then
- * `OtpCodeStep` once a code has been sent.
+ * (`20260804214603_open_signup.sql`). Composes an email field, a "Continue"
+ * button, `TurnstileWidget`, then `OtpCodeStep` once a code has been sent.
+ *
+ * The 18+ affirmation is made by the act of creating an account and stated
+ * as such (`AgeNotice`, rendered once below BOTH account-creating controls
+ * on this screen). It used to be a checkbox whose state had to reach the
+ * server through `check_signup_age()`'s Auth Hook; that hook is retired,
+ * along with the `signup_intents` table that was the OAuth path's only way
+ * to carry it — see `AgeNotice`'s own doc comment for why the checkbox and
+ * the Google button's former email requirement were the same constraint.
  *
  * Reached from `LoginPage`'s "Create one" link and registered as a `chrome:
  * "bare"` route (`root/routeManifest.ts`) — same pre-auth, outside-the-shell
@@ -46,19 +53,13 @@ type RegisterStep = "details" | "code";
  * earlier — see `TurnstileWidget`'s own doc comment.
  *
  * Also renders `GoogleSignUpButton` (only when `isGoogleOAuthEnabled()`) as
- * an alternate way to finish this same signup: it reuses the email typed
- * into the field above rather than asking for it twice, and stays disabled
- * until `AgeAffirmation`'s checkbox is checked (`ageAffirmed`, threaded
- * through via `onAffirmedChange`) — confirm first, then Google, one
- * confirmation for either path. `LoginPage`'s own `GoogleSignInButton` is
- * the opposite case: signing in never creates an account, so it redirects
- * immediately with no affirmation step at all.
+ * an alternate way to finish this same signup — it needs nothing from this
+ * screen at all now, not even the email, and redirects on click.
  */
 export const RegisterFlow = (props: { redirectTo?: string }) => {
   const { redirectTo } = props;
   const [step, setStep] = useState<RegisterStep>("details");
   const [email, setEmail] = useState("");
-  const [ageAffirmed, setAgeAffirmed] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
@@ -87,7 +88,6 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
       email: targetEmail,
       requestOtp: true,
       allowSignup: true,
-      meta: { age_affirmed: true },
       captchaToken: captchaToken ?? undefined,
     });
   };
@@ -207,6 +207,11 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
                 _: "It only takes a minute.",
               })}
             </p>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              {translate("crm.auth.signup_privacy_note", {
+                _: "MyShadchan holds private, sensitive family records. It's built for parents and guardians managing the shidduchim process on behalf of their household.",
+              })}
+            </p>
           </div>
         ) : null}
 
@@ -229,11 +234,14 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
                 className={AUTH_FIELD_CLASSNAME}
               />
             </div>
-            <AgeAffirmation
-              onContinue={handleContinue}
-              onAffirmedChange={setAgeAffirmed}
-              compact
-            />
+            <Button
+              type="button"
+              className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
+              disabled={isRequesting}
+              onClick={handleContinue}
+            >
+              {translate("crm.auth.continue", { _: "Continue" })}
+            </Button>
             {isGoogleOAuthEnabled() ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -243,13 +251,10 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
                   </span>
                   <Separator className="flex-1" />
                 </div>
-                <GoogleSignUpButton
-                  email={email}
-                  disabled={!ageAffirmed}
-                  redirect={redirectTo}
-                />
+                <GoogleSignUpButton redirect={redirectTo} />
               </div>
             ) : null}
+            <AgeNotice />
             {isRequesting ? (
               <p className="flex items-center justify-center gap-2 text-center text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />

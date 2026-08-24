@@ -162,8 +162,6 @@ export const englishCrmMessages = {
       oauth_callback: {
         no_account:
           "No account has been found. Would you like to create a new account?",
-        age_restricted:
-          "You must be 18 years of age or older to create an account.",
         cancelled:
           "You closed the Google sign-in window before finishing. No account was created — come back and try again whenever you're ready.",
         not_configured:
@@ -184,8 +182,7 @@ export const englishCrmMessages = {
       },
       // Story 2.7: the invite-only signup flow (/accept-invite/:token).
       // There is no separate email/password form — the invitee only
-      // affirms 18+ (crm.auth.age_affirmation.* below) and completes 2.6's
-      // OTP verify.
+      // presses Continue and completes 2.6's OTP verify.
       invite_title: "You've been invited",
       invite_body: "Join %{accountName} on MyShadchan as a %{role}.",
       invite_sending_code: "Sending your code…",
@@ -199,12 +196,16 @@ export const englishCrmMessages = {
       invite_not_found_title: "This invite link isn't valid",
       invite_not_found_body:
         "Ask the person who invited you to send a new one.",
-      age_affirmation: {
-        title: "Before you begin",
-        body: "MyShadchan holds private, sensitive family records. It's built for parents and guardians managing the shidduchim process on behalf of their household.",
-        checkbox: "I confirm I am 18 years of age or older.",
-        continue: "Continue",
-      },
+      // The 18+ affirmation, now made by the act of creating an account
+      // rather than by ticking a box — `AgeNotice` renders this once on
+      // every account-creating surface (RegisterFlow, InviteAcceptance,
+      // and LoginPage, whose Google button creates accounts too now that
+      // the check_signup_age() Auth Hook is retired).
+      age_notice:
+        "By creating an account, you confirm you are 18 years of age or older.",
+      signup_privacy_note:
+        "MyShadchan holds private, sensitive family records. It's built for parents and guardians managing the shidduchim process on behalf of their household.",
+      continue: "Continue",
       // 2.3 (AC-10): the onboarding persona multi-select. The other
       // `crm.auth.onboarding.*` keys FirstRunSetup/OnboardingChoice read
       // (account_title, single_title, done_body, etc.) predate this story

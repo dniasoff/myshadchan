@@ -69,3 +69,22 @@ insert into migration_guard.column_moves (table_name, from_column, recover_query
     ('subscription', 'force_rls_placeholder', 'select 1', 'public.normalize_identity_text', 'FORCE ROW LEVEL SECURITY DDL addition — no column data changes'),
     ('tasks', 'force_rls_placeholder', 'select 1', 'public.normalize_identity_text', 'FORCE ROW LEVEL SECURITY DDL addition — no column data changes'),
     ('trusted_senders', 'force_rls_placeholder', 'select 1', 'public.normalize_identity_text', 'FORCE ROW LEVEL SECURITY DDL addition — no column data changes');
+
+-- The `before_user_created` age-gate is retired: the 18+ affirmation is now
+-- made by the act of creating an account and stated as such in the UI
+-- (`AgeNotice`), so `check_signup_age()` has nothing left to verify and
+-- `public.signup_intents` — the only channel that could carry an affirmation
+-- across a Google OAuth redirect — has nothing left to carry. The pending
+-- migration drops both.
+--
+-- The rows genuinely go nowhere, and that is safe on its own terms rather
+-- than by assertion: every row in this table is a single-use token that
+-- expires ten minutes after it is written, is consumed by the very next
+-- signup it belongs to, and has no reader anywhere else in the product. It
+-- is not a record of anything — an unconsumed row means a signup that never
+-- completed. Leaving the table in place would be strictly worse than
+-- dropping it: `check_signup_age()` was also its only sweeper (there is no
+-- pg_cron in this repo), so an orphaned `anon`-INSERTable table with nothing
+-- consuming or expiring its rows is an unbounded public write surface.
+insert into migration_guard.discarded_tables (table_name, reason) values
+    ('signup_intents', 'Age-gate retired: single-use, 10-minute, consumed-on-use signup tokens with no reader outside the dropped check_signup_age(); leaving the table would orphan an anon-writable surface with no sweeper.');

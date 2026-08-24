@@ -44,7 +44,7 @@ const PERSONA_OPTIONS: Array<{
  * no onboarding-specific behaviour (no wizard steps, no `addPersona` calls)
  * baked in, so Story 2.5's Settings "add/remove a persona" affordance can
  * import this exact file rather than re-implementing it. Follows
- * `AgeAffirmation.tsx`'s checkbox-row styling on the same auth surface.
+ * the checkbox-row styling this auth surface already uses.
  *
  * The "at least one ticked" rule is deliberately NOT enforced here — it is
  * the caller's to enforce. Onboarding blocks continuing on zero; 2.5

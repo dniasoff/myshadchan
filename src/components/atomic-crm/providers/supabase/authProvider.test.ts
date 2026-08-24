@@ -141,7 +141,7 @@ describe("getAuthProvider().login", () => {
     ).rejects.toBe(error);
   });
 
-  it("marks the returning-user Google callback so an unknown account can be recovered", async () => {
+  it("starts the Google OAuth handoff on the allow-listed callback URL alone", async () => {
     // Arrange
     signInWithOAuth.mockResolvedValue({
       data: { url: "https://google.test" },
@@ -150,49 +150,26 @@ describe("getAuthProvider().login", () => {
     const authProvider = getAuthProvider();
 
     // Act
-    await authProvider.login({
-      oauthProvider: "google",
-      oauthFlow: "sign-in",
-    });
+    await authProvider.login({ oauthProvider: "google" });
 
-    // Assert: the callback URL stays on the existing allow-listed shape, while
-    // the marker lives only in this browser session and never reaches Google.
+    // Assert: the callback URL has to stay byte-for-byte on the shape
+    // Supabase Auth's redirect allow-list holds, and nothing else rides
+    // along. There used to be a `queryParams.login_hint` (steering Google's
+    // consent screen at the email a signup_intents row was keyed on) and a
+    // sessionStorage flow marker (labelling an age-hook rejection on the way
+    // back). The age hook is retired, so both are gone with it.
     expect(signInWithOAuth).toHaveBeenCalledExactlyOnceWith({
       provider: "google",
       options: {
         redirectTo: expect.stringContaining("/#/auth-callback"),
-        queryParams: undefined,
       },
     });
     expect(
       window.sessionStorage.getItem("myshadchan.oauth.sign_in_flow"),
-    ).not.toBeNull();
-  });
-
-  it("falls back to localStorage when sessionStorage is blocked", async () => {
-    // Arrange: privacy settings can deny sessionStorage while leaving the
-    // same-origin persistent store available. The callback still needs to
-    // know this was the returning-user sign-in flow.
-    vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
-      throw new Error("sessionStorage blocked");
-    });
-    signInWithOAuth.mockResolvedValue({
-      data: { url: "https://google.test" },
-      error: null,
-    });
-    const authProvider = getAuthProvider();
-
-    // Act
-    await authProvider.login({
-      oauthProvider: "google",
-      oauthFlow: "sign-in",
-    });
-
-    // Assert: the marker survives without changing the allow-listed callback
-    // URL or leaking a flow parameter to Google.
+    ).toBeNull();
     expect(
       window.localStorage.getItem("myshadchan.oauth.sign_in_flow.fallback"),
-    ).not.toBeNull();
+    ).toBeNull();
   });
 
   it("verifies a code with type 'email'", async () => {

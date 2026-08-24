@@ -26,8 +26,14 @@ test("an invitee previews, affirms 18+, and signs in through an invite", async (
   await expect(page.getByText(accountName, { exact: false })).toBeVisible();
   await expect(page.getByText(email, { exact: false })).toBeVisible();
 
-  // AC-4: the box gates the OTP request — Continue doubles as "send code".
-  await page.getByRole("checkbox").click();
+  // AC-4: Continue doubles as "send code". The 18+ affirmation is stated
+  // rather than ticked (`AgeNotice`) — there is no box in front of it any
+  // more, so the sentence being present is what has to be asserted.
+  await expect(
+    page.getByText(
+      "By creating an account, you confirm you are 18 years of age or older.",
+    ),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Continue" }).click();
 
   const code = await fetchOtpCode(email);
