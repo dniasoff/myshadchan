@@ -1097,6 +1097,7 @@ export const englishCrmMessages = {
         description:
           "Opened for reading. Nothing has been saved to your computer.",
         download: "Download a copy",
+        downloadError: "Failed to get a download link",
         error: "Could not open this file for reading.",
         noPreview: "This file type cannot be shown here — PDFs and images can.",
       },

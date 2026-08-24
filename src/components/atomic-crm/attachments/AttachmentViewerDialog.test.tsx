@@ -147,6 +147,50 @@ describe("AttachmentViewerDialog — failures and closing", () => {
     expect(frameFor("a-error-case.pdf")).toBeNull();
   });
 
+  it("handles a failed download rather than leaving an unhandled rejection", async () => {
+    // Arrange — the dialog has three Download buttons (footer, error panel,
+    // no-preview panel) behind one handler. Unwrapped, a rejected `signUrl`
+    // escapes as an unhandled rejection and the button merely appears inert,
+    // which is exactly what the neighbouring download paths guard against
+    // (`ResumeVersionRow`, `FileRowView`). Listening for the event is the
+    // precise property; the user-visible notice needs a `<Notification>`
+    // host this harness deliberately does not mount.
+    const rejections: string[] = [];
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      event.preventDefault();
+      rejections.push(String(event.reason));
+    };
+    window.addEventListener("unhandledrejection", onUnhandled);
+
+    try {
+      const signUrl = vi
+        .fn()
+        .mockRejectedValue(new Error("the signing service is unreachable"));
+
+      // Act — a Word document, so the no-preview panel renders; its Download
+      // is the second of the two on screen, so scope rather than guess.
+      const { screen } = await renderViewer({
+        fileName: "a-dl-error-case.docx",
+        mimeType: "application/msword",
+        signUrl,
+      });
+      await screen
+        .getByRole("button", { name: "Download a copy" })
+        .first()
+        .click();
+
+      // Assert — the download was genuinely attempted, in its saving form...
+      await expect
+        .poll(() => signUrl.mock.calls.length)
+        .toBeGreaterThanOrEqual(1);
+      expect(signUrl).toHaveBeenCalledWith({ inline: false });
+      // ...and the rejection was caught rather than escaping.
+      await expect.poll(() => rejections).toEqual([]);
+    } finally {
+      window.removeEventListener("unhandledrejection", onUnhandled);
+    }
+  });
+
   it("fetches nothing at all while it is closed", async () => {
     // Arrange / Act — the dialog is mounted per row, so an unopened one must
     // not sign a URL for a file nobody asked to see.

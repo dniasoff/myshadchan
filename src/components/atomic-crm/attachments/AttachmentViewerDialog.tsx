@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
-import { useTranslate } from "ra-core";
+import { useNotify, useTranslate } from "ra-core";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -113,12 +113,28 @@ export function AttachmentViewerDialog({
   signUrl,
 }: AttachmentViewerDialogProps): ReactElement {
   const translate = useTranslate();
+  const notify = useNotify();
   const mode = resolveAttachmentPreviewMode(mimeType, fileName);
   const { url, error } = useSignedPreviewUrl(open, mode !== "none", signUrl);
 
+  // Wrapped, exactly like `ResumeVersionRow` and `FileRowView`'s own
+  // download handlers: a rejected `signUrl` here (expired session, network)
+  // would otherwise make the button silently do nothing and leave an
+  // unhandled rejection behind.
   const handleDownload = async () => {
-    const downloadUrl = await signUrl({ inline: false });
-    window.open(downloadUrl, "_blank", "noopener,noreferrer");
+    try {
+      const downloadUrl = await signUrl({ inline: false });
+      window.open(downloadUrl, "_blank", "noopener,noreferrer");
+    } catch (downloadError) {
+      notify(
+        downloadError instanceof Error
+          ? downloadError.message
+          : translate("crm.attachments.viewer.downloadError", {
+              _: "Failed to get a download link",
+            }),
+        { type: "error" },
+      );
+    }
   };
 
   return (
