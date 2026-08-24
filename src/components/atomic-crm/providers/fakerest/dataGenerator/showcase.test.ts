@@ -54,15 +54,16 @@ describe("FakeRest showcase fixture", () => {
     }
   });
 
-  it("uses the official Klein/Feldman/Gross labels without changing user 0's baseline role graph", () => {
+  it("is a one-family showcase: the user holds exactly one context", () => {
     const baseline = generateData();
     const showcase = generateShowcaseData();
 
-    expect(showcase.accounts.map((account) => account.name)).toEqual([
-      "The Klein Family",
-      "Feldman Shidduch Office",
-      "The Gross Family",
-    ]);
+    // Only the family's own household is named and flagged as the demo
+    // context; the others keep their generated names and are not the user's.
+    expect(showcase.accounts[0].name).toBe("The Klein Family");
+    expect(
+      showcase.accounts.filter((account) => account.demo_bundle_context),
+    ).toHaveLength(1);
     expect(showcase.members.find((member) => member.user_id === "0")).toEqual(
       baseline.members.find((member) => member.user_id === "0"),
     );
@@ -75,11 +76,8 @@ describe("FakeRest showcase fixture", () => {
       showcase.account_members
         .filter((membership) => membership.user_id === "0")
         .map(({ account_id, role, status }) => ({ account_id, role, status })),
-    ).toEqual([
-      { account_id: 1, role: "parent_admin", status: "active" },
-      { account_id: 2, role: "shadchan", status: "active" },
-      { account_id: 3, role: "parent_admin", status: "active" },
-    ]);
+      // Exactly one — two or more is what renders the context switcher.
+    ).toEqual([{ account_id: 1, role: "parent_admin", status: "active" }]);
     expect(showcase.members).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -544,7 +542,9 @@ describe("FakeRest showcase fixture", () => {
       invites.every((invite) => invite.email.endsWith("@demo.invalid")),
     ).toBe(true);
 
-    await first.switchActiveContext(3);
+    // No switch-away first: the showcase user holds ONE context now, so there
+    // is nowhere to switch to. The property still worth asserting is that a
+    // reseed leaves them on their own household, which the last line checks.
     await first.clearDemo(false);
     await first.seedDemo();
     const reseededShare = (await first.getList("share_links", params)).data[0];

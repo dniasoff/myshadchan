@@ -1065,16 +1065,13 @@ export function applyShowcaseOverlay(
   generatedAt: Date = new Date(),
 ): Db {
   const db = cloneDb(base);
+  // One family, mirroring the hosted demo: only the customer's own household
+  // is named and flagged as the demo context. See
+  // supabase/functions/_shared/demoDataset.ts for why the companions are gone.
   db.accounts = db.accounts.map((account) => ({
     ...account,
-    ...(Number(account.id) === 1
-      ? { name: "The Klein Family" }
-      : Number(account.id) === 2
-        ? { name: "Feldman Shidduch Office" }
-        : Number(account.id) === 3
-          ? { name: "The Gross Family" }
-          : {}),
-    demo_bundle_context: true,
+    ...(Number(account.id) === 1 ? { name: "The Klein Family" } : {}),
+    demo_bundle_context: Number(account.id) === 1,
   }));
   if (
     db.accounts.some((account) => Number(account.id) === 3) &&
@@ -1107,6 +1104,14 @@ export function applyShowcaseOverlay(
   seedShowcaseProfileAssets(db);
   seedShowcaseCollections(db);
   makeShowcaseDatesDynamic(db, generatedAt);
+  // LAST, deliberately: the seeding above still needs user 0's other
+  // memberships to build the rows it owns. Narrowing afterwards gives the
+  // one-family view without changing what gets seeded — and the switcher
+  // renders on a COUNT of contexts, so one is what makes it disappear.
+  db.account_members = db.account_members.filter(
+    (membership) =>
+      membership.user_id !== "0" || Number(membership.account_id) === 1,
+  );
   return db;
 }
 
