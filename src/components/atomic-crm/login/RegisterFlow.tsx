@@ -209,7 +209,7 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
             </p>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               {translate("crm.auth.signup_privacy_note", {
-                _: "Records are held per family. They are not shared with other families.",
+                _: "Records are held per family. They are shared with another household only when you choose to share them.",
               })}
             </p>
           </div>

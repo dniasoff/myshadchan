@@ -62,7 +62,7 @@ export const LandingHero = () => (
         <p className="mt-6 max-w-md text-sm leading-relaxed text-muted-foreground">
           {translateLanding(
             "crm.landing.hero.note",
-            "Records are held per family. They are not shared with other families.",
+            "Records are held per family. They are shared with another household only when you choose to share them.",
           )}
         </p>
       </div>

@@ -40,7 +40,7 @@ export const LandingFooter = () => (
       <p className="text-sm text-muted-foreground">
         {translateLanding(
           "crm.landing.footer.note",
-          "The code is public. The service is free, run at cost.",
+          "The code is public. The record is free; the optional AI features are paid. Run at cost.",
         )}
       </p>
       <nav className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">

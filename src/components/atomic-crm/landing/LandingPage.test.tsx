@@ -209,7 +209,7 @@ describe("LandingPage", () => {
     const copy = document.body.innerText;
 
     // Assert
-    expect(copy).toContain("The service is free.");
+    expect(copy).toContain("The record is free.");
     for (const phrase of bannedPhrases) {
       expect(copy.toLowerCase()).not.toContain(phrase.toLowerCase());
     }

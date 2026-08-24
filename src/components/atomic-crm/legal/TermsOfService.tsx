@@ -72,7 +72,7 @@ export const TermsOfService = () => {
           </h2>
           <p className="text-sm text-muted-foreground">
             {translate("crm.legal.terms.data.body", {
-              _: "You own the records you create. MyShadchan does not pool your data with other families, does not use it to train models, and does not sell it. You can export or delete your data at any time from Settings → Privacy.",
+              _: "You own the records you create. MyShadchan does not pool your data with other families, does not train models on it, and does not sell it. One feature sends data to an AI provider: resume auto-parse sends the resume you upload to Google's Gemini API (see Sub-processors). No other feature sends your records to an AI provider. You can export or delete your data at any time from Settings → Privacy.",
             })}
           </p>
         </section>
@@ -124,7 +124,7 @@ export const TermsOfService = () => {
           </h2>
           <p className="text-sm text-muted-foreground">
             {translate("crm.legal.terms.contact.body", {
-              _: "Questions about these Terms? Contact us through the in-app feedback channel or at legal@myshadchan.example.",
+              _: "Questions about these Terms? Contact dniasoff@gmail.com.",
             })}
           </p>
         </section>
@@ -132,7 +132,7 @@ export const TermsOfService = () => {
         <footer className="pt-6 border-t text-center text-sm text-muted-foreground">
           <p>
             {translate("crm.legal.terms.footer_note", {
-              _: "The code is public. The service is free, run at cost.",
+              _: "The code is public. The record is free; the optional AI features are paid. Run at cost.",
             })}
           </p>
         </footer>

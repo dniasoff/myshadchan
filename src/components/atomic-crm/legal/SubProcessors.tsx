@@ -21,7 +21,8 @@ export const SubProcessors = () => {
     },
     {
       name: "Cloudflare",
-      purpose: "CDN, DNS, WAF, Workers (edge routing)",
+      purpose:
+        "CDN, DNS, WAF, Turnstile (signup/sign-in challenge), and Workers running resume parsing, billing and sharing",
       location: "Global edge network",
       dpa: true,
     },
@@ -44,9 +45,10 @@ export const SubProcessors = () => {
       dpa: true,
     },
     {
-      name: "Inference provider (e.g., OpenAI / Anthropic / self-hosted)",
-      purpose: "AI features — research assistant, call script, dossier summary",
-      location: "Provider-dependent (see provider DPA)",
+      name: "Google (Gemini API, reached through Cloudflare AI Gateway)",
+      purpose:
+        "Resume auto-parse only — an uploaded resume's image or text is sent for extraction. No other feature sends data to an inference provider.",
+      location: "Google Cloud (global)",
       dpa: true,
     },
   ] as const;
@@ -78,7 +80,7 @@ export const SubProcessors = () => {
           </p>
           <p className="text-sm text-muted-foreground">
             {translate("crm.legal.subprocessors.note", {
-              _: "Derived from deployment — amend when infra changes.",
+              _: "This list reflects the services the deployed system actually uses.",
             })}
           </p>
         </header>
@@ -86,7 +88,7 @@ export const SubProcessors = () => {
         <section className="space-y-4">
           <h2 className="text-lg font-semibold">
             {translate("crm.legal.subprocessors.intro", {
-              _: "The following sub-processors process personal data on our behalf to deliver the MyShadchan service. Each has a Data Processing Agreement (DPA) in place incorporating Standard Contractual Clauses where required.",
+              _: "The following sub-processors process personal data on our behalf to deliver the MyShadchan service. Each is used under its own published data-processing terms.",
             })}
           </h2>
         </section>
@@ -102,7 +104,7 @@ export const SubProcessors = () => {
                 {p.dpa && (
                   <span className="ml-2 inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
                     {translate("crm.legal.subprocessors.dpa_badge", {
-                      _: "DPA in place",
+                      _: "Standard terms",
                     })}
                   </span>
                 )}
@@ -133,7 +135,7 @@ export const SubProcessors = () => {
           </h2>
           <p className="text-sm text-muted-foreground">
             {translate("crm.legal.subprocessors.changes.body", {
-              _: "We will notify you via in-app banner and email at least 30 days before adding a new sub-processor. You may object by contacting legal@myshadchan.example; if we cannot accommodate the objection, you may terminate your account and export your data.",
+              _: "This page is updated when a sub-processor is added or changed. You may object by contacting dniasoff@gmail.com; if the objection cannot be accommodated, you may export your data and delete your account from Settings → Privacy.",
             })}
           </p>
         </section>
@@ -141,7 +143,7 @@ export const SubProcessors = () => {
         <footer className="pt-6 border-t text-center text-sm text-muted-foreground">
           <p>
             {translate("crm.legal.subprocessors.footer_note", {
-              _: "The code is public. The service is free, run at cost.",
+              _: "The code is public. The record is free; the optional AI features are paid. Run at cost.",
             })}
           </p>
         </footer>

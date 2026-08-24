@@ -20,7 +20,7 @@ export const LandingOpenness = () => (
       )}
       accent={translateLanding(
         "crm.landing.openness.title_accent",
-        "The service is free.",
+        "The record is free.",
       )}
     />
 
@@ -50,7 +50,7 @@ export const LandingOpenness = () => (
         <p className="mt-2.5 leading-relaxed text-foreground/80 text-pretty">
           {translateLanding(
             "crm.landing.openness.cost.body",
-            "The service is free. It is run at cost, not for profit.",
+            "The shidduch record — suggestions, shadchanim, references, reminders — is free. The optional AI features (resume auto-parse and the research assistant) are a paid subscription. It is run at cost, not for profit.",
           )}
         </p>
       </article>

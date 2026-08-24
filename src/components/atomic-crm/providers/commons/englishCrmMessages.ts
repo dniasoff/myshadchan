@@ -204,7 +204,7 @@ export const englishCrmMessages = {
       age_notice:
         "By creating an account, you confirm you are 18 years of age or older.",
       signup_privacy_note:
-        "Records are held per family. They are not shared with other families.",
+        "Records are held per family. They are shared with another household only when you choose to share them.",
       continue: "Continue",
       // 2.3 (AC-10): the onboarding persona multi-select. The other
       // `crm.auth.onboarding.*` keys FirstRunSetup/OnboardingChoice read
@@ -239,7 +239,7 @@ export const englishCrmMessages = {
         lead: "Suggestions, shadchanim, reference calls and dates, kept in one place.",
         cta: "Create an account",
         cta_secondary: "What it does",
-        note: "Records are held per family. They are not shared with other families.",
+        note: "Records are held per family. They are shared with another household only when you choose to share them.",
       },
       what: {
         eyebrow: "What it does",
@@ -300,14 +300,14 @@ export const englishCrmMessages = {
       openness: {
         eyebrow: "Code and cost",
         title_lead: "The code is public.",
-        title_accent: "The service is free.",
+        title_accent: "The record is free.",
         code: {
           title: "Code",
           body: "The code is public. It can be read, audited and self-hosted, and becomes fully open source two years after each release.",
         },
         cost: {
           title: "Cost",
-          body: "The service is free. It is run at cost, not for profit.",
+          body: "The shidduch record — suggestions, shadchanim, references, reminders — is free. The optional AI features (resume auto-parse and the research assistant) are a paid subscription. It is run at cost, not for profit.",
         },
       },
       closing: {
@@ -318,7 +318,7 @@ export const englishCrmMessages = {
         cta_secondary: "Sign in",
       },
       footer: {
-        note: "The code is public. The service is free, run at cost.",
+        note: "The code is public. The record is free; the optional AI features are paid. Run at cost.",
         terms: "Terms of Service",
         privacy: "Privacy Policy",
         subprocessors: "Sub-processors",
@@ -1394,7 +1394,7 @@ export const englishCrmMessages = {
         },
         data: {
           title: "3. Your Data",
-          body: "You own the records you create. MyShadchan does not pool your data with other families, does not use it to train models, and does not sell it. You can export or delete your data at any time from Settings → Privacy.",
+          body: "You own the records you create. MyShadchan does not pool your data with other families, does not train models on it, and does not sell it. One feature sends data to an AI provider: resume auto-parse sends the resume you upload to Google's Gemini API (see Sub-processors). No other feature sends your records to an AI provider. You can export or delete your data at any time from Settings → Privacy.",
         },
         usage: {
           title: "4. Acceptable Use",
@@ -1410,28 +1410,29 @@ export const englishCrmMessages = {
         },
         contact: {
           title: "7. Contact",
-          body: "Questions about these Terms? Contact us through the in-app feedback channel or at legal@myshadchan.example.",
+          body: "Questions about these Terms? Contact dniasoff@gmail.com.",
         },
-        footer_note: "The code is public. The service is free, run at cost.",
+        footer_note:
+          "The code is public. The record is free; the optional AI features are paid. Run at cost.",
       },
       privacy: {
         title: "Privacy Policy",
         last_updated: "Last updated: 2026-08-09 (v1)",
         controller: {
           title: "1. Data Controller",
-          body: "MyShadchan (operated by the MyShadchan project) is the data controller for the personal data you provide when using the service. Contact: legal@myshadchan.example.",
+          body: "MyShadchan (operated by the MyShadchan project) is the data controller for the personal data you provide when using the service. Contact: dniasoff@gmail.com.",
         },
         data_collected: {
           title: "2. Data We Collect",
-          body: "We collect only what you explicitly provide: account email, family member names, shidduch records, reference people, notes, tasks, and uploaded files. We do not collect analytics, tracking pixels, or third-party cookies.",
+          body: "We collect what you enter: account email, family member names, shidduch records, reference people, notes, tasks, and uploaded files. We also record first-party usage counts (which suggestions were filed, reference calls logged, inbox captures) that are linked to your account and can be turned off in Settings → Privacy. There are no tracking pixels, third-party cookies, or third-party analytics.",
         },
         purpose: {
           title: "3. Purpose & Legal Basis",
-          body: "Your data is processed solely to provide the shidduch management service (contract performance) and to meet legal obligations (e.g., age verification). No profiling, automated decision-making, or marketing use occurs.",
+          body: "Your data is processed solely to provide the shidduch management service (contract performance) and to meet legal obligations (e.g., the 18+ confirmation accepted at signup, which is a declaration and is not verified). No profiling, automated decision-making, or marketing use occurs.",
         },
         sharing: {
           title: "4. Sharing & Sub-processors",
-          body: "Your data is never sold. It is shared only with the sub-processors listed on our Sub-processors page (infrastructure, email delivery, payments, AI inference) and only as needed to operate the service. Each has a data processing agreement in place.",
+          body: "Your data is never sold. It is shared only with the sub-processors listed on our Sub-processors page (infrastructure, email delivery, payments, AI inference) and only as needed to operate the service. Each is used under its own published data-processing terms.",
         },
         rights: {
           title: "5. Your Rights",
@@ -1439,32 +1440,34 @@ export const englishCrmMessages = {
         },
         retention: {
           title: "6. Retention",
-          body: "Data is retained while your account is active. On deletion, it is removed from primary storage within 30 days and from backups within 90 days.",
+          body: "Data is retained while your account is active. On deletion, it is removed from primary storage within 30 days. No backup copies are kept, so there is no separate backup deletion step.",
         },
         security: {
           title: "7. Security",
-          body: "Data is encrypted in transit (TLS 1.2+) and at rest (AES-256). Access is limited to authorized personnel. We run regular vulnerability scans and maintain an incident response plan.",
+          body: "Data is encrypted in transit (TLS 1.2+) and at rest (AES-256), as provided by our hosting sub-processors. Access is limited to the operator of the service.",
         },
         contact: {
           title: "8. Contact",
-          body: "Privacy questions or requests: legal@myshadchan.example. You also have the right to lodge a complaint with your supervisory authority.",
+          body: "Privacy questions or requests: dniasoff@gmail.com. You also have the right to lodge a complaint with your supervisory authority.",
         },
-        footer_note: "The code is public. The service is free, run at cost.",
+        footer_note:
+          "The code is public. The record is free; the optional AI features are paid. Run at cost.",
       },
       subprocessors: {
         title: "Sub-processors",
         version: "v1 · 2026-08-09",
-        note: "Derived from deployment — amend when infra changes.",
+        note: "This list reflects the services the deployed system actually uses.",
         intro:
-          "The following sub-processors process personal data on our behalf to deliver the MyShadchan service. Each has a Data Processing Agreement (DPA) in place incorporating Standard Contractual Clauses where required.",
+          "The following sub-processors process personal data on our behalf to deliver the MyShadchan service. Each is used under its own published data-processing terms.",
         purpose_label: "Purpose",
         location_label: "Data location",
-        dpa_badge: "DPA in place",
+        dpa_badge: "Standard terms",
         changes: {
           title: "Changes to this list",
-          body: "We will notify you via in-app banner and email at least 30 days before adding a new sub-processor. You may object by contacting legal@myshadchan.example; if we cannot accommodate the objection, you may terminate your account and export your data.",
+          body: "This page is updated when a sub-processor is added or changed. You may object by contacting dniasoff@gmail.com; if the objection cannot be accommodated, you may export your data and delete your account from Settings → Privacy.",
         },
-        footer_note: "The code is public. The service is free, run at cost.",
+        footer_note:
+          "The code is public. The record is free; the optional AI features are paid. Run at cost.",
       },
     },
     // Story 15.2: Analytics metrics and privacy control (PRD §18)
@@ -1472,8 +1475,8 @@ export const englishCrmMessages = {
       privacy: {
         title: "Analytics Collection",
         description:
-          "First-party usage metrics are collected. Names, contact details and note contents are not included.",
-        collection: "Collect anonymous usage metrics",
+          "First-party usage counts are recorded and linked to your account. Names, contact details and note contents are not included.",
+        collection: "Collect usage metrics",
         collection_hint:
           "Counts things like suggestions filed, reference calls logged, and inbox captures. Never names, phones, or note content.",
         enabled: "Collection is on",
