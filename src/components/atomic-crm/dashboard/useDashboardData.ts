@@ -1,7 +1,7 @@
 import type { Identifier } from "ra-core";
 import { useGetIdentity, useGetList } from "ra-core";
-import { useEffect, useState } from "react";
 
+import { useSelectedSingle } from "../singles/useSelectedSingle";
 import type { Single } from "../types";
 
 export interface DashboardData {
@@ -15,31 +15,24 @@ export interface DashboardData {
 }
 
 /**
- * Data + local single-selection state shared by the desktop and mobile
- * dashboards (foundation-plan §4), mirroring the pattern already used in
- * `ShidduchimList`. No global SingleContext yet (risk #3) — TODO: hoist this
- * once a second screen needs to share the selection.
+ * Dashboard data for the desktop and mobile dashboards (foundation-plan §4).
+ *
+ * The single selection itself is NOT owned here any more: it lives in
+ * `useSelectedSingle`, shared with the app-bar pill. This hook used to hold
+ * its own `useState` (the "TODO: hoist this once a second screen needs to
+ * share the selection" that stood here), which is why picking a name in the
+ * app bar left the dashboard showing the other child.
  */
 export const useDashboardData = (): DashboardData => {
   const { identity } = useGetIdentity();
-  const { data: singles, isPending: singlesPending } = useGetList<Single>(
-    "singles",
-    {
-      // 2.5 AC-8: an archived single is not a selectable "current" single.
-      filter: { "status@neq": "archived" },
-      pagination: { page: 1, perPage: 100 },
-      sort: { field: "first_name_en", order: "ASC" },
-    },
-  );
-  const [singleId, setSingleId] = useState<Identifier | undefined>();
-
-  useEffect(() => {
-    if (singleId == null && singles && singles.length > 0) {
-      setSingleId(singles[0].id);
-    }
-  }, [singles, singleId]);
-
-  const selectedSingleId = singleId ?? singles?.[0]?.id;
+  // The SAME selection the app-bar pill drives — see useSelectedSingle for
+  // why this is one shared key and not two local useStates.
+  const {
+    singles,
+    selectedId: selectedSingleId,
+    setSelectedId: setSingleId,
+    isPending: singlesPending,
+  } = useSelectedSingle();
 
   const { total: totalForSingle, isPending: totalForSinglePending } =
     useGetList(
@@ -60,7 +53,7 @@ export const useDashboardData = (): DashboardData => {
       !identity ||
       singlesPending ||
       (selectedSingleId != null && totalForSinglePending),
-    singles: singles ?? [],
+    singles,
     singleId: selectedSingleId,
     setSingleId,
     hasSuggestions: (totalForSingle ?? 0) > 0,

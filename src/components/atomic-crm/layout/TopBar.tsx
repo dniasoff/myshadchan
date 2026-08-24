@@ -1,7 +1,5 @@
-import type { Identifier } from "ra-core";
-import { CanAccess, useGetList, useTranslate, useUserMenu } from "ra-core";
+import { CanAccess, useTranslate, useUserMenu } from "ra-core";
 import { ChevronDown, Search, Settings, Users } from "lucide-react";
-import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { RefreshButton } from "@/components/admin/refresh-button";
@@ -16,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { useGlobalSearchDialog } from "../misc/useGlobalSearch";
+import { useSelectedSingle } from "../singles/useSelectedSingle";
 import type { Single } from "../types";
 import { ContextSwitcher } from "./ContextSwitcher";
 
@@ -80,37 +79,21 @@ const singleLabel = (single: Single) =>
   `#${single.id}`;
 
 /**
- * Self-contained single switcher, mirroring the local-state pattern in
- * ShidduchimList. Purely a display/selection affordance for now — it does
- * not drive any other screen.
- * TODO: hoist to a shared SingleContext once a second consumer needs the
- * selection (foundation-plan risk #3).
+ * The app-bar single switcher. It drives the whole app: the selection lives in
+ * `useSelectedSingle`, so picking a name here changes the dashboard too.
+ *
+ * It used to hold its own `useState` and its docstring said so — "purely a
+ * display/selection affordance for now — it does not drive any other screen".
+ * The dashboard held a second, independent selection, so this pill could read
+ * "Yaakov" while the page below it showed Rivky's pipeline.
  */
 export const SingleSwitcherPill = () => {
   const translate = useTranslate();
-  const { data: singleList } = useGetList<Single>("singles", {
-    // 2.5 AC-8: an archived single must not be selectable as the "current"
-    // single here — the mandatory minimum bar this story sets for the
-    // switcher, mirrored in ShidduchimList/useDashboardData's own local
-    // single-switchers.
-    filter: { "status@neq": "archived" },
-    pagination: { page: 1, perPage: 100 },
-    sort: { field: "first_name_en", order: "ASC" },
-  });
-  const [singleId, setSingleId] = useState<Identifier | undefined>();
+  const { singles: singleList, selected, setSelectedId } = useSelectedSingle();
 
-  useEffect(() => {
-    if (singleId == null && singleList && singleList.length > 0) {
-      setSingleId(singleList[0].id);
-    }
-  }, [singleList, singleId]);
-
-  if (!singleList || singleList.length === 0) {
+  if (singleList.length === 0 || !selected) {
     return <span />;
   }
-
-  const selected =
-    singleList.find((single) => single.id === singleId) ?? singleList[0];
 
   return (
     <DropdownMenu>
@@ -139,7 +122,7 @@ export const SingleSwitcherPill = () => {
         {singleList.map((single) => (
           <DropdownMenuItem
             key={single.id}
-            onSelect={() => setSingleId(single.id)}
+            onSelect={() => setSelectedId(single.id)}
           >
             {singleLabel(single)}
           </DropdownMenuItem>

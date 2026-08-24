@@ -136,6 +136,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/singles/useSelectedSingle.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/singles/singleLabels.ts",
           "type": "registry:component"
         },
@@ -1648,6 +1652,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/dashboard/parentFocus.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/dashboard/bucketByState.ts",
           "type": "registry:component"
         },
@@ -1665,6 +1673,10 @@
         },
         {
           "path": "src/components/atomic-crm/dashboard/PipelineSnapshot.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/dashboard/ParentFocusCards.tsx",
           "type": "registry:component"
         },
         {

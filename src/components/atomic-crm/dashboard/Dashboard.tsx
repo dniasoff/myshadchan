@@ -1,5 +1,7 @@
 import { Users } from "lucide-react";
 
+import { CanAccess } from "ra-core";
+
 import { buildNewPath } from "../entity360/entityPaths";
 import { EmptyState } from "../misc/EmptyState";
 import { AttentionSection } from "./AttentionSection";
@@ -7,6 +9,7 @@ import { DashboardHeader } from "./DashboardHeader";
 import { DashboardStat } from "./DashboardStat";
 import { DueRemindersCard } from "./DueRemindersCard";
 import { MetricsCards } from "./MetricsCards";
+import { ParentFocusCards } from "./ParentFocusCards";
 import { PipelineSnapshot } from "./PipelineSnapshot";
 import { RecentSuggestions } from "./RecentSuggestions";
 import { useDashboardData } from "./useDashboardData";
@@ -59,8 +62,18 @@ export const Dashboard = () => {
         />
       ) : (
         <div className="flex flex-col gap-6">
-          {/* Story 15.2: Analytics metrics cards — PRD §18 north-star and counter-metrics */}
-          <MetricsCards />
+          {/* The four questions a parent opens this page to answer. See
+              parentFocus.ts for why these four, in this order. */}
+          <ParentFocusCards singleId={selectedSingleId} />
+          {/* Story 15.2's north-star and counter-metrics (cross-account leaks,
+              mis-routed items, duplicate false-positive rate, trial-to-paid,
+              AI cost per family) measure whether the PRODUCT is working. They
+              used to render for every family, which told a parent nothing
+              about their own child and was account-wide on an otherwise
+              per-single page. Same admin gate TopBar uses for the Users menu. */}
+          <CanAccess resource="members" action="list">
+            <MetricsCards />
+          </CanAccess>
           <PipelineSnapshot singleId={selectedSingleId} />
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
             <div className="lg:col-span-8">

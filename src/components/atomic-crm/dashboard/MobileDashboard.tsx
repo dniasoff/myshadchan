@@ -9,6 +9,7 @@ import { AttentionSection } from "./AttentionSection";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardStat } from "./DashboardStat";
 import { DueRemindersCard } from "./DueRemindersCard";
+import { ParentFocusCards } from "./ParentFocusCards";
 import { PipelineSnapshot } from "./PipelineSnapshot";
 import { RecentSuggestions } from "./RecentSuggestions";
 import { useDashboardData } from "./useDashboardData";
@@ -92,6 +93,13 @@ export const MobileDashboard = () => {
             {/* Story 12.1 (gap D1): first child of the populated branch,
                 above PipelineSnapshot. */}
             <DueRemindersCard />
+            {/* Same four questions the desktop dashboard leads with — a
+                parent on a phone is the one most likely to be checking
+                "what needs me" between other things. The row reserves its
+                height while loading, so it adds no layout shift to the
+                cold mobile load e2e/dashboard-reminders-cls.spec.ts
+                budgets. */}
+            <ParentFocusCards singleId={selectedSingleId} />
             <PipelineSnapshot singleId={selectedSingleId} />
             <RecentSuggestions singleId={selectedSingleId} />
             {/* F4 fix: DashboardStat is a half-width tile (design-language
