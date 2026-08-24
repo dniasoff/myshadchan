@@ -1108,6 +1108,126 @@ begin
     end if;
 end;
 $$;
+-- The official onboarding demo lifecycle (Epic "realistic demo showcase",
+-- deployed 2026-08-24). Twelve tables arrived with it and none was seeded
+-- here, so the completeness check below refused the whole fixture the moment
+-- those migrations became part of the BASELINE rather than the pending set --
+-- which is why this gap was invisible in the CI run that shipped them: at
+-- that point the tables did not exist in the baseline schema at all, so
+-- nothing could report them missing.
+--
+-- Seeded rather than declared empty_by_design, deliberately. These tables ARE
+-- empty in production between lifecycles, which makes `empty_by_design` look
+-- defensible -- but they are fully populated for the several minutes a seed or
+-- clear is in flight, and a deploy landing in that window is exactly the
+-- non-empty-table case this whole guard exists for. A migration that dropped
+-- `demo_runs.lease_token` or rewrote the manifest shape would otherwise be
+-- green here and destroy an in-flight customer run.
+--
+-- The shape is one ACTIVE run mid-seed, holding a live lease, with one
+-- manifest row of each kind -- the state `begin_demo_seed` leaves behind and
+-- every fenced writer reads. `to_regclass` guards the block for the same
+-- reason the share_links block above carries one: a baseline older than these
+-- migrations must skip it, not error.
+do $$
+begin
+    if to_regclass('public.demo_runs') is null then
+        return;
+    end if;
+
+    insert into public.demo_runs (
+        id, root_account_id, status, seed_version, lease_epoch,
+        lease_token, lease_expires_at, operation, original_root_name
+    )
+    values (
+        9000001, 9000001, 'active', 'official-onboarding-v1', 1,
+        'migration-guard-lease', now() + interval '1 hour', 'seed',
+        'Migration Guard Household'
+    );
+
+    insert into public.demo_run_accounts (id, run_id, account_id, context_key, context_kind, is_root)
+    values (9000001, 9000001, 9000001, 'primary-household', 'household', true);
+
+    insert into public.demo_run_users (id, run_id, user_id, actor_key, email_domain)
+    values (9000001, 9000001, '00000000-0000-4000-8000-000000009001', 'root-parent', 'invalid');
+
+    insert into public.demo_run_storage (id, run_id, bucket, storage_path, resource_key)
+    values (9000001, 9000001, 'documents', '9000001/migration-guard-resume.pdf', 'resume-root');
+
+    -- `resource_type` is a closed list (demo_run_resources_type_check) and
+    -- 'single' is not in it: the manifest tracks the RELATIONSHIP rows a seed
+    -- created, not the singles themselves. 'invite' points at the invites row
+    -- this fixture already seeds above.
+    insert into public.demo_run_resources (id, run_id, resource_type, resource_id)
+    values (9000001, 9000001, 'invite', 9000001);
+
+    insert into public.demo_run_actor_intents (
+        id, run_id, actor_key, expected_email, auth_user_id, state
+    )
+    values (
+        9000001, 9000001, 'root-parent', 'guard.actor@example.test'::citext,
+        '00000000-0000-4000-8000-000000009001', 'reconciled'
+    );
+
+    -- The pre-seed pointer clear_demo restores a real member's context from.
+    insert into public.demo_run_member_state (
+        id, run_id, user_id, original_active_account_id, original_updated_at
+    )
+    values (
+        9000001, 9000001, '00000000-0000-4000-8000-000000009001', 9000001, now()
+    );
+
+    insert into public.demo_run_auth_cleanup (
+        id, run_id, actor_key, resolved_user_id, expected_email, state
+    )
+    values (
+        9000001, 9000001, 'root-parent', '00000000-0000-4000-8000-000000009001',
+        'guard.actor@example.test'::citext, 'pending'
+    );
+
+    insert into public.demo_run_ingest_claims (
+        id, run_id, account_id, claim_token_hash, state, expires_at
+    )
+    values (
+        9000001, 9000001, 9000001,
+        encode(extensions.digest('migration-guard-ingest-claim', 'sha256'), 'hex'),
+        'active', now() + interval '1 hour'
+    );
+
+    -- Depends on the share_links row seeded in its own guarded block above, so
+    -- it carries the same condition rather than assuming that block ran.
+    if to_regclass('public.share_links') is not null
+       and exists (select 1 from public.share_links where id = 9000001) then
+        insert into public.demo_share_snapshots (
+            id, run_id, share_link_id, token_hash, snapshot, expires_at
+        )
+        values (
+            9000001, 9000001, 9000001,
+            encode(extensions.digest('migration-guard-share-snapshot', 'sha256'), 'hex'),
+            jsonb_build_object(
+                'single', jsonb_build_object('first_name_en', 'Migration Guard'),
+                'files', jsonb_build_array()
+            ),
+            now() + interval '7 days'
+        );
+    end if;
+
+    insert into public.demo_onboarding_intents (
+        id, user_id, account_id, state, demo_run_id, attempts
+    )
+    values (
+        9000001, '00000000-0000-4000-8000-000000009001', 9000001, 'completed', 9000001, 1
+    );
+
+    -- A release receipt for the SECOND seeded login, so this row does not
+    -- collide with the completed intent above (both are keyed by user).
+    insert into public.demo_clear_receipts (id, user_id, root_account_id, completed_at, release_demo)
+    values (
+        9000001, '00000000-0000-4000-8000-000000009002', 9000001, now(), true
+    );
+end;
+$$;
+
 -- Capture every base table that exists in `public` at this baseline —
 -- derived from the catalog, not hand-listed. `capture()` needs nothing but a
 -- table name (see its own comment above), so there is no reason to maintain
