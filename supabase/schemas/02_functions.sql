@@ -3750,8 +3750,15 @@ declare
   v_account_id bigint := public.current_context_id();
   v_result jsonb := '{}'::jsonb;
 begin
-  -- Verify authenticated caller (not service_role)
-  if current_user = 'postgres' then
+  -- Verify an authenticated caller (not service_role). This tested
+  -- `current_user = 'postgres'`, which inside a SECURITY DEFINER function
+  -- OWNED BY postgres is always true -- so this export, and
+  -- export_full_account_bundle which delegates to it, raised
+  -- insufficient_privilege for every caller, including the Settings
+  -- "download my data" button (PrivacySection.tsx). auth.uid() is the test
+  -- every other function here uses and still excludes service_role, which
+  -- carries no JWT.
+  if auth.uid() is null then
     raise exception 'export_account_data: must be called by authenticated user'
       using errcode = 'insufficient_privilege';
   end if;
@@ -3788,28 +3795,43 @@ begin
   FROM public.tasks t WHERE t.account_id = v_account_id
   INTO v_result;
 
-  SELECT jsonb_set(v_result, '{notes}', coalesce(jsonb_agg(to_jsonb(n)), '[]'))
-  FROM public.notes n WHERE n.account_id = v_account_id
+  -- `public.notes` has never existed; the real table is single_notes, which
+  -- was otherwise absent from this export entirely.
+  SELECT jsonb_set(v_result, '{single_notes}', coalesce(jsonb_agg(to_jsonb(n)), '[]'))
+  FROM public.single_notes n WHERE n.account_id = v_account_id
   INTO v_result;
 
-  SELECT jsonb_set(v_result, '{events}', coalesce(jsonb_agg(to_jsonb(e)), '[]'))
-  FROM public.events e WHERE e.account_id = v_account_id
+  -- `public.events` has never existed either. date_records is the only
+  -- account-scoped table it can have meant -- the dates that actually
+  -- happened -- and it is real family data, so it is exported under its own
+  -- name rather than dropped.
+  SELECT jsonb_set(v_result, '{date_records}', coalesce(jsonb_agg(to_jsonb(e)), '[]'))
+  FROM public.date_records e WHERE e.account_id = v_account_id
   INTO v_result;
 
   SELECT jsonb_set(v_result, '{medical_notes}', coalesce(jsonb_agg(to_jsonb(mn)), '[]'))
   FROM public.medical_notes mn WHERE mn.account_id = v_account_id
   INTO v_result;
 
+  -- connections/connection_invites/child_grants are scoped by their endpoint
+  -- columns; none of them has an `account_id`, so each of these selected a
+  -- column that does not exist. Predicates match demo_assert_empty_account.
   SELECT jsonb_set(v_result, '{connections}', coalesce(jsonb_agg(to_jsonb(c)), '[]'))
-  FROM public.connections c WHERE c.account_id = v_account_id
+  FROM public.connections c
+  WHERE c.household_account_id = v_account_id
+     OR c.shadchanus_account_id = v_account_id
   INTO v_result;
 
   SELECT jsonb_set(v_result, '{connection_invites}', coalesce(jsonb_agg(to_jsonb(ci)), '[]'))
-  FROM public.connection_invites ci WHERE ci.account_id = v_account_id
+  FROM public.connection_invites ci
+  WHERE ci.inviter_account_id = v_account_id
+     OR ci.accepted_by_account_id = v_account_id
   INTO v_result;
 
   SELECT jsonb_set(v_result, '{child_grants}', coalesce(jsonb_agg(to_jsonb(cg)), '[]'))
-  FROM public.child_grants cg WHERE cg.account_id = v_account_id
+  FROM public.child_grants cg
+  WHERE cg.proposer_account_id = v_account_id
+     OR cg.grantee_account_id = v_account_id
   INTO v_result;
 
   SELECT jsonb_set(v_result, '{share_links}', coalesce(jsonb_agg(to_jsonb(sl)), '[]'))
@@ -3820,21 +3842,19 @@ begin
   FROM public.account_members am WHERE am.account_id = v_account_id
   INTO v_result;
 
-  SELECT jsonb_set(v_result, '{purge_requests}', coalesce(jsonb_agg(to_jsonb(pr)), '[]'))
-  FROM public.purge_requests pr WHERE pr.account_id = v_account_id
-  INTO v_result;
+  -- purge_requests is keyed by single_name/single_email and notified_accounts,
+  -- not by account_id, so it has no per-account projection; configuration
+  -- (id, config) and cron_heartbeat (worker, last_run_at, ...) are global
+  -- system tables and never were this customer's data. All three selected a
+  -- nonexistent `account_id` column and are dropped rather than guessed at.
 
-  SELECT jsonb_set(v_result, '{deletion_requests}', coalesce(jsonb_agg(to_jsonb(dr)), '[]'))
-  FROM public.deletion_requests dr WHERE dr.account_id = v_account_id
+  SELECT jsonb_set(v_result, '{account_deletion_requests}', coalesce(jsonb_agg(to_jsonb(dr)), '[]'))
+  FROM public.account_deletion_requests dr WHERE dr.account_id = v_account_id
   INTO v_result;
 
   -- Add remaining tables with account_id column
   SELECT jsonb_set(v_result, '{entity_files}', coalesce(jsonb_agg(to_jsonb(ef)), '[]'))
   FROM public.entity_files ef WHERE ef.account_id = v_account_id
-  INTO v_result;
-
-  SELECT jsonb_set(v_result, '{configuration}', coalesce(jsonb_agg(to_jsonb(c)), '[]'))
-  FROM public.configuration c WHERE c.account_id = v_account_id
   INTO v_result;
 
   SELECT jsonb_set(v_result, '{ai_usage}', coalesce(jsonb_agg(to_jsonb(au)), '[]'))
@@ -3847,10 +3867,6 @@ begin
 
   SELECT jsonb_set(v_result, '{ai_parse_attempts}', coalesce(jsonb_agg(to_jsonb(apa)), '[]'))
   FROM public.ai_parse_attempts apa WHERE apa.account_id = v_account_id
-  INTO v_result;
-
-  SELECT jsonb_set(v_result, '{cron_heartbeat}', coalesce(jsonb_agg(to_jsonb(ch)), '[]'))
-  FROM public.cron_heartbeat ch WHERE ch.account_id = v_account_id
   INTO v_result;
 
   RETURN v_result;
@@ -3870,8 +3886,15 @@ declare
   v_result jsonb := '{}'::jsonb;
   v_rows jsonb;
 begin
-  -- Verify authenticated caller
-  if current_user = 'postgres' then
+  -- Verify an authenticated caller (not service_role). This tested
+  -- `current_user = 'postgres'`, which inside a SECURITY DEFINER function
+  -- OWNED BY postgres is always true -- so this export, and
+  -- export_full_account_bundle which delegates to it, raised
+  -- insufficient_privilege for every caller, including the Settings
+  -- "download my data" button (PrivacySection.tsx). auth.uid() is the test
+  -- every other function here uses and still excludes service_role, which
+  -- carries no JWT.
+  if auth.uid() is null then
     raise exception 'export_account_files: must be called by authenticated user'
       using errcode = 'insufficient_privilege';
   end if;
@@ -3881,18 +3904,22 @@ begin
     'file export'
   );
 
-  -- Resume photos (have file_bytes in DB)
+  -- Resume photos live in Supabase Storage at `path`, not as bytes in the
+  -- database. resume_photos is (id, account_id, resume_id, path, uploaded_at,
+  -- visibility, hidden_at) and has never had file_name, file_bytes or
+  -- content_type, so this selected three columns that do not exist. SQL cannot
+  -- read a Storage object, so the row is exported as path metadata in exactly
+  -- the shape the entity_files branch below already uses.
   select coalesce(jsonb_agg(to_jsonb(t)), '[]'::jsonb) into v_rows
   from (
     select
       rp.id,
-      rp.file_name as filename,
-      encode(rp.file_bytes, 'base64') as content_base64,
-      rp.content_type,
-      null as storage_path
+      rp.path as filename,
+      null::text as content_base64,
+      null::text as content_type,
+      rp.path as storage_path
     from public.resume_photos rp
-    join public.resumes r on r.id = rp.resume_id
-    where r.account_id = v_account_id
+    where rp.account_id = v_account_id
   ) t;
   v_result := jsonb_set(v_result, array['resume_photos'], v_rows);
 
