@@ -1007,6 +1007,238 @@ begin
 end;
 $$;
 
+CREATE OR REPLACE FUNCTION "public"."account_is_disposable"("p_account_id" bigint) RETURNS boolean
+    LANGUAGE "sql" STABLE
+    SET "search_path" TO ''
+    AS $$
+  -- Whether an account holds nothing that must outlive it. This is the ONE
+  -- data fence behind both halves of the no-orphan invariant: guard_persona_
+  -- removal() refuses to archive an account's last active membership unless
+  -- this returns true, and dispose_orphaned_account() refuses to delete
+  -- unless it does. Sharing the predicate is what makes "delete it, or leave
+  -- it reachable" total -- two separately-maintained lists would drift and
+  -- leave a state that is neither disposable nor removable.
+  --
+  -- It is deliberately STRICTER than account_has_domain_data() (which this
+  -- calls): that one asks "would a person lose work", which is the right
+  -- question for a warning and the wrong one for a DELETE. Every table below
+  -- either cascades from accounts -- and so would be destroyed silently -- or
+  -- is a cross-account edge whose other side would be left dangling.
+  --
+  -- Coverage is not maintained by hand: official_demo_account_orphan.sql
+  -- derives every account-scoped base table from the catalog and fails if one
+  -- is not named in this function's source. A table that deliberately does
+  -- NOT block is named here in prose instead, with its reason:
+  --   * account_members   -- only ARCHIVED rows remain by the time this is
+  --                          consulted; dispose_orphaned_account() deletes them.
+  --   * member_state      -- `on delete set null`; dispose repoints it first.
+  --   * demo_onboarding_intents -- cascades, so dispose NULLs its account_id
+  --                          first to keep the caller's retry state alive.
+  --   * demo_clear_receipts -- carries no FK by design; the historical
+  --                          root_account_id is the whole point of the ledger.
+  --   * demo_run_member_state -- run-scoped and `set null`; a live run is
+  --                          already blocked by demo_runs/demo_run_accounts.
+  select not (
+       public.account_has_domain_data(p_account_id)
+    -- Billing and AI entitlement. `subscription` is the server-authoritative
+    -- record (accounts.plan is a decoy) -- losing it silently is unacceptable.
+    or exists (select 1 from public.subscription where account_id = p_account_id)
+    or exists (select 1 from public.ai_usage where account_id = p_account_id)
+    or exists (select 1 from public.ai_parse_attempts where account_id = p_account_id)
+    or exists (select 1 from public.stripe_events where account_id = p_account_id)
+    or exists (select 1 from public.analytics_events where account_id = p_account_id)
+    or exists (select 1 from public.account_deletion_requests where account_id = p_account_id)
+    -- Content and marketplace surfaces account_has_domain_data does not ask about.
+    or exists (select 1 from public.listings where account_id = p_account_id)
+    or exists (select 1 from public.listing_withdrawal_locks where account_id = p_account_id)
+    or exists (select 1 from public.invites where account_id = p_account_id)
+    or exists (select 1 from public.entity_files where account_id = p_account_id)
+    or exists (select 1 from public.medical_notes where account_id = p_account_id)
+    or exists (select 1 from public.resume_photos where account_id = p_account_id)
+    or exists (select 1 from public.single_preferences where account_id = p_account_id)
+    or exists (select 1 from public.single_notes where account_id = p_account_id)
+    or exists (select 1 from public.share_links where account_id = p_account_id)
+    or exists (select 1 from public.trusted_senders where account_id = p_account_id)
+    -- Discussion. Private parent-to-parent messages are the most sensitive
+    -- rows in the product; they must never be a cascade casualty.
+    or exists (select 1 from public.messages where account_id = p_account_id)
+    or exists (select 1 from public.threads where account_id = p_account_id)
+    or exists (select 1 from public.thread_participants where account_id = p_account_id)
+    or exists (select 1 from public.message_notifications where account_id = p_account_id)
+    or exists (select 1 from public.task_notifications where account_id = p_account_id)
+    -- Cross-account edges: deleting this side would strand the other.
+    or exists (
+      select 1 from public.connections
+      where household_account_id = p_account_id or shadchanus_account_id = p_account_id
+    )
+    or exists (
+      select 1 from public.connection_invites
+      where inviter_account_id = p_account_id or accepted_by_account_id = p_account_id
+    )
+    or exists (
+      select 1 from public.child_grants
+      where proposer_account_id = p_account_id or grantee_account_id = p_account_id
+    )
+    -- A live demo lifecycle owns this account's cleanup; never race it.
+    or exists (select 1 from public.demo_runs where root_account_id = p_account_id)
+    or exists (select 1 from public.demo_run_accounts where account_id = p_account_id)
+    or exists (select 1 from public.demo_run_ingest_claims where account_id = p_account_id)
+    -- Uploaded bytes. Deleting the row would leave the object unreferenced
+    -- and unreachable, which is a leak in the other direction.
+    or exists (
+      select 1 from storage.objects
+      where bucket_id in ('documents', 'entity-files', 'attachments')
+        and (name = p_account_id::text or name like p_account_id::text || '/%')
+    )
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."dispose_orphaned_account"("p_account_id" bigint) RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_exists boolean;
+begin
+  -- Deletes an account that no longer has any live member. This is the
+  -- "delete it" half of the invariant assert_account_not_orphaned() enforces;
+  -- the other half is that a caller which gets `false` back must leave the
+  -- account reachable instead. It is never correct to call this and ignore
+  -- the result.
+  if p_account_id is null then
+    return false;
+  end if;
+
+  select true into v_exists
+  from public.accounts where id = p_account_id
+  for update;
+  if not found then
+    -- Already gone (a concurrent lifecycle finished first). The invariant
+    -- holds, so this is success, not failure.
+    return true;
+  end if;
+
+  if exists (
+    select 1 from public.account_members
+    where account_id = p_account_id and status = 'active'
+  ) then
+    return false;
+  end if;
+
+  if not public.account_is_disposable(p_account_id) then
+    return false;
+  end if;
+
+  -- Release the two references that must survive the account rather than
+  -- cascade with it. member_state would be SET NULL anyway; the intent would
+  -- be DELETED, taking the caller's retry state and attempts counter with it
+  -- (measured -- prepare_demo_onboarding then returned state=null).
+  update public.member_state
+  set active_account_id = null, updated_at = now()
+  where active_account_id = p_account_id;
+
+  update public.demo_onboarding_intents
+  set account_id = null, updated_at = now()
+  where account_id = p_account_id;
+
+  delete from public.account_members where account_id = p_account_id;
+  delete from public.accounts where id = p_account_id;
+  return true;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."assert_account_not_orphaned"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_ids bigint[];
+  v_account_id bigint;
+  v_account public.accounts;
+begin
+  -- SECURITY DEFINER because `accounts` and `account_members` are both
+  -- FORCE row level security. A guard that reads its subject through the
+  -- invoker's RLS can be blinded by it: rows it cannot see look like rows
+  -- that do not exist, so a hidden active membership reads as an orphan
+  -- (false abort) and a hidden account reads as already-deleted (silent
+  -- non-enforcement). Not reachable today -- `authenticated` holds no DML
+  -- grant on account_members at all, so every membership write already
+  -- arrives inside a SECURITY DEFINER function running as the owner
+  -- (measured: a direct UPDATE as `authenticated` returns 42501) -- but the
+  -- invariant must not quietly depend on that staying true. This function
+  -- returns only NULL or an exception, so it exposes nothing.
+  --
+  -- The no-orphan invariant, enforced by the database rather than by every
+  -- caller remembering to. An account with no active membership is
+  -- unreachable forever: my_contexts() and current_context_id() both require
+  -- status = 'active', so nobody -- not even the person who created it -- can
+  -- ever see it again. Three separate functions used to leave one behind on
+  -- every demo -> clear cycle, and the leak was invisible because each looked
+  -- locally correct.
+  --
+  -- DEFERRED to commit on purpose: an account is legitimately memberless for
+  -- part of a transaction (add_persona inserts the account, then the
+  -- membership). Only the committed state has to satisfy the invariant.
+  --
+  -- `demo is true` is exempt, and that exemption is what makes this safe to
+  -- apply everywhere: a demo graph is half-built during seeding and half-torn-
+  -- down during clearing, across MANY transactions, and its own run manifest
+  -- owns that cleanup. The flag is released in the same transaction that
+  -- finalizes a clear -- which is precisely the transition that used to leak,
+  -- so the exemption lifts exactly where the enforcement is needed.
+  -- Resolved with branches, not a CASE over `old`/`new`: plpgsql resolves
+  -- record field references when it plans the expression, so a single
+  -- expression naming `old.account_id` fails with 42703 on the `accounts`
+  -- trigger, where OLD is an accounts row. Measured, not theorised.
+  if tg_table_name = 'accounts' then
+    v_account_ids := array[new.id];
+  elsif tg_op = 'DELETE' then
+    v_account_ids := array[old.account_id];
+  else
+    -- An UPDATE that re-points a membership can orphan the account it LEFT,
+    -- so both sides are checked even though enforce_household_scope() makes
+    -- that move impossible today.
+    v_account_ids := array[old.account_id, new.account_id];
+  end if;
+
+  foreach v_account_id in array v_account_ids loop
+    if v_account_id is not null then
+      select * into v_account from public.accounts where id = v_account_id;
+      -- Not found: deleted later in the same transaction, which is the
+      -- strongest possible form of "not orphaned".
+      if found
+         and not v_account.demo
+         -- ...and no live demo run owns it. A seed builds its companion
+         -- contexts across MANY transactions -- create_demo_companion_context()
+         -- commits the account, and the synthetic actors' memberships are
+         -- inserted afterwards -- so the manifest, not the membership, is what
+         -- proves the account is accounted for while a run is in flight. This
+         -- is not a loophole: the exemption is claimable only while a
+         -- demo_runs row exists, and finalize_demo_clear() DELETES that row in
+         -- the same transaction it must leave clean, so the invariant applies
+         -- to exactly the commit that used to leak.
+         and not exists (
+           select 1
+           from public.demo_run_accounts dra
+           join public.demo_runs dr on dr.id = dra.run_id
+           where dra.account_id = v_account_id
+             and dr.status in ('seeding', 'active', 'clearing', 'failed')
+         )
+         and not exists (
+        select 1 from public.account_members
+        where account_id = v_account_id and status = 'active'
+      ) then
+        raise exception
+          'account % would be orphaned: it has no active membership and would be unreachable forever. Delete it with dispose_orphaned_account(), or leave a membership active.',
+          v_account_id
+          using errcode = 'check_violation';
+      end if;
+    end if;
+  end loop;
+  return null;
+end;
+$$;
+
 CREATE OR REPLACE FUNCTION "public"."discard_completed_demo_onboarding_root"() RETURNS boolean
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -1066,13 +1298,6 @@ begin
     return false;
   end if;
 
-  -- Any run at all, in any status, means this is not a finished husk.
-  if exists (
-    select 1 from public.demo_runs where root_account_id = v_account_id
-  ) then
-    return false;
-  end if;
-
   -- Every surviving membership must be this caller's own archived one. A live
   -- membership, or any membership belonging to somebody else (or orphaned to
   -- NULL by an Auth deletion), disqualifies the account.
@@ -1084,52 +1309,29 @@ begin
     return false;
   end if;
 
-  if exists (
-    select 1 from public.member_state where active_account_id = v_account_id
-  ) then
-    return false;
-  end if;
-
+  -- Nobody else may be relying on this account -- neither as the subject of
+  -- their own onboarding intent nor as the root named by their clear receipt.
   if exists (
     select 1 from public.demo_onboarding_intents
     where account_id = v_account_id and user_id <> v_user_id
+  ) or exists (
+    select 1 from public.demo_clear_receipts
+    where root_account_id = v_account_id and user_id <> v_user_id
   ) then
     return false;
   end if;
 
-  -- These all cascade from `accounts` but are NOT covered by
-  -- demo_assert_empty_account, so a husk holding any of them would lose real
-  -- rows silently. `subscription` matters most -- it is the
-  -- server-authoritative AI entitlement record, never a decoy -- and
-  -- demo_run_accounts would mean this account is a COMPANION in some other
-  -- root's run, which the root_account_id check above cannot see.
-  if exists (select 1 from public.subscription where account_id = v_account_id)
-     or exists (select 1 from public.ai_usage where account_id = v_account_id)
-     or exists (select 1 from public.ai_parse_attempts where account_id = v_account_id)
-     or exists (select 1 from public.account_deletion_requests where account_id = v_account_id)
-     or exists (select 1 from public.demo_run_accounts where account_id = v_account_id)
-     or exists (select 1 from public.demo_run_ingest_claims where account_id = v_account_id)
-     or exists (
-       select 1 from public.demo_clear_receipts
-       where root_account_id = v_account_id and user_id <> v_user_id
-     ) then
+  -- Everything above is about THIS CALLER's claim on the account, which the
+  -- generic disposer cannot know. The data fence, the live-run check and the
+  -- deletion itself belong to dispose_orphaned_account(), which every other
+  -- orphan site also uses -- one mechanism, not two (see
+  -- .claude/rules/parallel-ownership.md on two mechanisms solving one problem).
+  if not public.dispose_orphaned_account(v_account_id) then
     return false;
   end if;
 
-  perform public.demo_assert_empty_account(v_account_id);
-
-  -- demo_onboarding_intents.account_id cascades from accounts, so deleting the
-  -- husk would delete the caller's intent row along with it -- taking the retry
-  -- state and its attempts counter, and leaving prepare_demo_onboarding's own
-  -- `update ... returning` with no row to return. Release the reference first.
-  update public.demo_onboarding_intents
-  set account_id = null, updated_at = now()
-  where user_id = v_user_id and account_id = v_account_id;
-
   delete from public.demo_clear_receipts
   where user_id = v_user_id and root_account_id = v_account_id;
-  delete from public.account_members where account_id = v_account_id;
-  delete from public.accounts where id = v_account_id;
   return true;
 end;
 $$;
@@ -1235,9 +1437,15 @@ CREATE OR REPLACE FUNCTION "public"."get_demo_release_receipt"("p_user_id" uuid)
       where dr.root_account_id = demo_clear_receipts.root_account_id
         and dr.status in ('seeding', 'active', 'clearing', 'failed')
     )
-    and exists (
+    -- The root is now DELETED by a release clear, so "the account still
+    -- exists and is no longer flagged demo" can no longer be the proof that
+    -- the clear completed -- its absence is a strictly stronger one. Accept
+    -- either: gone, or present and released. Without this, a lost clear
+    -- response could never be answered from the ledger and the retry would
+    -- report failure for a clear that had in fact succeeded.
+    and not exists (
       select 1 from public.accounts a
-      where a.id = demo_clear_receipts.root_account_id and a.demo is false
+      where a.id = demo_clear_receipts.root_account_id and a.demo is true
     )
     and not exists (
       select 1 from public.account_members am
@@ -1345,11 +1553,24 @@ begin
   end if;
 
   perform public.demo_assert_empty_account(v_account_id);
+
+  -- This used to archive the membership, flip `demo = false` and KEEP the
+  -- account. That is precisely how an orphan is made: my_contexts() requires
+  -- an ACTIVE membership, so the released household became unreachable to
+  -- everyone, forever, on every cancelled onboarding. Delete it instead.
   update public.account_members set status = 'archived' where id = v_member_id;
-  update public.accounts set demo = false where id = v_account_id;
   update public.member_state
   set active_account_id = null, updated_at = now()
   where user_id = v_user_id and active_account_id = v_account_id;
+
+  if not public.dispose_orphaned_account(v_account_id) then
+    -- Something the emptiness assert does not cover is holding the account.
+    -- Restore the membership rather than leave it stranded: an account we
+    -- cannot delete must stay reachable. Never both.
+    update public.account_members set status = 'active' where id = v_member_id;
+    return false;
+  end if;
+
   delete from public.demo_clear_receipts
   where user_id = v_user_id and root_account_id = v_account_id;
   return true;
@@ -4137,7 +4358,15 @@ begin
     where account_id = p_account_id and status = 'active' and id <> p_membership_id
   ) into v_has_other_member;
 
-  if not v_has_other_member and public.account_has_domain_data(p_account_id) then
+  -- Was `account_has_domain_data()`, which is a strictly weaker question:
+  -- an account holding only a listing, an invite, a subscription or a private
+  -- thread passed it, got its last membership archived, and became an
+  -- unreachable orphan. account_is_disposable() is the SAME predicate
+  -- dispose_orphaned_account() uses, so the two outcomes are exhaustive --
+  -- either this refuses (the account stays reachable) or the caller can
+  -- delete it. There is no third state, which is what makes the no-orphan
+  -- invariant satisfiable rather than merely asserted.
+  if not v_has_other_member and not public.account_is_disposable(p_account_id) then
     raise exception 'cannot remove your last active membership of this account'
       using errcode = 'check_violation';
   end if;
@@ -5622,6 +5851,18 @@ begin
 
       perform public.activate_context_for(v_user_id, v_new_active_account_id);
     end if;
+
+    -- guard_persona_removal() above has already proven this account is either
+    -- still held by someone else or disposable, so an account left with no
+    -- active member here is empty by construction and must not survive: it
+    -- would be unreachable forever. Deliberately AFTER the context handoff,
+    -- so the caller is moved somewhere valid before their old account goes.
+    if not exists (
+      select 1 from public.account_members
+      where account_id = v_archived_account_id and status = 'active'
+    ) then
+      perform public.dispose_orphaned_account(v_archived_account_id);
+    end if;
   end if;
 end;
 $$;
@@ -5699,6 +5940,16 @@ begin
       perform public.guard_persona_removal(v_target_membership.id, v_account_id);
       update public.account_members set status = 'archived' where id = v_target_membership.id;
       v_archived_account_id := v_account_id;
+      -- Same reasoning as remove_persona(): the guard has proven the account
+      -- is disposable if this was its last live member, and an account with
+      -- none is unreachable forever. dispose_orphaned_account() clears the
+      -- target's own member_state pointer on the way out.
+      if not exists (
+        select 1 from public.account_members
+        where account_id = v_account_id and status = 'active'
+      ) then
+        perform public.dispose_orphaned_account(v_account_id);
+      end if;
     end if;
   end if;
 
@@ -7439,6 +7690,7 @@ declare
   v_run public.demo_runs;
   v_active_members integer;
   v_completed_at timestamp with time zone := now();
+  v_archived_membership_id bigint;
 begin
   select * into v_run from public.demo_runs where id = p_run_id for update;
   if not found or v_run.status <> 'clearing'
@@ -7460,7 +7712,8 @@ begin
       where account_id = v_run.root_account_id
         and user_id = p_actor_user_id
         and role = 'parent_admin'
-        and status = 'active';
+        and status = 'active'
+      returning id into v_archived_membership_id;
     end if;
   end if;
 
@@ -7539,6 +7792,37 @@ begin
   end if;
 
   delete from public.demo_runs where id = p_run_id;
+
+  -- The demo is over: the root household must not survive it.
+  --
+  -- This function used to archive the caller's sole bootstrap membership,
+  -- flip `demo = false` and KEEP the account. Because my_contexts() and
+  -- current_context_id() both require an ACTIVE membership, that account was
+  -- unreachable to everyone the instant this transaction committed -- and a
+  -- fresh one was built on the next demo, so every clear -> demo cycle
+  -- stranded one more empty household in the database forever. The hosted
+  -- acceptance harness was quietly sweeping them, which is exactly why it
+  -- stayed invisible.
+  --
+  -- Deliberately AFTER `delete from public.demo_runs`: the run row and its
+  -- cascading manifest are themselves disposability blockers, so the account
+  -- only becomes deletable once this clear has finished owning it.
+  --
+  -- Only on the release path. `admin_reseed_demo_accounts` clears with
+  -- p_release_demo = false because it is about to seed the SAME root again.
+  if p_release_demo and p_actor_user_id is not null then
+    if not public.dispose_orphaned_account(v_run.root_account_id)
+       and v_archived_membership_id is not null then
+      -- Something the clear did not remove is still holding the account.
+      -- Give it back to the caller rather than strand it: an account that
+      -- cannot be deleted must stay reachable. Never both, never neither --
+      -- assert_account_not_orphaned() enforces exactly that at commit.
+      update public.account_members
+      set status = 'active'
+      where id = v_archived_membership_id;
+    end if;
+  end if;
+
   return jsonb_build_object(
     'outcome', 'finalized',
     'run_id', p_run_id,

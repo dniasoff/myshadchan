@@ -1820,6 +1820,23 @@ grant execute on function public.release_demo_orphan_for_onboarding() to authent
 -- hand it execute on every new function.
 revoke all on function public.discard_completed_demo_onboarding_root() from public, anon, authenticated;
 grant execute on function public.discard_completed_demo_onboarding_root() to service_role;
+
+-- The no-orphan invariant's two halves. `account_is_disposable` is a pure
+-- read used by guard_persona_removal(), which `authenticated` DOES call
+-- (remove_persona) -- but that call happens inside a SECURITY DEFINER
+-- function running as the owner, so no client role needs execute, and it is
+-- revoked from `authenticated` explicitly because default privileges would
+-- otherwise hand it over. `dispose_orphaned_account` DELETES an account, so
+-- it gets the narrowest grant that still works.
+revoke all on function public.account_is_disposable(bigint) from public, anon, authenticated;
+grant execute on function public.account_is_disposable(bigint) to service_role;
+
+revoke all on function public.dispose_orphaned_account(bigint) from public, anon, authenticated;
+grant execute on function public.dispose_orphaned_account(bigint) to service_role;
+
+-- Trigger function: invoked by the constraint triggers, never by a caller.
+revoke all on function public.assert_account_not_orphaned() from public, anon, authenticated;
+grant execute on function public.assert_account_not_orphaned() to service_role;
 revoke all on function public.withdraw_demo_listing(bigint, text, bigint, bigint, bigint) from public, anon, authenticated;
 grant execute on function public.withdraw_demo_listing(bigint, text, bigint, bigint, bigint) to service_role;
 revoke all on function public.fence_demo_cleanup(bigint, text, text) from public, anon, authenticated;

@@ -129,9 +129,21 @@ select pg_temp.as_user('d1500000-0000-0000-0000-000000000005');
 select public.prepare_demo_onboarding();
 reset role;
 
+-- Was: "is NOT deleted". A stale active-context pointer is now REPAIRED
+-- rather than treated as a reason to strand the account: the husk has no
+-- active membership, so current_context_id() already fails closed for that
+-- user and the pointer can never resolve. Refusing on it would have left an
+-- orphan the constraint trigger then rejects -- a state that is neither
+-- disposable nor legal. Only a LIVE membership blocks disposal now, which
+-- check "an established customer's live household" below covers.
 insert into discard_checks
-select 'an account that is still somebody''s active context is NOT deleted',
-  exists (select 1 from public.accounts where id = :'pointer_acct'),
+select 'a stale active-context pointer is repaired, not a reason to strand it',
+  not exists (select 1 from public.accounts where id = :'pointer_acct')
+  and exists (
+    select 1 from public.member_state
+    where user_id = 'd1500000-0000-0000-0000-000000000099'
+      and active_account_id is null
+  ),
   'account ' || :'pointer_acct';
 
 -- ------------------------------------------ RED: caller is an active member

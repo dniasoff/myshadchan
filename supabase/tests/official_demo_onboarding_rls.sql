@@ -263,15 +263,19 @@ values
       select 1 from public.demo_onboarding_intents
       where user_id = '91500000-0000-0000-0000-000000000001'
     ), 'completed intent removed'),
-  ('release finalizer never restores an archived bootstrap membership',
+  -- Was: "never restores an archived bootstrap membership", which asserted
+  -- the retained-root state -- an account with only an archived membership,
+  -- i.e. exactly the orphan. The finalizer now deletes the root when the demo
+  -- ends, so both the account and its membership are gone and the active
+  -- pointer is null.
+  ('release finalizer deletes the root household instead of stranding it',
     (select active_account_id is null from public.member_state
      where user_id = '91500000-0000-0000-0000-000000000001')
-    and exists (
+    and not exists (select 1 from public.accounts where id = :release_account_id)
+    and not exists (
       select 1 from public.account_members
       where account_id = :release_account_id
-        and user_id = '91500000-0000-0000-0000-000000000001'
-        and status = 'archived'
-    ), 'active pointer is null and bootstrap membership is archived');
+    ), 'root deleted and active pointer is null');
 
 set local role authenticated;
 set local request.jwt.claims =

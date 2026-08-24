@@ -174,12 +174,16 @@ async function seedConcurrencyFixture(): Promise<{ accountId: number }> {
   const script = `
 \\set ON_ERROR_STOP on
 delete from public.accounts where name = 'Reminder Delivery Concurrency Fixture';
+-- One transaction: psql autocommits per statement, so the account would
+-- otherwise COMMIT before its membership exists and
+-- assert_account_not_orphaned() would (correctly) reject it.
 delete from public.members where user_id = '60000000-0000-4000-8000-000000000002';
 delete from auth.users where id = '60000000-0000-4000-8000-000000000002';
 
 insert into auth.users (id, instance_id, aud, role, email)
 values ('60000000-0000-4000-8000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rd-concurrency@test.local')
 returning id \\gset ignore_
+begin;
 insert into public.accounts (name, kind) values ('Reminder Delivery Concurrency Fixture', 'household')
 returning id as account_id \\gset
 insert into public.account_members (account_id, user_id, role, status)
@@ -199,6 +203,7 @@ insert into public.task_notifications (account_id, task_id, channel, due_date, s
 values (:account_id, :task_a, 'email', now() - interval '1 hour', 'pending', 'rd-concurrency@test.local');
 insert into public.task_notifications (account_id, task_id, channel, due_date, status, recipient_email)
 values (:account_id, :task_b, 'email', now() - interval '1 hour', 'pending', 'rd-concurrency@test.local');
+commit;
 \\echo ACCOUNT_ID=:account_id
 `;
   const stdout = await runPsqlScript(script);

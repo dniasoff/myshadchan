@@ -1439,14 +1439,18 @@ async function verifyCleanup({
     (query) => query.in("id", accountIds),
     "clear.accounts",
   );
+  // The root household must NOT survive the demo. This assertion is the
+  // inverse of what it used to be: the harness asserted the root was RETAINED,
+  // because that is what finalize_demo_clear() did — archive the bootstrap
+  // membership, release `demo`, keep the account. Since my_contexts() requires
+  // an ACTIVE membership, that account was unreachable to everyone forever,
+  // and a fresh one was built on the next demo, so the husks accumulated. The
+  // harness's own cleanup was sweeping them, which is exactly why the leak
+  // never surfaced as a failure here.
   assertPass(
-    "clear.root_account_retained",
-    accountRows.some((row) => row.id === rootAccountId),
+    "clear.root_account_deleted",
+    accountRows.every((row) => row.id !== rootAccountId),
     accountRows.length,
-  );
-  assertPass(
-    "clear.root_demo_flag_released",
-    accountRows.some((row) => row.id === rootAccountId && row.demo === false),
   );
   assertPass(
     "clear.companion_accounts_removed",
@@ -1513,15 +1517,9 @@ async function verifyCleanup({
     rootActiveMemberships === 0,
     rootActiveMemberships,
   );
-  // The root account is RETAINED (see clear.root_account_retained above), so
-  // its bootstrap membership is archived, not deleted: `release_persona`
-  // sets status = 'archived' and finalization then rebuilds member_state
-  // around "only a live membership" (02_functions.sql, "Restore only a live
-  // membership"). Companion memberships ARE deleted outright, which is what
-  // clear.companion_memberships_removed covers. Asserting zero rows here
-  // contradicted both that design and this function's own retained-account
-  // check — an account kept with no membership rows at all is orphaned. What
-  // must hold is that nothing on the root account is still live.
+  // The account is gone, so its membership rows must be gone with it —
+  // including the archived bootstrap one, which dispose_orphaned_account()
+  // deletes explicitly rather than leaving to a cascade.
   const rootMemberships = await queryRows(
     admin,
     "account_members",
@@ -1530,8 +1528,8 @@ async function verifyCleanup({
     "clear.root_memberships",
   );
   assertPass(
-    "clear.root_memberships_archived",
-    rootMemberships.every((row) => row.status === "archived"),
+    "clear.root_memberships_removed",
+    rootMemberships.length === 0,
     rootMemberships.length,
   );
   const trustedCount = await countRows(
@@ -1928,16 +1926,24 @@ async function removeVerifiedClearedBundle() {
     (query) => query.eq("id", rootAccountId),
     "cleanup.postclear.account",
   );
+  // The product now deletes the root itself when the demo ends, so the normal
+  // case is that there is nothing here to clean up. This function's job has
+  // narrowed to PROVING that — and to retiring the release receipt, which
+  // `clear_demo` deliberately keeps as its response-loss ledger.
+  //
+  // The retained-root branch below is kept as a backstop for a root the
+  // product declined to dispose (it refuses rather than strand an account
+  // that still holds something), so this harness still finishes empty and
+  // still reports the refusal by leaving evidence behind.
+  const rootAlreadyDisposed = accountRows.length === 0;
   if (
-    accountRows.length !== 1 ||
-    accountRows[0]?.kind !== "household" ||
-    accountRows[0]?.demo !== false
+    !rootAlreadyDisposed &&
+    (accountRows.length !== 1 ||
+      accountRows[0]?.kind !== "household" ||
+      accountRows[0]?.demo !== false)
   ) {
     return false;
   }
-  // A released root keeps its bootstrap membership as `archived` (see the
-  // clear.root_memberships_archived assertion). Requiring zero rows here made
-  // this proof unsatisfiable and left the disposable bundle behind.
   const rootMembershipRows = await queryRows(
     state.admin,
     "account_members",
@@ -1945,7 +1951,9 @@ async function removeVerifiedClearedBundle() {
     (query) => query.eq("account_id", rootAccountId),
     "cleanup.postclear.memberships",
   );
-  if (!rootMembershipRows.every((row) => row.status === "archived")) {
+  if (rootAlreadyDisposed) {
+    if (rootMembershipRows.length !== 0) return false;
+  } else if (!rootMembershipRows.every((row) => row.status === "archived")) {
     return false;
   }
   const liveRuns = await countRows(
@@ -2033,7 +2041,7 @@ async function removeVerifiedClearedBundle() {
   if (unwrapRows(deletedReceipt).length !== 1) return false;
   // The archived membership holds a foreign key to the account, so it has to
   // go first or the account delete below silently matches zero rows.
-  if (rootMembershipRows.length > 0) {
+  if (!rootAlreadyDisposed && rootMembershipRows.length > 0) {
     const deletedMemberships = await resultData(
       "cleanup.delete_disposable_root_memberships",
       () =>
@@ -2048,18 +2056,20 @@ async function removeVerifiedClearedBundle() {
       return false;
     }
   }
-  const deletedAccount = await resultData(
-    "cleanup.delete_disposable_root_account",
-    () =>
-      state.admin
-        .from("accounts")
-        .delete()
-        .eq("id", rootAccountId)
-        .eq("kind", "household")
-        .eq("demo", false)
-        .select("id"),
-  );
-  if (unwrapRows(deletedAccount).length !== 1) return false;
+  if (!rootAlreadyDisposed) {
+    const deletedAccount = await resultData(
+      "cleanup.delete_disposable_root_account",
+      () =>
+        state.admin
+          .from("accounts")
+          .delete()
+          .eq("id", rootAccountId)
+          .eq("kind", "household")
+          .eq("demo", false)
+          .select("id"),
+    );
+    if (unwrapRows(deletedAccount).length !== 1) return false;
+  }
   state.rootAccountId = null;
   state.lastVerifiedClear = null;
   return true;
@@ -2073,7 +2083,11 @@ function recordRootAccount(accountId) {
 }
 
 /**
- * Removes the roots earlier lifecycles left behind. Each is proven disposable
+ * BACKSTOP. The product now disposes each root when its demo ends, so this
+ * should find nothing; it is kept because a root the product declined to
+ * dispose must still not be left behind by this harness.
+ *
+ * Originally it removed the roots earlier lifecycles left behind. Each is proven disposable
  * on exactly the same terms as the tracked bundle before it is touched: the
  * caller's own non-demo household, no demo run, and no membership that is
  * still live (a deleted Auth user leaves `account_members.user_id` NULL via
@@ -2237,7 +2251,6 @@ async function runSmoke() {
       user_metadata: {
         first_name: "Hosted",
         last_name: "Demo Smoke",
-        age_affirmed: true,
       },
     }),
   );

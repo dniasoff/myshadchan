@@ -185,12 +185,16 @@ async function seedConcurrencyFixture(): Promise<{ accountId: number }> {
 -- directory uses ("delete from public.account_members;" at the top of its
 -- own fixture) for the identical reason.
 delete from public.accounts where name = 'Notifications Concurrency Fixture';
+-- One transaction: psql autocommits per statement, so the account would
+-- otherwise COMMIT before its membership exists and
+-- assert_account_not_orphaned() would (correctly) reject it.
 delete from public.members where user_id = '60000000-0000-4000-8000-000000000001';
 delete from auth.users where id = '60000000-0000-4000-8000-000000000001';
 
 insert into auth.users (id, instance_id, aud, role, email)
 values ('60000000-0000-4000-8000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'mn-concurrency@test.local')
 returning id \\gset ignore_
+begin;
 insert into public.accounts (name, kind) values ('Notifications Concurrency Fixture', 'household')
 returning id as account_id \\gset
 insert into public.account_members (account_id, user_id, role, status)
@@ -206,6 +210,7 @@ insert into public.message_notifications (account_id, message_id, recipient_memb
 values (:account_id, :message_id, :member_id, 'email', 'pending');
 insert into public.message_notifications (account_id, message_id, recipient_member_id, channel, status)
 values (:account_id, :message_id, :member_id, 'push', 'pending');
+commit;
 \\echo ACCOUNT_ID=:account_id
 `;
   const stdout = await runPsqlScript(script);

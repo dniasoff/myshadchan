@@ -203,6 +203,7 @@ async function seedConcurrencyFixture(fixtureName: string): Promise<{
   accountId: number;
   inboxItemId: number;
 }> {
+  const fixtureUserId = "60000000-0000-4000-8000-00000000000a";
   const script = `
 \\set ON_ERROR_STOP on
 -- Defensive cleanup: a previous run that failed between seeding and its own
@@ -210,15 +211,31 @@ async function seedConcurrencyFixture(fixtureName: string): Promise<{
 -- fixture behind. Idempotent, the same shape every SQL suite in this
 -- directory uses for the identical reason.
 delete from public.accounts where name = '${fixtureName}';
+-- members before auth.users: the auth.users -> members sync trigger creates a
+-- profile row, and members.user_id is ON DELETE NO ACTION (deliberately fail-
+-- closed), so the user delete is blocked until its profile is gone.
+delete from public.members where user_id = '${fixtureUserId}';
+delete from auth.users where id = '${fixtureUserId}';
 
+-- One transaction, because this fixture COMMITS (psql autocommits per
+-- statement otherwise) and assert_account_not_orphaned() rejects a committed
+-- household with no active membership. The membership is not decoration: an
+-- account nobody can reach is a state the product can no longer produce, so a
+-- fixture that commits one is modelling something impossible.
+begin;
+insert into auth.users (id, instance_id, aud, role, email)
+values ('${fixtureUserId}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '${fixtureUserId}@test.local');
 insert into public.accounts (name, kind) values ('${fixtureName}', 'household')
 returning id as account_id \\gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:account_id, '${fixtureUserId}', 'parent_admin', 'active');
 insert into public.subscription (account_id, plan, status)
 values (:account_id, 'ai', 'active');
 insert into public.ai_usage (account_id, period, resumes_parsed)
 values (:account_id, to_char(now(), 'YYYY-MM'), 99);
 insert into public.inbox_items (account_id, source) values (:account_id, 'email')
 returning id as inbox_item_id \\gset
+commit;
 \\echo ACCOUNT_ID=:account_id
 \\echo INBOX_ITEM_ID=:inbox_item_id
 `;
@@ -389,16 +406,33 @@ async function seedFencingFixture(fixtureName: string): Promise<{
   accountId: number;
   inboxItemId: number;
 }> {
+  const fixtureUserId = "60000000-0000-4000-8000-00000000000b";
   const script = `
 \\set ON_ERROR_STOP on
 delete from public.accounts where name = '${fixtureName}';
+-- members before auth.users: the auth.users -> members sync trigger creates a
+-- profile row, and members.user_id is ON DELETE NO ACTION (deliberately fail-
+-- closed), so the user delete is blocked until its profile is gone.
+delete from public.members where user_id = '${fixtureUserId}';
+delete from auth.users where id = '${fixtureUserId}';
 
+-- One transaction, because this fixture COMMITS (psql autocommits per
+-- statement otherwise) and assert_account_not_orphaned() rejects a committed
+-- household with no active membership. The membership is not decoration: an
+-- account nobody can reach is a state the product can no longer produce, so a
+-- fixture that commits one is modelling something impossible.
+begin;
+insert into auth.users (id, instance_id, aud, role, email)
+values ('${fixtureUserId}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '${fixtureUserId}@test.local');
 insert into public.accounts (name, kind) values ('${fixtureName}', 'household')
 returning id as account_id \\gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:account_id, '${fixtureUserId}', 'parent_admin', 'active');
 insert into public.subscription (account_id, plan, status)
 values (:account_id, 'ai', 'active');
 insert into public.inbox_items (account_id, source) values (:account_id, 'email')
 returning id as inbox_item_id \\gset
+commit;
 \\echo ACCOUNT_ID=:account_id
 \\echo INBOX_ITEM_ID=:inbox_item_id
 `;

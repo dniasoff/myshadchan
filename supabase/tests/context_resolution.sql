@@ -1136,8 +1136,15 @@ select public.set_active_context(:r1_shad);
 select public.remove_persona('shadchan');
 
 insert into results (name, passed)
-select 'AC-2: removing shadchan archives that membership',
-       (select status from public.account_members where id = :r1_shad_membership) = 'archived';
+-- Was: the membership row survives as `archived`. It no longer does, and the
+-- change is the point: an archived membership on an account with no other
+-- live member IS the orphan -- my_contexts() requires status = 'active', so
+-- that shadchanus context was unreachable to everyone forever. remove_persona()
+-- now disposes the empty account, and guard_persona_removal() refuses instead
+-- whenever it holds anything worth keeping.
+select 'AC-2: removing shadchan disposes the emptied shadchanus account',
+       not exists (select 1 from public.account_members where id = :r1_shad_membership)
+       and not exists (select 1 from public.accounts where id = :r1_shad);
 
 insert into results (name, passed)
 select 'AC-7: removing the active shadchan context hands off to the caller''s remaining membership',
@@ -1149,8 +1156,9 @@ select 'AC-7: removing the active shadchan context hands off to the caller''s re
 select public.remove_persona('parent');
 
 insert into results (name, passed)
-select 'AC-2: removing parent with no dependents and no single held archives the membership outright',
-       (select status from public.account_members where id = :r1_house_membership) = 'archived';
+select 'AC-2: removing parent with no dependents and no single held disposes the account',
+       not exists (select 1 from public.account_members where id = :r1_house_membership)
+       and not exists (select 1 from public.accounts where id = :r1_house);
 
 insert into results (name, passed)
 select 'AC-7: archiving the caller''s last remaining membership clears the active context to NULL, never a stale value',

@@ -580,3 +580,32 @@ drop trigger if exists z_enforce_demo_member_state_write on public.member_state;
 create trigger z_enforce_demo_member_state_write
 before insert or update or delete on public.member_state
 for each row execute function public.enforce_demo_member_state_write();
+
+-- The no-orphan invariant. An account with no ACTIVE membership is
+-- unreachable forever -- my_contexts() and current_context_id() both require
+-- status = 'active' -- so nothing, including the person who created it, can
+-- ever see it again. Three functions used to leave one behind (the demo clear
+-- finalizer on every cycle, the cancelled-onboarding release, and both
+-- persona-removal paths for an account holding only a listing/invite/
+-- subscription/thread), and every one of them looked locally correct.
+--
+-- These are CONSTRAINT triggers, DEFERRABLE INITIALLY DEFERRED, so the check
+-- runs once at COMMIT rather than after each statement: an account is
+-- legitimately memberless for part of a transaction (add_persona() inserts
+-- the account, then the membership). Only committed state must satisfy it.
+--
+-- Two triggers because there are two ways to reach the state: losing the last
+-- membership, and creating an account without one. `demo is true` accounts
+-- are exempt -- see assert_account_not_orphaned() for why that exemption is
+-- what makes this safe to apply to every account in the database.
+drop trigger if exists z_assert_account_not_orphaned_members on public.account_members;
+create constraint trigger z_assert_account_not_orphaned_members
+after update or delete on public.account_members
+deferrable initially deferred
+for each row execute function public.assert_account_not_orphaned();
+
+drop trigger if exists z_assert_account_not_orphaned_accounts on public.accounts;
+create constraint trigger z_assert_account_not_orphaned_accounts
+after insert or update on public.accounts
+deferrable initially deferred
+for each row execute function public.assert_account_not_orphaned();
