@@ -107,8 +107,15 @@ describe("official demo final repair source", () => {
     // reintroduced companion has to fail activation loudly rather than seed a
     // demo nobody designed.
     expect(functions).toContain("primary-household");
-    expect(functions).not.toContain("feldman-shadchanus");
-    expect(functions).not.toContain("gross-household");
+    // The companion keys DO still appear, in exactly one place: the clear
+    // branch tolerates a run seeded before the demo became one family, so a
+    // customer with one open can still end it. What must not exist is a path
+    // that lets a NEW run have one — hence the exact-count assertion on the
+    // activation branch below, and the ABSENT assertions on the cross-account
+    // resource types.
+    expect(functions).toContain(
+      "not p_require_active and (select count(*) from public.demo_run_accounts where run_id = p_run_id) <> 1",
+    );
     for (const goneType of [
       "connection_invite",
       "child_grant",
