@@ -115,26 +115,23 @@ async function seedHousehold(
     email: `${emailPrefix}-${Date.now()}@example.com`,
   });
 
-  const { data: account, error: accountError } = await adminSupabase
-    .from("accounts")
-    .insert({ name: `E2E ${emailPrefix} household` })
-    .select()
-    .single();
-  if (accountError || !account) {
+  // ONE call, not two inserts: assert_account_not_orphaned() rejects a
+  // committed account with no active membership, and PostgREST gives each
+  // request its own transaction, so insert-then-insert commits an orphan in
+  // between. Same reasoning as e2e/fixtures.ts createHousehold().
+  const { data: created, error: accountError } = await adminSupabase.rpc(
+    "create_account_with_owner",
+    {
+      p_name: `E2E ${emailPrefix} household`,
+      p_kind: "household",
+      p_user_id: member.user_id,
+      p_role: "parent_admin",
+    },
+  );
+  if (accountError || !created) {
     throw new Error(`Failed to create account: ${accountError?.message}`);
   }
-
-  const { error: membershipError } = await adminSupabase
-    .from("account_members")
-    .insert({
-      account_id: account.id,
-      user_id: member.user_id,
-      role: "parent_admin",
-      status: "active",
-    });
-  if (membershipError) {
-    throw new Error(`Failed to create membership: ${membershipError.message}`);
-  }
+  const account = { id: (created as { account_id: number }).account_id };
 
   if (singleNames.length > 0) {
     const { error: singlesError } = await adminSupabase.from("singles").insert(

@@ -122,8 +122,8 @@ async function createSingle({
   // gate service-role user creation, and membership now binds from an
   // invite, not a signup side effect). The service-role client bypasses
   // RLS, so this provisions the household + membership directly, mirroring
-  // the platform-ops genesis-seed runbook story 2.7's Dev Notes describe —
-  // two inserts, not a lookup of something a trigger used to create.
+  // the platform-ops genesis-seed runbook story 2.7's Dev Notes describe.
+  //
   // ONE call, not two inserts. assert_account_not_orphaned() rejects a
   // committed account with no active membership, and PostgREST gives each
   // request its own transaction — so insert-then-insert commits an orphan in
