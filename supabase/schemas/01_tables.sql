@@ -1835,6 +1835,9 @@ alter table public.shadchanim
 alter table public.inbox_items
     add constraint inbox_items_connection_id_fkey foreign key (connection_id) references public.connections(id);
 
+alter table public.inbox_items
+    add constraint inbox_items_account_id_fkey foreign key (account_id) references public.accounts(id) on delete cascade;
+
 alter table public."references"
     add constraint references_account_id_fkey foreign key (account_id) references public.accounts(id) on delete cascade;
 

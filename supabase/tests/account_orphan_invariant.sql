@@ -157,6 +157,19 @@ select 'the active-context pointer is released, not left dangling',
     where user_id = '0a1a0000-0000-0000-0000-000000000001' and active_account_id is null
   );
 
+-- 7a. Account-owned inbox captures must disappear with their account. This
+-- catches the missing ownership FK that previously left orphaned inbox rows
+-- after a direct account deletion.
+select pg_temp.new_household('inbox cascade hh', '0a1a0000-0000-0000-0000-000000000002') as inbox_cascade_acct \gset
+insert into public.inbox_items (account_id, source, raw_text)
+values (:'inbox_cascade_acct', 'upload', 'cascade regression fixture')
+returning id as inbox_cascade_item \gset
+delete from public.accounts where id = :'inbox_cascade_acct';
+insert into orphan_checks
+select 'deleting an account cascades its inbox_items rows',
+  not exists (select 1 from public.accounts where id = :'inbox_cascade_acct')
+  and not exists (select 1 from public.inbox_items where id = :'inbox_cascade_item');
+
 -- 8. It REFUSES an account that still holds a live membership.
 select pg_temp.new_household('orphan live hh', '0a1a0000-0000-0000-0000-000000000002') as live_acct \gset
 insert into orphan_checks

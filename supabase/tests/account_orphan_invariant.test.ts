@@ -52,7 +52,7 @@ describe("no orphaned accounts", () => {
   // exist, because this suite runs inside a transaction it rolls back.
   it("makes an orphaned account impossible and deletes the demo root when the demo ends", () => {
     expect(DB_URL).not.toContain(":54322/");
-    expect(checks).toHaveLength(19);
+    expect(checks).toHaveLength(20);
     for (const check of checks) {
       expect(check.passed, check.detail ?? check.name).toBe(true);
     }
