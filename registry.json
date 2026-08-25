@@ -1320,6 +1320,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/listings/PublicRaShell.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/listings/ListingToggleField.tsx",
           "type": "registry:component"
         },
