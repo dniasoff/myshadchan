@@ -31,6 +31,14 @@ export const ShadchanInputs = () => (
     <div className="flex flex-col gap-3">
       <SectionLabel>Details</SectionLabel>
       <TextInput source="location" helperText={false} />
+      <TextInput
+        source="contacts.phone"
+        label="Phone number"
+        type="tel"
+        inputMode="tel"
+        autoComplete="tel"
+        helperText={false}
+      />
       <ResponsivenessInput source="responsiveness" label="Responsiveness" />
     </div>
   </>

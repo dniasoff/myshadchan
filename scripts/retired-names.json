@@ -17,6 +17,8 @@
     "src/components/atomic-crm/shadchanim/shadchanUtils.ts",
     "src/components/atomic-crm/shadchanim/shadchanUtils.test.ts",
     "src/components/atomic-crm/shadchanim/ShadchanHeader.tsx",
+    "src/components/atomic-crm/shadchanim/ShadchanHeader.test.tsx",
+    "src/components/atomic-crm/shadchanim/ShadchanInputs.tsx",
     "scripts/retired-names.json",
     "supabase/tests/members_rename.sql",
     "src/components/atomic-crm/providers/commons/i18nProvider.test.ts",

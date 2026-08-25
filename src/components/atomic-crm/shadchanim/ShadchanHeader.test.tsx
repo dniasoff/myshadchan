@@ -72,18 +72,22 @@ describe("ShadchanHeader", () => {
       .not.toBeInTheDocument();
   });
 
-  // Coverage note: a positive-path render (phone/WhatsApp/email quick-action
-  // buttons) is intentionally not added here. Exercising it needs a fixture
-  // that sets the jsonb field by its real name, and that literal token trips
-  // the AD-23 retired-fossil-words guard (`scripts/retired-names.json`) —
-  // out of this wave's declared file set to edit (the fix is a one-line
-  // `exactFileAllowlist` addition mirroring the existing entry for
-  // `shadchanUtils.test.ts`, which exercises the same field). The negative
-  // path below covers the branch every real record hits today (no quick
-  // actions have ever been seeded or entered — the create form has no input
-  // for that field), and the rendering itself is a thin, deterministic
-  // `Button asChild` + anchor mapping already used elsewhere in the app
-  // (`ShidduchReferencesSection.tsx`).
+  it("renders a phone quick action when a phone number is on file", async () => {
+    // Arrange
+    const withPhone: Shadchan = {
+      ...shadchan,
+      contacts: { phone: "555-0100" },
+    };
+
+    // Act
+    const screen = await render(<ShadchanHeader shadchan={withPhone} />);
+
+    // Assert
+    await expect
+      .element(screen.getByRole("link", { name: "Call 555-0100" }))
+      .toHaveAttribute("href", "tel:555-0100");
+  });
+
   it("renders no quick-action buttons when the shadchan has no phone, WhatsApp or email on file", async () => {
     // Act
     const screen = await render(<ShadchanHeader shadchan={shadchan} />);
