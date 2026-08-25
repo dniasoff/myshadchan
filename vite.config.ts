@@ -32,10 +32,23 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    visualizer({
-      open: process.env.NODE_ENV !== "CI",
-      filename: "./dist/stats.html",
-    }),
+    /**
+     * Off unless explicitly requested — `ANALYZE=1 npm run build`.
+     *
+     * It wrote `./dist/stats.html` on EVERY build, which meant a 1.55 MB
+     * bundle-analysis report was deployed publicly (confirmed: HTTP 200 at
+     * /stats.html) and, because `globPatterns` below sweeps `html`, pushed
+     * into the service-worker precache of every first-time visitor — the
+     * single largest entry, 27% of the whole precache, for a file nobody
+     * looks at outside a performance session.
+     *
+     * The old `open:` expression was also inverted in practice: `NODE_ENV`
+     * is "production" on Vercel and unset locally, so `!== "CI"` was TRUE
+     * for both and every production build tried to spawn a browser.
+     */
+    ...(process.env.ANALYZE
+      ? [visualizer({ open: true, filename: "./dist/stats.html" })]
+      : []),
     createHtmlPlugin({
       minify: true,
       inject: {
@@ -62,6 +75,44 @@ export default defineConfig({
         // `injectManifest`'s config is where they live under this strategy,
         // per vite-plugin-pwa's own docs.
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff,woff2}"],
+        /**
+         * Everything here is deliberately NOT part of the app shell, and
+         * precaching it made a first visit download ~2 MB it does not need.
+         *
+         * The three library chunks are lazy BY DESIGN — `PdfPreview.tsx` and
+         * `docxSanitizer.ts` reach pdfjs, mammoth and DOMPurify only through
+         * `await import()`, and `attachments/docxSanitizer.guard.test.ts`
+         * fails the build if that ever regresses to a static import.
+         * Precaching them silently undid that: the point of the split is that
+         * a visitor who never opens a PDF never pays for pdfjs. Precaching a
+         * document RENDERER is doubly pointless offline, because the document
+         * itself lives in Supabase storage behind a signed URL and needs the
+         * network regardless.
+         *
+         * `mammoth-*` only has a stable name because of the `manualChunks`
+         * rule below — Rollup otherwise names it after mammoth's own entry
+         * file, `index.js`, making it indistinguishable from the app entry
+         * chunk. A naive `index-*.js` pattern here would have excluded the
+         * application itself and broken the PWA.
+         *
+         * `appIcon/**` (35 files, ~400 KB) is fetched by the browser's own
+         * install machinery from `manifest.json`, not by the app — and you
+         * cannot install a PWA while offline. `img/**` is two files, neither
+         * referenced by any runtime code (`adding-users.png` belongs to the
+         * docs site; `empty.svg` is referenced nowhere at all).
+         *
+         * NEVER add `mjs` to `globPatterns`: `pdf.worker.min-*.mjs` is 1.26 MB
+         * and escapes precaching today only because that extension is absent.
+         */
+        globIgnores: [
+          "stats.html",
+          "**/mammoth-*.js",
+          "**/pdf-*.js",
+          "**/purify.es-*.js",
+          "**/pdf.worker*",
+          "appIcon/**",
+          "img/**",
+        ],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MiB
       },
       // Story 7.5's push/notificationclick listeners used to reach the
@@ -136,7 +187,31 @@ export default defineConfig({
     keepNames: true,
   },
   build: {
-    sourcemap: true,
+    /**
+     * Off. ~14 MB of maps were built and uploaded on every deploy and served
+     * to nobody: Vercel returns 403 for any `.map` (verified — a NONEXISTENT
+     * `.map` also 403s while a nonexistent `.js` 200s, so the block is by
+     * extension, not by absence). Nothing consumes them either — no Sentry,
+     * Bugsnag, Rollbar, Datadog or LogRocket anywhere in the repo. A private
+     * app's readable source should not sit one platform-policy change away
+     * from public. Use `ANALYZE=1` for bundle questions instead.
+     */
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        /**
+         * Give mammoth a stable chunk name. Rollup names a chunk after its
+         * entry module, and mammoth's is `lib/index.js`, so the docx renderer
+         * shipped as `assets/index-<hash>.js` — impossible to tell apart from
+         * the app's own entry chunk by filename. That is what makes it
+         * excludable from the precache above without also excluding the app.
+         */
+        manualChunks(id: string) {
+          if (id.includes("node_modules/mammoth")) return "mammoth";
+          return undefined;
+        },
+      },
+    },
   },
   resolve: {
     preserveSymlinks: true,
