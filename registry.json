@@ -384,6 +384,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/ClockIcon.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/sharing/sharedProfileTranslate.ts",
           "type": "registry:component"
         },
@@ -1105,6 +1109,10 @@
         },
         {
           "path": "src/components/atomic-crm/misc/ImageEditorField.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/misc/ImageEditorDialog.tsx",
           "type": "registry:component"
         },
         {

@@ -11,23 +11,7 @@ import type { ShidduchSummary } from "../types";
 import { getAvatarIndex, getMonogram } from "../entity360/avatar";
 import { RecordLink } from "../entity360/RecordLink";
 import { formatRedtDate } from "./boardUtils";
-
-/** Shared with the 360 detail header's meta row — one small clock glyph. */
-export const ClockIcon = () => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className="h-3 w-3 shrink-0"
-    aria-hidden="true"
-  >
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 7v5l3 2" />
-  </svg>
-);
+import { ClockIcon } from "./ClockIcon";
 
 /** The calm recognition glyph on the "Suggested before" catch chip (E3). */
 const SparkleIcon = () => (

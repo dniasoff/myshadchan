@@ -1,20 +1,25 @@
-import { useFieldValue, useTranslate } from "ra-core";
-import { createRef, useCallback, useState } from "react";
-import type { ReactCropperElement } from "react-cropper";
-import { Cropper } from "react-cropper";
-import { useDropzone } from "react-dropzone";
+import { useTranslate } from "ra-core";
+import { lazy, Suspense, useState } from "react";
 import { useFormContext } from "react-hook-form";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 
-import "cropperjs/dist/cropper.css";
+/**
+ * The crop dialog is loaded only once someone opens it. It carries
+ * `react-cropper`/`cropperjs` (~105 KB) and `react-dropzone`, and this field
+ * is rendered by `settings/ProfileSection`, which `root/routeManifest.ts`
+ * registers eagerly — so a static import put a photo cropper on the critical
+ * path of the login screen.
+ *
+ * Mounted only while `open`, rather than always-mounted with `open={false}`:
+ * an unmounted `React.lazy` never fetches its chunk, which is the entire
+ * point. The visible consequence is that a cancelled crop no longer survives
+ * until the next open — the dialog starts from the saved value each time,
+ * which is what "cancel" ought to mean anyway.
+ */
+const LazyImageEditorDialog = lazy(async () => {
+  const { ImageEditorDialog } = await import("./ImageEditorDialog");
+  return { default: ImageEditorDialog };
+});
 
 const AVATAR_SIZE = 50;
 const IMAGE_SIZE = 200;
@@ -97,129 +102,16 @@ const ImageEditorField = (props: ImageEditorFieldProps) => {
           </button>
         )}
       </div>
-      <ImageEditorDialog
-        open={isDialogOpen}
-        onClose={() => setIsDialogOpen(false)}
-        {...props}
-      />
-    </>
-  );
-};
-
-const ImageEditorDialog = (props: ImageEditorDialogProps) => {
-  const translate = useTranslate();
-  const { setValue, handleSubmit } = useFormContext();
-  const cropperRef = createRef<ReactCropperElement>();
-  const initialValue = useFieldValue({ source: props.source });
-  const [file, setFile] = useState<File | undefined>();
-  const [imageSrc, setImageSrc] = useState<string | undefined>(
-    initialValue?.src,
-  );
-  const onDrop = useCallback((files: File[]) => {
-    const preview = URL.createObjectURL(files[0]);
-    setFile(files[0]);
-    setImageSrc(preview);
-  }, []);
-
-  const updateImage = () => {
-    const cropper = cropperRef.current?.cropper;
-    const croppedImage = cropper?.getCroppedCanvas().toDataURL();
-    if (croppedImage) {
-      setImageSrc(croppedImage);
-
-      const newFile = file ?? new File([], initialValue?.src);
-      setValue(
-        props.source,
-        {
-          src: croppedImage,
-          title: newFile.name,
-          rawFile: newFile,
-        },
-        { shouldDirty: true },
-      );
-      props.onClose();
-
-      if (props.onSave) {
-        handleSubmit(props.onSave)();
-      }
-    }
-  };
-
-  const deleteImage = () => {
-    setValue(props.source, null, { shouldDirty: true });
-    if (props.onSave) {
-      handleSubmit(props.onSave)();
-    }
-    setImageSrc(undefined);
-    props.onClose();
-  };
-
-  const { getRootProps, getInputProps } = useDropzone({
-    accept: { "image/jpeg": [".jpeg", ".png"] },
-    onDrop,
-    maxFiles: 1,
-  });
-
-  return (
-    <Dialog open={props.open} onOpenChange={props.onClose}>
-      {props.type === "avatar" && (
-        <style>
-          {`
-                        .cropper-crop-box,
-                        .cropper-view-box {
-                            border-radius: 50%;
-                        }
-                    `}
-        </style>
+      {isDialogOpen && (
+        <Suspense fallback={null}>
+          <LazyImageEditorDialog
+            open
+            onClose={() => setIsDialogOpen(false)}
+            {...props}
+          />
+        </Suspense>
       )}
-      {/* A portrait phone photo makes the cropper taller than the screen,
-       * and a centred `fixed` dialog with no height cap then puts Update and
-       * Delete below the fold with nothing to scroll. Cap the dialog, scroll
-       * it, and cap the cropper itself (`dvh`, never `vh` — browser chrome
-       * makes `vh` wrong on a phone) so the footer is always reachable. */}
-      <DialogContent className="max-h-[85dvh] overflow-y-auto p-4 sm:p-6">
-        <DialogHeader>
-          <DialogTitle>
-            {translate("crm.image_editor.title", {
-              _: "Upload and resize image",
-            })}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="flex flex-col gap-2 justify-center">
-          <div
-            className="flex flex-row justify-center bg-muted cursor-pointer p-4 border-2 border-dashed border-input rounded-lg hover:bg-muted/80 transition-colors"
-            {...getRootProps()}
-          >
-            <input {...getInputProps()} />
-            <p className="text-muted-foreground">
-              {translate("crm.image_editor.drop_hint", {
-                _: "Drop a file to upload, or click to select it.",
-              })}
-            </p>
-          </div>
-
-          {imageSrc && (
-            <Cropper
-              ref={cropperRef}
-              src={imageSrc}
-              aspectRatio={1}
-              guides={false}
-              cropBoxResizable={false}
-              style={{ maxHeight: "45dvh", width: "100%" }}
-            />
-          )}
-        </div>
-
-        <DialogFooter className="flex justify-between w-full">
-          <Button type="button" onClick={updateImage}>
-            {translate("crm.image_editor.update_image")}
-          </Button>
-          <Button type="button" variant="destructive" onClick={deleteImage}>
-            {translate("ra.action.delete")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </>
   );
 };
 
@@ -235,9 +127,4 @@ export interface ImageEditorFieldProps {
   backgroundImageColor?: string;
   className?: string;
   emptyText?: string;
-}
-
-export interface ImageEditorDialogProps extends ImageEditorFieldProps {
-  open: boolean;
-  onClose: () => void;
 }

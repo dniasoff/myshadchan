@@ -31,6 +31,66 @@ import { fileURLToPath } from "node:url";
 export const LAZY_CHUNK_PREFIXES = ["pdf-", "mammoth-", "purify.es-"];
 
 /**
+ * Libraries that must never land in a chunk the browser downloads before the
+ * app is usable, identified by a string only that library emits.
+ *
+ * This is the SECOND check, and it exists because the first one cannot see the
+ * shape that actually shipped: `@hello-pangea/dnd` was inside the eager `CRM`
+ * chunk, not in a lazy chunk somebody statically imported — so "is any lazy
+ * chunk statically imported" was green while 186 KB of Kanban drag-and-drop
+ * loaded on the login screen. The cause was a 28-line SVG (`ClockIcon`)
+ * exported from the board's card module and imported by the eagerly-registered
+ * 360 header; one import specifier, no library mentioned anywhere near it.
+ *
+ * Checking the built bytes is the only thing that catches that class. The
+ * markers are verified against a real build, and each currently appears in
+ * exactly one chunk, which the anti-vacuity check below re-confirms.
+ */
+export const EAGER_FORBIDDEN_LIBRARIES = [
+  { name: "@hello-pangea/dnd", marker: "dragHandleUsageInstructions" },
+  { name: "cropperjs", marker: "cropper-crop-box" },
+];
+
+/**
+ * Every chunk a visitor waits for before they can sign in.
+ *
+ * Two seeds, and the second one is the whole reason this works. The entry
+ * chunk is obvious. The `CRM` chunk is NOT statically imported by it —
+ * `App.tsx` loads it through `React.lazy` — but the login form lives inside
+ * it (`root/CRM.tsx` passes `loginPage={LoginPage}`), so every byte in it is
+ * a byte between a visitor and the sign-in screen. Seeding from the entry
+ * alone made this check report green on both regressions it was written to
+ * catch, because both landed in `CRM`.
+ *
+ * From those seeds, follow STATIC imports only. Vite writes a dynamic
+ * import's target as a bare string inside `__vite__mapDeps`, with no `from`
+ * before it, so the pattern below sees only the static edges — which is
+ * exactly the set that costs first-load bytes.
+ */
+function collectEagerChunks(assets, indexHtml, files) {
+  const entry = /assets\/(index-[A-Za-z0-9_-]+\.js)/.exec(indexHtml)?.[1];
+  if (!entry) return null;
+
+  const seeds = [entry, ...files.filter((file) => file.startsWith("CRM-"))];
+  const eager = new Set();
+  const queue = [...seeds];
+  while (queue.length > 0) {
+    const file = queue.pop();
+    if (eager.has(file)) continue;
+    const full = path.join(assets, file);
+    if (!fs.existsSync(full)) continue;
+    eager.add(file);
+    const source = fs.readFileSync(full, "utf8");
+    for (const match of source.matchAll(
+      /(?:from|import)\s*["']\.\/([A-Za-z0-9_.-]+\.js)["']/g,
+    )) {
+      queue.push(match[1]);
+    }
+  }
+  return eager;
+}
+
+/**
  * Checks a build's `assets/` directory. Returns a list of failure strings —
  * empty means every lazy chunk is still reachable by dynamic import alone.
  */
@@ -83,6 +143,58 @@ export function verifyLazyChunks(distDir) {
     }
   }
 
+  // --- the eager-bytes check ------------------------------------------------
+  const indexPath = path.join(distDir, "index.html");
+  if (!fs.existsSync(indexPath)) {
+    failures.push(
+      `no index.html at ${indexPath}; cannot resolve the entry chunk`,
+    );
+    return failures;
+  }
+  const eager = collectEagerChunks(
+    assets,
+    fs.readFileSync(indexPath, "utf8"),
+    files,
+  );
+  // A single-chunk result means the CRM seed did not resolve, which is how
+  // this check silently stopped covering the login path once already.
+  if (!eager || eager.size < 2) {
+    failures.push(
+      "could not resolve the entry chunk from index.html, so the eager-bytes " +
+        "check verified nothing",
+    );
+    return failures;
+  }
+
+  for (const { name, marker } of EAGER_FORBIDDEN_LIBRARIES) {
+    const carriers = files.filter((file) =>
+      fs.readFileSync(path.join(assets, file), "utf8").includes(marker),
+    );
+    // Anti-vacuity: a marker that matches nothing (library removed, or the
+    // string minified away) would let this pass while checking nothing.
+    if (carriers.length === 0) {
+      failures.push(
+        `${name}: marker "${marker}" appears in no chunk, so its eager-bytes ` +
+          `check verified nothing. Either the library is gone (drop the entry) ` +
+          `or the marker needs re-deriving from a real build.`,
+      );
+      continue;
+    }
+    const inEager = carriers.filter((file) => eager.has(file));
+    if (inEager.length > 0) {
+      const kb = (file) =>
+        Math.round(fs.statSync(path.join(assets, file)).size / 1024);
+      failures.push(
+        `${name} is in ${inEager
+          .map((file) => `${file} (${kb(file)} KB)`)
+          .join(", ")}, which the browser fetches before the app is usable. ` +
+          `Something on the eager path imports it — often a small helper ` +
+          `exported from a module that also imports the library. Move the ` +
+          `helper to its own file, or put the consumer behind React.lazy.`,
+      );
+    }
+  }
+
   return failures;
 }
 
@@ -101,7 +213,9 @@ function main() {
   }
 
   console.log(
-    `verify-lazy-chunks: ${LAZY_CHUNK_PREFIXES.length} lazy chunk(s) reachable by dynamic import only.`,
+    `verify-lazy-chunks: ${LAZY_CHUNK_PREFIXES.length} lazy chunk(s) reachable by ` +
+      `dynamic import only; ${EAGER_FORBIDDEN_LIBRARIES.length} librar(ies) absent ` +
+      `from the eager path.`,
   );
 }
 

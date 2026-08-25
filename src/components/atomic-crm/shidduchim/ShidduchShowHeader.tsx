@@ -3,7 +3,7 @@ import { format } from "date-fns";
 import { EntityAvatar } from "../entity360/EntityAvatar";
 import { StateChip } from "../misc/StateChip";
 import type { ShidduchSummary } from "../types";
-import { ClockIcon } from "./ShidduchCard";
+import { ClockIcon } from "./ClockIcon";
 import { formatRedtDate } from "./boardUtils";
 
 /** Format an ISO timestamp (e.g. first_suggested_at) as "9 Jul 2026". */
